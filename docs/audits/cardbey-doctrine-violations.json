@@ -1,0 +1,271 @@
+{
+  "generatedAt": "2026-02-20T00:00:00Z",
+  "repo": {
+    "name": "cardbey",
+    "commit": "unknown"
+  },
+  "doctrineChecklist": [
+    {
+      "rule": "AI ↔ Infra first (clean capability core)",
+      "status": "fail",
+      "notes": "MI routes and job runner touch DB directly; no capability wrappers",
+      "evidence": ["miRoutes.js prisma.*", "orchestraBuildStore.js prisma.*"]
+    },
+    {
+      "rule": "State-machine centric",
+      "status": "fail",
+      "notes": "Status mutations scattered across draftStoreService, orchestraBuildStore, miRoutes",
+      "evidence": ["draftStoreService.js L369,387-400,1049", "orchestraBuildStore.js L27-198", "miRoutes.js L776-1841"]
+    },
+    {
+      "rule": "MI/orchestrator must NEVER bypass kernel",
+      "status": "fail",
+      "notes": "miRoutes and orchestraBuildStore use prisma.* directly",
+      "evidence": ["miRoutes.js L436-1841", "orchestraBuildStore.js L27-254"]
+    },
+    {
+      "rule": "One capability = one deterministic action",
+      "status": "partial",
+      "notes": "Some services focused; orchestration mixes concerns",
+      "evidence": ["draftStoreService.js", "orchestraBuildStore.js"]
+    },
+    {
+      "rule": "Risk-tiered automation (green/yellow/red)",
+      "status": "fail",
+      "notes": "No risk metadata on actions",
+      "evidence": ["No matches for risk, green, yellow, red, approval"]
+    },
+    {
+      "rule": "Dual-mode UX (Operator/Observer) supported by events",
+      "status": "fail",
+      "notes": "No event/audit trail for transitions",
+      "evidence": ["No audit, transition, history, logEvent in production"]
+    },
+    {
+      "rule": "Flexible manual overrides allowed (but must be logged)",
+      "status": "fail",
+      "notes": "No logging of manual overrides",
+      "evidence": ["No audit trail implementation"]
+    },
+    {
+      "rule": "Integrations via event outbox/webhooks",
+      "status": "fail",
+      "notes": "Schema supports IdempotencyKey/WEBHOOK; no runtime webhook delivery/signing; idempotency not enforced on create/publish",
+      "evidence": ["Schema supports it; implementation missing/unused"]
+    }
+  ],
+  "violations": [
+    {
+      "id": "V1",
+      "title": "No centralized state machine / status mutation scattered",
+      "severity": "critical",
+      "items": [
+        {
+          "file": "apps/core/cardbey-core/src/services/draftStore/draftStoreService.js",
+          "symbol": "status writes in commit/generate",
+          "lines": "L369,L387-400,L1049,L1184,L1232,L1272,L1310",
+          "snippet": "status: 'ready', status: 'generating', status: 'failed'",
+          "doctrineRules": ["state-machine centric"],
+          "notes": "Direct status writes in commit/generate flows"
+        },
+        {
+          "file": "apps/core/cardbey-core/src/services/draftStore/orchestraBuildStore.js",
+          "symbol": "OrchestratorTask status",
+          "lines": "L27-37,L53-56,L72-79,L84-93,L171-177,L192-198",
+          "snippet": "status: 'running', status: 'completed', status: 'failed'",
+          "doctrineRules": ["state-machine centric"],
+          "notes": "OrchestratorTask status updates"
+        },
+        {
+          "file": "apps/core/cardbey-core/src/routes/miRoutes.js",
+          "symbol": "prisma.orchestratorTask.update",
+          "lines": "L776,L792,L995,L1131,L1157,L1241-L1588,L1672-L1841",
+          "snippet": "prisma.orchestratorTask.update with status",
+          "doctrineRules": ["state-machine centric"],
+          "notes": "Many direct task status updates"
+        }
+      ]
+    },
+    {
+      "id": "V2",
+      "title": "MI/orchestra bypasses infra (direct DB writes)",
+      "severity": "critical",
+      "items": [
+        {
+          "file": "apps/core/cardbey-core/src/routes/miRoutes.js",
+          "symbol": "handleOrchestraStart, job handlers",
+          "lines": "L436,L456,L486,L529,L776,L792,L963,L995,L1124-L1841",
+          "snippet": "prisma.orchestratorTask, prisma.draftStore, prisma.content, prisma.user",
+          "doctrineRules": ["MI must never bypass kernel"],
+          "notes": "Route handlers use Prisma directly"
+        },
+        {
+          "file": "apps/core/cardbey-core/src/services/draftStore/orchestraBuildStore.js",
+          "symbol": "runBuildStoreJob",
+          "lines": "L27-179,L191-254",
+          "snippet": "prisma.orchestratorTask.update, prisma.draftStore.findUnique/create",
+          "doctrineRules": ["MI must never bypass kernel"],
+          "notes": "Job runner touches DB directly"
+        }
+      ]
+    },
+    {
+      "id": "V3",
+      "title": "Compound side-effect capabilities / duplicated readiness",
+      "severity": "high",
+      "items": [
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/features/storeDraft/StoreDraftReview.tsx",
+          "symbol": "visualsStatusForPublish, draftReadyForPublish, canPublish",
+          "lines": "L2031-L2281,L4191",
+          "snippet": "computeProductReadiness, visualsStatusForPublish, draftReadyForPublish, canPublish",
+          "doctrineRules": ["one capability one action", "UI vs backend split"],
+          "notes": "UI-only readiness logic"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/lib/profileVisuals.ts",
+          "symbol": "getVisualsStatus",
+          "lines": "L51-L80",
+          "snippet": "getVisualsStatus, isCompleteForPublish",
+          "doctrineRules": ["one capability one action"],
+          "notes": "Visuals completion in frontend only"
+        }
+      ]
+    },
+    {
+      "id": "V4",
+      "title": "No risk-tier metadata per action",
+      "severity": "medium",
+      "items": [
+        {
+          "file": "(codebase-wide)",
+          "symbol": "risk, green, yellow, red, approval",
+          "lines": "N/A",
+          "snippet": "No matches",
+          "doctrineRules": ["risk-tiered automation"],
+          "notes": "No risk metadata anywhere"
+        }
+      ]
+    },
+    {
+      "id": "V5",
+      "title": "Auth gating fragmented / UI-driven",
+      "severity": "high",
+      "items": [
+        {
+          "file": "apps/core/cardbey-core/src/middleware/auth.js",
+          "symbol": "requireAuth, optionalAuth",
+          "lines": "L42-176,L187-209",
+          "snippet": "requireAuth, optionalAuth",
+          "doctrineRules": ["auth consolidation"],
+          "notes": "Backend middleware"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/features/auth/useGatekeeper.ts",
+          "symbol": "requireAuth, requireAccount",
+          "lines": "L43-L171",
+          "snippet": "isGuestSession, isRealAuthed, requireAuth, requireAccount",
+          "doctrineRules": ["auth consolidation"],
+          "notes": "Frontend auth gating"
+        }
+      ]
+    },
+    {
+      "id": "V6",
+      "title": "No transition event log / audit trail",
+      "severity": "high",
+      "items": [
+        {
+          "file": "(codebase-wide)",
+          "symbol": "audit, event, transition, history, logEvent",
+          "lines": "N/A",
+          "snippet": "No general-purpose audit in production",
+          "doctrineRules": ["dual-mode UX", "manual overrides logged"],
+          "notes": "qr.js has scanEvent; deviceEngine has device log; no draft/publish audit"
+        }
+      ]
+    },
+    {
+      "id": "V7",
+      "title": "Job runner not idempotent / partial states / no retries",
+      "severity": "high",
+      "items": [
+        {
+          "file": "apps/core/cardbey-core/src/services/draftStore/orchestraBuildStore.js",
+          "symbol": "runBuildStoreJob",
+          "lines": "L53-93,L171-198",
+          "snippet": "status updates without retry or idempotency key",
+          "doctrineRules": ["one capability one action"],
+          "notes": "Partial state on failure; no retry"
+        }
+      ]
+    },
+    {
+      "id": "V8",
+      "title": "Read surfaces brittle (public feed 500 risk)",
+      "severity": "medium",
+      "items": [
+        {
+          "file": "apps/core/cardbey-core/src/routes/publicUsers.js",
+          "symbol": "GET /stores/feed",
+          "lines": "L94-L189",
+          "snippet": "FEED_CATEGORY_TYPES inline, direct Prisma",
+          "doctrineRules": ["reliability"],
+          "notes": "No rate limiting or caching contract"
+        }
+      ]
+    },
+    {
+      "id": "V9",
+      "title": "UI owns business logic (progress stepper, publish eligibility)",
+      "severity": "critical",
+      "items": [
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/features/storeDraft/StoreDraftReview.tsx",
+          "symbol": "canPublish, handlePublish",
+          "lines": "L2281,L5916-L5935",
+          "snippet": "canPublish = draftReadyForPublish && gatekeeper.isRealAuthed",
+          "doctrineRules": ["UI vs backend split"],
+          "notes": "Backend does not enforce publish-readiness"
+        }
+      ]
+    },
+    {
+      "id": "V10",
+      "title": "No outbox/webhook boundary",
+      "severity": "medium",
+      "items": [
+        {
+          "file": "(codebase-wide)",
+          "symbol": "webhook, outbox, HMAC, signature",
+          "lines": "N/A",
+          "snippet": "No matches in integration layer",
+          "doctrineRules": ["integrations via outbox/webhooks"],
+          "notes": "IdempotencyKey in schema/OpenAPI but not enforced"
+        }
+      ]
+    }
+  ],
+  "hotspots": [
+    { "severity": "critical", "file": "apps/core/cardbey-core/src/routes/miRoutes.js", "symbol": "handleOrchestraStart, job handlers", "violations": ["V1", "V2"], "notes": "40+ prisma writes" },
+    { "severity": "critical", "file": "apps/core/cardbey-core/src/services/draftStore/orchestraBuildStore.js", "symbol": "runBuildStoreJob", "violations": ["V1", "V2"], "notes": "Job runner touches DB" },
+    { "severity": "critical", "file": "apps/dashboard/cardbey-marketing-dashboard/src/features/storeDraft/StoreDraftReview.tsx", "symbol": "canPublish, handlePublish, visualsStatusForPublish", "violations": ["V1", "V3", "V7", "V9"], "notes": "UI owns publish logic" },
+    { "severity": "critical", "file": "apps/core/cardbey-core/src/services/draftStore/draftStoreService.js", "symbol": "commitDraft, generateDraft", "violations": ["V1", "V2"], "notes": "Direct status/DB writes" },
+    { "severity": "high", "file": "apps/core/cardbey-core/src/routes/draftStore.js", "symbol": "commit, patch, generate", "violations": ["V1", "V5"], "notes": "Route-level DB writes" },
+    { "severity": "high", "file": "apps/dashboard/cardbey-marketing-dashboard/src/pages/public/StorePreviewPage.tsx", "symbol": "status, draft/preview, commit", "violations": ["V1", "V5"], "notes": "UI status + auth" },
+    { "severity": "high", "file": "apps/core/cardbey-core/src/services/menuVisualAgent/imageGenerationJob.ts", "symbol": "processImageGenerationJobs", "violations": ["V2"], "notes": "Worker DB access" },
+    { "severity": "high", "file": "apps/core/cardbey-core/src/services/menuVisualAgent/menuVisualAgent.ts", "symbol": "generateImagesForMenu", "violations": ["V2"], "notes": "Product updates" },
+    { "severity": "high", "file": "apps/dashboard/cardbey-marketing-dashboard/src/lib/profileVisuals.ts", "symbol": "getVisualsStatus", "violations": ["V3", "V7"], "notes": "Readiness logic" },
+    { "severity": "high", "file": "apps/core/cardbey-core/src/middleware/auth.js", "symbol": "requireAuth, optionalAuth", "violations": ["V5"], "notes": "Auth fragmentation" },
+    { "severity": "high", "file": "apps/dashboard/cardbey-marketing-dashboard/src/features/auth/useGatekeeper.ts", "symbol": "requireAuth, requireAccount", "violations": ["V5"], "notes": "Frontend auth" },
+    { "severity": "medium", "file": "apps/core/cardbey-core/src/routes/publicUsers.js", "symbol": "GET /stores/feed", "violations": ["V8"], "notes": "Brittle read surface" },
+    { "severity": "medium", "file": "apps/dashboard/cardbey-marketing-dashboard/src/hooks/usePublicStoreFeed.ts", "symbol": "usePublicStoreFeed", "violations": ["V8"], "notes": "Feed client" },
+    { "severity": "medium", "file": "apps/core/cardbey-core/src/routes/qr.js", "symbol": "create, resolve", "violations": ["V5", "V6"], "notes": "QR + scanEvent" },
+    { "severity": "medium", "file": "apps/dashboard/cardbey-marketing-dashboard/src/lib/quickStart.ts", "symbol": "quickStartCreateJob", "violations": ["V2", "V10"], "notes": "Orchestra entry" },
+    { "severity": "medium", "file": "apps/core/cardbey-core/src/worker.js", "symbol": "startWorker", "violations": ["V2"], "notes": "Worker entry" },
+    { "severity": "medium", "file": "apps/core/cardbey-core/src/routes/menuRoutes.js", "symbol": "sync, images/suggest", "violations": ["V5"], "notes": "Menu DB writes" },
+    { "severity": "medium", "file": "apps/core/cardbey-core/src/services/billing/creditsService.js", "symbol": "deduct, grant", "violations": ["V2"], "notes": "Credits DB direct writes" },
+    { "severity": "low", "file": "apps/dashboard/cardbey-marketing-dashboard/src/features/storeDraft/review/ProductReviewCard.tsx", "symbol": "missing checks", "violations": ["V3"], "notes": "Product completeness" },
+    { "severity": "low", "file": "apps/core/cardbey-core/src/routes/miToolsRoutes.js", "symbol": "authGate Gate1", "violations": ["V5"], "notes": "MI tools auth" }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "cardbey-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "pnpm": {
+    "overrides": {
+      "react": "19.2.3",
+      "react-dom": "19.2.3"
+    }
+  },
+  "scripts": {
+    "dev:core": "yarn workspace @cardbey/core dev",
+    "dev:dashboard": "yarn workspace @cardbey/dashboard dev",
+    "build:core": "yarn workspace @cardbey/core build",
+    "build:dashboard": "yarn workspace @cardbey/dashboard build",
+    "build:api-client": "yarn workspace @cardbey/api-client build"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0"
+  },
+  "dependencies": {
+    "@emotion/is-prop-valid": "^1.4.0",
+    "@prisma/client": "^6.18.0",
+    "prisma": "^6.18.0"
+  }
+}
