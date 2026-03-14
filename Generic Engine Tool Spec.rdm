@@ -1,0 +1,373 @@
+1. Conceptual layers (common for every engine)
+
+For every domain (loyalty, menu, signage, promo) we define:
+
+Engine
+
+Owns DB models + business rules.
+
+Capabilities
+
+Small atomic actions, like create_program, add_stamp, generate_assets.
+
+Tools
+
+The callable surface for agents (typed input/output).
+
+Events
+
+What the engine emits when something happens (LOYALTY_REDEEMED, MENU_UPDATED, etc).
+
+UI Surfaces
+
+Where humans can see/control the results (dashboard tiles, modals, mobile view).
+
+Agent Flows
+
+Named flows like loyalty_from_card, menu_from_photo, signage_from_idea.
+
+The spec format below encodes all of this.
+
+2. Generic Engine Tool Spec – Markdown Template
+
+You can literally reuse this block and fill in:
+
+# [ENGINE_NAME] Engine Spec
+
+## 1. Identity
+
+- **engineId**: `[ENGINE_ID]`           <!-- e.g. "loyalty", "menu", "signage", "promo" -->
+- **version**: `v1`
+- **description**: `[Short human description]`
+
+---
+
+## 2. Domain Model (Entities)
+
+List the core entities, not full schema details.
+
+- **Entities**
+  - `[EntityName]` – `[what it represents]`
+  - `[EntityName]` – `[what it represents]`
+
+- **Primary keys / identifiers**
+  - `tenantId` / `storeId`
+  - Entity IDs
+  - External IDs (if any, e.g. deviceId, customerId)
+
+---
+
+## 3. Capabilities
+
+[A short list of what this engine can *logically* do.]
+
+- `configure` – create/update configuration for this engine
+- `generate_assets` – create visual or data assets
+- `query_state` – fetch current state
+- `apply_action` – mutate state (e.g. add stamp, redeem reward)
+- `sync_external` – optional, integrate with 3rd parties
+
+---
+
+## 4. Tool Definitions
+
+Each **capability** is exposed as one or more tools.
+
+For each tool:
+
+### 4.x `[toolName]`
+
+- **engineId**: `[ENGINE_ID]`
+- **toolName**: `[string id, kebab_case]` (e.g. `loyalty.configure-program`)
+- **purpose**: `[1–2 lines]`
+- **idempotent**: `true | false`
+- **sideEffects**: `["db-write" | "external-call" | "pure"]`
+
+**Input schema (JSON-like)**
+
+```json
+{
+  "type": "object",
+  "required": [...],
+  "properties": {
+    "tenantId": { "type": "string" },
+    "storeId":  { "type": "string" },
+    "context":  { "type": "object", "description": "agent/user context (locale, timezone, etc)" },
+    "...":      {}
+  }
+}
+
+
+Output schema
+
+{
+  "type": "object",
+  "required": ["ok"],
+  "properties": {
+    "ok":   { "type": "boolean" },
+    "data": { "type": "object" },
+    "error": {
+      "type": "object",
+      "nullable": true,
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}
+
+
+Examples
+
+// Example input
+{ ... }
+
+// Example output
+{ ... }
+
+
+UI hints (optional)
+
+preferredSurface: "sidebar" | "modal" | "full-page" | "background"
+
+showPreview: true | false
+
+previewComponentId: [frontend component id, if any]
+
+5. Events
+
+List all events the engine can emit to the Orchestrator / UI.
+
+Event name: [ENGINE_ID].[something_happened]
+
+Payload shape:
+
+{
+  "type": "[ENGINE_ID].[event]",
+  "tenantId": "…",
+  "storeId": "…",
+  "entityId": "…",
+  "data": { "...": "..." }
+}
+
+
+Examples:
+
+loyalty.stamp_added
+
+menu.item_created
+
+signage.campaign_published
+
+promo.redeemed
+
+6. UI Surfaces
+
+Where should this engine show up in the product?
+
+Dashboard tiles
+
+[tileId] – [what it shows]
+
+Detail pages
+
+Route: /[ENGINE_ID] – [main console]
+
+Contextual panels
+
+Appears in: [store overview, device view, customer view]
+
+Each tile or panel can subscribe to specific engine events.
+
+7. Agent Flows (Entry Points)
+
+Named flows that the Orchestrator will recognise.
+
+For each flow:
+
+7.x [entryPointId]
+
+entryPoint: [ENGINE_ID]_from_[source]
+
+Example: loyalty_from_card, menu_from_photo, signage_from_idea
+
+Input channels:
+
+manual_text, image_upload, file, existing_config
+
+Typical tool sequence (pseudocode):
+
+1. Agent parses user intent & constraints.
+2. Agent calls [toolName1] to create/update config.
+3. Agent calls [toolName2] to generate assets.
+4. Agent calls [toolName3] to attach config/assets to store, screens, or customers.
+5. Agent summarizes outcome and shows preview components.
+
+
+Guardrails / limits:
+
+e.g. “Max 5 active programs per store in v1”
+
+“No external API calls in this flow yet”
+
+
+---
+
+## 3. TypeScript interface for tools (implementation side)
+
+You can give Cursor this as a base type for ANY engine tool:
+
+```ts
+// Shared engine/tool typing across loyalty, menu, signage, promo
+export type EngineId = "loyalty" | "menu" | "signage" | "promo";
+
+export interface EngineToolMeta {
+  engineId: EngineId;
+  toolName: string;              // e.g. "loyalty.configure-program"
+  description: string;
+  idempotent: boolean;
+  sideEffects: Array<"db-write" | "external-call" | "pure">;
+}
+
+export interface EngineTool<I, O> extends EngineToolMeta {
+  // zod / JSON schema references for runtime validation
+  inputSchema: unknown;
+  outputSchema: unknown;
+  // Actual executor
+  handler: (input: I, ctx: ToolRuntimeContext) => Promise<O>;
+}
+
+export interface ToolRuntimeContext {
+  tenantId: string;
+  storeId?: string;
+  userId?: string;
+  locale?: string;
+  timezone?: string;
+  // access to shared services (db, queues, http clients, etc.)
+  services: {
+    db: unknown;
+    logger: unknown;
+    http: unknown;
+    // ... etc
+  };
+}
+
+
+Each engine then exports a registry:
+
+export const loyaltyTools: EngineTool<any, any>[] = [
+  configureProgramTool,
+  generateLoyaltyAssetsTool,
+  addStampTool,
+  redeemRewardTool,
+];
+
+
+The Orchestrator only needs to know:
+
+engineId
+
+toolName
+
+input/output schema
+
+to let agents call them safely.
+
+4. Tiny example: Loyalty engine in this format
+
+Just to make it concrete, here’s one tool filled in using the spec.
+
+4.1 loyalty.configure-program
+
+engineId: loyalty
+
+toolName: loyalty.configure-program
+
+purpose: Create or update a loyalty program for a store.
+
+idempotent: true (same input → same state)
+
+sideEffects: ["db-write"]
+
+Input schema (simplified)
+
+{
+  "type": "object",
+  "required": ["tenantId", "storeId", "stampsRequired", "reward"],
+  "properties": {
+    "tenantId": { "type": "string" },
+    "storeId": { "type": "string" },
+    "programId": { "type": "string", "nullable": true },
+    "name": { "type": "string" },
+    "stampsRequired": { "type": "integer", "minimum": 1 },
+    "reward": { "type": "string" },
+    "expiresAt": { "type": "string", "format": "date-time", "nullable": true }
+  }
+}
+
+
+Output schema
+
+{
+  "type": "object",
+  "required": ["ok", "data"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "data": {
+      "type": "object",
+      "properties": {
+        "programId": { "type": "string" }
+      }
+    },
+    "error": { "type": "object", "nullable": true }
+  }
+}
+
+
+Event: loyalty.program_configured with payload containing programId, storeId, etc.
+
+5. How to use this now
+
+Short path:
+
+Save this Engine Tool Spec template into your repo (e.g. /docs/engines/ENGINE_SPEC.md).
+
+For each domain (loyalty, menu, signage, promo):
+
+Duplicate the template
+
+Fill in sections 1–7.
+
+Use the TypeScript EngineTool interface to implement the tools.
+
+When you’re ready, I can help fill one full spec (e.g. Loyalty or Menu) using this format so you have a perfect first reference for your team + Cursor.
+
+
+
+
+
+
+
+Frontend (Dashboard/UI)
+   ↓
+API Gateway
+   ↓
+Orchestrator Layer
+   ↓
+AI Abstraction Layer
+   - VisionEngine
+   - ContentEngine
+   - TextEngine
+   - VideoEngine
+   ↓
+Business Logic Layer
+   - Menu Builder
+   - Loyalty Builder
+   - Store Creator
+   - Signage Builder
+   - Device Controller
+   ↓
+Database (Unified Schema + Versioning)
+   ↓
+Device Agents (TV/Tablet/C-Net)

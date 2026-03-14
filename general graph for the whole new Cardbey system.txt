@@ -1,0 +1,21 @@
+Single Runway
+
+Mission Console as intent interface
+
+Mission Execution as control tower
+
+Orchestrator as central brain
+
+Specialist agents
+
+Capability / Connector layer
+
+Artifact surfaces
+
+Intent Capture layer
+
+Signals → Opportunities → new intents loop                                                       
+
+Core Rule of the Whole System
+
+UI submits intents → Orchestrator plans → Agents use capabilities → Artifacts display → Signals create opportunities → New intents loop back into Mission Execution.

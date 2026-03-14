@@ -1,0 +1,15 @@
+{
+  "_comment": "Expected shape of GET /api/stores/temp/draft?generationRunId=... (save your actual response as draft_before.json and compare). Dashboard uses apiGET('/stores/:id/draft?...') so URL is relative to API base.",
+  "ok": true,
+  "storeId": "temp",
+  "generationRunId": "gen-...",
+  "status": "ready",
+  "draftId": "cml...",
+  "draft": {
+    "id": "cml...",
+    "preview": "{\"hero\":{\"imageUrl\":\"...\",\"url\":\"...\"},\"avatar\":{\"imageUrl\":\"...\"},\"brand\":{\"logoUrl\":\"...\"},\"storeName\":\"...\",\"items\":[],\"categories\":[]}"
+  },
+  "store": { "id": "temp", "name": "Store Name", "type": "General" },
+  "products": [],
+  "categories": []
+}

@@ -1,0 +1,46 @@
+---
+description: LOCKED RULE – Assess risk before ANY code change; stop and warn if risk. Minimal safe patch only. Applies to entire project.
+alwaysApply: true
+---
+
+# Development Safety Rule (LOCKED) – Entire Project
+
+**This rule applies to every function, code change, and new integration across the whole project.**
+
+## Scope: All development
+
+- **Every** refactor, integration, or behavior change (store creation, promotion, auth, API, UI, draft, publish, signage, campaigns, menu, etc.)
+- **Every** new feature or modification to existing code
+- **Every** file: backend, frontend, shared libs, scripts
+
+## LOCKED RULE (MUST FOLLOW)
+
+**Before you write or run ANY code changes:**
+
+1. **Assess** whether the proposed change (refactor, integration, or code generation) could change a process or break any existing functionality, workflow, or integration (any part of the system).
+2. **If there is ANY risk of process change or potential damage:**  
+   **STOP.** Do not apply changes yet. **Generate a report** and **warn** the user to prevent unexpected outcome. The report must include:
+   - **(1) What could break** (e.g. “Login could fail for temp users”, “Promo save could overwrite draft”, “API response shape changed”).
+   - **(2) Why** (e.g. “New middleware runs before optionalAuth”, “Shared type was narrowed”, “Endpoint now returns different keys”).
+   - **(3) Impact scope** (which areas/features/workflows are affected).
+   - **(4) The smallest safe patch** (concrete, minimal change that achieves the goal without touching unrelated paths).
+   - Save or present this report (e.g. in `docs/` as an impact report, or in the conversation) so the outcome is traceable.
+3. **Only proceed** after the report has been generated, the minimal safe approach has been proposed, and the user has acknowledged (or you are explicitly told to proceed).
+
+## Minimal safe approach (always prefer)
+
+- **Local, minimal patches** over large refactors.
+- **Single source of truth** per concept; avoid duplicating logic.
+- **Do not change** unrelated areas (auth, routing, API contracts, other features) unless the task explicitly requires it.
+- When in doubt: **add a guard or log first**, then implement the fix.
+
+## Report requirement
+
+**If** the change is a refactor, integration, or code generation that could **change a process** or **break something with potential damage**:  
+**A report must be generated** before applying changes. The report prevents unexpected outcome and must include: what could break, why, impact scope, and smallest safe patch. Prefer writing it to `docs/` (e.g. `docs/IMPACT_REPORT_<short-name>.md`) or presenting it clearly in the conversation.
+
+## Quick checklist before ANY code change
+
+- [ ] Could this change break any existing behavior, workflow, or integration?
+- [ ] If yes: have I **generated a report** with (1) what could break, (2) why, (3) impact scope, (4) smallest safe patch?
+- [ ] Am I reusing existing helpers/contracts instead of introducing duplicates or breaking changes?

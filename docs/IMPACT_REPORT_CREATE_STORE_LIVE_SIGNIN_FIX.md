@@ -35,5 +35,8 @@
 
 - **Logged-out user:** Homepage → "Create your store" → lands on **Mission Console (`/app`)** without redirect to login (RequireAuthOrGuest creates guest session or allows through).
 - From Mission Console, create-store flow → navigate to `/app/store/temp/review?jobId=...` → page loads without sign-in.
-- **If live still redirects to sign-in:** Ensure guest session is enabled and `POST /api/auth/guest` succeeds (e.g. GUEST_DISABLED or CORS/API errors will cause RequireAuthOrGuest to redirect).
+- **If live still redirects to sign-in:**
+  1. **Cache:** Hard refresh (Ctrl+Shift+R) or try in a new incognito window so the latest bundle (with RequireAuth/RequireAuthOrGuest console-entry logic) is loaded.
+  2. **Path normalization:** Both guards now normalize `path` (strip trailing slash) so `/app` and `/app/` are treated the same as console entry.
+  3. **Guest API:** Ensure guest session is enabled and `POST /api/auth/guest` succeeds (e.g. GUEST_DISABLED or CORS/API errors can cause redirect only when *not* on console entry; on `/app` we never redirect even if guest fails).
 - Real store review and publish flows still require auth; no change to existing guards.

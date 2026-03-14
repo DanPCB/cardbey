@@ -1,0 +1,114 @@
+name: Contract Tests (Gold Flows)
+
+on:
+  pull_request:
+    paths:
+      - 'apps/core/cardbey-core/src/**'
+      - 'apps/core/cardbey-core/tests/**'
+      - 'apps/core/cardbey-core/package.json'
+      - 'apps/core/cardbey-core/prisma/**'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'apps/core/cardbey-core/src/**'
+      - 'apps/core/cardbey-core/tests/**'
+      - 'apps/core/cardbey-core/package.json'
+      - 'apps/core/cardbey-core/prisma/**'
+
+jobs:
+  contract-tests:
+    name: Run Contract Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cardbey_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/core/cardbey-core/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: apps/core/cardbey-core
+        run: npm ci
+
+      - name: Check Postgres schema vs migrations (no drift)
+        working-directory: apps/core/cardbey-core
+        run: npx prisma migrate diff --from-migrations prisma/postgres/migrations --to-schema-datamodel prisma/postgres/schema.prisma --exit-code
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+      
+      - name: Generate Prisma Client
+        working-directory: apps/core/cardbey-core
+        run: npx prisma generate --schema prisma/postgres/schema.prisma
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+      
+      - name: Run database migrations
+        working-directory: apps/core/cardbey-core
+        run: npx prisma migrate deploy --schema prisma/postgres/schema.prisma
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+      
+      - name: Start API server (background)
+        working-directory: apps/core/cardbey-core
+        run: |
+          npm run start:api &
+          sleep 10
+          # Wait for server to be ready
+          timeout 30 bash -c 'until curl -f http://localhost:3001/api/health; do sleep 1; done' || exit 1
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+          NODE_ENV: test
+          PORT: 3001
+          API_BASE_URL: http://localhost:3001
+      
+      - name: Run Fast Gold Flow Tests (Required)
+        working-directory: apps/core/cardbey-core
+        run: npm run test:gold:fast
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+          API_BASE_URL: http://localhost:3001
+          TEST_TENANT_ID: test-tenant-contract-test
+          TEST_STORE_ID: test-store-contract-test
+        continue-on-error: false
+      
+      - name: Run All Gold Flow Tests (Nightly)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        working-directory: apps/core/cardbey-core
+        run: npm run test:gold
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+          API_BASE_URL: http://localhost:3001
+          TEST_TENANT_ID: test-tenant-contract-test
+          TEST_STORE_ID: test-store-contract-test
+        continue-on-error: false
+      
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: apps/core/cardbey-core/test-results/
+          if-no-files-found: ignore
+

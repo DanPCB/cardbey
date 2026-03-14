@@ -1,0 +1,59 @@
+#!/bin/sh
+# Pre-commit hook to check for workflow integrity violations
+# 
+# To enable:
+# 1. Copy this file to .husky/pre-commit
+# 2. Make it executable: chmod +x .husky/pre-commit
+# 3. Install husky: pnpm add -D husky
+
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🔍 Checking for workflow integrity violations..."
+
+# Check for red flag patterns
+RED_FLAGS=(
+  "skipStep"
+  "skipPreview"
+  "skipReview"
+  "skipConfirmation"
+  "autoSubmit"
+  "autoAdvance"
+  "navigate.*onboarding.*draftStoreId[^&]*$"  # draftStoreId without storeId
+)
+
+VIOLATIONS=0
+
+for pattern in "${RED_FLAGS[@]}"; do
+  if git diff --cached | grep -E "$pattern" | grep -v "^\+.*\/\/.*$pattern" | grep -v "^\+.*\/\*.*$pattern"; then
+    echo "❌ ERROR: Potential workflow violation detected: $pattern"
+    echo "   See DEVELOPMENT_PRINCIPLES.md for guidelines"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+if [ $VIOLATIONS -gt 0 ]; then
+  echo ""
+  echo "⚠️  Found $VIOLATIONS potential workflow violation(s)"
+  echo "📖 Please review DEVELOPMENT_PRINCIPLES.md"
+  echo "💡 If this is intentional, add a comment explaining why"
+  exit 1
+fi
+
+echo "✅ No workflow violations detected"
+exit 0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

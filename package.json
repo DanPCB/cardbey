@@ -12,11 +12,13 @@
     }
   },
   "scripts": {
+     "check:runway": "node scripts/check-single-runway.js",
     "dev:core": "yarn workspace @cardbey/core dev",
     "dev:dashboard": "yarn workspace @cardbey/dashboard dev",
     "build:core": "yarn workspace @cardbey/core build",
     "build:dashboard": "yarn workspace @cardbey/dashboard build",
-    "build:api-client": "yarn workspace @cardbey/api-client build"
+    "build:api-client": "yarn workspace @cardbey/api-client build",
+    "e2e:french-baguette": "node scripts/e2e-french-baguette.js"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.52.0",

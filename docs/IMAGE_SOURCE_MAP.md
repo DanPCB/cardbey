@@ -116,11 +116,25 @@ Precise trace: data fields → API responses → UI mapping → rendered `<img s
 
 ---
 
+## 5b. Image source priority: internal first, then Pexels, AI fallback only
+
+**Policy:** (1) **Internal data 100% when available** — items that already have `imageUrl` or `images[0]` (from catalog, seed, or upload) are never overwritten. (2) **Pexels** (and Unsplash where used) for the majority of fills. (3) **AI (OpenAI)** only as fallback (~10–20%) to avoid token burn and unrealistic product images.
+
+| Flow | Order | Where |
+|------|--------|--------|
+| **Draft item autofill** (runAutofillImages) | 1. **Skip** items with existing `imageUrl` or `images[0]` (internal). 2. **Pexels** (confidence ≥ `IMAGE_PEXELS_MIN_CONFIDENCE`, default 0.45). 3. **OpenAI** | `miRoutes.js` (toEnrich filter), `menuVisualAgent.ts` → `generateImageForDraftItem` |
+| **Menu images** (generateImagesForMenu) | 1. **Pexels** → 2. **Unsplash** → 3. **OpenAI** | `menuVisualAgent.ts` → `generateImagesForMenu` |
+| **Suggest-images candidates** | 1. **Pexels** (multi) → 2. **OpenAI** (single) | `generateImageCandidatesForDraftItem` |
+
+- **Env:** **`PEXELS_API_KEY`** (core) so Pexels is used. **`IMAGE_PEXELS_MIN_CONFIDENCE`** (0.2–0.9, default 0.45) to accept more Pexels and reduce AI fallback.
+
+---
+
 ## 6. Why duplicates happen + minimum change
 
 **Why duplicates happen:**
 
-1. **Backend pool reuse:** In **finalizeDraft** and **runAutofillImages**, we pass **usedUrls** (Set) and **generateImageForDraftItem** penalizes reuse (-0.2) and accepts first candidate with confidence ≥ 0.6. So the same URL can still be assigned to multiple items if the pool is small or many items score similarly (e.g. same query “food photo” for many items).
+1. **Backend pool reuse:** In **finalizeDraft** and **runAutofillImages**, we pass **usedUrls** (Set) and **generateImageForDraftItem** penalizes reuse (-0.2) and accepts first Pexels candidate with confidence ≥ `IMAGE_PEXELS_MIN_CONFIDENCE` (default 0.45); then OpenAI fallback if none. So the same URL can still be assigned to multiple items if the pool is small or many items score similarly (e.g. same query “food photo” for many items).
 2. **Day-2 assignImages (frontend):** **assignImages.ts** uses a **single pool** (searchLibrary, POOL_LIMIT 48) and **pickNextFromPool()** with **MAX_REUSE_PER_URL = 2**. So the **same image URL is allowed for up to 2 items** by design; that produces visible “duplicates” when the pool is small or items are similar.
 3. **Index fallback on public page:** **StorePreviewPage** uses **finalPreviewData.images[originalIdx + 1]** when **item.imageUrl** is missing. If **images[]** is built from a short list or by index, multiple items can map to the same **images[i]** (e.g. images[1] for several items if ordering doesn’t match).
 
