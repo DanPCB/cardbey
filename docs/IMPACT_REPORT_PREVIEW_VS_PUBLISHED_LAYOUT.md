@@ -98,3 +98,25 @@ No change to when fallback is used; only logging so we can see which path ran.
 - **Published path:** StorePreviewPage uses GET /api/store/:storeId/preview. Backend was not selecting **storefrontSettings**, so the response always used default storefront; layout preference was persisted on publish but never returned.
 - **Fallback:** If the preview request fails, the frontend builds minimal preview from context with empty items/categories → generic empty layout. DEV logs now show when this path is used.
 - **Fix:** Backend now selects and returns storefrontSettings. DEV logs added for renderer path and config.
+
+---
+
+## 10. Verification and next steps (integrity rule)
+
+**Integrity rule:** Publish should preserve both content state and presentation state. The issue was a **published storefront data-shape mismatch**, not a publish mutation bug.
+
+**One controlled verification (console open):**
+
+1. Open the published preview/public page (`/preview/store/:storeId?view=public`).
+2. Confirm network: `GET /api/store/:storeId/preview` → **200**.
+3. Inspect response: `preview.storefront` (defaultView, allowUserToggle), `preview.items` (populated), `preview.categories` (populated).
+4. Check console: `[StorePreview] renderer: dedicated preview (published store)` and `[StorePreview] template/layout config loaded`.
+
+**Two layers after this fix:**
+
+- **Missing storefrontSettings** — fixed (backend select + response).
+- **Possible preview endpoint failure → fallback** — now observable (logs: fallback reason, renderer: fallback).
+
+If the page is still wrong after this change, the next question is no longer “is layout config missing?” but: **Why is GET /api/store/:storeId/preview failing or degrading?** (e.g. 404, 500, CORS, wrong host). DEV logs will show whether the dedicated preview path or the fallback was used.
+
+**If API returns 200 with correct fields and layout is still wrong:** the next likely problem is **renderer-selection** — e.g. defaultView/allowUserToggle are loaded but the renderer is not mapping them to the intended layout, or a legacy default grid path is still winning. That would be a renderer-selection bug, not a data-availability bug. Sharing the response payload and console output is enough to distinguish data vs renderer.
