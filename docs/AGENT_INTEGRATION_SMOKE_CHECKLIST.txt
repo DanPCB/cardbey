@@ -1,0 +1,38 @@
+Agent Integration Smoke Checklist
+Date: __________
+Tester: __________
+
+[ ] 1) Spawn child success flow
+    - Open Mission Console on a mission with OpenClaw enabled
+    - Click Spawn child, submit valid intent
+    - Confirm Spawn button shows loading spinner during POST
+    - Confirm success toast: "Child spawned (ID: ...)"
+    - Confirm modal auto-closes
+    - Confirm blackboard updates immediately (new child event appears)
+
+[ ] 2) Spawn child error flow (disabled runtime)
+    - Disable OpenClaw runtime (or use env with runtime disabled)
+    - Submit Spawn child request
+    - Confirm error toast: "Spawn failed: ..." with user-friendly message
+    - Confirm UI does not hang and user can retry
+
+[ ] 3) Blackboard loading and refresh UX
+    - Reload mission page with blackboard visible
+    - Confirm initial message: "Loading blackboard..."
+    - With existing events present, confirm header shows "Refreshing..." during polling
+
+[ ] 4) Blackboard payload collapse/expand
+    - Use event with long payload
+    - Confirm collapsed summary is shown by default
+    - Confirm "Expand full payload" reveals full content
+    - Confirm "Show less" re-collapses
+
+[ ] 5) Regression checks
+    - Confirm spawn still works from both footer and inline layouts (if both are used)
+    - Confirm no console errors for spawn/blackboard flow
+    - Confirm mission page remains responsive after repeated spawns
+
+Result: PASS / FAIL
+Notes:
+- ______________________________________________________________
+- ______________________________________________________________
