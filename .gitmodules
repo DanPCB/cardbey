@@ -1,0 +1,4 @@
+[submodule "apps/dashboard/cardbey-marketing-dashboard"]
+path = apps/dashboard/cardbey-marketing-dashboard
+url = https://github.com/DanPCB/cardbey-marketing-dashboard.git
+branch = main
