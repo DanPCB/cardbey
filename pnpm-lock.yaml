@@ -52,6 +52,9 @@ importers:
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
+      body-parser:
+        specifier: ^2.2.2
+        version: 2.2.2
       compression:
         specifier: ^1.8.1
         version: 1.8.1
@@ -340,7 +343,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.1(@types/node@25.0.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.7.0(vite@6.4.1(@types/node@25.0.2)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3))
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.23(postcss@8.5.6)
@@ -352,13 +355,13 @@ importers:
         version: 10.1.0
       eslint:
         specifier: ^9.33.0
-        version: 9.39.2(jiti@2.6.1)
+        version: 9.39.2(jiti@1.21.7)
       eslint-plugin-react-hooks:
         specifier: ^5.2.0
-        version: 5.2.0(eslint@9.39.2(jiti@2.6.1))
+        version: 5.2.0(eslint@9.39.2(jiti@1.21.7))
       eslint-plugin-react-refresh:
         specifier: ^0.4.20
-        version: 0.4.25(eslint@9.39.2(jiti@2.6.1))
+        version: 0.4.25(eslint@9.39.2(jiti@1.21.7))
       globals:
         specifier: ^16.3.0
         version: 16.5.0
@@ -379,7 +382,7 @@ importers:
         version: 4.21.0
       vite:
         specifier: ^6.0.0
-        version: 6.4.1(@types/node@25.0.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
+        version: 6.4.1(@types/node@25.0.2)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3)
       vitest:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@25.0.2)(jsdom@26.1.0)
@@ -436,7 +439,7 @@ importers:
         version: 5.90.12(react@19.2.3)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.1(@types/node@25.0.2)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3))
+        version: 4.7.0(vite@6.4.1(@types/node@25.0.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
       '@zxing/browser':
         specifier: ^0.1.5
         version: 0.1.5(@zxing/library@0.21.3)
@@ -541,7 +544,7 @@ importers:
         version: 4.0.1
       vite:
         specifier: ^6.0.0
-        version: 6.4.1(@types/node@25.0.2)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3)
+        version: 6.4.1(@types/node@25.0.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
       zod:
         specifier: ^4.1.12
         version: 4.1.13
@@ -578,13 +581,13 @@ importers:
         version: 10.1.0
       eslint:
         specifier: ^9.33.0
-        version: 9.39.2(jiti@1.21.7)
+        version: 9.39.2(jiti@2.6.1)
       eslint-plugin-react-hooks:
         specifier: ^5.2.0
-        version: 5.2.0(eslint@9.39.2(jiti@1.21.7))
+        version: 5.2.0(eslint@9.39.2(jiti@2.6.1))
       eslint-plugin-react-refresh:
         specifier: ^0.4.20
-        version: 0.4.25(eslint@9.39.2(jiti@1.21.7))
+        version: 0.4.25(eslint@9.39.2(jiti@2.6.1))
       globals:
         specifier: ^16.3.0
         version: 16.5.0
@@ -2866,6 +2869,10 @@ packages:
 
   body-parser@2.2.1:
     resolution: {integrity: sha512-nfDwkulwiZYQIGwxdy0RUmowMhKcFVcYXUU7m4QlKYim1rUtg83xm2yjZ40QjDuc291AJjjeSc9b++AWHSgSHw==}
+    engines: {node: '>=18'}
+
+  body-parser@2.2.2:
+    resolution: {integrity: sha512-oP5VkATKlNwcgvxi0vM0p/D3n2C3EReYVX+DNYs5TjZFn/oQt2j+4sVJtSMr18pdRr8wjTcBl6LoV+FUwzPmNA==}
     engines: {node: '>=18'}
 
   bowser@2.13.1:
@@ -5332,6 +5339,10 @@ packages:
 
   qs@6.14.0:
     resolution: {integrity: sha512-YWWTjgABSKcvs/nWBi9PycY/JiPJqOD4JA6o9Sej2AtvSGarXxKC3OQSk4pAarbdQlKAh5D4FCQkJNkW+GAn3w==}
+    engines: {node: '>=0.6'}
+
+  qs@6.15.0:
+    resolution: {integrity: sha512-mAZTtNCeetKMH+pSjrb76NAM8V9a05I9aBZOHztWy/UqcJdQYNsf59vrRKWnojAT9Y+GbIvoTBC++CPHqpDBhQ==}
     engines: {node: '>=0.6'}
 
   queue-microtask@1.2.3:
@@ -9316,6 +9327,20 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  body-parser@2.2.2:
+    dependencies:
+      bytes: 3.1.2
+      content-type: 1.0.5
+      debug: 4.4.3(supports-color@5.5.0)
+      http-errors: 2.0.1
+      iconv-lite: 0.7.1
+      on-finished: 2.4.1
+      qs: 6.15.0
+      raw-body: 3.0.2
+      type-is: 2.0.1
+    transitivePeerDependencies:
+      - supports-color
+
   bowser@2.13.1: {}
 
   bplist-parser@0.3.2:
@@ -12222,6 +12247,10 @@ snapshots:
       yargs: 15.4.1
 
   qs@6.14.0:
+    dependencies:
+      side-channel: 1.1.0
+
+  qs@6.15.0:
     dependencies:
       side-channel: 1.1.0
 
