@@ -7,3 +7,4 @@ branch = main
 path = apps/core/cardbey-core
 url = https://github.com/DanPCB/cardbey-core.git
 branch = main
+ignore = all
