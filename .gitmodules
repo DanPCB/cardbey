@@ -2,9 +2,3 @@
 path = apps/dashboard/cardbey-marketing-dashboard
 url = https://github.com/DanPCB/cardbey-marketing-dashboard.git
 branch = main
-
-[submodule "apps/core/cardbey-core"]
-path = apps/core/cardbey-core
-url = https://github.com/DanPCB/cardbey-core.git
-branch = main
-ignore = all
