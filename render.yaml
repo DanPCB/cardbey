@@ -18,6 +18,8 @@ services:
     runtime: static
     repo: https://github.com/DanPCB/cardbey
     branch: staging
+    # Install must run from monorepo root: with rootDir here, `pnpm install` alone sees OUTDATED_LOCKFILE
+    # (workspace lockfile lives at repo root; CI uses frozen lockfile by default).
     rootDir: apps/dashboard/cardbey-marketing-dashboard
-    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install && pnpm run build:staging
+    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && cd ../../.. && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build:staging
     staticPublishPath: dist
