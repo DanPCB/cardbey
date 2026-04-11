@@ -13,14 +13,13 @@ services:
         value: production
 
   # Dashboard (staging) — static site build (Vite)
+  # rootDir MUST be monorepo root: Render runs "Installing dependencies with pnpm" before buildCommand
+  # from rootDir; only the repo-root pnpm-lock.yaml includes workspace importers (e.g. qrcode).
   - type: web
     name: cardbey-dashboard-staging
     runtime: static
     repo: https://github.com/DanPCB/cardbey
     branch: staging
-    # rootDir is the dashboard package; Render may still run install from here. This buildCommand
-    # cd's to monorepo root, refreshes the workspace lockfile without frozen CI (OUTDATED_LOCKFILE),
-    # then builds staging from the dashboard directory.
-    rootDir: apps/dashboard/cardbey-marketing-dashboard
-    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && cd ../../../ && pnpm install --no-frozen-lockfile && cd apps/dashboard/cardbey-marketing-dashboard && pnpm run build:staging
-    staticPublishPath: dist
+    rootDir: .
+    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build:staging
+    staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
