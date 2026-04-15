@@ -16,11 +16,11 @@
   },
   "scripts": {
     "check:runway": "node scripts/check-single-runway.js",
-    "dev:core": "yarn workspace @cardbey/core dev",
-    "dev:dashboard": "yarn workspace @cardbey/dashboard dev",
-    "build:core": "yarn workspace @cardbey/core build",
-    "build:dashboard": "yarn workspace @cardbey/dashboard build",
-    "build:api-client": "yarn workspace @cardbey/api-client build",
+    "dev:core": "pnpm --filter @cardbey/core run dev",
+    "dev:dashboard": "pnpm --filter @cardbey/dashboard run dev",
+    "build:core": "pnpm --filter @cardbey/core run build",
+    "build:dashboard": "pnpm --filter @cardbey/dashboard run build:dashboard",
+    "build:api-client": "pnpm --filter @cardbey/api-client run build",
     "e2e:french-baguette": "node scripts/e2e-french-baguette.js"
   },
   "devDependencies": {
@@ -32,5 +32,5 @@
     "@prisma/client": "^6.18.0",
     "prisma": "^6.18.0"
   },
-  "packageManager": "pnpm@10.25.0+sha512.5e82639027af37cf832061bcc6d639c219634488e0f2baebe785028a793de7b525ffcd3f7ff574f5e9860654e098fe852ba8ac5dd5cefe1767d23a020a92f501"
+  "packageManager": "pnpm@10.25.0"
 }
