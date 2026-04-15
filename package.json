@@ -19,7 +19,7 @@
     "dev:core": "pnpm --filter @cardbey/core run dev",
     "dev:dashboard": "pnpm --filter @cardbey/dashboard run dev",
     "build:core": "pnpm --filter @cardbey/core run build",
-    "build:dashboard": "pnpm --filter @cardbey/dashboard run build:dashboard",
+    "build:dashboard": "pnpm -C apps/dashboard/cardbey-marketing-dashboard run build:dashboard",
     "build:api-client": "pnpm --filter @cardbey/api-client run build",
     "e2e:french-baguette": "node scripts/e2e-french-baguette.js"
   },
