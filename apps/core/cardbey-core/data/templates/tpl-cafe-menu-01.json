@@ -1,0 +1,88 @@
+{
+  "id": "tpl-cafe-menu-01",
+  "width": 1080,
+  "height": 1920,
+  "background": {
+    "type": "image",
+    "src": "/assets/library/templates/menus/tpl-cafe-menu-01-bg.jpg",
+    "fit": "cover"
+  },
+  "layers": [
+    {
+      "id": "menu-title",
+      "type": "text",
+      "content": "Caf\u00e9 Menu",
+      "x": 80,
+      "y": 120,
+      "width": 920,
+      "fontFamily": "Playfair Display",
+      "fontSize": 78,
+      "fontWeight": "700",
+      "color": "#3b2b21",
+      "align": "center"
+    },
+    {
+      "id": "section-1-title",
+      "type": "text",
+      "content": "Coffee",
+      "x": 120,
+      "y": 260,
+      "width": 400,
+      "fontFamily": "Inter",
+      "fontSize": 40,
+      "fontWeight": "600",
+      "color": "#3b2b21"
+    },
+    {
+      "id": "section-1-items",
+      "type": "text",
+      "content": "Espresso .......... $4\nLatte ............... $5\nCappuccino ........ $5.5",
+      "x": 120,
+      "y": 320,
+      "width": 400,
+      "fontFamily": "Inter",
+      "fontSize": 30,
+      "fontWeight": "400",
+      "lineHeight": 1.4,
+      "color": "#4a3a30"
+    },
+    {
+      "id": "section-2-title",
+      "type": "text",
+      "content": "Pastries",
+      "x": 560,
+      "y": 260,
+      "width": 400,
+      "fontFamily": "Inter",
+      "fontSize": 40,
+      "fontWeight": "600",
+      "color": "#3b2b21"
+    },
+    {
+      "id": "section-2-items",
+      "type": "text",
+      "content": "Croissant .......... $4\nCinnamon Roll ..... $4.5\nCheese Danish .... $5",
+      "x": 560,
+      "y": 320,
+      "width": 400,
+      "fontFamily": "Inter",
+      "fontSize": 30,
+      "fontWeight": "400",
+      "lineHeight": 1.4,
+      "color": "#4a3a30"
+    },
+    {
+      "id": "footer-note",
+      "type": "text",
+      "content": "Ask about our seasonal specials!",
+      "x": 80,
+      "y": 1700,
+      "width": 920,
+      "fontFamily": "Inter",
+      "fontSize": 28,
+      "fontWeight": "500",
+      "color": "#3b2b21",
+      "align": "center"
+    }
+  ]
+}

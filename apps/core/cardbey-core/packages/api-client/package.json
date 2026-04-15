@@ -1,0 +1,23 @@
+{
+  "name": "@cardbey/api-client",
+  "version": "1.0.0",
+  "description": "TypeScript API client for Cardbey Core API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "cardbey",
+    "api",
+    "client"
+  ],
+  "author": "Cardbey Team",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
+

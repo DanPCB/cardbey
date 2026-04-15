@@ -1,0 +1,78 @@
+{
+  "businessType": "nail_salon",
+  "region": "AU",
+  "version": "1.0",
+  "currency": "AUD",
+  "name": "Nail Salon Australia Starter",
+  "description": "Starter service menu for nail salons in Australia: manicure, pedicure, gel, add-ons. No images required by default.",
+  "categories": [
+    { "key": "manicure", "label": "Manicure", "sortOrder": 0 },
+    { "key": "pedicure", "label": "Pedicure", "sortOrder": 1 },
+    { "key": "gel", "label": "Gel", "sortOrder": 2 },
+    { "key": "add_ons", "label": "Add-ons", "sortOrder": 3 }
+  ],
+  "items": [
+    {
+      "type": "SERVICE",
+      "canonicalName": "Classic Manicure",
+      "shortDescription": "Shape, cuticle care, polish",
+      "tags": ["manicure", "polish"],
+      "categoryKey": "manicure",
+      "priceMin": 35,
+      "priceMax": 50,
+      "featured": true,
+      "sortOrder": 0
+    },
+    {
+      "type": "SERVICE",
+      "canonicalName": "Gel Manicure",
+      "shortDescription": "Long-lasting gel polish",
+      "tags": ["manicure", "gel"],
+      "categoryKey": "gel",
+      "priceMin": 50,
+      "priceMax": 65,
+      "featured": true,
+      "sortOrder": 0
+    },
+    {
+      "type": "SERVICE",
+      "canonicalName": "Classic Pedicure",
+      "shortDescription": "Soak, exfoliate, polish",
+      "tags": ["pedicure", "polish"],
+      "categoryKey": "pedicure",
+      "priceMin": 45,
+      "priceMax": 60,
+      "sortOrder": 0
+    },
+    {
+      "type": "SERVICE",
+      "canonicalName": "Gel Pedicure",
+      "shortDescription": "Gel polish on toes",
+      "tags": ["pedicure", "gel"],
+      "categoryKey": "pedicure",
+      "priceMin": 55,
+      "priceMax": 75,
+      "sortOrder": 1
+    },
+    {
+      "type": "SERVICE",
+      "canonicalName": "Nail Art",
+      "shortDescription": "Design per nail",
+      "tags": ["add-on", "art"],
+      "categoryKey": "add_ons",
+      "priceMin": 5,
+      "priceMax": 15,
+      "sortOrder": 0
+    },
+    {
+      "type": "SERVICE",
+      "canonicalName": "Nail Repair",
+      "shortDescription": "Single nail repair",
+      "tags": ["add-on", "repair"],
+      "categoryKey": "add_ons",
+      "priceMin": 5,
+      "priceMax": 10,
+      "sortOrder": 1
+    }
+  ]
+}

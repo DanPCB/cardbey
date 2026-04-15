@@ -1,0 +1,2237 @@
+// Cardbey Core API - Prisma Schema (Postgres)
+// Used for: contract tests, staging, production (migrate deploy).
+// For local postgres: set POSTGRES_DATABASE_URL=postgresql://user:pass@localhost:5432/db then npm run db:migrate / db:generate:postgres.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/client-gen"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User with business and onboarding tracking
+model User {
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  passwordHash        String
+  displayName         String?
+  fullName            String? // Full name for public profile
+  handle              String?   @unique // Public profile handle/slug (e.g., "john-doe")
+  avatarUrl           String? // URL to user avatar image
+  accountType         String? // "personal" | "business" | "both"
+  tagline             String? // Optional tagline/bio for public profile
+  hasBusiness         Boolean   @default(false)
+  onboarding          String? // JSON string: {"completed":false,"currentStep":"welcome"}
+  roles               String    @default("[\"viewer\"]") // JSON array string: ["viewer","admin"]
+  role                String    @default("owner") // "owner" | "staff" | "viewer" | "admin" | "super_admin" (platform roles)
+  emailVerified       Boolean   @default(false) // Phase 2: Email verification status
+  verificationToken   String? // Phase 2: Hashed one-time verification token
+  verificationExpires DateTime? // Phase 2: Token expiration time
+  resetToken          String? // Phase 2: Password reset token
+  resetExpires        DateTime? // Phase 2: Reset token expiration time
+  aiCreditsBalance    Int       @default(0) // Paid AI credits (consumed when not using welcome bundle)
+  welcomeFullStoreRemaining Int  @default(1) // One full AI store generation free per user (idempotent grant on register)
+  aiCreditsUpdatedAt  DateTime? // Last time credits were changed (optional)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Personal profile (Phase 1; all nullable; displayName already exists above)
+  profilePhoto                    String?
+  bio                             String?
+  qrCodeUrl                       String?
+  personalPresenceStoreId         String?   @unique
+  personalPresenceStore           Business? @relation("PersonalPresenceStore", fields: [personalPresenceStoreId], references: [id], onDelete: SetNull)
+
+  phone          String?
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  country        String?
+  postcode       String?
+
+  // Relations (one user can have multiple stores)
+  businesses          Business[]
+  personalMedia       PersonalMedia[]
+  demands             Demand[]
+  contents            Content[]
+  greetingCards       GreetingCard[]
+  passwordResetTokens PasswordResetToken[]
+  draftStoresOwned    DraftStore[] @relation("DraftStoreOwner")
+  createdChatThreads  ChatThread[] @relation("ChatThreadCreator")
+  createdConversationThreads ConversationThread[] @relation("ConversationThreadCreator")
+  createdMissions            Mission[]           @relation("MissionCreator")
+
+  @@index([email])
+  @@index([handle])
+  @@index([verificationToken])
+  @@index([resetToken])
+}
+
+model PersonalMedia {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Business/Store entity
+// Translation support: The original fields (name, description) are the authoritative source language content.
+// The translations JSON field stores AI-generated or manually edited translations, keyed by language code.
+// Example structure: { "en": { "name": "...", "description": "..." }, "vi": { "name": "...", "description": "..." } }
+model Business {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  type         String
+  slug         String   @unique
+  description  String?
+  showOwnerProfile  Boolean  @default(false)
+  translations Json? // Translations keyed by language code: { "en": { "name": "...", "description": "..." }, "vi": { ... } }
+  logo         String? // JSON string: {"url":"https://..."}
+  region       String?
+  isActive     Boolean  @default(true)
+  tradingHours Json? // JSON object for trading hours
+  address      String?
+  suburb       String?
+  postcode     String?
+  country      String?
+  phone        String?
+  lat          Float?
+  lng          Float?
+  // Brand fields for business creation and template binding
+  primaryColor    String? // Primary brand color (hex code)
+  secondaryColor  String? // Secondary brand color (hex code)
+  tagline         String? // Business tagline/slogan
+  heroText        String? // Hero text for marketing materials
+  heroImageUrl    String? // Storefront hero image URL (from draft publish)
+  avatarImageUrl  String? // Store avatar/logo image URL (from draft publish)
+  publishedAt     DateTime? // When the store was last published (from draft)
+  stylePreferences Json? // Style preferences: { style: "modern", mood: "warm", etc. }
+  storefrontSettings Json? // { defaultView: "list"|"grid", allowUserToggle: boolean }; default grid, true
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  products    Product[]
+  storePromos StorePromo[]
+  storeOffers StoreOffer[]
+  personalPresenceOwner User? @relation("PersonalPresenceStore")
+
+  @@index([userId])
+  @@index([slug])
+}
+
+// Phase 1 Scan & Redeem: public promo landing + QR (slug, scan tracking). Used by POST/GET /api/promos, GET/POST /api/public/promos/:slug.
+model StorePromo {
+  id           String    @id @default(cuid())
+  storeId      String
+  business     Business  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId    String?
+  title        String
+  subtitle     String?
+  description  String?
+  heroImage    String?   // Legacy/fallback for public response
+  heroImageUrl String?
+  ctaLabel     String?
+  targetUrl    String
+  code         String?   // Coupon code (API: couponCode)
+  startsAt     DateTime?
+  endsAt       DateTime?
+  slug         String    @unique
+  isActive     Boolean   @default(true)
+  scanCount    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([storeId])
+  @@index([slug])
+  @@index([isActive])
+}
+
+// Product/Catalog Item entity
+// Translation support: The original fields (name, description, category) are the authoritative source language content.
+// The translations JSON field stores AI-generated or manually edited translations, keyed by language code.
+// Example structure: { "en": { "name": "...", "description": "...", "category": "..." }, "vi": { ... } }
+model Product {
+  id            String    @id @default(cuid())
+  businessId    String
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name          String
+  normalizedName String? // Normalized name for deduplication
+  description   String?
+  translations  Json? // Translations keyed by language code: { "en": { "name": "...", "description": "...", "category": "..." }, "vi": { ... } }
+  price         Float?
+  currency      String?   @default("USD")
+  category      String?
+  imageUrl      String?
+  sku           String? // Stock keeping unit (optional)
+  isPublished   Boolean   @default(false) // Only published products are visible publicly
+  images        Json? // Array of image URLs
+  viewCount     Int       @default(0)
+  likeCount     Int       @default(0)
+  hasSam3Cutout Boolean   @default(false) // Whether product has SAM-3 generated cutout
+  cutoutPath    String? // Path to SAM-3 cutout image (e.g., /public/catalog-cutouts/product-id.png)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, isPublished])
+  @@index([category])
+  @@index([deletedAt])
+  @@index([hasSam3Cutout])
+  @@unique([businessId, normalizedName], name: "unique_business_normalized_name")
+}
+
+// User intent/demand tracking
+model Demand {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope       String
+  category    String
+  intent      String
+  context     String? // JSON string: {"page":"/","trigger":"button"}
+  fulfilled   Boolean   @default(false)
+  fulfilledAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// Journey System - Multi-step playbooks and planner
+
+enum JourneyStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum StepStatus {
+  PENDING
+  READY
+  RUNNING
+  DONE
+  FAILED
+  SKIPPED
+}
+
+enum StepKind {
+  INFO
+  FORM
+  ACTION
+  REVIEW
+}
+
+enum ActionKind {
+  NONE
+  CREATE_STORE
+  OCR_MENU
+  DESIGN_FLYER
+  PUBLISH_SCREEN
+  CREATE_CAMPAIGN
+  SEND_EMAIL
+  WEBHOOK
+}
+
+model JourneyTemplate {
+  id        String                @id @default(cuid())
+  slug      String                @unique
+  title     String
+  summary   String?
+  category  String? // "store", "marketing", "screens"
+  tags      String                @default("[]") // JSON array: ["quick","beginner"]
+  createdAt DateTime              @default(now())
+  steps     JourneyStepTemplate[]
+  instances JourneyInstance[]
+
+  @@index([slug])
+  @@index([category])
+}
+
+model JourneyStepTemplate {
+  id         String          @id @default(cuid())
+  orderIndex Int
+  title      String
+  hint       String?
+  kind       StepKind        @default(INFO)
+  action     ActionKind      @default(NONE)
+  templateId String
+  template   JourneyTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  paramsJson String? // JSON string: {"fields":[...],"defaults":{...}}
+  steps      JourneyStep[]
+
+  @@index([templateId, orderIndex])
+}
+
+model JourneyInstance {
+  id         String          @id @default(cuid())
+  userId     String
+  templateId String
+  template   JourneyTemplate @relation(fields: [templateId], references: [id])
+  status     JourneyStatus   @default(ACTIVE)
+  title      String
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  steps      JourneyStep[]
+  tasks      PlannerTask[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model JourneyStep {
+  id             String              @id @default(cuid())
+  instanceId     String
+  instance       JourneyInstance     @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  stepTemplateId String
+  stepTemplate   JourneyStepTemplate @relation(fields: [stepTemplateId], references: [id])
+  orderIndex     Int
+  status         StepStatus          @default(PENDING)
+  kind           StepKind            @default(INFO)
+  action         ActionKind          @default(NONE)
+  paramsJson     String? // JSON string: runtime params
+  resultJson     String? // JSON string: execution result
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+
+  @@index([instanceId, orderIndex])
+  @@index([status])
+}
+
+model PlannerTask {
+  id        String          @id @default(cuid())
+  userId    String
+  journeyId String
+  journey   JourneyInstance @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  stepId    String
+  runAt     DateTime
+  status    String          @default("queued") // queued|running|done|failed|skipped
+  lastError String?
+  createdAt DateTime        @default(now())
+
+  @@index([userId])
+  @@index([status, runAt])
+}
+
+model AssistantSuggestion {
+  id         String   @id @default(cuid())
+  userId     String
+  mode       String // 'home'|'store'|'screens'|'marketing'|'performer'
+  templateId String?
+  title      String
+  reason     String?
+  score      Float    @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([userId, mode])
+  @@index([score])
+}
+
+// ============================================
+// AI Orchestration Models
+// ============================================
+
+model EventLog {
+  id         String   @id @default(cuid())
+  kind       String
+  zone       String
+  payload    String // JSON stringified
+  occurredAt DateTime @default(now())
+  meta       String? // JSON stringified
+
+  @@index([kind])
+  @@index([zone])
+  @@index([occurredAt])
+}
+
+model SuggestionLog {
+  id          String   @id @default(cuid())
+  node        String
+  title       String
+  description String?
+  confidence  Float
+  impact      String?
+  actions     String // JSON stringified
+  sourceEvent String?
+  createdAt   DateTime @default(now())
+  status      String   @default("PENDING") // PENDING|APPLIED|IGNORED
+
+  // Phase 2: Apply tracking
+  appliedBy String?
+  appliedAt DateTime?
+
+  // Phase 2: Latency tracking
+  latencyZoneAMs    Int?
+  latencyZoneBMs    Int?
+  latencyEndToEndMs Int?
+
+  // Phase 2: Multi-tenancy (future)
+  tenantId String?
+
+  @@index([node])
+  @@index([status])
+  @@index([createdAt])
+  @@index([tenantId])
+}
+
+// Phase 2: Idempotency tracking
+model IdempotencyKey {
+  id        String   @id @default(cuid())
+  keyHash   String   @unique
+  response  String // JSON cached response
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([keyHash])
+  @@index([expiresAt])
+}
+
+// Transition audit - doctrine boundary: all status transitions logged
+model AuditEvent {
+  id            String   @id @default(cuid())
+  entityType    String   // "DraftStore" | "OrchestratorTask" | "Business"
+  entityId      String
+  action        String   // "status_transition" | "publish" | etc
+  fromStatus    String?
+  toStatus      String?
+  actorType     String   // "human" | "automation" | "worker" | "system"
+  actorId       String?
+  correlationId String?  // generationRunId / traceId / jobId
+  reason        String?  // small code e.g. "ORCHESTRA_START", "GENERATE_DRAFT", "EXPIRE", "PUBLISH"
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([correlationId])
+}
+
+// Phase 2: Action execution tracking
+model PriceChange {
+  id           String    @id @default(cuid())
+  suggestionId String
+  sku          String
+  oldPrice     Float?
+  newPrice     Float?
+  deltaPercent Float
+  duration     String
+  testGroup    String?
+  status       String    @default("PENDING") // PENDING|ACTIVE|COMPLETED|ROLLED_BACK
+  createdAt    DateTime  @default(now())
+  activatedAt  DateTime?
+  completedAt  DateTime?
+
+  @@index([suggestionId])
+  @@index([sku])
+  @@index([status])
+}
+
+model ReorderRequest {
+  id           String    @id @default(cuid())
+  suggestionId String
+  sku          String
+  quantity     Int
+  priority     String
+  reason       String?
+  status       String    @default("PENDING") // PENDING|ORDERED|RECEIVED|CANCELLED
+  createdAt    DateTime  @default(now())
+  orderedAt    DateTime?
+  receivedAt   DateTime?
+
+  @@index([suggestionId])
+  @@index([sku])
+  @@index([status])
+}
+
+model CreativeRefreshTask {
+  id           String    @id @default(cuid())
+  suggestionId String
+  banner       String?
+  reason       String
+  currentCTR   Float?
+  status       String    @default("PENDING") // PENDING|IN_PROGRESS|COMPLETED|CANCELLED
+  createdAt    DateTime  @default(now())
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  @@index([suggestionId])
+  @@index([status])
+}
+
+// Screen management for digital signage
+model Screen {
+  id          String    @id @default(cuid())
+  fingerprint String    @unique
+  name        String?
+  location    String?
+  paired      Boolean   @default(false)
+  status      String    @default("OFFLINE")
+  statusText  String?
+  lastSeen    DateTime?
+  deletedAt   DateTime? // Soft delete timestamp
+  orientation String    @default("horizontal") // "horizontal" | "vertical"
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  assignedPlaylistId String?
+  assignedPlaylist   Playlist? @relation(fields: [assignedPlaylistId], references: [id], onDelete: SetNull)
+  currentAsset       String?
+  currentPlaylistId  String?
+
+  pairCodes       PairCode[]
+  pairingSessions PairingSession[]
+
+  @@index([deletedAt])
+}
+
+// Media files for playlists
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+// Display orientation for video playback
+enum DisplayOrientation {
+  AUTO
+  LANDSCAPE
+  PORTRAIT
+}
+
+// Playlist type enum - distinguishes between different playlist use cases
+enum PlaylistType {
+  MEDIA // Media playlists for Screen devices (videos/images from Media model)
+  SIGNAGE // Signage playlists for digital signage (SignageAsset items)
+  PROMO // Promotional playlists (future use)
+}
+
+model Media {
+  id           String    @id @default(cuid())
+  url          String
+  storageKey   String? // S3 key for original file (set to null after original deletion)
+  optimizedUrl String? // Optimized video URL for streaming (720p H.264)
+  optimizedKey String? // S3 key for optimized video
+  isOptimized  Boolean   @default(false) // Flag indicating if optimization is complete
+  optimizedAt  DateTime? // Timestamp when optimization completed
+  kind         MediaKind
+  mime         String
+  width        Int?
+  height       Int?
+  durationS    Float?
+  sizeBytes    Int
+  missingFile  Boolean   @default(false) // Flag set when media file doesn't exist on disk
+  createdAt    DateTime  @default(now())
+
+  items PlaylistItem[]
+
+  @@index([missingFile])
+  @@index([isOptimized])
+  @@index([storageKey])
+}
+
+// ============================================
+// Unified Playlist Model
+// Consolidates Media and Signage playlists into a single model
+// Use the 'type' field to distinguish: MEDIA (for Screen/Media), SIGNAGE (for SignageAsset), PROMO (future)
+// ============================================
+// Playlist represents a content playlist that can be assigned to screens or used for signage
+// Translation support: The original fields (name, description) are the authoritative source language content.
+// The translations JSON field stores AI-generated or manually edited translations, keyed by language code.
+// Example structure: { "en": { "name": "...", "description": "..." }, "vi": { ... } }
+model Playlist {
+  id           String       @id @default(cuid())
+  type         PlaylistType @default(MEDIA) // MEDIA for Screen/Media, SIGNAGE for SignageAsset, PROMO for future use
+  name         String
+  tenantId     String? // Required for SIGNAGE playlists, optional for MEDIA (legacy compatibility)
+  storeId      String? // Required for SIGNAGE playlists, optional for MEDIA (legacy compatibility)
+  description  String? // Optional description (primarily used for SIGNAGE)
+  translations Json? // Translations keyed by language code: { "en": { "name": "...", "description": "..." }, "vi": { ... } }
+  active       Boolean      @default(true) // Primarily used for SIGNAGE playlists
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // Relations
+  items     PlaylistItem[]
+  screens   Screen[] // Screens assigned to this playlist (MEDIA type)
+  schedules PlaylistSchedule[] // Schedules for this playlist (SIGNAGE type)
+
+  @@index([type])
+  @@index([tenantId, storeId])
+  @@index([active])
+  @@index([type, active])
+}
+
+// Unified PlaylistItem model
+// Supports both Media items (mediaId) and SignageAsset items (assetId)
+// Media-specific fields (fit, muted, loop, displayOrientation) are optional and only used for MEDIA type
+model PlaylistItem {
+  id         String   @id @default(cuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  // Ordering
+  orderIndex Int // Unified field name (was 'order' in signage, 'orderIndex' in media)
+
+  // Duration
+  durationS Int @default(8) // Duration in seconds (unified from durationS/duration)
+
+  // Media-specific fields (only used when mediaId is set)
+  mediaId            String?
+  media              Media?              @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  fit                String?             @default("cover") // Media display fit
+  muted              Boolean?            @default(false) // Media muted flag
+  loop               Boolean?            @default(false) // Media loop flag
+  displayOrientation DisplayOrientation? @default(AUTO) // Video display orientation override
+
+  // Signage-specific fields (only used when assetId is set)
+  assetId String?
+  asset   SignageAsset? @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([playlistId, orderIndex])
+  @@index([mediaId])
+  @@index([assetId])
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  DISABLED
+}
+
+enum WorkflowTrigger {
+  MANUAL
+  ONCE
+  DAILY
+}
+
+model Workflow {
+  id        String          @id @default(cuid())
+  name      String
+  prompt    String
+  status    WorkflowStatus  @default(DRAFT)
+  trigger   WorkflowTrigger @default(MANUAL)
+  actions   Json
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  campaigns Campaign[]
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  DONE
+}
+
+model Campaign {
+  id         String         @id @default(cuid())
+  title      String
+  productId  String?
+  data       Json
+  status     CampaignStatus @default(DRAFT)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  workflow   Workflow?      @relation(fields: [workflowId], references: [id])
+  workflowId String?
+}
+
+// Phase A: Campaign scope plan (validate-scope API)
+model CampaignPlan {
+  id                 String    @id @default(cuid())
+  tenantKey          String
+  missionId          String?
+  storeId            String?
+  draftStoreId       String?
+  objective          String
+  target             Json?     // e.g. { productId?, category?, ... }
+  timeWindow         Json?     // { start?, end?, tz? }
+  budget             Json?     // { amount?, currency? }
+  channelsRequested  Json?     // string[]
+  status             String    @default("draft") // "draft" | "validated"
+  createdAt          DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  validationResults CampaignValidationResult[]
+  campaignV2s      CampaignV2[]
+
+  @@index([tenantKey, createdAt])
+  @@index([missionId])
+}
+
+// Phase A: Result of validate-scope (checks, blockers, warnings)
+model CampaignValidationResult {
+  id         String   @id @default(cuid())
+  tenantKey  String
+  planId     String
+  plan       CampaignPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  checks     Json     // [{ code, ok, message }]
+  blockers   Json     // array
+  warnings   Json     // array
+  risk       String   @default("med") // "low" | "med" | "high"
+  confidence String   @default("med") // "low" | "med" | "high"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([tenantKey, createdAt])
+  @@index([planId])
+}
+
+// Phase B: Tenant-scoped campaign linked to validated plan
+model CampaignV2 {
+  id            String    @id @default(cuid())
+  tenantKey     String
+  planId        String
+  plan          CampaignPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  missionId     String?
+  storeId       String?
+  draftStoreId  String?
+  title         String
+  objective     String
+  status        String    @default("DRAFT") // DRAFT|SCHEDULED|RUNNING|FAILED|DONE
+  degradedMode  Json?     // { reasonCodes?, allowedChannels? }
+  allowedChannels Json?   // string[] cached for UI (from B.3 deployments)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  creativeCopies    CreativeCopy[]
+  creativeAssets    CreativeAsset[]
+  scheduleItems     CampaignScheduleItem[]
+  offers            Offer[]
+  channelDeployments ChannelDeployment[]
+
+  @@index([tenantKey, createdAt])
+  @@index([planId])
+  @@index([missionId])
+}
+
+model CreativeCopy {
+  id          String    @id @default(cuid())
+  tenantKey   String
+  campaignId  String
+  campaign    CampaignV2 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  kind        String    @default("caption") // caption|headline|cta
+  text        String    // or Json in future
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId])
+  @@index([tenantKey, createdAt])
+}
+
+model CreativeAsset {
+  id          String    @id @default(cuid())
+  tenantKey   String
+  campaignId  String
+  campaign    CampaignV2 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  type        String    @default("image_prompt") // image_prompt|image|video
+  prompt      String?
+  mediaId     String?   // optional FK / url reference
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId])
+}
+
+model CampaignScheduleItem {
+  id              String    @id @default(cuid())
+  tenantKey       String
+  campaignId      String
+  campaign        CampaignV2 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  channel         String    @default("scheduled_posts") // scheduled_posts|facebook|instagram|tiktok|email|qr
+  scheduledAt     DateTime
+  status          String    @default("DRAFT") // DRAFT|SCHEDULED|POSTED|FAILED
+  creativeCopyId  String?
+  creativeAssetId String?
+  externalRef     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([campaignId])
+  @@index([tenantKey, scheduledAt])
+}
+
+model Offer {
+  id          String    @id @default(cuid())
+  tenantKey   String
+  campaignId  String
+  campaign    CampaignV2 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  type        String    @default("discount") // discount|loyalty
+  data        Json      // { value, appliesTo, validFrom, validTo, ... }
+  status      String    @default("ACTIVE") // ACTIVE|INACTIVE
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId])
+}
+
+model ChannelDeployment {
+  id          String    @id @default(cuid())
+  tenantKey   String
+  campaignId  String
+  campaign    CampaignV2 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  channel     String    // same enum as schedule
+  mode        String    @default("scheduled_posts") // scheduled_posts|api
+  status      String    @default("PENDING") // PENDING|ACTIVE|FAILED
+  data        Json?     // e.g. { reasonCodes, oauthMissing }
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId])
+}
+
+// Trend Profiles - Style brains for AI Design Assistant
+// Each profile contains palettes, typography, layout patterns, and prompt tags
+model TrendProfile {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  season    String? // e.g. "2025-Q1"
+  domain    String? // e.g. "design", "poster", "social"
+  goal      String? // e.g. "poster", "story", etc.
+  source    String? // e.g. "manual", "ai_web_summary"
+  isActive  Boolean  @default(true)
+  weight    Int      @default(1) // for future ranking
+  data      Json // JSON blob with palettes, typography, layout patterns, etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([isActive, goal])
+  @@index([season])
+}
+
+model PairingSession {
+  sessionId   String   @id @default(cuid())
+  code        String   @unique
+  status      String   @default("showing_code") // "showing_code" | "bound" | "expired"
+  expiresAt   DateTime
+  deviceToken String? // Token returned to device after binding
+  fingerprint String
+  model       String
+  name        String
+  location    String?
+  screenId    String?
+  screen      Screen?  @relation(fields: [screenId], references: [id], onDelete: SetNull)
+  claimedBy   String? // JSON string: {"userId":"...","workspaceId":"..."}
+  origin      String? // "device" | "dashboard" (for backward compatibility)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([code])
+  @@index([expiresAt])
+  @@index([status])
+  @@index([fingerprint])
+}
+
+model PairCode {
+  code        String   @id
+  fingerprint String?
+  screenId    String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  screen Screen? @relation(fields: [screenId], references: [id], onDelete: Cascade)
+
+  @@index([fingerprint])
+}
+
+// Content Studio - Design content with canvas elements
+model Content {
+  id           String   @id @default(cuid())
+  name         String
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  elements     Json // Array of canvas elements (text, images, shapes, etc.)
+  settings     Json // Canvas settings (width, height, background, etc.)
+  renderSlide  Json? // Rendered slide data (optional, for preview/export)
+  thumbnailUrl String? // URL to exported PNG thumbnail (optional, for previews)
+  version      Int      @default(1) // Version number for optimistic locking
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Loyalty Engine v1
+model LoyaltyProgram {
+  id             String    @id @default(cuid())
+  tenantId       String
+  storeId        String
+  name           String
+  stampsRequired Int
+  reward         String
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  stamps LoyaltyStamp[]
+
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([expiresAt])
+}
+
+model LoyaltyStamp {
+  id         String         @id @default(cuid())
+  tenantId   String
+  storeId    String
+  programId  String
+  program    LoyaltyProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  customerId String
+  count      Int            @default(0)
+  rewarded   Boolean        @default(false)
+  updatedAt  DateTime       @updatedAt
+  createdAt  DateTime       @default(now())
+
+  @@unique([tenantId, storeId, programId, customerId])
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([programId])
+  @@index([customerId])
+}
+
+model LoyaltyReward {
+  id         String   @id @default(cuid())
+  tenantId   String
+  storeId    String
+  programId  String
+  customerId String
+  reward     String
+  redeemedAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([programId])
+  @@index([customerId])
+  @@index([redeemedAt])
+}
+
+// Promo Engine v1
+model PromoRule {
+  id         String    @id @default(cuid())
+  tenantId   String
+  storeId    String
+  name       String
+  type       String // "percentage" | "fixed" | "bogo" | "free_item"
+  targetType String // "item" | "category" | "cart"
+  targetId   String?
+  value      Float
+  startAt    DateTime?
+  endAt      DateTime?
+  usageLimit Int?
+  usageCount Int       @default(0)
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  redemptions PromoRedemption[]
+
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([active])
+  @@index([startAt, endAt])
+}
+
+model PromoRedemption {
+  id         String    @id @default(cuid())
+  tenantId   String
+  storeId    String
+  promoId    String
+  promo      PromoRule @relation(fields: [promoId], references: [id], onDelete: Cascade)
+  customerId String?
+  deviceId   String?
+  orderId    String? // optional future integration
+  redeemedAt DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([promoId])
+  @@index([customerId])
+  @@index([redeemedAt])
+}
+
+// Signage/Playlist Engine v1
+// Translation support: The original fields (tags, used as name/display label) are the authoritative source language content.
+// The translations JSON field stores AI-generated or manually edited translations, keyed by language code.
+// Example structure: { "en": { "name": "..." }, "vi": { "name": "..." } }
+model SignageAsset {
+  id           String   @id @default(cuid())
+  tenantId     String
+  storeId      String
+  type         String // "image" | "video" | "html"
+  url          String
+  durationS    Int // seconds (renamed from duration for consistency)
+  tags         String? // Display name/label for the asset
+  translations Json? // Translations keyed by language code: { "en": { "name": "..." }, "vi": { "name": "..." } }
+  createdAt    DateTime @default(now())
+
+  playlistItems PlaylistItem[]
+
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([type])
+}
+
+model PlaylistSchedule {
+  id            String    @id @default(cuid())
+  tenantId      String
+  storeId       String
+  playlistId    String
+  playlist      Playlist  @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  deviceId      String?
+  deviceGroupId String?
+  startAt       DateTime?
+  endAt         DateTime?
+  daysOfWeek    String? // e.g. "1,2,3,4,5"
+  timeRange     String? // e.g. "08:00-11:00"
+
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([playlistId])
+  @@index([deviceId])
+}
+
+// Device Engine v1
+model Device {
+  id                   String    @id @default(cuid())
+  tenantId             String
+  storeId              String
+  pairingCode          String?   @unique
+  status               String    @default("offline") // "online" | "offline" | "degraded"
+  type                 String? // "screen" | "pos" | "drone" | "robot" | "other"
+  name                 String?
+  model                String?
+  location             String?
+  appVersion           String?
+  platform             String? // Platform identifier (e.g., "browser-player", "android_tv")
+  orientation          String?   @default("horizontal") // "horizontal" | "vertical" - Display orientation for Device V2
+  lastSeenAt           DateTime?
+  lastScreenshotBase64 String? // Base64 encoded screenshot (dev only, will migrate to S3 URL)
+  lastScreenshotAt     DateTime? // When screenshot was taken
+  lastPlaybackReportAt     DateTime? // Last nested playbackReport on heartbeat
+  playbackReportIsPlaying  Boolean? // Client-reported isPlaying
+  playbackReportState      String? // Client-reported state (short string)
+
+  capabilities DeviceCapability[]
+  snapshots    DeviceStateSnapshot[]
+  bindings     DevicePlaylistBinding[]
+  commands     DeviceCommand[]
+  logs         DeviceLog[]
+  alerts       DeviceAlert[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([status])
+  @@index([pairingCode])
+  @@index([lastSeenAt])
+}
+
+// Device Engine V2 Pairing - Dashboard-initiated pairing codes
+model DevicePairing {
+  id          String    @id @default(cuid())
+  tenantId    String
+  storeId     String
+  pairingCode String    @unique
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  status      String    @default("pending") // "pending" | "completed" | "expired"
+  deviceId    String?   // Filled once device is created/updated
+  deviceLabel String?   // Optional label from dashboard
+
+  @@index([pairingCode])
+  @@index([tenantId, storeId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model DeviceCapability {
+  id           String   @id @default(cuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  capabilities Json // JSON object: { video: true, image: true, audio: true, camera: false, ... }
+  updatedAt    DateTime @updatedAt
+
+  @@unique([deviceId])
+}
+
+model DeviceStateSnapshot {
+  id              String   @id @default(cuid())
+  deviceId        String
+  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  playlistVersion String?
+  storageFreeMb   Int?
+  wifiStrength    Int?
+  errorCodes      String? // comma separated or JSON
+  createdAt       DateTime @default(now())
+
+  @@index([deviceId, createdAt])
+}
+
+model DevicePlaylistBinding {
+  id           String   @id @default(cuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  playlistId   String
+  version      String
+  lastPushedAt DateTime @default(now())
+  status       String   @default("pending") // "ready" | "pending" | "failed"
+
+  @@unique([deviceId, playlistId])
+  @@index([deviceId])
+  @@index([playlistId])
+  @@index([status])
+}
+
+model DeviceCommand {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  type      String // 'play' | 'pause' | 'next' | 'previous' | 'reloadPlaylist' | 'setPlaylistIndex' | 'setVolume' | 'setBrightness' | 'screenshot'
+  payload   Json?
+  status    String   @default("pending") // 'pending' | 'sent' | 'executed' | 'failed'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([deviceId])
+  @@index([deviceId, status])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// System Watcher - Event tracking
+model SystemEvent {
+  id        String   @id @default(cuid())
+  source    String // "device" | "orchestrator" | "dashboard"
+  type      String // Event type (e.g., "heartbeat", "playback_start", "error")
+  deviceId  String?
+  tenantId  String?
+  severity  String   @default("info") // "info" | "low" | "medium" | "high" | "critical"
+  payload   Json? // Flexible JSON payload
+  createdAt DateTime @default(now())
+
+  @@index([source])
+  @@index([type])
+  @@index([deviceId])
+  @@index([tenantId])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+// System Watcher - Insights
+model SystemInsight {
+  id        String   @id @default(cuid())
+  title     String
+  severity  String   @default("info") // "info" | "low" | "medium" | "high" | "critical"
+  category  String // "devices" | "ai_pipelines" | "campaigns" | "performance" | "security" | "other"
+  summary   String
+  payload   Json? // Full insight object as JSON
+  createdAt DateTime @default(now())
+
+  @@index([severity])
+  @@index([category])
+  @@index([createdAt])
+}
+
+// Device Logs - Activity and event logging for devices
+model DeviceLog {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  source    String // 'command' | 'playlist' | 'heartbeat' | 'pairing' | 'screenshot' | 'system'
+  level     String   @default("info") // 'debug' | 'info' | 'warn' | 'error'
+  message   String
+  payload   Json? // Additional context data
+  createdAt DateTime @default(now())
+
+  @@index([deviceId])
+  @@index([deviceId, createdAt])
+  @@index([source])
+  @@index([level])
+  @@index([createdAt])
+}
+
+// Device alerts - raised when devices detect connection issues or other problems
+model DeviceAlert {
+  id            String    @id @default(cuid())
+  deviceId      String
+  device        Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  type          String // 'connection_lost' | 'pair_request' | legacy alert codes
+  status        String    @default("pending") // 'pending' | 'acknowledged'
+  reason        String? // Reason code provided by device (e.g., "connection_lost")
+  message       String? // Short description of the alert
+  deviceType    String? // Cached device type (screen/tablet/etc.)
+  ip            String? // Source IP provided by the device
+  engineVersion String? // Device engine version (e.g., "DEVICE v2")
+  env           String? // Environment (e.g., "DEV", "PROD")
+  resolved      Boolean   @default(false) // Legacy flag – derived from status
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  @@index([deviceId])
+  @@index([deviceId, createdAt])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// RAG (Retrieval-Augmented Generation) - Knowledge base chunks
+model RagChunk {
+  id         String   @id @default(cuid())
+  scope      String // e.g. "device_engine", "dashboard", "content_studio", "tenant_activity"
+  sourcePath String // Relative path to source file
+  chunkIndex Int // Sequential chunk index within the file
+  content    String // Chunk text content
+  embedding  Bytes? // Vector embedding (backend-agnostic, can be swapped to pgvector later)
+  tenantId   String? // Optional tenant ID for tenant-specific reports
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([sourcePath, chunkIndex])
+  @@index([scope])
+  @@index([scope, tenantId])
+  @@index([sourcePath, chunkIndex])
+}
+
+// Activity Event - Tracking system events for reporting and analytics
+model ActivityEvent {
+  id       String  @id @default(cuid())
+  tenantId String?
+  deviceId String? // for device-related events
+  storeId  String? // for store-related events
+  userId   String? // dashboard user (optional)
+
+  type       String // e.g. "device_heartbeat", "playlist_assigned", "error", "feedback_negative"
+  payload    Json // normalized JSON payload
+  occurredAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, occurredAt])
+  @@index([deviceId, occurredAt])
+  @@index([storeId, occurredAt])
+  @@index([type, occurredAt])
+}
+
+// Tenant Report - Generated reports for tenants
+model TenantReport {
+  id        String @id @default(cuid())
+  tenantId  String
+  // "daily_tenant", "device_daily", "playlist_summary", etc
+  kind      String
+  // e.g. "2025-12-05" or "2025-12-05T00:00:00Z"
+  periodKey String
+
+  title     String
+  contentMd String // markdown report content
+  scope     String // e.g. "tenant_activity"
+  tags      String? // comma-separated tags for quick filtering
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, kind, periodKey])
+}
+
+// Tenant Insight - AI-generated insight cards from reports
+model TenantInsight {
+  id        String   @id @default(cuid())
+  tenantId  String
+  reportId  String? // Link to TenantReport table
+  kind      String // e.g. 'daily_tenant', 'weekly_tenant', 'device_activity', 'content_studio_activity', 'campaign_performance'
+  severity  String // 'info' | 'warning' | 'opportunity'
+  title     String
+  summaryMd String // Markdown summary body rendered in UI
+  tags      String? // Comma-separated tags, e.g. 'risk,device'
+  periodKey String
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, kind])
+  @@index([tenantId, createdAt])
+  @@index([reportId])
+}
+
+// Orchestrator Task - Tracks AI button actions and agent executions
+model OrchestratorTask {
+  id         String   @id @default(cuid())
+  entryPoint String // e.g. "device_health_check", "campaign_strategy_review"
+  tenantId   String
+  userId     String
+  insightId  String? // Link to TenantInsight if triggered from insight
+  missionId  String?  // Set at job start when a Mission row is created (Task A / M2)
+  status     String // "queued" | "running" | "completed" | "failed"
+  request    Json // Full request payload
+  result     Json? // Agent execution result
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  messages AgentMessage[] // Optional: messages for this task when missionId = id
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status])
+  @@index([entryPoint])
+  @@index([insightId])
+  @@index([missionId])
+}
+
+// LLM response cache v1: tenant-scoped, purpose, TTL, access tracking.
+model LlmCache {
+  id             String   @id @default(cuid())
+  tenantKey      String   @default("global")
+  purpose        String   @default("llm")
+  promptHash     String
+  provider       String
+  model          String   @default("")
+  response       String
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+  lastAccessedAt DateTime @default(now())
+  hitCount       Int      @default(0)
+
+  @@unique([tenantKey, purpose, promptHash, provider, model], name: "LlmCache_key")
+  @@index([expiresAt])
+  @@index([tenantKey, expiresAt])
+  @@index([tenantKey, lastAccessedAt])
+}
+
+// LLM budget guard v1: per-tenant daily usage (calls + estimated tokens).
+model LlmUsageDaily {
+  id        String   @id @default(cuid())
+  tenantKey String
+  purpose   String
+  provider  String
+  model     String   @default("")
+  day       String   // UTC day bucket "YYYY-MM-DD"
+
+  calls    Int @default(0)
+  tokensIn Int @default(0)
+  tokensOut Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantKey, purpose, provider, model, day], name: "LlmUsageDaily_key")
+  @@index([tenantKey, day])
+  @@index([day])
+}
+
+// Reward model: score each orchestrator run on tool completeness and outcome quality (loosely coupled to OrchestratorTask).
+model OrchestratorRunReward {
+  id                    String   @id @default(cuid())
+  orchestratorTaskId    String
+  missionId             String
+  tenantId              String
+  toolCompletenessScore Float
+  outcomeQualityScore   Float
+  overallReward         Float
+  details               Json?
+  createdAt             DateTime @default(now())
+
+  @@index([orchestratorTaskId])
+  @@index([missionId])
+  @@index([tenantId])
+  @@index([createdAt])
+}
+
+// Paid AI idempotency: one running job per (userId, refId, actionName). Credits consumed only when job succeeds.
+model PaidAiJob {
+  id        String   @id @default(cuid())
+  userId    String
+  refId     String   // draftId or other ref (e.g. draft store id)
+  actionName String  // e.g. "draft.generate.ai.full"
+  status    String   // "running" | "succeeded" | "failed"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, refId, actionName])
+  @@index([userId, status])
+  @@index([refId])
+}
+
+// Mission: registry for agent-chat missions (id can match OrchestratorTask.id or stand alone)
+model Mission {
+  id              String    @id // use existing missionId values; no new id format
+  tenantId        String
+  createdByUserId String
+  title           String?
+  status          String    @default("active") // v0: string; when adding logic convert to enum to prevent typo-states (e.g. active|running|waiting_approval|paused|blocked|completed|failed)
+  context         Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  createdBy      User             @relation("MissionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  agentRuns      AgentRun[]
+  intentRequests IntentRequest[]
+  missionBlackboard MissionBlackboard[]
+
+  @@index([tenantId, updatedAt])
+  @@index([createdByUserId, updatedAt])
+}
+
+// Multi-agent coordination: append-only event log keyed by missionId (Performer blackboard UI).
+// JSON text column (works with SQLite DDL and Postgres; same shape as app serializeBlackboardPayload).
+model MissionBlackboard {
+  id            String   @id @default(cuid())
+  missionId     String
+  seq           Int
+  eventType     String
+  payload       String   @default("{}")
+  agentId       String?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@unique([missionId, seq])
+  @@index([missionId, seq])
+  @@index([missionId, createdAt])
+  @@index([correlationId])
+}
+
+// M1.5 Single Runway: durable Mission Inbox. Outcome UIs create intents here; only Mission Execution runs orchestrator.
+// type = user intent (e.g. rewrite_descriptions, generate_tags). agent = orchestrator target (e.g. CopyAgent, CatalogAgent) for M3.
+model IntentRequest {
+  id        String   @id @default(cuid())
+  missionId String
+  userId    String   // requester (must match mission owner for create/read/run)
+  type      String   // user intent: generate_tags, rewrite_descriptions, generate_store_hero, fix_catalog
+  agent     String?  // optional: target agent for orchestrator (e.g. CopyAgent, CatalogAgent, MediaAgent); simplifies M3 routing
+  payload   Json?    // storeId, draftId, generationRunId, etc.
+  result    Json?    // after run: artifact links, fieldsChanged, summary (v0)
+  status    String   @default("queued") // queued | running | completed | failed | cancelled
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([missionId, status])
+  @@index([missionId, createdAt])
+}
+
+// M3 v0: append-only mission event stream for Agent Timeline (started/progress/completed/failed/needs_input).
+model MissionEvent {
+  id        String   @id @default(cuid())
+  missionId String
+  intentId  String?
+  agent     String   // e.g. "orchestrator" | "catalog" | "media"
+  type      String   // started | progress | needs_input | completed | failed
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([missionId, createdAt])
+  @@index([intentId, createdAt])
+}
+
+// Persist mission executions (research, planner, etc.)
+model AgentRun {
+  id                String    @id @default(cuid())
+  missionId         String
+  tenantId          String
+  agentKey          String    // e.g. "research", "planner"
+  triggerMessageId  String?
+  status            String    @default("queued") // v0: string; later convert to enum
+  input             Json?
+  output            Json?
+  error             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  mission   Mission     @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  assignment Assignment? @relation("AssignmentToAgentRun")
+
+  @@index([missionId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([status, updatedAt])
+}
+
+// AI Operator: per-mission run state (build_store and future mission types)
+model MissionRun {
+  id                     String   @id @default(cuid())
+  missionId              String   // dashboard mission id (localStorage key or future backend mission id)
+  missionType            String   // 'build_store' | ...
+  goal                   String?  // text goal
+  tenantId               String?
+  userId                 String?
+  currentStage           String   @default("planning") // planning | running_job | checking_draft | awaiting_review | publishing
+  currentDraftId        String?
+  currentJobId           String?
+  currentGenerationRunId String?
+  currentStoreId         String?
+  attempts               Int      @default(0)
+  maxAttempts            Int      @default(20)
+  status                 String   @default("running") // running | succeeded | failed | needs_human
+  lastError              Json?
+  artifactSnapshot       Json?
+  agentThreadId          String?  // ConversationThread.id for Agent Chat "Advanced view"
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([missionId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ---- Bidding / matching + learning layer ----
+
+// Task submitted to the auction (one per user intent or decomposed step).
+model AgentTask {
+  id             String   @id @default(cuid())
+  missionId      String
+  userMessageId  String?
+  type           String   // e.g. "plan_marketing" | "do_research" | "summarize_card"
+  payload        Json?    // arguments, parsed intent, etc.
+  status         String   @default("pending") // "pending" | "assigned" | "completed" | "failed"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  bids         Bid[]
+  assignments  Assignment[]
+
+  @@index([missionId, createdAt])
+  @@index([status])
+  @@index([type])
+}
+
+// Agent capabilities and learned stats (one row per agentKey).
+model AgentProfile {
+  id                 String   @id @default(cuid())
+  agentKey           String   @unique // e.g. "planner" | "research" | "ocr"
+  skills             Json?    // string[] or typed JSON
+  baseQuality        Float    @default(0.8)  // 0-1 prior
+  baseCost           Float    @default(1)    // cost weight
+  baseLatency        Int      @default(5000) // ms estimate
+  reliabilityScore   Float    @default(0.8)  // 0-1, updated from history
+  maxConcurrency     Int      @default(5)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([agentKey])
+}
+
+// One bid per (task, agent) from the auction.
+model Bid {
+  id         String   @id @default(cuid())
+  taskId     String
+  agentKey   String
+  score      Float
+  components Json?    // { qualityEstimate, cost, latency, explorationBonus }
+  rationale  String?
+  createdAt  DateTime @default(now())
+
+  task AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, agentKey])
+  @@index([taskId])
+  @@index([agentKey])
+}
+
+// Winning assignment: links task to agent and optional run; stores outcome metrics.
+model Assignment {
+  id            String    @id @default(cuid())
+  taskId        String
+  agentKey      String
+  agentRunId    String?   @unique
+  matchedScore  Float
+  assignedAt    DateTime  @default(now())
+  completedAt   DateTime?
+  success       Boolean?
+  metrics       Json?     // { latencyMs, tokensUsed, userSatisfaction, autoQualityScore, reward }
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  task     AgentTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agentRun AgentRun?  @relation("AssignmentToAgentRun", fields: [agentRunId], references: [id], onDelete: SetNull)
+  feedback InteractionFeedback[]
+
+  @@index([taskId])
+  @@index([agentKey])
+  @@index([agentRunId])
+  @@index([assignedAt])
+}
+
+// User or system feedback on an assignment (for reward and learning).
+model InteractionFeedback {
+  id                  String   @id @default(cuid())
+  missionId           String
+  userMessageId       String?
+  assignmentId        String
+  userRating          String?   // "1"-"5" or "thumbs_up" | "thumbs_down"
+  systemQualityScore  Float?
+  comment             String?
+  createdAt           DateTime @default(now())
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([missionId])
+  @@index([assignmentId])
+}
+
+// Conversation thread (tenant-scoped): mission-bound agent conversations with participants
+model ConversationThread {
+  id              String    @id @default(cuid())
+  tenantId        String
+  title           String?
+  missionId       String?   // OrchestratorTask.id or mission id; getOrCreateMission when omitted
+  createdByUserId String
+  status          String    @default("active") // 'active' | 'archived'
+  kind            String?   // 'mission_bound' | 'store_default' | 'user_default' (for resolve-scope find-or-create)
+  scopeKey        String?   // e.g. 'store:<storeId>', 'user:<userId>' for stable lookup
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  createdBy    User                @relation("ConversationThreadCreator", fields: [createdByUserId], references: [id])
+  participants ThreadParticipant[]
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, updatedAt])
+  @@index([missionId])
+  @@index([createdByUserId])
+  @@index([kind])
+  @@unique([scopeKey])
+}
+
+// Participants in a conversation thread (user or agent)
+model ThreadParticipant {
+  id              String   @id @default(cuid())
+  threadId        String
+  participantType String   // 'user' | 'agent'
+  participantId   String   // userId or agentKey (planner, research, etc.)
+  role            String   // 'owner' | 'member' | 'viewer'
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  thread ConversationThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, participantType, participantId])
+  @@index([threadId])
+  @@index([threadId, participantType])
+  @@index([threadId, createdAt])
+}
+
+// Chat thread: optional grouping for agent conversations (backwards-compatible with missionId-only flow)
+model ChatThread {
+  id              String   @id @default(cuid())
+  missionId       String?  // optional link to mission/orchestrator
+  title           String?
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  createdBy    User                     @relation("ChatThreadCreator", fields: [createdByUserId], references: [id])
+  participants ChatThreadParticipant[]
+  messages     AgentMessage[]
+
+  @@index([missionId])
+  @@index([createdByUserId])
+}
+
+// Participants in a chat thread (users or agents)
+model ChatThreadParticipant {
+  id              String   @id @default(cuid())
+  threadId        String
+  participantType String   // 'user' | 'agent'
+  participantId   String   // userId or agentId/role
+  role            String   // 'owner' | 'member' | 'viewer'
+  joinedAt        DateTime @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+  @@index([threadId, participantType])
+}
+
+// Multi-agent communication layer: user vs AI vs agents
+model AgentMessage {
+  id            String   @id @default(cuid())
+  missionId     String   // link to OrchestratorTask.id or a generic mission id
+  senderType    String   // 'user' | 'orchestrator' | 'agent'
+  senderId      String   // userId, agentId, or 'cardbey-orchestrator'
+  visibleToUser Boolean  @default(true)
+  channel       String   // 'main' | 'research' | 'dev' | 'content' | etc.
+  performative  String?  // 'inform' | 'request' | 'critique' | 'handoff' | etc.
+  messageType   String   @default("text") // 'text' | structured type for payload
+  content       Json     // { text?, ... } for display
+  payload       Json?    // structured message payload (size-limited at API)
+  createdAt     DateTime @default(now())
+
+  // Optional relation when missionId refers to an OrchestratorTask
+  taskId       String?
+  task         OrchestratorTask? @relation(fields: [taskId], references: [id])
+  // Optional thread; Agent Chat continues to work by missionId until we switch
+  threadId     String?
+  thread       ChatThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+
+  @@index([missionId])
+  @@index([missionId, channel])
+  @@index([createdAt])
+  @@index([threadId])
+}
+
+// Per-mission Agent Chat options (e.g. toggle Research Agent)
+model AgentChatConfig {
+  id               String   @id @default(cuid())
+  missionId        String   @unique
+  useResearchAgent Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
+
+  @@index([missionId])
+}
+
+// Executable tasks derived from planner plan_update (Next Steps). Replaces passive suggestion chips with task list.
+model MissionTask {
+  id                   String   @id @default(cuid())
+  missionId            String
+  title                String
+  normalizedLabel      String?  // trim, lowercase, single-space for deduplication
+  description          String?
+  status               String   @default("pending") // "pending" | "running" | "completed" | "skipped" | "review"
+  sourceMessageId      String   // plan_update message id
+  chainId              String?
+  suggestionId         String?
+  agentKey             String?  // e.g. "planner" | "research" for dispatch (legacy)
+  agentKeyRecommended  String?  // recommended agent for this task
+  intent               String?  // for dispatch and executor routing
+  risk                 String?  // "R0"|"R1"|"R2"|"R3" for UI (Execute hidden if R3)
+  lastRunId            String?  // last AgentRun id linked to this task
+  meta                 Json?    // e.g. { lastError } on failure
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([missionId, sourceMessageId, normalizedLabel])
+  @@index([missionId, createdAt])
+}
+
+// MI (Merged Intelligence) Entity - Mini-brains attached to products
+model MIEntity {
+  id String @id @default(cuid())
+
+  // Product identification
+  productId   String // The ID of the product/asset/report (matches productId in MIEntity type)
+  productType String // "poster" | "video" | "pdf_report" | "packaging" | "screen_item" | "generic"
+  mediaType   String // "image" | "video" | "pdf" | "print_layout" | "text" | "3d"
+
+  // Format information
+  fileUrl     String // Main asset URL
+  previewUrl  String? // Thumbnail/preview URL
+  dimensions  String? // e.g. "1080x1920"
+  orientation String? // "vertical" | "horizontal" | "square" | "flat"
+  durationSec Int? // For videos
+
+  // Origin tracking
+  createdByUserId String // User who created the asset
+  createdByEngine String // e.g. "creative_engine_v3"
+  sourceProjectId String? // Campaign/project ID
+  createdAt       DateTime @default(now())
+
+  // Context
+  tenantId   String?
+  storeId    String?
+  campaignId String?
+
+  // Links to other entities (only one should be set)
+  creativeAssetId String? // Link to SignageAsset or MediaAsset
+  reportId        String? // Link to TenantReport
+  screenItemId    String? // Link to PlaylistItem or Screen asset
+  packagingId     String? // Future: link to packaging records
+
+  // MI Brain - the core intelligence metadata
+  miBrain Json // Full MIBrain object (role, intent, context, capabilities, behaviorRules, etc.)
+
+  // Lifecycle
+  status    String    @default("active") // "active" | "paused" | "expired" | "draft"
+  validFrom DateTime?
+  validTo   DateTime?
+
+  updatedAt  DateTime @updatedAt
+  templateId String? // Link to CreativeTemplate
+
+  @@unique([creativeAssetId])
+  @@unique([reportId])
+  @@unique([screenItemId])
+  @@unique([packagingId])
+  @@unique([templateId])
+  @@index([productId])
+  @@index([productType])
+  @@index([tenantId])
+  @@index([storeId])
+  @@index([campaignId])
+  @@index([creativeAssetId])
+  @@index([reportId])
+  @@index([screenItemId])
+  @@index([status])
+  @@index([createdByUserId])
+  @@index([templateId])
+}
+
+// Creative Template - Reusable design templates for the Creative Engine
+// Templates can be system-wide (tenantId/storeId = null) or tenant/store-specific
+// 
+// Template Engine v1: Extended with fields (TemplateSlot[]) and aiContext for context merging
+// These fields are generic and intended to be reused by future VideoTemplate, ReportTemplate, etc.
+model CreativeTemplate {
+  id            String   @id @default(cuid())
+  tenantId      String? // null = global/system template
+  storeId       String?
+  name          String
+  description   String?
+  thumbnailUrl  String?
+  baseContentId String? // Optional FK to Content/base design
+  channels      String   @default("[]") // JSON array: ["cnet_screen", "social_feed"]
+  role          String? // e.g. "in_store_attractor", "menu_page"
+  primaryIntent String? // e.g. "attract_attention_to_promo"
+  orientation   String? // "horizontal" | "vertical" | "square" | "portrait" | "landscape"
+  minDurationS  Int? // Recommended min duration in seconds
+  maxDurationS  Int? // Recommended max duration in seconds
+  tags          String   @default("[]") // JSON array: ["food", "sale", "brand"]
+  // Phase 2: Business type and use case metadata for starter kit selection
+  businessCategories Json? // JSON array: ["cafe", "restaurant", "bakery"] - business types this template is suitable for
+  useCases           Json? // JSON array: ["hero", "menu", "promo", "social"] - use cases this template supports
+  styleTags          Json? // JSON array: ["modern", "playful", "minimal", "bold"] - style characteristics
+  isSystem      Boolean  @default(false) // System templates vs user templates
+  isActive      Boolean  @default(true)
+  // Template Engine v1: Generic fields/slots and AI context (reusable for future template types)
+  fields        Json? // TemplateSlot[] array: placeholder definitions with sourceKey for auto-fill
+  aiContext     Json? // TemplateAIContext: tone, audience, language, styleHints, etc.
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, storeId])
+  @@index([role, primaryIntent])
+  @@index([orientation])
+  @@index([isActive])
+  @@index([isSystem])
+}
+
+// MI Greeting Cards - User-generated greeting cards with sharing
+model GreetingCard {
+  id String @id @default(cuid())
+
+  // Owner
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // Classification
+  type        String // e.g. "christmas_2025", "newyear_2026", "generic"
+  templateKey String // e.g. "C1_CLASSIC_GOLD", "NY1_FIREWORKS"
+
+  // Content/meta
+  title         String? // Optional user-friendly title
+  message       String? // Optional top-level greeting text
+  coverImageUrl String? // Thumbnail/preview for listing
+  mediaUrl      String? // Generated video/animation URL (if applicable)
+  payloadJson   Json? // Arbitrary template data layers, MI parameters, config, etc.
+
+  // Sharing
+  shareSlug   String    @unique
+  isPublished Boolean   @default(false)
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([shareSlug])
+  @@index([isPublished])
+  @@index([type])
+}
+
+// MI Video Templates - Video background templates for greeting cards
+model MiVideoTemplate {
+  id             String   @id @default(cuid())
+  key            String   @unique // e.g. "XMAS_GOLD_LOOP_1"
+  label          String // human name
+  occasionType   String // e.g. "christmas_2025", "newyear_2026", "generic"
+  orientation    String // "landscape" | "vertical"
+  backgroundUrl  String // MP4/WebM URL
+  posterUrl      String // preview image URL
+  textZonesJson  Json // config for title/message/signature zones
+  textStylesJson Json // config for text styles (colors, shadows, etc.)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([occasionType])
+  @@index([orientation])
+  @@index([isActive])
+}
+
+// MI Music Tracks - Background music catalog for greeting cards and slideshows
+model MiMusicTrack {
+  id        String   @id @default(cuid())
+  key       String   @unique // e.g. "cozy_fireplace"
+  name      String // "Cozy Fireplace Piano"
+  category  String // "christmas_2025" | "generic"
+  audioUrl  String // MP3/OGG URL (relative or absolute)
+  duration  Int? // seconds, optional
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@index([key])
+}
+
+// Password reset token (hashed); one-time use, short-lived
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    // SHA-256 of raw token
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+// Draft Store - Temporary store previews before user signup
+model DraftStore {
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  expiresAt       DateTime  // Will be set to now + 48 hours in service
+  mode            String    // 'ai' | 'ocr' | 'template' | 'personal'
+  status          String    @default("draft") // 'draft' | 'generating' | 'ready' | 'failed' | 'committed' | 'abandoned'
+  generationRunId String?   @unique // O(1) lookup for MI job run; also stored in input JSON for backward compatibility
+  input           Json      // Stores prompt, businessType, location, templateId, uploaded media references, etc.
+  preview         Json?    // Generated preview payload: storeName, slogan, categories, items, assets
+  error           String?   // Store stack/err summary (user-safe message)
+  errorCode       String?   // Structured code for UI: AUTH_REQUIRED_FOR_AI, INSUFFICIENT_CREDITS, etc.
+  recommendedAction String? // login | topup | adjust | fixInput | retry | startOver
+  committedAt     DateTime? // Timestamp when draft was committed
+  committedStoreId String?  // When committed, link to Business.id
+  committedUserId  String?  // When committed, link to User.id
+  ownerUserId     String?   // Set when draft is created by authed user, or when claimed via /api/draft-store/claim
+  ownerUser       User?     @relation("DraftStoreOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  guestSessionId  String?   // Set when draft is created by guest (cookie/header); used for claim
+  ipHash          String?   // Optional: hashed IP for rate limiting
+  userAgent       String?   // Optional: user agent string
+
+  workflowRuns WorkflowRun[]     // Phase 1: workflow tracking (e.g. store_creation)
+  workflowIncidents WorkflowIncident[]
+
+  @@index([expiresAt])
+  @@index([status])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([committedStoreId])
+  @@index([committedUserId])
+  @@index([ownerUserId])
+  @@index([guestSessionId])
+}
+
+// Phase 1: Make One Workflow Real (workflowKey = store_creation)
+model WorkflowRun {
+  id            String    @id @default(cuid())
+  workflowKey   String    // e.g. "store_creation"
+  draftStoreId  String?   // Optional link to DraftStore
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime? // Set when run completes or fails
+  status        String    // e.g. "running" | "completed" | "failed"
+  failureCode   String?   // Structured code when status = failed
+  meta          Json?     // Optional extra payload
+  createdAt     DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  draftStore    DraftStore? @relation(fields: [draftStoreId], references: [id], onDelete: SetNull)
+  incidents     WorkflowIncident[]
+
+  @@index([workflowKey])
+  @@index([draftStoreId])
+  @@index([startedAt])
+  @@index([status])
+}
+
+model WorkflowIncident {
+  id           String    @id @default(cuid())
+  workflowKey  String
+  severity     String    // e.g. "warning" | "error" | "critical"
+  draftStoreId String?
+  runId        String?
+  reasonKey    String    // Structured reason code
+  summary      String
+  evidence     Json      // JSON blob (logs, payload snippet, etc.)
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+
+  draftStore   DraftStore?   @relation(fields: [draftStoreId], references: [id], onDelete: SetNull)
+  run          WorkflowRun?  @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([workflowKey])
+  @@index([draftStoreId])
+  @@index([runId])
+  @@index([createdAt])
+}
+
+model WorkflowReport {
+  id         String   @id @default(cuid())
+  workflowKey String
+  periodStart DateTime
+  periodEnd   DateTime
+  payload    Json     // Aggregated metrics/summary JSON
+  createdAt  DateTime @default(now())
+
+  @@index([workflowKey])
+  @@index([periodStart, periodEnd])
+}
+
+// Phase 0: In-app notifications (e.g. QA autofix). userId can be User.id or guest_<sessionId>.
+model Notification {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  userId    String
+  draftId   String?
+  type      String    // 'qa_autofix'
+  title     String
+  message   String
+  meta      Json?
+  readAt    DateTime?
+
+  @@index([userId, createdAt])
+}
+
+// Seed catalog cache: fetched item names per vertical when no template pack exists (Wikidata/open data).
+model SeedCatalog {
+  id           String   @id @default(cuid())
+  verticalSlug String   // e.g. entertainment.game_centre, retail.furniture
+  subIntent    String   @default("") // e.g. "" or "kids" for fashion.kids
+  itemsJson    String   // JSON array of { name: string, description?: string }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([verticalSlug, subIntent])
+  @@index([verticalSlug])
+  @@index([updatedAt])
+}
+
+// Content ingest samples (dev-only, gated by ENABLE_CONTENT_INGEST_LOGS) for Content Library datasets
+model ContentIngestSample {
+  id                   String    @id @default(cuid())
+  createdAt            DateTime  @default(now())
+  generationRunId      String?
+  jobId                String?
+  draftId              String?
+  sourceType           String    // "form"|"voice"|"ocr"|"url"|"template"
+  goal                 String    // "build_store"|"build_store_from_menu"|...
+  mode                 String    // "ai"|"template"|"ocr"
+  includeImages        Boolean   @default(true)
+  templateKey         String?
+  websiteDomain       String?
+  vertical             String?
+  rawInputSanitized    String?   // max 800 chars, PII-scrubbed
+  ocrTextSanitized    String?   // max 1200 chars, PII-scrubbed; only for OCR
+  outputCatalog        Json      // { categories: [{ name }], items: [{ name, description?, categoryName? }] }
+  meta                 Json?    // optional: locale, currency, itemCount, categoryCount
+
+  @@index([createdAt])
+  @@index([sourceType])
+  @@index([goal])
+  @@index([draftId])
+}
+
+// Smart Object - Dynamic QR codes for print/landing (e.g. print bag -> /q/:publicCode)
+model SmartObject {
+  id            String   @id @default(cuid())
+  publicCode    String   @unique // Short code for /q/:publicCode
+  storeId       String
+  productId     String?
+  type          String   @default("print_bag") // print_bag | promo_card | sticker | other
+  status        String   @default("active")
+  activePromoId String?  // Content.id or PromoInstance id - promo shown when scanning QR
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([storeId])
+  @@index([publicCode])
+  @@index([status])
+}
+
+// Intent Capture MVP: public offer page (title, price, description, store, CTA). Created from Mission only.
+model StoreOffer {
+  id          String    @id @default(cuid())
+  storeId     String
+  slug        String    // URL slug for /p/:storeSlug/offers/:slug (unique per store)
+  title       String
+  description String?
+  priceText   String?   // e.g. "$10" or "Free"
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+  @@index([storeId])
+  @@index([isActive])
+}
+
+// Intent Capture: page view + QR scan signals (no auth).
+model IntentSignal {
+  id        String   @id @default(cuid())
+  type      String   // "page_view" | "qr_scan" | "offer_view"
+  storeId   String
+  offerId   String?
+  code      String?  // QR code scanned (e.g. DynamicQr.code)
+  userAgent String?
+  referrer  String?
+  createdAt DateTime @default(now())
+
+  @@index([storeId])
+  @@index([offerId])
+  @@index([type, createdAt])
+}
+
+// IntentOpportunity v0: derived from IntentSignal; accepted -> IntentRequest (single runway).
+model IntentOpportunity {
+  id                    String   @id @default(cuid())
+  storeId               String
+  offerId               String?
+  type                  String   // e.g. high_views_no_qr, low_traffic, recent_interest
+  severity              String   @default("medium") // high | medium | low
+  status                String   @default("open")   // open | accepted | later | dismissed
+  summary               String
+  evidence              Json?    // counts, window, etc.
+  recommendedIntentType String   // e.g. create_offer, create_qr_for_offer
+  payload               Json?    // suggested payload for IntentRequest
+  source                String   @default("rules")  // rules | llm_inference
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, source])
+  @@index([createdAt])
+}
+
+// Last opportunity inference run per store (for trigger: avoid re-running too frequently).
+model OpportunityInferenceRun {
+  id         String   @id @default(cuid())
+  storeId    String   @unique
+  lastRunAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([lastRunAt])
+}
+
+// Dynamic QR v0 - Editable destination (loyalty/discount/storefront/offer), same printed QR can be updated
+model DynamicQr {
+  id               String    @id @default(cuid())
+  code             String    @unique // Short code for /q/:code
+  storeId          String
+  type             String    // "storefront" | "loyalty" | "discount"
+  payload          Json?     // e.g. { promoId?, publicId?, percent?, code?, expiresAt? }
+  targetPath       String?   // Optional override path (relative or full)
+  isActive         Boolean   @default(true)
+  createdByUserId  String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  scanEvents ScanEvent[]
+
+  @@index([storeId])
+  @@index([code])
+  @@index([isActive])
+}
+
+// Scan event - one row per scan of a Dynamic QR (for analytics)
+model ScanEvent {
+  id          String    @id @default(cuid())
+  dynamicQrId String
+  dynamicQr   DynamicQr  @relation(fields: [dynamicQrId], references: [id], onDelete: Cascade)
+  storeId     String
+  scannedAt   DateTime  @default(now())
+  userAgent   String?
+  referer     String?
+
+  @@index([dynamicQrId])
+  @@index([storeId])
+  @@index([scannedAt])
+}
+
+// --- Legal Seed Library (ingested assets from Unsplash/Pexels/Pixabay etc.) ---
+// Used for image autofill; does not touch Draft → Preview → Publish flow.
+
+model SeedAsset {
+  id                String    @id @default(cuid())
+  provider          String    // e.g. "unsplash" | "pexels" | "pixabay"
+  providerAssetId   String    // provider's photo/asset id
+  sourcePageUrl     String?   // canonical page URL for attribution
+  photographerName  String?
+  photographerUrl   String?
+  licenseName       String?
+  licenseUrl        String?
+  attributionText   String?   // preformatted attribution line
+  width             Int?
+  height            Int?
+  orientation       String?   // "landscape" | "portrait" | "square"
+  tags              Json?     // JSON array of strings
+  vertical          String?   // e.g. "food" | "beauty" | "services"
+  categoryKey       String?   // e.g. "nails" | "burger" | "dessert"
+  sha256            String?   // hash of file for dedupe (unique when set)
+  status            String    @default("active") // "active" | "disabled" | "failed_validation" | "rejected"
+  rejectReason      String?   // optional reason when status=rejected (banlist)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  files             SeedAssetFile[]
+  ingestionJob      SeedIngestionJob? @relation("SeedIngestionJobAssets", fields: [ingestionJobId], references: [id], onDelete: SetNull)
+  ingestionJobId    String?
+
+  @@unique([provider, providerAssetId])
+  @@unique([sha256])
+  @@index([provider])
+  @@index([vertical])
+  @@index([categoryKey])
+  @@index([status])
+  @@index([ingestionJobId])
+}
+
+model SeedAssetFile {
+  id         String    @id @default(cuid())
+  seedAssetId String
+  seedAsset   SeedAsset @relation(fields: [seedAssetId], references: [id], onDelete: Cascade)
+  fileUrl    String    // full URL to image (or path if stored locally)
+  role       String    @default("full") // "full" | "thumb" | "small" | "medium"
+  width      Int?
+  height     Int?
+  mimeType   String?
+  createdAt  DateTime  @default(now())
+
+  @@index([seedAssetId])
+  @@index([role])
+}
+
+model SeedIngestionJob {
+  id            String    @id @default(cuid())
+  provider      String?   // e.g. "unsplash" | "pexels"
+  status        String    @default("running") // "running" | "completed" | "failed" | "cancelled"
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  meta          Json?     // e.g. { query, limit, cursor, fetchedCount }
+  errorMessage  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  assets        SeedAsset[] @relation("SeedIngestionJobAssets")
+
+  @@index([provider])
+  @@index([status])
+  @@index([startedAt])
+}

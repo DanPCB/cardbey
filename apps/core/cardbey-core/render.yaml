@@ -1,0 +1,42 @@
+# Render Blueprint (optional): create a Web Service from this repo with root
+# apps/core/cardbey-core or paste build/start into the dashboard.
+# DATABASE_URL and other secrets should be set in the Render dashboard (not committed).
+#
+# Pre-deploy checklist (dashboard env vars — do not commit secrets):
+#   Required: NODE_ENV, DATABASE_URL, JWT_SECRET, PUBLIC_BASE_URL, FRONTEND_URL, OPENAI_API_KEY, XAI_API_KEY
+#   LLM routing: AGENT_LLM_PROVIDER, AGENT_LLM_MODEL, PERFORMER_INTAKE_LLM_MODEL, PERFORMER_INTAKE_PLANNER_MODEL,
+#                PLANNER_TIMEOUT_MS (see .env.production.example)
+#   Feature flags: USE_LLM_TASK_PLANNER, ENABLE_OPENCLAW_AGENT_RUNTIME, OPENCLAW_MISSION_STEPS, LANGCHAIN_ENABLED,
+#                  ENABLE_PROACTIVE_CAMPAIGN_RUNWAY, ENABLE_OPENCLAW_REAL_CAMPAIGN_APIS, ALLOW_CONCURRENT_MISSION_STEPS
+#   CrewAI: CREWAI_ENABLED=false until Python/pip is available on the build image; pip step below is non-fatal.
+#
+# Post-deploy verification (first deploy):
+#   1) Render logs — server started cleanly:
+#        [SERVER] PUBLIC_BASE_URL: https://your-dashboard-domain.com
+#        [ProactiveStep] agent dispatch mode: OpenClaw (OPENCLAW_MISSION_STEPS=true)
+#        or [ProactiveStep] agent dispatch mode: dispatchTool if OpenClaw not enabled
+#   2) Health: curl https://your-api-domain.onrender.com/health
+#   3) Intake: curl -X POST https://your-api-domain.onrender.com/api/performer/intake \
+#        -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+#        -d '{"message": "Launch a marketing campaign"}'
+
+services:
+  - type: web
+    name: cardbey-core
+    env: node
+    buildCommand: npm install && npx prisma generate --schema prisma/postgres/schema.prisma && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    # npm start runs prestart (prisma-bootstrap: generate + migrate deploy) then the server.
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_LLM_TASK_PLANNER
+        value: "true"
+      - key: ENABLE_OPENCLAW_AGENT_RUNTIME
+        value: "true"
+      - key: OPENCLAW_MISSION_STEPS
+        value: "true"
+      - key: LANGCHAIN_ENABLED
+        value: "true"
+      - key: CREWAI_ENABLED
+        value: "false"

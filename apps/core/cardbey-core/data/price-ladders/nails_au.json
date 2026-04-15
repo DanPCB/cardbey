@@ -1,0 +1,12 @@
+{
+  "businessType": "nail_salon",
+  "region": "AU",
+  "currency": "AUD",
+  "byCategoryKey": {
+    "manicure": { "min": 30, "max": 55 },
+    "pedicure": { "min": 40, "max": 80 },
+    "gel": { "min": 45, "max": 70 },
+    "add_ons": { "min": 5, "max": 25 }
+  },
+  "defaults": { "min": 5, "max": 100 }
+}

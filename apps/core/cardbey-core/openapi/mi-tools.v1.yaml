@@ -1,0 +1,1359 @@
+openapi: 3.1.0
+info:
+  title: Cardbey MI Tool Contract API
+  version: 1.0.0
+  description: |
+    MI Tool Contract (v1) for Cardbey.
+    - Draft-first pattern: create/update/price are reversible; confirm is the commit point.
+    - Idempotency: all create/confirm accept idempotencyKey (server should enforce).
+    - Auth gating: tools may return requiresAuth=true + authGate="Gate1" + requiredFields.
+
+servers:
+  - url: https://api.cardbey.example.com
+    description: Production (placeholder)
+  - url: http://localhost:5174
+    description: Local dev (placeholder)
+
+tags:
+  - name: Store
+  - name: Catalog
+  - name: Availability
+  - name: Booking
+  - name: Order
+  - name: Payment
+  - name: Promo
+
+paths:
+  /mi/v1/store/search:
+    post:
+      tags: [Store]
+      operationId: storeSearchV1
+      summary: Search published stores (Explore/discovery)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreSearchRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreSearchResponse"
+
+  /mi/v1/store/get-public:
+    post:
+      tags: [Store]
+      operationId: storeGetPublicV1
+      summary: Get published store public snapshot by storeId or slug
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreGetPublicRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreGetPublicResponse"
+
+  /mi/v1/catalog/list:
+    post:
+      tags: [Catalog]
+      operationId: catalogListV1
+      summary: List catalog items (products/services) for a store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogListRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogListResponse"
+
+  /mi/v1/availability/get:
+    post:
+      tags: [Availability]
+      operationId: availabilityGetV1
+      summary: Get staff options and time slots for selected services on a date
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AvailabilityGetRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailabilityGetResponse"
+
+  /mi/v1/booking/draft/create:
+    post:
+      tags: [Booking]
+      operationId: bookingDraftCreateV1
+      summary: Create a booking draft (no commit)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingDraftCreateRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingDraftCreateResponse"
+
+  /mi/v1/booking/draft/update:
+    post:
+      tags: [Booking]
+      operationId: bookingDraftUpdateV1
+      summary: Update a booking draft (services/staff/time/notes/promo)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingDraftUpdateRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingDraftUpdateResponse"
+
+  /mi/v1/booking/price:
+    post:
+      tags: [Booking]
+      operationId: bookingPriceV1
+      summary: Price a booking draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingPriceRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingPriceResponse"
+
+  /mi/v1/booking/confirm:
+    post:
+      tags: [Booking]
+      operationId: bookingConfirmV1
+      summary: Confirm (commit) a booking draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookingConfirmRequest"
+      responses:
+        "200":
+          description: Envelope response (may include auth gate)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingConfirmResponse"
+
+  /mi/v1/order/draft/create:
+    post:
+      tags: [Order]
+      operationId: orderDraftCreateV1
+      summary: Create an order draft (cart to draft)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderDraftCreateRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDraftCreateResponse"
+
+  /mi/v1/order/draft/update:
+    post:
+      tags: [Order]
+      operationId: orderDraftUpdateV1
+      summary: Update an order draft (items/delivery/promo/notes)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderDraftUpdateRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDraftUpdateResponse"
+
+  /mi/v1/order/price:
+    post:
+      tags: [Order]
+      operationId: orderPriceV1
+      summary: Price an order draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderPriceRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderPriceResponse"
+
+  /mi/v1/order/confirm:
+    post:
+      tags: [Order]
+      operationId: orderConfirmV1
+      summary: Confirm (commit) an order draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderConfirmRequest"
+      responses:
+        "200":
+          description: Envelope response (may include auth gate)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderConfirmResponse"
+
+  /mi/v1/payment/intent/create:
+    post:
+      tags: [Payment]
+      operationId: paymentIntentCreateV1
+      summary: Create a payment intent for booking/order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentIntentCreateRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntentCreateResponse"
+
+  /mi/v1/promo/qr/create:
+    post:
+      tags: [Promo]
+      operationId: promoQrCreateV1
+      summary: Create a QR promo asset for a store/product/category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromoQrCreateRequest"
+      responses:
+        "200":
+          description: Envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoQrCreateResponse"
+
+  /mi/v1/store/publish:
+    post:
+      tags: [Store]
+      operationId: storePublishV1
+      summary: Publish a store live (commit)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StorePublishRequest"
+      responses:
+        "200":
+          description: Envelope response (may include auth gate/forbidden)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorePublishResponse"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # --------------------------
+    # Common envelope + errors
+    # --------------------------
+    MIRequestBase:
+      type: object
+      required: [requestId, actor, context, input]
+      properties:
+        requestId:
+          type: string
+          description: Client-generated UUID for tracing
+        idempotencyKey:
+          type: string
+          nullable: true
+          description: Required for create/confirm operations to prevent duplicates
+        actor:
+          $ref: "#/components/schemas/Actor"
+        context:
+          $ref: "#/components/schemas/Context"
+        input:
+          type: object
+          description: Tool-specific input payload
+
+    MIResponseBase:
+      type: object
+      required: [requestId, ok, data, requiresAuth, requiredFields, warnings, error]
+      properties:
+        requestId:
+          type: string
+        ok:
+          type: boolean
+        data:
+          type: object
+          description: Tool-specific output payload
+        requiresAuth:
+          type: boolean
+          description: If true, caller should open auth gate (Gate1)
+        authGate:
+          type: string
+          nullable: true
+          enum: [Gate1]
+        requiredFields:
+          type: array
+          items:
+            type: string
+            enum: [fullName, email, phone]
+        warnings:
+          type: array
+          items:
+            type: string
+        error:
+          $ref: "#/components/schemas/MIError"
+          nullable: true
+
+    Actor:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [buyer, seller, admin, system]
+        userId:
+          type: string
+          nullable: true
+        sessionId:
+          type: string
+          nullable: true
+
+    Context:
+      type: object
+      required: [channel, locale, currency, timezone]
+      properties:
+        channel:
+          type: string
+          enum: [web, mobile, kiosk, api, agent]
+        locale:
+          type: string
+          example: en-AU
+        currency:
+          type: string
+          example: AUD
+        timezone:
+          type: string
+          example: Australia/Sydney
+
+    MIError:
+      type: object
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+          enum:
+            - NOT_FOUND
+            - NOT_AUTHENTICATED
+            - FORBIDDEN
+            - VALIDATION_ERROR
+            - CONFLICT
+            - RATE_LIMITED
+            - TEMPORARY_UNAVAILABLE
+        message:
+          type: string
+        details:
+          type: object
+          properties:
+            fieldErrors:
+              type: object
+              additionalProperties:
+                type: string
+          additionalProperties: true
+
+    # --------------------------
+    # Shared domain types
+    # --------------------------
+    StoreType:
+      type: string
+      enum: [food, product, service]
+
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          description: Amount in minor units (e.g., cents)
+        currency:
+          type: string
+          example: AUD
+
+    Confirmation:
+      type: object
+      required: [type, userStatement, capturedAt, uiSurface]
+      properties:
+        type:
+          type: string
+          enum: [explicit]
+        userStatement:
+          type: string
+          description: What the user explicitly confirmed (e.g., "Yes, book it")
+        capturedAt:
+          type: string
+          format: date-time
+        uiSurface:
+          type: string
+          enum: [chat, button, checkout]
+
+    LocationQuery:
+      type: object
+      properties:
+        lat:
+          type: number
+          nullable: true
+        lng:
+          type: number
+          nullable: true
+        radiusKm:
+          type: number
+          nullable: true
+        city:
+          type: string
+          nullable: true
+
+    StoreSummary:
+      type: object
+      required: [storeId, storeType, name]
+      properties:
+        storeId:
+          type: string
+        slug:
+          type: string
+          nullable: true
+        storeType:
+          $ref: "#/components/schemas/StoreType"
+        name:
+          type: string
+        heroUrl:
+          type: string
+          nullable: true
+
+    StorePublic:
+      type: object
+      required: [storeId, slug, storeType, name]
+      properties:
+        storeId:
+          type: string
+        slug:
+          type: string
+        storeType:
+          $ref: "#/components/schemas/StoreType"
+        name:
+          type: string
+        heroUrl:
+          type: string
+          nullable: true
+
+    CatalogKind:
+      type: string
+      enum: [product, service, any]
+
+    CatalogItem:
+      type: object
+      required: [itemId, storeId, kind, title, price, isActive]
+      properties:
+        itemId:
+          type: string
+        storeId:
+          type: string
+        kind:
+          type: string
+          enum: [product, service]
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        imageUrl:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        price:
+          $ref: "#/components/schemas/Money"
+        durationMin:
+          type: integer
+          nullable: true
+          description: For services (minutes)
+        isActive:
+          type: boolean
+
+    StaffOption:
+      type: object
+      required: [staffId, name]
+      properties:
+        staffId:
+          type: string
+        name:
+          type: string
+
+    TimeSlot:
+      type: object
+      required: [start, end, available]
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        available:
+          type: boolean
+
+    CustomerContact:
+      type: object
+      properties:
+        fullName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+
+    # --------------------------
+    # Store tools
+    # --------------------------
+    StoreSearchInput:
+      type: object
+      properties:
+        query:
+          type: string
+          nullable: true
+        storeType:
+          $ref: "#/components/schemas/StoreType"
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        location:
+          $ref: "#/components/schemas/LocationQuery"
+          nullable: true
+        openNow:
+          type: boolean
+          default: false
+        limit:
+          type: integer
+          default: 20
+          minimum: 1
+          maximum: 100
+        cursor:
+          type: string
+          nullable: true
+
+    StoreSearchRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/StoreSearchInput"
+
+    StoreSearchData:
+      type: object
+      required: [stores]
+      properties:
+        stores:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoreSummary"
+        nextCursor:
+          type: string
+          nullable: true
+
+    StoreSearchResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/StoreSearchData"
+
+    StoreGetPublicInput:
+      type: object
+      required: [storeIdOrSlug]
+      properties:
+        storeIdOrSlug:
+          type: string
+
+    StoreGetPublicRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/StoreGetPublicInput"
+
+    StoreGetPublicData:
+      type: object
+      required: [store]
+      properties:
+        store:
+          $ref: "#/components/schemas/StorePublic"
+
+    StoreGetPublicResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/StoreGetPublicData"
+
+    StorePublishInput:
+      type: object
+      required: [storeId, source, confirmation]
+      properties:
+        storeId:
+          type: string
+        source:
+          type: string
+          enum: [draft]
+        confirmation:
+          $ref: "#/components/schemas/Confirmation"
+
+    StorePublishRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/StorePublishInput"
+
+    StorePublishData:
+      type: object
+      required: [storeId, published, publicUrl]
+      properties:
+        storeId:
+          type: string
+        published:
+          type: boolean
+        publicUrl:
+          type: string
+
+    StorePublishResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/StorePublishData"
+
+    # --------------------------
+    # Catalog tools
+    # --------------------------
+    CatalogListInput:
+      type: object
+      required: [storeId, kind]
+      properties:
+        storeId:
+          type: string
+        kind:
+          $ref: "#/components/schemas/CatalogKind"
+        category:
+          type: string
+          nullable: true
+        includeInactive:
+          type: boolean
+          default: false
+
+    CatalogListRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/CatalogListInput"
+
+    CatalogListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogItem"
+        categories:
+          type: array
+          items:
+            type: string
+
+    CatalogListResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/CatalogListData"
+
+    # --------------------------
+    # Availability tools
+    # --------------------------
+    AvailabilityGetInput:
+      type: object
+      required: [storeId, serviceItemIds, date, timezone]
+      properties:
+        storeId:
+          type: string
+        serviceItemIds:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        date:
+          type: string
+          description: YYYY-MM-DD
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        staffId:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+
+    AvailabilityGetRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/AvailabilityGetInput"
+
+    AvailabilityGetData:
+      type: object
+      required: [staffOptions, timeSlots]
+      properties:
+        staffOptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/StaffOption"
+        timeSlots:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeSlot"
+
+    AvailabilityGetResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/AvailabilityGetData"
+
+    # --------------------------
+    # Booking tools
+    # --------------------------
+    BookingDraftCreateInput:
+      type: object
+      required: [storeId, serviceItemIds]
+      properties:
+        storeId:
+          type: string
+        serviceItemIds:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        notes:
+          type: string
+          nullable: true
+        customer:
+          $ref: "#/components/schemas/CustomerContact"
+
+    BookingDraftCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/BookingDraftCreateInput"
+
+    BookingDraftCreateData:
+      type: object
+      required: [bookingDraftId, storeId, serviceItemIds, status]
+      properties:
+        bookingDraftId:
+          type: string
+        storeId:
+          type: string
+        serviceItemIds:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [draft]
+
+    BookingDraftCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/BookingDraftCreateData"
+
+    BookingDraftUpdatePatch:
+      type: object
+      properties:
+        serviceItemIds:
+          type: array
+          items:
+            type: string
+        staffId:
+          type: string
+          nullable: true
+        start:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        promoCode:
+          type: string
+          nullable: true
+
+    BookingDraftUpdateInput:
+      type: object
+      required: [bookingDraftId, patch]
+      properties:
+        bookingDraftId:
+          type: string
+        patch:
+          $ref: "#/components/schemas/BookingDraftUpdatePatch"
+
+    BookingDraftUpdateRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/BookingDraftUpdateInput"
+
+    BookingDraftUpdateData:
+      type: object
+      required: [bookingDraftId, status]
+      properties:
+        bookingDraftId:
+          type: string
+        status:
+          type: string
+          enum: [draft]
+
+    BookingDraftUpdateResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/BookingDraftUpdateData"
+
+    BookingPriceInput:
+      type: object
+      required: [bookingDraftId]
+      properties:
+        bookingDraftId:
+          type: string
+
+    BookingPriceRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/BookingPriceInput"
+
+    BookingLineItem:
+      type: object
+      required: [label, amount]
+      properties:
+        label:
+          type: string
+        amount:
+          type: integer
+
+    BookingPriceData:
+      type: object
+      required: [bookingDraftId, subtotal, discount, tax, total, lineItems]
+      properties:
+        bookingDraftId:
+          type: string
+        subtotal:
+          $ref: "#/components/schemas/Money"
+        discount:
+          $ref: "#/components/schemas/Money"
+        tax:
+          $ref: "#/components/schemas/Money"
+        total:
+          $ref: "#/components/schemas/Money"
+        lineItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookingLineItem"
+
+    BookingPriceResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/BookingPriceData"
+
+    BookingConfirmInput:
+      type: object
+      required: [bookingDraftId, confirmation]
+      properties:
+        bookingDraftId:
+          type: string
+        confirmation:
+          $ref: "#/components/schemas/Confirmation"
+
+    BookingNextAction:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [pay]
+        paymentIntentId:
+          type: string
+          nullable: true
+
+    BookingConfirmData:
+      type: object
+      required: [bookingId, status]
+      properties:
+        bookingId:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, requires_payment]
+        next:
+          $ref: "#/components/schemas/BookingNextAction"
+          nullable: true
+
+    BookingConfirmRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/BookingConfirmInput"
+
+    BookingConfirmResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/BookingConfirmData"
+
+    # --------------------------
+    # Order tools
+    # --------------------------
+    OrderDraftItem:
+      type: object
+      required: [itemId, qty]
+      properties:
+        itemId:
+          type: string
+        qty:
+          type: integer
+          minimum: 1
+
+    OrderDraftCreateInput:
+      type: object
+      required: [storeId, items]
+      properties:
+        storeId:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDraftItem"
+          minItems: 1
+        notes:
+          type: string
+          nullable: true
+        customer:
+          $ref: "#/components/schemas/CustomerContact"
+
+    OrderDraftCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/OrderDraftCreateInput"
+
+    OrderDraftCreateData:
+      type: object
+      required: [orderDraftId, status]
+      properties:
+        orderDraftId:
+          type: string
+        status:
+          type: string
+          enum: [draft]
+
+    OrderDraftCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/OrderDraftCreateData"
+
+    Address:
+      type: object
+      required: [line1, city, postcode]
+      properties:
+        line1:
+          type: string
+        line2:
+          type: string
+          nullable: true
+        city:
+          type: string
+        postcode:
+          type: string
+        state:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+
+    OrderDraftUpdatePatch:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDraftItem"
+        deliveryMethod:
+          type: string
+          nullable: true
+          enum: [pickup, delivery]
+        address:
+          $ref: "#/components/schemas/Address"
+          nullable: true
+        promoCode:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    OrderDraftUpdateInput:
+      type: object
+      required: [orderDraftId, patch]
+      properties:
+        orderDraftId:
+          type: string
+        patch:
+          $ref: "#/components/schemas/OrderDraftUpdatePatch"
+
+    OrderDraftUpdateRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/OrderDraftUpdateInput"
+
+    OrderDraftUpdateData:
+      type: object
+      required: [orderDraftId, status]
+      properties:
+        orderDraftId:
+          type: string
+        status:
+          type: string
+          enum: [draft]
+
+    OrderDraftUpdateResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/OrderDraftUpdateData"
+
+    OrderPriceInput:
+      type: object
+      required: [orderDraftId]
+      properties:
+        orderDraftId:
+          type: string
+
+    OrderPriceRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/OrderPriceInput"
+
+    OrderPriceData:
+      type: object
+      required: [orderDraftId, subtotal, tax, total]
+      properties:
+        orderDraftId:
+          type: string
+        subtotal:
+          $ref: "#/components/schemas/Money"
+        deliveryFee:
+          $ref: "#/components/schemas/Money"
+          nullable: true
+        tax:
+          $ref: "#/components/schemas/Money"
+        total:
+          $ref: "#/components/schemas/Money"
+
+    OrderPriceResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/OrderPriceData"
+
+    OrderConfirmInput:
+      type: object
+      required: [orderDraftId, confirmation]
+      properties:
+        orderDraftId:
+          type: string
+        confirmation:
+          $ref: "#/components/schemas/Confirmation"
+
+    OrderNextAction:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [pay]
+        paymentIntentId:
+          type: string
+          nullable: true
+
+    OrderConfirmData:
+      type: object
+      required: [orderId, status]
+      properties:
+        orderId:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, requires_payment]
+        next:
+          $ref: "#/components/schemas/OrderNextAction"
+          nullable: true
+
+    OrderConfirmRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/OrderConfirmInput"
+
+    OrderConfirmResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/OrderConfirmData"
+
+    # --------------------------
+    # Payment tools
+    # --------------------------
+    PaymentPurpose:
+      type: string
+      enum: [booking, order]
+
+    PaymentIntentCreateInput:
+      type: object
+      required: [purpose, refId, amount, returnUrl]
+      properties:
+        purpose:
+          $ref: "#/components/schemas/PaymentPurpose"
+        refId:
+          type: string
+          description: bookingId/orderId/draftId
+        amount:
+          $ref: "#/components/schemas/Money"
+        returnUrl:
+          type: string
+
+    PaymentIntentCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/PaymentIntentCreateInput"
+
+    PaymentIntentCreateData:
+      type: object
+      required: [paymentIntentId, provider, status]
+      properties:
+        paymentIntentId:
+          type: string
+        clientSecret:
+          type: string
+          nullable: true
+        provider:
+          type: string
+          enum: [stripe]
+        status:
+          type: string
+          example: requires_payment_method
+
+    PaymentIntentCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/PaymentIntentCreateData"
+
+    # --------------------------
+    # Promo tools
+    # --------------------------
+    PromoTarget:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [storefront, product, category]
+        id:
+          type: string
+          nullable: true
+
+    PromoQrCreateInput:
+      type: object
+      required: [storeId, target, ctaText]
+      properties:
+        storeId:
+          type: string
+        target:
+          $ref: "#/components/schemas/PromoTarget"
+        ctaText:
+          type: string
+          maxLength: 80
+        offerText:
+          type: string
+          nullable: true
+          maxLength: 120
+
+    PromoQrAssets:
+      type: object
+      required: [qrSvgUrl, qrPngUrl, promoCardPngUrl]
+      properties:
+        qrSvgUrl:
+          type: string
+        qrPngUrl:
+          type: string
+        promoCardPngUrl:
+          type: string
+
+    PromoQrCreateData:
+      type: object
+      required: [promoId, code, redirectUrl, assets]
+      properties:
+        promoId:
+          type: string
+        code:
+          type: string
+        redirectUrl:
+          type: string
+        assets:
+          $ref: "#/components/schemas/PromoQrAssets"
+
+    PromoQrCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/MIRequestBase"
+        - type: object
+          properties:
+            input:
+              $ref: "#/components/schemas/PromoQrCreateInput"
+
+    PromoQrCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/MIResponseBase"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/PromoQrCreateData"

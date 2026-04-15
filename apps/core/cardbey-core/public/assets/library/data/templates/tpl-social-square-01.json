@@ -1,0 +1,50 @@
+{
+  "id": "tpl-social-square-01",
+  "width": 1080,
+  "height": 1080,
+  "background": {
+    "type": "color",
+    "color": "#111827"
+  },
+  "layers": [
+    {
+      "id": "headline",
+      "type": "text",
+      "content": "Weekend Sale",
+      "x": 80,
+      "y": 220,
+      "width": 920,
+      "fontFamily": "Inter",
+      "fontSize": 78,
+      "fontWeight": "800",
+      "color": "#f9fafb",
+      "align": "center"
+    },
+    {
+      "id": "subhead",
+      "type": "text",
+      "content": "Up to 30% OFF selected items",
+      "x": 120,
+      "y": 340,
+      "width": 840,
+      "fontFamily": "Inter",
+      "fontSize": 40,
+      "fontWeight": "500",
+      "color": "#e5e7eb",
+      "align": "center"
+    },
+    {
+      "id": "cta",
+      "type": "text",
+      "content": "Swipe up to shop",
+      "x": 120,
+      "y": 460,
+      "width": 840,
+      "fontFamily": "Inter",
+      "fontSize": 34,
+      "fontWeight": "500",
+      "color": "#f97316",
+      "align": "center"
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pairing SSE Test</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #0f1419;
+      color: #e6edf3;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+    }
+    .success { background: #0d4429; border-color: #1f6f4e; }
+    .error { background: #4c1d24; border-color: #da3633; }
+    .info { background: #1c2d41; border-color: #388bfd; }
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button:hover { background: #2ea043; }
+    #log {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      padding: 15px;
+      border-radius: 6px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      margin-top: 20px;
+    }
+    .log-entry {
+      margin: 5px 0;
+      padding: 5px;
+      border-left: 3px solid #388bfd;
+      padding-left: 10px;
+    }
+    .log-success { border-left-color: #2ea043; }
+    .log-error { border-left-color: #da3633; }
+    .log-alert { border-left-color: #f0883e; }
+  </style>
+</head>
+<body>
+  <h1>🎯 Pairing SSE Test</h1>
+  
+  <div id="status" class="status info">
+    Initializing...
+  </div>
+  
+  <div>
+    <button onclick="testPairing()">🚀 Trigger Pairing Request</button>
+    <button onclick="clearLog()">🗑️ Clear Log</button>
+  </div>
+  
+  <div id="log"></div>
+
+  <script>
+    const API_BASE = 'http://localhost:3001';
+    let es = null;
+    const logDiv = document.getElementById('log');
+    const statusDiv = document.getElementById('status');
+    
+    function log(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+      console.log(message);
+    }
+    
+    function updateStatus(message, type = 'info') {
+      statusDiv.textContent = message;
+      statusDiv.className = `status ${type}`;
+    }
+    
+    function clearLog() {
+      logDiv.innerHTML = '';
+      log('Log cleared', 'info');
+    }
+    
+    // Connect to SSE
+    function connectSSE() {
+      log('Connecting to SSE stream...', 'info');
+      
+      es = new EventSource(`${API_BASE}/api/stream?key=admin`);
+      
+      es.onopen = () => {
+        log('✅ SSE Connected!', 'success');
+        updateStatus('✅ SSE Connected - Ready to receive events', 'success');
+      };
+      
+      es.onerror = (e) => {
+        log('❌ SSE Connection Error', 'error');
+        updateStatus('❌ SSE Connection Failed', 'error');
+        console.error('SSE Error:', e);
+      };
+      
+      // Listen for pair_alert events
+      es.addEventListener('pair_alert', (e) => {
+        log('🚨 PAIR ALERT EVENT RECEIVED!', 'alert');
+        const data = JSON.parse(e.data);
+        log(`📋 Code: ${data.data.code}`, 'alert');
+        log(`📱 Device: ${data.data.deviceName}`, 'alert');
+        log(`🔑 Reason: ${data.data.reason}`, 'alert');
+        log(`Full payload: ${JSON.stringify(data, null, 2)}`, 'info');
+        
+        // Show browser alert
+        alert(`🎉 NEW PAIRING REQUEST!\n\nCode: ${data.data.code}\nDevice: ${data.data.deviceName}\nType: ${data.data.deviceType}\n\nExpires: ${new Date(data.data.expiresAt).toLocaleTimeString()}`);
+      });
+      
+      // Listen for device.pairing.requested events
+      es.addEventListener('device.pairing.requested', (e) => {
+        log('📡 device.pairing.requested EVENT RECEIVED!', 'alert');
+        const data = JSON.parse(e.data);
+        log(`📋 Code: ${data.payload.code}`, 'alert');
+        log(`Full payload: ${JSON.stringify(data, null, 2)}`, 'info');
+      });
+      
+      // Listen for all messages (for debugging)
+      es.onmessage = (e) => {
+        log(`📨 Generic SSE message: ${e.data.substring(0, 100)}...`, 'info');
+      };
+    }
+    
+    // Test pairing request
+    async function testPairing() {
+      log('📤 Sending pairing request...', 'info');
+      updateStatus('📤 Sending pairing request...', 'info');
+      
+      try {
+        const response = await fetch(`${API_BASE}/api/device/request-pairing`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceModel: 'Test TV from HTML',
+            platform: 'android_tv',
+            appVersion: '1.0.0',
+            deviceType: 'screen'
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.ok) {
+          log('✅ Pairing request successful!', 'success');
+          log(`📋 Code: ${data.code}`, 'success');
+          log(`🆔 SessionId: ${data.sessionId}`, 'success');
+          log(`⏰ Expires: ${data.expiresAt}`, 'success');
+          updateStatus(`✅ Pairing code generated: ${data.code}`, 'success');
+        } else {
+          log('❌ Pairing request failed', 'error');
+          log(`Error: ${data.error || data.message}`, 'error');
+          updateStatus('❌ Pairing request failed', 'error');
+        }
+      } catch (error) {
+        log('❌ Network error: ' + error.message, 'error');
+        updateStatus('❌ Network error', 'error');
+      }
+    }
+    
+    // Initialize on page load
+    connectSSE();
+    log('🎯 Pairing SSE Test initialized', 'info');
+    log('Click "Trigger Pairing Request" to test', 'info');
+  </script>
+</body>
+</html>
+

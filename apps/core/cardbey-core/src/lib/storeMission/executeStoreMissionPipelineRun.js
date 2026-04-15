@@ -1,0 +1,281 @@
+/**
+ * Shared implementation for POST /api/missions/:missionId/run (store missions).
+ * Used by missionsRoutes and performer intake auto-start so behavior stays identical.
+ */
+
+import { getPrismaClient } from '../prisma.js';
+import { getOrCreateMission, mergeMissionContext, mergeMissionPlanStep } from '../mission.js';
+import { createEmitContextUpdate } from '../missionPlan/agentMemory.js';
+import { createStepReporter } from '../missionPlan/stepReporter.js';
+import { approveMissionPipeline } from '../missionPipelineService.js';
+import { auditedPipelineUpdate } from '../orchestrator/pipelineWriteAudit.js';
+import {
+  buildStoreOrchestrationPipelineWrites,
+  isPipelineOutputDualWriteEnabled,
+} from '../orchestrator/pipelineCanonicalResults.js';
+import { mirrorOrchestraStatusToPipeline } from '../orchestraMirror.js';
+import { resolveAccessibleMission, getTenantId } from '../missionAccess.js';
+
+/**
+ * @param {object} opts
+ * @param {import('@prisma/client').PrismaClient} [opts.prisma]
+ * @param {object} opts.user
+ * @param {string} opts.missionId
+ * @param {Record<string, unknown>} [opts.body]
+ * @param {string} [opts.auditSource] - auditedPipelineUpdate source for executing transition
+ * @returns {Promise<
+ *   | { ok: true, missionId: string, jobId: string, generationRunId: string, draftId: string, status: 'executing' }
+ *   | { ok: false, statusCode: number, error: string, message: string }
+ * >}
+ */
+export async function executeStoreMissionPipelineRun({
+  prisma: prismaIn,
+  user,
+  missionId,
+  body = {},
+  auditSource = 'missions_store_run',
+} = {}) {
+  const prisma = prismaIn ?? getPrismaClient();
+
+  const access = await resolveAccessibleMission(user, missionId);
+  if (!access.ok || access.kind !== 'mission_pipeline') {
+    return { ok: false, statusCode: 404, error: 'not_found', message: 'Mission pipeline not found or access denied' };
+  }
+
+  const mission = await prisma.missionPipeline.findUnique({
+    where: { id: missionId },
+    select: { id: true, type: true, status: true, runState: true, outputsJson: true, metadataJson: true },
+  });
+  if (!mission) {
+    return { ok: false, statusCode: 404, error: 'not_found', message: 'Mission pipeline not found' };
+  }
+
+  if (mission.type !== 'store') {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'unsupported_mission_type',
+      message: `POST /run only supports type:store missions. Got: ${mission.type}`,
+    };
+  }
+
+  if (mission.status !== 'awaiting_confirmation' && mission.status !== 'queued') {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: 'invalid_status',
+      message: `Mission is ${mission.status}, expected awaiting_confirmation or queued`,
+    };
+  }
+
+  if (mission.status === 'awaiting_confirmation') {
+    const approved = await approveMissionPipeline(missionId);
+    if (!approved.ok) {
+      return {
+        ok: false,
+        statusCode: 409,
+        error: approved.error,
+        message: approved.error,
+        pipelineStatus: approved.status,
+      };
+    }
+  }
+
+  const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
+  const businessType = typeof body.businessType === 'string' ? body.businessType.trim() : '';
+  const location = typeof body.location === 'string' ? body.location.trim() : '';
+
+  const meta = mission.metadataJson && typeof mission.metadataJson === 'object' ? mission.metadataJson : {};
+  const effectiveBusinessName = businessName || (typeof meta.businessName === 'string' ? meta.businessName : '') || '';
+  const effectiveBusinessType = businessType || (typeof meta.businessType === 'string' ? meta.businessType : '') || '';
+  const effectiveLocation = location || (typeof meta.location === 'string' ? meta.location : '') || '';
+
+  const tenantId = getTenantId(user) || user?.id;
+  const userId = user?.id;
+  if (!tenantId || !userId) {
+    return { ok: false, statusCode: 401, error: 'unauthorized', message: 'Not authenticated' };
+  }
+
+  const { createBuildStoreJob, runBuildStoreJob, newTraceId } =
+    await import('../../services/draftStore/orchestraBuildStore.js');
+  const { inferCurrencyFromLocationText } = await import('../../services/draftStore/currencyInfer.js');
+
+  const bodyCurrency =
+    (typeof body.currency === 'string' && body.currency.trim() && body.currency.trim().toUpperCase()) ||
+    (typeof body.currencyCode === 'string' && body.currencyCode.trim() && body.currencyCode.trim().toUpperCase()) ||
+    null;
+  const currencyCode = bodyCurrency || inferCurrencyFromLocationText(effectiveLocation) || 'AUD';
+
+  const jobRequest = {
+    tenantId,
+    userId,
+    businessName: effectiveBusinessName,
+    businessType: effectiveBusinessType,
+    storeType: effectiveBusinessType,
+    rawInput: `Create a store for ${effectiveBusinessName || 'my business'}${effectiveLocation ? ` in ${effectiveLocation}` : ''}`.trim(),
+    storeId: 'temp',
+    includeImages: true,
+    generationRunId: null,
+    ...(effectiveLocation ? { location: effectiveLocation } : {}),
+    currencyCode,
+  };
+
+  const created = await createBuildStoreJob(prisma, jobRequest);
+  if (!created?.jobId || !created?.generationRunId || !created?.draftId) {
+    return {
+      ok: false,
+      statusCode: 500,
+      error: 'job_creation_failed',
+      message: 'Failed to create store build job',
+    };
+  }
+
+  const outputsExisting = mission.outputsJson && typeof mission.outputsJson === 'object' ? mission.outputsJson : {};
+  const dualWrite = isPipelineOutputDualWriteEnabled();
+  const orchestrationWrites = buildStoreOrchestrationPipelineWrites({
+    existingOutputsJson: outputsExisting,
+    existingMetadataJson: mission.metadataJson,
+    outputsPatch: {
+      jobId: created.jobId,
+      generationRunId: created.generationRunId,
+      draftId: created.draftId,
+      ...(created.createdDraftId ? { createdDraftId: created.createdDraftId } : {}),
+    },
+    dualWrite,
+  });
+  await auditedPipelineUpdate(prisma, {
+    where: { id: missionId },
+    data: {
+      status: 'executing',
+      runState: 'running',
+      outputsJson: orchestrationWrites.outputsJson,
+      startedAt: new Date(),
+      ...(orchestrationWrites.metadataJson ? { metadataJson: orchestrationWrites.metadataJson } : {}),
+    },
+    source: auditSource,
+    correlationId: missionId,
+  });
+
+  const traceId = newTraceId();
+  const draftIdForRun = created.createdDraftId || created.draftId;
+
+  const db = getPrismaClient();
+
+  await prisma.orchestratorTask
+    .update({
+      where: { id: created.jobId },
+      data: { missionId },
+    })
+    .catch(() => {});
+
+  try {
+    await getOrCreateMission(missionId, user, { prisma: db });
+    console.log('[ReAct] Mission record ensured for pipeline:', missionId);
+  } catch (e) {
+    console.warn('[executeStoreMissionPipelineRun] getOrCreateMission failed:', e?.message || e);
+  }
+
+  console.log('[ReAct] missionId linked (store pipeline run):', missionId, 'task:', created.jobId);
+
+  const missionRow = await db.mission
+    .findUnique({
+      where: { id: missionId },
+      select: { context: true },
+    })
+    .catch(() => null);
+
+  const missionContext = missionRow?.context?.agentMemory ?? null;
+
+  const emitContextUpdate = createEmitContextUpdate(missionId, 'orchestra', { prisma: db, mergeMissionContext });
+
+  const stepReporter = createStepReporter(missionId, created.jobId, { prisma: db, mergeMissionPlanStep });
+
+  const rawPreloaded = body.preloadedCatalogItems;
+  let sanitizedPreloaded = null;
+  if (rawPreloaded != null) {
+    const { sanitizePreloadedCatalogItems } = await import('../../services/draftStore/preloadedCatalogFromItems.js');
+    sanitizedPreloaded = sanitizePreloadedCatalogItems(rawPreloaded);
+    if (sanitizedPreloaded?.length) {
+      await mergeMissionContext(missionId, { preloadedCatalogItems: sanitizedPreloaded }, { prisma: db }).catch(
+        () => {},
+      );
+    }
+  }
+
+  try {
+    const draftRow = await db.draftStore
+      .findUnique({ where: { id: draftIdForRun }, select: { input: true } })
+      .catch(() => null);
+    const prevIn =
+      draftRow?.input && typeof draftRow.input === 'object' && !Array.isArray(draftRow.input) ? draftRow.input : {};
+    await db.draftStore.update({
+      where: { id: draftIdForRun },
+      data: {
+        input: {
+          ...prevIn,
+          ...(effectiveLocation ? { location: effectiveLocation } : {}),
+          ...(effectiveBusinessName ? { businessName: effectiveBusinessName } : {}),
+          ...(effectiveBusinessType ? { businessType: effectiveBusinessType, storeType: effectiveBusinessType } : {}),
+          currencyCode,
+          ...(sanitizedPreloaded?.length ? { preloadedCatalogItems: sanitizedPreloaded } : {}),
+        },
+      },
+    });
+  } catch (patchErr) {
+    console.warn('[executeStoreMissionPipelineRun] draft.input patch failed:', patchErr?.message || patchErr);
+  }
+
+  runBuildStoreJob(prisma, created.jobId, draftIdForRun, created.generationRunId, traceId, {
+    missionContext,
+    emitContextUpdate,
+    stepReporter,
+    reactMissionId: missionId,
+  });
+
+  setImmediate(async () => {
+    const MAX_POLLS = 150;
+    let polls = 0;
+    while (polls++ < MAX_POLLS) {
+      const task = await prisma.orchestratorTask
+        .findUnique({
+          where: { id: created.jobId },
+          select: { status: true, result: true },
+        })
+        .catch(() => null);
+      const st = (task?.status || '').toLowerCase();
+      if (st === 'completed') {
+        const resultPayload = task?.result && typeof task.result === 'object' ? task.result : {};
+        await mirrorOrchestraStatusToPipeline(missionId, 'completed', {
+          outputsPatch: { result: resultPayload },
+          auditSource: `${auditSource}_poll`,
+          correlationId: traceId,
+        });
+        return;
+      }
+      if (st === 'failed') {
+        const resultPayload = task?.result && typeof task.result === 'object' ? task.result : {};
+        const msg =
+          (typeof resultPayload?.message === 'string' && resultPayload.message) ||
+          (typeof resultPayload?.error === 'string' && resultPayload.error) ||
+          undefined;
+        await mirrorOrchestraStatusToPipeline(missionId, 'failed', {
+          outputsPatch: { result: resultPayload },
+          auditSource: `${auditSource}_poll`,
+          correlationId: traceId,
+          ...(msg ? { errorMessage: msg } : {}),
+        });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  });
+
+  return {
+    ok: true,
+    missionId,
+    jobId: created.jobId,
+    generationRunId: created.generationRunId,
+    draftId: created.draftId,
+    status: 'executing',
+  };
+}

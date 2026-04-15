@@ -1,0 +1,63 @@
+{
+  "id": "tpl-salon-price-01",
+  "width": 1080,
+  "height": 1920,
+  "background": {
+    "type": "color",
+    "color": "#fdf5f8"
+  },
+  "layers": [
+    {
+      "id": "title",
+      "type": "text",
+      "content": "Salon Price List",
+      "x": 80,
+      "y": 140,
+      "width": 920,
+      "fontFamily": "Playfair Display",
+      "fontSize": 72,
+      "fontWeight": "700",
+      "color": "#3a2a3a",
+      "align": "center"
+    },
+    {
+      "id": "section-hair",
+      "type": "text",
+      "content": "Hair\nCut & Blow Dry .... $60\nColor ................... from $90\nHighlights ............. from $120",
+      "x": 120,
+      "y": 300,
+      "width": 400,
+      "fontFamily": "Inter",
+      "fontSize": 30,
+      "fontWeight": "400",
+      "lineHeight": 1.4,
+      "color": "#4a3a4a"
+    },
+    {
+      "id": "section-nails",
+      "type": "text",
+      "content": "Nails\nManicure ............ $35\nPedicure ............. $45\nGel Polish ........... $50",
+      "x": 560,
+      "y": 300,
+      "width": 400,
+      "fontFamily": "Inter",
+      "fontSize": 30,
+      "fontWeight": "400",
+      "lineHeight": 1.4,
+      "color": "#4a3a4a"
+    },
+    {
+      "id": "footer",
+      "type": "text",
+      "content": "Book now \u00b7 Phone \u00b7 Website",
+      "x": 80,
+      "y": 1700,
+      "width": 920,
+      "fontFamily": "Inter",
+      "fontSize": 28,
+      "fontWeight": "500",
+      "color": "#3a2a3a",
+      "align": "center"
+    }
+  ]
+}
