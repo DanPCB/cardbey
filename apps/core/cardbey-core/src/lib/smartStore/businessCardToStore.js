@@ -12,19 +12,19 @@ import { resolveVertical, resolveAudience } from '../verticals/verticalTaxonomy.
 import { emitHealthProbe } from '../telemetry/healthProbes.js';
 import { getPrismaClient } from '../prisma.js';
 
-// ── Keyword map for businessType inference from rawText ──────────────────────
+// ── Keyword map for businessType inference from card text/name ───────────────
 const BUSINESS_TYPE_KEYWORD_MAP = [
   { pattern: /restaurant|cafe|coffee|food|dining/i, type: 'Food & Drink' },
   { pattern: /fashion|clothing|apparel|boutique/i, type: 'Fashion' },
   { pattern: /beauty|salon|spa|nails|hair/i, type: 'Beauty' },
-  { pattern: /construction|builder|trade|plumbing/i, type: 'Construction' },
+  { pattern: /construction|construct|builder|trade|plumbing/i, type: 'Construction' },
   { pattern: /tech|software|digital|web\b|IT\b/i, type: 'Technology' },
   { pattern: /health|medical|clinic|dental|physio/i, type: 'Health' },
-  { pattern: /furniture|interior|decor|home/i, type: 'Home & Garden' },
+  { pattern: /furniture|homewares?|interior|decor|sofa|mattress|table|cabinet|living room|bedroom/i, type: 'Furniture & Homewares' },
 ];
 
-function inferBusinessType(rawText) {
-  const text = typeof rawText === 'string' ? rawText : '';
+function inferBusinessType(rawText, businessName) {
+  const text = [businessName, rawText].filter((value) => typeof value === 'string' && value.trim()).join(' ');
   for (const { pattern, type } of BUSINESS_TYPE_KEYWORD_MAP) {
     if (pattern.test(text)) return type;
   }
@@ -101,7 +101,7 @@ export async function buildSmartStoreFromCard(missionId, cardData, options = {})
       typeof cardData?.businessType === 'string' && cardData.businessType.trim()
         ? cardData.businessType.trim()
         : null;
-    resolvedBusinessType = rawType ?? inferBusinessType(cardData?.rawText ?? '');
+    resolvedBusinessType = rawType ?? inferBusinessType(cardData?.rawText ?? '', resolvedBusinessName);
   } catch (stepErr) {
     console.warn('[businessCardToStore] Step 1 failed:', stepErr?.message ?? stepErr);
     // Keep defaults — non-fatal

@@ -52,6 +52,10 @@ export async function generateVerticalLockedMenu(params) {
     .replace(/\{CITY_COUNTRY\}/g, location || '(not specified)')
     .replace(/\{PRICE_TIER\}/g, priceTier || '(not specified)')
     .replace(/\{CURRENCY\}/g, currency || '');
+  userPrompt += `
+
+This is a ${businessTypeLabel} business. Generate only products or services appropriate for this category.
+Do not generate products outside this vertical.`;
   if (audience === 'kids') {
     userPrompt += `
 

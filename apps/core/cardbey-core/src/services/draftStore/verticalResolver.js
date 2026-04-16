@@ -19,16 +19,17 @@ function normalize(str) {
 
 /**
  * Resolve a canonical vertical slug from businessType and optional vertical.
- * Order: beauty > fashion > food > generic.
+ * Order: beauty > fashion > food > furniture > generic.
  * @param {string} [businessType]
  * @param {string} [vertical]
- * @returns {'beauty'|'fashion'|'food'|'generic'}
+ * @returns {'beauty'|'fashion'|'food'|'furniture'|'generic'}
  */
 export function resolveVerticalSlug(businessType, vertical) {
   const combined = `${normalize(businessType)} ${normalize(vertical)}`.trim() || 'generic';
   if (/\b(nail|beauty|salon|spa|lash|wax|manicure|pedicure)\b/.test(combined)) return 'beauty';
   if (/\b(fashion|clothing|apparel|boutique|wear|dress|women|men)\b/.test(combined)) return 'fashion';
   if (/\b(cafe|coffee|banh mi|restaurant|food|bakery|florist|barista|espresso|pastry|sweets|dessert|confectionery)\b/.test(combined)) return 'food';
+  if (/\b(furniture|homeware|homewares|interior|decor|sofa|mattress|table|cabinet|bedroom|living room)\b/.test(combined)) return 'furniture';
   return 'generic';
 }
 
@@ -42,6 +43,7 @@ export function resolveTemplateId(verticalSlug) {
   if (slug === 'food') return 'cafe';
   if (slug === 'beauty') return 'nail_salon';
   if (slug === 'fashion') return 'retail';
+  if (slug === 'furniture') return 'generic_store';
   return 'generic_store';
 }
 

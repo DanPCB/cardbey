@@ -387,7 +387,13 @@ export async function buildFromAi(params) {
     audience: audience || undefined,
   });
 
-  let products = menuResult.items || [];
+  let products = (menuResult.items || []).map((item) => ({
+    ...item,
+    currencyCode: currency,
+    ...(item?.priceV1 && typeof item.priceV1 === 'object'
+      ? { priceV1: { ...item.priceV1, currencyCode: currency } }
+      : {}),
+  }));
   if (products.length < AI_EXPANSION_MIN && products.length > 0) {
     const verticalKey = verticalForMenu.replace(/_/g, '.');
     const aliasKey = VERTICAL_SLUG_TO_EXPANSION_KEY[verticalKey];
@@ -408,6 +414,7 @@ export async function buildFromAi(params) {
         name: v.name,
         description: v.description ?? null,
         price: null,
+        currencyCode: currency,
         categoryId: primaryCategoryId,
         imageUrl: null,
       });
@@ -561,6 +568,9 @@ export async function buildCatalog(params) {
         name: it.name || `Item ${result.products.length + 1}`,
         description: it.description ?? null,
         price: it.price ?? null,
+        ...(params.currencyCode != null && String(params.currencyCode).trim()
+          ? { currencyCode: String(params.currencyCode).trim().toUpperCase() }
+          : {}),
         categoryId: it.categoryId || firstCatId,
         imageUrl: null,
       });
