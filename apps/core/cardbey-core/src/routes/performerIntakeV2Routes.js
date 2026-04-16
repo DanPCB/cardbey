@@ -81,6 +81,52 @@ const SD_TICKET_GENERIC_RE = /(create|make|design).{0,10}ticket/i;
 const SD_REPORT_RE = /smart.{0,10}report|intelligent.{0,10}report|interactive.{0,10}report/i;
 const SD_QUOTE_RE = /smart.{0,10}quote|interactive.{0,10}quote|smart.{0,10}proposal/i;
 
+function looksWebsiteCreateIntent(raw) {
+  const msgLower = String(raw ?? '').toLowerCase();
+  return (
+    msgLower.includes('mini website') ||
+    msgLower.includes('mini-website') ||
+    msgLower.includes('mini-site') ||
+    msgLower.includes('microsite') ||
+    msgLower.includes('micro-site') ||
+    msgLower.includes('web presence') ||
+    msgLower.includes('build a website') ||
+    msgLower.includes('build website') ||
+    msgLower.includes('create a website') ||
+    msgLower.includes('create website') ||
+    msgLower.includes('create my website') ||
+    msgLower.includes('make a website') ||
+    msgLower.includes('set up a website') ||
+    msgLower.includes('create a site') ||
+    msgLower.includes('build a site') ||
+    msgLower.includes('make a site') ||
+    msgLower.includes('set up a site') ||
+    msgLower.includes('create a web presence') ||
+    msgLower.includes('build a web presence') ||
+    msgLower.includes('website from card') ||
+    msgLower.includes('website from attached card') ||
+    msgLower.includes('site from card') ||
+    msgLower.includes('site from attached card') ||
+    msgLower.includes('website for my store') ||
+    msgLower.includes('website for my business')
+  );
+}
+
+function looksStoreCreateIntent(raw) {
+  const msgLower = String(raw ?? '').toLowerCase();
+  return (
+    msgLower.includes('create a store') ||
+    msgLower.includes('create store') ||
+    msgLower.includes('create my store') ||
+    msgLower.includes('build a store') ||
+    msgLower.includes('build store') ||
+    msgLower.includes('make a store') ||
+    msgLower.includes('set up a store') ||
+    msgLower.includes('open store') ||
+    msgLower.includes('new store')
+  );
+}
+
 /**
  * Detect SmartDocument type + subtype from a user message.
  * Returns { sdType, sdSubtype } or { sdType: null, sdSubtype: null } if no match.
@@ -872,7 +918,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     // Card System Phase A: create_card shortcut (AUTO_RUN) — requires auth
-    if (CREATE_CARD_RE.test(userMessage)) {
+    if (CREATE_CARD_RE.test(userMessage) && !looksWebsiteCreateIntent(userMessage) && !looksStoreCreateIntent(userMessage)) {
       if (!req.user?.id) {
         return safeJson(
           {
@@ -1357,16 +1403,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (classification?.tool === 'create_store') {
     const msgLower = String(userMessage ?? body?.text ?? '').toLowerCase();
     const llmMode = String(classification.parameters?.intentMode ?? '').trim().toLowerCase();
-    const isWebsite =
-      llmMode === 'website' ||
-      msgLower.includes('mini website') ||
-      msgLower.includes('mini-website') ||
-      msgLower.includes('build a website') ||
-      msgLower.includes('create a website') ||
-      msgLower.includes('make a website') ||
-      msgLower.includes('set up a website') ||
-      msgLower.includes('website for my store') ||
-      msgLower.includes('website for my business');
+    const isWebsite = llmMode === 'website' || looksWebsiteCreateIntent(msgLower);
     if (isWebsite) {
       classification = {
         ...classification,

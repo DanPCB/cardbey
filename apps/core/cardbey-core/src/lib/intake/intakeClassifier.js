@@ -72,7 +72,9 @@ ${historyBlock}
 - Use when: owner wants to CREATE a new store that does NOT
   yet exist. Signals: "create a store", "build a store",
   "set up a store", "make a store", "start a store",
-  "create a mini website", "build a website for my store".
+  "create a mini website", "build a website for my store",
+  "create a website", "create a site", "build a web presence",
+  "create a website from attached card".
 - NEVER use analyze_store for these phrases.
 - No existing storeId required in context.
 - For store creation requests — always include

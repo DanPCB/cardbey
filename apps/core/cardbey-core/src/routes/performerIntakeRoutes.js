@@ -357,11 +357,31 @@ function isLegacyStoreCreationIntent(userPrompt) {
 
 function looksMiniWebsiteGoal(userPrompt) {
   const lower = String(userPrompt || '').toLowerCase();
+  const hasWebsiteCreateVerb =
+    lower.includes('create a website') ||
+    lower.includes('create website') ||
+    lower.includes('create my website') ||
+    lower.includes('build a website') ||
+    lower.includes('build website') ||
+    lower.includes('make a website') ||
+    lower.includes('set up a website') ||
+    lower.includes('create a site') ||
+    lower.includes('build a site') ||
+    lower.includes('make a site') ||
+    lower.includes('set up a site') ||
+    lower.includes('create a web presence') ||
+    lower.includes('build a web presence');
   return (
     lower.includes('mini website') ||
     lower.includes('mini-site') ||
     lower.includes('microsite') ||
-    lower.includes('micro-site')
+    lower.includes('micro-site') ||
+    lower.includes('web presence') ||
+    lower.includes('website from card') ||
+    lower.includes('website from attached card') ||
+    lower.includes('site from card') ||
+    lower.includes('site from attached card') ||
+    hasWebsiteCreateVerb
   );
 }
 
@@ -375,9 +395,6 @@ function isStoreOrMiniWebsiteIntentText(userPrompt) {
     lower.includes('open store');
   const isWebsite =
     looksMiniWebsiteGoal(userPrompt) ||
-    lower.includes('create my website') ||
-    lower.includes('create a website') ||
-    lower.includes('create website') ||
     lower.includes('refine (website):') ||
     lower.includes('refine (store):');
   return isStore || isWebsite;
