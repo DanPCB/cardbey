@@ -405,16 +405,44 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     : userMessage;
 
   // ── Business Card → Smart Store (fire-and-forget enrichment) ──────────────
-  // When an image has extractable text AND a mission + authenticated user exist,
+  // When an image has extractable text and an authenticated user exists,
   // attempt to parse as a business card and spin up the smart store pipeline.
+  // If intake did not already create a mission, create one here so image-only
+  // auto-submit can still continue into the normal store build flow.
   // This runs in parallel — it never blocks or changes the intake response.
-  if (imageContext?.hasText && missionId && req.user?.id) {
+  if (imageContext?.hasText && req.user?.id) {
     void (async () => {
       try {
         const { parseBusinessCardOCR } = await import('../lib/businessCardParser.js');
         const { extractedEntities } = parseBusinessCardOCR(imageContext.extractedText);
         const bizName = extractedEntities?.businessName;
         if (bizName) {
+          let effectiveMissionId = missionId;
+          if (!effectiveMissionId) {
+            try {
+              const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+              const pipeline = await createMissionPipeline({
+                type: 'store',
+                title: `Create store: ${String(bizName).slice(0, 120)}`,
+                targetType: 'generic',
+                targetId: undefined,
+                targetLabel: undefined,
+                metadata: {
+                  source: 'intake_v2_business_card',
+                  businessName: bizName,
+                  businessType: extractedEntities?.businessType ?? null,
+                },
+                requiresConfirmation: true,
+                executionMode: 'AUTO_RUN',
+                tenantId: getTenantId(req.user) ?? tenantKey,
+                createdBy: req.user.id,
+              });
+              effectiveMissionId = pipeline.id;
+            } catch (err) {
+              if (isDev) console.warn('[IntakeV2] business-card pipeline creation failed:', err?.message ?? err);
+            }
+          }
+          if (!effectiveMissionId) return;
           const cardData = {
             businessName: bizName,
             businessType: extractedEntities?.businessType ?? null,
@@ -426,13 +454,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           };
           const resolvedTenantId = getTenantId(req.user) ?? tenantKey;
           const { buildSmartStoreFromCard } = await import('../lib/smartStore/businessCardToStore.js');
-          const smartResult = await buildSmartStoreFromCard(missionId, cardData, {
+          const smartResult = await buildSmartStoreFromCard(effectiveMissionId, cardData, {
             userId: req.user.id,
             tenantId: resolvedTenantId,
           });
           const { emitHealthProbe: _emitProbe } = await import('../lib/telemetry/healthProbes.js');
           _emitProbe('smart_store_from_card', {
-            missionId,
+            missionId: effectiveMissionId,
             cardExtracted: true,
             websiteEnriched: Boolean(cardData.website),
             itemCount: smartResult?.summary?.itemCount ?? 0,
