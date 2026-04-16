@@ -200,6 +200,7 @@ function inferStoreTypeFromText(name, location) {
   if (/sign|signage|display|billboard|banner/i.test(text)) return 'Signage';
   if (/hair|beauty|salon|spa|nail|barber/i.test(text)) return 'Beauty';
   if (/cafe|coffee|restaurant|food|pizza|sushi|bakery|bar\b/i.test(text)) return 'Food & drink';
+  if (/construction|construct|builder|building|contractor|renovat|carpenter|carpentry|trade|trades/i.test(text)) return 'Construction';
   if (/furniture|sofa|chair|decor|home\s+goods|interior/i.test(text)) return 'Home & garden';
   if (/car\s*wash|auto|mechanic|tyre|detailing/i.test(text)) return 'Automotive';
   if (/gym|fitness|yoga|sport|training|pilates/i.test(text)) return 'Sports';
@@ -407,7 +408,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const currentContext = body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
   const missionId = String(body.missionId ?? currentContext.activeMissionId ?? '').trim() || null;
   const locale = String(body.locale ?? 'en');
-  const history = Array.isArray(body.history) ? body.history : [];
+  const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
 
   // ── Image Pre-Processing (runs before everything else) ──
   let imageContext = null;

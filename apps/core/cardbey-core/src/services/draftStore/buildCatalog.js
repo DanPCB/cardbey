@@ -516,6 +516,15 @@ export async function buildCatalog(params) {
       userNotes: [params.location, params.prompt].filter(Boolean).join(' '),
       explicitVertical: null,
     });
+    if ((r?.slug || 'services.generic') === 'services.generic') {
+      console.log('[verticalResolver]', {
+        businessName: params.businessName ?? null,
+        businessType: params.businessType ?? null,
+        location: params.location ?? null,
+        chosenSlug: r?.slug ?? null,
+        matchedKeywords: Array.isArray(r?.matchedKeywords) ? r.matchedKeywords.slice(0, 8) : [],
+      });
+    }
     profile = {
       verticalSlug: r.slug || 'services.generic',
       verticalGroup: r.group || 'services',
