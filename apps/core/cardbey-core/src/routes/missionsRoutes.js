@@ -318,6 +318,24 @@ router.post('/extract-card', requireAuth, async (req, res) => {
         businessName = first;
       }
     }
+    if (!businessName) {
+      const debugOcr =
+        process.env.DEBUG_OCR === 'true' ||
+        process.env.DEBUG_OCR === '1' ||
+        process.env.DEBUG_VISION === 'true' ||
+        process.env.DEBUG_VISION === '1';
+      console.warn('[extract-card] businessName extraction failed', {
+        providerUsed: ocrResult?.providerUsed ?? null,
+        didFallback: Boolean(ocrResult?.didFallback),
+        extractedTextLength: typeof extractedText === 'string' ? extractedText.length : 0,
+        ...(debugOcr
+          ? {
+              rawLinesTop: rawLines.slice(0, 6),
+              extractedTextPreview: extractedText.slice(0, 400),
+            }
+          : {}),
+      });
+    }
     const location =
       typeof entities.address === 'string' && entities.address.trim()
         ? entities.address.trim()
