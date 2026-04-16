@@ -1331,26 +1331,40 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
 
     // Keep store creation as the ONLY legacy default workflow.
     if (coreFunction === 'legacy_store') {
-      if (!req.user?.id) {
-        return res.json({
-          success: false,
-          action: 'auth_gate',
-          reasoning: 'Store mission creation requires a signed-in account in this intake path.',
-          response:
-            locale === 'vi'
-              ? 'Vui lòng đăng nhập để tạo cửa hàng từ ảnh danh thiếp.'
-              : 'Please sign in to create a store from a business card image.',
-          payload: {
-            code: 'AUTH_REQUIRED',
-            message:
-              locale === 'vi'
-                ? 'Vui lòng đăng nhập để tiếp tục.'
-                : 'Please sign in to continue.',
-          },
-        });
-      }
-
       try {
+        const actorId = performerIntakeActorId(req);
+        const actorUser =
+          req.user?.id === actorId && req.user
+            ? req.user
+            : {
+                ...(req.user && typeof req.user === 'object' ? req.user : {}),
+                id: actorId,
+                role: req.user?.role || (req.isGuest ? 'guest' : 'user'),
+              };
+        const sendLegacyStorePayload = (payload) => {
+          console.log('[PerformerIntake] legacy_store response payload:', payload);
+          return res.json(payload);
+        };
+
+        if (!actorId) {
+          return sendLegacyStorePayload({
+            success: false,
+            action: 'chat',
+            reasoning: 'Store mission creation requires an authenticated or guest actor id.',
+            response:
+              locale === 'vi'
+                ? 'Vui lòng đăng nhập hoặc bắt đầu phiên khách để tạo cửa hàng từ ảnh danh thiếp.'
+                : 'Please sign in or start a guest session to create a store from a business card image.',
+            payload: {
+              code: 'AUTH_REQUIRED',
+              message:
+                locale === 'vi'
+                  ? 'Vui lòng đăng nhập để tiếp tục.'
+                  : 'Please sign in to continue.',
+            },
+          });
+        }
+
         const { getPrismaClient } = await import('../lib/prisma.js');
         const { getTenantId } = await import('../lib/missionAccess.js');
         const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
@@ -1391,14 +1405,14 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
               },
               requiresConfirmation: true,
               executionMode: 'AUTO_RUN',
-              tenantId: getTenantId(req.user),
-              createdBy: req.user.id,
+              tenantId: getTenantId(actorUser) || actorId,
+              createdBy: actorId,
             })
           ).id;
 
         const runResult = await executeStoreMissionPipelineRun({
           prisma,
-          user: req.user,
+          user: actorUser,
           missionId: ensuredMissionId,
           body: {
             businessName: storeInput.businessName,
@@ -1412,7 +1426,7 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
           throw new Error(runResult.message || runResult.error || 'store_mission_start_failed');
         }
 
-        return res.json({
+        return sendLegacyStorePayload({
           success: true,
           action: 'store_mission_started',
           missionId: runResult.missionId,
@@ -1433,7 +1447,7 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
         });
       } catch (legacyStoreErr) {
         console.warn('[PerformerIntake] legacy_store mission start failed:', legacyStoreErr?.message || legacyStoreErr);
-        return res.json({
+        const payload = {
           success: false,
           action: 'chat',
           reasoning: 'Legacy store mission start failed.',
@@ -1441,7 +1455,9 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
             locale === 'vi'
               ? 'Không thể khởi động tiến trình tạo cửa hàng ngay bây giờ. Vui lòng thử lại.'
               : 'I could not start the store build right now. Please try again.',
-        });
+        };
+        console.log('[PerformerIntake] legacy_store response payload:', payload);
+        return res.json(payload);
       }
     }
 
