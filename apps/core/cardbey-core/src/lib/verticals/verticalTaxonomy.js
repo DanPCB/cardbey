@@ -29,6 +29,23 @@ export const VERTICALS = [
   { slug: 'retail.furniture', group: 'retail', label: 'Furniture', keywords: ['furniture', 'sofa', 'couch', 'table', 'chair', 'desk', 'bed', 'wardrobe', 'cabinet', 'dining table', 'bookshelf', 'outdoor furniture', 'office furniture'] },
   { slug: 'retail.grocery', group: 'retail', label: 'Grocery', keywords: ['grocery', 'groceries', 'supermarket', 'fruit', 'vegetable', 'veg', 'meat', 'deli'] },
   { slug: 'retail.electronics', group: 'retail', label: 'Electronics', keywords: ['electronics', 'phone', 'laptop', 'computer', 'camera', 'gadget', 'charger', 'accessory'] },
+  { slug: 'services.construction', group: 'services', label: 'Construction', keywords: [
+    'construction',
+    'construct',
+    'builder',
+    'builders',
+    'building',
+    'renovation',
+    'renovations',
+    'contractor',
+    'contractors',
+    'trades',
+    'trade',
+    'architecture',
+    'architect',
+    'carpentry',
+    'carpenter',
+  ] },
   { slug: 'services.cleaning', group: 'services', label: 'Cleaning', keywords: ['cleaning', 'cleaner', 'house cleaning', 'office cleaning', 'bond clean', 'end of lease', 'deep clean'] },
   { slug: 'services.plumbing', group: 'services', label: 'Plumbing', keywords: ['plumbing', 'plumber', 'pipe', 'leak', 'blocked drain', 'tap', 'toilet', 'hot water'] },
   { slug: 'services.electrician', group: 'services', label: 'Electrician', keywords: ['electrician', 'electrical', 'lighting', 'power point', 'switchboard', 'wiring'] },
@@ -145,6 +162,16 @@ export function resolveVertical(opts = {}) {
   }).filter((s) => s.count > 0);
 
   if (scored.length === 0) {
+    // Safety fallback: ensure businessName-only signals still classify when businessType is generic/Other
+    // or when upstream passes a coarse type that doesn't include useful keywords.
+    if (textName && /\b(construct|builder|building|renovation|contractor|trades|trade|architecture|architect)\b/.test(textName)) {
+      return {
+        group: 'services',
+        slug: 'services.construction',
+        confidence: 0.35,
+        matchedKeywords: ['construction_name_fallback'],
+      };
+    }
     return { group: 'services', slug: 'services.generic', confidence: 0, matchedKeywords: [] };
   }
 
