@@ -19,6 +19,12 @@ if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret';
 }
 
+// Tests import the Express app directly; never bind the API port during unit/integration runs.
+if (process.env.ROLE === 'api') {
+  delete process.env.ROLE;
+}
+process.env.ROLE = process.env.ROLE || 'test';
+
 // Assert NODE_ENV === 'test'
 if (process.env.NODE_ENV !== 'test') {
   throw new Error(
@@ -27,11 +33,11 @@ if (process.env.NODE_ENV !== 'test') {
   );
 }
 
-// Assert DATABASE_URL points to test.db
-if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.includes('prisma/test.db')) {
+// Assert DATABASE_URL points to the shared sqlite test db under prisma/test.db.
+if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.includes('test.db')) {
   throw new Error(
-    `[TestEnv] CRITICAL: DATABASE_URL must point to prisma/test.db, got: ${process.env.DATABASE_URL}. ` +
-    `This prevents polluting dev.db. Check .env.test file exists and contains DATABASE_URL="file:./prisma/test.db"`
+    `[TestEnv] CRITICAL: DATABASE_URL must point to test.db, got: ${process.env.DATABASE_URL}. ` +
+    `This prevents polluting dev.db. Check .env.test file exists and contains DATABASE_URL="file:../test.db"`
   );
 }
 
