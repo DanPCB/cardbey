@@ -814,6 +814,26 @@ function buildStoreContextFromCurrentContext(currentContext) {
   };
 }
 
+function parseLegacyStoreCreateIntent(userPrompt, currentContext) {
+  const ctx = currentContext && typeof currentContext === 'object' ? currentContext : {};
+  const prompt = String(userPrompt ?? '').trim();
+  const match =
+    prompt.match(/create\s+(?:a\s+)?store\s+for\s+(.+?)(?:\s+in\s+(.+))?$/i) ||
+    prompt.match(/make\s+(?:a\s+)?store\s+for\s+(.+?)(?:\s+in\s+(.+))?$/i);
+
+  const parsedName = match?.[1] ? String(match[1]).trim().replace(/^["']+|["']+$/g, '') : '';
+  const parsedLocation = match?.[2] ? String(match[2]).trim().replace(/^["']+|["']+$/g, '') : '';
+  const businessName = pickString(parsedName, ctx.storeName, ctx.activeStoreName, ctx.currentStoreName, 'My Business');
+  const businessType = pickString(ctx.businessType, ctx.storeType, ctx.vertical, ctx.category, 'Other');
+  const location = pickString(parsedLocation, ctx.location, ctx.suburb, ctx.city);
+
+  return {
+    businessName,
+    businessType,
+    location,
+  };
+}
+
 /**
  * Registry key for planTaskGraphForIntent (LLM + registry fallback). Prefer explicit params from intake LLM, else heuristics from prompt/tool.
  */
@@ -1311,19 +1331,118 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
 
     // Keep store creation as the ONLY legacy default workflow.
     if (coreFunction === 'legacy_store') {
-      // Avoid falling through to an unmounted handler (can become a 404).
-      // Store creation is handled by the Store mission flows outside intake routing.
-      const msg =
-        locale === 'vi'
-          ? 'Bạn muốn tạo cửa hàng. Vui lòng dùng luồng “Create a store” để bắt đầu.'
-          : 'You want to create a store. Please use the “Create a store” flow to get started.';
-      return res.json({
-        success: true,
-        action: 'clarify',
-        reasoning: 'Store creation is handled by the store mission flow.',
-        response: msg,
-        payload: { question: msg },
-      });
+      if (!req.user?.id) {
+        return res.json({
+          success: false,
+          action: 'auth_gate',
+          reasoning: 'Store mission creation requires a signed-in account in this intake path.',
+          response:
+            locale === 'vi'
+              ? 'Vui lòng đăng nhập để tạo cửa hàng từ ảnh danh thiếp.'
+              : 'Please sign in to create a store from a business card image.',
+          payload: {
+            code: 'AUTH_REQUIRED',
+            message:
+              locale === 'vi'
+                ? 'Vui lòng đăng nhập để tiếp tục.'
+                : 'Please sign in to continue.',
+          },
+        });
+      }
+
+      try {
+        const { getPrismaClient } = await import('../lib/prisma.js');
+        const { getTenantId } = await import('../lib/missionAccess.js');
+        const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+        const { executeStoreMissionPipelineRun } = await import('../lib/storeMission/executeStoreMissionPipelineRun.js');
+        const prisma = getPrismaClient();
+        const storeInput = parseLegacyStoreCreateIntent(userPrompt, currentContext);
+
+        const existingStoreMissionId =
+          missionId &&
+          (await prisma.missionPipeline
+            .findFirst({
+              where: {
+                id: missionId,
+                type: 'store',
+                status: { in: ['awaiting_confirmation', 'queued', 'executing'] },
+              },
+              select: { id: true },
+            })
+            .catch(() => null))?.id;
+
+        const ensuredMissionId =
+          existingStoreMissionId ||
+          (
+            await createMissionPipeline({
+              type: 'store',
+              title: `Create store: ${storeInput.businessName.slice(0, 120)}`,
+              targetType: 'store',
+              targetId: undefined,
+              targetLabel: undefined,
+              metadata: {
+                businessName: storeInput.businessName,
+                businessType: storeInput.businessType,
+                location: storeInput.location,
+                websiteMode: false,
+                generateWebsite: false,
+                intentMode: 'store',
+                source: 'performer_intake_legacy_store',
+              },
+              requiresConfirmation: true,
+              executionMode: 'AUTO_RUN',
+              tenantId: getTenantId(req.user),
+              createdBy: req.user.id,
+            })
+          ).id;
+
+        const runResult = await executeStoreMissionPipelineRun({
+          prisma,
+          user: req.user,
+          missionId: ensuredMissionId,
+          body: {
+            businessName: storeInput.businessName,
+            businessType: storeInput.businessType,
+            location: storeInput.location,
+          },
+          auditSource: 'performer_intake_legacy_store',
+        });
+
+        if (!runResult.ok) {
+          throw new Error(runResult.message || runResult.error || 'store_mission_start_failed');
+        }
+
+        return res.json({
+          success: true,
+          action: 'store_mission_started',
+          missionId: runResult.missionId,
+          jobId: runResult.jobId,
+          generationRunId: runResult.generationRunId,
+          draftId: runResult.draftId,
+          intentMode: 'store',
+          reasoning: 'Store creation mission started from performer intake.',
+          response:
+            locale === 'vi'
+              ? `Đang tạo cửa hàng cho "${storeInput.businessName}"…`
+              : `Started building your store for "${storeInput.businessName}"…`,
+          storeMissionSummary: {
+            businessName: storeInput.businessName,
+            businessType: storeInput.businessType,
+            location: storeInput.location,
+          },
+        });
+      } catch (legacyStoreErr) {
+        console.warn('[PerformerIntake] legacy_store mission start failed:', legacyStoreErr?.message || legacyStoreErr);
+        return res.json({
+          success: false,
+          action: 'chat',
+          reasoning: 'Legacy store mission start failed.',
+          response:
+            locale === 'vi'
+              ? 'Không thể khởi động tiến trình tạo cửa hàng ngay bây giờ. Vui lòng thử lại.'
+              : 'I could not start the store build right now. Please try again.',
+        });
+      }
     }
 
     // Guardrail: when intake already selected a specific single-step tool, do not
