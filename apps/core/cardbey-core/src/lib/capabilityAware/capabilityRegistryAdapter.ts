@@ -4,7 +4,16 @@
  */
 
 import { INTAKE_TOOL_REGISTRY, RISK } from '../intake/intakeToolRegistry.js';
-import type { CapabilityDefinition, CapabilityExecutor, CapabilityStatus, CapabilityTier, PerformerRole } from './types.ts';
+import type {
+  CapabilityDefinition,
+  CapabilityExecutor,
+  CapabilityIntent,
+  CapabilityIntentMapping,
+  CapabilityStatus,
+  CapabilityTier,
+  PerformerRole,
+  SmartDocumentCapabilityDefinition,
+} from './types.ts';
 
 type RegistryEntry = (typeof INTAKE_TOOL_REGISTRY)[number];
 
@@ -47,7 +56,29 @@ function defaultRoles(entry: RegistryEntry): string[] {
   if (entry.toolName === 'create_store' || entry.toolName === 'generate_mini_website') {
     roles.push('business_launcher');
   }
+  if (entry.toolName === 'analyze_content') {
+    roles.push('concierge_operator');
+  }
   return [...new Set(roles)];
+}
+
+function defaultIntents(entry: RegistryEntry): CapabilityIntent[] {
+  if (entry.toolName === 'create_store') return ['create_store'];
+  if (entry.toolName === 'generate_mini_website') return ['generate_mini_website'];
+  if (entry.toolName === 'analyze_content') return ['analyze_content'];
+  return [entry.toolName];
+}
+
+function smartDocumentShape(entry: RegistryEntry): SmartDocumentCapabilityDefinition | undefined {
+  if (entry.toolName !== 'analyze_content') return undefined;
+  return {
+    documentType: 'other',
+    supportsConcierge: true,
+    conciergeMode: 'embedded',
+    supportsQrCode: false,
+    supportsPublicView: false,
+    supportsShareLink: false,
+  };
 }
 
 function toolToCapability(entry: RegistryEntry): CapabilityDefinition {
@@ -71,14 +102,71 @@ function toolToCapability(entry: RegistryEntry): CapabilityDefinition {
     riskLevel: mapRiskToLevel(entry.riskLevel),
     fallbackCapabilityIds: [],
     substituteFor: [],
+    intents: defaultIntents(entry),
+    smartDocument: smartDocumentShape(entry),
   };
 }
+
+const INTENT_ALIAS_MAPPINGS: CapabilityIntentMapping[] = [
+  {
+    intentType: 'create_card',
+    capabilityId: 'create_card',
+    aliasOfCapabilityId: 'analyze_content',
+    source: 'intent_alias',
+  },
+  {
+    intentType: 'create_smart_document',
+    capabilityId: 'create_smart_document',
+    aliasOfCapabilityId: 'analyze_content',
+    source: 'intent_alias',
+  },
+];
 
 let cached: CapabilityDefinition[] | null = null;
 
 export function getCapabilityRegistry(): CapabilityDefinition[] {
   if (!cached) {
-    cached = INTAKE_TOOL_REGISTRY.map(toolToCapability);
+    const base = INTAKE_TOOL_REGISTRY.map(toolToCapability);
+    const aliases = INTENT_ALIAS_MAPPINGS.map((mapping) => {
+      const sourceCapability = base.find((cap) => cap.id === mapping.aliasOfCapabilityId);
+      const documentType = mapping.intentType === 'create_card' ? 'card' : 'other';
+      return {
+        ...(sourceCapability ?? {
+          id: mapping.capabilityId,
+          name: mapping.intentType,
+          description: mapping.intentType,
+          category: 'direct_action:standalone',
+          tier: 'standard',
+          executor: 'internal_tool',
+          status: 'ready',
+          supportedRoles: ['generic_operator'],
+          inputs: [],
+          outputs: ['tool_result'],
+          requiresAuth: true,
+          requiresApproval: false,
+          supportsGuest: true,
+        }),
+        id: mapping.capabilityId,
+        name: mapping.intentType === 'create_card' ? 'Create Card' : 'Create Smart Document',
+        description:
+          mapping.intentType === 'create_card'
+            ? 'Create a smart card artifact with concierge and public/share support.'
+            : 'Create a smart document artifact with concierge and public/share support.',
+        supportedRoles: Array.from(
+          new Set([...(sourceCapability?.supportedRoles ?? ['generic_operator']), 'business_launcher', 'concierge_operator']),
+        ),
+        intents: [mapping.intentType],
+        smartDocument: {
+          documentType,
+          supportsConcierge: true,
+          conciergeMode: 'embedded',
+          supportsQrCode: true,
+          supportsPublicView: true,
+          supportsShareLink: true,
+        },
+      } satisfies CapabilityDefinition;
+    });
+    cached = [...base, ...aliases];
   }
   return cached;
 }
@@ -93,6 +181,17 @@ export function getCapabilitiesForRole(role: PerformerRole): CapabilityDefinitio
   const r = String(role ?? '').trim();
   if (!r) return getCapabilityRegistry();
   return getCapabilityRegistry().filter((c) => c.supportedRoles.includes(r));
+}
+
+export function getCapabilityIntentMappings(): CapabilityIntentMapping[] {
+  const registryMappings: CapabilityIntentMapping[] = getCapabilityRegistry().flatMap((cap) =>
+    (cap.intents ?? []).map((intentType) => ({
+      intentType,
+      capabilityId: cap.id,
+      source: 'registry' as const,
+    })),
+  );
+  return [...registryMappings, ...INTENT_ALIAS_MAPPINGS];
 }
 
 /** Test hook — avoid cross-test cache bleed. */

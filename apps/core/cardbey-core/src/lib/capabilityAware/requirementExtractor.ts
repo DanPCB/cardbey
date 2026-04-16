@@ -4,6 +4,12 @@
 
 import type { MissionRequirement } from './types.ts';
 
+export interface ExtractRequirementsContext {
+  text?: string;
+  artifacts?: string[];
+  role?: string;
+}
+
 export interface ExtractRequirementsInput {
   userMessage: string;
   tool?: string | null;
@@ -25,80 +31,55 @@ function req(
   return { id, name, category, requiredFor, importance, expectedOutput };
 }
 
+const STORE_REQUIREMENTS: MissionRequirement[] = [
+  req('req_llm_gen', 'LLM Generation', 'ai', 'catalog+copy', 'critical', 'products+descriptions'),
+  req('req_image_search', 'Image Search', 'media', 'product images', 'important', 'image_urls'),
+  req('req_web_scrape', 'Web Scrape', 'data', 'business enrichment', 'optional', 'business_profile'),
+  req('req_content_res', 'Content Resolution', 'ai', 'slogan+hero+tagline', 'important', 'resolved_content'),
+];
+
+const DOCUMENT_REQUIREMENTS: MissionRequirement[] = [
+  req('req_llm_gen', 'LLM Generation', 'ai', 'document content', 'critical', 'products+descriptions'),
+  req('req_qr_gen', 'QR Generation', 'media', 'card QR code', 'important', 'qr_code_url'),
+  req('req_concierge', 'Concierge Runtime', 'agent', 'card agent', 'important', 'agent_endpoint'),
+];
+
+const CAMPAIGN_REQUIREMENTS: MissionRequirement[] = [
+  req('req_llm_gen', 'LLM Generation', 'ai', 'campaign strategy', 'critical', 'products+descriptions'),
+  req('req_web_search', 'Web Search', 'data', 'market research', 'important', 'research_data'),
+  req('req_stripe', 'Stripe', 'payment', 'promotion', 'optional', 'coupon_id'),
+  req('req_gmail', 'Gmail', 'communication', 'campaign email', 'optional', 'email_sent'),
+  req('req_calendar', 'Calendar', 'scheduling', 'campaign reminder', 'optional', 'event_id'),
+];
+
+const CAMPAIGN_RESEARCH_REQUIREMENTS: MissionRequirement[] = [
+  req('req_llm_gen', 'LLM Generation', 'ai', 'research synthesis', 'critical', 'products+descriptions'),
+  req('req_web_search', 'Web Search', 'data', 'market research', 'important', 'research_data'),
+];
+
+const DEFAULT_REQUIREMENTS: MissionRequirement[] = [
+  req('req_llm_gen', 'LLM Generation', 'ai', 'general reasoning', 'critical', 'products+descriptions'),
+];
+
+export function extractRequirements(
+  intentType: string,
+  _context: ExtractRequirementsContext = {},
+): MissionRequirement[] {
+  const intent = String(intentType ?? '').trim().toLowerCase();
+  if (intent === 'create_store' || intent === 'store_setup') return STORE_REQUIREMENTS.map((item) => ({ ...item }));
+  if (intent === 'mini_website' || intent === 'create_mini_website' || intent === 'generate_mini_website') {
+    return STORE_REQUIREMENTS.map((item) => ({ ...item }));
+  }
+  if (intent === 'create_smart_document' || intent === 'create_card') {
+    return DOCUMENT_REQUIREMENTS.map((item) => ({ ...item }));
+  }
+  if (intent === 'launch_campaign') return CAMPAIGN_REQUIREMENTS.map((item) => ({ ...item }));
+  if (intent === 'campaign_research') return CAMPAIGN_RESEARCH_REQUIREMENTS.map((item) => ({ ...item }));
+  return DEFAULT_REQUIREMENTS.map((item) => ({ ...item }));
+}
+
 export function extractMissionRequirements(input: ExtractRequirementsInput): MissionRequirement[] {
-  const tool = String(input.tool ?? '').trim();
-  const msg = String(input.userMessage ?? '');
-  const lower = msg.toLowerCase();
-  const out: MissionRequirement[] = [];
-
-  const websiteOrStore =
-    tool === 'create_store' ||
-    tool === 'generate_mini_website' ||
-    /mini\s*website|create\s+(a\s+)?store|build\s+(a\s+)?store/i.test(lower);
-
-  if (websiteOrStore) {
-    out.push(
-      req('req.store.brand', 'Brand identity', 'store', 'store_setup', 'critical', 'Business name and category'),
-      req('req.store.location', 'Location context', 'store', 'store_setup', 'important', 'Service area or address hint'),
-      req('req.website.structure', 'Website structure', 'website', 'mini_website', 'critical', 'Hero, sections, CTA outline'),
-      req('req.publish.path', 'Publish path', 'store', 'go_live', 'optional', 'Draft review and publish eligibility'),
-    );
-  }
-
-  const campaignish =
-    tool === 'launch_campaign' ||
-    tool === 'create_promotion' ||
-    tool === 'market_research' ||
-    /campaign|promotion|promo|marketing|discount|offer/i.test(lower);
-
-  if (campaignish) {
-    out.push(
-      req('req.campaign.goal', 'Campaign goal', 'campaign', 'messaging', 'critical', 'Objective and audience'),
-      req('req.campaign.channel', 'Channels', 'campaign', 'distribution', 'important', 'Target channels'),
-      req('req.campaign.copy', 'Copy and CTA', 'campaign', 'assets', 'important', 'Headline, body, CTA'),
-      req('req.campaign.assets', 'Visual assets', 'campaign', 'creative', 'optional', 'Images or templates'),
-    );
-  }
-
-  const researchish =
-    tool === 'analyze_store' || /\b(supplier|vendor|sourcing|compare|research|benchmark)\b/i.test(lower);
-
-  if (researchish && !websiteOrStore) {
-    out.push(
-      req('req.research.query', 'Search scope', 'research', 'discovery', 'critical', 'What to find or compare'),
-      req('req.research.sources', 'Evidence basis', 'research', 'validation', 'important', 'Sources or criteria'),
-      req('req.research.summary', 'Summarized insight', 'research', 'output', 'important', 'Actionable summary'),
-    );
-  }
-
-  const quoteish = /\b(quote|invoice|estimate|quotation|proforma)\b/i.test(lower);
-  if (quoteish) {
-    out.push(
-      req('req.quote.pricing', 'Pricing basis', 'commercial', 'quote', 'critical', 'Rates, tax, currency'),
-      req('req.quote.line_items', 'Line items', 'commercial', 'quote', 'critical', 'Products or services listed'),
-      req('req.quote.customer', 'Customer details', 'commercial', 'quote', 'important', 'Bill-to / contact'),
-      req('req.quote.document', 'Output document', 'commercial', 'quote', 'optional', 'PDF or shareable doc'),
-    );
-  }
-
-  if (input.hasImageAttachment && out.length === 0) {
-    out.push(
-      req('req.vision.decode', 'Image understanding', 'vision', 'intake', 'important', 'Text or objects from attachment'),
-    );
-  }
-
-  if (out.length === 0) {
-    out.push(
-      req('req.generic.intent', 'Clear intent', 'general', 'routing', 'critical', 'Actionable user goal'),
-      req('req.generic.context', 'Operating context', 'general', 'routing', 'optional', 'Store or draft if relevant'),
-    );
-  }
-
-  if (!input.hasStoreId && (campaignish || tool === 'improve_hero' || tool === 'rewrite_descriptions')) {
-    out.push(
-      req('req.context.store', 'Active store', 'context', 'authorization', 'critical', 'storeId for mutating tools'),
-    );
-  }
-
-  return out;
+  return extractRequirements(String(input.tool ?? '').trim(), {
+    text: input.userMessage,
+  });
 }

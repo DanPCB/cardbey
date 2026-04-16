@@ -4,6 +4,48 @@
 
 import type { CapabilityMissionPhase, PerformerRole } from './types.ts';
 
+export function deriveRole(
+  intentType: string,
+  _artifacts?: string[],
+): PerformerRole {
+  const intent = String(intentType ?? '').trim().toLowerCase();
+  switch (intent) {
+    case 'create_store':
+    case 'store_setup':
+      return 'business_launcher';
+    case 'mini_website':
+    case 'create_mini_website':
+    case 'generate_mini_website':
+    case 'edit_website':
+      return 'content_creator';
+    case 'launch_campaign':
+      return 'campaign_manager';
+    case 'campaign_research':
+      return 'research_agent';
+    case 'create_smart_document':
+    case 'create_card':
+      return 'concierge_operator';
+    default:
+      return 'generic_operator';
+  }
+}
+
+export function derivePhase(
+  missionStatus: string | null | undefined,
+  _hasRequirements: boolean,
+  hasGaps: boolean,
+): CapabilityMissionPhase {
+  if (hasGaps) return 'check_capabilities';
+  const status = String(missionStatus ?? '').trim().toLowerCase();
+  if (!status) return 'understand';
+  if (status === 'requested' || status === 'planned') return 'plan';
+  if (status === 'awaiting_confirmation') return 'check_capabilities';
+  if (status === 'queued' || status === 'executing' || status === 'running') return 'execute';
+  if (status === 'completed' || status === 'done') return 'validate';
+  if (status === 'failed' || status === 'error') return 'blocked';
+  return 'understand';
+}
+
 export interface RoleContextInput {
   userMessage: string;
   tool?: string | null;
@@ -19,54 +61,17 @@ export interface RoleContextResult {
   phase: CapabilityMissionPhase;
 }
 
-const QUOTE_RE = /\b(quote|invoice|estimate|quotation|proforma)\b/i;
-const RESEARCH_RE = /\b(supplier|vendor|sourcing|compare|research|benchmark)\b/i;
-
 export function deriveRoleAndPhase(input: RoleContextInput): RoleContextResult {
-  const msg = String(input.userMessage ?? '').toLowerCase();
-  const tool = String(input.tool ?? '').trim();
-  const family = String(input.intentFamily ?? '').toLowerCase();
-
-  let role: PerformerRole = 'generic_operator';
-  let phase: CapabilityMissionPhase = 'understand';
-
-  if (tool === 'create_store' || tool === 'generate_mini_website' || /mini\s*website|create\s+a\s+store/i.test(msg)) {
-    role = 'business_launcher';
-    phase = 'plan';
-  } else if (
-    tool === 'launch_campaign' ||
-    tool === 'create_promotion' ||
-    tool === 'market_research' ||
-    family.includes('campaign') ||
-    /campaign|promo|promotion|ads?\b/i.test(msg)
-  ) {
-    role = 'campaign_manager';
-    phase = tool === 'market_research' ? 'plan' : 'execute';
-  } else if (QUOTE_RE.test(msg)) {
-    role = 'buyer_concierge';
-    phase = 'plan';
-  } else if (RESEARCH_RE.test(msg) || tool === 'analyze_store') {
-    role = 'research_agent';
-    phase = 'plan';
-  } else if (
-    tool === 'edit_artifact' ||
-    tool === 'smart_visual' ||
-    tool === 'generate_social' ||
-    /content|caption|post|image|hero/i.test(msg)
-  ) {
-    role = 'content_creator';
-    phase = 'execute';
-  } else if (input.hasStoreId) {
-    role = 'store_operator';
-    phase = input.hasDraftId ? 'validate' : 'execute';
-  }
-
-  if (input.executionPath === 'clarify') {
-    phase = 'understand';
-  }
-  if (input.executionPath === 'proactive_plan') {
-    phase = 'plan';
-  }
-
+  const role = deriveRole(String(input.tool ?? input.intentFamily ?? '').trim());
+  const phase =
+    input.executionPath === 'proactive_plan'
+      ? 'plan'
+      : input.executionPath === 'clarify'
+        ? 'understand'
+        : input.hasDraftId
+          ? 'validate'
+          : input.hasStoreId
+            ? 'execute'
+            : 'understand';
   return { role, phase };
 }

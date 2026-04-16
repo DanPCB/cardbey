@@ -3,13 +3,13 @@
  */
 
 import type { CapabilityAssessmentSummary } from './types.ts';
-import { getCapabilityRegistry } from './capabilityRegistryAdapter.ts';
-import { extractMissionRequirements } from './requirementExtractor.ts';
+import { getCapabilityById, getCapabilityRegistry } from './capabilityRegistryAdapter.ts';
+import { extractRequirements } from './requirementExtractor.ts';
 import { resolveCapabilityGaps } from './gapModel.ts';
-import { deriveRoleAndPhase } from './roleContext.ts';
-import { decidePremiumRouting } from './premiumRouting.ts';
-import { selectExecutionStrategies } from './strategySelector.ts';
-import { buildAcquisitionStatesFromResolutions } from './acquisitionState.ts';
+import { derivePhase, deriveRole } from './roleContext.ts';
+import { decidePremiumRouting, getDefaultPremiumPolicy } from './premiumRouting.ts';
+import { selectStrategy } from './strategySelector.ts';
+import { buildAcquisitionMap } from './acquisitionState.ts';
 
 export interface BuildCapabilityAssessmentInput {
   userMessage: string;
@@ -24,52 +24,38 @@ export interface BuildCapabilityAssessmentInput {
 }
 
 export function buildCapabilityAssessmentSummary(input: BuildCapabilityAssessmentInput): CapabilityAssessmentSummary {
-  const { role, phase } = deriveRoleAndPhase({
-    userMessage: input.userMessage,
-    tool: input.tool,
-    executionPath: input.executionPath,
-    intentFamily: input.intentFamily,
-    intentSubtype: input.intentSubtype,
-    hasStoreId: input.hasStoreId,
-    hasDraftId: input.hasDraftId,
-  });
+  const role = deriveRole(String(input.tool ?? input.intentFamily ?? '').trim());
 
-  const requirements = extractMissionRequirements({
-    userMessage: input.userMessage,
-    tool: input.tool,
-    intentFamily: input.intentFamily,
-    intentSubtype: input.intentSubtype,
-    hasStoreId: input.hasStoreId,
-    hasDraftId: input.hasDraftId,
-    hasImageAttachment: input.hasImageAttachment,
+  const requirements = extractRequirements(String(input.tool ?? input.intentFamily ?? '').trim(), {
+    text: input.userMessage,
   });
 
   const capabilities = getCapabilityRegistry();
-  const resolutions = resolveCapabilityGaps(requirements, capabilities, {
-    activeTool: input.tool,
-    hasStoreId: input.hasStoreId,
-    hasDraftId: input.hasDraftId,
-  });
+  const resolutions = resolveCapabilityGaps(requirements);
 
   const hasCriticalGap = resolutions.some(
     (r) => r.state === 'missing' && requirements.find((q) => q.id === r.requirementId)?.importance === 'critical',
   );
+  const phase = derivePhase(null, requirements.length > 0, hasCriticalGap);
 
-  const premiumDecision = decidePremiumRouting({
-    isGuest: input.isGuest,
-    hasCriticalGap,
-    userRequestedPremium: /\bpremium\b|\bpag\b|\bpps\b/i.test(input.userMessage),
-  });
+  const premiumPolicy = getDefaultPremiumPolicy(role);
+  const premiumCapability =
+    getCapabilityById(resolutions.find((resolution) => resolution.matchedCapabilityId)?.matchedCapabilityId ?? '') ??
+    capabilities.find((capability) => capability.tier === 'premium') ??
+    capabilities[0];
+  const premiumDecision = premiumCapability
+    ? decidePremiumRouting(premiumCapability, premiumPolicy, role)
+    : undefined;
 
-  const executionChoices = selectExecutionStrategies({
+  const executionChoices = selectStrategy(
     resolutions,
+    requirements,
     role,
     phase,
-    premiumDecision,
-    isGuest: input.isGuest,
-  });
+    premiumPolicy,
+  );
 
-  const acquisitionStates = buildAcquisitionStatesFromResolutions(resolutions, executionChoices);
+  const acquisitionStates = buildAcquisitionMap(executionChoices);
 
   return {
     schemaVersion: 1,

@@ -14,6 +14,40 @@ export type CapabilityExecutor =
 
 export type CapabilityStatus = 'ready' | 'partial' | 'experimental' | 'disabled';
 
+export type CapabilityIntent =
+  | 'create_store'
+  | 'generate_mini_website'
+  | 'create_card'
+  | 'create_smart_document'
+  | 'analyze_content'
+  | 'market_research'
+  | 'create_promotion'
+  | 'launch_campaign'
+  | 'edit_artifact'
+  | 'smart_visual'
+  | 'general_chat'
+  | string;
+
+export type SmartDocumentCapabilityType = 'card' | 'ticket' | 'report' | 'quote' | 'other';
+
+export type SmartDocumentConciergeMode = 'none' | 'embedded' | 'delegated';
+
+export interface SmartDocumentCapabilityDefinition {
+  documentType: SmartDocumentCapabilityType;
+  supportsConcierge: boolean;
+  conciergeMode?: SmartDocumentConciergeMode;
+  supportsQrCode?: boolean;
+  supportsPublicView?: boolean;
+  supportsShareLink?: boolean;
+}
+
+export interface CapabilityIntentMapping {
+  intentType: CapabilityIntent;
+  capabilityId: string;
+  aliasOfCapabilityId?: string;
+  source: 'registry' | 'intent_alias';
+}
+
 export interface CapabilityDefinition {
   id: string;
   name: string;
@@ -33,6 +67,8 @@ export interface CapabilityDefinition {
   fallbackCapabilityIds?: string[];
   substituteFor?: string[];
   riskLevel?: 'low' | 'medium' | 'high';
+  intents?: CapabilityIntent[];
+  smartDocument?: SmartDocumentCapabilityDefinition;
 }
 
 export type PerformerRole =
@@ -42,6 +78,8 @@ export type PerformerRole =
   | 'campaign_manager'
   | 'research_agent'
   | 'buyer_concierge'
+  | 'card_concierge'
+  | 'concierge_operator'
   | 'generic_operator';
 
 export type CapabilityMissionPhase =

@@ -1,37 +1,51 @@
 /**
- * Acquisition progress model — v1 state only, no autonomous loop.
+ * Acquisition state model only.
+ * No loops or execution side effects.
  */
 
-import type { CapabilityAcquisitionState, ExecutionMode, RequirementResolution } from './types.ts';
+import type {
+  AcquisitionStatus,
+  CapabilityAcquisitionState,
+  ExecutionChoice,
+  ExecutionMode,
+} from './types.ts';
 
-function inferStatus(
-  r: RequirementResolution,
-  chosenPath: ExecutionMode | undefined,
-): CapabilityAcquisitionState['status'] {
-  if (r.state === 'ready') return 'acquired';
-  if (r.state === 'partial') return 'substituted';
-  if (r.state === 'missing' && r.requiresUserInput) return 'awaiting_user';
-  if (r.state === 'missing') return 'blocked';
-  if (r.state === 'fetchable') return 'pending';
-  if (r.state === 'substitutable') return 'substituted';
-  if (r.state === 'delegatable') return 'delegated';
-  if (r.state === 'blocked') return 'blocked';
-  if (chosenPath === 'user_input') return 'awaiting_user';
-  return 'pending';
+export function createAcquisitionState(
+  requirementId: string,
+): CapabilityAcquisitionState {
+  return {
+    requirementId,
+    status: 'not_needed',
+  };
 }
 
-export function buildAcquisitionStatesFromResolutions(
-  resolutions: RequirementResolution[],
-  executionChoices: { requirementId: string; chosenMode: ExecutionMode }[],
+export function updateAcquisitionState(
+  state: CapabilityAcquisitionState,
+  status: AcquisitionStatus,
+  chosenPath?: ExecutionMode,
+  notes?: string,
+): CapabilityAcquisitionState {
+  return {
+    ...state,
+    status,
+    ...(chosenPath != null ? { chosenPath } : {}),
+    ...(notes != null ? { notes } : {}),
+  };
+}
+
+export function buildAcquisitionMap(
+  choices: ExecutionChoice[],
 ): CapabilityAcquisitionState[] {
-  const modeMap = new Map(executionChoices.map((c) => [c.requirementId, c.chosenMode]));
-  return resolutions.map((r) => {
-    const chosenPath = modeMap.get(r.requirementId);
+  return choices.map((choice) => {
+    let status: AcquisitionStatus = 'not_needed';
+    if (choice.chosenMode === 'blocked') status = 'blocked';
+    if (choice.chosenMode === 'child_agent') status = 'delegated';
+    if (choice.chosenMode === 'user_input') status = 'awaiting_user';
+
     return {
-      requirementId: r.requirementId,
-      status: inferStatus(r, chosenPath),
-      chosenPath,
-      notes: r.notes,
+      requirementId: choice.requirementId,
+      status,
+      chosenPath: choice.chosenMode,
     };
   });
 }

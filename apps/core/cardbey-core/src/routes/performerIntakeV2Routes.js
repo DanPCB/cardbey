@@ -54,6 +54,12 @@ import { buildCapabilityProposalFromGap } from '../lib/intake/intakeCapabilityPr
 import { spawnChildAgentForMissionTask } from '../lib/agents/childAgentBridge.js';
 import { ocrExtractText } from '../lib/ocr/ocrProvider.js';
 import { buildCapabilityAssessmentSummary } from '../lib/capabilityAware/buildCapabilityAssessment.ts';
+import { extractRequirements } from '../lib/capabilityAware/requirementExtractor.ts';
+import { resolveCapabilityGaps, summarizeGaps } from '../lib/capabilityAware/gapModel.ts';
+import { deriveRole, derivePhase } from '../lib/capabilityAware/roleContext.ts';
+import { selectStrategy, summarizeStrategy } from '../lib/capabilityAware/strategySelector.ts';
+import { getDefaultPremiumPolicy } from '../lib/capabilityAware/premiumRouting.ts';
+import { buildAcquisitionMap } from '../lib/capabilityAware/acquisitionState.ts';
 import { buildSmartDocument } from '../lib/smartDocument/buildSmartDocument.js';
 
 const router = express.Router();
@@ -598,6 +604,50 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       capabilityAwareV1: telExtra.capabilityAwareV1 ?? null,
     });
     let responsePayload = payload;
+    const responseMetadata = {};
+    try {
+      const clsForCap =
+        telExtra.classification !== undefined && telExtra.classification !== null
+          ? telExtra.classification
+          : classification;
+      const resolvedIntentType = String(clsForCap?.tool ?? '').trim();
+      if (resolvedIntentType) {
+        const requirements = extractRequirements(resolvedIntentType, { text: req.body.text });
+        const resolutions = resolveCapabilityGaps(requirements);
+        const gapSummary = summarizeGaps(resolutions);
+        const role = deriveRole(resolvedIntentType);
+        const phase = derivePhase(null, requirements.length > 0, !gapSummary.allReady);
+        const premiumPolicy = getDefaultPremiumPolicy(role);
+        const choices = selectStrategy(
+          resolutions,
+          requirements,
+          role,
+          phase,
+          premiumPolicy,
+        );
+        const strategySummary = summarizeStrategy(choices);
+        const acquisitionMap = buildAcquisitionMap(choices);
+        responseMetadata.capabilityContext = {
+          role,
+          phase,
+          requirementCount: requirements.length,
+          allReady: gapSummary.allReady,
+          criticalMissing: gapSummary.criticalMissing,
+          fetchable: gapSummary.fetchable,
+          optional: gapSummary.optional,
+          canProceed: strategySummary.canProceed,
+          blockedCount: strategySummary.blockedCount,
+          premiumSuggested: strategySummary.premiumSuggested,
+          childAgentRecommended: strategySummary.childAgentRecommended,
+          userInputRequired: strategySummary.userInputRequired,
+          blockedRequirements: strategySummary.blockedRequirements,
+          premiumPolicy,
+          acquisitionMap,
+        };
+      }
+    } catch (capErr) {
+      console.warn('[capabilityAware] enrichment failed (non-blocking):', capErr?.message ?? capErr);
+    }
     if (String(process.env.CAPABILITY_AWARE_V1 || '').trim().toLowerCase() === 'true') {
       try {
         const clsForCap =
@@ -623,6 +673,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       } catch (capErr) {
         if (isDev) console.warn('[CapabilityAware] buildCapabilityAssessmentSummary failed:', capErr?.message ?? capErr);
       }
+    }
+    if (
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload) &&
+      responseMetadata.capabilityContext
+    ) {
+      responsePayload = {
+        ...responsePayload,
+        capabilityContext: responseMetadata.capabilityContext,
+      };
     }
     return res.json(responsePayload);
   };

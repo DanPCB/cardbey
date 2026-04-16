@@ -1,36 +1,77 @@
 /**
- * PAG or PPS tier policy — conservative; same runway only.
+ * Premium routing is policy-only in v1.
  */
 
-import type { PremiumRoutingDecision, PremiumUsageMode } from './types.ts';
-import { defaultPremiumDecision } from './policyGuards.ts';
+import type {
+  CapabilityDefinition,
+  PerformerRole,
+  PremiumRoutingDecision,
+  PremiumUsageMode,
+} from './types.ts';
 
-export interface PremiumRoutingInput {
-  isGuest: boolean;
-  hasCriticalGap?: boolean;
-  userRequestedPremium?: boolean;
-}
+export function decidePremiumRouting(
+  capability: CapabilityDefinition,
+  policy: PremiumUsageMode,
+  role: PerformerRole,
+): PremiumRoutingDecision {
+  void role;
 
-export function decidePremiumRouting(input: PremiumRoutingInput): PremiumRoutingDecision {
-  if (input.userRequestedPremium && !input.isGuest) {
+  if (policy === 'standard_only') {
     return {
-      allowed: true,
-      mode: 'user_selected_premium',
-      recommended: true,
-      reason: 'user_explicit_premium',
-    };
-  }
-  if (input.hasCriticalGap && !input.isGuest) {
-    return {
-      allowed: true,
-      mode: 'suggest_premium',
+      allowed: false,
+      mode: policy,
       recommended: false,
-      reason: 'critical_gap_premium_optional',
+      reason: 'standard only policy active',
     };
   }
-  return defaultPremiumDecision(input.isGuest);
+
+  if (policy === 'suggest_premium') {
+    if (capability.tier === 'premium') {
+      return {
+        allowed: false,
+        mode: policy,
+        recommended: true,
+        reason: 'premium available — user approval needed',
+      };
+    }
+    return {
+      allowed: false,
+      mode: policy,
+      recommended: false,
+      reason: 'standard capability',
+    };
+  }
+
+  if (policy === 'user_selected_premium') {
+    if (capability.tier === 'premium') {
+      return {
+        allowed: true,
+        mode: policy,
+        recommended: true,
+        reason: 'user selected premium',
+      };
+    }
+    return {
+      allowed: true,
+      mode: policy,
+      recommended: false,
+      reason: 'standard selected',
+    };
+  }
+
+  return {
+    allowed: false,
+    mode: policy,
+    recommended: false,
+    reason: 'auto premium not available in v1',
+  };
 }
 
-export function isPremiumApprovalRequired(mode: PremiumUsageMode): boolean {
-  return mode === 'user_selected_premium' || mode === 'auto_premium_with_limit';
+export function isPremiumApprovalRequired(decision: PremiumRoutingDecision): boolean {
+  return decision.recommended === true && decision.allowed === false;
+}
+
+export function getDefaultPremiumPolicy(role: PerformerRole): PremiumUsageMode {
+  void role;
+  return 'suggest_premium';
 }
