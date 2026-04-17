@@ -385,6 +385,26 @@ function looksMiniWebsiteGoal(userPrompt) {
   );
 }
 
+/**
+ * Website creation aliases that must route to create_store (legacy store runway),
+ * NOT proactive campaign planning.
+ */
+function looksWebsiteCreateStoreAlias(userPrompt) {
+  const lower = String(userPrompt || '').toLowerCase();
+  return (
+    lower.includes('create a website') ||
+    lower.includes('create my website') ||
+    lower.includes('create a mini website') ||
+    lower.includes('build a website') ||
+    lower.includes('build me a website') ||
+    lower.includes('make a website') ||
+    lower.includes('create a web presence') ||
+    lower.includes('create a site') ||
+    lower.includes('create a website from card') ||
+    lower.includes('website from card')
+  );
+}
+
 function isStoreOrMiniWebsiteIntentText(userPrompt) {
   const lower = String(userPrompt || '').toLowerCase();
   const isStore =
@@ -428,6 +448,7 @@ function isShowPromoOnStoreIntentText(userPrompt) {
  */
 function decideCoreFunction({ userPrompt, llmAction, llmTool, llmReasoning, llmParameters }) {
   if (isLegacyStoreCreationIntent(userPrompt)) return 'legacy_store';
+  if (looksWebsiteCreateStoreAlias(userPrompt)) return 'legacy_store';
   if (looksMiniWebsiteGoal(userPrompt)) return 'proactive_plan';
 
   const prompt = String(userPrompt || '').toLowerCase();
@@ -1388,6 +1409,7 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
         const { executeStoreMissionPipelineRun } = await import('../lib/storeMission/executeStoreMissionPipelineRun.js');
         const prisma = getPrismaClient();
         const storeInput = parseLegacyStoreCreateIntent(userPrompt, currentContext);
+        const websiteAlias = looksWebsiteCreateStoreAlias(userPrompt);
 
         const existingStoreMissionId =
           missionId &&
@@ -1415,9 +1437,9 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
                 businessName: storeInput.businessName,
                 businessType: storeInput.businessType,
                 location: storeInput.location,
-                websiteMode: false,
-                generateWebsite: false,
-                intentMode: 'store',
+                websiteMode: websiteAlias,
+                generateWebsite: websiteAlias,
+                intentMode: websiteAlias ? 'website' : 'store',
                 source: 'performer_intake_legacy_store',
               },
               requiresConfirmation: true,
@@ -1450,12 +1472,16 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
           jobId: runResult.jobId,
           generationRunId: runResult.generationRunId,
           draftId: runResult.draftId,
-          intentMode: 'store',
+          intentMode: websiteAlias ? 'website' : 'store',
           reasoning: 'Store creation mission started from performer intake.',
           response:
             locale === 'vi'
-              ? `Đang tạo cửa hàng cho "${storeInput.businessName}"…`
-              : `Started building your store for "${storeInput.businessName}"…`,
+              ? websiteAlias
+                ? `Đang tạo trang web mini cho "${storeInput.businessName}"…`
+                : `Đang tạo cửa hàng cho "${storeInput.businessName}"…`
+              : websiteAlias
+                ? `Started building your mini website for "${storeInput.businessName}"…`
+                : `Started building your store for "${storeInput.businessName}"…`,
           storeMissionSummary: {
             businessName: storeInput.businessName,
             businessType: storeInput.businessType,

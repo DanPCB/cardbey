@@ -26,6 +26,32 @@ function normalizeIntent(raw) {
 // intakeClassifier.js owns first-hop classification.
 // agentPlanner owns multi-step planning only.
 const INTENT_KEYWORDS = {
+  // NOTE: Order matters. Keep create_store ahead of launch_campaign to avoid overlap.
+  create_store: [
+    // Explicit store creation (regression: "create a store for X" should still match).
+    'create a store',
+    'create store',
+    'create my store',
+    'create a store for',
+    'make a store',
+    'make a store for',
+    'build a store',
+    'build store',
+    'open store',
+    'new store',
+    // Website/mini-website phrasing aliases for create_store (requested).
+    'create a website',
+    'create my website',
+    'create a mini website',
+    'build a website',
+    'build me a website',
+    'make a website',
+    'create a web presence',
+    'create a site',
+    // Common "from card" phrasing seen in intake.
+    'create a website from card',
+    'website from card',
+  ],
   code_fix: [
     'fix bug',
     'fix issue',
@@ -262,6 +288,25 @@ export function planMissionFromIntent(input) {
   if (keywordMatched) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[AgentPlanner] intent matched: ${keywordMatched}`);
+    }
+    if (keywordMatched === 'create_store') {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[AgentPlanner] plan created: create_store (no store context required)');
+      }
+      return {
+        ok: true,
+        intentType: 'create_store',
+        title: 'Create store',
+        requiresConfirmation: true,
+        missionPlan: {
+          missionType: 'create_store',
+          title: 'Create store',
+          targetType: 'generic',
+          targetId: null,
+          requiresConfirmation: true,
+          metadata: {},
+        },
+      };
     }
     if (keywordMatched === 'code_fix') {
       return {
