@@ -67,6 +67,19 @@ const isDev = process.env.NODE_ENV !== 'production';
 const CREATE_CARD_RE =
   /(create\s+.*card|make\s+.*card|loyalty\s+card|promo\s+card|promotion\s+card|gift\s+card|event\s+card|invitation|invite|profile\s+card|business\s+card)/i;
 
+function performerIntakeV2ActorId(req) {
+  const raw = req.user?.id ?? req.userId ?? req.guestId ?? req.guest?.id;
+  if (raw == null) return '';
+  return String(raw).trim();
+}
+
+function performerIntakeV2UserLike(req) {
+  if (req.user?.id) return req.user;
+  const gid = performerIntakeV2ActorId(req);
+  if (!gid) return null;
+  return { id: gid, role: 'guest', isGuest: true };
+}
+
 // ── SmartDocument intent patterns (CC-4) ──────────────────────────────────
 const SD_CARD_LOYALTY_RE = /loyalty.{0,10}card|card.{0,10}loyalty/i;
 const SD_CARD_GIFT_RE = /gift.{0,10}card|card.{0,10}gift/i;
@@ -1074,7 +1087,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
-      if (!req.user?.id) {
+      const actorId = performerIntakeV2ActorId(req);
+      const userLike = performerIntakeV2UserLike(req);
+      if (!actorId || !userLike) {
         return safeJson(
           {
             success: true,
@@ -1095,7 +1110,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
-      const tenantId = getTenantId(req.user);
+      const tenantId = getTenantId(req.user) ?? actorId;
       const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
       const pipeline = await createMissionPipeline({
         type: 'store',
@@ -1115,14 +1130,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         requiresConfirmation: true,
         executionMode: 'AUTO_RUN',
         tenantId,
-        createdBy: req.user.id,
+        createdBy: actorId,
       });
 
       const currencyCode =
         inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
       const runResult = await executeStoreMissionPipelineRun({
         prisma: getPrismaClient(),
-        user: req.user,
+        user: userLike,
         missionId: pipeline.id,
         body: { businessName, businessType, location: locationTrim, currencyCode },
         auditSource: 'intake_v2_shortcut_contract',
@@ -2145,7 +2160,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             ? nlLocation
             : '';
 
-      if (!req.user?.id) {
+      const actorId = performerIntakeV2ActorId(req);
+      const userLike = performerIntakeV2UserLike(req);
+      if (!actorId || !userLike) {
         return safeJson(
           {
             success: true,
@@ -2181,7 +2198,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         if (sid) {
           storeRow = await prisma.business
             .findFirst({
-              where: { id: sid, userId: req.user.id },
+              where: { id: sid, userId: userLike.id },
               select: { name: true, type: true },
             })
             .catch(() => null);
@@ -2223,7 +2240,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
-      const tenantId = getTenantId(req.user);
+      const tenantId = getTenantId(req.user) ?? actorId;
       const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
       const pipeline = await createMissionPipeline({
         type: 'store',
@@ -2243,7 +2260,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         requiresConfirmation: true,
         executionMode: 'AUTO_RUN',
         tenantId,
-        createdBy: req.user.id,
+        createdBy: actorId,
       });
 
       const currencyCode =
