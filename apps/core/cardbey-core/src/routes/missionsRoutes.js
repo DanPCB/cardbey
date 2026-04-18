@@ -268,7 +268,12 @@ router.post('/extract-card', requireAuth, async (req, res) => {
       });
     }
 
-    console.log('[extract-card] processing...');
+    const mimeMatch =
+      typeof cardImageDataUrl === 'string' ? cardImageDataUrl.match(/^data:(image\/[^;]+)/) : null;
+    console.log('[extract-card] processing...', {
+      inputMime: mimeMatch?.[1] ?? 'unknown',
+      dataUrlLength: cardImageDataUrl.length,
+    });
 
     let ocrResult;
     try {
@@ -286,6 +291,11 @@ router.post('/extract-card', requireAuth, async (req, res) => {
     }
 
     const extractedText = ocrResult?.text ?? '';
+    const rawTextLog =
+      typeof extractedText === 'string' && extractedText.length > 6000
+        ? `${extractedText.slice(0, 6000)}\n… [truncated ${extractedText.length} chars]`
+        : extractedText;
+    console.log('[extract-card] vision raw response:', rawTextLog);
     if (isRefusalResponse(extractedText) || !businessCardLooksLikeOcrText(extractedText)) {
       console.warn('[extract-card] OCR refusal or unreadable card text');
       return res.status(502).json({
@@ -296,6 +306,11 @@ router.post('/extract-card', requireAuth, async (req, res) => {
     }
 
     const parsed = parseBusinessCardOCR(extractedText, { country: 'AU' });
+    console.log('[extract-card] parsed result:', {
+      extractedEntities: parsed.extractedEntities,
+      rawLines: parsed.meta?.rawLines,
+      confidence: parsed.confidence,
+    });
     const entities = parsed.extractedEntities && typeof parsed.extractedEntities === 'object'
       ? parsed.extractedEntities
       : {};

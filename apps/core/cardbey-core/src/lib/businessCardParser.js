@@ -248,10 +248,11 @@ function extractBusinessName(lines) {
       best = top[i];
     }
   }
+  // Use >= 0: several valid name lines score exactly 0 (e.g. mixed-case without enough caps for the upperRatio bonus).
   const threshold = 0;
   return {
-    businessName: bestScore > threshold ? best : null,
-    confidence: bestScore > threshold ? Math.min(1, 0.5 + bestScore * 0.05) : 0,
+    businessName: best != null && bestScore >= threshold ? best : null,
+    confidence: best != null && bestScore >= threshold ? Math.min(1, 0.5 + bestScore * 0.05) : 0,
   };
 }
 
