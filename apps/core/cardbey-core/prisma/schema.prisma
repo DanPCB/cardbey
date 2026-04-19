@@ -70,6 +70,7 @@ model User {
   createdConversationThreads ConversationThread[] @relation("ConversationThreadCreator")
   createdMissions            Mission[]           @relation("MissionCreator")
   smartDocuments             SmartDocument[]
+  cards                      Card[]
 
   @@index([email])
   @@index([handle])
@@ -146,9 +147,32 @@ model Business {
   personalPresenceOwner User? @relation("PersonalPresenceStore")
   smartDocuments SmartDocument[]
   merchantDesigns MerchantDesign[]
+  contentLibraryAssets ContentLibraryAsset[]
 
   @@index([userId])
   @@index([slug])
+}
+
+/// Saved assets from Content Library (SVGRepo / Brandfetch / hosted)
+model ContentLibraryAsset {
+  id          String   @id @default(cuid())
+  storeId     String?
+  name        String
+  url         String
+  sourceUrl   String
+  type        String
+  format      String
+  source      String
+  category    String?
+  tags        Json?
+  license     String?
+  metadata    Json?
+  usageCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  store       Business? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
 }
 
 /// AI / Contents Studio design snapshots (DesignSpec JSON) per store
@@ -2693,6 +2717,34 @@ model OAuthConnection {
 
   @@unique([userId, platform, pageId])
   @@index([userId, platform])
+}
+
+// ============================================
+// Digital cards (Suitcase) — created by buildCard / create card missions
+// ============================================
+model Card {
+  id               String   @id
+  userId           String
+  type             String
+  title            String
+  status           String   @default("active")
+  designJson       Json
+  agentPersonality String
+  knowledgeBase    Json
+  capabilities     String
+  autoApprove      Boolean  @default(true)
+  liveUrl          String
+  qrCodeUrl        String?
+  sizeW            Float
+  sizeH            Float
+  sizeUnit         String
+  sizeDpi          Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 // ============================================
