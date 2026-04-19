@@ -36,6 +36,8 @@ router.post('/create', requireAuth, async (req, res, next) => {
         });
       }
       const rawInput = [businessName, payload.businessType, payload.location].filter(Boolean).join(', ') || businessName;
+      const loc =
+        typeof payload.location === 'string' && payload.location.trim() ? payload.location.trim() : undefined;
       const result = await createBuildStoreJob(prisma, {
         tenantId,
         userId: req.userId,
@@ -43,11 +45,16 @@ router.post('/create', requireAuth, async (req, res, next) => {
         businessType: payload.businessType ?? undefined,
         storeType: payload.storeType ?? payload.businessType ?? undefined,
         rawInput,
+        location: loc,
+        intentMode: 'store',
+        sourceType: typeof sourceType === 'string' && sourceType.trim() ? sourceType.trim() : undefined,
         storeId: 'temp',
         includeImages: options?.autoImages !== false,
       });
       if (result.needRun && result.createdDraftId) {
-        runBuildStoreJob(prisma, result.jobId, result.createdDraftId, result.generationRunId, newTraceId());
+        runBuildStoreJob(prisma, result.jobId, result.createdDraftId, result.generationRunId, newTraceId(), {
+          originSurface: 'business_api',
+        });
       }
       return res.status(200).json({
         ok: true,

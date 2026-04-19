@@ -6,17 +6,33 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 import app from '../src/server.js';
+import { getPrismaClient } from '../src/lib/prisma.js';
 import { resetDb } from '../src/test/helpers/resetDb.js';
 
-const prisma = new PrismaClient();
+/** Same client as the imported app — avoid a second Prisma engine + $disconnect (Tokio panic on Windows). */
+const prisma = getPrismaClient();
 const testRequest = request(app);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-this';
 const POLL_INTERVAL_MS = 500;
 // Generous timeout for CI/load; generateDraft may hit networked AI/image calls. "Queued forever" = failure.
 const POLL_MAX_WAIT_MS = 45000; // 45s
+
+/** Avoid resetDb / process teardown while runBuildStoreJob + generateDraft still holds the Prisma engine (Windows N-API panic). */
+async function waitForBuildStoreOrchestratorDrain(prismaClient, maxMs = 120000) {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const pending = await prismaClient.orchestratorTask.count({
+      where: {
+        entryPoint: 'build_store',
+        status: { in: ['queued', 'running'] },
+      },
+    });
+    if (pending === 0) return;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
 
 describe('Orchestra job auto-run (no /run call)', () => {
   let testUser;
@@ -36,10 +52,13 @@ describe('Orchestra job auto-run (no /run call)', () => {
     token = jwt.sign({ userId: testUser.id }, JWT_SECRET);
   });
 
-  afterAll(async () => {
-    await resetDb(prisma);
-    await prisma.$disconnect();
-  });
+  afterAll(
+    async () => {
+      await waitForBuildStoreOrchestratorDrain(prisma);
+      await resetDb(prisma);
+    },
+    130000,
+  );
 
   it('job transitions from queued without calling POST /run', async () => {
     const startRes = await testRequest

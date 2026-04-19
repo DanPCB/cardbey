@@ -29,6 +29,7 @@ import { runMissionUntilBlocked } from '../lib/missionPipelineOrchestrator.js';
 import { planMissionFromIntent } from '../lib/agentPlanner.js';
 import { resolveAccessibleMission, getTenantId } from '../lib/missionAccess.js';
 import { executeStoreMissionPipelineRun } from '../lib/storeMission/executeStoreMissionPipelineRun.js';
+import { getOrCreateCardbeyTraceId, CARDBEY_TRACE_HEADER } from '../lib/trace/cardbeyTraceId.js';
 import { shouldOfferLlmTaskGraph } from '../lib/missionPlan/intentPipelineRegistry.js';
 import { getEvents } from '../lib/missionBlackboard.js';
 import { handleAgentsV1MissionSpawn } from './agentsV1Routes.js';
@@ -490,12 +491,15 @@ router.post('/:missionId/run', requireAuth, async (req, res, next) => {
       return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
     }
 
+    const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
+    res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
+
     const prisma = getPrismaClient();
     const runResult = await executeStoreMissionPipelineRun({
       prisma,
       user: req.user,
       missionId,
-      body: req.body ?? {},
+      body: { ...(req.body ?? {}), cardbeyTraceId },
       auditSource: 'missions_store_run',
     });
 

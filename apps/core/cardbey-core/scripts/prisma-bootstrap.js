@@ -26,7 +26,24 @@ function toStr(x) {
 
 /** Child env: CI helps Prisma stay non-interactive on Render. */
 function prismaChildEnv() {
-  return { ...process.env, CI: process.env.CI || "true" };
+  const dbUrl = String(process.env.DATABASE_URL || "").trim().toLowerCase();
+  const isPostgres =
+    dbUrl.startsWith("postgresql://") ||
+    dbUrl.startsWith("postgres://") ||
+    dbUrl.startsWith("prisma://") ||
+    dbUrl.startsWith("prisma+postgres://");
+  // Local dev safeguard: force binary engine for SQLite. Data Proxy engines require prisma:// URLs.
+  const engineType = String(process.env.PRISMA_CLIENT_ENGINE_TYPE || "").trim().toLowerCase();
+  const isProxyEngine = engineType === "dataproxy" || engineType === "data-proxy" || engineType === "edge";
+  const next = { ...process.env, CI: process.env.CI || "true" };
+  if (!isPostgres) {
+    if (isProxyEngine) {
+      console.warn("[prisma] overriding PRISMA_CLIENT_ENGINE_TYPE for SQLite (was %s)", engineType);
+    }
+    next.PRISMA_CLIENT_ENGINE_TYPE = "binary";
+    delete next.PRISMA_GENERATE_DATAPROXY;
+  }
+  return next;
 }
 
 function sleepSync(seconds) {

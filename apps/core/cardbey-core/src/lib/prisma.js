@@ -137,7 +137,12 @@ export async function testDatabaseConnection() {
     let dialect = 'unknown';
     if (dbUrl.startsWith('file:') || dbUrl.includes('.db')) {
       dialect = 'sqlite';
-    } else if (dbUrl.startsWith('postgresql://') || dbUrl.startsWith('postgres://')) {
+    } else if (
+      dbUrl.startsWith('postgresql://') ||
+      dbUrl.startsWith('postgres://') ||
+      dbUrl.startsWith('prisma://') ||
+      dbUrl.startsWith('prisma+postgres://')
+    ) {
       dialect = 'postgres';
     } else if (dbUrl.startsWith('mysql://')) {
       dialect = 'mysql';

@@ -61,6 +61,7 @@ import { selectStrategy, summarizeStrategy } from '../lib/capabilityAware/strate
 import { getDefaultPremiumPolicy } from '../lib/capabilityAware/premiumRouting.ts';
 import { buildAcquisitionMap } from '../lib/capabilityAware/acquisitionState.ts';
 import { buildSmartDocument } from '../lib/smartDocument/buildSmartDocument.js';
+import { getOrCreateCardbeyTraceId, CARDBEY_TRACE_HEADER } from '../lib/trace/cardbeyTraceId.js';
 
 const router = express.Router();
 const isDev = process.env.NODE_ENV !== 'production';
@@ -303,6 +304,7 @@ function buildTelemetryBase({
   missionId,
   storeId,
   startMs,
+  traceId,
   classification,
   validated,
   downgraded,
@@ -316,6 +318,7 @@ function buildTelemetryBase({
     message: userMessage,
     missionId,
     storeId,
+    traceId: traceId ?? null,
     executionPath: classification?.executionPath ?? null,
     tool: classification?.tool ?? null,
     confidence: classification?.confidence ?? null,
@@ -416,6 +419,8 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
 
 router.post('/', requireUserOrGuest, async (req, res) => {
   const startMs = Date.now();
+  const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
+  res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
   const body = req.body ?? {};
   const userMessage = String(body.text ?? body.goal ?? body.message ?? '').trim();
   const currentContext = body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
@@ -652,7 +657,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           : classification.executionPath ?? null,
     });
     emitIntakeV2Telemetry({
-      ...buildTelemetryBase({ userMessage, missionId, storeId, startMs, ...telExtra }),
+      ...buildTelemetryBase({ userMessage, missionId, storeId, startMs, traceId: cardbeyTraceId, ...telExtra }),
       ...intentResolutionTelemetryFields(ir),
       ...heroGenTelemetry,
       capabilityGapDetected: telExtra.capabilityGapDetected,
@@ -1126,6 +1131,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           generateWebsite: false,
           intentMode: 'store',
           source: 'intake_v2_shortcut',
+          cardbeyTraceId,
         },
         requiresConfirmation: true,
         executionMode: 'AUTO_RUN',
@@ -1139,7 +1145,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         prisma: getPrismaClient(),
         user: userLike,
         missionId: pipeline.id,
-        body: { businessName, businessType, location: locationTrim, currencyCode },
+        body: {
+          businessName,
+          businessType,
+          location: locationTrim,
+          currencyCode,
+          intentMode: 'store',
+          rawUserText: userMessage,
+          cardbeyTraceId,
+        },
         auditSource: 'intake_v2_shortcut_contract',
       });
 
@@ -2256,6 +2270,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           generateWebsite: ctxIntentMode === 'website',
           intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
           source: 'intake_v2_autosubmit',
+          cardbeyTraceId,
         },
         requiresConfirmation: true,
         executionMode: 'AUTO_RUN',
@@ -2269,7 +2284,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         prisma,
         user: req.user,
         missionId: pipeline.id,
-        body: { businessName, businessType, location: locationTrim, currencyCode },
+        body: {
+          businessName,
+          businessType,
+          location: locationTrim,
+          currencyCode,
+          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+          rawUserText: userMessage,
+          cardbeyTraceId,
+        },
         auditSource: 'intake_v2_autosubmit_contract',
       });
 
@@ -2480,6 +2503,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
 router.post('/confirm', requireUserOrGuest, async (req, res) => {
   const startMs = Date.now();
+  const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
+  res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
   const body = req.body ?? {};
   const previewId = String(body.previewId ?? '').trim();
   const currentContext = body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
@@ -2491,6 +2516,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
     emitIntakeV2Telemetry({
       tag: 'INTAKE_V2',
       message: `confirm:${previewId}`,
+      traceId: cardbeyTraceId,
       missionId,
       storeId: storeIdNow,
       executionPath: 'direct_action',

@@ -6,6 +6,9 @@
  * Run with: tsx src/server.js (or use npm run dev which uses nodemon)
  */
 
+// Load environment variables first so DATABASE_URL/engine flags are present.
+import './env/loadEnv.js';
+
 // MUST run before any PrismaClient: normalize DATABASE_URL for SQLite (file:)
 import './env/ensureDatabaseUrl.js';
 
@@ -21,8 +24,8 @@ try {
   console.warn('[Server] TypeScript loader not available. Some features may not work.');
 }
 
-// Load environment variables (dynamic import so missing loadEnv.js does not crash Render)
-import('./env/loadEnv.js').then(() => {
+// Log after loadEnv has run
+Promise.resolve().then(() => {
   const vars = {
     NODE_ENV: process.env.NODE_ENV || '(not set)',
     dotenvLoaded: true,
@@ -31,16 +34,6 @@ import('./env/loadEnv.js').then(() => {
     GUEST_MAX_DRAFTS: process.env.GUEST_MAX_DRAFTS != null ? 'set' : 'not set',
   };
   console.log('[env] generation-critical (post-loadEnv):', JSON.stringify(vars));
-}).catch(() => {
-  console.log('[env] loadEnv.js not found; skipping');
-  const vars = {
-    NODE_ENV: process.env.NODE_ENV || '(not set)',
-    dotenvLoaded: false,
-    OPENAI_API_KEY: !!process.env.OPENAI_API_KEY ? 'present' : 'missing',
-    ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY ? 'present' : 'missing',
-    GUEST_MAX_DRAFTS: process.env.GUEST_MAX_DRAFTS != null ? 'set' : 'not set',
-  };
-  console.log('[env] generation-critical:', JSON.stringify(vars));
 });
 import os from 'node:os';
 import express from 'express';
@@ -122,6 +115,7 @@ import promosPublicRoutes from './routes/promosPublic.js';
 import promotionsRoutes from './routes/promotionsRoutes.js';
 import notificationsRoutes from './routes/notifications.js';
 import businessRoutes from './routes/business.js';
+import businessBrandRoutes from './routes/businessBrandRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
@@ -183,7 +177,9 @@ import toolsRoutes from './routes/toolsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import performerProactiveStepRoutes from './routes/performerProactiveStepRoutes.js';
 import performerMissionsRoutes from './routes/performerMissionsRoutes.js';
+import performerDesignRoutes from './routes/performerDesignRoutes.js';
 import devApplyPatchRoutes from './routes/devApplyPatchRoutes.js';
+import devSystemMissionsRoutes from './routes/devSystemMissions.js';
 import { initializeToolsRegistry } from './orchestrator/toolsRegistry.js';
 import { startInsightGenerationJob } from './scheduler/systemWatcherJob.js';
 import { initReportScheduler } from './scheduler/reportScheduler.js';
@@ -762,7 +758,9 @@ app.use('/api/missions', missionsRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
 app.use('/api/performer/proactive-step', performerProactiveStepRoutes);
 app.use('/api/performer/missions', performerMissionsRoutes);
+app.use('/api/performer/design', performerDesignRoutes);
 app.use('/api/dev', devApplyPatchRoutes);
+app.use('/api/dev', devSystemMissionsRoutes);
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
@@ -772,6 +770,7 @@ app.use('/api/promos', promosAuthRoutes); // Auth: POST, GET ?storeId=, PATCH /:
 app.use('/api/public/promos', promosPublicRoutes); // Public: GET /:slug, POST /:slug/scan
 app.use('/api/promotions', promotionsRoutes); // Public: GET /public/:publicId; slots resolve; optional POSTs
 app.use('/api/business', businessRoutes); // Business Builder routes: /api/business/create
+app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
 app.use('/api/automation', automationRoutes); // Headless automation: /api/automation/store-from-input
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
@@ -993,9 +992,10 @@ const isTestEnv = (process.env.NODE_ENV || '').toLowerCase() === 'test' || Boole
       console.error('[CORE] Failed to initialize tools registry:', error);
     }
     
-    // Start scheduler heartbeat (only for API server, not worker)
+    // Start scheduler heartbeat (only for API server, not worker). Skip under Vitest — integration tests import this module
+    // without a real HTTP server; timers + Prisma shutdown ordering can trigger Rust/N-API panics on exit.
     // NOTE: Keep this pre-listen (lightweight) but ensure heavier workers start after port bind (see listen callback).
-    if (process.env.ROLE !== 'worker') {
+    if (process.env.ROLE !== 'worker' && process.env.VITEST !== 'true') {
       startHeartbeat(30000); // 30s interval
     }
   } catch (error) {
@@ -1007,6 +1007,11 @@ const isTestEnv = (process.env.NODE_ENV || '').toLowerCase() === 'test' || Boole
     // Don't crash - continue startup for other errors
   }
 })();
+
+function logMemoryUsage(scope, extra = {}) {
+  const heapUsedMb = Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10;
+  console.log('[MEM]', heapUsedMb, 'MB', scope, extra);
+}
 
 // Start server when running as API (ROLE=api). Skip for worker or when ROLE unset (e.g. test runner loading app).
 // Allow listen with NODE_ENV=test so E2E can run the API against the test DB (e.g. dev-admin-token).
@@ -1026,6 +1031,7 @@ if (process.env.ROLE === 'api') {
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[CORE] Listening at http://localhost:${PORT}`);
+    logMemoryUsage('server_start', { port: PORT, role: process.env.ROLE || null });
     // Production-critical: verify these mounts in Render logs. 404 on /api/mi/... or /api/draft-store/... means deploy may be stale.
     console.log('[CORE] Production-critical routes: /api/mi (missions/intents/events), /api/draft-store (create/summary/generate), /api/missions');
     console.log('[CORE] DATABASE_URL:', process.env.DATABASE_URL ? 'set (single DB for draft create/read)' : 'not set');

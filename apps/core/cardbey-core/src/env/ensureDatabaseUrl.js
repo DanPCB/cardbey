@@ -208,18 +208,49 @@ function normalizeDatabaseUrl() {
 
 function logStartupAndFailIfEphemeral() {
   const url = process.env.DATABASE_URL || '';
-  const isPostgres = url.toLowerCase().startsWith('postgres');
+  const lowered = url.toLowerCase().trim();
+  const schemeMatch = lowered.match(/^([a-z0-9+.-]+):\/\//);
+  const scheme = schemeMatch?.[1] || (lowered.startsWith('file:') ? 'file' : lowered.split(':')[0] || 'unknown');
+  const isPostgres =
+    lowered.startsWith('postgresql://') ||
+    lowered.startsWith('postgres://') ||
+    lowered.startsWith('prisma://') ||
+    lowered.startsWith('prisma+postgres://');
   const filePath = isPostgres ? null : getPathFromFileUrl(url) || url.slice(5).trim();
   const ephemeral = filePath ? isEphemeralPath(filePath) : false;
   const environment = isRender() ? 'render' : process.env.NODE_ENV === 'production' ? 'production' : 'development';
-  const provider = isPostgres ? 'postgres' : 'sqlite';
-  const displayUrl = isPostgres ? 'postgresql://*** (redacted)' : (filePath || url || '(not set)');
+  const provider = isPostgres ? (scheme.startsWith('prisma') ? 'postgres_proxy' : 'postgres') : 'sqlite';
+  const displayUrl = isPostgres
+    ? scheme.startsWith('prisma')
+      ? 'prisma+postgres://*** (redacted)'
+      : 'postgresql://*** (redacted)'
+    : (filePath || url || '(not set)');
   const storage = isPostgres ? 'persistent' : ephemeral ? 'ephemeral' : 'persistent';
   const instanceId = typeof os.hostname === 'function' ? os.hostname() : `pid-${process.pid}`;
+  const engineType = String(process.env.PRISMA_CLIENT_ENGINE_TYPE || '').trim() || null;
+
+  // If Prisma client is configured for Data Proxy, DATABASE_URL must be a prisma:// or prisma+postgres:// URL.
+  // This is a common staging misconfiguration when Render env provides a direct postgres URL.
+  const expectsProxy =
+    engineType != null &&
+    (engineType.toLowerCase() === 'dataproxy' ||
+      engineType.toLowerCase() === 'data-proxy' ||
+      engineType.toLowerCase() === 'edge');
+  const hasProxyUrl = lowered.startsWith('prisma://') || lowered.startsWith('prisma+postgres://');
+  if (expectsProxy && !hasProxyUrl) {
+    throw new Error(
+      `[env] Prisma is configured for Data Proxy (PRISMA_CLIENT_ENGINE_TYPE=${engineType}) ` +
+        `but DATABASE_URL is '${scheme}://…'. ` +
+        `Fix staging env: either unset PRISMA_CLIENT_ENGINE_TYPE (use default binary engine) ` +
+        `or set DATABASE_URL to a prisma:// or prisma+postgres:// URL and provide DIRECT_URL/POSTGRES_DATABASE_URL for direct access if needed.`,
+    );
+  }
 
   console.log('[env] DB resolution:', {
     environment,
     provider,
+    scheme,
+    prismaEngine: engineType,
     resolved: displayUrl,
     storage,
     instanceId,

@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     setupFiles: ['src/test/setupEnv.js'],
+    globalTeardown: ['src/test/vitestGlobalTeardown.js'],
     // Keep scope narrow; Core has many heavy integration paths.
     testTimeout: 30_000,
     hookTimeout: 30_000,

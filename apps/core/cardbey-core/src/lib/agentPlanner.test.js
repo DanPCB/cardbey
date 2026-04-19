@@ -17,9 +17,10 @@ describe('planMissionFromIntent', () => {
     }
   });
 
-  it('does not keyword-match store creation phrases (routed by intakeClassifier)', () => {
+  it('keyword-matches explicit store creation phrases to create_store', () => {
     const r = planMissionFromIntent({ intent: 'create a store' });
     expect(r.ok).toBe(true);
-    expect(r.missionPlan?.missionType).toBe('assistant_chat');
+    expect(r.missionPlan?.missionType).toBe('create_store');
+    expect(r.missionPlan?.requiresConfirmation).toBe(true);
   });
 });

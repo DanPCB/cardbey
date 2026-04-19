@@ -6,6 +6,7 @@ export function emitIntakeV2Telemetry(payload) {
   const line = {
     tag: 'INTAKE_V2',
     ts: new Date().toISOString(),
+    traceId: typeof payload.traceId === 'string' && payload.traceId.trim() ? payload.traceId.trim() : null,
     message: typeof payload.message === 'string' ? payload.message.slice(0, 200) : '',
     missionId: payload.missionId ?? null,
     storeId: payload.storeId ?? null,

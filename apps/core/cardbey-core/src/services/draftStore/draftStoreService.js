@@ -967,8 +967,23 @@ async function mergeImageEnrichmentSignalsToMission(missionId, bb) {
   ).catch(() => {});
 }
 
-async function maybeValidateDraftOutput(draftId, missionId, params, input, emitContextUpdate) {
+/**
+ * Post-draft LLM validation. When ReAct (`USE_REACT_REFLECTION`) runs with `USE_OUTPUT_VALIDATION`,
+ * {@link validateMissionOutput} already ran inside reactExecutor on the full blackboard — skipping here
+ * avoids a second LLM call and duplicate "Issues found" / "Auto-fixed" blackboard lines.
+ *
+ * @param {{ skipBecauseReactValidated?: boolean }} [opts]
+ */
+async function maybeValidateDraftOutput(draftId, missionId, params, input, emitContextUpdate, opts = {}) {
   if (!missionId) return;
+  if (opts.skipBecauseReactValidated === true) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        '[maybeValidateDraftOutput] skip duplicate validation (already ran in ReAct / reactExecutor)',
+      );
+    }
+    return;
+  }
   const disabledResult = {
     valid: true,
     issues: [],
@@ -1093,6 +1108,14 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
           await appendReasoningLogLine(missionId, '✓ Store input reviewed', emitCtx);
 
           await stepReporter.started('catalog').catch(() => {});
+          {
+            const itemTarget = resolveCatalogItemTarget(params);
+            await appendReasoningLogLine(
+              missionId,
+              `📦 Building catalog: ${itemTarget != null ? `${itemTarget}` : '?'} items`,
+              emitCtx,
+            );
+          }
           const { catalog: catalogPaidNoReact } = await buildCatalogForStoreReactStep(missionId, params, input);
           await saveDraftBase(draftId, catalogPaidNoReact, params);
           const emitContextUpdate = options.emitContextUpdate;
@@ -1316,7 +1339,9 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
 
         const updated = await prisma.draftStore.findUnique({ where: { id: draftId } });
         const preview = updated?.preview;
-        await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate);
+        await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate, {
+          skipBecauseReactValidated: useReact && process.env.USE_OUTPUT_VALIDATION === 'true',
+        });
         console.log('[generateDraft] done (two-modes, paid_ai)', { draftId, status: 'ready', items: preview?.items?.length ?? 0, catalogSource: preview?.meta?.catalogSource });
         return { draft: updated, preview };
       }
@@ -1572,7 +1597,9 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
 
   const updated = await prisma.draftStore.findUnique({ where: { id: draftId } });
   const preview = updated?.preview;
-  await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate);
+  await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate, {
+    skipBecauseReactValidated: useReact && process.env.USE_OUTPUT_VALIDATION === 'true',
+  });
   console.log('[generateDraft] done (two-modes)', { draftId, status: 'ready', items: preview?.items?.length ?? 0, catalogSource: preview?.meta?.catalogSource });
   return { draft: updated, preview };
 }

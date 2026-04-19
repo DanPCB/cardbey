@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "prestart": "node --import tsx scripts/prisma-bootstrap.js",
-    "start": "node --import tsx/esm src/server.js",
+    "start": "node --max-old-space-size=400 --optimize-for-size --import tsx/esm src/server.js",
     "build": "npx prisma generate --schema prisma/schema.prisma",
     "postinstall": "echo 'Running postinstall for sharp...' && npm install --include=optional sharp && npm rebuild --platform=linux --arch=x64 sharp || echo 'Warning: Sharp rebuild failed - will use lazy loading fallback' && echo 'Generating Prisma client...' && npx prisma generate --schema prisma/schema.prisma",
     "dev": "node scripts/with-role.mjs dev-api",

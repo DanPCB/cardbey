@@ -12,6 +12,7 @@
 
 import express from 'express';
 import { requireUserOrGuest } from '../middleware/guestAuth.js';
+import { getOrCreateCardbeyTraceId, CARDBEY_TRACE_HEADER } from '../lib/trace/cardbeyTraceId.js';
 import { llmGateway } from '../lib/llm/llmGateway.ts';
 import { planTaskGraphForIntent } from '../lib/agentPlanning/llmTaskPlanner.js';
 import { useLlmTaskPlannerEnv, getPipelineForIntent } from '../lib/missionPlan/intentPipelineRegistry.js';
@@ -840,12 +841,20 @@ async function persistTaskGraphOnMission(missionId, taskGraph) {
 
 function buildStoreContextFromCurrentContext(currentContext) {
   const ctx = currentContext && typeof currentContext === 'object' ? currentContext : {};
+  const mem =
+    ctx.memorySummary && typeof ctx.memorySummary === 'object' && !Array.isArray(ctx.memorySummary)
+      ? ctx.memorySummary
+      : {};
+  const memStoreRaw = mem.storeId;
+  const memStoreStr =
+    memStoreRaw != null && String(memStoreRaw).trim() ? String(memStoreRaw).trim() : '';
   const rawCount = ctx.productCount ?? ctx.catalogSize ?? ctx.activeProductCount;
   let productCount;
   if (typeof rawCount === 'number' && Number.isFinite(rawCount)) productCount = rawCount;
   else if (typeof rawCount === 'string' && /^\d+$/.test(rawCount.trim())) productCount = parseInt(rawCount.trim(), 10);
   return {
-    storeId: pickString(ctx.activeStoreId, ctx.storeId),
+    /** Dashboard sends memorySummary.storeId when activeStoreId is unset — promotion tools need a store. */
+    storeId: pickString(ctx.activeStoreId, ctx.storeId, memStoreStr),
     storeName: pickString(ctx.storeName, ctx.activeStoreName, ctx.currentStoreName),
     industry: pickString(ctx.industry, ctx.vertical, ctx.businessType, ctx.category),
     ...(productCount != null ? { productCount } : {}),
@@ -1222,6 +1231,9 @@ async function initProactiveCampaignRun(missionId, stepTools) {
 
 router.post('/', requireUserOrGuest, async (req, res, next) => {
   try {
+    const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
+    res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
+
     const body = req.body ?? {};
     const rawMessage = body.message || body.prompt || body.text || body.intent || '';
     const userPrompt = String(rawMessage || '').trim();
@@ -1441,6 +1453,7 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
                 generateWebsite: websiteAlias,
                 intentMode: websiteAlias ? 'website' : 'store',
                 source: 'performer_intake_legacy_store',
+                cardbeyTraceId,
               },
               requiresConfirmation: true,
               executionMode: 'AUTO_RUN',
@@ -1457,6 +1470,9 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
             businessName: storeInput.businessName,
             businessType: storeInput.businessType,
             location: storeInput.location,
+            intentMode: websiteAlias ? 'website' : 'store',
+            rawUserText: userPrompt,
+            cardbeyTraceId,
           },
           auditSource: 'performer_intake_legacy_store',
         });
@@ -1841,13 +1857,24 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
         const product =
           pickString(payload.product, payload.productContext) ||
           pickString(payload.campaignContext, payload.prompt, payload.message, userPrompt);
-        const ctx = pickString(payload.campaignContext, payload.prompt, payload.message, userPrompt);
+        const campaignCtxText = pickString(payload.campaignContext, payload.prompt, payload.message, userPrompt);
         const productId = pickString(payload.productId, payload.product_id);
         payload.product = payload.product || product;
-        payload.productContext = payload.productContext || product || ctx;
-        payload.campaignContext = payload.campaignContext || ctx || payload.productContext;
+        payload.productContext = payload.productContext || product || campaignCtxText;
+        payload.campaignContext = payload.campaignContext || campaignCtxText || payload.productContext;
         if (productId) payload.productId = productId;
         payload.missionId = payload.missionId || missionId || null;
+        if (!pickString(payload.storeId)) {
+          const surf = currentContext && typeof currentContext === 'object' ? currentContext : {};
+          const memSum =
+            surf.memorySummary && typeof surf.memorySummary === 'object' && !Array.isArray(surf.memorySummary)
+              ? surf.memorySummary
+              : {};
+          const memSid = memSum.storeId;
+          const memSidStr = memSid != null && String(memSid).trim() ? String(memSid).trim() : '';
+          const inferredStore = pickString(surf.activeStoreId, surf.storeId, memSidStr);
+          if (inferredStore) payload.storeId = inferredStore;
+        }
       }
 
       if (tool === 'signage.list-devices' || tool === 'signage.publish-to-devices') {

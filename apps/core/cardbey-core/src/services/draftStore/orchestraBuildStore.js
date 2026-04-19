@@ -8,22 +8,37 @@ import { generateDraft, getDraftByGenerationRunId } from './draftStoreService.js
 import { captureIngestSample, extractDomain } from '../contentIngest/captureSample.js';
 import { mapErrorToDraftFailure } from '../errors/mapErrorToDraftFailure.js';
 import { transitionOrchestratorTaskStatus } from '../../kernel/transitions/transitionService.js';
+import { inferCurrencyFromLocationText } from './currencyInfer.js';
 
 function newTraceId() {
   return crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+}
+
+function logMemoryUsage(scope, extra = {}) {
+  const heapUsedMb = Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10;
+  console.log('[MEM]', heapUsedMb, 'MB', scope, extra);
 }
 
 /**
  * Run build_store job: generate draft and mark task completed/failed.
  * Idempotent and concurrency-safe; call from orchestra/start (auto-run) and job/:id/run.
  * Uses updateMany + count so "lost race" (count === 0) is exit-quietly, not 500/failed.
- * @param {object} [options] - optional { missionContext, emitContextUpdate, stepReporter, reactMissionId } for Foundation 2 / store pipeline
+ * @param {object} [options] - optional { missionContext, emitContextUpdate, stepReporter, reactMissionId, originSurface } for Foundation 2 / store pipeline
  */
 export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceId = newTraceId(), options = {}) {
+  const cardbeyTraceId = options.cardbeyTraceId ?? null;
   const log = (msg, data = {}) => {
-    console.log(`[runBuildStoreJob] ${msg}`, { traceId, jobId, draftId, generationRunId, ...data });
+    console.log(`[runBuildStoreJob] ${msg}`, {
+      traceId,
+      cardbeyTraceId,
+      jobId,
+      draftId,
+      generationRunId,
+      ...data,
+    });
   };
-  log('invoked');
+  log('invoked', { originSurface: options.originSurface ?? 'unknown' });
+  logMemoryUsage('build_store_job_start', { jobId, draftId, generationRunId });
 
   setImmediate(async () => {
     let didTransitionToRunning = false;
@@ -124,12 +139,52 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
         return;
       }
 
+      const input = draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input) ? draft.input : {};
+      const request = task.request && typeof task.request === 'object' ? task.request : {};
+      const displayName =
+        [input.businessName, input.storeName, request.businessName, request.storeName]
+          .map((s) => (s != null && String(s).trim() ? String(s).trim() : ''))
+          .find(Boolean) || '';
+      const planLocation = input.location ?? request.location ?? '';
+      const planStoreType =
+        input.storeType ?? input.businessType ?? request.businessType ?? request.requestBusinessType ?? '';
+      const planIntentMode = String(
+        input.intentMode ?? request.intentMode ?? 'store',
+      ).toLowerCase();
+      const rawUserText = input.prompt ?? request.rawInput ?? request.rawUserText ?? null;
+      const planFieldsPresent = [
+        displayName ? 'displayName' : null,
+        planLocation && String(planLocation).trim() ? 'location' : null,
+        planStoreType && String(planStoreType).trim() ? 'storeType' : null,
+        planIntentMode ? 'intentMode' : null,
+        rawUserText != null && String(rawUserText).trim() ? 'rawUserText' : null,
+      ].filter(Boolean);
+      log('execution plan coverage', {
+        originSurface: options.originSurface ?? 'unknown',
+        draftMode: draft.mode ?? null,
+        planFieldsPresent,
+        hasDisplayName: !!displayName,
+      });
+      const strictPlan =
+        process.env.STRICT_BUILD_STORE_PLAN === 'true' || process.env.STRICT_BUILD_STORE_PLAN === '1';
+      if (strictPlan && String(draft.mode || '').toLowerCase() === 'ai') {
+        const hasText = rawUserText != null && String(rawUserText).trim().length > 0;
+        const hasName = displayName.length > 0;
+        if (!hasText && !hasName) {
+          log('strict plan gate: missing name and raw text for ai mode', { originSurface: options.originSurface ?? 'unknown' });
+          await markFailed('build_plan_incomplete', {
+            error: 'build_plan_incomplete',
+            errorCode: 'VALIDATION_ERROR',
+            message: 'AI store build requires businessName (or storeName) and/or raw user prompt on draft/task',
+          });
+          return;
+        }
+      }
+
       await options.stepReporter?.started?.('catalog').catch(() => {});
 
       /** Prefer explicit pipeline id from caller (store POST /run) before task row is re-read with missionId. */
       const missionIdForReact = options.reactMissionId ?? task.missionId ?? jobId;
-
-      const request = task.request && typeof task.request === 'object' ? task.request : {};
       // Optional ReAct step ordering only — not Performer Intake V2. Gated off unless USE_LLM_TASK_PLANNER=true.
       if (process.env.USE_LLM_TASK_PLANNER === 'true') {
         try {
@@ -137,9 +192,9 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
           const { planMission } = await import('../react/missionPlanner.ts');
           const { llmGateway } = await import('../../lib/llm/llmGateway.ts');
           const { BUILD_STORE_REACT_TOOLS } = await import('../react/buildStoreReactTools.ts');
-          const intent = String(request.rawInput || request.goal || 'build_store').slice(0, 2000);
+          const intent = String(request.rawInput || input.prompt || request.goal || 'build_store').slice(0, 2000);
           const businessContext = {
-            businessName: request.businessName ?? request.requestBusinessType ?? null,
+            businessName: request.businessName ?? input.businessName ?? null,
             goal: request.goal ?? null,
             sourceType: request.sourceType ?? null,
             websiteUrl: request.websiteUrl ?? null,
@@ -216,6 +271,13 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
       }
       log('generateDraft done, marking task completed');
       await options.stepReporter?.completed?.('catalog').catch(() => {});
+      if (typeof options.emitContextUpdate === 'function') {
+        await options
+          .emitContextUpdate({
+            reasoning_line: { line: '✓ Store draft ready — finalising', timestamp: Date.now() },
+          })
+          .catch(() => {});
+      }
 
       // Content ingest (dev-gated): capture after success; best-effort, never block
       // Uses `request` from task.request (parsed once near start of job body).
@@ -249,6 +311,13 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
           vertical: input.vertical ?? request.requestBusinessType ?? request.businessType ?? null,
           previewMeta: preview.meta ?? null,
         }).catch(() => {});
+        if (typeof options.emitContextUpdate === 'function') {
+          await options
+            .emitContextUpdate({
+              reasoning_line: { line: '✓ Content indexed', timestamp: Date.now() },
+            })
+            .catch(() => {});
+        }
       }
 
       // Wipe full websiteUrl from task.request after success (gated) to reduce privacy footprint
@@ -305,6 +374,13 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
         }
       }
 
+      if (typeof options.emitContextUpdate === 'function') {
+        await options
+          .emitContextUpdate({
+            reasoning_line: { line: '✓ Build complete', timestamp: Date.now() },
+          })
+          .catch(() => {});
+      }
       const resultPayload = {
         ok: true,
         generationRunId,
@@ -321,6 +397,12 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
         reason: 'BUILD_STORE_JOB',
         result: resultPayload,
       }).catch(() => {});
+      logMemoryUsage('build_store_job_end', {
+        jobId,
+        draftId,
+        generationRunId,
+        status: 'completed',
+      });
     } catch (err) {
       console.warn('[runBuildStoreJob] unexpected error:', err?.message || err, { traceId, jobId, generationRunId });
       if (didTransitionToRunning) {
@@ -357,41 +439,79 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
           result: resultPayload,
         }).catch(() => {});
       }
+      logMemoryUsage('build_store_job_end', {
+        jobId,
+        draftId,
+        generationRunId,
+        status: 'failed',
+      });
     }
   });
 }
 
 /**
  * Create orchestrator task + draft for build_store. Returns ids; caller should call runBuildStoreJob if needRun.
+ * Params may include `requestExtras` (merged onto task.request) and `skipDraft` (task only, no DraftStore row).
  */
-export async function createBuildStoreJob(prisma, {
-  tenantId,
-  userId,
-  businessName,
-  businessType,
-  storeType,
-  rawInput,
-  storeId = null,
-  includeImages = true,
-  generationRunId: clientRunId = null,
-  location = null,
-  currencyCode = null,
-}) {
+export async function createBuildStoreJob(
+  prisma,
+  {
+    tenantId,
+    userId,
+    businessName,
+    businessType,
+    storeType,
+    rawInput,
+    storeId = null,
+    includeImages = true,
+    generationRunId: clientRunId = null,
+    location = null,
+    currencyCode = null,
+    intentMode = null,
+    cardbeyTraceId = null,
+    sourceType = null,
+    websiteUrl = null,
+    /** Merged onto `request` after base BuildStore fields (e.g. MI orchestra goal, templateKey, intent). */
+    requestExtras = null,
+    /** When true, only create the orchestrator task; caller creates the draft (e.g. MI orchestra rich baseInput). */
+    skipDraft = false,
+  },
+) {
   const finalStoreId = storeId || 'temp';
   const runId = clientRunId && typeof clientRunId === 'string' && clientRunId.trim() ? clientRunId.trim() : null;
+  let normalizedIntent = 'store';
+  if (intentMode != null && String(intentMode).trim()) {
+    const im = String(intentMode).trim().toLowerCase();
+    if (im === 'website' || im === 'store') normalizedIntent = im;
+  }
+  const trace =
+    cardbeyTraceId != null && String(cardbeyTraceId).trim() ? String(cardbeyTraceId).trim() : null;
+  const locStr = location != null && String(location).trim() ? String(location).trim() : null;
+  const currencyUpper =
+    currencyCode != null && String(currencyCode).trim()
+      ? String(currencyCode).trim().toUpperCase()
+      : inferCurrencyFromLocationText(locStr || '') ||
+        inferCurrencyFromLocationText(typeof businessName === 'string' ? businessName : '') ||
+        'AUD';
   const requestPayload = {
+    schemaVersion: 1,
     goal: 'build_store',
     rawInput: rawInput ?? null,
+    rawUserText: rawInput ?? null,
     businessName: businessName ?? null,
     businessType: businessType ?? null,
+    storeType: storeType ?? businessType ?? null,
     generationRunId: runId,
     storeId: finalStoreId,
     includeImages,
     itemId: null,
-    ...(location != null && String(location).trim() ? { location: String(location).trim() } : {}),
-    ...(currencyCode != null && String(currencyCode).trim()
-      ? { currencyCode: String(currencyCode).trim().toUpperCase() }
-      : {}),
+    intentMode: normalizedIntent,
+    ...(locStr ? { location: locStr } : {}),
+    currencyCode: currencyUpper,
+    ...(sourceType != null && String(sourceType).trim() ? { sourceType: String(sourceType).trim() } : {}),
+    ...(websiteUrl != null && String(websiteUrl).trim() ? { websiteUrl: String(websiteUrl).trim() } : {}),
+    ...(trace ? { cardbeyTraceId: trace } : {}),
+    ...(requestExtras && typeof requestExtras === 'object' && !Array.isArray(requestExtras) ? requestExtras : {}),
   };
 
   const job = await prisma.orchestratorTask.create({
@@ -416,6 +536,18 @@ export async function createBuildStoreJob(prisma, {
     }).catch(() => {});
   }
 
+  if (skipDraft) {
+    return {
+      jobId: job.id,
+      storeId: finalStoreId,
+      tenantId,
+      generationRunId: resolvedRunId,
+      draftId: null,
+      needRun: false,
+      createdDraftId: null,
+    };
+  }
+
   const existingDraft = await getDraftByGenerationRunId(resolvedRunId).catch(() => null);
   const needDraft = !existingDraft;
   let createdDraftId = null;
@@ -424,6 +556,7 @@ export async function createBuildStoreJob(prisma, {
   if (needDraft) {
     const { createDraftStoreForUser } = await import('./draftStoreService.js');
     const input = {
+      schemaVersion: 1,
       tenantId,
       storeId: finalStoreId,
       generationRunId: resolvedRunId,
@@ -432,10 +565,13 @@ export async function createBuildStoreJob(prisma, {
       businessType: businessType ?? storeType ?? null,
       storeType: storeType ?? businessType ?? null,
       includeImages,
-      ...(location != null && String(location).trim() ? { location: String(location).trim() } : {}),
-      ...(currencyCode != null && String(currencyCode).trim()
-        ? { currencyCode: String(currencyCode).trim().toUpperCase() }
-        : {}),
+      intentMode: normalizedIntent,
+      rawUserText: rawInput ?? null,
+      ...(locStr ? { location: locStr } : {}),
+      currencyCode: currencyUpper,
+      ...(sourceType != null && String(sourceType).trim() ? { sourceType: String(sourceType).trim() } : {}),
+      ...(websiteUrl != null && String(websiteUrl).trim() ? { websiteUrl: String(websiteUrl).trim() } : {}),
+      ...(trace ? { cardbeyTraceId: trace } : {}),
     };
     const createdDraft = await createDraftStoreForUser(prisma, {
       userId: userId || null,

@@ -79,6 +79,7 @@ describe('POST /api/performer/intake/v2/confirm', () => {
       });
 
     expect(res.status).toBe(200);
+    expect(res.headers['x-cardbey-trace-id']).toMatch(/^[a-zA-Z0-9_.:-]{8,128}$/);
     expect(res.body.success).toBe(true);
     expect(res.body.action).toBe('tool_call');
     expect(res.body.tool).toBe('orders_report');
@@ -151,5 +152,28 @@ describe('POST /api/performer/intake/v2/confirm', () => {
     expect(res.body.success).toBe(false);
     expect(res.body.action).toBe('clarify');
     expect(dispatchToolMock).not.toHaveBeenCalled();
+  });
+
+  it('echoes X-Cardbey-Trace-Id when client sends a valid value', async () => {
+    putIntakeApprovalPreview({
+      previewId: 'pv-trace',
+      tool: 'orders_report',
+      executionParameters: { groupBy: 'day' },
+      actorKey: 'u:user-a',
+      tenantKey: 't:user-a',
+      resolvedStoreIdAtPreview: 'store-1',
+    });
+
+    const app = makeApp({ id: 'user-a', business: undefined });
+    const res = await request(app)
+      .post('/api/performer/intake/v2/confirm')
+      .set('X-Cardbey-Trace-Id', 'client-correlation-99')
+      .send({
+        previewId: 'pv-trace',
+        currentContext: { activeStoreId: 'store-1' },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['x-cardbey-trace-id']).toBe('client-correlation-99');
   });
 });

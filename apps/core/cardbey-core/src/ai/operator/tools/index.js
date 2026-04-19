@@ -25,6 +25,7 @@ const TOOL_NAMES = [
  * @param {boolean} [params.includeImages]
  * @param {string} [params.generationRunId]
  * @param {string} [params.storeId]
+ * @param {string} [params.currencyCode]
  * @param {string} params.tenantId
  * @param {string} [params.userId]
  * @returns {Promise<{ jobId: string, storeId?: string, draftId?: string, generationRunId: string }>}
@@ -38,13 +39,21 @@ async function start_build_store(params) {
     userId,
     businessName: params?.businessName ?? null,
     businessType: params?.businessType ?? null,
-    rawInput: params?.rawInput ?? null,
+    storeType: params?.storeType ?? params?.businessType ?? undefined,
+    rawInput: params?.rawInput ?? params?.rawUserText ?? null,
+    location: params?.location ?? undefined,
+    intentMode: ['website', 'store', 'personal_presence'].includes(params?.intentMode)
+      ? params.intentMode
+      : 'store',
     storeId: params?.storeId ?? 'temp',
     includeImages: params?.includeImages !== false,
     generationRunId: params?.generationRunId ?? null,
+    currencyCode: params?.currencyCode ?? null,
   });
   if (result.needRun && result.jobId && result.draftId && result.generationRunId) {
-    runBuildStoreJob(prisma, result.jobId, result.draftId, result.generationRunId);
+    runBuildStoreJob(prisma, result.jobId, result.draftId, result.generationRunId, undefined, {
+      originSurface: 'operator_tool',
+    });
   }
   return {
     jobId: result.jobId,

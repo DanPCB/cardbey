@@ -47,8 +47,8 @@ describe('executeIntent', () => {
     expect(res.shadow).toBe(true);
     expect(res.ok).toBe(true);
     expect(res.planSummary).toMatchObject({
-      missionType: 'assistant_chat',
-      requiresConfirmation: false,
+      missionType: 'create_store',
+      requiresConfirmation: true,
       hasTaskGraph: false,
     });
   });

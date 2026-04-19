@@ -1,0 +1,15 @@
+{
+  "runway": "R4_mi_orchestra_start",
+  "description": "Target canonical BuildStoreInput equivalent after Phase 2 factory unification (today baseInput is richer)",
+  "buildStoreInput": {
+    "schemaVersion": 1,
+    "businessName": "Northside Coffee",
+    "businessType": "cafe",
+    "storeType": "cafe",
+    "location": "Melbourne",
+    "intentMode": "store",
+    "rawUserText": "Northside Coffee, cafe, Melbourne",
+    "currencyCode": "AUD",
+    "sourceType": "form"
+  }
+}

@@ -8,11 +8,11 @@
  * - TODO: Marketing-dashboard background jobs after migration
  */
 
+// Load environment variables first so DATABASE_URL/engine flags are present.
+import './env/loadEnv.js';
+
 // MUST run before any PrismaClient: normalize DATABASE_URL for SQLite (file:)
 import './env/ensureDatabaseUrl.js';
-
-// Load environment variables with explicit paths
-import './env/loadEnv.js';
 import { startPlannerRunner, sendUpcomingNotifications } from './services/planner-runner.js';
 import { startScreenStatusChecker } from './worker/screenStatusChecker.js';
 import { processImageGenerationJobs } from './services/menuVisualAgent/imageGenerationJob.js';

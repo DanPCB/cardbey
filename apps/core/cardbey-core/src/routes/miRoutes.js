@@ -34,6 +34,8 @@ import { getUnifiedExecutionPlans } from '../lib/missionPlan/unifiedPlan.js';
 import { getPrismaClient } from '../lib/prisma.js';
 // MI .ts-only services: no .js on Render. Load dynamically in handlers to avoid ERR_MODULE_NOT_FOUND at boot.
 import { prisma } from '../lib/prisma.js';
+import { composeBuildStoreInputV1FromFields } from '../lib/contracts/buildStoreInputV1.js';
+import { getOrCreateCardbeyTraceId, CARDBEY_TRACE_HEADER } from '../lib/trace/cardbeyTraceId.js';
 
 const router = express.Router();
 
@@ -871,6 +873,8 @@ router.post('/classify-business', optionalAuth, async (req, res) => {
  *   - entryPoint?: string
  */
 async function handleOrchestraStart(req, res) {
+  const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
+  res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
   const traceId = newTraceId();
   // Diagnostic: route entry (if this does not appear, 403 is from CORS or earlier middleware)
   console.log('[orchestra:start] entry', {
@@ -987,47 +991,128 @@ async function handleOrchestraStart(req, res) {
 
     try {
       const runId = generationRunId || null;
-      const requestPayload = {
-        goal: goal || finalEntryPoint,
-        rawInput: rawInput || null,
-        businessName: businessName || null,
-        businessType: businessType || null,
-        generationRunId: runId,
-        storeId: finalStoreId || null,
-        draftId: bodyDraftId ?? null,
-        productIds: Array.isArray(bodyProductIds) ? bodyProductIds : null,
-        includeImages: includeImages,
-        itemId: itemId ?? null,
-        sourceType: bodyRequest.sourceType ?? null,
-        templateKey: bodyRequest.templateKey ?? null,
-        websiteUrl: bodyRequest.websiteUrl ?? null,
-        ...(intent ? { intent } : {}),
-        ...(bodyRequest.location != null ? { location: bodyRequest.location } : {}),
-        ...(businessType ? { requestBusinessType: businessType } : {}),
-      };
-      const job = await prisma.orchestratorTask.create({
-        data: {
+      const intentModeOrchestra = (() => {
+        const fromReq = bodyRequest.intentMode ?? quickStart.intentMode ?? context.intentMode ?? body.intentMode;
+        if (fromReq != null && String(fromReq).trim()) {
+          const im = String(fromReq).trim().toLowerCase();
+          if (im === 'website' || im === 'store') return im;
+        }
+        const g = (goal || '').toLowerCase();
+        if (g.includes('website') || g === 'build_store_from_website') return 'website';
+        return 'store';
+      })();
+      const sourceTypeForV1 =
+        bodyRequest.sourceType ||
+        (goal === 'build_store_from_template'
+          ? 'template'
+          : goal === 'build_store_from_menu'
+            ? 'ocr'
+            : goal === 'build_store_from_website'
+              ? 'url'
+              : 'form');
+      const buildStoreV1 =
+        isBuildStoreGoal && businessName && String(businessName).trim()
+          ? composeBuildStoreInputV1FromFields({
+              businessName,
+              businessType,
+              storeType: storeType || businessType,
+              location: bodyRequest.location ?? req.body?.location ?? null,
+              intentMode: intentModeOrchestra,
+              rawInput,
+              rawUserText: rawInput,
+              currencyCode: null,
+              sourceType: sourceTypeForV1,
+              websiteUrl: bodyRequest.websiteUrl ?? null,
+            })
+          : null;
+
+      /** @type {{ id: string }} */
+      let job;
+      /** @type {string} */
+      let resolvedRunId;
+
+      if (isBuildStoreGoal) {
+        const requestExtras = {
+          goal: goal || finalEntryPoint,
+          ...(bodyDraftId != null ? { draftId: bodyDraftId } : {}),
+          ...(Array.isArray(bodyProductIds) ? { productIds: bodyProductIds } : {}),
+          ...(itemId != null ? { itemId } : {}),
+          ...(bodyRequest.templateKey != null ? { templateKey: bodyRequest.templateKey } : {}),
+          ...(bodyRequest.websiteUrl != null ? { websiteUrl: bodyRequest.websiteUrl } : {}),
+          ...(intent ? { intent } : {}),
+          ...(businessType ? { requestBusinessType: businessType } : {}),
+          ...(bodyRequest.sourceType != null ? { sourceType: bodyRequest.sourceType } : {}),
+          ...(buildStoreV1 ? buildStoreV1 : {}),
+        };
+        const locPass = bodyRequest.location ?? req.body?.location ?? null;
+        const locForFactory =
+          locPass != null && String(locPass).trim() ? String(locPass).trim() : null;
+        const createdTask = await createBuildStoreJob(prisma, {
           tenantId: finalTenantId,
           userId: req.userId || finalTenantId,
-          insightId: null,
-          entryPoint: finalEntryPoint,
-          status: 'queued',
-          request: requestPayload,
-        },
-      });
-
-      // resolvedRunId: client-supplied generationRunId if non-empty string, else job.id. Must match task.request and DraftStore.
-      const resolvedRunId = (generationRunId && typeof generationRunId === 'string' && generationRunId.trim())
-        ? generationRunId.trim()
-        : job.id;
-      if (!(generationRunId && typeof generationRunId === 'string' && generationRunId.trim())) {
-        await prisma.orchestratorTask.update({
-          where: { id: job.id },
+          businessName: businessName || null,
+          businessType: businessType || null,
+          storeType: storeType || businessType || null,
+          rawInput: rawInput || null,
+          storeId: finalStoreId || 'temp',
+          includeImages: includeImages !== false,
+          generationRunId: runId,
+          location: locForFactory,
+          intentMode: intentModeOrchestra,
+          sourceType: bodyRequest.sourceType ?? sourceTypeForV1,
+          websiteUrl: bodyRequest.websiteUrl ?? null,
+          cardbeyTraceId,
+          requestExtras,
+          skipDraft: true,
+        });
+        job = { id: createdTask.jobId };
+        resolvedRunId = createdTask.generationRunId;
+      } else {
+        const requestPayload = {
+          goal: goal || finalEntryPoint,
+          rawInput: rawInput || null,
+          businessName: businessName || null,
+          businessType: businessType || null,
+          generationRunId: runId,
+          storeId: finalStoreId || null,
+          draftId: bodyDraftId ?? null,
+          productIds: Array.isArray(bodyProductIds) ? bodyProductIds : null,
+          includeImages: includeImages,
+          itemId: itemId ?? null,
+          sourceType: bodyRequest.sourceType ?? null,
+          templateKey: bodyRequest.templateKey ?? null,
+          websiteUrl: bodyRequest.websiteUrl ?? null,
+          ...(intent ? { intent } : {}),
+          ...(bodyRequest.location != null ? { location: bodyRequest.location } : {}),
+          ...(businessType ? { requestBusinessType: businessType } : {}),
+          intentMode: intentModeOrchestra,
+        };
+        const createdRow = await prisma.orchestratorTask.create({
           data: {
-            request: { ...requestPayload, generationRunId: resolvedRunId },
-            updatedAt: new Date(),
+            tenantId: finalTenantId,
+            userId: req.userId || finalTenantId,
+            insightId: null,
+            entryPoint: finalEntryPoint,
+            status: 'queued',
+            request: requestPayload,
           },
-        }).catch(() => {});
+        });
+        job = createdRow;
+        resolvedRunId =
+          generationRunId && typeof generationRunId === 'string' && generationRunId.trim()
+            ? generationRunId.trim()
+            : job.id;
+        if (!(generationRunId && typeof generationRunId === 'string' && generationRunId.trim())) {
+          await prisma.orchestratorTask
+            .update({
+              where: { id: job.id },
+              data: {
+                request: { ...requestPayload, generationRunId: resolvedRunId },
+                updatedAt: new Date(),
+              },
+            })
+            .catch(() => {});
+        }
       }
 
       const isBuildStore = isBuildStoreGoal;
@@ -1190,6 +1275,7 @@ async function handleOrchestraStart(req, res) {
             businessName: businessName || null,
             businessType: businessType || storeType || bodyRequest.businessType || null,
             storeType: storeType || businessType || bodyRequest.businessType || null,
+            intentMode: intentModeOrchestra,
             includeImages: includeImages,
             menuFirstMode: menuFirstMode === true || menuOnly === true || ignoreImages === true || undefined,
             vertical: vertical || bodyRequest.businessType || null,
@@ -1349,6 +1435,8 @@ async function handleOrchestraStart(req, res) {
           emitContextUpdate,
           stepReporter,
           reactMissionId,
+          originSurface: 'mi_orchestra_start',
+          cardbeyTraceId,
         });
       }
 
@@ -2530,6 +2618,7 @@ router.post('/orchestra/job/:jobId/run', optionalAuth, async (req, res) => {
           emitContextUpdate,
           stepReporter,
           reactMissionId: missionIdForPlan,
+          originSurface: 'mi_orchestra_job_run',
         });
         return res.json({ ok: true, job: toOrchestraJob(task), message: 'Job started' });
       }

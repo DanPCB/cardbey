@@ -19,18 +19,23 @@ function normalize(str) {
 
 /**
  * Resolve a canonical vertical slug from businessType and optional vertical.
- * Order: beauty > fashion > food > furniture > generic.
+ * Order: beauty > fashion > food > furniture > construction > generic.
  * @param {string} [businessType]
  * @param {string} [vertical]
- * @returns {'beauty'|'fashion'|'food'|'furniture'|'generic'}
+ * @returns {'beauty'|'fashion'|'food'|'furniture'|'construction'|'generic'}
  */
 export function resolveVerticalSlug(businessType, vertical) {
   const combined = `${normalize(businessType)} ${normalize(vertical)}`.trim() || 'generic';
-  if (/\b(nail|beauty|salon|spa|lash|wax|manicure|pedicure)\b/.test(combined)) return 'beauty';
-  if (/\b(fashion|clothing|apparel|boutique|wear|dress|women|men)\b/.test(combined)) return 'fashion';
-  if (/\b(cafe|coffee|banh mi|restaurant|food|bakery|florist|barista|espresso|pastry|sweets|dessert|confectionery)\b/.test(combined)) return 'food';
-  if (/\b(furniture|homeware|homewares|interior|decor|sofa|mattress|table|cabinet|bedroom|living room)\b/.test(combined)) return 'furniture';
-  return 'generic';
+  let resolved = 'generic';
+  if (/\b(nail|beauty|salon|spa|lash|wax|manicure|pedicure)\b/.test(combined)) resolved = 'beauty';
+  else if (/\b(fashion|clothing|apparel|boutique|wear|dress|women|men)\b/.test(combined)) resolved = 'fashion';
+  else if (/\b(cafe|coffee|banh mi|restaurant|food|bakery|florist|barista|espresso|pastry|sweets|dessert|confectionery)\b/.test(combined)) resolved = 'food';
+  else if (/\b(furniture|homeware|homewares|interior|decor|sofa|mattress|table|cabinet|bedroom|living room)\b/.test(combined)) resolved = 'furniture';
+  else if (/\b(construction|construct|builder|builders|building|trade|trades|contractor|contractors|renovation|renovations|carpentry|carpenter)\b/.test(combined)) resolved = 'construction';
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[verticalResolver]', { businessType, vertical, resolved });
+  }
+  return resolved;
 }
 
 /**
@@ -43,6 +48,7 @@ export function resolveTemplateId(verticalSlug) {
   if (slug === 'food') return 'cafe';
   if (slug === 'beauty') return 'nail_salon';
   if (slug === 'fashion') return 'retail';
+  if (slug === 'construction') return 'generic_store';
   if (slug === 'furniture') return 'generic_store';
   return 'generic_store';
 }

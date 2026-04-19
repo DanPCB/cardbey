@@ -124,9 +124,23 @@ model Business {
   storePromos StorePromo[]
   storeOffers StoreOffer[]
   personalPresenceOwner User? @relation("PersonalPresenceStore")
+  merchantDesigns MerchantDesign[]
 
   @@index([userId])
   @@index([slug])
+}
+
+/// AI / Contents Studio design snapshots (DesignSpec JSON) per store
+model MerchantDesign {
+  id       String   @id @default(cuid())
+  storeId  String
+  store    Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name     String?
+  specJson String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([storeId])
 }
 
 // Phase 1 Scan & Redeem: public promo landing + QR (slug, scan tracking). Used by POST/GET /api/promos, GET/POST /api/public/promos/:slug.
@@ -415,6 +429,79 @@ model AuditEvent {
 
   @@index([entityType, entityId, createdAt])
   @@index([correlationId])
+}
+
+model DevSystemProposal {
+  id                 String   @id @default(cuid())
+  tenantKey          String?
+  createdByUserId    String
+  createdByEmail     String?
+  type               String   @default("code_task_proposal")
+  title              String
+  objective          String
+  engine             String?
+  mode               String   @default("proposal_only")
+  status             String   @default("guarded")
+  normalizedTaskJson Json
+  guardJson          Json
+  notesJson          Json?
+  reviewedByUserId   String?
+  reviewedByEmail    String?
+  reviewedAt         DateTime?
+  reviewDecisionReason String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([createdByUserId])
+  @@index([reviewedByUserId])
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+}
+
+model DevSystemExecutionPreview {
+  id                 String   @id @default(cuid())
+  tenantKey          String?
+  proposalId         String
+  createdByUserId    String
+  createdByEmail     String?
+  status             String   @default("dry_run_generated") // dry_run_authorized | dry_run_generated
+  engine             String?
+  mode               String   @default("dry_run_only")
+  executionIntentJson Json
+  normalizedTaskJson Json
+  authorizationJson  Json
+  resultPreviewJson  Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([proposalId, createdAt])
+  @@index([createdByUserId, createdAt])
+  @@index([status, createdAt])
+}
+
+model SecurityEvent {
+  id          String   @id @default(cuid())
+  tenantKey   String?
+  actorUserId String?
+  actorEmail  String?
+  type        String
+  severity    String   @default("info")
+  source      String
+  route       String?
+  ip          String?
+  userAgent   String?
+  detailsJson Json?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([severity, createdAt])
+  @@index([type, createdAt])
+  @@index([source, createdAt])
+  @@index([isRead, createdAt])
 }
 
 // Phase 2: Action execution tracking

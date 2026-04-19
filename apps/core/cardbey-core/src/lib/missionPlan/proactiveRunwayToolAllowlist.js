@@ -51,7 +51,8 @@ export const PROACTIVE_RUNWAY_TOOL_SET = new Set(PROACTIVE_RUNWAY_TOOL_NAMES);
 export function resolveRunwayDispatchToolName(tool) {
   const t = String(tool || '').trim().toLowerCase();
   if (t === 'campaign_research') return 'market_research';
-  if (t === 'smart_visual' || t === 'generate_mini_website' || t === 'mini_website') return 'create_promotion';
+  if (t === 'generate_mini_website' || t === 'mini_website') return 'create_promotion';
+  if (t === 'smart_visual') return 'smart_visual';
   if (t === 'social_posts') return 'generate_social_posts';
   if (t === 'rewrite') return 'rewrite_descriptions';
   if (t === 'hero') return 'improve_hero';

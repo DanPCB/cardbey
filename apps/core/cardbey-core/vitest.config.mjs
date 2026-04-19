@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => {
       },
       // Setup file runs before any tests, loads .env.test
       setupFiles: ['./src/test/setupEnv.js'],
+      globalTeardown: ['./src/test/vitestGlobalTeardown.js'],
     },
     esbuild: {
       target: 'node18',

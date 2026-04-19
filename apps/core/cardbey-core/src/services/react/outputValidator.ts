@@ -13,20 +13,93 @@ function tryParseValidation(text: string): Partial<ValidationResult> | null {
   }
 }
 
+function firstNonEmptyString(obj: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
+/**
+ * LLMs often return issues as `{ message, field }` or bare strings — map into ValidationIssue
+ * so blackboard lines are not a list of "unknown".
+ */
 function normalizeIssues(raw: unknown): ValidationIssue[] {
   if (!Array.isArray(raw)) return [];
   const out: ValidationIssue[] = [];
   for (const row of raw) {
-    if (!row || typeof row !== 'object') continue;
+    if (typeof row === 'string') {
+      const t = row.trim();
+      if (!t) continue;
+      out.push({ slot: 'check', issue: t, autoFixable: false, fixHint: '' });
+      continue;
+    }
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
     const o = row as Record<string, unknown>;
+    const slot = firstNonEmptyString(o, [
+      'slot',
+      'field',
+      'key',
+      'area',
+      'category',
+      'title',
+      'name',
+      'id',
+    ]);
+    let issue = firstNonEmptyString(o, [
+      'issue',
+      'message',
+      'detail',
+      'description',
+      'problem',
+      'reason',
+      'summary',
+      'text',
+    ]);
+    const fixHint = firstNonEmptyString(o, ['fixHint', 'fix_hint', 'hint', 'suggestion']);
+    const autoFixable = Boolean(o.autoFixable ?? o.auto_fixable ?? o.fixable);
+
+    if (!issue) {
+      const keys = Object.keys(o).filter((k) => !['autoFixable', 'auto_fixable', 'fixable'].includes(k));
+      if (keys.length && typeof o[keys[0]] === 'string') {
+        issue = String(o[keys[0]]).trim();
+      }
+    }
+
+    if (!slot && issue) {
+      out.push({ slot: 'check', issue, autoFixable, fixHint });
+      continue;
+    }
+    if (!slot && !issue) continue;
+
     out.push({
-      slot: typeof o.slot === 'string' ? o.slot : 'unknown',
-      issue: typeof o.issue === 'string' ? o.issue : '',
-      autoFixable: Boolean(o.autoFixable),
-      fixHint: typeof o.fixHint === 'string' ? o.fixHint : '',
+      slot: slot || 'check',
+      issue,
+      autoFixable,
+      fixHint,
     });
   }
   return out;
+}
+
+function formatIssueForLog(i: ValidationIssue): string {
+  const slot = (i.slot || '').trim();
+  const detail = [i.issue, i.fixHint].map((s) => (s || '').trim()).filter(Boolean).join(' — ');
+  const showSlot = slot && slot !== 'unknown' && slot !== 'check';
+  if (showSlot && detail) return `${slot}: ${detail}`;
+  if (detail) return detail;
+  if (showSlot) return slot;
+  return '';
+}
+
+function issuesLineForLog(result: ValidationResult): string {
+  const parts = result.issues.map(formatIssueForLog).filter(Boolean);
+  let body = parts.length ? parts.join('; ') : '';
+  if (!body && result.reasoning && !result.valid) {
+    body = result.reasoning.trim().slice(0, 500);
+  }
+  return body || 'validation flagged the draft (no issue details returned)';
 }
 
 /**
@@ -125,17 +198,21 @@ Return:
   const log = options?.reasoningLog;
   if (log) {
     if (result.valid) log.push('✓ Output validation passed');
-    else log.push(`⚠ Issues found: ${result.issues.map((i) => i.slot).join(', ')}`);
+    else log.push(`⚠ Issues found: ${issuesLineForLog(result)}`);
     if (result.autoFixed.length) log.push(`↻ Auto-fixed: ${result.autoFixed.join(', ')}`);
   }
   options?.blackboardWriter?.appendReasoningLog(
-    result.valid ? '✓ Output validation passed' : `⚠ Issues found: ${result.issues.map((i) => i.slot).join(', ')}`
+    result.valid ? '✓ Output validation passed' : `⚠ Issues found: ${issuesLineForLog(result)}`
   );
 
   const emit = options?.emitConsole;
   if (emit && !result.valid) {
-    const slots = result.issues.filter((i) => !i.autoFixable).map((i) => i.slot);
-    if (slots.length) await Promise.resolve(emit(`⚠ Review recommended for: ${slots.join(', ')}`));
+    const reviewParts = result.issues
+      .filter((i) => !i.autoFixable)
+      .map(formatIssueForLog)
+      .filter(Boolean);
+    const reviewLine = reviewParts.length ? reviewParts.join('; ') : issuesLineForLog(result);
+    if (reviewLine) await Promise.resolve(emit(`⚠ Review recommended: ${reviewLine}`));
   }
   if (emit && result.autoFixed.length) {
     await Promise.resolve(emit(`↻ Improved ${result.autoFixed.length} items automatically`));

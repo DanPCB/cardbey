@@ -4,6 +4,7 @@ import {
   PROACTIVE_RUNWAY_TOOL_NAMES,
   PROACTIVE_RUNWAY_TOOL_SET,
   SYNONYM_TOOL_NAMES,
+  resolveRunwayDispatchToolName,
 } from '../../lib/missionPlan/proactiveRunwayToolAllowlist.js';
 
 describe('proactiveRunwayToolAllowlist vs toolRegistry', () => {
@@ -19,5 +20,17 @@ describe('proactiveRunwayToolAllowlist vs toolRegistry', () => {
       const inRegistry = Boolean(getToolDefinition(name));
       expect(inRegistry || synonyms.has(name)).toBe(true);
     }
+  });
+});
+
+describe('resolveRunwayDispatchToolName', () => {
+  it('routes smart_visual to smart_visual (registered executor)', () => {
+    expect(resolveRunwayDispatchToolName('smart_visual')).toBe('smart_visual');
+    expect(resolveRunwayDispatchToolName('Smart_Visual')).toBe('smart_visual');
+  });
+
+  it('routes generate_mini_website and mini_website aliases to create_promotion', () => {
+    expect(resolveRunwayDispatchToolName('generate_mini_website')).toBe('create_promotion');
+    expect(resolveRunwayDispatchToolName('mini_website')).toBe('create_promotion');
   });
 });

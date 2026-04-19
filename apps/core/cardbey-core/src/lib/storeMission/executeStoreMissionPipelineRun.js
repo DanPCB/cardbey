@@ -84,11 +84,27 @@ export async function executeStoreMissionPipelineRun({
   const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
   const businessType = typeof body.businessType === 'string' ? body.businessType.trim() : '';
   const location = typeof body.location === 'string' ? body.location.trim() : '';
+  const bodyIntentRaw = typeof body.intentMode === 'string' ? body.intentMode.trim().toLowerCase() : '';
+  const rawUserTextFromBody =
+    (typeof body.rawUserText === 'string' && body.rawUserText.trim()) ||
+    (typeof body.userMessage === 'string' && body.userMessage.trim()) ||
+    '';
 
   const meta = mission.metadataJson && typeof mission.metadataJson === 'object' ? mission.metadataJson : {};
   const effectiveBusinessName = businessName || (typeof meta.businessName === 'string' ? meta.businessName : '') || '';
   const effectiveBusinessType = businessType || (typeof meta.businessType === 'string' ? meta.businessType : '') || '';
   const effectiveLocation = location || (typeof meta.location === 'string' ? meta.location : '') || '';
+  const metaWebsite =
+    meta.websiteMode === true ||
+    meta.generateWebsite === true ||
+    (typeof meta.intentMode === 'string' && meta.intentMode.trim().toLowerCase() === 'website');
+  const metaIntent =
+    typeof meta.intentMode === 'string' && meta.intentMode.trim()
+      ? meta.intentMode.trim().toLowerCase()
+      : metaWebsite
+        ? 'website'
+        : 'store';
+  const intentMode = bodyIntentRaw === 'website' || bodyIntentRaw === 'store' ? bodyIntentRaw : metaIntent || 'store';
 
   const tenantId = getTenantId(user) || user?.id;
   const userId = user?.id;
@@ -106,18 +122,26 @@ export async function executeStoreMissionPipelineRun({
     null;
   const currencyCode = bodyCurrency || inferCurrencyFromLocationText(effectiveLocation) || 'AUD';
 
+  const cardbeyTraceId =
+    typeof body.cardbeyTraceId === 'string' && body.cardbeyTraceId.trim() ? body.cardbeyTraceId.trim() : null;
+
+  const syntheticRaw = `Create a store for ${effectiveBusinessName || 'my business'}${effectiveLocation ? ` in ${effectiveLocation}` : ''}`.trim();
+  const effectiveRawInput = rawUserTextFromBody || syntheticRaw;
+
   const jobRequest = {
     tenantId,
     userId,
     businessName: effectiveBusinessName,
     businessType: effectiveBusinessType,
     storeType: effectiveBusinessType,
-    rawInput: `Create a store for ${effectiveBusinessName || 'my business'}${effectiveLocation ? ` in ${effectiveLocation}` : ''}`.trim(),
+    rawInput: effectiveRawInput,
     storeId: 'temp',
     includeImages: true,
     generationRunId: null,
     ...(effectiveLocation ? { location: effectiveLocation } : {}),
     currencyCode,
+    intentMode,
+    ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
   };
 
   const created = await createBuildStoreJob(prisma, jobRequest);
@@ -143,6 +167,21 @@ export async function executeStoreMissionPipelineRun({
     },
     dualWrite,
   });
+  const mergedMetadata = (() => {
+    const prev =
+      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+        ? { ...mission.metadataJson }
+        : {};
+    const fromOrchestration =
+      orchestrationWrites.metadataJson && typeof orchestrationWrites.metadataJson === 'object'
+        ? { ...orchestrationWrites.metadataJson }
+        : {};
+    const out = { ...prev, ...fromOrchestration };
+    if (cardbeyTraceId) {
+      out.cardbeyTraceId = cardbeyTraceId;
+    }
+    return out;
+  })();
   await auditedPipelineUpdate(prisma, {
     where: { id: missionId },
     data: {
@@ -150,13 +189,13 @@ export async function executeStoreMissionPipelineRun({
       runState: 'running',
       outputsJson: orchestrationWrites.outputsJson,
       startedAt: new Date(),
-      ...(orchestrationWrites.metadataJson ? { metadataJson: orchestrationWrites.metadataJson } : {}),
+      ...(Object.keys(mergedMetadata).length > 0 ? { metadataJson: mergedMetadata } : {}),
     },
     source: auditSource,
     correlationId: missionId,
   });
 
-  const traceId = newTraceId();
+  const runTraceId = cardbeyTraceId || newTraceId();
   const draftIdForRun = created.createdDraftId || created.draftId;
 
   const db = getPrismaClient();
@@ -217,7 +256,10 @@ export async function executeStoreMissionPipelineRun({
           ...(effectiveBusinessName ? { businessName: effectiveBusinessName } : {}),
           ...(effectiveBusinessType ? { businessType: effectiveBusinessType, storeType: effectiveBusinessType } : {}),
           currencyCode,
+          ...(intentMode ? { intentMode } : {}),
+          ...(rawUserTextFromBody ? { prompt: effectiveRawInput } : {}),
           ...(sanitizedPreloaded?.length ? { preloadedCatalogItems: sanitizedPreloaded } : {}),
+          ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
         },
       },
     });
@@ -225,11 +267,13 @@ export async function executeStoreMissionPipelineRun({
     console.warn('[executeStoreMissionPipelineRun] draft.input patch failed:', patchErr?.message || patchErr);
   }
 
-  runBuildStoreJob(prisma, created.jobId, draftIdForRun, created.generationRunId, traceId, {
+  runBuildStoreJob(prisma, created.jobId, draftIdForRun, created.generationRunId, runTraceId, {
     missionContext,
     emitContextUpdate,
     stepReporter,
     reactMissionId: missionId,
+    originSurface: auditSource,
+    ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
   });
 
   setImmediate(async () => {
@@ -248,7 +292,7 @@ export async function executeStoreMissionPipelineRun({
         await mirrorOrchestraStatusToPipeline(missionId, 'completed', {
           outputsPatch: { result: resultPayload },
           auditSource: `${auditSource}_poll`,
-          correlationId: traceId,
+          correlationId: runTraceId,
         });
         return;
       }
@@ -261,7 +305,7 @@ export async function executeStoreMissionPipelineRun({
         await mirrorOrchestraStatusToPipeline(missionId, 'failed', {
           outputsPatch: { result: resultPayload },
           auditSource: `${auditSource}_poll`,
-          correlationId: traceId,
+          correlationId: runTraceId,
           ...(msg ? { errorMessage: msg } : {}),
         });
         return;

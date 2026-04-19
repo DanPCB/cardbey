@@ -9,6 +9,11 @@ import { executeMissionAction } from './execution/executeMissionAction.js';
 
 const DEFAULT_MAX_STEPS = 20;
 
+function logMemoryUsage(scope, extra = {}) {
+  const heapUsedMb = Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10;
+  console.log('[MEM]', heapUsedMb, 'MB', scope, extra);
+}
+
 /**
  * Run mission through pipeline steps until it completes, fails, becomes blocked, is cancelled, or hits maxSteps.
  *
@@ -45,6 +50,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[MissionOrchestrator] starting mission=${id}`);
   }
+  logMemoryUsage('mission_start', { missionId: id });
 
   const loadMission = async () => {
     const m = await prisma.missionPipeline.findUnique({
@@ -59,6 +65,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[MissionOrchestrator] stop reason=not_found mission=${id}`);
     }
+    logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'not_found', stepsRun: 0 });
     return {
       ok: false,
       missionId: id,
@@ -74,6 +81,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[MissionOrchestrator] stop reason=${reason} mission=${id} status=${mission.status} runState=${mission.runState}`);
     }
+    logMemoryUsage('mission_end', { missionId: id, stoppedReason: reason, stepsRun: 0 });
     return {
       ok: true,
       missionId: id,
@@ -101,6 +109,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
         console.log(`[MissionOrchestrator] stop reason=invalid_state mission=${id} status=${mission.status} runState=${mission.runState}`);
       }
       mission = await loadMission();
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'invalid_state', stepsRun });
       return {
         ok: false,
         missionId: id,
@@ -116,6 +125,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`[MissionOrchestrator] stop reason=no_pending_steps mission=${id} status=${mission?.status} runState=${mission?.runState}`);
       }
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'no_pending_steps', stepsRun });
       return {
         ok: true,
         missionId: id,
@@ -135,6 +145,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`[MissionOrchestrator] stop reason=blocked mission=${id} status=${runResult.status} runState=${runResult.runState}`);
       }
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'blocked', stepsRun });
       return {
         ok: true,
         missionId: id,
@@ -149,6 +160,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`[MissionOrchestrator] stop reason=failed mission=${id} status=${runResult.status} runState=${runResult.runState}`);
       }
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'failed', stepsRun });
       return {
         ok: true,
         missionId: id,
@@ -163,6 +175,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`[MissionOrchestrator] stop reason=completed mission=${id} status=${runResult.status} runState=${runResult.runState}`);
       }
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'completed', stepsRun });
       return {
         ok: true,
         missionId: id,
@@ -178,6 +191,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`[MissionOrchestrator] max step guard reached mission=${id}`);
       }
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'max_steps_reached', stepsRun });
       return {
         ok: true,
         missionId: id,
@@ -209,6 +223,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`[MissionOrchestrator] stop reason=${reason} mission=${id} status=${mission.status} runState=${mission.runState}`);
       }
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: reason, stepsRun });
       return {
         ok: true,
         missionId: id,
@@ -224,6 +239,7 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[MissionOrchestrator] max step guard reached mission=${id}`);
   }
+  logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'max_steps_reached', stepsRun });
   return {
     ok: true,
     missionId: id,

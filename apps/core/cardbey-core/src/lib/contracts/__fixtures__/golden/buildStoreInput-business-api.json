@@ -1,0 +1,14 @@
+{
+  "runway": "R5a_business_create",
+  "description": "Target after Phase 1: structured location must not be lost (today folded into rawInput only)",
+  "buildStoreInput": {
+    "schemaVersion": 1,
+    "businessName": "Northside Coffee",
+    "businessType": "cafe",
+    "storeType": "cafe",
+    "location": "Melbourne",
+    "intentMode": "store",
+    "rawUserText": "Northside Coffee, cafe, Melbourne",
+    "currencyCode": "AUD"
+  }
+}

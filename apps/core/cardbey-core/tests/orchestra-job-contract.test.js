@@ -5,11 +5,11 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { PrismaClient } from '@prisma/client';
 import app from '../src/server.js';
+import { getPrismaClient } from '../src/lib/prisma.js';
 import { resetDb } from '../src/test/helpers/resetDb.js';
 
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 const testRequest = request(app);
 
 describe('Orchestra job result contract', () => {
@@ -31,7 +31,6 @@ describe('Orchestra job result contract', () => {
 
   afterAll(async () => {
     await resetDb(prisma);
-    await prisma.$disconnect();
   });
 
   it('GET /api/mi/orchestra/job/:jobId returns contract with generationRunId when status=completed', async () => {
