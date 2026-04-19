@@ -1694,6 +1694,8 @@ model MissionPipeline {
   warningsJson             Json?     // array
   outputsJson              Json?     // aggregate: { [toolName]: output, ... }; optional _failed: { tool, error, output } on failure. Use this, not outputJson (which is on steps only).
   metadataJson             Json?
+  /// Optional pipeline template / structured step definition snapshot (Phase 3 checkpoints).
+  pipelineConfig           Json?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
   startedAt                DateTime?
@@ -1713,12 +1715,20 @@ model MissionPipelineStep {
   id          String   @id @default(cuid())
   missionId   String
   orderIndex  Int
+  /// action | checkpoint | conditional — checkpoint/conditional are handled inside runNextMissionPipelineStep (no blind tool dispatch for checkpoint).
+  stepKind    String   @default("action")
   toolName    String
   label       String
   description String?
   status      String   @default("pending") // MissionPipelineStepStatus
+  /// Checkpoint prompts/options, conditional ifTrue/ifFalse tool names, etc.
+  configJson  Json?
   inputJson   Json?
   outputJson  Json?     // this step's output only; aggregate lives on MissionPipeline.outputsJson
+  /// Optional extended step outputs (e.g. branch results); aggregate mission output remains on MissionPipeline.outputsJson.
+  outputsJson Json?
+  /// Step-level metadata (checkpoint UI, correlation, etc.).
+  metadata    Json?
   errorJson   Json?
   startedAt   DateTime?
   completedAt DateTime?

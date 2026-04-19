@@ -1694,6 +1694,8 @@ model MissionPipeline {
   warningsJson             Json?
   outputsJson              Json?
   metadataJson             Json?
+  /// Optional pipeline template / structured step definition snapshot (Phase 3 checkpoints).
+  pipelineConfig           Json?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
   startedAt                DateTime?
@@ -1712,12 +1714,16 @@ model MissionPipelineStep {
   id          String   @id @default(cuid())
   missionId   String
   orderIndex  Int
+  stepKind    String   @default("action")
   toolName    String
   label       String
   description String?
   status      String   @default("pending")
+  configJson  Json?
   inputJson   Json?
   outputJson  Json?
+  outputsJson Json?
+  metadata    Json?
   errorJson   Json?
   startedAt   DateTime?
   completedAt DateTime?
