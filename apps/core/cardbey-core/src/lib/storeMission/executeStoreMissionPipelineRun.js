@@ -24,7 +24,7 @@ import { resolveAccessibleMission, getTenantId } from '../missionAccess.js';
  * @param {Record<string, unknown>} [opts.body]
  * @param {string} [opts.auditSource] - auditedPipelineUpdate source for executing transition
  * @returns {Promise<
- *   | { ok: true, missionId: string, jobId: string, generationRunId: string, draftId: string, status: 'executing' }
+ *   | { ok: true, missionId: string, jobId: string, generationRunId: string, draftId: string, status: string, mode?: 'checkpoint_pipeline', orchestration?: { stepsRun: number, stoppedReason: string } }
  *   | { ok: false, statusCode: number, error: string, message: string }
  * >}
  */
@@ -65,6 +65,47 @@ export async function executeStoreMissionPipelineRun({
       statusCode: 409,
       error: 'invalid_status',
       message: `Mission is ${mission.status}, expected awaiting_confirmation or queued`,
+    };
+  }
+
+  /** Phase 3: structured store pipeline with checkpoint steps — run runner only; skip legacy orchestra build_store. */
+  const checkpointPending = await prisma.missionPipelineStep.count({
+    where: { missionId, stepKind: 'checkpoint', status: 'pending' },
+  });
+  if (checkpointPending > 0) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        `[executeStoreMissionPipelineRun] checkpoint pipeline: ${checkpointPending} pending checkpoint step(s), mission=${missionId} — skipping legacy build`,
+      );
+    }
+    if (mission.status === 'awaiting_confirmation') {
+      const approved = await approveMissionPipeline(missionId);
+      if (!approved.ok) {
+        return {
+          ok: false,
+          statusCode: 409,
+          error: approved.error,
+          message: approved.error,
+          pipelineStatus: approved.status,
+        };
+      }
+    }
+    const { runMissionUntilBlocked } = await import('../missionPipelineOrchestrator.js');
+    const orch = await runMissionUntilBlocked(missionId);
+    const mAfter = await prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { status: true, runState: true, outputsJson: true },
+    });
+    const out = mAfter?.outputsJson && typeof mAfter.outputsJson === 'object' ? mAfter.outputsJson : {};
+    return {
+      ok: true,
+      missionId,
+      jobId: typeof out.jobId === 'string' ? out.jobId : '',
+      generationRunId: typeof out.generationRunId === 'string' ? out.generationRunId : '',
+      draftId: typeof out.draftId === 'string' ? out.draftId : '',
+      status: mAfter?.status || orch.status || 'awaiting_input',
+      mode: 'checkpoint_pipeline',
+      orchestration: { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason },
     };
   }
 
