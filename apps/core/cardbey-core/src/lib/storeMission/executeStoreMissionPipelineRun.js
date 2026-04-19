@@ -15,6 +15,60 @@ import {
 } from '../orchestrator/pipelineCanonicalResults.js';
 import { mirrorOrchestraStatusToPipeline } from '../orchestraMirror.js';
 import { resolveAccessibleMission, getTenantId } from '../missionAccess.js';
+import { canTransitionMissionPipeline } from '../missionPipelineTransitions.js';
+
+/**
+ * Store POST /run expects the pipeline in `queued`. `approveMissionPipeline` only advances
+ * `awaiting_confirmation` → `queued`. Missions can still be `requested` if creation did not
+ * finish transitions — advance requested → planned → (awaiting_confirmation | queued) first.
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} missionId
+ * @param {string} currentStatus
+ * @returns {Promise<{ ok: boolean, error?: string, status?: string }>}
+ */
+async function ensureStoreMissionReadyForRun(prisma, missionId, currentStatus) {
+  let status = currentStatus;
+  const load = async () =>
+    prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { status: true, requiresConfirmation: true },
+    });
+
+  let row = await load();
+  if (!row) return { ok: false, error: 'not_found' };
+  status = row.status;
+
+  if (status === 'queued') {
+    return { ok: true, status: 'queued' };
+  }
+
+  if (status === 'requested' && canTransitionMissionPipeline('requested', 'planned')) {
+    await prisma.missionPipeline.update({ where: { id: missionId }, data: { status: 'planned' } });
+    row = await load();
+    if (!row) return { ok: false, error: 'not_found' };
+    status = row.status;
+  }
+
+  if (status === 'planned') {
+    const next = row.requiresConfirmation ? 'awaiting_confirmation' : 'queued';
+    if (canTransitionMissionPipeline('planned', next)) {
+      await prisma.missionPipeline.update({ where: { id: missionId }, data: { status: next } });
+      row = await load();
+      if (!row) return { ok: false, error: 'not_found' };
+      status = row.status;
+    }
+  }
+
+  if (status === 'queued') {
+    return { ok: true, status: 'queued' };
+  }
+
+  if (status === 'awaiting_confirmation') {
+    return approveMissionPipeline(missionId);
+  }
+
+  return { ok: false, error: 'invalid_state', status };
+}
 
 /**
  * @param {object} opts
@@ -59,12 +113,25 @@ export async function executeStoreMissionPipelineRun({
     };
   }
 
-  if (mission.status !== 'awaiting_confirmation' && mission.status !== 'queued') {
+  const RUNNABLE_STATUSES = ['awaiting_confirmation', 'queued', 'requested'];
+
+  if (!RUNNABLE_STATUSES.includes(mission.status)) {
     return {
       ok: false,
       statusCode: 409,
       error: 'invalid_status',
-      message: `Mission is ${mission.status}, expected awaiting_confirmation or queued`,
+      message: `Mission is ${mission.status}, expected one of: ${RUNNABLE_STATUSES.join(', ')}`,
+    };
+  }
+
+  const prep = await ensureStoreMissionReadyForRun(prisma, missionId, mission.status);
+  if (!prep.ok) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: prep.error || 'prepare_failed',
+      message: prep.error || 'Could not prepare mission for run',
+      ...(prep.status != null ? { pipelineStatus: prep.status } : {}),
     };
   }
 
@@ -77,18 +144,6 @@ export async function executeStoreMissionPipelineRun({
       console.log(
         `[executeStoreMissionPipelineRun] checkpoint pipeline: ${checkpointPending} pending checkpoint step(s), mission=${missionId} — skipping legacy build`,
       );
-    }
-    if (mission.status === 'awaiting_confirmation') {
-      const approved = await approveMissionPipeline(missionId);
-      if (!approved.ok) {
-        return {
-          ok: false,
-          statusCode: 409,
-          error: approved.error,
-          message: approved.error,
-          pipelineStatus: approved.status,
-        };
-      }
     }
     const { runMissionUntilBlocked } = await import('../missionPipelineOrchestrator.js');
     const orch = await runMissionUntilBlocked(missionId);
@@ -107,19 +162,6 @@ export async function executeStoreMissionPipelineRun({
       mode: 'checkpoint_pipeline',
       orchestration: { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason },
     };
-  }
-
-  if (mission.status === 'awaiting_confirmation') {
-    const approved = await approveMissionPipeline(missionId);
-    if (!approved.ok) {
-      return {
-        ok: false,
-        statusCode: 409,
-        error: approved.error,
-        message: approved.error,
-        pipelineStatus: approved.status,
-      };
-    }
   }
 
   const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
