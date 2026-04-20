@@ -105,6 +105,9 @@ export async function writeStepOutput(missionId, stepMeta, rawOutput) {
   if (!mid || !toolName || stepIndex < 1) {
     return { ok: false, error: 'invalid_step_meta' };
   }
+  if (!shouldPersistStepOutputToBus(toolName)) {
+    return { ok: false, error: 'tool_step_output_skipped' };
+  }
   const stepTitle =
     stepMeta.stepTitle != null && String(stepMeta.stepTitle).trim() ? String(stepMeta.stepTitle).trim() : null;
   const out =
@@ -214,12 +217,16 @@ export async function buildStepContext(opts) {
  * | `general_chat`             | No structured step output; noise. |
  * | `connect_social_account`   | OAuth redirect stub — no structured output to chain. |
  *
+ * **Document builders** (`build_card`, `build_smart_document`) are always allowed — Performer artifact
+ * panel reads `step_output` rows from MissionBlackboard for these tools.
+ *
  * @param {string} tool
  * @returns {boolean} `true` if this tool should call `writeStepOutput` after success
  */
 export function shouldPersistStepOutputToBus(tool) {
   const t = String(tool || '').trim().toLowerCase();
   if (!t) return false;
+  if (t === 'build_card' || t === 'build_smart_document') return true;
   return (
     t !== 'generate_slideshow' && t !== 'general_chat' && t !== 'connect_social_account'
   );

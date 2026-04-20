@@ -6,6 +6,7 @@
 import { getPrismaClient } from '../lib/prisma.js';
 import { canTransitionMissionPipeline } from './missionPipelineTransitions.js';
 import { buildDefaultMissionSteps } from './missionPipelineSteps.js';
+import { getStructuredMissionSteps } from './missionPipelineStructured.js';
 import { getTaskGraphFromMetadata } from './agentPlanning/taskGraphPersistence.js';
 import { materializeStepsFromTaskGraph } from './agentPlanning/taskGraphMaterialize.js';
 
@@ -115,6 +116,10 @@ export async function createMissionPipeline(params) {
   }
 
   let stepConfigs = buildDefaultMissionSteps(mission.type, metadata);
+  const structured = getStructuredMissionSteps(mission.type);
+  if (Array.isArray(structured) && structured.length > 0) {
+    stepConfigs = structured;
+  }
   const plannedGraph = getTaskGraphFromMetadata(metadata);
   if (plannedGraph) {
     const fromGraph = materializeStepsFromTaskGraph(plannedGraph);
@@ -178,6 +183,8 @@ export async function createMissionPipeline(params) {
         toolName: c.toolName,
         label: c.label,
         status: 'pending',
+        stepKind: c.stepKind || 'action',
+        ...(c.configJson != null && typeof c.configJson === 'object' ? { configJson: c.configJson } : {}),
         ...(c.inputJson != null && typeof c.inputJson === 'object' ? { inputJson: c.inputJson } : {}),
       })),
     });

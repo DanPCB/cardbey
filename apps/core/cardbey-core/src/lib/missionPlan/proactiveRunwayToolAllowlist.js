@@ -4,63 +4,64 @@
  * performerProactiveStepRoutes.js (ALLOWED_TOOLS Set) must use this list so they stay in sync.
  *
  * When adding a new tool in toolRegistry.js, it is picked up automatically via TOOLS.
- * Add UI-only or legacy aliases only in SYNONYM_TOOL_NAMES below.
+ * Optional `aliases` on a tool row drive both resolveRunwayDispatchToolName and (except where noted)
+ * allowlist membership for raw step tokens.
+ *
+ * Legacy: `mini_website` was never on the proactive allowlist as a raw token — it still resolves
+ * via create_promotion.aliases but is excluded from PROACTIVE_RUNWAY_ALIAS_NAMES so set size matches history.
  */
 import { TOOLS } from '../toolRegistry.js';
 
 const FROM_REGISTRY = TOOLS.map((t) => t.toolName);
 
+/** Lowercase alias → canonical toolName (includes mini_website for resolution). */
+const RUNWAY_ALIAS_TO_CANONICAL = new Map();
+for (const tool of TOOLS) {
+  if (!Array.isArray(tool.aliases)) continue;
+  for (const alias of tool.aliases) {
+    const a = String(alias).trim().toLowerCase();
+    RUNWAY_ALIAS_TO_CANONICAL.set(a, tool.toolName);
+  }
+}
+
 /**
- * Plan/UI aliases not in TOOLS; performerProactiveStepRoutes resolveDispatchToolName maps these to registry names.
+ * Alias strings that count as allowed raw `recommendedTool` values (same as pre-alias-map SYNONYM entries).
+ * Omits `mini_website` — see module comment.
  */
-/** UI / legacy aliases allowed on the runway but not necessarily in {@link TOOLS}. */
+export const PROACTIVE_RUNWAY_ALIAS_NAMES = [...RUNWAY_ALIAS_TO_CANONICAL.keys()].filter((a) => a !== 'mini_website');
+
+/**
+ * Tokens allowed on the runway that are not toolName rows and not registry-driven aliases.
+ * general_chat / code_fix / generate_slideshow: special-case dispatch (see toolDispatcher).
+ * Operator names: explicit listing so SYNONYM_TOOL_NAMES stays the contract for non-registry strings.
+ */
 export const SYNONYM_TOOL_NAMES = [
-  'campaign_research',
-  'smart_visual',
   'general_chat',
-  'generate_mini_website',
-  'social_posts',
-  'rewrite',
-  'hero',
-  'analyze',
-  'tags',
-  'content',
-  // LLM drift → activate_promotion (resolveDispatchToolName maps these)
-  'show_promotion',
-  'display_promotion',
-  'publish_promotion',
-  'show_promo',
-  /** Performer: natural-language bug → proposed patch (no registry executor). */
   'code_fix',
-  /** Client-side GIF slideshow from Content Studio; server returns pending_client_export. */
   'generate_slideshow',
+  'start_build_store',
+  'get_draft_by_run',
+  'get_draft_summary',
+  'poll_orchestra_job',
+  'publish_store',
+  'log_event',
+  'run_pipeline',
 ];
 
 /** @type {string[]} */
-export const PROACTIVE_RUNWAY_TOOL_NAMES = [...new Set([...FROM_REGISTRY, ...SYNONYM_TOOL_NAMES])];
+export const PROACTIVE_RUNWAY_TOOL_NAMES = [
+  ...new Set([...FROM_REGISTRY, ...PROACTIVE_RUNWAY_ALIAS_NAMES, ...SYNONYM_TOOL_NAMES]),
+];
 
 export const PROACTIVE_RUNWAY_TOOL_SET = new Set(PROACTIVE_RUNWAY_TOOL_NAMES);
 
 /**
  * Map plan/UI tool ids to canonical toolRegistry.js names for dispatchTool.
- * Keep this logic centralized to avoid runway drift between endpoints.
  *
  * @param {string} tool
  * @returns {string}
  */
 export function resolveRunwayDispatchToolName(tool) {
-  const t = String(tool || '').trim().toLowerCase();
-  if (t === 'campaign_research') return 'market_research';
-  if (t === 'generate_mini_website' || t === 'mini_website') return 'create_promotion';
-  if (t === 'smart_visual') return 'smart_visual';
-  if (t === 'social_posts') return 'generate_social_posts';
-  if (t === 'rewrite') return 'rewrite_descriptions';
-  if (t === 'hero') return 'improve_hero';
-  if (t === 'analyze') return 'analyze_store';
-  if (t === 'tags') return 'generate_tags';
-  if (t === 'content') return 'content_creator';
-  if (t === 'show_promotion' || t === 'display_promotion' || t === 'publish_promotion' || t === 'show_promo') {
-    return 'activate_promotion';
-  }
-  return t;
+  const t = String(tool ?? '').trim().toLowerCase();
+  return RUNWAY_ALIAS_TO_CANONICAL.get(t) ?? t;
 }

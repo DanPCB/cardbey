@@ -15,7 +15,69 @@ import {
   extractDomain,
   looksLikeDomain,
   brandfetchAssetsForDomain,
+  normalizeToContentAsset,
 } from '../services/contentLibraryService.js';
+
+/**
+ * Known SVG URLs (SVGRepo CDN) — used when category matches or when browsing "All".
+ * No live SVGRepo API required for these buckets.
+ */
+const CATEGORY_SEEDS = {
+  restaurant: [
+    { name: 'Fork & Knife', url: 'https://www.svgrepo.com/show/530429/restaurant.svg' },
+    { name: 'Coffee Cup', url: 'https://www.svgrepo.com/show/530424/coffee.svg' },
+    { name: 'Chef Hat', url: 'https://www.svgrepo.com/show/530422/chef-hat.svg' },
+  ],
+  retail: [
+    { name: 'Shopping Bag', url: 'https://www.svgrepo.com/show/530446/shopping-bag.svg' },
+    { name: 'Price Tag', url: 'https://www.svgrepo.com/show/530447/price-tag.svg' },
+    { name: 'Hanger', url: 'https://www.svgrepo.com/show/530448/clothes-hanger.svg' },
+  ],
+  beauty: [
+    { name: 'Lipstick', url: 'https://www.svgrepo.com/show/530401/lipstick.svg' },
+    { name: 'Mirror', url: 'https://www.svgrepo.com/show/530402/mirror.svg' },
+    { name: 'Scissors', url: 'https://www.svgrepo.com/show/530403/scissors.svg' },
+  ],
+  fitness: [
+    { name: 'Dumbbell', url: 'https://www.svgrepo.com/show/530411/dumbbell.svg' },
+    { name: 'Running', url: 'https://www.svgrepo.com/show/530412/running.svg' },
+    { name: 'Yoga', url: 'https://www.svgrepo.com/show/530413/yoga.svg' },
+  ],
+};
+
+/**
+ * @param {string | null} category
+ * @param {string} q
+ * @returns {any[] | null} Seeded assets, or null to fall back to live SVGRepo search.
+ */
+function getSeededLogoAssets(category, q) {
+  const qLower = (q || '').trim().toLowerCase();
+  /** @type {Array<{ name: string, url: string, _cat: string }>} */
+  let rawList = [];
+
+  if (category && CATEGORY_SEEDS[category]) {
+    rawList = CATEGORY_SEEDS[category].map((item) => ({ ...item, _cat: category }));
+  } else if (!category) {
+    rawList = Object.entries(CATEGORY_SEEDS).flatMap(([cat, items]) =>
+      (items || []).map((item) => ({ ...item, _cat: cat })),
+    );
+  } else {
+    return null;
+  }
+
+  const assets = rawList
+    .map((item) =>
+      normalizeToContentAsset(
+        { name: item.name, url: item.url, thumbnail: item.url },
+        'svgrepo',
+        { type: 'logo', category: item._cat },
+      ),
+    )
+    .filter(Boolean);
+
+  if (!qLower) return assets;
+  return assets.filter((a) => a.name.toLowerCase().includes(qLower));
+}
 
 const router = express.Router();
 router.use(express.json({ limit: '2mb' }));
@@ -49,6 +111,19 @@ router.get('/logos/search', async (req, res) => {
     const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '20'), 10) || 20));
+
+    const seeded = getSeededLogoAssets(category || null, q);
+    if (seeded !== null) {
+      const total = seeded.length;
+      const start = (page - 1) * limit;
+      const assets = seeded.slice(start, start + limit);
+      return res.json({
+        assets,
+        total,
+        page,
+        source: 'svgrepo',
+      });
+    }
 
     const searchTerm = q || 'business logo';
     const svgAssets = await searchSVGRepo(searchTerm, category, limit * page);

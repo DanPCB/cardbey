@@ -40,11 +40,38 @@
 import cuid from 'cuid';
 import { getPrismaClient } from '../prisma.js';
 import { emitHealthProbe } from '../telemetry/healthProbes.js';
+import { writeStepOutput } from '../missionContextBus.js';
 import { getDocSize } from './documentSizeStandards.js';
 import { getPreset } from './presets/index.js';
 import { buildPhaseConfig } from './phaseEngine.js';
 import { serializeCapabilities } from './capabilityRegistry.js';
 import { resolveContent } from '../contentResolution/contentResolver.js';
+
+const BUILD_SMART_DOCUMENT_TOOL = 'build_smart_document';
+
+/**
+ * Emits structured step_output on MissionBlackboard for progressive artifact UI (best-effort).
+ * @param {string | null | undefined} missionId
+ * @param {number} stepIndex 1–7
+ * @param {string} stepTitle
+ * @param {Record<string, unknown>} output
+ */
+function writeStep(missionId, stepIndex, stepTitle, output) {
+  const mid = typeof missionId === 'string' ? missionId.trim() : '';
+  if (!mid || stepIndex < 1) return;
+  writeStepOutput(mid, { stepIndex, toolName: BUILD_SMART_DOCUMENT_TOOL, stepTitle }, output)
+    .then((r) => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[missionContextBus] writeStepOutput', {
+          missionId: mid,
+          stepIndex,
+          toolName: BUILD_SMART_DOCUMENT_TOOL,
+          ok: r?.ok !== false,
+        });
+      }
+    })
+    .catch(() => {});
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -96,6 +123,13 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
     console.warn('[buildSmartDocument] Step 1 failed:', e?.message ?? e);
   }
 
+  await writeStep(missionId, 1, 'Read document specification', {
+    phase: 'preset',
+    docType,
+    subtype,
+    presetTemplate: preset?.designJson?.template ?? null,
+  });
+
   const businessName = typeof docData?.businessName === 'string' && docData.businessName.trim()
     ? docData.businessName.trim()
     : 'My Business';
@@ -119,6 +153,14 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
     console.warn('[buildSmartDocument] Step 2 size failed:', e?.message ?? e);
   }
 
+  await writeStep(missionId, 2, 'Resolve document dimensions', {
+    phase: 'size',
+    sizeW,
+    sizeH,
+    sizeUnit,
+    sizeDpi,
+  });
+
   // ── STEP 3 — Content ───────────────────────────────────────────────────
   await emitLine(emitContextUpdate, '✍️ Generating document content...');
   let slogan = { content: '', source: 'fallback' };
@@ -133,6 +175,14 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
   } catch (e) {
     console.warn('[buildSmartDocument] Step 3 content failed:', e?.message ?? e);
   }
+
+  await writeStep(missionId, 3, 'Generate document content', {
+    phase: 'content',
+    slogan: typeof slogan?.content === 'string' ? slogan.content.slice(0, 500) : '',
+    tagline: typeof tagline?.content === 'string' ? tagline.content.slice(0, 500) : '',
+    sloganSource: slogan?.source ?? null,
+    taglineSource: tagline?.source ?? null,
+  });
 
   // ── STEP 4 — Design JSON ───────────────────────────────────────────────
   await emitLine(emitContextUpdate, '🎨 Assembling document design...');
@@ -155,6 +205,13 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
       phaseConfig = buildPhaseConfig({ ...phaseConfig, maxStamps: docData.stampThreshold });
     }
   } catch (e) { /* non-fatal */ }
+
+  await writeStep(missionId, 4, 'Assemble document design', {
+    phase: 'design',
+    template: designJson.template ?? null,
+    theme: designJson.theme ?? null,
+    title: typeof docData?.title === 'string' && docData.title.trim() ? docData.title.trim() : null,
+  });
 
   // Capabilities
   const capabilities = preset.capabilities ?? ['chat'];
@@ -193,6 +250,15 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
     });
 
     documentId = docId;
+
+    await writeStep(missionId, 5, 'Save document', {
+      phase: 'persist',
+      documentId: docId,
+      liveUrl,
+      title,
+      docType,
+      subtype,
+    });
   } catch (stepErr) {
     console.error('[buildSmartDocument] Step 5 persist failed:', stepErr?.message ?? stepErr);
     emitHealthProbe('smart_document_created', {
@@ -211,8 +277,21 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
     if (qrCodeUrl) {
       await prisma.smartDocument.update({ where: { id: docId }, data: { qrCodeUrl } });
     }
+    await writeStep(missionId, 6, 'Generate QR code', {
+      phase: 'qr',
+      documentId: docId,
+      liveUrl,
+      qrGenerated: Boolean(qrCodeUrl),
+    });
   } catch (e) {
     console.warn('[buildSmartDocument] Step 6 QR failed:', e?.message ?? e);
+    await writeStep(missionId, 6, 'Generate QR code', {
+      phase: 'qr',
+      documentId: docId,
+      liveUrl,
+      qrGenerated: false,
+      warning: e?.message ?? String(e),
+    });
   }
 
   // ── STEP 7 — Context + telemetry ───────────────────────────────────────
@@ -230,6 +309,15 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
       }).catch(() => {});
     }
   } catch { /* non-fatal */ }
+
+  await writeStep(missionId, 7, 'Smart document ready', {
+    phase: 'complete',
+    documentId,
+    liveUrl,
+    docType,
+    subtype,
+    title,
+  });
 
   emitHealthProbe('smart_document_created', {
     missionId: missionId ?? undefined,

@@ -142,10 +142,11 @@ Never invent tool names not listed above.
 - Sales/orders/revenue/targets → orders_report.
 - Text/headline fixes → code_fix for editor/preview fixes; edit_artifact for promotion or profile or draft-preview copy and bulk translation (not images).
 - confidence: honest 0–1.
-- If the user asks ONLY to read/analyze/understand an image with NO creation intent (e.g. "what does this say?", "read this", "analyze this", "extract info from this"), use tool: "general_chat", executionPath: "chat", describe what you see in the message field.
+- If the user message includes "[Attached image content:" with extracted text, use that text to answer questions about the image — tool "general_chat", executionPath "chat", message field summarizes or quotes the relevant extracted content. Do not say you cannot see the image.
+- If the user message includes "[System: an image is attached but OCR" (no usable OCR) and the user asks to see, understand, or describe what is in the photo/image, use tool "analyze_content", executionPath "chat", with parameters extractionGoal or contentType as appropriate.
 - If the user asks to CREATE, LAUNCH, or BUILD something from an image (e.g. "create a campaign from this", "make a promotion based on this flyer", "read this and create a campaign"), use tool: "market_research", executionPath: "proactive_plan". Add the image context as campaignContext parameter. This IS a creation request.
 - "Read this AND create/launch/make something" = creation intent. Always route to market_research, never to general_chat or capability_gap.
-- Only use analyze_content tool when the user explicitly wants analysis/extraction with NO downstream creation.
+- Use analyze_content only for visual understanding when OCR text is missing or insufficient, or when the user wants structured extraction with NO downstream creation.
 
 ## JSON shape
 {

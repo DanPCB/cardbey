@@ -33,7 +33,7 @@ router.get('/', requireAuth, async (req, res) => {
   const prisma = getPrismaClient();
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ ok: false, error: 'auth_required' });
-  const cards = await prisma.card.findMany({
+  const rows = await prisma.card.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
     select: {
@@ -44,13 +44,14 @@ router.get('/', requireAuth, async (req, res) => {
       designJson: true,
       liveUrl: true,
       qrCodeUrl: true,
-      renderedUrl: true,
       createdAt: true,
-      _count: {
-        select: { stamps: true, redemptions: true, rsvps: true, conversations: true },
-      },
     },
   });
+  /** Card has no Prisma relations yet — mirror SmartDocument list shape for UIs that expect `_count`. */
+  const cards = rows.map((c) => ({
+    ...c,
+    _count: { stamps: 0, redemptions: 0, rsvps: 0, conversations: 0, checkIns: 0 },
+  }));
   return res.status(200).json({ ok: true, cards });
 });
 
@@ -64,22 +65,25 @@ router.get('/:cardId', async (req, res) => {
     const card = await prisma.card.findUnique({
       where: { id: cardId },
       select: {
-        id: true,
-        userId: true,
-        type: true,
-        title: true,
-        status: true,
-        designJson: true,
-        liveUrl: true,
-        qrCodeUrl: true,
-        renderedUrl: true,
-        printUrl: true,
-        agentPersonality: true,
-        knowledgeBase: true,
-        capabilities: true,
-        autoApprove: true,
-        createdAt: true,
-      },
+  id: true,
+  type: true,
+  title: true,
+  status: true,
+  designJson: true,
+  liveUrl: true,
+  qrCodeUrl: true,
+  createdAt: true,
+  updatedAt: true,
+  userId: true,
+  agentPersonality: true,
+  knowledgeBase: true,
+  capabilities: true,
+  autoApprove: true,
+  sizeW: true,
+  sizeH: true,
+  sizeUnit: true,
+  sizeDpi: true,
+},
     });
     if (!card) return res.status(404).json({ ok: false, error: 'not_found' });
     if (card.userId !== authedUserId) return res.status(403).json({ ok: false, error: 'forbidden' });
@@ -100,7 +104,6 @@ router.get('/:cardId', async (req, res) => {
       designJson: true,
       liveUrl: true,
       qrCodeUrl: true,
-      renderedUrl: true,
       agentPersonality: true,
       createdAt: true,
     },

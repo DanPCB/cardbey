@@ -13,7 +13,7 @@
 | R1 | **Intake V2 — shortcut** | `POST` performer intake V2 (shortcut `create_store`) | `src/routes/performerIntakeV2Routes.js` | `executeStoreMissionPipelineRun` → `createBuildStoreJob` | `createBuildStoreJob` + patch in `executeStoreMissionPipelineRun` |
 | R2 | **Intake V2 — autosubmit** | Same route, `create_store` + `_autoSubmit` | `performerIntakeV2Routes.js` | Same | Same |
 | R3 | **Mission pipeline run** | `POST /api/missions/:id/run` (store mission) | `src/routes/missionsRoutes.js` → `executeStoreMissionPipelineRun` | `createBuildStoreJob` | Same |
-| R4 | **MI orchestra start** | `POST /api/mi/orchestra/start` | `src/routes/miRoutes.js` (`handleOrchestraStart`) | `createBuildStoreJob` (`skipDraft: true`; same `task.request` factory as R1–R3) | `createDraft` / `createDraftStoreForUser` with `baseInput` (unchanged) |
+| R4 | **MI orchestra start** | `POST /api/mi/orchestra/start` | `src/routes/miRoutes.js` (`handleOrchestraStart`) | `createBuildStoreJob` (`skipDraft: true`; same `task.request` factory as R1–R3) | `createBuildStoreJob` (unified factory; `draftInput` carries `baseInput`) |
 | R5a | **Business API** | `POST /api/business/create` (orchestra shape) | `src/routes/business.js` | `createBuildStoreJob` | `createBuildStoreJob` |
 | R5b | **Operator tool** | `start_build_store` (in-process) | `src/ai/operator/tools/index.js` | `createBuildStoreJob` | `createBuildStoreJob` |
 
@@ -39,6 +39,6 @@
 
 ---
 
-## Phase 2 target (Option A)
+## Phase 2 (Option A) — implemented
 
-All runways that need a new `build_store` task + draft should use **`createBuildStoreJob` (single factory)** so `task.request` and `draft.input` shapes match `BuildStoreInputV1` from `CONTRACT_V1.md`.
+All runways that need a new `build_store` task + draft use **`createBuildStoreJob` (single factory)** so `task.request` and `draft.input` shapes match `BuildStoreInputV1` from `CONTRACT_V1.md`. R4 draft creation runs through the same factory (`draftInput` / `guestDraft` / `draftMode`; second call uses `existingJobId` + `generationRunId` after the `skipDraft: true` task row).

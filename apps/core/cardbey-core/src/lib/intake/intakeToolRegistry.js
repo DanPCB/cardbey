@@ -553,6 +553,72 @@ export const INTAKE_TOOL_REGISTRY = [
       'what information is in this document?',
     ],
   },
+  {
+    toolName: 'canvas.loadTemplate',
+    executionPath: 'direct_action',
+    label: 'Load canvas template',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    // Phase 3: executor implementation (canvasToolExecutor); registry only lists the tool.
+    executor: 'canvasToolExecutor',
+    parameterSchema: {
+      required: ['templateId'],
+      properties: {
+        templateId: { type: 'string' },
+      },
+    },
+    requiredParams: ['templateId'],
+    optionalParams: [],
+    semanticDescription: `Load a design template onto the Contents Studio canvas by template id.`,
+    examples: ['load the bakery promo template', 'open template t_abc123 on the canvas'],
+  },
+  {
+    toolName: 'canvas.applyBrandAsset',
+    executionPath: 'direct_action',
+    label: 'Apply brand asset to canvas',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    executor: 'canvasToolExecutor',
+    parameterSchema: {
+      required: ['assetId', 'assetUrl'],
+      properties: {
+        assetId: { type: 'string' },
+        assetUrl: { type: 'string' },
+        position: { type: 'object' },
+      },
+    },
+    requiredParams: ['assetId', 'assetUrl'],
+    optionalParams: ['position'],
+    semanticDescription: `Place a logo or brand asset from the content library onto the canvas.`,
+    examples: ['add my brand logo to the canvas', 'put the fetched logo in the corner'],
+  },
+  {
+    toolName: 'canvas.exportToSuitcase',
+    executionPath: 'direct_action',
+    label: 'Export canvas to suitcase',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: false,
+    approvalRequired: true,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    executor: 'canvasToolExecutor',
+    parameterSchema: {
+      properties: {
+        filename: { type: 'string' },
+        format: { type: 'string', enum: ['png', 'jpeg'] },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['filename', 'format'],
+    semanticDescription: `Export the current Contents Studio canvas design to the content suitcase (PNG or JPEG). Default format PNG.`,
+    examples: ['export this design to my suitcase', 'save the canvas as a PNG'],
+  },
 ];
 
 /** @param {string} toolName */
@@ -644,6 +710,14 @@ export function validateToolParameters(toolName, parameters, opts = {}) {
     }
     if (def.type === 'number' && typeof val !== 'number') {
       errors.push({ field: key, reason: `expected_number_got_${typeof val}` });
+      continue;
+    }
+    if (def.type === 'object') {
+      if (val === null || typeof val !== 'object' || Array.isArray(val)) {
+        errors.push({ field: key, reason: 'expected_plain_object' });
+        continue;
+      }
+      cleaned[key] = val;
       continue;
     }
     if (def.enum && !def.enum.includes(val)) {

@@ -35,6 +35,62 @@ import { isDraftOwnedByUser } from '../../lib/draftOwnership.js';
 import { transitionDraftStoreStatus } from '../../kernel/transitions/transitionService.js';
 import { refreshPersonalPresenceQrForBusiness } from '../personalPresence/personalPresenceQr.js';
 
+/**
+ * Draft mini-website featured sections use stable keys (idx_0, draft temp ids) from mergeWebsiteIntoPreview.
+ * Published products get new Prisma ids — remap featured content.productIds so the public /s/:slug renderer
+ * can resolve picks (same keys as toPublicStore().products[].id).
+ *
+ * @param {object} miniWebsite - stylePreferences.miniWebsite snapshot from draft
+ * @param {object[]} draftProducts - preview.items / catalog rows in publish order
+ * @param {(string|undefined|null)[]} publishedIdsByDraftIndex - parallel array: draft index -> Product.id
+ * @returns {object}
+ */
+export function remapMiniWebsiteFeaturedProductIds(miniWebsite, draftProducts, publishedIdsByDraftIndex) {
+  if (!miniWebsite || typeof miniWebsite !== 'object') return miniWebsite;
+  const sections = miniWebsite.sections;
+  if (!Array.isArray(sections)) return miniWebsite;
+
+  function stableKey(item, index) {
+    if (!item || typeof item !== 'object') return `idx_${index}`;
+    const id = item.id != null && String(item.id).trim() ? String(item.id).trim() : null;
+    if (id) return id;
+    const pid = item.productId != null && String(item.productId).trim() ? String(item.productId).trim() : null;
+    if (pid) return pid;
+    return `idx_${index}`;
+  }
+
+  const keyToPublishedId = new Map();
+  for (let i = 0; i < draftProducts.length; i++) {
+    const pubId = publishedIdsByDraftIndex[i];
+    if (!pubId || typeof pubId !== 'string') continue;
+    keyToPublishedId.set(stableKey(draftProducts[i], i), pubId);
+  }
+
+  const newSections = sections.map((section) => {
+    if (!section || section.type !== 'featured') return section;
+    const content = section.content && typeof section.content === 'object' ? { ...section.content } : {};
+    const rawIds = content.productIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) return section;
+    const newIds = [];
+    for (const rid of rawIds) {
+      const key = String(rid);
+      let mapped = keyToPublishedId.get(key);
+      if (!mapped) {
+        const m = /^idx_(\d+)$/.exec(key);
+        if (m) {
+          const idx = parseInt(m[1], 10);
+          const at = publishedIdsByDraftIndex[idx];
+          if (at && typeof at === 'string') mapped = at;
+        }
+      }
+      if (mapped) newIds.push(mapped);
+    }
+    return { ...section, content: { ...content, productIds: newIds } };
+  });
+
+  return { ...miniWebsite, sections: newSections };
+}
+
 export class PublishDraftError extends Error {
   constructor(code, message, statusCode = 500) {
     super(message);
@@ -460,24 +516,25 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     }
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.business.update({
-      where: { id: effectiveStoreId },
-      data: businessData,
-    });
+  /** Set after publish transaction — featured section ids remapped to real Product.id (draft uses idx_N / temp keys). */
+  let remappedMiniWebsiteForPublish = null;
 
+  await prisma.$transaction(async (tx) => {
     await tx.product.deleteMany({
       where: { businessId: effectiveStoreId },
     });
 
-    for (const productData of products) {
+    /** @type {(string|undefined)[]} */
+    const publishedIdsByDraftIndex = new Array(products.length);
+    for (let i = 0; i < products.length; i++) {
+      const productData = products[i];
       if (!productData.name || productData.name.trim().length === 0) continue;
       try {
         const price = productData.priceV1?.amount || productData.price || null;
         const normalizedPrice = price ? parseFloat(String(price).replace(/[^\d.]/g, '')) : null;
         const draftCatId = productData.categoryId != null ? String(productData.categoryId).trim() : null;
         const categoryName = (draftCatId && draftCatIdToName.get(draftCatId)) || draftCatIdToName.get('other') || productData.category || otherCategoryName;
-        await tx.product.create({
+        const created = await tx.product.create({
           data: {
             businessId: effectiveStoreId,
             name: productData.name.trim(),
@@ -491,10 +548,31 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
             likeCount: 0,
           },
         });
+        publishedIdsByDraftIndex[i] = created.id;
       } catch (productError) {
         console.warn(`[publishDraft] Failed to create product "${productData.name}":`, productError.message);
       }
     }
+
+    remappedMiniWebsiteForPublish =
+      draftMiniWebsite && typeof draftMiniWebsite === 'object'
+        ? remapMiniWebsiteFeaturedProductIds(draftMiniWebsite, products, publishedIdsByDraftIndex)
+        : null;
+
+    const stylePreferencesFinal = {
+      ...(businessData.stylePreferences && typeof businessData.stylePreferences === 'object'
+        ? businessData.stylePreferences
+        : {}),
+      ...(remappedMiniWebsiteForPublish ? { miniWebsite: remappedMiniWebsiteForPublish } : {}),
+    };
+
+    await tx.business.update({
+      where: { id: effectiveStoreId },
+      data: {
+        ...businessData,
+        stylePreferences: stylePreferencesFinal,
+      },
+    });
 
     await transitionDraftStoreStatus({
       prisma: tx,
@@ -534,7 +612,10 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
   });
 
   // Ensure miniWebsite is set even if business already existed (idempotent re-publish backfill).
-  await ensureMiniWebsiteOnBusiness(effectiveStoreId, draftMiniWebsite);
+  await ensureMiniWebsiteOnBusiness(
+    effectiveStoreId,
+    remappedMiniWebsiteForPublish ?? draftMiniWebsite,
+  );
 
   const storefrontUrl = `/app/store/${effectiveStoreId}`;
   const business = await prisma.business.findUnique({

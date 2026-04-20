@@ -1,4 +1,4 @@
-import { ensureMissionRowForBlackboard } from '../missionBlackboard.js';
+import { appendEvent, ensureMissionRowForBlackboard } from '../missionBlackboard.js';
 
 /**
  * Foundation 2 — Agent context bus (shared working memory).
@@ -128,6 +128,14 @@ export function createEmitContextUpdate(missionId, agent, options = {}) {
           },
         },
       }).catch(() => {});
+      // Performer BlackboardFeed polls GET /api/missions/:id/blackboard (MissionBlackboard rows).
+      // Store/orchestra paths only wrote reasoning_log + MissionEvent — mirror lines here so the left panel is not empty.
+      await appendEvent(
+        missionId,
+        'reasoning_line',
+        { line, timestamp: ts, agent },
+        { agentId: agent },
+      ).catch(() => {});
       return;
     }
 

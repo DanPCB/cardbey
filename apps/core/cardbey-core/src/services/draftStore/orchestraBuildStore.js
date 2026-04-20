@@ -14,6 +14,36 @@ function newTraceId() {
   return crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
 }
 
+/**
+ * Deep-merge draftInput patch onto factory base draft input (plain objects only).
+ * Arrays and non-objects replace; nested objects merge recursively.
+ * @param {Record<string, unknown>} base
+ * @param {Record<string, unknown>} patch
+ */
+export function mergeDraftInputAfterBase(base, patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return { ...base };
+  }
+  const out = { ...base };
+  for (const key of Object.keys(patch)) {
+    const p = patch[key];
+    const b = base[key];
+    if (
+      p != null &&
+      typeof p === 'object' &&
+      !Array.isArray(p) &&
+      b != null &&
+      typeof b === 'object' &&
+      !Array.isArray(b)
+    ) {
+      out[key] = mergeDraftInputAfterBase(/** @type {Record<string, unknown>} */ (b), /** @type {Record<string, unknown>} */ (p));
+    } else {
+      out[key] = p;
+    }
+  }
+  return out;
+}
+
 function logMemoryUsage(scope, extra = {}) {
   const heapUsedMb = Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10;
   console.log('[MEM]', heapUsedMb, 'MB', scope, extra);
@@ -452,6 +482,12 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
 /**
  * Create orchestrator task + draft for build_store. Returns ids; caller should call runBuildStoreJob if needRun.
  * Params may include `requestExtras` (merged onto task.request) and `skipDraft` (task only, no DraftStore row).
+ *
+ * @param {object} [opts.guestDraft] When set with `guest: true` or `guestSessionId`, draft is created via `createDraft` (guest path).
+ * @param {string} [opts.draftMode] Draft row `mode`; defaults to `'ai'` when omitted.
+ * @param {object} [opts.draftInput] Deep-merged onto the in-file base draft `input` after it is built (never replaces base).
+ * @param {string} [opts.existingJobId] When set with `skipDraft: false`, skip creating a new task; only create draft for this job/run (requires `generationRunId`).
+ * @param {object} [opts.user] Passed to `createDraftStoreForUser` for tenant resolution (optional).
  */
 export async function createBuildStoreJob(
   prisma,
@@ -475,6 +511,11 @@ export async function createBuildStoreJob(
     requestExtras = null,
     /** When true, only create the orchestrator task; caller creates the draft (e.g. MI orchestra rich baseInput). */
     skipDraft = false,
+    guestDraft = null,
+    draftMode = null,
+    draftInput = null,
+    existingJobId = null,
+    user = null,
   },
 ) {
   const finalStoreId = storeId || 'temp';
@@ -514,26 +555,44 @@ export async function createBuildStoreJob(
     ...(requestExtras && typeof requestExtras === 'object' && !Array.isArray(requestExtras) ? requestExtras : {}),
   };
 
-  const job = await prisma.orchestratorTask.create({
-    data: {
-      tenantId,
-      userId: userId || tenantId,
-      insightId: null,
-      entryPoint: 'build_store',
-      status: 'queued',
-      request: requestPayload,
-    },
-  });
+  /** @type {{ id: string }} */
+  let job;
+  /** @type {string} */
+  let resolvedRunId;
 
-  const resolvedRunId = runId || job.id;
-  if (!runId) {
-    await prisma.orchestratorTask.update({
-      where: { id: job.id },
+  const existingIdTrim =
+    existingJobId != null && String(existingJobId).trim() ? String(existingJobId).trim() : null;
+  if (existingIdTrim) {
+    if (skipDraft) {
+      throw new Error('createBuildStoreJob: existingJobId cannot be used with skipDraft: true');
+    }
+    if (!runId) {
+      throw new Error('createBuildStoreJob: existingJobId requires generationRunId');
+    }
+    job = { id: existingIdTrim };
+    resolvedRunId = runId;
+  } else {
+    job = await prisma.orchestratorTask.create({
       data: {
-        request: { ...requestPayload, generationRunId: resolvedRunId },
-        updatedAt: new Date(),
+        tenantId,
+        userId: userId || tenantId,
+        insightId: null,
+        entryPoint: 'build_store',
+        status: 'queued',
+        request: requestPayload,
       },
-    }).catch(() => {});
+    });
+
+    resolvedRunId = runId || job.id;
+    if (!runId) {
+      await prisma.orchestratorTask.update({
+        where: { id: job.id },
+        data: {
+          request: { ...requestPayload, generationRunId: resolvedRunId },
+          updatedAt: new Date(),
+        },
+      }).catch(() => {});
+    }
   }
 
   if (skipDraft) {
@@ -554,10 +613,18 @@ export async function createBuildStoreJob(
   let responseDraftId = existingDraft ? existingDraft.id : null;
 
   if (needDraft) {
-    const { createDraftStoreForUser } = await import('./draftStoreService.js');
-    const input = {
+    const { createDraftStoreForUser, createDraft } = await import('./draftStoreService.js');
+    const resolvedDraftMode = draftMode ?? 'ai';
+    const useGuestDraft =
+      guestDraft &&
+      typeof guestDraft === 'object' &&
+      !Array.isArray(guestDraft) &&
+      (guestDraft.guest === true ||
+        (guestDraft.guestSessionId != null && String(guestDraft.guestSessionId).trim()));
+
+    const baseInput = {
       schemaVersion: 1,
-      tenantId,
+      ...(!useGuestDraft ? { tenantId } : {}),
       storeId: finalStoreId,
       generationRunId: resolvedRunId,
       prompt: rawInput ?? null,
@@ -573,16 +640,40 @@ export async function createBuildStoreJob(
       ...(websiteUrl != null && String(websiteUrl).trim() ? { websiteUrl: String(websiteUrl).trim() } : {}),
       ...(trace ? { cardbeyTraceId: trace } : {}),
     };
-    const createdDraft = await createDraftStoreForUser(prisma, {
-      userId: userId || null,
-      tenantKey: tenantId,
-      input,
-      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-      mode: 'ai',
-      status: 'generating',
-      generationRunId: resolvedRunId,
-      committedStoreId: finalStoreId,
-    });
+    const input =
+      draftInput && typeof draftInput === 'object' && !Array.isArray(draftInput)
+        ? mergeDraftInputAfterBase(baseInput, draftInput)
+        : baseInput;
+
+    /** @type {{ id: string }} */
+    let createdDraft;
+    if (useGuestDraft) {
+      const gs =
+        guestDraft.guestSessionId != null && String(guestDraft.guestSessionId).trim()
+          ? String(guestDraft.guestSessionId).trim()
+          : undefined;
+      createdDraft = await createDraft({
+        mode: resolvedDraftMode,
+        input,
+        meta: {
+          generationRunId: resolvedRunId,
+          ownerUserId: null,
+          ...(gs != null ? { guestSessionId: gs } : {}),
+        },
+      });
+    } else {
+      createdDraft = await createDraftStoreForUser(prisma, {
+        ...(user != null ? { user } : {}),
+        userId: userId || null,
+        tenantKey: tenantId,
+        input,
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        mode: resolvedDraftMode,
+        status: 'generating',
+        generationRunId: resolvedRunId,
+        committedStoreId: finalStoreId,
+      });
+    }
     createdDraftId = createdDraft.id;
     responseDraftId = createdDraft.id;
   }

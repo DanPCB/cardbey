@@ -12,7 +12,7 @@ const mockGetEvents   = vi.fn();
 
 vi.mock('./missionBlackboard.js', () => ({
   appendEvent: mockAppendEvent,
-  getEvents:   mockGetEvents,
+  getEvents: mockGetEvents,
 }));
 
 // ── Deferred import: wait until after vi.mock hoisting settles ────────────────
@@ -304,6 +304,18 @@ describe('writeStepOutput', () => {
     const payload = mockAppendEvent.mock.calls[0][2];
     expect(payload.output).toMatchObject({ value: 'plain string' });
   });
+
+  test('does not append when tool is on skip list', async () => {
+    const result = await writeStepOutput('mission-1', { stepIndex: 1, toolName: 'general_chat' }, { x: 1 });
+    expect(result).toMatchObject({ ok: false, error: 'tool_step_output_skipped' });
+    expect(mockAppendEvent).not.toHaveBeenCalled();
+  });
+
+  test('build_card persists step output', async () => {
+    await writeStepOutput('mission-1', { stepIndex: 2, toolName: 'build_card' }, { status: 'done' });
+    expect(mockAppendEvent).toHaveBeenCalledTimes(1);
+    expect(mockAppendEvent.mock.calls[0][1]).toBe(MISSION_STEP_OUTPUT_EVENT);
+  });
 });
 
 // =============================================================================
@@ -315,6 +327,8 @@ describe('shouldPersistStepOutputToBus', () => {
     ['create_promotion',   true],
     ['launch_campaign',    true],
     ['smart_visual',       true],
+    ['build_card', true],
+    ['build_smart_document', true],
     ['generate_slideshow', false],
     ['general_chat',       false],
     ['connect_social_account', false],

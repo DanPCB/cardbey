@@ -30,6 +30,7 @@ import {
 import { getTenantId } from '../lib/missionAccess.js';
 import { getPrismaClient } from '../lib/prisma.js';
 import { executeStoreMissionPipelineRun } from '../lib/storeMission/executeStoreMissionPipelineRun.js';
+import { ensureStructuredStoreCheckpointSteps } from '../lib/storeMission/ensureStructuredStoreCheckpointSteps.js';
 import { inferCurrencyFromLocationText } from '../services/draftStore/currencyInfer.js';
 import { buildCard } from '../lib/cards/buildCard.js';
 import { createEmitContextUpdate } from '../lib/missionPlan/agentMemory.js';
@@ -62,6 +63,25 @@ import { getDefaultPremiumPolicy } from '../lib/capabilityAware/premiumRouting.t
 import { buildAcquisitionMap } from '../lib/capabilityAware/acquisitionState.ts';
 import { buildSmartDocument } from '../lib/smartDocument/buildSmartDocument.js';
 import { getOrCreateCardbeyTraceId, CARDBEY_TRACE_HEADER } from '../lib/trace/cardbeyTraceId.js';
+import {
+  resolveCapability,
+  maybeEnhanceGeneralChatResponse,
+  CAPABILITY_FAMILIES,
+} from '../lib/capabilityResolver/resolveCapability.js';
+import { maybeBuildCapabilityBridgeArtifact } from '../lib/capabilityResolver/maybeBuildCapabilityBridgeArtifact.js';
+import { buildIntakeV2AgentLoopChatCapabilityExtras } from '../lib/capabilityResolver/buildIntakeV2AgentLoopChatCapabilityExtras.js';
+import {
+  buildServiceRequestMissingPrompt,
+  collectUserTextsForServiceDraft,
+  formatServiceRequestWithProviderSearch,
+  formatSelectedServiceProviderBlock,
+  isServiceRequestDraftComplete,
+  mergeServiceRequestDraftFromTurns,
+} from '../lib/capabilityResolver/serviceRequestDraft.js';
+import {
+  searchServiceProviders,
+  resolveSeedProviderCandidateById,
+} from '../lib/capabilityResolver/serviceProviderSearch.js';
 
 const router = express.Router();
 const isDev = process.env.NODE_ENV !== 'production';
@@ -427,6 +447,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const missionId = String(body.missionId ?? currentContext.activeMissionId ?? '').trim() || null;
   const locale = String(body.locale ?? 'en');
   const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
+  const serviceRequestThreadBlob = collectUserTextsForServiceDraft(history, userMessage).join('\n');
+  const intentSourceContext =
+    body.intentSourceContext && typeof body.intentSourceContext === 'object'
+      ? body.intentSourceContext
+      : null;
+
+  const isServiceRequestProviderSelect =
+    intentSourceContext &&
+    typeof intentSourceContext === 'object' &&
+    String(intentSourceContext.artifactKind ?? '').trim() === 'capability_bridge:service_request' &&
+    String(intentSourceContext.bridgeActionId ?? '').trim().startsWith('select_provider:');
 
   // ── Image Pre-Processing (runs before everything else) ──
   let imageContext = null;
@@ -449,7 +480,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           provider: ocrResult.provider,
         });
         const extractedText = (ocrResult.text ?? '').trim();
-        if (extractedText.length > 10) {
+        // Any non-empty OCR text feeds the classifier (was >10 chars, which dropped short cards/labels).
+        if (extractedText.length > 0) {
           imageContext = {
             extractedText,
             provider: ocrResult.provider,
@@ -472,8 +504,21 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   const enrichedUserMessage = imageContext?.hasText
-    ? `${userMessage}\n\n[Attached image content: ${imageContext.extractedText.slice(0, 500)}]`
+    ? `${userMessage}\n\n[Attached image content: ${imageContext.extractedText.slice(0, 800)}]`
     : userMessage;
+
+  /** When an image is present but OCR is empty/unusable, nudge classifier + agent loop toward analyze_content / description. */
+  let classifierHintForWeakImage = '';
+  if (hasAnyImageEarly && !imageContext?.hasText) {
+    classifierHintForWeakImage =
+      locale === 'vi'
+        ? '\n\n[Hệ thống: có ảnh đính kèm nhưng OCR không đọc được chữ (hoặc không có ảnh hợp lệ). Ưu tiên executionPath chat với tool analyze_content nếu người dùng muốn hiểu nội dung hình; hoặc mời họ mô tả ảnh. Đừng trả lời như thể không có ảnh.]'
+        : '\n\n[System: an image is attached but OCR extracted no readable text (or the image could not be decoded). Prefer executionPath chat with tool analyze_content when the user asks what is in the image; otherwise invite them to describe it. Do not reply as if no image was provided.]';
+  }
+
+  const enrichedUserMessageWithHint = `${enrichedUserMessage}${classifierHintForWeakImage}`;
+  /** May gain agent-loop tool observations before classifyIntent. */
+  let classifierInputMessage = enrichedUserMessageWithHint;
 
   // ── Business Card → Smart Store (fire-and-forget enrichment) ──────────────
   // When an image has extractable text and an authenticated user exists,
@@ -594,6 +639,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const storeId = resolveStoreId(currentContext);
   const draftId = resolveDraftId(currentContext);
   const tenantKey = String(req.user?.id ?? req.guest?.id ?? 'intake-v2').slice(0, 120);
+  /** Appended to Intake V2 JSON when pre-intake agent loop ran. */
+  let agentLoopTraceForResponse = null;
 
   const intakeActorKey = resolveIntakeV2ActorKey(req);
   const intakeTenantKeyForPersistence = resolveIntakeV2TenantKey(req);
@@ -749,6 +796,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         ...responsePayload,
         capabilityContext: responseMetadata.capabilityContext,
       };
+    }
+    if (
+      agentLoopTraceForResponse &&
+      Array.isArray(agentLoopTraceForResponse) &&
+      agentLoopTraceForResponse.length > 0 &&
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload) &&
+      responsePayload.agentTrace == null
+    ) {
+      responsePayload = { ...responsePayload, agentTrace: agentLoopTraceForResponse };
     }
     return res.json(responsePayload);
   };
@@ -1014,6 +1072,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         mergeMissionContext,
       });
 
+      const preferUserProfile =
+        /from\s+my\s+profile|from\s+your\s+profile|from\s+profile\b|profile\s+details/i.test(userMessage);
+
       const result = await buildCard(
         pipeline.id,
         {
@@ -1024,7 +1085,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           colorSecondary: activeStore?.secondaryColor ?? undefined,
           logoUrl: activeStore?.avatarImageUrl ?? undefined,
         },
-        { emitContextUpdate, userId: req.user.id, tenantId },
+        { emitContextUpdate, userId: req.user.id, tenantId, preferUserProfile },
       );
 
       return safeJson(
@@ -1139,10 +1200,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         createdBy: actorId,
       });
 
+      const prismaShortcut = getPrismaClient();
+      await ensureStructuredStoreCheckpointSteps(prismaShortcut, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
+
       const currencyCode =
         inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
       const runResult = await executeStoreMissionPipelineRun({
-        prisma: getPrismaClient(),
+        prisma: prismaShortcut,
         user: userLike,
         missionId: pipeline.id,
         body: {
@@ -1158,10 +1222,21 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       });
 
       if (runResult.ok) {
+        if (runResult.mode === 'checkpoint_pipeline' && process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log(
+            '[PerformerIntakeV2] shortcut create_store → Phase 3 checkpoint pipeline (paused for owner; no orchestra build yet)',
+            { missionId: runResult.missionId, orchestration: runResult.orchestration },
+          );
+        }
         const responseText =
-          locale === 'vi'
-            ? `Đang tạo cửa hàng cho "${businessName}"…`
-            : `Started building your store for "${businessName}"…`;
+          runResult.mode === 'checkpoint_pipeline'
+            ? locale === 'vi'
+              ? `Một vài lựa chọn nhanh trước khi tạo cửa hàng cho "${businessName}"…`
+              : `A few quick choices before we build "${businessName}"…`
+            : locale === 'vi'
+              ? `Đang tạo cửa hàng cho "${businessName}"…`
+              : `Started building your store for "${businessName}"…`;
         return safeJson(
           {
             success: true,
@@ -1235,8 +1310,72 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   } else {
     try {
+      if (
+        process.env.PERFORMER_CHAT_AGENT_LOOP === 'true' &&
+        body.agentLoop !== false &&
+        !isSelectionConfirm &&
+        !isServiceRequestProviderSelect
+      ) {
+        const { runPerformerPreIntakeAgentLoop } = await import('../lib/performer/performerChatAgentLoop.js');
+        const loopOut = await runPerformerPreIntakeAgentLoop({
+          userMessage,
+          baseEnrichedMessage: enrichedUserMessageWithHint,
+          locale,
+          conversationHistory: history,
+          storeId,
+          draftId,
+          missionId,
+          req,
+        });
+        agentLoopTraceForResponse = loopOut.trace ?? null;
+        if (loopOut.mode === 'direct_chat' && loopOut.response) {
+          const agentLoopCapabilityExtras = await buildIntakeV2AgentLoopChatCapabilityExtras({
+            userMessage,
+            enrichedMessage: classifierInputMessage,
+            locale,
+            hasImage: hasAnyImageEarly,
+            imageOcrHasText: Boolean(imageContext?.hasText),
+            storeId,
+            draftId,
+            missionId,
+            responseText: loopOut.response,
+            extractedSnippet: imageContext?.hasText ? imageContext.extractedText : null,
+            conversationHistory: history,
+          });
+          return safeJson(
+            {
+              success: true,
+              action: 'chat',
+              response: agentLoopCapabilityExtras.effectiveResponseText,
+              reasoning: loopOut.reasoning ?? '',
+              agentTrace: loopOut.trace,
+              capabilityResolution: agentLoopCapabilityExtras.capabilityResolution,
+              ...(agentLoopCapabilityExtras.capabilityBridge
+                ? { capabilityBridge: agentLoopCapabilityExtras.capabilityBridge }
+                : {}),
+            },
+            {
+              classification: {
+                executionPath: 'chat',
+                tool: 'general_chat',
+                confidence: 0.95,
+                parameters: {},
+                _reasoning: loopOut.reasoning ?? '',
+              },
+              validated: true,
+              downgraded: false,
+              downgradeReason: null,
+              validationErrors: [],
+              riskLevel: RISK.SAFE_READ,
+              result: 'agent_loop_direct_chat',
+            },
+          );
+        }
+        classifierInputMessage = loopOut.messageForClassifier ?? classifierInputMessage;
+      }
+
       classification = await classifyIntent({
-        userMessage: enrichedUserMessage,
+        userMessage: classifierInputMessage,
         storeContext: { storeId, draftId },
         conversationHistory: history,
         locale,
@@ -1806,11 +1945,41 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
+      const capabilityResolutionImage = resolveCapability({
+        userMessage,
+        enrichedMessage: classifierInputMessage,
+        locale,
+        hasImage: hasAnyImageEarly,
+        imageOcrHasText: Boolean(imageContext?.hasText),
+        storeId,
+        draftId,
+        missionId,
+        serviceRequestThreadBlob,
+        classification: {
+          tool: classification.tool,
+          executionPath: classification.executionPath,
+          confidence: classification.confidence,
+          downgradedReason: classifierReason,
+        },
+      });
+      const capabilityBridgeImage = maybeBuildCapabilityBridgeArtifact({
+        capabilityResolution: capabilityResolutionImage,
+        responseText,
+        userMessage,
+        locale,
+        missionId,
+        extractedSnippet: imageContext?.hasText ? imageContext.extractedText : null,
+        serviceRequestDraft: mergeServiceRequestDraftFromTurns(userMessage, history, locale),
+        conversationHistory: history,
+      });
+
       return safeJson(
         {
           success: true,
           action: 'chat',
           response: responseText,
+          capabilityResolution: capabilityResolutionImage,
+          ...(capabilityBridgeImage ? { capabilityBridge: capabilityBridgeImage } : {}),
           followUpOptions: imageContext?.hasText
             ? [
                 { label: 'Create a campaign from this', tool: 'market_research' },
@@ -1877,6 +2046,97 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         ? 'Mình có thể cập nhật ảnh hero qua các bước cụ thể — hãy chọn cửa hàng hoặc mô tả ảnh bạn muốn.'
         : 'I can help update your hero image with a concrete step — select a store or describe the image you want.'
       : rawMsg;
+
+    /** Phase 1 capability resolver — before generic chat fallback / refusal text. */
+    const capabilityResolution = resolveCapability({
+      userMessage,
+      enrichedMessage: classifierInputMessage,
+      locale,
+      hasImage: hasAnyImageEarly,
+      imageOcrHasText: Boolean(imageContext?.hasText),
+      storeId,
+      draftId,
+      missionId,
+      serviceRequestThreadBlob,
+      classification: {
+        tool: classification.tool,
+        executionPath: classification.executionPath,
+        confidence: classification.confidence,
+        downgradedReason: classifierReason,
+      },
+    });
+    const serviceRequestDraft = mergeServiceRequestDraftFromTurns(userMessage, history, locale);
+    let providerSearchResult = null;
+    let selectedServiceProvider = null;
+    let adjustedResponseOut = responseOut;
+    if (capabilityResolution.family === CAPABILITY_FAMILIES.SERVICE_REQUEST) {
+      if (!isServiceRequestDraftComplete(serviceRequestDraft)) {
+        adjustedResponseOut = buildServiceRequestMissingPrompt(serviceRequestDraft, userMessage, locale);
+      } else {
+        providerSearchResult = await searchServiceProviders(serviceRequestDraft, locale);
+        // Provider selection via structured capability-bridge action context.
+        const sc = intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : null;
+        const artifactKind = sc && typeof sc.artifactKind === 'string' ? String(sc.artifactKind).trim() : '';
+        const bridgeActionId = sc && typeof sc.bridgeActionId === 'string' ? String(sc.bridgeActionId).trim() : '';
+        const providerId =
+          artifactKind === 'capability_bridge:service_request' && bridgeActionId.startsWith('select_provider:')
+            ? bridgeActionId.slice('select_provider:'.length).trim()
+            : '';
+
+        if (providerId) {
+          const fromResults =
+            providerSearchResult?.providers?.find((p) => String(p?.id ?? '').trim() === providerId) ?? null;
+          const seed = resolveSeedProviderCandidateById(providerId);
+          const picked = fromResults || seed;
+          if (picked) {
+            selectedServiceProvider = {
+              providerId: picked.id,
+              providerName: picked.name,
+              providerUrl: picked.url ?? null,
+              providerLocationLabel: picked.locationLabel ?? null,
+              providerSource: picked.source ?? null,
+              providerSearchSource: providerSearchResult?.source ?? null,
+              providerSearchQuerySummary: providerSearchResult?.querySummary ?? null,
+              providerSearchDisclaimer: providerSearchResult?.dataDisclaimer ?? null,
+              serviceRequestDraft,
+            };
+            adjustedResponseOut = formatSelectedServiceProviderBlock(selectedServiceProvider, locale);
+          } else {
+            adjustedResponseOut = formatServiceRequestWithProviderSearch(
+              serviceRequestDraft,
+              locale,
+              providerSearchResult,
+            );
+          }
+        } else {
+          adjustedResponseOut = formatServiceRequestWithProviderSearch(
+            serviceRequestDraft,
+            locale,
+            providerSearchResult,
+          );
+        }
+      }
+    }
+    const { response: capabilityEnhancedResponse, applied: capabilityEnhancementApplied } =
+      maybeEnhanceGeneralChatResponse({
+        resolution: capabilityResolution,
+        responseOut: adjustedResponseOut,
+        classification,
+        locale,
+      });
+
+    const capabilityBridge = maybeBuildCapabilityBridgeArtifact({
+      capabilityResolution,
+      responseText: capabilityEnhancedResponse,
+      userMessage,
+      locale,
+      missionId,
+      extractedSnippet: imageContext?.hasText ? imageContext.extractedText : null,
+      serviceRequestDraft,
+      providerSearchResult,
+      conversationHistory: history,
+      selectedServiceProvider,
+    });
 
     // Gap check for commercial intents routed to general_chat
     if (
@@ -1965,7 +2225,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       {
         success: true,
         action: 'chat',
-        response: responseOut,
+        response: capabilityEnhancedResponse,
+        capabilityResolution,
+        ...(capabilityEnhancementApplied ? { capabilityEnhancementApplied: true } : {}),
+        ...(capabilityBridge ? { capabilityBridge } : {}),
       },
       {
         classification: { ...classification, parameters: cleanedParams },
@@ -1975,6 +2238,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         validationErrors: [],
         riskLevel,
         result: 'fallback',
+        capabilityResolution,
+        capabilityEnhancementApplied,
       },
     );
   }
@@ -2278,11 +2543,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         createdBy: actorId,
       });
 
+      await ensureStructuredStoreCheckpointSteps(prisma, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
+
       const currencyCode =
         inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
       const runResult = await executeStoreMissionPipelineRun({
         prisma,
-        user: req.user,
+        user: userLike,
         missionId: pipeline.id,
         body: {
           businessName,
@@ -2315,14 +2582,29 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
+      if (runResult.mode === 'checkpoint_pipeline' && process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log(
+          '[PerformerIntakeV2] autosubmit create_store → Phase 3 checkpoint pipeline (paused for owner; no orchestra build yet)',
+          { missionId: runResult.missionId, orchestration: runResult.orchestration },
+        );
+      }
       const responseText =
-        ctxIntentMode === 'website'
-          ? locale === 'vi'
-            ? `Đang tạo trang web mini cho "${businessName}"…`
-            : `Started building your mini website for "${businessName}"…`
-          : locale === 'vi'
-            ? `Đang tạo cửa hàng cho "${businessName}"…`
-            : `Started building your store for "${businessName}"…`;
+        runResult.mode === 'checkpoint_pipeline'
+          ? ctxIntentMode === 'website'
+            ? locale === 'vi'
+              ? `Một vài lựa chọn nhanh trước khi tạo trang web mini cho "${businessName}"…`
+              : `A few quick choices before we build your mini website for "${businessName}"…`
+            : locale === 'vi'
+              ? `Một vài lựa chọn nhanh trước khi tạo cửa hàng cho "${businessName}"…`
+              : `A few quick choices before we build "${businessName}"…`
+          : ctxIntentMode === 'website'
+            ? locale === 'vi'
+              ? `Đang tạo trang web mini cho "${businessName}"…`
+              : `Started building your mini website for "${businessName}"…`
+            : locale === 'vi'
+              ? `Đang tạo cửa hàng cho "${businessName}"…`
+              : `Started building your store for "${businessName}"…`;
       return safeJson(
         {
           success: true,
