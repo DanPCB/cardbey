@@ -34,6 +34,7 @@ import * as mcp_context_promotions from './mcp/mcp_context_promotions.js';
 import * as mcp_context_missions from './mcp/mcp_context_missions.js';
 import * as mcp_context_analytics from './mcp/mcp_context_analytics.js';
 import * as mcp_google_calendar_create_event from './mcp/mcp_google_calendar_create_event.js';
+import { getPrismaClient } from '../prisma.js';
 
 /** @type {Record<string, { execute: (input: object, context?: object) => Promise<object> } | undefined>} */
 export const executors = {
@@ -76,6 +77,26 @@ export const executors = {
           context,
           message: 'Promotion asset generated (stub executor).',
         },
+      };
+    },
+  },
+  mission_pipeline_stub: {
+    async execute(input = {}, context = {}) {
+      const stepId = typeof context?.stepId === 'string' ? context.stepId.trim() : '';
+      if (stepId) {
+        try {
+          const prisma = getPrismaClient();
+          await prisma.missionPipelineStep.update({
+            where: { id: stepId },
+            data: { status: 'completed', outputsJson: { passed: true }, completedAt: new Date() },
+          });
+        } catch {
+          // Best-effort: runner also persists completion; never block stub execution.
+        }
+      }
+      return {
+        status: 'ok',
+        output: { ok: true, output: { passed: true } },
       };
     },
   },
