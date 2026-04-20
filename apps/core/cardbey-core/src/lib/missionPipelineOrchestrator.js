@@ -25,13 +25,14 @@ function logMemoryUsage(scope, extra = {}) {
  *   status: string;
  *   runState: string;
  *   stepsRun: number;
- *   stoppedReason: 'completed' | 'blocked' | 'failed' | 'cancelled' | 'awaiting_confirmation' | 'no_pending_steps' | 'max_steps_reached' | 'invalid_state' | 'not_found';
+ *   stoppedReason: 'completed' | 'blocked' | 'failed' | 'cancelled' | 'awaiting_confirmation' | 'awaiting_checkpoint' | 'no_pending_steps' | 'max_steps_reached' | 'invalid_state' | 'not_found';
  * }>}
  */
 export async function runMissionUntilBlocked(missionId, options = {}) {
   console.log('[BLOCKED_DEBUG] runMissionUntilBlocked called:', missionId);
   const id = typeof missionId === 'string' ? missionId.trim() : '';
   const maxSteps = typeof options.maxSteps === 'number' && options.maxSteps > 0 ? options.maxSteps : DEFAULT_MAX_STEPS;
+  const forceExecuting = options?.forceExecuting === true;
 
   if (!id) {
     return {
@@ -74,6 +75,24 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       stepsRun: 0,
       stoppedReason: 'not_found',
     };
+  }
+
+  if (mission.status === 'awaiting_input') {
+    if (forceExecuting) {
+      console.log(
+        `[MissionOrchestrator] forceExecuting override: ignoring awaiting_input for mission=${id}`,
+      );
+    } else {
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'awaiting_checkpoint', stepsRun: 0 });
+      return {
+        ok: true,
+        missionId: id,
+        status: mission.status,
+        runState: mission.runState,
+        stepsRun: 0,
+        stoppedReason: 'awaiting_checkpoint',
+      };
+    }
   }
 
   if (mission.status !== 'queued' && mission.status !== 'executing') {
@@ -139,6 +158,21 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
     stepsRun += 1;
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[MissionOrchestrator] running step ${stepsRun} for mission=${id}`);
+    }
+
+    if (runResult.status === 'awaiting_input' || runResult.checkpoint === true) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[MissionOrchestrator] stop reason=awaiting_checkpoint mission=${id}`);
+      }
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'awaiting_checkpoint', stepsRun });
+      return {
+        ok: true,
+        missionId: id,
+        status: runResult.status ?? 'awaiting_input',
+        runState: runResult.runState ?? 'blocked_on_checkpoint',
+        stepsRun,
+        stoppedReason: 'awaiting_checkpoint',
+      };
     }
 
     if (runResult.status === 'paused') {
