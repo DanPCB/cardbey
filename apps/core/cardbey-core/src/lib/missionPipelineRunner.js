@@ -180,8 +180,6 @@ export async function runNextMissionPipelineStep(missionId) {
     const cfg = nextStep.configJson && typeof nextStep.configJson === 'object' ? nextStep.configJson : {};
     const mergedConfig = {
       ...cfg,
-      checkpointPrompt: cfg.prompt,
-      checkpointOptions: cfg.options,
       awaitingSince: new Date().toISOString(),
     };
     await prisma.missionPipelineStep.update({
