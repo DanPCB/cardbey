@@ -42,6 +42,10 @@ async function ensureStoreMissionReadyForRun(prisma, missionId, currentStatus) {
     return { ok: true, status: 'queued' };
   }
 
+  if (status === 'executing') {
+    return { ok: true, status: 'executing' };
+  }
+
   if (status === 'requested' && canTransitionMissionPipeline('requested', 'planned')) {
     await prisma.missionPipeline.update({ where: { id: missionId }, data: { status: 'planned' } });
     row = await load();
@@ -113,7 +117,7 @@ export async function executeStoreMissionPipelineRun({
     };
   }
 
-  const RUNNABLE_STATUSES = ['awaiting_confirmation', 'queued', 'requested'];
+  const RUNNABLE_STATUSES = ['awaiting_confirmation', 'queued', 'requested', 'executing'];
 
   if (!RUNNABLE_STATUSES.includes(mission.status)) {
     return {

@@ -1463,36 +1463,58 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
             })
           ).id;
 
-        // Phase 3: ensure checkpoint/conditional steps exist before POST /run logic counts them.
-        // createMissionPipeline() already materializes getStructuredMissionSteps('store') for new missions;
-        // this covers reused missions (existingStoreMissionId) or any edge case where step rows were not written.
-        const existingStepCount = await prisma.missionPipelineStep.count({
-          where: { missionId: ensuredMissionId },
+        if (existingStoreMissionId) {
+          await prisma.missionPipeline.updateMany({
+            where: {
+              id: ensuredMissionId,
+              status: 'executing',
+            },
+            data: {
+              status: 'queued',
+              runState: 'idle',
+            },
+          });
+        }
+
+        // Ensure structured checkpoint steps exist for this mission.
+        // Covers both new missions (createMissionPipeline may have created them) and reused missions
+        // (where createMissionPipeline was skipped entirely).
+        const existingCheckpointCount = await prisma.missionPipelineStep.count({
+          where: { missionId: ensuredMissionId, stepKind: 'checkpoint' },
         });
-        const structuredStoreSteps = getStructuredMissionSteps('store');
-        if (existingStepCount === 0 && Array.isArray(structuredStoreSteps) && structuredStoreSteps.length > 0) {
-          await prisma.missionPipelineStep.createMany({
-            data: structuredStoreSteps.map((c) => ({
-              missionId: ensuredMissionId,
-              orderIndex: c.orderIndex,
-              toolName: c.toolName,
-              label: c.label,
-              status: 'pending',
-              stepKind: c.stepKind || 'action',
-              ...(c.configJson != null && typeof c.configJson === 'object' ? { configJson: c.configJson } : {}),
-              ...(c.inputJson != null && typeof c.inputJson === 'object' ? { inputJson: c.inputJson } : {}),
-            })),
-          });
-          await prisma.missionPipeline.update({
-            where: { id: ensuredMissionId },
-            data: { progressTotalSteps: structuredStoreSteps.length },
-          });
-          if (process.env.NODE_ENV !== 'production') {
-            // eslint-disable-next-line no-console
+
+        if (existingCheckpointCount === 0) {
+          const structuredStoreSteps = getStructuredMissionSteps('store');
+          if (Array.isArray(structuredStoreSteps) && structuredStoreSteps.length > 0) {
+            await prisma.missionPipelineStep.deleteMany({
+              where: { missionId: ensuredMissionId },
+            });
+            await prisma.missionPipelineStep.createMany({
+              data: structuredStoreSteps.map((step, index) => ({
+                missionId: ensuredMissionId,
+                orderIndex: step.orderIndex ?? index,
+                toolName: step.toolName ?? 'mission.checkpoint',
+                label: step.label ?? `Step ${index + 1}`,
+                status: 'pending',
+                stepKind: step.stepKind ?? 'action',
+                configJson: step.configJson ?? null,
+                ...(step.inputJson != null && typeof step.inputJson === 'object'
+                  ? { inputJson: step.inputJson }
+                  : {}),
+              })),
+            });
+            await prisma.missionPipeline.update({
+              where: { id: ensuredMissionId },
+              data: { progressTotalSteps: structuredStoreSteps.length },
+            });
             console.log(
-              `[PerformerIntake] created ${structuredStoreSteps.length} structured store steps for mission ${ensuredMissionId}`,
+              `[PerformerIntake] created ${structuredStoreSteps.length} structured steps for mission ${ensuredMissionId} (existingCheckpointCount was 0)`,
             );
           }
+        } else {
+          console.log(
+            `[PerformerIntake] mission ${ensuredMissionId} already has ${existingCheckpointCount} checkpoint step(s) — skipping step creation`,
+          );
         }
 
         const runResult = await executeStoreMissionPipelineRun({
