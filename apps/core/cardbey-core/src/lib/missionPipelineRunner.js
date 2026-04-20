@@ -60,6 +60,51 @@ function buildStepOutputsFromSteps(steps) {
   return stepOutputs;
 }
 
+function parseJsonObject(val) {
+  if (val == null) return {};
+  if (typeof val === 'object' && !Array.isArray(val)) return val;
+  return {};
+}
+
+/** Flat env for conditional expressions (mission aggregate + completed step outputs). */
+function buildMissionOutputsEnv(mission, steps) {
+  const o = parseJsonObject(mission.outputsJson);
+  if (!Array.isArray(steps)) return o;
+  for (const s of steps) {
+    if (s?.status !== 'completed') continue;
+    if (!s.outputJson || typeof s.outputJson !== 'object' || Array.isArray(s.outputJson)) continue;
+    const out = s.outputJson;
+
+    const cfg = s.configJson && typeof s.configJson === 'object' && !Array.isArray(s.configJson) ? s.configJson : null;
+    const outputKey = cfg && typeof cfg.outputKey === 'string' ? cfg.outputKey : '';
+    const ownerResponse = typeof out.ownerResponse === 'string' ? out.ownerResponse : null;
+    if (outputKey && ownerResponse != null && o[outputKey] == null) {
+      o[outputKey] = ownerResponse;
+    }
+
+    Object.assign(o, out);
+  }
+  return o;
+}
+
+/**
+ * Evaluate a simple boolean expression with only `env` identifiers (e.g. logoChoice === "Skip").
+ * @param {string} expr
+ * @param {Record<string, unknown>} env
+ */
+function safeEvalMissionCondition(expr, env) {
+  if (!expr || typeof expr !== 'string') return false;
+  try {
+    const keys = Object.keys(env);
+    const vals = keys.map((k) => env[k]);
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(...keys, `return (${expr});`);
+    return Boolean(fn(...vals));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Run the next pending mission pipeline step for a given mission.
  * 1) Load mission + steps; 2) Ensure status queued or executing; 3) Find first pending step;
@@ -106,10 +151,69 @@ export async function runNextMissionPipelineStep(missionId) {
   }
 
   const toolName = nextStep.toolName;
+  const stepKind = nextStep.stepKind || 'action';
+
+  // ── Checkpoint: suspend for owner response (no tool dispatch) ────────────────
+  if (stepKind === 'checkpoint' || toolName === 'mission.checkpoint') {
+    if (status === 'queued' && canTransitionMissionPipeline('queued', 'executing')) {
+      await prisma.missionPipeline.update({
+        where: { id },
+        data: {
+          status: 'executing',
+          runState: 'running',
+          currentStepId: nextStep.id,
+          startedAt: mission.startedAt ?? new Date(),
+        },
+      });
+    } else if (mission.runState !== 'running') {
+      await prisma.missionPipeline.update({
+        where: { id },
+        data: { runState: 'running', currentStepId: nextStep.id },
+      });
+    }
+
+    const cfg = nextStep.configJson && typeof nextStep.configJson === 'object' ? nextStep.configJson : {};
+    const mergedConfig = {
+      ...cfg,
+      checkpointPrompt: cfg.prompt,
+      checkpointOptions: cfg.options,
+      awaitingSince: new Date().toISOString(),
+    };
+    await prisma.missionPipelineStep.update({
+      where: { id: nextStep.id },
+      data: { status: 'awaiting_input', configJson: mergedConfig },
+    });
+    if (!canTransitionMissionPipeline('executing', 'awaiting_input')) {
+      return { ok: false, error: 'transition_denied_checkpoint', status: mission.status };
+    }
+    await prisma.missionPipeline.update({
+      where: { id },
+      data: { status: 'awaiting_input', runState: 'blocked_on_checkpoint', currentStepId: nextStep.id },
+    });
+
+    const { broadcastMissionCheckpoint } = await import('../realtime/simpleSse.js');
+    broadcastMissionCheckpoint(id, {
+      stepId: nextStep.id,
+      prompt: cfg.prompt,
+      options: cfg.options ?? null,
+      outputKey: cfg.outputKey ?? null,
+    });
+
+    return {
+      ok: true,
+      stepRun: true,
+      toolName,
+      status: 'awaiting_input',
+      runState: 'blocked_on_checkpoint',
+      checkpoint: true,
+    };
+  }
+
   console.log('[RUNNER_DEBUG] dispatching tool:', {
     toolName,
     missionId,
     stepId: nextStep?.id,
+    stepKind,
   });
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[MissionRunner] step started: ${toolName}`);
@@ -132,10 +236,45 @@ export async function runNextMissionPipelineStep(missionId) {
     data: { status: 'running', startedAt: new Date() },
   });
 
-  // Accumulated outputs of all previously completed steps — downstream steps read e.g. context.stepOutputs.market_research.marketReport
   const stepOutputs = buildStepOutputsFromSteps(steps);
   let input = buildStepInput(mission, nextStep);
-  input = enrichStepInputFromPriorOutputs(toolName, input, stepOutputs);
+  let dispatchToolName = toolName;
+
+  if (stepKind === 'conditional' || toolName === 'mission.conditional') {
+    const cfg = nextStep.configJson && typeof nextStep.configJson === 'object' ? nextStep.configJson : {};
+    const env = buildMissionOutputsEnv(mission, steps);
+    const condition = typeof cfg.condition === 'string' ? cfg.condition : '';
+    const conditionResult = safeEvalMissionCondition(condition, env);
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[ConditionalStep] context:', env);
+      console.log('[ConditionalStep] condition:', condition);
+      console.log('[ConditionalStep] result:', conditionResult);
+    }
+
+    dispatchToolName = conditionResult ? cfg.ifTrueTool : cfg.ifFalseTool;
+    if (!dispatchToolName || typeof dispatchToolName !== 'string') {
+      await prisma.missionPipelineStep.update({
+        where: { id: nextStep.id },
+        data: { status: 'failed', errorJson: { code: 'conditional_missing_branch' }, completedAt: new Date() },
+      });
+      await prisma.missionPipeline.update({
+        where: { id },
+        data: { status: 'failed', runState: 'error', failedAt: new Date() },
+      });
+      return { ok: true, stepRun: true, toolName, status: 'failed', runState: 'error' };
+    }
+
+    const branchExtra = conditionResult ? cfg.ifTrueInput : cfg.ifFalseInput;
+    input = buildStepInput(mission, nextStep);
+    if (branchExtra && typeof branchExtra === 'object') {
+      Object.assign(input, branchExtra);
+    }
+    input = enrichStepInputFromPriorOutputs(dispatchToolName, input, stepOutputs);
+  } else {
+    input = enrichStepInputFromPriorOutputs(toolName, input, stepOutputs);
+  }
+
   const context = {
     missionId: id,
     stepId: nextStep.id,
@@ -146,16 +285,20 @@ export async function runNextMissionPipelineStep(missionId) {
   if (mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')) {
     context.storeId = mission.targetId;
   }
-  const result = await dispatchTaskWithAgentHint(toolName, input, context);
+  const result = await dispatchTaskWithAgentHint(dispatchToolName, input, context);
 
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`[MissionRunner] step result: ${toolName} status=${result.status}`);
+    console.log(`[MissionRunner] step result: ${dispatchToolName} status=${result.status}`);
   }
 
   const now = new Date();
+  const stepOutputPayload =
+    stepKind === 'conditional' || toolName === 'mission.conditional'
+      ? { branchTool: dispatchToolName, output: result.output ?? {} }
+      : result.output ?? null;
   const stepUpdate = {
     completedAt: now,
-    outputJson: result.output ?? null,
+    outputJson: stepOutputPayload,
     errorJson: result.error ?? null,
     status: result.status === 'ok' ? 'completed' : result.status === 'blocked' ? 'blocked' : 'failed',
   };
@@ -168,9 +311,9 @@ export async function runNextMissionPipelineStep(missionId) {
   // On failure, also persist _failed so debugging can see the failed step's error and any partial output without loading the step record.
   const outputsToPersist =
     result.status === 'ok'
-      ? { ...stepOutputs, [toolName]: result.output ?? {} }
+      ? { ...stepOutputs, [toolName]: stepOutputPayload ?? {} }
       : result.status === 'failed'
-        ? { ...stepOutputs, _failed: { tool: toolName, error: result.error ?? null, output: result.output ?? null } }
+        ? { ...stepOutputs, _failed: { tool: dispatchToolName, error: result.error ?? null, output: result.output ?? null } }
         : stepOutputs;
 
   const totalSteps = steps.length;
