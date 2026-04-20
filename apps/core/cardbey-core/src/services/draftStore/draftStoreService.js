@@ -462,6 +462,7 @@ export async function createDraftStoreForUser(prismaClient, { user, userId, tena
       ...rest,
       ownerUserId,
       input: inputWithTenant,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
   });
 
@@ -506,7 +507,7 @@ export async function createDraft({ mode, input, meta = {} }) {
       mode,
       status: 'generating',
       input: inputObj,
-      expiresAt,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       ipHash: meta.ipHash || null,
       userAgent: meta.userAgent || null,
       guestSessionId: meta.guestSessionId || null,
