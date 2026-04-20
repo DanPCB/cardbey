@@ -72,8 +72,13 @@ function buildMissionOutputsEnv(mission, steps) {
   if (!Array.isArray(steps)) return o;
   for (const s of steps) {
     if (s?.status !== 'completed') continue;
-    if (!s.outputJson || typeof s.outputJson !== 'object' || Array.isArray(s.outputJson)) continue;
-    const out = s.outputJson;
+    const out =
+      s.outputsJson && typeof s.outputsJson === 'object' && !Array.isArray(s.outputsJson)
+        ? s.outputsJson
+        : s.outputJson && typeof s.outputJson === 'object' && !Array.isArray(s.outputJson)
+          ? s.outputJson
+          : null;
+    if (!out) continue;
 
     const cfg = s.configJson && typeof s.configJson === 'object' && !Array.isArray(s.configJson) ? s.configJson : null;
     const outputKey = cfg && typeof cfg.outputKey === 'string' ? cfg.outputKey : '';
@@ -247,6 +252,34 @@ export async function runNextMissionPipelineStep(missionId) {
     const conditionResult = safeEvalMissionCondition(condition, env);
 
     if (process.env.NODE_ENV !== 'production') {
+      console.log('[ConditionalStep] evaluating', {
+        stepId: nextStep.id,
+        condition: cfg?.condition,
+        ifTrueTool: cfg?.ifTrueTool,
+        ifFalseTool: cfg?.ifFalseTool,
+      });
+      try {
+        const priorSteps = await prisma.missionPipelineStep.findMany({
+          where: {
+            missionId: nextStep.missionId,
+            orderIndex: { lt: nextStep.orderIndex },
+            status: 'completed',
+          },
+          orderBy: { orderIndex: 'asc' },
+          select: { label: true, outputsJson: true, outputJson: true, configJson: true },
+        });
+        console.log(
+          '[ConditionalStep] prior step outputs:',
+          priorSteps.map((s) => ({
+            label: s.label,
+            outputsJson: s.outputsJson,
+            outputJson: s.outputJson,
+            configJson: s.configJson,
+          })),
+        );
+      } catch (e) {
+        console.warn('[ConditionalStep] prior step fetch failed:', (e && e.message) || String(e));
+      }
       console.log('[ConditionalStep] context:', env);
       console.log('[ConditionalStep] condition:', condition);
       console.log('[ConditionalStep] result:', conditionResult);
