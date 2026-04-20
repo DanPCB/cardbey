@@ -1418,6 +1418,7 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
         const { getPrismaClient } = await import('../lib/prisma.js');
         const { getTenantId } = await import('../lib/missionAccess.js');
         const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+        const { getStructuredMissionSteps } = await import('../lib/missionPipelineStructured.js');
         const { executeStoreMissionPipelineRun } = await import('../lib/storeMission/executeStoreMissionPipelineRun.js');
         const prisma = getPrismaClient();
         const storeInput = parseLegacyStoreCreateIntent(userPrompt, currentContext);
@@ -1461,6 +1462,38 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
               createdBy: actorId,
             })
           ).id;
+
+        // Phase 3: ensure checkpoint/conditional steps exist before POST /run logic counts them.
+        // createMissionPipeline() already materializes getStructuredMissionSteps('store') for new missions;
+        // this covers reused missions (existingStoreMissionId) or any edge case where step rows were not written.
+        const existingStepCount = await prisma.missionPipelineStep.count({
+          where: { missionId: ensuredMissionId },
+        });
+        const structuredStoreSteps = getStructuredMissionSteps('store');
+        if (existingStepCount === 0 && Array.isArray(structuredStoreSteps) && structuredStoreSteps.length > 0) {
+          await prisma.missionPipelineStep.createMany({
+            data: structuredStoreSteps.map((c) => ({
+              missionId: ensuredMissionId,
+              orderIndex: c.orderIndex,
+              toolName: c.toolName,
+              label: c.label,
+              status: 'pending',
+              stepKind: c.stepKind || 'action',
+              ...(c.configJson != null && typeof c.configJson === 'object' ? { configJson: c.configJson } : {}),
+              ...(c.inputJson != null && typeof c.inputJson === 'object' ? { inputJson: c.inputJson } : {}),
+            })),
+          });
+          await prisma.missionPipeline.update({
+            where: { id: ensuredMissionId },
+            data: { progressTotalSteps: structuredStoreSteps.length },
+          });
+          if (process.env.NODE_ENV !== 'production') {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[PerformerIntake] created ${structuredStoreSteps.length} structured store steps for mission ${ensuredMissionId}`,
+            );
+          }
+        }
 
         const runResult = await executeStoreMissionPipelineRun({
           prisma,
