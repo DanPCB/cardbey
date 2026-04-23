@@ -6,6 +6,7 @@
 
 import '../mcp/registerDefaultAdapters.js';
 import * as analyze_store from './store/analyze_store.js';
+import * as structured_store_build from './store/structured_store_build.js';
 import * as generate_tags from './store/generate_tags.js';
 import * as rewrite_descriptions from './store/rewrite_descriptions.js';
 import * as improve_hero from './store/improve_hero.js';
@@ -39,6 +40,7 @@ import { getPrismaClient } from '../prisma.js';
 /** @type {Record<string, { execute: (input: object, context?: object) => Promise<object> } | undefined>} */
 export const executors = {
   analyze_store,
+  structured_store_build,
   market_research,
   mini_website_get_sections,
   generate_section_patches,

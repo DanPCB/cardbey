@@ -56,6 +56,12 @@ export function getStructuredMissionSteps(missionType) {
       {
         orderIndex: 3,
         stepKind: 'action',
+        toolName: 'structured_store_build',
+        label: 'Generate store draft',
+      },
+      {
+        orderIndex: 4,
+        stepKind: 'action',
         toolName: 'analyze_store',
         label: 'Review store',
       },

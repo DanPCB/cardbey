@@ -139,32 +139,55 @@ export async function executeStoreMissionPipelineRun({
     };
   }
 
-  /** Phase 3: structured store pipeline with checkpoint steps — run runner only; skip legacy orchestra build_store. */
-  const checkpointPending = await prisma.missionPipelineStep.count({
-    where: { missionId, stepKind: 'checkpoint', status: 'pending' },
+  /**
+   * Phase 3: structured store pipeline (checkpoints + structured_store_build + analyze_store).
+   * Run runner only while any step is pending; never fall through to legacy orchestra for these missions.
+   */
+  const hasStructuredStoreBuild = await prisma.missionPipelineStep.count({
+    where: { missionId, toolName: 'structured_store_build' },
   });
-  if (checkpointPending > 0) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(
-        `[executeStoreMissionPipelineRun] checkpoint pipeline: ${checkpointPending} pending checkpoint step(s), mission=${missionId} — skipping legacy build`,
-      );
+  const pendingSteps = await prisma.missionPipelineStep.count({
+    where: { missionId, status: 'pending' },
+  });
+  if (hasStructuredStoreBuild > 0) {
+    if (pendingSteps > 0) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(
+          `[executeStoreMissionPipelineRun] structured store pipeline: ${pendingSteps} pending step(s), mission=${missionId} — skipping legacy build`,
+        );
+      }
+      const { runMissionUntilBlocked } = await import('../missionPipelineOrchestrator.js');
+      const orch = await runMissionUntilBlocked(missionId);
+      const mAfter = await prisma.missionPipeline.findUnique({
+        where: { id: missionId },
+        select: { status: true, runState: true, outputsJson: true },
+      });
+      const out = mAfter?.outputsJson && typeof mAfter.outputsJson === 'object' ? mAfter.outputsJson : {};
+      return {
+        ok: true,
+        missionId,
+        jobId: typeof out.jobId === 'string' ? out.jobId : '',
+        generationRunId: typeof out.generationRunId === 'string' ? out.generationRunId : '',
+        draftId: typeof out.draftId === 'string' ? out.draftId : '',
+        status: mAfter?.status || orch.status || 'awaiting_input',
+        mode: 'checkpoint_pipeline',
+        orchestration: { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason },
+      };
     }
-    const { runMissionUntilBlocked } = await import('../missionPipelineOrchestrator.js');
-    const orch = await runMissionUntilBlocked(missionId);
-    const mAfter = await prisma.missionPipeline.findUnique({
+    const mDone = await prisma.missionPipeline.findUnique({
       where: { id: missionId },
       select: { status: true, runState: true, outputsJson: true },
     });
-    const out = mAfter?.outputsJson && typeof mAfter.outputsJson === 'object' ? mAfter.outputsJson : {};
+    const outDone = mDone?.outputsJson && typeof mDone.outputsJson === 'object' ? mDone.outputsJson : {};
     return {
       ok: true,
       missionId,
-      jobId: typeof out.jobId === 'string' ? out.jobId : '',
-      generationRunId: typeof out.generationRunId === 'string' ? out.generationRunId : '',
-      draftId: typeof out.draftId === 'string' ? out.draftId : '',
-      status: mAfter?.status || orch.status || 'awaiting_input',
+      jobId: typeof outDone.jobId === 'string' ? outDone.jobId : '',
+      generationRunId: typeof outDone.generationRunId === 'string' ? outDone.generationRunId : '',
+      draftId: typeof outDone.draftId === 'string' ? outDone.draftId : '',
+      status: mDone?.status || 'completed',
       mode: 'checkpoint_pipeline',
-      orchestration: { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason },
+      orchestration: { stepsRun: 0, stoppedReason: 'no_pending_steps' },
     };
   }
 

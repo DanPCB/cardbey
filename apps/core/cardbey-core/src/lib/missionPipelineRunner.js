@@ -339,13 +339,35 @@ export async function runNextMissionPipelineStep(missionId) {
   });
 
   // Persist accumulated stepOutputs so consensus engine (Step 4) can read prior run's MarketReport without re-calling researcher.
+  // Merge prior mission.outputsJson first so owner checkpoint fields (logoChoice, heroImageChoice) survive tools that share toolName keys in stepOutputs.
+  // Flatten structured store build ids for /state parity with POST /missions/:id/run (draftId, jobId, generationRunId at top level).
   // On failure, also persist _failed so debugging can see the failed step's error and any partial output without loading the step record.
+  const priorOutputsAgg = parseJsonObject(mission.outputsJson);
+  const structuredFlat =
+    result.status === 'ok' &&
+    toolName === 'structured_store_build' &&
+    stepOutputPayload &&
+    typeof stepOutputPayload === 'object' &&
+    !Array.isArray(stepOutputPayload)
+      ? {
+          ...(typeof stepOutputPayload.draftId === 'string' ? { draftId: stepOutputPayload.draftId } : {}),
+          ...(typeof stepOutputPayload.generationRunId === 'string'
+            ? { generationRunId: stepOutputPayload.generationRunId }
+            : {}),
+          ...(typeof stepOutputPayload.jobId === 'string' ? { jobId: stepOutputPayload.jobId } : {}),
+          ...(typeof stepOutputPayload.storeId === 'string' ? { storeId: stepOutputPayload.storeId } : {}),
+        }
+      : {};
   const outputsToPersist =
     result.status === 'ok'
-      ? { ...stepOutputs, [toolName]: stepOutputPayload ?? {} }
+      ? { ...priorOutputsAgg, ...structuredFlat, ...stepOutputs, [toolName]: stepOutputPayload ?? {} }
       : result.status === 'failed'
-        ? { ...stepOutputs, _failed: { tool: dispatchToolName, error: result.error ?? null, output: result.output ?? null } }
-        : stepOutputs;
+        ? {
+            ...priorOutputsAgg,
+            ...stepOutputs,
+            _failed: { tool: dispatchToolName, error: result.error ?? null, output: result.output ?? null },
+          }
+        : { ...priorOutputsAgg, ...stepOutputs };
 
   const totalSteps = steps.length;
   const newCompleted = (mission.progressCompletedSteps ?? 0) + 1;

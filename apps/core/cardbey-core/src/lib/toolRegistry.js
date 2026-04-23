@@ -71,6 +71,14 @@ const TOOLS = [
     targetTypes: ['generic', 'store', 'draft_store'],
     requiresConfirmation: false,
   },
+  {
+    toolName: 'structured_store_build',
+    label: 'Structured store build',
+    description: 'After checkpoints: create DraftStore, generate preview, commit Business for authed users',
+    category: 'store',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: false,
+  },
 ];
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.toolName, t]));
