@@ -4,7 +4,6 @@
  */
 
 import { getPrismaClient } from '../../prisma.js';
-import { getTenantId } from '../../missionAccess.js';
 import { inferCurrencyFromLocationText } from '../../../services/draftStore/currencyInfer.js';
 import { createBuildStoreJob } from '../../../services/draftStore/orchestraBuildStore.js';
 import { generateDraft, commitDraft } from '../../../services/draftStore/draftStoreService.js';
@@ -76,13 +75,17 @@ export async function execute(_input = {}, context = {}) {
     uid && !isGuestUserId(uid)
       ? await prisma.user.findUnique({
           where: { id: uid },
-          include: { business: true },
+          include: { businesses: true },
         })
+      : null;
+  const tenantFromUser =
+    userRow?.businesses && Array.isArray(userRow.businesses) && userRow.businesses.length > 0
+      ? userRow.businesses[0]?.id ?? null
       : null;
   const tenantId =
     (typeof context.tenantId === 'string' && context.tenantId.trim()) ||
     (typeof mission.tenantId === 'string' && mission.tenantId.trim()) ||
-    getTenantId(userRow) ||
+    tenantFromUser ||
     uid;
 
   if (!tenantId || !uid) {
