@@ -308,10 +308,10 @@ router.post('/extract', requireAuth, async (req, res) => {
       try {
         const user = await prisma.user.findUnique({
           where: { id: req.userId },
-          include: { business: true },
+          include: { businesses: true },
         });
-        if (user?.business) {
-          resolvedStoreId = user.business.id;
+        if (user?.businesses && Array.isArray(user.businesses) && user.businesses.length > 0) {
+          resolvedStoreId = user.businesses[0]?.id;
         }
       } catch (err) {
         // Ignore error, storeId will remain null

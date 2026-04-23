@@ -60,7 +60,7 @@ async function validateApiKey(key, origin) {
     // Get user from database
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      include: { business: true }
+      include: { businesses: true }
     });
 
     if (!user) {
