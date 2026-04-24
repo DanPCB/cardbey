@@ -1,4 +1,5 @@
 import { appendEvent, ensureMissionRowForBlackboard } from '../missionBlackboard.js';
+import { broadcastMissionReasoningLine } from '../../realtime/simpleSse.js';
 
 /**
  * Foundation 2 — Agent context bus (shared working memory).
@@ -136,6 +137,7 @@ export function createEmitContextUpdate(missionId, agent, options = {}) {
         { line, timestamp: ts, agent },
         { agentId: agent },
       ).catch(() => {});
+      broadcastMissionReasoningLine(missionId, { line, timestamp: ts, agent });
       return;
     }
 

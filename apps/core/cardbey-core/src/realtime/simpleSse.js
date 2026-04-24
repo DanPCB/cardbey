@@ -324,6 +324,48 @@ export function broadcastMissionCheckpoint(missionId, checkpoint) {
 }
 
 /**
+ * Broadcast a reasoning_line event to agent-chat SSE clients subscribed to this missionId.
+ * Payload should include { line, timestamp } (and optional agent). Matches Blackboard / draft emit path.
+ *
+ * @param {string} missionId
+ * @param {{ line: string, timestamp?: number, agent?: string }} payload
+ */
+export function broadcastMissionReasoningLine(missionId, payload) {
+  if (!missionId || typeof missionId !== 'string') return;
+  const data =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? { missionId, ...payload }
+      : { missionId, line: String(payload ?? '') };
+  const line = `event: reasoning_line\ndata: ${JSON.stringify(data)}\n\n`;
+
+  let sent = 0;
+  const toDelete = [];
+
+  for (const client of clients.values()) {
+    if (client.missionId !== missionId) continue;
+    if (client.res.writableEnded || client.res.destroyed) {
+      toDelete.push(client.id);
+      continue;
+    }
+    try {
+      client.res.write(line);
+      sent++;
+    } catch (err) {
+      console.error('[SSE] broadcastMissionReasoningLine error', { id: client.id, missionId, err: String(err) });
+      toDelete.push(client.id);
+    }
+  }
+
+  for (const id of toDelete) {
+    clients.delete(id);
+  }
+
+  if (sent > 0) {
+    console.log(`[SSE] Broadcast reasoning_line to ${sent} client(s) for missionId=${missionId}`);
+  }
+}
+
+/**
  * Broadcast a chat-message event to all clients subscribed to this threadId.
  * Used when an AgentMessage with threadId is created (POST /api/agent-messages with threadId,
  * or agents posting into a thread).
