@@ -8,6 +8,8 @@ import { inferCurrencyFromLocationText } from '../../../services/draftStore/curr
 import { createBuildStoreJob } from '../../../services/draftStore/orchestraBuildStore.js';
 import { generateDraft, commitDraft } from '../../../services/draftStore/draftStoreService.js';
 import { transitionOrchestratorTaskStatus } from '../../../kernel/transitions/transitionService.js';
+import { createEmitContextUpdate } from '../../missionPlan/agentMemory.js';
+import { mergeMissionContext } from '../../mission.js';
 
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
@@ -160,6 +162,7 @@ export async function execute(_input = {}, context = {}) {
     await generateDraft(draftIdForRun, {
       userId: uid,
       reactMissionId: missionId,
+      emitContextUpdate: createEmitContextUpdate(missionId, 'orchestra', { prisma, mergeMissionContext }),
     });
   } catch (err) {
     const message = err?.message || String(err);
