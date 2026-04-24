@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
-import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview } from '../services/draftStore/draftStoreService.js';
+import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview, recomputeDraftCategoriesFromItems } from '../services/draftStore/draftStoreService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 import { isDraftOwnedByUser } from '../lib/draftOwnership.js';
 import { getOrCreateMission } from '../lib/mission.js';
@@ -25,6 +25,7 @@ import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
+import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 
 const router = express.Router();
 
@@ -69,6 +70,40 @@ const storeAssetUpload = multer({
     }
   },
 });
+
+const MENU_EXTRACT_MIMES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
+/** Menu / PDF upload for extract-menu: same 10MB cap as other draft uploads */
+const menuExtractUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && MENU_EXTRACT_MIMES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type. Use JPG, PNG, WEBP, or PDF.'), false);
+    }
+  },
+});
+
+function menuExtractUploadSingle(req, res, next) {
+  menuExtractUpload.single('file')(req, res, (err) => {
+    if (err) {
+      const isLimit = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(400).json({
+        ok: false,
+        error: isLimit ? 'file_too_large' : 'invalid_file',
+        message: isLimit ? 'File must be 10MB or smaller.' : err.message || 'Invalid or missing file',
+      });
+    }
+    next();
+  });
+}
 
 /**
  * Resolve draft for storeId (and generationRunId when storeId === "temp"). Enforces ownership.
@@ -958,6 +993,257 @@ function storeAssetUploadSingle(req, res, next) {
     next();
   });
 }
+
+/**
+ * POST /api/stores/temp/draft/extract-menu
+ * Multipart: file (jpg/png/webp/pdf), generationRunId, optional language (en|vi).
+ * Extracts menu items for review; does not modify the draft.
+ */
+router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle, async (req, res, next) => {
+  try {
+    const { storeId } = req.params;
+    if (storeId !== 'temp') {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_store',
+        message: 'Menu extraction is only available for temporary drafts (storeId "temp").',
+      });
+    }
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        ok: false,
+        error: 'no_file',
+        message: 'No file uploaded; use multipart field "file".',
+      });
+    }
+    const generationRunId =
+      typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : '';
+    if (!generationRunId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'generation_run_required',
+        message: 'generationRunId is required in the multipart body.',
+      });
+    }
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required' });
+    }
+    const allowed = await isDraftOwnedByUser(generationRunId, userId);
+    if (!allowed) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have access to this draft.',
+      });
+    }
+    const draft = await getDraftByGenerationRunId(generationRunId);
+    if (!draft) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft not found',
+      });
+    }
+    const langRaw = typeof req.body?.language === 'string' ? req.body.language.trim().toLowerCase() : '';
+    const language = langRaw === 'vi' ? 'vi' : 'en';
+
+    const preview =
+      typeof draft.preview === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(draft.preview);
+            } catch {
+              return {};
+            }
+          })()
+        : draft.preview || {};
+    const businessName = typeof preview.storeName === 'string' ? preview.storeName : '';
+    const businessType =
+      (typeof preview.storeType === 'string' && preview.storeType) ||
+      (preview.meta && typeof preview.meta.storeType === 'string' && preview.meta.storeType) ||
+      '';
+
+    const mime = req.file.mimetype || 'application/octet-stream';
+    const fileType = mime === 'application/pdf' ? 'pdf' : 'image';
+
+    const result = await extractMenuFromFile({
+      fileType,
+      fileBuffer: req.file.buffer,
+      mimeType: mime,
+      businessName,
+      businessType,
+      language,
+    });
+
+    const needsReview = result.items.length > 0 && result.confidence < 0.7;
+    const payload = {
+      ok: result.ok,
+      items: result.items,
+      itemCount: result.items.length,
+      confidence: result.confidence,
+      warnings: result.warnings,
+      needsReview,
+    };
+    if (!result.ok) {
+      return res.status(200).json({
+        ...payload,
+        message: 'No menu items detected. Try a clearer photo.',
+      });
+    }
+    return res.status(200).json(payload);
+  } catch (err) {
+    if (err instanceof MenuExtractionLlmError) {
+      console.error('[Stores] extract-menu LLM error:', err.message, err.cause);
+      return res.status(500).json({
+        ok: false,
+        error: 'extraction_failed',
+        message:
+          'Menu extraction failed. Please try again in a moment, or use a clearer photo or a text-based PDF.',
+      });
+    }
+    return next(err);
+  }
+});
+
+/**
+ * PATCH /api/stores/temp/draft/catalog
+ * Replace draft preview catalog items with user-supplied menu items (Phase 2).
+ * Body: { generationRunId: string, items: MenuItemExtract[], fetchImages: boolean }
+ * Does not merge: full replacement.
+ */
+router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
+  try {
+    const { storeId } = req.params;
+    if (storeId !== 'temp') {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_store',
+        message: 'Catalog replacement is only available for temporary drafts (storeId "temp").',
+      });
+    }
+
+    const body = req.body ?? {};
+    const generationRunId = typeof body.generationRunId === 'string' ? body.generationRunId.trim() : '';
+    if (!generationRunId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'generation_run_required',
+        message: 'generationRunId is required.',
+      });
+    }
+    const rawItems = Array.isArray(body.items) ? body.items : null;
+    if (!rawItems || rawItems.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'items_required',
+        message: 'items is required and must be non-empty.',
+      });
+    }
+    if (rawItems.length > 200) {
+      return res.status(400).json({
+        ok: false,
+        error: 'too_many_items',
+        message: 'items must be 200 or fewer.',
+      });
+    }
+
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required' });
+    }
+
+    const allowed = await isDraftOwnedByUser(generationRunId, userId);
+    if (!allowed) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have access to this draft.',
+      });
+    }
+
+    const draft = await getDraftByGenerationRunId(generationRunId);
+    if (!draft) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft not found',
+      });
+    }
+
+    const preview =
+      typeof draft.preview === 'string'
+        ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })()
+        : (draft.preview || {});
+
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const prevItems = Array.isArray(preview.items) ? preview.items : [];
+        console.log('[Stores:draft/catalog] preview.items sample', {
+          draftId: draft.id,
+          sample: prevItems.slice(0, 2).map((it) => ({
+            id: it?.id ?? null,
+            name: it?.name ?? it?.title ?? null,
+            price: it?.price ?? null,
+            category: it?.category ?? it?.categoryName ?? it?.categoryId ?? null,
+          })),
+        });
+      } catch {
+        // ignore logging failure
+      }
+    }
+
+    // Map MenuItemExtract[] → draft preview item schema (name/description/price/category/currency/imageUrl).
+    const mapped = rawItems.map((it, idx) => {
+      const name = typeof it?.name === 'string' ? it.name.trim() : '';
+      const description = typeof it?.description === 'string' ? it.description.trim() : '';
+      const category = typeof it?.category === 'string' && it.category.trim() ? it.category.trim() : 'General';
+      const currency = typeof it?.currency === 'string' && it.currency.trim() ? it.currency.trim().toUpperCase() : 'AUD';
+      const price = (typeof it?.price === 'number' && Number.isFinite(it.price)) ? it.price : null;
+      const imageUrl = typeof it?.imageUrl === 'string' && it.imageUrl.trim() ? it.imageUrl.trim() : undefined;
+      const out = {
+        id: `item_${draft.id}_${idx}`,
+        name: name || `Item ${idx + 1}`,
+        description: description || null,
+        price,
+        currency,
+        category,
+      };
+      // Important: omit imageUrl when empty so patchDraftPreview treats this as a full replacement (not partial image-only update).
+      if (imageUrl) out.imageUrl = imageUrl;
+      return out;
+    });
+
+    const { categories, items: itemsWithCategoryId } = recomputeDraftCategoriesFromItems(mapped);
+
+    const existingMeta = preview && typeof preview.meta === 'object' && !Array.isArray(preview.meta) ? preview.meta : {};
+    const nowIso = new Date().toISOString();
+
+    await patchDraftPreview(draft.id, {
+      items: itemsWithCategoryId,
+      categories,
+      meta: {
+        ...existingMeta,
+        catalogSource: 'user_upload',
+        catalogUploadedAt: nowIso,
+      },
+    }, { allowCommitted: true });
+
+    // Phase 2: optional async image fetching (future work). No existing per-item pipeline wired for this endpoint yet.
+    const imagesFetching = Boolean(body.fetchImages) && false;
+
+    return res.status(200).json({
+      ok: true,
+      itemCount: itemsWithCategoryId.length,
+      draftId: String(draft.id),
+      catalogSource: 'user_upload',
+      imagesFetching,
+    });
+  } catch (err) {
+    console.error('[Stores] PATCH /:storeId/draft/catalog error:', err?.message || err);
+    next(err);
+  }
+});
 
 router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
   try {

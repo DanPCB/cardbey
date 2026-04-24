@@ -9,7 +9,7 @@
  */
 
 import { generateUniqueStoreSlug, slugify } from '../../utils/slug.js';
-import { parseDraftPreview } from './draftPreviewSchema.ts';
+import { parseDraftPreview } from './draftPreviewSchema.js';
 import { normalizePreviewCategories } from './draftStoreService.js';
 
 async function loadExistingStorefrontSettings(prisma, businessId) {

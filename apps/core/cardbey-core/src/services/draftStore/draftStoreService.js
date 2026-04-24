@@ -143,7 +143,7 @@ async function loadHeroGenerationService() {
 let _draftPreviewSchemaMod;
 async function loadDraftPreviewSchema() {
   try {
-    return (_draftPreviewSchemaMod ??= await import('./draftPreviewSchema.ts'));
+    return (_draftPreviewSchemaMod ??= await import('./draftPreviewSchema.js'));
   } catch (err) {
     if (err?.code === 'ERR_UNKNOWN_FILE_EXTENSION' || err?.code === 'ERR_MODULE_NOT_FOUND') return null;
     throw err;
@@ -2439,7 +2439,7 @@ export async function getDraftByGenerationRunId(generationRunId) {
 /** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
 const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'avatar', 'avatarImageUrl']);
 
-export async function patchDraftPreview(draftId, incomingPreview) {
+export async function patchDraftPreview(draftId, incomingPreview, options = {}) {
   const draft = await prisma.draftStore.findUnique({
     where: { id: draftId },
   });
@@ -2449,13 +2449,14 @@ export async function patchDraftPreview(draftId, incomingPreview) {
   }
 
   const incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
+  const allowCommitted = options && options.allowCommitted === true;
   const isCommitted = draft.status === 'committed';
   const committedHeroAvatarOnly =
     isCommitted &&
     Object.keys(incoming).length > 0 &&
     Object.keys(incoming).every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
 
-  if (isCommitted && !committedHeroAvatarOnly) {
+  if (isCommitted && !allowCommitted && !committedHeroAvatarOnly) {
     throw new Error(`Draft ${draftId} has already been committed`);
   }
 
