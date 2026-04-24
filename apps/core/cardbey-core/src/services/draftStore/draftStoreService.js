@@ -2478,11 +2478,27 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
   // so we don't replace the entire catalog with a subset and lose other products/fields.
   const existingItems = Array.isArray(existing.items) ? existing.items : [];
   const incomingItems = Array.isArray(incoming.items) ? incoming.items : [];
+  const looksLikeImageOnlyItemPatch = (it) => {
+    if (!it || typeof it !== 'object') return false;
+    // If any non-image catalog fields are present, treat as a full replacement payload.
+    if (it.name !== undefined) return false;
+    if (it.title !== undefined) return false;
+    if (it.description !== undefined) return false;
+    if (it.price !== undefined) return false;
+    if (it.currency !== undefined) return false;
+    if (it.category !== undefined) return false;
+    if (it.categoryId !== undefined) return false;
+    return (
+      it.imageUrl !== undefined ||
+      it.imageSource !== undefined ||
+      it.imageQuery !== undefined ||
+      it.imageConfidence !== undefined
+    );
+  };
   const isPartialItemUpdate =
     incomingItems.length > 0 &&
     existingItems.length > 0 &&
-    (incomingItems.length < existingItems.length ||
-      incomingItems.every((it) => it && (it.imageUrl !== undefined || it.imageSource !== undefined || it.imageQuery !== undefined || it.imageConfidence !== undefined)));
+    incomingItems.every((it) => looksLikeImageOnlyItemPatch(it));
   if (isPartialItemUpdate) {
     const incomingById = new Map(incomingItems.map((it) => [String(it?.id ?? it?.productId ?? ''), it]));
     merged.items = existingItems.map((item) => {

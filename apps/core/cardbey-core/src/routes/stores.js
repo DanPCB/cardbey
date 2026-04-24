@@ -1084,6 +1084,8 @@ router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle
       confidence: result.confidence,
       warnings: result.warnings,
       needsReview,
+      // Debug: include raw OCR/text extraction for investigation (remove once stable).
+      rawText: result.rawText,
     };
     if (!result.ok) {
       return res.status(200).json({
@@ -1219,6 +1221,9 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
     const existingMeta = preview && typeof preview.meta === 'object' && !Array.isArray(preview.meta) ? preview.meta : {};
     const nowIso = new Date().toISOString();
 
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[debug catalog] mapped items count:', mapped.length, 'first:', mapped[0]?.name ?? null);
+    }
     await patchDraftPreview(draft.id, {
       items: itemsWithCategoryId,
       categories,
