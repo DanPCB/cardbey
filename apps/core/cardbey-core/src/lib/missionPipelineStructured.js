@@ -42,25 +42,17 @@ export function getStructuredMissionSteps(missionType) {
           ifFalseInput: { branch: 'default', label: 'assign_default_logo' },
         },
       },
+      // TODO(store-pipeline): Re-add a hero image *checkpoint* when generateDraft persists multiple
+      // real hero image URLs (e.g. preview.hero.candidates[]) so the UI can render thumbnails.
+      // Until then, finalizeDraft/generateHeroForDraft picks a single hero; a text-only checkpoint was blind UX.
       {
         orderIndex: 2,
-        stepKind: 'checkpoint',
-        toolName: 'mission.checkpoint',
-        label: 'Hero image',
-        configJson: {
-          prompt: 'Here are 3 hero images for your store. Which fits best?',
-          options: ['Image 1', 'Image 2', 'Image 3', 'Generate new'],
-          outputKey: 'heroImageChoice',
-        },
-      },
-      {
-        orderIndex: 3,
         stepKind: 'action',
         toolName: 'structured_store_build',
         label: 'Generate store draft',
       },
       {
-        orderIndex: 4,
+        orderIndex: 3,
         stepKind: 'action',
         toolName: 'analyze_store',
         label: 'Review store',
