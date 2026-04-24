@@ -2436,6 +2436,9 @@ export async function getDraftByGenerationRunId(generationRunId) {
  * When you pass { items }, preview.items is replaced entirely (preserves stable ids item_${draftId}_${index});
  * other preview fields (storeName, categories, brandColors, etc.) are kept.
  */
+/** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
+const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'avatar', 'avatarImageUrl']);
+
 export async function patchDraftPreview(draftId, incomingPreview) {
   const draft = await prisma.draftStore.findUnique({
     where: { id: draftId },
@@ -2445,11 +2448,18 @@ export async function patchDraftPreview(draftId, incomingPreview) {
     throw new Error(`Draft not found: ${draftId}`);
   }
 
-  if (draft.status === 'committed') {
+  const incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
+  const isCommitted = draft.status === 'committed';
+  const committedHeroAvatarOnly =
+    isCommitted &&
+    Object.keys(incoming).length > 0 &&
+    Object.keys(incoming).every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
+
+  if (isCommitted && !committedHeroAvatarOnly) {
     throw new Error(`Draft ${draftId} has already been committed`);
   }
 
-  if (new Date() > draft.expiresAt) {
+  if (!isCommitted && new Date() > draft.expiresAt) {
     throw new Error(`Draft ${draftId} has expired`);
   }
 
@@ -2461,7 +2471,6 @@ export async function patchDraftPreview(draftId, incomingPreview) {
       existing = JSON.parse(draft.preview) || {};
     } catch (_) { /* keep empty */ }
   }
-  const incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
   const merged = { ...existing, ...incoming };
 
   // When client sends partial items (e.g. Day2 autofill only filled items with imageUrl), merge by id
@@ -2551,6 +2560,39 @@ export async function patchDraftPreview(draftId, incomingPreview) {
     const heroSet = !!(merged.hero?.imageUrl ?? merged.heroImageUrl ?? merged.hero?.url);
     const avatarSet = !!(merged.avatar?.imageUrl ?? merged.avatarImageUrl ?? merged.brand?.logoUrl);
     console.log('[patchDraftPreview] saving preview', { draftId, mergedKeys, heroSet, avatarSet });
+  }
+
+  if (committedHeroAvatarOnly && draft.committedStoreId) {
+    const bizData = {};
+    if (incoming.hero !== undefined || incoming.heroImageUrl !== undefined) {
+      let heroUrl = null;
+      if (typeof merged.heroImageUrl === 'string' && merged.heroImageUrl.trim()) heroUrl = merged.heroImageUrl.trim();
+      else if (merged.hero && typeof merged.hero === 'object') {
+        const h = merged.hero.imageUrl ?? merged.hero.url;
+        if (typeof h === 'string' && h.trim()) heroUrl = h.trim();
+      }
+      if (heroUrl) bizData.heroImageUrl = heroUrl;
+    }
+    if (incoming.avatar !== undefined || incoming.avatarImageUrl !== undefined) {
+      let avUrl = null;
+      if (typeof merged.avatarImageUrl === 'string' && merged.avatarImageUrl.trim()) avUrl = merged.avatarImageUrl.trim();
+      else if (merged.avatar && typeof merged.avatar === 'object') {
+        const a = merged.avatar.imageUrl ?? merged.avatar.url;
+        if (typeof a === 'string' && a.trim()) avUrl = a.trim();
+      }
+      if (avUrl) bizData.avatarImageUrl = avUrl;
+    }
+    if (Object.keys(bizData).length > 0) {
+      await prisma.business.update({
+        where: { id: draft.committedStoreId },
+        data: bizData,
+      });
+    }
+    await prisma.draftStore.update({
+      where: { id: draftId },
+      data: { preview: merged, updatedAt: new Date() },
+    });
+    return getDraft(draftId);
   }
 
   const newStatus = draft.status === 'generating' ? draft.status : 'ready';

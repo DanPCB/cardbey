@@ -858,6 +858,7 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
     const updated = await getDraft(draft.id);
     return res.status(200).json({ ok: true, draftId: updated.id, status: updated.status, hero: patch.hero, heroImageUrl: patch.heroImageUrl });
   } catch (err) {
+    console.error('[Stores:PATCH /:storeId/draft/hero]', err?.message || err);
     next(err);
   }
 });
