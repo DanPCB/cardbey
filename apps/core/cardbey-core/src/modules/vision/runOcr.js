@@ -5,6 +5,91 @@
  */
 
 import { openaiVisionEngine } from '../../ai/engines/openaiVisionEngine.js';
+import { postAnthropicMessages } from '../../lib/llm/anthropicProvider.js';
+
+function anthropicEnabled() {
+  return (
+    process.env.ANTHROPIC_DISABLED !== '1' &&
+    process.env.ANTHROPIC_DISABLED !== 'true' &&
+    Boolean(process.env.ANTHROPIC_API_KEY)
+  );
+}
+
+/**
+ * @param {string} inputUrl url or data url
+ * @returns {Promise<{ base64: string, mediaType: string } | null>}
+ */
+async function toBase64ForAnthropic(inputUrl) {
+  if (!inputUrl || typeof inputUrl !== 'string') return null;
+  if (inputUrl.startsWith('data:image/')) {
+    const m = inputUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+    if (!m) return null;
+    return { mediaType: m[1], base64: m[2] };
+  }
+  // Best-effort fetch for http(s). Most callers pass data URLs already.
+  if (/^https?:\/\//i.test(inputUrl)) {
+    const res = await fetch(inputUrl, { method: 'GET' });
+    if (!res.ok) return null;
+    const mime = (res.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+    if (!mime.startsWith('image/')) return null;
+    const ab = await res.arrayBuffer();
+    const base64 = Buffer.from(ab).toString('base64');
+    return { mediaType: mime, base64 };
+  }
+  return null;
+}
+
+/**
+ * Anthropic vision fallback: OCR-only transcription.
+ * @param {{ imageUrl: string, task: string }} params
+ * @returns {Promise<string|null>}
+ */
+async function runAnthropicOcrFallback(params) {
+  if (!anthropicEnabled()) return null;
+  const media = await toBase64ForAnthropic(params.imageUrl);
+  if (!media) return null;
+
+  let prompt =
+    'Extract all text from this image. Return only the raw text, line by line, exactly as it appears.';
+  if (params.task === 'menu') {
+    prompt =
+      'Extract all text from this menu image. Return only the raw text, line by line, exactly as it appears. Do not add any formatting or interpretation.';
+  } else if (params.task === 'business_card') {
+    prompt =
+      "Output ONLY the extracted text from this image. Preserve line breaks. No explanations, no disclaimers, no assistant voice. If the image is unreadable or not text, output nothing (empty). Do not write \"I cannot\" or \"I'm sorry\" or any reply—only the raw text visible in the image.";
+  } else if (params.task === 'loyalty_card') {
+    prompt =
+      'Extract text from this loyalty card image. Focus on stamp count, reward description, and card title. Return the text exactly as it appears.';
+  } else if (params.task === 'intake_preprocess' || params.task === 'intake_promo') {
+    // Keep fallback simple; caller expects OCR text.
+    prompt =
+      'Transcribe ALL readable text verbatim. Preserve the original language and line breaks. Plain text only.';
+  }
+
+  const model = process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-4-20250514';
+  const r = await postAnthropicMessages({
+    model,
+    max_tokens: 2000,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: media.mediaType, data: media.base64 },
+          },
+          { type: 'text', text: prompt },
+        ],
+      },
+    ],
+  });
+
+  if (r?.error) return null;
+  const text = (r?.content?.[0]?.text ?? r?.text ?? '').trim();
+  if (!text) return null;
+  if (isRefusalResponse(text)) return null;
+  return text;
+}
 
 /** Phrases that indicate the vision model refused to extract text (not actual OCR output). */
 const REFUSAL_PATTERNS = [
@@ -116,6 +201,11 @@ export async function runOcr(imageUrl, opts) {
     const text = (result.text || '').trim();
     if (isRefusalResponse(text)) {
       console.warn('[OCR] Vision model returned a refusal instead of extracted text:', text.slice(0, 80));
+      const fallback = await runAnthropicOcrFallback({ imageUrl, task }).catch(() => null);
+      if (fallback && fallback.trim()) {
+        console.log('[OCR] Anthropic fallback succeeded, chars:', fallback.trim().length);
+        return fallback.trim();
+      }
       throw new Error(
         'OCR did not return extracted text. The vision model declined to process the image. ' +
           'Try a different image or ensure the image is a clear photo of text (e.g. business card or menu).'
