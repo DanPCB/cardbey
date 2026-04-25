@@ -367,7 +367,7 @@ export async function executeStoreMissionPipelineRun({
           ...(effectiveBusinessType ? { businessType: effectiveBusinessType, storeType: effectiveBusinessType } : {}),
           currencyCode,
           ...(intentMode ? { intentMode } : {}),
-          ...(rawUserTextFromBody ? { prompt: effectiveRawInput } : {}),
+          prompt: body.rawUserText ?? body.userMessage ?? jobRequest.rawInput ?? '',
           ...(sanitizedPreloaded?.length ? { preloadedCatalogItems: sanitizedPreloaded } : {}),
           ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
         },

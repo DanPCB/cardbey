@@ -122,6 +122,15 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
         await markFailed('draft_not_found', { error: 'draft_not_found', errorCode: 'STORE_NOT_FOUND' });
         return;
       }
+      console.log('[runBuildStoreJob] execution inputs', {
+        surface: options?.originSurface ?? 'unknown',
+        businessName: draft?.input?.businessName ?? null,
+        location: draft?.input?.location ?? null,
+        storeType: draft?.input?.storeType ?? null,
+        intentMode: draft?.input?.intentMode ?? null,
+        promptLength: draft?.input?.prompt?.length ?? 0,
+        hasRawUserText: !!(draft?.input?.rawUserText ?? task?.request?.rawUserText),
+      });
 
       const draftStatus = (draft.status || '').toLowerCase();
       if (draftStatus === 'ready') {

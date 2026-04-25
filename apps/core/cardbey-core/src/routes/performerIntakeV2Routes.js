@@ -427,12 +427,22 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   const dispatchMissionId = missionId ?? `intake-v2-${Date.now()}`;
   const payload = { ...cleanedParams, missionId: dispatchMissionId };
   if (storeId && !payload.storeId) payload.storeId = storeId;
+  const performeeContextRaw =
+    req?.body?.intentSourceContext &&
+    typeof req.body.intentSourceContext === 'object' &&
+    req.body.intentSourceContext.performeeContext &&
+    typeof req.body.intentSourceContext.performeeContext === 'object'
+      ? req.body.intentSourceContext.performeeContext
+      : null;
+  const entry = String(performeeContextRaw?.entry ?? '').trim().toLowerCase();
+  const source = entry === 'performee' ? 'performee' : 'performer';
   const toolResult = await dispatchTool(tool, payload, {
     missionId: dispatchMissionId,
     userId: req.user?.id ?? null,
     createdBy: req.user?.id ?? null,
     tenantId: getTenantId(req.user),
     storeId: storeId ?? undefined,
+    source,
   });
   return { toolResult, payload };
 }
@@ -639,6 +649,19 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const storeId = resolveStoreId(currentContext);
   const draftId = resolveDraftId(currentContext);
   const tenantKey = String(req.user?.id ?? req.guest?.id ?? 'intake-v2').slice(0, 120);
+  const performeeContext =
+    intentSourceContext &&
+    typeof intentSourceContext === 'object' &&
+    intentSourceContext.performeeContext &&
+    typeof intentSourceContext.performeeContext === 'object'
+      ? intentSourceContext.performeeContext
+      : null;
+  const performeeStoreId =
+    performeeContext && String(performeeContext.spaceType ?? '').trim() === 'business' && String(performeeContext.spaceId ?? '').trim()
+      ? String(performeeContext.spaceId).trim()
+      : null;
+  /** Read-only derived store context: allow Performee spaceId to act as storeId for classification/runtime without writing any client context. */
+  const effectiveStoreId = storeId || performeeStoreId;
   /** Appended to Intake V2 JSON when pre-intake agent loop ran. */
   let agentLoopTraceForResponse = null;
 
@@ -1130,8 +1153,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
-      const { storeName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
-      const businessName = stripIntentWrappingQuotes(String(storeName ?? '').trim()) || '';
+      const { storeName: parsedStoreName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
+      const businessName = stripIntentWrappingQuotes(String(parsedStoreName ?? '').trim()) || '';
       const businessType = String(storeType ?? 'Other').trim() || 'Other';
       const locationTrim = stripIntentWrappingQuotes(location != null ? String(location).trim() : '') || '';
 
@@ -1205,12 +1228,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
       const currencyCode =
         inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
+      const normalizedStoreName =
+        classification.parameters?.storeName ??
+        classification.parameters?.businessName ??
+        businessName ??
+        null;
       const runResult = await executeStoreMissionPipelineRun({
         prisma: prismaShortcut,
         user: userLike,
         missionId: pipeline.id,
         body: {
-          businessName,
+          businessName: normalizedStoreName,
           businessType,
           location: locationTrim,
           currencyCode,
@@ -1309,6 +1337,26 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       classification.parameters = { ...classification.parameters, description: originalGoal };
     }
   } else {
+    // Performee slideshow: narrow deterministic override (still flows through Intake V2 validation + dispatch).
+    const msgLower = userMessage.toLowerCase();
+    const performeeWantsSlideshow =
+      performeeContext &&
+      String(performeeContext.entry ?? '').trim() === 'performee' &&
+      (msgLower === 'create slideshow' ||
+        msgLower === 'create a slideshow' ||
+        msgLower === 'make slideshow' ||
+        msgLower === 'slideshow' ||
+        msgLower.includes('export') && msgLower.includes('slideshow'));
+    if (performeeWantsSlideshow) {
+      classification = {
+        executionPath: 'direct_action',
+        tool: 'generate_slideshow',
+        confidence: 0.95,
+        parameters: {
+          ...(effectiveStoreId ? { storeId: effectiveStoreId } : {}),
+        },
+      };
+    } else {
     try {
       if (
         process.env.PERFORMER_CHAT_AGENT_LOOP === 'true' &&
@@ -1322,7 +1370,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           baseEnrichedMessage: enrichedUserMessageWithHint,
           locale,
           conversationHistory: history,
-          storeId,
+          storeId: effectiveStoreId,
           draftId,
           missionId,
           req,
@@ -1376,7 +1424,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
       classification = await classifyIntent({
         userMessage: classifierInputMessage,
-        storeContext: { storeId, draftId },
+        storeContext: { storeId: effectiveStoreId, draftId },
         conversationHistory: history,
         locale,
         tenantKey,
@@ -1413,6 +1461,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
     classifierDowngraded = classifierDowngraded || Boolean(classification._downgraded);
     classifierReason = classification._downgradedReason ?? classifierReason;
+    }
   }
 
   /** Hero / banner image: clarify with executable paths — never UI-only “use the button” guidance. */
@@ -1604,7 +1653,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         parameters: classification.parameters,
         plan: classification.plan,
       },
-      storeId,
+      effectiveStoreId,
     );
     lastValidation = validation;
 
@@ -1637,7 +1686,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           userMessage,
           classification,
           locale,
-          storeId,
+          storeId: effectiveStoreId,
           draftId,
           conversationHistory: history,
           persistedIntentResolution: loadedPersistedIntent,
@@ -2430,7 +2479,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         paramStoreType && paramStoreType.toLowerCase() !== 'other'
           ? paramStoreType
           : nlStoreType || 'Other';
-      const storeName =
+      const storeNameFromParams =
         String(cleanedParams.storeName ?? '').trim() || (nlStoreName != null ? nlStoreName : '');
       const location =
         cleanedParams.location != null && String(cleanedParams.location).trim()
@@ -2468,7 +2517,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         cleanedParams.intentMode != null ? String(cleanedParams.intentMode).trim().toLowerCase() : 'store';
       const locationTrim = stripIntentWrappingQuotes(String(location ?? '').trim()) || '';
 
-      let businessName = stripIntentWrappingQuotes(String(storeName ?? '').trim()) || '';
+      let businessName = stripIntentWrappingQuotes(String(storeNameFromParams ?? '').trim()) || '';
       let businessType = String(storeType ?? 'Other').trim() || 'Other';
 
       if (ctxIntentMode === 'website' && currentContext && typeof currentContext === 'object') {
