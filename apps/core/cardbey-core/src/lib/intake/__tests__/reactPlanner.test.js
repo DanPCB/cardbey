@@ -144,5 +144,128 @@ describe('reactPlanner (Phase 1 decision module)', () => {
     expect(out.kind).toBe('unsupported');
     expect(out.reason).toBe('no_matching_tool');
   });
+
+  it('edge 1: "delete all products" + no delete tool -> unsupported', async () => {
+    const out = await reactPlanner({
+      userMessage: 'delete all products',
+      classification: null,
+      context: { storeId: 'store_1' },
+      toolRegistry: [{ toolName: 'orders_report', approvalRequired: false, riskLevel: 'safe_read' }],
+    });
+    expect(out.kind).toBe('unsupported');
+  });
+
+  it('edge 4: "delete 3 items" + no item names -> ask', async () => {
+    const out = await reactPlanner({
+      userMessage: 'delete 3 items',
+      classification: null,
+      context: { storeId: 'store_1' },
+      toolRegistry: [{ toolName: 'orders_report', approvalRequired: false, riskLevel: 'safe_read' }],
+    });
+    expect(out.kind).toBe('ask');
+    expect(out.missing).toContain('itemIds');
+  });
+
+  it('edge 6: "connect social account" + missing platform -> ask', async () => {
+    const out = await reactPlanner({
+      userMessage: 'connect social account',
+      classification: { tool: 'connect_social_account' },
+      context: { storeId: 'store_1' },
+      toolRegistry: [
+        {
+          toolName: 'connect_social_account',
+          approvalRequired: false,
+          riskLevel: 'state_change',
+          parameterSchema: { required: ['platform'], properties: { platform: { type: 'string' }, storeId: { type: 'string' } } },
+        },
+      ],
+    });
+    expect(out.kind).toBe('ask');
+    expect(out.missing).toContain('platform');
+  });
+
+  it('edge 6: "connect Facebook" -> confirm connect_social_account (state_change)', async () => {
+    const out = await reactPlanner({
+      userMessage: 'connect Facebook',
+      classification: { tool: 'connect_social_account' },
+      context: { storeId: 'store_1' },
+      toolRegistry: [
+        {
+          toolName: 'connect_social_account',
+          approvalRequired: false,
+          riskLevel: 'state_change',
+          parameterSchema: { required: ['platform'], properties: { platform: { type: 'string' }, storeId: { type: 'string' } } },
+        },
+      ],
+    });
+    expect(out.kind).toBe('confirm');
+    expect(out.toolName).toBe('connect_social_account');
+    expect(out.parameters.platform).toBe('facebook');
+  });
+
+  it('edge 9: "what can you do?" -> execute general_chat (not unsupported)', async () => {
+    const out = await reactPlanner({
+      userMessage: 'what can you do?',
+      classification: null,
+      context: {},
+      toolRegistry: [{ toolName: 'general_chat', approvalRequired: false, riskLevel: 'safe_read', parameterSchema: { required: [], properties: {} } }],
+    });
+    expect(out.kind).toBe('execute');
+    expect(out.toolName).toBe('general_chat');
+  });
+
+  it('edge 7: rewrite_descriptions + storeId + approvalRequired -> confirm', async () => {
+    const out = await reactPlanner({
+      userMessage: 'rewrite descriptions',
+      classification: { tool: 'rewrite_descriptions' },
+      context: { storeId: 'store_1' },
+      toolRegistry: [
+        {
+          toolName: 'rewrite_descriptions',
+          approvalRequired: true,
+          riskLevel: 'state_change',
+          parameterSchema: { required: ['storeId'], properties: { storeId: { type: 'string' } } },
+        },
+      ],
+    });
+    expect(out.kind).toBe('confirm');
+    expect(out.toolName).toBe('rewrite_descriptions');
+  });
+
+  it('edge 8: orders_report + no storeId -> ask', async () => {
+    const out = await reactPlanner({
+      userMessage: 'orders report',
+      classification: { tool: 'orders_report' },
+      context: {},
+      toolRegistry: [
+        {
+          toolName: 'orders_report',
+          approvalRequired: false,
+          riskLevel: 'safe_read',
+          parameterSchema: { required: ['storeId'], properties: { storeId: { type: 'string' } } },
+        },
+      ],
+    });
+    expect(out.kind).toBe('ask');
+    expect(out.missing).toContain('storeId');
+  });
+
+  it('edge 8: orders_report + storeId -> execute', async () => {
+    const out = await reactPlanner({
+      userMessage: 'orders report',
+      classification: { tool: 'orders_report' },
+      context: { storeId: 'store_1' },
+      toolRegistry: [
+        {
+          toolName: 'orders_report',
+          approvalRequired: false,
+          riskLevel: 'safe_read',
+          parameterSchema: { required: ['storeId'], properties: { storeId: { type: 'string' } } },
+        },
+      ],
+    });
+    expect(out.kind).toBe('execute');
+    expect(out.toolName).toBe('orders_report');
+  });
 });
 

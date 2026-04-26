@@ -79,6 +79,21 @@ function toolRequiresStoreId(toolDef) {
   return Array.isArray(req) && req.includes('storeId');
 }
  
+function requiredParamKeys(toolDef) {
+  const req = toolDef?.parameterSchema?.required;
+  return Array.isArray(req) ? req.filter((x) => typeof x === 'string' && x.trim()) : [];
+}
+
+function extractPlatformFromMessage(lower) {
+  const s = String(lower || '');
+  if (s.includes('facebook')) return 'facebook';
+  if (s.includes('instagram')) return 'instagram';
+  if (s.includes('zalo')) return 'zalo';
+  if (s.includes('twitter') || s.includes('x.com')) return 'twitter';
+  if (s.includes('tiktok')) return 'tiktok';
+  return '';
+}
+
 function classifyToolHint(input) {
   const hint = input?.classification && typeof input.classification === 'object' ? input.classification.tool : null;
   return asTrimmedString(hint);
@@ -122,6 +137,17 @@ export async function reactPlanner(input) {
   const toolName = toolDef?.toolName ?? '';
  
   if (!toolDef) {
+    // Keep general chat from becoming unsupported too aggressively (Phase 1.5).
+    const generalChatDef = getTool(toolRegistry, 'general_chat');
+    const looksMetaQuestion =
+      msgLower.includes('what can you do') ||
+      msgLower.includes('how do i') ||
+      msgLower.includes('how to') ||
+      msgLower.endsWith('?');
+    if (generalChatDef && looksMetaQuestion) {
+      return { kind: 'execute', toolName: 'general_chat', parameters: {} };
+    }
+
     // If the user asked for something clearly unsupported (no matching tool), return unsupported.
     // Phase 1 keeps this strict: no partial tool suggestion list, no execution invention.
     return { kind: 'unsupported', reason: 'no_matching_tool', userMessage };
@@ -131,8 +157,23 @@ export async function reactPlanner(input) {
   /** @type {string[]} */
   const missing = [];
  
-  if (toolRequiresStoreId(toolDef) && !storeId) {
-    missing.push('storeId');
+  /** @type {Record<string, unknown>} */
+  const parameters = {};
+  if (storeId) parameters.storeId = storeId;
+
+  // Minimal param extraction: platform for connect_social_account.
+  if (toolName === 'connect_social_account') {
+    const p = extractPlatformFromMessage(msgLower);
+    if (p) parameters.platform = p;
+  }
+
+  for (const key of requiredParamKeys(toolDef)) {
+    if (key === 'storeId') {
+      if (!storeId) missing.push('storeId');
+      continue;
+    }
+    const v = parameters[key];
+    if (v === null || v === undefined || v === '') missing.push(key);
   }
  
   if (missing.length > 0) {
@@ -140,6 +181,8 @@ export async function reactPlanner(input) {
       ? 'Which 3 items should I delete? Please name them (or share their item IDs).'
       : missing.includes('storeId')
         ? 'Which store should I use? Please select a store first.'
+        : missing.includes('platform')
+          ? 'Which platform should I connect? (e.g. Facebook, Instagram, Zalo)'
         : 'What information is missing to continue?';
     return { kind: 'ask', prompt, missing, ...(toolName ? { toolName } : {}) };
   }
@@ -148,10 +191,6 @@ export async function reactPlanner(input) {
   const riskRaw = asTrimmedString(toolDef?.riskLevel ?? '');
   const riskLevel = riskRaw === 'destructive' ? 'destructive' : 'state_change';
   const needsConfirm = Boolean(toolDef?.approvalRequired) || riskRaw === 'state_change' || riskRaw === 'destructive';
- 
-  /** @type {Record<string, unknown>} */
-  const parameters = {};
-  if (storeId) parameters.storeId = storeId;
  
   if (needsConfirm) {
     return {
