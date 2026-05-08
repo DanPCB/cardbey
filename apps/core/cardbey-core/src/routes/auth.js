@@ -419,7 +419,7 @@ router.post('/register', async (req, res, next) => {
     // When email verification is enabled, send verification email on signup (fire-and-forget; do not block 201)
     const verificationEnabled = process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1';
     if (verificationEnabled && user?.id && user?.email) {
-      const rawToken = generateSecureToken(32);
+      const rawToken = generateVerificationRawToken();
       const hashedToken = hashVerificationToken(rawToken);
       const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
       await prisma.user.update({
@@ -496,6 +496,16 @@ router.post('/login', async (req, res, next) => {
     console.error('[Auth] Login error:', error);
     next(error);
   }
+});
+
+router.post('/logout', (req, res) => {
+  res.clearCookie('accessToken', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+  });
+
+  return res.json({ success: true });
 });
 
 /**
@@ -777,12 +787,25 @@ function generateSecureToken(length = 32) {
   return crypto.randomBytes(length).toString('hex');
 }
 
+/** Verification raw tokens use base64url so they are not confused with sha256 hex hashes. */
+function generateVerificationRawToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
 /** Hash a token for storage (compare with stored hash on confirm) */
 function hashVerificationToken(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
-const VERIFICATION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+function resolveVerificationExpiryMs() {
+  const raw = String(process.env.VERIFICATION_EXPIRY_MS || '').trim();
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  // Dev-friendly default: longer window for testing; production remains short.
+  return process.env.NODE_ENV === 'production' ? 30 * 60 * 1000 : 24 * 60 * 60 * 1000;
+}
+
+const VERIFICATION_EXPIRY_MS = resolveVerificationExpiryMs();
 
 /** Default API origin for verification links when env is unset or invalid */
 const VERIFICATION_LINK_FALLBACK_ORIGIN = 'http://localhost:3001';
@@ -867,6 +890,77 @@ function respondAfterEmailVerified(res, redirect_uri) {
   return res.json({ ok: true, verified: true });
 }
 
+function prefersHtml(req) {
+  const accept = String(req.headers?.accept || '');
+  return accept.includes('text/html') || accept.includes('application/xhtml+xml');
+}
+
+function verifyDebugEnabled() {
+  if (process.env.NODE_ENV === 'production') return false;
+  return String(process.env.DEBUG_VERIFY_EMAIL || '').trim() === '1';
+}
+
+function renderVerifyResultPage({ title, message, retryUrl, debugLines = [] }) {
+  const safeTitle = String(title || 'Email verification');
+  const safeMessage = String(message || '');
+  const debugHtml =
+    Array.isArray(debugLines) && debugLines.length
+      ? `<details style="margin-top:16px"><summary style="cursor:pointer">Debug</summary><pre style="white-space:pre-wrap;word-break:break-word;margin-top:8px">${debugLines
+          .map((l) => String(l))
+          .join('\n')}</pre></details>`
+      : '';
+  const retryBtn = retryUrl
+    ? `<p style="margin-top:18px"><a href="${retryUrl}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#111;color:#fff;text-decoration:none">Open app</a></p>`
+    : '';
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px 18px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { margin: 0; color: #374151; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${safeTitle}</h1>
+    <p>${safeMessage}</p>
+    ${retryBtn}
+    ${debugHtml}
+  </div>
+</body>
+</html>`;
+}
+
+function respondVerifyError(req, res, { code, error, message }) {
+  if (process.env.NODE_ENV !== 'production' && prefersHtml(req)) {
+    const webBase = resolvePublicWebBaseForBrowserRedirect();
+    const retryUrl = webBase ? `${webBase}/onboarding/business?verify=1` : null;
+    const debugLines = verifyDebugEnabled()
+      ? [
+          `env=${process.env.NODE_ENV}`,
+          `host=${String(req.get?.('host') || '')}`,
+          `apiBase=${getVerificationLinkBaseUrl().base}`,
+          `code=${code}`,
+        ]
+      : [];
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(400).send(
+      renderVerifyResultPage({
+        title: code === 'TOKEN_EXPIRED' ? 'Verification link expired' : 'Verification link invalid',
+        message,
+        retryUrl,
+        debugLines,
+      }),
+    );
+  }
+  return res.status(400).json({ ok: false, code, error, message });
+}
+
 /**
  * True when verification email can be sent: ENABLE_EMAIL_VERIFICATION, MAIL_HOST set, and in production a non-fallback base URL.
  * Used to return 503 EMAIL_NOT_CONFIGURED instead of 200 when no email will be sent.
@@ -894,6 +988,22 @@ async function sendVerificationEmail({ to, rawToken, displayName }) {
     redirect_uri: redirectUri
   });
   const fullLink = `${apiBase}${confirmPath}?${query.toString()}`;
+  const storedHash = hashVerificationToken(rawToken);
+
+  if (verifyDebugEnabled()) {
+    const rawLooksSha256Hex = /^[a-f0-9]{64}$/i.test(String(rawToken));
+    const linkToken = query.get('token') || '';
+    const linkLooksSha256Hex = /^[a-f0-9]{64}$/i.test(String(linkToken));
+    console.log('[Auth] verify/email prepare', {
+      to: to ? `${String(to).slice(0, 3)}***` : null,
+      rawTokenLength: String(rawToken).length,
+      rawTokenLooksSha256Hex: rawLooksSha256Hex,
+      storedHashPrefix: String(storedHash).slice(0, 10),
+      linkTokenLength: String(linkToken).length,
+      linkTokenLooksSha256Hex: linkLooksSha256Hex,
+      apiBase,
+    });
+  }
 
   const enabled = process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1';
   const hasMailHost = (process.env.MAIL_HOST || '').trim().length > 0;
@@ -960,7 +1070,7 @@ async function handleRequestVerification(req, res, next) {
     console.log('[Auth] verify/request config validation', { configOk });
     // Vitest: when gate is off, still mint a token so API tests don't require MAIL_* (no email sent).
     if (!configOk && process.env.NODE_ENV === 'test' && !verificationEnabled) {
-      const rawToken = generateSecureToken(32);
+      const rawToken = generateVerificationRawToken();
       const hashedToken = hashVerificationToken(rawToken);
       const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
       await prisma.user.update({
@@ -1005,28 +1115,7 @@ async function handleRequestVerification(req, res, next) {
       dbUser?.verificationExpires != null &&
       new Date(dbUser.verificationExpires) > new Date();
 
-    if (hasValidToken && (dbUser?.verificationTokenRaw ?? '').trim().length > 0) {
-      const rawToken = dbUser.verificationTokenRaw;
-      console.log('[Auth] verify/request token reused, resend attempt', { userId: user.id });
-      const sendResult = await sendVerificationEmail({
-        to: user.email,
-        rawToken,
-        displayName: user.displayName || user.fullName || undefined
-      });
-      if (!sendResult.sent) {
-        console.error('[Auth] verify/request resend failed', { userId: user.id, code: sendResult.code, error: sendResult.error });
-        return res.status(503).json({
-          ok: false,
-          code: sendResult.code || 'EMAIL_SEND_FAILED',
-          message: sendResult.error || 'Failed to send verification email. Please try again later.'
-        });
-      }
-      console.log('[Auth] verify/request resend success', { userId: user.id });
-      lastVerificationSendByUser.set(user.id, Date.now());
-      return res.json({ ok: true, resent: true, reusedToken: true });
-    }
-
-    const rawToken = generateSecureToken(32);
+    const rawToken = generateVerificationRawToken();
     const hashedToken = hashVerificationToken(rawToken);
     const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
 
@@ -1039,7 +1128,18 @@ async function handleRequestVerification(req, res, next) {
       }
     });
 
-    console.log('[Auth] verify/request token created', { userId: user.id, expiresAt: expiresAt.toISOString() });
+    console.log('[Auth] verify/request token created', {
+      userId: user.id,
+      rotated: !!hasValidToken,
+      expiresAt: expiresAt.toISOString(),
+      ...(verifyDebugEnabled()
+        ? {
+            tokenLen: String(rawToken).length,
+            hashPrefix: String(hashedToken).slice(0, 10),
+            apiBase: getVerificationLinkBaseUrl().base,
+          }
+        : {}),
+    });
 
     const sendResult = await sendVerificationEmail({
       to: user.email,
@@ -1120,24 +1220,54 @@ router.get('/verify/confirm', async (req, res, next) => {
     const { token, redirect_uri } = req.query;
 
     if (!token || typeof token !== 'string') {
-      return res.status(400).json({
-        ok: false,
+      return respondVerifyError(req, res, {
         code: 'TOKEN_INVALID',
         error: 'Token required',
-        message: 'Verification token is required'
+        message: 'Verification token is required',
       });
     }
 
     const hashed = hashVerificationToken(token);
     const now = new Date();
-    const user = await findUserByVerificationTokenHash(hashed);
+    if (verifyDebugEnabled()) {
+      console.log('[Auth] verify/confirm received', {
+        env: process.env.NODE_ENV,
+        host: req.get?.('host') || null,
+        tokenLen: String(token).length,
+        hashPrefix: String(hashed).slice(0, 10),
+        now: now.toISOString(),
+        apiBase: getVerificationLinkBaseUrl().base,
+      });
+    }
+    let user = await findUserByVerificationTokenHash(hashed);
+    // Non-production fallback: if an upstream sender mistakenly used the stored hash in the link,
+    // accept it by matching token directly against verificationToken.
+    if (!user && process.env.NODE_ENV !== 'production') {
+      user = await prisma.user.findFirst({ where: { verificationToken: String(token) } });
+      if (user && verifyDebugEnabled()) {
+        console.warn('[Auth] verify/confirm non-prod accepted hashed token from link', {
+          userId: user.id,
+          tokenLen: String(token).length,
+          tokenLooksSha256Hex: /^[a-f0-9]{64}$/i.test(String(token)),
+        });
+      }
+    }
     if (!user) {
-      console.log('[Auth] verify/confirm invalid', { reason: 'no_user_for_hash' });
-      return res.status(400).json({
-        ok: false,
+      console.log('[Auth] verify/confirm invalid', {
+        reason: 'no_user_for_hash',
+        ...(verifyDebugEnabled()
+          ? {
+              tokenLen: String(token).length,
+              hashPrefix: String(hashed).slice(0, 10),
+              host: req.get?.('host') || null,
+              apiBase: getVerificationLinkBaseUrl().base,
+            }
+          : {}),
+      });
+      return respondVerifyError(req, res, {
         code: 'TOKEN_INVALID',
         error: 'Invalid token',
-        message: 'This verification token is invalid. Please request a new one.'
+        message: 'This verification token is invalid. Please request a new one.',
       });
     }
     // Same link again after success (hash kept for idempotency). Avoid TOKEN_INVALID when token was cleared in older deployments.
@@ -1147,11 +1277,10 @@ router.get('/verify/confirm', async (req, res, next) => {
     }
     if (user.verificationExpires == null || new Date(user.verificationExpires) <= now) {
       console.log('[Auth] verify/confirm expired', { userId: user.id });
-      return res.status(400).json({
-        ok: false,
+      return respondVerifyError(req, res, {
         code: 'TOKEN_EXPIRED',
         error: 'Token expired',
-        message: 'This verification token has expired. Please request a new one.'
+        message: 'This verification token has expired. Please request a new one.',
       });
     }
 
@@ -1301,21 +1430,22 @@ router.post('/request-reset', passwordResetRequestLimiter, async (req, res, next
     });
 
     if (user) {
-      const token = generateSecureToken(32);
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
 
       await prisma.user.update({
         where: { id: user.id },
         data: {
-          resetToken: token,
+          resetToken: hashedToken,
           resetExpires: expiresAt
         }
       });
 
       const webBase = process.env.PUBLIC_WEB_BASE_URL || process.env.FRONTEND_URL || process.env.PUBLIC_BASE_URL || 'http://localhost:5174';
       const resetPath = '/reset';
-      const resetLink = `${webBase.replace(/\/$/, '')}${resetPath}?token=${encodeURIComponent(token)}`;
+      const resetLink = `${webBase.replace(/\/$/, '')}${resetPath}?token=${encodeURIComponent(rawToken)}`;
 
       const hasMail = (process.env.MAIL_HOST || '').trim().length > 0;
       if (hasMail) {
@@ -1393,15 +1523,22 @@ router.post('/reset', async (req, res, next) => {
       });
     }
 
-    // Find user by reset token
-    const user = await prisma.user.findFirst({
+    const hashed = crypto.createHash('sha256').update(token).digest('hex');
+    // Find user by reset token (prefer hashed; fallback to legacy plaintext tokens)
+    let user = await prisma.user.findFirst({
       where: {
-        resetToken: token,
-        resetExpires: {
-          gt: new Date() // Token not expired
-        }
-      }
+        resetToken: hashed,
+        resetExpires: { gt: new Date() },
+      },
     });
+    if (!user) {
+      user = await prisma.user.findFirst({
+        where: {
+          resetToken: token,
+          resetExpires: { gt: new Date() },
+        },
+      });
+    }
 
     if (!user) {
       return res.status(400).json({

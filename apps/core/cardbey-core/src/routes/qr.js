@@ -79,7 +79,7 @@ router.get('/', requireAuth, async (req, res, next) => {
  */
 router.post('/create', requireAuth, async (req, res, next) => {
   try {
-    const { storeId, type, payload, targetPath } = req.body || {};
+    const { storeId, type, payload, targetPath, productId } = req.body || {};
     if (!storeId || typeof storeId !== 'string') {
       return res.status(400).json({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'storeId is required' } });
     }
@@ -95,6 +95,15 @@ router.post('/create', requireAuth, async (req, res, next) => {
     }
     if (store.userId !== req.userId) {
       return res.status(403).json({ ok: false, error: { code: 'ACCESS_DENIED', message: 'Not your store' } });
+    }
+
+    let resolvedTargetPath = typeof targetPath === 'string' ? targetPath.trim() : '';
+    if (productId) {
+      const product = await prisma.product.findUnique({ where: { id: productId } });
+      if (!product || product.businessId !== storeId) {
+        return res.status(403).json({ error: 'Invalid product' });
+      }
+      resolvedTargetPath = `/api/public/products/${productId}`;
     }
 
     let code;
@@ -113,7 +122,7 @@ router.post('/create', requireAuth, async (req, res, next) => {
         storeId,
         type: resolvedType,
         payload: payload && typeof payload === 'object' ? payload : undefined,
-        targetPath: typeof targetPath === 'string' ? targetPath.trim() || null : null,
+        targetPath: resolvedTargetPath ? resolvedTargetPath : null,
         isActive: true,
         createdByUserId: req.userId,
       },

@@ -7,11 +7,12 @@ import express from 'express';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
+const JWT_SECRET = requireJwtSecret();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // In-memory state store (use Redis in production)
