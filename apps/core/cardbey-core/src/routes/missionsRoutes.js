@@ -38,6 +38,7 @@ import { handleAgentsV1MissionSpawn } from './agentsV1Routes.js';
 import { extractTextWithFallback } from '../lib/ocr/ocrFallback.js';
 import { parseBusinessCardOCR } from '../lib/businessCardParser.js';
 import { businessCardLooksLikeOcrText, isRefusalResponse } from '../modules/vision/runOcr.js';
+import { runPostMissionCompletionSummary } from '../lib/missionCompletion/postMissionSummary.js';
 
 const router = Router();
 
@@ -415,6 +416,7 @@ router.get('/:missionId/state', requireAuth, async (req, res, next) => {
         if (process.env.NODE_ENV !== 'production') {
           console.log(`[Mission] resolver: mission=${missionId} status=${state.status} runState=${state.runState}`);
         }
+        res.setHeader('Cache-Control', 'no-store');
         return res.json({ ok: true, state });
       }
     }
@@ -429,6 +431,7 @@ router.get('/:missionId/state', requireAuth, async (req, res, next) => {
         select: { userId: true },
       });
       if (run && run.userId === req.user?.id) {
+        res.setHeader('Cache-Control', 'no-store');
         return res.json({ ok: true, state: runState });
       }
     }
@@ -1495,22 +1498,106 @@ router.post('/:missionId/respond', optionalAuth, async (req, res, next) => {
       });
     });
 
+    const newStoreName =
+      typeof mergedOutputs.storeName === 'string'
+        ? mergedOutputs.storeName.trim()
+        : typeof mergedOutputs.businessName === 'string'
+          ? mergedOutputs.businessName.trim()
+          : '';
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.log('[missions/respond] store title probe', {
+        missionId: missionIdTrimmed,
+        stepId,
+        storeName: mergedOutputs.storeName,
+        businessName: mergedOutputs.businessName,
+        intentMode: mergedOutputs.intentMode ?? mergedOutputs.intentType,
+        newStoreName: newStoreName || null,
+      });
+    }
+    if (newStoreName && pipeline.type === 'store') {
+      const metaAfter =
+        dualMeta && typeof dualMeta === 'object' && !Array.isArray(dualMeta)
+          ? dualMeta
+          : pipeline.metadataJson && typeof pipeline.metadataJson === 'object' && !Array.isArray(pipeline.metadataJson)
+            ? pipeline.metadataJson
+            : {};
+      const intentModeRaw =
+        mergedOutputs.intentMode ??
+        mergedOutputs.intentType ??
+        metaAfter.intentMode ??
+        metaAfter.intentType ??
+        null;
+      const intentStr = typeof intentModeRaw === 'string' ? intentModeRaw.trim().toLowerCase() : '';
+      const metaWebsite =
+        metaAfter.websiteMode === true ||
+        metaAfter.generateWebsite === true ||
+        (typeof metaAfter.intentMode === 'string' && metaAfter.intentMode.trim().toLowerCase() === 'website');
+      const prefix =
+        intentStr === 'website' || metaWebsite ? 'Create mini website' : 'Create store';
+      await prisma.missionPipeline.update({
+        where: { id: missionIdTrimmed },
+        data: { title: `${prefix}: ${newStoreName.slice(0, 120)}` },
+      });
+    }
+
     const orchestration = await runMissionUntilBlocked(missionIdTrimmed, { forceExecuting: true });
 
     const mAfter = await prisma.missionPipeline.findUnique({
       where: { id: missionIdTrimmed },
       include: { steps: true },
     });
-    if (
+
+    const allStepsDone =
       mAfter &&
-      mAfter.status === 'executing' &&
       Array.isArray(mAfter.steps) &&
       mAfter.steps.length > 0 &&
-      mAfter.steps.every((s) => s.status === 'completed' || s.status === 'skipped')
-    ) {
-      await prisma.missionPipeline.update({
+      mAfter.steps.every((s) => s.status === 'completed' || s.status === 'skipped');
+    const runStateDone = String(mAfter?.runState ?? '').toLowerCase() === 'done';
+    const pipelineAlreadyCompleted = mAfter?.status === 'completed' || runStateDone;
+
+    if (allStepsDone && mAfter && (mAfter.status === 'executing' || pipelineAlreadyCompleted)) {
+      if (mAfter.status === 'executing') {
+        await prisma.missionPipeline.update({
+          where: { id: missionIdTrimmed },
+          data: { status: 'completed', runState: 'done', completedAt: new Date(), currentStepId: null },
+        });
+      }
+
+      const fresh = await prisma.missionPipeline.findUnique({
         where: { id: missionIdTrimmed },
-        data: { status: 'completed', runState: 'done', completedAt: new Date(), currentStepId: null },
+        select: { id: true, type: true, status: true, runState: true, outputsJson: true, metadataJson: true },
+      });
+      const outputsForSummary =
+        fresh?.outputsJson && typeof fresh.outputsJson === 'object' && !Array.isArray(fresh.outputsJson)
+          ? fresh.outputsJson
+          : {};
+      // eslint-disable-next-line no-console
+      console.log('[respond-route] firing postMissionSummary', {
+        missionId: fresh?.id,
+        type: fresh?.type,
+        status: fresh?.status,
+        runState: fresh?.runState,
+        priorStatusWasExecuting: mAfter.status === 'executing',
+        orchestrationStoppedReason: orchestration?.stoppedReason,
+      });
+      void runPostMissionCompletionSummary({
+        missionId: missionIdTrimmed,
+        missionType: fresh?.type ?? null,
+        metadataJson: fresh?.metadataJson ?? null,
+        outputsJson: outputsForSummary,
+      }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn('[postMissionSummary] failed:', e?.message || e);
+      });
+    } else if (mAfter) {
+      // eslint-disable-next-line no-console
+      console.log('[respond-route] skip postMissionSummary', {
+        missionId: missionIdTrimmed,
+        status: mAfter.status,
+        runState: mAfter.runState,
+        allStepsDone,
+        stepStatuses: Array.isArray(mAfter.steps) ? mAfter.steps.map((s) => ({ id: s.id, st: s.status })) : [],
       });
     }
 

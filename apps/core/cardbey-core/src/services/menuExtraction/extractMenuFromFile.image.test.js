@@ -39,6 +39,16 @@ describe('extractMenuFromFile (image path)', () => {
     });
 
     expect(extractMenu).toHaveBeenCalledTimes(1);
+    expect(extractMenu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'temp',
+        storeId: null,
+        locale: 'en',
+        businessName: 'Test Cafe',
+        businessType: 'Cafe',
+      }),
+      undefined,
+    );
     expect(res.ok).toBe(true);
     expect(res.items.length).toBeGreaterThan(0);
     expect(res.items[0].name).toBe('Latte');

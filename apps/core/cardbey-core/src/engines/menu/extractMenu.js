@@ -37,27 +37,48 @@ function guessCategory(name) {
 }
 
 /**
- * Simple mock vision service for dev/testing
+ * @param {string} [businessType]
+ * @param {string} [businessName]
  */
-class MockVisionService {
-  async parseMenu(imageUrl) {
-    // Mock extraction - return sample coffee menu items
-    console.log('[Menu Engine] Mock vision parsing for:', imageUrl);
-    
-    const rawItems = [
+function mockMenuRowsForContext(businessType, businessName) {
+  const hint = `${String(businessType || '')} ${String(businessName || '')}`.toLowerCase();
+  if (/\b(nail|manicure|pedicure|beauty|salon|spa|lash|brow|wax|gel)\b/.test(hint)) {
+    return [
+      { name: 'Classic Manicure', price: 35 },
+      { name: 'Gel Manicure', price: 45 },
+      { name: 'Spa Pedicure', price: 55 },
+      { name: 'Nail Art (per nail)', price: 8 },
+      { name: 'Gel Removal', price: 15 },
+    ];
+  }
+  if (/\b(cafe|coffee|espresso|bakery|restaurant|bistro|kitchen)\b/.test(hint)) {
+    return [
       { name: 'Flat White', price: 5.0 },
       { name: 'Latte', price: 5.5 },
       { name: 'Cappuccino', price: 5.5 },
-      { name: 'Mocha', price: 6.0 },
-      { name: 'Macchiato', price: 5.0 },
       { name: 'Long Black', price: 4.5 },
-      { name: 'Hot Chocolate', price: 5.5 },
-      { name: 'Tea', price: 4.0 },
-      { name: 'Chai Latte', price: 5.5 },
       { name: 'Batch Brew', price: 4.0 },
-      { name: 'Piccolo Latte', price: 5.0 },
-      { name: 'Espresso', price: 3.5 },
     ];
+  }
+  return [
+    { name: 'Standard Service', price: 49.99 },
+    { name: 'Premium Service', price: 79.99 },
+    { name: 'Add-on', price: 19.99 },
+  ];
+}
+
+/**
+ * Simple mock vision service for dev/testing
+ */
+class MockVisionService {
+  /**
+   * @param {string} imageUrl
+   * @param {{ businessType?: string, businessName?: string }} [opts]
+   */
+  async parseMenu(imageUrl, opts = {}) {
+    console.log('[Menu Engine] Mock vision parsing for:', imageUrl);
+
+    const rawItems = mockMenuRowsForContext(opts.businessType, opts.businessName);
     
     // Apply category guessing to each item
     const structured = rawItems.map((item) => {
@@ -82,10 +103,12 @@ class MockVisionService {
 
 /**
  * Mock parse menu (fallback)
+ * @param {string} imageUrl
+ * @param {{ businessType?: string, businessName?: string }} [opts]
  */
-async function mockParseMenu(imageUrl) {
+async function mockParseMenu(imageUrl, opts = {}) {
   const visionService = new MockVisionService();
-  const parsed = await visionService.parseMenu(imageUrl);
+  const parsed = await visionService.parseMenu(imageUrl, opts);
   return {
     items: parsed.structured.map((item) => ({
       name: item.name,
@@ -105,7 +128,16 @@ async function mockParseMenu(imageUrl) {
  * Automatically saves parsed items to the database via menu.configure
  */
 export const extractMenu = async (input, ctx) => {
-  const { tenantId, storeId, imageUrl, ocrText, detectedItems, locale } = input;
+  const {
+    tenantId,
+    storeId,
+    imageUrl,
+    ocrText,
+    detectedItems,
+    locale,
+    businessName,
+    businessType,
+  } = input;
 
   const events = ctx?.services?.events || getEventEmitter();
   const db = ctx?.services?.db || prisma;
@@ -151,6 +183,8 @@ export const extractMenu = async (input, ctx) => {
       ocrText: finalOcrText,
       detectedItems: menuHints.items?.map((item) => item.label) || detectedItems || [],
       locale: locale || 'en',
+      businessName: businessName ?? null,
+      businessType: businessType ?? null,
     });
 
     console.log('[Menu Engine] LLM menu parse result', {
@@ -162,7 +196,10 @@ export const extractMenu = async (input, ctx) => {
   } catch (err) {
     console.error('[Menu Engine] Vision/LLM pipeline failed, falling back to legacy mock parser', err);
     // Fall back to mock parser
-    llmResult = await mockParseMenu(imageUrl);
+    llmResult = await mockParseMenu(imageUrl, {
+      businessName: typeof businessName === 'string' ? businessName : undefined,
+      businessType: typeof businessType === 'string' ? businessType : undefined,
+    });
   }
 
   // Import category inference helpers

@@ -21,6 +21,7 @@ import {
   isPipelineOutputDualWriteEnabled,
 } from './orchestrator/pipelineCanonicalResults.js';
 import { emitHealthProbe } from './telemetry/healthProbes.js';
+import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
 
 const STATUS_MAP = {
   queued: { status: 'queued', runState: 'idle' },
@@ -71,6 +72,7 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
     const row = await prisma.missionPipeline.findUnique({
       where: { id },
       select: {
+        type: true,
         outputsJson: true,
         metadataJson: true,
         progressTotalSteps: true,
@@ -148,6 +150,14 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
         taskStatus,
         pipelineStatus: 'completed',
       });
+      const outputsForSummary =
+        outputsJson && typeof outputsJson === 'object' && !Array.isArray(outputsJson) ? outputsJson : {};
+      void runPostMissionCompletionSummary({
+        missionId: id,
+        missionType: row.type ?? null,
+        metadataJson: row.metadataJson,
+        outputsJson: outputsForSummary,
+      }).catch(() => {});
     }
 
     if (process.env.NODE_ENV !== 'production') {

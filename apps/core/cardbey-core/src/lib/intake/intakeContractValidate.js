@@ -74,9 +74,10 @@ export function mergeStoreCreateFormIntoParameters(parameters, form) {
  * @param {Record<string, unknown>} classification.parameters
  * @param {Array<{ tool: string, parameters?: object }>} [classification.plan]
  * @param {string | null} storeId
+ * @param {{ missionId?: string | null }} [opts] — when set, allows mission-scoped post-build tools without active surface storeId.
  * @returns {{ ok: boolean, cleanedParameters?: Record<string, unknown>, errors?: Array<{ field: string, reason: string }>, downgradedTo?: 'chat'|'clarify' }}
  */
-export function validateIntakeClassification(classification, storeId) {
+export function validateIntakeClassification(classification, storeId, opts = {}) {
   const path = String(classification?.executionPath ?? '');
   const tool = String(classification?.tool ?? '');
   let parameters =
@@ -95,7 +96,14 @@ export function validateIntakeClassification(classification, storeId) {
     };
   }
 
-  if (path === 'chat' || path === 'clarify') {
+  if (path === 'chat' || path === 'clarify' || path === 'service_request') {
+    if (path === 'service_request' && tool !== 'service_request') {
+      return {
+        ok: false,
+        errors: [{ field: 'tool', reason: 'service_request_path_requires_service_request_tool' }],
+        downgradedTo: 'clarify',
+      };
+    }
     return { ok: true, cleanedParameters: parameters, errors: [] };
   }
 
@@ -129,7 +137,15 @@ export function validateIntakeClassification(classification, storeId) {
     };
   }
 
-  if (entry.requiresStore && !storeId) {
+  const missionScopedStoreTools = new Set([
+    'upload_store_asset',
+    'replace_store_catalog',
+    'update_store_hero',
+    'publish_store',
+  ]);
+  const scopeMissionId =
+    opts && typeof opts.missionId === 'string' && opts.missionId.trim() ? opts.missionId.trim() : '';
+  if (entry.requiresStore && !storeId && !(missionScopedStoreTools.has(tool) && scopeMissionId)) {
     return {
       ok: false,
       errors: [{ field: 'storeId', reason: 'requires_store' }],

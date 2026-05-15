@@ -7,3 +7,5 @@ build/
 *.db*
 models/
 *.pt
+
+uploads/

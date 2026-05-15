@@ -224,6 +224,61 @@ export async function execute(_input = {}, context = {}) {
     });
   }
 
+  try {
+    const latest = await prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { title: true, metadataJson: true },
+    });
+    const mLatest =
+      latest?.metadataJson && typeof latest.metadataJson === 'object' && !Array.isArray(latest.metadataJson)
+        ? latest.metadataJson
+        : {};
+    const inName =
+      (typeof _input?.storeName === 'string' && _input.storeName.trim()) ||
+      (typeof _input?.businessName === 'string' && _input.businessName.trim()) ||
+      '';
+    const metaName =
+      (typeof mLatest.businessName === 'string' && mLatest.businessName.trim()) ||
+      (typeof mLatest.storeName === 'string' && mLatest.storeName.trim()) ||
+      '';
+    const patchName = (inName || metaName || '').trim();
+    const intentModeRaw =
+      (typeof _input?.intentMode === 'string' && _input.intentMode.trim().toLowerCase()) ||
+      (typeof mLatest.intentMode === 'string' && mLatest.intentMode.trim().toLowerCase()) ||
+      '';
+    const metaWebsite =
+      mLatest.websiteMode === true ||
+      mLatest.generateWebsite === true ||
+      intentModeRaw === 'website';
+    const prefix = metaWebsite ? 'Create mini website' : 'Create store';
+    const desired = patchName ? `${prefix}: ${patchName.slice(0, 120)}` : '';
+    const curTitle = typeof latest?.title === 'string' ? latest.title.trim() : '';
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.log('[structured_store_build] title patch probe', {
+        missionId,
+        inputStoreName: _input?.storeName,
+        inputBusinessName: _input?.businessName,
+        metaBusinessName: mLatest.businessName,
+        metaStoreName: mLatest.storeName,
+        patchName: patchName || null,
+        curTitle: curTitle || null,
+        desired: desired || null,
+      });
+    }
+    if (desired && curTitle.toLowerCase() !== desired.toLowerCase()) {
+      await prisma.missionPipeline.update({
+        where: { id: missionId },
+        data: { title: desired },
+      });
+    }
+  } catch (titlePatchErr) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn('[structured_store_build] title patch skipped:', titlePatchErr?.message || titlePatchErr);
+    }
+  }
+
   await transitionOrchestratorTaskStatus({
     prisma,
     taskId: created.jobId,

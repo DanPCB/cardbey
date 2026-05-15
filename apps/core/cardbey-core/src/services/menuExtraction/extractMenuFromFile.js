@@ -10,13 +10,18 @@ import { normalizeMenuExtractItems, averageConfidence } from './normalizeMenuExt
 const MIN_PDF_TEXT_CHARS = 50;
 const MAX_PDF_TEXT_CHARS_FOR_LLM = 120_000;
 
-const MENU_JSON_INSTRUCTION = `Return ONLY valid JSON (no markdown fences), shape:
+/**
+ * @param {{ businessName: string, businessType: string }} ctx
+ */
+function buildMenuJsonInstruction(ctx) {
+  return `Return ONLY valid JSON (no markdown fences), shape:
 {"items":[{"name":"string","price":number|null,"currency":"AUD"|"VND"|"USD","category":"string","description":"string","confidence":number}]}
 Rules:
 - "price" is a number when readable, else null.
 - "confidence" per item from 0 to 1 (your certainty for that row).
 - "description" short; use "" if none.
-- "category" inferred (e.g. Drinks, Mains).`;
+- "category" must fit this business (${ctx.businessType}) — e.g. food: Drinks/Mains; beauty: Manicure/Pedicure/Gel; retail: product groupings from the document.`;
+}
 
 /**
  * Thrown when a required LLM step fails (route should map to 500).
@@ -98,7 +103,8 @@ async function extractItemsWithOpenAiFromText(text, ctx) {
     ctx.language === 'vi'
       ? 'If item names are Vietnamese, keep names in Vietnamese; put an English gloss in description when helpful.'
       : '';
-  const prompt = `${MENU_JSON_INSTRUCTION}
+  const menuJson = buildMenuJsonInstruction(ctx);
+  const prompt = `${menuJson}
 
 Business context: ${ctx.businessName} (${ctx.businessType}).
 ${viNote}
@@ -112,8 +118,7 @@ ${String(text).slice(0, MAX_PDF_TEXT_CHARS_FOR_LLM)}`;
       messages: [
         {
           role: 'system',
-          content:
-            'You are a menu extraction assistant. Extract every menu or product line with price when visible. JSON only.',
+          content: `You extract line items from menus, service price lists, and retail catalogs for "${ctx.businessName}" (${ctx.businessType}). Prefer categories that match this business type, not generic cafe labels unless the text is clearly a cafe menu. JSON only.`,
         },
         { role: 'user', content: prompt },
       ],
@@ -186,6 +191,8 @@ export async function extractMenuFromFile(input) {
           storeId: null,
           imageUrl: dataUrl,
           locale: language,
+          businessName: ctx.businessName,
+          businessType: ctx.businessType,
         },
         undefined,
       );

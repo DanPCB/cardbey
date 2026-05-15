@@ -269,15 +269,18 @@ if (hasMigrations) {
 }
 
 if (!isPostgresForRestore) {
+  // SQLite: restore MissionBlackboard table without `prisma db push`.
+  // `db push --accept-data-loss` can fail (or be risky) when unrelated schema drift exists (e.g. NOT NULL changes),
+  // and it is not required just to create MissionBlackboard.
   try {
     runPrisma(
-      "db push (MissionBlackboard restore)",
-      `npx prisma db push --schema=${schemaPath} --skip-generate --accept-data-loss`,
+      "create MissionBlackboard table",
+      `node ${path.join(rootDir, "scripts", "create-mission-blackboard-table.mjs")}`,
     );
-    console.log("[prisma] MissionBlackboard table restored");
+    console.log("[prisma] MissionBlackboard table ensured");
   } catch (e) {
     console.warn(
-      "[prisma] Could not restore MissionBlackboard (non-fatal):",
+      "[prisma] Could not ensure MissionBlackboard (non-fatal):",
       e?.message?.slice(0, 200),
     );
   }

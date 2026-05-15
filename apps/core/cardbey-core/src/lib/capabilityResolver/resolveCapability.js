@@ -1,3 +1,5 @@
+import { buildServiceRequestCaptureResponse } from './serviceRequestDraft.js';
+
 /**
  * Phase 1 — Capability Resolution Layer for Performer / Intake.
  * Deterministic family + next-action hints; does not replace Intake V2 classification.
@@ -88,12 +90,12 @@ export function signalsServiceRequest(blob) {
   if (/\b(add to cart|checkout|buy this product|order from my store|gift card from)\b/.test(b)) return false;
 
   const localProf =
-    /\b(plumber|plumbing|electricians?|electrician|cleaners?|cleaning\s+service|tutor|tutors|tutoring|nails?|nail\s+technician|manicure|pedicure|hairdresser|hair\s+stylist|massages?|massage\s+therapist|handyman|handymen|locksmiths?|painters?|roofer|hvac|babysitter|pet\s*sit|landscapers?|facial|waxing)\b/.test(
+    /\b(plumber|plumbing|electricians?|electrician|cleaners?|cleaning\s+service|tutor|tutors|tutoring|nails?|nail\s+salon|nail\s+technician|manicure|pedicure|hairdresser|hair\s+stylist|hair\s*cut|haircut|hair\s+colour|hair\s+color|barber|barbers?|beautician|beauty\s+salon|massages?|massage\s+therapist|physio|physiotherapist|handyman|handymen|locksmiths?|painters?|roofer|hvac|babysitter|pet\s*sit|landscapers?|facial|waxing)\b/.test(
       b,
     );
 
   const bookOrFind =
-    /\b(help\s+me\s+)?(book|schedule|arrange|find|hire|get|need)\b/.test(b) ||
+    /\b(help\s+me\s+(to\s+)?)?(book|schedule|arrange|find|hire|get|need)\b/.test(b) ||
     /\bfind\s+me\s+(a|an)?\s*\w+/.test(b) ||
     /\bi\s+need\s+(a|an)?\s*\w+/.test(b) ||
     /\blooking\s+for\s+(a|an)?\s*\w+/.test(b);
@@ -105,7 +107,8 @@ export function signalsServiceRequest(blob) {
 
   if (localProf && bookOrFind) return true;
   if (explicitService && localProf) return true;
-  if (/\bbook\s+(a|an)\s+.+service\b/.test(b) && /\b(nails|beauty|massage|cleaning|plumb|tutor)/.test(b)) return true;
+  if (/\bbook\s+(a|an)\s+.+service\b/.test(b) && /\b(nails|hair|beauty|massage|cleaning|plumb|tutor|barber)/.test(b))
+    return true;
   return false;
 }
 
@@ -180,8 +183,18 @@ export function isGenericIntakeFallback(text, locale) {
  * @param {string} text
  */
 export function isAssistantRefusal(text) {
-  const t = String(text ?? '').toLowerCase();
-  if (!t) return false;
+  const raw = String(text ?? '').trim();
+  if (!raw) return false;
+  const t = raw.toLowerCase();
+  const refusalPatterns = [
+    /\bi\s+can('?t| not)\s+(help|assist)\b.*\b(book|appointment|personal|haircut|salon|nails?)\b/i,
+    /\bi\s+can\s+assist\s+you\s+with\s+business/i,
+    /\bi\s+only\s+(do|handle|assist\s+with)\s+business/i,
+    /\bnot\s+able\s+to\s+book\s+personal\b/i,
+    /\brecommend\s+(checking|using|calling)\b/i,
+    /\b(i'?d|i\s+would)\s+recommend\b.*\b(booksy|fresha|styleseat|google\s+maps)\b/i,
+  ];
+  if (refusalPatterns.some((p) => p.test(raw))) return true;
   return (
     t.includes('cannot help') ||
     t.includes("can't help") ||
@@ -225,6 +238,19 @@ export function resolveCapability(input) {
     clarificationPrompt: undefined,
     suggestedToolHint: null,
   };
+
+  // Layer 1 — explicit intake tool for local / professional service requests
+  if (tool === 'service_request') {
+    return {
+      ...base,
+      family: CAPABILITY_FAMILIES.SERVICE_REQUEST,
+      action: 'clarify',
+      confidence: 0.92,
+      reason: 'tool_service_request',
+      clarificationPrompt: CLARIFY.service_request[locale],
+      suggestedToolHint: 'service_request',
+    };
+  }
 
   // Layer 1 — align with existing classifier tool (preserve missions)
   if (tool === 'create_store' || RE_STORE.test(blob)) {
@@ -327,7 +353,7 @@ export function resolveCapability(input) {
       confidence: 0.84,
       reason: 'local_service_request_signal',
       clarificationPrompt: CLARIFY.service_request[locale],
-      suggestedToolHint: 'general_chat',
+      suggestedToolHint: 'service_request',
     };
   }
 
@@ -378,13 +404,14 @@ export function resolveCapability(input) {
  * @param {{
  *   resolution: CapabilityResolution,
  *   responseOut: string,
- *   classification: { tool?: string, executionPath?: string },
+ *   classification: { tool?: string, executionPath?: string, parameters?: Record<string, unknown> },
  *   locale?: string,
+ *   userMessage?: string,
  * }} opts
  * @returns {{ response: string, applied: boolean }}
  */
 export function maybeEnhanceGeneralChatResponse(opts) {
-  const { resolution, responseOut, classification, locale } = opts;
+  const { resolution, responseOut, classification, locale, userMessage } = opts;
   const loc = locale === 'vi' ? 'vi' : 'en';
   const tool = String(classification?.tool ?? '');
   const path = String(classification?.executionPath ?? '');
@@ -400,12 +427,22 @@ export function maybeEnhanceGeneralChatResponse(opts) {
   }
 
   const f = resolution.family;
+  if (f === CAPABILITY_FAMILIES.SERVICE_REQUEST) {
+    const um = String(userMessage ?? '').trim();
+    if (um) {
+      return {
+        response: buildServiceRequestCaptureResponse(um, loc, classification?.parameters ?? {}),
+        applied: true,
+      };
+    }
+    return { response: CLARIFY.service_request[loc], applied: true };
+  }
+
   if (
     f === CAPABILITY_FAMILIES.COMMERCE_TRANSACTION ||
     f === CAPABILITY_FAMILIES.IMAGE_UNDERSTANDING ||
     f === CAPABILITY_FAMILIES.DOCUMENT_UNDERSTANDING ||
     f === CAPABILITY_FAMILIES.RESEARCH ||
-    f === CAPABILITY_FAMILIES.SERVICE_REQUEST ||
     f === CAPABILITY_FAMILIES.SUPPORT_NAVIGATION ||
     f === CAPABILITY_FAMILIES.STORE_SETUP ||
     f === CAPABILITY_FAMILIES.WEBSITE_BUILD
@@ -417,11 +454,9 @@ export function maybeEnhanceGeneralChatResponse(opts) {
           ? CLARIFY.image[loc]
           : f === CAPABILITY_FAMILIES.RESEARCH
             ? CLARIFY.research[loc]
-            : f === CAPABILITY_FAMILIES.SERVICE_REQUEST
-              ? CLARIFY.service_request[loc]
-              : f === CAPABILITY_FAMILIES.SUPPORT_NAVIGATION
-                ? CLARIFY.support[loc]
-                : CLARIFY.store[loc];
+            : f === CAPABILITY_FAMILIES.SUPPORT_NAVIGATION
+              ? CLARIFY.support[loc]
+              : CLARIFY.store[loc];
     return { response: prompt, applied: true };
   }
 

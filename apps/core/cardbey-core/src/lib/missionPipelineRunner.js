@@ -20,6 +20,7 @@ import { canTransitionMissionPipeline } from './missionPipelineTransitions.js';
 import { dispatchTaskWithAgentHint } from './agentPlanning/agentOrchestrator.js';
 import { enrichStepInputFromPriorOutputs } from './agentPlanning/artifactInputEnrichment.js';
 import { buildRunnerDualWriteMetadataJson } from './orchestrator/pipelineCanonicalResults.js';
+import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
 
 /**
  * Build execution input for a step from mission context (e.g. targetId as storeId) and metadata (e.g. slotKey, promotionId).
@@ -454,6 +455,24 @@ export async function runNextMissionPipelineStep(missionId) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[MissionRunner] mission updated: completed runState=done`);
     }
+    const metaDbg =
+      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+        ? mission.metadataJson
+        : {};
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[postMissionSummary] missionType debug:', {
+        type: mission.type,
+        intentType: mission.intentType,
+        metadataType: metaDbg.missionType,
+        intentMode: metaDbg.intentMode,
+      });
+    }
+    void runPostMissionCompletionSummary({
+      missionId: id,
+      missionType: mission.type ?? null,
+      metadataJson: mission.metadataJson,
+      outputsJson: outputsToPersist,
+    }).catch(() => {});
     return { ok: true, stepRun: true, toolName, status: 'completed', runState: 'done' };
   }
 

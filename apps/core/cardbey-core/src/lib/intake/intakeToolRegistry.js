@@ -18,7 +18,7 @@ export const PLAN_ROLE = {
   STANDALONE: 'STANDALONE',
 };
 
-export const EXECUTION_PATHS = new Set(['chat', 'direct_action', 'proactive_plan', 'clarify']);
+export const EXECUTION_PATHS = new Set(['chat', 'direct_action', 'proactive_plan', 'clarify', 'service_request']);
 
 const ROLE_SORT = {
   [PLAN_ROLE.FIRST]: 0,
@@ -366,6 +366,101 @@ export const INTAKE_TOOL_REGISTRY = [
     examples: ['create a store for my cafe in Melbourne', 'build a store for Acme Co'],
   },
   {
+    toolName: 'upload_store_asset',
+    executionPath: 'direct_action',
+    label: 'Upload Store Asset',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        assetType: { type: 'string' },
+        generationRunId: { type: 'string' },
+        storeId: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['assetType', 'generationRunId', 'storeId'],
+    semanticDescription:
+      'Upload a logo, avatar, or hero image to the store. Use when user wants to upload their own logo or brand image.',
+    examples: ['upload my logo', 'add my store logo', 'upload a logo for my store', 'set my brand image'],
+  },
+  {
+    toolName: 'replace_store_catalog',
+    executionPath: 'direct_action',
+    label: 'Replace Store Catalog',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        generationRunId: { type: 'string' },
+        storeId: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['generationRunId', 'storeId'],
+    semanticDescription:
+      'Replace the store product catalog with real menu items uploaded by the user. Use when user wants to add their real products, menu, or items.',
+    examples: ['add my real products', 'replace with my menu', 'upload my menu', 'add real items to my store'],
+  },
+  {
+    toolName: 'update_store_hero',
+    executionPath: 'direct_action',
+    label: 'Update Store Hero Image',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        generationRunId: { type: 'string' },
+        storeId: { type: 'string' },
+        imageQuery: { type: 'string' },
+        focus: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['generationRunId', 'storeId', 'imageQuery', 'focus'],
+    semanticDescription:
+      'Change or customize the store hero banner image. Use when user wants to change the main hero photo or banner.',
+    examples: ['customize hero image', 'change my banner', 'update hero photo', 'change the main store image'],
+  },
+  {
+    toolName: 'publish_store',
+    executionPath: 'direct_action',
+    label: 'Publish Store',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        generationRunId: { type: 'string' },
+        storeId: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['generationRunId', 'storeId'],
+    semanticDescription: `Publish a mini website or store to make it publicly live on the internet.
+Use when the user wants to publish, go live, launch their store, make it public,
+or share their website with customers.`,
+    examples: [
+      'publish my store',
+      'make my store live',
+      'go live',
+      'launch my website',
+      'publish my mini website',
+      'I want to publish',
+    ],
+  },
+  {
     toolName: 'code_fix',
     executionPath: 'direct_action',
     label: 'Fix Content / Text',
@@ -506,6 +601,33 @@ export const INTAKE_TOOL_REGISTRY = [
     optionalParams: ['instanceId', 'frameDurationMs', 'aspectRatio'],
     semanticDescription: `Creates an animated slideshow from promotion content. Export runs in Content Studio; upload the GIF via media API when ready.`,
     examples: ['create a slideshow for my promotion', 'export my promotion as a gif slideshow', 'animated slideshow from promo'],
+  },
+  {
+    toolName: 'service_request',
+    executionPath: 'service_request',
+    label: 'Local service request',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        serviceType: { type: 'string' },
+        location: { type: 'string' },
+        timeWindow: { type: 'string' },
+        budget: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['serviceType', 'location', 'timeWindow', 'budget'],
+    semanticDescription: `User wants to book, find, or hire a local service provider (hair, nails, massage, barber, physio, cleaning, etc.). Capture preferences and search for providers in Cardbey — do not refuse as "business only".`,
+    examples: [
+      'help me book a haircut this Sunday',
+      'find a nail salon near me',
+      'book a massage for tomorrow',
+      'help me to book a hair cut',
+    ],
   },
   {
     toolName: 'general_chat',

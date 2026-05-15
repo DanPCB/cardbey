@@ -72,6 +72,71 @@ export function normalizePreviewCategories(preview) {
 }
 
 /**
+ * Map draft preview category ids to display names (same contract as publishDraftService).
+ * @param {unknown[]} categories
+ * @returns {Map<string, string>}
+ */
+export function buildCategoryIdToNameMap(categories) {
+  const draftCatIdToName = new Map();
+  for (const c of Array.isArray(categories) ? categories : []) {
+    if (c && c.id != null && (c.name != null || c.label != null)) {
+      draftCatIdToName.set(String(c.id).trim(), String(c.name ?? c.label ?? '').trim() || 'Other');
+    }
+  }
+  if (!draftCatIdToName.has('other')) {
+    draftCatIdToName.set('other', 'Other');
+  }
+  return draftCatIdToName;
+}
+
+/**
+ * @param {object | null | undefined} item
+ * @param {Map<string, string>} draftCatIdToName
+ * @param {string} [otherDefault]
+ */
+export function resolveDraftProductCategoryName(item, draftCatIdToName, otherDefault = 'Other') {
+  const map = draftCatIdToName instanceof Map ? draftCatIdToName : new Map();
+  const draftCatId = item?.categoryId != null ? String(item.categoryId).trim() : null;
+  const fromMap = draftCatId && map.get(draftCatId);
+  if (fromMap) return fromMap;
+  const direct = item?.category != null && String(item.category).trim();
+  if (direct) return direct;
+  return map.get('other') ?? otherDefault;
+}
+
+/**
+ * First usable image URL from draft item shapes (preview.items / catalog.products).
+ * @param {object | null | undefined} item
+ * @returns {string | null}
+ */
+export function resolveDraftItemImageUrl(item) {
+  if (!item || typeof item !== 'object') return null;
+  const u =
+    item.imageUrl ??
+    (typeof item.image === 'string' ? item.image : null) ??
+    (item.image && typeof item.image === 'object' ? item.image.url ?? item.image.imageUrl : null) ??
+    item.primaryImageUrl ??
+    null;
+  if (u == null) return null;
+  const s = String(u).trim();
+  return s || null;
+}
+
+/**
+ * Parsed price for Product.price, or null when missing / invalid / non‑positive (avoid $0.00 placeholders).
+ * @param {object | null | undefined} item
+ * @returns {number | null}
+ */
+export function normalizeDraftProductPrice(item) {
+  if (!item || typeof item !== 'object') return null;
+  const raw = item.priceV1?.amount ?? item.price;
+  if (raw == null || raw === '') return null;
+  const n = parseFloat(String(raw).replace(/[^\d.-]/g, ''));
+  if (Number.isNaN(n) || n <= 0) return null;
+  return n;
+}
+
+/**
  * Deterministic default CTA for draft preview / publish when none is set.
  * Matches coarse store kinds: service, product, food; everything else → visit.
  * @param {{ storeType?: string | null, businessType?: string | null }} context
@@ -2557,6 +2622,20 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
 
   normalizePreviewCategories(merged);
 
+  // Full catalog replacement (e.g. menu upload) assigns new item ids; website.sections.featured.productIds
+  // still pointed at old ids → storefront FeaturedSection resolves zero products and hides. Regenerate sections
+  // from current items (same helper as initial draft website build). Skip partial image-only patches — ids unchanged.
+  if (incoming.items !== undefined && !isPartialItemUpdate) {
+    try {
+      const { mergeWebsiteIntoPreview } = await import('./websiteSectionsGenerator.js');
+      const input =
+        draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input) ? draft.input : {};
+      mergeWebsiteIntoPreview(merged, input);
+    } catch (e) {
+      console.warn('[patchDraftPreview] mergeWebsiteIntoPreview failed (non-fatal):', e?.message || e);
+    }
+  }
+
   // Phase 0: recompute qaReport only when items/hero/avatar/catalog changed (avoid noisy QA on storeName typos)
   const qaRelevant =
     incoming.items !== undefined ||
@@ -2924,20 +3003,37 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
       },
     });
 
+    const commitItems =
+      Array.isArray(preview.items) && preview.items.length > 0
+        ? preview.items
+        : Array.isArray(preview.catalog?.products)
+          ? preview.catalog.products
+          : [];
+    const commitCategoryMap = buildCategoryIdToNameMap(preview.categories ?? []);
+    const otherCategoryName = commitCategoryMap.get('other') ?? 'Other';
+
     // Create products from draft
     const createdProducts = [];
-    for (const item of preview.items || []) {
+    for (const item of commitItems) {
+      if (!item || typeof item !== 'object') continue;
+      const nameTrim = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!nameTrim) continue;
       try {
+        const imageUrl = resolveDraftItemImageUrl(item);
+        const categoryName = resolveDraftProductCategoryName(item, commitCategoryMap, otherCategoryName);
+        const price = normalizeDraftProductPrice(item);
         const product = await tx.product.create({
           data: {
             businessId: business.id,
-            name: item.name,
+            name: nameTrim,
             description: item.description || null,
-            price: item.price ? parseFloat(String(item.price).replace(/[^\d.]/g, '')) : null,
+            price,
             currency:
               (item.currency != null && String(item.currency).trim()
                 ? String(item.currency).trim().toUpperCase()
                 : null) || commitProductCurrency,
+            category: categoryName || otherCategoryName,
+            imageUrl,
             isPublished: true,
             viewCount: 0,
             likeCount: 0,
