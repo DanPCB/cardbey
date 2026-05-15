@@ -8,7 +8,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
 import { generateToken, generateGuestToken, requireAuth } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendMail } from '../services/email/mailer.js';
@@ -58,8 +58,6 @@ const passwordResetRequestLimiter = (req, res, next) => {
     message: 'Too many reset requests. Try again in {retryAfter} seconds.',
   })(req, res, next);
 };
-const prisma = new PrismaClient();
-
 function normalizeIdentifier(value) {
   if (!value) return '';
   return value.toString().trim().toLowerCase();

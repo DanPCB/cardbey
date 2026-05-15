@@ -5,11 +5,9 @@
 
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../lib/prisma.js';
 import { sendMail } from '../email/mailer.js';
 import { generateToken } from '../../middleware/auth.js';
-
-const prisma = new PrismaClient();
 
 const RESET_EXPIRY_MINUTES = parseInt(process.env.PASSWORD_RESET_EXPIRY_MINUTES || '60', 10);
 const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || '';

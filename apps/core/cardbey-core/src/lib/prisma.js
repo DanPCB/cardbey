@@ -9,9 +9,11 @@
  * Regenerate with the correct schema before running:
  *   SQLite:   npx prisma generate --schema prisma/sqlite/schema.prisma
  *   Postgres: npx prisma generate --schema prisma/postgres/schema.prisma
+ *
+ * Runtime imports client-gen (not @prisma/client) via ./prismaClient.js.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './prismaClient.js';
 
 let prisma = null;
 let connectionTested = false;
