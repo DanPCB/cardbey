@@ -97,7 +97,8 @@ export function assertCampaignModels(client) {
 
     throw new Error(
       `[DB] Prisma client is missing campaign models: ${missing.join(', ')}. ` +
-        `The client was generated from the wrong or old schema. ` +
+        `Runtime uses client-gen (see src/lib/prismaClient.js). ` +
+        `If other campaign models are present, postgres schema.prisma may be missing models that sqlite has. ` +
         `Run from apps/core/cardbey-core: ${schemaHint} then restart the server.`
     );
   }

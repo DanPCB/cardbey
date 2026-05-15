@@ -819,6 +819,7 @@ model CampaignV2 {
   scheduleItems     CampaignScheduleItem[]
   offers            Offer[]
   channelDeployments ChannelDeployment[]
+  reports           CampaignReport[]
 
   @@index([tenantKey, createdAt])
   @@index([planId])
@@ -898,6 +899,25 @@ model ChannelDeployment {
   updatedAt   DateTime  @updatedAt
 
   @@index([campaignId])
+}
+
+// Phase C: Campaign report (deterministic summary, links, schedule recap, next steps)
+model CampaignReport {
+  id             String   @id @default(cuid())
+  tenantKey      String
+  campaignId     String
+  campaign       CampaignV2 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  missionId      String?
+  summary        String
+  links          Json     // [{ label, url, kind }]
+  scheduleRecap  Json     // { count, firstAt, lastAt }
+  nextSteps      Json     // [{ title, detail, priority }]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantKey, createdAt])
+  @@index([campaignId])
+  @@index([missionId])
 }
 
 // Trend Profiles - Style brains for AI Design Assistant
