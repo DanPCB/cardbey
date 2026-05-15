@@ -3,10 +3,9 @@
  * Create a new playlist
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, SIGNAGE_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Create a playlist

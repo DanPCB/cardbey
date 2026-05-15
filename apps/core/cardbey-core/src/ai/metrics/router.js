@@ -4,9 +4,9 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
+
 const router = express.Router();
 
 // GET /metrics (when mounted at /api/ai, becomes /api/ai/metrics)

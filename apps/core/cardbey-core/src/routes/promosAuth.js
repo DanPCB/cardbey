@@ -4,13 +4,12 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { generateUniqueShortSlug } from '../utils/shortSlug.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 async function ensureStoreOwner(req, res, storeId) {
   const business = await prisma.business.findUnique({ where: { id: storeId } });
   if (!business) {

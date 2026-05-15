@@ -5,7 +5,6 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import {
   generateDailyTenantReport,
   generateDailyDeviceReport,
@@ -21,6 +20,7 @@ import { requestLog } from '../middleware/requestLog.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { generateReportPdf } from '../utils/reportPdf.js';
 import { generateReportExecutiveSummary } from '../services/reportService.js';
+import { prisma } from '../lib/prisma.js';
 import {
   inferEntryPointFromInsight,
   buildPayloadForEntryPoint,
@@ -54,7 +54,6 @@ function isAdmin(req) {
   return false;
 }
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 // Apply logging to all report routes

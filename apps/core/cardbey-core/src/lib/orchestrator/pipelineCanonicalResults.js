@@ -72,7 +72,7 @@ export function mergeRunnerOutputsIntoMetadataStepOutputs(existingMetadataJson, 
 
 /**
  * Load latest metadata from DB, then merge runner outputs into stepOutputs (avoids stale mission snapshot).
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} missionId
  * @param {unknown} metadataFallback
  * @param {Record<string, unknown>} outputsToPersist
@@ -122,7 +122,7 @@ export function buildStoreOrchestrationPipelineWrites({
  * Recover a consistent `{ outputsJson, metadataJson? }` for polling callers by merging `outputsPatch`
  * into DB `outputsJson`, and mirroring into `metadataJson.stepOutputs` when dual-write is enabled.
  *
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} missionId
  * @param {Record<string, unknown>} outputsPatch
  * @param {Record<string, unknown>|null} outputsFallback

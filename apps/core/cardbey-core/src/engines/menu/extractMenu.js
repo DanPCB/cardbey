@@ -3,13 +3,12 @@
  * Extract menu items from image using OCR/vision
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, MENU_EVENTS } from './events.js';
 import { configureMenu } from './configureMenu.js';
 import { parseMenuWithLLM } from '../../modules/menu/llmMenuParser.js';
 import { analyseVisionInput } from '../../modules/vision/universalVisionInput.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Guess category from item name

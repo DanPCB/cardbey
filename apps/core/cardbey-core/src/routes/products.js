@@ -6,13 +6,12 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth, requireOwner } from '../middleware/auth.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 // Zod schema for product update validation
 const ProductUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),

@@ -3,12 +3,11 @@
  * Validate and record promotion redemption
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, PROMO_EVENTS } from './events.ts';
 import type { RedeemPromoInput, RedeemPromoOutput } from './types.ts';
 import type { EngineContext } from './configurePromo.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Redeem a promo

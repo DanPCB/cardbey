@@ -10,13 +10,12 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../../middleware/auth.js';
 import { translateBatch } from '../../services/i18n/aiTranslationService.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
+const router = express.Router();
 /**
  * Helper function to set translated fields for Product model
  * Returns an object mapping only to real columns: name, description, and category

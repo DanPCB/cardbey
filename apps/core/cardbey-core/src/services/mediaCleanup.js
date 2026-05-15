@@ -2,11 +2,10 @@
 // Media cleanup service for removing unused/original assets from S3
 
 import { S3Client, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
-import { PrismaClient } from '@prisma/client';
 import { info, warn, error } from '../lib/logger.js';
 import { extractS3KeyFromUrl } from '../lib/s3Client.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // Initialize S3 client
 const s3Client = new S3Client({

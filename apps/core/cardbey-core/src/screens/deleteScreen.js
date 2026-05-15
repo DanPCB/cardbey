@@ -6,14 +6,14 @@
  * Always use soft delete (update deletedAt) to preserve data integrity.
  */
 
-import { PrismaClient } from '@prisma/client';
 import { broadcast } from '../realtime/sse.js';
 import { clearPairSessionsByScreenId } from '../pair/sessionStore.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 

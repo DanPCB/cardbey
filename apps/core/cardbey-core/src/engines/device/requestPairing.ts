@@ -3,13 +3,12 @@
  * Generate pairing code for device
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import type { RequestPairingInput, RequestPairingOutput } from './types.ts';
 import { inferDeviceType } from './deviceType.js';
 import crypto from 'crypto';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Engine context interface

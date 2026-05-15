@@ -43,7 +43,7 @@ export function hashPrompt(prompt) {
 }
 
 /**
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} promptHash
  * @param {string} [provider]
  * @param {string} [model]
@@ -97,7 +97,7 @@ export async function getCached(prisma, promptHash, provider = DEFAULT_PROVIDER,
 }
 
 /**
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} promptHash
  * @param {string} response
  * @param {string} [provider]
@@ -152,7 +152,7 @@ export async function setCached(prisma, promptHash, response, provider = DEFAULT
 /**
  * Per-tenant LRU eviction: if count > MAX_ROWS_PER_TENANT, delete oldest-by-lastAccessedAt (batch).
  * Call only after a successful cache write; non-fatal.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} [tenantKey]
  * @param {string} [purpose]
  */
@@ -180,7 +180,7 @@ export async function enforceTenantCap(prisma, tenantKey, purpose) {
 
 /**
  * Delete all cache rows with expiresAt < now.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @returns {Promise<{ count: number }>}
  */
 export async function purgeExpired(prisma) {

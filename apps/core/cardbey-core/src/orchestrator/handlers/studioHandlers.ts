@@ -8,16 +8,15 @@
  * - Content calendar building
  */
 
-import { PrismaClient } from '@prisma/client';
 import { OrchestratorContext } from '../insightTypes.js';
 import {
+import { prisma } from '../../lib/prisma.js';
+
   StudioEngagementCampaignPayload,
   StudioTrainingGuidePayload,
   StudioGoalPlannerPayload,
   ContentCalendarBuilderPayload,
 } from '../insightTypes.js';
-
-const prisma = new PrismaClient();
 
 /**
  * Handle studio engagement campaign

@@ -74,7 +74,7 @@ function overallSourceStatus(parts) {
 }
 
 /**
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
  */
 async function loadDbSnapshot(prisma) {
   const since = windowStart();

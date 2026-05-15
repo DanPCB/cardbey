@@ -3,10 +3,9 @@
  * Get current menu items and categories for a store
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { QueryMenuStateInput, QueryMenuStateOutput } from './types.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Context interface for engine tools

@@ -3,10 +3,9 @@
  * Get customer's stamp count and reward eligibility
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { QueryCustomerStatusInput, QueryCustomerStatusOutput } from './types.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Context interface for engine tools

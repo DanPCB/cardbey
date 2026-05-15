@@ -4,7 +4,7 @@
  */
 
 import * as miService from '../services/miService.js';
-import type { CreativeTemplate } from '@prisma/client';
+import type { CreativeTemplate } from '../lib/prismaClient.js';
 
 /**
  * Register or update MIEntity for a CreativeTemplate

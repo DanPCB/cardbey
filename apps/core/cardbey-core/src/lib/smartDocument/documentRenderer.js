@@ -249,7 +249,7 @@ export function ensureStandardsModeHtml(html) {
  * Map a Suitcase `Card` row to the SmartDocument-like shape used by {@link renderDocument} for `docType: 'card'`.
  * Keeps `/api/docs/:id/view` parity with `GET /api/docs/:id` Card fallback without duplicating layout logic.
  *
- * @param {import('@prisma/client').Card} card
+ * @param {import('../prismaClient.js').Card} card
  * @returns {object} SmartDocument-shaped input for {@link renderDocument} (`docType: 'card'`)
  */
 export function previewDocShapeFromCardRow(card) {
@@ -276,7 +276,7 @@ export function previewDocShapeFromCardRow(card) {
 }
 
 /**
- * @param {import('@prisma/client').Card} card
+ * @param {import('../prismaClient.js').Card} card
  * @param {{ includeChatWidget?: boolean }} [options]
  */
 export function renderDocumentFromCardRow(card, options = {}) {

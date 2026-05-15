@@ -5,11 +5,10 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 function isNonProd() {
   return process.env.NODE_ENV !== 'production';
 }

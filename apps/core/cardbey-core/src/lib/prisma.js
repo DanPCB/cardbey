@@ -1,6 +1,6 @@
 /**
  * Single Prisma client for the core app.
- * Uses default @prisma/client as the only runtime source of truth.
+ * Single runtime Prisma client from client-gen (see ./prismaClient.js).
  *
  * This file merges:
  * - stable single-client runtime from old src/lib/prisma.js

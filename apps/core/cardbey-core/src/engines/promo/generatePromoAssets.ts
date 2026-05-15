@@ -50,8 +50,8 @@ export const generatePromoAssets = async (
   if (types.includes('banner')) {
     if (imagesService?.generatePromoBanner) {
       // Get promo details for banner generation
-      const { PrismaClient } = await import('@prisma/client');
-      const prisma = ctx?.services?.db || new PrismaClient();
+      const { getPrismaClient } = await import('../../lib/prisma.js');
+      const prisma = ctx?.services?.db || getPrismaClient();
       const promo = await prisma.promoRule.findUnique({
         where: { id: promoId },
         select: { name: true, type: true, value: true },
@@ -76,8 +76,8 @@ export const generatePromoAssets = async (
   if (types.includes('coupon')) {
     // For now, use banner generation
     if (imagesService?.generatePromoBanner) {
-      const { PrismaClient } = await import('@prisma/client');
-      const prisma = ctx?.services?.db || new PrismaClient();
+      const { getPrismaClient } = await import('../../lib/prisma.js');
+      const prisma = ctx?.services?.db || getPrismaClient();
       const promo = await prisma.promoRule.findUnique({
         where: { id: promoId },
         select: { name: true, type: true, value: true },

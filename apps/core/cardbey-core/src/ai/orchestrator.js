@@ -3,10 +3,9 @@
  * Processes events and generates suggestions immediately
  */
 
-import { PrismaClient } from '@prisma/client';
 import cuid from 'cuid';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Process an event and generate AI suggestion

@@ -3,8 +3,9 @@ import { Router } from 'express';
 import path from 'path';
 import fs from 'fs/promises';
 import fssync from 'fs';
-import { PrismaClient } from '@prisma/client';
 import { lookup as mimeLookup } from 'mime-types';
+import { prisma } from '../lib/prisma.js';
+
 // Lazy load sharp to avoid startup crashes if platform binaries aren't available
 let sharp = null;
 
@@ -48,8 +49,6 @@ async function getFfmpeg() {
 }
 
 const router = Router();
-const prisma = new PrismaClient();
-
 function isMedia(file) {
   const m = (mimeLookup(file) || '').toString();
   return m.startsWith('image/') || m.startsWith('video/');

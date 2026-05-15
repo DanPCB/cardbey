@@ -4,10 +4,10 @@
  */
 
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 /** Must match default in middleware/auth.js so Bearer tokens verify consistently. */
 const JWT_SECRET = requireJwtSecret();
 

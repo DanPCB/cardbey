@@ -3,13 +3,14 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { PrismaClient } from '@prisma/client';
 import { lookup as mimeLookup } from 'mime-types';
 import { buildMediaUrl, normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { info, error } from '../lib/logger.js';
 import { publishVideoOptimizeJob } from '../lib/sqsClient.js';
 import { createTempPath, safeUnlink } from '../lib/tempFiles.js';
+import { prisma } from '../lib/prisma.js';
+
 // Lazy load sharp to avoid startup crashes if platform binaries aren't available
 let sharp = null;
 
@@ -90,8 +91,6 @@ async function initializeFfmpeg() {
 // via the queue after the upload completes
 
 const router = Router();
-const prisma = new PrismaClient();
-
 // Use memory storage for S3 uploads (files are buffered in memory, then uploaded to S3)
 // NOTE: For large files, consider using diskStorage and streaming to S3 to reduce memory usage
 const storage = multer.memoryStorage();

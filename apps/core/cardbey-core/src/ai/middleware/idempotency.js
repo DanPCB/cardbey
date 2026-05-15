@@ -3,9 +3,8 @@
  * Prevents duplicate event processing within 24h window
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Idempotency middleware for event intake

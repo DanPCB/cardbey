@@ -5,10 +5,9 @@
  * Uses existing OrchestratorTask model to avoid schema changes
  */
 
-import { PrismaClient } from '@prisma/client';
 import { generateImagesForMenu } from './menuVisualAgent.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 const JOB_ENTRY_POINT = 'menu_visual_generation';
 

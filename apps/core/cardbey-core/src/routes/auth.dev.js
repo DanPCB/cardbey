@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 const router = Router();
 
 router.post('/dev/seed-admin', async (req, res) => {

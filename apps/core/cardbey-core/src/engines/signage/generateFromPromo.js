@@ -3,9 +3,8 @@
  * Generate signage assets from active promotions (stub for later)
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Generate signage assets from promos

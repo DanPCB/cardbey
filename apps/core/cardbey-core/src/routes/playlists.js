@@ -1,13 +1,12 @@
 // src/routes/playlists.js
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { fileExistsOnDisk } from '../utils/publicUrl.js';
 
-const router = Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = Router();
 // Debounce map to prevent rapid-fire broadcasts
 const broadcastDebounce = new Map();
 const BROADCAST_DEBOUNCE_MS = 1000; // Wait 1 second before broadcasting

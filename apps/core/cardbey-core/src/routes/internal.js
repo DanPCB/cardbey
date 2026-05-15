@@ -2,12 +2,11 @@
 // Internal API endpoints (called by AWS Lambda, workers, etc.)
 
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { info, warn, error } from '../lib/logger.js';
 
-const router = Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = Router();
 // Internal API secret for authentication
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET;
 

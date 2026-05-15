@@ -5,10 +5,9 @@
 
 import { getToolByName } from '../toolsRegistry.js';
 import { logger } from '../../utils/logger.js';
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter } from '../../engines/loyalty/events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 const MAX_ARG_VALUE_LEN = 500;
 

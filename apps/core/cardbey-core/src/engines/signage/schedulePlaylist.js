@@ -3,10 +3,9 @@
  * Schedule a playlist to devices
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, SIGNAGE_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Schedule a playlist

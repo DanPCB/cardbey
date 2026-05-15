@@ -4,13 +4,12 @@
  */
 
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 
-const router = Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = Router();
 /**
  * GET /api/public/users/:handle
  * Get public user profile by handle

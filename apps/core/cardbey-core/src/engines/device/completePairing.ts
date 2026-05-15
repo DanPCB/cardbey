@@ -3,13 +3,12 @@
  * Complete device pairing process
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import type { CompletePairingInput, CompletePairingOutput } from './types.ts';
 import type { EngineContext } from './requestPairing.ts';
 import { inferDeviceType } from './deviceType.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Complete pairing

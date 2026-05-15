@@ -3,12 +3,11 @@
  * Manages device commands using the DeviceCommand database model
  */
 
-import { PrismaClient } from '@prisma/client';
+
+import { prisma } from '../../lib/prisma.js';
 
 // Use a singleton Prisma instance to avoid connection issues
 // Initialize immediately to ensure it's available
-const prisma = new PrismaClient();
-
 /**
  * Device Command Types
  * @typedef {'play' | 'pause' | 'next' | 'previous' | 'reloadPlaylist' | 'setPlaylistIndex' | 'setVolume' | 'setBrightness' | 'screenshot'} DeviceCommandType

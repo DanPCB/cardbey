@@ -4,14 +4,13 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { registerTemplateMIEntity } from '../mi/miTemplateHelpers.js';
 import * as miService from '../services/miService.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * Extracts tenantId/storeId from query params, body, or auth context
  * Uses the same pattern as signageRoutes.js for consistency

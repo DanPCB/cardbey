@@ -3,9 +3,8 @@
  * Get currently active promos for a store
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Query active promos

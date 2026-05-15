@@ -1,14 +1,13 @@
 // src/routes/player.js
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { resolvePublicUrl, fileExistsOnDisk, isCloudFrontUrl } from '../utils/publicUrl.js';
 import { info, debug } from '../lib/logger.js';
 import { getCachedPlaylist, setCachedPlaylist } from '../lib/playlistCache.js';
 import path from 'path';
 
-const router = Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = Router();
 // GET /api/player/config - Returns player configuration with playlist
 router.get('/config', async (req, res) => {
   try {

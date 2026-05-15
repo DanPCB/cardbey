@@ -9,11 +9,10 @@
  * - campaign_performance → campaign_insights
  */
 
-import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
 import { chunkText } from './ragChunkUtils.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // Initialize OpenAI client
 if (!process.env.OPENAI_API_KEY) {

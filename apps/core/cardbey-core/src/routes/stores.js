@@ -10,7 +10,6 @@
 
 import express from 'express';
 import multer from 'multer';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
@@ -26,6 +25,8 @@ import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
+
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
 
@@ -50,8 +51,6 @@ function hasRole(user, role) {
 
 /** In-memory set to log "draft missing" only once per generationRunId (dev), avoid log spam on poll */
 const loggedMissingDraftRunIds = new Set();
-const prisma = new PrismaClient();
-
 const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 const OwnerProfileVisibilitySchema = z.object({

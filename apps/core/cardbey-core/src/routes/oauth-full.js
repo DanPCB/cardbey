@@ -6,12 +6,11 @@
 import express from 'express';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 const JWT_SECRET = requireJwtSecret();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 

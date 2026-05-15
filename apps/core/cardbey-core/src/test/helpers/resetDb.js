@@ -37,7 +37,7 @@ async function safeDeleteMany(prisma, modelName) {
 
 /**
  * Reset DB state for tests.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
  */
 export async function resetDb(prisma) {
   // 1) Mission/orchestrator runtime tables (often Restrict → must delete before User).

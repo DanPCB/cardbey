@@ -4,9 +4,8 @@
  * Maps business style preferences to image search/generation parameters
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 export interface StylePreset {
   name: string;

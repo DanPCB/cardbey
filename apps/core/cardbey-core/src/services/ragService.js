@@ -4,10 +4,9 @@
  * Provides retrieval and answer generation using knowledge base chunks.
  */
 
-import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // Initialize OpenAI client
 if (!process.env.OPENAI_API_KEY) {

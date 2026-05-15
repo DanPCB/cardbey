@@ -9,7 +9,6 @@
  * - Device monitoring reviews
  */
 
-import { PrismaClient } from '@prisma/client';
 import { OrchestratorContext } from '../insightTypes.js';
 import {
   DeviceHealthCheckPayload,
@@ -20,7 +19,7 @@ import {
 } from '../insightTypes.js';
 import { ActivityEventType } from '../../services/activityEventService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 // Health status thresholds (in minutes)
 const HEALTHY_THRESHOLD_MINUTES = 5;

@@ -3,11 +3,10 @@
  * Get active promotions for a store
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { QueryActivePromosInput, QueryActivePromosOutput } from './types.ts';
 import type { EngineContext } from './configurePromo.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Query active promos

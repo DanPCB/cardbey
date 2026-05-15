@@ -4,14 +4,13 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { generateUniqueStoreSlug } from '../utils/slug.js';
 import { createBuildStoreJob, runBuildStoreJob, newTraceId } from '../services/draftStore/orchestraBuildStore.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * POST /api/business/create
  * Two supported shapes:

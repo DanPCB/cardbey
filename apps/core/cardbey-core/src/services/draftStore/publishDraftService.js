@@ -161,7 +161,7 @@ async function findTargetDraft(prisma, storeId, generationRunId) {
 /**
  * Publish a draft to a store. Creates Business if storeId is 'temp'.
  * When draftId is provided, that exact draft is used (ensures we publish the draft just saved by the client).
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
  * @param {{ storeId: string, generationRunId?: string, draftId?: string, userId: string }} params
  * @returns {Promise<{ storeId: string, slug: string, storefrontUrl: string }>}
  * @throws {PublishDraftError} DRAFT_NOT_FOUND, AUTH_REQUIRED, etc.

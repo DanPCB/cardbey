@@ -7,10 +7,9 @@
  * Or: node src/scripts/backfillUserHandles.js
  */
 
-import { PrismaClient } from '@prisma/client';
 import { generateHandle, generateUniqueHandle } from '../utils/generateHandle.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 async function backfillUserHandles() {
   console.log('[BackfillHandles] Starting handle generation for existing users...');

@@ -4,7 +4,6 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { getEventEmitter } from '../engines/menu/events.js';
 import { generateImageUrlForDraftItem, generateImageCandidatesForDraftItem } from '../services/menuVisualAgent/menuVisualAgent.ts';
@@ -14,9 +13,9 @@ import { queryMenuState } from '../engines/menu/queryMenuState.js';
 import { queueImageGenerationJob } from '../services/menuVisualAgent/imageGenerationJob.js';
 import { normalizeMenuItemName } from '../services/menuDedupe.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * Create engine context with services
  */

@@ -4,12 +4,13 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { runOrchestrator } from './orchestratorController.js';
 import { runOrchestrator as runUnifiedOrchestrator } from '../index.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { broadcastSse } from '../../realtime/simpleSse.js';
 import {
+import { prisma } from '../../lib/prisma.js';
+
   addClient,
   removeClient,
   broadcast,
@@ -17,8 +18,6 @@ import {
 } from './sseRegistry.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 /**
  * POST /api/orchestrator/run
  * Run orchestrator with provided context (legacy endpoint)

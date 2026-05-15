@@ -3,11 +3,10 @@
  * Record reward redemption for a customer
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { RedeemRewardInput, RedeemRewardOutput } from './types.js';
 import { getEventEmitter, LOYALTY_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Context interface for engine tools

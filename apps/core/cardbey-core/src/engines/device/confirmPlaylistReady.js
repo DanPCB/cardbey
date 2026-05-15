@@ -3,10 +3,9 @@
  * Device confirms playlist is ready and playing
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Confirm playlist ready

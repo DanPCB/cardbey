@@ -3,7 +3,7 @@
  * Converts a DraftStore record into a contract-compliant API response
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../../lib/prismaClient.js';
 
 export async function normalizeDraftResponse(
   draft: any,

@@ -51,7 +51,7 @@ function isNonUserIdPlaceholder(uid) {
  * always create a Mission row, which caused appendEvent to fail with FK errors (often surfaced as Prisma errors).
  * Ensures a minimal "shadow" Mission exists when we have a matching MissionPipeline.
  *
- * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {import('./prismaClient.js').Prisma.TransactionClient} tx
  * @param {string} missionId
  * @returns {Promise<boolean>} true if Mission exists (or was created); false if nothing to attach to
  */
@@ -122,7 +122,7 @@ export async function ensureMissionRowForBlackboardTx(tx, missionId) {
 
 /**
  * Ensure a Mission row exists for a MissionPipeline id (wrapper for emitContextUpdate / reasoning feed).
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('./prismaClient.js').PrismaClient} prisma
  * @param {string} missionId
  * @returns {Promise<boolean>}
  */

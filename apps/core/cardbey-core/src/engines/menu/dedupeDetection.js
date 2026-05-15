@@ -3,6 +3,8 @@
  * Detects duplicate menu items when extracting from photos
  */
 
+import { prisma } from '../../lib/prisma.js';
+
 // Debug logging helper (gated by environment variable)
 const DEBUG_DEDUPE = process.env.DEBUG_MENU_DEDUPE === 'true' || process.env.DEBUG_MENU_DEDUPE === '1';
 
@@ -201,8 +203,7 @@ export async function detectDuplicates({ extractedItems, existingItems, storeId 
  * @returns {Promise<Array>} Existing menu items
  */
 export async function getExistingMenuItems(storeId, ctx = {}) {
-  const { PrismaClient } = await import('@prisma/client');
-  const db = ctx.db || new PrismaClient();
+  const db = ctx.db || prisma;
 
   const products = await db.product.findMany({
     where: {

@@ -2,11 +2,10 @@
  * List paired devices for a store with optional online filter and current playlist from bindings.
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { ListDevicesInput, ListDevicesOutput } from './types.ts';
 import type { EngineContext } from './createPlaylist.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 export const listDevices = async (
   input: ListDevicesInput,

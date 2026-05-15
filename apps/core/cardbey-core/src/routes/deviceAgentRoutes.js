@@ -5,7 +5,6 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import {
   registerOrPairDevice,
@@ -17,7 +16,8 @@ import {
 } from '../services/deviceService.js';
 import { getDeviceWebSocketHub } from '../realtime/deviceWebSocketHub.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 const router = express.Router();
 
 /**

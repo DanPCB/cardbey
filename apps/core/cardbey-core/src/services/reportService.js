@@ -4,12 +4,11 @@
  * Unified service for generating all types of tenant reports.
  */
 
-import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
 import { indexSingleReportToRag } from './reportRagIngestionService.js';
 import { generateInsightsForReport } from './insightService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // Initialize OpenAI client
 if (!process.env.OPENAI_API_KEY) {

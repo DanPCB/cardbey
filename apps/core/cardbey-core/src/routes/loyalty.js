@@ -8,13 +8,12 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 // Validation schemas
 const createProgramSchema = z.object({
   storeId: z.string().min(1),

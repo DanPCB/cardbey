@@ -6,12 +6,11 @@
  */
 
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { shouldCapture } from '../services/contentIngest/captureSample.js';
 
-const router = Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = Router();
 const EXPORT_MAX_LIMIT = Math.min(1000, Math.max(100, parseInt(process.env.CONTENT_INGEST_EXPORT_MAX_LIMIT, 10) || 500));
 
 function devOnly(req, res, next) {

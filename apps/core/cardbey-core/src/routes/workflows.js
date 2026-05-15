@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { parsePromotionPrompt } from '../services/promptParser.js';
 import { generatePoster } from '../services/creator.js';
 import { makeCNetClient } from '../adapters/cnet.js';
 import '../dto/playlist.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 const workflowsRouter = Router();
 const cnetClient = makeCNetClient();
 

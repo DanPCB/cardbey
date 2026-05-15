@@ -46,7 +46,7 @@ export function resolveMode(intentType, forceMode) {
  * @param {'fast'|'agent'} [params.mode]
  * @param {boolean} [params.requiresConfirmation]
  * @param {object} [params.context]
- * @returns {Promise<import('@prisma/client').MissionRun>}
+ * @returns {Promise<import('./prismaClient.js').MissionRun>}
  */
 export async function createMissionRun({
   userId,

@@ -490,9 +490,9 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
 /**
  * Create a DraftStore record with ownerUserId and input.tenantId set for the acting user.
  * Use for all orchestra/start and createBuildStoreJob draft creation so GET /api/draft-store/:id/summary returns 200 for the creator.
- * @param {import('@prisma/client').PrismaClient} prismaClient
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prismaClient
  * @param {{ user?: { id: string, business?: { id: string } | null } | null, userId?: string | null, tenantKey?: string | null, input: object, [key: string]: any }} options - user or (userId + tenantKey), input, and rest as create data (expiresAt, mode, status, generationRunId, committedStoreId, ...)
- * @returns {Promise<import('@prisma/client').DraftStore>}
+ * @returns {Promise<import('../../lib/prismaClient.js').DraftStore>}
  */
 /** Guest users are not in the User table; do not write guest id to ownerUserId (FK to User.id). */
 function isGuestUserId(id) {

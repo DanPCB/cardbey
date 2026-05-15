@@ -3,9 +3,8 @@
  * Records and queries system events from devices, orchestrator, and dashboard
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Record a system event

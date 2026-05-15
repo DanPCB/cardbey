@@ -21,7 +21,7 @@ import { canTransitionMissionPipeline } from '../missionPipelineTransitions.js';
  * Store POST /run expects the pipeline in `queued`. `approveMissionPipeline` only advances
  * `awaiting_confirmation` → `queued`. Missions can still be `requested` if creation did not
  * finish transitions — advance requested → planned → (awaiting_confirmation | queued) first.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} missionId
  * @param {string} currentStatus
  * @returns {Promise<{ ok: boolean, error?: string, status?: string }>}
@@ -76,7 +76,7 @@ async function ensureStoreMissionReadyForRun(prisma, missionId, currentStatus) {
 
 /**
  * @param {object} opts
- * @param {import('@prisma/client').PrismaClient} [opts.prisma]
+ * @param {import('../prismaClient.js').PrismaClient} [opts.prisma]
  * @param {object} opts.user
  * @param {string} opts.missionId
  * @param {Record<string, unknown>} [opts.body]

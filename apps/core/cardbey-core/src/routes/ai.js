@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { PrismaClient } from '@prisma/client';
 import multer from 'multer';
 import {
   generateCaptions,
@@ -19,9 +18,9 @@ import { generateBusinessProfile } from '../services/businessProfileService.ts';
 import { performMenuOcr } from '../modules/menu/performMenuOcr.js';
 import { instantiateCreativeTemplateForContext } from '../services/miOrchestratorService.js';
 import { generateStarterKitForBusiness } from '../services/starterKitService.js';
-// Note: If nanoid is not available, use: import { nanoid } from 'nanoid/non-secure';
+import { prisma } from '../lib/prisma.js';
 
-const prisma = new PrismaClient();
+// Note: If nanoid is not available, use: import { nanoid } from 'nanoid/non-secure';
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({

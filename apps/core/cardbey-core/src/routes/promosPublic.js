@@ -4,11 +4,10 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 /** CUIDs are typically 25 chars; short slug is 8. */
 function isLikelyCuid(s) {
   return typeof s === 'string' && s.length > 15;

@@ -4,11 +4,10 @@
  * Generates daily tenant reports from activity events using LLM.
  */
 
-import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
 import { ingestTenantReportToRag } from './ragService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // Initialize OpenAI client
 if (!process.env.OPENAI_API_KEY) {

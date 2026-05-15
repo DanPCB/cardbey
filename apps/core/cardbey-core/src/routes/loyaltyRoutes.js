@@ -4,7 +4,6 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { getEventEmitter } from '../engines/loyalty/events.js';
 import {
@@ -15,6 +14,8 @@ import {
   RedeemRewardInput,
 } from '../engines/loyalty/types.js';
 import {
+import { prisma } from '../lib/prisma.js';
+
   configureProgram,
   generateAssets,
   queryCustomerStatus,
@@ -23,8 +24,6 @@ import {
 } from '../engines/loyalty/index.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 /**
  * Create engine context with services
  */

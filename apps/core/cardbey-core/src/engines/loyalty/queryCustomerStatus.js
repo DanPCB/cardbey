@@ -3,9 +3,8 @@
  * Get customer's stamp count and reward eligibility
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Query customer loyalty status

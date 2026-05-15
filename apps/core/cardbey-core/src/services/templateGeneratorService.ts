@@ -3,12 +3,11 @@
  * Converts AI proposals into real CreativeTemplate records with base Content
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { AITemplateProposal } from './templateAIProposalService.js';
 import { instantiateCreativeTemplateForContext } from './miOrchestratorService.js';
 import * as miService from './miService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 export interface GenerateTemplateFromProposalParams {
   proposal: AITemplateProposal;

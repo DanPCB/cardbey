@@ -5,7 +5,6 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import multer from 'multer';
 import { lookup as mimeLookup } from 'mime-types';
@@ -18,9 +17,9 @@ import { getTranslatedField } from '../services/i18n/translationUtils.js';
 import fs from 'fs/promises';
 import path from 'path';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * Extract language code from Accept-Language header
  * Supports formats like "en", "en-US", "vi", "vi-VN"

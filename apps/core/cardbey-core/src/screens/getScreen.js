@@ -5,10 +5,10 @@
 
 /**
  * Get a screen by ID or return null
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} id - Screen ID
  * @param {{ includeDeleted?: boolean, tenantId?: string }} [options] - Options
- * @returns {Promise<import('@prisma/client').Screen | null>}
+ * @returns {Promise<import('../lib/prismaClient.js').Screen | null>}
  */
 export async function getScreenOr404(prisma, id, options = {}) {
   const { includeDeleted = false, tenantId } = options;

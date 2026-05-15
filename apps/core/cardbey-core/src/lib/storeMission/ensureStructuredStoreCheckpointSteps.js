@@ -6,7 +6,7 @@
 import { getStructuredMissionSteps } from '../missionPipelineStructured.js';
 
 /**
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} missionId
  * @param {{ logPrefix?: string }} [opts]
  * @returns {Promise<void>}

@@ -10,7 +10,6 @@
  * - Progress reporting via SSE
  */
 
-import { PrismaClient } from '@prisma/client';
 import { logger } from './logger.js';
 import { runSam3DesignTask } from './sam3DesignTaskService.js';
 import { broadcastSse } from '../../realtime/simpleSse.js';
@@ -18,7 +17,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import fetch from 'node-fetch';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
+
 const MAX_CONCURRENT = 4;
 const MAX_IMAGES = 50;
 const CUTOUT_DIR = path.join(process.cwd(), 'public', 'catalog-cutouts');

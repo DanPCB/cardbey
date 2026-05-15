@@ -3,17 +3,12 @@
  * Provides high-level MI analysis and suggestions for playlists and other entities
  */
 
-import { PrismaClient } from '@prisma/client';
 import * as miService from './miService.js';
-
-// Default prisma instance for production use
-let defaultPrisma: PrismaClient | null = null;
+import type { PrismaClient } from '../lib/prismaClient.js';
+import { getPrismaClient } from '../lib/prisma.js';
 
 function getDefaultPrisma(): PrismaClient {
-  if (!defaultPrisma) {
-    defaultPrisma = new PrismaClient();
-  }
-  return defaultPrisma;
+  return getPrismaClient();
 }
 
 export interface PlaylistSuggestion {

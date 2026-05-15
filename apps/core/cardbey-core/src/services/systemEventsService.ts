@@ -3,10 +3,9 @@
  * Records and queries system events from devices, orchestrator, and dashboard
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { SystemWatcherInsightSeverity } from '../../packages/ai-types/src/systemWatcher.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 export interface RecordSystemEventInput {
   source: 'device' | 'orchestrator' | 'dashboard';

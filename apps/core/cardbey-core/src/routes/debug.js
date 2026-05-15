@@ -8,15 +8,14 @@
  */
 
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import {
+import { prisma } from '../lib/prisma.js';
+
   snapshotPairingStats,
   resetPairingStats,
 } from '../debug/pairingStats.js';
 
 const router = Router();
-const prisma = new PrismaClient();
-
 // GET /api/debug/pairing-stats - Get pairing statistics
 // Query: ?reset=1 to reset counters after returning
 // Response: { ok: true, stats: { initiateCount, peekCount, registerCount, completeCount } }

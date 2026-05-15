@@ -3,11 +3,10 @@
  * Add SignageAsset items to a playlist in order
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { AddAssetsToPlaylistInput, AddAssetsToPlaylistOutput } from './types.ts';
 import type { EngineContext } from './createPlaylist.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Register or update MIEntity for a playlist item

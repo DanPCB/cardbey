@@ -3,11 +3,10 @@
  * Create a new SIGNAGE playlist
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, SIGNAGE_EVENTS } from './events.ts';
 import type { CreatePlaylistInput, CreatePlaylistOutput } from './types.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Engine context interface

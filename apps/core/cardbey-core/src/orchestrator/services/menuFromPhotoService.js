@@ -93,8 +93,8 @@ Return ONLY valid JSON array, no markdown.`;
     // Ensure categories exist
     let categoryMap = {};
     if (storeId) {
-      const { PrismaClient } = await import('@prisma/client');
-      const db = new PrismaClient();
+      const { prisma } = await import('../../lib/prisma.js');
+      const db = prisma;
       categoryMap = await ensureCategoriesForStore(storeId, { db });
     }
     

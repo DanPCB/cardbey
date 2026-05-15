@@ -8,7 +8,7 @@
 import { auditedPipelineUpdate } from './pipelineWriteAudit.js';
 
 /**
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {{ missionId: string, data: object, source: string, correlationId?: string | null, executionMode?: string | null }} args
  *        Pass `executionMode` when already loaded to skip a DB read.
  * @returns {Promise<{ ok: true } | { ok: false, code: 'NOT_FOUND' | 'NOT_GUIDED', message?: string }>}

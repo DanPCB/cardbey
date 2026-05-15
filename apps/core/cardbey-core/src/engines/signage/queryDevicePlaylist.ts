@@ -3,11 +3,10 @@
  * Get current playlist for a device
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { QueryDevicePlaylistInput, QueryDevicePlaylistOutput } from './types.ts';
 import type { EngineContext } from './createPlaylist.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Query device playlist
