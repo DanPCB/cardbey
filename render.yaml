@@ -23,5 +23,6 @@ services:
     repo: https://github.com/DanPCB/cardbey
     branch: staging
     rootDir: .
+    # build:staging runs `vite build --mode staging` → loads apps/dashboard/.../.env.staging (e.g. VITE_INTAKE_V2).
     buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build:staging
     staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
