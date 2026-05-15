@@ -25,6 +25,27 @@ services:
     repo: https://github.com/DanPCB/cardbey
     branch: staging
     rootDir: .
-    # build:staging runs `vite build --mode staging` → loads apps/dashboard/.../.env.staging (e.g. VITE_INTAKE_V2).
+    # build:staging → vite build --mode staging → .env.staging + envVars below
     buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build:staging
     staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
+    envVars:
+      - key: VITE_INTAKE_V2
+        value: "true"
+      - key: VITE_ENV
+        value: staging
+
+  # Dashboard (production) — static site build (Vite)
+  # Reconcile with existing Render service before blueprint sync if cardbey-dashboard already exists.
+  - type: web
+    name: cardbey-dashboard
+    runtime: static
+    repo: https://github.com/DanPCB/cardbey
+    branch: main
+    rootDir: .
+    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build
+    staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
+    envVars:
+      - key: VITE_INTAKE_V2
+        value: "true"
+      - key: VITE_ENV
+        value: production
