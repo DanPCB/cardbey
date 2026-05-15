@@ -9,9 +9,8 @@
  */
 
 import { OrchestratorContext } from '../insightTypes.js';
-import {
 import { prisma } from '../../lib/prisma.js';
-
+import {
   StudioEngagementCampaignPayload,
   StudioTrainingGuidePayload,
   StudioGoalPlannerPayload,

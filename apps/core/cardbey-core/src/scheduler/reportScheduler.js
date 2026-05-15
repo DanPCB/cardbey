@@ -8,9 +8,8 @@
  */
 
 import cron from 'node-cron';
-import {
 import { prisma } from '../lib/prisma.js';
-
+import {
   generateDailyTenantReport,
   generateDailyDeviceReport,
   generateWeeklyTenantReport,
