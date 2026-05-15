@@ -29,6 +29,7 @@ model User {
   role                String    @default("owner") // "owner" | "staff" | "viewer" | "admin" | "super_admin" (platform roles)
   emailVerified       Boolean   @default(false) // Phase 2: Email verification status
   verificationToken   String? // Phase 2: Hashed one-time verification token
+  verificationTokenRaw String? // Raw token for resend only; cleared on confirm. Not exposed in API.
   verificationExpires DateTime? // Phase 2: Token expiration time
   resetToken          String? // Phase 2: Password reset token
   resetExpires        DateTime? // Phase 2: Reset token expiration time
