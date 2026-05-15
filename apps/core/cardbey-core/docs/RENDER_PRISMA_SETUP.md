@@ -11,12 +11,11 @@ Do **not** move these to `devDependencies`.
 
 ## 2. Migrations run on startup
 
-**Start** is `npm start`, which runs **prestart** first. The prestart script (`scripts/prisma-bootstrap.js`) runs in order:
+**Pre-deploy** (Render Blueprint `preDeployCommand`): `node scripts/prisma-bootstrap.js` — runs with `DATABASE_URL` available, resolves `prisma/postgres/schema.prisma` when the URL is Postgres, then `prisma generate` + `prisma migrate deploy` (or SQLite `db push` locally).
 
-1. `prisma generate` (so the client exists).
-2. `prisma migrate deploy` if the `prisma/migrations` folder has migrations; otherwise `prisma db push` (e.g. SQLite).
+**Start** is `npm start`, which runs **prestart** (`scripts/prisma-bootstrap.js` again — idempotent) then the server.
 
-So migrations (or schema sync) run **before** the server starts. Use **Start Command** = `npm start` on Render.
+**Build / postinstall** use `node scripts/prisma-generate-for-env.js` (not hardcoded `prisma/schema.prisma`).
 
 ## 3. Prisma client not initialized
 
@@ -26,7 +25,7 @@ So migrations (or schema sync) run **before** the server starts. Use **Start Com
 
 **Fix:**
 
-- **Build / postinstall** use `prisma/schema.prisma`, so `prisma generate` runs during build.
+- **Build / postinstall** use `scripts/prisma-generate-for-env.js`, so `prisma generate` uses the schema matching `DATABASE_URL` / `POSTGRES_DATABASE_URL` when set at build time.
 - **Start Command:** `npm start` so prestart runs bootstrap (generate + migrate/push).
 
 **Render dashboard:**
