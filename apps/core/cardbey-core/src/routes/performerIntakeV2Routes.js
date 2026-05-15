@@ -23,11 +23,10 @@ import { intentResolutionTelemetryFields } from '../lib/intake/intakeIntentTelem
 import {
   isHeroImageChangeMessage,
   hasIntakeImageAttachment,
-  buildHeroImageClarifyOptions,
   isHeroUiInstructionFallback,
   tryHeroAutoVisualDirectAction,
 } from '../lib/intake/intakeHeroImageClarify.js';
-import { getTenantId } from '../lib/missionAccess.js';
+import { getTenantId, resolveAccessibleMission } from '../lib/missionAccess.js';
 import { getPrismaClient } from '../lib/prisma.js';
 import { executeStoreMissionPipelineRun } from '../lib/storeMission/executeStoreMissionPipelineRun.js';
 import { ensureStructuredStoreCheckpointSteps } from '../lib/storeMission/ensureStructuredStoreCheckpointSteps.js';
@@ -35,6 +34,11 @@ import { inferCurrencyFromLocationText } from '../services/draftStore/currencyIn
 import { buildCard } from '../lib/cards/buildCard.js';
 import { createEmitContextUpdate } from '../lib/missionPlan/agentMemory.js';
 import { mergeMissionContext } from '../lib/mission.js';
+import { appendEvent as appendMissionBlackboardEvent } from '../lib/missionBlackboard.js';
+import { handleUploadStoreAsset } from '../lib/tools/handlers/uploadStoreAsset.js';
+import { handleReplaceStoreCatalog } from '../lib/tools/handlers/replaceStoreCatalog.js';
+import { handleUpdateStoreHero } from '../lib/tools/handlers/updateStoreHero.js';
+import { handlePublishStore } from '../lib/tools/handlers/publishStore.js';
 import { buildApprovalPayload } from '../lib/intake/intakeApprovalPayload.js';
 import {
   putIntakeApprovalPreview,
@@ -67,11 +71,12 @@ import {
   resolveCapability,
   maybeEnhanceGeneralChatResponse,
   CAPABILITY_FAMILIES,
+  signalsServiceRequest,
 } from '../lib/capabilityResolver/resolveCapability.js';
 import { maybeBuildCapabilityBridgeArtifact } from '../lib/capabilityResolver/maybeBuildCapabilityBridgeArtifact.js';
 import { buildIntakeV2AgentLoopChatCapabilityExtras } from '../lib/capabilityResolver/buildIntakeV2AgentLoopChatCapabilityExtras.js';
 import {
-  buildServiceRequestMissingPrompt,
+  buildServiceRequestCaptureResponse,
   collectUserTextsForServiceDraft,
   formatServiceRequestWithProviderSearch,
   formatSelectedServiceProviderBlock,
@@ -82,6 +87,7 @@ import {
   searchServiceProviders,
   resolveSeedProviderCandidateById,
 } from '../lib/capabilityResolver/serviceProviderSearch.js';
+import { planNextSteps } from '../lib/missionCompletion/nextStepPlanner.js';
 
 const router = express.Router();
 const isDev = process.env.NODE_ENV !== 'production';
@@ -279,6 +285,30 @@ function parseStoreCreationFromUserMessage(raw) {
   };
 }
 
+/**
+ * CreateStoreCardPlaceholder submit line: "StoreName · mini website · Category · Location"
+ * (middle dot U+00B7). Machine-generated — prefer over NL/LLM extraction.
+ * @param {string} message
+ * @returns {{ storeName: string | null, intentMode: 'store' | 'website' | null, category: string | null, location: string | null } | null}
+ */
+function parsePillMessage(message) {
+  const raw = String(message ?? '').trim();
+  if (!raw || !raw.includes('·')) return null;
+  const parts = raw.split('·').map((s) => String(s ?? '').trim()).filter((p) => p.length > 0);
+  if (parts.length < 2) return null;
+  const typeRaw = (parts[1] ?? '').toLowerCase().replace(/\s+/g, ' ');
+  let intentMode = null;
+  if (typeRaw.includes('mini') && typeRaw.includes('website')) intentMode = 'website';
+  else if (/\bwebsite\b|\bmicrosite\b|\bweb\s*site\b/i.test(parts[1] ?? '')) intentMode = 'website';
+  else if (/\bstore\b|\bshop\b/i.test(parts[1] ?? '')) intentMode = 'store';
+  return {
+    storeName: parts[0] ? stripIntentWrappingQuotes(parts[0]) : null,
+    intentMode,
+    category: parts[2] ? stripIntentWrappingQuotes(parts[2]) : null,
+    location: parts[3] ? stripIntentWrappingQuotes(parts[3]) : null,
+  };
+}
+
 function resolveStoreId(ctx) {
   const c = ctx && typeof ctx === 'object' ? ctx : {};
   return (
@@ -422,17 +452,63 @@ function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, us
   );
 }
 
+const POST_BUILD_CHIP_HANDLERS = {
+  upload_store_asset: handleUploadStoreAsset,
+  replace_store_catalog: handleReplaceStoreCatalog,
+  update_store_hero: handleUpdateStoreHero,
+  publish_store: handlePublishStore,
+  /** Classifier may still emit `improve_hero`; same handler opens the hero customizer without a prior asset. */
+  improve_hero: handleUpdateStoreHero,
+};
+
+/** After intake opens post-build UI, mirror chip flow: append `completed_action` for replan when mission-scoped. */
+async function maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams) {
+  const rid = typeof missionId === 'string' ? missionId.trim() : '';
+  if (!rid) return;
+  try {
+    const actionIdFromParams =
+      cleanedParams &&
+      typeof cleanedParams === 'object' &&
+      !Array.isArray(cleanedParams) &&
+      typeof cleanedParams.actionId === 'string' &&
+      cleanedParams.actionId.trim()
+        ? cleanedParams.actionId.trim()
+        : '';
+    const completedPayload = actionIdFromParams ? { tool, actionId: actionIdFromParams } : { tool };
+    const appended = await appendMissionBlackboardEvent(rid, 'completed_action', completedPayload);
+    if (!appended?.ok && process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn('[IntakeV2] completed_action append not ok', appended?.error);
+    }
+  } catch (e) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn('[IntakeV2] completed_action append failed', e?.message || e);
+    }
+  }
+}
+
 async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req }) {
   const { dispatchTool } = await import('../lib/toolDispatcher.js');
   const dispatchMissionId = missionId ?? `intake-v2-${Date.now()}`;
   const payload = { ...cleanedParams, missionId: dispatchMissionId };
   if (storeId && !payload.storeId) payload.storeId = storeId;
+  const performeeContextRaw =
+    req?.body?.intentSourceContext &&
+    typeof req.body.intentSourceContext === 'object' &&
+    req.body.intentSourceContext.performeeContext &&
+    typeof req.body.intentSourceContext.performeeContext === 'object'
+      ? req.body.intentSourceContext.performeeContext
+      : null;
+  const entry = String(performeeContextRaw?.entry ?? '').trim().toLowerCase();
+  const source = entry === 'performee' ? 'performee' : 'performer';
   const toolResult = await dispatchTool(tool, payload, {
     missionId: dispatchMissionId,
     userId: req.user?.id ?? null,
     createdBy: req.user?.id ?? null,
     tenantId: getTenantId(req.user),
     storeId: storeId ?? undefined,
+    source,
   });
   return { toolResult, payload };
 }
@@ -639,6 +715,19 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const storeId = resolveStoreId(currentContext);
   const draftId = resolveDraftId(currentContext);
   const tenantKey = String(req.user?.id ?? req.guest?.id ?? 'intake-v2').slice(0, 120);
+  const performeeContext =
+    intentSourceContext &&
+    typeof intentSourceContext === 'object' &&
+    intentSourceContext.performeeContext &&
+    typeof intentSourceContext.performeeContext === 'object'
+      ? intentSourceContext.performeeContext
+      : null;
+  const performeeStoreId =
+    performeeContext && String(performeeContext.spaceType ?? '').trim() === 'business' && String(performeeContext.spaceId ?? '').trim()
+      ? String(performeeContext.spaceId).trim()
+      : null;
+  /** Read-only derived store context: allow Performee spaceId to act as storeId for classification/runtime without writing any client context. */
+  const effectiveStoreId = storeId || performeeStoreId;
   /** Appended to Intake V2 JSON when pre-intake agent loop ran. */
   let agentLoopTraceForResponse = null;
 
@@ -811,6 +900,45 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     return res.json(responsePayload);
   };
 
+  /** Silent replan: refresh next-step chips from deterministic facts + policy (optional LLM labels). */
+  if (userMessage === '__replan__' && body.silent === true && missionId) {
+    try {
+      const userLike = performerIntakeV2UserLike(req);
+      if (!userLike?.id) {
+        return res.status(401).json({ ok: false, nextSteps: [] });
+      }
+      const access = await resolveAccessibleMission(userLike, missionId);
+      if (!access.ok) {
+        return res.status(403).json({ ok: false, nextSteps: [] });
+      }
+      const prisma = getPrismaClient();
+      const pipeline = await prisma.missionPipeline.findUnique({
+        where: { id: missionId },
+        select: { type: true, outputsJson: true, metadataJson: true },
+      });
+      if (!pipeline) {
+        return res.json({ ok: false, nextSteps: [] });
+      }
+      const outputsJson =
+        pipeline.outputsJson && typeof pipeline.outputsJson === 'object' && !Array.isArray(pipeline.outputsJson)
+          ? pipeline.outputsJson
+          : {};
+      const metadataJson =
+        pipeline.metadataJson && typeof pipeline.metadataJson === 'object' && !Array.isArray(pipeline.metadataJson)
+          ? pipeline.metadataJson
+          : {};
+      const nextSteps = await planNextSteps({
+        missionId,
+        outputsJson,
+        metadataJson,
+      });
+      return res.json({ ok: true, nextSteps });
+    } catch (e) {
+      console.warn('[replan] failed:', e?.message || e);
+      return res.json({ ok: false, nextSteps: [] });
+    }
+  }
+
   if (selection && !forcedTool) {
     return safeJson(
       {
@@ -872,7 +1000,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   // ── 1) System shortcuts ────────────────────────────────────────────────────
   if (!forcedTool) {
-    const shortcut = detectIntent({ userMessage, auth: { userId: req.user?.id ?? null, isGuest: !req.user } });
+    const shortcut = detectIntent({
+      userMessage,
+      auth: { userId: req.user?.id ?? null, isGuest: !req.user },
+      primaryMode: body.primaryMode,
+      primaryModeHint: body.primaryModeHint,
+      intentSource: body.intentSource,
+      storeCreateForm:
+        body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
+          ? body.storeCreateForm
+          : undefined,
+    });
 
     // ── SmartDocument intent (CC-4) — AUTO_RUN, requires auth ──────────────
     const { sdType, sdSubtype } = detectSmartDocumentIntent(userMessage);
@@ -1130,8 +1268,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
-      const { storeName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
-      const businessName = stripIntentWrappingQuotes(String(storeName ?? '').trim()) || '';
+      const { storeName: parsedStoreName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
+      const businessName = stripIntentWrappingQuotes(String(parsedStoreName ?? '').trim()) || '';
       const businessType = String(storeType ?? 'Other').trim() || 'Other';
       const locationTrim = stripIntentWrappingQuotes(location != null ? String(location).trim() : '') || '';
 
@@ -1205,12 +1343,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
       const currencyCode =
         inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
+      const normalizedStoreName =
+        classification.parameters?.storeName ??
+        classification.parameters?.businessName ??
+        businessName ??
+        null;
       const runResult = await executeStoreMissionPipelineRun({
         prisma: prismaShortcut,
         user: userLike,
         missionId: pipeline.id,
         body: {
-          businessName,
+          businessName: normalizedStoreName,
           businessType,
           location: locationTrim,
           currencyCode,
@@ -1309,6 +1452,26 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       classification.parameters = { ...classification.parameters, description: originalGoal };
     }
   } else {
+    // Performee slideshow: narrow deterministic override (still flows through Intake V2 validation + dispatch).
+    const msgLower = userMessage.toLowerCase();
+    const performeeWantsSlideshow =
+      performeeContext &&
+      String(performeeContext.entry ?? '').trim() === 'performee' &&
+      (msgLower === 'create slideshow' ||
+        msgLower === 'create a slideshow' ||
+        msgLower === 'make slideshow' ||
+        msgLower === 'slideshow' ||
+        msgLower.includes('export') && msgLower.includes('slideshow'));
+    if (performeeWantsSlideshow) {
+      classification = {
+        executionPath: 'direct_action',
+        tool: 'generate_slideshow',
+        confidence: 0.95,
+        parameters: {
+          ...(effectiveStoreId ? { storeId: effectiveStoreId } : {}),
+        },
+      };
+    } else {
     try {
       if (
         process.env.PERFORMER_CHAT_AGENT_LOOP === 'true' &&
@@ -1322,13 +1485,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           baseEnrichedMessage: enrichedUserMessageWithHint,
           locale,
           conversationHistory: history,
-          storeId,
+          storeId: effectiveStoreId,
           draftId,
           missionId,
           req,
         });
         agentLoopTraceForResponse = loopOut.trace ?? null;
-        if (loopOut.mode === 'direct_chat' && loopOut.response) {
+        const skipPreIntakeDirectChat =
+          loopOut.mode === 'direct_chat' &&
+          loopOut.response &&
+          signalsServiceRequest(userMessage);
+        if (loopOut.mode === 'direct_chat' && loopOut.response && !skipPreIntakeDirectChat) {
           const agentLoopCapabilityExtras = await buildIntakeV2AgentLoopChatCapabilityExtras({
             userMessage,
             enrichedMessage: classifierInputMessage,
@@ -1376,10 +1543,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
       classification = await classifyIntent({
         userMessage: classifierInputMessage,
-        storeContext: { storeId, draftId },
+        storeContext: { storeId: effectiveStoreId, draftId, missionId },
         conversationHistory: history,
         locale,
         tenantKey,
+        missionId,
       });
     } catch (e) {
       if (isDev) console.error('[IntakeV2] classifyIntent threw', e);
@@ -1413,6 +1581,29 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
     classifierDowngraded = classifierDowngraded || Boolean(classification._downgraded);
     classifierReason = classification._downgradedReason ?? classifierReason;
+
+    if (!forcedTool && signalsServiceRequest(userMessage)) {
+      classification = {
+        executionPath: 'service_request',
+        tool: 'service_request',
+        confidence: Math.max(
+          typeof classification.confidence === 'number' && !Number.isNaN(classification.confidence)
+            ? classification.confidence
+            : 0,
+          0.88,
+        ),
+        parameters:
+          classification.parameters && typeof classification.parameters === 'object' && !Array.isArray(classification.parameters)
+            ? { ...classification.parameters }
+            : {},
+        message: undefined,
+        plan: undefined,
+        clarifyOptions: undefined,
+        _reasoning: 'signals_service_request',
+        _reasoningClassifier: classification._reasoning,
+      };
+    }
+    }
   }
 
   /** Hero / banner image: clarify with executable paths — never UI-only “use the button” guidance. */
@@ -1459,31 +1650,23 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           message: undefined,
         };
       } else {
-        return safeJson(
-          {
-            success: true,
-            action: 'clarify',
-            response:
-              locale === 'vi'
-                ? 'Tôi có thể cập nhật ảnh hero. Bạn muốn dùng ảnh nào?'
-                : 'I can update your hero image. What would you like to use?',
-            options: buildHeroImageClarifyOptions(locale, userMessage),
+        // No image yet: open hero customizer (upload / generate / stock) — asset is chosen inside the UI.
+        classification = {
+          ...classification,
+          tool: 'update_store_hero',
+          executionPath: 'direct_action',
+          /** Skip low-confidence intent recovery — it would revert to improve_hero + extra params and fail validation. */
+          confidence: CONFIDENCE_HIGH,
+          parameters: {
+            ...(classification.parameters && typeof classification.parameters === 'object'
+              ? classification.parameters
+              : {}),
+            focus: userMessage,
           },
-          {
-            classification: {
-              executionPath: 'clarify',
-              tool: 'improve_hero',
-              confidence: typeof classification.confidence === 'number' ? classification.confidence : 0,
-              parameters: { focus: userMessage },
-            },
-            validated: true,
-            downgraded: false,
-            downgradeReason: 'hero_image_missing_asset',
-            validationErrors: [],
-            riskLevel: RISK.STATE_CHANGE,
-            result: 'clarify',
-          },
-        );
+          clarifyOptions: undefined,
+          plan: undefined,
+          message: undefined,
+        };
       }
     }
   }
@@ -1604,7 +1787,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         parameters: classification.parameters,
         plan: classification.plan,
       },
-      storeId,
+      effectiveStoreId,
+      { missionId },
     );
     lastValidation = validation;
 
@@ -1637,7 +1821,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           userMessage,
           classification,
           locale,
-          storeId,
+          storeId: effectiveStoreId,
           draftId,
           conversationHistory: history,
           persistedIntentResolution: loadedPersistedIntent,
@@ -1902,10 +2086,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
   }
 
-  if (classification.executionPath === 'chat') {
+  if (classification.executionPath === 'chat' || classification.executionPath === 'service_request') {
     if (
-      classification.tool === 'analyze_content' ||
-      (classification.tool === 'general_chat' && hasAnyImageEarly)
+      classification.executionPath === 'chat' &&
+      (classification.tool === 'analyze_content' ||
+        (classification.tool === 'general_chat' && hasAnyImageEarly))
     ) {
       const responseText = imageContext?.hasText
         ? `Here's what I found in the image:\n\n${imageContext.extractedText}`
@@ -2003,8 +2188,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       locale === 'vi'
         ? 'Bạn có thể mô tả thêm không?'
         : "I'm not sure how to help with that. Could you give me more details?";
-    const rawMsg =
-      typeof classification.message === 'string' && classification.message.trim()
+    const isIntakeServiceRequestPath =
+      classification.executionPath === 'service_request' && classification.tool === 'service_request';
+    const rawMsg = isIntakeServiceRequestPath
+      ? buildServiceRequestCaptureResponse(userMessage, locale, cleanedParams)
+      : typeof classification.message === 'string' && classification.message.trim()
         ? classification.message.trim()
         : defaultChat;
 
@@ -2014,29 +2202,73 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       storeId &&
       !hasIntakeImageAttachment(body)
     ) {
+      const blackboardContextRaw = body.blackboardContext;
+      const blackboardContext =
+        blackboardContextRaw && typeof blackboardContextRaw === 'object' && !Array.isArray(blackboardContextRaw)
+          ? blackboardContextRaw
+          : null;
+      const chipResult = await handleUpdateStoreHero({
+        blackboardContext,
+        storeContext: {
+          storeId: effectiveStoreId ?? storeId ?? null,
+          draftId,
+          missionId,
+        },
+        missionId,
+      });
+      if (chipResult?.action === 'message') {
+        return safeJson(
+          {
+            success: true,
+            action: 'chat',
+            response: String(chipResult.message ?? '').trim() || 'OK.',
+          },
+          {
+            classification: { ...classification, parameters: { ...cleanedParams, focus: userMessage } },
+            validated: true,
+            downgraded: true,
+            downgradeReason: 'hero_open_ui_requires_store_context',
+            validationErrors: [],
+            riskLevel,
+            result: 'fallback',
+          },
+        );
+      }
+      const heroParams = { ...cleanedParams, focus: userMessage };
+      if (chipResult?.action === 'open_ui') {
+        await maybeAppendOpenUiCompletedAction(missionId, 'update_store_hero', heroParams);
+      }
       return safeJson(
         {
           success: true,
-          action: 'clarify',
-          response:
-            locale === 'vi'
-              ? 'Tôi có thể cập nhật ảnh hero. Bạn muốn dùng ảnh nào?'
-              : 'I can update your hero image. What would you like to use?',
-          options: buildHeroImageClarifyOptions(locale, userMessage),
+          action: 'tool_call',
+          tool: 'update_store_hero',
+          parameters: heroParams,
+          missionId,
+          response: String(chipResult?.message ?? '').trim() || 'OK.',
+          result: {
+            action: chipResult?.action,
+            ui: chipResult?.ui ?? null,
+            storeId: chipResult?.storeId ?? null,
+            generationRunId: chipResult?.generationRunId ?? null,
+            draftId: chipResult?.draftId ?? null,
+            message: chipResult?.message ?? null,
+          },
+          reasoning: classification._reasoning,
         },
         {
           classification: {
             ...classification,
-            executionPath: 'clarify',
-            tool: 'improve_hero',
-            parameters: { ...cleanedParams, focus: userMessage },
+            tool: 'update_store_hero',
+            executionPath: 'direct_action',
+            parameters: heroParams,
           },
           validated: true,
-          downgraded: true,
-          downgradeReason: 'hero_ui_instruction_replaced',
+          downgraded: false,
+          downgradeReason: null,
           validationErrors: [],
           riskLevel,
-          result: 'clarify',
+          result: 'success',
         },
       );
     }
@@ -2071,7 +2303,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     let adjustedResponseOut = responseOut;
     if (capabilityResolution.family === CAPABILITY_FAMILIES.SERVICE_REQUEST) {
       if (!isServiceRequestDraftComplete(serviceRequestDraft)) {
-        adjustedResponseOut = buildServiceRequestMissingPrompt(serviceRequestDraft, userMessage, locale);
+        adjustedResponseOut = buildServiceRequestCaptureResponse(userMessage, locale, cleanedParams);
       } else {
         providerSearchResult = await searchServiceProviders(serviceRequestDraft, locale);
         // Provider selection via structured capability-bridge action context.
@@ -2123,6 +2355,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         responseOut: adjustedResponseOut,
         classification,
         locale,
+        userMessage,
       });
 
     const capabilityBridge = maybeBuildCapabilityBridgeArtifact({
@@ -2419,19 +2652,131 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       );
     }
 
+    const postBuildHandler = POST_BUILD_CHIP_HANDLERS[tool];
+    if (postBuildHandler) {
+      const blackboardContextRaw = body.blackboardContext;
+      const blackboardContext =
+        blackboardContextRaw && typeof blackboardContextRaw === 'object' && !Array.isArray(blackboardContextRaw)
+          ? /** @type {Record<string, unknown>} */ (blackboardContextRaw)
+          : null;
+      const storeContext = {
+        storeId: effectiveStoreId ?? storeId ?? null,
+        draftId,
+        missionId,
+      };
+      const chipResult = await postBuildHandler({
+        blackboardContext,
+        storeContext,
+        missionId,
+        userId: req.user?.id ?? req.userId ?? null,
+      });
+      if (chipResult?.action === 'message') {
+        return safeJson(
+          {
+            success: true,
+            action: 'chat',
+            response: String(chipResult.message ?? '').trim() || 'OK.',
+          },
+          {
+            classification: { ...classification, parameters: cleanedParams },
+            validated: true,
+            downgraded: classifierDowngraded,
+            downgradeReason: classifierReason,
+            validationErrors: [],
+            riskLevel,
+            result: 'fallback',
+          },
+        );
+      }
+      if (chipResult?.action === 'open_ui') {
+        await maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams);
+      }
+      if (chipResult?.action === 'published' && missionId) {
+        try {
+          await appendMissionBlackboardEvent(missionId, 'completed_action', {
+            tool: 'publish_store',
+            family: 'publishing',
+            liveUrl: chipResult.liveUrl ?? null,
+            storeId: chipResult.storeId ?? null,
+            completedAt: new Date().toISOString(),
+          });
+        } catch {
+          /* non-fatal */
+        }
+      }
+      return safeJson(
+        {
+          success: true,
+          action: 'tool_call',
+          tool,
+          parameters: cleanedParams,
+          missionId,
+          response: String(chipResult?.message ?? '').trim() || 'OK.',
+          result: {
+            action: chipResult.action,
+            ui: chipResult.ui ?? null,
+            storeId: chipResult.storeId ?? null,
+            generationRunId: chipResult.generationRunId ?? null,
+            draftId: chipResult.draftId ?? null,
+            message: chipResult.message ?? null,
+            liveUrl: chipResult.liveUrl ?? null,
+            slug: chipResult.slug ?? null,
+          },
+          reasoning: classification._reasoning,
+        },
+        {
+          classification: { ...classification, parameters: cleanedParams },
+          validated: true,
+          downgraded: classifierDowngraded,
+          downgradeReason: classifierReason,
+          validationErrors: [],
+          riskLevel,
+          result: 'success',
+        },
+      );
+    }
+
     if (tool === 'create_store' && cleanedParams._autoSubmit === true) {
-      // Phase 4C: route through normalized contract instead of calling
-      // startAutomatedStoreBuildFromIntake directly.
-      // executeStoreMissionPipelineRun is the shared helper that keeps store-run behavior identical.
-      const { storeName: nlStoreName, location: nlLocation, storeType: nlStoreType } =
-        parseStoreCreationFromUserMessage(userMessage);
+      const pillLine = parsePillMessage(userMessage);
+      if (pillLine?.storeName) {
+        const psn = String(pillLine.storeName).trim();
+        if (psn) {
+          cleanedParams = {
+            ...cleanedParams,
+            storeName: String(cleanedParams.storeName ?? '').trim() || psn,
+            businessName: String(cleanedParams.businessName ?? '').trim() || psn,
+            ...(pillLine.location && !String(cleanedParams.location ?? '').trim()
+              ? { location: pillLine.location }
+              : {}),
+            ...(pillLine.category && !String(cleanedParams.storeType ?? '').trim()
+              ? { storeType: pillLine.category }
+              : {}),
+            ...(pillLine.intentMode === 'website' ? { intentMode: 'website' } : {}),
+          };
+        }
+      }
+
+      const fromPill = pillLine?.storeName && String(pillLine.storeName).trim();
+      const { storeName: nlStoreName, location: nlLocation, storeType: nlStoreType } = fromPill
+        ? {
+            storeName: stripIntentWrappingQuotes(String(pillLine.storeName).trim()),
+            location: pillLine.location != null ? String(pillLine.location).trim() : null,
+            storeType:
+              (pillLine.category && String(pillLine.category).trim()) ||
+              inferStoreTypeFromText(pillLine.storeName, pillLine.location),
+          }
+        : parseStoreCreationFromUserMessage(userMessage);
       const paramStoreType = String(cleanedParams.storeType ?? '').trim();
       const storeType =
         paramStoreType && paramStoreType.toLowerCase() !== 'other'
           ? paramStoreType
           : nlStoreType || 'Other';
-      const storeName =
-        String(cleanedParams.storeName ?? '').trim() || (nlStoreName != null ? nlStoreName : '');
+      const cleanedParamsStoreName = stripIntentWrappingQuotes(String(cleanedParams.storeName ?? '').trim());
+      const cleanedParamsBusinessName = stripIntentWrappingQuotes(String(cleanedParams.businessName ?? '').trim());
+      const fromNlStoreName =
+        nlStoreName != null ? stripIntentWrappingQuotes(String(nlStoreName).trim()) : '';
+      /** Log / NL fallback only — resolved name must NOT use currentContext (previous mission / surface store). */
+      const storeNameFromParams = cleanedParamsStoreName || fromNlStoreName || '';
       const location =
         cleanedParams.location != null && String(cleanedParams.location).trim()
           ? String(cleanedParams.location).trim()
@@ -2468,7 +2813,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         cleanedParams.intentMode != null ? String(cleanedParams.intentMode).trim().toLowerCase() : 'store';
       const locationTrim = stripIntentWrappingQuotes(String(location ?? '').trim()) || '';
 
-      let businessName = stripIntentWrappingQuotes(String(storeName ?? '').trim()) || '';
+      /** New-store name: classifier + NL parse only — never currentContext / Business row name (stale prior store). */
+      let businessName =
+        cleanedParamsStoreName || cleanedParamsBusinessName || fromNlStoreName || '';
       let businessType = String(storeType ?? 'Other').trim() || 'Other';
 
       if (ctxIntentMode === 'website' && currentContext && typeof currentContext === 'object') {
@@ -2478,19 +2825,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           storeRow = await prisma.business
             .findFirst({
               where: { id: sid, userId: userLike.id },
-              select: { name: true, type: true },
+              select: { type: true },
             })
             .catch(() => null);
-        }
-        if (!businessName) {
-          const fromCtx =
-            (typeof currentContext.storeName === 'string' && currentContext.storeName.trim()) ||
-            (typeof currentContext.activeStoreName === 'string' && currentContext.activeStoreName.trim()) ||
-            '';
-          businessName = stripIntentWrappingQuotes(fromCtx) || businessName;
-          if (storeRow?.name) {
-            businessName = stripIntentWrappingQuotes(String(storeRow.name).trim()) || businessName;
-          }
         }
         if (
           storeRow?.type &&
@@ -2520,28 +2857,101 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
 
       const tenantId = getTenantId(req.user) ?? actorId;
+      const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
+      const pipelineTitle = `${titlePrefix}: ${businessName.slice(0, 120)}`;
+
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log('[PerformerIntakeV2] create_store autosubmit name trace', {
+          missionIdFromBody: missionId,
+          storeNameFromParams,
+          cleanedParamsStoreName,
+          cleanedParamsBusinessName,
+          businessNameResolved: businessName,
+          ctxIntentMode,
+        });
+      }
+
       const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-      const pipeline = await createMissionPipeline({
-        type: 'store',
-        title: `Create store: ${businessName.slice(0, 120)}`,
-        targetType: 'store',
-        targetId: undefined,
-        targetLabel: undefined,
-        metadata: {
-          businessName,
-          businessType,
-          location: locationTrim,
-          websiteMode: ctxIntentMode === 'website',
-          generateWebsite: ctxIntentMode === 'website',
-          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          source: 'intake_v2_autosubmit',
-          cardbeyTraceId,
-        },
-        requiresConfirmation: true,
-        executionMode: 'AUTO_RUN',
-        tenantId,
-        createdBy: actorId,
-      });
+
+      const patchableStatuses = new Set([
+        'requested',
+        'planned',
+        'awaiting_confirmation',
+        'queued',
+        'executing',
+        'awaiting_input',
+      ]);
+      const existingMissionId = typeof missionId === 'string' ? missionId.trim() : '';
+      let pipeline = null;
+      if (existingMissionId) {
+        const access = await resolveAccessibleMission(userLike, existingMissionId);
+        if (access.ok && access.kind === 'mission_pipeline') {
+          const existing = await prisma.missionPipeline.findUnique({
+            where: { id: existingMissionId },
+            select: { id: true, type: true, status: true, metadataJson: true },
+          });
+          if (
+            existing &&
+            String(existing.type || '').toLowerCase() === 'store' &&
+            patchableStatuses.has(String(existing.status || '').trim())
+          ) {
+            const prevMeta =
+              existing.metadataJson && typeof existing.metadataJson === 'object' && !Array.isArray(existing.metadataJson)
+                ? existing.metadataJson
+                : {};
+            const mergedMeta = {
+              ...prevMeta,
+              businessName,
+              businessType,
+              location: locationTrim,
+              websiteMode: ctxIntentMode === 'website',
+              generateWebsite: ctxIntentMode === 'website',
+              intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+              cardbeyTraceId: cardbeyTraceId ?? prevMeta.cardbeyTraceId,
+            };
+            await prisma.missionPipeline.update({
+              where: { id: existingMissionId },
+              data: {
+                title: pipelineTitle,
+                metadataJson: mergedMeta,
+              },
+            });
+            pipeline = { id: existingMissionId };
+            if (process.env.NODE_ENV !== 'production') {
+              // eslint-disable-next-line no-console
+              console.log('[PerformerIntakeV2] patched existing store pipeline title/metadata', {
+                missionId: existingMissionId,
+                title: pipelineTitle,
+              });
+            }
+          }
+        }
+      }
+
+      if (!pipeline) {
+        pipeline = await createMissionPipeline({
+          type: 'store',
+          title: pipelineTitle,
+          targetType: 'store',
+          targetId: undefined,
+          targetLabel: undefined,
+          metadata: {
+            businessName,
+            businessType,
+            location: locationTrim,
+            websiteMode: ctxIntentMode === 'website',
+            generateWebsite: ctxIntentMode === 'website',
+            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+            source: 'intake_v2_autosubmit',
+            cardbeyTraceId,
+          },
+          requiresConfirmation: true,
+          executionMode: 'AUTO_RUN',
+          tenantId,
+          createdBy: actorId,
+        });
+      }
 
       await ensureStructuredStoreCheckpointSteps(prisma, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
 

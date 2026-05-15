@@ -5,9 +5,8 @@
  * Replaces the in-memory store for production use.
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // 6-char code: A–Z & 0–9 (avoid ambiguous chars)
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';

@@ -4,7 +4,6 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { getEventEmitter } from '../engines/promo/events.js';
 import {
@@ -21,9 +20,9 @@ import {
 } from '../engines/promo/types.js';
 import { z } from 'zod';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * Create engine context with services
  */

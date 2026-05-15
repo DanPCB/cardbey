@@ -5,6 +5,7 @@
 
 import { getPrismaClient } from '../lib/prisma.js';
 import { resolveMissionCorrelationId } from './agentRun.js';
+import { ensureShadowUserRowForGuest } from './mission.js';
 
 // Default pagination limit for getEvents() – balance between recency and performance
 // Increase if agents need more context; callers can override with explicit limit
@@ -39,12 +40,18 @@ function normalizeBlackboardPayload(raw) {
   return { value: raw };
 }
 
+function isNonUserIdPlaceholder(uid) {
+  if (uid == null || typeof uid !== 'string') return true;
+  const s = uid.trim();
+  return !s || s === 'temp' || s === 'dev-user-id';
+}
+
 /**
  * MissionBlackboard.missionId FK → Mission.id. MissionPipeline rows use the same string id but did not
  * always create a Mission row, which caused appendEvent to fail with FK errors (often surfaced as Prisma errors).
  * Ensures a minimal "shadow" Mission exists when we have a matching MissionPipeline.
  *
- * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {import('./prismaClient.js').Prisma.TransactionClient} tx
  * @param {string} missionId
  * @returns {Promise<boolean>} true if Mission exists (or was created); false if nothing to attach to
  */
@@ -61,20 +68,45 @@ export async function ensureMissionRowForBlackboardTx(tx, missionId) {
   });
   if (!pipe) return false;
 
-  const tenantId =
-    (typeof pipe.tenantId === 'string' && pipe.tenantId.trim()) ||
-    (typeof pipe.createdBy === 'string' && pipe.createdBy.trim()) ||
-    'temp';
-  const createdByUserId =
-    (typeof pipe.createdBy === 'string' && pipe.createdBy.trim()) ||
-    (typeof pipe.tenantId === 'string' && pipe.tenantId.trim()) ||
-    'temp';
+  let createdByUserId =
+    typeof pipe.createdBy === 'string' && !isNonUserIdPlaceholder(pipe.createdBy) ? pipe.createdBy.trim() : null;
+  let tenantId =
+    (typeof pipe.tenantId === 'string' && pipe.tenantId.trim()) || createdByUserId || null;
+
+  const linkTask = await tx.orchestratorTask.findFirst({
+    where: { missionId: mid },
+    select: { userId: true, tenantId: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (isNonUserIdPlaceholder(createdByUserId) && linkTask?.userId && !isNonUserIdPlaceholder(linkTask.userId)) {
+    createdByUserId = String(linkTask.userId).trim();
+  }
+  if ((!tenantId || tenantId === 'temp') && linkTask?.tenantId && String(linkTask.tenantId).trim()) {
+    tenantId = String(linkTask.tenantId).trim();
+  }
+  if (!tenantId) {
+    tenantId = createdByUserId;
+  }
+  if (isNonUserIdPlaceholder(createdByUserId)) {
+    console.warn('[missionBlackboard] cannot create shadow Mission: no valid User id for createdByUserId', { mid });
+    return false;
+  }
+
+  await ensureShadowUserRowForGuest(tx, createdByUserId);
+  const creatorExists = await tx.user.findUnique({ where: { id: createdByUserId }, select: { id: true } });
+  if (!creatorExists) {
+    console.warn('[missionBlackboard] cannot create shadow Mission: User row missing for createdByUserId', {
+      mid,
+      createdByUserId,
+    });
+    return false;
+  }
 
   try {
     await tx.mission.create({
       data: {
         id: pipe.id,
-        tenantId,
+        tenantId: tenantId || createdByUserId,
         createdByUserId,
         title: pipe.title != null ? String(pipe.title).trim() || null : null,
         status: 'active',
@@ -90,7 +122,7 @@ export async function ensureMissionRowForBlackboardTx(tx, missionId) {
 
 /**
  * Ensure a Mission row exists for a MissionPipeline id (wrapper for emitContextUpdate / reasoning feed).
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('./prismaClient.js').PrismaClient} prisma
  * @param {string} missionId
  * @returns {Promise<boolean>}
  */

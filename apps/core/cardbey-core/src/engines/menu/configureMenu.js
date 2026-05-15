@@ -3,10 +3,9 @@
  * Create or update menu items and categories in database
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, MENU_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Configure menu items and categories

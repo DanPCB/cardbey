@@ -2,7 +2,7 @@
  * QA Sweep - runs runDraftQa on recent ready drafts and persists qaReport.
  * Called by qaSweepScheduler when QA_SWEEP_ENABLED=true.
  *
- * @param {{ prisma: import('@prisma/client').PrismaClient, logger?: (msg: string, data?: object) => void }} opts
+ * @param {{ prisma: import('../../lib/prismaClient.js').PrismaClient, logger?: (msg: string, data?: object) => void }} opts
  * @returns {Promise<{ swept: number, updated: number }>}
  */
 import { runDraftQa } from './draftQaAgent.js';

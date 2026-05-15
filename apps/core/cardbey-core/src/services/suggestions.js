@@ -4,8 +4,7 @@
  * Later: Replace with ML model
  */
 
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Build suggestions based on user context and mode

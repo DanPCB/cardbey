@@ -3,12 +3,11 @@
  * Schedule a playlist to devices with time-based rules
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, SIGNAGE_EVENTS } from './events.ts';
 import type { SchedulePlaylistInput, SchedulePlaylistOutput } from './types.ts';
 import type { EngineContext } from './createPlaylist.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Schedule a playlist

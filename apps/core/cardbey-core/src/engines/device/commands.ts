@@ -3,9 +3,8 @@
  * Queue and manage commands for devices
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 export type DeviceCommandType =
   | 'play'

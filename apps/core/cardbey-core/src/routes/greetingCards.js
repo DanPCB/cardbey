@@ -4,15 +4,14 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { generateGreetingCardSlug } from '../utils/greetingCardSlug.js';
 import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
 import { generateGreetingMessage } from '../services/greetingCardsAiService.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * GET /api/greeting-cards
  * List all greeting cards for the authenticated user

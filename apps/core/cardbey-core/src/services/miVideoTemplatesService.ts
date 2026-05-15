@@ -3,9 +3,8 @@
  * Service layer for MI video template operations
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 export interface ListMiVideoTemplatesParams {
   occasionType?: string;

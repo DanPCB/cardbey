@@ -3,10 +3,9 @@
  * Manages MIEntity registration, updates, and queries
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { MIEntity as MIType, MIBrain } from '../mi/miTypes.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 export interface MIRegisterInput {
   productId: string;

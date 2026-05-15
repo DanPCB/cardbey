@@ -45,6 +45,7 @@ export function getStructuredMissionSteps(missionType) {
       // TODO(store-pipeline): Re-add a hero image *checkpoint* when generateDraft persists multiple
       // real hero image URLs (e.g. preview.hero.candidates[]) so the UI can render thumbnails.
       // Until then, finalizeDraft/generateHeroForDraft picks a single hero; a text-only checkpoint was blind UX.
+      // Logo file upload after "Upload now" is a client side-effect (PATCH avatar); no separate pipeline gate.
       {
         orderIndex: 2,
         stepKind: 'action',

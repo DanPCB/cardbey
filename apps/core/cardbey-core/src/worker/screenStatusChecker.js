@@ -4,10 +4,9 @@
  * Handles timeouts, errors, and backoff gracefully
  */
 
-import { PrismaClient } from '@prisma/client';
 import { httpGet } from '../lib/httpGet.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // Configuration from environment
 const PING_PATH = process.env.SCREENS_PING_PATH || '/health';

@@ -2,13 +2,12 @@
 // Media health check API for dashboards and admin
 
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { info, warn } from '../lib/logger.js';
 import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3';
 
-const router = Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = Router();
 // Internal API secret for authentication
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET;
 

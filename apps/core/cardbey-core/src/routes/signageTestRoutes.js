@@ -4,14 +4,13 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { pushPlaylist } from '../engines/device/index.js';
 import { getEventEmitter } from '../engines/device/events.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * Create engine context with services
  */

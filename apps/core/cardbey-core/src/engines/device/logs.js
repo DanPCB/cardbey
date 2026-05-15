@@ -3,9 +3,8 @@
  * Manages device activity and event logging
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Add a log entry for a device

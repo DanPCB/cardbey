@@ -3,10 +3,9 @@
  * Get current menu items and categories for a store
  */
 
-import { PrismaClient } from '@prisma/client';
 import { normalizeCategoryName, getCategoryDisplayNameFromKey } from './categoryInference.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Generate categoryId from category name

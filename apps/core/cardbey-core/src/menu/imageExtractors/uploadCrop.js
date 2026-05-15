@@ -4,9 +4,10 @@
  * Reuses existing upload infrastructure without HTTP calls
  */
 
-import { PrismaClient } from '@prisma/client';
 import { uploadBufferToS3 } from '../../lib/s3Client.js';
 import { normalizeMediaUrlForStorage } from '../../utils/publicUrl.js';
+
+import { prisma } from '../../lib/prisma.js';
 
 // Lazy load sharp
 let sharp = null;
@@ -23,8 +24,6 @@ async function getSharp() {
     return null;
   }
 }
-
-const prisma = new PrismaClient();
 
 // Debug logging helper
 const DEBUG_CROP = process.env.DEBUG_MENU_CROP === 'true' || process.env.DEBUG_MENU_CROP === '1';

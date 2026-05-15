@@ -4,11 +4,9 @@
  */
 
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../lib/prisma.js';
 import { generateToken } from '../../middleware/auth.js';
 import { generateHandle, generateUniqueHandle } from '../../utils/generateHandle.js';
-
-const prisma = new PrismaClient();
 
 function normalizeIdentifier(value) {
   if (!value) return '';

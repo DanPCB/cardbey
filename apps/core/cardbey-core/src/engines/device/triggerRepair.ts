@@ -3,12 +3,11 @@
  * Initiate device repair workflow
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { TriggerRepairInput, TriggerRepairOutput } from './types.ts';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import type { EngineContext } from './requestPairing.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Trigger repair

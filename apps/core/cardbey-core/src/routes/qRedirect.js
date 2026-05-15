@@ -4,11 +4,10 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 /** Prefer /s/:slug for published storefront; fallback to preview/store when slug missing. */
 async function publicStorefrontRedirectUrl(baseUrl, storeId) {
   if (!storeId) return null;

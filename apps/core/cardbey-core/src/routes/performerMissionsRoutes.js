@@ -12,7 +12,7 @@ function asObject(v) {
 }
 
 /**
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} userId
  * @returns {Promise<string|null>}
  */
@@ -53,7 +53,7 @@ router.get('/recent', requireAuth, async (req, res, next) => {
     const prisma = getPrismaClient();
     const storeId = await resolveUserStoreId(prisma, userId);
 
-    /** @type {import('@prisma/client').Prisma.MissionPipelineWhereInput} */
+    /** @type {import('../lib/prismaClient.js').Prisma.MissionPipelineWhereInput} */
     const where = {
       OR: [
         { createdBy: userId },

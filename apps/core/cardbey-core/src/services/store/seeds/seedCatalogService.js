@@ -4,9 +4,8 @@
  * Do not replace existing templates; only used when templateId is missing or template pack not found.
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../../lib/prisma.js';
 
 const TARGET_ITEM_COUNT = 30;
 const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';

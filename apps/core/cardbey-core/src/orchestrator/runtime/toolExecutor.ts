@@ -5,11 +5,10 @@
 
 import { getToolByName } from '../toolsRegistry.js';
 import { logger } from '../../utils/logger.js';
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter } from '../../engines/loyalty/events.js';
 import type { OrchestratorToolStep } from './orchestratorToolStep.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 export type { OrchestratorToolStep };
 

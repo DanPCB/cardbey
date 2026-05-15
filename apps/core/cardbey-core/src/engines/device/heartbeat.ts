@@ -3,12 +3,11 @@
  * Update device status and state snapshot
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { HeartbeatInput, HeartbeatOutput } from './types.ts';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import type { EngineContext } from './requestPairing.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 const HEARTBEAT_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 

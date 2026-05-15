@@ -3,9 +3,8 @@
  * Utilities for building business/store context for template instantiation
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Get business context by storeId

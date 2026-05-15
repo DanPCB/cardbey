@@ -10,7 +10,7 @@ let intervalId = null;
 let isRunning = false;
 
 /**
- * @param {{ prisma: import('@prisma/client').PrismaClient, logger?: (msg: string, data?: object) => void }} opts
+ * @param {{ prisma: import('../../lib/prismaClient.js').PrismaClient, logger?: (msg: string, data?: object) => void }} opts
  */
 export function startQaSweepScheduler({ prisma, logger = console.log.bind(console) }) {
   if (!getQaSweepEnabled()) {

@@ -1,11 +1,10 @@
 // src/jobs/videoOptimizerQueue.js
 // Lightweight async queue for video optimization jobs (no Redis needed)
 
-import { PrismaClient } from '@prisma/client';
 import { optimizeVideoFromS3 } from '../services/videoOptimizer.js';
 import { info, error, warn } from '../lib/logger.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // Simple in-memory queue
 const queue = [];

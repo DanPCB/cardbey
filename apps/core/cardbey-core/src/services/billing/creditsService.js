@@ -3,9 +3,8 @@
  * Transaction-safe; only paid_ai consumes credits or bundle.
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 const WELCOME_BUNDLE_FULL_STORE_COUNT = parseInt(process.env.WELCOME_BUNDLE_FULL_STORE_COUNT || '1', 10);
 const TRIAL_AI_CREDITS = parseInt(process.env.TRIAL_AI_CREDITS || '0', 10);

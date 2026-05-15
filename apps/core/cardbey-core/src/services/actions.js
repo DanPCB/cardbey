@@ -4,11 +4,11 @@
  * Connects to existing Cardbey API endpoints
  */
 
-import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import fetch from 'node-fetch';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 const PUBLIC_API = process.env.PUBLIC_API_BASE || 'https://api.cardbey.com';
 
 /**

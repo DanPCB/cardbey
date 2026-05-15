@@ -4,11 +4,10 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 function getBaseUrl(req) {
   const envBase = process.env.PUBLIC_BASE_URL || process.env.API_BASE;
   if (envBase) return envBase.replace(/\/$/, '');

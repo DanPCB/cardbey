@@ -3,11 +3,10 @@
  * Increment customer's stamp count
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { AddStampInput, AddStampOutput } from './types.js';
 import { getEventEmitter, LOYALTY_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Context interface for engine tools

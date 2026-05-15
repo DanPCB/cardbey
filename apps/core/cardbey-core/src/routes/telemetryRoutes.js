@@ -111,7 +111,7 @@ function deriveExecutionSourceType(meta, missionType) {
  * `outputsJson.jobId` is set (store-orchestra path), and `metadataJson.stepOutputs.orchestra_store_build`
  * is absent. It does **not** score proactive-performer missions that only populate `stepOutputs` tool keys.
  *
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
  * @param {number} limit
  */
 async function buildResultConsistencySample(prisma, limit) {

@@ -6,12 +6,11 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * GET /api/public/store/:storeId/draft?generationRunId=...
  * Public draft by store id (or "temp" + optional generationRunId). No auth.

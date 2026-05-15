@@ -80,7 +80,7 @@ describe('POST /api/performer/intake/v2 hero auto-generate', () => {
     expect(res.body.result?.images?.length).toBeGreaterThan(0);
   });
 
-  it('bare hero change still returns clarify chips', async () => {
+  it('bare hero change returns update_store_hero tool_call and opens hero customizer (no clarify)', async () => {
     const app = makeApp();
     const res = await request(app)
       .post('/api/performer/intake/v2')
@@ -91,8 +91,11 @@ describe('POST /api/performer/intake/v2 hero auto-generate', () => {
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.action).toBe('clarify');
-    expect(Array.isArray(res.body.options)).toBe(true);
-    expect(res.body.options.some((o) => o.tool === '__client_hero_upload__')).toBe(true);
+    expect(res.body.success).toBe(true);
+    expect(res.body.action).toBe('tool_call');
+    expect(res.body.tool).toBe('update_store_hero');
+    expect(res.body.result?.action).toBe('open_ui');
+    expect(res.body.result?.ui).toBe('hero_customizer');
+    expect(res.body.result?.storeId).toBe('store-hero-2');
   });
 });

@@ -8,7 +8,7 @@
  */
 
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
 import {
   generateDailyTenantReport,
   generateDailyDeviceReport,
@@ -16,8 +16,6 @@ import {
   generateContentStudioActivityReport,
   generateCampaignPerformanceReport,
 } from '../services/reportService.js';
-
-const prisma = new PrismaClient();
 
 let dailyJob = null;
 let weeklyJob = null;

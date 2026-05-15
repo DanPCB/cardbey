@@ -23,6 +23,18 @@ function asObject(v) {
   return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 }
 
+function normalizePromoCtaPath(ctaUrl) {
+  if (!ctaUrl || typeof ctaUrl !== 'string') return ctaUrl;
+  // Standardize frontend promotion route: /p/promo/:publicId
+  // Backward-compat: older generators emitted /promo/:publicId or /q/:storeSlug/promo/:publicId.
+  if (ctaUrl.startsWith('http://') || ctaUrl.startsWith('https://')) return ctaUrl;
+  const m = ctaUrl.match(/^\/(?:q\/[^/]+\/)?promo\/([^/?#]+)/);
+  if (m && m[1]) {
+    return `/p/promo/${m[1]}`;
+  }
+  return ctaUrl;
+}
+
 /**
  * GET /public/:publicId
  * Runway launch_campaign landing — Promotion.metadataJson.publicId, status active only.
@@ -83,7 +95,7 @@ router.get('/public/:publicId', async (req, res, next) => {
 
     const base = publicBaseUrl();
     const storeUrl = business?.slug ? `${base}/s/${business.slug}` : null;
-    const ctaUrl = fields.ctaUrl || storeUrl || null;
+    const ctaUrl = normalizePromoCtaPath(fields.ctaUrl) || storeUrl || null;
 
     return res.json({
       ok: true,

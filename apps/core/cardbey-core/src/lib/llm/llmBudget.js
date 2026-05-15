@@ -4,7 +4,7 @@
  * Best-effort: never crashes the process; FAIL_OPEN/FAIL_CLOSED via env.
  */
 
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../prismaClient.js';
 
 const DEFAULT_PURPOSE = 'llm';
 const DEFAULT_PROVIDER = 'kimi';
@@ -70,7 +70,7 @@ export function estimateTokensOutCeiling(_prompt) {
  * Check daily budget and, if allowed, reserve one call + tokensIn + tokensOutCeiling.
  * Postgres: single atomic UPDATE ... WHERE ... AND guards ... RETURNING (strict).
  * SQLite: transaction upsert → read → conditional update (best-effort).
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {{ tenantKey: string, purpose?: string, provider: string, model?: string, prompt: string }} opts
  * @returns {Promise<{ allowed: true, day: string, reservedTokensIn: number, reservedTokensOut: number } | { allowed: false, reason: string }>}
  */
@@ -242,7 +242,7 @@ async function checkAndReserveBudgetSQLite(prisma, params) {
  * delta = actualTokensOut - reservedTokensOut.
  * If delta > 0: increment tokensOut by delta.
  * If delta < 0 and TRUE_UP_ALLOW_DECREMENT: decrement by |delta|; never allow tokensOut to go negative.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {{ tenantKey?: string, purpose?: string, provider: string, model?: string, day: string, actualTokensOut: number, reservedTokensOut: number }} opts
  */
 export async function commitBudget(prisma, opts) {

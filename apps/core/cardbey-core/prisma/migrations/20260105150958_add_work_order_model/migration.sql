@@ -1,4 +1,4 @@
-﻿-- CreateTable MiWorkOrder
+-- CreateTable MiWorkOrder
 CREATE TABLE "MiWorkOrder" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "threadId" TEXT NOT NULL,

@@ -3,6 +3,8 @@
  * Automatically infers menu item categories from names and descriptions
  */
 
+import { prisma } from '../../lib/prisma.js';
+
 // Debug logging helper (gated by environment variable)
 const DEBUG_CATEGORY = process.env.DEBUG_MENU_CATEGORY === 'true' || process.env.DEBUG_MENU_CATEGORY === '1';
 
@@ -190,8 +192,7 @@ export function getCategoryDisplayNameFromKey(normalizedKey) {
  * @returns {Promise<Object>} Map of normalizedName -> displayName
  */
 export async function ensureCategoriesForStore(storeId, ctx = {}) {
-  const { PrismaClient } = await import('@prisma/client');
-  const db = ctx.db || new PrismaClient();
+  const db = ctx.db || prisma;
 
   // Standard categories to ensure exist
   const standardCategories = [

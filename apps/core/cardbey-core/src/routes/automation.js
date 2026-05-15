@@ -6,14 +6,13 @@
 import express from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { createDraft, generateDraft } from '../services/draftStore/draftStoreService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 const StoreFromInputSchema = z.object({
   businessName: z.string().min(1, 'businessName is required'),
   businessType: z.string().optional(),

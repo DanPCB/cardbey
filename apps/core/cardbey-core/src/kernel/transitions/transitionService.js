@@ -18,7 +18,7 @@ const TERMINAL_SUCCESS_STATUSES = new Set(['ready', 'committed']);
  * - To "failed": end current running run as failed with failureCode.
  * Does not throw; logs on error so transition result is unchanged.
  *
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} draftId
  * @param {string} toStatus - normalized lower status
  * @param {object} [extraData] - may contain errorCode for failed
@@ -136,8 +136,8 @@ async function syncWorkflowRunOnDraftStatus(prisma, draftId, toStatus, extraData
 
 /**
  * @typedef {Object} TransitionDraftStoreParams
- * @property {import('@prisma/client').PrismaClient} prisma - client for draftStore/auditEvent (may be tx)
- * @property {import('@prisma/client').PrismaClient} [syncPrisma] - when prisma is a transaction client (e.g. inside $transaction), pass the root PrismaClient here so WorkflowRun sync runs with a client that has workflowRun; otherwise sync may no-op (guard in syncWorkflowRunOnDraftStatus)
+ * @property {import('../../lib/prismaClient.js').PrismaClient} prisma - client for draftStore/auditEvent (may be tx)
+ * @property {import('../../lib/prismaClient.js').PrismaClient} [syncPrisma] - when prisma is a transaction client (e.g. inside $transaction), pass the root PrismaClient here so WorkflowRun sync runs with a client that has workflowRun; otherwise sync may no-op (guard in syncWorkflowRunOnDraftStatus)
  * @property {string} draftId
  * @property {string} toStatus
  * @property {string} [fromStatus] - optional expected current status for validation
@@ -245,7 +245,7 @@ export async function transitionDraftStoreStatus({
 
 /**
  * @typedef {Object} TransitionOrchestratorTaskParams
- * @property {import('@prisma/client').PrismaClient} prisma
+ * @property {import('../../lib/prismaClient.js').PrismaClient} prisma
  * @property {string} taskId
  * @property {string} toStatus
  * @property {string} [fromStatus] - expected current status

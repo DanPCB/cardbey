@@ -4,11 +4,10 @@
  * Abstracts DB away from controllers
  */
 
-import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import { normalizePublicOrigin } from '../utils/publicUrl.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Device status types

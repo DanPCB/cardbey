@@ -3,6 +3,8 @@
  * Future-proof contract between Vision/OCR → Parser → Review UI → Persist
  */
 
+import { randomUUID } from 'node:crypto';
+
 /**
  * @typedef {Object} MenuExtractionV2Source
  * @property {string} imageUrl - Original upload URL
@@ -141,8 +143,6 @@ export function createMenuExtractionV2({
   engine = {},
   locale = 'en',
 }) {
-  // Generate UUID using crypto (Node.js built-in)
-  const { randomUUID } = await import('crypto');
   const extractionId = randomUUID();
   const now = new Date().toISOString();
 

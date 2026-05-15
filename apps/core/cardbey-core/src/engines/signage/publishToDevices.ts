@@ -4,14 +4,13 @@
  * - Schedule mode (legacy): push from PlaylistSchedule when no deviceIds / pushToAll.
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { PublishToDevicesInput, PublishToDevicesOutput } from './types.ts';
 import { getEventEmitter, SIGNAGE_EVENTS } from './events.ts';
 import { callTool } from '../../orchestrator/runtime/toolExecutor.js';
 import type { EngineContext } from './createPlaylist.ts';
 import { runDashboardPlaylistPush } from '../../services/dashboardPlaylistPushService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 type CtxWithUser = EngineContext & { userId?: string | null };
 

@@ -31,13 +31,14 @@
  * @property {MenuPhotoCandidate[]} candidates - Array of candidate dish photos
  */
 
-import { PrismaClient } from '@prisma/client';
 import { logger } from './logger.js';
 import { runSam3Inference } from './sam3DesignTaskService.js';
 import { uploadBufferToS3 } from '../../lib/s3Client.js';
 import { normalizeMediaUrlForStorage, buildMediaUrl } from '../../utils/publicUrl.js';
 import fetch from 'node-fetch';
 import { randomBytes } from 'crypto';
+
+import { prisma } from '../../lib/prisma.js';
 
 // Lazy load sharp to avoid startup crashes
 let sharp = null;
@@ -52,8 +53,6 @@ async function getSharp() {
     return null;
   }
 }
-
-const prisma = new PrismaClient();
 
 /**
  * Segment menu image using SAM-3

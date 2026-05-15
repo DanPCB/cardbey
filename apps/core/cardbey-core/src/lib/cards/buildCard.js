@@ -20,7 +20,7 @@ function getPublicOrigin() {
 
 /**
  * Loads account fields used for profile-style digital cards (matches My Account / Edit Profile).
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {string} userId
  */
 async function loadAccountProfileForCard(prisma, userId) {

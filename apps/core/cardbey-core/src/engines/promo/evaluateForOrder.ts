@@ -3,11 +3,10 @@
  * Find best applicable promos for an order (for future POS integration)
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { EvaluateForOrderInput, EvaluateForOrderOutput } from './types.ts';
 import type { EngineContext } from './configurePromo.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Evaluate promos for an order

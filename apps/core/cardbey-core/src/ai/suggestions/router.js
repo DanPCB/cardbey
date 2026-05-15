@@ -4,10 +4,10 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import cuid from 'cuid';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
+
 const router = express.Router();
 
 /**

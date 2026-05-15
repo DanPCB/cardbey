@@ -4,11 +4,12 @@
  */
 
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
+import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 /** Must match default in middleware/auth.js so Bearer tokens verify consistently. */
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-this';
+const JWT_SECRET = requireJwtSecret();
 
 // In-memory rate limiting (use Redis in production)
 const guestRateLimits = new Map();
@@ -35,7 +36,17 @@ function applyGuestRateLimit(guestKey) {
 
 function attachGuestRequest(req, guestId) {
   const gid = String(guestId || '').trim();
-  req.user = null;
+  // Treat guest as an authenticated principal for downstream code.
+  // In Cardbey Core, `tenantId` is the workspace key; for guests, it is the guest id.
+  req.user = gid
+    ? {
+        id: gid,
+        userId: gid,
+        tenantId: gid,
+        role: 'guest',
+        auth: 'guest',
+      }
+    : null;
   req.userId = gid || null;
   req.isGuest = true;
   req.guestId = gid || null;
@@ -89,6 +100,12 @@ export async function requireUserOrGuest(req, res, next) {
           req.user = user;
           req.userId = user.id;
           req.isGuest = false;
+          // Normalize auth-derived fields for Tier-3 intake boundary.
+          // Prefer tenantId from the user's first business if present.
+          const biz0 = Array.isArray(user.businesses) && user.businesses[0] ? user.businesses[0] : null;
+          const bizTenantId = biz0 && typeof biz0.id === 'string' && biz0.id.trim() ? biz0.id.trim() : '';
+          req.user.userId = req.user.userId ?? user.id;
+          req.user.tenantId = req.user.tenantId ?? (bizTenantId || undefined);
           return next();
         }
       } catch (err) {
@@ -197,6 +214,14 @@ export async function requireUserOrGuest(req, res, next) {
           req.user = user;
           req.userId = user.id;
           req.isGuest = false;
+          // Normalize auth-derived fields for Tier-3 intake boundary.
+          // Prefer tenantId from the user's first business if present.
+          const biz0 = Array.isArray(user.businesses) && user.businesses[0] ? user.businesses[0] : null;
+          const bizTenantId = biz0 && typeof biz0.id === 'string' && biz0.id.trim() ? biz0.id.trim() : '';
+          req.user.userId = req.user.userId ?? user.id;
+          if (!req.user.tenantId && bizTenantId) {
+            req.user.tenantId = bizTenantId;
+          }
           
           // Dev-only debug log
           if (process.env.NODE_ENV !== 'production') {

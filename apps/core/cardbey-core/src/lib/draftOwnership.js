@@ -4,9 +4,8 @@
  * DraftStore has no userId column, so we infer via the job that created the draft.
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from './prisma.js';
 
 /**
  * Find OrchestratorTask whose request.generationRunId matches the given runId.

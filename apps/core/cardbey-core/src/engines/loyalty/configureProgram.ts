@@ -3,11 +3,10 @@
  * Create or update a loyalty program
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { ConfigureProgramInput, ConfigureProgramOutput } from './types.js';
 import { getEventEmitter, LOYALTY_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Context interface for engine tools

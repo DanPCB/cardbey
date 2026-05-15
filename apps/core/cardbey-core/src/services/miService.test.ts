@@ -3,7 +3,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import {
   registerOrUpdateEntity,
   getEntityById,
@@ -13,7 +12,7 @@ import {
 } from './miService.js';
 import type { MIRegisterInput } from './miService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 describe('MIService', () => {
   let testEntityId: string | null = null;

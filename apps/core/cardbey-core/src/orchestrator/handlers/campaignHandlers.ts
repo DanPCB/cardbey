@@ -9,7 +9,6 @@
  * - Campaign review scheduling
  */
 
-import { PrismaClient } from '@prisma/client';
 import { OrchestratorContext } from '../insightTypes.js';
 import {
   CampaignStrategyReviewPayload,
@@ -20,7 +19,7 @@ import {
 } from '../insightTypes.js';
 import { ActivityEventType } from '../../services/activityEventService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Handle campaign strategy review

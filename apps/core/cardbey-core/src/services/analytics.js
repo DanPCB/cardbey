@@ -3,9 +3,8 @@
  * Track journey funnel, conversion, and drop-off
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Journey Analytics Events

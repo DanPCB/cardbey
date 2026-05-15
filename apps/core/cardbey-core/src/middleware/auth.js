@@ -5,7 +5,8 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../lib/prisma.js';
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-this';
+import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
+const JWT_SECRET = requireJwtSecret();
 
 
 /**

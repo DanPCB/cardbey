@@ -4,16 +4,15 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 import { registerOrUpdateEntity } from '../services/miService.js';
 import { buildCreativeAssetMIBrain } from '../mi/miCreativeHelpers.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * Get tenant/store context from request
  * Similar pattern to reports.js

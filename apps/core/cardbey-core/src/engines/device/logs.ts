@@ -3,10 +3,9 @@
  * Logging and event tracking for devices
  */
 
-import { PrismaClient } from '@prisma/client';
 import { broadcastSse } from '../../realtime/simpleSse.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 export type DeviceLogLevel = 'info' | 'warn' | 'error' | 'debug';
 export type DeviceLogSource = 'heartbeat' | 'command' | 'playlist' | 'system';

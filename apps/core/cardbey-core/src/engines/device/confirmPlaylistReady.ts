@@ -3,12 +3,11 @@
  * Device confirms playlist is ready and playing
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { ConfirmPlaylistReadyInput, ConfirmPlaylistReadyOutput } from './types.ts';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import type { EngineContext } from './requestPairing.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Confirm playlist ready

@@ -7,7 +7,6 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import OpenAI from 'openai';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { requireUserOrGuest, canPerformAction } from '../middleware/guestAuth.js';
 import { requestLog } from '../middleware/requestLog.js';
@@ -21,9 +20,10 @@ import { canAccessMission } from './agentMessagesRoutes.js';
 import { createAgentMessage } from '../orchestrator/lib/agentMessage.js';
 import { resolveMissionState } from '../lib/missionPipelineResolver.js';
 
+import { prisma } from '../lib/prisma.js';
+
 const router = express.Router();
 const USE_LLM_GATEWAY = process.env.USE_LLM_GATEWAY === 'true';
-const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 
 // Initialize OpenAI client if API key is available

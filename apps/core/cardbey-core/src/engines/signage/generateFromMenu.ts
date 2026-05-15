@@ -3,11 +3,10 @@
  * Generate signage assets from menu items
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { GenerateFromMenuInput, GenerateFromMenuOutput } from './types.ts';
 import type { EngineContext } from './createPlaylist.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Generate signage assets from menu

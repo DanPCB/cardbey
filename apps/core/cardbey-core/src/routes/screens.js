@@ -1,6 +1,5 @@
 // src/routes/screens.js
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { broadcast } from '../realtime/sse.js';
 import path from 'path';
 // Use database-backed session store (canonical source of truth)
@@ -29,7 +28,8 @@ import { info, warn, debug } from '../lib/logger.js';
 import { getCachedPlaylist, setCachedPlaylist } from '../lib/playlistCache.js';
 import { requireAuth, requireStoreAccess, optionalAuth } from '../middleware/auth.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 const router = Router();
 
 // GET /api/screens - List screens with optional stats

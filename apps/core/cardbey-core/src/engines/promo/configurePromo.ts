@@ -3,11 +3,10 @@
  * Create or update a promo rule
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, PROMO_EVENTS } from './events.ts';
 import type { ConfigurePromoInput, ConfigurePromoOutput } from './types.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Engine context interface

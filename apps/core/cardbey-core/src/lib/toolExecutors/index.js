@@ -10,6 +10,9 @@ import * as structured_store_build from './store/structured_store_build.js';
 import * as generate_tags from './store/generate_tags.js';
 import * as rewrite_descriptions from './store/rewrite_descriptions.js';
 import * as improve_hero from './store/improve_hero.js';
+import * as upload_store_asset from './store/upload_store_asset.js';
+import * as replace_store_catalog from './store/replace_store_catalog.js';
+import * as update_store_hero from './store/update_store_hero.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -53,6 +56,9 @@ export const executors = {
   generate_tags,
   rewrite_descriptions,
   improve_hero,
+  upload_store_asset,
+  replace_store_catalog,
+  update_store_hero,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,

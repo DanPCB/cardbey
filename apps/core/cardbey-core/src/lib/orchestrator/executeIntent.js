@@ -31,7 +31,7 @@ function buildPlanSummary(missionPlan, hasTaskGraph) {
  *   includeLlmTaskGraph?: boolean,
  *   tenantKey?: string,
  *   allowPipelineCreate?: boolean,
- *   prisma?: import('@prisma/client').PrismaClient|null,
+ *   prisma?: import('../prismaClient.js').PrismaClient|null,
  * }} [options]
  */
 export async function executeIntent(partialIntent, options = {}) {

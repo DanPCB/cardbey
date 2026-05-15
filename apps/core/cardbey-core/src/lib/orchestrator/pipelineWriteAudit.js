@@ -7,7 +7,7 @@
 import { recordPipelineWriteEvent } from './missionConsoleTelemetryStore.js';
 
 /**
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../prismaClient.js').PrismaClient} prisma
  * @param {{ where: object, data: object, source: string, correlationId?: string|null }} args
  * @returns {Promise<object>}
  */

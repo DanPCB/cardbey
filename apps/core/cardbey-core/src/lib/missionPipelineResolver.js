@@ -149,6 +149,27 @@ export async function resolveMissionState(missionId) {
       ? { intentType: mission.type, output: lastCompletedStep.output }
       : outputs?.lastResult ?? undefined;
 
+  const draftIdForReview =
+    typeof outputs.draftId === 'string' && outputs.draftId.trim()
+      ? outputs.draftId.trim()
+      : typeof outputs.createdDraftId === 'string' && outputs.createdDraftId.trim()
+        ? outputs.createdDraftId.trim()
+        : null;
+  let storeDraftReviewReady;
+  if (draftIdForReview) {
+    try {
+      const draftRow = await prisma.draftStore.findUnique({
+        where: { id: draftIdForReview },
+        select: { status: true },
+      });
+      if (draftRow) {
+        storeDraftReviewReady = String(draftRow.status ?? '').toLowerCase() === 'ready';
+      }
+    } catch {
+      /* optional enrichment */
+    }
+  }
+
   return {
     missionId: mission.id,
     type: mission.type,
@@ -179,6 +200,7 @@ export async function resolveMissionState(missionId) {
     pipelineConfig,
     summaryText,
     lastResult,
+    ...(storeDraftReviewReady !== undefined ? { storeDraftReviewReady } : {}),
     /** Full pipeline metadata (e.g. proactive runway `stepOutputs`) for console restore. */
     metadata,
     ...(activeCheckpoint ? { activeCheckpoint } : {}),

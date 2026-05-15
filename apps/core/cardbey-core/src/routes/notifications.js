@@ -5,13 +5,12 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { optionalAuth } from '../middleware/auth.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * GET /api/notifications?limit=20
  * Returns notifications for req.userId (authed) or guest_<req.guestSessionId>.

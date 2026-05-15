@@ -4,11 +4,10 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
+
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 /**
  * GET /api/promos/:promoId
  * Public. Returns: id, title, description, code, storeId, storeName, storeSlug, storeLogo, heroImage.

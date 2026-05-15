@@ -4,7 +4,6 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { getEventEmitter } from '../engines/signage/events.js';
 import {
@@ -15,6 +14,7 @@ import {
   generateFromMenu,
   queryDevicePlaylist,
 } from '../engines/signage/index.js';
+import { prisma } from '../lib/prisma.js';
 import {
   CreatePlaylistInput,
   AddAssetsToPlaylistInput,
@@ -25,8 +25,6 @@ import {
 } from '../engines/signage/types.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
-
 /**
  * Create engine context with services
  */

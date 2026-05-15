@@ -19,17 +19,15 @@ router.get('/', requireAuth, async (req, res, next) => {
     const { occasionType, orientation } = req.query;
 
     // Check if MiVideoTemplate model exists
-    const { PrismaClient } = await import('@prisma/client');
-    const testPrisma = new PrismaClient();
+    const { getPrismaClient } = await import('../lib/prisma.js');
+    const testPrisma = getPrismaClient();
     if (!testPrisma.miVideoTemplate) {
-      await testPrisma.$disconnect();
       return res.status(503).json({
         ok: false,
         error: 'model_not_available',
         message: 'MiVideoTemplate model not available. Please run: npx prisma generate && npx prisma migrate dev',
       });
     }
-    await testPrisma.$disconnect();
 
     const templates = await listMiVideoTemplates({
       occasionType: typeof occasionType === 'string' ? occasionType : undefined,
@@ -64,17 +62,15 @@ router.get('/:key', requireAuth, async (req, res, next) => {
     }
 
     // Check if MiVideoTemplate model exists
-    const { PrismaClient } = await import('@prisma/client');
-    const testPrisma = new PrismaClient();
+    const { getPrismaClient } = await import('../lib/prisma.js');
+    const testPrisma = getPrismaClient();
     if (!testPrisma.miVideoTemplate) {
-      await testPrisma.$disconnect();
       return res.status(503).json({
         ok: false,
         error: 'model_not_available',
         message: 'MiVideoTemplate model not available. Please run: npx prisma generate && npx prisma migrate dev',
       });
     }
-    await testPrisma.$disconnect();
 
     const template = await getMiVideoTemplateByKey(key);
 

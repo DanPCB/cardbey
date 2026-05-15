@@ -10,7 +10,7 @@
 
 import { generateUniqueStoreSlug, slugify } from '../../utils/slug.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
-import { normalizePreviewCategories } from './draftStoreService.js';
+import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
 
 async function loadExistingStorefrontSettings(prisma, businessId) {
   if (!businessId) return {};
@@ -161,7 +161,7 @@ async function findTargetDraft(prisma, storeId, generationRunId) {
 /**
  * Publish a draft to a store. Creates Business if storeId is 'temp'.
  * When draftId is provided, that exact draft is used (ensures we publish the draft just saved by the client).
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
  * @param {{ storeId: string, generationRunId?: string, draftId?: string, userId: string }} params
  * @returns {Promise<{ storeId: string, slug: string, storefrontUrl: string }>}
  * @throws {PublishDraftError} DRAFT_NOT_FOUND, AUTH_REQUIRED, etc.
@@ -405,15 +405,7 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     : (Array.isArray(rawPreview?.catalog?.products) ? rawPreview.catalog.products : []) || (preview.items ?? []);
   const categories = preview.categories ?? [];
 
-  const draftCatIdToName = new Map();
-  for (const c of categories) {
-    if (c && c.id != null && (c.name != null || c.label != null)) {
-      draftCatIdToName.set(String(c.id).trim(), String(c.name ?? c.label ?? '').trim() || 'Other');
-    }
-  }
-  if (!draftCatIdToName.has('other')) {
-    draftCatIdToName.set('other', 'Other');
-  }
+  const draftCatIdToName = buildCategoryIdToNameMap(categories);
   const otherCategoryName = draftCatIdToName.get('other') ?? 'Other';
   const meta = preview.meta || {};
   const storeName = meta.storeName || preview.storeName || (store && store.name) || 'My Store';
@@ -530,10 +522,9 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
       const productData = products[i];
       if (!productData.name || productData.name.trim().length === 0) continue;
       try {
-        const price = productData.priceV1?.amount || productData.price || null;
-        const normalizedPrice = price ? parseFloat(String(price).replace(/[^\d.]/g, '')) : null;
-        const draftCatId = productData.categoryId != null ? String(productData.categoryId).trim() : null;
-        const categoryName = (draftCatId && draftCatIdToName.get(draftCatId)) || draftCatIdToName.get('other') || productData.category || otherCategoryName;
+        const normalizedPrice = normalizeDraftProductPrice(productData);
+        const categoryName = resolveDraftProductCategoryName(productData, draftCatIdToName, otherCategoryName);
+        const imageUrl = resolveDraftItemImageUrl(productData);
         const created = await tx.product.create({
           data: {
             businessId: effectiveStoreId,
@@ -542,7 +533,7 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
             price: normalizedPrice,
             currency: productData.currency || 'USD',
             category: categoryName || otherCategoryName,
-            imageUrl: productData.imageUrl || productData.image || null,
+            imageUrl,
             isPublished: true,
             viewCount: 0,
             likeCount: 0,

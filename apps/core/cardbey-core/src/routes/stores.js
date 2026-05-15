@@ -10,7 +10,6 @@
 
 import express from 'express';
 import multer from 'multer';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
@@ -26,6 +25,8 @@ import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
+
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
 
@@ -50,8 +51,6 @@ function hasRole(user, role) {
 
 /** In-memory set to log "draft missing" only once per generationRunId (dev), avoid log spam on poll */
 const loggedMissingDraftRunIds = new Set();
-const prisma = new PrismaClient();
-
 const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 const OwnerProfileVisibilitySchema = z.object({
@@ -1058,8 +1057,12 @@ router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle
             }
           })()
         : draft.preview || {};
-    const businessName = typeof preview.storeName === 'string' ? preview.storeName : '';
+    const bodyStoreName = typeof req.body?.storeName === 'string' ? req.body.storeName.trim() : '';
+    const bodyStoreType = typeof req.body?.storeType === 'string' ? req.body.storeType.trim() : '';
+    const previewStoreName = typeof preview.storeName === 'string' ? preview.storeName : '';
+    const businessName = bodyStoreName || previewStoreName;
     const businessType =
+      bodyStoreType ||
       (typeof preview.storeType === 'string' && preview.storeType) ||
       (preview.meta && typeof preview.meta.storeType === 'string' && preview.meta.storeType) ||
       '';
@@ -1107,6 +1110,227 @@ router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle
     return next(err);
   }
 });
+
+/**
+ * Fire-and-forget: fill missing catalog item imageUrls using the same pipeline as finalizeDraft
+ * (runBusinessImageEnricherTool + generateImageForDraftItem), then persist via patchDraftPreview
+ * image-only partial merge.
+ */
+async function enqueueCatalogItemImageFetch({ draftId, generationRunId }) {
+  try {
+    const fresh = await getDraftByGenerationRunId(generationRunId);
+    if (!fresh || String(fresh.id) !== String(draftId)) {
+      console.warn('[Stores:draft/catalog] background images: draft mismatch or missing', { draftId, generationRunId });
+      return;
+    }
+    const preview =
+      typeof fresh.preview === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(fresh.preview);
+            } catch {
+              return {};
+            }
+          })()
+        : fresh.preview || {};
+    const items = Array.isArray(preview.items) ? preview.items.map((x) => ({ ...x })) : [];
+    const categories = Array.isArray(preview.categories) ? preview.categories : [];
+    if (!items.length) return;
+
+    const itemIndicesNeeding = [];
+    for (let i = 0; i < items.length; i++) {
+      const u = items[i]?.imageUrl;
+      if (!u || !String(u).trim()) itemIndicesNeeding.push(i);
+    }
+    const MAX_ITEMS = 30;
+    const idxList = itemIndicesNeeding.slice(0, MAX_ITEMS);
+    if (!idxList.length) return;
+
+    const draftInput = fresh.input && typeof fresh.input === 'object' ? fresh.input : {};
+    const locationStr =
+      draftInput.location != null && String(draftInput.location).trim()
+        ? String(draftInput.location).trim()
+        : null;
+    const profile = fresh.input?.generationProfile ?? fresh.input?.classificationProfile ?? null;
+    const imageFillProfile = profile
+      ? {
+          verticalSlug: profile.verticalSlug || '',
+          verticalGroup: profile.verticalGroup || (profile.verticalSlug || '').split('.')[0] || undefined,
+          keywords: profile.keywords,
+          forbiddenKeywords: profile.forbiddenKeywords,
+          audience: profile.audience,
+          categoryHints: profile.categoryHints,
+        }
+      : null;
+
+    const storeName = preview.storeName || preview.businessName || null;
+    const storeType = preview.storeType || preview.businessType || null;
+
+    const nameTokens = idxList
+      .map((idx) => String(items[idx]?.name || '').trim())
+      .filter(Boolean)
+      .slice(0, 20);
+    const mergedProfile = imageFillProfile
+      ? {
+          ...imageFillProfile,
+          keywords: [...(imageFillProfile.keywords || []), ...nameTokens].slice(0, 24),
+        }
+      : nameTokens.length
+        ? {
+            verticalSlug: '',
+            keywords: nameTokens,
+            forbiddenKeywords: [],
+          }
+        : null;
+
+    const { runBusinessImageEnricherTool } = await import('../services/draftStore/businessImageEnricher.ts');
+    const toolOut = await runBusinessImageEnricherTool({
+      storeName,
+      businessType: storeType,
+      location: locationStr ?? undefined,
+      ...(mergedProfile ? { profile: mergedProfile } : {}),
+    });
+    let effectiveImageFillProfile = toolOut.effectiveImageFillProfile ?? toolOut.profile ?? mergedProfile;
+
+    const { effectiveVertical, applyItemGuards, isDraftGuardsEnabled, isBlockedCandidateForFood } = await import(
+      '../services/draftStore/draftGuards.js',
+    );
+    const guardsEnabled = isDraftGuardsEnabled();
+    const effectiveVerticalType = guardsEnabled ? effectiveVertical(preview.storeType, preview.meta?.storeType) : null;
+
+    let deriveItemCategoryHint = (itemName, verticalSlug, storeTypeHint) =>
+      [itemName, verticalSlug, storeTypeHint].filter(Boolean).join(' ').trim();
+    try {
+      const mod = await import('../services/react/buildStoreReactTools.ts');
+      if (typeof mod.deriveItemCategoryHint === 'function') deriveItemCategoryHint = mod.deriveItemCategoryHint;
+    } catch {
+      // keep fallback
+    }
+    const verticalForItem =
+      effectiveImageFillProfile?.verticalSlug ?? imageFillProfile?.verticalSlug ?? preview.storeType ?? null;
+
+    let menuMod;
+    try {
+      menuMod = await import('../services/menuVisualAgent/menuVisualAgent.ts');
+    } catch {
+      menuMod = null;
+    }
+    if (!menuMod) {
+      console.warn('[Stores:draft/catalog] background images: menuVisualAgent unavailable');
+      return;
+    }
+    const generateImageForDraftItem = menuMod.generateImageForDraftItem ?? menuMod.default?.generateImageForDraftItem;
+    if (typeof generateImageForDraftItem !== 'function') {
+      console.warn('[Stores:draft/catalog] background images: generateImageForDraftItem missing');
+      return;
+    }
+
+    const businessTypeKey = (preview.storeType || '').toString().toLowerCase().trim().replace(/\s+/g, '_');
+    const businessTypeToStyle = {
+      cafe: 'warm',
+      'coffee-shop': 'warm',
+      coffee_shop: 'warm',
+      restaurant: 'warm',
+      bakery: 'warm',
+      bar: 'warm',
+      florist: 'vibrant',
+      salon: 'modern',
+      spa: 'modern',
+      design: 'minimal',
+      studio: 'minimal',
+    };
+    const styleName = businessTypeToStyle[businessTypeKey] || 'modern';
+    const BATCH_SIZE = 5;
+    const usedUrls = new Set();
+    let billingLimitHit = false;
+
+    itemBatch: for (let offset = 0; offset < idxList.length && !billingLimitHit; offset += BATCH_SIZE) {
+      const batchIdx = idxList.slice(offset, offset + BATCH_SIZE);
+      const settled = [];
+      for (let batchPos = 0; batchPos < batchIdx.length; batchPos++) {
+        if (billingLimitHit) break itemBatch;
+        const i = batchIdx[batchPos];
+        const p = items[i];
+        if (guardsEnabled && effectiveVerticalType === 'food' && isBlockedCandidateForFood(p.name, p.description)) {
+          settled.push({ status: 'fulfilled', value: null });
+          continue;
+        }
+        const catalogCategoryHint =
+          p.categoryId && categories.length ? categories.find((c) => c.id === p.categoryId)?.name : null;
+        const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
+        const categoryHint = [derivedHint, catalogCategoryHint].filter(Boolean).join(' ').trim() || null;
+        const opts = effectiveImageFillProfile
+          ? {
+              profile: effectiveImageFillProfile,
+              categoryHint,
+              categoryName: categoryHint,
+              businessType: preview.storeType || null,
+              usedUrls,
+              ...(locationStr ? { location: locationStr } : {}),
+            }
+          : {
+              categoryName: categoryHint,
+              businessType: preview.storeType || null,
+              usedUrls,
+              ...(locationStr ? { location: locationStr } : {}),
+            };
+        try {
+          const result = await generateImageForDraftItem(p.name, p.description, styleName, opts);
+          settled.push({ status: 'fulfilled', value: result });
+          if (result?.url) usedUrls.add(result.url);
+        } catch (err) {
+          if (err?.code === 'BILLING_HARD_LIMIT') {
+            billingLimitHit = true;
+            settled.push({ status: 'rejected', reason: err });
+            break;
+          }
+          settled.push({ status: 'rejected', reason: err });
+        }
+      }
+      batchIdx.forEach((i, batchPos) => {
+        const result = settled[batchPos];
+        const item = items[i];
+        if (result?.status === 'fulfilled' && result.value && result.value.url && !item.imageUrl) {
+          const img = result.value;
+          item.imageUrl = img.url;
+          item.imageSource = img.source;
+          item.imageQuery = img.query;
+          item.imageConfidence = img.confidence;
+        }
+        if (result?.status === 'rejected' && result.reason?.code === 'BILLING_HARD_LIMIT') {
+          billingLimitHit = true;
+        }
+      });
+    }
+
+    if (guardsEnabled && effectiveVerticalType) {
+      applyItemGuards(items, effectiveVerticalType);
+    }
+
+    const patchItems = idxList
+      .map((i) => {
+        const it = items[i];
+        if (!it?.imageUrl || !String(it.imageUrl).trim()) return null;
+        const out = { id: it.id, imageUrl: it.imageUrl };
+        if (it.imageSource !== undefined) out.imageSource = it.imageSource;
+        if (it.imageQuery !== undefined) out.imageQuery = it.imageQuery;
+        if (it.imageConfidence !== undefined) out.imageConfidence = it.imageConfidence;
+        return out;
+      })
+      .filter(Boolean);
+
+    if (patchItems.length) {
+      await patchDraftPreview(fresh.id, { items: patchItems }, { allowCommitted: true });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Stores:draft/catalog] background images: patched', patchItems.length, 'items', {
+          draftId: fresh.id,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[Stores:draft/catalog] background image fetch failed:', e?.message || e);
+  }
+}
 
 /**
  * PATCH /api/stores/temp/draft/catalog
@@ -1234,8 +1458,12 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
       },
     }, { allowCommitted: true });
 
-    // Phase 2: optional async image fetching (future work). No existing per-item pipeline wired for this endpoint yet.
-    const imagesFetching = Boolean(body.fetchImages) && false;
+    const fetchOn = body.fetchImages !== false;
+    const needsImages = itemsWithCategoryId.some((it) => !it?.imageUrl || !String(it.imageUrl).trim());
+    const imagesFetching = fetchOn && needsImages;
+    if (imagesFetching) {
+      void enqueueCatalogItemImageFetch({ draftId: draft.id, generationRunId });
+    }
 
     return res.status(200).json({
       ok: true,

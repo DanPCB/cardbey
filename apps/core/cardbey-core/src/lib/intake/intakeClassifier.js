@@ -4,6 +4,7 @@
  */
 
 import { llmGateway } from '../llm/llmGateway.ts';
+import { getBlackboardContextSummary } from '../blackboard/blackboardContextSummary.js';
 import { formatToolRegistryForPrompt, isRegisteredTool, getToolEntry, RISK } from './intakeToolRegistry.js';
 
 export const CONFIDENCE = {
@@ -29,12 +30,13 @@ export const FALLBACK_CLARIFY = {
 /**
  * @param {object} args
  * @param {string} args.userMessage
- * @param {{ storeId?: string | null, draftId?: string | null }} [args.storeContext]
+ * @param {{ storeId?: string | null, draftId?: string | null, missionId?: string | null }} [args.storeContext] — missionId loads recent blackboard context into the prompt when set
  * @param {Array<{ role: string, content: string }>} [args.conversationHistory]
  * @param {string} [args.locale]
  * @param {string} [args.tenantKey]
+ * @param {string | null | undefined} [args.missionId] — explicit mission (e.g. req.body); overrides storeContext.missionId
  */
-function buildClassifierPrompt({ userMessage, storeContext, conversationHistory, locale }) {
+async function buildClassifierPrompt({ userMessage, storeContext, conversationHistory, locale, missionId }) {
   const langLine =
     locale === 'vi'
       ? 'Respond in Vietnamese for natural language strings (message, reasoning, clarifyOptions labels).'
@@ -54,12 +56,17 @@ function buildClassifierPrompt({ userMessage, storeContext, conversationHistory,
     ? `## Active store\nstoreId: ${storeContext.storeId}\n`
     : '## Active store\nNone — user has not selected a store.\n';
 
+  const missionBlock = missionId
+    ? `## Active mission context\n${await getBlackboardContextSummary(missionId)}\n`
+    : '';
+
   return `You are Performer, an AI business assistant for SMBs. Classify the user message.
 
 ## Available tools
 ${toolList}
 
 ${storeBlock}
+${missionBlock}
 ${historyBlock}
 ## Rules
 - Output ONE JSON object only (no markdown).
@@ -67,6 +74,19 @@ ${historyBlock}
 - proactive_plan: include "plan" array (2–4 steps) with recommendedTool matching registry toolName.
 
 ## CRITICAL ROUTING RULES — read before selecting any tool
+
+**service_request (executionPath: service_request)**
+- Use when the user wants to book, find, schedule, arrange, or hire a **local / personal service provider** (haircut, hair salon, nail salon, massage, barber, beautician, physio, cleaning, tutoring, etc.) — including phrases like "help me to book …".
+- Do **NOT** use general_chat to refuse with "I only do business tasks" or "I can't book personal appointments" for these requests. Cardbey captures the request and helps find providers (Phase 1).
+- Use tool **service_request** and executionPath **service_request**. Include optional parameters keys only from the registry: serviceType, location, timeWindow, budget when inferable.
+- Examples that MUST use service_request:
+  - "help me book a haircut this Sunday"
+  - "help me to book a hair cut"
+  - "Help me to book a Nails service this Sunday"
+  - "I need to find a nail salon near me"
+  - "book a massage for tomorrow"
+  - "book a massage near Melbourne tomorrow"
+  - "I need a barber this week"
 
 **create_store (executionPath: direct_action)**
 - Use when: owner wants to CREATE a new store that does NOT
@@ -101,8 +121,9 @@ These rules override all other scoring. When in doubt
 between create_store and analyze_store with no storeId
 in context → always choose create_store.
 
-- Discovery-first asks (e.g. "find suppliers", "book nails", "compare options", "looking for …") without explicit create-a-new-store wording → general_chat, clarify, or the closest discovery tool — not create_store / greenfield store setup unless the user clearly asks to open or create a new store/shop.
+- Discovery-first asks (e.g. "find suppliers", "book nails", "compare options", "looking for …") without explicit create-a-new-store wording → service_request (local hire/booking) or general_chat / clarify — not create_store / greenfield store setup unless the user clearly asks to open or create a new store/shop.
 REGISTERED TOOL NAMES (use exact strings, no variations):
+- "service_request"   — capture local service booking / hire intent; find providers (Phase 1). executionPath MUST be "service_request".
 - "market_research"    — research audience and market trends (FIRST step)
 - "create_promotion"   — generate promotional content and assets (MIDDLE step)
 - "launch_campaign"    — deploy campaign across channels (FINAL step)
@@ -113,6 +134,10 @@ REGISTERED TOOL NAMES (use exact strings, no variations):
 - "edit_artifact"     — edit or translate DB-backed copy: promotion, business profile, storefront hero, mini-website draft preview; use artifactType sweep for “translate everything” (STANDALONE)
 - "publish_to_social" — share or post a campaign to Facebook, Instagram, Zalo, WhatsApp, Telegram, Twitter, or email. Use when user wants to share, post, or distribute their campaign. (STANDALONE)
 - "connect_social_account" — connect Facebook, Instagram, or Zalo so Cardbey can post automatically. Use when user wants to link social media or when publish_to_social fails due to missing connection. (STANDALONE)
+- "upload_store_asset" — upload a logo, avatar, or hero image to the store (STANDALONE)
+- "replace_store_catalog" — replace the store catalog with real menu or product items (STANDALONE)
+- "update_store_hero" — change the store hero or banner image (STANDALONE)
+- "publish_store" — publish the mini website / store so it is live on the public web (STANDALONE)
 
 Routing examples:
 - "share my campaign to Facebook" → publish_to_social (platforms: ["facebook"])
@@ -121,6 +146,8 @@ Routing examples:
 - "send to WhatsApp" → publish_to_social (platforms: ["whatsapp"])
 - "connect my Facebook" → connect_social_account (platform: "facebook")
 - "link my social media" → connect_social_account
+- "publish my store" / "go live" / "launch my website" / "make my store live" → publish_store
+- Mini-website or storefront "go live" / "publish my site" → publish_store (not publish_to_social; that tool is for social campaign posts).
 
 CAMPAIGN SEQUENCE RULE (critical):
 When intent is promotion_campaign or the user wants to launch/create/run a
@@ -151,7 +178,7 @@ Never invent tool names not listed above.
 ## JSON shape
 {
   "reasoning": "short",
-  "executionPath": "proactive_plan" | "direct_action" | "chat" | "clarify",
+  "executionPath": "proactive_plan" | "direct_action" | "chat" | "clarify" | "service_request",
   "tool": "<registry toolName>",
   "confidence": 0.9,
   "parameters": {},
@@ -182,6 +209,7 @@ export async function classifyIntent(opts) {
     locale = 'en',
     tenantKey = 'intake-v2',
     originSurface,
+    missionId: missionIdOpt,
   } = opts;
 
   const msg = String(userMessage ?? '').trim();
@@ -189,11 +217,16 @@ export async function classifyIntent(opts) {
     return { ...FALLBACK_CLARIFY, _downgradedReason: 'empty_message' };
   }
 
-  const prompt = buildClassifierPrompt({
+  const ctxMid = storeContext?.missionId != null ? String(storeContext.missionId).trim() : '';
+  const optMid = missionIdOpt != null ? String(missionIdOpt).trim() : '';
+  const missionId = optMid || ctxMid || null;
+
+  const prompt = await buildClassifierPrompt({
     userMessage: msg,
     storeContext,
     conversationHistory,
     locale,
+    missionId,
   });
 
   let text = '';
@@ -238,8 +271,16 @@ export async function classifyIntent(opts) {
     return { ...FALLBACK_CLARIFY, _downgradedReason: 'json_parse_error' };
   }
 
-  const executionPath = String(parsed.executionPath ?? '');
-  const tool = String(parsed.tool ?? '');
+  const executionPathRaw = String(parsed.executionPath ?? '');
+  let executionPath = executionPathRaw;
+  let tool = String(parsed.tool ?? '');
+
+  if (tool === 'service_request') {
+    executionPath = 'service_request';
+  }
+  if (executionPath === 'service_request') {
+    tool = 'service_request';
+  }
   const confidence =
     typeof parsed.confidence === 'number' && !Number.isNaN(parsed.confidence)
       ? Math.max(0, Math.min(1, parsed.confidence))
@@ -289,7 +330,7 @@ export async function classifyIntent(opts) {
   }
 
   const toolEntry = getToolEntry(tool);
-  if (toolEntry && toolEntry.executionPath !== executionPath && executionPath !== 'chat') {
+  if (toolEntry && toolEntry.executionPath !== executionPath && executionPath !== 'chat' && executionPath !== 'service_request') {
     return {
       executionPath: toolEntry.executionPath,
       tool,

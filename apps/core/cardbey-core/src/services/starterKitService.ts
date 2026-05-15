@@ -6,10 +6,9 @@
  * Phase 2: Supports configurable use cases and multiple templates per use case
  */
 
-import { PrismaClient } from '@prisma/client';
 import { instantiateCreativeTemplateForContext } from './miOrchestratorService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 export interface StarterKitTemplateConfig {
   useCase: string;               // "hero" | "menu" | "promo" | "social"

@@ -3,11 +3,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { getSignagePlaylistSuggestions } from './miOrchestratorService.js';
 import * as miService from './miService.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 describe('MI Orchestrator Service', () => {
   let testTenantId = 'test-tenant-orchestrator';

@@ -3,13 +3,12 @@
  * Device heartbeat with full playback state, metrics, and command execution
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import { getPendingCommands, markCommandsExecuted } from './commandQueue.js';
 import { getPlaylistForDevice } from '../../services/deviceService.js';
 import { buildMediaUrl } from '../../utils/publicUrl.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Process heartbeat

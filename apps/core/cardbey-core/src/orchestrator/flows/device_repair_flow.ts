@@ -97,8 +97,8 @@ export async function device_repair_flow(
     // This helps ensure the device gets the latest content after repair
     try {
       // Query for the latest playlist binding for this device
-      const { PrismaClient } = await import('@prisma/client');
-      const prisma = new PrismaClient();
+      const { getPrismaClient } = await import('../../lib/prisma.js');
+      const prisma = getPrismaClient();
       
       const latestBinding = await prisma.devicePlaylistBinding.findFirst({
         where: {

@@ -4,9 +4,9 @@
  * Generates AI-powered insight cards from tenant reports.
  */
 
-import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
 import { chunkText } from './ragChunkUtils.js';
+import { prisma } from '../lib/prisma.js';
 import {
   buildInsightAction,
   inferEntryPointFromInsight,
@@ -14,8 +14,6 @@ import {
   isInsightInputErrorLike,
   parseDeviceIdFromReportTags,
 } from '../utils/insightActionBuilder.js';
-
-const prisma = new PrismaClient();
 
 // Initialize OpenAI client (reuse same pattern as reportService)
 if (!process.env.OPENAI_API_KEY) {

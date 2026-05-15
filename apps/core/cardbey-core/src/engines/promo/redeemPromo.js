@@ -3,10 +3,9 @@
  * Validate and record promo redemption
  */
 
-import { PrismaClient } from '@prisma/client';
 import { getEventEmitter, PROMO_EVENTS } from './events.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Redeem a promo

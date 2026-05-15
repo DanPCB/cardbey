@@ -5,15 +5,14 @@
 
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 import { requireUserOrGuest, requireUser } from '../middleware/guestAuth.js';
 import { buildSuggestions } from '../services/suggestions.js';
 import { runAction } from '../services/actions.js';
 import { trackEvent, recordMilestone, getJourneyFunnel, getSystemMetrics } from '../services/analytics.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 /**
  * GET /api/journeys/templates
  * List all journey templates (public)

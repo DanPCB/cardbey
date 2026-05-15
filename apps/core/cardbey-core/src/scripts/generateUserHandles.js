@@ -5,10 +5,9 @@
  * Usage: node src/scripts/generateUserHandles.js
  */
 
-import { PrismaClient } from '@prisma/client';
 import { generateHandle, generateUniqueHandle } from '../utils/generateHandle.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 async function generateHandlesForExistingUsers() {
   console.log('[GenerateHandles] Starting handle generation for existing users...');

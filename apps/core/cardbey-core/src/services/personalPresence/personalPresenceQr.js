@@ -39,7 +39,7 @@ export async function generateQrDataUrlForUrl(targetUrl) {
 
 /**
  * Validates ownership and returns prisma.user.update data for linking personal presence + QR.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} userId
  * @param {string} businessId
  * @returns {Promise<{ personalPresenceStoreId: string, qrCodeUrl: string } | null>}
@@ -61,7 +61,7 @@ export async function getPersonalPresenceLinkFields(prisma, userId, businessId) 
 
 /**
  * After publish or slug change: refresh qrCodeUrl for every user linked to this business.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} businessId
  */
 export async function refreshPersonalPresenceQrForBusiness(prisma, businessId) {

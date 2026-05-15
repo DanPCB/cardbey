@@ -19,7 +19,7 @@ let lastPurgeAt = 0;
  * Uses kernel transitions only. Checks cache by prompt hash (tenant-scoped) before calling provider.
  * Call with task in "queued"; this function performs queued->running then work.
  *
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} taskId
  * @param {{ prompt: string; provider?: string }} request - task.request
  * @param {{ generateText: (prompt: string, opts?: { timeoutMs?: number; maxRetries?: number }) => Promise<{ text: string; model?: string }> }} providerClient

@@ -7,12 +7,11 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 
-const router = express.Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = express.Router();
 const VALID_ROLES = ['buyer', 'seller', 'admin', 'system'];
 const VALID_CHANNELS = ['web', 'mobile', 'kiosk', 'api', 'agent'];
 

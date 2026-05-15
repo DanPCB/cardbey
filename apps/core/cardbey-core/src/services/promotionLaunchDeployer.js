@@ -13,8 +13,8 @@ function asObject(v) {
 /**
  * Headline, body, hero image, CTA — same rules as launch deploy (Content canvas + Promotion row).
  * Used by GET /api/promotions/public/:publicId.
- * @param {import('@prisma/client').Promotion} promotion
- * @param {import('@prisma/client').Content | null} [content]
+ * @param {import('../lib/prismaClient.js').Promotion} promotion
+ * @param {import('../lib/prismaClient.js').Content | null} [content]
  */
 export function resolveLandingPageContentFields(promotion, content) {
   const elements = content?.elements != null && Array.isArray(content.elements) ? content.elements : [];
@@ -52,7 +52,7 @@ function publicBaseUrl() {
 
 /**
  * Ensure Promotion has publicId, landingPageUrl, qrCodeDataUrl in metadataJson.
- * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} promotionId
  */
 export async function ensureLandingPageAndQr(prisma, promotionId) {
@@ -95,7 +95,7 @@ export async function ensureLandingPageAndQr(prisma, promotionId) {
 
 /**
  * @param {object} opts
- * @param {import('@prisma/client').PrismaClient} opts.prisma
+ * @param {import('../lib/prismaClient.js').PrismaClient} opts.prisma
  * @param {string} opts.promotionId
  * @param {string[]} opts.selectedChannels
  * @param {string} [opts.tenantKey]

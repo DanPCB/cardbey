@@ -29,6 +29,7 @@ model User {
   role                String    @default("owner") // "owner" | "staff" | "viewer" | "admin" | "super_admin" (platform roles)
   emailVerified       Boolean   @default(false) // Phase 2: Email verification status
   verificationToken   String? // Phase 2: Hashed one-time verification token
+  verificationTokenRaw String? // Raw token for resend only; cleared on confirm. Not exposed in API.
   verificationExpires DateTime? // Phase 2: Token expiration time
   resetToken          String? // Phase 2: Password reset token
   resetExpires        DateTime? // Phase 2: Reset token expiration time
@@ -64,6 +65,8 @@ model User {
   createdConversationThreads ConversationThread[] @relation("ConversationThreadCreator")
   createdMissions            Mission[]           @relation("MissionCreator")
   cards                      Card[]
+  userIdentifiers            UserIdentifier[]
+  smartDocuments             SmartDocument[]
 
   @@index([email])
   @@index([handle])
@@ -127,6 +130,7 @@ model Business {
   personalPresenceOwner User? @relation("PersonalPresenceStore")
   merchantDesigns MerchantDesign[]
   contentLibraryAssets ContentLibraryAsset[]
+  smartDocuments SmartDocument[]
 
   @@index([userId])
   @@index([slug])
@@ -819,6 +823,7 @@ model CampaignV2 {
   scheduleItems     CampaignScheduleItem[]
   offers            Offer[]
   channelDeployments ChannelDeployment[]
+  reports           CampaignReport[]
 
   @@index([tenantKey, createdAt])
   @@index([planId])
@@ -898,6 +903,25 @@ model ChannelDeployment {
   updatedAt   DateTime  @updatedAt
 
   @@index([campaignId])
+}
+
+// Phase C: Campaign report (deterministic summary, links, schedule recap, next steps)
+model CampaignReport {
+  id             String   @id @default(cuid())
+  tenantKey      String
+  campaignId     String
+  campaign       CampaignV2 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  missionId      String?
+  summary        String
+  links          Json     // [{ label, url, kind }]
+  scheduleRecap  Json     // { count, firstAt, lastAt }
+  nextSteps      Json     // [{ title, detail, priority }]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantKey, createdAt])
+  @@index([campaignId])
+  @@index([missionId])
 }
 
 // Trend Profiles - Style brains for AI Design Assistant
@@ -987,14 +1011,14 @@ model LoyaltyProgram {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  stamps LoyaltyStamp[]
+  programStamps LoyaltyProgramStamp[]
 
   @@index([tenantId])
   @@index([storeId])
   @@index([expiresAt])
 }
 
-model LoyaltyStamp {
+model LoyaltyProgramStamp {
   id         String         @id @default(cuid())
   tenantId   String
   storeId    String
@@ -1011,6 +1035,7 @@ model LoyaltyStamp {
   @@index([storeId])
   @@index([programId])
   @@index([customerId])
+  @@map("LoyaltyStamp")
 }
 
 model LoyaltyReward {
@@ -1047,7 +1072,7 @@ model PromoRule {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  redemptions PromoRedemption[]
+  ruleRedemptions PromoRuleRedemption[]
 
   @@index([tenantId])
   @@index([storeId])
@@ -1055,7 +1080,7 @@ model PromoRule {
   @@index([startAt, endAt])
 }
 
-model PromoRedemption {
+model PromoRuleRedemption {
   id         String    @id @default(cuid())
   tenantId   String
   storeId    String
@@ -1063,7 +1088,7 @@ model PromoRedemption {
   promo      PromoRule @relation(fields: [promoId], references: [id], onDelete: Cascade)
   customerId String?
   deviceId   String?
-  orderId    String? // optional future integration
+  orderId    String?
   redeemedAt DateTime  @default(now())
 
   @@index([tenantId])
@@ -1071,6 +1096,7 @@ model PromoRedemption {
   @@index([promoId])
   @@index([customerId])
   @@index([redeemedAt])
+  @@map("PromoRedemption")
 }
 
 // Signage/Playlist Engine v1
@@ -1547,6 +1573,136 @@ model MissionEvent {
   @@index([intentId, createdAt])
 }
 
+// AI Operator: per-mission run state (build_store and future mission types)
+model MissionOperatorRun {
+  id                      String   @id @default(cuid())
+  missionId               String
+  missionType             String
+  goal                    String?
+  tenantId                String?
+  userId                  String?
+  currentStage            String   @default("planning")
+  currentDraftId          String?
+  currentJobId            String?
+  currentGenerationRunId  String?
+  currentStoreId          String?
+  attempts                Int      @default(0)
+  maxAttempts             Int      @default(20)
+  status                  String   @default("running")
+  lastError               Json?
+  artifactSnapshot        Json?
+  agentThreadId           String?
+  runPipelineAsSingleStep Boolean? @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([missionId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Unified mission router runs (fast-path / agent-path)
+model MissionRun {
+  id                   String   @id @default(cuid())
+  userId               String
+  storeId              String?
+  intentType           String
+  title                String?
+  mode                 String   @default("fast")
+  status               String   @default("queued")
+  runState             String   @default("idle")
+  steps                Json?
+  lastResult           Json?
+  planSnapshot         Json?
+  consensusRecord      Json?
+  contentBundle        Json?
+  scheduleBundle       Json?
+  requiresConfirmation Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  agentMessages        AgentMessage[]
+
+  @@index([userId])
+  @@index([storeId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Mission Pipeline v1: multi-step performer missions
+model MissionPipeline {
+  id                     String    @id @default(cuid())
+  type                   String
+  title                  String
+  description            String?
+  status                 String    @default("requested")
+  runState               String    @default("idle")
+  executionMode          String    @default("AUTO_RUN")
+  targetType             String
+  targetId               String?
+  targetLabel            String?
+  tenantId               String?
+  createdBy              String?
+  assignedAgent          String?
+  requiresConfirmation   Boolean   @default(false)
+  confirmationReason     String?
+  currentStepId          String?
+  progressCompletedSteps Int       @default(0)
+  progressTotalSteps     Int       @default(0)
+  blockersJson           Json?
+  warningsJson           Json?
+  outputsJson            Json?
+  metadataJson           Json?
+  pipelineConfig         Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  startedAt              DateTime?
+  completedAt            DateTime?
+  failedAt               DateTime?
+  cancelledAt            DateTime?
+
+  steps MissionPipelineStep[]
+
+  @@index([tenantId, status])
+  @@index([createdAt])
+  @@index([status, runState])
+}
+
+model MissionPipelineStep {
+  id          String    @id @default(cuid())
+  missionId   String
+  orderIndex  Int
+  stepKind    String    @default("action")
+  toolName    String
+  label       String
+  description String?
+  status      String    @default("pending")
+  configJson  Json?
+  inputJson   Json?
+  outputJson  Json?
+  outputsJson Json?
+  metadata    Json?
+  errorJson   Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  mission MissionPipeline @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([missionId, orderIndex])
+}
+
+model MissionContext {
+  id            String   @id @default(cuid())
+  missionId     String   @unique
+  contextJson   String   @default("{}")
+  snapshotsJson String   @default("[]")
+  outcomeJson   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([missionId])
+}
+
 // Persist mission executions (research, planner, etc.)
 model AgentRun {
   id                String    @id @default(cuid())
@@ -1567,33 +1723,6 @@ model AgentRun {
   @@index([missionId, createdAt])
   @@index([tenantId, createdAt])
   @@index([status, updatedAt])
-}
-
-// AI Operator: per-mission run state (build_store and future mission types)
-model MissionRun {
-  id                     String   @id @default(cuid())
-  missionId              String   // dashboard mission id (localStorage key or future backend mission id)
-  missionType            String   // 'build_store' | ...
-  goal                   String?  // text goal
-  tenantId               String?
-  userId                 String?
-  currentStage           String   @default("planning") // planning | running_job | checking_draft | awaiting_review | publishing
-  currentDraftId        String?
-  currentJobId           String?
-  currentGenerationRunId String?
-  currentStoreId         String?
-  attempts               Int      @default(0)
-  maxAttempts            Int      @default(20)
-  status                 String   @default("running") // running | succeeded | failed | needs_human
-  lastError              Json?
-  artifactSnapshot       Json?
-  agentThreadId          String?  // ConversationThread.id for Agent Chat "Advanced view"
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-
-  @@index([missionId])
-  @@index([status])
-  @@index([createdAt])
 }
 
 // ---- Bidding / matching + learning layer ----
@@ -1781,6 +1910,8 @@ model AgentMessage {
   // Optional relation when missionId refers to an OrchestratorTask
   taskId       String?
   task         OrchestratorTask? @relation(fields: [taskId], references: [id])
+  missionRunId String?
+  missionRun   MissionRun? @relation(fields: [missionRunId], references: [id], onDelete: SetNull)
   // Optional thread; Agent Chat continues to work by missionId until we switch
   threadId     String?
   thread       ChatThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
@@ -1789,6 +1920,7 @@ model AgentMessage {
   @@index([missionId, channel])
   @@index([createdAt])
   @@index([threadId])
+  @@index([missionRunId])
 }
 
 // Per-mission Agent Chat options (e.g. toggle Research Agent)
@@ -2371,4 +2503,405 @@ model SeedIngestionJob {
   @@index([provider])
   @@index([status])
   @@index([startedAt])
+}
+
+model TelemetryProbe {
+  id        String   @id @default(cuid())
+  tag       String
+  status    String
+  missionId String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([tag])
+  @@index([createdAt])
+  @@index([missionId])
+}
+
+// ============================================
+// Promotion Slot Pipeline v1
+// ============================================
+
+model Promotion {
+  id           String    @id @default(cuid())
+  storeId      String?
+  type         String
+  title        String
+  message      String?
+  mediaType    String?
+  mediaUrl     String?
+  ctaLabel     String?
+  ctaUrl       String?
+  status       String    @default("draft")
+  startAt      DateTime?
+  endAt        DateTime?
+  priority     Int       @default(0)
+  metadataJson Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  placements PromotionPlacement[]
+
+  @@index([storeId])
+  @@index([status])
+  @@index([startAt, endAt])
+}
+
+model PromotionSlot {
+  id          String    @id @default(cuid())
+  slotKey     String    @unique
+  surfaceType String
+  displayMode String
+  isActive    Boolean   @default(true)
+  configJson  Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  placements PromotionPlacement[]
+
+  @@index([slotKey])
+  @@index([isActive])
+}
+
+model PromotionPlacement {
+  id           String    @id @default(cuid())
+  promotionId  String
+  slotId       String
+  storeId      String?
+  enabled      Boolean   @default(true)
+  startAt      DateTime?
+  endAt        DateTime?
+  priority     Int       @default(0)
+  metadataJson Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  promotion Promotion     @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  slot      PromotionSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+
+  @@index([promotionId])
+  @@index([slotId])
+  @@index([storeId])
+  @@index([slotId, storeId])
+  @@index([enabled])
+}
+
+model McpToken {
+  id         String    @id @default(cuid())
+  userId     String
+  storeId    String
+  tokenHash  String    @unique
+  label      String    @default("MCP Token")
+  revoked    Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
+  @@index([storeId])
+  @@index([tokenHash])
+}
+
+// --- Contact Sync Phase 1 ---
+
+model UserIdentifier {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        String
+  hash        String
+  hashVersion String    @default("v1")
+  source      String    @default("email")
+  verifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([kind, hash, hashVersion])
+  @@index([userId])
+  @@index([kind, hash])
+  @@index([verifiedAt])
+}
+
+model ContactSyncConsent {
+  id            String    @id @default(cuid())
+  userId        String
+  status        String    @default("granted")
+  policyVersion String
+  grantedAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  sources       ContactSyncSource[]
+
+  @@index([userId, status])
+  @@index([userId, grantedAt])
+}
+
+model ContactSyncSource {
+  id                 String             @id @default(cuid())
+  userId             String
+  consentId          String
+  consent            ContactSyncConsent @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  platform           String
+  deviceFingerprint  String?
+  status             String             @default("active")
+  lastSyncAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  jobs               ContactSyncJob[]
+  contactIdentifiers ContactIdentifier[]
+  contactMatches     ContactMatch[]
+
+  @@index([userId])
+  @@index([consentId])
+  @@index([status, lastSyncAt])
+}
+
+model ContactSyncJob {
+  id         String            @id @default(cuid())
+  sourceId   String
+  source     ContactSyncSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  status     String            @default("started")
+  counts     Json?
+  errorCode  String?
+  startedAt  DateTime          @default(now())
+  finishedAt DateTime?
+
+  @@index([sourceId, startedAt])
+  @@index([status, startedAt])
+}
+
+model ContactIdentifier {
+  id          String            @id @default(cuid())
+  sourceId    String
+  source      ContactSyncSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  kind        String
+  hash        String
+  hashVersion String            @default("v1")
+  firstSeenAt DateTime          @default(now())
+  lastSeenAt  DateTime          @default(now())
+
+  @@unique([sourceId, kind, hash, hashVersion])
+  @@index([kind, hash])
+  @@index([sourceId, lastSeenAt])
+}
+
+model ContactMatch {
+  id            String            @id @default(cuid())
+  sourceId      String
+  source        ContactSyncSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  matchedUserId String
+  matchBasis    String
+  confidence    Float             @default(1.0)
+  createdAt     DateTime          @default(now())
+  lastSeenAt    DateTime          @default(now())
+
+  @@unique([sourceId, matchedUserId])
+  @@index([matchedUserId])
+  @@index([sourceId, lastSeenAt])
+}
+
+model ContactSuggestion {
+  id            String    @id @default(cuid())
+  userId        String
+  type          String
+  matchedUserId String?
+  rankScore     Float     @default(0)
+  reasonCode    String?
+  status        String    @default("active")
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime?
+
+  @@index([userId, status, rankScore])
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+// ============================================
+// SmartDocument Layer
+// ============================================
+
+model SmartDocument {
+  id               String    @id @default(cuid())
+  userId           String
+  businessId       String?
+  docType          String
+  subtype          String?
+  title            String
+  status           String    @default("active")
+  phase            String    @default("pre")
+
+  designJson       String?
+  renderedUrl      String?
+  printUrl         String?
+  qrCodeUrl        String?
+  liveUrl          String?
+
+  sizeW            Float?
+  sizeH            Float?
+  sizeUnit         String?   @default("mm")
+  sizeDpi          Int?      @default(300)
+
+  agentPersonality String?
+  knowledgeBase    String?
+  capabilities     String    @default("[]")
+  autoApprove      Boolean   @default(true)
+
+  phaseConfig      String?
+
+  expiresAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business    Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  conversations     DocConversation[]
+  visitors          DocVisitor[]
+  stamps            LoyaltyStamp[]
+  redemptions       PromoRedemption[]
+  rsvps             EventRsvp[]
+  checkIns          DocCheckIn[]
+  signatures        DocSignature[]
+  scheduledMessages DocScheduledMessage[]
+
+  @@index([userId, createdAt])
+  @@index([businessId, createdAt])
+  @@index([docType, status])
+  @@index([phase, status])
+}
+
+model DocVisitor {
+  id                String    @id @default(cuid())
+  docId             String
+  sessionToken      String    @unique
+  phone             String?
+  email             String?
+  name              String?
+  platformVisitorId String?
+  firstSeenAt       DateTime  @default(now())
+  lastSeenAt        DateTime  @updatedAt
+
+  doc SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  conversations DocConversation[]
+  stamps        LoyaltyStamp[]
+  redemptions   PromoRedemption[]
+  rsvps         EventRsvp[]
+  checkIns      DocCheckIn[]
+  signatures    DocSignature[]
+
+  @@index([docId, lastSeenAt])
+  @@index([platformVisitorId])
+}
+
+model DocConversation {
+  id        String    @id @default(cuid())
+  docId     String
+  visitorId String
+  channel   String    @default("web")
+  messages  String    @default("[]")
+  outcome   String?
+  intent    String?
+  sentiment String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  doc     SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+  visitor DocVisitor    @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@index([docId, updatedAt])
+  @@index([visitorId, updatedAt])
+  @@index([channel, createdAt])
+}
+
+model DocScheduledMessage {
+  id        String    @id @default(cuid())
+  docId     String
+  sendAt    DateTime
+  channel   String    @default("web")
+  payload   String?
+  status    String    @default("pending")
+  attempts  Int       @default(0)
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  doc SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId, sendAt])
+  @@index([status, sendAt])
+}
+
+// Document-scoped loyalty/promo (distinct from LoyaltyProgramStamp / PromoRuleRedemption tables)
+model LoyaltyStamp {
+  id         String        @id @default(cuid())
+  docId      String
+  visitorId  String
+  stampedAt  DateTime      @default(now())
+  redeemedAt DateTime?
+
+  doc     SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+  visitor DocVisitor    @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@index([docId, stampedAt])
+  @@index([visitorId, stampedAt])
+  @@map("DocumentLoyaltyStamp")
+}
+
+model PromoRedemption {
+  id              String        @id @default(cuid())
+  docId           String
+  visitorId       String
+  redeemedAt      DateTime      @default(now())
+  discountApplied String?
+
+  doc     SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+  visitor DocVisitor    @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@index([docId, redeemedAt])
+  @@index([visitorId, redeemedAt])
+  @@map("DocumentPromoRedemption")
+}
+
+model EventRsvp {
+  id        String        @id @default(cuid())
+  docId     String
+  visitorId String
+  status    String
+  rsvpAt    DateTime      @default(now())
+
+  doc     SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+  visitor DocVisitor    @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@index([docId, rsvpAt])
+  @@index([visitorId, rsvpAt])
+}
+
+model DocCheckIn {
+  id          String        @id @default(cuid())
+  docId       String
+  visitorId   String
+  checkedInAt DateTime      @default(now())
+  note        String?
+
+  doc     SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+  visitor DocVisitor    @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@index([docId, checkedInAt])
+  @@index([visitorId, checkedInAt])
+}
+
+model DocSignature {
+  id           String        @id @default(cuid())
+  docId        String
+  visitorId    String
+  signedAt     DateTime      @default(now())
+  signatureUrl String?
+  ipAddress    String?
+
+  doc     SmartDocument @relation(fields: [docId], references: [id], onDelete: Cascade)
+  visitor DocVisitor    @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@index([docId, signedAt])
+  @@index([visitorId, signedAt])
 }

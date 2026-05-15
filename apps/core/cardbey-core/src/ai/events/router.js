@@ -5,12 +5,12 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import cuid from 'cuid';
 import { handleAISuggestion } from '../orchestrator.js';
 import { idempotencyMiddleware, cacheIdempotencyResponse } from '../middleware/idempotency.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
+
 const router = express.Router();
 
 // Apply idempotency middleware to POST /events

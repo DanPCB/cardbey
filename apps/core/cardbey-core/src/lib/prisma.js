@@ -1,6 +1,6 @@
 /**
  * Single Prisma client for the core app.
- * Uses default @prisma/client as the only runtime source of truth.
+ * Single runtime Prisma client from client-gen (see ./prismaClient.js).
  *
  * This file merges:
  * - stable single-client runtime from old src/lib/prisma.js
@@ -9,9 +9,11 @@
  * Regenerate with the correct schema before running:
  *   SQLite:   npx prisma generate --schema prisma/sqlite/schema.prisma
  *   Postgres: npx prisma generate --schema prisma/postgres/schema.prisma
+ *
+ * Runtime imports client-gen (not @prisma/client) via ./prismaClient.js.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './prismaClient.js';
 
 let prisma = null;
 let connectionTested = false;
@@ -95,7 +97,8 @@ export function assertCampaignModels(client) {
 
     throw new Error(
       `[DB] Prisma client is missing campaign models: ${missing.join(', ')}. ` +
-        `The client was generated from the wrong or old schema. ` +
+        `Runtime uses client-gen (see src/lib/prismaClient.js). ` +
+        `If other campaign models are present, postgres schema.prisma may be missing models that sqlite has. ` +
         `Run from apps/core/cardbey-core: ${schemaHint} then restart the server.`
     );
   }

@@ -132,7 +132,7 @@ export async function closeMissionContext(missionId, outcome) {
  * @param {string} missionId
  * @param {string} rawIntent
  * @param {string} storeId - Business id
- * @returns {Promise<import('@prisma/client').MissionContext | null>}
+ * @returns {Promise<import('../lib/prismaClient.js').MissionContext | null>}
  */
 export async function buildAndStoreMissionHypothesis(missionId, rawIntent, storeId) {
   try {

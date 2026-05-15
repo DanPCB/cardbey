@@ -7,10 +7,9 @@
  * Or: node src/scripts/backfillStoreSlugs.js
  */
 
-import { PrismaClient } from '@prisma/client';
 import { slugify, generateUniqueStoreSlug } from '../utils/slug.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 async function backfillStoreSlugs() {
   console.log('[BackfillStoreSlugs] Starting slug generation for existing stores...');

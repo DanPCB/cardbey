@@ -3,10 +3,9 @@
  * Polls for due tasks and executes them via action adapters
  */
 
-import { PrismaClient } from '@prisma/client';
 import { runAction } from './actions.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 // SSE client connections (for real-time updates)
 const sseClients = new Map(); // userId -> res

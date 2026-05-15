@@ -3,10 +3,9 @@
  * Executes node-specific actions when suggestions are applied
  */
 
-import { PrismaClient } from '@prisma/client';
 import cuid from 'cuid';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Execute actions for a suggestion based on node type

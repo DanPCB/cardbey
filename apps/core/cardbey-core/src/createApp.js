@@ -28,12 +28,14 @@ import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import performerProactiveStepRoutes from './routes/performerProactiveStepRoutes.js';
 import performerMissionsRoutes from './routes/performerMissionsRoutes.js';
 import performerDesignRoutes from './routes/performerDesignRoutes.js';
+import performerInsightsRoutes from './routes/performerInsightsRoutes.js';
 import devApplyPatchRoutes from './routes/devApplyPatchRoutes.js';
 import devSystemMissionsRoutes from './routes/devSystemMissions.js';
 import telemetryHealthRoutes from './routes/telemetryHealthRoutes.js';
 import cardRoutes from './routes/cardRoutes.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
 import { startScheduler } from './lib/smartDocument/messageScheduler.js';
+import { registerPerformerCapabilities } from './performer/capabilities/registerPerformerCapabilities.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -113,6 +115,14 @@ export function logDevProviderEnvHints() {
 export async function createCardbeyApp() {
   console.log('[cardbey-core/createApp] DATABASE_URL=', redactDatabaseUrlForLog(process.env.DATABASE_URL));
 
+  try {
+    await registerPerformerCapabilities();
+    console.log('[cardbey-core/createApp] Performer capabilities registered (Tier 1 + Tier 2)');
+  } catch (regErr) {
+    console.error('[cardbey-core/createApp] registerPerformerCapabilities failed:', regErr);
+    throw regErr;
+  }
+
   const app = express();
   app.use(express.json({ limit: '4mb' }));
 
@@ -155,6 +165,8 @@ export async function createCardbeyApp() {
   console.log('[cardbey-core/createApp] mounted /api/performer/missions (performerMissionsRoutes)');
   app.use('/api/performer/design', performerDesignRoutes);
   console.log('[cardbey-core/createApp] mounted /api/performer/design (performerDesignRoutes)');
+  app.use('/api/performer/insights', performerInsightsRoutes);
+  console.log('[cardbey-core/createApp] mounted /api/performer/insights (performerInsightsRoutes)');
   app.use('/api/dev', devApplyPatchRoutes);
   console.log('[cardbey-core/createApp] mounted /api/dev (devApplyPatchRoutes)');
   app.use('/api/dev', devSystemMissionsRoutes);
@@ -253,6 +265,7 @@ export async function createCardbeyApp() {
   await tryMountRouter(app, './routes/miRoutes.js', '/api/mi');
   await tryMountRouter(app, './routes/miDistributionRoutes.ts', '/api/mi');
   await tryMountRouter(app, './routes/auth.js', '/api/auth');
+  await tryMountRouter(app, './routes/publicProducts.js', '/');
   await tryMountRouter(app, './routes/agentRoutes.js', '/api/agent');
   await tryMountRouter(app, './routes/telemetryRoutes.js', '/api/telemetry');
   await tryMountRouter(app, './routes/missionsRoutes.js', '/api/missions');

@@ -3,12 +3,11 @@
  * Send playlist to device via WebSocket/SSE channel
  */
 
-import { PrismaClient } from '@prisma/client';
 import type { PushPlaylistInput, PushPlaylistOutput } from './types.ts';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import type { EngineContext } from './requestPairing.ts';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 /**
  * Push playlist to device

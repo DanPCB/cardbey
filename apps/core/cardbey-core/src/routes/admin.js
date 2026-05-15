@@ -2,14 +2,13 @@
 // Admin-only endpoints for maintenance and diagnostics
 
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { scanMissingMedia } from '../../scripts/scan-missing-media-runner.js';
 import { runCleanup } from '../services/s3Cleanup.js';
 
-const router = Router();
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
+const router = Router();
 // All admin routes require auth + platform admin role
 router.use(requireAuth);
 router.use(requireAdmin);

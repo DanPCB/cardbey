@@ -5,9 +5,9 @@
  */
 
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { requestLog } from '../middleware/requestLog.js';
+import { prisma } from '../lib/prisma.js';
 import {
   buildInsightAction,
   inferEntryPointFromInsight,
@@ -16,7 +16,6 @@ import {
   parseDeviceIdFromReportTags,
 } from '../utils/insightActionBuilder.js';
 
-const prisma = new PrismaClient();
 const router = express.Router();
 
 // Apply logging to all insight routes

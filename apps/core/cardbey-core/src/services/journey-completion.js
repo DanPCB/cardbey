@@ -3,10 +3,9 @@
  * Triggers follow-up suggestions and records analytics
  */
 
-import { PrismaClient } from '@prisma/client';
 import { buildSuggestions } from './suggestions.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
 
 /**
  * Journey completion flow patterns

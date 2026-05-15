@@ -18,10 +18,18 @@ const CHECK_INTERVAL_MS = 30 * 1000; // Check every 30 seconds
 
 const IS_DEV = process.env.NODE_ENV !== 'production';
 
-// P2021 = table does not exist (e.g. test.db without Screen/Device)
+// P2021/P2022 = table/column does not exist (e.g. test DB or migrations not applied yet)
 const PRISMA_TABLE_MISSING = 'P2021';
+const PRISMA_COLUMN_MISSING = 'P2022';
 let screensTableMissingLogged = false;
 let devicesTableMissingLogged = false;
+
+function isPrismaSchemaMissing(error) {
+  if (!error) return false;
+  if (error.code === PRISMA_TABLE_MISSING || error.code === PRISMA_COLUMN_MISSING) return true;
+  const msg = String(error.message || '').toLowerCase();
+  return msg.includes('does not exist') || msg.includes('no such table');
+}
 
 /**
  * Check for screens that should be marked offline
@@ -75,14 +83,14 @@ async function checkOfflineScreens() {
       console.log(`[OfflineWatcher] Marked ${screensToMarkOffline.length} screen(s) as offline`);
     }
   } catch (error) {
-    if (error?.code === PRISMA_TABLE_MISSING) {
+    if (isPrismaSchemaMissing(error)) {
       if (!screensTableMissingLogged) {
         screensTableMissingLogged = true;
         console.warn('[OfflineWatcher] Screen table missing in database (e.g. test DB); skipping offline screens check.');
       }
       return;
     }
-    console.error('[OfflineWatcher] Error checking offline screens:', error);
+    console.error('[OfflineWatcher] Error checking offline screens:', error?.message || error);
   }
 }
 
@@ -164,14 +172,14 @@ async function checkOfflineDevices() {
       console.log(`[OfflineWatcher] Marked ${devicesToMarkOffline.length} device(s) as offline`);
     }
   } catch (error) {
-    if (error?.code === PRISMA_TABLE_MISSING) {
+    if (isPrismaSchemaMissing(error)) {
       if (!devicesTableMissingLogged) {
         devicesTableMissingLogged = true;
         console.warn('[OfflineWatcher] Device table missing in database (e.g. test DB); skipping offline devices check.');
       }
       return;
     }
-    console.error('[OfflineWatcher] Error checking offline devices:', error);
+    console.error('[OfflineWatcher] Error checking offline devices:', error?.message || error);
   }
 }
 

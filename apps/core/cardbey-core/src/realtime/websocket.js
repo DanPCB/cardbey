@@ -10,9 +10,9 @@
 
 import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma.js';
+
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-this';
 
 // Store connected clients

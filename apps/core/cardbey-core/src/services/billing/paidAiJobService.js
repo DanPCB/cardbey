@@ -3,9 +3,8 @@
  * Call startJob before work; if already running return { inProgress: true }. Only consume credits when completeJob(success).
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 const STATUS = { running: 'running', succeeded: 'succeeded', failed: 'failed' };
 

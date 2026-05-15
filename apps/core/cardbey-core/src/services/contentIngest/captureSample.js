@@ -4,10 +4,9 @@
  * Retention, daily cap, and sampling are gated by env; all optional. Wipe websiteUrl is in orchestraBuildStore.
  */
 
-import { PrismaClient } from '@prisma/client';
 import { scrubText } from './piiScrub.js';
 
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma.js';
 
 const RAW_INPUT_MAX = 800;
 const OCR_TEXT_MAX = 1200;
@@ -48,7 +47,7 @@ function shouldSample(sampleRate) {
 /**
  * Enforce retention (delete old), daily cap, and sampling. Only call when shouldCapture() is true.
  * Best-effort: on failure, returns { allowed: true } so capture can proceed (or catch and skip — we skip on throw).
- * @param {import('@prisma/client').PrismaClient} prismaClient
+ * @param {import('../../lib/prismaClient.js').PrismaClient} prismaClient
  * @returns {{ allowed: boolean, reason?: string }}
  */
 export async function enforceCaptureLimits(prismaClient) {
