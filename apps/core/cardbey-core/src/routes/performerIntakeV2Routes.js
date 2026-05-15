@@ -513,6 +513,15 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   return { toolResult, payload };
 }
 
+/** Deploy smoke / health — must return JSON (not SPA HTML). */
+router.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    version: 'v2',
+    env: process.env.NODE_ENV || 'development',
+  });
+});
+
 router.post('/', requireUserOrGuest, async (req, res) => {
   const startMs = Date.now();
   const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
