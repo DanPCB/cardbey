@@ -8,6 +8,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  isPostgresDatabaseUrl,
+  isRenderProduction,
+  pickDatabaseUrlForPrisma,
+  resolvePrismaSchemaPath as resolveSchemaPathFromEnv,
+} from "./prismaSchemaPath.js";
 // Ensure DATABASE_URL is normalized before migrate/deploy (must run before any PrismaClient use).
 import "../src/env/ensureDatabaseUrl.js";
 
@@ -26,16 +32,15 @@ function toStr(x) {
 
 /** Child env: CI helps Prisma stay non-interactive on Render. */
 function prismaChildEnv() {
-  const dbUrl = String(process.env.DATABASE_URL || "").trim().toLowerCase();
-  const isPostgres =
-    dbUrl.startsWith("postgresql://") ||
-    dbUrl.startsWith("postgres://") ||
-    dbUrl.startsWith("prisma://") ||
-    dbUrl.startsWith("prisma+postgres://");
+  const effectiveUrl = pickDatabaseUrlForPrisma();
+  const isPostgres = isPostgresDatabaseUrl(effectiveUrl);
   // Local dev safeguard: force binary engine for SQLite. Data Proxy engines require prisma:// URLs.
   const engineType = String(process.env.PRISMA_CLIENT_ENGINE_TYPE || "").trim().toLowerCase();
   const isProxyEngine = engineType === "dataproxy" || engineType === "data-proxy" || engineType === "edge";
   const next = { ...process.env, CI: process.env.CI || "true" };
+  if (effectiveUrl) {
+    next.DATABASE_URL = effectiveUrl;
+  }
   if (!isPostgres) {
     if (isProxyEngine) {
       console.warn("[prisma] overriding PRISMA_CLIENT_ENGINE_TYPE for SQLite (was %s)", engineType);
@@ -142,8 +147,7 @@ function runMigrateDeploy(schemaPath) {
 
 /** Old bad deploys created MissionBlackboard with Postgres JSONB DDL in SQLite; SQLite cannot parse it — drop so push/migrate can proceed. */
 function dropSqliteMissionBlackboardIfNeeded(schemaPath) {
-  const dbUrl = String(process.env.DATABASE_URL || "").trim();
-  if (dbUrl.startsWith("postgresql://") || dbUrl.startsWith("postgres://")) return;
+  if (isPostgresDatabaseUrl(pickDatabaseUrlForPrisma())) return;
   try {
     const dropSql = "DROP TABLE IF EXISTS MissionBlackboard;";
     execSync(`npx prisma db execute --schema=${schemaPath} --stdin`, {
@@ -173,19 +177,26 @@ async function getDeviceCountSafely() {
   }
 }
 
-function resolvePrismaSchemaPath() {
-  const dbUrl = String(process.env.DATABASE_URL || "").trim();
-  if (dbUrl.startsWith("postgresql://") || dbUrl.startsWith("postgres://")) {
-    const postgresSchema = path.join(rootDir, "prisma", "postgres", "schema.prisma");
-    if (fs.existsSync(postgresSchema)) return postgresSchema;
-  }
-  if (fs.existsSync(path.join(rootDir, "prisma", "sqlite", "schema.prisma"))) {
-    return path.join(rootDir, "prisma", "sqlite", "schema.prisma");
-  }
-  return path.join(rootDir, "prisma", "schema.prisma");
-}
+const schemaPath = resolveSchemaPathFromEnv(rootDir);
+const effectiveDatabaseUrl = pickDatabaseUrlForPrisma();
+const schemaIsPostgres = isPostgresDatabaseUrl(effectiveDatabaseUrl);
 
-const schemaPath = resolvePrismaSchemaPath();
+if (isRenderProduction() && !schemaIsPostgres) {
+  console.error(
+    "[prisma] Render production requires a Postgres DATABASE_URL (postgresql:// or postgres://).",
+  );
+  console.error(
+    "[prisma] Set DATABASE_URL in Render → cardbey-core-staging → Environment to your Postgres connection string.",
+  );
+  console.error(
+    "[prisma] Or set POSTGRES_DATABASE_URL to postgres and keep DATABASE_URL unset if you use that pattern.",
+  );
+  const current = String(process.env.DATABASE_URL || "").trim();
+  if (current.toLowerCase().startsWith("file:")) {
+    console.error("[prisma] Current DATABASE_URL is SQLite (file:...) — that forces prisma/sqlite/schema.prisma.");
+  }
+  process.exit(1);
+}
 // Must match Prisma: migrations live next to the schema (e.g. prisma/sqlite/migrations,
 // prisma/postgres/migrations), not always prisma/migrations — wrong dir caused SQLite
 // bootstrap to think "has migrations" from the wrong tree and worsened P3005/P3009 confusion.
@@ -219,13 +230,16 @@ const migrationDirs =
 const hasMigrations = migrationDirs.length > 0;
 
 console.log("[prisma] schema:", schemaPath);
+console.log("[prisma] provider:", schemaIsPostgres ? "postgres" : "sqlite");
+console.log(
+  "[prisma] DATABASE_URL scheme:",
+  effectiveDatabaseUrl ? effectiveDatabaseUrl.split(":")[0] : "(not set)",
+);
 console.log("[prisma] migrations dir:", migrationsDir, "hasMigrations:", hasMigrations);
 
 dropSqliteMissionBlackboardIfNeeded(schemaPath);
 
-const dbUrlForRestore = String(process.env.DATABASE_URL || "").trim();
-const isPostgresForRestore =
-  dbUrlForRestore.startsWith("postgresql://") || dbUrlForRestore.startsWith("postgres://");
+const isPostgresForRestore = schemaIsPostgres;
 
 // SQLite + migrations: migrate deploy MUST run before db push. A prior db push syncs the full
 // schema without writing _prisma_migrations, so migrate deploy then hits P3005 ("schema is not empty").
@@ -239,12 +253,25 @@ if (hasMigrations) {
       console.error(
         "[prisma] P3009 - a migration is recorded as failed. Do not ignore; fix history then redeploy.",
       );
-      console.error(
-        "[prisma] SQLite (local dev): if the migration SQL already applied (e.g. after db push):",
-      );
-      console.error(
-        `  npx prisma migrate resolve --applied 20260309234049_init --schema=${schemaPath.replace(/\\/g, "/")}`,
-      );
+      const schemaFlag = schemaPath.replace(/\\/g, "/");
+      if (schemaIsPostgres) {
+        console.error("[prisma] Postgres (Render Shell on cardbey-core-staging):");
+        console.error(
+          "  npx prisma migrate resolve --applied <failed_migration_name> --schema prisma/postgres/schema.prisma",
+        );
+        console.error("  Example (if 20260309234049_init failed):");
+        console.error(
+          "  npx prisma migrate resolve --applied 20260309234049_init --schema prisma/postgres/schema.prisma",
+        );
+        console.error("  Then: npx prisma migrate deploy --schema prisma/postgres/schema.prisma");
+      } else {
+        console.error(
+          "[prisma] SQLite (local dev): if the migration SQL already applied (e.g. after db push):",
+        );
+        console.error(
+          `  npx prisma migrate resolve --applied <failed_migration_name> --schema=${schemaFlag}`,
+        );
+      }
       console.error(
         "[prisma] If it truly failed mid-way (preserve DB): prisma migrate resolve --rolled-back <name> --schema=... then migrate deploy (verify schema first).",
       );
