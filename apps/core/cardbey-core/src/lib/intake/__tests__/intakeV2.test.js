@@ -198,8 +198,31 @@ describe('evaluateExecutionPolicy', () => {
 });
 
 describe('intakeSystemShortcuts', () => {
-  it('does not shortcut first-hop store creation', () => {
+  it('does not shortcut first-hop store creation from message alone', () => {
     expect(detectIntent({ userMessage: 'create a store' })).toBeNull();
     expect(detectIntent({ userMessage: 'create a mini website' })).toBeNull();
+  });
+
+  it('shortcuts create_store when primaryMode is create', () => {
+    expect(
+      detectIntent({ userMessage: 'Create my website', primaryMode: 'create' }),
+    ).toEqual({ type: 'create_store', intentMode: 'store' });
+  });
+
+  it('shortcuts website mode when primaryMode is website', () => {
+    expect(detectIntent({ userMessage: 'x', primaryMode: 'website' })).toEqual({
+      type: 'create_store',
+      intentMode: 'website',
+    });
+  });
+
+  it('does not shortcut frontscreen campaign handoff', () => {
+    expect(
+      detectIntent({
+        userMessage: 'Run a promotion',
+        intentSource: 'frontscreen',
+        primaryMode: 'campaign',
+      }),
+    ).toBeNull();
   });
 });

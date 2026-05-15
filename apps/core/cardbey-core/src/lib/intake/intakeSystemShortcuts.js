@@ -6,14 +6,44 @@
  * so this shortcuts layer must not duplicate store/mini-website phrase matching.
  */
 
+const STORE_CREATE_PRIMARY_MODES = new Set(['create', 'website', 'store_setup']);
+
+function resolvePrimaryMode(input) {
+  const pm = String(input?.primaryMode ?? input?.primaryModeHint ?? '')
+    .trim()
+    .toLowerCase();
+  return pm || null;
+}
+
 /**
  * @param {object} input
  * @param {string} input.userMessage
+ * @param {string} [input.primaryMode]
+ * @param {string} [input.primaryModeHint]
+ * @param {string} [input.intentSource]
  * @param {{ userId?: string | null, isGuest?: boolean }} input.auth
  * @returns {{ type: 'create_store', intentMode: 'store'|'website' } | { type: 'auth_required', message: string } | { type: 'missing_store', message: string } | null}
  */
 export function detectIntent(input) {
   const raw = String(input?.userMessage ?? '').trim();
   if (!raw) return null;
+
+  const primaryMode = resolvePrimaryMode(input);
+  const intentSource = String(input?.intentSource ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (primaryMode && STORE_CREATE_PRIMARY_MODES.has(primaryMode)) {
+    return {
+      type: 'create_store',
+      intentMode: primaryMode === 'website' ? 'website' : 'store',
+    };
+  }
+
+  // Frontscreen handoff with explicit create mode (URL primaryMode=create).
+  if (intentSource === 'frontscreen' && primaryMode === 'create') {
+    return { type: 'create_store', intentMode: 'store' };
+  }
+
   return null;
 }

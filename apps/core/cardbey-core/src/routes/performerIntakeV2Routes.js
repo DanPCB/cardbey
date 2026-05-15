@@ -1000,7 +1000,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   // ── 1) System shortcuts ────────────────────────────────────────────────────
   if (!forcedTool) {
-    const shortcut = detectIntent({ userMessage, auth: { userId: req.user?.id ?? null, isGuest: !req.user } });
+    const shortcut = detectIntent({
+      userMessage,
+      auth: { userId: req.user?.id ?? null, isGuest: !req.user },
+      primaryMode: body.primaryMode,
+      primaryModeHint: body.primaryModeHint,
+      intentSource: body.intentSource,
+    });
 
     // ── SmartDocument intent (CC-4) — AUTO_RUN, requires auth ──────────────
     const { sdType, sdSubtype } = detectSmartDocumentIntent(userMessage);
