@@ -98,6 +98,7 @@ import debugRoutes from './routes/debug.js';
 import { createDebugRoutesLite } from './routes/debugRoutesLite.js';
 import assistantRouter from './routes/assistant.js';
 import contentsRouter from './routes/contents.js';
+import contentLibraryRoutes from './routes/contentLibraryRoutes.js';
 import internalRoutes from './routes/internal.js';
 import opsRoutes from './routes/opsRoutes.js';
 import controlTowerRoutes from './routes/controlTowerRoutes.js';
@@ -127,6 +128,8 @@ import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
+import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
+import cardRoutes from './routes/cardRoutes.js';
 import orchestratorRoutes from './orchestrator/api/orchestratorRoutes.js';
 import orchestratorFeedbackRoutes from './routes/orchestratorFeedbackRoutes.js';
 import menuPhotoAssignRoutes from './routes/menuPhotoAssign.js';
@@ -846,7 +849,10 @@ app.use('/api/smart-objects', smartObjectsRoutes); // Smart Object: create, get 
 app.use('/api/qr', qrRoutes); // Dynamic QR v0: POST create, GET :code/resolve, PATCH :code
 app.use('/q', qRedirect); // GET /q/:code — 302 redirect, record ScanEvent + IntentSignal (no auth)
 app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug — public offer page (no auth)
+app.use('/api/docs', smartDocumentRoutes); // Smart documents + suitcase list: GET/POST /api/docs
+app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards, visitor chat, etc.
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
+app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
 app.use('/api/assets', assetsRouter);
 app.use('/api/trends', trendsRouter); // Trend profiles for AI Design Assistant
 app.use('/api/playlists', playlistsRoutes); // Playlist management

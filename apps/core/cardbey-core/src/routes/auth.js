@@ -16,6 +16,7 @@ import { getVerifyEmailContent } from '../services/email/templates/verifyEmail.j
 import { getResetPasswordContent } from '../services/email/templates/resetPasswordEmail.js';
 import { registerWithEmailPassword, loginWithEmailPassword } from '../services/auth/authService.js';
 import { getPersonalPresenceLinkFields } from '../services/personalPresence/personalPresenceQr.js';
+import { publicWebBase } from '../utils/publicWebBase.js';
 
 const router = express.Router();
 
@@ -862,12 +863,7 @@ function getVerificationLinkBaseUrl() {
  * Dev fallback matches password-reset link default.
  */
 function resolvePublicWebBaseForBrowserRedirect() {
-  const webBase = (process.env.PUBLIC_WEB_BASE_URL || process.env.FRONTEND_URL || process.env.PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
-  if (webBase) return webBase;
-  if (process.env.NODE_ENV !== 'production') {
-    return 'http://localhost:5174';
-  }
-  return '';
+  return publicWebBase({ emptyInProductionIfUnset: true });
 }
 
 /** Shared success response after email is verified (redirect to SPA or JSON). */
@@ -879,7 +875,7 @@ function respondAfterEmailVerified(res, redirect_uri) {
       return res.redirect(302, `${webBase}${redirect_uri}`);
     }
     if (process.env.NODE_ENV === 'production') {
-      console.error('[Auth] verify: set PUBLIC_WEB_BASE_URL or FRONTEND_URL for post-verify browser redirect');
+      console.error('[Auth] verify: set PUBLIC_APP_URL or DASHBOARD_URL for post-verify browser redirect');
     }
     return res.json({
       ok: true,
@@ -1443,9 +1439,9 @@ router.post('/request-reset', passwordResetRequestLimiter, async (req, res, next
         }
       });
 
-      const webBase = process.env.PUBLIC_WEB_BASE_URL || process.env.FRONTEND_URL || process.env.PUBLIC_BASE_URL || 'http://localhost:5174';
+      const webBase = publicWebBase();
       const resetPath = '/reset';
-      const resetLink = `${webBase.replace(/\/$/, '')}${resetPath}?token=${encodeURIComponent(rawToken)}`;
+      const resetLink = `${webBase}${resetPath}?token=${encodeURIComponent(rawToken)}`;
 
       const hasMail = (process.env.MAIL_HOST || '').trim().length > 0;
       if (hasMail) {

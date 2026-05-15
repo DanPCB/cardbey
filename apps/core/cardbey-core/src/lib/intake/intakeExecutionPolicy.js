@@ -9,7 +9,7 @@ export const CONFIDENCE_MEDIUM = 0.55;
 
 /**
  * @param {object} p
- * @param {'direct_action'|'proactive_plan'|'chat'|'clarify'} p.executionPath
+ * @param {'direct_action'|'proactive_plan'|'chat'|'clarify'|'service_request'} p.executionPath
  * @param {string} [p.riskLevel]
  * @param {number} p.confidence
  * @returns {{ decision: 'execute'|'clarify'|'approval_required'|'block', reason?: string }}
@@ -19,7 +19,7 @@ export function evaluateExecutionPolicy(p) {
   const conf = typeof confidence === 'number' && !Number.isNaN(confidence) ? confidence : 0;
   const risk = riskLevel || RISK.SAFE_READ;
 
-  if (executionPath === 'clarify' || executionPath === 'chat') {
+  if (executionPath === 'clarify' || executionPath === 'chat' || executionPath === 'service_request') {
     return { decision: 'execute', reason: 'non_executable_path' };
   }
 

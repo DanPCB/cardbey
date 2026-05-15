@@ -24,7 +24,11 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { getPrismaClient } from '../lib/prisma.js';
 import { buildSmartDocument } from '../lib/smartDocument/buildSmartDocument.js';
-import { renderDocument } from '../lib/smartDocument/documentRenderer.js';
+import {
+  renderDocument,
+  renderDocumentFromCardRow,
+  ensureStandardsModeHtml,
+} from '../lib/smartDocument/documentRenderer.js';
 import { processDocMessage } from '../lib/smartDocument/documentAgent.js';
 import { scheduleMessage } from '../lib/smartDocument/messageScheduler.js';
 import { resolvePhase } from '../lib/smartDocument/phaseEngine.js';
@@ -60,20 +64,36 @@ router.get('/:id/view', async (req, res) => {
 
   try {
     const doc = await prisma.smartDocument.findUnique({ where: { id } });
-    if (!doc) return res.status(404).send('Document not found');
-    if (doc.status === 'archived') return res.status(410).send('Document no longer available');
+    if (doc) {
+      if (doc.status === 'archived') return res.status(410).send('Document no longer available');
 
-    // Lazy phase update
-    const { phase, needsUpdate } = resolvePhase({ ...doc, stampCount: 0 });
-    if (needsUpdate) {
-      prisma.smartDocument.update({ where: { id }, data: { phase } }).catch(() => {});
+      // Lazy phase update
+      const { phase, needsUpdate } = resolvePhase({ ...doc, stampCount: 0 });
+      if (needsUpdate) {
+        prisma.smartDocument.update({ where: { id }, data: { phase } }).catch(() => {});
+      }
+
+      emitHealthProbe('card_created', { docId: id, docType: doc.docType, viewed: true });
+
+      const html = ensureStandardsModeHtml(renderDocument({ ...doc, phase }, { includeChatWidget: true }));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+      return res.send(html);
     }
 
-    emitHealthProbe('card_created', { docId: id, docType: doc.docType, viewed: true });
+    const card = await prisma.card.findUnique({ where: { id } });
+    if (card) {
+      if (String(card.status || '').toLowerCase() === 'archived') {
+        return res.status(410).send('Document no longer available');
+      }
+      emitHealthProbe('card_created', { docId: id, docType: 'card', viewed: true });
+      const html = ensureStandardsModeHtml(renderDocumentFromCardRow(card, { includeChatWidget: true }));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+      return res.send(html);
+    }
 
-    const html = renderDocument({ ...doc, phase }, { includeChatWidget: true });
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.send(html);
+    return res.status(404).send('Document not found');
   } catch (e) {
     console.error('[smartDocumentRoutes] GET /:id/view failed:', e?.message ?? e);
     return res.status(500).send('Internal error');
@@ -273,7 +293,48 @@ router.get('/', requireAuth, async (req, res) => {
         },
       },
     });
-    return res.json({ ok: true, documents: docs });
+
+    /** Suitcase “digital cards” from buildCard — same list shape as SmartDocument rows. */
+    let fromCardTable = [];
+    if (prisma.card && typeof prisma.card.findMany === 'function' && (!docType || docType === 'card')) {
+      const rows = await prisma.card.findMany({
+        where: { userId, status: { not: 'archived' } },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          status: true,
+          liveUrl: true,
+          qrCodeUrl: true,
+          designJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      fromCardTable = rows.map((c) => ({
+        id: c.id,
+        docType: 'card',
+        subtype: c.type,
+        title: c.title,
+        status: c.status,
+        phase: 'active',
+        liveUrl: c.liveUrl,
+        qrCodeUrl: c.qrCodeUrl,
+        renderedUrl: null,
+        designJson: c.designJson,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        _count: { stamps: 0, redemptions: 0, rsvps: 0, conversations: 0, checkIns: 0 },
+      }));
+    }
+
+    const merged = [...docs, ...fromCardTable]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 100);
+
+    return res.json({ ok: true, documents: merged });
   } catch (e) {
     return res.status(500).json({ ok: false, error: 'internal_error', message: e?.message });
   }
@@ -471,9 +532,64 @@ router.get('/:id', requireAuth, async (req, res) => {
 
   try {
     const doc = await prisma.smartDocument.findUnique({ where: { id } });
-    if (!doc) return res.status(404).json({ ok: false, error: 'not_found' });
-    if (doc.userId !== userId) return res.status(403).json({ ok: false, error: 'forbidden' });
-    return res.json({ ok: true, document: doc });
+    if (doc) {
+      if (doc.userId !== userId) return res.status(403).json({ ok: false, error: 'forbidden' });
+      return res.json({ ok: true, document: doc });
+    }
+    /** Suitcase digital cards use `Card.id`; list APIs may still route GET /api/docs/:id here. */
+    const card = await prisma.card.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        type: true,
+        title: true,
+        status: true,
+        designJson: true,
+        agentPersonality: true,
+        knowledgeBase: true,
+        capabilities: true,
+        autoApprove: true,
+        liveUrl: true,
+        qrCodeUrl: true,
+        sizeW: true,
+        sizeH: true,
+        sizeUnit: true,
+        sizeDpi: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!card) return res.status(404).json({ ok: false, error: 'not_found' });
+    if (card.userId !== userId) return res.status(403).json({ ok: false, error: 'forbidden' });
+    const asDoc = {
+      id: card.id,
+      userId: card.userId,
+      businessId: null,
+      docType: 'card',
+      subtype: card.type,
+      title: card.title,
+      status: card.status,
+      phase: 'active',
+      designJson: card.designJson,
+      renderedUrl: null,
+      printUrl: null,
+      qrCodeUrl: card.qrCodeUrl,
+      liveUrl: card.liveUrl,
+      sizeW: card.sizeW,
+      sizeH: card.sizeH,
+      sizeUnit: card.sizeUnit,
+      sizeDpi: card.sizeDpi,
+      agentPersonality: card.agentPersonality,
+      knowledgeBase: card.knowledgeBase,
+      capabilities: card.capabilities,
+      autoApprove: card.autoApprove,
+      phaseConfig: null,
+      expiresAt: null,
+      createdAt: card.createdAt,
+      updatedAt: card.updatedAt,
+    };
+    return res.json({ ok: true, document: asDoc });
   } catch (e) {
     return res.status(500).json({ ok: false, error: 'internal_error', message: e?.message });
   }
@@ -485,13 +601,28 @@ router.delete('/:id', requireAuth, async (req, res) => {
   const prisma = getPrismaClient();
   const userId = req.user?.id;
   const id = String(req.params.id ?? '').trim();
+  if (!userId) return res.status(401).json({ ok: false, error: 'auth_required' });
+  if (!id) return res.status(400).json({ ok: false, error: 'doc_id_required' });
 
   try {
     const doc = await prisma.smartDocument.findUnique({ where: { id }, select: { id: true, userId: true } });
-    if (!doc) return res.status(404).json({ ok: false, error: 'not_found' });
-    if (doc.userId !== userId) return res.status(403).json({ ok: false, error: 'forbidden' });
-    await prisma.smartDocument.update({ where: { id }, data: { status: 'archived' } });
-    return res.json({ ok: true });
+    if (doc) {
+      if (doc.userId !== userId) return res.status(403).json({ ok: false, error: 'forbidden' });
+      await prisma.smartDocument.update({ where: { id }, data: { status: 'archived' } });
+      return res.json({ ok: true });
+    }
+
+    /** Suitcase `Card` rows share list/preview with SmartDocument but live in `card` table — mirror DELETE /api/cards/:id. */
+    if (prisma.card && typeof prisma.card.findUnique === 'function') {
+      const card = await prisma.card.findUnique({ where: { id }, select: { id: true, userId: true } });
+      if (card) {
+        if (card.userId !== userId) return res.status(403).json({ ok: false, error: 'forbidden' });
+        await prisma.card.update({ where: { id }, data: { status: 'archived' } });
+        return res.json({ ok: true });
+      }
+    }
+
+    return res.status(404).json({ ok: false, error: 'not_found' });
   } catch (e) {
     return res.status(500).json({ ok: false, error: 'internal_error', message: e?.message });
   }

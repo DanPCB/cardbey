@@ -7,6 +7,8 @@ import { getPrismaClient } from '../../../lib/prisma.js';
 import { createBuildStoreJob, runBuildStoreJob } from '../../../services/draftStore/orchestraBuildStore.js';
 import { getDraftByGenerationRunId, getDraft } from '../../../services/draftStore/draftStoreService.js';
 
+// Operator tool names. These are registered in toolRegistry.js (category: operator) and covered by
+// PROACTIVE_RUNWAY_TOOL_SET. Do not add names here without also adding them to toolRegistry.js.
 const TOOL_NAMES = [
   'start_build_store',
   'get_draft_by_run',

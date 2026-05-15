@@ -234,6 +234,55 @@ ${opts.includeChatWidget ? chatWidgetHtml(doc.id, accent) : ''}
 </body></html>`;
 }
 
+/**
+ * Ensure preview HTML triggers standards mode (avoids Quirks Mode when a fragment slips through).
+ * @param {string} html
+ * @returns {string}
+ */
+export function ensureStandardsModeHtml(html) {
+  const s = String(html ?? '');
+  if (/^\s*<!DOCTYPE\s+html/i.test(s)) return s;
+  return `<!DOCTYPE html>\n${s}`;
+}
+
+/**
+ * Map a Suitcase `Card` row to the SmartDocument-like shape used by {@link renderDocument} for `docType: 'card'`.
+ * Keeps `/api/docs/:id/view` parity with `GET /api/docs/:id` Card fallback without duplicating layout logic.
+ *
+ * @param {import('@prisma/client').Card} card
+ * @returns {object} SmartDocument-shaped input for {@link renderDocument} (`docType: 'card'`)
+ */
+export function previewDocShapeFromCardRow(card) {
+  if (!card || typeof card !== 'object') {
+    return {
+      id: '',
+      docType: 'card',
+      title: 'Card',
+      designJson: {},
+    };
+  }
+  return {
+    id: card.id,
+    docType: 'card',
+    subtype: card.type ?? null,
+    title: typeof card.title === 'string' ? card.title : 'Card',
+    designJson: card.designJson ?? {},
+    qrCodeUrl: card.qrCodeUrl ?? null,
+    liveUrl: card.liveUrl ?? null,
+    sizeW: card.sizeW ?? null,
+    sizeH: card.sizeH ?? null,
+    sizeUnit: card.sizeUnit ?? null,
+  };
+}
+
+/**
+ * @param {import('@prisma/client').Card} card
+ * @param {{ includeChatWidget?: boolean }} [options]
+ */
+export function renderDocumentFromCardRow(card, options = {}) {
+  return renderDocument(previewDocShapeFromCardRow(card), options);
+}
+
 // ── Main export ────────────────────────────────────────────────────────────
 
 /**

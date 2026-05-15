@@ -47,6 +47,10 @@ vi.mock('../../lib/storeMission/executeStoreMissionPipelineRun.js', () => ({
   })),
 }));
 
+vi.mock('../../lib/storeMission/ensureStructuredStoreCheckpointSteps.js', () => ({
+  ensureStructuredStoreCheckpointSteps: vi.fn(async () => {}),
+}));
+
 import performerIntakeV2Routes from '../performerIntakeV2Routes.js';
 
 function makeApp() {

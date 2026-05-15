@@ -15,6 +15,64 @@ import {
 } from '../orchestrator/pipelineCanonicalResults.js';
 import { mirrorOrchestraStatusToPipeline } from '../orchestraMirror.js';
 import { resolveAccessibleMission, getTenantId } from '../missionAccess.js';
+import { canTransitionMissionPipeline } from '../missionPipelineTransitions.js';
+
+/**
+ * Store POST /run expects the pipeline in `queued`. `approveMissionPipeline` only advances
+ * `awaiting_confirmation` → `queued`. Missions can still be `requested` if creation did not
+ * finish transitions — advance requested → planned → (awaiting_confirmation | queued) first.
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} missionId
+ * @param {string} currentStatus
+ * @returns {Promise<{ ok: boolean, error?: string, status?: string }>}
+ */
+async function ensureStoreMissionReadyForRun(prisma, missionId, currentStatus) {
+  let status = currentStatus;
+  const load = async () =>
+    prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { status: true, requiresConfirmation: true },
+    });
+
+  let row = await load();
+  if (!row) return { ok: false, error: 'not_found' };
+  status = row.status;
+
+  if (status === 'queued') {
+    return { ok: true, status: 'queued' };
+  }
+
+  if (status === 'executing') {
+    return { ok: true, status: 'executing' };
+  }
+
+  if (status === 'requested' && canTransitionMissionPipeline('requested', 'planned')) {
+    await prisma.missionPipeline.update({ where: { id: missionId }, data: { status: 'planned' } });
+    row = await load();
+    if (!row) return { ok: false, error: 'not_found' };
+    status = row.status;
+  }
+
+  if (status === 'planned') {
+    const next = row.requiresConfirmation ? 'awaiting_confirmation' : 'queued';
+    if (canTransitionMissionPipeline('planned', next)) {
+      await prisma.missionPipeline.update({ where: { id: missionId }, data: { status: next } });
+      row = await load();
+      if (!row) return { ok: false, error: 'not_found' };
+      status = row.status;
+    }
+  }
+
+  if (status === 'queued') {
+    return { ok: true, status: 'queued' };
+  }
+
+  if (status === 'awaiting_confirmation') {
+    return approveMissionPipeline(missionId);
+  }
+
+  return { ok: false, error: 'invalid_state', status };
+}
 
 /**
  * @param {object} opts
@@ -24,7 +82,7 @@ import { resolveAccessibleMission, getTenantId } from '../missionAccess.js';
  * @param {Record<string, unknown>} [opts.body]
  * @param {string} [opts.auditSource] - auditedPipelineUpdate source for executing transition
  * @returns {Promise<
- *   | { ok: true, missionId: string, jobId: string, generationRunId: string, draftId: string, status: 'executing' }
+ *   | { ok: true, missionId: string, jobId: string, generationRunId: string, draftId: string, status: string, mode?: 'checkpoint_pipeline', orchestration?: { stepsRun: number, stoppedReason: string } }
  *   | { ok: false, statusCode: number, error: string, message: string }
  * >}
  */
@@ -59,26 +117,78 @@ export async function executeStoreMissionPipelineRun({
     };
   }
 
-  if (mission.status !== 'awaiting_confirmation' && mission.status !== 'queued') {
+  const RUNNABLE_STATUSES = ['awaiting_confirmation', 'queued', 'requested', 'executing'];
+
+  if (!RUNNABLE_STATUSES.includes(mission.status)) {
     return {
       ok: false,
       statusCode: 409,
       error: 'invalid_status',
-      message: `Mission is ${mission.status}, expected awaiting_confirmation or queued`,
+      message: `Mission is ${mission.status}, expected one of: ${RUNNABLE_STATUSES.join(', ')}`,
     };
   }
 
-  if (mission.status === 'awaiting_confirmation') {
-    const approved = await approveMissionPipeline(missionId);
-    if (!approved.ok) {
+  const prep = await ensureStoreMissionReadyForRun(prisma, missionId, mission.status);
+  if (!prep.ok) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: prep.error || 'prepare_failed',
+      message: prep.error || 'Could not prepare mission for run',
+      ...(prep.status != null ? { pipelineStatus: prep.status } : {}),
+    };
+  }
+
+  /**
+   * Phase 3: structured store pipeline (checkpoints + structured_store_build + analyze_store).
+   * Run runner only while any step is pending; never fall through to legacy orchestra for these missions.
+   */
+  const hasStructuredStoreBuild = await prisma.missionPipelineStep.count({
+    where: { missionId, toolName: 'structured_store_build' },
+  });
+  const pendingSteps = await prisma.missionPipelineStep.count({
+    where: { missionId, status: 'pending' },
+  });
+  if (hasStructuredStoreBuild > 0) {
+    if (pendingSteps > 0) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(
+          `[executeStoreMissionPipelineRun] structured store pipeline: ${pendingSteps} pending step(s), mission=${missionId} — skipping legacy build`,
+        );
+      }
+      const { runMissionUntilBlocked } = await import('../missionPipelineOrchestrator.js');
+      const orch = await runMissionUntilBlocked(missionId);
+      const mAfter = await prisma.missionPipeline.findUnique({
+        where: { id: missionId },
+        select: { status: true, runState: true, outputsJson: true },
+      });
+      const out = mAfter?.outputsJson && typeof mAfter.outputsJson === 'object' ? mAfter.outputsJson : {};
       return {
-        ok: false,
-        statusCode: 409,
-        error: approved.error,
-        message: approved.error,
-        pipelineStatus: approved.status,
+        ok: true,
+        missionId,
+        jobId: typeof out.jobId === 'string' ? out.jobId : '',
+        generationRunId: typeof out.generationRunId === 'string' ? out.generationRunId : '',
+        draftId: typeof out.draftId === 'string' ? out.draftId : '',
+        status: mAfter?.status || orch.status || 'awaiting_input',
+        mode: 'checkpoint_pipeline',
+        orchestration: { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason },
       };
     }
+    const mDone = await prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { status: true, runState: true, outputsJson: true },
+    });
+    const outDone = mDone?.outputsJson && typeof mDone.outputsJson === 'object' ? mDone.outputsJson : {};
+    return {
+      ok: true,
+      missionId,
+      jobId: typeof outDone.jobId === 'string' ? outDone.jobId : '',
+      generationRunId: typeof outDone.generationRunId === 'string' ? outDone.generationRunId : '',
+      draftId: typeof outDone.draftId === 'string' ? outDone.draftId : '',
+      status: mDone?.status || 'completed',
+      mode: 'checkpoint_pipeline',
+      orchestration: { stepsRun: 0, stoppedReason: 'no_pending_steps' },
+    };
   }
 
   const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
@@ -257,7 +367,7 @@ export async function executeStoreMissionPipelineRun({
           ...(effectiveBusinessType ? { businessType: effectiveBusinessType, storeType: effectiveBusinessType } : {}),
           currencyCode,
           ...(intentMode ? { intentMode } : {}),
-          ...(rawUserTextFromBody ? { prompt: effectiveRawInput } : {}),
+          prompt: body.rawUserText ?? body.userMessage ?? jobRequest.rawInput ?? '',
           ...(sanitizedPreloaded?.length ? { preloadedCatalogItems: sanitizedPreloaded } : {}),
           ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
         },

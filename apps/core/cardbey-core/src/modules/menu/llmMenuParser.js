@@ -37,7 +37,20 @@ export const LLMMenuParseResultSchema = z.object({
  * Merges OCR text + detected items and returns structured menu
  */
 export async function parseMenuWithLLM(input) {
-  const { ocrText = '', detectedItems = [], locale = 'en' } = input;
+  const {
+    ocrText = '',
+    detectedItems = [],
+    locale = 'en',
+    businessName: businessNameIn = null,
+    businessType: businessTypeIn = null,
+  } = input;
+
+  const storeName =
+    typeof businessNameIn === 'string' && businessNameIn.trim() ? businessNameIn.trim() : 'this store';
+  const storeType =
+    typeof businessTypeIn === 'string' && businessTypeIn.trim()
+      ? businessTypeIn.trim()
+      : 'retail / general';
 
   // Short-circuit: if there is basically no text, give an empty menu
   if (!ocrText.trim() && detectedItems.length === 0) {
@@ -58,19 +71,22 @@ export async function parseMenuWithLLM(input) {
         )}\n`
       : '';
 
-  // Multi-shot style: we provide a system message, instructions, and 2–3 examples.
   const systemPrompt = `
-You are an expert menu parser for cafes, restaurants, and service menus.
-You receive raw OCR text plus optional detected card labels, and you must
-return a clean JSON menu with normalized items and categories.
+You extract structured line items from menus, service price lists, and retail catalogs for any business vertical.
+You receive raw OCR text plus optional UI labels. Return a clean JSON object with normalized item names and categories
+that fit the given store name and store type — do not assume the business is a cafe unless the text clearly shows cafe items.
 
 ALWAYS respond with valid JSON ONLY.
-`;
+`.trim();
 
   const userPrompt = `
 Locale: ${locale}
 
-Raw OCR text from a menu image:
+Store context:
+- Store name: ${storeName}
+- Store type / vertical: ${storeType}
+
+Raw OCR text from the uploaded document:
 
 """
 ${ocrText.slice(0, 4000)}
@@ -79,13 +95,13 @@ ${ocrText.slice(0, 4000)}
 ${detectedItemsSection}
 
 Your task:
-1. Identify menu items (food, drinks, services) from the OCR text.
-2. Merge duplicates and normalize names (e.g. "FLAT WHITE" → "Flat White").
-3. Guess a sensible category for each item (e.g. "Coffee", "Tea", "Beverages", "Food", "Services").
-4. Extract numeric price if visible. If multiple prices, pick the standard single-serve price.
-5. Guess the currency if not obvious (use "AUD" for Australian cafe examples, otherwise prefer local).
-6. Write a short description if possible from the text (optional).
-7. Use tags for attributes like ["hot", "iced", "large", "vegan"] if text suggests them.
+1. Identify every priced (or unpriced) line item visible in the OCR: food, drinks, retail SKUs, appointments, packages, add-ons, etc.
+2. Merge duplicates and normalize names (e.g. "GEL MANICURE" → "Gel Manicure").
+3. Assign categories that match THIS store type and the document (e.g. nail salon: Manicure, Pedicure, Gel, Nail Art; cafe: Coffee, Beverages; fashion: Tops, Accessories).
+4. Extract numeric price if visible. If multiple prices, pick the standard single-unit price.
+5. Guess currency from symbols/text; default AUD only when the document suggests Australia.
+6. Optional short description from surrounding text.
+7. Tags: short attributes (e.g. "gel", "addon", "large") when supported by the text — do not invent cafe-only tags for non-cafe businesses.
 
 Output format (JSON only, no extra text):
 
@@ -97,73 +113,64 @@ Output format (JSON only, no extra text):
       "price": 5.5,
       "currency": "AUD",
       "description": "...",
-      "tags": ["coffee", "hot"]
+      "tags": []
     }
   ],
-  "categories": ["Coffee", "Beverages", "Food"]
+  "categories": ["..."]
 }
 
-### EXAMPLE 1
+### EXAMPLE A (cafe — for format only; do not copy items unless OCR matches)
 
 Input OCR:
-
 """
 FLAT WHITE 5.00
 LATTE 5.50
-CAPPUCCINO 5.50
-HOT CHOCOLATE 6.00
-TEA 4.50
-CHAI LATTE 5.00
 """
 
-Detected items:
-- Flat White
-- Latte
-- Cappuccino
-- Mocha
-- Hot Chocolate
-- Tea
-- Chai Latte
-- Batch Brew
+Expected shape (abbreviated): items with Coffee/Beverages-style categories when the OCR is clearly a cafe menu.
+
+### EXAMPLE B (nail salon / beauty)
+
+Input OCR:
+"""
+CLASSIC MANICURE $35
+GEL MANICURE $45
+SPA PEDICURE $55
+NAIL ART $10+
+"""
 
 Expected output:
 
 {
   "items": [
-    { "name": "Flat White", "category": "Coffee", "price": 5.0, "currency": "AUD", "description": null, "tags": ["coffee", "hot"] },
-    { "name": "Latte", "category": "Coffee", "price": 5.5, "currency": "AUD", "description": null, "tags": ["coffee", "hot"] },
-    { "name": "Cappuccino", "category": "Coffee", "price": 5.5, "currency": "AUD", "description": null, "tags": ["coffee", "hot"] },
-    { "name": "Hot Chocolate", "category": "Beverages", "price": 6.0, "currency": "AUD", "description": null, "tags": ["hot"] },
-    { "name": "Tea", "category": "Beverages", "price": 4.5, "currency": "AUD", "description": null, "tags": [] },
-    { "name": "Chai Latte", "category": "Beverages", "price": 5.0, "currency": "AUD", "description": null, "tags": ["spiced"] },
-    { "name": "Batch Brew", "category": "Coffee", "price": null, "currency": "AUD", "description": null, "tags": ["filter"] }
+    { "name": "Classic Manicure", "category": "Manicure", "price": 35, "currency": "USD", "description": null, "tags": [] },
+    { "name": "Gel Manicure", "category": "Manicure", "price": 45, "currency": "USD", "description": null, "tags": ["gel"] },
+    { "name": "Spa Pedicure", "category": "Pedicure", "price": 55, "currency": "USD", "description": null, "tags": [] },
+    { "name": "Nail Art", "category": "Nail Art", "price": 10, "currency": "USD", "description": "from $10", "tags": ["addon"] }
   ],
-  "categories": ["Coffee", "Beverages"]
+  "categories": ["Manicure", "Pedicure", "Nail Art"]
 }
 
-### EXAMPLE 2
+### EXAMPLE C (generic services)
 
 Input OCR:
-
 """
 PREMIUM SERVICE PACKAGE 29.99 USD
 STANDARD SERVICE PACKAGE 19.99 USD
-BASIC SERVICE PACKAGE 9.99 USD
 """
 
 Expected output:
 
 {
   "items": [
-    { "name": "Premium Service Package", "category": "Services", "price": 29.99, "currency": "USD", "description": null, "tags": ["service"] },
-    { "name": "Standard Service Package", "category": "Services", "price": 19.99, "currency": "USD", "description": null, "tags": ["service"] },
-    { "name": "Basic Service Package", "category": "Services", "price": 9.99, "currency": "USD", "description": null, "tags": ["service"] }
+    { "name": "Premium Service Package", "category": "Services", "price": 29.99, "currency": "USD", "description": null, "tags": ["package"] },
+    { "name": "Standard Service Package", "category": "Services", "price": 19.99, "currency": "USD", "description": null, "tags": ["package"] }
   ],
   "categories": ["Services"]
 }
 
-Now produce the JSON output for the given OCR text.
-`;
+Now produce the JSON output for the given OCR text and store context.
+`.trim();
 
   try {
     const completion = await openai.chat.completions.create({

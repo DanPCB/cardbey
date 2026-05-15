@@ -20,6 +20,7 @@ import { canTransitionMissionPipeline } from './missionPipelineTransitions.js';
 import { dispatchTaskWithAgentHint } from './agentPlanning/agentOrchestrator.js';
 import { enrichStepInputFromPriorOutputs } from './agentPlanning/artifactInputEnrichment.js';
 import { buildRunnerDualWriteMetadataJson } from './orchestrator/pipelineCanonicalResults.js';
+import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
 
 /**
  * Build execution input for a step from mission context (e.g. targetId as storeId) and metadata (e.g. slotKey, promotionId).
@@ -58,6 +59,56 @@ function buildStepOutputsFromSteps(steps) {
     }
   }
   return stepOutputs;
+}
+
+function parseJsonObject(val) {
+  if (val == null) return {};
+  if (typeof val === 'object' && !Array.isArray(val)) return val;
+  return {};
+}
+
+/** Flat env for conditional expressions (mission aggregate + completed step outputs). */
+function buildMissionOutputsEnv(mission, steps) {
+  const o = parseJsonObject(mission.outputsJson);
+  if (!Array.isArray(steps)) return o;
+  for (const s of steps) {
+    if (s?.status !== 'completed') continue;
+    const out =
+      s.outputsJson && typeof s.outputsJson === 'object' && !Array.isArray(s.outputsJson)
+        ? s.outputsJson
+        : s.outputJson && typeof s.outputJson === 'object' && !Array.isArray(s.outputJson)
+          ? s.outputJson
+          : null;
+    if (!out) continue;
+
+    const cfg = s.configJson && typeof s.configJson === 'object' && !Array.isArray(s.configJson) ? s.configJson : null;
+    const outputKey = cfg && typeof cfg.outputKey === 'string' ? cfg.outputKey : '';
+    const ownerResponse = typeof out.ownerResponse === 'string' ? out.ownerResponse : null;
+    if (outputKey && ownerResponse != null && o[outputKey] == null) {
+      o[outputKey] = ownerResponse;
+    }
+
+    Object.assign(o, out);
+  }
+  return o;
+}
+
+/**
+ * Evaluate a simple boolean expression with only `env` identifiers (e.g. logoChoice === "Skip").
+ * @param {string} expr
+ * @param {Record<string, unknown>} env
+ */
+function safeEvalMissionCondition(expr, env) {
+  if (!expr || typeof expr !== 'string') return false;
+  try {
+    const keys = Object.keys(env);
+    const vals = keys.map((k) => env[k]);
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(...keys, `return (${expr});`);
+    return Boolean(fn(...vals));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -106,10 +157,67 @@ export async function runNextMissionPipelineStep(missionId) {
   }
 
   const toolName = nextStep.toolName;
+  const stepKind = nextStep.stepKind || 'action';
+
+  // ── Checkpoint: suspend for owner response (no tool dispatch) ────────────────
+  if (stepKind === 'checkpoint' || toolName === 'mission.checkpoint') {
+    if (status === 'queued' && canTransitionMissionPipeline('queued', 'executing')) {
+      await prisma.missionPipeline.update({
+        where: { id },
+        data: {
+          status: 'executing',
+          runState: 'running',
+          currentStepId: nextStep.id,
+          startedAt: mission.startedAt ?? new Date(),
+        },
+      });
+    } else if (mission.runState !== 'running') {
+      await prisma.missionPipeline.update({
+        where: { id },
+        data: { runState: 'running', currentStepId: nextStep.id },
+      });
+    }
+
+    const cfg = nextStep.configJson && typeof nextStep.configJson === 'object' ? nextStep.configJson : {};
+    const mergedConfig = {
+      ...cfg,
+      awaitingSince: new Date().toISOString(),
+    };
+    await prisma.missionPipelineStep.update({
+      where: { id: nextStep.id },
+      data: { status: 'awaiting_input', configJson: mergedConfig },
+    });
+    if (!canTransitionMissionPipeline('executing', 'awaiting_input')) {
+      return { ok: false, error: 'transition_denied_checkpoint', status: mission.status };
+    }
+    await prisma.missionPipeline.update({
+      where: { id },
+      data: { status: 'awaiting_input', runState: 'blocked_on_checkpoint', currentStepId: nextStep.id },
+    });
+
+    const { broadcastMissionCheckpoint } = await import('../realtime/simpleSse.js');
+    broadcastMissionCheckpoint(id, {
+      stepId: nextStep.id,
+      prompt: cfg.prompt,
+      options: cfg.options ?? null,
+      outputKey: cfg.outputKey ?? null,
+    });
+
+    return {
+      ok: true,
+      stepRun: true,
+      toolName,
+      status: 'awaiting_input',
+      runState: 'blocked_on_checkpoint',
+      checkpoint: true,
+    };
+  }
+
   console.log('[RUNNER_DEBUG] dispatching tool:', {
     toolName,
     missionId,
     stepId: nextStep?.id,
+    stepKind,
   });
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[MissionRunner] step started: ${toolName}`);
@@ -132,10 +240,73 @@ export async function runNextMissionPipelineStep(missionId) {
     data: { status: 'running', startedAt: new Date() },
   });
 
-  // Accumulated outputs of all previously completed steps — downstream steps read e.g. context.stepOutputs.market_research.marketReport
   const stepOutputs = buildStepOutputsFromSteps(steps);
   let input = buildStepInput(mission, nextStep);
-  input = enrichStepInputFromPriorOutputs(toolName, input, stepOutputs);
+  let dispatchToolName = toolName;
+
+  if (stepKind === 'conditional' || toolName === 'mission.conditional') {
+    const cfg = nextStep.configJson && typeof nextStep.configJson === 'object' ? nextStep.configJson : {};
+    const env = buildMissionOutputsEnv(mission, steps);
+    const condition = typeof cfg.condition === 'string' ? cfg.condition : '';
+    const conditionResult = safeEvalMissionCondition(condition, env);
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[ConditionalStep] evaluating', {
+        stepId: nextStep.id,
+        condition: cfg?.condition,
+        ifTrueTool: cfg?.ifTrueTool,
+        ifFalseTool: cfg?.ifFalseTool,
+      });
+      try {
+        const priorSteps = await prisma.missionPipelineStep.findMany({
+          where: {
+            missionId: nextStep.missionId,
+            orderIndex: { lt: nextStep.orderIndex },
+            status: 'completed',
+          },
+          orderBy: { orderIndex: 'asc' },
+          select: { label: true, outputsJson: true, outputJson: true, configJson: true },
+        });
+        console.log(
+          '[ConditionalStep] prior step outputs:',
+          priorSteps.map((s) => ({
+            label: s.label,
+            outputsJson: s.outputsJson,
+            outputJson: s.outputJson,
+            configJson: s.configJson,
+          })),
+        );
+      } catch (e) {
+        console.warn('[ConditionalStep] prior step fetch failed:', (e && e.message) || String(e));
+      }
+      console.log('[ConditionalStep] context:', env);
+      console.log('[ConditionalStep] condition:', condition);
+      console.log('[ConditionalStep] result:', conditionResult);
+    }
+
+    dispatchToolName = conditionResult ? cfg.ifTrueTool : cfg.ifFalseTool;
+    if (!dispatchToolName || typeof dispatchToolName !== 'string') {
+      await prisma.missionPipelineStep.update({
+        where: { id: nextStep.id },
+        data: { status: 'failed', errorJson: { code: 'conditional_missing_branch' }, completedAt: new Date() },
+      });
+      await prisma.missionPipeline.update({
+        where: { id },
+        data: { status: 'failed', runState: 'error', failedAt: new Date() },
+      });
+      return { ok: true, stepRun: true, toolName, status: 'failed', runState: 'error' };
+    }
+
+    const branchExtra = conditionResult ? cfg.ifTrueInput : cfg.ifFalseInput;
+    input = buildStepInput(mission, nextStep);
+    if (branchExtra && typeof branchExtra === 'object') {
+      Object.assign(input, branchExtra);
+    }
+    input = enrichStepInputFromPriorOutputs(dispatchToolName, input, stepOutputs);
+  } else {
+    input = enrichStepInputFromPriorOutputs(toolName, input, stepOutputs);
+  }
+
   const context = {
     missionId: id,
     stepId: nextStep.id,
@@ -146,16 +317,20 @@ export async function runNextMissionPipelineStep(missionId) {
   if (mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')) {
     context.storeId = mission.targetId;
   }
-  const result = await dispatchTaskWithAgentHint(toolName, input, context);
+  const result = await dispatchTaskWithAgentHint(dispatchToolName, input, context);
 
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`[MissionRunner] step result: ${toolName} status=${result.status}`);
+    console.log(`[MissionRunner] step result: ${dispatchToolName} status=${result.status}`);
   }
 
   const now = new Date();
+  const stepOutputPayload =
+    stepKind === 'conditional' || toolName === 'mission.conditional'
+      ? { branchTool: dispatchToolName, output: result.output ?? {} }
+      : result.output ?? null;
   const stepUpdate = {
     completedAt: now,
-    outputJson: result.output ?? null,
+    outputJson: stepOutputPayload,
     errorJson: result.error ?? null,
     status: result.status === 'ok' ? 'completed' : result.status === 'blocked' ? 'blocked' : 'failed',
   };
@@ -165,13 +340,35 @@ export async function runNextMissionPipelineStep(missionId) {
   });
 
   // Persist accumulated stepOutputs so consensus engine (Step 4) can read prior run's MarketReport without re-calling researcher.
+  // Merge prior mission.outputsJson first so owner checkpoint fields (logoChoice, heroImageChoice) survive tools that share toolName keys in stepOutputs.
+  // Flatten structured store build ids for /state parity with POST /missions/:id/run (draftId, jobId, generationRunId at top level).
   // On failure, also persist _failed so debugging can see the failed step's error and any partial output without loading the step record.
+  const priorOutputsAgg = parseJsonObject(mission.outputsJson);
+  const structuredFlat =
+    result.status === 'ok' &&
+    toolName === 'structured_store_build' &&
+    stepOutputPayload &&
+    typeof stepOutputPayload === 'object' &&
+    !Array.isArray(stepOutputPayload)
+      ? {
+          ...(typeof stepOutputPayload.draftId === 'string' ? { draftId: stepOutputPayload.draftId } : {}),
+          ...(typeof stepOutputPayload.generationRunId === 'string'
+            ? { generationRunId: stepOutputPayload.generationRunId }
+            : {}),
+          ...(typeof stepOutputPayload.jobId === 'string' ? { jobId: stepOutputPayload.jobId } : {}),
+          ...(typeof stepOutputPayload.storeId === 'string' ? { storeId: stepOutputPayload.storeId } : {}),
+        }
+      : {};
   const outputsToPersist =
     result.status === 'ok'
-      ? { ...stepOutputs, [toolName]: result.output ?? {} }
+      ? { ...priorOutputsAgg, ...structuredFlat, ...stepOutputs, [toolName]: stepOutputPayload ?? {} }
       : result.status === 'failed'
-        ? { ...stepOutputs, _failed: { tool: toolName, error: result.error ?? null, output: result.output ?? null } }
-        : stepOutputs;
+        ? {
+            ...priorOutputsAgg,
+            ...stepOutputs,
+            _failed: { tool: dispatchToolName, error: result.error ?? null, output: result.output ?? null },
+          }
+        : { ...priorOutputsAgg, ...stepOutputs };
 
   const totalSteps = steps.length;
   const newCompleted = (mission.progressCompletedSteps ?? 0) + 1;
@@ -258,6 +455,24 @@ export async function runNextMissionPipelineStep(missionId) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[MissionRunner] mission updated: completed runState=done`);
     }
+    const metaDbg =
+      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+        ? mission.metadataJson
+        : {};
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[postMissionSummary] missionType debug:', {
+        type: mission.type,
+        intentType: mission.intentType,
+        metadataType: metaDbg.missionType,
+        intentMode: metaDbg.intentMode,
+      });
+    }
+    void runPostMissionCompletionSummary({
+      missionId: id,
+      missionType: mission.type ?? null,
+      metadataJson: mission.metadataJson,
+      outputsJson: outputsToPersist,
+    }).catch(() => {});
     return { ok: true, stepRun: true, toolName, status: 'completed', runState: 'done' };
   }
 

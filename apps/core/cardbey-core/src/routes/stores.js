@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
-import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview } from '../services/draftStore/draftStoreService.js';
+import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview, recomputeDraftCategoriesFromItems } from '../services/draftStore/draftStoreService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 import { isDraftOwnedByUser } from '../lib/draftOwnership.js';
 import { getOrCreateMission } from '../lib/mission.js';
@@ -25,6 +25,7 @@ import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
+import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 
 const router = express.Router();
 
@@ -69,6 +70,40 @@ const storeAssetUpload = multer({
     }
   },
 });
+
+const MENU_EXTRACT_MIMES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
+/** Menu / PDF upload for extract-menu: same 10MB cap as other draft uploads */
+const menuExtractUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && MENU_EXTRACT_MIMES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type. Use JPG, PNG, WEBP, or PDF.'), false);
+    }
+  },
+});
+
+function menuExtractUploadSingle(req, res, next) {
+  menuExtractUpload.single('file')(req, res, (err) => {
+    if (err) {
+      const isLimit = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(400).json({
+        ok: false,
+        error: isLimit ? 'file_too_large' : 'invalid_file',
+        message: isLimit ? 'File must be 10MB or smaller.' : err.message || 'Invalid or missing file',
+      });
+    }
+    next();
+  });
+}
 
 /**
  * Resolve draft for storeId (and generationRunId when storeId === "temp"). Enforces ownership.
@@ -858,6 +893,7 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
     const updated = await getDraft(draft.id);
     return res.status(200).json({ ok: true, draftId: updated.id, status: updated.status, hero: patch.hero, heroImageUrl: patch.heroImageUrl });
   } catch (err) {
+    console.error('[Stores:PATCH /:storeId/draft/hero]', err?.message || err);
     next(err);
   }
 });
@@ -957,6 +993,491 @@ function storeAssetUploadSingle(req, res, next) {
     next();
   });
 }
+
+/**
+ * POST /api/stores/temp/draft/extract-menu
+ * Multipart: file (jpg/png/webp/pdf), generationRunId, optional language (en|vi).
+ * Extracts menu items for review; does not modify the draft.
+ */
+router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle, async (req, res, next) => {
+  try {
+    const { storeId } = req.params;
+    if (storeId !== 'temp') {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_store',
+        message: 'Menu extraction is only available for temporary drafts (storeId "temp").',
+      });
+    }
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        ok: false,
+        error: 'no_file',
+        message: 'No file uploaded; use multipart field "file".',
+      });
+    }
+    const generationRunId =
+      typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : '';
+    if (!generationRunId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'generation_run_required',
+        message: 'generationRunId is required in the multipart body.',
+      });
+    }
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required' });
+    }
+    const allowed = await isDraftOwnedByUser(generationRunId, userId);
+    if (!allowed) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have access to this draft.',
+      });
+    }
+    const draft = await getDraftByGenerationRunId(generationRunId);
+    if (!draft) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft not found',
+      });
+    }
+    const langRaw = typeof req.body?.language === 'string' ? req.body.language.trim().toLowerCase() : '';
+    const language = langRaw === 'vi' ? 'vi' : 'en';
+
+    const preview =
+      typeof draft.preview === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(draft.preview);
+            } catch {
+              return {};
+            }
+          })()
+        : draft.preview || {};
+    const bodyStoreName = typeof req.body?.storeName === 'string' ? req.body.storeName.trim() : '';
+    const bodyStoreType = typeof req.body?.storeType === 'string' ? req.body.storeType.trim() : '';
+    const previewStoreName = typeof preview.storeName === 'string' ? preview.storeName : '';
+    const businessName = bodyStoreName || previewStoreName;
+    const businessType =
+      bodyStoreType ||
+      (typeof preview.storeType === 'string' && preview.storeType) ||
+      (preview.meta && typeof preview.meta.storeType === 'string' && preview.meta.storeType) ||
+      '';
+
+    const mime = req.file.mimetype || 'application/octet-stream';
+    const fileType = mime === 'application/pdf' ? 'pdf' : 'image';
+
+    const result = await extractMenuFromFile({
+      fileType,
+      fileBuffer: req.file.buffer,
+      mimeType: mime,
+      businessName,
+      businessType,
+      language,
+    });
+
+    const needsReview = result.items.length > 0 && result.confidence < 0.7;
+    const payload = {
+      ok: result.ok,
+      items: result.items,
+      itemCount: result.items.length,
+      confidence: result.confidence,
+      warnings: result.warnings,
+      needsReview,
+      // Debug: include raw OCR/text extraction for investigation (remove once stable).
+      rawText: result.rawText,
+    };
+    if (!result.ok) {
+      return res.status(200).json({
+        ...payload,
+        message: 'No menu items detected. Try a clearer photo.',
+      });
+    }
+    return res.status(200).json(payload);
+  } catch (err) {
+    if (err instanceof MenuExtractionLlmError) {
+      console.error('[Stores] extract-menu LLM error:', err.message, err.cause);
+      return res.status(500).json({
+        ok: false,
+        error: 'extraction_failed',
+        message:
+          'Menu extraction failed. Please try again in a moment, or use a clearer photo or a text-based PDF.',
+      });
+    }
+    return next(err);
+  }
+});
+
+/**
+ * Fire-and-forget: fill missing catalog item imageUrls using the same pipeline as finalizeDraft
+ * (runBusinessImageEnricherTool + generateImageForDraftItem), then persist via patchDraftPreview
+ * image-only partial merge.
+ */
+async function enqueueCatalogItemImageFetch({ draftId, generationRunId }) {
+  try {
+    const fresh = await getDraftByGenerationRunId(generationRunId);
+    if (!fresh || String(fresh.id) !== String(draftId)) {
+      console.warn('[Stores:draft/catalog] background images: draft mismatch or missing', { draftId, generationRunId });
+      return;
+    }
+    const preview =
+      typeof fresh.preview === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(fresh.preview);
+            } catch {
+              return {};
+            }
+          })()
+        : fresh.preview || {};
+    const items = Array.isArray(preview.items) ? preview.items.map((x) => ({ ...x })) : [];
+    const categories = Array.isArray(preview.categories) ? preview.categories : [];
+    if (!items.length) return;
+
+    const itemIndicesNeeding = [];
+    for (let i = 0; i < items.length; i++) {
+      const u = items[i]?.imageUrl;
+      if (!u || !String(u).trim()) itemIndicesNeeding.push(i);
+    }
+    const MAX_ITEMS = 30;
+    const idxList = itemIndicesNeeding.slice(0, MAX_ITEMS);
+    if (!idxList.length) return;
+
+    const draftInput = fresh.input && typeof fresh.input === 'object' ? fresh.input : {};
+    const locationStr =
+      draftInput.location != null && String(draftInput.location).trim()
+        ? String(draftInput.location).trim()
+        : null;
+    const profile = fresh.input?.generationProfile ?? fresh.input?.classificationProfile ?? null;
+    const imageFillProfile = profile
+      ? {
+          verticalSlug: profile.verticalSlug || '',
+          verticalGroup: profile.verticalGroup || (profile.verticalSlug || '').split('.')[0] || undefined,
+          keywords: profile.keywords,
+          forbiddenKeywords: profile.forbiddenKeywords,
+          audience: profile.audience,
+          categoryHints: profile.categoryHints,
+        }
+      : null;
+
+    const storeName = preview.storeName || preview.businessName || null;
+    const storeType = preview.storeType || preview.businessType || null;
+
+    const nameTokens = idxList
+      .map((idx) => String(items[idx]?.name || '').trim())
+      .filter(Boolean)
+      .slice(0, 20);
+    const mergedProfile = imageFillProfile
+      ? {
+          ...imageFillProfile,
+          keywords: [...(imageFillProfile.keywords || []), ...nameTokens].slice(0, 24),
+        }
+      : nameTokens.length
+        ? {
+            verticalSlug: '',
+            keywords: nameTokens,
+            forbiddenKeywords: [],
+          }
+        : null;
+
+    const { runBusinessImageEnricherTool } = await import('../services/draftStore/businessImageEnricher.ts');
+    const toolOut = await runBusinessImageEnricherTool({
+      storeName,
+      businessType: storeType,
+      location: locationStr ?? undefined,
+      ...(mergedProfile ? { profile: mergedProfile } : {}),
+    });
+    let effectiveImageFillProfile = toolOut.effectiveImageFillProfile ?? toolOut.profile ?? mergedProfile;
+
+    const { effectiveVertical, applyItemGuards, isDraftGuardsEnabled, isBlockedCandidateForFood } = await import(
+      '../services/draftStore/draftGuards.js',
+    );
+    const guardsEnabled = isDraftGuardsEnabled();
+    const effectiveVerticalType = guardsEnabled ? effectiveVertical(preview.storeType, preview.meta?.storeType) : null;
+
+    let deriveItemCategoryHint = (itemName, verticalSlug, storeTypeHint) =>
+      [itemName, verticalSlug, storeTypeHint].filter(Boolean).join(' ').trim();
+    try {
+      const mod = await import('../services/react/buildStoreReactTools.ts');
+      if (typeof mod.deriveItemCategoryHint === 'function') deriveItemCategoryHint = mod.deriveItemCategoryHint;
+    } catch {
+      // keep fallback
+    }
+    const verticalForItem =
+      effectiveImageFillProfile?.verticalSlug ?? imageFillProfile?.verticalSlug ?? preview.storeType ?? null;
+
+    let menuMod;
+    try {
+      menuMod = await import('../services/menuVisualAgent/menuVisualAgent.ts');
+    } catch {
+      menuMod = null;
+    }
+    if (!menuMod) {
+      console.warn('[Stores:draft/catalog] background images: menuVisualAgent unavailable');
+      return;
+    }
+    const generateImageForDraftItem = menuMod.generateImageForDraftItem ?? menuMod.default?.generateImageForDraftItem;
+    if (typeof generateImageForDraftItem !== 'function') {
+      console.warn('[Stores:draft/catalog] background images: generateImageForDraftItem missing');
+      return;
+    }
+
+    const businessTypeKey = (preview.storeType || '').toString().toLowerCase().trim().replace(/\s+/g, '_');
+    const businessTypeToStyle = {
+      cafe: 'warm',
+      'coffee-shop': 'warm',
+      coffee_shop: 'warm',
+      restaurant: 'warm',
+      bakery: 'warm',
+      bar: 'warm',
+      florist: 'vibrant',
+      salon: 'modern',
+      spa: 'modern',
+      design: 'minimal',
+      studio: 'minimal',
+    };
+    const styleName = businessTypeToStyle[businessTypeKey] || 'modern';
+    const BATCH_SIZE = 5;
+    const usedUrls = new Set();
+    let billingLimitHit = false;
+
+    itemBatch: for (let offset = 0; offset < idxList.length && !billingLimitHit; offset += BATCH_SIZE) {
+      const batchIdx = idxList.slice(offset, offset + BATCH_SIZE);
+      const settled = [];
+      for (let batchPos = 0; batchPos < batchIdx.length; batchPos++) {
+        if (billingLimitHit) break itemBatch;
+        const i = batchIdx[batchPos];
+        const p = items[i];
+        if (guardsEnabled && effectiveVerticalType === 'food' && isBlockedCandidateForFood(p.name, p.description)) {
+          settled.push({ status: 'fulfilled', value: null });
+          continue;
+        }
+        const catalogCategoryHint =
+          p.categoryId && categories.length ? categories.find((c) => c.id === p.categoryId)?.name : null;
+        const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
+        const categoryHint = [derivedHint, catalogCategoryHint].filter(Boolean).join(' ').trim() || null;
+        const opts = effectiveImageFillProfile
+          ? {
+              profile: effectiveImageFillProfile,
+              categoryHint,
+              categoryName: categoryHint,
+              businessType: preview.storeType || null,
+              usedUrls,
+              ...(locationStr ? { location: locationStr } : {}),
+            }
+          : {
+              categoryName: categoryHint,
+              businessType: preview.storeType || null,
+              usedUrls,
+              ...(locationStr ? { location: locationStr } : {}),
+            };
+        try {
+          const result = await generateImageForDraftItem(p.name, p.description, styleName, opts);
+          settled.push({ status: 'fulfilled', value: result });
+          if (result?.url) usedUrls.add(result.url);
+        } catch (err) {
+          if (err?.code === 'BILLING_HARD_LIMIT') {
+            billingLimitHit = true;
+            settled.push({ status: 'rejected', reason: err });
+            break;
+          }
+          settled.push({ status: 'rejected', reason: err });
+        }
+      }
+      batchIdx.forEach((i, batchPos) => {
+        const result = settled[batchPos];
+        const item = items[i];
+        if (result?.status === 'fulfilled' && result.value && result.value.url && !item.imageUrl) {
+          const img = result.value;
+          item.imageUrl = img.url;
+          item.imageSource = img.source;
+          item.imageQuery = img.query;
+          item.imageConfidence = img.confidence;
+        }
+        if (result?.status === 'rejected' && result.reason?.code === 'BILLING_HARD_LIMIT') {
+          billingLimitHit = true;
+        }
+      });
+    }
+
+    if (guardsEnabled && effectiveVerticalType) {
+      applyItemGuards(items, effectiveVerticalType);
+    }
+
+    const patchItems = idxList
+      .map((i) => {
+        const it = items[i];
+        if (!it?.imageUrl || !String(it.imageUrl).trim()) return null;
+        const out = { id: it.id, imageUrl: it.imageUrl };
+        if (it.imageSource !== undefined) out.imageSource = it.imageSource;
+        if (it.imageQuery !== undefined) out.imageQuery = it.imageQuery;
+        if (it.imageConfidence !== undefined) out.imageConfidence = it.imageConfidence;
+        return out;
+      })
+      .filter(Boolean);
+
+    if (patchItems.length) {
+      await patchDraftPreview(fresh.id, { items: patchItems }, { allowCommitted: true });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Stores:draft/catalog] background images: patched', patchItems.length, 'items', {
+          draftId: fresh.id,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[Stores:draft/catalog] background image fetch failed:', e?.message || e);
+  }
+}
+
+/**
+ * PATCH /api/stores/temp/draft/catalog
+ * Replace draft preview catalog items with user-supplied menu items (Phase 2).
+ * Body: { generationRunId: string, items: MenuItemExtract[], fetchImages: boolean }
+ * Does not merge: full replacement.
+ */
+router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
+  try {
+    const { storeId } = req.params;
+    if (storeId !== 'temp') {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_store',
+        message: 'Catalog replacement is only available for temporary drafts (storeId "temp").',
+      });
+    }
+
+    const body = req.body ?? {};
+    const generationRunId = typeof body.generationRunId === 'string' ? body.generationRunId.trim() : '';
+    if (!generationRunId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'generation_run_required',
+        message: 'generationRunId is required.',
+      });
+    }
+    const rawItems = Array.isArray(body.items) ? body.items : null;
+    if (!rawItems || rawItems.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'items_required',
+        message: 'items is required and must be non-empty.',
+      });
+    }
+    if (rawItems.length > 200) {
+      return res.status(400).json({
+        ok: false,
+        error: 'too_many_items',
+        message: 'items must be 200 or fewer.',
+      });
+    }
+
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required' });
+    }
+
+    const allowed = await isDraftOwnedByUser(generationRunId, userId);
+    if (!allowed) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have access to this draft.',
+      });
+    }
+
+    const draft = await getDraftByGenerationRunId(generationRunId);
+    if (!draft) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft not found',
+      });
+    }
+
+    const preview =
+      typeof draft.preview === 'string'
+        ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })()
+        : (draft.preview || {});
+
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const prevItems = Array.isArray(preview.items) ? preview.items : [];
+        console.log('[Stores:draft/catalog] preview.items sample', {
+          draftId: draft.id,
+          sample: prevItems.slice(0, 2).map((it) => ({
+            id: it?.id ?? null,
+            name: it?.name ?? it?.title ?? null,
+            price: it?.price ?? null,
+            category: it?.category ?? it?.categoryName ?? it?.categoryId ?? null,
+          })),
+        });
+      } catch {
+        // ignore logging failure
+      }
+    }
+
+    // Map MenuItemExtract[] → draft preview item schema (name/description/price/category/currency/imageUrl).
+    const mapped = rawItems.map((it, idx) => {
+      const name = typeof it?.name === 'string' ? it.name.trim() : '';
+      const description = typeof it?.description === 'string' ? it.description.trim() : '';
+      const category = typeof it?.category === 'string' && it.category.trim() ? it.category.trim() : 'General';
+      const currency = typeof it?.currency === 'string' && it.currency.trim() ? it.currency.trim().toUpperCase() : 'AUD';
+      const price = (typeof it?.price === 'number' && Number.isFinite(it.price)) ? it.price : null;
+      const imageUrl = typeof it?.imageUrl === 'string' && it.imageUrl.trim() ? it.imageUrl.trim() : undefined;
+      const out = {
+        id: `item_${draft.id}_${idx}`,
+        name: name || `Item ${idx + 1}`,
+        description: description || null,
+        price,
+        currency,
+        category,
+      };
+      // Important: omit imageUrl when empty so patchDraftPreview treats this as a full replacement (not partial image-only update).
+      if (imageUrl) out.imageUrl = imageUrl;
+      return out;
+    });
+
+    const { categories, items: itemsWithCategoryId } = recomputeDraftCategoriesFromItems(mapped);
+
+    const existingMeta = preview && typeof preview.meta === 'object' && !Array.isArray(preview.meta) ? preview.meta : {};
+    const nowIso = new Date().toISOString();
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[debug catalog] mapped items count:', mapped.length, 'first:', mapped[0]?.name ?? null);
+    }
+    await patchDraftPreview(draft.id, {
+      items: itemsWithCategoryId,
+      categories,
+      meta: {
+        ...existingMeta,
+        catalogSource: 'user_upload',
+        catalogUploadedAt: nowIso,
+      },
+    }, { allowCommitted: true });
+
+    const fetchOn = body.fetchImages !== false;
+    const needsImages = itemsWithCategoryId.some((it) => !it?.imageUrl || !String(it.imageUrl).trim());
+    const imagesFetching = fetchOn && needsImages;
+    if (imagesFetching) {
+      void enqueueCatalogItemImageFetch({ draftId: draft.id, generationRunId });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      itemCount: itemsWithCategoryId.length,
+      draftId: String(draft.id),
+      catalogSource: 'user_upload',
+      imagesFetching,
+    });
+  } catch (err) {
+    console.error('[Stores] PATCH /:storeId/draft/catalog error:', err?.message || err);
+    next(err);
+  }
+});
 
 router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
   try {

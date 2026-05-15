@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { getSignagePlaylistSuggestions, getTemplateSuggestionsForContext, instantiateCreativeTemplateForContext } from '../services/miOrchestratorService.js';
-import { generateDraft, getDraftByGenerationRunId, getDraft, patchDraftPreview, createDraftStoreForUser, createDraft } from '../services/draftStore/draftStoreService.js';
+import { generateDraft, getDraftByGenerationRunId, getDraft, patchDraftPreview } from '../services/draftStore/draftStoreService.js';
 import { runBuildStoreJob, createBuildStoreJob, newTraceId } from '../services/draftStore/orchestraBuildStore.js';
 import { transitionOrchestratorTaskStatus } from '../kernel/transitions/transitionService.js';
 import { getBalance } from '../services/billing/creditsService.js';
@@ -1026,6 +1026,10 @@ async function handleOrchestraStart(req, res) {
             })
           : null;
 
+      const locPass = bodyRequest.location ?? req.body?.location ?? null;
+      const locForFactory =
+        locPass != null && String(locPass).trim() ? String(locPass).trim() : null;
+
       /** @type {{ id: string }} */
       let job;
       /** @type {string} */
@@ -1044,9 +1048,6 @@ async function handleOrchestraStart(req, res) {
           ...(bodyRequest.sourceType != null ? { sourceType: bodyRequest.sourceType } : {}),
           ...(buildStoreV1 ? buildStoreV1 : {}),
         };
-        const locPass = bodyRequest.location ?? req.body?.location ?? null;
-        const locForFactory =
-          locPass != null && String(locPass).trim() ? String(locPass).trim() : null;
         const createdTask = await createBuildStoreJob(prisma, {
           tenantId: finalTenantId,
           userId: req.userId || finalTenantId,
@@ -1301,34 +1302,32 @@ async function handleOrchestraStart(req, res) {
           // OCR: photoDataUrl/ocrRawText can be added later via draft update; buildCatalog will fail with clear error if missing.
           draftModeForLog = draftMode;
 
-          // Guest: use createDraft (ownerUserId null) to avoid FK violation — guest users are not in User table.
-          // Authed: use createDraftStoreForUser so GET /draft-store/:id/summary returns 200 for owner.
-          let createdDraft;
-          if (isGuest) {
-            createdDraft = await createDraft({
-              mode: baseInput.mode,
-              input: baseInput,
-              meta: {
-                generationRunId: resolvedRunId,
-                ownerUserId: null,
-                guestSessionId: req.guestSessionId ?? undefined,
-              },
-            });
-          } else {
-            createdDraft = await createDraftStoreForUser(prisma, {
-              user: req.user,
-              userId: req.userId,
-              tenantKey: getTenantId(req.user) ?? finalTenantId,
-              input: baseInput,
-              expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-              mode: baseInput.mode,
-              status: 'generating',
-              generationRunId: resolvedRunId,
-              committedStoreId: finalStoreId || null,
-            });
-          }
-          responseDraftId = createdDraft.id;
-          createdDraftId = createdDraft.id;
+          const draftResult = await createBuildStoreJob(prisma, {
+            tenantId: getTenantId(req.user) ?? finalTenantId,
+            userId: req.userId || finalTenantId,
+            user: req.user,
+            businessName: businessName || null,
+            businessType: businessType || null,
+            storeType: storeType || businessType || null,
+            rawInput: rawInput || null,
+            storeId: finalStoreId || 'temp',
+            includeImages: includeImages !== false,
+            generationRunId: resolvedRunId,
+            location: locForFactory,
+            intentMode: intentModeOrchestra,
+            sourceType: bodyRequest.sourceType ?? sourceTypeForV1,
+            websiteUrl: bodyRequest.websiteUrl ?? null,
+            cardbeyTraceId,
+            existingJobId: job.id,
+            skipDraft: false,
+            draftInput: baseInput,
+            draftMode: effectiveMode,
+            guestDraft: isGuest
+              ? { guest: true, ...(req.guestSessionId ? { guestSessionId: String(req.guestSessionId) } : {}) }
+              : null,
+          });
+          responseDraftId = draftResult.draftId;
+          createdDraftId = draftResult.createdDraftId;
         }
         if (process.env.NODE_ENV !== 'production') {
           console.log('[orchestra:start] draft ensure', {

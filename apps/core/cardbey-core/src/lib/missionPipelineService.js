@@ -6,8 +6,10 @@
 import { getPrismaClient } from '../lib/prisma.js';
 import { canTransitionMissionPipeline } from './missionPipelineTransitions.js';
 import { buildDefaultMissionSteps } from './missionPipelineSteps.js';
+import { getStructuredMissionSteps } from './missionPipelineStructured.js';
 import { getTaskGraphFromMetadata } from './agentPlanning/taskGraphPersistence.js';
 import { materializeStepsFromTaskGraph } from './agentPlanning/taskGraphMaterialize.js';
+import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
 
 const TERMINAL_STATUSES = ['completed', 'cancelled'];
 
@@ -115,6 +117,10 @@ export async function createMissionPipeline(params) {
   }
 
   let stepConfigs = buildDefaultMissionSteps(mission.type, metadata);
+  const structured = getStructuredMissionSteps(mission.type);
+  if (Array.isArray(structured) && structured.length > 0) {
+    stepConfigs = structured;
+  }
   const plannedGraph = getTaskGraphFromMetadata(metadata);
   if (plannedGraph) {
     const fromGraph = materializeStepsFromTaskGraph(plannedGraph);
@@ -178,6 +184,8 @@ export async function createMissionPipeline(params) {
         toolName: c.toolName,
         label: c.label,
         status: 'pending',
+        stepKind: c.stepKind || 'action',
+        ...(c.configJson != null && typeof c.configJson === 'object' ? { configJson: c.configJson } : {}),
         ...(c.inputJson != null && typeof c.inputJson === 'object' ? { inputJson: c.inputJson } : {}),
       })),
     });
@@ -359,6 +367,24 @@ export async function completeMissionWhenNoSteps(missionId) {
   const updated = await transitionMission(missionId, 'queued', 'completed', { runState: 'done' });
   if (updated && process.env.NODE_ENV !== 'production') {
     console.log('[MissionAPI] completed (no pending steps) mission=', missionId);
+  }
+  if (updated) {
+    const row = await prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { type: true, outputsJson: true, metadataJson: true },
+    });
+    if (row) {
+      const outputsForSummary =
+        row.outputsJson && typeof row.outputsJson === 'object' && !Array.isArray(row.outputsJson)
+          ? row.outputsJson
+          : {};
+      void runPostMissionCompletionSummary({
+        missionId,
+        missionType: row.type ?? null,
+        metadataJson: row.metadataJson,
+        outputsJson: outputsForSummary,
+      }).catch(() => {});
+    }
   }
   return updated;
 }

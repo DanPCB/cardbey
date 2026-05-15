@@ -42,15 +42,13 @@ except ImportError as e:
     print(json.dumps(error_msg), file=sys.stderr)
     sys.exit(1)
 
-# Try to import SAM-3 related packages
+# Try to import SAM2 (Meta native API)
 try:
-    # SAM-3 uses Hiera models - try to import
-    # This is a placeholder - adjust based on actual SAM-3 implementation
-    from transformers import AutoImageProcessor, AutoModelForImageSegmentation
+    from sam2.build_sam import build_sam2
+    from sam2.sam2_image_predictor import SAM2ImagePredictor
     HAS_SAM3 = True
 except ImportError:
     HAS_SAM3 = False
-    print("Warning: SAM-3 packages not fully available. Using fallback.", file=sys.stderr)
 
 
 def download_model_if_needed(model_path: Optional[str] = None, model_name: str = "facebook/sam2-hiera-large") -> str:
@@ -64,6 +62,7 @@ def download_model_if_needed(model_path: Optional[str] = None, model_name: str =
     Returns:
         Path to model (either custom or downloaded)
     """
+    # If local .pt file provided and exists, use it directly
     if model_path and os.path.exists(model_path):
         return model_path
     
@@ -130,10 +129,6 @@ def run_sam3_inference(
         else:
             device_obj = torch.device("cpu")
         
-        # Load model (placeholder - adjust based on actual SAM-3 API)
-        # For now, we'll create a mock implementation that can be replaced
-        # with actual SAM-3 calls when the model is available
-        
         if not HAS_SAM3:
             # Fallback: return empty results
             return {
@@ -145,57 +140,66 @@ def run_sam3_inference(
                 "error": "SAM-3 packages not available"
             }
         
-        # TODO: Replace with actual SAM-3 inference
-        # This is a placeholder structure
-        # Actual implementation would:
-        # 1. Load SAM-3 model
-        # 2. Process image
-        # 3. Run segmentation with prompt
-        # 4. Extract masks, boxes, scores
-        
-        # For now, return empty results with proper structure
-        # This allows the pipeline to work while SAM-3 is being integrated
-        result = {
-            "masks": [],
-            "boxes": [],
-            "scores": [],
+        # Config paths must match Hydra package layout (see sam2.build_sam.HF_MODEL_ID_TO_FILENAMES)
+        config_map = {
+            "sam2_hiera_large.pt": "configs/sam2/sam2_hiera_l.yaml",
+            "sam2_hiera_base_plus.pt": "configs/sam2/sam2_hiera_b+.yaml",
+            "sam2_hiera_small.pt": "configs/sam2/sam2_hiera_s.yaml",
+            "sam2_hiera_tiny.pt": "configs/sam2/sam2_hiera_t.yaml",
+            "sam2.1_hiera_large.pt": "configs/sam2.1/sam2.1_hiera_l.yaml",
+            "sam2.1_hiera_base_plus.pt": "configs/sam2.1/sam2.1_hiera_b+.yaml",
+            "sam2.1_hiera_small.pt": "configs/sam2.1/sam2.1_hiera_s.yaml",
+            "sam2.1_hiera_tiny.pt": "configs/sam2.1/sam2.1_hiera_t.yaml",
+        }
+        model_filename = os.path.basename(model_path) if model_path else ""
+        config_file = config_map.get(model_filename, "configs/sam2/sam2_hiera_l.yaml")
+
+        print(f"Loading SAM2 model: {model_path}", file=sys.stderr)
+        print(f"Using config: {config_file}", file=sys.stderr)
+
+        sam2_model = build_sam2(
+            config_file=config_file,
+            ckpt_path=model_path,
+            device=str(device_obj),
+        )
+        predictor = SAM2ImagePredictor(sam2_model)
+        predictor.set_image(image)
+
+        # Use center point as default prompt
+        point_coords = np.array([[w // 2, h // 2]])
+        point_labels = np.array([1])
+
+        with torch.no_grad():
+            masks, scores, logits = predictor.predict(
+                point_coords=point_coords,
+                point_labels=point_labels,
+                multimask_output=True,
+            )
+
+        # Convert masks to bounding boxes
+        boxes = []
+        for mask in masks:
+            rows = np.any(mask, axis=1)
+            cols = np.any(mask, axis=0)
+            if rows.any() and cols.any():
+                rmin, rmax = np.where(rows)[0][[0, -1]]
+                cmin, cmax = np.where(cols)[0][[0, -1]]
+                boxes.append([int(cmin), int(rmin),
+                              int(cmax - cmin), int(rmax - rmin)])
+            else:
+                boxes.append([0, 0, w, h])
+
+        print(f"SAM2 inference complete: {len(masks)} masks",
+              file=sys.stderr)
+
+        return {
+            "masks": [m.tolist() for m in masks],
+            "boxes": boxes,
+            "scores": scores.tolist(),
             "image_width": w,
             "image_height": h,
         }
-        
-        # If we have a prompt, try to generate some basic detections
-        # This is a placeholder - replace with real SAM-3 inference
-        if prompt:
-            # Mock detection based on prompt keywords
-            # In real implementation, this would use SAM-3's text-to-segment capability
-            prompt_lower = prompt.lower()
-            
-            # Simple heuristic: if prompt mentions specific objects, create mock regions
-            # This is just for testing - replace with real inference
-            if any(word in prompt_lower for word in ["text", "heading", "title"]):
-                # Mock text region
-                result["boxes"].append({
-                    "x": int(w * 0.1),
-                    "y": int(h * 0.1),
-                    "width": int(w * 0.8),
-                    "height": int(h * 0.15)
-                })
-                result["scores"].append(0.85)
-                # Create a simple mask (rectangle)
-                mask = np.zeros((h, w), dtype=np.uint8)
-                mask[
-                    int(h * 0.1):int(h * 0.25),
-                    int(w * 0.1):int(w * 0.9)
-                ] = 255
-                mask_b64 = base64.b64encode(mask.tobytes()).decode('utf-8')
-                result["masks"].append({
-                    "data": mask_b64,
-                    "width": w,
-                    "height": h
-                })
-        
-        return result
-        
+
     except Exception as e:
         return {
             "masks": [],

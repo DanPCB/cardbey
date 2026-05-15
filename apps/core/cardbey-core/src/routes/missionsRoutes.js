@@ -28,6 +28,8 @@ import { executeMissionAction } from '../lib/execution/executeMissionAction.js';
 import { runMissionUntilBlocked } from '../lib/missionPipelineOrchestrator.js';
 import { planMissionFromIntent } from '../lib/agentPlanner.js';
 import { resolveAccessibleMission, getTenantId } from '../lib/missionAccess.js';
+import { canTransitionMissionPipeline } from '../lib/missionPipelineTransitions.js';
+import { buildRunnerDualWriteMetadataJson } from '../lib/orchestrator/pipelineCanonicalResults.js';
 import { executeStoreMissionPipelineRun } from '../lib/storeMission/executeStoreMissionPipelineRun.js';
 import { getOrCreateCardbeyTraceId, CARDBEY_TRACE_HEADER } from '../lib/trace/cardbeyTraceId.js';
 import { shouldOfferLlmTaskGraph } from '../lib/missionPlan/intentPipelineRegistry.js';
@@ -36,6 +38,7 @@ import { handleAgentsV1MissionSpawn } from './agentsV1Routes.js';
 import { extractTextWithFallback } from '../lib/ocr/ocrFallback.js';
 import { parseBusinessCardOCR } from '../lib/businessCardParser.js';
 import { businessCardLooksLikeOcrText, isRefusalResponse } from '../modules/vision/runOcr.js';
+import { runPostMissionCompletionSummary } from '../lib/missionCompletion/postMissionSummary.js';
 
 const router = Router();
 
@@ -413,6 +416,7 @@ router.get('/:missionId/state', requireAuth, async (req, res, next) => {
         if (process.env.NODE_ENV !== 'production') {
           console.log(`[Mission] resolver: mission=${missionId} status=${state.status} runState=${state.runState}`);
         }
+        res.setHeader('Cache-Control', 'no-store');
         return res.json({ ok: true, state });
       }
     }
@@ -427,6 +431,7 @@ router.get('/:missionId/state', requireAuth, async (req, res, next) => {
         select: { userId: true },
       });
       if (run && run.userId === req.user?.id) {
+        res.setHeader('Cache-Control', 'no-store');
         return res.json({ ok: true, state: runState });
       }
     }
@@ -1407,6 +1412,204 @@ router.patch('/:missionId/context', requireAuth, async (req, res, next) => {
       console.warn('[missions/context PATCH] planner run failed:', err?.message || err)
     );
     return res.status(200).json({ ok: true, runId: run.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/missions/:missionId/respond
+ * Owner response for a checkpoint step (Phase 3). Resumes runMissionUntilBlocked only.
+ */
+router.post('/:missionId/respond', optionalAuth, async (req, res, next) => {
+  try {
+    const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    const stepId = typeof req.body?.stepId === 'string' ? req.body.stepId.trim() : '';
+    const response = req.body?.response;
+    const data = req.body?.data && typeof req.body.data === 'object' && !Array.isArray(req.body.data) ? req.body.data : {};
+    if (!missionIdTrimmed || !stepId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'validation',
+        message: 'missionId and stepId are required',
+      });
+    }
+    const access = await resolveAccessibleMission(req.user ?? {}, missionIdTrimmed);
+    if (!access.ok || access.kind !== 'mission_pipeline') {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Mission pipeline not found or access denied' });
+    }
+    const prisma = getPrismaClient();
+    const pipeline = await prisma.missionPipeline.findUnique({
+      where: { id: missionIdTrimmed },
+      include: { steps: { orderBy: { orderIndex: 'asc' } } },
+    });
+    if (!pipeline) {
+      return res.status(404).json({ ok: false, error: 'not_found' });
+    }
+    if (pipeline.status !== 'awaiting_input') {
+      return res.status(409).json({ ok: false, error: 'invalid_state', message: 'Mission is not awaiting checkpoint input' });
+    }
+    const step = pipeline.steps.find((s) => s.id === stepId);
+    if (!step || step.status !== 'awaiting_input') {
+      return res.status(409).json({ ok: false, error: 'step_not_awaiting', message: 'Step is not awaiting input' });
+    }
+    const cfg = step.configJson && typeof step.configJson === 'object' ? step.configJson : {};
+    const outputKey = typeof cfg.outputKey === 'string' ? cfg.outputKey : 'ownerResponse';
+    const outPayload = {
+      ownerResponse: response,
+      [outputKey]: response,
+      ...data,
+    };
+    const prevOutputs = pipeline.outputsJson && typeof pipeline.outputsJson === 'object' ? { ...pipeline.outputsJson } : {};
+    const mergedOutputs = { ...prevOutputs, [outputKey]: response, ...data };
+    const newCompleted = (pipeline.progressCompletedSteps ?? 0) + 1;
+
+    if (!canTransitionMissionPipeline('awaiting_input', 'executing')) {
+      return res.status(409).json({ ok: false, error: 'transition_denied' });
+    }
+
+    const dualMeta = await buildRunnerDualWriteMetadataJson(
+      prisma,
+      missionIdTrimmed,
+      pipeline.metadataJson,
+      mergedOutputs,
+    );
+
+    await prisma.$transaction(async (tx) => {
+      await tx.missionPipelineStep.update({
+        where: { id: stepId },
+        data: {
+          status: 'completed',
+          completedAt: new Date(),
+          outputJson: outPayload,
+        },
+      });
+
+      await tx.missionPipeline.update({
+        where: { id: missionIdTrimmed },
+        data: {
+          status: 'executing',
+          runState: 'running',
+          currentStepId: null,
+          progressCompletedSteps: newCompleted,
+          outputsJson: mergedOutputs,
+          ...(dualMeta != null ? { metadataJson: dualMeta } : {}),
+        },
+      });
+    });
+
+    const newStoreName =
+      typeof mergedOutputs.storeName === 'string'
+        ? mergedOutputs.storeName.trim()
+        : typeof mergedOutputs.businessName === 'string'
+          ? mergedOutputs.businessName.trim()
+          : '';
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.log('[missions/respond] store title probe', {
+        missionId: missionIdTrimmed,
+        stepId,
+        storeName: mergedOutputs.storeName,
+        businessName: mergedOutputs.businessName,
+        intentMode: mergedOutputs.intentMode ?? mergedOutputs.intentType,
+        newStoreName: newStoreName || null,
+      });
+    }
+    if (newStoreName && pipeline.type === 'store') {
+      const metaAfter =
+        dualMeta && typeof dualMeta === 'object' && !Array.isArray(dualMeta)
+          ? dualMeta
+          : pipeline.metadataJson && typeof pipeline.metadataJson === 'object' && !Array.isArray(pipeline.metadataJson)
+            ? pipeline.metadataJson
+            : {};
+      const intentModeRaw =
+        mergedOutputs.intentMode ??
+        mergedOutputs.intentType ??
+        metaAfter.intentMode ??
+        metaAfter.intentType ??
+        null;
+      const intentStr = typeof intentModeRaw === 'string' ? intentModeRaw.trim().toLowerCase() : '';
+      const metaWebsite =
+        metaAfter.websiteMode === true ||
+        metaAfter.generateWebsite === true ||
+        (typeof metaAfter.intentMode === 'string' && metaAfter.intentMode.trim().toLowerCase() === 'website');
+      const prefix =
+        intentStr === 'website' || metaWebsite ? 'Create mini website' : 'Create store';
+      await prisma.missionPipeline.update({
+        where: { id: missionIdTrimmed },
+        data: { title: `${prefix}: ${newStoreName.slice(0, 120)}` },
+      });
+    }
+
+    const orchestration = await runMissionUntilBlocked(missionIdTrimmed, { forceExecuting: true });
+
+    const mAfter = await prisma.missionPipeline.findUnique({
+      where: { id: missionIdTrimmed },
+      include: { steps: true },
+    });
+
+    const allStepsDone =
+      mAfter &&
+      Array.isArray(mAfter.steps) &&
+      mAfter.steps.length > 0 &&
+      mAfter.steps.every((s) => s.status === 'completed' || s.status === 'skipped');
+    const runStateDone = String(mAfter?.runState ?? '').toLowerCase() === 'done';
+    const pipelineAlreadyCompleted = mAfter?.status === 'completed' || runStateDone;
+
+    if (allStepsDone && mAfter && (mAfter.status === 'executing' || pipelineAlreadyCompleted)) {
+      if (mAfter.status === 'executing') {
+        await prisma.missionPipeline.update({
+          where: { id: missionIdTrimmed },
+          data: { status: 'completed', runState: 'done', completedAt: new Date(), currentStepId: null },
+        });
+      }
+
+      const fresh = await prisma.missionPipeline.findUnique({
+        where: { id: missionIdTrimmed },
+        select: { id: true, type: true, status: true, runState: true, outputsJson: true, metadataJson: true },
+      });
+      const outputsForSummary =
+        fresh?.outputsJson && typeof fresh.outputsJson === 'object' && !Array.isArray(fresh.outputsJson)
+          ? fresh.outputsJson
+          : {};
+      // eslint-disable-next-line no-console
+      console.log('[respond-route] firing postMissionSummary', {
+        missionId: fresh?.id,
+        type: fresh?.type,
+        status: fresh?.status,
+        runState: fresh?.runState,
+        priorStatusWasExecuting: mAfter.status === 'executing',
+        orchestrationStoppedReason: orchestration?.stoppedReason,
+      });
+      void runPostMissionCompletionSummary({
+        missionId: missionIdTrimmed,
+        missionType: fresh?.type ?? null,
+        metadataJson: fresh?.metadataJson ?? null,
+        outputsJson: outputsForSummary,
+      }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn('[postMissionSummary] failed:', e?.message || e);
+      });
+    } else if (mAfter) {
+      // eslint-disable-next-line no-console
+      console.log('[respond-route] skip postMissionSummary', {
+        missionId: missionIdTrimmed,
+        status: mAfter.status,
+        runState: mAfter.runState,
+        allStepsDone,
+        stepStatuses: Array.isArray(mAfter.steps) ? mAfter.steps.map((s) => ({ id: s.id, st: s.status })) : [],
+      });
+    }
+
+    return res.json({
+      ok: true,
+      resumed: true,
+      orchestration: {
+        stepsRun: orchestration.stepsRun,
+        stoppedReason: orchestration.stoppedReason,
+        status: orchestration.status,
+      },
+    });
   } catch (err) {
     next(err);
   }

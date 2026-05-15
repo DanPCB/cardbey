@@ -72,6 +72,71 @@ export function normalizePreviewCategories(preview) {
 }
 
 /**
+ * Map draft preview category ids to display names (same contract as publishDraftService).
+ * @param {unknown[]} categories
+ * @returns {Map<string, string>}
+ */
+export function buildCategoryIdToNameMap(categories) {
+  const draftCatIdToName = new Map();
+  for (const c of Array.isArray(categories) ? categories : []) {
+    if (c && c.id != null && (c.name != null || c.label != null)) {
+      draftCatIdToName.set(String(c.id).trim(), String(c.name ?? c.label ?? '').trim() || 'Other');
+    }
+  }
+  if (!draftCatIdToName.has('other')) {
+    draftCatIdToName.set('other', 'Other');
+  }
+  return draftCatIdToName;
+}
+
+/**
+ * @param {object | null | undefined} item
+ * @param {Map<string, string>} draftCatIdToName
+ * @param {string} [otherDefault]
+ */
+export function resolveDraftProductCategoryName(item, draftCatIdToName, otherDefault = 'Other') {
+  const map = draftCatIdToName instanceof Map ? draftCatIdToName : new Map();
+  const draftCatId = item?.categoryId != null ? String(item.categoryId).trim() : null;
+  const fromMap = draftCatId && map.get(draftCatId);
+  if (fromMap) return fromMap;
+  const direct = item?.category != null && String(item.category).trim();
+  if (direct) return direct;
+  return map.get('other') ?? otherDefault;
+}
+
+/**
+ * First usable image URL from draft item shapes (preview.items / catalog.products).
+ * @param {object | null | undefined} item
+ * @returns {string | null}
+ */
+export function resolveDraftItemImageUrl(item) {
+  if (!item || typeof item !== 'object') return null;
+  const u =
+    item.imageUrl ??
+    (typeof item.image === 'string' ? item.image : null) ??
+    (item.image && typeof item.image === 'object' ? item.image.url ?? item.image.imageUrl : null) ??
+    item.primaryImageUrl ??
+    null;
+  if (u == null) return null;
+  const s = String(u).trim();
+  return s || null;
+}
+
+/**
+ * Parsed price for Product.price, or null when missing / invalid / non‑positive (avoid $0.00 placeholders).
+ * @param {object | null | undefined} item
+ * @returns {number | null}
+ */
+export function normalizeDraftProductPrice(item) {
+  if (!item || typeof item !== 'object') return null;
+  const raw = item.priceV1?.amount ?? item.price;
+  if (raw == null || raw === '') return null;
+  const n = parseFloat(String(raw).replace(/[^\d.-]/g, ''));
+  if (Number.isNaN(n) || n <= 0) return null;
+  return n;
+}
+
+/**
  * Deterministic default CTA for draft preview / publish when none is set.
  * Matches coarse store kinds: service, product, food; everything else → visit.
  * @param {{ storeType?: string | null, businessType?: string | null }} context
@@ -143,7 +208,7 @@ async function loadHeroGenerationService() {
 let _draftPreviewSchemaMod;
 async function loadDraftPreviewSchema() {
   try {
-    return (_draftPreviewSchemaMod ??= await import('./draftPreviewSchema.ts'));
+    return (_draftPreviewSchemaMod ??= await import('./draftPreviewSchema.js'));
   } catch (err) {
     if (err?.code === 'ERR_UNKNOWN_FILE_EXTENSION' || err?.code === 'ERR_MODULE_NOT_FOUND') return null;
     throw err;
@@ -462,6 +527,7 @@ export async function createDraftStoreForUser(prismaClient, { user, userId, tena
       ...rest,
       ownerUserId,
       input: inputWithTenant,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
   });
 
@@ -506,7 +572,7 @@ export async function createDraft({ mode, input, meta = {} }) {
       mode,
       status: 'generating',
       input: inputObj,
-      expiresAt,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       ipHash: meta.ipHash || null,
       userAgent: meta.userAgent || null,
       guestSessionId: meta.guestSessionId || null,
@@ -2435,7 +2501,10 @@ export async function getDraftByGenerationRunId(generationRunId) {
  * When you pass { items }, preview.items is replaced entirely (preserves stable ids item_${draftId}_${index});
  * other preview fields (storeName, categories, brandColors, etc.) are kept.
  */
-export async function patchDraftPreview(draftId, incomingPreview) {
+/** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
+const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'avatar', 'avatarImageUrl']);
+
+export async function patchDraftPreview(draftId, incomingPreview, options = {}) {
   const draft = await prisma.draftStore.findUnique({
     where: { id: draftId },
   });
@@ -2444,11 +2513,19 @@ export async function patchDraftPreview(draftId, incomingPreview) {
     throw new Error(`Draft not found: ${draftId}`);
   }
 
-  if (draft.status === 'committed') {
+  const incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
+  const allowCommitted = options && options.allowCommitted === true;
+  const isCommitted = draft.status === 'committed';
+  const committedHeroAvatarOnly =
+    isCommitted &&
+    Object.keys(incoming).length > 0 &&
+    Object.keys(incoming).every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
+
+  if (isCommitted && !allowCommitted && !committedHeroAvatarOnly) {
     throw new Error(`Draft ${draftId} has already been committed`);
   }
 
-  if (new Date() > draft.expiresAt) {
+  if (!isCommitted && new Date() > draft.expiresAt) {
     throw new Error(`Draft ${draftId} has expired`);
   }
 
@@ -2460,18 +2537,33 @@ export async function patchDraftPreview(draftId, incomingPreview) {
       existing = JSON.parse(draft.preview) || {};
     } catch (_) { /* keep empty */ }
   }
-  const incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
   const merged = { ...existing, ...incoming };
 
   // When client sends partial items (e.g. Day2 autofill only filled items with imageUrl), merge by id
   // so we don't replace the entire catalog with a subset and lose other products/fields.
   const existingItems = Array.isArray(existing.items) ? existing.items : [];
   const incomingItems = Array.isArray(incoming.items) ? incoming.items : [];
+  const looksLikeImageOnlyItemPatch = (it) => {
+    if (!it || typeof it !== 'object') return false;
+    // If any non-image catalog fields are present, treat as a full replacement payload.
+    if (it.name !== undefined) return false;
+    if (it.title !== undefined) return false;
+    if (it.description !== undefined) return false;
+    if (it.price !== undefined) return false;
+    if (it.currency !== undefined) return false;
+    if (it.category !== undefined) return false;
+    if (it.categoryId !== undefined) return false;
+    return (
+      it.imageUrl !== undefined ||
+      it.imageSource !== undefined ||
+      it.imageQuery !== undefined ||
+      it.imageConfidence !== undefined
+    );
+  };
   const isPartialItemUpdate =
     incomingItems.length > 0 &&
     existingItems.length > 0 &&
-    (incomingItems.length < existingItems.length ||
-      incomingItems.every((it) => it && (it.imageUrl !== undefined || it.imageSource !== undefined || it.imageQuery !== undefined || it.imageConfidence !== undefined)));
+    incomingItems.every((it) => looksLikeImageOnlyItemPatch(it));
   if (isPartialItemUpdate) {
     const incomingById = new Map(incomingItems.map((it) => [String(it?.id ?? it?.productId ?? ''), it]));
     merged.items = existingItems.map((item) => {
@@ -2530,6 +2622,20 @@ export async function patchDraftPreview(draftId, incomingPreview) {
 
   normalizePreviewCategories(merged);
 
+  // Full catalog replacement (e.g. menu upload) assigns new item ids; website.sections.featured.productIds
+  // still pointed at old ids → storefront FeaturedSection resolves zero products and hides. Regenerate sections
+  // from current items (same helper as initial draft website build). Skip partial image-only patches — ids unchanged.
+  if (incoming.items !== undefined && !isPartialItemUpdate) {
+    try {
+      const { mergeWebsiteIntoPreview } = await import('./websiteSectionsGenerator.js');
+      const input =
+        draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input) ? draft.input : {};
+      mergeWebsiteIntoPreview(merged, input);
+    } catch (e) {
+      console.warn('[patchDraftPreview] mergeWebsiteIntoPreview failed (non-fatal):', e?.message || e);
+    }
+  }
+
   // Phase 0: recompute qaReport only when items/hero/avatar/catalog changed (avoid noisy QA on storeName typos)
   const qaRelevant =
     incoming.items !== undefined ||
@@ -2550,6 +2656,39 @@ export async function patchDraftPreview(draftId, incomingPreview) {
     const heroSet = !!(merged.hero?.imageUrl ?? merged.heroImageUrl ?? merged.hero?.url);
     const avatarSet = !!(merged.avatar?.imageUrl ?? merged.avatarImageUrl ?? merged.brand?.logoUrl);
     console.log('[patchDraftPreview] saving preview', { draftId, mergedKeys, heroSet, avatarSet });
+  }
+
+  if (committedHeroAvatarOnly && draft.committedStoreId) {
+    const bizData = {};
+    if (incoming.hero !== undefined || incoming.heroImageUrl !== undefined) {
+      let heroUrl = null;
+      if (typeof merged.heroImageUrl === 'string' && merged.heroImageUrl.trim()) heroUrl = merged.heroImageUrl.trim();
+      else if (merged.hero && typeof merged.hero === 'object') {
+        const h = merged.hero.imageUrl ?? merged.hero.url;
+        if (typeof h === 'string' && h.trim()) heroUrl = h.trim();
+      }
+      if (heroUrl) bizData.heroImageUrl = heroUrl;
+    }
+    if (incoming.avatar !== undefined || incoming.avatarImageUrl !== undefined) {
+      let avUrl = null;
+      if (typeof merged.avatarImageUrl === 'string' && merged.avatarImageUrl.trim()) avUrl = merged.avatarImageUrl.trim();
+      else if (merged.avatar && typeof merged.avatar === 'object') {
+        const a = merged.avatar.imageUrl ?? merged.avatar.url;
+        if (typeof a === 'string' && a.trim()) avUrl = a.trim();
+      }
+      if (avUrl) bizData.avatarImageUrl = avUrl;
+    }
+    if (Object.keys(bizData).length > 0) {
+      await prisma.business.update({
+        where: { id: draft.committedStoreId },
+        data: bizData,
+      });
+    }
+    await prisma.draftStore.update({
+      where: { id: draftId },
+      data: { preview: merged, updatedAt: new Date() },
+    });
+    return getDraft(draftId);
   }
 
   const newStatus = draft.status === 'generating' ? draft.status : 'ready';
@@ -2864,20 +3003,37 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
       },
     });
 
+    const commitItems =
+      Array.isArray(preview.items) && preview.items.length > 0
+        ? preview.items
+        : Array.isArray(preview.catalog?.products)
+          ? preview.catalog.products
+          : [];
+    const commitCategoryMap = buildCategoryIdToNameMap(preview.categories ?? []);
+    const otherCategoryName = commitCategoryMap.get('other') ?? 'Other';
+
     // Create products from draft
     const createdProducts = [];
-    for (const item of preview.items || []) {
+    for (const item of commitItems) {
+      if (!item || typeof item !== 'object') continue;
+      const nameTrim = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!nameTrim) continue;
       try {
+        const imageUrl = resolveDraftItemImageUrl(item);
+        const categoryName = resolveDraftProductCategoryName(item, commitCategoryMap, otherCategoryName);
+        const price = normalizeDraftProductPrice(item);
         const product = await tx.product.create({
           data: {
             businessId: business.id,
-            name: item.name,
+            name: nameTrim,
             description: item.description || null,
-            price: item.price ? parseFloat(String(item.price).replace(/[^\d.]/g, '')) : null,
+            price,
             currency:
               (item.currency != null && String(item.currency).trim()
                 ? String(item.currency).trim().toUpperCase()
                 : null) || commitProductCurrency,
+            category: categoryName || otherCategoryName,
+            imageUrl,
             isPublished: true,
             viewCount: 0,
             likeCount: 0,

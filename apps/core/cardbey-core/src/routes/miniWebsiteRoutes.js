@@ -13,22 +13,13 @@ import { canAccessDraftStore } from '../lib/draftOwnership.js';
 import { getDraft } from '../services/draftStore/draftStoreService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 import { computeStylePreferencesUpdate } from '../lib/miniWebsiteSectionMerge.js';
+import { publicWebBase } from '../utils/publicWebBase.js';
 
 const prisma = getPrismaClient();
 const router = Router();
 
 function isSuperAdmin(req) {
   return !!req.user && hasRole(req.user, 'super_admin');
-}
-
-/** Marketing app origin for public storefront links (/s/:slug). */
-function publicWebBase() {
-  const b =
-    process.env.PUBLIC_WEB_BASE_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.PUBLIC_BASE_URL ||
-    'http://localhost:5174';
-  return String(b).replace(/\/+$/, '');
 }
 
 /**

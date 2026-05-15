@@ -1418,6 +1418,7 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
         const { getPrismaClient } = await import('../lib/prisma.js');
         const { getTenantId } = await import('../lib/missionAccess.js');
         const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+        const { ensureStructuredStoreCheckpointSteps } = await import('../lib/storeMission/ensureStructuredStoreCheckpointSteps.js');
         const { executeStoreMissionPipelineRun } = await import('../lib/storeMission/executeStoreMissionPipelineRun.js');
         const prisma = getPrismaClient();
         const storeInput = parseLegacyStoreCreateIntent(userPrompt, currentContext);
@@ -1462,6 +1463,21 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
             })
           ).id;
 
+        if (existingStoreMissionId) {
+          await prisma.missionPipeline.updateMany({
+            where: {
+              id: ensuredMissionId,
+              status: 'executing',
+            },
+            data: {
+              status: 'queued',
+              runState: 'idle',
+            },
+          });
+        }
+
+        await ensureStructuredStoreCheckpointSteps(prisma, ensuredMissionId, { logPrefix: '[PerformerIntake]' });
+
         const runResult = await executeStoreMissionPipelineRun({
           prisma,
           user: actorUser,
@@ -1481,6 +1497,14 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
           throw new Error(runResult.message || runResult.error || 'store_mission_start_failed');
         }
 
+        if (runResult.mode === 'checkpoint_pipeline' && process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log(
+            '[PerformerIntake] legacy_store intake → Phase 3 checkpoint pipeline (paused for owner; no orchestra build yet)',
+            { missionId: runResult.missionId, orchestration: runResult.orchestration },
+          );
+        }
+
         return sendLegacyStorePayload({
           success: true,
           action: 'store_mission_started',
@@ -1491,13 +1515,17 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
           intentMode: websiteAlias ? 'website' : 'store',
           reasoning: 'Store creation mission started from performer intake.',
           response:
-            locale === 'vi'
-              ? websiteAlias
-                ? `Đang tạo trang web mini cho "${storeInput.businessName}"…`
-                : `Đang tạo cửa hàng cho "${storeInput.businessName}"…`
-              : websiteAlias
-                ? `Started building your mini website for "${storeInput.businessName}"…`
-                : `Started building your store for "${storeInput.businessName}"…`,
+            runResult.mode === 'checkpoint_pipeline'
+              ? locale === 'vi'
+                ? `Một vài lựa chọn nhanh trước khi tạo cửa hàng cho "${storeInput.businessName}"…`
+                : `A few quick choices before we build "${storeInput.businessName}"…`
+              : locale === 'vi'
+                ? websiteAlias
+                  ? `Đang tạo trang web mini cho "${storeInput.businessName}"…`
+                  : `Đang tạo cửa hàng cho "${storeInput.businessName}"…`
+                : websiteAlias
+                  ? `Started building your mini website for "${storeInput.businessName}"…`
+                  : `Started building your store for "${storeInput.businessName}"…`,
           storeMissionSummary: {
             businessName: storeInput.businessName,
             businessType: storeInput.businessType,

@@ -57,6 +57,9 @@ function getNextActions(status, runState, { disableRunnerActions = false } = {})
       if (!disableRunnerActions) actions.push('run_next_step');
       if (status === 'paused') actions.push('resume');
       break;
+    case 'awaiting_input':
+      actions.push('respond_checkpoint', 'cancel');
+      break;
     case 'failed':
       actions.push('retry', 'cancel');
       break;
@@ -83,14 +86,34 @@ export async function resolveMissionState(missionId) {
   const executionMode = mission.executionMode ?? 'AUTO_RUN';
   const isGuided = String(executionMode).trim() === 'GUIDED_RUN';
 
-  const steps = (mission.steps || []).map((s) => ({
+  const rawSteps = mission.steps || [];
+  const steps = rawSteps.map((s) => ({
     stepId: s.id,
     toolName: s.toolName,
     label: s.label,
     status: s.status,
+    stepKind: s.stepKind ?? 'action',
+    ...(s.configJson != null && typeof s.configJson === 'object' && { config: s.configJson }),
     ...(s.outputJson != null && typeof s.outputJson === 'object' && { output: s.outputJson }),
     ...(s.errorJson != null && typeof s.errorJson === 'object' && { error: s.errorJson }),
   }));
+
+  let activeCheckpoint = null;
+  if (mission.status === 'awaiting_input' && mission.runState === 'blocked_on_checkpoint') {
+    const st = rawSteps.find((x) => x.status === 'awaiting_input' && x.id === mission.currentStepId);
+    if (st && st.configJson && typeof st.configJson === 'object') {
+      const cfg = st.configJson;
+      // TODO: remove fallback once all legacy rows are migrated
+      if (typeof cfg.prompt !== 'string' && cfg.checkpointPrompt != null) console.warn('[checkpoint] legacy alias in use for step', st.id);
+      if (!Array.isArray(cfg.options) && cfg.checkpointOptions != null) console.warn('[checkpoint] legacy alias in use for step', st.id);
+      activeCheckpoint = {
+        stepId: st.id,
+        prompt: typeof cfg.prompt === 'string' ? cfg.prompt : cfg.checkpointPrompt ?? null,
+        options: Array.isArray(cfg.options) ? cfg.options : cfg.checkpointOptions ?? null,
+        outputKey: typeof cfg.outputKey === 'string' ? cfg.outputKey : null,
+      };
+    }
+  }
 
   let currentStep = null;
   if (mission.currentStepId) {
@@ -158,6 +181,7 @@ export async function resolveMissionState(missionId) {
     lastResult,
     /** Full pipeline metadata (e.g. proactive runway `stepOutputs`) for console restore. */
     metadata,
+    ...(activeCheckpoint ? { activeCheckpoint } : {}),
     createdAt: mission.createdAt,
     updatedAt: mission.updatedAt,
   };

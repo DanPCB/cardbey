@@ -8,7 +8,9 @@ const ALLOWED = {
   planned: ['awaiting_confirmation', 'queued', 'cancelled'],
   awaiting_confirmation: ['queued', 'cancelled'],
   queued: ['executing', 'cancelled', 'completed', 'paused'],
-  executing: ['paused', 'completed', 'failed', 'cancelled'],
+  executing: ['paused', 'completed', 'failed', 'cancelled', 'awaiting_input'],
+  /** Owner responded to a checkpoint; pipeline resumes via runMissionUntilBlocked only. */
+  awaiting_input: ['executing', 'cancelled'],
   paused: ['queued', 'cancelled'],
   failed: ['queued', 'cancelled'],
   completed: [],

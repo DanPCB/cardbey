@@ -181,6 +181,36 @@ export async function resolveAccessibleMission(user, missionIdTrimmed) {
     return { ok: false, reason: 'FORBIDDEN', kind: 'orchestrator_task', missionId: missionIdTrimmed };
   }
 
+  // 3. MissionPipeline — before OrchestratorTask-by-missionId (2b) so pipeline URLs resolve as mission_pipeline
+  // for GET /state / blackboard (same id is also linked from OrchestratorTask.missionId).
+  const pipelineRow = await prisma.missionPipeline.findUnique({
+    where: { id: missionIdTrimmed },
+    select: { tenantId: true, createdBy: true },
+  });
+  if (pipelineRow) {
+    const tenantId = getTenantId(user);
+    const allowed =
+      !pipelineRow.tenantId ||
+      pipelineRow.tenantId === tenantId ||
+      (pipelineRow.createdBy && user?.id && pipelineRow.createdBy === user.id);
+    const devPlaceholder = isDevPlaceholderId(pipelineRow.tenantId) || isDevPlaceholderId(pipelineRow.createdBy);
+    const devBypass = isDev && user?.id && devPlaceholder;
+    if (allowed || devBypass) {
+      if (isDev) console.log('[MissionAccess] resolved kind=mission_pipeline missionId=', missionIdTrimmed);
+      return {
+        ok: true,
+        kind: 'mission_pipeline',
+        missionId: missionIdTrimmed,
+        record: pipelineRow,
+        tenantId: pipelineRow.tenantId ?? null,
+        createdBy: pipelineRow.createdBy ?? null,
+        canAccess: true,
+        displayType: 'Pipeline Mission',
+      };
+    }
+    if (isDev) console.log('[MissionAccess] pipeline row present but denied; trying orchestrator link missionId=', missionIdTrimmed);
+  }
+
   // 2b. OrchestratorTask linked by missionId (store / website build: task.missionId === MissionPipeline.id)
   if (user?.id) {
     const taskForPipeline = await prisma.orchestratorTask.findFirst({
@@ -204,32 +234,7 @@ export async function resolveAccessibleMission(user, missionIdTrimmed) {
     }
   }
 
-  // 3. MissionPipeline
-  const pipeline = await prisma.missionPipeline.findUnique({
-    where: { id: missionIdTrimmed },
-    select: { tenantId: true, createdBy: true },
-  });
-  if (pipeline) {
-    const tenantId = getTenantId(user);
-    const allowed =
-      !pipeline.tenantId ||
-      pipeline.tenantId === tenantId ||
-      (pipeline.createdBy && user?.id && pipeline.createdBy === user.id);
-    const devPlaceholder = isDevPlaceholderId(pipeline.tenantId) || isDevPlaceholderId(pipeline.createdBy);
-    const devBypass = isDev && user?.id && devPlaceholder;
-    if (allowed || devBypass) {
-      if (isDev) console.log('[MissionAccess] resolved kind=mission_pipeline missionId=', missionIdTrimmed);
-      return {
-        ok: true,
-        kind: 'mission_pipeline',
-        missionId: missionIdTrimmed,
-        record: pipeline,
-        tenantId: pipeline.tenantId ?? null,
-        createdBy: pipeline.createdBy ?? null,
-        canAccess: true,
-        displayType: 'Pipeline Mission',
-      };
-    }
+  if (pipelineRow) {
     if (isDev) console.log('[MissionAccess] forbidden kind=mission_pipeline missionId=', missionIdTrimmed);
     return { ok: false, reason: 'FORBIDDEN', kind: 'mission_pipeline', missionId: missionIdTrimmed };
   }
