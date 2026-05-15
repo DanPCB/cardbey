@@ -147,7 +147,7 @@ router.post('/action', requireUserOrGuest, async (req, res) => {
           {
             title: 'Top 10 Flyers Trending',
             kind: 'flyer-list',
-            subtitle: 'This week's most viewed',
+            subtitle: "This week's most viewed",
             cta: '/designer/templates?sort=trending',
             icon: '🔥'
           },

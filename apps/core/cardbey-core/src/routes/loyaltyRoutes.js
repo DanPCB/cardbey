@@ -13,9 +13,8 @@ import {
   AddStampInput,
   RedeemRewardInput,
 } from '../engines/loyalty/types.js';
-import {
 import { prisma } from '../lib/prisma.js';
-
+import {
   configureProgram,
   generateAssets,
   queryCustomerStatus,

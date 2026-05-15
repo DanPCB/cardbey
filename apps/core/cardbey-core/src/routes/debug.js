@@ -8,9 +8,8 @@
  */
 
 import { Router } from 'express';
-import {
 import { prisma } from '../lib/prisma.js';
-
+import {
   snapshotPairingStats,
   resetPairingStats,
 } from '../debug/pairingStats.js';
