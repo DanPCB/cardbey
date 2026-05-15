@@ -176,6 +176,14 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
 
     console.error(`[orchestraMirror] MIRROR FAILED after 3 attempts for mission=${id}: ${msg}`);
     try {
+      const current = await prisma.missionPipeline.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+      // Do not downgrade a completed pipeline to runState=error — that makes the console show "Needs attention".
+      if (String(current?.status ?? '').toLowerCase() === 'completed') {
+        return;
+      }
       await prisma.missionPipeline.updateMany({
         where: { id },
         data: {

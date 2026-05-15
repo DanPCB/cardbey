@@ -16,6 +16,7 @@ import { createAgentMessage } from '../orchestrator/lib/agentMessage.js';
 import { updateMissionTaskStatus, findMissionTaskById, setMissionTaskRunning } from '../lib/missionTask.js';
 import { recordInteractionFeedback, recomputeRewardForAssignment } from '../lib/assignmentReward.js';
 import { resolveMissionState } from '../lib/missionPipelineResolver.js';
+import { resolveMissionRecoveryState } from '../lib/missionRecoveryState.js';
 import {
   createMissionPipeline,
   approveMissionPipeline,
@@ -399,6 +400,32 @@ router.post('/extract-card', requireAuth, async (req, res) => {
 // OpenClaw child spawn — same handler as POST /api/agents/v1/:missionId/spawn (frontend aliases).
 router.post('/:missionId/openclaw/spawn-child', requireAuth, handleAgentsV1MissionSpawn);
 router.post('/:missionId/spawn-child', requireAuth, handleAgentsV1MissionSpawn);
+
+/**
+ * GET /api/missions/:missionId/recovery-state
+ * Store / website missions: workflowState, draft ids, review readiness, CTAs.
+ * When USE_OUTPUT_VALIDATION is off and all steps completed, returns workflowState=ready (no needsAttention).
+ */
+router.get('/:missionId/recovery-state', requireAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+    const access = await resolveAccessibleMission(req.user, missionId);
+    if (!access.ok || access.kind !== 'mission_pipeline') {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission pipeline not found or access denied' });
+    }
+    const recovery = await resolveMissionRecoveryState(missionId);
+    if (!recovery) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission pipeline not found' });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ ok: true, ...recovery });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/:missionId/state', requireAuth, async (req, res, next) => {
   try {
