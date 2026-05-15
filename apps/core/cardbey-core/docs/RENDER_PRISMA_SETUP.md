@@ -33,7 +33,37 @@ Do **not** move these to `devDependencies`.
 - **Build Command:** `npm install` or `npm install && npm run build`.
 - **Start Command:** `npm start`.
 
-## 4. Optional: Prisma engine logging (debugging)
+## 4. Render Shell: migrate resolve / manual Prisma
+
+`npx prisma … --schema prisma/postgres/schema.prisma` reads **`DATABASE_URL`**. If that variable is `file:…` (SQLite) or empty, you get **P1012** (“URL must start with postgresql://”).
+
+**Diagnose on Shell:**
+
+```bash
+echo "DATABASE_URL=${DATABASE_URL:0:40}"
+echo "POSTGRES_DATABASE_URL=${POSTGRES_DATABASE_URL:0:40}"
+```
+
+**Use the wrapper (prefers `POSTGRES_DATABASE_URL`, then a postgres `DATABASE_URL`):**
+
+```bash
+cd ~/project/src/apps/core/cardbey-core   # or your Render rootDir path
+
+node scripts/run-postgres-prisma.js migrate resolve \
+  --rolled-back 20260301000000_baseline_postgres
+```
+
+**Or set the URL once** (Internal Database URL from Render Postgres → Connect):
+
+```bash
+export DATABASE_URL="postgresql://USER:PASS@HOST:PORT/DATABASE"
+npx prisma migrate resolve --rolled-back 20260301000000_baseline_postgres \
+  --schema prisma/postgres/schema.prisma
+```
+
+**Permanent fix:** In **cardbey-core-staging → Environment**, set `DATABASE_URL` to the **Internal** Postgres URL (not `file:`). Redeploy after changing.
+
+## 5. Optional: Prisma engine logging (debugging)
 
 To log queries and engine messages in production, set in Render **Environment**:
 

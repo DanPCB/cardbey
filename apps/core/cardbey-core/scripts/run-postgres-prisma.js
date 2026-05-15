@@ -11,17 +11,49 @@
 
 import { spawnSync } from 'child_process';
 
-const postgresUrl = process.env.POSTGRES_DATABASE_URL || process.env.DATABASE_URL;
-if (!postgresUrl || typeof postgresUrl !== 'string') {
-  console.error('Set POSTGRES_DATABASE_URL or DATABASE_URL to a postgres URL, e.g.:');
-  console.error('  POSTGRES_DATABASE_URL=postgresql://user:pass@localhost:5432/cardbey');
+function isPostgresUrl(url) {
+  const u = String(url ?? '').trim().toLowerCase();
+  return u.startsWith('postgresql://') || u.startsWith('postgres://');
+}
+
+function pickPostgresUrl() {
+  const candidates = [
+    ['POSTGRES_DATABASE_URL', process.env.POSTGRES_DATABASE_URL],
+    ['DATABASE_URL', process.env.DATABASE_URL],
+    ['POSTGRES_URL', process.env.POSTGRES_URL],
+    ['POSTGRES_PRISMA_URL', process.env.POSTGRES_PRISMA_URL],
+  ];
+  for (const [name, value] of candidates) {
+    if (isPostgresUrl(value)) return { url: String(value).trim(), source: name };
+  }
+  return { url: '', source: null };
+}
+
+const { url: postgresUrl, source } = pickPostgresUrl();
+if (!postgresUrl) {
+  const primary = String(process.env.DATABASE_URL ?? '').trim();
+  console.error('[run-postgres-prisma] No Postgres URL found.');
+  console.error('  Checked: POSTGRES_DATABASE_URL, DATABASE_URL, POSTGRES_URL, POSTGRES_PRISMA_URL');
+  if (primary) {
+    console.error('  DATABASE_URL is set but is not postgres (starts with):', primary.slice(0, 24));
+    if (primary.toLowerCase().startsWith('file:')) {
+      console.error('  → Render staging must use postgresql:// from the linked Postgres database, not file:');
+    }
+  } else {
+    console.error('  DATABASE_URL is empty in this shell.');
+  }
+  console.error('');
+  console.error('Fix (Render dashboard → cardbey-core-staging → Environment):');
+  console.error('  Set DATABASE_URL to the Internal Database URL from your Render Postgres (Connect menu).');
+  console.error('');
+  console.error('One-off shell (paste Internal URL from dashboard):');
+  console.error('  export DATABASE_URL="postgresql://..."');
+  console.error('  node scripts/run-postgres-prisma.js migrate resolve --rolled-back 20260301000000_baseline_postgres');
   process.exit(1);
 }
-if (!postgresUrl.startsWith('postgresql://') && !postgresUrl.startsWith('postgres://')) {
-  console.error('DATABASE_URL must be a postgres URL (postgresql:// or postgres://) for this command.');
-  console.error('Current value starts with:', postgresUrl.slice(0, 20) + '...');
-  console.error('Use POSTGRES_DATABASE_URL=postgresql://... for this script.');
-  process.exit(1);
+
+if (source && source !== 'DATABASE_URL') {
+  console.log(`[run-postgres-prisma] Using ${source} as DATABASE_URL for this command`);
 }
 
 const args = process.argv.slice(2);
