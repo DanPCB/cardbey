@@ -4,6 +4,7 @@
  */
 
 import { executeTask } from '../api/insightsOrchestrator.js';
+import { isPrismaMissingTableError } from '../../lib/prismaTableErrors.js';
 
 const DEFAULT_MIN_SIGNALS = 50;
 
@@ -14,14 +15,19 @@ const DEFAULT_MIN_SIGNALS = 50;
  * @returns {Promise<number>}
  */
 export async function getSignalsSinceLastRun(prisma, storeId) {
-  const run = await prisma.opportunityInferenceRun.findUnique({
-    where: { storeId },
-    select: { lastRunAt: true },
-  });
-  const since = run?.lastRunAt ?? new Date(0);
-  return prisma.intentSignal.count({
-    where: { storeId, createdAt: { gt: since } },
-  });
+  try {
+    const run = await prisma.opportunityInferenceRun.findUnique({
+      where: { storeId },
+      select: { lastRunAt: true },
+    });
+    const since = run?.lastRunAt ?? new Date(0);
+    return prisma.intentSignal.count({
+      where: { storeId, createdAt: { gt: since } },
+    });
+  } catch (err) {
+    if (isPrismaMissingTableError(err)) return 0;
+    throw err;
+  }
 }
 
 /**
@@ -58,11 +64,16 @@ export async function runAndRecord(prisma, storeId, opts = {}) {
     { prisma }
   );
   if (!result.skipped && result.created != null) {
-    await prisma.opportunityInferenceRun.upsert({
-      where: { storeId },
-      create: { storeId, lastRunAt: new Date() },
-      update: { lastRunAt: new Date() },
-    });
+    try {
+      await prisma.opportunityInferenceRun.upsert({
+        where: { storeId },
+        create: { storeId, lastRunAt: new Date() },
+        update: { lastRunAt: new Date() },
+      });
+    } catch (err) {
+      if (!isPrismaMissingTableError(err)) throw err;
+      console.warn('[opportunityInferenceTrigger] OpportunityInferenceRun table not found — skip record');
+    }
   }
   return result;
 }

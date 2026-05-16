@@ -4,6 +4,8 @@
  * Rule-based flow and accept → IntentRequest are untouched.
  */
 
+import { isPrismaMissingTableError } from '../../lib/prismaTableErrors.js';
+
 const LOG_PREFIX = '[OpportunityInference]';
 const OPPORTUNITY_INFERENCE_PURPOSE = 'opportunity_inference';
 const PROVIDER_NAME = 'kimi';
@@ -27,11 +29,20 @@ export async function buildOpportunityInferenceInput(prisma, storeId, opts = {})
   const signalSummary = opts.signalSummary ?? '';
   const existingOpportunityTypes = opts.existingOpportunityTypes ?? [];
 
-  const existing = await prisma.intentOpportunity.findMany({
-    where: { storeId },
-    select: { type: true },
-    distinct: ['type'],
-  });
+  let existing = [];
+  try {
+    existing = await prisma.intentOpportunity.findMany({
+      where: { storeId },
+      select: { type: true },
+      distinct: ['type'],
+    });
+  } catch (err) {
+    if (isPrismaMissingTableError(err)) {
+      console.warn(LOG_PREFIX, 'IntentOpportunity table not found — skipping existing-type lookup');
+    } else {
+      throw err;
+    }
+  }
   const existingTypes = [...new Set([...existingOpportunityTypes, ...existing.map((o) => o.type)])];
 
   return {
@@ -241,19 +252,30 @@ export async function runOpportunityInference(task, context = {}) {
   const { valid: validatedOpportunities } = parseOpportunitiesResponse(rawText);
   let created = 0;
 
-  for (const opp of validatedOpportunities) {
-    await prisma.intentOpportunity.create({
-      data: {
-        storeId,
-        type: opp.type,
-        summary: opp.title,
-        evidence: { description: opp.description, confidence: opp.confidence, reasoning: opp.reasoning },
-        recommendedIntentType: opp.suggestedIntentType,
-        payload: opp.suggestedPayload ?? {},
-        source: 'llm_inference',
-      },
-    });
-    created++;
+  try {
+    for (const opp of validatedOpportunities) {
+      await prisma.intentOpportunity.create({
+        data: {
+          storeId,
+          type: opp.type,
+          summary: opp.title,
+          evidence: { description: opp.description, confidence: opp.confidence, reasoning: opp.reasoning },
+          recommendedIntentType: opp.suggestedIntentType,
+          payload: opp.suggestedPayload ?? {},
+          source: 'llm_inference',
+        },
+      });
+      created++;
+    }
+  } catch (err) {
+    if (isPrismaMissingTableError(err)) {
+      console.warn(
+        LOG_PREFIX,
+        'IntentOpportunity table not found — run prisma migrate deploy. Skipping writes.',
+      );
+      return { skipped: true, reason: 'table_missing' };
+    }
+    throw err;
   }
 
   return { created, opportunities: validatedOpportunities };

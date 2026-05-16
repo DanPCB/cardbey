@@ -6,6 +6,8 @@
  * Store entity mode: store-level opportunities use entityType: 'store', source: 'store_opportunity'.
  */
 
+import { isPrismaMissingTableError } from '../lib/prismaTableErrors.js';
+
 const VIEW_TYPES = ['offer_view', 'page_view'];
 
 /** Store-level opportunity payload for mission hook (entityType, source). */
@@ -21,6 +23,20 @@ function storePayload(base) {
  * @returns {Promise<{ created: number, opportunities: object[] }>}
  */
 export async function computeOpportunities(prisma, storeId, windowDays = 7) {
+  try {
+    return await computeOpportunitiesInner(prisma, storeId, windowDays);
+  } catch (err) {
+    if (isPrismaMissingTableError(err)) {
+      console.warn(
+        '[computeOpportunities] Intent tables not found — run prisma migrate deploy. Returning empty.',
+      );
+      return { created: 0, opportunities: [], reason: 'table_missing' };
+    }
+    throw err;
+  }
+}
+
+async function computeOpportunitiesInner(prisma, storeId, windowDays = 7) {
   const since = new Date();
   since.setDate(since.getDate() - windowDays);
 

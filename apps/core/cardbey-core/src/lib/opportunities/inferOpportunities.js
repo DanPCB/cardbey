@@ -4,6 +4,7 @@
  */
 
 import { llmGateway } from '../llm/llmGateway.ts';
+import { isPrismaMissingTableError } from '../prismaTableErrors.js';
 
 const VALID_INTENT_TYPES = new Set([
   'rewrite_descriptions',
@@ -24,7 +25,7 @@ function priorityToSeverity(priority) {
  * @param {string} storeId
  * @param {{ storeName?: string; storeType?: string; productCount?: number; issues?: string[]; missing?: string[] }} storeAnalysis
  * @param {string} tenantKey
- * @returns {Promise<void>}
+ * @returns {Promise<{ ok: boolean, reason?: string, error?: string, created?: number }>}
  */
 export async function inferOpportunities(prisma, storeId, storeAnalysis, tenantKey) {
   try {
@@ -70,10 +71,12 @@ priority: 1 = highest, 2 = medium, 3 = lowest.`;
       if (process.env.NODE_ENV !== 'production') {
         console.warn('[inferOpportunities] Invalid JSON from LLM:', text?.slice(0, 200));
       }
-      return;
+      return { ok: true, reason: 'invalid_llm_json' };
     }
 
-    if (!Array.isArray(parsed) || parsed.length === 0) return;
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return { ok: true, reason: 'no_suggestions' };
+    }
 
     const toCreate = [];
     for (const s of parsed) {
@@ -95,7 +98,9 @@ priority: 1 = highest, 2 = medium, 3 = lowest.`;
       });
     }
 
-    if (toCreate.length === 0) return;
+    if (toCreate.length === 0) {
+      return { ok: true, reason: 'no_valid_suggestions' };
+    }
 
     await prisma.intentOpportunity.deleteMany({
       where: { storeId, source: 'llm_inference' },
@@ -104,9 +109,16 @@ priority: 1 = highest, 2 = medium, 3 = lowest.`;
     await prisma.intentOpportunity.createMany({
       data: toCreate.sort((a, b) => (a.evidence?.priority ?? 3) - (b.evidence?.priority ?? 3)),
     });
+
+    return { ok: true, created: toCreate.length };
   } catch (err) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[inferOpportunities]', err?.message ?? err);
+    if (isPrismaMissingTableError(err)) {
+      console.warn(
+        '[inferOpportunities] IntentOpportunity table not found — run prisma migrate deploy. Skipping opportunity inference.',
+      );
+      return { ok: false, reason: 'table_missing' };
     }
+    console.error('[inferOpportunities] failed:', err);
+    return { ok: false, reason: 'unknown_error', error: err?.message || String(err) };
   }
 }

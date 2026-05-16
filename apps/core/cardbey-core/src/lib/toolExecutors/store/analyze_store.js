@@ -109,9 +109,12 @@ export async function execute(input = {}, context = {}) {
     };
 
     const tenantKey = context?.tenantId ?? context?.storeId ?? storeId;
-    inferOpportunities(prisma, storeId, storeAnalysis, tenantKey).catch((e) =>
-      console.error('[inferOpportunities]', e),
-    );
+    inferOpportunities(prisma, storeId, storeAnalysis, tenantKey).then((res) => {
+      if (res?.reason === 'table_missing') return;
+      if (res?.ok === false) {
+        console.warn('[inferOpportunities]', res.reason, res.error || '');
+      }
+    });
 
     return {
       status: 'ok',
