@@ -48,10 +48,31 @@ export async function generateUniqueStoreSlug(prisma, base) {
   return `${slugify(base)}-${Date.now()}`;
 }
 
+/**
+ * Generate a unique store slug using a transaction client (commitDraft / atomic flows).
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {string} base
+ * @param {string | null} [excludeBusinessId] - if the slug is taken only by this business, keep it
+ */
+export async function generateUniqueStoreSlugForTx(tx, base, excludeBusinessId = null) {
+  let slug = slugify(base) || 'store';
+  let suffix = 1;
+  const maxAttempts = 100;
 
+  while (suffix <= maxAttempts) {
+    const exists = await tx.business.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!exists || (excludeBusinessId && exists.id === excludeBusinessId)) {
+      return slug;
+    }
+    suffix += 1;
+    slug = `${slugify(base) || 'store'}-${suffix}`;
+  }
 
-
-
+  return `${slugify(base) || 'store'}-${Date.now()}`;
+}
 
 
 

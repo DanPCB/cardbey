@@ -171,7 +171,7 @@ function hasMeaningfulCta(cta) {
 }
 
 import { performMenuOcr } from '../../modules/menu/performMenuOcr.js';
-import { generateUniqueStoreSlug } from '../../utils/slug.js';
+import { generateUniqueStoreSlugForTx } from '../../utils/slug.js';
 import { getMenuCategoriesAndAssignments, isFoodBusiness } from './menuCategories.js';
 import { effectiveVertical, applyItemGuards, applyNameGuards, isDraftGuardsEnabled, isBlockedCandidateForFood } from './draftGuards.js';
 import { transitionDraftStoreStatus } from '../../kernel/transitions/transitionService.js';
@@ -2957,14 +2957,15 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
   // Prepare business data from draft
   const businessName = businessFields.name || preview.storeName || name || preview.storeName || 'My Business';
   const businessType = businessFields.type || preview.storeType || 'generic';
-  const slug = await generateUniqueStoreSlug(prisma, businessName);
   const meta = preview.meta || {};
   const commitHeroUrl = meta.profileHeroUrl ?? (preview.hero && (preview.hero.imageUrl ?? preview.hero.url)) ?? preview.heroImageUrl ?? null;
   const commitAvatarUrl = meta.profileAvatarUrl ?? meta.logo ?? (preview.avatar && (preview.avatar.imageUrl ?? preview.avatar.url)) ?? preview.avatarImageUrl ?? (preview.brand && preview.brand.logoUrl) ?? null;
   const resolvedCommitAvatar = commitAvatarUrl == null ? null : typeof commitAvatarUrl === 'string' ? commitAvatarUrl : (commitAvatarUrl?.url ?? commitAvatarUrl?.imageUrl ?? null);
 
-  // Use transaction to ensure atomicity
-  const result = await prisma.$transaction(async (tx) => {
+  // Use transaction to ensure atomicity (reuse existing Business row when user already has one)
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
     if (!user) {
       const hashedPassword = await bcrypt.hash(password, 10);
       user = await tx.user.create({
@@ -2982,26 +2983,50 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
       });
     }
 
-    // Create business from draft (first-class hero/avatar so public feed and preview can render them)
     const publishedAtCommit = new Date();
-    const business = await tx.business.create({
-      data: {
-        userId: user.id,
-        name: businessName,
-        type: businessType,
-        slug,
-        description: preview.heroText || preview.description || null,
-        primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
-        secondaryColor: preview.brandColors?.secondary || null,
-        tagline: preview.tagline || preview.slogan || null,
-        heroText: preview.heroText || null,
-        stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
-        heroImageUrl: commitHeroUrl || null,
-        avatarImageUrl: resolvedCommitAvatar || null,
-        publishedAt: publishedAtCommit,
-        isActive: true,
-      },
+    const businessPayload = {
+      name: businessName,
+      type: businessType,
+      description: preview.heroText || preview.description || null,
+      primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
+      secondaryColor: preview.brandColors?.secondary || null,
+      tagline: preview.tagline || preview.slogan || null,
+      heroText: preview.heroText || null,
+      stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
+      heroImageUrl: commitHeroUrl || null,
+      avatarImageUrl: resolvedCommitAvatar || null,
+      publishedAt: publishedAtCommit,
+      isActive: true,
+    };
+
+    const existingBusiness = await tx.business.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
     });
+
+    let business;
+    if (existingBusiness) {
+      const slugForUpdate = await generateUniqueStoreSlugForTx(tx, businessName, existingBusiness.id);
+      business = await tx.business.update({
+        where: { id: existingBusiness.id },
+        data: {
+          ...businessPayload,
+          slug: slugForUpdate,
+        },
+      });
+    } else {
+      const slug = await generateUniqueStoreSlugForTx(tx, businessName);
+      business = await tx.business.create({
+        data: {
+          userId: user.id,
+          slug,
+          ...businessPayload,
+        },
+      });
+    }
+
+    // Replace catalog from draft (avoids duplicate products when recommitting to an existing store)
+    await tx.product.deleteMany({ where: { businessId: business.id } });
 
     const commitItems =
       Array.isArray(preview.items) && preview.items.length > 0
@@ -3069,6 +3094,22 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
       products: createdProducts,
     };
   });
+  } catch (err) {
+    if (err?.code === 'P2002') {
+      const uid = existingUserId ?? draft?.ownerUserId;
+      console.error('[commitDraft] Unique constraint failed:', {
+        target: err?.meta?.target,
+        userId: uid,
+        draftId: draft?.id,
+      });
+      const targetLabel = Array.isArray(err?.meta?.target) ? err.meta.target.join(', ') : String(err?.meta?.target ?? 'unknown');
+      throw new Error(
+        `COMMIT_DRAFT_FAILED: Business record conflict for userId=${uid ?? 'unknown'}. Constraint: ${targetLabel}`,
+      );
+    }
+    console.error('[commitDraft] Transaction failed:', err);
+    throw err;
+  }
 
   // Generate JWT token for the new user
   const token = generateToken(result.user.id);
