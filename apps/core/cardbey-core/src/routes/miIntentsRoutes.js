@@ -345,12 +345,33 @@ router.get('/missions/:missionId/events', optionalAuth, async (req, res) => {
     if (!prisma.missionEvent) {
       return res.status(503).json({ ok: false, error: 'model_unavailable', message: 'MissionEvent model not available.' });
     }
+
     const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
-    const rows = await prisma.missionEvent.findMany({
-      where: { missionId },
-      orderBy: { createdAt: 'asc' },
-      take: limit,
-    });
+
+    let rows;
+    try {
+      rows = await prisma.missionEvent.findMany({
+        where: { missionId },
+        orderBy: { createdAt: 'asc' },
+        take: limit,
+      });
+    } catch (err) {
+      if (err?.message?.includes('does not exist') || err?.code === 'P2021') {
+        console.error('[miIntentsRoutes] MissionEvent table missing — run prisma migrate deploy:', err.message);
+        return res.status(200).json({
+          ok: true,
+          events: [],
+          _warning: 'MissionEvent table not yet migrated',
+        });
+      }
+      console.error('[miIntentsRoutes] missionEvent.findMany failed:', err);
+      return res.status(500).json({
+        ok: false,
+        error: 'internal_error',
+        message: err.message,
+      });
+    }
+
     const events = rows.map((e) => ({
       id: e.id,
       missionId: e.missionId,
