@@ -7,7 +7,7 @@ import {
 } from '../intakeContractValidate.js';
 import { normalizePlan } from '../intakeNormalizePlan.js';
 import { evaluateExecutionPolicy, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM } from '../intakeExecutionPolicy.js';
-import { detectIntent } from '../intakeSystemShortcuts.js';
+import { detectIntent, validateCreateStorePayload } from '../intakeSystemShortcuts.js';
 
 describe('intakeToolRegistry', () => {
   it('rejects unknown tool', () => {
@@ -238,5 +238,30 @@ describe('intakeSystemShortcuts', () => {
         },
       }),
     ).toEqual({ type: 'create_store', intentMode: 'website' });
+  });
+});
+
+describe('validateCreateStorePayload', () => {
+  it('flags location shorter than 2 chars', () => {
+    const e = validateCreateStorePayload({
+      storeCreateForm: {
+        storeName: 'My Shop',
+        location: 'm',
+        storeType: 'Retail',
+      },
+    });
+    expect(e.some((x) => x.field === 'location')).toBe(true);
+  });
+
+  it('accepts complete storeCreateForm envelope', () => {
+    expect(
+      validateCreateStorePayload({
+        storeCreateForm: {
+          storeName: 'My Shop',
+          location: 'Melbourne',
+          storeType: 'Food & drink',
+        },
+      }),
+    ).toHaveLength(0);
   });
 });

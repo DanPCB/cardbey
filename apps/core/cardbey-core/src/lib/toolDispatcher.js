@@ -42,6 +42,10 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
     console.log(`[ToolDispatcher] dispatching tool: ${name || '(empty)'}`);
   }
 
+  if (name === 'create_store') {
+    console.log('[create_store] dispatchTool payload:', JSON.stringify(input ?? {}));
+  }
+
   if (!name) {
     return {
       status: 'failed',
@@ -109,6 +113,10 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
     };
   } catch (err) {
     const message = err?.message || String(err);
+    if (name === 'create_store') {
+      console.error('[create_store] FAILED:', message, err?.stack);
+      throw err;
+    }
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[ToolDispatcher] completed tool: ${name} status=failed (exception)`);
     }

@@ -86,7 +86,7 @@ async function ensureStoreMissionReadyForRun(prisma, missionId, currentStatus) {
  *   | { ok: false, statusCode: number, error: string, message: string }
  * >}
  */
-export async function executeStoreMissionPipelineRun({
+async function executeStoreMissionPipelineRunCore({
   prisma: prismaIn,
   user,
   missionId,
@@ -432,4 +432,37 @@ export async function executeStoreMissionPipelineRun({
     draftId: created.draftId,
     status: 'executing',
   };
+}
+
+/**
+ * Wrapped store mission run: always logs create_store start / result / thrown errors.
+ *
+ * @param {object} opts
+ * @param {import('../prismaClient.js').PrismaClient} [opts.prisma]
+ * @param {object} opts.user
+ * @param {string} opts.missionId
+ * @param {Record<string, unknown>} [opts.body]
+ * @param {string} [opts.auditSource]
+ * @returns {Promise<any>}
+ */
+export async function executeStoreMissionPipelineRun(opts = {}) {
+  const { missionId, body = {}, auditSource } = opts ?? {};
+  console.log(
+    '[create_store] START payload:',
+    JSON.stringify({
+      missionId,
+      auditSource,
+      businessName: body?.businessName,
+      location: body?.location,
+      intentMode: body?.intentMode,
+    }),
+  );
+  try {
+    const result = await executeStoreMissionPipelineRunCore(opts);
+    console.log('[create_store] Result:', JSON.stringify(result));
+    return result;
+  } catch (err) {
+    console.error('[create_store] FAILED:', err?.message, err?.stack);
+    throw err;
+  }
 }

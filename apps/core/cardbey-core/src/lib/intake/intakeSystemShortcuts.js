@@ -16,6 +16,50 @@ function resolvePrimaryMode(input) {
 }
 
 /** @param {unknown} form */
+/**
+ * Validates create-store / mini-website payload before dispatching the pipeline or tool runner.
+ *
+ * @param {Record<string, unknown>} payload
+ * @returns {Array<{ field: string; message: string }>}
+ */
+export function validateCreateStorePayload(payload = {}) {
+  const errors = [];
+  const envelope = payload?.storeCreateForm;
+  let name =
+    envelope && typeof envelope === 'object' && !Array.isArray(envelope)
+      ? /** @type {Record<string, unknown>} */ (envelope).storeName ??
+        /** @type {Record<string, unknown>} */ (envelope).businessName
+      : payload?.storeName ?? payload?.businessName;
+  name = name != null ? String(name).trim() : '';
+  let location =
+    envelope && typeof envelope === 'object' && !Array.isArray(envelope)
+      ? /** @type {Record<string, unknown>} */ (envelope).location
+      : payload?.location;
+  location = location != null ? String(location).trim() : '';
+  const categoryRaw =
+    envelope && typeof envelope === 'object' && !Array.isArray(envelope)
+      ? /** @type {Record<string, unknown>} */ (envelope).category ??
+        /** @type {Record<string, unknown>} */ (envelope).storeType ??
+        /** @type {Record<string, unknown>} */ (envelope).businessType
+      : payload?.category ?? payload?.storeType ?? payload?.businessType;
+  const category = categoryRaw != null ? String(categoryRaw).trim() : '';
+
+  if (!name || name.length < 2) {
+    errors.push({ field: 'storeName', message: 'Store name is required' });
+  }
+  if (!location || location.length < 2) {
+    errors.push({
+      field: 'location',
+      message: 'Please enter a full city or suburb name (e.g. Melbourne)',
+    });
+  }
+  if (!category) {
+    errors.push({ field: 'category', message: 'Please select a category' });
+  }
+
+  return errors;
+}
+
 function storeCreateFormShortcut(form) {
   if (!form || typeof form !== 'object' || Array.isArray(form)) return null;
   const storeName = String(/** @type {Record<string, unknown>} */ (form).storeName ?? '').trim();

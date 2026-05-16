@@ -7,7 +7,7 @@
 import express from 'express';
 import { requireUserOrGuest } from '../middleware/guestAuth.js';
 import { classifyIntent } from '../lib/intake/intakeClassifier.js';
-import { detectIntent } from '../lib/intake/intakeSystemShortcuts.js';
+import { detectIntent, validateCreateStorePayload } from '../lib/intake/intakeSystemShortcuts.js';
 import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
@@ -105,6 +105,21 @@ function performerIntakeV2UserLike(req) {
   const gid = performerIntakeV2ActorId(req);
   if (!gid) return null;
   return { id: gid, role: 'guest', isGuest: true };
+}
+
+/** Block only exact duplicate display names for same owner — multiple stores per user are allowed. */
+async function findDuplicateBusinessNameForUser(prisma, userId, businessName) {
+  const bn = String(businessName ?? '').trim();
+  const uid = typeof userId === 'string' ? userId.trim() : '';
+  if (!bn || !uid) return null;
+  try {
+    return await prisma.business.findFirst({
+      where: { userId: uid, name: { equals: bn, mode: 'insensitive' } },
+      select: { id: true, name: true },
+    });
+  } catch {
+    return null;
+  }
 }
 
 // ── SmartDocument intent patterns (CC-4) ──────────────────────────────────
@@ -1259,35 +1274,61 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     if (shortcut?.type === 'create_store') {
-      if (shortcut.intentMode === 'website') {
-        return safeJson(
-          {
-            success: true,
-            action: 'create_store',
-            intentMode: shortcut.intentMode,
-          },
-          {
-            classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
-            validated: true,
-            downgraded: false,
-            validationErrors: [],
-            riskLevel: RISK.SAFE_READ,
-            result: 'success',
-          },
-        );
-      }
+      const rawForm =
+        body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
+          ? body.storeCreateForm
+          : null;
 
-      const { storeName: parsedStoreName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
-      const businessName = stripIntentWrappingQuotes(String(parsedStoreName ?? '').trim()) || '';
-      const businessType = String(storeType ?? 'Other').trim() || 'Other';
-      const locationTrim = stripIntentWrappingQuotes(location != null ? String(location).trim() : '') || '';
+      const ctxIntentMode = shortcut.intentMode === 'website' ? 'website' : 'store';
+
+      let businessName = '';
+      let businessType = 'Other';
+      let locationTrim = '';
+
+      if (rawForm) {
+        const validationErrors = validateCreateStorePayload({
+          storeCreateForm: rawForm,
+          storeName: rawForm.storeName,
+          location: rawForm.location,
+          category: rawForm.category ?? rawForm.storeType ?? rawForm.businessType,
+        });
+        if (validationErrors.length > 0) {
+          return res.status(400).json({
+            success: false,
+            action: 'validation_error',
+            errors: validationErrors,
+          });
+        }
+        businessName = stripIntentWrappingQuotes(String(rawForm.storeName ?? '').trim()) || '';
+        businessType =
+          String(rawForm.storeType ?? rawForm.category ?? rawForm.businessType ?? 'Other').trim() || 'Other';
+        locationTrim = stripIntentWrappingQuotes(String(rawForm.location ?? '').trim()) || '';
+      } else {
+        const { storeName: parsedStoreName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
+        businessName = stripIntentWrappingQuotes(String(parsedStoreName ?? '').trim()) || '';
+        businessType = String(storeType ?? 'Other').trim() || 'Other';
+        locationTrim = stripIntentWrappingQuotes(location != null ? String(location).trim() : '') || '';
+
+        if (businessName && locationTrim && locationTrim.length < 2) {
+          return res.status(400).json({
+            success: false,
+            action: 'validation_error',
+            errors: [
+              {
+                field: 'location',
+                message: 'Please enter a full city or suburb name (e.g. Melbourne)',
+              },
+            ],
+          });
+        }
+      }
 
       if (!businessName) {
         return safeJson(
           {
             success: true,
             action: 'create_store',
-            intentMode: 'store',
+            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
           },
           {
             classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
@@ -1323,11 +1364,32 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
+      const prismaShortcut = getPrismaClient();
+      const dupShortcut = await findDuplicateBusinessNameForUser(prismaShortcut, userLike.id, businessName);
+      if (dupShortcut) {
+        return safeJson(
+          {
+            success: true,
+            action: 'duplicate_store',
+            message: `You already have a store called "${businessName}". Use a different name.`,
+          },
+          {
+            classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.STATE_CHANGE,
+            result: 'duplicate_store',
+          },
+        );
+      }
+
       const tenantId = getTenantId(req.user) ?? actorId;
+      const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
       const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
       const pipeline = await createMissionPipeline({
         type: 'store',
-        title: `Create store: ${businessName.slice(0, 120)}`,
+        title: `${titlePrefix}: ${businessName.slice(0, 120)}`,
         targetType: 'store',
         targetId: undefined,
         targetLabel: undefined,
@@ -1335,9 +1397,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           businessName,
           businessType,
           location: locationTrim,
-          websiteMode: false,
-          generateWebsite: false,
-          intentMode: 'store',
+          websiteMode: ctxIntentMode === 'website',
+          generateWebsite: ctxIntentMode === 'website',
+          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
           source: 'intake_v2_shortcut',
           cardbeyTraceId,
         },
@@ -1347,7 +1409,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         createdBy: actorId,
       });
 
-      const prismaShortcut = getPrismaClient();
       await ensureStructuredStoreCheckpointSteps(prismaShortcut, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
 
       const currencyCode =
@@ -1366,7 +1427,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           businessType,
           location: locationTrim,
           currencyCode,
-          intentMode: 'store',
+          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
           rawUserText: userMessage,
           cardbeyTraceId,
         },
@@ -1383,12 +1444,20 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         }
         const responseText =
           runResult.mode === 'checkpoint_pipeline'
-            ? locale === 'vi'
-              ? `Một vài lựa chọn nhanh trước khi tạo cửa hàng cho "${businessName}"…`
-              : `A few quick choices before we build "${businessName}"…`
-            : locale === 'vi'
-              ? `Đang tạo cửa hàng cho "${businessName}"…`
-              : `Started building your store for "${businessName}"…`;
+            ? ctxIntentMode === 'website'
+              ? locale === 'vi'
+                ? `Một vài lựa chọn nhanh trước khi tạo trang web mini cho "${businessName}"…`
+                : `A few quick choices before we build your mini website for "${businessName}"…`
+              : locale === 'vi'
+                ? `Một vài lựa chọn nhanh trước khi tạo cửa hàng cho "${businessName}"…`
+                : `A few quick choices before we build "${businessName}"…`
+            : ctxIntentMode === 'website'
+              ? locale === 'vi'
+                ? `Đang tạo trang web mini cho "${businessName}"…`
+                : `Started building your mini website for "${businessName}"…`
+              : locale === 'vi'
+                ? `Đang tạo cửa hàng cho "${businessName}"…`
+                : `Started building your store for "${businessName}"…`;
         return safeJson(
           {
             success: true,
@@ -1398,6 +1467,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             jobId: runResult.jobId,
             generationRunId: runResult.generationRunId,
             draftId: runResult.draftId,
+            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
             storeMissionSummary: {
               businessName,
               businessType,
@@ -1413,6 +1483,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
                 storeName: businessName,
                 location: locationTrim || null,
                 storeType: businessType,
+                intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
                 _autoSubmit: true,
               },
             },
@@ -1425,21 +1496,16 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
-      return safeJson(
-        {
-          success: true,
-          action: 'create_store',
-          intentMode: 'store',
-        },
-        {
-          classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
-          validated: true,
-          downgraded: false,
-          validationErrors: [],
-          riskLevel: RISK.SAFE_READ,
-          result: 'success',
-        },
-      );
+      console.error('[PerformerIntakeV2] shortcut create_store pipeline failed:', JSON.stringify(runResult));
+      return res.status(Math.min(Math.max(Number(runResult.statusCode) || 500, 400), 599)).json({
+        success: false,
+        action: 'create_store_failed',
+        message:
+          typeof runResult.message === 'string' && runResult.message.trim()
+            ? runResult.message
+            : 'Store setup could not be started.',
+        error: typeof runResult.error === 'string' ? runResult.error : 'pipeline_run_failed',
+      });
     }
   }
 
@@ -2865,6 +2931,55 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
 
+      const hasStructuredStoreForm =
+        body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm);
+      if (hasStructuredStoreForm) {
+        const preSubmitErrs = validateCreateStorePayload({
+          storeName: businessName,
+          location: locationTrim,
+          category: businessType,
+          storeCreateForm: body.storeCreateForm,
+        });
+        if (preSubmitErrs.length > 0) {
+          return res.status(400).json({
+            success: false,
+            action: 'validation_error',
+            errors: preSubmitErrs,
+          });
+        }
+      } else if (locationTrim && locationTrim.length < 2) {
+        return res.status(400).json({
+          success: false,
+          action: 'validation_error',
+          errors: [
+            {
+              field: 'location',
+              message: 'Please enter a full city or suburb name (e.g. Melbourne)',
+            },
+          ],
+        });
+      }
+
+      const dupAuto = await findDuplicateBusinessNameForUser(prisma, userLike.id, businessName);
+      if (dupAuto) {
+        return safeJson(
+          {
+            success: true,
+            action: 'duplicate_store',
+            message: `You already have a store called "${businessName}". Use a different name.`,
+          },
+          {
+            classification: { ...classification, parameters: cleanedParams },
+            validated: true,
+            downgraded: false,
+            downgradeReason: null,
+            validationErrors: [],
+            riskLevel,
+            result: 'duplicate_store',
+          },
+        );
+      }
+
       const tenantId = getTenantId(req.user) ?? actorId;
       const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
       const pipelineTitle = `${titlePrefix}: ${businessName.slice(0, 120)}`;
@@ -2983,22 +3098,16 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       });
 
       if (!runResult.ok) {
-        return safeJson(
-          {
-            success: true,
-            action: 'create_store',
-            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          },
-          {
-            classification: { ...classification, parameters: cleanedParams },
-            validated: true,
-            downgraded: true,
-            downgradeReason: runResult.error ?? 'store_auto_failed',
-            validationErrors: [],
-            riskLevel,
-            result: 'fallback',
-          },
-        );
+        console.error('[PerformerIntakeV2] autosubmit create_store pipeline failed:', JSON.stringify(runResult));
+        return res.status(Math.min(Math.max(Number(runResult.statusCode) || 500, 400), 599)).json({
+          success: false,
+          action: 'create_store_failed',
+          message:
+            typeof runResult.message === 'string' && runResult.message.trim()
+              ? runResult.message
+              : 'Store setup could not be started.',
+          error: typeof runResult.error === 'string' ? runResult.error : 'pipeline_run_failed',
+        });
       }
 
       if (runResult.mode === 'checkpoint_pipeline' && process.env.NODE_ENV !== 'production') {
