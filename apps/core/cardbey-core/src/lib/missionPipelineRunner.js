@@ -111,6 +111,54 @@ function safeEvalMissionCondition(expr, env) {
   }
 }
 
+const PIPELINE_STEP_TERMINAL = new Set(['completed', 'skipped', 'failed']);
+
+function summarizePipelineSteps(steps) {
+  if (!Array.isArray(steps)) return { allStepsDone: false, completedCount: 0, totalSteps: 0, remaining: [] };
+  const totalSteps = steps.length;
+  const completedCount = steps.filter((s) => String(s?.status ?? '').toLowerCase() === 'completed').length;
+  const allStepsDone =
+    totalSteps > 0 &&
+    steps.every((s) => PIPELINE_STEP_TERMINAL.has(String(s?.status ?? '').toLowerCase()));
+  const remaining = steps
+    .filter((s) => {
+      const st = String(s?.status ?? '').toLowerCase();
+      return st === 'pending' || st === 'running' || st === 'awaiting_input';
+    })
+    .map((s) => ({ toolName: s.toolName, status: s.status, stepKind: s.stepKind ?? 'action' }));
+  return { allStepsDone, completedCount, totalSteps, remaining };
+}
+
+/**
+ * Steps stuck in `running` after a crash or premature mirror must not block retries forever.
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
+ * @param {string} missionId
+ * @param {Array<{ id: string, status: string, toolName: string }>} steps
+ */
+async function recoverOrphanedRunningSteps(prisma, missionId, steps) {
+  const orphaned = (steps || []).filter((s) => String(s?.status ?? '').toLowerCase() === 'running');
+  if (orphaned.length === 0) return steps;
+  console.warn('[MissionRunner] found orphaned running steps on resume:', orphaned.map((s) => s.toolName));
+  const now = new Date();
+  for (const step of orphaned) {
+    await prisma.missionPipelineStep.update({
+      where: { id: step.id },
+      data: {
+        status: 'failed',
+        completedAt: now,
+        errorJson: {
+          code: 'orphaned_on_resume',
+          message: 'Step was still running when the pipeline resumed; marked failed so the mission can retry.',
+        },
+      },
+    });
+  }
+  return prisma.missionPipelineStep.findMany({
+    where: { missionId },
+    orderBy: { orderIndex: 'asc' },
+  });
+}
+
 /**
  * Run the next pending mission pipeline step for a given mission.
  * 1) Load mission + steps; 2) Ensure status queued or executing; 3) Find first pending step;
@@ -150,7 +198,8 @@ export async function runNextMissionPipelineStep(missionId) {
     return { ok: false, error: 'invalid_state', status };
   }
 
-  const steps = mission.steps || [];
+  let steps = mission.steps || [];
+  steps = await recoverOrphanedRunningSteps(prisma, id, steps);
   const nextStep = steps.find((s) => s.status === 'pending');
   if (!nextStep) {
     return { ok: true, stepRun: false, status: mission.status, runState: mission.runState };
@@ -370,9 +419,20 @@ export async function runNextMissionPipelineStep(missionId) {
           }
         : { ...priorOutputsAgg, ...stepOutputs };
 
-  const totalSteps = steps.length;
-  const newCompleted = (mission.progressCompletedSteps ?? 0) + 1;
-  const allComplete = stepUpdate.status === 'completed' && newCompleted >= totalSteps;
+  const stepSummary = summarizePipelineSteps(
+    steps.map((s) => (s.id === nextStep.id ? { ...s, status: stepUpdate.status } : s)),
+  );
+  const { allStepsDone, completedCount, totalSteps, remaining } = stepSummary;
+
+  if (stepUpdate.status === 'completed' && !allStepsDone && remaining.length > 0) {
+    console.log('[MissionRunner] steps still remaining — not completing yet:', remaining);
+    if (
+      (stepKind === 'conditional' || toolName === 'mission.conditional') &&
+      process.env.NODE_ENV !== 'production'
+    ) {
+      console.log('[MissionRunner] conditional resolved → advancing to next pending step on next run');
+    }
+  }
 
   if (result.status === 'blocked') {
     const blockers = Array.isArray(mission.blockersJson) ? [...mission.blockersJson] : [];
@@ -432,7 +492,7 @@ export async function runNextMissionPipelineStep(missionId) {
     return { ok: true, stepRun: true, toolName, status: 'failed', runState: 'error' };
   }
 
-  if (allComplete) {
+  if (allStepsDone && stepUpdate.status === 'completed') {
     const dualMetaComplete = await buildRunnerDualWriteMetadataJson(
       prisma,
       id,
@@ -445,7 +505,8 @@ export async function runNextMissionPipelineStep(missionId) {
         status: 'completed',
         runState: 'done',
         completedAt: now,
-        progressCompletedSteps: newCompleted,
+        progressCompletedSteps: completedCount,
+        progressTotalSteps: totalSteps,
         currentStepId: null,
         blockersJson: [],
         outputsJson: outputsToPersist,
@@ -453,7 +514,11 @@ export async function runNextMissionPipelineStep(missionId) {
       },
     });
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[MissionRunner] mission updated: completed runState=done`);
+      console.log('[MissionRunner] all steps done → marking completed', {
+        missionId: id,
+        completedSteps: completedCount,
+        totalSteps,
+      });
     }
     const metaDbg =
       mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
@@ -485,7 +550,8 @@ export async function runNextMissionPipelineStep(missionId) {
   await prisma.missionPipeline.update({
     where: { id },
     data: {
-      progressCompletedSteps: newCompleted,
+      progressCompletedSteps: completedCount,
+      progressTotalSteps: totalSteps,
       currentStepId: null,
       outputsJson: outputsToPersist,
       ...(dualMetaProgress != null ? { metadataJson: dualMetaProgress } : {}),

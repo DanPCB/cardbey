@@ -40,6 +40,21 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+const PIPELINE_STEP_TERMINAL = new Set(['completed', 'skipped', 'failed']);
+
+/**
+ * Structured store missions (checkpoint → conditional → structured_store_build → analyze_store)
+ * must not inherit OrchestratorTask.completed until every MissionPipelineStep is terminal.
+ */
+async function missionPipelineHasOutstandingSteps(prisma, missionId) {
+  const steps = await prisma.missionPipelineStep.findMany({
+    where: { missionId },
+    select: { status: true, toolName: true },
+  });
+  if (steps.length === 0) return false;
+  return steps.some((s) => !PIPELINE_STEP_TERMINAL.has(String(s?.status ?? '').toLowerCase()));
+}
+
 /**
  * Mirror an OrchestratorTask status into the linked MissionPipeline row.
  *
@@ -112,10 +127,31 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
       metadataDirty = true;
     }
 
+    let effectiveMapped = mapped;
+    let pipelineStepsOutstanding = false;
+    if (mapped.status === 'completed') {
+      pipelineStepsOutstanding = await missionPipelineHasOutstandingSteps(prisma, id);
+      if (pipelineStepsOutstanding) {
+        const current = await prisma.missionPipeline.findUnique({
+          where: { id },
+          select: { status: true, runState: true },
+        });
+        const curStatus = String(current?.status ?? '').toLowerCase();
+        effectiveMapped = {
+          status: curStatus === 'awaiting_input' ? 'awaiting_input' : 'executing',
+          runState: 'running',
+        };
+        console.log(
+          '[orchestraMirror] OrchestratorTask completed but pipeline steps still outstanding — keeping mission executing',
+          { missionId: id },
+        );
+      }
+    }
+
     /** @type {Record<string, unknown>} */
     const data = {
-      status: mapped.status,
-      runState: mapped.runState,
+      status: effectiveMapped.status,
+      runState: effectiveMapped.runState,
       updatedAt: new Date(),
       outputsJson,
     };
@@ -123,17 +159,20 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
       data.metadataJson = metadataJson;
     }
 
-    // AUTO_RUN pipelines should still show progress 0/1 → 1/1 when the job completes.
+    // Legacy orchestra-only missions (no MissionPipelineStep rows): 0/1 → 1/1 on job complete.
     const executionMode = row.executionMode == null ? 'AUTO_RUN' : String(row.executionMode).trim() || 'AUTO_RUN';
-    if (mapped.status === 'completed' && executionMode === 'AUTO_RUN') {
-      data.progressTotalSteps = 1;
-      data.progressCompletedSteps = 1;
+    if (effectiveMapped.status === 'completed' && executionMode === 'AUTO_RUN' && !pipelineStepsOutstanding) {
+      const stepCount = await prisma.missionPipelineStep.count({ where: { missionId: id } });
+      if (stepCount === 0) {
+        data.progressTotalSteps = 1;
+        data.progressCompletedSteps = 1;
+      }
     }
 
-    if (mapped.status === 'completed') {
+    if (effectiveMapped.status === 'completed') {
       data.completedAt = new Date();
     }
-    if (mapped.status === 'failed') {
+    if (effectiveMapped.status === 'failed') {
       data.failedAt = new Date();
     }
 
@@ -144,7 +183,7 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
       correlationId,
     });
 
-    if (mapped.status === 'completed') {
+    if (effectiveMapped.status === 'completed' && !pipelineStepsOutstanding) {
       emitHealthProbe('orchestra_mirror', {
         missionId: id,
         taskStatus,
@@ -162,7 +201,7 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
 
     if (process.env.NODE_ENV !== 'production') {
       console.log(
-        `[orchestraMirror] mirrored id=${id} taskStatus=${key} → pipeline ${mapped.status}/${mapped.runState}`,
+        `[orchestraMirror] mirrored id=${id} taskStatus=${key} → pipeline ${effectiveMapped.status}/${effectiveMapped.runState}`,
       );
     }
   } catch (err) {

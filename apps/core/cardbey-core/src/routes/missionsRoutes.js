@@ -1579,7 +1579,10 @@ router.post('/:missionId/respond', optionalAuth, async (req, res, next) => {
       mAfter &&
       Array.isArray(mAfter.steps) &&
       mAfter.steps.length > 0 &&
-      mAfter.steps.every((s) => s.status === 'completed' || s.status === 'skipped');
+      mAfter.steps.every((s) => {
+        const st = String(s.status ?? '').toLowerCase();
+        return st === 'completed' || st === 'skipped' || st === 'failed';
+      });
     const runStateDone = String(mAfter?.runState ?? '').toLowerCase() === 'done';
     const pipelineAlreadyCompleted = mAfter?.status === 'completed' || runStateDone;
 
