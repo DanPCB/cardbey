@@ -131,6 +131,7 @@ REGISTERED TOOL NAMES (use exact strings, no variations):
 - "analyze_store"      — audit store performance (STANDALONE)
 - "generate_mini_website" — create a mini website for the store (STANDALONE)
 - "smart_visual"       — generate visual/image assets (STANDALONE)
+- "video_generate_multimodal" — generate or deliver AI video clips for the store/marketing (STANDALONE)
 - "edit_artifact"     — edit or translate DB-backed copy: promotion, business profile, storefront hero, mini-website draft preview; use artifactType sweep for “translate everything” (STANDALONE)
 - "publish_to_social" — share or post a campaign to Facebook, Instagram, Zalo, WhatsApp, Telegram, Twitter, or email. Use when user wants to share, post, or distribute their campaign. (STANDALONE)
 - "connect_social_account" — connect Facebook, Instagram, or Zalo so Cardbey can post automatically. Use when user wants to link social media or when publish_to_social fails due to missing connection. (STANDALONE)
@@ -166,6 +167,7 @@ Never invent tool names not listed above.
 - edit_artifact: use when the user wants to change stored promotion/business/mini-website draft copy or bulk-translate store copy (sweep), or change the storefront hero photo via stock search (artifactType hero + image wording). Use code_fix for preview/code-path or generic “fix the headline” tied to the editor pipeline — not mutually exclusive; pick the best fit from the user wording.
 - Hero photo / banner image / “change hero image to …” → edit_artifact, artifactType hero (Turn 2 confirm is UI-driven with confirmImageSelection, not the classifier).
 - Hero/banner image swap (not headline text) → proactive_plan tool improve_hero with a short plan, or direct_action smart_visual if they want AI-generated art; never instruct them to click a UI button.
+- User wants an actual video clip / promo reel / TikTok/Reel-style output → video_generate_multimodal (distinct from moodboard/smart_visual images).
 - Sales/orders/revenue/targets → orders_report.
 - Text/headline fixes → code_fix for editor/preview fixes; edit_artifact for promotion or profile or draft-preview copy and bulk translation (not images).
 - confidence: honest 0–1.

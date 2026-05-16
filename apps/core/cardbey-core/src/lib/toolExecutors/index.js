@@ -38,6 +38,7 @@ import * as mcp_context_promotions from './mcp/mcp_context_promotions.js';
 import * as mcp_context_missions from './mcp/mcp_context_missions.js';
 import * as mcp_context_analytics from './mcp/mcp_context_analytics.js';
 import * as mcp_google_calendar_create_event from './mcp/mcp_google_calendar_create_event.js';
+import * as video_generate_multimodal from './videoGenerate.js';
 import { getPrismaClient } from '../prisma.js';
 
 /** @type {Record<string, { execute: (input: object, context?: object) => Promise<object> } | undefined>} */
@@ -73,6 +74,7 @@ export const executors = {
   mcp_context_missions,
   mcp_context_analytics,
   mcp_google_calendar_create_event,
+  video_generate_multimodal,
   // Stub executors for tools without real implementations yet.
   generate_promotion_asset: {
     async execute(input = {}, context = {}) {

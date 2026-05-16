@@ -343,6 +343,25 @@ export const INTAKE_TOOL_REGISTRY = [
     examples: ['generate a visual', 'create a moodboard', 'make an image for my product'],
   },
   {
+    toolName: 'video_generate_multimodal',
+    executionPath: 'direct_action',
+    label: 'Generate Video',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        missionId: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['missionId'],
+    semanticDescription: `Create a short promo or explainer video, or deliver multimodal video output to the mission console.`,
+    examples: ['create a promo video', 'generate a marketing video', 'make a short video ad for my store'],
+  },
+  {
     toolName: 'create_store',
     executionPath: 'direct_action',
     label: 'Create Store',

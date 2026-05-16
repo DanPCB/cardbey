@@ -324,6 +324,46 @@ export function broadcastMissionCheckpoint(missionId, checkpoint) {
 }
 
 /**
+ * Broadcast an async mission artifact (e.g. video URL) to clients subscribed to this missionId.
+ * Parallel to checkpoints/pipeline output; payload is `{ missionId, subtype, payload, timestamp }`.
+ *
+ * @param {{ missionId: string, subtype?: string, payload?: object }} opts
+ */
+export function broadcastMissionArtifact({ missionId, subtype = 'generic', payload = {} }) {
+  if (!missionId || typeof missionId !== 'string') {
+    console.warn('[SSE] mission.artifact missing missionId');
+    return;
+  }
+  const timestamp = Date.now();
+  const data = { missionId, subtype, payload, timestamp };
+  const line = `event: mission.artifact\ndata: ${JSON.stringify(data)}\n\n`;
+
+  let sent = 0;
+  const toDelete = [];
+
+  for (const client of clients.values()) {
+    if (client.missionId !== missionId) continue;
+    if (client.res.writableEnded || client.res.destroyed) {
+      toDelete.push(client.id);
+      continue;
+    }
+    try {
+      client.res.write(line);
+      sent++;
+    } catch (err) {
+      console.error('[SSE] broadcastMissionArtifact error', { id: client.id, missionId, err: String(err) });
+      toDelete.push(client.id);
+    }
+  }
+
+  for (const id of toDelete) {
+    clients.delete(id);
+  }
+
+  console.log('[SSE] emitting mission.artifact', { missionId, subtype });
+}
+
+/**
  * Broadcast a reasoning_line event to agent-chat SSE clients subscribed to this missionId.
  * Payload should include { line, timestamp } (and optional agent). Matches Blackboard / draft emit path.
  *

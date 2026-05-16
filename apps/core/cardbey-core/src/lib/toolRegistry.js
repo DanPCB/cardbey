@@ -103,6 +103,14 @@ const TOOLS = [
     targetTypes: ['store', 'draft_store'],
     requiresConfirmation: false,
   },
+  {
+    toolName: 'video_generate_multimodal',
+    label: 'Generate video',
+    description: 'Create or deliver a multimodal video asset (async SSE artifact to console)',
+    category: 'content',
+    targetTypes: ['store', 'draft_store', 'promotion', 'generic'],
+    requiresConfirmation: false,
+  },
 ];
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.toolName, t]));
