@@ -6,7 +6,8 @@ services:
     repo: https://github.com/DanPCB/cardbey
     branch: staging
     rootDir: apps/core/cardbey-core
-    buildCommand: npm install && node scripts/prisma-generate-for-env.js && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    # DATABASE_URL must be Postgres; applies prisma/postgres/migrations before generate (belt + suspenders with preDeploy/prestart bootstrap).
+    buildCommand: npm install && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && node scripts/prisma-generate-for-env.js && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
     # DATABASE_URL must be postgresql://... (not file:). Bootstrap picks prisma/postgres/schema.prisma + migrate deploy.
     preDeployCommand: node scripts/prisma-bootstrap.js
     startCommand: npm start
