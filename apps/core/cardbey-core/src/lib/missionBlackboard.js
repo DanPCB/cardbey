@@ -7,6 +7,14 @@ import { getPrismaClient } from '../lib/prisma.js';
 import { resolveMissionCorrelationId } from './agentRun.js';
 import { ensureShadowUserRowForGuest } from './mission.js';
 
+/** One-time warn when MissionBlackboard table is missing (staging / pending migration). */
+let missionBlackboardMissingTableWarned = false;
+
+function isMissingBlackboardTableError(err) {
+  const msg = err?.message || String(err || '');
+  return msg.includes('does not exist') || msg.includes('no such table') || err?.code === 'P2021';
+}
+
 // Default pagination limit for getEvents() – balance between recency and performance
 // Increase if agents need more context; callers can override with explicit limit
 export const DEFAULT_BLACKBOARD_LIMIT = 50;
@@ -187,6 +195,15 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
     console.log(`[missionBlackboard][traceId=${traceId}] appendEvent missionId=${mid} eventType=${et} seq=${row.seq}`);
     return { ok: true, seq: row.seq, id: row.id };
   } catch (e) {
+    if (isMissingBlackboardTableError(e)) {
+      if (!missionBlackboardMissingTableWarned) {
+        console.warn(
+          '[missionBlackboard] MissionBlackboard table not found — run prisma migrate deploy. Events will not be persisted.',
+        );
+        missionBlackboardMissingTableWarned = true;
+      }
+      return { ok: false, reason: 'table_missing' };
+    }
     const msg = e?.message || String(e);
     console.warn(`[missionBlackboard][traceId=${traceId}] appendEvent failed:`, msg);
     return { ok: false, error: msg };
@@ -237,14 +254,13 @@ export async function getEvents(missionId, opts = {}) {
     });
     return { events: events.map((e) => ({ ...e, payload: normalizeBlackboardPayload(e.payload) })) };
   } catch (err) {
-    const msg = err?.message || String(err);
-    const code = err?.code;
-    if (
-      msg.includes('does not exist') ||
-      msg.includes('no such table') ||
-      code === 'P2021'
-    ) {
-      console.warn('[missionBlackboard] table not yet created, returning []');
+    if (isMissingBlackboardTableError(err)) {
+      if (!missionBlackboardMissingTableWarned) {
+        console.warn(
+          '[missionBlackboard] MissionBlackboard table not found — run prisma migrate deploy. Events will not be persisted.',
+        );
+        missionBlackboardMissingTableWarned = true;
+      }
       return { events: [] };
     }
     throw err;
@@ -322,6 +338,15 @@ export async function getBlackboardEventByIdOrSeq(missionId, eventId) {
       event: event ? { ...event, payload: normalizeBlackboardPayload(event.payload) } : null,
     };
   } catch (e) {
+    if (isMissingBlackboardTableError(e)) {
+      if (!missionBlackboardMissingTableWarned) {
+        console.warn(
+          '[missionBlackboard] MissionBlackboard table not found — run prisma migrate deploy. Events will not be persisted.',
+        );
+        missionBlackboardMissingTableWarned = true;
+      }
+      return { event: null, error: 'table_missing' };
+    }
     const msg = e?.message || String(e);
     return { event: null, error: msg };
   }

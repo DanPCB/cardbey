@@ -357,11 +357,11 @@ router.get('/missions/:missionId/events', optionalAuth, async (req, res) => {
       });
     } catch (err) {
       if (err?.message?.includes('does not exist') || err?.code === 'P2021') {
-        console.error('[miIntentsRoutes] MissionEvent table missing — run prisma migrate deploy:', err.message);
+        console.warn('[miIntentsRoutes] MissionEvent table missing — returning empty');
         return res.status(200).json({
           ok: true,
           events: [],
-          _warning: 'MissionEvent table not yet migrated',
+          _warning: 'table_missing',
         });
       }
       console.error('[miIntentsRoutes] missionEvent.findMany failed:', err);
