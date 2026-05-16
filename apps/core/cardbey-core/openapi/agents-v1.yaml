@@ -1,0 +1,178 @@
+openapi: 3.1.0
+info:
+  title: Cardbey Headless Agents API (v1)
+  version: 1.0.0
+  description: Phase 0 headless mission spawn + mission blackboard read APIs.
+servers:
+  - url: http://localhost:3001
+  - url: https://api.cardbey.example.com
+tags:
+  - name: Missions
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SpawnChildRequest:
+      type: object
+      required: [intent]
+      properties:
+        intent:
+          type: string
+          description: Child agent intent (e.g. "generate campaign plan").
+        parentAgentRunId:
+          type: string
+          nullable: true
+        correlationId:
+          type: string
+          nullable: true
+        timeoutMs:
+          type: integer
+          nullable: true
+        skills:
+          oneOf:
+            - type: array
+              items: { type: string }
+            - type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+    SpawnChildResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        childRunId:
+          type: string
+    BlackboardEvent:
+      type: object
+      properties:
+        id: { type: string }
+        seq: { type: integer }
+        eventType: { type: string }
+        payload: {}
+        agentId: { type: string, nullable: true }
+        correlationId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    BlackboardReadResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/BlackboardEvent"
+paths:
+  /api/agents/v1/missions/{missionId}/spawn:
+    post:
+      tags: [Missions]
+      operationId: spawnMissionChildV1
+      summary: Spawn a child AgentRun for a mission (returns immediately).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: missionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpawnChildRequest"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpawnChildResponse"
+  /api/agents/v1/missions/{missionId}/blackboard:
+    get:
+      tags: [Missions]
+      operationId: getMissionBlackboardV1
+      summary: Read mission blackboard events (append-only log).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: missionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: correlationId
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, minimum: 1, maximum: 5000 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, description: Alias for afterSeq }
+        - name: afterSeq
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Blackboard events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlackboardReadResponse"
+  /api/agents/v1/missions/{missionId}/events/{eventId}:
+    get:
+      tags: [Missions]
+      operationId: getMissionBlackboardEventV1
+      summary: Fetch a single mission blackboard event by id or seq.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: missionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: eventId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Event payload
+  /api/agents/v1/missions/{missionId}/blackboard/stream:
+    get:
+      tags: [Missions]
+      operationId: streamMissionBlackboardV1
+      summary: SSE stream of mission blackboard events (polling fallback).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: missionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: correlationId
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: pollMs
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: afterSeq
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: {}
+

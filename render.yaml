@@ -6,18 +6,47 @@ services:
     repo: https://github.com/DanPCB/cardbey
     branch: staging
     rootDir: apps/core/cardbey-core
-    buildCommand: npm install && npx prisma generate --schema prisma/postgres/schema.prisma && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    # DATABASE_URL must be Postgres; applies prisma/postgres/migrations before generate (belt + suspenders with preDeploy/prestart bootstrap).
+    buildCommand: npm install && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    # DATABASE_URL must be postgresql://... (not file:). Bootstrap picks prisma/postgres/schema.prisma + migrate deploy.
+    preDeployCommand: node scripts/prisma-bootstrap.js
     startCommand: npm start
+    # GET /api/performer/intake/v2 → JSON { status, version, env } (not dashboard SPA HTML)
+    healthCheckPath: /api/performer/intake/v2
     envVars:
       - key: NODE_ENV
         value: production
 
   # Dashboard (staging) — static site build (Vite)
+  # rootDir MUST be monorepo root: Render runs "Installing dependencies with pnpm" before buildCommand
+  # from rootDir; only the repo-root pnpm-lock.yaml includes workspace importers (e.g. qrcode).
   - type: web
     name: cardbey-dashboard-staging
     runtime: static
     repo: https://github.com/DanPCB/cardbey
     branch: staging
-    rootDir: apps/dashboard/cardbey-marketing-dashboard
-    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install && pnpm run build:staging
-    staticPublishPath: dist
+    rootDir: .
+    # build:staging → vite build --mode staging → .env.staging + envVars below
+    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build:staging
+    staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
+    envVars:
+      - key: VITE_INTAKE_V2
+        value: "true"
+      - key: VITE_ENV
+        value: staging
+
+  # Dashboard (production) — static site build (Vite)
+  # Reconcile with existing Render service before blueprint sync if cardbey-dashboard already exists.
+  - type: web
+    name: cardbey-dashboard
+    runtime: static
+    repo: https://github.com/DanPCB/cardbey
+    branch: main
+    rootDir: .
+    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build
+    staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
+    envVars:
+      - key: VITE_INTAKE_V2
+        value: "true"
+      - key: VITE_ENV
+        value: production

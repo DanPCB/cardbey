@@ -1,0 +1,63 @@
+# NOTE: GitHub Actions runs workflows from the repo root only.
+# The canonical workflow is at ../../.github/workflows/tests.yml (paths under apps/core/cardbey-core/).
+# This file is kept in sync for reference when working inside this package.
+
+name: Tests (core – reference)
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'prisma/**'
+      - 'vitest.config.mjs'
+  push:
+    branches:
+      - main
+      - develop
+      - 'rollback/**'
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'prisma/**'
+      - 'vitest.config.mjs'
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: file:./prisma/test.db
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/sqlite/schema.prisma
+
+      - name: Prepare test database
+        run: npx prisma db push --schema prisma/sqlite/schema.prisma --accept-data-loss
+
+      - name: Run tests
+        run: npm run test

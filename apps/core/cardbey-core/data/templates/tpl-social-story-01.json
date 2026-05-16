@@ -1,0 +1,51 @@
+{
+  "id": "tpl-social-story-01",
+  "width": 1080,
+  "height": 1920,
+  "background": {
+    "type": "image",
+    "src": "/assets/library/elements/backgrounds/bg-gradient-soft-01.jpg",
+    "fit": "cover"
+  },
+  "layers": [
+    {
+      "id": "headline",
+      "type": "text",
+      "content": "New Arrival",
+      "x": 80,
+      "y": 260,
+      "width": 920,
+      "fontFamily": "Inter",
+      "fontSize": 96,
+      "fontWeight": "800",
+      "color": "#ffffff",
+      "align": "center"
+    },
+    {
+      "id": "subhead",
+      "type": "text",
+      "content": "Spring Collection 2026",
+      "x": 120,
+      "y": 400,
+      "width": 840,
+      "fontFamily": "Inter",
+      "fontSize": 42,
+      "fontWeight": "500",
+      "color": "#fefce8",
+      "align": "center"
+    },
+    {
+      "id": "cta",
+      "type": "text",
+      "content": "Tap to see more",
+      "x": 120,
+      "y": 540,
+      "width": 840,
+      "fontFamily": "Inter",
+      "fontSize": 36,
+      "fontWeight": "500",
+      "color": "#fef9c3",
+      "align": "center"
+    }
+  ]
+}

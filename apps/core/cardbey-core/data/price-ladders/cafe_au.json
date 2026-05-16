@@ -1,0 +1,12 @@
+{
+  "businessType": "cafe",
+  "region": "AU",
+  "currency": "AUD",
+  "byCategoryKey": {
+    "hot_drinks": { "min": 3.5, "max": 8 },
+    "cold_drinks": { "min": 4, "max": 9 },
+    "pastries": { "min": 4, "max": 14 },
+    "food": { "min": 12, "max": 28 }
+  },
+  "defaults": { "min": 3, "max": 30 }
+}

@@ -1,0 +1,17 @@
+{
+  "runway": "intake_v2_classifier_target",
+  "description": "LLM / validated create_store intent for plain text path (golden target)",
+  "normalizedIntent": {
+    "schemaVersion": 1,
+    "tool": "create_store",
+    "parameters": {
+      "storeName": "Northside Coffee",
+      "location": "Melbourne",
+      "storeType": "cafe",
+      "intentMode": "store",
+      "_autoSubmit": true
+    },
+    "intentText": "Create a store for Northside Coffee in Melbourne",
+    "originSurface": "performer_chat"
+  }
+}

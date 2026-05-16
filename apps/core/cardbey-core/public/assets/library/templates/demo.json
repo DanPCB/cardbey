@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "name": "Cardbey Starter Demo Template",
+  "version": 1,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "description": "Sample template to verify static asset serving from /assets/library/templates/demo.json",
+  "slides": [
+    { "type": "image", "src": "/assets/library/test.jpg", "durationS": 5 }
+  ]
+}
+
+

@@ -1,0 +1,14 @@
+{
+  "runway": "R2_intake_v2_autosubmit",
+  "description": "Target BuildStoreInput after mapping from Intake autosubmit (Phase 1 must match)",
+  "buildStoreInput": {
+    "schemaVersion": 1,
+    "businessName": "Northside Coffee",
+    "businessType": "cafe",
+    "storeType": "cafe",
+    "location": "Melbourne",
+    "intentMode": "store",
+    "rawUserText": "Create a store for Northside Coffee in Melbourne",
+    "currencyCode": "AUD"
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "businessType": "cafe",
+  "region": "AU",
+  "version": "1.0",
+  "currency": "AUD",
+  "name": "Cafe Australia Starter",
+  "description": "Starter menu for Australian cafes: coffee, cold drinks, pastries. Includes milk/size modifiers for coffee.",
+  "categories": [
+    { "key": "hot_drinks", "label": "Hot Drinks", "sortOrder": 0 },
+    { "key": "cold_drinks", "label": "Cold Drinks", "sortOrder": 1 },
+    { "key": "pastries", "label": "Pastries", "sortOrder": 2 }
+  ],
+  "items": [
+    {
+      "type": "FOOD",
+      "canonicalName": "Flat White",
+      "shortDescription": "Double shot, steamed milk",
+      "tags": ["coffee", "milk"],
+      "categoryKey": "hot_drinks",
+      "priceMin": 4.5,
+      "priceMax": 6,
+      "imagePrompt": "Flat white coffee in a ceramic cup, latte art",
+      "imageKeywords": ["coffee", "flat white", "latte art"],
+      "modifiersJson": { "sizes": ["S", "M", "L"], "milk": ["full", "skim", "oat", "almond"] },
+      "featured": true,
+      "sortOrder": 0
+    },
+    {
+      "type": "FOOD",
+      "canonicalName": "Long Black",
+      "shortDescription": "Double shot over hot water",
+      "tags": ["coffee"],
+      "categoryKey": "hot_drinks",
+      "priceMin": 4,
+      "priceMax": 5.5,
+      "modifiersJson": { "sizes": ["S", "M", "L"] },
+      "sortOrder": 1
+    },
+    {
+      "type": "FOOD",
+      "canonicalName": "Cappuccino",
+      "shortDescription": "Espresso, steamed milk, foam",
+      "tags": ["coffee", "milk"],
+      "categoryKey": "hot_drinks",
+      "priceMin": 4.5,
+      "priceMax": 6,
+      "modifiersJson": { "sizes": ["S", "M", "L"], "milk": ["full", "skim", "oat"] },
+      "sortOrder": 2
+    },
+    {
+      "type": "FOOD",
+      "canonicalName": "Iced Latte",
+      "shortDescription": "Double shot, cold milk, ice",
+      "tags": ["coffee", "cold"],
+      "categoryKey": "cold_drinks",
+      "priceMin": 5.5,
+      "priceMax": 7,
+      "modifiersJson": { "milk": ["full", "skim", "oat"] },
+      "featured": true,
+      "sortOrder": 0
+    },
+    {
+      "type": "FOOD",
+      "canonicalName": "Cold Brew",
+      "shortDescription": "House cold brew, ice",
+      "tags": ["coffee", "cold"],
+      "categoryKey": "cold_drinks",
+      "priceMin": 5,
+      "priceMax": 6.5,
+      "sortOrder": 1
+    },
+    {
+      "type": "FOOD",
+      "canonicalName": "Croissant",
+      "shortDescription": "Butter croissant",
+      "tags": ["pastry", "bakery"],
+      "categoryKey": "pastries",
+      "priceMin": 5,
+      "priceMax": 7,
+      "imageKeywords": ["croissant", "pastry"],
+      "sortOrder": 0
+    },
+    {
+      "type": "FOOD",
+      "canonicalName": "Banana Bread",
+      "shortDescription": "House-made, butter",
+      "tags": ["pastry", "sweet"],
+      "categoryKey": "pastries",
+      "priceMin": 8,
+      "priceMax": 12,
+      "featured": true,
+      "sortOrder": 1
+    }
+  ]
+}

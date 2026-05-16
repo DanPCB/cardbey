@@ -1,0 +1,14 @@
+{
+  "staticDirs": [
+    "../Cardbey-web-latest/build",
+    "../cardbey-marketing-dashboard/dist"
+  ],
+  "spaFallback": "../cardbey-marketing-dashboard/dist",
+  "comment": "Static hosting config for production. Build frontends first, then cardbey-core serves them."
+}
+
+
+
+
+
+
