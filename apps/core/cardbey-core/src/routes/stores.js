@@ -12,6 +12,7 @@ import express from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
+import { guestSessionId } from '../middleware/guestSession.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
 import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview, recomputeDraftCategoriesFromItems } from '../services/draftStore/draftStoreService.js';
@@ -607,6 +608,74 @@ router.get('/:id/promotions', async (req, res, next) => {
     return res.json({ ok: true, promotions });
   } catch (error) {
     console.error('[Stores] promotions error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/stores/claim-guest
+ * Transfer guest temp Business ownership to the signed-in user.
+ */
+router.post('/claim-guest', guestSessionId, requireAuth, async (req, res, next) => {
+  try {
+    const storeId = typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : '';
+    if (!storeId) {
+      return res.status(400).json({ ok: false, error: 'missing_store_id', message: 'storeId is required' });
+    }
+    const { claimGuestTempStoreForUser } = await import('../services/draftStore/guestTempStore.js');
+    await claimGuestTempStoreForUser(storeId, req.userId);
+    return res.json({ ok: true, storeId });
+  } catch (error) {
+    if (error?.code === 'not_found') {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Guest store not found' });
+    }
+    if (error?.code === 'not_guest_temp') {
+      return res.status(400).json({ ok: false, error: 'not_guest_temp', message: 'Store is not a guest temp store' });
+    }
+    console.error('[Stores] POST /claim-guest error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/stores/temp/claim
+ * Assign a guest-created draft to the signed-in user (by generationRunId).
+ * Alias for POST /api/draft-store/claim with generationRunId body.
+ */
+router.post('/temp/claim', guestSessionId, requireAuth, async (req, res, next) => {
+  try {
+    const generationRunId =
+      typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : '';
+    if (!generationRunId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'missing_generation_run_id',
+        message: 'generationRunId is required',
+      });
+    }
+    const draft = await getDraftByGenerationRunId(generationRunId);
+    if (!draft) {
+      return res.status(404).json({ ok: false, error: 'draft_not_found', message: 'Draft not found for this run' });
+    }
+    if (draft.ownerUserId && draft.ownerUserId !== req.userId) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have access to this draft.',
+      });
+    }
+    await prisma.draftStore.update({
+      where: { id: draft.id },
+      data: { ownerUserId: req.userId },
+    });
+    return res.json({
+      ok: true,
+      claimedCount: 1,
+      draftIds: [draft.id],
+      storeId: draft.committedStoreId ?? null,
+    });
+  } catch (error) {
+    console.error('[Stores] POST /temp/claim error:', error);
     next(error);
   }
 });
