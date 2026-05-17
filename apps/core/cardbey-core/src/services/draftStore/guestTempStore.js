@@ -82,7 +82,14 @@ export async function createGuestTempStoreFromDraft(draftId, opts = {}) {
       select: { id: true, slug: true },
     });
     if (existing) {
-      return { storeId: existing.id, storeSlug: existing.slug, guestTempStore: true };
+      return {
+        storeId: existing.id,
+        storeSlug: existing.slug,
+        guestTempStore: true,
+        guestSkippedCommit: false,
+        draftId: did,
+        generationRunId: opts.generationRunId || draft.generationRunId || draftInput.generationRunId || null,
+      };
     }
   }
 
@@ -188,7 +195,14 @@ export async function createGuestTempStoreFromDraft(draftId, opts = {}) {
     generationRunId: runId,
   });
 
-  return { storeId: business.id, storeSlug: business.slug, guestTempStore: true };
+  return {
+    storeId: business.id,
+    storeSlug: business.slug,
+    guestTempStore: true,
+    guestSkippedCommit: false,
+    draftId: did,
+    generationRunId: runId,
+  };
 }
 
 /**
