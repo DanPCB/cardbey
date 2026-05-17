@@ -456,6 +456,22 @@ app.get('/health', (_req, res) => {
   res.status(200).send('ok');
 });
 
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(
+    [
+      'User-agent: *',
+      'Disallow: /api/',
+      'Disallow: /api/stream',
+      'Disallow: /api/performer/',
+      'Disallow: /api/missions/',
+      'Allow: /api/health',
+      '',
+      'User-agent: PetalBot',
+      'Disallow: /',
+    ].join('\n'),
+  );
+});
+
 /*
  * MIDDLEWARE ORDER (all requests except health/SSE):
  * 1. CORS (per-route skip for /api/stream)

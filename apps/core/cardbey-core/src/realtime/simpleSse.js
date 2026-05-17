@@ -20,6 +20,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { isBotSseRequest } from '../lib/sseBotGuard.js';
 
 /**
  * SSE client connection
@@ -36,6 +37,20 @@ const clients = new Map();
  * Sets up headers, sends initial comment, registers client, and starts heartbeat
  */
 export function handleSse(req, res) {
+  if (isBotSseRequest(req)) {
+    console.log('[SSE] blocked bot/invalid request:', {
+      ua: String(req.headers['user-agent'] ?? '').slice(0, 80),
+      ip: req.headers['cf-connecting-ip'] ?? req.ip,
+      origin: req.headers.origin ?? 'none',
+    });
+    res.status(403).json({
+      ok: false,
+      error: 'forbidden',
+      message: 'SSE not available for automated requests',
+    });
+    return;
+  }
+
   const key = String(req.query?.key || 'admin');
   const missionId = typeof req.query?.missionId === 'string' && req.query.missionId.trim() ? req.query.missionId.trim() : null;
   const id = randomUUID();
