@@ -118,6 +118,9 @@ model Business {
   heroImageUrl    String? // Storefront hero image URL (from draft publish)
   avatarImageUrl  String? // Store avatar/logo image URL (from draft publish)
   publishedAt     DateTime? // When the store was last published (from draft)
+  transactionMode String   @default("order") // "booking" | "order"
+  catalogLabel    String   @default("Products")
+  ctaLabel        String   @default("Order now")
   stylePreferences Json? // Style preferences: { style: "modern", mood: "warm", etc. }
   storefrontSettings Json? // { defaultView: "list"|"grid", allowUserToggle: boolean }; default grid, true
   isGuestDraft  Boolean   @default(false)

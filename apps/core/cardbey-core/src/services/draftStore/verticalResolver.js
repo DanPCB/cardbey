@@ -3,6 +3,8 @@
  * Used by orchestra start and buildCatalog so AI and template paths never mismatch business type.
  */
 
+export { isServiceVertical, resolveTransactionCommerce, SERVICE_VERTICALS } from '../../lib/storeTransactionMode.js';
+
 /**
  * Normalize businessType/vertical for matching (lowercase, strip symbols, single spaces).
  * @param {string} [str]
