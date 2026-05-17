@@ -7,9 +7,11 @@ import { getPrismaClient } from '../../prisma.js';
 import { inferCurrencyFromLocationText } from '../../../services/draftStore/currencyInfer.js';
 import { createBuildStoreJob } from '../../../services/draftStore/orchestraBuildStore.js';
 import { generateDraft, commitDraft } from '../../../services/draftStore/draftStoreService.js';
+import { createGuestTempStoreFromDraft } from '../../../services/draftStore/guestTempStore.js';
 import { transitionOrchestratorTaskStatus } from '../../../kernel/transitions/transitionService.js';
 import { createEmitContextUpdate } from '../../missionPlan/agentMemory.js';
 import { mergeMissionContext } from '../../mission.js';
+import { mergeCanonicalOutputs } from '../../orchestrator/pipelineCanonicalResults.js';
 
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
@@ -183,6 +185,8 @@ export async function execute(_input = {}, context = {}) {
   }
 
   let storeId = null;
+  let storeSlug = null;
+  let guestTempStore = false;
   if (userRow?.id && !isGuestUserId(userRow.id)) {
     try {
       const committed = await commitDraft(draftIdForRun, {
@@ -191,6 +195,7 @@ export async function execute(_input = {}, context = {}) {
         businessFields: {},
       });
       storeId = committed?.storeId ?? committed?.businessId ?? null;
+      storeSlug = committed?.storeSlug ?? committed?.slug ?? null;
     } catch (commitErr) {
       await transitionOrchestratorTaskStatus({
         prisma,
@@ -217,11 +222,55 @@ export async function execute(_input = {}, context = {}) {
     }
   }
 
+  if (!storeId && isGuestUserId(uid)) {
+    try {
+      const guest = await createGuestTempStoreFromDraft(draftIdForRun, {
+        userId: uid,
+        generationRunId: created.generationRunId,
+      });
+      storeId = guest.storeId;
+      storeSlug = guest.storeSlug;
+      guestTempStore = true;
+    } catch (guestErr) {
+      console.warn('[structured_store_build] guest temp store failed:', guestErr?.message ?? guestErr);
+    }
+  }
+
   if (storeId) {
     await prisma.missionPipeline.update({
       where: { id: missionId },
       data: { targetType: 'store', targetId: storeId },
     });
+  }
+
+  try {
+    const pipeRow = await prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { outputsJson: true },
+    });
+    const structuredSlice = {
+      ok: true,
+      draftId: draftIdForRun,
+      generationRunId: created.generationRunId,
+      jobId: created.jobId,
+      ...(storeId ? { storeId, storeSlug } : {}),
+      ...(guestTempStore ? { guestTempStore: true, guestSkippedCommit: false } : {}),
+      ...(!guestTempStore && !storeId && isGuestUserId(uid) ? { guestSkippedCommit: true } : {}),
+    };
+    const outputsJson = mergeCanonicalOutputs(pipeRow?.outputsJson, {
+      draftId: draftIdForRun,
+      generationRunId: created.generationRunId,
+      jobId: created.jobId,
+      ...(storeId ? { storeId, storeSlug } : {}),
+      ...(guestTempStore ? { guestTempStore: true } : {}),
+      structured_store_build: structuredSlice,
+    });
+    await prisma.missionPipeline.update({
+      where: { id: missionId },
+      data: { outputsJson },
+    });
+  } catch (outputsErr) {
+    console.warn('[structured_store_build] outputsJson persist skipped:', outputsErr?.message ?? outputsErr);
   }
 
   try {
@@ -292,6 +341,8 @@ export async function execute(_input = {}, context = {}) {
       generationRunId: created.generationRunId,
       draftId: draftIdForRun,
       ...(storeId ? { storeId } : {}),
+      ...(storeSlug ? { storeSlug } : {}),
+      ...(guestTempStore ? { guestTempStore: true } : {}),
     },
   }).catch(() => {});
 
@@ -303,6 +354,8 @@ export async function execute(_input = {}, context = {}) {
       generationRunId: created.generationRunId,
       jobId: created.jobId,
       storeId,
+      ...(storeSlug ? { storeSlug } : {}),
+      ...(guestTempStore ? { guestTempStore: true, guestSkippedCommit: false } : {}),
       guestSkippedCommit: !storeId && isGuestUserId(uid),
     },
   };

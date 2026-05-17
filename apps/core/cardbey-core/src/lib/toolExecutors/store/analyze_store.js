@@ -6,6 +6,7 @@
 
 import { getPrismaClient } from '../../../lib/prisma.js';
 import { inferOpportunities } from '../../opportunities/inferOpportunities.js';
+import { getDraft, getDraftByGenerationRunId } from '../../../services/draftStore/draftStoreService.js';
 
 /**
  * @param {object} input
@@ -18,20 +19,149 @@ import { inferOpportunities } from '../../opportunities/inferOpportunities.js';
  * @param {string} [context.storeId]
  * @returns {Promise<{ status: 'ok' | 'failed', output?: { storeId?: string | null, productCount?: number, categoryCount?: number, hasImages?: boolean, publishStatus?: string, summary?: string, findings: unknown[], suggestions: unknown[] }, error?: { code: string, message: string } }>}
  */
+function parseDraftPreviewItems(preview) {
+  if (!preview) return [];
+  let p = preview;
+  if (typeof p === 'string') {
+    try {
+      p = JSON.parse(p);
+    } catch {
+      return [];
+    }
+  }
+  if (!p || typeof p !== 'object') return [];
+  const items = Array.isArray(p.items) ? p.items : [];
+  return items;
+}
+
 export async function execute(input = {}, context = {}) {
-  const storeId = input?.storeId ?? context?.storeId;
+  const storeId =
+    input?.storeId ??
+    context?.storeId ??
+    context?.outputs?.storeId ??
+    context?.outputs?.structured_store_build?.storeId ??
+    null;
+
   if (!storeId || typeof storeId !== 'string') {
+    const generationRunId =
+      input?.generationRunId ??
+      context?.generationRunId ??
+      context?.outputs?.generationRunId ??
+      context?.outputs?.structured_store_build?.generationRunId ??
+      null;
+
+    const draftId =
+      input?.draftId ??
+      context?.draftId ??
+      context?.outputs?.draftId ??
+      context?.outputs?.structured_store_build?.draftId ??
+      null;
+
+    const buildDraftAnalysisOutput = (draft, preview) => {
+      const draftInput =
+        typeof draft?.input === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(draft.input);
+              } catch {
+                return {};
+              }
+            })()
+          : draft?.input ?? {};
+      const items = parseDraftPreviewItems(preview);
+      const categories = Array.isArray(preview.categories) ? preview.categories : [];
+      const productCount = items.length;
+      const categoryCount = categories.length;
+      const hasImages = items.some(
+        (it) =>
+          it &&
+          typeof it === 'object' &&
+          typeof it.imageUrl === 'string' &&
+          it.imageUrl.trim().length > 0,
+      );
+      const businessName =
+        context?.businessName ??
+        context?.storeName ??
+        preview.storeName ??
+        preview.meta?.storeName ??
+        draftInput.businessName ??
+        draftInput.storeName ??
+        'Your store';
+      const storeType =
+        context?.businessType ??
+        context?.storeType ??
+        preview.storeType ??
+        draftInput.businessType ??
+        'retail';
+      return {
+        status: 'ok',
+        output: {
+          storeId: draft?.committedStoreId ?? null,
+          draftId: draft?.id ?? null,
+          storeName: businessName,
+          storeType,
+          productCount,
+          categoryCount,
+          hasImages,
+          publishStatus: 'draft',
+          source: 'draft',
+          summary:
+            productCount > 0
+              ? `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}`
+              : `${businessName} draft is ready`,
+          findings: [],
+          suggestions: [],
+        },
+      };
+    };
+
+    const resolvePreview = (draft) => {
+      if (!draft) return null;
+      const preview =
+        typeof draft.preview === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(draft.preview);
+              } catch {
+                return {};
+              }
+            })()
+          : draft.preview ?? {};
+      return buildDraftAnalysisOutput(draft, preview);
+    };
+
+    if (generationRunId && typeof generationRunId === 'string') {
+      try {
+        const draft = await getDraftByGenerationRunId(generationRunId.trim());
+        const out = resolvePreview(draft);
+        if (out) return out;
+      } catch (err) {
+        console.warn('[analyze_store] generationRunId draft lookup failed', err?.message ?? err);
+      }
+    }
+
+    if (draftId && typeof draftId === 'string') {
+      try {
+        const draft = await getDraft(draftId.trim());
+        const out = resolvePreview(draft);
+        if (out) return out;
+      } catch (err) {
+        console.warn('[analyze_store] draftId lookup failed', err?.message ?? err);
+      }
+    }
+
     return {
       status: 'ok',
       output: {
         storeId: null,
-        storeName: context?.storeName ?? 'Store',
-        storeType: context?.storeType ?? 'retail',
+        storeName: context?.businessName ?? context?.storeName ?? 'Your store',
+        storeType: context?.businessType ?? context?.storeType ?? 'retail',
         productCount: 0,
         categoryCount: 0,
         hasImages: false,
-        publishStatus: 'unknown',
-        summary: 'storeId missing; returning empty analysis',
+        publishStatus: 'draft',
+        source: 'none',
+        summary: 'Store draft created successfully.',
         findings: [],
         suggestions: [],
       },
