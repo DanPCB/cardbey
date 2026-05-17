@@ -11,6 +11,7 @@ import {
   validateMenuOutput,
   flattenToPreviewShape,
 } from './menuGenerationValidation.js';
+import { isServiceVertical } from '../../lib/storeTransactionMode.js';
 
 function stripJsonBlock(text) {
   const t = (text || '').trim();
@@ -52,7 +53,14 @@ export async function generateVerticalLockedMenu(params) {
     .replace(/\{CITY_COUNTRY\}/g, location || '(not specified)')
     .replace(/\{PRICE_TIER\}/g, priceTier || '(not specified)')
     .replace(/\{CURRENCY\}/g, currency || '');
-  userPrompt += `
+  const serviceMode = isServiceVertical(businessType || vertical);
+  userPrompt += serviceMode
+    ? `
+
+This is a ${businessTypeLabel} business. Generate approximately 30 professional bookable SERVICES (not physical products).
+Each service needs: name, description, price, category. Categories should be service types (e.g. Haircuts, Treatments, Packages).
+Do NOT generate retail products, food items, or merchandise — only services a customer would book an appointment for.`
+    : `
 
 This is a ${businessTypeLabel} business. Generate only products or services appropriate for this category.
 Do not generate products outside this vertical.`;

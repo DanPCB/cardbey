@@ -99,6 +99,9 @@ export function toPublicStore(business, options = {}) {
     description,
     tagline: business.tagline ?? null,
     type: business.type ?? null,
+    transactionMode: business.transactionMode ?? 'order',
+    catalogLabel: business.catalogLabel ?? 'Products',
+    ctaLabel: business.ctaLabel ?? 'Order now',
     avatarUrl: resolvedAvatarUrl,
     bannerUrl: resolvedHeroUrl, // Hero for feed/preview (was logo-derived; now heroImageUrl first)
     heroUrl: resolvedHeroUrl, // Alias for consumers that expect heroUrl

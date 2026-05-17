@@ -3,6 +3,8 @@
  * Shapes must match dashboard `WebsiteSection` types: hero, usp_bar, about, featured, social_proof, contact.
  */
 
+import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
+
 /**
  * @param {string} storeType
  * @returns {'minimal'|'bold'|'editorial'|'warm'|'dark'}
@@ -41,6 +43,7 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
 
   const storeName = preview.storeName || 'Your store';
   const storeType = preview.storeType || 'Store';
+  const commerce = resolveTransactionCommerce(storeType);
   const slogan = preview.slogan || preview.tagline || preview.heroText || '';
   const location = (input.location && String(input.location).trim()) || '';
   const blurb =
@@ -66,7 +69,7 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
       content: {
         headline: storeName,
         subheadline: slogan || `Welcome to ${storeName}`,
-        ctaLabel: 'Shop now',
+        ctaLabel: commerce.ctaLabel,
         ctaSecondary: 'Our story',
       },
     },
@@ -74,8 +77,20 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
       type: 'usp_bar',
       content: {
         items: [
-          { icon: '✦', label: 'Curated quality', description: 'Hand-picked products you will love.' },
-          { icon: '⚡', label: 'Fast service', description: 'A smooth experience from browse to checkout.' },
+          {
+            icon: '✦',
+            label: commerce.transactionMode === 'booking' ? 'Expert care' : 'Curated quality',
+            description: commerce.transactionMode === 'booking'
+              ? 'Professional services tailored to you.'
+              : 'Hand-picked products you will love.',
+          },
+          {
+            icon: '⚡',
+            label: 'Fast service',
+            description: commerce.transactionMode === 'booking'
+              ? 'Easy booking from browse to appointment.'
+              : 'A smooth experience from browse to checkout.',
+          },
           { icon: '♥', label: 'Made for you', description: `${storeType} essentials with personality.` },
         ],
       },

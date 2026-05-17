@@ -4,6 +4,7 @@
  */
 
 import { prisma } from '../../lib/prisma.js';
+import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
 import { generateUniqueStoreSlug } from '../../utils/slug.js';
 import {
   buildCategoryIdToNameMap,
@@ -102,11 +103,15 @@ export async function createGuestTempStoreFromDraft(draftId, opts = {}) {
       : String(businessName);
   const slug = await generateUniqueStoreSlug(prisma, slugBase);
   const guestExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const commerce = resolveTransactionCommerce(businessType);
   const business = await prisma.business.create({
     data: {
       userId: uid,
       name: String(businessName).slice(0, 200),
       type: String(businessType).slice(0, 80) || 'General',
+      transactionMode: commerce.transactionMode,
+      catalogLabel: commerce.catalogLabel,
+      ctaLabel: commerce.ctaLabel,
       slug,
       description: preview.heroText || preview.description || null,
       isActive: false,

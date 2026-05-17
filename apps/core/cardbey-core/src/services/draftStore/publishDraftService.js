@@ -9,6 +9,7 @@
  */
 
 import { generateUniqueStoreSlug, slugify } from '../../utils/slug.js';
+import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
 import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
 
@@ -455,6 +456,7 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
   const BUSINESS_UPDATE_KEYS = [
     'name', 'type', 'slug', 'description', 'logo', 'isActive',
     'heroImageUrl', 'avatarImageUrl', 'publishedAt', 'stylePreferences', 'storefrontSettings', 'updatedAt',
+    'transactionMode', 'catalogLabel', 'ctaLabel',
   ];
   const existingStorefrontSettings = await loadExistingStorefrontSettings(prisma, effectiveStoreId);
   const draftStorefront = rawPreview.storefront && typeof rawPreview.storefront === 'object'
@@ -464,6 +466,7 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     ...existingStorefrontSettings,
     ...draftStorefront,
   };
+  const commerce = resolveTransactionCommerce(storeType);
   const storefrontSettings = {
     ...mergedStorefront,
     defaultView: (mergedStorefront.defaultView === 'list' || mergedStorefront.defaultView === 'grid')
@@ -472,6 +475,11 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     allowUserToggle: typeof mergedStorefront.allowUserToggle === 'boolean'
       ? mergedStorefront.allowUserToggle
       : true,
+    cta: {
+      ...(mergedStorefront.cta && typeof mergedStorefront.cta === 'object' ? mergedStorefront.cta : {}),
+      label: commerce.ctaLabel,
+      action: commerce.ctaAction,
+    },
   };
   const rawBusinessData = {
     name: storeName,
@@ -490,6 +498,9 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
       ...(draftMiniWebsite ? { miniWebsite: draftMiniWebsite } : {}),
     },
     ...(storefrontSettings !== undefined ? { storefrontSettings } : {}),
+    transactionMode: commerce.transactionMode,
+    catalogLabel: commerce.catalogLabel,
+    ctaLabel: commerce.ctaLabel,
     updatedAt: publishedAt,
   };
 

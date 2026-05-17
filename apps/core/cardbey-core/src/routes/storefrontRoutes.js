@@ -81,6 +81,10 @@ router.get('/frontscreen', async (req, res, next) => {
         avatarImageUrl: true,
         publishedAt: true,
         description: true,
+        transactionMode: true,
+        catalogLabel: true,
+        ctaLabel: true,
+        storefrontSettings: true,
       },
     });
 
@@ -99,6 +103,10 @@ router.get('/frontscreen', async (req, res, next) => {
         avatarImageUrl: s.avatarImageUrl ?? null,
         publishedAt: s.publishedAt?.toISOString?.() ?? null,
         description: s.description ?? null,
+        transactionMode: s.transactionMode ?? 'order',
+        catalogLabel: s.catalogLabel ?? 'Products',
+        ctaLabel: s.ctaLabel ?? 'Order now',
+        storefrontSettings: jsonToPlainObject(s.storefrontSettings),
       })),
     });
   } catch (error) {
@@ -137,6 +145,9 @@ router.get('/homepage-stores', async (req, res, next) => {
         logo: true,
         publishedAt: true,
         storefrontSettings: true,
+        transactionMode: true,
+        catalogLabel: true,
+        ctaLabel: true,
       },
     });
 
@@ -178,6 +189,9 @@ router.get('/homepage-stores', async (req, res, next) => {
         slug: s.slug ?? null,
         type: s.type ?? null,
         avatarImageUrl: avatarImageUrl || heroImageUrl,
+        transactionMode: s.transactionMode ?? 'order',
+        catalogLabel: s.catalogLabel ?? 'Products',
+        ctaLabel: s.ctaLabel ?? 'Order now',
       });
       if (items.length >= limit) break;
     }
@@ -211,6 +225,9 @@ router.get('/homepage-stores', async (req, res, next) => {
         storeUrl: it.storeUrl,
         publishedAt: it.publishedAt,
         storefrontSettings: it.storefrontSettings ?? null,
+        transactionMode: it.transactionMode ?? 'order',
+        catalogLabel: it.catalogLabel ?? 'Products',
+        ctaLabel: it.ctaLabel ?? 'Order now',
       })),
     });
   } catch (error) {
