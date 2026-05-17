@@ -42,3 +42,13 @@ services:
         value: "true"
       - key: CREWAI_ENABLED
         value: "false"
+
+  # Prevent 15-minute spin-down cold starts (CORS null on first request after idle).
+  - type: cron
+    name: cardbey-core-keepalive
+    schedule: "*/9 * * * *"
+    region: singapore
+    env: shell
+    startCommand: >
+      curl -sf https://cardbey-core.onrender.com/api/health
+      || echo "keepalive ping failed"
