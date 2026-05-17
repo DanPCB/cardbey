@@ -559,15 +559,47 @@ router.post('/create-from-store', requireAuth, async (req, res, next) => {
  */
 router.post('/claim', guestSessionId, requireAuth, async (req, res, next) => {
   try {
+    const { draftId, generationRunId } = req.body || {};
+    const runId =
+      typeof generationRunId === 'string' && generationRunId.trim() ? generationRunId.trim() : null;
+
+    if (runId) {
+      const { getDraftByGenerationRunId } = await import('../services/draftStore/draftStoreService.js');
+      const draft = await getDraftByGenerationRunId(runId);
+      if (!draft) {
+        return res.status(404).json({
+          ok: false,
+          error: 'draft_not_found',
+          message: 'Draft not found for this generation run.',
+        });
+      }
+      if (draft.ownerUserId && draft.ownerUserId !== req.userId) {
+        return res.status(403).json({
+          ok: false,
+          error: 'forbidden',
+          message: 'You do not have access to this draft.',
+        });
+      }
+      await prisma.draftStore.update({
+        where: { id: draft.id },
+        data: { ownerUserId: req.userId },
+      });
+      return res.json({
+        ok: true,
+        claimedCount: 1,
+        draftIds: [draft.id],
+        storeId: draft.committedStoreId ?? null,
+      });
+    }
+
     const guestSessionIdValue = req.guestSessionId || (req.headers['x-guest-session'] && req.headers['x-guest-session'].trim());
     if (!guestSessionIdValue) {
       return res.status(400).json({
         ok: false,
         error: 'guest_session_required',
-        message: 'Guest session ID required (cookie guestSessionId or header X-Guest-Session).',
+        message: 'Guest session ID required (cookie guestSessionId or header X-Guest-Session), or pass generationRunId.',
       });
     }
-    const { draftId } = req.body || {};
     const where = {
       guestSessionId: guestSessionIdValue,
       ownerUserId: null,

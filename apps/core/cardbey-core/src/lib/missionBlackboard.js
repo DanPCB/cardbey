@@ -238,6 +238,7 @@ export async function getEvents(missionId, opts = {}) {
       where: {
         missionId: mid,
         ...(cid ? { correlationId: cid } : {}),
+        /** Exclusive cursor: afterSeq=N returns only rows with seq > N (never re-send seq N). */
         ...(afterSeq != null ? { seq: { gt: afterSeq } } : {}),
       },
       orderBy: { seq: 'asc' },
