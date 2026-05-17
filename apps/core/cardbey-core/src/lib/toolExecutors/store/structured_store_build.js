@@ -232,7 +232,23 @@ export async function execute(_input = {}, context = {}) {
       storeSlug = guest.storeSlug;
       guestTempStore = true;
     } catch (guestErr) {
-      console.warn('[structured_store_build] guest temp store failed:', guestErr?.message ?? guestErr);
+      console.warn('[structured_store_build] guest temp store failed, retrying:', guestErr?.message ?? guestErr);
+      try {
+        const guest = await createGuestTempStoreFromDraft(draftIdForRun, {
+          userId: uid,
+          generationRunId: created.generationRunId,
+          slugNameBase: `guest-store-${Date.now()}`,
+        });
+        storeId = guest.storeId;
+        storeSlug = guest.storeSlug;
+        guestTempStore = true;
+        console.log('[structured_store_build] guest retry succeeded:', {
+          storeId: guest.storeId,
+          slug: guest.storeSlug,
+        });
+      } catch (retryErr) {
+        console.error('[structured_store_build] guest retry also failed:', retryErr?.message ?? retryErr);
+      }
     }
   }
 

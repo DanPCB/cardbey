@@ -96,7 +96,11 @@ export async function createGuestTempStoreFromDraft(draftId, opts = {}) {
   const businessType = preview.storeType || meta.storeType || draftInput.businessType || 'General';
   const location = draftInput.location || draftInput.suburb || '';
 
-  const slug = await generateUniqueStoreSlug(prisma, String(businessName));
+  const slugBase =
+    opts.slugNameBase != null && String(opts.slugNameBase).trim()
+      ? String(opts.slugNameBase).trim()
+      : String(businessName);
+  const slug = await generateUniqueStoreSlug(prisma, slugBase);
   const guestExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const business = await prisma.business.create({
     data: {

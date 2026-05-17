@@ -613,6 +613,47 @@ router.get('/:id/promotions', async (req, res, next) => {
 });
 
 /**
+ * GET /api/stores/temp/draft?generationRunId=...
+ * Resolve temp guest draft by generationRunId (optionalAuth).
+ */
+router.get('/temp/draft', optionalAuth, async (req, res, next) => {
+  try {
+    const generationRunId =
+      typeof req.query?.generationRunId === 'string' ? req.query.generationRunId.trim() : '';
+    if (!generationRunId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'missing_generation_run_id',
+        message: 'generationRunId is required',
+      });
+    }
+    const draft = await getDraftByGenerationRunId(generationRunId);
+    if (!draft) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft not found for this run',
+      });
+    }
+    if (req.userId && draft.ownerUserId && draft.ownerUserId !== req.userId) {
+      const allowed = await isDraftOwnedByUser(generationRunId, req.userId);
+      if (!allowed) {
+        return res.status(403).json({ ok: false, error: 'forbidden', message: 'Draft not accessible' });
+      }
+    }
+    return res.status(200).json({
+      ok: true,
+      draftId: draft.id,
+      id: draft.id,
+      draft,
+    });
+  } catch (error) {
+    console.error('[Stores] GET /temp/draft error:', error);
+    next(error);
+  }
+});
+
+/**
  * POST /api/stores/claim-guest
  * Transfer guest temp Business ownership to the signed-in user.
  */

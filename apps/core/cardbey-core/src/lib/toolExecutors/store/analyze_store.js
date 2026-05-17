@@ -191,9 +191,96 @@ export async function execute(input = {}, context = {}) {
       return { status: 'ok', output };
     }
 
-    const products = await prisma.product.findMany({
+    let products = await prisma.product.findMany({
       where: { businessId: storeId, deletedAt: null },
     });
+
+    const generationRunId =
+      input?.generationRunId ??
+      context?.generationRunId ??
+      context?.outputs?.generationRunId ??
+      context?.outputs?.structured_store_build?.generationRunId ??
+      null;
+
+    if (products.length === 0 && generationRunId && typeof generationRunId === 'string') {
+      try {
+        const draft = await getDraftByGenerationRunId(generationRunId.trim());
+        if (draft) {
+          const preview =
+            typeof draft.preview === 'string'
+              ? (() => {
+                  try {
+                    return JSON.parse(draft.preview);
+                  } catch {
+                    return {};
+                  }
+                })()
+              : draft.preview ?? {};
+          const items = parseDraftPreviewItems(preview);
+          if (items.length > 0) {
+            const draftInput =
+              typeof draft.input === 'string'
+                ? (() => {
+                    try {
+                      return JSON.parse(draft.input);
+                    } catch {
+                      return {};
+                    }
+                  })()
+                : draft.input ?? {};
+            const productCount = items.length;
+            const categories = Array.isArray(preview.categories) ? preview.categories : [];
+            const categoryCount = categories.length;
+            const hasImages = items.some(
+              (it) =>
+                it &&
+                typeof it === 'object' &&
+                typeof it.imageUrl === 'string' &&
+                it.imageUrl.trim().length > 0,
+            );
+            const businessName =
+              context?.storeName ??
+              preview.storeName ??
+              preview.meta?.storeName ??
+              draftInput.businessName ??
+              draftInput.storeName ??
+              store.name ??
+              'Your store';
+            const storeType =
+              context?.storeType ??
+              preview.storeType ??
+              draftInput.businessType ??
+              store.type ??
+              'retail';
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('[analyze_store] using draft item count fallback:', {
+                storeId,
+                generationRunId,
+                draftItemCount: productCount,
+              });
+            }
+            return {
+              status: 'ok',
+              output: {
+                storeId,
+                storeName: businessName,
+                storeType,
+                productCount,
+                categoryCount,
+                hasImages,
+                publishStatus: store.publishedAt ? 'published' : 'draft',
+                source: 'draft_fallback',
+                summary: `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}`,
+                findings: [],
+                suggestions: [],
+              },
+            };
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn('[analyze_store] draft item count fallback failed:', fallbackErr?.message ?? fallbackErr);
+      }
+    }
 
     const productCount = products.length;
     const categorySet = new Set(
