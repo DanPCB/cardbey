@@ -51,6 +51,7 @@ export interface PexelsImageResult {
  * Returns a single image URL (large > large2x > medium) or null.
  */
 export async function searchPexelsImage(query: string): Promise<string | null> {
+  console.log('[pexelsService] searching:', { query, count: 1, hasKey: !!PEXELS_API_KEY });
   if (!PEXELS_API_KEY) return null;
 
   try {
@@ -75,7 +76,9 @@ export async function searchPexelsImage(query: string): Promise<string | null> {
     if (!src) return null;
 
     return src.large || src.large2x || src.medium || null;
-  } catch {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[pexelsService] FAILED:', { query, error: message });
     return null;
   }
 }
@@ -91,6 +94,8 @@ export async function searchPexelsImages(
   query: string,
   perPage: number = 8
 ): Promise<PexelsImageResult[]> {
+  const count = Math.min(80, Math.max(1, Math.floor(perPage) || 8));
+  console.log('[pexelsService] searching:', { query, count, hasKey: !!PEXELS_API_KEY });
   if (!PEXELS_API_KEY) return [];
 
   try {
@@ -128,7 +133,9 @@ export async function searchPexelsImages(
         };
       })
       .filter((r): r is PexelsImageResult => r != null);
-  } catch {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[pexelsService] FAILED:', { query, error: message });
     return [];
   }
 }

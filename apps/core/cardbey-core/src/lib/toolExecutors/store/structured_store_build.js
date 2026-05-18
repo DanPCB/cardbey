@@ -362,6 +362,36 @@ export async function execute(_input = {}, context = {}) {
     },
   }).catch(() => {});
 
+  let productCount = 0;
+  let hasImages = false;
+  try {
+    const draftRow = await prisma.draftStore.findUnique({
+      where: { id: draftIdForRun },
+      select: { preview: true },
+    });
+    const preview =
+      draftRow?.preview && typeof draftRow.preview === 'object' && !Array.isArray(draftRow.preview)
+        ? draftRow.preview
+        : {};
+    const products = Array.isArray(preview.items) ? preview.items : [];
+    productCount = products.length;
+    hasImages = products.some(
+      (p) => p && typeof p === 'object' && typeof p.imageUrl === 'string' && p.imageUrl.trim().length > 0,
+    );
+  } catch (previewErr) {
+    console.warn('[structured_store_build] COMPLETE preview read failed:', previewErr?.message ?? previewErr);
+  }
+
+  console.log('[structured_store_build] COMPLETE:', {
+    ok: true,
+    storeId,
+    storeSlug,
+    draftId: draftIdForRun,
+    generationRunId: created.generationRunId,
+    productCount,
+    hasImages,
+  });
+
   return {
     status: 'ok',
     output: {

@@ -43,6 +43,14 @@ export async function generateImagesForMenu(
   storeId: string,
   itemIds?: string[]
 ): Promise<ImageGenerationResult> {
+  console.log('[menuVisualAgent] START', {
+    storeId,
+    itemIds: itemIds?.length ?? null,
+    hasPexelsKey: !!process.env.PEXELS_API_KEY,
+    businessType: null,
+    missionId: null,
+  });
+
   const result: ImageGenerationResult = {
     processed: 0,
     succeeded: 0,
@@ -428,6 +436,17 @@ export async function generateImageForDraftItem(
   styleName?: 'modern' | 'warm' | 'minimal' | 'vibrant',
   options?: GenerateImageForDraftItemOptions
 ): Promise<GenerateImageForDraftItemResult | null> {
+  const missionId =
+    (options as { pipelineMissionId?: string; missionId?: string } | undefined)?.pipelineMissionId ??
+    (options as { missionId?: string } | undefined)?.missionId ??
+    null;
+  console.log('[menuVisualAgent] START', {
+    itemName: typeof name === 'string' ? name.slice(0, 80) : name,
+    hasPexelsKey: !!process.env.PEXELS_API_KEY,
+    businessType: options?.businessType ?? options?.profile?.verticalSlug ?? null,
+    missionId,
+  });
+
   try {
     const usedSet = options?.usedUrls instanceof Set ? options.usedUrls : new Set(Array.isArray(options?.usedUrls) ? options.usedUrls : []);
     const preloaded = options?.preloadedImageUrls;
@@ -562,6 +581,13 @@ export async function generateImageForDraftItem(
     return null;
   } catch (err: any) {
     if (err?.code === 'BILLING_HARD_LIMIT') throw err;
+    console.error('[menuVisualAgent] FAILED:', {
+      error: err?.message ?? String(err),
+      stack: typeof err?.stack === 'string' ? err.stack.slice(0, 300) : undefined,
+      missionId,
+      businessType: options?.businessType ?? options?.profile?.verticalSlug ?? null,
+      itemName: typeof name === 'string' ? name.slice(0, 80) : name,
+    });
     return null;
   }
 }

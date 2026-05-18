@@ -740,6 +740,13 @@ async function finalizeDraft(draftId, {
     effectiveImageFillProfile?.verticalSlug ?? imageFillProfile?.verticalSlug ?? preview.storeType ?? null;
 
   if (includeImages && items.length > 0) {
+    console.log('[menuVisualAgent] START batch', {
+      draftId,
+      itemCount: items.length,
+      enrichCount: Math.min(30, items.length),
+      hasPexelsKey: !!process.env.PEXELS_API_KEY,
+      missionId: pipelineMissionId ?? null,
+    });
     const menuMod = await loadMenuVisualAgent();
     if (!menuMod) throw tsModuleUnavailable('menuVisualAgent');
     const generateImageForDraftItem = menuMod.generateImageForDraftItem ?? menuMod.default?.generateImageForDraftItem;
@@ -852,6 +859,10 @@ async function finalizeDraft(draftId, {
     }
     const withImages = items.filter((p) => p.imageUrl).length;
     console.log(`[DraftStore] finalizeDraft: ${withImages}/${toEnrich.length} item images for draft ${draftId}`);
+  } else if (!includeImages) {
+    console.log('[DraftStore] finalizeDraft: images skipped (includeImages=false)', { draftId, itemCount: items.length });
+  } else if (items.length === 0) {
+    console.log('[DraftStore] finalizeDraft: images skipped (no catalog items)', { draftId });
   }
 
   let heroImageUrl = null;

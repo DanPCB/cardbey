@@ -34,18 +34,53 @@ function parseDraftPreviewItems(preview) {
   return items;
 }
 
+function priorStructuredBuildOutput(context = {}) {
+  const stepOut = context?.stepOutputs?.structured_store_build;
+  if (stepOut && typeof stepOut === 'object') {
+    return stepOut.output && typeof stepOut.output === 'object' ? stepOut.output : stepOut;
+  }
+  const legacy = context?.outputs?.structured_store_build;
+  if (legacy && typeof legacy === 'object') {
+    return legacy.output && typeof legacy.output === 'object' ? legacy.output : legacy;
+  }
+  return null;
+}
+
 export async function execute(input = {}, context = {}) {
+  const buildOut = priorStructuredBuildOutput(context);
+  const missionId = context?.missionId ?? null;
+
   const storeId =
     input?.storeId ??
     context?.storeId ??
+    buildOut?.storeId ??
     context?.outputs?.storeId ??
     context?.outputs?.structured_store_build?.storeId ??
     null;
+
+  if (process.env.NODE_ENV !== 'production' || process.env.LOG_ANALYZE_STORE === '1') {
+    console.log('[analyze_store] START', {
+      missionId,
+      storeId: storeId || null,
+      generationRunId:
+        input?.generationRunId ??
+        context?.generationRunId ??
+        buildOut?.generationRunId ??
+        null,
+      draftId:
+        input?.draftId ??
+        context?.draftId ??
+        buildOut?.draftId ??
+        null,
+      hasStepOutputs: Boolean(context?.stepOutputs?.structured_store_build),
+    });
+  }
 
   if (!storeId || typeof storeId !== 'string') {
     const generationRunId =
       input?.generationRunId ??
       context?.generationRunId ??
+      buildOut?.generationRunId ??
       context?.outputs?.generationRunId ??
       context?.outputs?.structured_store_build?.generationRunId ??
       null;
@@ -53,6 +88,7 @@ export async function execute(input = {}, context = {}) {
     const draftId =
       input?.draftId ??
       context?.draftId ??
+      buildOut?.draftId ??
       context?.outputs?.draftId ??
       context?.outputs?.structured_store_build?.draftId ??
       null;
@@ -198,6 +234,7 @@ export async function execute(input = {}, context = {}) {
     const generationRunId =
       input?.generationRunId ??
       context?.generationRunId ??
+      buildOut?.generationRunId ??
       context?.outputs?.generationRunId ??
       context?.outputs?.structured_store_build?.generationRunId ??
       null;

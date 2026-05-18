@@ -356,10 +356,13 @@ export async function runNextMissionPipelineStep(missionId) {
     input = enrichStepInputFromPriorOutputs(toolName, input, stepOutputs);
   }
 
+  const priorOutputsAgg = parseJsonObject(mission.outputsJson);
   const context = {
     missionId: id,
     stepId: nextStep.id,
     stepOutputs,
+    /** Legacy alias: some executors (e.g. analyze_store) read context.outputs.* */
+    outputs: { ...priorOutputsAgg, ...stepOutputs },
     tenantId: mission.tenantId ?? undefined,
     userId: mission.createdBy ?? undefined,
   };

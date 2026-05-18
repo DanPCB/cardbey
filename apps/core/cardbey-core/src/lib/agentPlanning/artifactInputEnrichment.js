@@ -32,6 +32,16 @@ export function enrichStepInputFromPriorOutputs(toolName, input, stepOutputs) {
     }
   }
 
+  const structured = stepOutputs.structured_store_build;
+  if (structured && typeof structured === 'object' && toolName === 'analyze_store') {
+    const flat =
+      structured.output && typeof structured.output === 'object' ? structured.output : structured;
+    if (flat.generationRunId) out.generationRunId = out.generationRunId ?? flat.generationRunId;
+    if (flat.draftId) out.draftId = out.draftId ?? flat.draftId;
+    if (flat.storeId) out.storeId = out.storeId ?? flat.storeId;
+    if (flat.storeSlug) out.storeSlug = out.storeSlug ?? flat.storeSlug;
+  }
+
   const created = stepOutputs.create_promotion;
   if (created && typeof created === 'object') {
     const pid = created.promotionId || created.instanceId;
