@@ -24,7 +24,7 @@ describe('proactiveRunwayToolAllowlist vs toolRegistry', () => {
   });
 
   it('PROACTIVE_RUNWAY_TOOL_SET size is stable (Phase 3-1 contract)', () => {
-    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(64);
+    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(69);
   });
 });
 

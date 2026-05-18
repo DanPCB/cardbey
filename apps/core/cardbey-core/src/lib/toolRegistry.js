@@ -111,6 +111,23 @@ const TOOLS = [
     targetTypes: ['store', 'draft_store', 'promotion', 'generic'],
     requiresConfirmation: false,
   },
+  {
+    toolName: 'generate_poster',
+    label: 'Generate poster',
+    description: 'Create a promotional poster from store catalog, hero image, and templates',
+    category: 'content',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: false,
+    aliases: ['poster', 'flyer'],
+  },
+  {
+    toolName: 'mutate_poster',
+    label: 'Edit poster',
+    description: 'Apply natural-language edits to a generated poster canvas (title, images, colors)',
+    category: 'content',
+    targetTypes: ['store', 'draft_store', 'generic'],
+    requiresConfirmation: false,
+  },
 ];
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.toolName, t]));

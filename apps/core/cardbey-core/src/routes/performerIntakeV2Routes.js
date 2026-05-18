@@ -7,7 +7,12 @@
 import express from 'express';
 import { requireUserOrGuest } from '../middleware/guestAuth.js';
 import { classifyIntent } from '../lib/intake/intakeClassifier.js';
-import { detectIntent, validateCreateStorePayload } from '../lib/intake/intakeSystemShortcuts.js';
+import {
+  detectIntent,
+  validateCreateStorePayload,
+  detectPosterIntent,
+  detectPosterEditIntent,
+} from '../lib/intake/intakeSystemShortcuts.js';
 import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
@@ -1271,6 +1276,114 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           result: 'success',
         },
       );
+    }
+
+    const posterElements = Array.isArray(body.posterElements)
+      ? body.posterElements
+      : Array.isArray(currentContext?.posterElements)
+        ? currentContext.posterElements
+        : null;
+
+    const posterEditIntent = detectPosterEditIntent(userMessage, Boolean(posterElements?.length));
+    if (posterEditIntent && !forcedTool) {
+      try {
+        const { toolResult, payload } = await dispatchIntakeV2DirectTool(
+          posterEditIntent.tool,
+          {
+            ...posterEditIntent.params,
+            currentElements: posterElements,
+            posterId:
+              typeof body.posterId === 'string'
+                ? body.posterId
+                : typeof currentContext?.posterId === 'string'
+                  ? currentContext.posterId
+                  : null,
+          },
+          { missionId, storeId: effectiveStoreId, req },
+        );
+
+        const toolResponse =
+          toolResult?.output?.message ||
+          toolResult?.output?.summary ||
+          toolResult?.blocker?.message ||
+          toolResult?.error?.message ||
+          (locale === 'vi' ? 'Đã cập nhật poster.' : 'Poster updated.');
+
+        return safeJson(
+          {
+            success: true,
+            action: 'tool_call',
+            tool: 'mutate_poster',
+            missionId: payload.missionId ?? missionId ?? null,
+            parameters: payload,
+            response: toolResponse,
+            result: toolResult?.output ?? null,
+          },
+          {
+            classification: {
+              executionPath: 'direct_action',
+              tool: 'mutate_poster',
+              confidence: posterEditIntent.confidence,
+              parameters: posterEditIntent.params,
+            },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.STATE_CHANGE,
+            result: toolResult?.status === 'ok' ? 'success' : 'error',
+          },
+        );
+      } catch (e) {
+        if (isDev) console.warn('[IntakeV2] mutate_poster shortcut failed:', e?.message);
+      }
+    }
+
+    const posterIntent = detectPosterIntent(userMessage, effectiveStoreId);
+    if (posterIntent && !forcedTool) {
+      try {
+        const { toolResult, payload } = await dispatchIntakeV2DirectTool(
+          posterIntent.tool,
+          posterIntent.params,
+          { missionId, storeId: effectiveStoreId, req },
+        );
+
+        const poster = toolResult?.output?.poster ?? null;
+        const toolResponse =
+          toolResult?.output?.message ||
+          (poster?.businessName
+            ? locale === 'vi'
+              ? `Đã tạo poster quảng cáo cho ${poster.businessName}.`
+              : `Created a promotional poster for ${poster.businessName}.`
+            : toolResult?.error?.message) ||
+          (locale === 'vi' ? 'Không thể tạo poster.' : 'Could not generate poster.');
+
+        return safeJson(
+          {
+            success: true,
+            action: 'tool_call',
+            tool: 'generate_poster',
+            missionId: payload.missionId ?? missionId ?? null,
+            parameters: payload,
+            response: toolResponse,
+            result: toolResult?.output ?? null,
+          },
+          {
+            classification: {
+              executionPath: 'direct_action',
+              tool: 'generate_poster',
+              confidence: posterIntent.confidence,
+              parameters: posterIntent.params,
+            },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.STATE_CHANGE,
+            result: toolResult?.status === 'ok' ? 'success' : 'error',
+          },
+        );
+      } catch (e) {
+        if (isDev) console.warn('[IntakeV2] generate_poster shortcut failed:', e?.message);
+      }
     }
 
     if (shortcut?.type === 'create_store') {

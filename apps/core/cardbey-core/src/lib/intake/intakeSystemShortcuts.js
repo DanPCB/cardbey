@@ -109,3 +109,60 @@ export function detectIntent(input) {
 
   return null;
 }
+
+const POSTER_TRIGGERS = [
+  'create.*poster',
+  'make.*poster',
+  'design.*poster',
+  'promotional.*poster',
+  'create.*flyer',
+  'make.*flyer',
+  'social.*post',
+  'instagram.*post',
+  'marketing.*material',
+];
+
+/**
+ * Detect poster / flyer creation intent for Performer direct_action.
+ *
+ * @param {string} userMessage
+ * @param {string | null | undefined} activeStoreId
+ * @returns {{ tool: 'generate_poster', executionPath: 'direct_action', confidence: number, params: { storeId: string, posterType: string } } | null}
+ */
+export function detectPosterIntent(userMessage, activeStoreId) {
+  const text = String(userMessage ?? '').trim();
+  const storeId = typeof activeStoreId === 'string' ? activeStoreId.trim() : '';
+  if (!text || !storeId) return null;
+
+  const isPosterIntent = POSTER_TRIGGERS.some((pattern) => new RegExp(pattern, 'i').test(text));
+  if (!isPosterIntent) return null;
+
+  return {
+    tool: 'generate_poster',
+    executionPath: 'direct_action',
+    confidence: 0.9,
+    params: {
+      storeId,
+      posterType: text.includes('story') ? 'story' : text.includes('offer') ? 'offer' : 'promotional',
+    },
+  };
+}
+
+const POSTER_EDIT_TRIGGERS =
+  /\b(change|update|swap|replace|edit|make)\b.*\b(title|subtitle|headline|image|photo|background|color|font)\b/i;
+
+/**
+ * @param {string} userMessage
+ * @param {boolean} hasPosterContext — e.g. prior poster elements in request body
+ */
+export function detectPosterEditIntent(userMessage, hasPosterContext) {
+  const text = String(userMessage ?? '').trim();
+  if (!text || !hasPosterContext) return null;
+  if (!POSTER_EDIT_TRIGGERS.test(text)) return null;
+  return {
+    tool: 'mutate_poster',
+    executionPath: 'direct_action',
+    confidence: 0.88,
+    params: { instruction: text },
+  };
+}
