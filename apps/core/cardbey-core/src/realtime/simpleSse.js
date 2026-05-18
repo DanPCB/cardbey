@@ -36,9 +36,23 @@ const clients = new Map();
  * Handle SSE connection request
  * Sets up headers, sends initial comment, registers client, and starts heartbeat
  */
+function classifySseStream(req) {
+  const key = String(req.query?.key || 'admin');
+  const missionId =
+    typeof req.query?.missionId === 'string' && req.query.missionId.trim()
+      ? req.query.missionId.trim()
+      : null;
+  if (key === 'agent-chat' && missionId) return 'mission-agent-chat';
+  if (key === 'admin') return 'legacy-admin';
+  const envKey = process.env.SSE_STREAM_KEY || process.env.TV_STREAM_KEY;
+  if (envKey && key === envKey) return 'env-stream-key';
+  return `key:${key}`;
+}
+
 export function handleSse(req, res) {
   if (isBotSseRequest(req)) {
     console.log('[SSE] blocked bot/invalid request:', {
+      streamKind: 'bot-blocked',
       ua: String(req.headers['user-agent'] ?? '').slice(0, 80),
       ip: req.headers['cf-connecting-ip'] ?? req.ip,
       origin: req.headers.origin ?? 'none',
@@ -52,6 +66,25 @@ export function handleSse(req, res) {
   }
 
   const key = String(req.query?.key || 'admin');
+  const streamKind = classifySseStream(req);
+
+  if (process.env.NODE_ENV === 'production' && key === 'admin') {
+    const envKey = process.env.SSE_STREAM_KEY || process.env.TV_STREAM_KEY;
+    if (!envKey || key !== envKey) {
+      console.log('[SSE] blocked legacy admin key in production:', {
+        streamKind: 'legacy-admin-rejected',
+        ip: req.headers['cf-connecting-ip'] ?? req.ip,
+        origin: req.headers.origin ?? 'none',
+      });
+      res.status(403).json({
+        ok: false,
+        error: 'legacy_admin_key_disabled',
+        message: 'Use agent-chat stream with streamToken for mission console; configure SSE_STREAM_KEY for device routes',
+      });
+      return;
+    }
+  }
+
   const missionId = typeof req.query?.missionId === 'string' && req.query.missionId.trim() ? req.query.missionId.trim() : null;
   const id = randomUUID();
   const origin = req.headers.origin;
@@ -116,7 +149,8 @@ export function handleSse(req, res) {
   const client = { id, key, missionId, threadId: null, res, heartbeat: null };
   clients.set(id, client);
 
-  console.log('[SSE] ✅ Client connected', { 
+  console.log('[SSE] ✅ Client connected', {
+    streamKind,
     id,
     key,
     missionId: missionId || 'none',
