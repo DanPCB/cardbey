@@ -393,16 +393,9 @@ router.get('/stores/temp/draft', optionalAuth, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'missing_generation_run_id', message: 'generationRunId is required' });
   }
   try {
-    const draft = await getDraftByGenerationRunId(generationRunId);
-    if (!draft) {
-      return res.status(404).json({ ok: false, error: 'draft_not_found', message: 'Draft not found for this run' });
-    }
-    res.status(200).json({
-      ok: true,
-      draftId: draft.id,
-      id: draft.id,
-      draft,
-    });
+    const { buildTempDraftByGenerationRunIdResponse } = await import('../lib/tempDraftApiResponse.js');
+    const { httpStatus, body } = await buildTempDraftByGenerationRunIdResponse(generationRunId);
+    return res.status(httpStatus).json(body);
   } catch (err) {
     console.error('[GET /api/mi/stores/temp/draft]', err);
     res.status(500).json({ ok: false, error: 'server_error', message: 'Failed to load draft' });

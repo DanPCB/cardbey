@@ -54,14 +54,15 @@ describe('Draft alias endpoints (no 404)', () => {
     expect(Array.isArray(res.body.categories)).toBe(true);
   });
 
-  it('GET /api/stores/temp/draft?generationRunId=gen-xxx returns 200 (never 404)', async () => {
+  it('GET /api/stores/temp/draft?generationRunId=gen-xxx returns 202 when draft not ready (never 404)', async () => {
     const res = await testRequest
       .get('/api/stores/temp/draft?generationRunId=gen-xxx')
       .set('Authorization', `Bearer ${authToken}`)
-      .expect(200);
+      .expect(202);
 
     expect(res.body.ok).toBe(true);
-    expect(ALLOWED_STATUSES).toContain(res.body.status);
+    expect(res.body.status).toBe('generating');
+    expect(res.body.draftId).toBeNull();
   });
 
   it('GET /api/public/store/temp/draft returns 200 with ok and valid status (never 404)', async () => {
@@ -76,13 +77,14 @@ describe('Draft alias endpoints (no 404)', () => {
     expect(Array.isArray(res.body.categories)).toBe(true);
   });
 
-  it('GET /api/public/store/temp/draft?generationRunId=gen-yyy returns 200 (never 404)', async () => {
+  it('GET /api/public/store/temp/draft?generationRunId=gen-yyy returns 202 when draft not ready (never 404)', async () => {
     const res = await testRequest
       .get('/api/public/store/temp/draft?generationRunId=gen-yyy')
-      .expect(200);
+      .expect(202);
 
     expect(res.body.ok).toBe(true);
-    expect(ALLOWED_STATUSES).toContain(res.body.status);
+    expect(res.body.status).toBe('generating');
+    expect(res.body.draftId).toBeNull();
   });
 
   /** Exact keys required: same as GET /api/stores/:storeId/draft (DraftResponse contract). Phase 0: qaReport optional. */
@@ -104,21 +106,24 @@ describe('Draft alias endpoints (no 404)', () => {
     expect(Array.isArray(body.categories)).toBe(true);
   }
 
-  it('GET /api/stores/temp/draft?generationRunId=gen-x returns 200 and exact DraftResponse shape', async () => {
+  it('GET /api/stores/temp/draft?generationRunId=gen-x returns 202 and generating shape when no draft', async () => {
     const res = await testRequest
       .get('/api/stores/temp/draft?generationRunId=gen-x')
       .set('Authorization', `Bearer ${authToken}`)
-      .expect(200);
+      .expect(202);
 
-    assertDraftResponseContract(res.body);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.status).toBe('generating');
+    expect(res.body.generationRunId).toBe('gen-x');
   });
 
-  it('GET /api/public/store/temp/draft?generationRunId=gen-x returns 200 and same DraftResponse shape', async () => {
+  it('GET /api/public/store/temp/draft?generationRunId=gen-x returns 202 when no draft', async () => {
     const res = await testRequest
       .get('/api/public/store/temp/draft?generationRunId=gen-x')
-      .expect(200);
+      .expect(202);
 
-    assertDraftResponseContract(res.body);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.status).toBe('generating');
   });
 
   it('GET /api/public/store/temp/draft without generationRunId returns 200 with status not_found when no drafts exist', async () => {

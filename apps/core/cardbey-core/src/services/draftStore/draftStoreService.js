@@ -2396,6 +2396,62 @@ export async function generateDraft(draftId, options = {}) {
   }
 }
 
+function parseDraftJsonField(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw);
+      return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * Resolve display business name from draft preview/input. Never returns "Untitled Store".
+ */
+export function resolveDraftBusinessName(draft, preview, input) {
+  const p = preview ?? (draft ? parseDraftJsonField(draft.preview) : {});
+  const i = input ?? (draft ? parseDraftJsonField(draft.input) : {});
+  const candidates = [
+    p.storeName,
+    p.meta?.storeName,
+    i.businessName,
+    i.storeName,
+    i.metadata?.businessName,
+    i.meta?.businessName,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim() && c.trim() !== 'Untitled Store') {
+      return c.trim();
+    }
+  }
+  return null;
+}
+
+export function resolveDraftBusinessType(draft, preview, input) {
+  const p = preview ?? (draft ? parseDraftJsonField(draft.preview) : {});
+  const i = input ?? (draft ? parseDraftJsonField(draft.input) : {});
+  const t =
+    p.storeType ||
+    p.meta?.storeType ||
+    i.businessType ||
+    i.storeType ||
+    i.metadata?.businessType ||
+    null;
+  return typeof t === 'string' && t.trim() ? t.trim() : null;
+}
+
+export function resolveDraftLocation(draft, preview, input) {
+  const p = preview ?? (draft ? parseDraftJsonField(draft.preview) : {});
+  const i = input ?? (draft ? parseDraftJsonField(draft.input) : {});
+  const loc = p.location || p.meta?.location || i.location || i.metadata?.location || null;
+  return typeof loc === 'string' && loc.trim() ? loc.trim() : null;
+}
+
 /**
  * Get draft store by ID. Explicitly selects id, ownerUserId, input, generationRunId, committedStoreId (and all other fields)
  * so access checks and summary always have tenantId (input.tenantId) and ownership fields.

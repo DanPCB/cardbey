@@ -1,3 +1,35 @@
+import {
+  resolveDraftBusinessName,
+  resolveDraftBusinessType,
+  resolveDraftLocation,
+} from '../services/draftStore/draftStoreService.js';
+
+function parseDraftJsonField(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw);
+      return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function storeObjectFromDraft(storeId, preview, input, draft) {
+  const name = resolveDraftBusinessName(draft, preview, input);
+  const type = resolveDraftBusinessType(draft, preview, input) || 'General';
+  const location = resolveDraftLocation(draft, preview, input);
+  return {
+    id: storeId || 'temp',
+    ...(name ? { name } : {}),
+    type,
+    ...(location ? { location } : {}),
+  };
+}
+
 /**
  * Shared draft-by-store resolver for alias endpoints.
  * Reuses existing DraftStore persistence; no new systems.
@@ -6,7 +38,7 @@
  * @returns {{ draft: object|null, status: 'generating'|'ready'|'not_found'|'failed', store: object, products: array, categories: array, generationRunId: string|null }}
  */
 export async function resolveDraftForStore(prisma, storeId, generationRunId = null) {
-  const emptyStore = { id: storeId || 'temp', name: 'Untitled Store', type: 'General' };
+  const emptyStore = { id: storeId || 'temp', type: 'General' };
   const notFound = {
     draft: null,
     status: 'not_found',
@@ -43,21 +75,21 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
       return {
         draft: null,
         status: 'generating',
-        store: { id: 'temp', name: 'Untitled Store', type: 'General' },
+        store: { id: 'temp', type: 'General' },
         products: [],
         categories: [],
         generationRunId: runId,
       };
     }
-    const input = typeof d.input === 'string' ? JSON.parse(d.input) : (d.input || {});
-    const preview = typeof d.preview === 'string' ? JSON.parse(d.preview) : (d.preview || {});
+    const input = parseDraftJsonField(d.input);
+    const preview = parseDraftJsonField(d.preview);
     const status = d.status === 'generating' ? 'generating' : (d.status === 'ready' || d.status === 'draft' ? 'ready' : d.status === 'error' ? 'failed' : 'not_found');
     const rawProducts = preview.items || preview.products || [];
     const products = rawProducts.map((item) => ({ ...item, description: item?.description ?? null }));
     return {
       draft: d,
       status,
-      store: { id: 'temp', name: preview.storeName || preview.meta?.storeName || 'Untitled Store', type: preview.storeType || preview.meta?.storeType || 'General' },
+      store: storeObjectFromDraft('temp', preview, input, d),
       products,
       categories: preview.categories || [],
       generationRunId: input.generationRunId || runId,
@@ -99,16 +131,16 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
       } else target = null;
     }
   }
-  if (!target) return { ...notFound, store: { id: storeId, name: 'Untitled Store', type: 'General' } };
-  const input = typeof target.input === 'string' ? JSON.parse(target.input) : (target.input || {});
-  const preview = typeof target.preview === 'string' ? JSON.parse(target.preview) : (target.preview || {});
+  if (!target) return { ...notFound, store: { id: storeId, type: 'General' } };
+  const input = parseDraftJsonField(target.input);
+  const preview = parseDraftJsonField(target.preview);
   const status = target.status === 'generating' ? 'generating' : (target.status === 'ready' || target.status === 'draft' ? 'ready' : target.status === 'error' ? 'failed' : 'not_found');
   const rawProducts = preview.items || preview.products || [];
   const products = rawProducts.map((item) => ({ ...item, description: item?.description ?? null }));
   return {
     draft: target,
     status,
-    store: { id: storeId, name: preview.storeName || preview.meta?.storeName || 'Untitled Store', type: preview.storeType || preview.meta?.storeType || 'General' },
+    store: storeObjectFromDraft(storeId, preview, input, target),
     products,
     categories: preview.categories || [],
     generationRunId: input.generationRunId || runId,

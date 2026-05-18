@@ -7,6 +7,7 @@
 
 import express from 'express';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
+import { buildTempDraftByGenerationRunIdResponse } from '../lib/tempDraftApiResponse.js';
 
 import { prisma } from '../lib/prisma.js';
 
@@ -40,6 +41,10 @@ router.get('/:storeId/draft', async (req, res, next) => {
     }
 
     let runId = generationRunId;
+    if (storeId === 'temp' && runId) {
+      const { httpStatus, body } = await buildTempDraftByGenerationRunIdResponse(runId);
+      return res.status(httpStatus).json(body);
+    }
     if (storeId === 'temp' && !runId) {
       const latest = await prisma.draftStore.findFirst({
         where: { status: { in: ['draft', 'generating', 'ready', 'error'] } },
@@ -71,13 +76,14 @@ router.get('/:storeId/draft', async (req, res, next) => {
       status,
       draftId: (resolved.draft?.id != null ? String(resolved.draft.id) : ''),
       draft: resolved.draft ?? null,
-      store: resolved.store ?? { id: storeId || 'temp', name: 'Untitled Store', type: 'General' },
+      store: resolved.store ?? { id: storeId || 'temp', type: 'General' },
       products,
       categories,
       qaReport: preview?.meta?.qaReport ?? null,
     };
     console.log('[PublicStore:draft] responding keys=', Object.keys(body).join(','), 'status=', status);
-    return res.status(200).json(body);
+    const httpStatus = status === 'generating' ? 202 : 200;
+    return res.status(httpStatus).json(body);
   } catch (error) {
     console.error('[PublicStore:draft] Error:', error);
     next(error);

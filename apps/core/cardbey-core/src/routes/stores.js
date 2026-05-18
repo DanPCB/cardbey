@@ -15,6 +15,7 @@ import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
+import { buildTempDraftByGenerationRunIdResponse } from '../lib/tempDraftApiResponse.js';
 import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview, recomputeDraftCategoriesFromItems } from '../services/draftStore/draftStoreService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 import { isDraftOwnedByUser } from '../lib/draftOwnership.js';
@@ -628,25 +629,16 @@ router.get('/temp/draft', optionalAuth, async (req, res, next) => {
       });
     }
     const draft = await getDraftByGenerationRunId(generationRunId);
-    if (!draft) {
-      return res.status(404).json({
-        ok: false,
-        error: 'draft_not_found',
-        message: 'Draft not found for this run',
-      });
-    }
-    if (req.userId && draft.ownerUserId && draft.ownerUserId !== req.userId) {
+    if (draft && req.userId && draft.ownerUserId && draft.ownerUserId !== req.userId) {
       const allowed = await isDraftOwnedByUser(generationRunId, req.userId);
       if (!allowed) {
         return res.status(403).json({ ok: false, error: 'forbidden', message: 'Draft not accessible' });
       }
     }
-    return res.status(200).json({
-      ok: true,
-      draftId: draft.id,
-      id: draft.id,
-      draft,
+    const { httpStatus, body } = await buildTempDraftByGenerationRunIdResponse(generationRunId, {
+      userId: req.userId ?? null,
     });
+    return res.status(httpStatus).json(body);
   } catch (error) {
     console.error('[Stores] GET /temp/draft error:', error);
     next(error);

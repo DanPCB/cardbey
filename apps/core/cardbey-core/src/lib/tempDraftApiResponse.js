@@ -1,0 +1,191 @@
+/**
+ * Shared GET temp draft by generationRunId response builder.
+ * Used by /api/stores/temp/draft and /api/public/store/temp/draft.
+ */
+
+import { getDraftByGenerationRunId } from '../services/draftStore/draftStoreService.js';
+import { resolveDraftBusinessName, resolveDraftBusinessType, resolveDraftLocation } from '../services/draftStore/draftStoreService.js';
+
+function parseJsonField(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw);
+      return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function mapPreviewItems(preview, limit = 30) {
+  const raw = Array.isArray(preview.items)
+    ? preview.items
+    : Array.isArray(preview.products)
+      ? preview.products
+      : [];
+  return raw.slice(0, limit).map((item) => ({
+    id: item?.id ?? null,
+    name: item?.name ?? '',
+    price: item?.price ?? null,
+    description: item?.description ?? null,
+    image: item?.imageUrl ?? item?.image ?? null,
+    category: item?.categoryId ?? item?.category ?? null,
+  }));
+}
+
+function heroImageFromPreview(preview) {
+  if (preview?.hero?.imageUrl && String(preview.hero.imageUrl).trim()) return String(preview.hero.imageUrl).trim();
+  if (preview?.hero?.url && String(preview.hero.url).trim()) return String(preview.hero.url).trim();
+  if (typeof preview?.heroImageUrl === 'string' && preview.heroImageUrl.trim()) return preview.heroImageUrl.trim();
+  if (Array.isArray(preview?.website?.sections)) {
+    const hSec = preview.website.sections.find((s) => s && s.type === 'hero');
+    const c = hSec?.content;
+    if (c && typeof c === 'object') {
+      const iu = c.imageUrl;
+      const bi = c.backgroundImage;
+      if (typeof iu === 'string' && iu.trim()) return iu.trim();
+      if (typeof bi === 'string' && bi.trim()) return bi.trim();
+    }
+  }
+  return null;
+}
+
+function avatarImageFromPreview(preview) {
+  if (preview?.avatar?.imageUrl && String(preview.avatar.imageUrl).trim()) return String(preview.avatar.imageUrl).trim();
+  if (typeof preview?.avatarImageUrl === 'string' && preview.avatarImageUrl.trim()) return preview.avatarImageUrl.trim();
+  if (preview?.avatar?.url && String(preview.avatar.url).trim()) return String(preview.avatar.url).trim();
+  return null;
+}
+
+/**
+ * Build HTTP status + JSON body for temp draft lookup by generationRunId.
+ * @param {string} generationRunId
+ * @param {{ userId?: string|null }} [options]
+ * @returns {Promise<{ httpStatus: number, body: Record<string, unknown> }>}
+ */
+export async function buildTempDraftByGenerationRunIdResponse(generationRunId, options = {}) {
+  const runId = String(generationRunId ?? '').trim();
+  const userId = options.userId ?? null;
+
+  const draft = await getDraftByGenerationRunId(runId).catch(() => null);
+  const preview = draft ? parseJsonField(draft.preview) : {};
+  const input = draft ? parseJsonField(draft.input) : {};
+  const businessName = resolveDraftBusinessName(draft, preview, input);
+  const businessType = resolveDraftBusinessType(draft, preview, input);
+  const location = resolveDraftLocation(draft, preview, input);
+
+  const storeBase = {
+    id: 'temp',
+    ...(businessName ? { name: businessName } : {}),
+    type: businessType || 'General',
+    ...(location ? { location } : {}),
+    ...(userId ? { userId } : {}),
+  };
+
+  const categories = Array.isArray(preview.categories) ? preview.categories : [];
+  const products = (Array.isArray(preview.items) ? preview.items : Array.isArray(preview.products) ? preview.products : []).map(
+    (item) => ({ ...item, description: item?.description ?? null }),
+  );
+
+  if (!draft) {
+    return {
+      httpStatus: 202,
+      body: {
+        ok: true,
+        status: 'generating',
+        message: 'Draft is still being generated',
+        generationRunId: runId,
+        storeId: 'temp',
+        draft: null,
+        draftId: null,
+        store: storeBase,
+        products: [],
+        categories: [],
+        qaReport: null,
+      },
+    };
+  }
+
+  const rawStatus = String(draft.status ?? '').toLowerCase();
+  if (rawStatus === 'generating' || rawStatus === 'pending') {
+    return {
+      httpStatus: 202,
+      body: {
+        ok: true,
+        status: 'generating',
+        message: 'Draft is still being generated',
+        generationRunId: runId,
+        storeId: 'temp',
+        draft: null,
+        draftId: null,
+        store: storeBase,
+        products: [],
+        categories: [],
+        qaReport: preview?.meta?.qaReport ?? null,
+      },
+    };
+  }
+
+  if (rawStatus === 'failed' || rawStatus === 'error') {
+    return {
+      httpStatus: 200,
+      body: {
+        ok: false,
+        status: 'failed',
+        message: draft.error || 'Draft generation failed',
+        generationRunId: runId,
+        storeId: 'temp',
+        draft: null,
+        draftId: null,
+        store: storeBase,
+        products: [],
+        categories: [],
+        error: draft.error ?? null,
+        errorCode: draft.errorCode ?? null,
+        recommendedAction: draft.recommendedAction ?? null,
+        qaReport: null,
+      },
+    };
+  }
+
+  const items = mapPreviewItems(preview);
+  const miniWebsiteSections = preview?.website?.sections ?? null;
+  const heroImage = heroImageFromPreview(preview);
+  const avatarImage = avatarImageFromPreview(preview);
+
+  const previewDraft = {
+    id: draft.id,
+    businessName,
+    businessType: businessType || 'general',
+    location: location || '',
+    heroImage,
+    avatarImage,
+    slug: preview?.meta?.slug ?? input?.slug ?? null,
+    items,
+    status: 'ready',
+    miniWebsiteSections,
+  };
+
+  return {
+    httpStatus: 200,
+    body: {
+      ok: true,
+      status: 'ready',
+      generationRunId: input.generationRunId || draft.generationRunId || runId,
+      storeId: 'temp',
+      draftId: String(draft.id),
+      draft: previewDraft,
+      store: {
+        ...storeBase,
+        ...(businessName ? { name: businessName } : {}),
+      },
+      products,
+      categories,
+      heroImageUrl: heroImage,
+      qaReport: preview?.meta?.qaReport ?? null,
+    },
+  };
+}
