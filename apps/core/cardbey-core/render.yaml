@@ -10,7 +10,7 @@
 #                  ENABLE_PROACTIVE_CAMPAIGN_RUNWAY, ENABLE_OPENCLAW_REAL_CAMPAIGN_APIS, ALLOW_CONCURRENT_MISSION_STEPS
 #   CrewAI: CREWAI_ENABLED=false until Python/pip is available on the build image; pip step below is non-fatal.
 #
-# Post-deploy verification (first deploy):
+# Post-deploy verification (includes temp draft 202 — commit b02d47d):
 #   1) Render logs — server started cleanly:
 #        [SERVER] PUBLIC_BASE_URL: https://your-dashboard-domain.com
 #        [ProactiveStep] agent dispatch mode: OpenClaw (OPENCLAW_MISSION_STEPS=true)
