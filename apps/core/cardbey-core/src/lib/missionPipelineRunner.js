@@ -395,7 +395,6 @@ export async function runNextMissionPipelineStep(missionId) {
   // Merge prior mission.outputsJson first so owner checkpoint fields (logoChoice, heroImageChoice) survive tools that share toolName keys in stepOutputs.
   // Flatten structured store build ids for /state parity with POST /missions/:id/run (draftId, jobId, generationRunId at top level).
   // On failure, also persist _failed so debugging can see the failed step's error and any partial output without loading the step record.
-  const priorOutputsAgg = parseJsonObject(mission.outputsJson);
   const structuredFlat =
     result.status === 'ok' &&
     toolName === 'structured_store_build' &&
