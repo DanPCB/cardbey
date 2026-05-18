@@ -739,6 +739,14 @@ async function finalizeDraft(draftId, {
   const verticalForItem =
     effectiveImageFillProfile?.verticalSlug ?? imageFillProfile?.verticalSlug ?? preview.storeType ?? null;
 
+  console.log('[DraftStore] finalizeDraft media', {
+    draftId,
+    includeImages: includeImages !== false,
+    itemCount: items.length,
+    hasPexelsKey: !!process.env.PEXELS_API_KEY,
+    missionId: pipelineMissionId ?? null,
+  });
+
   if (includeImages && items.length > 0) {
     console.log('[menuVisualAgent] START batch', {
       draftId,

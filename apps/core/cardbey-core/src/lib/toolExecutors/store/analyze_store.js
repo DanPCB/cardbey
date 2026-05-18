@@ -58,23 +58,23 @@ export async function execute(input = {}, context = {}) {
     context?.outputs?.structured_store_build?.storeId ??
     null;
 
-  if (process.env.NODE_ENV !== 'production' || process.env.LOG_ANALYZE_STORE === '1') {
-    console.log('[analyze_store] START', {
-      missionId,
-      storeId: storeId || null,
-      generationRunId:
-        input?.generationRunId ??
-        context?.generationRunId ??
-        buildOut?.generationRunId ??
-        null,
-      draftId:
-        input?.draftId ??
-        context?.draftId ??
-        buildOut?.draftId ??
-        null,
-      hasStepOutputs: Boolean(context?.stepOutputs?.structured_store_build),
-    });
-  }
+  const generationRunIdForLog =
+    input?.generationRunId ??
+    context?.generationRunId ??
+    buildOut?.generationRunId ??
+    context?.outputs?.generationRunId ??
+    null;
+  const draftIdForLog =
+    input?.draftId ?? context?.draftId ?? buildOut?.draftId ?? context?.outputs?.draftId ?? null;
+
+  console.log('[analyze_store] START', {
+    missionId,
+    storeId: storeId || null,
+    generationRunId: generationRunIdForLog,
+    draftId: draftIdForLog,
+    hasStepOutputs: Boolean(context?.stepOutputs?.structured_store_build),
+    path: storeId ? 'storeId' : 'draft',
+  });
 
   if (!storeId || typeof storeId !== 'string') {
     const generationRunId =
@@ -239,83 +239,107 @@ export async function execute(input = {}, context = {}) {
       context?.outputs?.structured_store_build?.generationRunId ??
       null;
 
-    if (products.length === 0 && generationRunId && typeof generationRunId === 'string') {
-      try {
-        const draft = await getDraftByGenerationRunId(generationRunId.trim());
-        if (draft) {
-          const preview =
-            typeof draft.preview === 'string'
-              ? (() => {
-                  try {
-                    return JSON.parse(draft.preview);
-                  } catch {
-                    return {};
-                  }
-                })()
-              : draft.preview ?? {};
-          const items = parseDraftPreviewItems(preview);
-          if (items.length > 0) {
-            const draftInput =
-              typeof draft.input === 'string'
-                ? (() => {
-                    try {
-                      return JSON.parse(draft.input);
-                    } catch {
-                      return {};
-                    }
-                  })()
-                : draft.input ?? {};
-            const productCount = items.length;
-            const categories = Array.isArray(preview.categories) ? preview.categories : [];
-            const categoryCount = categories.length;
-            const hasImages = items.some(
-              (it) =>
-                it &&
-                typeof it === 'object' &&
-                typeof it.imageUrl === 'string' &&
-                it.imageUrl.trim().length > 0,
-            );
-            const businessName =
-              context?.storeName ??
-              preview.storeName ??
-              preview.meta?.storeName ??
-              draftInput.businessName ??
-              draftInput.storeName ??
-              store.name ??
-              'Your store';
-            const storeType =
-              context?.storeType ??
-              preview.storeType ??
-              draftInput.businessType ??
-              store.type ??
-              'retail';
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('[analyze_store] using draft item count fallback:', {
-                storeId,
-                generationRunId,
-                draftItemCount: productCount,
-              });
-            }
-            return {
-              status: 'ok',
-              output: {
-                storeId,
-                storeName: businessName,
-                storeType,
-                productCount,
-                categoryCount,
-                hasImages,
-                publishStatus: store.publishedAt ? 'published' : 'draft',
-                source: 'draft_fallback',
-                summary: `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}`,
-                findings: [],
-                suggestions: [],
-              },
-            };
-          }
+    if (products.length === 0) {
+      const draftIdForFallback =
+        input?.draftId ??
+        context?.draftId ??
+        buildOut?.draftId ??
+        context?.outputs?.draftId ??
+        null;
+
+      const tryDraftFallback = async (draft, source) => {
+        if (!draft) return null;
+        const preview =
+          typeof draft.preview === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(draft.preview);
+                } catch {
+                  return {};
+                }
+              })()
+            : draft.preview ?? {};
+        const items = parseDraftPreviewItems(preview);
+        if (items.length === 0) return null;
+        const draftInput =
+          typeof draft.input === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(draft.input);
+                } catch {
+                  return {};
+                }
+              })()
+            : draft.input ?? {};
+        const productCount = items.length;
+        const categories = Array.isArray(preview.categories) ? preview.categories : [];
+        const categoryCount = categories.length;
+        const hasImages = items.some(
+          (it) =>
+            it &&
+            typeof it === 'object' &&
+            typeof it.imageUrl === 'string' &&
+            it.imageUrl.trim().length > 0,
+        );
+        const businessName =
+          context?.businessName ??
+          context?.storeName ??
+          preview.storeName ??
+          preview.meta?.storeName ??
+          draftInput.businessName ??
+          draftInput.storeName ??
+          store.name ??
+          'Your store';
+        const storeType =
+          context?.businessType ??
+          context?.storeType ??
+          preview.storeType ??
+          draftInput.businessType ??
+          store.type ??
+          'retail';
+        console.log('[analyze_store] using draft item count fallback:', {
+          source,
+          storeId,
+          productCount,
+          hasImages,
+        });
+        return {
+          status: 'ok',
+          output: {
+            storeId,
+            draftId: draft.id ?? draftIdForFallback,
+            storeName: businessName,
+            storeType,
+            productCount,
+            categoryCount,
+            hasImages,
+            publishStatus: store.publishedAt ? 'published' : 'draft',
+            source: 'draft_fallback',
+            summary: `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}${hasImages ? ' with images' : ''}.`,
+            findings: [],
+            suggestions: [],
+          },
+        };
+      };
+
+      if (draftIdForFallback && typeof draftIdForFallback === 'string') {
+        try {
+          const draft = await getDraft(draftIdForFallback.trim());
+          const out = await tryDraftFallback(draft, 'draftId');
+          if (out) return out;
+        } catch (fallbackErr) {
+          console.warn('[analyze_store] draftId fallback failed:', fallbackErr?.message ?? fallbackErr);
         }
-      } catch (fallbackErr) {
-        console.warn('[analyze_store] draft item count fallback failed:', fallbackErr?.message ?? fallbackErr);
+      }
+
+      if (generationRunId && typeof generationRunId === 'string') {
+        try {
+          const draft = await getDraftByGenerationRunId(generationRunId.trim());
+          const out = await tryDraftFallback(draft, 'generationRunId');
+          if (out) return out;
+        } catch (fallbackErr) {
+          console.warn('[analyze_store] generationRunId draft fallback failed:', fallbackErr?.message ?? fallbackErr);
+        }
       }
     }
 
@@ -368,6 +392,15 @@ export async function execute(input = {}, context = {}) {
       if (res?.ok === false) {
         console.warn('[inferOpportunities]', res.reason, res.error || '');
       }
+    });
+
+    console.log('[analyze_store] COMPLETE', {
+      missionId,
+      storeId,
+      productCount: output.productCount,
+      hasImages: output.hasImages,
+      source: 'store_db',
+      summary: output.summary,
     });
 
     return {
