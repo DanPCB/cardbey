@@ -168,30 +168,45 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
   }
   const traceId = await resolveMissionCorrelationId(mid, opts.correlationId ?? null);
 
+  const isBlackboardSeqCollision = (e) =>
+    e?.code === 'P2002' ||
+    (typeof e?.message === 'string' && e.message.includes('Unique constraint') && e.message.includes('missionId'));
+
   try {
-    const row = await prisma.$transaction(async (tx) => {
-      const ensured = await ensureMissionRowForBlackboardTx(tx, mid);
-      if (!ensured) {
-        throw new Error(
-          'blackboard_parent_missing: no Mission or MissionPipeline row for this id (cannot satisfy MissionBlackboard FK)',
-        );
+    let row = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        row = await prisma.$transaction(async (tx) => {
+          const ensured = await ensureMissionRowForBlackboardTx(tx, mid);
+          if (!ensured) {
+            throw new Error(
+              'blackboard_parent_missing: no Mission or MissionPipeline row for this id (cannot satisfy MissionBlackboard FK)',
+            );
+          }
+          const agg = await tx.missionBlackboard.aggregate({
+            where: { missionId: mid },
+            _max: { seq: true },
+          });
+          const nextSeq = (agg._max.seq ?? 0) + 1;
+          return tx.missionBlackboard.create({
+            data: {
+              missionId: mid,
+              seq: nextSeq,
+              eventType: et,
+              payload: serializeBlackboardPayload(payload),
+              agentId,
+              correlationId: traceId,
+            },
+          });
+        });
+        break;
+      } catch (inner) {
+        if (!isBlackboardSeqCollision(inner) || attempt >= 2) throw inner;
       }
-      const agg = await tx.missionBlackboard.aggregate({
-        where: { missionId: mid },
-        _max: { seq: true },
-      });
-      const nextSeq = (agg._max.seq ?? 0) + 1;
-      return tx.missionBlackboard.create({
-        data: {
-          missionId: mid,
-          seq: nextSeq,
-          eventType: et,
-          payload: serializeBlackboardPayload(payload),
-          agentId,
-          correlationId: traceId,
-        },
-      });
-    });
+    }
+    if (!row) {
+      return { ok: false, error: 'blackboard_append_failed' };
+    }
     console.log(`[missionBlackboard][traceId=${traceId}] appendEvent missionId=${mid} eventType=${et} seq=${row.seq}`);
     return { ok: true, seq: row.seq, id: row.id };
   } catch (e) {

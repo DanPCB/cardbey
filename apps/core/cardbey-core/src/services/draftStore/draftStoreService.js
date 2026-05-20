@@ -428,24 +428,10 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
       }, resolveOpts),
     ]);
 
-    // Patch draft preview with resolved content
-    await prisma.draftStore.update({
-      where: { id: draftId },
-      data: {
-        preview: {
-          update: {
-            slogan: sloganResult.content,
-            heroText: heroTextResult.content,
-            tagline: taglineResult.content,
-          },
-        },
-        updatedAt: new Date(),
-      },
-    }).catch(async () => {
-      // Prisma nested update not supported for JSON — do a raw merge instead
-      const row = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
-      if (!row) return;
-      const prev = row.preview && typeof row.preview === 'object' && !Array.isArray(row.preview) ? row.preview : {};
+    // Merge copy fields into existing preview — never use Prisma JSON `{ update: ... }` (wipes items/categories).
+    const row = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
+    if (row) {
+      const prev = parseDraftJsonField(row.preview);
       await prisma.draftStore.update({
         where: { id: draftId },
         data: {
@@ -458,7 +444,7 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
           updatedAt: new Date(),
         },
       }).catch(() => {});
-    });
+    }
 
     // Emit content_resolution to Mission.context
     const contentResolution = {
@@ -1423,11 +1409,16 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
         }
 
         const updated = await prisma.draftStore.findUnique({ where: { id: draftId } });
-        const preview = updated?.preview;
+        const preview = parseDraftJsonField(updated?.preview);
         await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate, {
           skipBecauseReactValidated: useReact && process.env.USE_OUTPUT_VALIDATION === 'true',
         });
-        console.log('[generateDraft] done (two-modes, paid_ai)', { draftId, status: 'ready', items: preview?.items?.length ?? 0, catalogSource: preview?.meta?.catalogSource });
+        console.log('[generateDraft] done (two-modes, paid_ai)', {
+          draftId,
+          status: 'ready',
+          items: draftPreviewItemCount(updated?.preview),
+          catalogSource: preview?.meta?.catalogSource,
+        });
         return { draft: updated, preview };
       }
     );
@@ -1681,11 +1672,16 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
   }
 
   const updated = await prisma.draftStore.findUnique({ where: { id: draftId } });
-  const preview = updated?.preview;
+  const preview = parseDraftJsonField(updated?.preview);
   await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate, {
     skipBecauseReactValidated: useReact && process.env.USE_OUTPUT_VALIDATION === 'true',
   });
-  console.log('[generateDraft] done (two-modes)', { draftId, status: 'ready', items: preview?.items?.length ?? 0, catalogSource: preview?.meta?.catalogSource });
+  console.log('[generateDraft] done (two-modes)', {
+    draftId,
+    status: 'ready',
+    items: draftPreviewItemCount(updated?.preview),
+    catalogSource: preview?.meta?.catalogSource,
+  });
   return { draft: updated, preview };
 }
 
@@ -2429,6 +2425,16 @@ function parseDraftJsonField(raw) {
   return {};
 }
 
+/** Item count from draft preview JSON (handles string preview + catalog.products). */
+function draftPreviewItemCount(rawPreview) {
+  const preview = parseDraftJsonField(rawPreview);
+  if (Array.isArray(preview.items) && preview.items.length > 0) return preview.items.length;
+  if (Array.isArray(preview.catalog?.products) && preview.catalog.products.length > 0) {
+    return preview.catalog.products.length;
+  }
+  return 0;
+}
+
 /**
  * Resolve display business name from draft preview/input. Never returns "Untitled Store".
  */
@@ -2993,8 +2999,8 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
     throw new Error(`Draft ${draftId} has no preview data`);
   }
 
-  const preview = draft.preview;
-  const draftInputForCommit = draft.input && typeof draft.input === 'object' ? draft.input : {};
+  const preview = parseDraftJsonField(draft.preview);
+  const draftInputForCommit = parseDraftJsonField(draft.input);
   const previewMetaForCommit = preview.meta && typeof preview.meta === 'object' ? preview.meta : {};
   const rawCommitCurrency =
     draftInputForCommit.currencyCode ??
@@ -3109,6 +3115,13 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
         : Array.isArray(preview.catalog?.products)
           ? preview.catalog.products
           : [];
+
+    if (commitItems.length === 0) {
+      throw new Error(
+        `COMMIT_DRAFT_FAILED: Draft ${draftId} has no catalog items in preview; refusing to clear store products`,
+      );
+    }
+
     const commitCategoryMap = buildCategoryIdToNameMap(preview.categories ?? []);
     const otherCategoryName = commitCategoryMap.get('other') ?? 'Other';
 

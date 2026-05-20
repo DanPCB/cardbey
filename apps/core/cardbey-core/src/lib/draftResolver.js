@@ -57,7 +57,7 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
   if (storeId === 'temp') {
     if (!runId) return notFound;
     const drafts = await prisma.draftStore.findMany({
-      where: { status: { in: ['draft', 'generating', 'ready', 'error'] } },
+      where: { status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] } },
       orderBy: { updatedAt: 'desc' },
       take: 50,
     });
