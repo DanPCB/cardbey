@@ -2,7 +2,7 @@
  * Anthropic Claude provider (messages API).
  * Env:
  * - ANTHROPIC_API_KEY (required)
- * - ANTHROPIC_MODEL (optional, default 'claude-3-5-sonnet-20240620')
+ * - ANTHROPIC_MODEL (optional, default 'claude-sonnet-4-20250514')
  * - ANTHROPIC_DISABLED=1 to kill-switch
  */
 
@@ -10,7 +10,7 @@ import https from 'https';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ANTHROPIC_MODEL =
-  process.env.ANTHROPIC_MODEL ?? 'claude-3-5-sonnet-20240620';
+  process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514';
 const ANTHROPIC_DISABLED = process.env.ANTHROPIC_DISABLED === '1';
 
 /**

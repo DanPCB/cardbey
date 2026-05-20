@@ -34,7 +34,7 @@ const DEFAULT_MODEL =
 const OPENAI_MODEL_FALLBACKS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'];
 /** Anthropic default must be a Claude id — never reuse OpenAI DEFAULT_MODEL for this provider. */
 const DEFAULT_ANTHROPIC_MODEL =
-  process.env.ANTHROPIC_MODEL?.trim() || 'claude-3-5-sonnet-20240620';
+  process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-4-20250514';
 const DEFAULT_MAX_TOKENS = 1000;
 const DEFAULT_TEMPERATURE = 0.3;
 const CACHE_TTL_DAYS = 7;
@@ -310,7 +310,7 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
 }
 
 const VISION_ANTHROPIC_MODEL =
-  process.env.ANTHROPIC_MODEL?.trim() || 'claude-3-5-sonnet-20240620';
+  process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-4-20250514';
 
 /**
  * Anthropic Messages API with multimodal content (vision). No prompt cache.
