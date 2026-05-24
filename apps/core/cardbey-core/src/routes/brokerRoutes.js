@@ -1,0 +1,35 @@
+/**
+ * Agent Execution Broker — read-only introspection API (Phase 1).
+ */
+
+import { Router } from 'express';
+import { optionalAuth } from '../middleware/auth.js';
+import { listBrokerActions, listAgentCapabilities } from '../lib/broker/index.js';
+
+const router = Router();
+
+/**
+ * GET /api/broker/actions — unified action catalog (derived read model).
+ */
+router.get('/actions', optionalAuth, (_req, res) => {
+  const actions = listBrokerActions();
+  return res.json({
+    ok: true,
+    count: actions.length,
+    actions,
+  });
+});
+
+/**
+ * GET /api/broker/agent-capabilities — ACP normalized agent capabilities.
+ */
+router.get('/agent-capabilities', optionalAuth, (_req, res) => {
+  const capabilities = listAgentCapabilities();
+  return res.json({
+    ok: true,
+    count: capabilities.length,
+    capabilities,
+  });
+});
+
+export default router;

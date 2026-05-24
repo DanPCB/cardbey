@@ -1,0 +1,34 @@
+-- Canonical published store projection (public read surfaces).
+CREATE TABLE IF NOT EXISTS "PublishedArtifactProjection" (
+    "id" TEXT NOT NULL,
+    "artifactType" TEXT NOT NULL DEFAULT 'business',
+    "businessId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "version" TEXT NOT NULL DEFAULT 'v1',
+    "projectionJson" JSONB NOT NULL,
+    "sourceDraftId" TEXT,
+    "publishRunId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PublishedArtifactProjection_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "PublishedArtifactProjection_businessId_key" ON "PublishedArtifactProjection"("businessId");
+
+CREATE INDEX IF NOT EXISTS "PublishedArtifactProjection_slug_idx" ON "PublishedArtifactProjection"("slug");
+
+CREATE INDEX IF NOT EXISTS "PublishedArtifactProjection_tenantId_slug_idx" ON "PublishedArtifactProjection"("tenantId", "slug");
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PublishedArtifactProjection_businessId_fkey'
+  ) THEN
+    ALTER TABLE "PublishedArtifactProjection"
+      ADD CONSTRAINT "PublishedArtifactProjection_businessId_fkey"
+      FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;

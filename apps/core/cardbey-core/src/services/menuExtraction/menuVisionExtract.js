@@ -1,0 +1,169 @@
+/**
+ * Direct GPT-4o vision menu extraction from image bytes (bypasses mock engine fallback).
+ */
+
+import OpenAI from 'openai';
+import { MenuExtractionLlmError } from './menuExtractionLlmError.js';
+
+/** Placeholder rows from extractMenu.js mock fallback — never treat as real extraction. */
+export const PLACEHOLDER_MENU_ITEM_NAMES = new Set([
+  'standard service',
+  'premium service',
+  'add-on',
+  'addon',
+]);
+
+export const MENU_VISION_EXTRACTION_PROMPT = `Extract ALL menu items from this restaurant/cafe menu image.
+
+For each item return:
+- name: exact item name as written on the menu
+- price: numeric value ONLY (e.g. 4.5 for $4.50 — no currency symbol in this field)
+- priceDisplay: price formatted exactly as printed on the menu (e.g. "$4.50" or "4.50")
+- category: Coffee, Food, Drinks, Desserts, etc.
+- description: any subtitle text, or "" if none
+
+IMPORTANT:
+- Use the EXACT price shown beside each item on the image — every item may have a different price
+- If a price is unclear, use null for price (not 0, not 15, not a guess)
+- Never use the same price for every item unless the menu truly shows one price for all
+- Never return placeholder items like "Standard Service", "Premium Service", or "Add-on"
+
+Return ONLY a JSON array, no other text:
+[
+  {
+    "name": "Flat White",
+    "description": "",
+    "price": 4.5,
+    "priceDisplay": "$4.50",
+    "category": "Coffee"
+  }
+]`;
+
+/**
+ * @param {unknown[]} items
+ * @returns {boolean}
+ */
+export function isPlaceholderMenuExtraction(items) {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  if (items.length > 6) return false;
+  const names = items
+    .map((it) => (typeof it?.name === 'string' ? it.name.trim().toLowerCase() : ''))
+    .filter(Boolean);
+  if (names.length === 0) return false;
+  const placeholderHits = names.filter((n) => PLACEHOLDER_MENU_ITEM_NAMES.has(n)).length;
+  return placeholderHits >= Math.min(2, names.length);
+}
+
+/**
+ * @param {string} raw
+ */
+function stripJsonFence(raw) {
+  let s = String(raw || '').trim();
+  s = s.replace(/^```json\s*/i, '').replace(/^```\s*/i, '');
+  s = s.replace(/```\s*$/i, '').trim();
+  return s;
+}
+
+/**
+ * @param {string} text
+ * @returns {unknown[]}
+ */
+function parseItemsArrayFromVisionJson(text) {
+  const cleaned = stripJsonFence(text);
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.items)) {
+      return parsed.items;
+    }
+  } catch {
+    // fall through
+  }
+  const startArr = cleaned.indexOf('[');
+  const endArr = cleaned.lastIndexOf(']');
+  if (startArr >= 0 && endArr > startArr) {
+    try {
+      const parsed = JSON.parse(cleaned.slice(startArr, endArr + 1));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      const parsed = JSON.parse(cleaned.slice(start, end + 1));
+      const items = parsed && typeof parsed === 'object' ? parsed.items : null;
+      return Array.isArray(items) ? items : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * @param {Buffer} fileBuffer
+ * @param {string} mimeType
+ * @param {{ businessName?: string; businessType?: string; language?: 'en' | 'vi' }} [ctx]
+ * @returns {Promise<unknown[]>}
+ */
+export async function extractMenuItemsFromImageBuffer(fileBuffer, mimeType, ctx = {}) {
+  const openai = process.env.OPENAI_API_KEY
+    ? new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        timeout: 60000,
+        maxRetries: 2,
+      })
+    : null;
+  if (!openai) {
+    throw new MenuExtractionLlmError('OpenAI API key not configured', { cause: 'NO_OPENAI_API_KEY' });
+  }
+
+  const mime = mimeType && /^image\//i.test(mimeType) ? mimeType : 'image/jpeg';
+  const b64 = fileBuffer.toString('base64');
+  const dataUrl = `data:${mime};base64,${b64}`;
+  const businessName = String(ctx.businessName || '').trim() || 'this business';
+  const businessType = String(ctx.businessType || '').trim() || 'food & beverage';
+  const viNote =
+    ctx.language === 'vi'
+      ? 'Keep Vietnamese item names as shown; add English gloss in description when helpful.'
+      : '';
+
+  const userText = `${MENU_VISION_EXTRACTION_PROMPT}
+
+Store context: ${businessName} (${businessType}).
+${viNote}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: process.env.MENU_VISION_MODEL?.trim() || 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You read menu photos and return structured JSON only. Extract every visible line item with accurate names and prices from the image.',
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: userText },
+            { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
+          ],
+        },
+      ],
+      temperature: 0.1,
+      max_tokens: 4096,
+    });
+    const raw = completion.choices?.[0]?.message?.content ?? '';
+    const items = parseItemsArrayFromVisionJson(raw);
+    if (isPlaceholderMenuExtraction(items)) {
+      console.warn('[menu-extract] vision returned placeholder items — treating as empty');
+      return [];
+    }
+    return items;
+  } catch (e) {
+    throw new MenuExtractionLlmError('OpenAI vision menu extraction failed', { cause: e });
+  }
+}
