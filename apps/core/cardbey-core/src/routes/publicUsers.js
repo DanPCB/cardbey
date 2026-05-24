@@ -5,7 +5,15 @@
 
 import { Router } from 'express';
 import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
-import { toPublicStore } from '../utils/publicStoreMapper.js';
+import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
+import {
+  resolvePublicStoresForList,
+  PUBLIC_STORE_LIST_SELECT,
+} from '../services/publishedArtifactProjection/resolvePublicStoreList.js';
+import { getPublishedBusinessArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
+import { publicWebBase } from '../utils/publicWebBase.js';
+import { parseSocialLinks } from '../lib/socialLinks.js';
+import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
 
 import { prisma } from '../lib/prisma.js';
 
@@ -138,22 +146,7 @@ router.get('/stores/feed', async (req, res, next) => {
 
     const take = limit + 1;
     const orderBy = [{ createdAt: 'desc' }, { id: 'desc' }];
-    const select = {
-      id: true,
-      name: true,
-      slug: true,
-      description: true,
-      tagline: true,
-      logo: true,
-      type: true,
-      // Include stylePreferences so PublicStore can expose `website` (mini-website sections/theme) when present.
-      // This enables frontscreen/feed UIs to visually distinguish mini-website stores.
-      stylePreferences: true,
-      storefrontSettings: true,
-      heroImageUrl: true,
-      avatarImageUrl: true,
-      createdAt: true,
-    };
+    const select = { ...PUBLIC_STORE_LIST_SELECT };
     // Show stores that are active OR have been published (publishedAt set)
     const where = {
       OR: [
@@ -187,7 +180,11 @@ router.get('/stores/feed', async (req, res, next) => {
     }
 
     const hasMore = businesses.length > limit;
-    const items = (hasMore ? businesses.slice(0, limit) : businesses).map((b) => toPublicStore(b));
+    const pageBusinesses = hasMore ? businesses.slice(0, limit) : businesses;
+    const resolved = await resolvePublicStoresForList(prisma, pageBusinesses, {
+      route: 'GET /api/public/stores/feed',
+    });
+    const items = resolved.map(({ store }) => store);
     const last = items[items.length - 1];
     let nextCursor = null;
     if (hasMore && last) {
@@ -228,19 +225,15 @@ router.get('/stores', async (req, res, next) => {
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
       select: {
-        id: true,
-        name: true,
-        slug: true,
-        description: true,
-        logo: true,
+        ...PUBLIC_STORE_LIST_SELECT,
         region: true,
-        createdAt: true,
-        // Exclude products for list view (can be fetched individually)
-      }
+      },
     });
 
-    // Map to public stores
-    const publicStores = stores.map(store => toPublicStore(store));
+    const resolved = await resolvePublicStoresForList(prisma, stores, {
+      route: 'GET /api/public/stores',
+    });
+    const publicStores = resolved.map(({ store }) => store);
 
     res.json({
       ok: true,
@@ -382,17 +375,18 @@ router.get('/profile/:slug', async (req, res, next) => {
     const business = await prisma.business.findUnique({
       where: { slug: normalizedSlug },
       select: {
-        id: true,
-        name: true,
-        slug: true,
-        heroImageUrl: true,
-        isActive: true,
+        ...PUBLIC_STORE_LIST_SELECT,
       },
     });
 
     if (!business || !business.isActive) {
       return res.status(404).json({ ok: false, error: 'Not found', message: 'Not found' });
     }
+
+    const { projection } = await getPublishedBusinessArtifact(prisma, {
+      slug: normalizedSlug,
+      businessId: business.id,
+    });
 
     const ownerUser = await prisma.user.findFirst({
       where: { personalPresenceStoreId: business.id },
@@ -419,19 +413,82 @@ router.get('/profile/:slug', async (req, res, next) => {
     const profilePhoto = ownerUser.profilePhoto || ownerUser.avatarUrl || null;
     const bio = ownerUser.bio || ownerUser.tagline || null;
 
+    const heroFromProjection = projection?.hero
+      ? projection.hero.videoUrl || projection.hero.imageUrl || projection.hero.posterUrl || null
+      : null;
+
     return res.json({
       ok: true,
       displayName,
       profilePhoto,
       bio,
       qrCodeUrl: ownerUser.qrCodeUrl || null,
-      storeName: business.name,
-      storeSlug: business.slug,
-      heroImage: business.heroImageUrl || null,
+      storeName: projection?.name ?? business.name,
+      storeSlug: projection?.slug ?? business.slug,
+      heroImage: heroFromProjection ?? business.heroImageUrl ?? null,
       businessId: business.id,
     });
   } catch (error) {
     console.error('[PublicProfile] GET /profile/:slug error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/public/stores/:slug/products
+ * Paginated published products for a public store (optional categoryId filter).
+ *
+ * Query: categoryId?, limit (default 50, max 300), offset (default 0), lang?
+ */
+router.get('/stores/:slug/products', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    if (!slug || typeof slug !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Invalid slug',
+        message: 'Slug is required',
+      });
+    }
+
+    const normalizedSlug = slug.toLowerCase().trim();
+    const store = await prisma.business.findUnique({
+      where: { slug: normalizedSlug },
+      select: { id: true, slug: true, isActive: true },
+    });
+
+    if (!store || !store.isActive) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Store not found',
+        message: 'Store not found',
+      });
+    }
+
+    const { limit, offset } = parseProductPagination(req.query.limit, req.query.offset);
+    const categoryId =
+      typeof req.query.categoryId === 'string' && req.query.categoryId.trim()
+        ? req.query.categoryId.trim()
+        : null;
+    const lang = typeof req.query.lang === 'string' ? req.query.lang.trim() : undefined;
+
+    const result = await listStoreProducts(prisma, {
+      businessId: store.id,
+      publishedOnly: true,
+      categoryId,
+      limit,
+      offset,
+      lang,
+    });
+
+    return res.json({
+      ok: true,
+      storeId: store.id,
+      slug: store.slug,
+      ...result,
+    });
+  } catch (error) {
+    console.error('[PublicStores] GET /stores/:slug/products error:', error);
     next(error);
   }
 });
@@ -506,8 +563,61 @@ router.get('/stores/:slug', async (req, res, next) => {
 
     console.log(`[PublicStores] Found store: ${store.id} (${store.name}) with slug: "${store.slug}", products: ${store.products?.length || 0}`);
 
-    // Map to public store (includes products if they exist)
-    const publicStore = toPublicStore(store);
+    const { store: publicStore, usedFallback, projection } = await resolvePublicStoreFromArtifact(prisma, store);
+
+    // Always emit socialLinks on slug route (parity with frontscreen card mapping).
+    const mappedSocialLinks =
+      publicStore.socialLinks ??
+      parseSocialLinks(projection?.content?.socialLinks) ??
+      parseSocialLinks(store.socialLinks) ??
+      null;
+    publicStore.socialLinks = mappedSocialLinks;
+
+    console.log('[PUBLIC_STORE_SOCIAL]', {
+      businessSocialLinks: store?.socialLinks,
+      projectionSocialLinks: projection?.content?.socialLinks ?? null,
+      mappedSocialLinks: publicStore?.socialLinks,
+      usedFallback,
+    });
+
+    console.log('[PUBLIC_ROUTE_RESOLVE]', {
+      slug: store.slug,
+      storeId: store.id,
+      name: publicStore.name,
+      tagline: publicStore.tagline,
+      description: publicStore.description,
+      heroUrl: publicStore.heroUrl,
+      heroVideo: publicStore.heroVideo ?? null,
+      websiteSections: publicStore.website?.sections?.length ?? 0,
+      projectionFallback: usedFallback,
+    });
+
+    /** Editable draft lineage for owner "Edit website" — always scoped to this slug's business row. */
+    const latestDraft = await prisma.draftStore.findFirst({
+      where: {
+        committedStoreId: store.id,
+        status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, input: true },
+    });
+    if (latestDraft?.id) {
+      publicStore.currentDraftId = String(latestDraft.id);
+      try {
+        const inp =
+          typeof latestDraft.input === 'string'
+            ? JSON.parse(latestDraft.input)
+            : latestDraft.input && typeof latestDraft.input === 'object'
+              ? latestDraft.input
+              : {};
+        const runId = inp?.generationRunId;
+        if (typeof runId === 'string' && runId.trim()) {
+          publicStore.generationRunId = runId.trim();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
 
     /** Personal presence stores: owner links via User.personalPresenceStoreId — drives profile-card public layout. */
     const personalPresenceOwner = await prisma.user.findFirst({
@@ -521,6 +631,11 @@ router.get('/stores/:slug', async (req, res, next) => {
           layoutHint: 'profile_card',
         },
       };
+    }
+
+    const webBase = publicWebBase();
+    if (publicStore.slug) {
+      publicStore.storeUrl = `${webBase}/s/${encodeURIComponent(publicStore.slug)}`;
     }
 
     res.json({

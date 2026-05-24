@@ -12,6 +12,7 @@ import express from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
+import { normalizeSocialLinks } from '../lib/socialLinks.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
@@ -21,12 +22,20 @@ import { publishDraft, PublishDraftError } from '../services/draftStore/publishD
 import { isDraftOwnedByUser } from '../lib/draftOwnership.js';
 import { getOrCreateMission } from '../lib/mission.js';
 import { getTenantId } from '../lib/tenant.js';
+import {
+  requireStoreContextTenantId,
+  resolveStoreContextTenantId,
+  respondStoreContextTenantError,
+} from '../lib/storeContextTenant.js';
 import { createAgentRun } from '../lib/agentRun.js';
 import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
+import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
+import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
+import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
 
 import { prisma } from '../lib/prisma.js';
 
@@ -53,21 +62,27 @@ function hasRole(user, role) {
 
 /** In-memory set to log "draft missing" only once per generationRunId (dev), avoid log spam on poll */
 const loggedMissingDraftRunIds = new Set();
-const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+const ALLOWED_HERO_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime'];
+const ALLOWED_HERO_MIMES = [...ALLOWED_IMAGE_MIMES, ...ALLOWED_HERO_VIDEO_MIMES];
 
 const OwnerProfileVisibilitySchema = z.object({
   showOwnerProfile: z.boolean(),
 });
 
-/** Multer for store draft asset uploads: memory, field "file", image allowlist, 10MB max */
+/** Multer for store draft hero/avatar uploads: images/GIF/SVG up to 10MB, video up to 50MB */
 const storeAssetUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype && ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+    const mime = file.mimetype ? String(file.mimetype).toLowerCase() : '';
+    if (mime && ALLOWED_HERO_MIMES.includes(mime)) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files allowed (jpeg, png, webp, gif)'), false);
+      cb(
+        new Error('Unsupported file type. Use JPG, PNG, WebP, GIF, SVG, MP4, WebM, or MOV.'),
+        false,
+      );
     }
   },
 });
@@ -112,11 +127,30 @@ function menuExtractUploadSingle(req, res, next) {
  */
 async function resolveDraftForStoreAsset(req) {
   const storeId = req.params.storeId;
+  const explicitDraftId =
+    (typeof req.query.draftId === 'string' ? req.query.draftId.trim() : null) ||
+    (typeof req.body?.draftId === 'string' ? req.body.draftId.trim() : null);
   const generationRunId = (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null)
     || (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null);
   const userId = req.userId;
   if (!userId) {
     return { errorResponse: { status: 401, body: { ok: false, error: 'unauthorized', message: 'Authentication required' } } };
+  }
+  if (explicitDraftId) {
+    const draft = await getDraft(explicitDraftId);
+    if (!draft) {
+      return { errorResponse: { status: 404, body: { ok: false, error: 'draft_not_found', message: 'Draft not found' } } };
+    }
+    const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
+    const allowed = await canAccessDraftStore(draft, {
+      userId,
+      tenantKey: userId,
+      isSuperAdmin: req.user?.role === 'super_admin',
+    });
+    if (!allowed) {
+      return { errorResponse: { status: 403, body: { ok: false, error: 'forbidden', message: 'You do not have access to this draft.' } } };
+    }
+    return { draft };
   }
   if (storeId === 'temp') {
     if (!generationRunId) {
@@ -278,11 +312,17 @@ router.get('/', requireAuth, async (req, res, next) => {
  * @param {Object} options - Optional. isOwner: boolean (default true) for public/preview views.
  */
 function buildStoreContextPayload(business, storeId, tenantId, source, options = {}) {
+  const effectiveStoreId = storeId || 'temp';
+  const resolvedTenantId = requireStoreContextTenantId(tenantId, {
+    storeId: effectiveStoreId,
+    allowTempWithoutTenant: effectiveStoreId === 'temp',
+  });
+
   if (!business) {
     return {
       ok: true,
-      storeId: storeId || 'temp',
-      tenantId: tenantId != null ? tenantId : 'missing',
+      storeId: effectiveStoreId,
+      ...(resolvedTenantId != null ? { tenantId: resolvedTenantId } : {}),
       store: null,
       source: source || 'auth',
     };
@@ -307,7 +347,7 @@ function buildStoreContextPayload(business, storeId, tenantId, source, options =
     ok: true,
     storeId: business.id,
     businessId: business.id,
-    tenantId: tenantId != null ? tenantId : (business.userId != null ? business.userId : 'missing'),
+    tenantId: resolvedTenantId,
     creationOrigin,
     lifecycleStage,
     requiredNextStep,
@@ -342,7 +382,7 @@ const STORE_CONTEXT_SELECT = {
  */
 router.get('/context', requireAuth, async (req, res, next) => {
   try {
-    const tenantId = req.userId || (req.user && req.user.id) || 'missing';
+    const authUserId = req.userId || (req.user && req.user.id) || null;
     const { businessId } = req.query;
 
     let business = null;
@@ -369,11 +409,13 @@ router.get('/context', requireAuth, async (req, res, next) => {
     }
 
     const storeId = (business && business.id) || 'temp';
+    const tenantId = resolveStoreContextTenantId({ authUserId, business });
     if (process.env.NODE_ENV !== 'production') {
       console.log('[store/context]', { storeId, tenantId });
     }
     res.json(buildStoreContextPayload(business, storeId, tenantId, 'auth'));
   } catch (error) {
+    if (respondStoreContextTenantError(res, error)) return;
     console.error('[Stores] Context error:', error);
     next(error);
   }
@@ -388,7 +430,7 @@ router.get('/context', requireAuth, async (req, res, next) => {
 router.get('/:id/context', optionalAuth, async (req, res, next) => {
   try {
     const storeId = req.params.id != null ? req.params.id : (req.query.storeId != null ? req.query.storeId : 'temp');
-    const tenantId = req.userId || (req.user && req.user.id) || 'missing';
+    const authUserId = req.userId || (req.user && req.user.id) || null;
 
     let business = null;
     let isOwner = false;
@@ -406,14 +448,22 @@ router.get('/:id/context', optionalAuth, async (req, res, next) => {
             error: 'Access denied',
           });
         }
+      } else {
+        return res.status(404).json({
+          ok: false,
+          error: 'store_not_found',
+          message: 'Store not found',
+        });
       }
     }
 
+    const tenantId = resolveStoreContextTenantId({ authUserId, business });
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[store/context]', { storeId, tenantId });
+      console.log('[store/context]', { storeId, tenantId, authUserId, ownerUserId: business?.userId ?? null });
     }
     res.json(buildStoreContextPayload(business, storeId, tenantId, 'params', { isOwner }));
   } catch (error) {
+    if (respondStoreContextTenantError(res, error)) return;
     console.error('[Stores] Context error:', error);
     next(error);
   }
@@ -424,6 +474,73 @@ router.get('/:id/context', optionalAuth, async (req, res, next) => {
  * Public storefront preview (no auth). Returns store basics + hero/avatar + categories + items for StorePreviewPage.
  * 404 when store not found or not active.
  */
+/**
+ * GET /api/stores/:storeId/products
+ * Paginated products for an owned store (includes unpublished). Optional categoryId filter.
+ *
+ * Query: categoryId?, limit (default 50, max 300), offset (default 0), lang?
+ */
+router.get('/:storeId/products', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = req.params.storeId?.trim();
+    if (!storeId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'validation_error',
+        message: 'storeId is required',
+      });
+    }
+
+    const store = await prisma.business.findUnique({
+      where: { id: storeId },
+      select: { id: true, userId: true, slug: true },
+    });
+
+    if (!store) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Store not found',
+        message: 'Store not found',
+      });
+    }
+
+    const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
+    if (!isDevAdmin && store.userId !== req.userId) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Forbidden',
+        message: 'You do not have permission to access this store',
+      });
+    }
+
+    const { limit, offset } = parseProductPagination(req.query.limit, req.query.offset);
+    const categoryId =
+      typeof req.query.categoryId === 'string' && req.query.categoryId.trim()
+        ? req.query.categoryId.trim()
+        : null;
+    const lang = typeof req.query.lang === 'string' ? req.query.lang.trim() : undefined;
+
+    const result = await listStoreProducts(prisma, {
+      businessId: store.id,
+      publishedOnly: false,
+      categoryId,
+      limit,
+      offset,
+      lang,
+    });
+
+    return res.json({
+      ok: true,
+      storeId: store.id,
+      slug: store.slug,
+      ...result,
+    });
+  } catch (error) {
+    console.error('[Stores] GET /:storeId/products error:', error);
+    next(error);
+  }
+});
+
 router.get('/:id/preview', async (req, res, next) => {
   try {
     const storeId = req.params.id;
@@ -826,7 +943,12 @@ router.get('/:storeId/draft', requireAuth, async (req, res, next) => {
         const input = typeof draft.input === 'string' ? JSON.parse(draft.input) : (draft.input || {});
         const products = (Array.isArray(preview.items) ? preview.items : []).map((item) => ({ ...item, description: item?.description ?? null }));
         const categories = Array.isArray(preview.categories) ? preview.categories : [];
-        const status = draft.status === 'generating' ? 'generating' : (draft.status === 'ready' || draft.status === 'draft' ? 'ready' : 'not_found');
+        const status =
+          draft.status === 'generating'
+            ? 'generating'
+            : draft.status === 'ready' || draft.status === 'draft' || draft.status === 'committed'
+              ? 'ready'
+              : 'not_found';
         let heroFromSections = null;
         if (Array.isArray(preview?.website?.sections)) {
           const hSec = preview.website.sections.find((s) => s && s.type === 'hero');
@@ -971,18 +1093,41 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
     const avatarImageUrl = typeof body.avatarImageUrl === 'string' ? body.avatarImageUrl.trim() : null;
     const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : null;
     const source = typeof body.source === 'string' ? body.source.trim() : null;
+    const heroBody = body.hero && typeof body.hero === 'object' ? body.hero : null;
+    const isVideoHero =
+      heroBody?.type === 'video' ||
+      Boolean(videoUrl) ||
+      (imageUrl && /\.(mp4|webm|mov)(\?|#|$)/i.test(imageUrl));
     const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
     const existingHero = existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
     const hero = { ...existingHero };
-    if (imageUrl != null) {
+    if (isVideoHero) {
+      const vid = videoUrl || imageUrl;
+      hero.type = 'video';
+      hero.videoUrl = vid;
+      hero.url = vid;
+      hero.autoplay = heroBody?.autoplay !== false;
+      hero.muted = heroBody?.muted !== false;
+      hero.loop = heroBody?.loop !== false;
+      if (imageUrl && imageUrl !== vid) hero.imageUrl = imageUrl;
+    } else if (imageUrl != null) {
+      hero.type = 'image';
       hero.imageUrl = imageUrl;
       hero.url = imageUrl;
+      hero.videoUrl = null;
     }
-    if (videoUrl != null) hero.videoUrl = videoUrl;
     if (source != null) hero.source = source;
     const patch = {};
     if (Object.keys(hero).length) patch.hero = hero;
-    if (imageUrl != null) patch.heroImageUrl = imageUrl;
+    if (isVideoHero) {
+      const vid = videoUrl || imageUrl;
+      if (vid) {
+        patch.heroVideo = vid;
+        patch.heroImageUrl = hero.imageUrl || existingHero.imageUrl || vid;
+      }
+    } else if (imageUrl != null) {
+      patch.heroImageUrl = imageUrl;
+    }
     if (avatarImageUrl) {
       patch.avatar = { imageUrl: avatarImageUrl, url: avatarImageUrl };
       patch.avatarImageUrl = avatarImageUrl;
@@ -1172,6 +1317,14 @@ router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle
     const mime = req.file.mimetype || 'application/octet-stream';
     const fileType = mime === 'application/pdf' ? 'pdf' : 'image';
 
+    console.log('[menu-extract] POST extract-menu', {
+      fileType: mime,
+      fileSize: req.file.buffer?.length ?? 0,
+      generationRunId,
+      businessName,
+      businessType,
+    });
+
     const result = await extractMenuFromFile({
       fileType,
       fileBuffer: req.file.buffer,
@@ -1181,7 +1334,8 @@ router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle
       language,
     });
 
-    const needsReview = result.items.length > 0 && result.confidence < 0.7;
+    const needsReview =
+      result.items.length > 0 && (result.confidence < 0.7 || result.priceWarning === true);
     const payload = {
       ok: result.ok,
       items: result.items,
@@ -1189,6 +1343,8 @@ router.post('/:storeId/draft/extract-menu', requireAuth, menuExtractUploadSingle
       confidence: result.confidence,
       warnings: result.warnings,
       needsReview,
+      priceWarning: result.priceWarning === true,
+      uniformPrice: result.uniformPrice ?? null,
       // Debug: include raw OCR/text extraction for investigation (remove once stable).
       rawText: result.rawText,
     };
@@ -1521,14 +1677,21 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
       }
     }
 
+    const previewStoreName = typeof preview.storeName === 'string' ? preview.storeName : '';
+    const businessNameForSeed = previewStoreName;
+    const storeTypeForSeed =
+      (typeof preview.storeType === 'string' && preview.storeType) ||
+      (preview.meta && typeof preview.meta.storeType === 'string' && preview.meta.storeType) ||
+      'cafe';
+
     // Map MenuItemExtract[] → draft preview item schema (name/description/price/category/currency/imageUrl).
-    const mapped = rawItems.map((it, idx) => {
+    const mappedBase = rawItems.map((it, idx) => {
       const name = typeof it?.name === 'string' ? it.name.trim() : '';
       const description = typeof it?.description === 'string' ? it.description.trim() : '';
       const category = typeof it?.category === 'string' && it.category.trim() ? it.category.trim() : 'General';
       const currency = typeof it?.currency === 'string' && it.currency.trim() ? it.currency.trim().toUpperCase() : 'AUD';
-      const price = (typeof it?.price === 'number' && Number.isFinite(it.price)) ? it.price : null;
-      const imageUrl = typeof it?.imageUrl === 'string' && it.imageUrl.trim() ? it.imageUrl.trim() : undefined;
+      const price = typeof it?.price === 'number' && Number.isFinite(it.price) ? it.price : null;
+      const imageUrl = typeof it?.imageUrl === 'string' && it.imageUrl.trim() ? it.imageUrl.trim() : '';
       const out = {
         id: `item_${draft.id}_${idx}`,
         name: name || `Item ${idx + 1}`,
@@ -1537,9 +1700,13 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
         currency,
         category,
       };
-      // Important: omit imageUrl when empty so patchDraftPreview treats this as a full replacement (not partial image-only update).
       if (imageUrl) out.imageUrl = imageUrl;
       return out;
+    });
+
+    const mapped = await seedMenuCatalogItemsImages(mappedBase, {
+      businessName: businessNameForSeed,
+      storeType: storeTypeForSeed,
     });
 
     const { categories, items: itemsWithCategoryId } = recomputeDraftCategoriesFromItems(mapped);
@@ -1567,6 +1734,19 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
       void enqueueCatalogItemImageFetch({ draftId: draft.id, generationRunId });
     }
 
+    if (process.env.NODE_ENV !== 'production') {
+      const withImg = itemsWithCategoryId.filter((it) => it?.imageUrl && String(it.imageUrl).trim()).length;
+      console.log('[Stores:draft/catalog] images after seed', {
+        total: itemsWithCategoryId.length,
+        withImageUrl: withImg,
+        sample: itemsWithCategoryId.slice(0, 3).map((it) => ({
+          name: it?.name,
+          price: it?.price,
+          imageUrl: it?.imageUrl ? String(it.imageUrl).slice(0, 60) : null,
+        })),
+      });
+    }
+
     return res.status(200).json({
       ok: true,
       itemCount: itemsWithCategoryId.length,
@@ -1591,15 +1771,25 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     }
     const draft = result.draft;
     const buffer = req.file.buffer;
-    const mime = req.file.mimetype || 'image/jpeg';
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || 'hero.jpg', mime);
+    const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
+    const isVideo = mime.startsWith('video/');
+    const maxBytes = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      return res.status(400).json({
+        ok: false,
+        error: 'file_too_large',
+        message: isVideo ? 'Video must be 50MB or smaller.' : 'Image must be 10MB or smaller.',
+      });
+    }
+    const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
+    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || defaultName, mime);
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
     try {
       await prisma.media.create({
         data: {
           url: normalizedUrl,
           storageKey: key,
-          kind: 'IMAGE',
+          kind: isVideo ? 'VIDEO' : 'IMAGE',
           mime,
           sizeBytes: buffer.length,
         },
@@ -1609,12 +1799,38 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     }
     const heroImageUrl = normalizedUrl;
     const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const mergedHero = { ...(existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {}), imageUrl: heroImageUrl, url: heroImageUrl };
+    const prevHero = existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
+    const mergedHero = isVideo
+      ? {
+          ...prevHero,
+          type: 'video',
+          imageUrl: prevHero.imageUrl || heroImageUrl,
+          url: heroImageUrl,
+          videoUrl: heroImageUrl,
+          autoplay: true,
+          muted: true,
+          loop: true,
+        }
+      : {
+          ...prevHero,
+          type: 'image',
+          imageUrl: heroImageUrl,
+          url: heroImageUrl,
+          videoUrl: null,
+        };
     await patchDraftPreview(draft.id, {
       hero: mergedHero,
-      heroImageUrl,
+      heroImageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
+      ...(isVideo ? { heroVideo: heroImageUrl } : {}),
     });
-    return res.status(200).json({ ok: true, url: heroImageUrl, heroImageUrl });
+    return res.status(200).json({
+      ok: true,
+      url: heroImageUrl,
+      heroImageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
+      videoUrl: isVideo ? heroImageUrl : null,
+      mimeType: mime,
+      isVideo,
+    });
   } catch (err) {
     next(err);
   }
@@ -2183,6 +2399,7 @@ const StoreUpdateSchema = z.object({
     defaultView: z.enum(['list', 'grid']).optional(),
     allowUserToggle: z.boolean().optional(),
   }).optional(),
+  socialLinks: z.record(z.string()).nullable().optional(),
 }).refine(
   (data) => Object.keys(data).length > 0,
   {
@@ -2299,6 +2516,17 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
       if (typeof s.allowUserToggle === 'boolean') merged.allowUserToggle = s.allowUserToggle;
       prismaUpdateData.storefrontSettings = merged;
     }
+    if (updateData.socialLinks !== undefined) {
+      const normalized = normalizeSocialLinks(updateData.socialLinks);
+      if (!normalized.ok) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Validation error',
+          message: normalized.message,
+        });
+      }
+      prismaUpdateData.socialLinks = normalized.value;
+    }
 
     // Handle lifecycleStage update via stylePreferences.meta (if provided in request body)
     // This allows frontend to update lifecycleStage without modifying the schema
@@ -2328,11 +2556,39 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
       }
     }
 
+    const socialLinksUpdated = updateData.socialLinks !== undefined;
+
+    if (socialLinksUpdated) {
+      console.log('[SOCIAL_LINKS_DIRECT_WRITE]', {
+        storeId: id,
+        userId: req.userId ?? req.user?.id ?? null,
+        networks: Object.keys(prismaUpdateData.socialLinks ?? {}),
+        source: 'dashboard_patch',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Update store
     const updatedStore = await prisma.business.update({
       where: { id },
       data: prismaUpdateData
     });
+
+    if (
+      socialLinksUpdated &&
+      updatedStore.publishedAt != null &&
+      updatedStore.isActive === true
+    ) {
+      try {
+        await buildPersistAndApplyPublishedProjection(prisma, {
+          businessId: updatedStore.id,
+          tenantId: updatedStore.userId,
+          source: 'patchStoreSocialLinks',
+        });
+      } catch (err) {
+        console.warn('[Stores] socialLinks projection rebuild failed (non-fatal):', err?.message || err);
+      }
+    }
 
     console.log(`[Stores] ✅ Store updated: ${updatedStore.slug} by user ${req.userId}`);
 
@@ -2708,6 +2964,7 @@ router.post('/publish', requireAuth, async (req, res, next) => {
       generationRunId: generationRunId || undefined,
       draftId: draftId && typeof draftId === 'string' ? draftId.trim() : undefined,
       userId: req.userId,
+      entrypoint: 'stores_api_publish',
     });
 
     const publishedAt = new Date();

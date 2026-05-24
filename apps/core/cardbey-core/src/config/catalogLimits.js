@@ -8,3 +8,7 @@ export const CATALOG_ITEM_MAX = 300;
 export const CATALOG_CATEGORY_TARGET = 50; // max items per category (prompt guidance)
 export const CATALOG_ENRICH_BATCH = 30; // description enrich batch size (unchanged)
 export const CATALOG_IMAGE_ENRICH_MAX = 50; // image enrich cap per batch
+
+/** Paginated store product APIs (GET .../products). */
+export const API_PRODUCTS_DEFAULT_LIMIT = 50;
+export const API_PRODUCTS_MAX_LIMIT = CATALOG_ITEM_LIMIT;
