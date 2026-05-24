@@ -51,6 +51,23 @@ export function isServiceVertical(businessType) {
  * @param {string | null | undefined} businessType
  * @returns {{ transactionMode: 'booking' | 'order', catalogLabel: string, ctaLabel: string, ctaAction: string }}
  */
+/**
+ * Normalize CTA copy for service/booking stores — DB default is often "Order now".
+ * @param {{ businessType?: string | null, transactionMode?: string | null, ctaLabel?: string | null }} input
+ * @returns {string}
+ */
+export function coerceServiceCtaLabel({ businessType, transactionMode, ctaLabel } = {}) {
+  const trimmed = String(ctaLabel ?? '').trim();
+  const isService =
+    transactionMode === 'booking' || isServiceVertical(businessType);
+  if (isService) {
+    if (!trimmed || /^order\s+now$/i.test(trimmed)) return 'Book now';
+    return trimmed;
+  }
+  if (!trimmed) return 'Order now';
+  return trimmed;
+}
+
 export function resolveTransactionCommerce(businessType) {
   const isService = isServiceVertical(businessType);
   if (isService) {
