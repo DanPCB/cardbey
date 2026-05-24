@@ -110,21 +110,17 @@ export async function ensureMissionRowForBlackboardTx(tx, missionId) {
     return false;
   }
 
-  try {
-    await tx.mission.create({
-      data: {
-        id: pipe.id,
-        tenantId: tenantId || createdByUserId,
-        createdByUserId,
-        title: pipe.title != null ? String(pipe.title).trim() || null : null,
-        status: 'active',
-      },
-    });
-  } catch (e) {
-    const code = e?.code;
-    if (code === 'P2002') return true;
-    throw e;
-  }
+  await tx.mission.upsert({
+    where: { id: pipe.id },
+    create: {
+      id: pipe.id,
+      tenantId: tenantId || createdByUserId,
+      createdByUserId,
+      title: pipe.title != null ? String(pipe.title).trim() || null : null,
+      status: 'active',
+    },
+    update: {},
+  });
   return true;
 }
 
@@ -223,6 +219,19 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
     console.warn(`[missionBlackboard][traceId=${traceId}] appendEvent failed:`, msg);
     return { ok: false, error: msg };
   }
+}
+
+/**
+ * Set a dotted-path blackboard key for mission agents (append-only snapshot event).
+ * @param {string} missionId
+ * @param {string} key e.g. business.socialLinks
+ * @param {unknown} value
+ * @param {{ agentId?: string, correlationId?: string | null }} [opts]
+ */
+export async function setBlackboardKey(missionId, key, value, opts = {}) {
+  const k = typeof key === 'string' ? key.trim() : '';
+  if (!k) return { ok: false, error: 'blackboard_key_required' };
+  return appendEvent(missionId, 'blackboard_set', { key: k, value }, opts);
 }
 
 /**

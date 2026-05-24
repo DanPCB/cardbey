@@ -40,6 +40,17 @@ export const pushPlaylist = async (input, ctx) => {
     },
   });
 
+  console.log('[PLAYLIST_ASSIGN_DB_WRITE]', {
+    deviceId,
+    playlistId,
+    tenantId,
+    storeId,
+    bindingId: binding.id,
+    status: binding.status,
+    version: binding.version,
+    lastPushedAt: binding.lastPushedAt,
+  });
+
   // Push playlist to device via device service
   if (deviceService) {
     try {

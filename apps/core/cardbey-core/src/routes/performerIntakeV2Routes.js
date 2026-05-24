@@ -12,11 +12,18 @@ import {
   validateCreateStorePayload,
   detectPosterIntent,
   detectPosterEditIntent,
+  detectDeviceIntent,
+  blockCreateStoreOnCompletedMission,
 } from '../lib/intake/intakeSystemShortcuts.js';
 import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
+  isContextFreeTool,
+  CONTEXT_FREE_TOOLS,
 } from '../lib/intake/intakeContractValidate.js';
+
+/** Tools that don't require an active store context (confirm + dispatch). */
+const STORE_CONTEXT_FREE_TOOLS = CONTEXT_FREE_TOOLS;
 import { normalizePlan } from '../lib/intake/intakeNormalizePlan.js';
 import { evaluateExecutionPolicy, CONFIDENCE_MEDIUM, CONFIDENCE_HIGH } from '../lib/intake/intakeExecutionPolicy.js';
 import { emitIntakeV2Telemetry } from '../lib/intake/intakeTelemetry.js';
@@ -66,6 +73,16 @@ import { ocrExtractText } from '../lib/ocr/ocrProvider.js';
 import { buildCapabilityAssessmentSummary } from '../lib/capabilityAware/buildCapabilityAssessment.ts';
 import { extractRequirements } from '../lib/capabilityAware/requirementExtractor.ts';
 import { resolveCapabilityGaps, summarizeGaps } from '../lib/capabilityAware/gapModel.ts';
+import {
+  deriveIntakeSuccessFromToolResult,
+  normalizeArtifact,
+  resolveIntakeMessageFromToolResult,
+} from '../lib/artifacts/artifactContract.js';
+import { resolveRequestedCapability } from '../lib/capabilities/capabilityRegistry.js';
+import {
+  intakeSuccessFromCapabilityPlan,
+  resolveCapabilityExecutionPlan,
+} from '../lib/capabilities/capabilityResolver.js';
 import { deriveRole, derivePhase } from '../lib/capabilityAware/roleContext.ts';
 import { selectStrategy, summarizeStrategy } from '../lib/capabilityAware/strategySelector.ts';
 import { getDefaultPremiumPolicy } from '../lib/capabilityAware/premiumRouting.ts';
@@ -413,7 +430,7 @@ function buildTelemetryBase({
  */
 function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, userMessage, locale, classification, riskLevel }) {
   const execParams = { ...cleanedParams };
-  if (storeId && !execParams.storeId) execParams.storeId = storeId;
+  if (storeId && !execParams.storeId && !isContextFreeTool(tool)) execParams.storeId = storeId;
   const actorKey = resolveIntakeV2ActorKey(req);
   const scopeTenantKey = resolveIntakeV2TenantKey(req);
   if (!actorKey) {
@@ -481,6 +498,26 @@ const POST_BUILD_CHIP_HANDLERS = {
   improve_hero: handleUpdateStoreHero,
 };
 
+async function guardClassificationAgainstCompletedCreateStore(classification, missionId) {
+  if (!classification || classification.tool !== 'create_store') return classification;
+  const mid = typeof missionId === 'string' ? missionId.trim() : '';
+  if (!mid) return classification;
+  const prisma = getPrismaClient();
+  const row = await prisma.missionPipeline.findUnique({ where: { id: mid }, select: { status: true } });
+  const blocked = blockCreateStoreOnCompletedMission(row?.status, 'create_store');
+  if (!blocked) return classification;
+  return {
+    ...classification,
+    executionPath: 'direct_action',
+    tool: blocked.tool,
+    confidence: blocked.confidence,
+    parameters: classification.parameters ?? {},
+    message:
+      classification.message ||
+      'Your store is already built. Use the next-step suggestions to update your hero, catalog, or publish — or tell me what you want to change.',
+  };
+}
+
 /** After intake opens post-build UI, mirror chip flow: append `completed_action` for replan when mission-scoped. */
 async function maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams) {
   const rid = typeof missionId === 'string' ? missionId.trim() : '';
@@ -509,9 +546,34 @@ async function maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams) 
 }
 
 async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req }) {
-  const { dispatchTool } = await import('../lib/toolDispatcher.js');
-  const dispatchMissionId = missionId ?? `intake-v2-${Date.now()}`;
-  const payload = { ...cleanedParams, missionId: dispatchMissionId };
+  const { guardBrokerDirectAction } = await import('../lib/broker/brokerRunwayGuard.js');
+  const directGuard = guardBrokerDirectAction();
+  if (directGuard.blocked) {
+    return {
+      toolResult: {
+        status: 'blocked',
+        blocker: {
+          code: directGuard.code,
+          message: directGuard.message,
+        },
+      },
+      payload: { ...cleanedParams, missionId: missionId ?? null },
+    };
+  }
+
+  const { isBrokerDirectViaFacadeEnabled } = await import('../lib/broker/brokerFlags.js');
+  const { isPerformerRuntimeEnabled } = await import('../lib/runtime/performerRuntime/runtimeFlags.js');
+  const dispatchMissionId =
+    (typeof missionId === 'string' && missionId.trim()) ||
+    (typeof cleanedParams?.missionId === 'string' && cleanedParams.missionId.trim()) ||
+    null;
+
+  if (!dispatchMissionId) {
+    console.error('[MISSION] Missing missionId at direct tool dispatch', { tool });
+  }
+
+  const payload = { ...cleanedParams };
+  if (dispatchMissionId) payload.missionId = dispatchMissionId;
   if (storeId && !payload.storeId) payload.storeId = storeId;
   const performeeContextRaw =
     req?.body?.intentSourceContext &&
@@ -522,15 +584,133 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
       : null;
   const entry = String(performeeContextRaw?.entry ?? '').trim().toLowerCase();
   const source = entry === 'performee' ? 'performee' : 'performer';
-  const toolResult = await dispatchTool(tool, payload, {
+  const toolCtx = {
     missionId: dispatchMissionId,
+    activeMissionId: dispatchMissionId,
     userId: req.user?.id ?? null,
     createdBy: req.user?.id ?? null,
     tenantId: getTenantId(req.user),
     storeId: storeId ?? undefined,
-    source,
-  });
+    source: isBrokerDirectViaFacadeEnabled() ? 'performer_intake_facade' : source,
+  };
+
+  let toolResult;
+  if (isPerformerRuntimeEnabled()) {
+    const { performerRuntime } = await import('../lib/runtime/performerRuntime/performerRuntime.js');
+    const runtimeResult = await performerRuntime.execute({
+      actionType: 'dispatch_tool',
+      missionId: dispatchMissionId,
+      userId: req.user?.id ?? null,
+      tenantId: getTenantId(req.user),
+      storeId: storeId ?? undefined,
+      source: 'performer_intake_v2_runtime',
+      payload: { toolName: tool, input: payload, context: toolCtx },
+      skipDirectGuard: true,
+    });
+    toolResult = {
+      status: runtimeResult.status,
+      ...(runtimeResult.output !== undefined && { output: runtimeResult.output }),
+      ...(runtimeResult.error !== undefined && { error: runtimeResult.error }),
+      ...(runtimeResult.blocker !== undefined && { blocker: runtimeResult.blocker }),
+    };
+  } else if (isBrokerDirectViaFacadeEnabled()) {
+    const { executeMissionAction } = await import('../lib/execution/executeMissionAction.js');
+    const facade = await executeMissionAction({
+      actionType: 'dispatch_tool',
+      missionId: dispatchMissionId,
+      userId: req.user?.id ?? null,
+      tenantId: getTenantId(req.user),
+      storeId: storeId ?? undefined,
+      source: 'performer_intake_v2_direct',
+      payload: { toolName: tool, input: payload, context: toolCtx },
+    });
+    toolResult = {
+      status: facade.status,
+      ...(facade.output !== undefined && { output: facade.output }),
+      ...(facade.error !== undefined && { error: facade.error }),
+      ...(facade.blocker !== undefined && { blocker: facade.blocker }),
+    };
+  } else {
+    const { dispatchTool } = await import('../lib/toolDispatcher.js');
+    toolResult = await dispatchTool(tool, payload, toolCtx);
+  }
   return { toolResult, payload };
+}
+
+function buildDirectToolIntakeResponse(tool, toolResult, payload, locale, extras = {}) {
+  const artifact = normalizeArtifact(toolResult?.output?.artifact);
+  const ok = deriveIntakeSuccessFromToolResult(toolResult);
+  const response = resolveIntakeMessageFromToolResult(toolResult, locale);
+
+  return {
+    body: {
+      success: ok,
+      action: ok ? 'tool_call' : 'chat',
+      tool,
+      missionId: payload.missionId ?? null,
+      parameters: payload,
+      reasoning: extras.reasoning,
+      response,
+      result: artifact ? { ...toolResult?.output, artifact } : toolResult?.output ?? null,
+      artifacts: artifact ? [artifact] : toolResult?.output?.artifacts ?? [],
+      riskLevel: extras.riskLevel,
+    },
+    telemetryResult: ok ? 'success' : 'error',
+  };
+}
+
+/**
+ * Capability resolution for direct tools (promo video → slideshow/poster fallback offer).
+ * Does not auto-execute fallbacks.
+ *
+ * @returns {object | null} intake body when execution should stop before dispatch
+ */
+function buildCapabilityResolvedDirectToolBody(tool, cleanedParams, ctx) {
+  if (tool !== 'video_generate_multimodal') return null;
+
+  const {
+    userMessage,
+    locale,
+    missionId,
+    storeId,
+    currentContext,
+    classification,
+    riskLevel,
+  } = ctx;
+
+  const resolved = resolveRequestedCapability(userMessage, [tool], currentContext);
+  const capability = resolved === 'unknown' ? 'promo_video' : resolved;
+
+  const payload = { ...cleanedParams };
+  if (missionId) payload.missionId = missionId;
+  if (storeId && !payload.storeId) payload.storeId = storeId;
+
+  const plan = resolveCapabilityExecutionPlan({
+    capability,
+    requestedTool: tool,
+    userMessage,
+    locale,
+    context: currentContext,
+    persistedIntent: ctx.persistedIntent ?? null,
+  });
+
+  if (plan.selectedStrategy === 'primary') return null;
+
+  const action =
+    plan.selectedStrategy === 'missing_context' ? 'clarify' : 'capability_fallback';
+
+  return {
+    success: intakeSuccessFromCapabilityPlan(plan),
+    action,
+    tool,
+    missionId: payload.missionId ?? null,
+    parameters: payload,
+    reasoning: classification?._reasoning,
+    response: plan.userMessage,
+    capabilityPlan: plan,
+    options: plan.fallbackOptions,
+    riskLevel,
+  };
 }
 
 /** Deploy smoke / health — must return JSON (not SPA HTML). */
@@ -1029,6 +1209,27 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   // ── 1) System shortcuts ────────────────────────────────────────────────────
   if (!forcedTool) {
+    const deviceIntent = detectDeviceIntent(userMessage);
+    if (deviceIntent) {
+      const deviceEntry = getToolEntry(deviceIntent.tool);
+      return issueApprovalRequired({
+        req,
+        safeJson,
+        tool: deviceIntent.tool,
+        cleanedParams: deviceIntent.params,
+        storeId: effectiveStoreId,
+        userMessage,
+        locale,
+        classification: {
+          executionPath: deviceIntent.executionPath,
+          tool: deviceIntent.tool,
+          confidence: deviceIntent.confidence,
+          parameters: deviceIntent.params,
+        },
+        riskLevel: deviceEntry?.riskLevel ?? RISK.STATE_CHANGE,
+      });
+    }
+
     const shortcut = detectIntent({
       userMessage,
       auth: { userId: req.user?.id ?? null, isGuest: !req.user },
@@ -1383,6 +1584,20 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       } catch (e) {
         if (isDev) console.warn('[IntakeV2] generate_poster shortcut failed:', e?.message);
+      }
+    }
+
+    if (shortcut?.type === 'create_store') {
+      const midForGuard = typeof missionId === 'string' ? missionId.trim() : '';
+      if (midForGuard) {
+        const prismaGuard = getPrismaClient();
+        const missionRow = await prismaGuard.missionPipeline.findUnique({
+          where: { id: midForGuard },
+          select: { status: true },
+        });
+        if (blockCreateStoreOnCompletedMission(missionRow?.status, 'create_store')) {
+          shortcut = null;
+        }
       }
     }
 
@@ -1908,6 +2123,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
     }
   }
+
+  classification = await guardClassificationAgainstCompletedCreateStore(classification, missionId);
 
   if (classification?.tool === 'create_store') {
     const topLevelForm =
@@ -3346,6 +3563,29 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
     }
 
+    const capabilityResolvedBody = buildCapabilityResolvedDirectToolBody(tool, cleanedParams, {
+      userMessage,
+      locale,
+      missionId: directToolMissionId,
+      storeId,
+      currentContext,
+      classification,
+      riskLevel,
+      persistedIntent: loadedPersistedIntent ?? null,
+    });
+
+    if (capabilityResolvedBody) {
+      return safeJson(capabilityResolvedBody, {
+        classification: { ...classification, parameters: cleanedParams },
+        validated: true,
+        downgraded: classifierDowngraded,
+        downgradeReason: classifierReason,
+        validationErrors: [],
+        riskLevel,
+        result: capabilityResolvedBody.success ? 'success' : 'deferred',
+      });
+    }
+
     try {
       const { toolResult, payload } = await dispatchIntakeV2DirectTool(tool, cleanedParams, {
         missionId: directToolMissionId,
@@ -3353,36 +3593,20 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         req,
       });
 
-      const toolResponse =
-        toolResult?.output?.message ||
-        toolResult?.blocker?.message ||
-        toolResult?.error?.message ||
-        (locale === 'vi' ? 'Đã hoàn tất.' : 'Completed.');
+      const { body: intakeBody, telemetryResult } = buildDirectToolIntakeResponse(tool, toolResult, payload, locale, {
+        riskLevel,
+        reasoning: classification._reasoning,
+      });
 
-      return safeJson(
-        {
-          success: true,
-          action: 'tool_call',
-          tool,
-          // Synthetic id from dispatch when body had none — required for Turn 2 (e.g. edit_artifact hero Pexels confirm).
-          missionId: payload.missionId ?? missionId ?? null,
-          parameters: payload,
-          reasoning: classification._reasoning,
-          response: toolResponse,
-          result: toolResult?.output ?? null,
-          artifacts: toolResult?.output?.artifacts ?? [],
-          riskLevel,
-        },
-        {
-          classification: { ...classification, parameters: cleanedParams },
-          validated: true,
-          downgraded: classifierDowngraded,
-          downgradeReason: classifierReason,
-          validationErrors: [],
-          riskLevel,
-          result: 'success',
-        },
-      );
+      return safeJson(intakeBody, {
+        classification: { ...classification, parameters: cleanedParams },
+        validated: true,
+        downgraded: classifierDowngraded,
+        downgradeReason: classifierReason,
+        validationErrors: [],
+        riskLevel,
+        result: telemetryResult,
+      });
     } catch (e) {
       return safeJson(
         {
@@ -3493,7 +3717,12 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
   const tool = record.tool;
   const effectiveStore = storeIdNow || record.resolvedStoreIdAtPreview;
   const merged = { ...record.executionParameters };
-  if (effectiveStore && !merged.storeId) merged.storeId = effectiveStore;
+  const storeContextFree =
+    STORE_CONTEXT_FREE_TOOLS.has(tool) || isContextFreeTool(tool);
+
+  // No `if (!storeId || !activeStore)` guard here — confirm fails via validateIntakeClassification.
+  // Context-free tools (e.g. device.sendInput) must not inject storeId into strict schemas.
+  if (effectiveStore && !merged.storeId && !storeContextFree) merged.storeId = effectiveStore;
 
   const validation = validateIntakeClassification(
     {
@@ -3501,10 +3730,17 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
       tool,
       parameters: merged,
     },
-    effectiveStore,
+    storeContextFree ? null : effectiveStore,
   );
 
   if (!validation.ok) {
+    if (isDev) {
+      console.warn('[IntakeV2] confirm revalidation failed', {
+        tool,
+        errors: validation.errors,
+        mergedKeys: Object.keys(merged),
+      });
+    }
     emitConfirm({
       tool,
       validated: false,
@@ -3528,7 +3764,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
   try {
     const { toolResult, payload } = await dispatchIntakeV2DirectTool(tool, cleaned, {
       missionId,
-      storeId: effectiveStore,
+      storeId: storeContextFree ? undefined : effectiveStore,
       req,
     });
     deleteIntakeApprovalPreview(previewId);

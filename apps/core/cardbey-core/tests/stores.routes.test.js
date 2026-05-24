@@ -203,6 +203,44 @@ describe('Store routes - Phase 1 fields', () => {
     expect(res.body.store.phone).toBeNull();
   });
 
+  it('PATCH /api/stores/:id - persists and returns socialLinks', async () => {
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { userId: testUser.id },
+      process.env.JWT_SECRET || 'default-secret-change-this',
+    );
+
+    const socialLinks = {
+      instagram: 'https://instagram.com/mchairsalon',
+      whatsapp: 'https://wa.me/61400000000',
+    };
+
+    const res = await testRequest
+      .patch(`/api/stores/${testStore.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ socialLinks })
+      .expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.store.socialLinks).toEqual(socialLinks);
+  });
+
+  it('PATCH /api/stores/:id - rejects invalid socialLinks URL', async () => {
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { userId: testUser.id },
+      process.env.JWT_SECRET || 'default-secret-change-this',
+    );
+
+    const res = await testRequest
+      .patch(`/api/stores/${testStore.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ socialLinks: { instagram: 'not-a-url' } })
+      .expect(400);
+
+    expect(res.body.ok).toBe(false);
+  });
+
   it('GET /api/stores - returns stores with new Phase 1 fields', async () => {
     // Generate a JWT token for the test user
     const jwt = require('jsonwebtoken');

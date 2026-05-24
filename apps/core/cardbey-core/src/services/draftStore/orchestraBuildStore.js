@@ -399,6 +399,7 @@ export function runBuildStoreJob(prisma, jobId, draftId, generationRunId, traceI
             draftId,
             userId: taskUserId,
             generationRunId,
+            entrypoint: 'orchestra_auto_publish',
           });
           publishedStoreId = pub?.storeId ?? null;
           publishedSlug = pub?.slug ?? null;

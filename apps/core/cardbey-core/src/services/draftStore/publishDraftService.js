@@ -4,14 +4,79 @@
  *
  * Idempotency and multi-store:
  * - If the draft is already committed (status === 'committed', committedStoreId set), returns the existing store without creating a new Business.
- * - When storeId === 'temp', we always create a NEW Business (multi-store); we do not reuse the user's existing store.
+ * - When storeId === 'temp', reuse an existing Business for the same owner + slug when present (no duplicate slug per tenant).
  * Verification: Publish same draft twice -> second call returns same store. Guest draft -> sign in -> publish works. User with existing store(s) publishing temp draft -> new store created.
  */
 
-import { generateUniqueStoreSlug, slugify } from '../../utils/slug.js';
+import { generateUniqueStoreSlug, generateUniqueStoreSlugForTx, slugify } from '../../utils/slug.js';
+import { extendedBusinessFieldsFromCommerce } from '../../lib/dbCapabilities.js';
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
 import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
+import {
+  readCanonicalHeroFromPreview,
+  resolveMiniWebsiteForPublish,
+} from './draftPreviewHeroSync.js';
+import {
+  logPublishCanonicalTarget,
+  logPublishEntry,
+  logPublishRunway,
+  resolvePublishedStoreCopyFromPreview,
+} from './publishRunway.js';
+import { buildPersistAndApplyPublishedProjection } from '../publishedArtifactProjection/publishProjectionHooks.js';
+
+const BUSINESS_PUBLISH_SCALAR_KEYS = new Set([
+  'name',
+  'type',
+  'slug',
+  'description',
+  'tagline',
+  'logo',
+  'isActive',
+  'heroImageUrl',
+  'avatarImageUrl',
+  'publishedAt',
+  'stylePreferences',
+  'storefrontSettings',
+  'updatedAt',
+  'transactionMode',
+  'catalogLabel',
+  'ctaLabel',
+]);
+
+function parseStylePreferencesBlob(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed && !Array.isArray(parsed) ? { ...parsed } : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+async function loadExistingStylePreferences(prisma, businessId) {
+  if (!businessId) return {};
+  const row = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { stylePreferences: true },
+  });
+  return parseStylePreferencesBlob(row?.stylePreferences);
+}
+
+/** Prisma Business has no heroVideo column — keep video URL inside stylePreferences JSON only. */
+function sanitizeBusinessPublishData(data) {
+  const out = {};
+  for (const [key, value] of Object.entries(data ?? {})) {
+    if (key === 'heroVideo' || key === 'heroVideoUrl') continue;
+    if (!BUSINESS_PUBLISH_SCALAR_KEYS.has(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
 
 async function loadExistingStorefrontSettings(prisma, businessId) {
   if (!businessId) return {};
@@ -101,6 +166,26 @@ export class PublishDraftError extends Error {
   }
 }
 
+/** GET /api/public/stores/:slug only returns rows with isActive === true. */
+async function ensureBusinessPubliclyVisible(prisma, businessId, publishedAt = new Date()) {
+  const id = businessId != null ? String(businessId).trim() : '';
+  if (!id) return;
+  const row = await prisma.business.findUnique({
+    where: { id },
+    select: { isActive: true, publishedAt: true },
+  });
+  if (!row) return;
+  if (row.isActive === true && row.publishedAt) return;
+  await prisma.business.update({
+    where: { id },
+    data: {
+      isActive: true,
+      publishedAt: row.publishedAt ?? publishedAt,
+      updatedAt: publishedAt,
+    },
+  });
+}
+
 /**
  * Find target draft by storeId and optional generationRunId (same rules as stores.js publish handler).
  */
@@ -163,48 +248,85 @@ async function findTargetDraft(prisma, storeId, generationRunId) {
  * Publish a draft to a store. Creates Business if storeId is 'temp'.
  * When draftId is provided, that exact draft is used (ensures we publish the draft just saved by the client).
  * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
- * @param {{ storeId: string, generationRunId?: string, draftId?: string, userId: string }} params
+ * @param {{ storeId: string, generationRunId?: string, draftId?: string, userId: string, entrypoint?: string }} params
  * @returns {Promise<{ storeId: string, slug: string, storefrontUrl: string }>}
  * @throws {PublishDraftError} DRAFT_NOT_FOUND, AUTH_REQUIRED, etc.
  */
-export async function publishDraft(prisma, { storeId, generationRunId, draftId, userId }) {
+export async function publishDraft(prisma, {
+  storeId,
+  generationRunId,
+  draftId,
+  userId,
+  entrypoint = 'unknown',
+}) {
   if (!userId) {
     throw new PublishDraftError('AUTH_REQUIRED', 'Authentication required to publish a store.', 401);
   }
 
-  function extractDraftMiniWebsite(rawPreview) {
-    const draftStylePrefs =
-      rawPreview?.stylePreferences && typeof rawPreview.stylePreferences === 'object'
-        ? rawPreview.stylePreferences
-        : {};
-    const fromStylePrefs =
-      draftStylePrefs?.miniWebsite && typeof draftStylePrefs.miniWebsite === 'object'
-        ? draftStylePrefs.miniWebsite
-        : null;
-    const fromWebsite =
-      rawPreview?.website && typeof rawPreview.website === 'object'
-        ? rawPreview.website
-        : null;
-    return fromStylePrefs ?? fromWebsite ?? null;
-  }
+  logPublishEntry(entrypoint, {
+    storeId,
+    draftId: draftId ?? null,
+    generationRunId: generationRunId ?? null,
+    userId,
+  });
 
-  async function ensureMiniWebsiteOnBusiness(businessId, draftMiniWebsite) {
-    if (!draftMiniWebsite || !businessId) return;
+  /** Re-publish / idempotent: apply latest draft hero + miniWebsite and ensure public listing. */
+  async function syncPublishedStoreFromDraft(businessId, rawPreview, publishedAt = new Date()) {
+    const id = String(businessId ?? '').trim();
+    if (!id) return;
+
+    const { heroImage, heroVideo } = readCanonicalHeroFromPreview(rawPreview);
+    const miniWebsite = resolveMiniWebsiteForPublish(rawPreview);
+
+    const meta =
+      rawPreview?.meta && typeof rawPreview.meta === 'object' ? rawPreview.meta : {};
+    const storeLogo =
+      meta.profileAvatarUrl ??
+      meta.logo ??
+      (rawPreview?.avatar && (rawPreview.avatar.imageUrl ?? rawPreview.avatar.url)) ??
+      rawPreview?.avatarImageUrl ??
+      (rawPreview?.brand && rawPreview.brand.logoUrl) ??
+      rawPreview?.logo ??
+      null;
+    const resolvedAvatarUrl =
+      storeLogo == null
+        ? null
+        : typeof storeLogo === 'string'
+          ? storeLogo
+          : (storeLogo?.url ?? storeLogo?.imageUrl ?? null);
+
     const existing = await prisma.business.findUnique({
-      where: { id: businessId },
-      select: { stylePreferences: true },
+      where: { id },
+      select: { stylePreferences: true, heroImageUrl: true, avatarImageUrl: true, publishedAt: true },
     });
-    const existingPrefs =
-      existing?.stylePreferences && typeof existing.stylePreferences === 'object'
-        ? existing.stylePreferences
-        : {};
-    if (existingPrefs?.miniWebsite) return;
+    if (!existing) return;
+
+    const existingPrefs = parseStylePreferencesBlob(existing.stylePreferences);
+    const heroUrlForColumn = heroVideo || heroImage || existing.heroImageUrl;
+    const { tagline, description } = resolvePublishedStoreCopyFromPreview(rawPreview);
+
+    const stylePreferences = {
+      ...existingPrefs,
+      ...(heroImage ? { heroImage } : {}),
+      ...(heroVideo ? { heroVideo } : {}),
+      ...(miniWebsite ? { miniWebsite } : {}),
+      publishedAt: existingPrefs.publishedAt ?? publishedAt.toISOString(),
+    };
+
     await prisma.business.update({
-      where: { id: businessId },
-      data: {
-        stylePreferences: { ...existingPrefs, miniWebsite: draftMiniWebsite },
-      },
+      where: { id },
+      data: sanitizeBusinessPublishData({
+        isActive: true,
+        publishedAt: existing.publishedAt ?? publishedAt,
+        heroImageUrl: heroUrlForColumn || null,
+        ...(resolvedAvatarUrl ? { avatarImageUrl: resolvedAvatarUrl } : {}),
+        ...(tagline ? { tagline } : {}),
+        ...(description ? { description } : {}),
+        stylePreferences,
+        updatedAt: publishedAt,
+      }),
     });
+    logPublishRunway('STORE_CARD_SYNC', { businessId: id, slug: null, tagline, description });
   }
 
   const isTempStore = storeId === 'temp';
@@ -222,10 +344,13 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     }
   }
 
+  const explicitDraftId =
+    draftId && typeof draftId === 'string' && draftId.trim() ? draftId.trim() : null;
+
   let targetDraft = null;
-  if (draftId && typeof draftId === 'string' && draftId.trim()) {
+  if (explicitDraftId) {
     targetDraft = await prisma.draftStore.findUnique({
-      where: { id: draftId.trim() },
+      where: { id: explicitDraftId },
     });
     if (targetDraft && targetDraft.status === 'committed' && targetDraft.committedStoreId) {
       const existingStore = await prisma.business.findUnique({
@@ -233,11 +358,13 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
         select: { id: true, userId: true, slug: true },
       });
       if (existingStore && existingStore.userId === userId) {
-        // If a draft was previously published without miniWebsite, allow re-publish to backfill it.
+        const freshDraft = await prisma.draftStore.findUnique({ where: { id: targetDraft.id } });
+        if (freshDraft) targetDraft = freshDraft;
         const rawPreview = typeof targetDraft.preview === 'string'
           ? JSON.parse(targetDraft.preview)
           : (targetDraft.preview || {});
-        await ensureMiniWebsiteOnBusiness(existingStore.id, extractDraftMiniWebsite(rawPreview));
+        await syncPublishedStoreFromDraft(existingStore.id, rawPreview);
+        await ensureBusinessPubliclyVisible(prisma, existingStore.id);
         return {
           storeId: existingStore.id,
           slug: existingStore.slug,
@@ -245,16 +372,28 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
         };
       }
     }
-    if (targetDraft && targetDraft.status && !['draft', 'generating', 'ready', 'error'].includes(targetDraft.status)) {
+    if (
+      !explicitDraftId &&
+      targetDraft &&
+      targetDraft.status &&
+      !['draft', 'generating', 'ready', 'error', 'committed'].includes(targetDraft.status)
+    ) {
       targetDraft = null;
     }
   }
   if (!targetDraft) {
+    if (explicitDraftId) {
+      throw new PublishDraftError('draft_not_found', 'Draft not found. Please refresh the preview and try again.', 404);
+    }
     targetDraft = await findTargetDraft(prisma, storeId, generationRunId);
   }
   if (!targetDraft) {
     throw new PublishDraftError('draft_not_found', 'No draft to publish. Please generate a draft first.', 404);
   }
+
+  // Always read the latest persisted draft (hero edits may have landed just before publish).
+  const freshDraftRow = await prisma.draftStore.findUnique({ where: { id: targetDraft.id } });
+  if (freshDraftRow) targetDraft = freshDraftRow;
 
   // Idempotent: if this draft is already committed, return the existing store (no duplicate business/store).
   if (targetDraft.status === 'committed' && targetDraft.committedStoreId) {
@@ -263,11 +402,11 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
       select: { id: true, userId: true, slug: true },
     });
     if (existingStore && existingStore.userId === userId) {
-      // If a draft was previously published without miniWebsite, allow re-publish to backfill it.
       const rawPreview = typeof targetDraft.preview === 'string'
         ? JSON.parse(targetDraft.preview)
         : (targetDraft.preview || {});
-      await ensureMiniWebsiteOnBusiness(existingStore.id, extractDraftMiniWebsite(rawPreview));
+      await syncPublishedStoreFromDraft(existingStore.id, rawPreview);
+      await ensureBusinessPubliclyVisible(prisma, existingStore.id);
       return {
         storeId: existingStore.id,
         slug: existingStore.slug,
@@ -289,14 +428,15 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     }
   }
 
-  let effectiveStoreId = storeId;
+  let effectiveStoreId = isTempStore ? null : storeId;
   let reuseExistingBusiness = false;
   let existingBusinessForSafeUpdate = null;
+  /** Set when publishing storeId === 'temp' — Business row is created inside the publish transaction. */
+  let publishUserIdForTemp = null;
 
   if (isTempStore && !store) {
     const rawUserId = userId;
     const isGuestId = typeof rawUserId === 'string' && rawUserId.startsWith('guest_');
-    let publishUserId = null;
 
     if (isGuestId) {
       // Guests can publish in dev/test (auto-provisioned user). Production requires sign-in.
@@ -319,7 +459,7 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
           },
         });
       }
-      publishUserId = rawUserId;
+      publishUserIdForTemp = rawUserId;
     } else {
       const userExists = await prisma.user.findUnique({
         where: { id: rawUserId },
@@ -328,50 +468,14 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
       if (!userExists) {
         throw new PublishDraftError('user_not_found', 'User not found. Please sign in again.', 401);
       }
-      publishUserId = rawUserId;
+      publishUserIdForTemp = rawUserId;
     }
-
-    // Multi-store: when publishing a temp draft, always create a NEW store (never reuse user's existing store).
-    // Reusing caused "publish GIA DINH BAKERY" to overwrite/redirect to ABC Flowers when user already had one store.
-    const previewForSlug = typeof targetDraft.preview === 'string' ? JSON.parse(targetDraft.preview) : (targetDraft.preview || {});
-    const metaForSlug = previewForSlug?.meta || {};
-    const storeNameForCreate = metaForSlug.storeName || previewForSlug.storeName || 'My Store';
-    const storeTypeRawCreate = metaForSlug.storeType || previewForSlug.storeType || 'General';
-    const storeTypeCreate = String(storeTypeRawCreate).trim().toLowerCase() || 'general';
-    let slug = await generateUniqueStoreSlug(prisma, storeNameForCreate);
-    const businessCreateData = {
-      userId: publishUserId,
-      name: storeNameForCreate,
-      type: storeTypeCreate,
-      slug,
-      description: previewForSlug.description || previewForSlug.heroText || null,
-      isActive: false,
-    };
-    let newBusiness;
-    try {
-      newBusiness = await prisma.business.create({
-        data: businessCreateData,
-      });
-    } catch (createErr) {
-      // P2002 = unique constraint (e.g. slug race). Retry once with a timestamped base so slug is guaranteed unique.
-      if (createErr?.code === 'P2002') {
-        const fallbackBase = `${storeNameForCreate}-${Date.now()}`;
-        slug = await generateUniqueStoreSlug(prisma, fallbackBase);
-        newBusiness = await prisma.business.create({
-          data: { ...businessCreateData, slug },
-        });
-      } else {
-        throw createErr;
-      }
-    }
-    store = { id: newBusiness.id, userId: newBusiness.userId, name: newBusiness.name, slug: newBusiness.slug };
-    effectiveStoreId = newBusiness.id;
   }
 
   const rawPreview = typeof targetDraft.preview === 'string'
     ? JSON.parse(targetDraft.preview)
     : (targetDraft.preview || {});
-  const draftMiniWebsite = extractDraftMiniWebsite(rawPreview);
+  const draftMiniWebsite = resolveMiniWebsiteForPublish(rawPreview);
 
   // E2E guardrail: "Workflow Steps Are Immutable" — log when publish happens without preview step recorded
   const previewStepCompletedAt = rawPreview?.meta?.previewStepCompletedAt;
@@ -412,7 +516,10 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
   const storeName = meta.storeName || preview.storeName || (store && store.name) || 'My Store';
   const storeTypeRaw = meta.storeType || preview.storeType || (store && store.type) || 'General';
   const storeType = String(storeTypeRaw).trim().toLowerCase() || 'general';
-  const storeDescription = preview.description || preview.heroText || null;
+  const { tagline: storeTagline, description: storeDescription } = resolvePublishedStoreCopyFromPreview(
+    rawPreview,
+    preview,
+  );
   const storeLogo =
     meta.profileAvatarUrl ?? meta.logo
     ?? (preview.avatar && (preview.avatar.imageUrl ?? preview.avatar.url))
@@ -420,14 +527,9 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     ?? (preview.brand && preview.brand.logoUrl)
     ?? preview.logo
     ?? null;
-  let storeHeroImage =
-    meta.profileHeroUrl
-    ?? (preview.hero && (preview.hero.imageUrl ?? preview.hero.url))
-    ?? preview.heroImageUrl
-    ?? meta.heroImage
-    ?? preview.heroImage
-    ?? null;
-  const storeHeroVideo = meta.profileHeroVideoUrl ?? meta.heroVideo ?? preview.hero?.videoUrl ?? preview.heroVideo ?? null;
+  const canonicalHero = readCanonicalHeroFromPreview(rawPreview);
+  let storeHeroImage = canonicalHero.heroImage;
+  const storeHeroVideo = canonicalHero.heroVideo;
   let resolvedAvatarUrl = storeLogo == null
     ? null
     : typeof storeLogo === 'string'
@@ -446,17 +548,22 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
   if (!storeHeroImage && firstProductImageUrl) storeHeroImage = firstProductImageUrl;
   if (!resolvedAvatarUrl && firstProductImageUrl) resolvedAvatarUrl = firstProductImageUrl;
 
-  let newSlug = store && store.slug ? store.slug : await generateUniqueStoreSlug(prisma, storeName);
-  if (store && store.name && storeName !== store.name) {
-    newSlug = await generateUniqueStoreSlug(prisma, storeName);
+  /** For temp drafts the Business row is created in the transaction — slug is assigned there (avoids orphan slug reservations). */
+  let newSlug = store?.slug ?? null;
+  if (!isTempStore) {
+    if (!newSlug) {
+      newSlug = await generateUniqueStoreSlug(prisma, storeName);
+    }
+    if (store?.name && storeName !== store.name) {
+      newSlug = await generateUniqueStoreSlug(prisma, storeName);
+    }
   }
 
   const publishedAt = new Date();
 
   const BUSINESS_UPDATE_KEYS = [
-    'name', 'type', 'slug', 'description', 'logo', 'isActive',
+    'name', 'type', 'slug', 'description', 'tagline', 'logo', 'isActive',
     'heroImageUrl', 'avatarImageUrl', 'publishedAt', 'stylePreferences', 'storefrontSettings', 'updatedAt',
-    'transactionMode', 'catalogLabel', 'ctaLabel',
   ];
   const existingStorefrontSettings = await loadExistingStorefrontSettings(prisma, effectiveStoreId);
   const draftStorefront = rawPreview.storefront && typeof rawPreview.storefront === 'object'
@@ -486,9 +593,10 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     type: storeType,
     slug: newSlug,
     description: storeDescription,
+    tagline: storeTagline,
     logo: storeLogo ? (typeof storeLogo === 'string' ? storeLogo : JSON.stringify(storeLogo)) : null,
     isActive: true,
-    heroImageUrl: storeHeroImage || null,
+    heroImageUrl: storeHeroImage || storeHeroVideo || null,
     avatarImageUrl: resolvedAvatarUrl || null,
     publishedAt,
     stylePreferences: {
@@ -498,19 +606,22 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
       ...(draftMiniWebsite ? { miniWebsite: draftMiniWebsite } : {}),
     },
     ...(storefrontSettings !== undefined ? { storefrontSettings } : {}),
-    transactionMode: commerce.transactionMode,
-    catalogLabel: commerce.catalogLabel,
-    ctaLabel: commerce.ctaLabel,
     updatedAt: publishedAt,
+    ...extendedBusinessFieldsFromCommerce(commerce),
   };
 
-  let businessData = Object.fromEntries(
-    BUSINESS_UPDATE_KEYS.filter((k) => Object.prototype.hasOwnProperty.call(rawBusinessData, k)).map((k) => [k, rawBusinessData[k]])
+  let businessData = sanitizeBusinessPublishData(
+    Object.fromEntries(
+      BUSINESS_UPDATE_KEYS.filter((k) => Object.prototype.hasOwnProperty.call(rawBusinessData, k)).map((k) => [
+        k,
+        rawBusinessData[k],
+      ]),
+    ),
   );
 
   if (reuseExistingBusiness && existingBusinessForSafeUpdate) {
     const existing = existingBusinessForSafeUpdate;
-    const keepKeys = ['name', 'type', 'slug', 'description', 'logo', 'heroImageUrl', 'avatarImageUrl'];
+    const keepKeys = ['name', 'type', 'slug', 'description', 'logo'];
     for (const k of keepKeys) {
       const existingVal = existing[k];
       if (existingVal != null && existingVal !== '') {
@@ -523,6 +634,134 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
   let remappedMiniWebsiteForPublish = null;
 
   await prisma.$transaction(async (tx) => {
+    if (isTempStore && !effectiveStoreId) {
+      const ownerId = publishUserIdForTemp;
+      if (!ownerId) {
+        throw new PublishDraftError('AUTH_REQUIRED', 'Authentication required to publish a store.', 401);
+      }
+
+      const intendedSlug = slugify(storeName);
+      let matchedBusiness = null;
+
+      if (targetDraft.committedStoreId) {
+        matchedBusiness = await tx.business.findFirst({
+          where: { id: targetDraft.committedStoreId, userId: ownerId },
+          select: { id: true, userId: true, name: true, slug: true },
+        });
+        if (matchedBusiness) {
+          logPublishRunway('STORE_UPSERT_MATCH', {
+            reason: 'draft_committed_store_id',
+            businessId: matchedBusiness.id,
+            slug: matchedBusiness.slug,
+            tenantId: ownerId,
+            draftId: targetDraft.id,
+          });
+        }
+      }
+
+      if (!matchedBusiness && intendedSlug) {
+        matchedBusiness = await tx.business.findFirst({
+          where: { userId: ownerId, slug: intendedSlug },
+          select: { id: true, userId: true, name: true, slug: true },
+        });
+        if (matchedBusiness) {
+          logPublishRunway('STORE_UPSERT_MATCH', {
+            reason: 'tenant_slug',
+            businessId: matchedBusiness.id,
+            slug: matchedBusiness.slug,
+            tenantId: ownerId,
+            draftId: targetDraft.id,
+          });
+        }
+      }
+
+      if (matchedBusiness) {
+        effectiveStoreId = matchedBusiness.id;
+        store = {
+          id: matchedBusiness.id,
+          userId: matchedBusiness.userId,
+          name: matchedBusiness.name,
+          slug: matchedBusiness.slug,
+        };
+        newSlug = matchedBusiness.slug;
+        logPublishRunway('STORE_UPSERT_UPDATE', {
+          businessId: matchedBusiness.id,
+          slug: matchedBusiness.slug,
+          tenantId: ownerId,
+          draftId: targetDraft.id,
+        });
+        logPublishRunway('DUPLICATE_STORE_PREVENTED', {
+          businessId: matchedBusiness.id,
+          slug: matchedBusiness.slug,
+          tenantId: ownerId,
+          draftId: targetDraft.id,
+        });
+      } else {
+        let slugForCreate = await generateUniqueStoreSlugForTx(tx, storeName);
+        let createdBusiness;
+        try {
+          createdBusiness = await tx.business.create({
+            data: {
+              userId: ownerId,
+              name: storeName,
+              type: storeType,
+              slug: slugForCreate,
+              description: storeDescription,
+              tagline: storeTagline,
+              isActive: false,
+            },
+          });
+        } catch (createErr) {
+          if (createErr?.code === 'P2002') {
+            const retrySlug = intendedSlug
+              ? await tx.business.findFirst({
+                  where: { userId: ownerId, slug: intendedSlug },
+                  select: { id: true, userId: true, name: true, slug: true },
+                })
+              : null;
+            if (retrySlug) {
+              createdBusiness = retrySlug;
+              logPublishRunway('STORE_UPSERT_MATCH', {
+                reason: 'slug_unique_race',
+                businessId: retrySlug.id,
+                slug: retrySlug.slug,
+                tenantId: ownerId,
+              });
+            } else {
+              slugForCreate = await generateUniqueStoreSlugForTx(tx, `${storeName}-${Date.now()}`);
+              createdBusiness = await tx.business.create({
+                data: {
+                  userId: ownerId,
+                  name: storeName,
+                  type: storeType,
+                  slug: slugForCreate,
+                  description: storeDescription,
+                  tagline: storeTagline,
+                  isActive: false,
+                },
+              });
+            }
+          } else {
+            throw createErr;
+          }
+        }
+        effectiveStoreId = createdBusiness.id;
+        store = {
+          id: createdBusiness.id,
+          userId: createdBusiness.userId,
+          name: createdBusiness.name,
+          slug: createdBusiness.slug,
+        };
+        newSlug = createdBusiness.slug;
+        logPublishRunway('STORE_UPSERT_CREATE', {
+          businessId: createdBusiness.id,
+          slug: createdBusiness.slug,
+          tenantId: ownerId,
+          draftId: targetDraft.id,
+        });
+      }
+    }
+
     await tx.product.deleteMany({
       where: { businessId: effectiveStoreId },
     });
@@ -561,19 +800,28 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
         ? remapMiniWebsiteFeaturedProductIds(draftMiniWebsite, products, publishedIdsByDraftIndex)
         : null;
 
+    const existingStylePrefs = await loadExistingStylePreferences(tx, effectiveStoreId);
     const stylePreferencesFinal = {
+      ...existingStylePrefs,
       ...(businessData.stylePreferences && typeof businessData.stylePreferences === 'object'
         ? businessData.stylePreferences
         : {}),
       ...(remappedMiniWebsiteForPublish ? { miniWebsite: remappedMiniWebsiteForPublish } : {}),
+      ...(storeHeroVideo ? { heroVideo: storeHeroVideo } : {}),
+      ...(storeHeroImage ? { heroImage: storeHeroImage } : {}),
     };
+
+    const slugForUpdate = newSlug ?? store?.slug ?? businessData.slug;
+    if (slugForUpdate) {
+      businessData.slug = slugForUpdate;
+    }
 
     await tx.business.update({
       where: { id: effectiveStoreId },
-      data: {
+      data: sanitizeBusinessPublishData({
         ...businessData,
         stylePreferences: stylePreferencesFinal,
-      },
+      }),
     });
 
     await transitionDraftStoreStatus({
@@ -613,17 +861,62 @@ export async function publishDraft(prisma, { storeId, generationRunId, draftId, 
     }
   });
 
-  // Ensure miniWebsite is set even if business already existed (idempotent re-publish backfill).
-  await ensureMiniWebsiteOnBusiness(
-    effectiveStoreId,
-    remappedMiniWebsiteForPublish ?? draftMiniWebsite,
-  );
+  const rawPreviewForSync = {
+    ...rawPreview,
+    ...(remappedMiniWebsiteForPublish
+      ? { website: remappedMiniWebsiteForPublish }
+      : {}),
+  };
+  await syncPublishedStoreFromDraft(effectiveStoreId, rawPreviewForSync, publishedAt);
+  await ensureBusinessPubliclyVisible(prisma, effectiveStoreId, publishedAt);
 
-  const storefrontUrl = `/app/store/${effectiveStoreId}`;
+  await buildPersistAndApplyPublishedProjection(prisma, {
+    businessId: effectiveStoreId,
+    tenantId: userId,
+    draft: targetDraft,
+    draftPreview: rawPreviewForSync,
+    publishRunId: targetDraft.id,
+    source: entrypoint ?? 'publishDraft',
+  });
+
   const business = await prisma.business.findUnique({
     where: { id: effectiveStoreId },
-    select: { slug: true },
+    select: { slug: true, isActive: true, publishedAt: true },
   });
+  if (!business?.isActive) {
+    throw new PublishDraftError(
+      'publish_not_active',
+      'Store publish did not activate the public listing. Please try publishing again.',
+      500,
+    );
+  }
+
+  logPublishCanonicalTarget({
+    businessId: effectiveStoreId,
+    slug: business?.slug ?? newSlug,
+    draftId: targetDraft.id,
+    tenantId: userId,
+    entrypoint,
+  });
+  logPublishRunway('STORE_CARD_SYNC', {
+    businessId: effectiveStoreId,
+    slug: business?.slug ?? newSlug,
+    tagline: storeTagline,
+    description: storeDescription,
+  });
+
+  if (process.env.NODE_ENV !== 'test') {
+    console.log('[publishDraft] store published', {
+      storeId: effectiveStoreId,
+      slug: business.slug,
+      isActive: business.isActive,
+      publishedAt: business.publishedAt,
+      draftId: targetDraft.id,
+      entrypoint,
+    });
+  }
+
+  const storefrontUrl = `/app/store/${effectiveStoreId}`;
   refreshPersonalPresenceQrForBusiness(prisma, effectiveStoreId).catch((e) => {
     console.warn('[PublishDraft] refreshPersonalPresenceQrForBusiness failed (non-fatal):', e?.message || e);
   });

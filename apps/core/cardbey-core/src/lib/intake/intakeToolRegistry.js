@@ -451,6 +451,43 @@ export const INTAKE_TOOL_REGISTRY = [
     examples: ['customize hero image', 'change my banner', 'update hero photo', 'change the main store image'],
   },
   {
+    toolName: 'setBusinessSocialLinks',
+    executionPath: 'direct_action',
+    label: 'Set Business Social Links',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        storeId: { type: 'string' },
+        socialLinks: {
+          type: 'object',
+          properties: {
+            instagram: { type: 'string', description: 'Full Instagram profile URL' },
+            facebook: { type: 'string', description: 'Full Facebook page URL' },
+            tiktok: { type: 'string', description: 'Full TikTok profile URL' },
+            x: { type: 'string', description: 'Full X (Twitter) profile URL' },
+            youtube: { type: 'string', description: 'Full YouTube channel URL' },
+            linkedin: { type: 'string', description: 'Full LinkedIn company page URL' },
+            whatsapp: { type: 'string', description: 'WhatsApp link (wa.me format)' },
+          },
+        },
+      },
+    },
+    requiredParams: ['storeId'],
+    optionalParams: ['socialLinks'],
+    semanticDescription: `Set or update social network profile links for a business store.
+Only provide networks explicitly mentioned by the user — use full https URLs.
+Do not invent social URLs; ask the user if unsure.`,
+    examples: [
+      'add my Instagram https://instagram.com/mchairsalon',
+      'set our Facebook and WhatsApp links',
+      'update social accounts for my store',
+    ],
+  },
+  {
     toolName: 'publish_store',
     executionPath: 'direct_action',
     label: 'Publish Store',
@@ -533,6 +570,31 @@ or share their website with customers.`,
     ],
     semanticDescription: `Orders, sales, revenue, growth targets, best sellers.`,
     examples: ['show me my orders', 'set a revenue goal', 'increase sales target by 10%'],
+  },
+  {
+    toolName: 'device.sendInput',
+    executionPath: 'direct_action',
+    label: 'Device Control',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: false,
+    approvalRequired: true,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      required: ['task'],
+      properties: {
+        task: { type: 'string' },
+      },
+    },
+    requiredParams: ['task'],
+    optionalParams: [],
+    semanticDescription: `Control the user's local computer via SuperCopilot (open apps, type text, click UI). Not for C-Net TV/screens listing.`,
+    examples: [
+      'use device control to open Notepad',
+      'open notepad on my computer',
+      'type hello in notepad',
+      'click save on my screen',
+    ],
   },
   {
     toolName: 'signage.list-devices',
@@ -813,6 +875,194 @@ or share their website with customers.`,
     semanticDescription: `Export the current Contents Studio canvas design to the content suitcase (PNG or JPEG). Default format PNG.`,
     examples: ['export this design to my suitcase', 'save the canvas as a PNG'],
   },
+  {
+    toolName: 'scanHardcodedStrings',
+    executionPath: 'direct_action',
+    label: 'Scan hardcoded strings',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['scan', 'i18n', 'hardcoded', 'translation', 'audit'],
+    parameterSchema: {
+      properties: {
+        filePath: { type: 'string' },
+      },
+    },
+    requiredParams: ['filePath'],
+    optionalParams: [],
+    semanticDescription:
+      'Scan a source file for hardcoded user-facing strings that bypass the i18n translation system',
+    examples: ['scan this file for hardcoded strings', 'audit i18n in StoreBookingSteps.tsx'],
+  },
+  {
+    toolName: 'checkI18nKey',
+    executionPath: 'direct_action',
+    label: 'Check i18n key',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['check', 'key', 'translation', 'exists'],
+    parameterSchema: {
+      properties: {
+        key: { type: 'string' },
+        locale: { type: 'string' },
+      },
+    },
+    requiredParams: ['key'],
+    optionalParams: ['locale'],
+    semanticDescription: 'Check if a translation key exists in i18n.js for a given locale',
+    examples: ['check if booking.summary exists', 'does common.bookNow exist in Vietnamese'],
+  },
+  {
+    toolName: 'addI18nKey',
+    executionPath: 'direct_action',
+    label: 'Add i18n key',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['add', 'key', 'translation', 'locale'],
+    parameterSchema: {
+      properties: {
+        namespace: { type: 'string' },
+        key: { type: 'string' },
+        translations: { type: 'object' },
+      },
+    },
+    requiredParams: ['namespace', 'key', 'translations'],
+    optionalParams: [],
+    semanticDescription: 'Add translation key with values for all active locales to i18n.js',
+    examples: ['add booking.summary key for en and vi', 'insert common.back translation'],
+  },
+  {
+    toolName: 'wireI18nString',
+    executionPath: 'direct_action',
+    label: 'Wire i18n string',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['wire', 'fix', 'replace', 'translation'],
+    parameterSchema: {
+      properties: {
+        filePath: { type: 'string' },
+        originalString: { type: 'string' },
+        i18nKey: { type: 'string' },
+        namespace: { type: 'string' },
+        type: { type: 'string' },
+      },
+    },
+    requiredParams: ['filePath', 'originalString', 'i18nKey'],
+    optionalParams: ['namespace', 'type'],
+    semanticDescription: 'Replace hardcoded string in a component with t() translation call',
+    examples: ['wire Book now to common.bookNow', 'replace hardcoded label with t() call'],
+  },
+  {
+    toolName: 'generateI18nKey',
+    executionPath: 'direct_action',
+    label: 'Generate i18n key',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['generate', 'key', 'namespace', 'camelcase'],
+    parameterSchema: {
+      properties: {
+        value: { type: 'string' },
+        namespace: { type: 'string' },
+        filePath: { type: 'string' },
+      },
+    },
+    requiredParams: ['value'],
+    optionalParams: ['namespace', 'filePath'],
+    semanticDescription: 'Derive camelCase key name and namespace from string value and file path',
+    examples: ['generate key for Book now in booking flow', 'suggest namespace for this label'],
+  },
+  {
+    toolName: 'translateString',
+    executionPath: 'direct_action',
+    label: 'Translate string',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['translate', 'language', 'localize', 'vietnamese', 'i18n'],
+    parameterSchema: {
+      properties: {
+        value: { type: 'string' },
+        targetLocales: { type: 'array' },
+        context: { type: 'string' },
+      },
+    },
+    requiredParams: ['value', 'targetLocales'],
+    optionalParams: ['context'],
+    semanticDescription: 'Translate UI string into target locales using Claude API',
+    examples: ['translate Book now to Vietnamese', 'localize this button label for vi and zh'],
+  },
+  {
+    toolName: 'runI18nTests',
+    executionPath: 'direct_action',
+    label: 'Run i18n tests',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['test', 'i18n', 'regression', 'verify'],
+    parameterSchema: {
+      properties: {
+        testPattern: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['testPattern'],
+    semanticDescription: 'Run i18n test suite to confirm no regression after translation changes',
+    examples: ['run i18n tests', 'verify translation changes did not break tests'],
+  },
+  {
+    toolName: 'reportI18nProgress',
+    executionPath: 'direct_action',
+    label: 'Report i18n progress',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: false,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    category: 'i18n',
+    intentKeywords: ['report', 'progress', 'summary', 'blackboard'],
+    parameterSchema: {
+      properties: {
+        missionId: { type: 'string' },
+        filesScanned: { type: 'number' },
+        filesFixed: { type: 'number' },
+        stringsFound: { type: 'number' },
+        stringsWired: { type: 'number' },
+        keysAdded: { type: 'number' },
+        skipped: { type: 'array' },
+        errors: { type: 'array' },
+        locales: { type: 'array' },
+      },
+    },
+    requiredParams: ['missionId'],
+    optionalParams: ['filesScanned', 'filesFixed', 'stringsFound', 'stringsWired', 'keysAdded', 'skipped', 'errors', 'locales'],
+    semanticDescription: 'Write i18n repair progress summary to MissionBlackboard',
+    examples: ['report i18n repair progress', 'summarize strings wired on blackboard'],
+  },
 ];
 
 /** @param {string} toolName */
@@ -835,9 +1085,11 @@ export function formatToolRegistryForPrompt() {
             : '(chat)';
       const risk =
         t.riskLevel === RISK.STATE_CHANGE ? ' ⚠ state_change' : t.riskLevel === RISK.DESTRUCTIVE ? ' ⚠ destructive' : '';
+      const description = String(t.semanticDescription ?? t.description ?? '').trim();
+      const descriptionPreview = description.length > 100 ? `${description.slice(0, 100)}…` : description;
+      const examples = Array.isArray(t.examples) ? t.examples.slice(0, 3).join('; ') : '';
       return `${i + 1}. ${t.toolName} ${path}${risk}
-   ${String(t.semanticDescription).trim()}
-   Examples: ${t.examples.slice(0, 3).join('; ')}`;
+   ${descriptionPreview}${examples ? `\n   Examples: ${examples}` : ''}`;
     })
     .join('\n\n');
 }
@@ -951,3 +1203,4 @@ export function allowedPlanToolClosure(destinationTool) {
 export function planRoleOrder(role) {
   return ROLE_SORT[role] ?? 99;
 }
+

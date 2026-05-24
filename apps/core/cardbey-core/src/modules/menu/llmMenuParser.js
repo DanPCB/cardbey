@@ -75,6 +75,8 @@ export async function parseMenuWithLLM(input) {
 You extract structured line items from menus, service price lists, and retail catalogs for any business vertical.
 You receive raw OCR text plus optional UI labels. Return a clean JSON object with normalized item names and categories
 that fit the given store name and store type — do not assume the business is a cafe unless the text clearly shows cafe items.
+Never invent placeholder items such as "Standard Service", "Premium Service", or "Add-on" when the OCR does not contain them.
+If the OCR is unreadable, return an empty items array.
 
 ALWAYS respond with valid JSON ONLY.
 `.trim();

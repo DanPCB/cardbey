@@ -96,6 +96,7 @@ router.post('/publish/cardbey', requireAuth, async (req, res, next) => {
       storeId: 'temp',
       draftId: draftStoreId,
       userId: req.userId,
+      entrypoint: 'mini_website_modal',
     });
 
     let slug = result.slug;

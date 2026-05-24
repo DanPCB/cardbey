@@ -12,6 +12,7 @@
  */
 
 import { dispatchTool } from '../toolDispatcher.js';
+import { withExecutionTelemetry } from '../broker/executionTelemetry.js';
 
 /**
  * @typedef {'dispatch_tool' | 'run_pipeline_step'} ExecutionFacadeActionType
@@ -97,7 +98,7 @@ export async function executeMissionAction(request) {
       payload.context && typeof payload.context === 'object' && !Array.isArray(payload.context)
         ? payload.context
         : buildDispatchContextFallback(request);
-    const dr = await dispatchTool(toolName, input, toolCtx);
+    const dr = await dispatchTool(toolName, input, { ...toolCtx, source });
     return {
       status: dr.status,
       ...(dr.output !== undefined && { output: dr.output }),
@@ -117,7 +118,17 @@ export async function executeMissionAction(request) {
       };
     }
     const { runNextMissionPipelineStep } = await import('../missionPipelineRunner.js');
-    const raw = await runNextMissionPipelineStep(id);
+    const raw = await withExecutionTelemetry({
+      actionId: 'pipeline:run_next_step',
+      source,
+      missionId: id,
+      intentId: request.intentId ?? null,
+      run: () => runNextMissionPipelineStep(id),
+      mapResult: (r) => ({
+        status: r.ok ? 'completed' : 'failed',
+        failureCode: r.error?.code ?? null,
+      }),
+    });
     const status = raw.ok ? 'ok' : 'failed';
     return {
       status,

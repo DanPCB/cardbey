@@ -12,6 +12,10 @@
 
 import { getToolDefinition } from './toolRegistry.js';
 import { getExecutor } from './toolExecutors/index.js';
+import {
+  actionIdForTool,
+  withExecutionTelemetry,
+} from './broker/executionTelemetry.js';
 
 /**
  * @typedef {import('./toolRegistry.js').ToolDefinition} ToolDefinition
@@ -38,6 +42,21 @@ import { getExecutor } from './toolExecutors/index.js';
  */
 export async function dispatchTool(toolName, input = {}, context = undefined) {
   const name = typeof toolName === 'string' ? toolName.trim() : '';
+  const ctx =
+    context && typeof context === 'object' && !Array.isArray(context) ? context : {};
+
+  const ownership = await import('./runtime/performerRuntime/runtimeOwnership.js');
+  const ownershipCheck = ownership.assertRuntimeOwnership(ctx, ctx.source ?? 'tool_dispatcher');
+  if (!ownershipCheck.allowed) {
+    return {
+      status: 'blocked',
+      blocker: {
+        code: ownershipCheck.code,
+        message: ownershipCheck.message,
+      },
+    };
+  }
+
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[ToolDispatcher] dispatching tool: ${name || '(empty)'}`);
   }
@@ -52,12 +71,29 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
       error: { code: 'INVALID_TOOL_NAME', message: 'toolName is required' },
     };
   }
-  /** GIF slideshow is built in the dashboard and uploaded via /api/media/upload. */
-  if (name === 'generate_slideshow') {
-    return {
-      status: 'ok',
-      output: { slideshowUrl: null, status: 'pending_client_export' },
-    };
+
+  if (name === 'device.sendInput') {
+    const params = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+    let task = String(params.task ?? params.description ?? params.goal ?? '').trim();
+    // Strip Performer trigger phrases — SuperCopilot only needs the action.
+    task = task
+      .replace(/^use (the |control )?device (to )?/i, '')
+      .replace(/^control device (to )?/i, '')
+      .trim();
+    const deviceId = params.deviceId != null ? String(params.deviceId).trim() : undefined;
+    console.log('[device.sendInput] dispatch attempt', {
+      task,
+      deviceId,
+      hasTask: Boolean(task),
+    });
+    console.log('[device.sendInput] cleaned task:', task);
+    if (!task) {
+      return {
+        status: 'failed',
+        error: { code: 'INVALID_INPUT', message: 'task parameter is required' },
+      };
+    }
+    input = { ...params, task, description: task, goal: task };
   }
 
   // Proactive-only tools are handled by performerProactiveStepRoutes, not toolDispatcher.
@@ -99,8 +135,31 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
     };
   }
 
+  const missionId =
+    (typeof ctx.missionId === 'string' && ctx.missionId.trim()) ||
+    (typeof ctx.activeMissionId === 'string' && ctx.activeMissionId.trim()) ||
+    null;
+  const intentId = typeof ctx.intentId === 'string' && ctx.intentId.trim() ? ctx.intentId.trim() : null;
+  const telemetrySource =
+    typeof ctx.source === 'string' && ctx.source.trim() ? ctx.source.trim() : 'tool_dispatcher';
+
   try {
-    const result = await executor.execute(input, context);
+    const result = await withExecutionTelemetry({
+      actionId: actionIdForTool(name),
+      toolName: name,
+      source: telemetrySource,
+      missionId,
+      intentId,
+      run: () => executor.execute(input, context),
+      mapResult: (r) => {
+        const status =
+          r?.status === 'blocked' ? 'blocked' : r?.status === 'failed' ? 'failed' : 'completed';
+        return {
+          status,
+          failureCode: r?.error?.code ?? r?.blocker?.code ?? null,
+        };
+      },
+    });
     const status = result?.status === 'blocked' ? 'blocked' : result?.status === 'failed' ? 'failed' : 'ok';
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[ToolDispatcher] completed tool: ${name} status=${status}`);

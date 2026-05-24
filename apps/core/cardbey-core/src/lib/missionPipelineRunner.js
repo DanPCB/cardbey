@@ -495,6 +495,63 @@ export async function runNextMissionPipelineStep(missionId) {
   }
 
   if (allStepsDone && stepUpdate.status === 'completed') {
+    const missionRow = await prisma.mission.findUnique({
+      where: { id },
+      select: { context: true },
+    });
+    const missionCtx =
+      missionRow?.context && typeof missionRow.context === 'object' && !Array.isArray(missionRow.context)
+        ? missionRow.context
+        : {};
+    const pipeMeta =
+      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+        ? mission.metadataJson
+        : {};
+    const tier2PendingCtx =
+      missionCtx.storeBuildQaTier2Pending ?? pipeMeta.storeBuildQaTier2Pending ?? null;
+    const isPendingApproval =
+      missionCtx.qaApprovalPending === true ||
+      pipeMeta.qaApprovalPending === true ||
+      (tier2PendingCtx &&
+        typeof tier2PendingCtx === 'object' &&
+        (tier2PendingCtx.draftId || (Array.isArray(tier2PendingCtx.fixes) && tier2PendingCtx.fixes.length > 0)));
+
+    if (process.env.NODE_ENV !== 'production' || process.env.QA_AUTOFIX_DEBUG === '1') {
+      console.log('[pipeline-debug] checking qa gate:', {
+        qaApprovalPending: missionCtx.qaApprovalPending ?? pipeMeta.qaApprovalPending,
+        storeBuildQaTier2Pending: Boolean(tier2PendingCtx),
+        allStepsComplete: allStepsDone,
+        isPendingApproval,
+      });
+    }
+
+    if (isPendingApproval) {
+      const dualMetaAwaiting = await buildRunnerDualWriteMetadataJson(
+        prisma,
+        id,
+        mission.metadataJson,
+        outputsToPersist,
+      );
+      await prisma.missionPipeline.update({
+        where: { id },
+        data: {
+          status: 'awaiting_input',
+          runState: 'blocked_on_checkpoint',
+          progressCompletedSteps: completedCount,
+          progressTotalSteps: totalSteps,
+          currentStepId: null,
+          outputsJson: outputsToPersist,
+          ...(dualMetaAwaiting != null ? { metadataJson: dualMetaAwaiting } : {}),
+        },
+      });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[MissionRunner] catalog Tier 2 approval pending — mission held at awaiting_input', {
+          missionId: id,
+        });
+      }
+      return { ok: true, stepRun: true, toolName, status: 'awaiting_input', runState: 'blocked_on_checkpoint' };
+    }
+
     const dualMetaComplete = await buildRunnerDualWriteMetadataJson(
       prisma,
       id,

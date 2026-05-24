@@ -34,6 +34,27 @@ function extractToken(req) {
 }
 
 /**
+ * When Authorization Bearer carries a guest JWT, return canonical guest user id (`guest_*`).
+ * Cookie `guestSessionId` must not override this principal on protected routes.
+ * @param {import('express').Request} req
+ * @returns {string|null}
+ */
+export function extractGuestUserIdFromBearer(req) {
+  const token = extractToken(req);
+  if (!token || token === 'dev-admin-token') return null;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.role === 'guest' && decoded.auth === 'guest') {
+      const userId = decoded.userId || decoded.sub;
+      return typeof userId === 'string' && userId.trim() ? userId.trim() : null;
+    }
+  } catch {
+    /* not a guest JWT */
+  }
+  return null;
+}
+
+/**
  * Require authentication middleware
  * Validates JWT and attaches user to req.user
  * Also supports dev tokens for development

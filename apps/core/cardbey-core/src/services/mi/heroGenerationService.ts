@@ -5,6 +5,10 @@
  */
 
 import { generateImageUrlForDraftItem } from '../menuVisualAgent/menuVisualAgent';
+import {
+  businessNameOverridesHeroCategory,
+  resolveHeroSearchSubject,
+} from '../../lib/seedLibrary/getSeedImageForCategory.js';
 
 export interface GenerateHeroForDraftArgs {
   storeName?: string | null;
@@ -49,12 +53,13 @@ export async function generateHeroForDraft(
   args: GenerateHeroForDraftArgs
 ): Promise<GenerateHeroForDraftResult> {
   const { storeName, businessType, storeType, verticalSlug, verticalGroup } = args;
-  const subject = [storeName || null, businessType || null].filter(Boolean).join(' ') || 'store';
-  const searchSubject = `${subject} hero banner`;
+  const category = businessType || storeType || null;
+  const searchSubject = resolveHeroSearchSubject(storeName, category);
   const styleName = styleForDraft(businessType, storeType);
 
+  const skipVerticalProfile = businessNameOverridesHeroCategory(storeName, category);
   const profile =
-    verticalSlug || verticalGroup
+    !skipVerticalProfile && (verticalSlug || verticalGroup)
       ? {
           verticalSlug: verticalSlug || '',
           verticalGroup: verticalGroup || (verticalSlug || '').split('.')[0] || undefined,

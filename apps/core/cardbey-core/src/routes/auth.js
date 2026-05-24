@@ -17,6 +17,7 @@ import { getResetPasswordContent } from '../services/email/templates/resetPasswo
 import { registerWithEmailPassword, loginWithEmailPassword } from '../services/auth/authService.js';
 import { getPersonalPresenceLinkFields } from '../services/personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
+import { normalizeSocialLinks, parseSocialLinks } from '../lib/socialLinks.js';
 
 const router = express.Router();
 
@@ -110,11 +111,12 @@ function buildPatchProfileUserResponse(updatedUser) {
     city: jsonNullIfUnset(updatedUser.city),
     country: jsonNullIfUnset(updatedUser.country),
     postcode: jsonNullIfUnset(updatedUser.postcode),
+    socialLinks: parseSocialLinks(updatedUser.socialLinks),
   };
 }
 
 /**
- * PATCH /api/auth/profile and PATCH /api/users/me (mounted in server.js).
+ * PATCH /api/auth/profile, PATCH /api/users/me, and PATCH /api/users/me/profile (mounted in server.js).
  * Client cannot set qrCodeUrl; it is ignored if sent.
  */
 export async function patchCurrentUserProfile(req, res, next) {
@@ -136,8 +138,10 @@ export async function patchCurrentUserProfile(req, res, next) {
       city,
       country,
       postcode,
+      socialLinks,
     } = body;
     const hasPresenceKey = Object.prototype.hasOwnProperty.call(body, 'personalPresenceStoreId');
+    const hasSocialLinksKey = Object.prototype.hasOwnProperty.call(body, 'socialLinks');
     const hasContactKey =
       Object.prototype.hasOwnProperty.call(body, 'phone') ||
       Object.prototype.hasOwnProperty.call(body, 'addressLine1') ||
@@ -156,6 +160,7 @@ export async function patchCurrentUserProfile(req, res, next) {
       profilePhoto === undefined &&
       bio === undefined &&
       !hasPresenceKey &&
+      !hasSocialLinksKey &&
       !hasContactKey
     ) {
       return res.status(400).json({
@@ -352,6 +357,18 @@ export async function patchCurrentUserProfile(req, res, next) {
         return res.status(400).json({ ok: false, error: 'Invalid postcode', message: r.message });
       }
       updateData.postcode = r.v;
+    }
+
+    if (hasSocialLinksKey) {
+      const normalized = normalizeSocialLinks(socialLinks);
+      if (!normalized.ok) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid socialLinks',
+          message: normalized.message,
+        });
+      }
+      updateData.socialLinks = normalized.value;
     }
 
     if (hasPresenceKey) {
@@ -579,6 +596,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
       city: jsonNullIfUnset(user.city),
       country: jsonNullIfUnset(user.country),
       postcode: jsonNullIfUnset(user.postcode),
+      socialLinks: parseSocialLinks(user.socialLinks),
       // Email verification status (additive; does not change existing response shape)
       emailVerified: user.emailVerified ?? false,
       // When true, frontend should gate "Publish store" until user verifies email

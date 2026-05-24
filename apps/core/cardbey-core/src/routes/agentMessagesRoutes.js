@@ -16,6 +16,7 @@ import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { shouldDispatchOnChatMessage } from '../lib/chatIntentClassifier.js';
 import { isTextOnlyMission } from '../lib/missionConfig.js';
 import { classifyIntent, INTENT_MARKETING, INTENT_FIX_IMAGE_MISMATCH } from '../lib/agentIntentRouter.js';
+import { resolveAccessibleMission } from '../lib/missionAccess.js';
 
 const router = Router();
 const prisma = getPrismaClient();
@@ -195,26 +196,12 @@ export function validatePayloadByMessageType(messageType, payload) {
 }
 
 /**
- * Shared: can this user access messages/stream for this missionId?
- * When missionId is an OrchestratorTask id, allow owner/tenant or dev placeholder bypass.
+ * Shared: can this user access messages/stream/blackboard for this missionId?
+ * Uses the same resolver as GET /api/missions/:id/state (MissionPipeline + guest createdBy).
  */
 async function canAccessMission(missionIdTrimmed, user) {
-  const task = await prisma.orchestratorTask.findUnique({
-    where: { id: missionIdTrimmed },
-    select: { userId: true, tenantId: true },
-  });
-  if (!task) return true;
-  const ownerId = user?.id;
-  const userBusinessId = user?.business?.id;
-  const effectiveTenant = userBusinessId ?? ownerId;
-  const isOwner =
-    task.userId === ownerId ||
-    task.userId === effectiveTenant ||
-    task.tenantId === ownerId ||
-    task.tenantId === userBusinessId;
-  const devPlaceholder = task.userId === 'temp' || task.tenantId === 'temp' || task.userId === 'dev-user-id' || task.tenantId === 'dev-user-id';
-  const devBypass = process.env.NODE_ENV !== 'production' && ownerId && devPlaceholder;
-  return isOwner || devBypass;
+  const access = await resolveAccessibleMission(user, missionIdTrimmed);
+  return access.ok === true;
 }
 
 /**

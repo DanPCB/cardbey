@@ -10,6 +10,7 @@ import { prisma } from '../../lib/prisma.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
+import { syncHeroFieldsIntoPreviewWebsite } from './draftPreviewHeroSync.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -120,6 +121,20 @@ export function resolveDraftItemImageUrl(item) {
   if (u == null) return null;
   const s = String(u).trim();
   return s || null;
+}
+
+/** True for absolute http(s) URLs usable as product/hero images (rejects relative paths and bare tokens). */
+export function isAbsoluteHttpUrl(url) {
+  if (url == null) return false;
+  const s = String(url).trim();
+  return /^https?:\/\//i.test(s);
+}
+
+/** resolveDraftItemImageUrl when the value is an absolute http(s) URL. */
+export function resolveUsableDraftItemImageUrl(item) {
+  const raw = resolveDraftItemImageUrl(item);
+  if (!raw) return null;
+  return isAbsoluteHttpUrl(raw) ? raw : null;
 }
 
 /**
@@ -903,7 +918,12 @@ async function finalizeDraft(draftId, {
       try {
         const { getSeedImageForCategory } = await import('../../lib/seedLibrary/getSeedImageForCategory.js');
         const vertical = effectiveVertical(preview.storeType, preview.meta?.storeType) || null;
-        const fallback = await getSeedImageForCategory({ vertical, categoryKey: preview.storeType || null, orientation: 'landscape' });
+        const fallback = await getSeedImageForCategory({
+          vertical,
+          categoryKey: preview.storeType || null,
+          businessName: preview.storeName || null,
+          orientation: 'landscape',
+        });
         if (fallback) {
           heroImageUrl = fallback;
           if (process.env.cardbey_debugImageSource === '1' || process.env.CARDBEY_DEBUG_IMAGE_SOURCE === '1') {
@@ -2583,7 +2603,45 @@ export async function getDraftByGenerationRunId(generationRunId) {
  * other preview fields (storeName, categories, brandColors, etc.) are kept.
  */
 /** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
-const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'avatar', 'avatarImageUrl']);
+const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'heroVideo', 'avatar', 'avatarImageUrl']);
+
+/**
+ * Tier-2 store-build QA runs after publish/commit; catalog patches need a short edit window.
+ * Temporarily sets committed → ready, runs fn, then restores status (direct update — not in transition rules).
+ * @param {string} draftId
+ * @param {() => Promise<void>} fn
+ */
+export async function runWithCommittedDraftReopenedForCatalogPatch(draftId, fn) {
+  const id = String(draftId || '').trim();
+  if (!id) throw new Error('draftId is required');
+  const draft = await prisma.draftStore.findUnique({
+    where: { id },
+    select: { status: true, expiresAt: true },
+  });
+  if (!draft) throw new Error(`Draft not found: ${id}`);
+  const priorStatus = draft.status;
+  const wasCommitted = priorStatus === 'committed';
+  if (wasCommitted) {
+    const reopenData = { status: 'ready' };
+    if (draft.expiresAt && new Date() > draft.expiresAt) {
+      reopenData.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    }
+    await prisma.draftStore.update({
+      where: { id },
+      data: reopenData,
+    });
+  }
+  try {
+    await fn();
+  } finally {
+    if (wasCommitted) {
+      await prisma.draftStore.update({
+        where: { id },
+        data: { status: priorStatus },
+      });
+    }
+  }
+}
 
 export async function patchDraftPreview(draftId, incomingPreview, options = {}) {
   const draft = await prisma.draftStore.findUnique({
@@ -2663,31 +2721,13 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
   // Regression guard: preserve hero/avatar when patching only items/categories (don't overwrite with undefined)
   if (merged.hero === undefined && existing.hero != null) merged.hero = existing.hero;
   if (merged.avatar === undefined && existing.avatar != null) merged.avatar = existing.avatar;
-  // Mini-website draft: when hero URL is patched, mirror into website.sections hero so preview + publish stay aligned.
-  if (incoming.hero !== undefined || incoming.heroImageUrl !== undefined) {
-    const heroUrlForWebsite =
-      (merged.hero && (merged.hero.imageUrl ?? merged.hero.url)) ??
-      (typeof merged.heroImageUrl === 'string' ? merged.heroImageUrl.trim() : null);
-    if (heroUrlForWebsite && merged.website && typeof merged.website === 'object') {
-      const w = { ...merged.website };
-      const sections = Array.isArray(w.sections) ? [...w.sections] : [];
-      const hi = sections.findIndex((s) => s && s.type === 'hero');
-      if (hi >= 0) {
-        const prev = sections[hi];
-        const prevContent =
-          prev.content && typeof prev.content === 'object' && !Array.isArray(prev.content) ? { ...prev.content } : {};
-        sections[hi] = {
-          ...prev,
-          content: {
-            ...prevContent,
-            imageUrl: heroUrlForWebsite,
-            backgroundImage: heroUrlForWebsite,
-          },
-        };
-        w.sections = sections;
-        merged.website = w;
-      }
-    }
+  // Mini-website draft: mirror hero image/video into website.sections hero so preview + publish stay aligned.
+  if (
+    incoming.hero !== undefined ||
+    incoming.heroImageUrl !== undefined ||
+    incoming.heroVideo !== undefined
+  ) {
+    syncHeroFieldsIntoPreviewWebsite(merged);
   }
   if (merged.brand == null && existing.brand != null) merged.brand = existing.brand;
   else if (merged.brand != null && existing.brand != null && typeof merged.brand === 'object' && typeof existing.brand === 'object') {
@@ -2741,13 +2781,20 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
 
   if (committedHeroAvatarOnly && draft.committedStoreId) {
     const bizData = {};
-    if (incoming.hero !== undefined || incoming.heroImageUrl !== undefined) {
+    let heroVideoUrl = null;
+    if (incoming.hero !== undefined || incoming.heroImageUrl !== undefined || incoming.heroVideo !== undefined) {
       let heroUrl = null;
       if (typeof merged.heroImageUrl === 'string' && merged.heroImageUrl.trim()) heroUrl = merged.heroImageUrl.trim();
       else if (merged.hero && typeof merged.hero === 'object') {
-        const h = merged.hero.imageUrl ?? merged.hero.url;
-        if (typeof h === 'string' && h.trim()) heroUrl = h.trim();
+        const h = merged.hero;
+        const fromHero = h.imageUrl ?? h.url;
+        if (typeof fromHero === 'string' && fromHero.trim()) heroUrl = fromHero.trim();
+        if (h.type === 'video') {
+          const vid = h.videoUrl ?? h.url;
+          if (typeof vid === 'string' && vid.trim()) heroVideoUrl = vid.trim();
+        }
       }
+      if (typeof merged.heroVideo === 'string' && merged.heroVideo.trim()) heroVideoUrl = merged.heroVideo.trim();
       if (heroUrl) bizData.heroImageUrl = heroUrl;
     }
     if (incoming.avatar !== undefined || incoming.avatarImageUrl !== undefined) {
@@ -2759,7 +2806,25 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
       }
       if (avUrl) bizData.avatarImageUrl = avUrl;
     }
-    if (Object.keys(bizData).length > 0) {
+    if (Object.keys(bizData).length > 0 || heroVideoUrl) {
+      if (heroVideoUrl) {
+        const existing = await prisma.business.findUnique({
+          where: { id: draft.committedStoreId },
+          select: { stylePreferences: true },
+        });
+        let prefs = {};
+        const raw = existing?.stylePreferences;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) prefs = { ...raw };
+        else if (typeof raw === 'string') {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) prefs = parsed;
+          } catch {
+            /* ignore */
+          }
+        }
+        bizData.stylePreferences = { ...prefs, heroVideo: heroVideoUrl };
+      }
       await prisma.business.update({
         where: { id: draft.committedStoreId },
         data: bizData,
@@ -2935,6 +3000,12 @@ export async function autoCategorizeDraft(draftId) {
  * - When userId is not provided: create user from email/password/name (legacy flow).
  */
 export async function commitDraft(draftId, { userId: existingUserId, email, password, name, acceptTerms, businessFields = {} }) {
+  const { warnLegacyPublishBypass } = await import('./publishRunway.js');
+  warnLegacyPublishBypass('draftStoreService.commitDraft', {
+    draftId,
+    hint: 'Use publishDraft() for canonical projection + homepage/slug parity',
+  });
+
   if (!acceptTerms) {
     throw new Error('Terms of service must be accepted');
   }

@@ -10,6 +10,7 @@ import { info, error } from '../lib/logger.js';
 import { publishVideoOptimizeJob } from '../lib/sqsClient.js';
 import { createTempPath, safeUnlink } from '../lib/tempFiles.js';
 import { prisma } from '../lib/prisma.js';
+import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 
 // Lazy load sharp to avoid startup crashes if platform binaries aren't available
 let sharp = null;
@@ -194,49 +195,26 @@ async function handleFileUpload(req, res) {
         console.warn('[upload] sharp not available, skipping image metadata extraction');
       }
     } else {
-      // VIDEO - Need temporary file for ffprobe (it requires a file path)
-      const tempFilePath = createTempPath('cardbey-upload-', path.extname(req.file.originalname || '.mp4'));
+      // VIDEO — probe, transcode to H.264/yuv420p/AAC/faststart when needed (LAN + TV + browser)
       try {
-        // Write buffer to temp file
-        await fs.promises.writeFile(tempFilePath, buffer);
-        
-        // Ensure ffmpeg is initialized
-        const ffmpegInstance = await initializeFfmpeg();
-        
-        if (ffmpegInstance && ffmpegInstance.ffprobe) {
-          try {
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('ffprobe timeout'));
-              }, 30000); // 30 second timeout
-              
-              ffmpegInstance.ffprobe(tempFilePath, (err, data) => {
-                clearTimeout(timeout);
-                if (!err && data?.streams?.length) {
-                  const v = data.streams.find(s => s.codec_type === 'video');
-                  if (v) {
-                    width = v.width || undefined;
-                    height = v.height || undefined;
-                  }
-                  if (data.format?.duration) {
-                    durationS = Number(data.format.duration) || undefined;
-                  }
-                } else if (err) {
-                  console.warn('[upload] ffprobe error (non-fatal):', err.message);
-                }
-                resolve();
-              });
-            });
-          } catch (err) {
-            // Non-fatal: log warning but continue without metadata
-            console.warn('[upload] Failed to extract video metadata (non-fatal):', err.message);
-          }
-        } else {
-          console.warn('[upload] ffmpeg not available, skipping video metadata extraction');
+        const processed = await ensureWebCompatibleVideoBuffer(
+          buffer,
+          req.file.originalname || 'video.mp4',
+          { context: 'upload.playlist-media' },
+        );
+        buffer = processed.buffer;
+        mime = processed.mime;
+        width = processed.width ?? undefined;
+        height = processed.height ?? undefined;
+        durationS = processed.durationS ?? undefined;
+        if (processed.transcoded) {
+          info('UPLOAD', 'Video transcoded for web/TV compatibility', {
+            originalName: req.file.originalname,
+            requestId: req.requestId,
+          });
         }
-      } finally {
-        // Clean up temp file
-        await safeUnlink(tempFilePath, 'UPLOAD');
+      } catch (videoErr) {
+        console.warn('[upload] Video compat processing failed (non-fatal):', videoErr.message);
       }
     }
 
@@ -590,37 +568,17 @@ async function handleJsonUpload(req, res, next) {
         }
       }
     } else {
-      // VIDEO - Need temporary file for ffprobe
-      const tempFilePath = createTempPath('cardbey-upload-', path.extname(originalName) || '.mp4');
       try {
-        await fs.promises.writeFile(tempFilePath, buffer);
-        const ffmpegInstance = await initializeFfmpeg();
-        
-        if (ffmpegInstance && ffmpegInstance.ffprobe) {
-          try {
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('ffprobe timeout')), 30000);
-              ffmpegInstance.ffprobe(tempFilePath, (err, data) => {
-                clearTimeout(timeout);
-                if (!err && data?.streams?.length) {
-                  const v = data.streams.find(s => s.codec_type === 'video');
-                  if (v) {
-                    width = v.width || undefined;
-                    height = v.height || undefined;
-                  }
-                  if (data.format?.duration) {
-                    durationS = Number(data.format.duration) || undefined;
-                  }
-                }
-                resolve();
-              });
-            });
-          } catch (err) {
-            console.warn('[upload] Failed to extract video metadata (non-fatal):', err.message);
-          }
-        }
-      } finally {
-        await safeUnlink(tempFilePath, 'UPLOAD');
+        const processed = await ensureWebCompatibleVideoBuffer(buffer, originalName, {
+          context: 'upload.json',
+        });
+        buffer = processed.buffer;
+        mimeType = processed.mime;
+        width = processed.width ?? undefined;
+        height = processed.height ?? undefined;
+        durationS = processed.durationS ?? undefined;
+      } catch (videoErr) {
+        console.warn('[upload] JSON video compat failed (non-fatal):', videoErr.message);
       }
     }
     

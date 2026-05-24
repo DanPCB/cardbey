@@ -54,6 +54,7 @@ router.post('/store-from-input', requireAuth, async (req, res) => {
       storeId: 'temp',
       generationRunId: runId,
       userId: req.userId,
+      entrypoint: 'automation',
     });
 
     return res.status(200).json({

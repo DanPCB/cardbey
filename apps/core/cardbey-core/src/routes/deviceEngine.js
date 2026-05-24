@@ -52,16 +52,26 @@ import { getEventEmitter } from '../engines/device/events.js';
 import { broadcastSse } from '../realtime/simpleSse.js';
 import { broadcast as broadcastWebsocket } from '../realtime/websocket.js';
 import { resolvePublicUrl, isCloudFrontUrl, buildMediaUrl } from '../utils/publicUrl.js';
-import { getCoreBaseUrl, normalizePlaylistItems } from '../utils/normalizeMediaUrl.js';
+import { isActivePlaylistBindingStatus, applyAndroidPlaylistFullCompat } from '../utils/playlistFullAndroidCompat.js';
+import {
+  resolveCoreUrlFromHeartbeat,
+  resolvePlaylistMediaBaseUrl,
+  resolvePlaylistItemMediaUrl,
+  derivePairingStatus,
+  pickActivePlaylistBinding,
+  readDeviceMetadata,
+  upsertDeviceMetadata,
+  buildProjectedDeviceFields,
+} from '../lib/deviceProjection.js';
 // Also import from new mediaUrlNormalizer for additional normalization
 import { getTranslatedField } from '../services/i18n/translationUtils.js';
 import {
-  requestPairing,
   completePairing,
   heartbeat,
   confirmPlaylistReady,
   triggerRepair,
 } from '../engines/device/index.js';
+import { executeDeviceRequestPairing } from '../engines/device/deviceRequestPairingBridge.js';
 import {
   enqueueDeviceCommand,
   getPendingCommandsForDevice,
@@ -111,12 +121,6 @@ function createEngineContext() {
       events: getEventEmitter(),
     },
   };
-}
-
-/** DevicePlaylistBinding.status is stored as lowercase in new code, but tolerate legacy casing. */
-function isActivePlaylistBindingStatus(status) {
-  const s = String(status ?? '').trim().toLowerCase();
-  return s === 'ready' || s === 'pending';
 }
 
 const IS_DEV = process.env.NODE_ENV !== 'production';
@@ -349,12 +353,13 @@ router.get('/list', requireAuth, async (req, res) => {
       include: {
         bindings: {
           orderBy: { lastPushedAt: 'desc' },
-          take: 1,
+          take: 8,
         },
         snapshots: {
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
+        capabilities: true,
       },
       orderBy: {
         createdAt: 'desc',
@@ -444,7 +449,7 @@ router.get('/list', requireAuth, async (req, res) => {
     
     // Get playlist names for devices with playlist bindings
     const playlistIds = devices
-      .map(d => d.bindings?.[0]?.playlistId)
+      .map((d) => pickActivePlaylistBinding(d.bindings || [])?.playlistId)
       .filter(Boolean);
     
     const playlists = playlistIds.length > 0
@@ -460,16 +465,45 @@ router.get('/list', requireAuth, async (req, res) => {
     const playlistMap = new Map(playlists.map(p => [p.id, p.name]));
     
     // Format response
-    const formattedDevices = devices.map((device) => {
-      const latestBinding = device.bindings[0] || null;
+    const formattedDevices = devices
+      .filter((device) => {
+        const cap = Array.isArray(device.capabilities)
+          ? device.capabilities[0]
+          : device.capabilities;
+        const meta = readDeviceMetadata(cap);
+        return !meta.archivedAt;
+      })
+      .map((device) => {
+      const latestBinding = pickActivePlaylistBinding(device.bindings || []);
       const latestSnapshot = device.snapshots[0] || null;
+      const metadata = readDeviceMetadata(
+        Array.isArray(device.capabilities) ? device.capabilities[0] : device.capabilities,
+      );
 
       const presence = computeDevicePresenceWithPlayback(device, now);
-      const isOnline = presence.isOnline;
+      const heartbeatOnline = presence.isOnline;
 
-      // Get playlist info
-      const playlistId = latestBinding?.playlistId || null;
+      if (IS_DEV) {
+        console.log('[DEVICE_PRESENCE_COMPUTE]', {
+          deviceId: device.id,
+          lastSeenAt: device.lastSeenAt?.toISOString?.() ?? null,
+          presenceTier: presence.presenceTier,
+          heartbeatOnline,
+          playbackReported: presence.playbackReported,
+        });
+      }
+
+      const playlistId = latestBinding?.playlistId || metadata.currentPlaylistId || null;
       const playlistName = playlistId ? playlistMap.get(playlistId) || null : null;
+
+      const projected = buildProjectedDeviceFields({
+        device,
+        latestBinding,
+        latestSnapshot,
+        playlistName,
+        presence,
+        metadata,
+      });
 
       return {
         id: device.id,
@@ -478,46 +512,49 @@ router.get('/list', requireAuth, async (req, res) => {
         name: device.name,
         model: device.model,
         location: device.location,
-        status: isOnline ? 'online' : 'offline',
-        isOnline,
-        presenceTier: presence.presenceTier,
-        playbackReported: presence.playbackReported,
-        lastPlaybackReportAt: presence.lastPlaybackReportAt
-          ? new Date(presence.lastPlaybackReportAt).toISOString()
-          : null,
-        playbackReportIsPlaying: presence.playbackReportIsPlaying,
-        playbackReportState: presence.playbackReportState,
-        staleState: presence.staleState,
-        archiveEligible: presence.archiveEligible,
+        status: heartbeatOnline ? 'online' : 'offline',
+        isOnline: heartbeatOnline,
+        presenceTier: projected.presenceTier,
+        playbackReported: projected.playbackReported,
+        lastPlaybackReportAt: projected.lastPlaybackReportAt,
+        playbackReportIsPlaying: projected.playbackReportIsPlaying,
+        playbackReportState: projected.playbackReportState,
+        staleState: projected.staleState,
+        archiveEligible: projected.archiveEligible,
         archivedAt: null,
-        type: device.type || 'other', // Include device type
-        platform: device.platform || null, // Include platform
+        type: device.type || 'other',
+        platform: device.platform || null,
         appVersion: device.appVersion,
+        engineVersion: projected.engineVersion,
+        coreUrl: projected.coreUrl,
+        pairingStatus: projected.pairingStatus,
+        currentPlaylistId: projected.currentPlaylistId,
+        playbackReady: projected.playbackReady,
         lastSeenAt: device.lastSeenAt,
         createdAt: device.createdAt,
         updatedAt: device.updatedAt,
-        playlistId: playlistId || null, // Add playlistId field
-        playlistName: playlistName || null, // Add playlistName field
-        playlist: latestBinding
-          ? {
-              playlistId: latestBinding.playlistId,
-              version: latestBinding.version,
-              status: latestBinding.status,
-              lastPushedAt: latestBinding.lastPushedAt,
-            }
-          : null,
-        lastSnapshot: latestSnapshot
-          ? {
-              timestamp: latestSnapshot.createdAt,
-              playlistVersion: latestSnapshot.playlistVersion,
-              storageFreeMb: latestSnapshot.storageFreeMb,
-              wifiStrength: latestSnapshot.wifiStrength,
-              errorCodes: latestSnapshot.errorCodes,
-            }
-          : null,
+        playlistId: projected.playlistId,
+        playlistName: projected.playlistName,
+        playlist: projected.playlist,
+        lastSnapshot: projected.lastSnapshot,
         lastScreenshotBase64: device.lastScreenshotBase64 || null,
         lastScreenshotAt: device.lastScreenshotAt || null,
       };
+    });
+
+    console.log('[DEVICE_PROJECTION_REFRESH]', {
+      tenantId: String(tenantId),
+      storeId: String(storeId),
+      deviceCount: formattedDevices.length,
+      withCoreUrl: formattedDevices.filter((d) => d.coreUrl).length,
+      withActiveBinding: formattedDevices.filter((d) => d.playlist?.playlistId).length,
+      sample: formattedDevices.slice(0, 3).map((d) => ({
+        id: d.id,
+        coreUrl: d.coreUrl,
+        pairingStatus: d.pairingStatus,
+        playlistId: d.playlistId,
+        bindingStatus: d.playlist?.status,
+      })),
     });
 
     const response = {
@@ -568,21 +605,91 @@ router.post('/archive/:deviceId', requireAuth, async (req, res) => {
       });
     }
 
-    // Device.archivedAt is not present in the current Prisma schema.
-    // Return 501 to prevent repeated Prisma validation errors.
-    return res.status(501).json({
-      ok: false,
-      error: 'not_implemented',
-      message: 'Device archiving is not available in this schema version (archivedAt column missing).',
+    const device = await prisma.device.findUnique({
+      where: { id: deviceId },
+      include: { capabilities: true, bindings: { take: 1, orderBy: { lastPushedAt: 'desc' } } },
+    });
+
+    if (!device) {
+      return res.status(404).json({ ok: false, error: 'Device not found' });
+    }
+
+    if (device.tenantId !== String(tenantId) || device.storeId !== String(storeId)) {
+      return res.status(403).json({ ok: false, error: 'Access denied' });
+    }
+
+    const cap = device.capabilities?.[0];
+    const prev =
+      cap?.capabilities && typeof cap.capabilities === 'object'
+        ? cap.capabilities
+        : {};
+    const archivedAt = new Date().toISOString();
+    await prisma.deviceCapability.upsert({
+      where: { deviceId },
+      update: {
+        capabilities: { ...prev, archivedAt, archiveReason: 'manual_archive' },
+      },
+      create: {
+        deviceId,
+        capabilities: { archivedAt, archiveReason: 'manual_archive' },
+      },
+    });
+    await prisma.device.update({
+      where: { id: deviceId },
+      data: { status: 'offline' },
+    });
+
+    console.log('[DEVICE_STALE_ARCHIVE]', {
       deviceId,
       tenantId: String(tenantId),
       storeId: String(storeId),
+      archivedAt,
+      reason: 'manual_archive',
+    });
+
+    return res.json({
+      ok: true,
+      deviceId,
+      archivedAt,
     });
   } catch (error) {
     console.error('[Device Engine] Archive error:', error);
     res.status(500).json({
       ok: false,
       error: error.message || 'Failed to archive device',
+    });
+  }
+});
+
+/**
+ * POST /api/device/cleanup-stale
+ * Soft-archive duplicate/stale device rows for a tenant/store (capabilities.archivedAt).
+ */
+router.post('/cleanup-stale', requireAuth, async (req, res) => {
+  try {
+    const tenantId = String(req.body?.tenantId || req.query?.tenantId || '').trim();
+    const storeId = String(req.body?.storeId || req.query?.storeId || '').trim();
+
+    if (!tenantId || !storeId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing required parameters',
+        message: 'tenantId and storeId are required',
+      });
+    }
+
+    const { runDeviceCleanupStale } = await import('../services/deviceCleanupService.js');
+    const result = await runDeviceCleanupStale(prisma, { tenantId, storeId });
+
+    res.json({
+      ok: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('[Device Engine] cleanup-stale error:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to cleanup stale devices',
     });
   }
 });
@@ -615,39 +722,12 @@ router.post('/archive/:deviceId', requireAuth, async (req, res) => {
  *   - 500: { ok: false, error: 'pairing_failed', message: string }
  */
 const handleRequestPairing = async (req, res) => {
-  const requestId = Math.random().toString(36).slice(2, 9);
-  
   try {
-    // Log incoming request with full context
-    console.log(`[PAIRING] Incoming pairing request from ${req.ip}`);
-    console.log(`[PAIRING] Endpoint: POST /api/device/request-pairing (OLD FLOW - device-initiated)`);
-    console.log(`[PAIRING] NOTE: For Device Engine V2 dashboard-initiated pairing, use POST /api/device/pair/init (dashboard) then POST /api/device/pair/complete (device)`);
-    console.log(`[PAIRING] Payload:`, {
-      deviceId: req.body?.deviceId || 'not provided',
-      pairingCode: req.body?.pairingCode || 'not provided',
-      engineVersion: req.body?.appVersion || req.body?.engineVersion || 'not provided',
-      model: req.body?.deviceModel || req.body?.model || 'not provided',
-      platform: req.body?.platform || 'not provided',
-    });
-    console.log(`[DeviceEngine V2] [${requestId}] Pairing request received`, {
-      method: req.method,
-      path: req.path,
-      body: req.body,
-      query: req.query,
-      headers: {
-        'content-type': req.headers['content-type'],
-        'user-agent': req.headers['user-agent'],
-      },
-      ip: req.ip,
-    });
-
-    // Check if body is a valid object
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-      console.warn(`[DeviceEngine V2] [${requestId}] Invalid request body`, {
+      console.error('[REQUEST_PAIRING_FAILED]', {
+        reason: 'invalid_input',
         bodyType: typeof req.body,
-        isArray: Array.isArray(req.body),
       });
-      
       return res.status(400).json({
         ok: false,
         error: 'invalid_input',
@@ -655,129 +735,28 @@ const handleRequestPairing = async (req, res) => {
       });
     }
 
-    // Very permissive schema - all fields optional with defaults
-    const body = req.body || {};
-    
-    // Handle backward compatibility: map legacy fields
-    const normalizedBody = { ...body };
-    if (normalizedBody.deviceType && !normalizedBody.deviceModel) {
-      normalizedBody.deviceModel = normalizedBody.deviceType;
-    }
-    if (normalizedBody.label && !normalizedBody.platform) {
-      normalizedBody.platform = normalizedBody.label;
-    }
-
-    // Fill defaults for missing fields
-    const input = {
-      deviceModel: normalizedBody.deviceModel || 'unknown-model',
-      platform: normalizedBody.platform || 'unknown-platform',
-      appVersion: normalizedBody.appVersion || '0.0.0',
-      capabilities: normalizedBody.capabilities || {},
-      initialState: normalizedBody.initialState || {},
-      deviceType: normalizedBody.deviceType, // Pass through explicit deviceType if provided
-    };
-
-    console.log(`[DeviceEngine V2] [${requestId}] Calling requestPairing service`, {
-      input: {
-        deviceModel: input.deviceModel,
-        platform: input.platform,
-        appVersion: input.appVersion,
-        hasCapabilities: !!input.capabilities && Object.keys(input.capabilities).length > 0,
-        hasInitialState: !!input.initialState && Object.keys(input.initialState).length > 0,
-        deviceType: input.deviceType,
-      },
+    const result = await executeDeviceRequestPairing({
+      body: req.body,
+      req,
+      source: 'POST /api/device/request-pairing',
     });
 
-    // Call request pairing function with relaxed input
-    const result = await requestPairing(input, createEngineContext());
-
-    // Validate result has required fields for Device V2 tablet format
-    // Tablet expects: { ok: true, sessionId, code, expiresAt }
-    const sessionId = result?.id || result?.deviceId || result?.sessionId;
-    const code = result?.code || result?.pairingCode || result?.pairCode;
-    const expiresAt = result?.expiresAt;
-
-    if (!sessionId || !code || !expiresAt) {
-      console.error(`[DeviceEngine V2] [${requestId}] Pairing output missing required fields`, {
-        result,
-        hasId: !!result?.id,
-        hasDeviceId: !!result?.deviceId,
-        hasSessionId: !!result?.sessionId,
-        hasCode: !!result?.code,
-        hasPairingCode: !!result?.pairingCode,
-        hasPairCode: !!result?.pairCode,
-        hasExpiresAt: !!result?.expiresAt,
-      });
-      
-      return res.status(500).json({
-        ok: false,
-        error: 'invalid_pairing_response',
-        message: 'Missing sessionId or code in pairing result.',
-      });
-    }
-
-    // Log success with key details
-    console.log(`[DeviceEngine V2] [${requestId}] Pairing success`, {
-      sessionId,
-      code,
-      expiresAt,
-      platform: input.platform,
-      deviceModel: input.deviceModel,
-    });
-
-    // Emit pair_alert event for dashboard to show popup
-    // This tells the dashboard that a device is waiting to be paired
-    try {
-      const alertPayload = {
-        alertId: `pair-${sessionId}`,
-        deviceId: sessionId,
-        deviceName: input.deviceModel || `Device ${sessionId.slice(0, 8)}`,
-        deviceType: input.deviceType || 'screen',
-        lastSeen: new Date().toISOString(),
-        reason: 'pair_request',
-        status: 'pending',
-        tenantId: 'temp',
-        storeId: 'temp',
-        timestamp: new Date().toISOString(),
-        code: code,
-        expiresAt: expiresAt,
-      };
-      
-      console.log(`[PAIR ALERT] Device ${sessionId} requesting pairing. Broadcasting to dashboard...`, {
-        code,
-        deviceModel: input.deviceModel,
-      });
-      
-      emitPairAlertEvent(alertPayload);
-      
-      console.log(`[SSE] Broadcasted pair_alert event for ${sessionId}`);
-    } catch (alertError) {
-      // Don't fail the pairing request if alert broadcast fails
-      console.error(`[PAIR ALERT] Failed to broadcast (non-fatal):`, alertError);
-    }
-
-    // Return Device V2 tablet-expected response format
     res.status(200).json({
       ok: true,
-      sessionId,  // Required by tablet
-      code,       // Required by tablet
-      expiresAt,  // Required by tablet
+      sessionId: result.sessionId,
+      code: result.code,
+      expiresAt: result.expiresAt,
+      deviceId: result.deviceId,
     });
   } catch (error) {
-    // Log detailed error for server debugging
-    console.error(`[DeviceEngine V2] [${requestId}] Pairing ERROR`, {
+    console.error('[REQUEST_PAIRING_FAILED]', {
+      route: 'request-pairing',
       message: error?.message,
-      name: error?.name,
-      code: error?.code,
-      stack: error?.stack,
-      cause: error?.cause,
     });
-
-    // Return structured error response (don't expose internal details)
     res.status(500).json({
       ok: false,
-      error: 'pairing_failed',
-      message: 'Device pairing failed due to an internal error. Please try again.',
+      error: error?.code || 'pairing_failed',
+      message: error?.message || 'Device pairing failed due to an internal error. Please try again.',
     });
   }
 };
@@ -793,6 +772,12 @@ router.post('/pair-request', handleRequestPairing);
 router.post('/complete-pairing', optionalAuth, async (req, res) => {
   try {
     const body = req.body || {};
+    console.log('[PAIRING_START] POST /api/device/complete-pairing', {
+      hasSessionId: !!(body?.sessionId || body?.deviceId),
+      pairingCode: body?.pairingCode ? String(body.pairingCode).slice(0, 2) + '****' : null,
+      storeId: body?.storeId || null,
+      authUserId: req.user?.id || null,
+    });
     console.log('[Device Engine] POST /api/device/complete-pairing', { body });
 
     // Debug: capture raw inputs + auth presence before validation/transforms
@@ -843,11 +828,13 @@ router.post('/complete-pairing', optionalAuth, async (req, res) => {
 
     const sessionIdRaw = req.body?.sessionId || req.body?.deviceId || input.sessionId || input.deviceId;
     const sessionId = typeof sessionIdRaw === 'string' ? sessionIdRaw.trim() : String(sessionIdRaw || '').trim();
-    if (!sessionId) {
+    const pairingCodeRaw = input.pairingCode || body?.pairingCode;
+    if (!sessionId && !pairingCodeRaw) {
+      console.error('[PAIRING_FAILED]', { reason: 'missing_session_or_code' });
       return res.status(400).json({
         ok: false,
         error: 'missing_fields',
-        message: 'sessionId (or deviceId) is required',
+        message: 'sessionId (or deviceId) or pairingCode is required',
       });
     }
 
@@ -855,7 +842,7 @@ router.post('/complete-pairing', optionalAuth, async (req, res) => {
       ...input,
       tenantId: effectiveTenantId,
       storeId: effectiveStoreId,
-      sessionId,
+      ...(sessionId ? { sessionId } : {}),
     };
 
     console.log('[PAIRING COMPLETE] request context', {
@@ -903,6 +890,11 @@ router.post('/complete-pairing', optionalAuth, async (req, res) => {
 
     res.json(result);
   } catch (error) {
+    console.error('[PAIRING_FAILED]', {
+      route: 'complete-pairing',
+      message: error?.message,
+      name: error?.name,
+    });
     console.error('[Device Engine] Complete pairing error:', error);
     
     // Return error message in response (don't expose stack trace)
@@ -975,6 +967,22 @@ router.post('/heartbeat', async (req, res) => {
 
     // Default status to "online" if not provided
     const status = bodyStatus || 'online';
+
+    const heartbeatCoreUrl = resolveCoreUrlFromHeartbeat(body, req);
+    const heartbeatPlaylistIdHint =
+      playbackState?.playlistId || body.currentPlaylistId || body.playlistId || null;
+
+    console.log('[DEVICE_HEARTBEAT_RECEIVED]', {
+      deviceId: providedDeviceId || null,
+      coreUrl: heartbeatCoreUrl,
+      platform: platform || null,
+      engineVersion: engineVersion || body.appVersion || null,
+      tenantId: bodyTenantId || null,
+      storeId: bodyStoreId || null,
+      currentPlaylistId: heartbeatPlaylistIdHint,
+      status,
+      clientIp: req.ip || req.socket?.remoteAddress || null,
+    });
 
     // ADDED: Enhanced diagnostic logging for incoming heartbeats
     if (!providedDeviceId) {
@@ -1370,24 +1378,52 @@ router.post('/heartbeat', async (req, res) => {
       console.log(`[HEARTBEAT] deviceId=${device.id} updated lastSeenAt=${ls}`);
     }
 
-    // Compute pairingStatus
+    // Compute pairingStatus (align with playlist/full active binding rules)
     let pairingStatus = 'UNPAIRED';
-    
-    // Check if device has an active DevicePlaylistBinding
-    const activeBinding = await prisma.devicePlaylistBinding.findFirst({
-      where: {
-        deviceId: device.id,
-        status: 'ready',
-      },
+
+    const deviceBindings = await prisma.devicePlaylistBinding.findMany({
+      where: { deviceId: device.id },
+      orderBy: { lastPushedAt: 'desc' },
+      take: 8,
     });
+    const activeBinding = pickActivePlaylistBinding(deviceBindings);
 
     if (activeBinding) {
       pairingStatus = 'PAIRED_PLAYLIST_ASSIGNED';
-    } else if (device.tenantId && device.storeId && 
-               device.tenantId !== 'temp' && device.storeId !== 'temp' && 
-               !device.pairingCode) {
-      // Device is paired (has tenant/store) but no active playlist
+    } else if (
+      device.tenantId &&
+      device.storeId &&
+      device.tenantId !== 'temp' &&
+      device.storeId !== 'temp' &&
+      !device.pairingCode
+    ) {
       pairingStatus = 'PAIRED_NO_PLAYLIST';
+    }
+
+    try {
+      const meta = await upsertDeviceMetadata(prisma, device.id, {
+        ...(heartbeatCoreUrl ? { coreUrl: heartbeatCoreUrl } : {}),
+        ...(engineVersion || body.appVersion
+          ? { engineVersion: engineVersion || body.appVersion }
+          : {}),
+        ...(platform ? { platform } : {}),
+        pairingStatus: derivePairingStatus(device),
+        ...(activeBinding?.playlistId || heartbeatPlaylistIdHint
+          ? {
+              currentPlaylistId:
+                activeBinding?.playlistId || heartbeatPlaylistIdHint,
+            }
+          : {}),
+      });
+      console.log('[DEVICE_METADATA_UPDATED]', {
+        deviceId: device.id,
+        coreUrl: meta?.coreUrl || heartbeatCoreUrl,
+        pairingStatus: meta?.pairingStatus,
+        currentPlaylistId: meta?.currentPlaylistId,
+        engineVersion: meta?.engineVersion,
+      });
+    } catch (metaErr) {
+      console.warn('[DEVICE_METADATA_UPDATED] failed (non-fatal):', metaErr?.message || metaErr);
     }
 
     // Get displayName (prefer name, fallback to "Unnamed Device")
@@ -1516,6 +1552,17 @@ router.post('/heartbeat', async (req, res) => {
       name: device.name || null,
       model: device.model || null,
       location: device.location || null,
+      coreUrl: heartbeatCoreUrl || null,
+      currentPlaylistId: activeBinding?.playlistId || heartbeatPlaylistIdHint || null,
+      playlistId: activeBinding?.playlistId || null,
+      playlist: activeBinding
+        ? {
+            playlistId: activeBinding.playlistId,
+            version: activeBinding.version,
+            status: activeBinding.status,
+            lastPushedAt: activeBinding.lastPushedAt,
+          }
+        : null,
       presenceTier: presenceForSse.presenceTier,
       isOnline: presenceForSse.isOnline,
       playbackReported: presenceForSse.playbackReported,
@@ -1856,8 +1903,20 @@ router.post('/:deviceId/command', requireAuth, async (req, res) => {
     }
 
     // Validate command type
-    const validTypes = ['play', 'pause', 'next', 'previous', 'reload'];
-    if (!type || !validTypes.includes(type)) {
+    const validTypes = [
+      'play',
+      'pause',
+      'next',
+      'previous',
+      'reload',
+      'reloadPlaylist',
+      'setPlaylistIndex',
+      'setVolume',
+      'setBrightness',
+      'screenshot',
+    ];
+    const normalizedType = type === 'reload' ? 'reloadPlaylist' : type;
+    if (!normalizedType || !validTypes.includes(normalizedType)) {
       return res.status(400).json({
         ok: false,
         error: 'invalid_command_type',
@@ -1939,16 +1998,16 @@ router.post('/:deviceId/command', requireAuth, async (req, res) => {
     }
 
     // Queue the command
-    const cmd = await enqueueDeviceCommand(deviceId, type, payload ?? {});
+    const cmd = await enqueueDeviceCommand(deviceId, normalizedType, payload ?? {});
 
-    console.log('[Device Engine] Queued command', { deviceId, type, commandId: cmd.id });
+    console.log('[Device Engine] Queued command', { deviceId, type: normalizedType, commandId: cmd.id });
 
     // Log command queued
     await addDeviceLog({
       deviceId,
       source: 'command',
       level: 'info',
-      message: `Command queued: ${type}`,
+      message: `Command queued: ${normalizedType}`,
       payload: payload ?? {},
     });
 
@@ -1959,7 +2018,7 @@ router.post('/:deviceId/command', requireAuth, async (req, res) => {
       {
         deviceId,
         commandId: cmd.id,
-        type,
+        type: normalizedType,
         payload: payload ?? {},
         at: new Date().toISOString(),
       }
@@ -2134,9 +2193,9 @@ router.post('/:deviceId/commands', requireAuth, async (req, res) => {
  * Assign playlist to device (Dashboard-initiated, requires auth)
  * Simplified endpoint that takes deviceId and playlistId, fetches playlist data, and pushes it
  */
-router.post('/push-playlist', requireAuth, async (req, res) => {
+async function handlePushPlaylistAssign(req, res) {
   try {
-    console.log('[Device Engine] POST /api/device/push-playlist', { body: req.body });
+    console.log('[Device Engine] POST playlist assign', { body: req.body, path: req.path });
 
     const deviceId =
       typeof req.body.deviceId === 'string'
@@ -2162,8 +2221,16 @@ router.post('/push-playlist', requireAuth, async (req, res) => {
       userId: req.userId,
     });
 
-    res.json(result);
+    const payload = result?.data
+      ? { ok: true, data: result.data }
+      : { ok: true, data: result };
+    res.json(payload);
   } catch (error) {
+    console.error('[PLAYLIST_ASSIGN_FAILED]', {
+      deviceId: req.body?.deviceId ?? req.params?.deviceId,
+      playlistId: req.body?.playlistId,
+      message: error?.message,
+    });
     console.error('[Device Engine] Push playlist error:', error);
     const code = error?.code;
     if (code === 'DEVICE_NOT_FOUND') {
@@ -2178,11 +2245,37 @@ router.post('/push-playlist', requireAuth, async (req, res) => {
         error: 'Playlist not found',
       });
     }
+    if (code === 'PLAYLIST_STORE_MISMATCH') {
+      return res.status(403).json({
+        ok: false,
+        error: error.message || 'Playlist store mismatch',
+        code: 'PLAYLIST_STORE_MISMATCH',
+      });
+    }
     res.status(500).json({
       ok: false,
       error: error.message || 'Failed to push playlist',
     });
   }
+}
+
+/**
+ * POST /api/device/push-playlist
+ * Assign playlist to device (Dashboard-initiated, requires auth)
+ */
+router.post('/push-playlist', requireAuth, handlePushPlaylistAssign);
+
+/**
+ * POST /api/device/:deviceId/playlist/assign
+ * Canonical alias for push-playlist (deviceId in path)
+ */
+router.post('/:deviceId/playlist/assign', requireAuth, async (req, res) => {
+  const pathDeviceId =
+    typeof req.params.deviceId === 'string' ? req.params.deviceId.trim() : '';
+  if (pathDeviceId && !req.body?.deviceId) {
+    req.body = { ...req.body, deviceId: pathDeviceId };
+  }
+  return handlePushPlaylistAssign(req, res);
 });
 
 /**
@@ -2671,11 +2764,29 @@ router.post('/claim', requireAuth, async (req, res) => {
       },
     });
 
-    console.log(`[DeviceEngine V2] [${requestId}] Device updated`, {
+    console.log(`[PAIRING_COMPLETE]`, {
       deviceId: updated.id,
       tenantId: updated.tenantId,
       storeId: updated.storeId,
     });
+
+    if (
+      !updated.tenantId ||
+      updated.tenantId === 'temp' ||
+      !updated.storeId ||
+      updated.storeId === 'temp'
+    ) {
+      console.error('[PAIRING_FAILED] CRITICAL: claim succeeded but identity still temp', {
+        deviceId: updated.id,
+        tenantId: updated.tenantId,
+        storeId: updated.storeId,
+      });
+      return res.status(500).json({
+        ok: false,
+        error: 'pairing_commit_failed',
+        message: 'Pairing did not commit tenant/store identity. Please retry pairing.',
+      });
+    }
 
     // Emit Device V2 pairing claimed event
     try {
@@ -2761,9 +2872,12 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       });
     }
     
-    console.log(`[Device Engine] [${requestId}] GET /api/device/${normalizedDeviceId}/playlist/full`, {
+    console.log('[PLAYLIST_FULL_REQUEST]', {
+      requestId,
       deviceIdParamRaw: rawDeviceId,
       deviceIdNormalized: normalizedDeviceId,
+      path: req.path,
+      host: req.get?.('host') || null,
     });
     
     // Verify device exists and get device details (lookup by trimmed id)
@@ -2828,6 +2942,18 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
     const latestBinding =
       allBindings.find((b) => isActivePlaylistBindingStatus(b.status)) || null;
 
+    if (latestBinding) {
+      console.log('[PLAYLIST_FULL_BINDING_FOUND]', {
+        requestId,
+        deviceId: canonicalDeviceId,
+        bindingId: latestBinding.id,
+        playlistId: latestBinding.playlistId,
+        status: latestBinding.status,
+        tenantId: device.tenantId,
+        storeId: device.storeId,
+      });
+    }
+
     console.log(`[Device Engine] [${requestId}] playlist/full binding resolution`, {
       deviceIdReceived: rawDeviceId,
       deviceIdNormalized: normalizedDeviceId,
@@ -2863,13 +2989,22 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
         state,
       });
       
-      return res.json({
+      const noBindingBody = applyAndroidPlaylistFullCompat({
         ok: true,
         deviceId: canonicalDeviceId,
         state,
         message,
         playlist: null,
+        items: [],
       });
+      console.log('[PLAYLIST_FULL_RESPONSE]', {
+        requestId,
+        deviceId: canonicalDeviceId,
+        state: noBindingBody.state,
+        itemCount: 0,
+        playlistId: null,
+      });
+      return res.json(noBindingBody);
     }
     
     // Binding exists — status is active (pending/ready); compare case-insensitively
@@ -2908,23 +3043,51 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
     }
 
     const playlistTypeUpper = String(playlist.type || '').toUpperCase();
+    let deviceMetaForUrls = null;
+    try {
+      const capRow = await prisma.deviceCapability.findUnique({
+        where: { deviceId: canonicalDeviceId },
+        select: { capabilities: true },
+      });
+      deviceMetaForUrls = readDeviceMetadata(capRow);
+    } catch {
+      /* non-fatal */
+    }
+    const playlistMediaBase = resolvePlaylistMediaBaseUrl(req, deviceMetaForUrls);
+    if (!playlistMediaBase) {
+      console.error(`[Device Engine] [${requestId}] playlist/full missing DEVICE_PUBLIC_BASE_URL`, {
+        deviceId: canonicalDeviceId,
+        hint: 'Set DEVICE_PUBLIC_BASE_URL=http://<lan-ip>:3001 in core .env',
+      });
+    }
 
     /** @param {string} itemUrl @param {object} logCtx */
     const resolveItemUrl = (itemUrl, logCtx) => {
-      const resolvedUrl = buildMediaUrl(itemUrl, req);
-      if (!resolvedUrl || (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://'))) {
-        console.error(`[Device Engine] [${requestId}] Failed to build media URL - malformed result:`, {
+      const resolvedUrl = resolvePlaylistItemMediaUrl(itemUrl, playlistMediaBase, {
+        ...logCtx,
+        deviceId: canonicalDeviceId,
+        requestId,
+      });
+      if (!resolvedUrl) {
+        console.error(`[Device Engine] [${requestId}] Failed to build playlist media URL:`, {
           ...logCtx,
           originalUrl: itemUrl,
-          resolvedUrl,
-          hasReq: !!req,
+          playlistMediaBase,
         });
         return null;
       }
       try {
         new URL(resolvedUrl);
+        const host = new URL(resolvedUrl).hostname;
+        if (host === 'localhost' || host === '127.0.0.1') {
+          console.error(`[Device Engine] [${requestId}] Refusing loopback playlist media URL:`, {
+            resolvedUrl,
+            playlistMediaBase,
+          });
+          return null;
+        }
       } catch (urlError) {
-        console.error(`[Device Engine] [${requestId}] Built URL is invalid format:`, {
+        console.error(`[Device Engine] [${requestId}] Invalid playlist media URL:`, {
           ...logCtx,
           originalUrl: itemUrl,
           resolvedUrl,
@@ -3054,6 +3217,15 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       });
     }
     
+    console.log('[PLAYLIST_FULL_ITEMS_FOUND]', {
+      requestId,
+      deviceId: canonicalDeviceId,
+      playlistId: playlist.id,
+      rawItemCount: playlist.items?.length ?? 0,
+      playableItemCount: itemsWithRefs.length,
+      playlistType: playlistTypeUpper,
+    });
+
     // Fetch MIEntity for each item and build final response
     let items = [];
     try {
@@ -3194,13 +3366,20 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       } : null,
     };
     
-    // If playlist exists but has no items, update state and message
+    const rawItemCount = playlist?.items?.length ?? 0;
+
+    // Empty assigned playlist — accurate state (not "pending confirmation")
     if (playlist && items.length === 0) {
-      if (state === 'ready') {
-        response.state = 'pending_binding';
-        response.message = 'Playlist exists but has no playable items';
-      }
+      response.state = 'assigned_empty_playlist';
+      response.message = 'Playlist assigned but contains no playable items';
       response.playlist = null;
+      response.rawItemCount = rawItemCount;
+    }
+
+    // Playable items: return playlist even when binding is still pending
+    if (playlist && items.length > 0 && bindingSt === 'pending') {
+      response.state = 'ready';
+      response.message = 'Playlist ready for playback';
     }
     
     // Backward compatibility aliases (CORE-004)
@@ -3263,27 +3442,77 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       orientation,
     });
     
-    // Normalize media URLs in playlist items (fix old IP addresses)
-    const { getCoreBaseUrl, normalizePlaylistItems, normalizeMediaUrl } = await import('../utils/mediaUrlNormalizer.js');
-    const coreBaseUrl = getCoreBaseUrl(req) || response.coreBaseUrl || null;
-    if (coreBaseUrl && response.playlist && Array.isArray(response.playlist.items)) {
-      response.playlist.items = normalizePlaylistItems(response.playlist.items, coreBaseUrl);
+    const responseItemsBeforeCompat = response.playlist?.items ?? [];
+    console.log('[PLAYLIST_PLAYBACK]', {
+      deviceId: canonicalDeviceId,
+      bindingId: latestBinding?.id ?? null,
+      bindingPlaylistId: latestBinding?.playlistId ?? null,
+      playlistId: playlist?.id ?? null,
+      playlistItemCount: rawItemCount,
+      playableItemCount: items.length,
+      responseItemCount: responseItemsBeforeCompat.length,
+      firstItemUrl: responseItemsBeforeCompat[0]?.url ?? null,
+      hasPlayableItems: responseItemsBeforeCompat.length > 0,
+      coreBaseUrl: playlistMediaBase,
+      state: response.state,
+    });
+
+    applyAndroidPlaylistFullCompat(response);
+
+    // Re-apply canonical base on final payload (idempotent when items already built with playlistMediaBase)
+    if (playlistMediaBase && response.playlist && Array.isArray(response.playlist.items)) {
+      response.playlist.items = response.playlist.items.map((item) => {
+        const url = resolvePlaylistItemMediaUrl(item.url, playlistMediaBase, {
+          itemId: item.id,
+          deviceId: canonicalDeviceId,
+          pass: 'final',
+        });
+        return url ? { ...item, url, mediaUrl: url } : item;
+      });
       if (response.previewUrl) {
-        response.previewUrl = normalizeMediaUrl(response.previewUrl, coreBaseUrl);
+        response.previewUrl =
+          resolvePlaylistItemMediaUrl(response.previewUrl, playlistMediaBase, {
+            deviceId: canonicalDeviceId,
+            pass: 'preview',
+          }) || response.previewUrl;
       }
     }
-    
-    // Log one sample URL for debugging
-    if (response.playlist && response.playlist.items && response.playlist.items.length > 0) {
-      console.log("[DeviceEngine V2] Playlist sample URL:", response.playlist.items[0]?.url);
+    if (playlistMediaBase && Array.isArray(response.items)) {
+      response.items = response.items.map((item) => {
+        const url = resolvePlaylistItemMediaUrl(item.url || item.mediaUrl, playlistMediaBase, {
+          itemId: item.id,
+          deviceId: canonicalDeviceId,
+          pass: 'final-top-level',
+        });
+        return url ? { ...item, url, mediaUrl: url } : item;
+      });
     }
+    if (playlistMediaBase) {
+      response.coreBaseUrl = playlistMediaBase;
+    }
+
+    if (response.playlist?.items?.length > 0) {
+      console.log('[DeviceEngine V2] Playlist sample URL:', response.playlist.items[0]?.url);
+    }
+
+    const compatItems = Array.isArray(response.items) ? response.items : [];
+    console.log('[PLAYLIST_FULL_RESPONSE]', {
+      requestId,
+      deviceId: canonicalDeviceId,
+      state: response.state,
+      itemCount: compatItems.length,
+      playlistId: response.playlistId ?? response.playlist?.id ?? null,
+      playlistName: response.playlistName ?? response.playlist?.name ?? null,
+      bindingStatus: response.bindingStatus ?? null,
+      hasTopLevelItems: compatItems.length > 0,
+    });
 
     console.log(`[Device Engine] [${requestId}] playlist/full response`, {
       deviceId: canonicalDeviceId,
       state: response.state,
       message: response.message,
       hasPlaylist: !!response.playlist,
-      itemCount: response.playlist?.items?.length ?? 0,
+      itemCount: compatItems.length,
     });
     
     res.json(response);
@@ -3780,8 +4009,9 @@ router.get('/:id/debug', requireAuth, async (req, res) => {
       include: {
         bindings: {
           orderBy: { lastPushedAt: 'desc' },
-          take: 5, // Get last 5 bindings
+          take: 8,
         },
+        capabilities: true,
       },
     });
 
@@ -3793,10 +4023,8 @@ router.get('/:id/debug', requireAuth, async (req, res) => {
       });
     }
 
-    // Get active binding
-    const activeBinding = device.bindings.find(b => 
-      b.status === 'ready' || b.status === 'pending'
-    ) || device.bindings[0] || null;
+    const metadata = readDeviceMetadata(device.capabilities?.[0]);
+    const activeBinding = pickActivePlaylistBinding(device.bindings || []);
 
     // Get playlist if binding exists
     let playlist = null;
@@ -3855,6 +4083,10 @@ router.get('/:id/debug', requireAuth, async (req, res) => {
         platform: device.platform,
         tenantId: device.tenantId,
         storeId: device.storeId,
+        coreUrl: metadata.coreUrl,
+        engineVersion: metadata.engineVersion || device.appVersion,
+        pairingStatus: metadata.pairingStatus || derivePairingStatus(device),
+        currentPlaylistId: activeBinding?.playlistId || metadata.currentPlaylistId,
         pairingCode: device.pairingCode ? '***' : null, // Mask pairing code
         lastSeenAt: device.lastSeenAt?.toISOString() || null,
         createdAt: device.createdAt?.toISOString() || null,

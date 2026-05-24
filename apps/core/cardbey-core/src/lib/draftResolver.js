@@ -98,12 +98,12 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
 
   // Real store id
   let target = await prisma.draftStore.findFirst({
-    where: { committedStoreId: storeId, status: { in: ['draft', 'generating', 'ready', 'error'] } },
+    where: { committedStoreId: storeId, status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] } },
     orderBy: { updatedAt: 'desc' },
   });
   if (!target) {
     const all = await prisma.draftStore.findMany({
-      where: { status: { in: ['draft', 'generating', 'ready', 'error'] } },
+      where: { status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] } },
       orderBy: { updatedAt: 'desc' },
       take: 100,
     });
@@ -121,7 +121,7 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
     const inp = typeof target.input === 'string' ? JSON.parse(target.input) : (target.input || {});
     if (inp.generationRunId !== runId) {
       const match = await prisma.draftStore.findFirst({
-        where: { committedStoreId: storeId, status: { in: ['draft', 'generating', 'ready', 'error'] } },
+        where: { committedStoreId: storeId, status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] } },
         orderBy: { updatedAt: 'desc' },
       });
       if (match) {
@@ -134,7 +134,14 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
   if (!target) return { ...notFound, store: { id: storeId, type: 'General' } };
   const input = parseDraftJsonField(target.input);
   const preview = parseDraftJsonField(target.preview);
-  const status = target.status === 'generating' ? 'generating' : (target.status === 'ready' || target.status === 'draft' ? 'ready' : target.status === 'error' ? 'failed' : 'not_found');
+  const status =
+    target.status === 'generating'
+      ? 'generating'
+      : target.status === 'ready' || target.status === 'draft' || target.status === 'committed'
+        ? 'ready'
+        : target.status === 'error'
+          ? 'failed'
+          : 'not_found';
   const rawProducts = preview.items || preview.products || [];
   const products = rawProducts.map((item) => ({ ...item, description: item?.description ?? null }));
   return {

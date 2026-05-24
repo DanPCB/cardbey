@@ -7,7 +7,7 @@ import {
 } from '../intakeContractValidate.js';
 import { normalizePlan } from '../intakeNormalizePlan.js';
 import { evaluateExecutionPolicy, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM } from '../intakeExecutionPolicy.js';
-import { detectIntent, validateCreateStorePayload } from '../intakeSystemShortcuts.js';
+import { blockCreateStoreOnCompletedMission, detectIntent, validateCreateStorePayload } from '../intakeSystemShortcuts.js';
 
 describe('intakeToolRegistry', () => {
   it('rejects unknown tool', () => {
@@ -224,6 +224,15 @@ describe('intakeSystemShortcuts', () => {
         primaryMode: 'campaign',
       }),
     ).toBeNull();
+  });
+
+  it('blocks create_store on completed missions', () => {
+    expect(blockCreateStoreOnCompletedMission('completed', 'create_store')).toEqual({
+      tool: 'general_chat',
+      confidence: 0.5,
+    });
+    expect(blockCreateStoreOnCompletedMission('running', 'create_store')).toBeNull();
+    expect(blockCreateStoreOnCompletedMission('completed', 'update_store_hero')).toBeNull();
   });
 
   it('shortcuts create_store when structured storeCreateForm has storeName', () => {

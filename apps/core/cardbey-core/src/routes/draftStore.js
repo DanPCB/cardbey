@@ -959,17 +959,6 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
       });
     }
 
-    // If draft is committed, return redirect info instead of preview
-    if (draft.status === 'committed') {
-      return res.json({
-        ok: true,
-        draftId: draft.id,
-        status: 'committed',
-        redirectTo: '/app/back',
-        message: 'Draft already saved. Opening your store...',
-      });
-    }
-
     // Return same shape as GET /api/stores/temp/draft so frontend normalizer gets products/categories and does not overwrite good state
     const preview = typeof draft.preview === 'string' ? JSON.parse(draft.preview) : (draft.preview || {});
     const products = (Array.isArray(preview.items) ? preview.items : preview.products || []).map((item) => ({
@@ -977,16 +966,31 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
       description: item?.description ?? null,
     }));
     const categories = Array.isArray(preview.categories) ? preview.categories : [];
+    const committedStoreId =
+      typeof draft.committedStoreId === 'string' && draft.committedStoreId.trim()
+        ? draft.committedStoreId.trim()
+        : null;
     const store = {
-      id: 'temp',
+      id: committedStoreId || preview.meta?.storeId || 'temp',
       name: preview.storeName || preview.meta?.storeName || 'Untitled Store',
       type: preview.storeType || preview.meta?.storeType || 'General',
+      ...(committedStoreId ? { committedStoreId } : {}),
     };
+    const uiStatus =
+      draft.status === 'generating'
+        ? 'generating'
+        : draft.status === 'committed' || draft.status === 'ready' || draft.status === 'draft'
+          ? 'ready'
+          : draft.status;
 
     res.json({
       ok: true,
       draftId: draft.id,
-      status: draft.status,
+      status: uiStatus,
+      committed: draft.status === 'committed',
+      ...(draft.status === 'committed'
+        ? { redirectTo: '/app/back', message: 'Draft already saved. You can keep editing the preview.' }
+        : {}),
       store,
       products,
       categories,

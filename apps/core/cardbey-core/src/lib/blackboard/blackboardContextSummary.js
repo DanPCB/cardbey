@@ -175,6 +175,12 @@ export async function getBlackboardContextSummary(missionId) {
         const sum = str(p.summary);
         if (sum) assetNotes.add(`completion: ${sum.slice(0, 120)}${sum.length > 120 ? '…' : ''}`);
       }
+
+      if (et === 'blackboard_set' && str(p.key) === 'business.socialLinks') {
+        const val = p.value && typeof p.value === 'object' ? p.value : {};
+        const nets = Array.isArray(val.networks) ? val.networks.filter(Boolean).join(', ') : '';
+        if (nets) assetNotes.add(`social links: ${nets}`);
+      }
       if (et === 'next_action_hints') {
         const hints = Array.isArray(p.hints) ? p.hints : [];
         for (const h of hints) {

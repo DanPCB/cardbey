@@ -184,6 +184,31 @@ export async function execute(_input = {}, context = {}) {
     };
   }
 
+  let qaTier2Pending = [];
+  try {
+    const { applyStoreBuildQaAutoFix } = await import('../../../services/qa/storeBuildQaAutoFix.js');
+    const qaResult = await applyStoreBuildQaAutoFix({
+      prisma,
+      draftId: draftIdForRun,
+      missionId,
+      businessName: businessName || 'My store',
+      businessType: businessType || 'general',
+      metadataJson: meta,
+      generationRunId: created.generationRunId,
+    });
+    qaTier2Pending = Array.isArray(qaResult?.tier2Pending) ? qaResult.tier2Pending : [];
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[structured_store_build] store QA auto-fix', {
+        missionId,
+        draftId: draftIdForRun,
+        autoFixed: qaResult?.autoFixed,
+        tier2Pending: qaTier2Pending.map((f) => f?.id),
+      });
+    }
+  } catch (qaErr) {
+    console.warn('[structured_store_build] store QA auto-fix skipped:', qaErr?.message ?? qaErr);
+  }
+
   let storeId = null;
   let storeSlug = null;
   let guestTempStore = false;
@@ -403,6 +428,9 @@ export async function execute(_input = {}, context = {}) {
       ...(storeSlug ? { storeSlug } : {}),
       ...(guestTempStore ? { guestTempStore: true, guestSkippedCommit: false } : {}),
       guestSkippedCommit: !storeId && isGuestUserId(uid),
+      ...(qaTier2Pending.length > 0
+        ? { qaTier2Pending: true, qaTier2FixCount: qaTier2Pending.length }
+        : {}),
     },
   };
 }

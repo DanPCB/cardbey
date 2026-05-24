@@ -164,6 +164,8 @@ import contactsSyncRoutes from './routes/contactsSyncRoutes.js';
 import aiOperatorRoutes from './routes/aiOperatorRoutes.js';
 import missionsRoutes from './routes/missionsRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
+import brokerRoutes from './routes/brokerRoutes.js';
+import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
 import agentsV1Routes from './routes/agentsV1Routes.js';
 import researcherRoutes from './routes/researcherRoutes.js';
 import campaignRoutes from './routes/campaignRoutes.js';
@@ -769,8 +771,10 @@ app.use(healthRoutes); // Makes /healthz and /readyz available at root level
 app.use(mobileCompatAuthRouter);
 app.use('/api/auth', authRoutes); // Authentication routes: /api/auth/register, /api/auth/login, /api/auth/me
 app.patch('/api/users/me', requireAuth, patchCurrentUserProfile); // Alias for PATCH /api/auth/profile (personal profile Phase 1)
+app.patch('/api/users/me/profile', requireAuth, patchCurrentUserProfile);
 // Performer intake: mount before any `app.use('/api', …)` stack so POST /api/performer/intake is never swallowed (404) or mis-logged.
 app.use('/api/performer/intake', performerIntakeRoutes);
+app.use('/api/performer/runtime', performerRuntimeRoutes); // Phase 1.5: stream + state
 app.use('/api/tools', toolsRoutes);
 // Mount before broad /api routers and /api/assistant so POST /api/missions/* (e.g. extract-card) hits this stack first.
 app.use('/api/missions', missionsRoutes);
@@ -810,6 +814,12 @@ app.use('/api/admin', adminLlmRoutes); // Admin: GET /api/admin/llm/health (requ
 app.use('/api/mi/video-templates', miVideoTemplatesRoutes); // MI video template routes: /api/mi/video-templates
 app.use('/api/mi/music-tracks', miMusicTracksRoutes); // MI music track routes: /api/mi/music-tracks
 app.use('/api/device', deviceEngineRoutes); // Device engine routes: /api/device/list, /api/device/request-pairing, etc.
+if (process.env.NODE_ENV !== 'test') {
+  console.log(
+    '[CORE] Device pairing: POST /api/device/request-pairing | POST /api/device/pair-request | ' +
+      'POST /api/device/complete-pairing | legacy TV shim POST /api/screens/pair/initiate'
+  );
+}
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/device/debug', deviceDebugRoutes); // Device debug routes (dev only): /api/device/debug/list-all
 }
@@ -855,6 +865,7 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 }
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
+app.use('/api/broker', brokerRoutes); // Broker Phase 1: GET /api/broker/actions, /agent-capabilities
 console.log('[CORE] mounted /api/telemetry (GET /summary, POST /code-fix-proposal)');
 // missionsRoutes mounted earlier (after /api/tools) so /api/missions/* is not swallowed by other /api stacks.
 // Second stack: POST /api/missions/:missionId/spawn (OpenClaw child) when not defined on missionsRoutes

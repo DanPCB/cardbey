@@ -6,6 +6,8 @@
 
 import { getPrismaClient } from '../lib/prisma.js';
 import { executeMissionAction } from './execution/executeMissionAction.js';
+import { isPerformerRuntimePipelineFacadeEnabled } from './runtime/performerRuntime/runtimeFlags.js';
+import { executeRuntimeAction } from './runtime/performerRuntime/executeRuntimeAction.js';
 
 const DEFAULT_MAX_STEPS = 20;
 
@@ -112,11 +114,21 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
   }
 
   while (stepsRun < maxSteps) {
-    const fr = await executeMissionAction({
-      actionType: 'run_pipeline_step',
-      missionId: id,
-      source: 'run_mission_until_blocked',
-    });
+    let fr;
+    if (isPerformerRuntimePipelineFacadeEnabled()) {
+      fr = await executeRuntimeAction({
+        actionType: 'run_pipeline_step',
+        missionId: id,
+        source: 'run_mission_until_blocked',
+        skipDirectGuard: true,
+      });
+    } else {
+      fr = await executeMissionAction({
+        actionType: 'run_pipeline_step',
+        missionId: id,
+        source: 'run_mission_until_blocked',
+      });
+    }
     const runResult =
       fr.output && typeof fr.output === 'object'
         ? fr.output

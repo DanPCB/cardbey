@@ -56,6 +56,7 @@ model User {
   city           String?
   country        String?
   postcode       String?
+  socialLinks    Json? // { instagram?, facebook?, tiktok?, x?, youtube?, linkedin?, whatsapp? }
 
   // Relations (one user can have multiple stores)
   businesses          Business[]
@@ -137,6 +138,7 @@ model Business {
   publishedAt     DateTime? // When the store was last published (from draft)
   stylePreferences Json? // Style preferences: { style: "modern", mood: "warm", etc. }
   storefrontSettings Json? // { defaultView: "list"|"grid", allowUserToggle: boolean }; default grid, true
+  socialLinks      Json? // { instagram?, facebook?, tiktok?, x?, youtube?, linkedin?, whatsapp? }
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -148,9 +150,30 @@ model Business {
   smartDocuments SmartDocument[]
   merchantDesigns MerchantDesign[]
   contentLibraryAssets ContentLibraryAsset[]
+  publishedArtifactProjection PublishedArtifactProjection?
 
   @@index([userId])
   @@index([slug])
+}
+
+/// Canonical published store projection (single source for public read surfaces).
+model PublishedArtifactProjection {
+  id             String   @id @default(cuid())
+  artifactType   String   @default("business")
+  businessId     String   @unique
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  tenantId       String
+  storeId        String
+  slug           String
+  version        String   @default("v1")
+  projectionJson Json
+  sourceDraftId  String?
+  publishRunId   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([slug])
+  @@index([tenantId, slug])
 }
 
 /// Saved assets from Content Library (SVGRepo / Brandfetch / hosted)

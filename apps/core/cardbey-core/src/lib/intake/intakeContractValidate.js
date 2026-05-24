@@ -9,6 +9,52 @@ import {
   validateToolParameters,
 } from './intakeToolRegistry.js';
 
+/** Tools that may run without an active store/mission surface (confirm + dispatch). */
+export const CONTEXT_FREE_TOOLS = new Set([
+  'general_chat',
+  'create_store',
+  'device.sendInput',
+  'service_request',
+  'code_fix',
+]);
+
+/** Params merged by intake confirm/dispatch; not part of tool JSON schema for context-free tools. */
+const RUNTIME_CONTEXT_PARAM_KEYS = new Set([
+  'storeId',
+  'missionId',
+  'tenantId',
+  'deviceId',
+  'pipelineId',
+  'stepId',
+]);
+
+/**
+ * @param {string} tool
+ * @returns {boolean}
+ */
+export function isContextFreeTool(tool) {
+  const name = String(tool ?? '').trim();
+  if (!name) return false;
+  if (CONTEXT_FREE_TOOLS.has(name)) return true;
+  const entry = getToolEntry(name);
+  return entry ? !entry.requiresStore : false;
+}
+
+/**
+ * @param {string} tool
+ * @param {Record<string, unknown>} parameters
+ * @returns {Record<string, unknown>}
+ */
+export function stripRuntimeContextParams(tool, parameters) {
+  if (!isContextFreeTool(tool)) return parameters;
+  const input =
+    parameters && typeof parameters === 'object' && !Array.isArray(parameters) ? { ...parameters } : {};
+  for (const key of RUNTIME_CONTEXT_PARAM_KEYS) {
+    if (key in input) delete input[key];
+  }
+  return input;
+}
+
 /**
  * Map classifier / legacy aliases onto create_store registry keys (storeName, location, storeType, intentMode, _autoSubmit).
  * Removes unknown keys that would fail strict direct_action validation (e.g. LLM returns "name").
@@ -87,6 +133,7 @@ export function validateIntakeClassification(classification, storeId, opts = {})
   if (tool === 'create_store') {
     parameters = normalizeCreateStoreToolParameters(parameters);
   }
+  parameters = stripRuntimeContextParams(tool, parameters);
 
   if (!EXECUTION_PATHS.has(path)) {
     return {

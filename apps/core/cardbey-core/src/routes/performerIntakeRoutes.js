@@ -278,6 +278,15 @@ When the user asks to push content to screens or displays:
 1) Prefer signage.list-devices first unless targets are already clear.
 2) Then signage.publish-to-devices with playlistId and pushToAll and/or deviceIds.
 
+Social profile links (Instagram, Facebook, TikTok, X, YouTube, LinkedIn, WhatsApp):
+- setBusinessSocialLinks — set or update business social URLs; parameters: { "storeId": string, "socialLinks": { "instagram"?: string, "facebook"?: string, ... } } with full https URLs only.
+Use setBusinessSocialLinks when:
+- User mentions their social accounts during onboarding or store setup
+- User asks to add or update social links on their store
+- Mission context includes social handles (e.g. "@mchairsalon on Instagram")
+- Improving an existing store that has no social links set
+Do not invent social URLs — only set links explicitly provided by the user or found via web search on the business name. If unsure, ask the user. Omit networks not mentioned.
+
 Playlist authoring (creating playlists or adding assets) is done in the dashboard Signage flows; from chat you list screens and push an existing SIGNAGE playlist.
 
 Always available when no registered tool should run yet:

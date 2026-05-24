@@ -5,7 +5,19 @@
 
 import OpenAI from 'openai';
 import { extractMenu as extractMenuEngine } from '../../engines/menu/extractMenu.js';
-import { normalizeMenuExtractItems, averageConfidence } from './normalizeMenuExtract.js';
+import { seedMenuCatalogItemsImages } from './catalogItemImageSeed.js';
+import {
+  normalizeMenuExtractItems,
+  averageConfidence,
+  detectSuspiciousUniformPrices,
+} from './normalizeMenuExtract.js';
+import { MenuExtractionLlmError } from './menuExtractionLlmError.js';
+import {
+  extractMenuItemsFromImageBuffer,
+  isPlaceholderMenuExtraction,
+} from './menuVisionExtract.js';
+
+export { MenuExtractionLlmError } from './menuExtractionLlmError.js';
 
 const MIN_PDF_TEXT_CHARS = 50;
 const MAX_PDF_TEXT_CHARS_FOR_LLM = 120_000;
@@ -21,21 +33,6 @@ Rules:
 - "confidence" per item from 0 to 1 (your certainty for that row).
 - "description" short; use "" if none.
 - "category" must fit this business (${ctx.businessType}) — e.g. food: Drinks/Mains; beauty: Manicure/Pedicure/Gel; retail: product groupings from the document.`;
-}
-
-/**
- * Thrown when a required LLM step fails (route should map to 500).
- */
-export class MenuExtractionLlmError extends Error {
-  /**
-   * @param {string} message
-   * @param {{ cause?: unknown }} [opts]
-   */
-  constructor(message, opts = {}) {
-    super(message);
-    this.name = 'MenuExtractionLlmError';
-    if (opts.cause !== undefined) this.cause = opts.cause;
-  }
 }
 
 /**
@@ -180,38 +177,74 @@ export async function extractMenuFromFile(input) {
   let rawItems = [];
 
   if (fileType === 'image') {
-    // Reuse mature menu engine (OpenAI Vision OCR + OpenAI LLM structuring).
-    // We pass storeId=null so no DB save occurs.
-    const dataUrl = bufferToDataUrl(mimeType, fileBuffer);
-    let engineResult;
-    try {
-      engineResult = await extractMenuEngine(
-        {
-          tenantId: 'temp',
-          storeId: null,
-          imageUrl: dataUrl,
-          locale: language,
-          businessName: ctx.businessName,
-          businessType: ctx.businessType,
-        },
-        undefined,
-      );
-    } catch (e) {
-      throw new MenuExtractionLlmError('Menu engine extraction failed', { cause: e });
-    }
-    const structured = engineResult?.data?.items;
-    const items = Array.isArray(structured) ? structured : [];
-    rawText = items.map((i) => `${i?.name ?? ''} ${i?.price ?? ''}`.trim()).filter(Boolean).join('\n');
-    appendLanguageWarnings(rawText, language, warnings);
+    console.log('[menu-extract] starting extraction', {
+      fileType: mimeType,
+      fileSize: fileBuffer?.length ?? 0,
+      businessName: ctx.businessName,
+      businessType: ctx.businessType,
+    });
 
-    rawItems = items.map((it) => ({
-      name: it?.name ?? '',
-      price: it?.price ?? null,
-      currency: it?.currency ?? 'AUD',
-      category: it?.category ?? 'General',
-      description: it?.description ?? '',
-      confidence: 1.0,
-    }));
+    let visionItems = [];
+    try {
+      visionItems = await extractMenuItemsFromImageBuffer(fileBuffer, mimeType, {
+        businessName: ctx.businessName,
+        businessType: ctx.businessType,
+        language,
+      });
+    } catch (e) {
+      if (e instanceof MenuExtractionLlmError) throw e;
+      warnings.push(`Direct vision extraction failed: ${e?.message || String(e)}`);
+    }
+
+    console.log('[menu-extract] vision result', {
+      itemCount: visionItems?.length ?? 0,
+      firstItem: visionItems?.[0],
+      usedFallback: !visionItems?.length,
+    });
+
+    if (!visionItems.length) {
+      const dataUrl = bufferToDataUrl(mimeType, fileBuffer);
+      let engineResult;
+      try {
+        engineResult = await extractMenuEngine(
+          {
+            tenantId: 'temp',
+            storeId: null,
+            imageUrl: dataUrl,
+            locale: language,
+            businessName: ctx.businessName,
+            businessType: ctx.businessType,
+          },
+          undefined,
+        );
+      } catch (e) {
+        throw new MenuExtractionLlmError('Menu engine extraction failed', { cause: e });
+      }
+      const structured = engineResult?.data?.items;
+      const items = Array.isArray(structured) ? structured : [];
+      if (isPlaceholderMenuExtraction(items)) {
+        warnings.push('Engine returned placeholder items; vision extraction may have failed');
+        visionItems = [];
+      } else {
+        visionItems = items.map((it) => ({
+          name: it?.name ?? '',
+          price: it?.price ?? null,
+          currency: it?.currency ?? 'AUD',
+          category: it?.category ?? 'General',
+          description: it?.description ?? '',
+          confidence: 1.0,
+        }));
+      }
+      console.log('[menu-extract] engine fallback result', {
+        itemCount: visionItems.length,
+        firstItem: visionItems[0],
+        usedFallback: visionItems.length === 0,
+      });
+    }
+
+    rawText = visionItems.map((i) => `${i?.name ?? ''} ${i?.price ?? ''}`.trim()).filter(Boolean).join('\n');
+    appendLanguageWarnings(rawText, language, warnings);
+    rawItems = visionItems;
   } else if (fileType === 'pdf') {
     let pdfText = '';
     try {
@@ -249,8 +282,31 @@ export async function extractMenuFromFile(input) {
     throw new Error(`Unsupported fileType: ${fileType}`);
   }
 
-  const items = normalizeMenuExtractItems(rawItems, { language });
+  let items = normalizeMenuExtractItems(rawItems, { language });
+
+  const priceCheck = detectSuspiciousUniformPrices(items);
+  if (priceCheck.priceWarning) {
+    warnings.push(
+      `All ${items.length} items share the same price (${priceCheck.uniformPrice}) — prices may not match your menu. Review before applying.`,
+    );
+  }
+
+  if (items.length > 0) {
+    items = await seedMenuCatalogItemsImages(items, {
+      businessName: ctx.businessName,
+      storeType: ctx.businessType,
+    });
+  }
+
   const confidence = averageConfidence(items);
+
+  console.log('[menu-extract] extraction result', {
+    itemCount: items.length,
+    firstItem: items[0] ? { name: items[0].name, price: items[0].price, category: items[0].category } : null,
+    usedFallback: isPlaceholderMenuExtraction(items),
+    priceWarning: priceCheck.priceWarning,
+    withImages: items.filter((i) => i.imageUrl).length,
+  });
 
   const nullPrices = items.filter((i) => i.price == null).length;
   if (nullPrices > 0) {
@@ -263,5 +319,7 @@ export async function extractMenuFromFile(input) {
     confidence,
     warnings,
     rawText,
+    priceWarning: priceCheck.priceWarning,
+    uniformPrice: priceCheck.uniformPrice,
   };
 }

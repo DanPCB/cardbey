@@ -101,7 +101,8 @@ export async function resolveMissionRecoveryState(missionId) {
       select: { status: true },
     });
     draftStatus = draft?.status ?? null;
-    storeDraftReviewReady = String(draftStatus ?? '').toLowerCase() === 'ready';
+    const st = String(draftStatus ?? '').toLowerCase();
+    storeDraftReviewReady = st === 'ready' || st === 'committed';
   } else if (generationRunId) {
     const draft = await prisma.draftStore.findFirst({
       where: { generationRunId },
@@ -110,7 +111,8 @@ export async function resolveMissionRecoveryState(missionId) {
     });
     if (draft) {
       draftStatus = draft.status;
-      storeDraftReviewReady = String(draft.status ?? '').toLowerCase() === 'ready';
+      const st = String(draft.status ?? '').toLowerCase();
+      storeDraftReviewReady = st === 'ready' || st === 'committed';
     }
   }
 

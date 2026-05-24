@@ -58,4 +58,24 @@ describe('toPublicStore', () => {
     const result = toPublicStore(business);
     expect(result.tagline).toBe('Best coffee in town');
   });
+
+  it('includes socialLinks when set on business', () => {
+    const business = {
+      ...baseBusiness,
+      socialLinks: {
+        instagram: 'https://instagram.com/test',
+        facebook: 'https://facebook.com/test',
+      },
+    };
+    const result = toPublicStore(business);
+    expect(result.socialLinks).toEqual({
+      instagram: 'https://instagram.com/test',
+      facebook: 'https://facebook.com/test',
+    });
+  });
+
+  it('returns null socialLinks when unset', () => {
+    const result = toPublicStore(baseBusiness);
+    expect(result.socialLinks).toBeNull();
+  });
 });

@@ -14,7 +14,7 @@ function isGuestSessionUserId(id) {
 
 /**
  * Upsert a minimal User so Mission (and other FKs) can reference guest session ids.
- * Idempotent; safe to call before Mission.create for guest tokens.
+ * Concurrent-safe: uses atomic `upsert` on User.id (no find-then-create race).
  *
  * @param {import('./prismaClient.js').PrismaClient} prisma
  * @param {string} userId

@@ -69,6 +69,7 @@ export async function handlePublishStore(ctx) {
       draftId: draftId ?? undefined,
       generationRunId: generationRunId ?? undefined,
       userId,
+      entrypoint: 'performer_tool',
     });
 
     const webBase = publicWebBase();

@@ -12,6 +12,8 @@ import { z } from 'zod';
  * Optional: capabilities, initialState
  */
 export const RequestPairingInput = z.object({
+  /** Client-stable device id (heartbeat id). When set, pairing reuses that row instead of creating a duplicate. */
+  deviceId: z.string().min(1).optional(),
   deviceModel: z.string().min(1, 'deviceModel must be a non-empty string'),
   platform: z.string().min(1, 'platform must be a non-empty string'), // Accept any string, not just enum
   appVersion: z.string().min(1, 'appVersion must be a non-empty string'), // Required, not optional
@@ -55,10 +57,11 @@ export const CompletePairingInput = z.object({
   location: z.string().optional(),
 }).superRefine((v, ctx) => {
   const sid = (v.sessionId || v.deviceId || '').trim();
-  if (!sid) {
+  const code = String(v.pairingCode || '').trim();
+  if (!sid && !code) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'sessionId or deviceId is required',
+      message: 'sessionId, deviceId, or pairingCode is required',
       path: ['sessionId'],
     });
   }

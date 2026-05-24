@@ -85,6 +85,12 @@ export async function createMissionPipeline(params) {
     'temp';
   const createdByTrimmed = createdBy != null ? String(createdBy).trim() : '';
   const isPlaceholder = createdByTrimmed === 'temp' || createdByTrimmed === 'dev-user-id' || createdByTrimmed === '';
+  const isGuestCreatedBy =
+    createdByTrimmed.length > 0 && createdByTrimmed.toLowerCase().startsWith('guest_');
+  if (isGuestCreatedBy) {
+    const { ensureShadowUserRowForGuest } = await import('./mission.js');
+    await ensureShadowUserRowForGuest(prisma, createdByTrimmed);
+  }
   let isRealUserId = false;
   if (!isPlaceholder) {
     const existingUser = await prisma.user

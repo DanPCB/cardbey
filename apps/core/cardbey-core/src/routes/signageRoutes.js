@@ -493,35 +493,24 @@ router.post('/signage-assets/upload', requireAuth, upload.single('file'), async 
         }
       }
     } else if (assetType === 'video') {
-      const tempFilePath = createTempPath('signage-upload-', path.extname(filename));
       try {
-        await fs.writeFile(tempFilePath, buffer);
-        const ffmpegInstance = await initializeFfmpeg();
-        if (ffmpegInstance && ffmpegInstance.ffprobe) {
-          try {
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => reject(new Error('ffprobe timeout')), 30000);
-              ffmpegInstance.ffprobe(tempFilePath, (err, data) => {
-                clearTimeout(timeout);
-                if (!err && data?.streams?.length) {
-                  const v = data.streams.find(s => s.codec_type === 'video');
-                  if (v) {
-                    width = v.width || null;
-                    height = v.height || null;
-                  }
-                  if (data.format?.duration) {
-                    durationS = Math.round(Number(data.format.duration)) || null;
-                  }
-                }
-                resolve();
-              });
-            });
-          } catch (err) {
-            console.warn('[SignageRoutes] Failed to extract video metadata:', err);
-          }
+        const { ensureWebCompatibleVideoBuffer } = await import('../lib/videoCompat.js');
+        const processed = await ensureWebCompatibleVideoBuffer(buffer, filename, {
+          context: 'signage-assets.upload',
+        });
+        buffer = processed.buffer;
+        width = processed.width;
+        height = processed.height;
+        durationS = processed.durationS ?? durationS;
+        if (processed.transcoded) {
+          info('SIGNAGE_UPLOAD', 'Signage video transcoded for web/TV compatibility', {
+            filename,
+            tenantId,
+            storeId,
+          });
         }
-      } finally {
-        await safeUnlink(tempFilePath, 'SIGNAGE_UPLOAD');
+      } catch (videoErr) {
+        console.warn('[SignageRoutes] Video compat processing failed (non-fatal):', videoErr.message);
       }
     }
 
@@ -710,41 +699,52 @@ router.get('/signage-assets/:id', requireAuth, async (req, res) => {
  */
 router.get('/signage-playlists', requireAuth, async (req, res) => {
   try {
-    const { tenantId, storeId } = requireTenantStoreContext(req);
+    const { resolvePlaylistTenantStore, listSignagePlaylistsForStore } = await import('../lib/playlistScope.js');
+    const queryTenant = req.query.tenantId ? String(req.query.tenantId).trim() : null;
+    const queryStore = req.query.storeId ? String(req.query.storeId).trim() : null;
 
-    // Log the request for debugging
-    console.log('[SignageRoutes] GET /signage-playlists', {
-      tenantId,
-      storeId,
+    console.log('[SIGNAGE_PLAYLIST_LIST_START]', {
+      tenantId: queryTenant,
+      storeId: queryStore,
       userId: req.userId,
-      queryParams: req.query,
-      hasBusiness: !!req.user?.business,
+      endpoint: '/api/signage-playlists',
     });
 
-    // Build where clause - filter by type, tenant, store, and active status
-    const where = {
-      type: 'SIGNAGE',
+    let tenantId;
+    let storeId;
+    try {
+      const scope = await resolvePlaylistTenantStore(
+        {
+          tenantId: queryTenant || req.userId,
+          storeId: queryStore || req.user?.business?.id,
+          userId: req.userId,
+        },
+        prisma,
+      );
+      tenantId = scope.tenantId;
+      storeId = scope.storeId;
+    } catch (scopeErr) {
+      if (scopeErr?.code === 'missing_tenant_store') {
+        const fallback = requireTenantStoreContext(req);
+        tenantId = fallback.tenantId;
+        storeId = fallback.storeId;
+      } else {
+        throw scopeErr;
+      }
+    }
+
+    const playlists = await listSignagePlaylistsForStore(prisma, {
       tenantId,
       storeId,
-      active: true, // Only return active playlists (matches what POST creates)
-    };
-
-    // Query playlists with item counts
-    const playlists = await prisma.playlist.findMany({
-      where,
-      include: {
-        items: {
-          select: { id: true },
-        },
-      },
-      orderBy: { updatedAt: 'desc' },
+      repair: true,
     });
 
-    console.log('[SignageRoutes] Found playlists', {
+    console.log('[SIGNAGE_PLAYLIST_LIST_SUCCESS]', {
       count: playlists.length,
       tenantId,
       storeId,
-      playlistIds: playlists.map(p => p.id),
+      endpoint: '/api/signage-playlists',
+      playlistIds: playlists.map((p) => p.id),
     });
 
     // Transform to response format
@@ -805,7 +805,23 @@ router.get('/signage-playlists', requireAuth, async (req, res) => {
  */
 router.post('/signage-playlists', requireAuth, async (req, res) => {
   try {
-    const { tenantId, storeId } = requireTenantStoreContext(req);
+    const { resolvePlaylistTenantStore } = await import('../lib/playlistScope.js');
+    let tenantId;
+    let storeId;
+    try {
+      const scope = await resolvePlaylistTenantStore(
+        {
+          tenantId: req.query.tenantId || req.body?.tenantId || req.userId,
+          storeId: req.query.storeId || req.body?.storeId || req.user?.business?.id,
+          userId: req.userId,
+        },
+        prisma,
+      );
+      tenantId = scope.tenantId;
+      storeId = scope.storeId;
+    } catch {
+      ({ tenantId, storeId } = requireTenantStoreContext(req));
+    }
 
     const { name, description, defaultDurationS } = req.body;
 
@@ -856,43 +872,16 @@ router.post('/signage-playlists', requireAuth, async (req, res) => {
  */
 router.get('/signage-playlists/:playlistId', requireAuth, async (req, res) => {
   try {
-    const { tenantId, storeId } = requireTenantStoreContext(req);
     const { playlistId } = req.params;
-
-    const playlist = await prisma.playlist.findUnique({
-      where: { id: playlistId },
-      include: {
-        items: {
-          include: { asset: true, media: true },
-          orderBy: { orderIndex: 'asc' },
-        },
-      },
-    });
-
-    if (!playlist) {
-      return res.status(404).json({
-        ok: false,
-        error: 'not_found',
-        message: 'Playlist not found',
-      });
-    }
-
-    // Validate tenant/store access
-    if (playlist.tenantId !== tenantId || playlist.storeId !== storeId) {
-      return res.status(403).json({
-        ok: false,
-        error: 'access_denied',
-        message: 'Access denied: playlist does not belong to your tenant/store',
-      });
-    }
-
-    if (playlist.type !== 'SIGNAGE') {
-      return res.status(400).json({
-        ok: false,
-        error: 'invalid_type',
-        message: 'This endpoint only supports SIGNAGE playlists',
-      });
-    }
+    const { loadSignagePlaylistWithAccess } = await import('../lib/playlistAccess.js');
+    const playlist = await loadSignagePlaylistWithAccess(
+      req,
+      res,
+      prisma,
+      playlistId,
+      'GET /api/signage-playlists/:playlistId',
+    );
+    if (!playlist) return;
 
     const { getEntityByLink } = await import('../services/miService.js');
     const coreBaseUrl = getCoreBaseUrl(req);
@@ -936,43 +925,16 @@ router.get('/signage-playlists/:playlistId', requireAuth, async (req, res) => {
  */
 router.put('/signage-playlists/:playlistId', requireAuth, async (req, res) => {
   try {
-    const { tenantId, storeId } = requireTenantStoreContext(req);
     const { playlistId } = req.params;
-
-    const playlist = await prisma.playlist.findUnique({
-      where: { id: playlistId },
-      include: {
-        items: {
-          include: { asset: true, media: true },
-          orderBy: { orderIndex: 'asc' },
-        },
-      },
-    });
-
-    if (!playlist) {
-      return res.status(404).json({
-        ok: false,
-        error: 'not_found',
-        message: 'Playlist not found',
-      });
-    }
-
-    // Validate access
-    if (playlist.tenantId !== tenantId || playlist.storeId !== storeId) {
-      return res.status(403).json({
-        ok: false,
-        error: 'access_denied',
-        message: 'Access denied',
-      });
-    }
-
-    if (playlist.type !== 'SIGNAGE') {
-      return res.status(400).json({
-        ok: false,
-        error: 'invalid_type',
-        message: 'This endpoint only supports SIGNAGE playlists',
-      });
-    }
+    const { loadSignagePlaylistWithAccess } = await import('../lib/playlistAccess.js');
+    const playlist = await loadSignagePlaylistWithAccess(
+      req,
+      res,
+      prisma,
+      playlistId,
+      'PUT /api/signage-playlists/:playlistId',
+    );
+    if (!playlist) return;
 
     // Update fields
     const updateData = {};
@@ -1597,44 +1559,16 @@ router.delete('/signage-playlists/:playlistId/items/:itemId', requireAuth, async
  */
 router.get('/signage/playlist/:playlistId', requireAuth, async (req, res) => {
   try {
-    const { tenantId, storeId } = requireTenantStoreContext(req);
     const { playlistId } = req.params;
-
-    // Fetch playlist with items (asset and/or media FK)
-    const playlist = await prisma.playlist.findUnique({
-      where: { id: playlistId },
-      include: {
-        items: {
-          include: { asset: true, media: true },
-          orderBy: { orderIndex: 'asc' },
-        },
-      },
-    });
-
-    if (!playlist) {
-      return res.status(404).json({
-        ok: false,
-        error: 'not_found',
-        message: 'Playlist not found',
-      });
-    }
-
-    // Validate tenant/store access
-    if (playlist.tenantId !== tenantId || playlist.storeId !== storeId) {
-      return res.status(403).json({
-        ok: false,
-        error: 'access_denied',
-        message: 'Access denied: playlist does not belong to your tenant/store',
-      });
-    }
-
-    if (playlist.type !== 'SIGNAGE') {
-      return res.status(400).json({
-        ok: false,
-        error: 'invalid_type',
-        message: 'This endpoint only supports SIGNAGE playlists',
-      });
-    }
+    const { loadSignagePlaylistWithAccess } = await import('../lib/playlistAccess.js');
+    const playlist = await loadSignagePlaylistWithAccess(
+      req,
+      res,
+      prisma,
+      playlistId,
+      'GET /api/signage/playlist/:playlistId',
+    );
+    if (!playlist) return;
 
     // Fetch assigned devices (via DevicePlaylistBinding)
     const bindings = await prisma.devicePlaylistBinding.findMany({

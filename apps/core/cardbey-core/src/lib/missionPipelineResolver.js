@@ -203,7 +203,10 @@ export async function resolveMissionState(missionId) {
     ...(storeDraftReviewReady !== undefined ? { storeDraftReviewReady } : {}),
     /** Full pipeline metadata (e.g. proactive runway `stepOutputs`) for console restore. */
     metadata,
-    ...(activeCheckpoint ? { activeCheckpoint } : {}),
+    ...(activeCheckpoint
+      ? { activeCheckpoint, pendingCheckpoint: activeCheckpoint }
+      : {}),
+    completedAt: mission.completedAt ?? undefined,
     createdAt: mission.createdAt,
     updatedAt: mission.updatedAt,
   };

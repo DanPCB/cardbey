@@ -12,6 +12,9 @@
 
 import express from 'express';
 import { getPrismaClient } from '../lib/prisma.js';
+import { publicWebBase } from '../utils/publicWebBase.js';
+import { businessPublicReadSelect, publicCommerceFields } from '../lib/dbCapabilities.js';
+import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 
 const router = express.Router();
 
@@ -72,46 +75,46 @@ router.get('/frontscreen', async (req, res, next) => {
       where: { isActive: true },
       orderBy: [{ publishedAt: 'desc' }, { updatedAt: 'desc' }],
       take: typeParam ? limit * 3 : limit,
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        type: true,
-        heroImageUrl: true,
-        avatarImageUrl: true,
-        publishedAt: true,
-        description: true,
-        transactionMode: true,
-        catalogLabel: true,
-        ctaLabel: true,
-        storefrontSettings: true,
-      },
+      select: businessPublicReadSelect(),
     });
 
     if (typeParam) {
       stores = stores.filter((s) => businessMatchesType(s.type, typeParam)).slice(0, limit);
     }
 
+    const webBase = publicWebBase();
+    const mapped = [];
+    for (const s of stores) {
+      const { store: pub } = await resolvePublicStoreFromArtifact(prisma, s);
+      const slug = pub.slug ?? s.slug;
+      mapped.push({
+        id: s.id,
+        name: pub.name,
+        slug,
+        type: pub.type ?? s.type,
+        heroImageUrl: pub.heroUrl ?? s.heroImageUrl ?? null,
+        heroVideo: pub.heroVideo ?? null,
+        avatarImageUrl: pub.avatarUrl ?? s.avatarImageUrl ?? null,
+        publishedAt: s.publishedAt?.toISOString?.() ?? null,
+        description: pub.description ?? null,
+        tagline: pub.tagline ?? null,
+        website: pub.website ?? null,
+        liveUrl: slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null,
+        ...publicCommerceFields(s, pub),
+        storefrontSettings: pub.storefrontSettings ?? jsonToPlainObject(s.storefrontSettings),
+        socialLinks: pub.socialLinks ?? null,
+      });
+    }
+
     return res.json({
       ok: true,
-      stores: stores.map((s) => ({
-        id: s.id,
-        name: s.name,
-        slug: s.slug,
-        type: s.type,
-        heroImageUrl: s.heroImageUrl ?? null,
-        avatarImageUrl: s.avatarImageUrl ?? null,
-        publishedAt: s.publishedAt?.toISOString?.() ?? null,
-        description: s.description ?? null,
-        transactionMode: s.transactionMode ?? 'order',
-        catalogLabel: s.catalogLabel ?? 'Products',
-        ctaLabel: s.ctaLabel ?? 'Order now',
-        storefrontSettings: jsonToPlainObject(s.storefrontSettings),
-      })),
+      stores: mapped,
+      total: mapped.length,
     });
   } catch (error) {
-    console.error('[Storefront] frontscreen error:', error);
-    next(error);
+    const msg = error?.message ?? String(error);
+    console.error('[frontscreen] query failed:', msg, error?.stack?.split('\n')?.[1] ?? '');
+    return res.json({ ok: true, stores: [], total: 0 });
   }
 });
 
@@ -134,64 +137,47 @@ router.get('/homepage-stores', async (req, res, next) => {
         { updatedAt: 'desc' },
       ],
       take: typeParam ? limit * 3 : limit * 2,
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        type: true,
-        tagline: true,
-        heroImageUrl: true,
-        avatarImageUrl: true,
-        logo: true,
-        publishedAt: true,
-        storefrontSettings: true,
-        transactionMode: true,
-        catalogLabel: true,
-        ctaLabel: true,
-      },
+      select: businessPublicReadSelect(),
     });
 
     let filteredRows = typeParam ? rows.filter((s) => businessMatchesType(s.type, typeParam)).slice(0, limit * 2) : rows;
+    const webBase = publicWebBase();
     const items = [];
     for (const s of filteredRows) {
-      const name = (s.name && String(s.name).trim()) || null;
+      const { store: pub } = await resolvePublicStoreFromArtifact(prisma, s);
+      const name = (pub.name && String(pub.name).trim()) || null;
       if (!name) continue;
 
-      let heroImageUrl = (s.heroImageUrl && String(s.heroImageUrl).trim()) || null;
-      const avatarImageUrl = (s.avatarImageUrl && String(s.avatarImageUrl).trim()) || null;
-      if (!heroImageUrl && s.logo) {
-        try {
-          const logoData = typeof s.logo === 'string' ? JSON.parse(s.logo) : s.logo;
-          const logoUrl = logoData?.bannerUrl ?? logoData?.heroUrl ?? logoData?.coverUrl ?? logoData?.avatarUrl ?? logoData?.url ?? null;
-          if (logoUrl && String(logoUrl).trim()) heroImageUrl = String(logoUrl).trim();
-        } catch {
-          // ignore
-        }
-      }
-      if (!heroImageUrl && avatarImageUrl) heroImageUrl = avatarImageUrl;
+      const heroImageUrl = (pub.heroUrl && String(pub.heroUrl).trim()) || null;
+      const avatarImageUrl = (pub.avatarUrl && String(pub.avatarUrl).trim()) || null;
       if (!heroImageUrl) continue;
 
-      const storeUrl = `/preview/store/${s.id}`;
+      const slug = pub.slug ?? s.slug;
+      const storeUrl = slug
+        ? `${webBase}/s/${encodeURIComponent(slug)}`
+        : `/preview/store/${s.id}`;
       const publishedAtIso = s.publishedAt?.toISOString?.() ?? null;
-      const storefrontSettings = jsonToPlainObject(s.storefrontSettings);
+      const storefrontSettings = pub.storefrontSettings ?? jsonToPlainObject(s.storefrontSettings);
       items.push({
         storeId: s.id,
         storeName: name,
         heroImageUrl,
+        heroVideo: pub.heroVideo ?? null,
         avatarUrl: avatarImageUrl || heroImageUrl,
-        tagline: (s.tagline && String(s.tagline).trim()) || null,
+        tagline: (pub.tagline && String(pub.tagline).trim()) || (pub.description && String(pub.description).trim()) || null,
+        description: pub.description ?? null,
+        website: pub.website ?? null,
+        liveUrl: slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null,
         storeUrl,
         publishedAt: publishedAtIso,
         storefrontSettings,
-        // backward compatibility for frontend expecting items with id, name, avatarImageUrl
         id: s.id,
         name,
-        slug: s.slug ?? null,
-        type: s.type ?? null,
+        slug: slug ?? null,
+        type: pub.type ?? s.type ?? null,
         avatarImageUrl: avatarImageUrl || heroImageUrl,
-        transactionMode: s.transactionMode ?? 'order',
-        catalogLabel: s.catalogLabel ?? 'Products',
-        ctaLabel: s.ctaLabel ?? 'Order now',
+        socialLinks: pub.socialLinks ?? null,
+        ...publicCommerceFields(s, pub),
       });
       if (items.length >= limit) break;
     }
@@ -225,14 +211,13 @@ router.get('/homepage-stores', async (req, res, next) => {
         storeUrl: it.storeUrl,
         publishedAt: it.publishedAt,
         storefrontSettings: it.storefrontSettings ?? null,
-        transactionMode: it.transactionMode ?? 'order',
-        catalogLabel: it.catalogLabel ?? 'Products',
-        ctaLabel: it.ctaLabel ?? 'Order now',
+        ...publicCommerceFields(it, it),
       })),
     });
   } catch (error) {
-    console.error('[Storefront] homepage-stores error:', error);
-    next(error);
+    const msg = error?.message ?? String(error);
+    console.error('[homepage-stores] query failed:', msg, error?.stack?.split('\n')?.[1] ?? '');
+    return res.json({ ok: true, stores: [], items: [], total: 0 });
   }
 });
 

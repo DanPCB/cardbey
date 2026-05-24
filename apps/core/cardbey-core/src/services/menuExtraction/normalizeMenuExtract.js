@@ -80,11 +80,40 @@ export function applyCurrencyInference(items, language) {
  *   confidence: number;
  * } | null}
  */
+/** Common LLM default when it cannot read prices — treat as missing. */
+const SUSPICIOUS_UNIFORM_PRICE_DEFAULTS = new Set([15, 49.99, 79.99, 19.99]);
+
+/**
+ * @param {Array<{ price: number | null }>} items
+ * @returns {{ priceWarning: boolean; uniformPrice: number | null }}
+ */
+export function detectSuspiciousUniformPrices(items) {
+  if (!Array.isArray(items) || items.length <= 3) {
+    return { priceWarning: false, uniformPrice: null };
+  }
+  const prices = items.map((i) => i.price).filter((p) => p != null && Number.isFinite(p));
+  if (prices.length <= 3) return { priceWarning: false, uniformPrice: null };
+  const first = prices[0];
+  const allSame = prices.every((p) => Math.abs(p - first) < 1e-6);
+  const suspicious =
+    allSame &&
+    (SUSPICIOUS_UNIFORM_PRICE_DEFAULTS.has(first) || prices.length >= 8);
+  if (suspicious) {
+    console.warn('[menu-extract] suspicious: all items have same price', first, {
+      itemCount: items.length,
+    });
+  }
+  return { priceWarning: suspicious, uniformPrice: allSame ? first : null };
+}
+
 function normalizeOneRawItem(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   if (!name) return null;
-  const price = parseMenuPrice(raw.price);
+  let price = parseMenuPrice(raw.price);
+  if (price == null && raw.priceDisplay != null) {
+    price = parseMenuPrice(raw.priceDisplay);
+  }
   let currency = typeof raw.currency === 'string' ? raw.currency.trim().toUpperCase() : 'AUD';
   if (!ALLOWED_CURRENCIES.has(currency)) currency = 'AUD';
   const description = typeof raw.description === 'string' ? raw.description.trim() : '';

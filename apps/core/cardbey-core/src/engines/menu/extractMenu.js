@@ -7,6 +7,10 @@ import { getEventEmitter, MENU_EVENTS } from './events.js';
 import { configureMenu } from './configureMenu.js';
 import { parseMenuWithLLM } from '../../modules/menu/llmMenuParser.js';
 import { analyseVisionInput } from '../../modules/vision/universalVisionInput.js';
+import {
+  extractMenuItemsFromImageBuffer,
+  isPlaceholderMenuExtraction,
+} from '../../services/menuExtraction/menuVisionExtract.js';
 
 import { prisma } from '../../lib/prisma.js';
 
@@ -59,11 +63,8 @@ function mockMenuRowsForContext(businessType, businessName) {
       { name: 'Batch Brew', price: 4.0 },
     ];
   }
-  return [
-    { name: 'Standard Service', price: 49.99 },
-    { name: 'Premium Service', price: 79.99 },
-    { name: 'Add-on', price: 19.99 },
-  ];
+  // Never invent generic "services" rows when OCR/vision failed — caller should surface empty extraction.
+  return [];
 }
 
 /**
@@ -193,12 +194,50 @@ export const extractMenu = async (input, ctx) => {
       categoryCount: llmResult.categories?.length ?? 0,
     });
   } catch (err) {
-    console.error('[Menu Engine] Vision/LLM pipeline failed, falling back to legacy mock parser', err);
-    // Fall back to mock parser
-    llmResult = await mockParseMenu(imageUrl, {
-      businessName: typeof businessName === 'string' ? businessName : undefined,
-      businessType: typeof businessType === 'string' ? businessType : undefined,
-    });
+    console.error('[Menu Engine] Vision/LLM pipeline failed', err);
+    let recovered = { items: [], categories: [] };
+    if (imageUrl?.startsWith('data:image/') && process.env.OPENAI_API_KEY) {
+      try {
+        const m = imageUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+        if (m) {
+          const buffer = Buffer.from(m[2], 'base64');
+          const raw = await extractMenuItemsFromImageBuffer(buffer, m[1], {
+            businessName: typeof businessName === 'string' ? businessName : undefined,
+            businessType: typeof businessType === 'string' ? businessType : undefined,
+            language: locale === 'vi' ? 'vi' : 'en',
+          });
+          if (raw.length && !isPlaceholderMenuExtraction(raw)) {
+            recovered = {
+              items: raw.map((it) => ({
+                name: typeof it?.name === 'string' ? it.name : '',
+                category: typeof it?.category === 'string' ? it.category : null,
+                price: typeof it?.price === 'number' ? it.price : null,
+                currency: 'AUD',
+                description: typeof it?.description === 'string' ? it.description : null,
+                tags: [],
+              })),
+              categories: [],
+            };
+            console.log('[Menu Engine] Recovered via direct vision fallback', {
+              itemCount: recovered.items.length,
+            });
+          }
+        }
+      } catch (visionErr) {
+        console.warn('[Menu Engine] Direct vision recovery failed', visionErr?.message || visionErr);
+      }
+    }
+    if (!recovered.items.length) {
+      llmResult = await mockParseMenu(imageUrl, {
+        businessName: typeof businessName === 'string' ? businessName : undefined,
+        businessType: typeof businessType === 'string' ? businessType : undefined,
+      });
+      if (isPlaceholderMenuExtraction(llmResult.items)) {
+        llmResult = { items: [], categories: [] };
+      }
+    } else {
+      llmResult = recovered;
+    }
   }
 
   // Import category inference helpers

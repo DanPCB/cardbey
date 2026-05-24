@@ -29,6 +29,7 @@ import { executeMissionAction } from '../lib/execution/executeMissionAction.js';
 import { runMissionUntilBlocked } from '../lib/missionPipelineOrchestrator.js';
 import { planMissionFromIntent } from '../lib/agentPlanner.js';
 import { resolveAccessibleMission, getTenantId } from '../lib/missionAccess.js';
+import { ensureMissionRowForBlackboard } from '../lib/missionBlackboard.js';
 import { canTransitionMissionPipeline } from '../lib/missionPipelineTransitions.js';
 import { buildRunnerDualWriteMetadataJson } from '../lib/orchestrator/pipelineCanonicalResults.js';
 import { executeStoreMissionPipelineRun } from '../lib/storeMission/executeStoreMissionPipelineRun.js';
@@ -682,6 +683,56 @@ router.post('/:missionId/retry', requireAuth, async (req, res, next) => {
     return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found' });
   } catch (err) {
     next(err);
+  }
+});
+
+router.post('/:missionId/qa-fixes/approve', requireAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+    const access = await resolveAccessibleMission(req.user, missionId);
+    if (!access.ok) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found or access denied' });
+    }
+    const actionRaw = typeof req.body?.action === 'string' ? req.body.action.trim().toLowerCase() : '';
+    const decision = actionRaw === 'approve_all' ? 'approve_all' : 'skip_all';
+    const { applyPendingStoreBuildQaTier2Fixes } = await import('../services/qa/storeBuildQaAutoFix.js');
+    const result = await applyPendingStoreBuildQaTier2Fixes({
+      missionId,
+      decision,
+    });
+    if (!result.ok && result.reason === 'no_pending_tier2') {
+      return res.status(409).json({
+        ok: false,
+        error: 'no_pending_qa_fixes',
+        message: 'No catalog improvements are waiting for approval',
+      });
+    }
+    if (!result.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: result.error || 'qa_approval_failed',
+        message: result.error || 'Could not apply catalog improvements',
+      });
+    }
+    return res.json({
+      ok: true,
+      action: decision,
+      applied: result.applied === true,
+      skipped: result.skipped === true,
+      autoFixed: result.autoFixed ?? [],
+    });
+  } catch (err) {
+    const message = err?.message || 'Could not apply catalog improvements';
+    console.error('[qa-fixes/approve] failed:', message);
+    return res.status(500).json({
+      ok: false,
+      error: message,
+      message,
+      retryable: true,
+    });
   }
 });
 
@@ -1655,23 +1706,92 @@ router.get('/:missionId', requireAuth, async (req, res, next) => {
     if (!missionIdTrimmed) {
       return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
     }
-    const allowed = await canAccessMission(missionIdTrimmed, req.user);
-    if (!allowed) {
-      return res.status(403).json({
-        ok: false,
-        error: 'forbidden',
-        code: 'FORBIDDEN_MISSION',
-        message: 'You do not have access to this mission.',
+
+    const access = await resolveAccessibleMission(req.user, missionIdTrimmed);
+    const prisma = getPrismaClient();
+
+    if (process.env.NODE_ENV !== 'production') {
+      const pipeDbg = await prisma.missionPipeline.findUnique({
+        where: { id: missionIdTrimmed },
+        select: { createdBy: true, tenantId: true },
+      });
+      const missionDbg = await prisma.mission.findUnique({
+        where: { id: missionIdTrimmed },
+        select: { createdByUserId: true, tenantId: true },
+      });
+      console.log('[mission-access-debug]', {
+        missionId: missionIdTrimmed,
+        accessOk: access.ok,
+        accessKind: access.ok ? access.kind : access.reason,
+        pipelineCreatedBy: pipeDbg?.createdBy ?? null,
+        pipelineTenantId: pipeDbg?.tenantId ?? null,
+        missionCreatedByUserId: missionDbg?.createdByUserId ?? null,
+        missionTenantId: missionDbg?.tenantId ?? null,
+        requestUserId: req.user?.id ?? null,
+        requestRole: req.user?.role ?? null,
+        pipelineOwnerMatch:
+          pipeDbg?.createdBy != null && req.user?.id != null && pipeDbg.createdBy === req.user.id,
       });
     }
-    const prisma = getPrismaClient();
-    const mission = await prisma.mission.findUnique({
+
+    if (!access.ok) {
+      if (access.reason === 'FORBIDDEN') {
+        return res.status(403).json({
+          ok: false,
+          error: 'forbidden',
+          code: 'FORBIDDEN_MISSION',
+          message: 'You do not have access to this mission.',
+        });
+      }
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found' });
+    }
+
+    await ensureMissionRowForBlackboard(prisma, missionIdTrimmed).catch(() => {});
+
+    let mission = await prisma.mission.findUnique({
       where: { id: missionIdTrimmed },
       select: { id: true, title: true, status: true, context: true, updatedAt: true },
     });
+
+    if (!mission && access.kind === 'mission_pipeline') {
+      const pipe = await prisma.missionPipeline.findUnique({
+        where: { id: missionIdTrimmed },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          metadataJson: true,
+          createdAt: true,
+          updatedAt: true,
+          createdBy: true,
+        },
+      });
+      if (pipe) {
+        const context =
+          pipe.metadataJson && typeof pipe.metadataJson === 'object' && !Array.isArray(pipe.metadataJson)
+            ? pipe.metadataJson
+            : {};
+        const syntheticMission = {
+          id: pipe.id,
+          title: pipe.title != null ? String(pipe.title).trim() || 'Untitled' : 'Untitled',
+          status: pipe.status,
+          context,
+          createdAt: pipe.createdAt,
+          updatedAt: pipe.updatedAt,
+          createdByUserId: typeof pipe.createdBy === 'string' ? pipe.createdBy : null,
+          ...(process.env.NODE_ENV !== 'production' ? { _synthetic: true } : {}),
+        };
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[mission-access-debug] serving synthetic mission', syntheticMission);
+        }
+        mission = syntheticMission;
+      }
+    }
+
     if (!mission) {
       return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found' });
     }
+
     const executionPlans = getUnifiedExecutionPlans(mission.context ?? undefined);
     return res.json({ ok: true, mission, executionPlans });
   } catch (err) {

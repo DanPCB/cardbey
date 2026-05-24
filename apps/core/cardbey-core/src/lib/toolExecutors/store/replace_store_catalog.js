@@ -1,5 +1,7 @@
 /**
  * UI-first: signals the client to open the menu/catalog upload modal (no server replace here).
+ * Catalog write + image seeding run on POST /api/stores/temp/draft/extract-menu and
+ * PATCH /api/stores/temp/draft/catalog (see catalogItemImageSeed.js).
  */
 
 /**
@@ -21,6 +23,7 @@ export async function execute(input = {}, context = {}) {
       generationRunId,
       storeId,
       message: 'Ready to replace your catalog. Please upload your menu file.',
+      extractEndpoint: `/api/stores/temp/draft/extract-menu`,
       uploadEndpoint: `/api/stores/temp/draft/catalog`,
     },
   };

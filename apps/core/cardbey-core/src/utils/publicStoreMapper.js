@@ -5,6 +5,9 @@
  */
 
 import { getTranslatedField } from '../services/i18n/translationUtils.js';
+import { resolveHeroMediaFromBusiness } from './heroMediaResolve.js';
+import { parseSocialLinks } from '../lib/socialLinks.js';
+import { coerceServiceCtaLabel } from '../lib/storeTransactionMode.js';
 
 /**
  * Map Business to PublicStore
@@ -15,6 +18,8 @@ import { getTranslatedField } from '../services/i18n/translationUtils.js';
  */
 export function toPublicStore(business, options = {}) {
   const { lang } = options;
+
+  console.log('[DEBUG socialLinks]', business?.socialLinks);
   
   // Parse logo if it's a JSON string (supports url, avatarUrl, bannerUrl, heroUrl, coverUrl)
   let avatarUrl = null;
@@ -47,10 +52,12 @@ export function toPublicStore(business, options = {}) {
         ? JSON.parse(business.stylePreferences) : business.stylePreferences;
     } catch { stylePrefs = {}; }
   }
-  const heroFromPrefs = stylePrefs?.heroImage ?? stylePrefs?.heroImageUrl ?? null;
   const avatarFromPrefs = stylePrefs?.avatarImage ?? stylePrefs?.profileAvatarUrl ?? stylePrefs?.avatarImageUrl ?? null;
   const resolvedAvatarUrl = business.avatarImageUrl ?? avatarFromPrefs ?? avatarUrl;
-  const resolvedHeroUrl = business.heroImageUrl ?? heroFromPrefs ?? bannerUrl;
+  const { heroUrl: resolvedHeroUrl, heroVideo, heroImage: resolvedHeroImage } = resolveHeroMediaFromBusiness(
+    business,
+  );
+  const resolvedBannerUrl = resolvedHeroUrl ?? bannerUrl;
 
   // Mini-website: expose safe snapshot for public storefront renderer.
   // Source of truth is stylePreferences.miniWebsite { sections, theme, updatedAt }.
@@ -101,15 +108,22 @@ export function toPublicStore(business, options = {}) {
     type: business.type ?? null,
     transactionMode: business.transactionMode ?? 'order',
     catalogLabel: business.catalogLabel ?? 'Products',
-    ctaLabel: business.ctaLabel ?? 'Order now',
+    ctaLabel: coerceServiceCtaLabel({
+      businessType: business.type,
+      transactionMode: business.transactionMode,
+      ctaLabel: business.ctaLabel,
+    }),
     avatarUrl: resolvedAvatarUrl,
-    bannerUrl: resolvedHeroUrl, // Hero for feed/preview (was logo-derived; now heroImageUrl first)
-    heroUrl: resolvedHeroUrl, // Alias for consumers that expect heroUrl
+    bannerUrl: resolvedBannerUrl,
+    heroUrl: resolvedBannerUrl,
+    heroVideo: heroVideo ?? null,
+    heroImage: resolvedHeroImage ?? (resolvedHeroUrl && !heroVideo ? resolvedHeroUrl : null),
     city: null, // Can be extracted from region if needed
     country: null, // Can be extracted from region if needed
     website,
     showOwnerProfile: business.showOwnerProfile ?? false,
     ownerProfileSlug: business.user?.personalPresenceStore?.slug ?? null,
+    socialLinks: parseSocialLinks(business.socialLinks) ?? null,
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
   };
 

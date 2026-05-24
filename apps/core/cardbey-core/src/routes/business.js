@@ -9,6 +9,7 @@ import { generateUniqueStoreSlug } from '../utils/slug.js';
 import { createBuildStoreJob, runBuildStoreJob, newTraceId } from '../services/draftStore/orchestraBuildStore.js';
 
 import { prisma } from '../lib/prisma.js';
+import { warnLegacyPublishBypass } from '../services/draftStore/publishRunway.js';
 
 const router = express.Router();
 /**
@@ -116,6 +117,14 @@ router.post('/create', requireAuth, async (req, res, next) => {
       if (existingSlug) {
         finalSlug = await generateUniqueStoreSlug(prisma, finalStoreName);
       }
+    }
+
+    if (enablePublicStore) {
+      warnLegacyPublishBypass('POST /api/business/create legacy', {
+        userId: req.userId,
+        slug: finalSlug,
+        hint: 'Creates Business without publishDraft / PublishedArtifactProjection',
+      });
     }
 
     // Create business

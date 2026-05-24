@@ -4,6 +4,7 @@
  * Never exposes sensitive data (email, tokens, etc.)
  */
 
+import { parseSocialLinks } from '../lib/socialLinks.js';
 /**
  * Map User + Business to PublicUserProfile
  * @param {Object} user - User object from Prisma
@@ -27,6 +28,7 @@ export function toPublicUserProfile(user, businesses = []) {
     avatarUrl: user.avatarUrl || null,
     accountType: user.accountType || 'personal',
     tagline: user.tagline || null,
+    socialLinks: parseSocialLinks(user.socialLinks),
     stores: stores,
   };
 }

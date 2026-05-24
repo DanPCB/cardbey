@@ -29,6 +29,10 @@ import { getCachedPlaylist, setCachedPlaylist } from '../lib/playlistCache.js';
 import { requireAuth, requireStoreAccess, optionalAuth } from '../middleware/auth.js';
 
 import { prisma } from '../lib/prisma.js';
+import {
+  executeDeviceRequestPairing,
+  mapDeviceToLegacyPairStatus,
+} from '../engines/device/deviceRequestPairingBridge.js';
 
 const router = Router();
 
@@ -1027,134 +1031,55 @@ router.post('/devices/hello', async (req, res, next) => {
 router.post('/screens/pair/initiate', 
   rateLimit({ windowMs: 60 * 1000, max: 30 }), // 30 requests per minute (increased for device pairing)
   async (req, res, next) => {
-    // ⚠️ FROZEN: Legacy Screen pairing is frozen. Use DeviceEngine V2 instead.
-    // But allow in test/dev mode for backward compatibility
-    const isTestOrDev = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
-    
-    if (!isTestOrDev) {
-      console.warn('[PAIR] FROZEN: /api/screens/pair/initiate called. Legacy pairing is frozen. Use POST /api/device/request-pairing instead.');
-      return res.status(410).json({
-        ok: false,
-        error: 'ENDPOINT_FROZEN',
-        message: 'Legacy Screen pairing is frozen. Please use DeviceEngine V2: POST /api/device/request-pairing to get a pairing code. Devices paired via DeviceEngine V2 appear in the Devices page.',
-        frozen: true,
-        migration: {
-          oldEndpoint: 'POST /api/screens/pair/initiate',
-          newEndpoint: 'POST /api/device/request-pairing',
-          documentation: 'See DeviceEngine V2 pairing flow documentation',
-        },
-      });
-    }
-    
-    // Allow in test/dev mode - uncomment frozen code
+    // Legacy TV/APK route → delegate to Device Engine V2 request-pairing (same Device row + SSE).
     try {
-      const fingerprint = req.body?.fingerprint ? String(req.body.fingerprint).toUpperCase().trim() : null;
-      const model = req.body?.model ? String(req.body.model).trim() : null;
-      const name = req.body?.name ? String(req.body.name).trim() : null;
-      const location = req.body?.location ? String(req.body.location).trim() : null;
-      const ttlSec = Number(req.body?.ttlSec) || 300; // Default 5 minutes
+      console.warn(
+        '[PAIR] /api/screens/pair/initiate → Device V2 request-pairing shim (legacy APK compatibility)'
+      );
 
-      // Validate required fields
-      if (!fingerprint) {
-        return res.status(400).json({ ok: false, error: 'fingerprint_required' });
-      }
-      if (!model) {
-        return res.status(400).json({ ok: false, error: 'model_required' });
-      }
-
-      // Check max active sessions (prevent flooding)
-      const activeCount = await getActiveSessionCount();
-      const MAX_ACTIVE_SESSIONS = 10;
-      if (activeCount >= MAX_ACTIVE_SESSIONS) {
-        console.warn(`[PAIR] INITIATE rejected: max active sessions reached (${activeCount}) from ${req.ip}`);
-        return res.status(429).json({
-          ok: false,
-          error: 'too_many_active_sessions',
-          message: 'Maximum number of active pairing sessions reached. Please complete or wait for existing sessions to expire.',
-        });
-      }
-
-      // Optionally check for existing screen with same fingerprint (for reuse later)
-      const existingScreen = await prisma.screen.findFirst({
-        where: { fingerprint, deletedAt: null },
-        select: { id: true },
+      const body = req.body || {};
+      const result = await executeDeviceRequestPairing({
+        body: {
+          deviceId: body.deviceId || body.fingerprint,
+          fingerprint: body.fingerprint,
+          deviceModel: body.model || body.deviceModel,
+          model: body.model,
+          platform: body.platform || 'android_tv',
+          appVersion: body.appVersion || body.engineVersion || 'DEVICE_V2',
+          engineVersion: body.engineVersion || body.engine || 'DEVICE_V2',
+          name: body.name,
+          location: body.location,
+          deviceType: body.deviceType || 'screen',
+        },
+        req,
+        source: 'legacy_POST /api/screens/pair/initiate',
       });
 
-      // Create new pairing session
-      const session = await createPairSession({
-        ttlSec,
-        fingerprint,
-        model,
-        name: name || model, // Use model as default name if not provided
-        location: location || null,
-        origin: 'device',
-      });
-
-      console.log(`[PAIR] INITIATE sessionId=${session.sessionId} code=${session.code} fingerprint=${fingerprint} model=${model}`);
-      recordInitiate();
-
-      const expiresAtDate = new Date(session.expiresAt);
+      const expiresAtDate = new Date(result.expiresAt);
       const ttlLeftMs = Math.max(0, expiresAtDate.getTime() - Date.now());
 
-      // Broadcast events for dashboards
-      // Send both event names for compatibility (dashboard may listen to either)
-      try {
-        const eventData = {
-          type: 'pairing_started',
-          sessionId: session.sessionId,
-          code: session.code,
-          fingerprint: session.fingerprint,
-          model: session.model,
-          name: session.name,
-          location: session.location || null,
-          expiresAt: expiresAtDate.toISOString(),
-          ttlLeftMs,
-          status: session.status,
-          deviceType: model?.toLowerCase().includes('tv') || model?.toLowerCase().includes('android tv') ? 'tv' : 'tablet', // Add device type for dashboard filtering
-        };
+      recordInitiate();
 
-        // Broadcast 'pairing_started' event
-        broadcast('pairing_started', eventData, { key: 'admin' });
-        console.log(`[PAIR] Broadcast 'pairing_started' event: code=${session.code} sessionId=${session.sessionId} model=${model} deviceType=${eventData.deviceType}`);
-
-        // Also broadcast 'screen.pair_session.created' (dashboard may listen to this)
-        const screenEventData = {
-          sessionId: session.sessionId,
-          code: session.code,
-          expiresAt: expiresAtDate.toISOString(),
-          ttlLeftMs,
-          status: session.status,
-          fingerprint: session.fingerprint,
-          model: session.model,
-          name: session.name,
-          location: session.location || null,
-          deviceType: eventData.deviceType, // Include device type
-        };
-        broadcast('screen.pair_session.created', screenEventData, { key: 'admin' });
-        console.log(`[PAIR] Broadcast 'screen.pair_session.created' event: code=${session.code} sessionId=${session.sessionId} model=${model} deviceType=${screenEventData.deviceType}`);
-      } catch (err) {
-        console.error('[PAIR] Failed to emit SSE event', { err: err.message, stack: err.stack });
-      }
-
-      logger.info('[PAIR] initiate', {
-        sessionId: session.sessionId,
-        code: session.code,
-        fingerprint,
-        model,
-        ttlLeftMs,
-      });
-
-      return res.json({
+      return res.status(200).json({
         ok: true,
-        sessionId: session.sessionId,
-        code: session.code,
-        expiresAt: expiresAtDate.toISOString(),
+        sessionId: result.sessionId,
+        code: result.code,
+        expiresAt: result.expiresAt,
         ttlLeftMs,
-        status: session.status,
+        status: 'showing_code',
+        engine: 'DEVICE_V2',
+        shim: 'legacy_initiate',
       });
     } catch (error) {
-      console.error('[PAIR] INITIATE error:', error);
-      return next(error);
+      console.error('[REQUEST_PAIRING_FAILED]', {
+        route: 'screens/pair/initiate',
+        message: error?.message,
+      });
+      return res.status(500).json({
+        ok: false,
+        error: 'pairing_failed',
+        message: error?.message || 'Failed to start pairing',
+      });
     }
   }
 );
@@ -1173,6 +1098,48 @@ router.get('/screens/pair/peek/:code',
         return res.status(400).json({ ok: false, error: 'code_required' });
       }
       
+      const normalizedCode = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+      // Device V2: pairing code lives on Device row
+      const deviceByCode = await prisma.device.findFirst({
+        where: { pairingCode: normalizedCode },
+        select: {
+          id: true,
+          pairingCode: true,
+          tenantId: true,
+          storeId: true,
+          createdAt: true,
+          model: true,
+          platform: true,
+          name: true,
+          location: true,
+        },
+      });
+
+      if (deviceByCode?.pairingCode) {
+        const createdAt = deviceByCode.createdAt;
+        const expiresAtMs = createdAt.getTime() + 10 * 60 * 1000;
+        const ttlLeftMs = Math.max(0, expiresAtMs - Date.now());
+        if (ttlLeftMs > 0) {
+          recordPeek();
+          return res.status(200).json({
+            ok: true,
+            exists: true,
+            ttlLeftMs,
+            session: {
+              sessionId: deviceByCode.id,
+              code: deviceByCode.pairingCode,
+              status: 'showing_code',
+              model: deviceByCode.model,
+              name: deviceByCode.name,
+              location: deviceByCode.location,
+              fingerprint: deviceByCode.id,
+            },
+            engine: 'DEVICE_V2',
+          });
+        }
+      }
+
       // Expire sessions before checking
       await expireSessions();
       
@@ -1240,6 +1207,29 @@ router.get(
       const sessionId = String(req.params.sessionId || '').trim();
       if (!sessionId) {
         return res.status(400).json({ ok: false, error: 'sessionId_required' });
+      }
+
+      // Device Engine V2: sessionId is Device.id (from initiate shim or request-pairing)
+      const deviceRow = await prisma.device.findUnique({
+        where: { id: sessionId },
+        select: {
+          id: true,
+          pairingCode: true,
+          tenantId: true,
+          storeId: true,
+          createdAt: true,
+        },
+      });
+
+      if (deviceRow) {
+        const v2Payload = mapDeviceToLegacyPairStatus(deviceRow);
+        if (v2Payload) {
+          recordPeek();
+          console.log(
+            `[PAIR] STATUS (DEVICE_V2) sessionId=${sessionId} status=${v2Payload.status} ttlLeftMs=${v2Payload.ttlLeftMs}`
+          );
+          return res.status(200).json(v2Payload);
+        }
       }
 
       // Expire sessions before checking

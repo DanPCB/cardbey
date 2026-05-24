@@ -1,20 +1,34 @@
 /**
- * OpenAI Video Engine Adapter (Placeholder)
- * Implements VideoEngine interface - placeholder for future OpenAI video generation
+ * OpenAI Video Engine — Sora via Videos API.
  */
 
-/**
- * Placeholder video engine
- * TODO: Implement when OpenAI video generation API is available
- */
+import { generateOpenAiPromoVideo } from '../../lib/video/openaiVideoProvider.js';
+
 export const openaiVideoEngine = {
-  name: 'openai-video-v1-placeholder',
+  name: 'openai-sora-videos-v1',
 
-  async generateVideo({ prompt, lengthSeconds = 10, style }) {
-    // Placeholder implementation
-    // When OpenAI video generation is available, implement here
-    throw new Error('Video generation not yet implemented. OpenAI video API not available.');
+  /**
+   * @param {{ prompt: string; lengthSeconds?: number; style?: string; storeId?: string; aspectRatio?: string }} params
+   * @param {{ onJobCreated?: Function; onPoll?: Function }} [hooks]
+   */
+  async generateVideo(params, hooks) {
+    const result = await generateOpenAiPromoVideo(
+      {
+        prompt: params.prompt,
+        lengthSeconds: params.lengthSeconds,
+        style: params.style,
+        storeId: params.storeId,
+        aspectRatio: params.aspectRatio,
+      },
+      {},
+      hooks,
+    );
+
+    return {
+      videoUrl: result.url,
+      thumbnailUrl: result.thumbnailUrl,
+      providerJobId: result.providerJobId,
+      raw: result.metadata,
+    };
   },
 };
-
-

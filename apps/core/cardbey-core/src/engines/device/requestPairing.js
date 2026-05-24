@@ -30,6 +30,10 @@ export const requestPairing = async (input, ctx) => {
   const requestId = Math.random().toString(36).slice(2, 9);
   
   try {
+    console.log('[REQUEST_PAIRING_START]', {
+      requestId,
+      phase: 'service',
+    });
     console.log(`[DeviceEngine V2] [${requestId}] requestPairing() start`, {
       input: {
         deviceModel: input.deviceModel,
@@ -41,7 +45,8 @@ export const requestPairing = async (input, ctx) => {
       },
     });
 
-    const { deviceModel, platform, appVersion, capabilities, initialState } = input;
+    const { deviceModel, platform, appVersion, capabilities, initialState, deviceId: inputDeviceId } = input;
+    const clientDeviceId = inputDeviceId ? String(inputDeviceId).trim() : '';
 
     // Use provided context or create default
     const db = ctx?.services?.db || prisma;
@@ -101,27 +106,94 @@ export const requestPairing = async (input, ctx) => {
       console.warn(`[DeviceEngine V2] [${requestId}] Using fallback device type: ${deviceType}`);
     }
 
-    console.log(`[DeviceEngine V2] [${requestId}] Creating device record in DB`);
-
-    // Create device (without tenantId/storeId - will be set during complete-pairing)
-    // Store fields in existing Device columns:
-    // - deviceModel -> model
-    // - appVersion -> appVersion (set to "DEVICE_V2" for DeviceEngine V2)
-    // - platform -> platform (new field)
-    // - type -> type (new field, inferred from platform or explicit deviceType)
-    // - capabilities, initialState -> DeviceCapability.capabilities JSON
-    const device = await db.device.create({
-      data: {
-        tenantId: 'temp', // Temporary, will be updated on complete-pairing
-        storeId: 'temp', // Temporary, will be updated on complete-pairing
-        pairingCode,
-        model: deviceModel || null, // Store in existing model column
-        status: 'offline',
-        appVersion: 'DEVICE_V2', // Explicitly set engineVersion to V2 for DeviceEngine V2 devices
-        platform: platform || null, // Store platform directly
-        type: deviceType, // Store inferred or explicit device type
-      },
+    console.log(`[DeviceEngine V2] [${requestId}] Creating or updating device record in DB`, {
+      clientDeviceId: clientDeviceId || null,
     });
+
+    const deviceData = {
+      tenantId: 'temp',
+      storeId: 'temp',
+      pairingCode,
+      model: deviceModel || null,
+      status: 'offline',
+      appVersion: 'DEVICE_V2',
+      platform: platform || null,
+      type: deviceType,
+    };
+
+    let device;
+    let effectiveDeviceId = clientDeviceId;
+
+    // Reconcile: TV often heartbeats with a stable id before request-pairing omits deviceId.
+    // If exactly one recent temp orphan exists, attach pairing to that row (avoids duplicate devices).
+    if (!effectiveDeviceId) {
+      const recentCutoff = new Date(Date.now() - 2 * 60 * 1000);
+      const orphans = await db.device.findMany({
+        where: {
+          tenantId: 'temp',
+          storeId: 'temp',
+          pairingCode: null,
+          lastSeenAt: { gte: recentCutoff },
+        },
+        orderBy: { lastSeenAt: 'desc' },
+        take: 2,
+        select: { id: true, lastSeenAt: true },
+      });
+      if (orphans.length >= 1) {
+        effectiveDeviceId = orphans[0].id;
+        console.log(`[DeviceEngine V2] [${requestId}] Reconciled recent heartbeat row for pairing`, {
+          deviceId: effectiveDeviceId,
+          lastSeenAt: orphans[0].lastSeenAt?.toISOString?.(),
+          orphanCount: orphans.length,
+        });
+        if (orphans.length > 1) {
+          console.warn(`[DeviceEngine V2] [${requestId}] Multiple recent temp heartbeat rows; using most recent`, {
+            chosen: effectiveDeviceId,
+            alsoSeen: orphans.slice(1).map((o) => o.id),
+          });
+        }
+      }
+    }
+
+    if (effectiveDeviceId) {
+      const existing = await db.device.findUnique({ where: { id: effectiveDeviceId } });
+      if (existing) {
+        if (
+          existing.tenantId !== 'temp' &&
+          existing.storeId !== 'temp' &&
+          !existing.pairingCode
+        ) {
+          console.warn(`[DeviceEngine V2] [${requestId}] Device already paired`, {
+            deviceId: existing.id,
+            tenantId: existing.tenantId,
+            storeId: existing.storeId,
+          });
+          throw new Error('Device already paired');
+        }
+        device = await db.device.update({
+          where: { id: effectiveDeviceId },
+          data: {
+            ...deviceData,
+            status: existing.status === 'online' ? 'online' : deviceData.status,
+            model: deviceModel || existing.model,
+            platform: platform || existing.platform,
+            type: deviceType || existing.type,
+          },
+        });
+        console.log(`[DeviceEngine V2] [${requestId}] Reused heartbeat device row for pairing`, {
+          deviceId: device.id,
+        });
+      } else {
+        device = await db.device.create({
+          data: { id: effectiveDeviceId, ...deviceData },
+        });
+        console.log(`[DeviceEngine V2] [${requestId}] Created device with client-provided id`, {
+          deviceId: device.id,
+        });
+      }
+    } else {
+      device = await db.device.create({ data: deviceData });
+    }
 
     console.log(`[DeviceEngine V2] [${requestId}] Created pair session`, {
       sessionId: device.id,
@@ -237,15 +309,26 @@ export const requestPairing = async (input, ctx) => {
       pairingCode: pairingCode,
     };
 
+    console.log('[REQUEST_PAIRING_RESPONSE]', {
+      requestId,
+      deviceId: result.deviceId,
+      code: result.code,
+      expiresAt: result.expiresAt,
+    });
     console.log(`[DeviceEngine V2] [${requestId}] requestPairing() success`, {
       id: result.id,
       code: result.code,
       expiresAt: result.expiresAt,
-      deviceId: result.deviceId, // For logging
+      deviceId: result.deviceId,
     });
 
     return result;
   } catch (error) {
+    console.error('[REQUEST_PAIRING_FAILED]', {
+      requestId,
+      phase: 'service',
+      message: error?.message,
+    });
     console.error(`[DeviceEngine V2] [${requestId}] requestPairing() internal error`, {
       message: error?.message,
       name: error?.name,

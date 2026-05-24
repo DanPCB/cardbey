@@ -110,6 +110,22 @@ export function detectIntent(input) {
   return null;
 }
 
+/**
+ * Completed store-build missions must not restart create_store from chip/chat follow-ups.
+ *
+ * @param {string | null | undefined} missionStatus
+ * @param {string | null | undefined} resolvedTool
+ * @returns {{ tool: 'general_chat', confidence: number } | null}
+ */
+export function blockCreateStoreOnCompletedMission(missionStatus, resolvedTool) {
+  const status = String(missionStatus ?? '').trim().toLowerCase();
+  const tool = String(resolvedTool ?? '').trim();
+  if (status === 'completed' && tool === 'create_store') {
+    return { tool: 'general_chat', confidence: 0.5 };
+  }
+  return null;
+}
+
 const POSTER_TRIGGERS = [
   'create.*poster',
   'make.*poster',
@@ -121,6 +137,44 @@ const POSTER_TRIGGERS = [
   'instagram.*post',
   'marketing.*material',
 ];
+
+/** Desktop / SuperCopilot control — not C-Net signage device listing. */
+const DEVICE_TRIGGERS = [
+  /\bdevice\s+control\b/i,
+  /\buse the device\b/i,
+  /\bopen .+ on (my )?(computer|screen|machine)\b/i,
+  /\bcontrol (my )?(computer|screen|device)\b/i,
+  /\btype .+ (on|in) notepad\b/i,
+  /\bopen notepad\b/i,
+  /\bclick .+ on (my )?(screen|computer)\b/i,
+  /\b(on|in) (my )?(computer|machine)\b/i,
+];
+
+const SIGNAGE_DEVICE_LIST_RE =
+  /\b(list|show|what|which|paired)\b.*\b(screens?|displays?|tvs?)\b/i;
+
+/**
+ * SuperCopilot desktop control (device.sendInput) — deterministic shortcut before LLM classifier.
+ *
+ * @param {string} userMessage
+ * @returns {{ tool: 'device.sendInput', executionPath: 'direct_action', confidence: number, params: { task: string } } | null}
+ */
+export function detectDeviceIntent(userMessage) {
+  const text = String(userMessage ?? '').trim();
+  if (!text) return null;
+  if (SIGNAGE_DEVICE_LIST_RE.test(text)) return null;
+
+  const matched = DEVICE_TRIGGERS.some((pattern) => pattern.test(text));
+  if (!matched) return null;
+
+  const task = text.replace(/^use the device (to )?/i, '').trim() || text;
+  return {
+    tool: 'device.sendInput',
+    executionPath: 'direct_action',
+    confidence: 0.95,
+    params: { task },
+  };
+}
 
 /**
  * Detect poster / flyer creation intent for Performer direct_action.

@@ -5,6 +5,7 @@
  */
 
 import crypto from 'crypto';
+import { extractGuestUserIdFromBearer } from './auth.js';
 
 const COOKIE_NAME = 'guestSessionId';
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -22,13 +23,25 @@ function randomUuid() {
  * If missing, generates a new ID and sets the cookie on res.
  */
 export function guestSessionId(req, res, next) {
+  const bearerGuestUserId = extractGuestUserIdFromBearer(req);
+  if (bearerGuestUserId) {
+    const principal = bearerGuestUserId.startsWith('guest_')
+      ? bearerGuestUserId
+      : `guest_${bearerGuestUserId}`;
+    req.guestPrincipalUserId = principal;
+    req.guestSessionId = principal.startsWith('guest_') ? principal.slice(6) : principal;
+    return next();
+  }
+
   let id = (req.cookies && req.cookies[COOKIE_NAME]) || (req.headers['x-guest-session'] && req.headers['x-guest-session'].trim());
   if (id) {
     req.guestSessionId = id;
+    req.guestPrincipalUserId = id.startsWith('guest_') ? id : `guest_${id}`;
     return next();
   }
   id = randomUuid();
   req.guestSessionId = id;
+  req.guestPrincipalUserId = `guest_${id}`;
   res.cookie(COOKIE_NAME, id, {
     httpOnly: true,
     sameSite: 'lax',

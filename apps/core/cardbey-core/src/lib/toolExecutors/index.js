@@ -13,6 +13,7 @@ import * as improve_hero from './store/improve_hero.js';
 import * as upload_store_asset from './store/upload_store_asset.js';
 import * as replace_store_catalog from './store/replace_store_catalog.js';
 import * as update_store_hero from './store/update_store_hero.js';
+import * as setBusinessSocialLinks from './store/setBusinessSocialLinks.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -28,6 +29,7 @@ import * as content_creator from './content/content_creator.js';
 import * as crm from './crm/crm.js';
 import * as signage_list_devices from './signage/signage_list_devices.js';
 import * as signage_publish_to_devices from './signage/signage_publish_to_devices.js';
+import * as device_send_input from './device/device_send_input.js';
 import * as edit_artifact from './artifacts/editArtifact.js';
 import * as publish_to_social from './social/publishToSocial.js';
 import * as connect_social_account from './social/connectSocialAccount.js';
@@ -39,9 +41,42 @@ import * as mcp_context_missions from './mcp/mcp_context_missions.js';
 import * as mcp_context_analytics from './mcp/mcp_context_analytics.js';
 import * as mcp_google_calendar_create_event from './mcp/mcp_google_calendar_create_event.js';
 import * as video_generate_multimodal from './videoGenerate.js';
+import * as generate_slideshow from './generateSlideshow.js';
 import * as generate_poster from './generatePoster.js';
 import * as mutate_poster from './mutatePoster.js';
 import { getPrismaClient } from '../prisma.js';
+import { scanHardcodedStrings } from './i18n/scanHardcodedStrings.js'
+import { checkI18nKey }         from './i18n/checkI18nKey.js'
+import { addI18nKey }           from './i18n/addI18nKey.js'
+import { wireI18nString }       from './i18n/wireI18nString.js'
+import { generateI18nKey }      from './i18n/generateI18nKey.js'
+import { translateString }      from './i18n/translateString.js'
+import { runI18nTests }         from './i18n/runI18nTests.js'
+import { reportI18nProgress }   from './i18n/reportI18nProgress.js'
+
+/** Wrap i18n repair helpers (named fn exports) into standard executor shape. */
+function wrapI18nExecutor(fn) {
+  return {
+    async execute(input = {}, context = {}) {
+      try {
+        const output = await fn(input, context);
+        if (output?.ok === false) {
+          return {
+            status: 'failed',
+            error: { message: typeof output?.error === 'string' ? output.error : 'i18n tool failed' },
+            output,
+          };
+        }
+        return { status: 'ok', output };
+      } catch (err) {
+        return {
+          status: 'failed',
+          error: { message: err?.message ?? String(err) },
+        };
+      }
+    },
+  };
+}
 
 /** @type {Record<string, { execute: (input: object, context?: object) => Promise<object> } | undefined>} */
 export const executors = {
@@ -62,6 +97,7 @@ export const executors = {
   upload_store_asset,
   replace_store_catalog,
   update_store_hero,
+  setBusinessSocialLinks,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,
@@ -77,8 +113,18 @@ export const executors = {
   mcp_context_analytics,
   mcp_google_calendar_create_event,
   video_generate_multimodal,
+  generate_slideshow,
   generate_poster,
   mutate_poster,
+  // i18n repair agent tools
+  scanHardcodedStrings: wrapI18nExecutor(scanHardcodedStrings),
+  checkI18nKey: wrapI18nExecutor(checkI18nKey),
+  addI18nKey: wrapI18nExecutor(addI18nKey),
+  wireI18nString: wrapI18nExecutor(wireI18nString),
+  generateI18nKey: wrapI18nExecutor(generateI18nKey),
+  translateString: wrapI18nExecutor(translateString),
+  runI18nTests: wrapI18nExecutor(runI18nTests),
+  reportI18nProgress: wrapI18nExecutor(reportI18nProgress),
   // Stub executors for tools without real implementations yet.
   generate_promotion_asset: {
     async execute(input = {}, context = {}) {
@@ -220,6 +266,7 @@ export const executors = {
   },
   'signage.list-devices': signage_list_devices,
   'signage.publish-to-devices': signage_publish_to_devices,
+  'device.sendInput': device_send_input,
 };
 
 /**

@@ -1,5 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
 
+vi.mock('./menuVisionExtract.js', () => ({
+  extractMenuItemsFromImageBuffer: vi.fn(async () => [
+    {
+      name: 'Latte',
+      category: 'Coffee',
+      price: 5.5,
+      description: '',
+    },
+  ]),
+  isPlaceholderMenuExtraction: vi.fn(() => false),
+}));
+
+vi.mock('./catalogItemImageSeed.js', () => ({
+  seedMenuCatalogItemsImages: vi.fn(async (items) => items),
+}));
+
 vi.mock('../../engines/menu/extractMenu.js', () => {
   return {
     extractMenu: vi.fn(async () => ({
@@ -23,11 +39,12 @@ vi.mock('../../engines/menu/extractMenu.js', () => {
   };
 });
 
+import { extractMenuItemsFromImageBuffer } from './menuVisionExtract.js';
 import { extractMenu } from '../../engines/menu/extractMenu.js';
 import { extractMenuFromFile } from './extractMenuFromFile.js';
 
 describe('extractMenuFromFile (image path)', () => {
-  it('uses existing menu engine for images (no Anthropic)', async () => {
+  it('prefers direct vision extraction over menu engine', async () => {
     const buf = Buffer.from([0xff, 0xd8, 0xff, 0xdb]); // jpeg-ish header bytes
     const res = await extractMenuFromFile({
       fileType: 'image',
@@ -38,17 +55,8 @@ describe('extractMenuFromFile (image path)', () => {
       language: 'en',
     });
 
-    expect(extractMenu).toHaveBeenCalledTimes(1);
-    expect(extractMenu).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: 'temp',
-        storeId: null,
-        locale: 'en',
-        businessName: 'Test Cafe',
-        businessType: 'Cafe',
-      }),
-      undefined,
-    );
+    expect(extractMenuItemsFromImageBuffer).toHaveBeenCalledTimes(1);
+    expect(extractMenu).not.toHaveBeenCalled();
     expect(res.ok).toBe(true);
     expect(res.items.length).toBeGreaterThan(0);
     expect(res.items[0].name).toBe('Latte');

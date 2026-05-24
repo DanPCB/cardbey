@@ -91,8 +91,8 @@ export async function optimizeVideoFromFile(inputFilePath, originalName = 'video
           '-movflags +faststart', // Enable fast start for streaming
           '-crf 23', // Constant rate factor for quality (23 is good balance)
           '-pix_fmt yuv420p', // Ensure compatibility
-          '-profile:v high', // H.264 high profile
-          '-level 4.0', // H.264 level 4.0
+          '-profile:v main', // Browser + Android TV WebView safe
+          '-level 4.1',
         ])
         .on('start', (commandLine) => {
           info('OPTIMIZER', 'FFmpeg optimization started', {
@@ -189,8 +189,8 @@ export async function optimizeVideo(inputBuffer, originalName = 'video') {
           '-movflags +faststart', // Enable fast start for streaming
           '-crf 23', // Constant rate factor for quality (23 is good balance)
           '-pix_fmt yuv420p', // Ensure compatibility
-          '-profile:v high', // H.264 high profile
-          '-level 4.0', // H.264 level 4.0
+          '-profile:v main', // Browser + Android TV WebView safe
+          '-level 4.1',
         ])
         .on('start', (commandLine) => {
           info('OPTIMIZER', 'FFmpeg optimization started', {

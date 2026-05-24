@@ -3,6 +3,7 @@ import {
   normalizeMenuExtractItems,
   inferCurrencyFromPrices,
   applyCurrencyInference,
+  detectSuspiciousUniformPrices,
   MAX_MENU_ITEMS,
 } from './normalizeMenuExtract.js';
 
@@ -36,12 +37,38 @@ describe('normalizeMenuExtractItems', () => {
     expect(items[MAX_MENU_ITEMS - 1].name).toBe('Item 10');
   });
 
+  it('parses price from priceDisplay when price is missing', () => {
+    const items = normalizeMenuExtractItems([
+      { name: 'Cafe Latte', price: null, priceDisplay: '$4.50', confidence: 0.9 },
+    ]);
+    expect(items[0].price).toBe(4.5);
+  });
+
   it('preserves Vietnamese dish names', () => {
     const items = normalizeMenuExtractItems(
       [{ name: 'Phở bò tái', price: 65000, currency: 'VND', confidence: 0.9 }],
       { language: 'vi' },
     );
     expect(items[0].name).toBe('Phở bò tái');
+  });
+});
+
+describe('detectSuspiciousUniformPrices', () => {
+  it('flags many items with identical price 15', () => {
+    const items = Array.from({ length: 10 }, () => ({ price: 15 }));
+    const r = detectSuspiciousUniformPrices(items);
+    expect(r.priceWarning).toBe(true);
+    expect(r.uniformPrice).toBe(15);
+  });
+
+  it('does not flag varied prices', () => {
+    const items = [
+      { price: 4.5 },
+      { price: 5.5 },
+      { price: 6 },
+      { price: 4 },
+    ];
+    expect(detectSuspiciousUniformPrices(items).priceWarning).toBe(false);
   });
 });
 

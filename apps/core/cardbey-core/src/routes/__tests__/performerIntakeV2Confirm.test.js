@@ -133,6 +133,37 @@ describe('POST /api/performer/intake/v2/confirm', () => {
     expect(dispatchToolMock).not.toHaveBeenCalled();
   });
 
+  it('confirms device.sendInput without active store context', async () => {
+    putIntakeApprovalPreview({
+      previewId: 'pv-device',
+      tool: 'device.sendInput',
+      executionParameters: {
+        task: 'open Notepad and type hello from Cardbey',
+      },
+      actorKey: 'u:user-a',
+      tenantKey: 't:user-a',
+      resolvedStoreIdAtPreview: 'store-1',
+    });
+
+    const app = makeApp({ id: 'user-a', business: undefined });
+    const res = await request(app)
+      .post('/api/performer/intake/v2/confirm')
+      .send({
+        previewId: 'pv-device',
+        currentContext: { activeStoreId: 'store-1' },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.action).toBe('tool_call');
+    expect(res.body.tool).toBe('device.sendInput');
+    expect(dispatchToolMock).toHaveBeenCalled();
+    const [name, payload] = dispatchToolMock.mock.calls[0];
+    expect(name).toBe('device.sendInput');
+    expect(payload.task).toMatch(/Notepad/i);
+    expect(payload.storeId).toBeUndefined();
+  });
+
   it('blocks confirm when re-validation fails (missing store)', async () => {
     putIntakeApprovalPreview({
       previewId: 'pv-nostore',

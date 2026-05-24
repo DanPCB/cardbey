@@ -11,6 +11,7 @@ const LABELS = {
   pushToAll: 'Push to all screens',
   deviceIds: 'Target devices',
   description: 'Description',
+  task: 'Task',
   campaignContext: 'Campaign context',
   productContext: 'Product context',
   dateFrom: 'From date',
@@ -89,6 +90,28 @@ function explicitApprovalFace(tool, parameters, context) {
             'Cardbey will generate platform share links so you can post yourself (no automatic post unless you connect an account and choose auto-post later).',
             'Your campaign URL and caption will be included in those links or copy-friendly text.',
           ],
+    };
+  }
+
+  if (tool === 'device.sendInput') {
+    const task = truncate(String(parameters?.task ?? context?.userMessage ?? '').trim(), 200);
+    if (locale === 'vi') {
+      return {
+        title: 'Điều khiển máy tính',
+        summary: task ? `Chạy trên máy của bạn: ${task}` : 'Gửi tác vụ tới SuperCopilot trên máy local.',
+        impact: [
+          'SuperCopilot phải đang chạy (mặc định http://127.0.0.1:7799).',
+          'Cardbey sẽ gửi lệnh desktop; bạn xác nhận trước khi thực thi.',
+        ],
+      };
+    }
+    return {
+      title: 'Desktop device control',
+      summary: task ? `Run on your computer: ${task}` : 'Send a desktop automation task to local SuperCopilot.',
+      impact: [
+        'SuperCopilot must be running (default http://127.0.0.1:7799).',
+        'Cardbey forwards the task after you confirm — it can open apps, type, or click on your screen.',
+      ],
     };
   }
 
