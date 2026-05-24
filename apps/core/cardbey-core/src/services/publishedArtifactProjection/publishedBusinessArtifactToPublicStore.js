@@ -1,0 +1,112 @@
+/**
+ * Map PublishedBusinessArtifact → PublicStore DTO (same shape as toPublicStore).
+ */
+
+import { getTranslatedField } from '../i18n/translationUtils.js';
+import { parseSocialLinks } from '../../lib/socialLinks.js';
+import { coerceServiceCtaLabel } from '../../lib/storeTransactionMode.js';
+
+export function publishedBusinessArtifactToPublicStore(projection, options = {}) {
+  const { lang, business = null } = options;
+  const name =
+    (business && getTranslatedField(business, 'name', lang)) || projection.name || business?.name;
+  const description =
+    (business && getTranslatedField(business, 'description', lang)) ||
+    projection.content?.description ||
+    projection.content?.shortDescription ||
+    null;
+  const tagline = projection.content?.tagline ?? business?.tagline ?? null;
+
+  const hero = projection.hero ?? {};
+  const heroVideo = hero.videoUrl ?? null;
+  const heroImage = hero.imageUrl ?? hero.posterUrl ?? null;
+  const heroUrl = heroVideo ?? heroImage ?? null;
+
+  const sections = Array.isArray(projection.website?.sections) ? projection.website.sections : [];
+  const website =
+    sections.length > 0
+      ? {
+          sections,
+          theme:
+            projection.website?.theme != null &&
+            typeof projection.website.theme === 'object' &&
+            !Array.isArray(projection.website.theme)
+              ? projection.website.theme
+              : null,
+          generatedAt: projection.publishedAt ?? undefined,
+        }
+      : null;
+
+  let storefrontSettings = null;
+  if (business?.storefrontSettings != null) {
+    try {
+      const raw = business.storefrontSettings;
+      storefrontSettings =
+        typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+          ? raw
+          : typeof raw === 'string'
+            ? JSON.parse(raw)
+            : null;
+    } catch {
+      storefrontSettings = null;
+    }
+  }
+
+  const products = Array.isArray(business?.products)
+    ? business.products.map((p) => ({
+        id: p.id,
+        name: (lang && getTranslatedField(p, 'name', lang)) || p.name,
+        description: (lang && getTranslatedField(p, 'description', lang)) ?? p.description ?? null,
+        category: (lang && getTranslatedField(p, 'category', lang)) ?? p.category ?? null,
+        price: p.price ?? null,
+        currency: p.currency ?? null,
+        imageUrl: p.imageUrl ?? null,
+      }))
+    : Array.isArray(projection.commerce?.products)
+      ? projection.commerce.products.map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description ?? null,
+          price: p.price ?? null,
+          imageUrl: p.imageUrl ?? null,
+          category: p.categoryId ?? null,
+          currency: null,
+        }))
+      : [];
+
+  return {
+    id: projection.businessId ?? projection.storeId,
+    name,
+    slug: projection.slug,
+    description,
+    tagline,
+    type: projection.category ?? business?.type ?? null,
+    transactionMode: business?.transactionMode ?? 'order',
+    catalogLabel: business?.catalogLabel ?? 'Products',
+    ctaLabel: coerceServiceCtaLabel({
+      businessType: projection.category ?? business?.type,
+      transactionMode: business?.transactionMode,
+      ctaLabel: projection.content?.ctaPrimary ?? business?.ctaLabel,
+    }),
+    avatarUrl: projection.brand?.logoUrl ?? business?.avatarImageUrl ?? null,
+    bannerUrl: heroUrl,
+    heroUrl,
+    heroVideo,
+    heroImage: heroImage && !heroVideo ? heroImage : hero.posterUrl ?? heroImage,
+    city: null,
+    country: null,
+    website,
+    showOwnerProfile: business?.showOwnerProfile ?? false,
+    ownerProfileSlug: business?.user?.personalPresenceStore?.slug ?? null,
+    socialLinks:
+      parseSocialLinks(projection.content?.socialLinks) ??
+      parseSocialLinks(business?.socialLinks) ??
+      null,
+    ...(storefrontSettings != null ? { storefrontSettings } : {}),
+    products,
+    _projectionMeta: {
+      version: projection.artifactVersion,
+      source: projection.diagnostics?.source,
+    },
+  };
+}
