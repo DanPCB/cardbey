@@ -6,8 +6,9 @@
 
 
 import { prisma } from '../../../lib/prisma.js';
+import { CATALOG_ITEM_LIMIT } from '../../../config/catalogLimits.js';
 
-const TARGET_ITEM_COUNT = 30;
+const TARGET_ITEM_COUNT = CATALOG_ITEM_LIMIT;
 const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';
 
 /** Curated seed items when Wikidata is unavailable or insufficient. Names only; descriptions generic. */
@@ -24,7 +25,7 @@ const CURATED_SEEDS = {
 };
 
 /**
- * Map verticalSlug to Wikidata SPARQL query (returns ?itemLabel). Limit 30. English labels only.
+ * Map verticalSlug to Wikidata SPARQL query (returns ?itemLabel). Limit CATALOG_ITEM_LIMIT. English labels only.
  * Returns null if we use curated list only for this vertical.
  */
 function getWikidataQuery(verticalSlug, subIntent) {
@@ -37,7 +38,7 @@ SELECT DISTINCT ?itemLabel WHERE {
   ?item rdfs:label ?itemLabel.
   FILTER(LANG(?itemLabel) = "en")
   FILTER(STRSTARTS(LCASE(?itemLabel), "sofa") || STRSTARTS(LCASE(?itemLabel), "table") || STRSTARTS(LCASE(?itemLabel), "chair") || STRSTARTS(LCASE(?itemLabel), "bed") || STRSTARTS(LCASE(?itemLabel), "desk") || STRSTARTS(LCASE(?itemLabel), "cabinet") || STRSTARTS(LCASE(?itemLabel), "shelf") || STRSTARTS(LCASE(?itemLabel), "wardrobe") || STRSTARTS(LCASE(?itemLabel), "dresser") || STRSTARTS(LCASE(?itemLabel), "stool") || CONTAINS(LCASE(?itemLabel), "table") || CONTAINS(LCASE(?itemLabel), "chair") || CONTAINS(LCASE(?itemLabel), "sofa") || CONTAINS(LCASE(?itemLabel), "bed"))
-} LIMIT 30`;
+} LIMIT ${CATALOG_ITEM_LIMIT}`;
   }
   // Game centre / arcade: use curated (Wikidata has games, not services)
   if (slug === 'entertainment.game_centre' || slug.startsWith('entertainment.')) {
@@ -53,7 +54,7 @@ SELECT DISTINCT ?itemLabel WHERE {
   ?item rdfs:label ?itemLabel.
   FILTER(LANG(?itemLabel) = "en")
   FILTER(STRLEN(?itemLabel) < 50)
-} LIMIT 30`;
+} LIMIT ${CATALOG_ITEM_LIMIT}`;
   }
   return null;
 }

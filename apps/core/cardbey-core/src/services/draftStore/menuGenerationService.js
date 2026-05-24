@@ -12,6 +12,11 @@ import {
   flattenToPreviewShape,
 } from './menuGenerationValidation.js';
 import { isServiceVertical } from '../../lib/storeTransactionMode.js';
+import {
+  CATALOG_ITEM_LIMIT,
+  CATALOG_ITEM_MIN,
+  CATALOG_CATEGORY_TARGET,
+} from '../../config/catalogLimits.js';
 
 function stripJsonBlock(text) {
   const t = (text || '').trim();
@@ -46,6 +51,8 @@ export async function generateVerticalLockedMenu(params) {
 
   const businessTypeLabel = String(businessType || '').trim() || 'the stated vertical';
 
+  const catalogTargetPrompt = `Generate up to ${CATALOG_ITEM_LIMIT} items, organized into categories of 20–${CATALOG_CATEGORY_TARGET} items each (min ${CATALOG_ITEM_MIN} total).`;
+
   let userPrompt = USER_PROMPT_TEMPLATE
     .replace(/\{BUSINESS_NAME\}/g, businessName)
     .replace(/\{BUSINESS_TYPE\}/g, businessTypeLabel)
@@ -57,21 +64,23 @@ export async function generateVerticalLockedMenu(params) {
   userPrompt += serviceMode
     ? `
 
-This is a ${businessTypeLabel} business. Generate approximately 30 professional bookable SERVICES (not physical products).
+This is a ${businessTypeLabel} business. ${catalogTargetPrompt}
+Focus on professional bookable SERVICES (not physical products).
 Each service needs: name, description, price, category. Categories should be service types (e.g. Haircuts, Treatments, Packages).
 Do NOT generate retail products, food items, or merchandise — only services a customer would book an appointment for.`
     : `
 
 This is a ${businessTypeLabel} business. Generate only products or services appropriate for this category.
-Do not generate products outside this vertical.`;
+Do not generate products outside this vertical.
+${catalogTargetPrompt}`;
   if (audience === 'kids') {
     userPrompt += `
 
-AUDIENCE: kids. Generate approximately 30 items total. All product names must be kids/children/baby/toddler focused (e.g. Kids T-Shirt, Toddler Hoodie, Baby Bodysuit, Kids Sneakers). Do NOT include adult items: no men's dress shirt, women's heels, adult leather boots, formal suit, or similar.`;
+AUDIENCE: kids. ${catalogTargetPrompt} All product names must be kids/children/baby/toddler focused (e.g. Kids T-Shirt, Toddler Hoodie, Baby Bodysuit, Kids Sneakers). Do NOT include adult items: no men's dress shirt, women's heels, adult leather boots, formal suit, or similar.`;
   } else {
     userPrompt += `
 
-Target total items: approximately 30 (min 24, max 36).`;
+${catalogTargetPrompt}`;
   }
 
   // Menu JSON can be large; use 3 min default so SDK and race timeout don't abort early

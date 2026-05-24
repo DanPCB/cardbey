@@ -22,6 +22,7 @@ import { getOrFetchSeedCatalog } from '../services/store/seeds/seedCatalogServic
 import { classifyBusiness } from '../services/mi/classifyBusinessService.js';
 import { classifyBusinessProfile } from '../services/store/classifier/classifyBusinessProfile.js';
 import { buildSeedCatalog } from '../services/store/seeds/seedCatalogBuilder.js';
+import { CATALOG_ITEM_LIMIT } from '../config/catalogLimits.js';
 import { runLlmGenerateCopyJob } from '../services/llm/runLlmGenerateCopyJob.js';
 import { kimiProvider } from '../lib/llm/kimiProvider.js';
 import { LLM_ENTRY_POINT } from '../lib/llm/types.js';
@@ -883,6 +884,16 @@ async function handleOrchestraStart(req, res) {
   });
   try {
     const body = req.body || {};
+    const { guardBrokerOrchestraStart } = await import('../lib/broker/brokerRunwayGuard.js');
+    const orchestraGuard = guardBrokerOrchestraStart(body);
+    if (orchestraGuard.blocked) {
+      return res.status(403).json({
+        ok: false,
+        error: orchestraGuard.code,
+        message: orchestraGuard.message,
+        missionId: orchestraGuard.missionId,
+      });
+    }
     const bodyRequest = body.request && typeof body.request === 'object' ? body.request : {};
     const quickStart = body.quickStart && typeof body.quickStart === 'object' ? body.quickStart : {};
     const context = body.context && typeof body.context === 'object' ? body.context : {};
@@ -1215,7 +1226,7 @@ async function handleOrchestraStart(req, res) {
             const templateList = tid ? getTemplateItems(tid) : null;
             if (!templateList || !Array.isArray(templateList) || templateList.length === 0) {
               const seedProfile = profile || { verticalSlug, audience, businessModel: 'services' };
-              const seedResult = await buildSeedCatalog(seedProfile, { targetCount: 30 });
+              const seedResult = await buildSeedCatalog(seedProfile, { targetCount: CATALOG_ITEM_LIMIT });
               if (seedResult && seedResult.items && seedResult.items.length >= 10) {
                 effectiveMode = 'seed';
                 effectiveSeedItems = seedResult.items;

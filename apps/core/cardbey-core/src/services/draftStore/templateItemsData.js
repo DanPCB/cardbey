@@ -15,6 +15,11 @@ import {
   TEMPLATE_SERVICES_GENERIC,
   structuredItemsToFlat,
 } from './structuredTemplates.js';
+import {
+  CATALOG_ITEM_LIMIT,
+  CATALOG_ITEM_MIN,
+  CATALOG_ITEM_MAX,
+} from '../../config/catalogLimits.js';
 
 export const TEMPLATE_ITEMS = {
   cafe: [
@@ -252,9 +257,9 @@ export const TEMPLATE_ITEMS = {
   ],
 };
 
-const TARGET_ITEM_COUNT = 30;
-const MIN_ITEM_COUNT = 24;
-const MAX_ITEM_COUNT = 36;
+const TARGET_ITEM_COUNT = CATALOG_ITEM_LIMIT;
+const MIN_ITEM_COUNT = CATALOG_ITEM_MIN;
+const MAX_ITEM_COUNT = CATALOG_ITEM_MAX;
 
 /** Valid template keys for mode=template (must have entry in TEMPLATE_ITEMS). */
 export function getTemplateItems(templateKey) {
@@ -263,7 +268,7 @@ export function getTemplateItems(templateKey) {
 }
 
 /**
- * Expand template items to meet target count (24–36). Used for free/template path so stores get ~30 items.
+ * Expand template items to meet target count (min–max). Used for free/template path so stores reach catalog limit.
  * If list has fewer than MIN_ITEM_COUNT, append variations (same template family) until target.
  * @param {string} templateKey
  * @param {number} [target]

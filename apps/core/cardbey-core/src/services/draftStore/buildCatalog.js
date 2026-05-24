@@ -18,6 +18,10 @@ import { validateAndCorrect as validateAndCorrectCatalog } from '../store/valida
 import { buildSeedCatalog } from '../store/seeds/seedCatalogBuilder.js';
 import { loadBusinessProfileService } from './loadBusinessProfileService.js';
 import { inferCurrencyFromLocationText } from './currencyInfer.js';
+import {
+  CATALOG_ITEM_LIMIT,
+  CATALOG_ITEM_MIN,
+} from '../../config/catalogLimits.js';
 
 function tsModuleUnavailable(name) {
   const e = new Error(`${name} unavailable in plain Node runtime. Run server with tsx or add build step to compile TS.`);
@@ -29,7 +33,7 @@ function tsModuleUnavailable(name) {
 /** Forbidden in kids audience: adult-focused terms. Rebuild with fashion_kids if triggered. */
 const KIDS_FORBIDDEN_ADULT = /\b(men's|mens|women's|womens|heels|lingerie|workwear|formal suit|dress shirt|leather boots|adult)\b/i;
 
-/** Same-vertical variation names for AI catalog expansion (items < 24 → expand to 30). Do not use other verticals. */
+/** Same-vertical variation names for AI catalog expansion (items < min → expand to limit). Do not use other verticals. */
 const AI_EXPANSION_VARIATIONS = {
   'fashion.kids': [
     { name: 'Kids Long Sleeve Tee', description: 'Comfortable cotton long sleeve' },
@@ -168,10 +172,10 @@ const VERTICAL_SLUG_TO_EXPANSION_KEY = {
   'retail.general': 'retail',
 };
 
-const AI_EXPANSION_TARGET = 30;
-const AI_EXPANSION_MIN = 24;
-const TARGET_ITEM_COUNT = 30;
-const MIN_ITEM_COUNT = 24;
+const AI_EXPANSION_TARGET = CATALOG_ITEM_LIMIT;
+const AI_EXPANSION_MIN = CATALOG_ITEM_MIN;
+const TARGET_ITEM_COUNT = CATALOG_ITEM_LIMIT;
+const MIN_ITEM_COUNT = CATALOG_ITEM_MIN;
 
 /**
  * If audience is kids, scan products for forbidden adult keywords. Corrective: if >=2 hits or >10% flagged, return true (caller should rebuild with fashion_kids).
@@ -222,9 +226,9 @@ export async function buildFromTemplate(params) {
     throw new Error(`Template not found: "${templateId}". Please choose a valid template (e.g. cafe, food_seafood, food_restaurant_generic, food_bakery, beauty_nails, fashion_boutique, fashion_kids, services_generic, florist, retail).`);
   }
   if (list.length < 24) {
-    list = expandTemplateItems(key, 30);
+    list = expandTemplateItems(key, CATALOG_ITEM_LIMIT);
   }
-  const itemsForCatalog = list.slice(0, 36);
+  const itemsForCatalog = list.slice(0, CATALOG_ITEM_LIMIT);
 
   const businessProfileMod = await loadBusinessProfileService();
   if (!businessProfileMod) throw tsModuleUnavailable('businessProfileService');
@@ -252,7 +256,7 @@ export async function buildFromTemplate(params) {
     };
   }
 
-  const products = itemsForCatalog.slice(0, 30).map((p, i) => ({
+  const products = itemsForCatalog.slice(0, CATALOG_ITEM_LIMIT).map((p, i) => ({
     id: `item_${draftId}_${i}`,
     name: p.name || `Item ${i + 1}`,
     description: p.description ?? null,
@@ -305,7 +309,7 @@ export async function buildFromTemplate(params) {
 export async function buildFromSeed(params) {
   const { draftId, seedItems = [], businessName, businessType } = params;
   const verticalSlug = (params.verticalSlug || '').toString().trim() || 'services.generic';
-  const items = Array.isArray(seedItems) ? seedItems.slice(0, 36) : [];
+  const items = Array.isArray(seedItems) ? seedItems.slice(0, CATALOG_ITEM_LIMIT) : [];
   if (items.length === 0) {
     throw new Error('Seed mode requires non-empty seedItems.');
   }
@@ -468,7 +472,7 @@ export async function buildFromOcr(params) {
   });
 
   const lines = ocrText.split('\n').filter((line) => line.trim().length > 0);
-  const products = lines.slice(0, 30).map((line, idx) => {
+  const products = lines.slice(0, CATALOG_ITEM_LIMIT).map((line, idx) => {
     const priceMatch = line.match(/[\$€£¥]\s*[\d,]+\.?\d*/);
     const price = priceMatch ? priceMatch[0] : null;
     const name = line.replace(/[\$€£¥]\s*[\d,]+\.?\d*/g, '').trim();

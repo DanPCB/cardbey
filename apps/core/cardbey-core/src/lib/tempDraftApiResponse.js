@@ -5,6 +5,7 @@
 
 import { getDraftByGenerationRunId } from '../services/draftStore/draftStoreService.js';
 import { resolveDraftBusinessName, resolveDraftBusinessType, resolveDraftLocation } from '../services/draftStore/draftStoreService.js';
+import { CATALOG_ITEM_LIMIT } from '../config/catalogLimits.js';
 
 function parseJsonField(raw) {
   if (raw == null) return {};
@@ -20,7 +21,7 @@ function parseJsonField(raw) {
   return {};
 }
 
-function mapPreviewItems(preview, limit = 30) {
+function mapPreviewItems(preview, limit = CATALOG_ITEM_LIMIT) {
   const raw = Array.isArray(preview.items)
     ? preview.items
     : Array.isArray(preview.products)

@@ -3,6 +3,8 @@
  * Per verticalGroup blacklist; optional rebuild-from-seed using same profile (stricter).
  */
 
+import { CATALOG_ITEM_LIMIT } from '../../../config/catalogLimits.js';
+
 export const COFFEE_KEYWORDS = [
   'espresso', 'latte', 'cappuccino', 'coffee', 'mocha', 'chai', 'tea', 'matcha', 'flat white',
   'croissant', 'muffin', 'cold brew', 'iced coffee',
@@ -91,7 +93,7 @@ export async function validateAndCorrect({ verticalSlug, catalog, buildFromTempl
 
   if ((catalogSource === 'seed' || catalogSource === 'template') && profile && typeof buildFromSeed === 'function') {
     const { buildSeedCatalog } = await import('../seeds/smeSeedBuilder.js');
-    const { items } = await buildSeedCatalog(profile, 30);
+    const { items } = await buildSeedCatalog(profile, CATALOG_ITEM_LIMIT);
     const params = {
       draftId: catalog.meta?.draftId || 'validator',
       seedItems: items,

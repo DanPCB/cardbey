@@ -1,16 +1,17 @@
 /**
- * buildCatalog with generationProfile: businessType primary, ~30 items, no vertical leakage.
- * 1) Children Clothing + Yahoo -> kids, fashion.kids, ~30 items, no adult items
- * 2) Seafood store + ZZZ -> food.seafood, ~30 items, no cafe drinks
+ * buildCatalog with generationProfile: businessType primary, catalog item band, no vertical leakage.
+ * 1) Children Clothing + Yahoo -> kids, fashion.kids, no adult items
+ * 2) Seafood store + ZZZ -> food.seafood, no cafe drinks
  * 3) Game centre + CALL0UT -> entertainment/events, no cafe
  */
 import { describe, expect, it } from 'vitest';
+import { CATALOG_ITEM_MIN, CATALOG_ITEM_MAX } from '../src/config/catalogLimits.js';
 import { buildCatalog } from '../src/services/draftStore/buildCatalog.js';
 import { classifyBusinessProfile } from '../src/services/store/classifier/classifyBusinessProfile.js';
 import { selectTemplateId } from '../src/services/draftStore/selectTemplateId.js';
 
-const MIN_ITEMS = 24;
-const TARGET_ITEMS = 30;
+const MIN_ITEMS = CATALOG_ITEM_MIN;
+const MAX_ITEMS = CATALOG_ITEM_MAX;
 const ADULT_KEYWORDS = /men's|mens|women's|womens|heels|lingerie|workwear|formal suit|dress shirt|leather boots|adult/i;
 const COFFEE_KEYWORDS = /espresso|latte|cappuccino|coffee|mocha|flat white|cold brew|croissant|muffin/i;
 const CAFE_DRINK_STRICT = /\bespresso\b|\blatte\b|\bcappuccino\b|\bcoffee\b|\bmocha\b|\bflat white\b|\bcold brew\b/i;
@@ -40,7 +41,7 @@ describe('buildCatalog with generationProfile (businessType primary)', () => {
     expect(result).toBeDefined();
     expect(result.products).toBeDefined();
     expect(result.products.length).toBeGreaterThanOrEqual(MIN_ITEMS);
-    expect(result.products.length).toBeLessThanOrEqual(36);
+    expect(result.products.length).toBeLessThanOrEqual(MAX_ITEMS);
 
     const namesAndDescriptions = result.products.map((p) => `${p.name || ''} ${p.description || ''}`).join(' ');
     expect(ADULT_KEYWORDS.test(namesAndDescriptions)).toBe(false);
@@ -69,6 +70,7 @@ describe('buildCatalog with generationProfile (businessType primary)', () => {
     });
     expect(result).toBeDefined();
     expect(result.products.length).toBeGreaterThanOrEqual(MIN_ITEMS);
+    expect(result.products.length).toBeLessThanOrEqual(MAX_ITEMS);
 
     const namesAndDescriptions = result.products.map((p) => `${p.name || ''} ${p.description || ''}`).join(' ');
     expect(CAFE_DRINK_STRICT.test(namesAndDescriptions)).toBe(false);
@@ -97,6 +99,7 @@ describe('buildCatalog with generationProfile (businessType primary)', () => {
     });
     expect(result).toBeDefined();
     expect(result.products.length).toBeGreaterThanOrEqual(MIN_ITEMS);
+    expect(result.products.length).toBeLessThanOrEqual(MAX_ITEMS);
 
     const namesAndDescriptions = result.products.map((p) => `${p.name || ''} ${p.description || ''}`).join(' ');
     expect(COFFEE_KEYWORDS.test(namesAndDescriptions)).toBe(false);

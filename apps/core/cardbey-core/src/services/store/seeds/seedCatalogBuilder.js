@@ -1,11 +1,16 @@
 /**
  * Universal Seed Catalog Builder: categories + items + imageQueryHints from profile.
- * Food: 5 categories × 6 items = 30; Retail: 6 × 5 = 30; Services/unknown: 30 items (tiers/packages/quotes).
+ * Food: 5 categories × 6 items; Retail: 6 × 5; Services/unknown: tier/package scaffolds.
  * No cafe items unless verticalSlug = food.cafe. Min 24 items; expand with same-vertical variations.
  */
 
-const MIN_ITEMS = 24;
-const TARGET_DEFAULT = 30;
+import {
+  CATALOG_ITEM_LIMIT,
+  CATALOG_ITEM_MIN,
+} from '../../../config/catalogLimits.js';
+
+const MIN_ITEMS = CATALOG_ITEM_MIN;
+const TARGET_DEFAULT = CATALOG_ITEM_LIMIT;
 
 /** Coffee/cafe keywords – must not appear in non-food or food.seafood. */
 const COFFEE_KEYWORDS = ['espresso', 'latte', 'cappuccino', 'coffee', 'mocha', 'flat white', 'cold brew', 'croissant', 'muffin'];
@@ -137,7 +142,7 @@ function buildServicesSeed(profile, targetCount) {
  * @returns {{ categories: { id: string, name: string }[], items: { id: string, name: string, description?: string, price?: string, categoryId: string }[], imageQueryHints: object, meta: object }}
  */
 export function buildSeedCatalog(profile, opts = {}) {
-  const targetCount = Math.max(MIN_ITEMS, Math.min(36, opts?.targetCount ?? TARGET_DEFAULT));
+  const targetCount = Math.max(MIN_ITEMS, Math.min(CATALOG_ITEM_LIMIT, opts?.targetCount ?? TARGET_DEFAULT));
   const group = (profile?.verticalGroup || '').toLowerCase();
   const model = (profile?.businessModel || '').toLowerCase();
   const slug = (profile?.verticalSlug || '').toLowerCase();

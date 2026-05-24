@@ -5,8 +5,13 @@
  */
 
 import { getOrFetchSeedCatalog } from './seedCatalogService.js';
+import {
+  CATALOG_ITEM_LIMIT,
+  CATALOG_ITEM_MIN,
+  CATALOG_ITEM_MAX,
+} from '../../../config/catalogLimits.js';
 
-const TARGET_COUNT = 30;
+const TARGET_COUNT = CATALOG_ITEM_LIMIT;
 
 /** Services: core services + packages + quote. No coffee/cafe. */
 const SERVICES_ITEMS = [
@@ -59,7 +64,7 @@ export async function buildSeedCatalog(profile, targetCount = TARGET_COUNT) {
   const businessModel = (profile?.businessModel || 'services').toLowerCase();
   const audience = (profile?.audience || 'adults').toLowerCase();
   const isCafe = slug === 'food.cafe';
-  const count = Math.min(36, Math.max(24, targetCount));
+  const count = Math.min(CATALOG_ITEM_MAX, Math.max(CATALOG_ITEM_MIN, targetCount));
 
   const cached = await getOrFetchSeedCatalog(slug, audience === 'kids' ? audience : '');
   if (cached && cached.items && cached.items.length >= 15) {

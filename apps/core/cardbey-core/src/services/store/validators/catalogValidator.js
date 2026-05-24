@@ -3,6 +3,8 @@
  * Single integration at end of catalog generation; rebuild via buildSeedCatalog when mismatch.
  */
 
+import { CATALOG_ITEM_LIMIT } from '../../../config/catalogLimits.js';
+
 const COFFEE_KEYWORDS = ['espresso', 'latte', 'cappuccino', 'coffee', 'mocha', 'flat white', 'cold brew', 'croissant', 'muffin', 'chai', 'tea', 'matcha', 'iced coffee'];
 const COFFEE_REGEX = new RegExp(COFFEE_KEYWORDS.map((k) => `\\b${k.replace(/\s+/g, '\\s+')}\\b`).join('|'), 'i');
 
@@ -100,7 +102,7 @@ export async function validateAndCorrect(profile, catalog, rebuildFn) {
 
   const fn = typeof rebuildFn === 'function' ? rebuildFn : async () => {
     const { buildSeedCatalog } = await import('../seeds/seedCatalogBuilder.js');
-    return buildSeedCatalog(profile, { targetCount: 30 });
+    return buildSeedCatalog(profile, { targetCount: CATALOG_ITEM_LIMIT });
   };
   let rebuilt = fn();
   if (rebuilt && typeof rebuilt.then === 'function') rebuilt = await rebuilt;
