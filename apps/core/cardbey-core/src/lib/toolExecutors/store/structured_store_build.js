@@ -140,6 +140,17 @@ export async function execute(_input = {}, context = {}) {
 
   const draftIdForRun = created.createdDraftId || created.draftId;
 
+  console.log('[structured_store_build] START:', {
+    missionId,
+    storeName: businessName || null,
+    businessType: businessType || null,
+    intentMode,
+    draftStoreId: draftIdForRun,
+    generationRunId: created.generationRunId,
+    jobId: created.jobId,
+    stepStatus: 'running',
+  });
+
   await prisma.orchestratorTask
     .update({
       where: { id: created.jobId },
@@ -168,6 +179,15 @@ export async function execute(_input = {}, context = {}) {
     });
   } catch (err) {
     const message = err?.message || String(err);
+    console.error('[structured_store_build] GENERATE_DRAFT_FAILED:', {
+      missionId,
+      storeName: businessName || null,
+      draftStoreId: draftIdForRun,
+      generationRunId: created.generationRunId,
+      stepStatus: 'failed',
+      error: message,
+      stack: err?.stack,
+    });
     await transitionOrchestratorTaskStatus({
       prisma,
       taskId: created.jobId,
@@ -407,14 +427,24 @@ export async function execute(_input = {}, context = {}) {
     console.warn('[structured_store_build] COMPLETE preview read failed:', previewErr?.message ?? previewErr);
   }
 
+  const previewUrl =
+    draftIdForRun && created.generationRunId
+      ? `/preview/website/${encodeURIComponent(draftIdForRun)}?generationRunId=${encodeURIComponent(created.generationRunId)}`
+      : null;
+
   console.log('[structured_store_build] COMPLETE:', {
     ok: true,
+    missionId,
+    storeName: businessName || null,
     storeId,
     storeSlug,
-    draftId: draftIdForRun,
+    draftStoreId: draftIdForRun,
     generationRunId: created.generationRunId,
     productCount,
     hasImages,
+    previewUrl,
+    stepStatus: 'completed',
+    projectionUpdated: true,
   });
 
   return {

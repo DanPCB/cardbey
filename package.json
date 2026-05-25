@@ -16,12 +16,25 @@
   },
   "scripts": {
     "check:runway": "node scripts/check-single-runway.js",
+    "dev": "node scripts/print-dev-help.mjs",
+    "dev:doctor": "node scripts/dev-doctor.mjs",
+    "dev:doctor:probe": "node scripts/dev-doctor.mjs --probe",
+    "dev:cleanup": "node scripts/dev-cleanup.mjs",
+    "dev:prisma": "node scripts/dev-prisma-generate.mjs",
     "dev:core": "pnpm --filter @cardbey/core run dev",
     "dev:dashboard": "pnpm --filter @cardbey/dashboard run dev",
     "build:core": "pnpm --filter @cardbey/core run build",
     "build:dashboard": "pnpm -C apps/dashboard/cardbey-marketing-dashboard run build:dashboard",
     "build:api-client": "pnpm --filter @cardbey/api-client run build",
-    "e2e:french-baguette": "node scripts/e2e-french-baguette.js"
+    "e2e:french-baguette": "node scripts/e2e-french-baguette.js",
+    "regression:preflight": "node scripts/scan-secrets.mjs",
+    "regression:contracts": "pnpm --filter @cardbey/core exec vitest run src/routes/__tests__/runwayRouteContract.test.js src/routes/__tests__/healthRoute.contract.test.js src/routes/__tests__/journeysTemplates.smoke.test.js src/realtime/simpleSse.streamPolicy.test.js",
+    "regression:core": "node scripts/dev-prisma-generate.mjs && pnpm --filter @cardbey/core run test",
+    "regression:dashboard": "pnpm --filter @cardbey/dashboard exec vitest run",
+    "regression:smoke": "node scripts/regression-smoke.mjs",
+    "regression:smoke:offline": "node scripts/regression-smoke.mjs --offline",
+    "regression": "pnpm regression:preflight && pnpm regression:contracts && pnpm regression:core && pnpm regression:dashboard",
+    "regression:preflight:staged": "node scripts/scan-secrets.mjs --staged"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.52.0",

@@ -329,6 +329,13 @@ export async function completeMissionPipelineAfterQaApproval(missionId, prisma) 
       progressTotalSteps: totalSteps,
     },
   });
+  console.log('[QaCheckpointResume] checkpoint_marked_resolved', {
+    missionId: id,
+    status: 'completed',
+    runState: 'done',
+    completedCount,
+    totalSteps,
+  });
 
   const { runPostMissionCompletionSummary } = await import('../../lib/missionCompletion/postMissionSummary.js');
   void runPostMissionCompletionSummary({
@@ -515,6 +522,7 @@ export async function applyPendingStoreBuildQaTier2Fixes(opts = {}) {
   const fixes = Array.isArray(pending.fixes) ? pending.fixes : [];
 
   if (decision === 'skip_all') {
+    console.log('[QaCheckpointResume] qa_fixes_skipped', { missionId, draftId });
     await mergeMissionContext(
       missionId,
       {
@@ -530,7 +538,8 @@ export async function applyPendingStoreBuildQaTier2Fixes(opts = {}) {
       appliedCount: 0,
     });
     await clearQaApprovalPendingOnPipeline(prisma, missionId);
-    await completeMissionPipelineAfterQaApproval(missionId, prisma);
+    const completeSkip = await completeMissionPipelineAfterQaApproval(missionId, prisma);
+    console.log('[QaCheckpointResume] pipeline_completed_after_skip', { missionId, completeSkip });
     return { ok: true, applied: false, skipped: true };
   }
 
@@ -613,7 +622,13 @@ export async function applyPendingStoreBuildQaTier2Fixes(opts = {}) {
     appliedCount,
   });
   await clearQaApprovalPendingOnPipeline(prisma, missionId);
-  await completeMissionPipelineAfterQaApproval(missionId, prisma);
+  const completeApprove = await completeMissionPipelineAfterQaApproval(missionId, prisma);
+  console.log('[QaCheckpointResume] pipeline_completed_after_approve', {
+    missionId,
+    draftId,
+    completeApprove,
+    appliedCount: fixes.length,
+  });
 
   return { ok: true, applied: true, autoFixed, catalogPass: postAudit.pass, qaReport };
 }

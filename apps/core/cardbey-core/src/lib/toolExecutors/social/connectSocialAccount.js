@@ -5,7 +5,7 @@
 
 import { supportsOAuthConnectForAlias } from '../../externalConnections/capabilities.js';
 
-const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID;
+const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID || process.env.FACEBOOK_CLIENT_ID;
 const FACEBOOK_REDIRECT = process.env.FACEBOOK_REDIRECT_URI;
 
 const FB_SCOPES = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'].join(',');

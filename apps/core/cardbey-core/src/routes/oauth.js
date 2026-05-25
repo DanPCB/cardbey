@@ -15,7 +15,9 @@ const router = express.Router();
 router.get('/status', (req, res) => {
   // Check if OAuth is configured (from environment variables)
   const hasOAuthBase = Boolean(process.env.OAUTH_BASE_URL);
-  const hasFacebookCreds = Boolean(process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET);
+  const fbId = process.env.FACEBOOK_APP_ID || process.env.FACEBOOK_CLIENT_ID;
+  const fbSecret = process.env.FACEBOOK_APP_SECRET || process.env.FACEBOOK_CLIENT_SECRET;
+  const hasFacebookCreds = Boolean(fbId && fbSecret);
   const hasTikTokCreds = Boolean(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
   
   const configured = hasOAuthBase || hasFacebookCreds || hasTikTokCreds;

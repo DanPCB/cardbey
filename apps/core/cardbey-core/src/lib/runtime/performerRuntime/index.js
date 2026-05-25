@@ -47,4 +47,5 @@ export {
 } from './runtimeStateGraph.js';
 
 export { executeRuntimeAction } from './executeRuntimeAction.js';
+export { dryRunExecutionPlan, validateDryRunIntent, resolveCapabilityAvailability } from './dryRunExecutionPlan.js';
 export { performerRuntime, execute as performerRuntimeExecute } from './performerRuntime.js';

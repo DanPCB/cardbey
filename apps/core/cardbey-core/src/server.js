@@ -106,6 +106,8 @@ import ragRoutes from './routes/rag.js';
 import reportsRoutes from './routes/reports.js';
 import insightsRoutes from './routes/insights.js';
 import insightsFeedRoutes from './routes/insights.js';
+import journeysRoutes from './routes/journeys.routes.js';
+import { runwayLegacyGuard } from './middleware/runwayLegacyGuard.js';
 import authRoutes, { patchCurrentUserProfile } from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
@@ -568,6 +570,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Legacy runway usage warnings (non-blocking). See docs/RUNWAY_OWNERSHIP.md
+app.use(runwayLegacyGuard);
+
 // Example: Broadcast log message (can be called from anywhere in the app)
 // This demonstrates how to use the WebSocket broadcast functionality
 // Example usage:
@@ -762,6 +767,7 @@ app.use('/assets', express.static(publicAssetsDir, {
 // since realtimeRoutes handles /api/stream
 
 // MOUNT EARLY (before other routers and before any SPA fallback)
+// Runway ownership map: docs/RUNWAY_OWNERSHIP.md
 app.use('/api', realtimeRoutes);
 app.use('/api', screensRoutes);
 app.use('/api', healthRoutes); // Health endpoints: /api/health, /api/healthz, /api/readyz
@@ -848,8 +854,9 @@ app.use('/api/ai', aiRouter);
 app.use('/api/ai/images', aiImagesRouter);
 app.use('/api/studio', studioRouter);
 // Production-critical: store mission Phase 0 create/summary/generate. Same DB for create and read (single DATABASE_URL).
-app.use('/api/draft-store', draftStoreRoutes); // POST / (create), GET /:draftId/summary, POST /:draftId/generate, POST /:draftId/commit
-app.use('/api/store-draft', draftStoreRoutes); // Phase 0 compatibility: GET /api/store-draft/:id -> same as GET /api/draft-store/:id (requireAuth); avoids DRAFT_ID_UNRESOLVED when UI calls legacy path
+app.use('/api/draft-store', draftStoreRoutes); // Canonical store draft runway — POST /, GET /:draftId/summary, generate, commit
+app.use('/api/store-draft', draftStoreRoutes); // LEGACY alias (same router); runwayLegacyGuard logs — prefer /api/draft-store
+app.use('/api/journeys', journeysRoutes); // Journey templates, instances, planner, analytics (was unmounted — smoke: GET /templates)
 app.use('/api/mini-website', miniWebsiteRoutes); // POST /publish/cardbey (same as store publish), custom-domain stub
 app.use('/api/intent-graph', intentGraphRoutes); // Intent Graph v1: POST /build, GET /suggestions?draftId=|storeId=
 app.use('/api', seedLibraryRoutes); // Seed Library: GET /api/seed-library/placeholder?vertical=&categoryKey=&orientation=

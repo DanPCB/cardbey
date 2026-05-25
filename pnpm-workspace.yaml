@@ -1,6 +1,10 @@
 packages:
-  - apps/**
-  - packages/**
+  # Explicit paths only — avoids broken/duplicate folders (e.g. "cardbey frontend copy")
+  - apps/core/cardbey-core
+  - apps/core/cardbey-core/packages/*
+  - apps/dashboard/cardbey-marketing-dashboard
+  - apps/dashboard/cardbey-marketing-dashboard/packages/*
+  - packages/*
 
 onlyBuiltDependencies:
   - '@prisma/client'

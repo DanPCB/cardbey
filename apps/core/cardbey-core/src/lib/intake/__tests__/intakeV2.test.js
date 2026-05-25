@@ -203,16 +203,48 @@ describe('intakeSystemShortcuts', () => {
     expect(detectIntent({ userMessage: 'create a mini website' })).toBeNull();
   });
 
-  it('shortcuts create_store when primaryMode is create', () => {
+  it('shortcuts create_store website runway when primaryMode is create and message asks for website', () => {
     expect(
       detectIntent({ userMessage: 'Create my website', primaryMode: 'create' }),
-    ).toEqual({ type: 'create_store', intentMode: 'store' });
+    ).toEqual({ type: 'create_store', intentMode: 'website', intentLabel: 'create_mini_website' });
+  });
+
+  it('shortcuts create_store store runway when primaryMode is create and message asks for store', () => {
+    expect(
+      detectIntent({ userMessage: 'Create my store', primaryMode: 'create' }),
+    ).toEqual({ type: 'create_store', intentMode: 'store', intentLabel: 'create_store' });
+  });
+
+  it('clarifies when primaryMode is create but runway is ambiguous', () => {
+    expect(
+      detectIntent({
+        userMessage: 'create a store and a mini website',
+        primaryMode: 'create',
+      }),
+    ).toEqual({
+      type: 'clarify_create_runway',
+      message: expect.stringMatching(/online store|mini website/i),
+    });
+  });
+
+  it('clarifies frontscreen create handoff without a concrete runway in the message', () => {
+    expect(
+      detectIntent({
+        userMessage: 'Help me get started',
+        intentSource: 'frontscreen',
+        primaryMode: 'create',
+      }),
+    ).toEqual({
+      type: 'clarify_create_runway',
+      message: expect.stringMatching(/online store|mini website/i),
+    });
   });
 
   it('shortcuts website mode when primaryMode is website', () => {
     expect(detectIntent({ userMessage: 'x', primaryMode: 'website' })).toEqual({
       type: 'create_store',
       intentMode: 'website',
+      intentLabel: 'create_mini_website',
     });
   });
 

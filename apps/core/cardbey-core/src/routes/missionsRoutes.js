@@ -698,11 +698,13 @@ router.post('/:missionId/qa-fixes/approve', requireAuth, async (req, res, next) 
     }
     const actionRaw = typeof req.body?.action === 'string' ? req.body.action.trim().toLowerCase() : '';
     const decision = actionRaw === 'approve_all' ? 'approve_all' : 'skip_all';
+    console.log('[QaCheckpointResume] backend_received', { missionId, decision });
     const { applyPendingStoreBuildQaTier2Fixes } = await import('../services/qa/storeBuildQaAutoFix.js');
     const result = await applyPendingStoreBuildQaTier2Fixes({
       missionId,
       decision,
     });
+    console.log('[QaCheckpointResume] backend_apply_result', { missionId, decision, result });
     if (!result.ok && result.reason === 'no_pending_tier2') {
       return res.status(409).json({
         ok: false,

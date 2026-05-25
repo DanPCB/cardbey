@@ -11,7 +11,7 @@ import { TOOLS } from '../../toolRegistry.js';
 /** @typedef {{ mission_id: string, steps_checked: number, issues_found: ValidationIssue[], steps_final: NextStep[], status: 'clean' | 'fixed' | 'needs_manual_review' }} ValidationReport */
 
 const ACTION_ALIASES = new Map([
-  ['connect_domain', 'general_chat'],
+  ['connect_domain', 'connect_custom_domain'],
   ['update_products', 'replace_store_catalog'],
   ['review_performance', 'analyze_store'],
 ]);
@@ -21,8 +21,10 @@ const VALID_ACTION_KEYS = new Set([
   ...TOOLS.map((t) => t.toolName),
   'general_chat',
   'connect_domain',
+  'connect_custom_domain',
   'update_products',
   'review_performance',
+  'create_offer',
 ]);
 
 const POST_CREATION_ORDER = ['replace_store_catalog', 'connect_domain', 'analyze_store'];
@@ -74,9 +76,13 @@ export function nextStepsToHints(steps) {
   return steps.map((s) => {
     let suggestedTool = s.action;
     let actionId = s.actionId;
-    if (s.action === 'connect_domain') {
-      suggestedTool = 'general_chat';
+    if (s.action === 'connect_domain' || s.action === 'connect_custom_domain') {
+      suggestedTool = 'connect_custom_domain';
       actionId = actionId || 'custom_domain';
+    }
+    if (s.action === 'create_offer') {
+      suggestedTool = 'create_offer';
+      actionId = actionId || 'create_offer';
     }
     if (ACTION_ALIASES.has(s.action)) {
       suggestedTool = ACTION_ALIASES.get(s.action) || s.action;

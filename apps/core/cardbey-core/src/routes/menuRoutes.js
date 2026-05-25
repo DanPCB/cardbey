@@ -8,6 +8,7 @@ import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { getEventEmitter } from '../engines/menu/events.js';
 import { generateImageUrlForDraftItem, generateImageCandidatesForDraftItem } from '../services/menuVisualAgent/menuVisualAgent.ts';
 import { configureMenu } from '../engines/menu/configureMenu.js';
+import { extractMenuItemsFromPhoto } from '../engines/menu/menuExtractItems.js';
 import { extractMenu } from '../engines/menu/extractMenu.js';
 import { queryMenuState } from '../engines/menu/queryMenuState.js';
 import { queueImageGenerationJob } from '../services/menuVisualAgent/imageGenerationJob.js';
@@ -286,6 +287,67 @@ router.post('/configure-from-photo', requireAuth, async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: error.message || 'Internal error',
+    });
+  }
+});
+
+/**
+ * POST /api/menu/extract-items
+ * Bulk menu tile extraction for onboarding (Step4MenuImport). Does not persist products.
+ * Body: { tenantId, storeId, mediaId?, imageUrl?, locale?, targetCategory?, grid?: { rows, cols } }
+ */
+router.post('/extract-items', requireAuth, async (req, res) => {
+  try {
+    const { tenantId, storeId, mediaId, imageUrl, locale, targetCategory, grid } = req.body || {};
+
+    if (!tenantId || !storeId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing required fields',
+        message: 'tenantId and storeId are required',
+      });
+    }
+    if (!mediaId && !imageUrl) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing image',
+        message: 'mediaId or imageUrl is required',
+      });
+    }
+
+    const result = await extractMenuItemsFromPhoto({
+      req,
+      tenantId,
+      storeId,
+      mediaId,
+      imageUrl,
+      locale,
+      targetCategory,
+      grid: grid ?? null,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('[MENU] extract-items error:', error);
+
+    const code = error.code || 'EXTRACTION_FAILED';
+    if (
+      code === 'STORE_NOT_FOUND' ||
+      code === 'STORE_FORBIDDEN' ||
+      code === 'MEDIA_NOT_FOUND' ||
+      code === 'IMAGE_REQUIRED'
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: code,
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      ok: false,
+      error: code,
+      message: error.message || 'Menu extraction failed',
     });
   }
 });

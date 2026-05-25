@@ -2,7 +2,7 @@
 
 **Purpose:** Single map of every path that can start or continue a **store / mini-website draft build** (`build_store` / `executeStoreMissionPipelineRun` family).  
 **Status:** Forensic snapshot; no behavior change implied.  
-**Related:** `CONTRACT_V1.md`, golden fixtures under `src/lib/contracts/__fixtures__/golden/`.
+**Related:** `CONTRACT_V1.md`, golden fixtures under `src/lib/contracts/__fixtures__/golden/`, **`../../../docs/RUNWAY_OWNERSHIP.md`** (canonical owners for missions, SSE, devices, journeys).
 
 ---
 

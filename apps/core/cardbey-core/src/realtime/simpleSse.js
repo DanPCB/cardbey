@@ -68,10 +68,19 @@ export function handleSse(req, res) {
   const key = String(req.query?.key || 'admin');
   const streamKind = classifySseStream(req);
 
+  if (key === 'admin' && process.env.NODE_ENV !== 'production') {
+    console.warn('[runway-legacy]', {
+      code: 'LEGACY_SSE_ADMIN_KEY',
+      streamKind,
+      hint: 'Mission console should use key=agent-chat with streamToken; admin is for dev device streams only',
+      canonical: 'GET /api/stream?key=agent-chat&missionId=&streamToken=',
+    });
+  }
+
   if (process.env.NODE_ENV === 'production' && key === 'admin') {
     const envKey = process.env.SSE_STREAM_KEY || process.env.TV_STREAM_KEY;
     if (!envKey || key !== envKey) {
-      console.log('[SSE] blocked legacy admin key in production:', {
+      console.log('[sseRoutePolicy] blocked legacy admin key in production:', {
         streamKind: 'legacy-admin-rejected',
         ip: req.headers['cf-connecting-ip'] ?? req.ip,
         origin: req.headers.origin ?? 'none',

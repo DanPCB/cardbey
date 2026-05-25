@@ -82,6 +82,23 @@ describe('POST /api/performer/intake/v2 website aliases', () => {
     expect(res.body.intentMode).toBe('website');
   });
 
+  it('routes primaryMode create + "Create my website" to website intentMode', async () => {
+    const app = makeApp();
+    const res = await request(app)
+      .post('/api/performer/intake/v2')
+      .send({
+        text: 'Create my website',
+        primaryMode: 'create',
+        currentContext: {},
+        history: [],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.action).toBe('create_store');
+    expect(res.body.intentMode).toBe('website');
+  });
+
   it('keeps "create a store for Construct Corp" on create_store flow', async () => {
     const app = makeApp();
     const res = await request(app)

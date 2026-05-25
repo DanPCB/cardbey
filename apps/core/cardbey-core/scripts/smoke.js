@@ -14,8 +14,9 @@ async function runSmokeTests() {
   console.log(`📍 Target: ${API_BASE}\n`);
   
   const tests = [
-    { name: 'Health Check', url: `${API_BASE}/health`, method: 'GET' },
-    { name: 'Journey Templates', url: `${API_BASE}/api/journeys/templates`, method: 'GET' },
+    { name: 'API Health', url: `${API_BASE}/api/health`, method: 'GET', validateJson: (j) => j?.ok === true },
+    { name: 'Legacy /health', url: `${API_BASE}/health`, method: 'GET' },
+    { name: 'Journey Templates', url: `${API_BASE}/api/journeys/templates`, method: 'GET', validateJson: (j) => Array.isArray(j?.templates) },
     { name: 'Guest Assistant', url: `${API_BASE}/api/assistant/guest`, method: 'POST', body: {} },
     { name: 'AI Metrics', url: `${API_BASE}/api/ai/metrics`, method: 'GET' },
     { name: 'Feature Flags', url: `${API_BASE}/api/v2/flags`, method: 'GET' },
@@ -35,11 +36,16 @@ async function runSmokeTests() {
         body: test.body ? JSON.stringify(test.body) : undefined
       });
       
-      if (response.ok) {
+      const body = response.headers.get('content-type')?.includes('json')
+        ? await response.json().catch(() => null)
+        : null;
+      const jsonOk = test.validateJson ? test.validateJson(body) : true;
+
+      if (response.ok && jsonOk) {
         console.log(`✅ ${test.name.padEnd(25)} (${response.status})`);
         passed++;
       } else {
-        const errorText = await response.text();
+        const errorText = body ? JSON.stringify(body).slice(0, 200) : await response.text();
         console.log(`❌ ${test.name.padEnd(25)} (${response.status})`);
         failures.push({ test: test.name, status: response.status, error: errorText });
         failed++;

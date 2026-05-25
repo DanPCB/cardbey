@@ -16,6 +16,10 @@ import {
   blockCreateStoreOnCompletedMission,
 } from '../lib/intake/intakeSystemShortcuts.js';
 import {
+  messageLooksLikeWebsiteCreate,
+  messageLooksLikeStoreCreate,
+} from '../lib/intake/storeWebsiteRunwayClassifier.js';
+import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
   isContextFreeTool,
@@ -159,49 +163,11 @@ const SD_REPORT_RE = /smart.{0,10}report|intelligent.{0,10}report|interactive.{0
 const SD_QUOTE_RE = /smart.{0,10}quote|interactive.{0,10}quote|smart.{0,10}proposal/i;
 
 function looksWebsiteCreateIntent(raw) {
-  const msgLower = String(raw ?? '').toLowerCase();
-  return (
-    msgLower.includes('mini website') ||
-    msgLower.includes('mini-website') ||
-    msgLower.includes('mini-site') ||
-    msgLower.includes('microsite') ||
-    msgLower.includes('micro-site') ||
-    msgLower.includes('web presence') ||
-    msgLower.includes('build a website') ||
-    msgLower.includes('build website') ||
-    msgLower.includes('create a website') ||
-    msgLower.includes('create website') ||
-    msgLower.includes('create my website') ||
-    msgLower.includes('make a website') ||
-    msgLower.includes('set up a website') ||
-    msgLower.includes('create a site') ||
-    msgLower.includes('build a site') ||
-    msgLower.includes('make a site') ||
-    msgLower.includes('set up a site') ||
-    msgLower.includes('create a web presence') ||
-    msgLower.includes('build a web presence') ||
-    msgLower.includes('website from card') ||
-    msgLower.includes('website from attached card') ||
-    msgLower.includes('site from card') ||
-    msgLower.includes('site from attached card') ||
-    msgLower.includes('website for my store') ||
-    msgLower.includes('website for my business')
-  );
+  return messageLooksLikeWebsiteCreate(raw);
 }
 
 function looksStoreCreateIntent(raw) {
-  const msgLower = String(raw ?? '').toLowerCase();
-  return (
-    msgLower.includes('create a store') ||
-    msgLower.includes('create store') ||
-    msgLower.includes('create my store') ||
-    msgLower.includes('build a store') ||
-    msgLower.includes('build store') ||
-    msgLower.includes('make a store') ||
-    msgLower.includes('set up a store') ||
-    msgLower.includes('open store') ||
-    msgLower.includes('new store')
-  );
+  return messageLooksLikeStoreCreate(raw);
 }
 
 /**
@@ -1230,7 +1196,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       });
     }
 
-    const shortcut = detectIntent({
+    let shortcut = detectIntent({
       userMessage,
       auth: { userId: req.user?.id ?? null, isGuest: !req.user },
       primaryMode: body.primaryMode,
@@ -1241,6 +1207,41 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           ? body.storeCreateForm
           : undefined,
     });
+
+    if (shortcut?.type === 'clarify_create_runway') {
+      const clarifyMsg =
+        shortcut.message ||
+        (locale === 'vi'
+          ? 'Bạn muốn cửa hàng trực tuyến hay trang web mini?'
+          : 'Do you want an online store with products, or a mini website / landing page?');
+      return safeJson(
+        {
+          success: true,
+          action: 'clarify',
+          response: clarifyMsg,
+          options: [
+            {
+              label: locale === 'vi' ? 'Cửa hàng / danh mục sản phẩm' : 'Online store / product catalog',
+              tool: 'create_store',
+              parameters: { intentMode: 'store' },
+            },
+            {
+              label: locale === 'vi' ? 'Trang web mini / landing page' : 'Mini website / landing page',
+              tool: 'create_store',
+              parameters: { intentMode: 'website' },
+            },
+          ],
+        },
+        {
+          classification: { executionPath: 'clarify', tool: 'create_store', confidence: 0 },
+          validated: true,
+          downgraded: false,
+          validationErrors: [],
+          riskLevel: RISK.SAFE_READ,
+          result: 'clarify',
+        },
+      );
+    }
 
     // ── SmartDocument intent (CC-4) — AUTO_RUN, requires auth ──────────────
     const { sdType, sdSubtype } = detectSmartDocumentIntent(userMessage);

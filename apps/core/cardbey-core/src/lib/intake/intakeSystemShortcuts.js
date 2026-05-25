@@ -3,10 +3,16 @@
  *
  * Phase 5B removed store-setup regex fast-paths from Intake V2 classification.
  * Phase 5B/5C: first-hop store creation detection is owned by `intakeClassifier.js` (LLM + routing rules),
- * so this shortcuts layer must not duplicate store/mini-website phrase matching.
+ * so this shortcuts layer must not duplicate store/mini-website phrase matching except when
+ * `primaryMode` / frontscreen handoff forces a create-store shortcut (then message wins for runway).
  */
 
+import { classifyStoreWebsiteCreateIntent } from './storeWebsiteRunwayClassifier.js';
+
 const STORE_CREATE_PRIMARY_MODES = new Set(['create', 'website', 'store_setup']);
+
+const CREATE_RUNWAY_CLARIFY_MESSAGE =
+  'Do you want an online store with products, or a mini website / landing page? Pick one to continue.';
 
 function resolvePrimaryMode(input) {
   const pm = String(input?.primaryMode ?? input?.primaryModeHint ?? '')
@@ -81,7 +87,13 @@ function storeCreateFormShortcut(form) {
  * @param {string} [input.intentSource]
  * @param {object} [input.storeCreateForm]
  * @param {{ userId?: string | null, isGuest?: boolean }} input.auth
- * @returns {{ type: 'create_store', intentMode: 'store'|'website' } | { type: 'auth_required', message: string } | { type: 'missing_store', message: string } | null}
+ * @returns {
+ *   | { type: 'create_store', intentMode: 'store'|'website', intentLabel?: string }
+ *   | { type: 'clarify_create_runway', message: string }
+ *   | { type: 'auth_required', message: string }
+ *   | { type: 'missing_store', message: string }
+ *   | null
+ * }
  */
 export function detectIntent(input) {
   const formShortcut = storeCreateFormShortcut(input?.storeCreateForm);
@@ -94,17 +106,32 @@ export function detectIntent(input) {
   const intentSource = String(input?.intentSource ?? '')
     .trim()
     .toLowerCase();
+  const runway = classifyStoreWebsiteCreateIntent(raw);
 
-  if (primaryMode && STORE_CREATE_PRIMARY_MODES.has(primaryMode)) {
+  if (primaryMode === 'website') {
+    return { type: 'create_store', intentMode: 'website', intentLabel: 'create_mini_website' };
+  }
+
+  if (primaryMode === 'store_setup') {
     return {
       type: 'create_store',
-      intentMode: primaryMode === 'website' ? 'website' : 'store',
+      intentMode: runway.intentMode === 'website' ? 'website' : 'store',
+      ...(runway.label ? { intentLabel: runway.label } : {}),
     };
   }
 
-  // Frontscreen handoff with explicit create mode (URL primaryMode=create).
-  if (intentSource === 'frontscreen' && primaryMode === 'create') {
-    return { type: 'create_store', intentMode: 'store' };
+  if (primaryMode === 'create' || (intentSource === 'frontscreen' && primaryMode === 'create')) {
+    if (runway.ambiguous) {
+      return { type: 'clarify_create_runway', message: CREATE_RUNWAY_CLARIFY_MESSAGE };
+    }
+    if (runway.intentMode) {
+      return {
+        type: 'create_store',
+        intentMode: runway.intentMode,
+        ...(runway.label ? { intentLabel: runway.label } : {}),
+      };
+    }
+    return { type: 'clarify_create_runway', message: CREATE_RUNWAY_CLARIFY_MESSAGE };
   }
 
   return null;
