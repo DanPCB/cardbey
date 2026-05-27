@@ -1,0 +1,119 @@
+[
+  {
+    "timestamp": "2026-05-27T10:26:25.195Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T10:31:28.948Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T10:39:40.193Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T10:43:04.545Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T10:47:47.136Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T10:55:05.007Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T11:07:23.243Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T11:11:13.230Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T11:15:01.929Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T11:18:43.176Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T11:26:23.482Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T11:30:39.851Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-05-27T11:35:55.168Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  }
+]

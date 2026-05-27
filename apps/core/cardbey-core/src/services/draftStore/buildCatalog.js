@@ -22,6 +22,10 @@ import {
   CATALOG_ITEM_LIMIT,
   CATALOG_ITEM_MIN,
 } from '../../config/catalogLimits.js';
+import {
+  dedupeCatalogProductsByName,
+  normalizeCatalogProductName,
+} from '../../lib/persistence/catalogDedupe.js';
 
 function tsModuleUnavailable(name) {
   const e = new Error(`${name} unavailable in plain Node runtime. Run server with tsx or add build step to compile TS.`);
@@ -410,9 +414,16 @@ export async function buildFromAi(params) {
       AI_EXPANSION_VARIATIONS[verticalKey.split('.')[0]] ??
       GENERIC_EXPANSION_FALLBACK;
     const primaryCategoryId = products[0].categoryId || (menuResult.categories && menuResult.categories[0] && menuResult.categories[0].id) || `cat_${draftId}_0`;
-    const need = AI_EXPANSION_TARGET - products.length;
-    for (let i = 0; i < need && variations.length > 0; i++) {
-      const v = variations[i % variations.length];
+    /** Fill only to minimum viable catalog — not CATALOG_ITEM_LIMIT (avoids 200+ duplicate placeholders). */
+    const need = AI_EXPANSION_MIN - products.length;
+    const seen = new Set(products.map((p) => normalizeCatalogProductName(p?.name)));
+    let guard = 0;
+    const maxAttempts = Math.max(need * variations.length, variations.length);
+    for (let added = 0; added < need && guard < maxAttempts; guard++) {
+      const v = variations[guard % variations.length];
+      const key = normalizeCatalogProductName(v.name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
       products.push({
         id: `item_${draftId}_${products.length}`,
         name: v.name,
@@ -421,6 +432,14 @@ export async function buildFromAi(params) {
         currencyCode: currency,
         categoryId: primaryCategoryId,
         imageUrl: null,
+      });
+      added += 1;
+    }
+    if (process.env.NODE_ENV !== 'production' && need > 0) {
+      console.log('[buildCatalog] AI expansion to minimum', {
+        draftId,
+        added: products.length,
+        targetMin: AI_EXPANSION_MIN,
       });
     }
   }
@@ -575,7 +594,14 @@ export async function buildCatalog(params) {
     const seedResult = buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT });
     const extra = (seedResult.items || []).slice(0, TARGET_ITEM_COUNT - result.products.length);
     const firstCatId = result.categories?.[0]?.id || `cat_${params.draftId}_0`;
-    extra.forEach((it, i) => {
+    const seenExpand = new Set(
+      (result.products || []).map((p) => normalizeCatalogProductName(p?.name)),
+    );
+    for (let i = 0; i < extra.length; i++) {
+      const it = extra[i];
+      const key = normalizeCatalogProductName(it?.name);
+      if (key && seenExpand.has(key)) continue;
+      if (key) seenExpand.add(key);
       result.products.push({
         id: `item_${params.draftId}_expand_${i}`,
         name: it.name || `Item ${result.products.length + 1}`,
@@ -587,7 +613,7 @@ export async function buildCatalog(params) {
         categoryId: it.categoryId || firstCatId,
         imageUrl: null,
       });
-    });
+    }
     if (process.env.NODE_ENV !== 'production' && extra.length > 0) {
       console.log('[buildCatalog] expanded with seed', { mode, verticalSlug, expandedBy: extra.length, seedSource: seedProfile.verticalGroup });
     }
@@ -650,6 +676,13 @@ export async function buildCatalog(params) {
       };
   const catalogValidated = await validateAndCorrectCatalog(seedProfile, result, () => buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT }));
   if (catalogValidated.corrected) result = catalogValidated.catalog;
+  if (result?.products?.length) {
+    const deduped = dedupeCatalogProductsByName(result.products, { logContext: `buildCatalog:${mode}` });
+    if (deduped.removedCount > 0) {
+      result.products = deduped.products;
+    }
+  }
+
   const itemCount = (result?.products || []).length;
   if (process.env.NODE_ENV !== 'production') {
     console.log('[buildCatalog]', {

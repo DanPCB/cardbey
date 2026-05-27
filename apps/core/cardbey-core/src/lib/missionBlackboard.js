@@ -4,6 +4,7 @@
  */
 
 import { getPrismaClient } from '../lib/prisma.js';
+import { getPrismaInteractiveTransactionOptions } from './prismaTransactionOptions.js';
 import { resolveMissionCorrelationId } from './agentRun.js';
 import { ensureShadowUserRowForGuest } from './mission.js';
 
@@ -133,8 +134,11 @@ export async function ensureMissionRowForBlackboardTx(tx, missionId) {
 export async function ensureMissionRowForBlackboard(prisma, missionId) {
   if (!prisma || typeof missionId !== 'string' || !missionId.trim()) return false;
   const mid = missionId.trim();
+  const txOpts = getPrismaInteractiveTransactionOptions();
   try {
-    return await prisma.$transaction(async (tx) => ensureMissionRowForBlackboardTx(tx, mid));
+    const existing = await prisma.mission.findUnique({ where: { id: mid }, select: { id: true } });
+    if (existing) return true;
+    return await prisma.$transaction(async (tx) => ensureMissionRowForBlackboardTx(tx, mid), txOpts);
   } catch (e) {
     console.warn('[missionBlackboard] ensureMissionRowForBlackboard failed:', e?.message || e);
     return false;
@@ -168,6 +172,7 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
     e?.code === 'P2002' ||
     (typeof e?.message === 'string' && e.message.includes('Unique constraint') && e.message.includes('missionId'));
 
+  const txOpts = getPrismaInteractiveTransactionOptions();
   try {
     let row = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -194,7 +199,7 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
               correlationId: traceId,
             },
           });
-        });
+        }, txOpts);
         break;
       } catch (inner) {
         if (!isBlackboardSeqCollision(inner) || attempt >= 2) throw inner;
@@ -329,6 +334,34 @@ export async function getLatestSnapshot(missionId) {
  * @param {string} eventId - Cuid id or numeric seq
  * @returns {Promise<{ event: any | null, error?: string }>}
  */
+/**
+ * Load a mission pipeline row for intake / gateway context hydration.
+ * @param {string} missionId
+ * @returns {Promise<{ id: string, storeId: string | null, missionType: string | null } | null>}
+ */
+export async function getMissionById(missionId) {
+  const mid = typeof missionId === 'string' ? missionId.trim() : '';
+  if (!mid) return null;
+
+  const prisma = getPrismaClient();
+  const row = await prisma.missionPipeline.findUnique({
+    where: { id: mid },
+    select: { id: true, type: true, targetId: true, metadataJson: true },
+  });
+  if (!row) return null;
+
+  const meta =
+    row.metadataJson && typeof row.metadataJson === 'object' && !Array.isArray(row.metadataJson)
+      ? row.metadataJson
+      : {};
+
+  return {
+    id: row.id,
+    storeId: row.targetId ?? meta.storeId ?? null,
+    missionType: meta.missionType ?? row.type ?? null,
+  };
+}
+
 export async function getBlackboardEventByIdOrSeq(missionId, eventId) {
   const mid = typeof missionId === 'string' ? missionId.trim() : '';
   const raw = typeof eventId === 'string' ? eventId.trim() : '';

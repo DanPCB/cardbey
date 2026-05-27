@@ -6,8 +6,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const callOrder = [];
 
-vi.mock('../missionCompletion/awaitPostMissionSummary.js', () => ({
-  awaitPostMissionCompletionSummaryWithTimeout: vi.fn(async () => {
+vi.mock('../missionCompletion/postMissionSummary.js', () => ({
+  runPostMissionCompletionSummary: vi.fn(async () => {
     callOrder.push('summary');
   }),
 }));
@@ -20,6 +20,9 @@ vi.mock('../prisma.js', () => {
     },
     missionPipelineStep: {
       update: vi.fn(),
+    },
+    mission: {
+      findUnique: vi.fn(),
     },
   };
   return {
@@ -55,6 +58,10 @@ describe('missionPipelineRunner postMissionSummary ordering', () => {
       return {};
     });
     __prisma.missionPipelineStep.update.mockResolvedValue({});
+    __prisma.mission.findUnique.mockResolvedValue({
+      id: 'm_runner_order',
+      context: {},
+    });
   });
 
   it('awaits postMissionSummary before prisma sets status completed', async () => {
@@ -85,6 +92,6 @@ describe('missionPipelineRunner postMissionSummary ordering', () => {
 
     await runNextMissionPipelineStep(missionId);
 
-    expect(callOrder).toEqual(['summary', 'completed_update']);
+    expect(callOrder).toEqual(['completed_update', 'summary']);
   });
 });

@@ -41,3 +41,8 @@ export function isPerformerRuntimeOwnershipBlockEnabled() {
 export function isPerformerRuntimeStatePersistEnabled() {
   return envTruthy('PERFORMER_RUNTIME_STATE_PERSIST', true);
 }
+
+/** Persist canonical execution records into Mission.context.performerExecutionRecords. */
+export function isPerformerExecutionRecordsPersistEnabled() {
+  return envTruthy('PERFORMER_EXECUTION_RECORDS_PERSIST', true);
+}

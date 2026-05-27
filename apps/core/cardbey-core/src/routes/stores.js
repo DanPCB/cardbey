@@ -1717,6 +1717,20 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
     if (process.env.NODE_ENV !== 'production') {
       console.log('[debug catalog] mapped items count:', mapped.length, 'first:', mapped[0]?.name ?? null);
     }
+
+    const firstNames = itemsWithCategoryId
+      .map((it) => (typeof it?.name === 'string' ? it.name.trim() : ''))
+      .filter(Boolean)
+      .slice(0, 5);
+    console.log('[MENU_REPLACE_SOURCE]', {
+      draftId: draft.id,
+      generationRunId,
+      extractedCount: rawItems.length,
+      appliedCount: itemsWithCategoryId.length,
+      firstNames,
+      source: 'user_upload',
+    });
+
     await patchDraftPreview(draft.id, {
       items: itemsWithCategoryId,
       categories,

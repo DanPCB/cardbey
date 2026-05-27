@@ -13,6 +13,7 @@ import { resolveRuntimeContext, updateRuntimeState } from './runtimeState.js';
 import { emitRuntimeStreamEvent } from './unifiedRuntimeStream.js';
 import { markRuntimeOwnedContext } from './runtimeOwnership.js';
 import { recordRuntimeExecutionNode } from './runtimeStateGraph.js';
+import { detectExecutionDuplication } from './runtimeAuthorityStaging.js';
 
 /**
  * @typedef {'dispatch_tool' | 'run_pipeline_step' | 'execute_action'} RuntimeActionType
@@ -102,6 +103,13 @@ export async function executeRuntimeAction(request) {
     intentId: req.intentId ?? ctx.intentId,
   }) ?? ctx;
 
+  detectExecutionDuplication({
+    missionId: ctx.missionId,
+    toolName: toolName || null,
+    actionId: actionId || null,
+    source,
+  });
+
   const startMs = Date.now();
   const executionId = recordExecutionTelemetry({
     actionId: actionId || 'runtime:unknown',
@@ -128,9 +136,13 @@ export async function executeRuntimeAction(request) {
   if (toolName && !innerPayload.toolName) innerPayload.toolName = toolName;
 
   const innerContext = markRuntimeOwnedContext(
-    innerPayload.context && typeof innerPayload.context === 'object'
-      ? innerPayload.context
-      : runtimeContextFromRequest(req),
+    {
+      ...(innerPayload.context && typeof innerPayload.context === 'object'
+        ? innerPayload.context
+        : runtimeContextFromRequest(req)),
+      skipNestedBrokerTelemetry: true,
+      runtimeId: ctx.runtimeId,
+    },
     ctx.runtimeId,
   );
 

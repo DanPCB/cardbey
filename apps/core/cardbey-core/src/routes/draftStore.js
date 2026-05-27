@@ -31,6 +31,17 @@ function isSuperAdmin(req) {
 }
 import { resolveDraftForStore } from '../lib/draftResolver.js';
 import { slugify } from '../utils/slug.js';
+import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
+import {
+  ensurePublishSnapshot,
+  getPublishSnapshot,
+  patchPublishSnapshot,
+  verifyPublishIdentity,
+  verifyPublishedStoreRoute,
+  snapshotToPreviewShape,
+  isPublishSnapshotV1Enabled,
+  PublishSnapshotError,
+} from '../services/draftStore/publishSnapshotService.js';
 
 /** Single shared Prisma client (same as rest of app). Ensures draft create and summary read use same DB. */
 const prisma = getPrismaClient();
@@ -625,6 +636,270 @@ router.post('/claim', guestSessionId, requireAuth, async (req, res, next) => {
   } catch (error) {
     console.error('[DraftStore] POST claim error:', error);
     next(error);
+  }
+});
+
+const PublishSnapshotPatchSchema = z.object({
+  catalog: z
+    .object({
+      products: z.array(z.record(z.unknown())).optional(),
+      categories: z.array(z.record(z.unknown())).optional(),
+    })
+    .optional(),
+  hero: z.record(z.unknown()).optional(),
+  theme: z.record(z.unknown()).optional(),
+  website: z.record(z.unknown()).optional(),
+  media: z.record(z.unknown()).optional(),
+  name: z.string().optional(),
+  meta: z.record(z.unknown()).optional(),
+  expectedSnapshotVersion: z.number().int().optional(),
+});
+
+const PublishFromSnapshotSchema = z.object({
+  expectedSourceFingerprint: z.string().min(1),
+  expectedSnapshotVersion: z.number().int().positive(),
+  expectedDraftId: z.string().min(1),
+  expectedGenerationRunId: z.string().optional(),
+  storeId: z.string().optional(),
+});
+
+async function assertDraftAccess(req, draft) {
+  const userId = req.userId ?? req.user?.id ?? null;
+  const tenantKey = getTenantId(req.user) ?? userId ?? null;
+  const allowed = await canAccessDraftStore(draft, {
+    userId,
+    tenantKey,
+    isSuperAdmin: isSuperAdmin(req),
+  });
+  if (!allowed) {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have access to this draft.',
+      },
+    };
+  }
+  return null;
+}
+
+/**
+ * GET /api/draft-store/:draftId/publish-snapshot
+ */
+router.get('/:draftId/publish-snapshot', requireAuth, async (req, res, next) => {
+  try {
+    if (!isPublishSnapshotV1Enabled()) {
+      return res.status(503).json({
+        ok: false,
+        error: 'publish_snapshot_disabled',
+        message: 'Publish snapshot API is disabled. Set PUBLISH_SNAPSHOT_V1=true to enable.',
+      });
+    }
+    const { draftId } = req.params;
+    const draft = await getDraft(draftId);
+    if (!draft) {
+      return res.status(404).json({ ok: false, error: 'draft_not_found', message: 'Draft not found' });
+    }
+    const denied = await assertDraftAccess(req, draft);
+    if (denied) return res.status(denied.status).json(denied.body);
+
+    const { snapshot, version, migrated } = await ensurePublishSnapshot(prisma, draftId);
+    return res.json({
+      ok: true,
+      snapshot,
+      snapshotVersion: version,
+      migrated,
+      draftIdentity: {
+        draftId: snapshot.draftId,
+        generationRunId: snapshot.generationRunId ?? null,
+        missionId: snapshot.missionId ?? null,
+        storeId: snapshot.storeId ?? null,
+        publishSourceId: snapshot.publishSourceId,
+        sourceFingerprint: snapshot.sourceFingerprint,
+        catalogVersion: snapshot.catalogVersion,
+        previewVersion: snapshot.previewVersion,
+      },
+    });
+  } catch (err) {
+    if (err instanceof PublishSnapshotError) {
+      return res.status(err.statusCode).json({ ok: false, error: err.code, message: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * PATCH /api/draft-store/:draftId/publish-snapshot
+ */
+router.patch('/:draftId/publish-snapshot', requireAuth, async (req, res, next) => {
+  try {
+    if (!isPublishSnapshotV1Enabled()) {
+      return res.status(503).json({
+        ok: false,
+        error: 'publish_snapshot_disabled',
+        message: 'Publish snapshot API is disabled.',
+      });
+    }
+    const { draftId } = req.params;
+    const parsed = PublishSnapshotPatchSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        error: 'validation_error',
+        message: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    const draft = await getDraft(draftId);
+    if (!draft) {
+      return res.status(404).json({ ok: false, error: 'draft_not_found', message: 'Draft not found' });
+    }
+    const denied = await assertDraftAccess(req, draft);
+    if (denied) return res.status(denied.status).json(denied.body);
+
+    const { expectedSnapshotVersion, ...patch } = parsed.data;
+    const { snapshot, version } = await patchPublishSnapshot(prisma, draftId, patch, {
+      expectedVersion: expectedSnapshotVersion,
+    });
+    return res.json({ ok: true, snapshot, snapshotVersion: version });
+  } catch (err) {
+    if (err instanceof PublishSnapshotError) {
+      return res.status(err.statusCode).json({ ok: false, error: err.code, message: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/draft-store/:draftId/publish — publish ONLY from stored publish snapshot.
+ */
+router.post('/:draftId/publish', requireAuth, async (req, res, next) => {
+  try {
+    if (!isPublishSnapshotV1Enabled()) {
+      console.warn('[DraftStore] POST /:draftId/publish called while PUBLISH_SNAPSHOT_V1 is disabled — use POST /api/store/publish');
+      return res.status(503).json({
+        ok: false,
+        error: 'publish_snapshot_disabled',
+        message: 'Use legacy POST /api/store/publish or enable PUBLISH_SNAPSHOT_V1.',
+      });
+    }
+    const { draftId } = req.params;
+    const parsed = PublishFromSnapshotSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        error: 'validation_error',
+        message: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    const draft = await getDraft(draftId);
+    if (!draft) {
+      return res.status(404).json({ ok: false, error: 'draft_not_found', message: 'Draft not found' });
+    }
+    const denied = await assertDraftAccess(req, draft);
+    if (denied) return res.status(denied.status).json(denied.body);
+
+    const body = parsed.data;
+    if (body.expectedDraftId !== draftId) {
+      return res.status(409).json({
+        ok: false,
+        error: 'publish_identity_mismatch',
+        message: 'expectedDraftId does not match route draftId.',
+      });
+    }
+
+    const { snapshot } = await getPublishSnapshot(prisma, draftId);
+    verifyPublishIdentity(snapshot, {
+      expectedDraftId: body.expectedDraftId,
+      expectedGenerationRunId: body.expectedGenerationRunId,
+      expectedSnapshotVersion: body.expectedSnapshotVersion,
+      expectedSourceFingerprint: body.expectedSourceFingerprint,
+    });
+
+    try {
+      const { buildSourceFingerprintFromCatalog } = await import(
+        '../services/draftStore/publishSnapshotFingerprint.js'
+      );
+      const previewRaw =
+        typeof draft.preview === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(draft.preview);
+              } catch {
+                return {};
+              }
+            })()
+          : draft.preview || {};
+      const previewProducts = Array.isArray(previewRaw?.items)
+        ? previewRaw.items
+        : Array.isArray(previewRaw?.catalog?.products)
+          ? previewRaw.catalog.products
+          : [];
+      const previewHash = buildSourceFingerprintFromCatalog(previewProducts);
+      const snapProducts = snapshot.catalog?.products ?? [];
+      const snapFirstNames = snapProducts
+        .map((p) => (typeof p?.name === 'string' ? p.name.trim() : ''))
+        .filter(Boolean)
+        .slice(0, 5);
+      console.log('[PUBLISH_SOURCE_CHECK]', {
+        draftId,
+        draftStorePreviewHash: previewHash,
+        publishSnapshotHash: snapshot.sourceFingerprint,
+        publishPayloadHash: snapshot.sourceFingerprint,
+        catalogCount: snapProducts.length,
+        firstNames: snapFirstNames,
+      });
+    } catch (logErr) {
+      console.warn('[PUBLISH_SOURCE_CHECK] log_failed', logErr?.message || logErr);
+    }
+
+    const previewOverride = snapshotToPreviewShape(snapshot);
+    const storeId =
+      body.storeId && typeof body.storeId === 'string' && body.storeId.trim()
+        ? body.storeId.trim()
+        : snapshot.storeId && snapshot.storeId !== 'temp'
+          ? snapshot.storeId
+          : 'temp';
+
+    const result = await publishDraft(prisma, {
+      storeId,
+      draftId,
+      generationRunId: body.expectedGenerationRunId || snapshot.generationRunId,
+      userId: req.userId,
+      entrypoint: 'draft_store_publish_snapshot',
+      canonicalPreviewOverride: previewOverride,
+      expectedStoreId:
+        storeId && storeId !== 'temp' ? storeId : snapshot.storeId && snapshot.storeId !== 'temp' ? snapshot.storeId : undefined,
+    });
+
+    const verified = await verifyPublishedStoreRoute(prisma, {
+      slug: result.slug,
+      storeId: result.storeId,
+      expectedFingerprint: snapshot.sourceFingerprint,
+    });
+
+    return res.status(200).json({
+      ok: true,
+      storeId: result.storeId,
+      slug: verified.slug,
+      publishedFingerprint: snapshot.sourceFingerprint,
+      publishedSnapshotVersion: snapshot.version,
+      liveUrl: verified.liveUrl,
+      storefrontUrl: verified.liveUrl,
+      publishedStoreId: result.storeId,
+    });
+  } catch (err) {
+    if (err instanceof PublishSnapshotError) {
+      return res.status(err.statusCode).json({ ok: false, error: err.code, message: err.message });
+    }
+    if (err instanceof PublishDraftError) {
+      return res.status(err.statusCode || 500).json({
+        ok: false,
+        error: err.code,
+        message: err.message,
+      });
+    }
+    next(err);
   }
 });
 

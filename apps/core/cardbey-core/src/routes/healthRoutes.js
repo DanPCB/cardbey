@@ -9,6 +9,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { testDatabaseConnection } from '../lib/prisma.js';
+import { buildHealthDbFingerprint } from '../lib/schemaFingerprint.js';
 import { getStatus as getSchedulerStatus } from '../scheduler/heartbeat.js';
 import { isSseHealthy } from '../realtime/sse.js';
 import { getOAuthStatus } from '../auth/providers.js';
@@ -92,11 +93,14 @@ router.get('/health', async (req, res) => {
     // OAuth: Check configured providers
     const oauthStatus = getOAuthStatus();
     
+    const dbFingerprint = buildHealthDbFingerprint();
+
     const healthData = {
       version,
       uptimeSec,
       api: apiStatus,
       database: databaseStatus,
+      dbFingerprint,
       scheduler: schedulerStatus,
       sse: sseStatus,
       oauth: oauthStatus,
@@ -113,6 +117,24 @@ router.get('/health', async (req, res) => {
       scheduler: { ok: false },
       sse: { ok: false, path: '/api/stream' },
       oauth: { ok: false, providers: [], details: [] },
+    });
+  }
+});
+
+/**
+ * GET /api/health/db
+ * Safe database schema fingerprint (no secrets; production omits full DB path).
+ */
+router.get('/health/db', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const fp = buildHealthDbFingerprint();
+    res.status(fp.ok ? 200 : 503).json(fp);
+  } catch (error) {
+    res.status(503).json({
+      ok: false,
+      error: error.message,
+      environment: process.env.NODE_ENV || 'development',
     });
   }
 });

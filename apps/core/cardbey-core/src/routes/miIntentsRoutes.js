@@ -13,7 +13,7 @@ import { emitMissionEvent } from '../services/miAgents/emitMissionEvent.js';
 import { resolveAccessibleMission } from '../lib/missionAccess.js';
 import { normalizeCreateMissionIntentRequest } from '../lib/missionIntent/normalizeCreateMissionIntent.js';
 import { serializeNormalizedIntentPayload } from '../lib/missionIntent/serializeNormalizedIntentPayload.js';
-import { emitHealthProbe } from '../lib/telemetry/healthProbes.js';
+import { checkReasoningLogReadRate } from '../lib/telemetry/reasoningLogRateLimit.js';
 
 const router = Router();
 
@@ -278,6 +278,16 @@ router.get('/missions/:missionId/reasoning-log', optionalAuth, async (req, res) 
     if (!access.ok) {
       return res.status(403).json({ ok: false, error: 'forbidden', message: 'You do not have access to this mission.' });
     }
+    const rate = checkReasoningLogReadRate(missionId);
+    if (!rate.allowed) {
+      res.setHeader('Retry-After', String(Math.ceil((rate.retryAfterMs ?? 1000) / 1000)));
+      return res.status(429).json({
+        ok: false,
+        error: 'rate_limited',
+        message: 'Reasoning log polling too fast; retry shortly.',
+        retryAfterMs: rate.retryAfterMs ?? 1000,
+      });
+    }
     const prisma = getPrismaClient();
     const row = await prisma.mission.findUnique({
       where: { id: missionId },
@@ -285,11 +295,6 @@ router.get('/missions/:missionId/reasoning-log', optionalAuth, async (req, res) 
     });
     const ctx = row?.context && typeof row.context === 'object' ? row.context : {};
     const reasoningLog = normalizeReasoningLogFromContext(ctx);
-    emitHealthProbe('reasoning_log_polled', {
-      missionId: req.params.missionId,
-      lineCount: reasoningLog.length,
-      empty: reasoningLog.length === 0,
-    });
     console.log('[reasoning-log API] response', {
       missionId: req.params.missionId,
       reasoningLogLength: reasoningLog?.length ?? 0,

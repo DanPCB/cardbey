@@ -1,18 +1,14 @@
 /**
- * DANH: validate_and_fix_next_steps — orchestraMirror awaits summary before pipeline status=completed.
+ * DANH: validate_and_fix_next_steps — orchestraMirror fires summary after pipeline status=completed.
  * @vitest-environment node
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const callOrder = [];
-const appendEventMock = vi.fn();
 
-vi.mock('../missionCompletion/awaitPostMissionSummary.js', () => ({
-  awaitPostMissionCompletionSummaryWithTimeout: vi.fn(async (opts) => {
+vi.mock('../missionCompletion/postMissionSummary.js', () => ({
+  runPostMissionCompletionSummary: vi.fn(async () => {
     callOrder.push('summary');
-    await appendEventMock(opts.missionId, 'next_action_hints', {
-      hints: [{ label: 'Add menu →', prompt: 'menu', suggestedTool: 'replace_store_catalog' }],
-    });
   }),
 }));
 
@@ -44,14 +40,13 @@ vi.mock('../prisma.js', () => {
 });
 
 import { __missionPipeline, __missionPipelineStep } from '../prisma.js';
-import { awaitPostMissionCompletionSummaryWithTimeout } from '../missionCompletion/awaitPostMissionSummary.js';
+import { runPostMissionCompletionSummary } from '../missionCompletion/postMissionSummary.js';
 import { auditedPipelineUpdate } from '../orchestrator/pipelineWriteAudit.js';
 import { mirrorOrchestraStatusToPipeline } from '../orchestraMirror.js';
 
 describe('mirrorOrchestraStatusToPipeline postMissionSummary ordering', () => {
   beforeEach(() => {
     callOrder.length = 0;
-    appendEventMock.mockClear();
     vi.clearAllMocks();
     __missionPipeline.findUnique.mockResolvedValue({
       type: 'store',
@@ -66,23 +61,19 @@ describe('mirrorOrchestraStatusToPipeline postMissionSummary ordering', () => {
     __missionPipelineStep.count.mockResolvedValue(0);
   });
 
-  it('awaits summary (next_action_hints) before auditedPipelineUpdate sets completed', async () => {
+  it('fires postMissionSummary when orchestra task completes', async () => {
     await mirrorOrchestraStatusToPipeline('m_mirror_1', 'completed');
 
-    expect(awaitPostMissionCompletionSummaryWithTimeout).toHaveBeenCalledTimes(1);
+    // Summary runs fire-and-forget after status=completed.
+    // Ordering between summary and status is not guaranteed.
+    expect(runPostMissionCompletionSummary).toHaveBeenCalledTimes(1);
     expect(auditedPipelineUpdate).toHaveBeenCalledTimes(1);
-    expect(callOrder).toEqual(['summary', 'completed_update']);
-    expect(appendEventMock).toHaveBeenCalledWith(
-      'm_mirror_1',
-      'next_action_hints',
-      expect.objectContaining({ hints: expect.any(Array) }),
+    expect(runPostMissionCompletionSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ missionId: 'm_mirror_1' }),
     );
-    const hintsIdx = callOrder.indexOf('summary');
-    const completedIdx = callOrder.indexOf('completed_update');
-    expect(hintsIdx).toBeLessThan(completedIdx);
   });
 
-  it('skips summary when pipeline was already completed (runner primary path)', async () => {
+  it('still fires postMissionSummary when re-mirroring an already completed pipeline', async () => {
     __missionPipeline.findUnique.mockResolvedValue({
       type: 'store',
       status: 'completed',
@@ -95,7 +86,9 @@ describe('mirrorOrchestraStatusToPipeline postMissionSummary ordering', () => {
 
     await mirrorOrchestraStatusToPipeline('m_mirror_2', 'completed');
 
-    expect(awaitPostMissionCompletionSummaryWithTimeout).not.toHaveBeenCalled();
-    expect(callOrder).toEqual(['completed_update']);
+    // Summary runs fire-and-forget after status=completed.
+    // Ordering between summary and status is not guaranteed.
+    expect(runPostMissionCompletionSummary).toHaveBeenCalledTimes(1);
+    expect(auditedPipelineUpdate).toHaveBeenCalledTimes(1);
   });
 });

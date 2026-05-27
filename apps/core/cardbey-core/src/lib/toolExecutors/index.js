@@ -17,6 +17,8 @@ import * as setBusinessSocialLinks from './store/setBusinessSocialLinks.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
+import * as create_offer_draft from './promotion/create_offer_draft.js';
+import * as revise_offer_draft from './promotion/revise_offer_draft.js';
 import * as launch_campaign from './promotion/launch_campaign.js';
 import * as market_research from './store/market_research.js';
 import * as mini_website_get_sections from './store/mini_website_get_sections.js';
@@ -44,6 +46,9 @@ import * as video_generate_multimodal from './videoGenerate.js';
 import * as generate_slideshow from './generateSlideshow.js';
 import * as generate_poster from './generatePoster.js';
 import * as mutate_poster from './mutatePoster.js';
+import * as audit_codebase from './maintenance/audit_codebase.js';
+import * as propose_patch from './maintenance/propose_patch.js';
+import * as apply_patch from './maintenance/apply_patch.js';
 import { getPrismaClient } from '../prisma.js';
 import { scanHardcodedStrings } from './i18n/scanHardcodedStrings.js'
 import { checkI18nKey }         from './i18n/checkI18nKey.js'
@@ -101,6 +106,8 @@ export const executors = {
   assign_promotion_slot,
   activate_promotion,
   create_promotion,
+  create_offer_draft,
+  revise_offer_draft,
   launch_campaign,
   edit_artifact,
   publish_to_social,
@@ -116,6 +123,9 @@ export const executors = {
   generate_slideshow,
   generate_poster,
   mutate_poster,
+  audit_codebase,
+  propose_patch,
+  apply_patch,
   // i18n repair agent tools
   scanHardcodedStrings: wrapI18nExecutor(scanHardcodedStrings),
   checkI18nKey: wrapI18nExecutor(checkI18nKey),

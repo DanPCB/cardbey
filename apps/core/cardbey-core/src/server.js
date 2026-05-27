@@ -11,6 +11,12 @@ import './env/loadEnv.js';
 
 // MUST run before any PrismaClient: normalize DATABASE_URL for SQLite (file:)
 import './env/ensureDatabaseUrl.js';
+import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentity.js';
+import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
+
+assertDatabaseIdentityAtStartup();
+assertSchemaFingerprintAtStartup();
+logCoreEnvBoot();
 
 // Register tsx loader for TypeScript imports (if available)
 try {

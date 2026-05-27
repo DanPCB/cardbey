@@ -13,9 +13,15 @@ import './env/loadEnv.js';
 
 // MUST run before any PrismaClient: normalize DATABASE_URL for SQLite (file:)
 import './env/ensureDatabaseUrl.js';
+import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentity.js';
+import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
 import { startPlannerRunner, sendUpcomingNotifications } from './services/planner-runner.js';
 import { startScreenStatusChecker } from './worker/screenStatusChecker.js';
 import { processImageGenerationJobs } from './services/menuVisualAgent/imageGenerationJob.js';
+
+assertDatabaseIdentityAtStartup();
+assertSchemaFingerprintAtStartup();
+logCoreEnvBoot();
 
 console.log('🔧 Starting Cardbey Core Worker...');
 console.log(`📍 ROLE: ${process.env.ROLE || 'worker'}`);

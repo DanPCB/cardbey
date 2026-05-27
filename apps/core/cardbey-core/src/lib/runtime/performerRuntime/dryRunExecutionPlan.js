@@ -4,6 +4,15 @@
 import { randomUUID } from 'node:crypto';
 import { getBrokerAction, getBrokerActionForTool } from '../../broker/actionRegistry.js';
 import { recordExecutionTelemetry } from '../../broker/executionTelemetry.js';
+import {
+  buildExecutionRecordFromRuntime,
+  persistMissionExecutionRecord,
+} from './executionRecords.js';
+import { resolveSkillContractForActionType } from './skillContracts.js';
+import {
+  isPublishOfferBlockedByReview,
+  resolveOfferDraftStatusForDryRun,
+} from './offerDraftReview.js';
 
 /** Dashboard capabilityId → broker tool names (first match wins). */
 const CAPABILITY_TOOL_CANDIDATES = {
@@ -12,6 +21,13 @@ const CAPABILITY_TOOL_CANDIDATES = {
   connect_domain: ['connect_custom_domain', 'connect_domain'],
   analyze_store: ['analyze_store'],
   create_offer: ['create_offer'],
+  /** Offer workflow — planner/readiness only; no broker tools until explicitly enabled. */
+  select_offer_products: [],
+  generate_offer_copy: [],
+  create_offer_draft: ['create_offer_draft'],
+  revise_offer_draft: ['revise_offer_draft'],
+  review_offer: [],
+  publish_offer: [],
 };
 
 const KNOWN_INTENT_ACTION_TYPES = new Set([
@@ -162,6 +178,34 @@ export async function dryRunExecutionPlan(input) {
       ? plan.blockedBy
       : [];
 
+  const hasPublishOfferStep = plan.steps.some(
+    (step) => step && typeof step === 'object' && step.capabilityId === 'publish_offer',
+  );
+  if (hasPublishOfferStep) {
+    const offerDraftStatus = await resolveOfferDraftStatusForDryRun(input, missionId);
+    if (isPublishOfferBlockedByReview(offerDraftStatus)) {
+      if (!blockedPrerequisites.includes('offer_draft_approved')) {
+        blockedPrerequisites.push('offer_draft_approved');
+      }
+      const pubSupportedIdx = supportedCapabilities.findIndex(
+        (c) => c.capabilityId === 'publish_offer',
+      );
+      if (pubSupportedIdx >= 0) {
+        supportedCapabilities.splice(pubSupportedIdx, 1);
+      }
+      const publishMissing = missingCapabilities.find((c) => c.capabilityId === 'publish_offer');
+      if (publishMissing) {
+        publishMissing.blockReason = 'offer_draft_not_approved';
+      } else {
+        missingCapabilities.push({
+          capabilityId: 'publish_offer',
+          tool: null,
+          blockReason: 'offer_draft_not_approved',
+        });
+      }
+    }
+  }
+
   let status = 'planned';
   if (planStatus === 'unsupported') {
     status = 'unsupported';
@@ -196,6 +240,33 @@ export async function dryRunExecutionPlan(input) {
     }),
     executionSource: 'performer_runtime_dry_run',
   });
+
+  const actionType = typeof intent.actionType === 'string' ? intent.actionType.trim() : '';
+
+  const dryRunLifecycleStatus =
+    status === 'blocked'
+      ? 'blocked'
+      : status === 'unsupported'
+        ? 'failed'
+        : status === 'planned'
+          ? 'queued'
+          : 'running';
+  const skillContract = resolveSkillContractForActionType(actionType);
+  const executionRecord = buildExecutionRecordFromRuntime({
+    missionId,
+    executionId,
+    actionType,
+    status: dryRunLifecycleStatus,
+    intentId: String(intent.intentId),
+    planId: String(plan.planId),
+    capabilityId: skillContract
+      ? skillContract.requiredCapabilities?.[0]
+      : supportedCapabilities[0]?.capabilityId,
+    source: 'performer_runtime_dry_run',
+  });
+  if (executionRecord) {
+    void persistMissionExecutionRecord(missionId, executionRecord).catch(() => {});
+  }
 
   return {
     ok: true,

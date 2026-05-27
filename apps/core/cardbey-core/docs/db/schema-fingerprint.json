@@ -1,0 +1,17 @@
+{
+  "provider": "sqlite",
+  "schemaPrismaHash": "0a8fae9b1fe503ac",
+  "migrationFoldersHash": "ecc622bf9ea45136",
+  "tableColumnHash": "9b3dca5ba6126be0",
+  "generatedAt": "2026-05-27T04:42:48.985Z",
+  "prismaVersion": "6.18.0",
+  "prismaClientVersion": "6.18.0",
+  "requiredColumns": {
+    "DraftStore": [
+      "publishSnapshot",
+      "publishSnapshotVersion"
+    ]
+  },
+  "canonicalDatabaseUrl": "file:../dev.db",
+  "schemaPath": "prisma/sqlite/schema.prisma"
+}

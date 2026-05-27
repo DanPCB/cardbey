@@ -10,6 +10,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'url';
+import {
+  CANONICAL_DEV_DB,
+  CANONICAL_SQLITE_URLS,
+  filePathFromSqliteUrl,
+  getPathFromFileUrl,
+  isGhostSqlitePath,
+  isLegacyDevDatabaseUrl,
+  toFileUrl,
+} from '../lib/sqliteDbPath.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.join(__dirname, '..', '..');
@@ -31,57 +40,38 @@ function isProduction() {
   return isRender() || process.env.NODE_ENV === 'production';
 }
 
-/**
- * Extract filesystem path from file: URL (Unix or Windows).
- * Relative paths are resolved from PACKAGE_ROOT (cardbey-core), matching the server.
- *
- * Prisma CLI resolves relative SQLite URLs from the directory containing schema.prisma.
- * For prisma/sqlite/schema.prisma, use DATABASE_URL=file:../dev.db so Prisma opens
- * <package>/prisma/dev.db — same file as path.resolve(PACKAGE_ROOT, 'prisma', 'dev.db').
- */
-function getPathFromFileUrl(url) {
-  if (!url || !url.toLowerCase().startsWith('file:')) return null;
-  let p = url.slice(5).trim();
-  if (/^[A-Za-z]:\//i.test(p)) return path.normalize(p.replace(/\//g, path.sep));
-  if (p.startsWith('/') && !p.startsWith('//')) return path.normalize(p);
-  p = p.replace(/^\.\//, '').replace(/^\/+/, '');
-  const posix = p.replace(/\\/g, '/');
-  // Same physical DB as file:./prisma/dev.db from package root, but valid for prisma/sqlite/ schema.
-  if (posix === '../dev.db') return path.join(PACKAGE_ROOT, 'prisma', 'dev.db');
-  if (posix === '../test.db') return path.join(PACKAGE_ROOT, 'prisma', 'test.db');
-  if (posix === '../prod.db') return path.join(PACKAGE_ROOT, 'prisma', 'prod.db');
-  return p ? path.resolve(PACKAGE_ROOT, p.replace(/\//g, path.sep)) : null;
-}
-
 function isEphemeralPath(filePath) {
   if (!filePath || typeof filePath !== 'string') return false;
   const normalized = path.normalize(filePath).replace(/\\/g, '/');
   return EPHEMERAL_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
-/** Resolve file: path; relative paths from package root (align with getPathFromFileUrl). */
-function filePathFromSqliteUrl(url) {
-  let p = url.slice('file:'.length).replace(/^\/+/, '').trim();
-  if (path.isAbsolute(p)) return p;
-  const posix = p.replace(/\\/g, '/').replace(/^\.\//, '');
-  if (posix === '../dev.db') return path.join(PACKAGE_ROOT, 'prisma', 'dev.db');
-  if (posix === '../test.db') return path.join(PACKAGE_ROOT, 'prisma', 'test.db');
-  if (posix === '../prod.db') return path.join(PACKAGE_ROOT, 'prisma', 'prod.db');
-  return path.resolve(PACKAGE_ROOT, p);
+/** Reduce SQLITE_BUSY failures when draft generation and reasoning-log writes overlap. */
+function appendSqliteBusyTimeout(url) {
+  if (!url || typeof url !== 'string' || !url.toLowerCase().startsWith('file:')) return url;
+  if (/[?&]busy_timeout=/i.test(url)) return url;
+  const ms = Number.parseInt(String(process.env.SQLITE_BUSY_TIMEOUT_MS ?? '30000'), 10);
+  const busyTimeout = Number.isFinite(ms) && ms > 0 ? ms : 30_000;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}busy_timeout=${busyTimeout}`;
 }
 
-function toFileUrl(absolutePath) {
-  const normalized = path.normalize(absolutePath);
-  const withForwardSlashes = normalized.split(path.sep).join('/');
-  if (/^[A-Za-z]:\//.test(withForwardSlashes)) return `file:${withForwardSlashes}`;
-  return withForwardSlashes.startsWith('/') ? `file:${withForwardSlashes}` : `file:/${withForwardSlashes}`;
+function stripSqliteUrlQuery(url) {
+  return typeof url === 'string' ? url.replace(/\?.*$/, '') : url;
 }
 
 function ensureSqliteWritable() {
-  const url = process.env.DATABASE_URL;
+  const url = stripSqliteUrlQuery(process.env.DATABASE_URL);
   if (!url?.toLowerCase().startsWith('file:')) return;
 
   const fp = getPathFromFileUrl(url) || filePathFromSqliteUrl(url);
+
+  if (!isProduction() && isGhostSqlitePath(fp)) {
+    throw new Error(
+      `[env] DATABASE_URL points at a ghost SQLite path (not canonical): ${fp}. ` +
+        `Set DATABASE_URL=${CANONICAL_SQLITE_URLS.dev} in apps/core/cardbey-core/.env`,
+    );
+  }
 
   // Already on persistent disk — confirm and return without re-resolving
   const _diskPath = process.env[PERSISTENT_DISK_PATH_ENV];
@@ -125,7 +115,7 @@ function ensureSqliteWritable() {
           `Use a persistent mount (e.g. set ${PERSISTENT_DISK_PATH_ENV}=/data and mount disk at /data).`
       );
     }
-    const fallback = path.join(PACKAGE_ROOT, 'prisma', 'dev.db');
+    const fallback = CANONICAL_DEV_DB;
     console.warn('[env] sqlite path not writable, falling back to', fallback, e?.message);
     process.env.DATABASE_URL = toFileUrl(fallback);
   }
@@ -155,6 +145,13 @@ function normalizeDatabaseUrl() {
   }
 
   url = url.trim();
+
+  if (isLegacyDevDatabaseUrl(url) && !isProduction()) {
+    console.warn(
+      `[env] Legacy DATABASE_URL (${url}) — Prisma CLI/Studio may use a different file than Core. ` +
+        `Prefer ${CANONICAL_SQLITE_URLS.dev} in apps/core/cardbey-core/.env`,
+    );
+  }
 
   const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url);
   if (hasScheme) {
@@ -216,7 +213,7 @@ function logStartupAndFailIfEphemeral() {
     lowered.startsWith('postgres://') ||
     lowered.startsWith('prisma://') ||
     lowered.startsWith('prisma+postgres://');
-  const filePath = isPostgres ? null : getPathFromFileUrl(url) || url.slice(5).trim();
+  const filePath = isPostgres ? null : getPathFromFileUrl(stripSqliteUrlQuery(url)) || stripSqliteUrlQuery(url).slice(5).trim();
   const ephemeral = filePath ? isEphemeralPath(filePath) : false;
   const environment = isRender() ? 'render' : process.env.NODE_ENV === 'production' ? 'production' : 'development';
   const provider = isPostgres ? (scheme.startsWith('prisma') ? 'postgres_proxy' : 'postgres') : 'sqlite';
@@ -273,4 +270,7 @@ function logStartupAndFailIfEphemeral() {
 
 normalizeDatabaseUrl();
 ensureSqliteWritable();
+if (process.env.DATABASE_URL?.toLowerCase().startsWith('file:')) {
+  process.env.DATABASE_URL = appendSqliteBusyTimeout(process.env.DATABASE_URL);
+}
 logStartupAndFailIfEphemeral();

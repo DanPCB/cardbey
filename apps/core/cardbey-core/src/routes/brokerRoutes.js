@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { optionalAuth } from '../middleware/auth.js';
 import { listBrokerActions, listAgentCapabilities } from '../lib/broker/index.js';
+import { getRuntimeAuthoritySnapshot } from '../lib/runtime/performerRuntime/runtimeAuthorityStaging.js';
 
 const router = Router();
 
@@ -30,6 +31,13 @@ router.get('/agent-capabilities', optionalAuth, (_req, res) => {
     count: capabilities.length,
     capabilities,
   });
+});
+
+/**
+ * GET /api/broker/runtime-authority — staging rollout snapshot + in-process metrics.
+ */
+router.get('/runtime-authority', optionalAuth, (_req, res) => {
+  return res.json(getRuntimeAuthoritySnapshot());
 });
 
 export default router;

@@ -3,13 +3,40 @@ import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import app from '../src/server.js';
 import { resetDb } from '../src/test/helpers/resetDb.js';
+import { generateToken } from '../src/middleware/auth.js';
 
 const prisma = new PrismaClient();
 const testRequest = request(app);
 
 describe('Screens Pairing - Session Bind Flow', () => {
+  let testUser;
+  let authToken;
+  let storeId;
+
   beforeEach(async () => {
     await resetDb(prisma);
+
+    testUser = await prisma.user.create({
+      data: {
+        email: `pair-test-${Date.now()}@example.com`,
+        passwordHash: 'test-hash',
+        displayName: 'Pair Test User',
+        roles: '["owner"]',
+        role: 'owner',
+      },
+    });
+
+    const store = await prisma.business.create({
+      data: {
+        userId: testUser.id,
+        name: 'Pair Test Store',
+        type: 'cafe',
+        slug: `pair-test-store-${Date.now()}`,
+      },
+    });
+
+    storeId = store.id;
+    authToken = generateToken(testUser.id);
   });
 
   afterAll(async () => {
@@ -17,12 +44,12 @@ describe('Screens Pairing - Session Bind Flow', () => {
     await prisma.$disconnect();
   });
 
-  it('binds a pairing session and flips status to bound', async () => {
-    // 1) Initiate pairing to get sessionId + code
+  it('completes Device V2 pairing via initiate shim and complete-pairing', async () => {
+    const fingerprint = `TEST-FP-${Date.now()}`;
     const initiateRes = await testRequest
       .post('/api/screens/pair/initiate')
       .send({
-        fingerprint: 'TEST-FP-123',
+        fingerprint,
         model: 'Test TV',
         name: 'Test Screen',
         location: 'Dev Lab',
@@ -30,48 +57,44 @@ describe('Screens Pairing - Session Bind Flow', () => {
       .expect(200);
 
     expect(initiateRes.body.ok).toBe(true);
+    expect(initiateRes.body.engine).toBe('DEVICE_V2');
     const { sessionId, code } = initiateRes.body;
     expect(sessionId).toBeDefined();
     expect(code).toBeDefined();
 
-    // 2) Bind the session with correct code
-    const bindRes = await testRequest
-      .post(`/api/screens/pair/sessions/${sessionId}/bind`)
+    const completeRes = await testRequest
+      .post('/api/device/complete-pairing')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
-        code,
+        sessionId,
+        pairingCode: code,
+        storeId,
         name: 'Bound Screen',
-        notes: 'test bind from vitest',
+        location: 'Dev Lab',
       })
       .expect(200);
 
-    expect(bindRes.body.ok).toBe(true);
-    expect(bindRes.body.status).toBe('bound');
-    expect(bindRes.body.sessionId).toBe(sessionId);
-    expect(bindRes.body.device).toBeDefined();
-    expect(bindRes.body.device.id).toBeDefined();
-    expect(bindRes.body.device.name).toBeTruthy();
+    expect(completeRes.body.ok).toBe(true);
+    expect(completeRes.body.deviceId).toBe(sessionId);
+    expect(completeRes.body.status).toBe('online');
 
-    const screenId = bindRes.body.device.id;
-
-    // 3) Status endpoint should now report bound with screenId + token
     const statusRes = await testRequest
       .get(`/api/screens/pair/sessions/${sessionId}/status`)
       .expect(200);
 
     expect(statusRes.body.ok).toBe(true);
     expect(statusRes.body.status).toBe('bound');
-    expect(statusRes.body.screenId).toBe(screenId);
-    expect(statusRes.body.token).toBeDefined();
+    expect(statusRes.body.engine).toBe('DEVICE_V2');
+    expect(statusRes.body.sessionId).toBe(sessionId);
 
-    // 4) Ensure Screen exists in DB and is marked as paired
-    const screen = await prisma.screen.findUnique({
-      where: { id: screenId },
+    const device = await prisma.device.findUnique({
+      where: { id: sessionId },
     });
 
-    expect(screen).toBeTruthy();
-    expect(screen.paired).toBe(true);
-    expect(screen.status).toBe('ONLINE');
+    expect(device).toBeTruthy();
+    expect(device.tenantId).toBe(testUser.id);
+    expect(device.storeId).toBe(storeId);
+    expect(device.pairingCode).toBeNull();
+    expect(device.status).toBe('online');
   });
 });
-
-

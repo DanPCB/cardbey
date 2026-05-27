@@ -9,6 +9,7 @@ export {
   isPerformerRuntimeOwnershipWarnEnabled,
   isPerformerRuntimeOwnershipBlockEnabled,
   isPerformerRuntimeStatePersistEnabled,
+  isPerformerExecutionRecordsPersistEnabled,
 } from './runtimeFlags.js';
 
 export {
@@ -49,3 +50,31 @@ export {
 export { executeRuntimeAction } from './executeRuntimeAction.js';
 export { dryRunExecutionPlan, validateDryRunIntent, resolveCapabilityAvailability } from './dryRunExecutionPlan.js';
 export { performerRuntime, execute as performerRuntimeExecute } from './performerRuntime.js';
+
+export {
+  EXECUTION_RECORDS_CONTEXT_KEY,
+  MAX_MISSION_EXECUTION_RECORDS,
+  normalizeExecutionRecord,
+  parseExecutionRecordsFromMissionContext,
+  upsertExecutionRecordInList,
+  persistMissionExecutionRecord,
+  listMissionExecutionRecords,
+  buildExecutionRecordFromRuntime,
+} from './executionRecords.js';
+
+export {
+  SKILL_CONTRACT_VERSION,
+  SKILL_CONTRACTS,
+  getSkillContract,
+  resolveSkillContractForActionType,
+  validatePlanAgainstSkillContract,
+} from './skillContracts.js';
+
+export {
+  getRuntimeAuthorityRolloutStage,
+  getRuntimeAuthoritySnapshot,
+  getRuntimeAuthorityMetrics,
+  recordRuntimeBypass,
+  detectExecutionDuplication,
+  isPerformerRuntimeDuplicationDetectEnabled,
+} from './runtimeAuthorityStaging.js';

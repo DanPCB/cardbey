@@ -114,6 +114,45 @@ import {
   resolveSeedProviderCandidateById,
 } from '../lib/capabilityResolver/serviceProviderSearch.js';
 import { planNextSteps } from '../lib/missionCompletion/nextStepPlanner.js';
+import { executionGateway } from '../lib/intake/executionGateway.js';
+import { superAdminOnly } from '../lib/intake/guardPolicy.js';
+import { mapPlannerDecisionToIntakeResponse } from '../lib/intake/mapPlannerDecisionToIntakeResponse.js';
+import { getMissionById } from '../lib/missionBlackboard.js';
+import { dispatchTool } from '../lib/toolDispatcher.js';
+
+const VALID_MISSION_TYPES = new Set([
+  'STORE_MANAGEMENT',
+  'MARKETING',
+  'PROMOTION',
+  'MAINTENANCE',
+]);
+
+const VALID_USER_ROLES = new Set(['operator', 'owner', 'guest']);
+
+function resolveMissionType(req, existingMission) {
+  const from = (req.body?.missionType ?? existingMission?.missionType ?? 'STORE_MANAGEMENT').toUpperCase();
+  return VALID_MISSION_TYPES.has(from) ? from : 'STORE_MANAGEMENT';
+}
+
+function resolveUserRole(req) {
+  // TODO: replace with req.user?.role once auth middleware is wired
+  const from = (req.body?.userRole ?? req.headers?.['x-performer-role'] ?? 'owner').toLowerCase();
+  return VALID_USER_ROLES.has(from) ? from : 'owner';
+}
+
+async function buildContext(req, existingMission) {
+  return {
+    missionId: req.body?.missionId ?? existingMission?.id ?? null,
+    storeId: req.body?.storeId ?? existingMission?.storeId ?? null,
+    userId: req.body?.userId ?? null,
+    missionType: resolveMissionType(req, existingMission),
+    userRole: resolveUserRole(req),
+    rawUserMessage: req.body?.userMessage ?? '',
+    intakeV2Selection: req.body?.intakeV2Selection ?? null,
+    originalGoal: req.body?.intakeV2Selection?.originalGoal ?? req.body?.userMessage ?? '',
+    mission: existingMission ?? null,
+  };
+}
 
 const router = express.Router();
 const isDev = process.env.NODE_ENV !== 'production';
@@ -598,6 +637,15 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
     };
   } else {
     const { dispatchTool } = await import('../lib/toolDispatcher.js');
+    const { recordRuntimeBypass } = await import(
+      '../lib/runtime/performerRuntime/runtimeAuthorityStaging.js'
+    );
+    recordRuntimeBypass('legacy_intake', {
+      tool,
+      missionId: dispatchMissionId,
+      source: toolCtx.source,
+      path: 'performer_intake_v2_direct_dispatch',
+    });
     toolResult = await dispatchTool(tool, payload, toolCtx);
   }
   return { toolResult, payload };
@@ -3647,6 +3695,103 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       result: 'fallback',
     },
   );
+});
+
+router.post('/maintenance', superAdminOnly, async (req, res) => {
+  try {
+    const userRole = 'super_admin'; // enforced by superAdminOnly middleware
+
+    const { errorMessage, stackTrace, context: errorContext, missionId } = req.body ?? {};
+
+    if (!errorMessage?.trim()) {
+      return res.status(400).json({
+        error: 'errorMessage is required for maintenance missions.',
+      });
+    }
+
+    const existingMission = missionId ? await getMissionById(missionId).catch(() => null) : null;
+
+    const context = await buildContext(req, existingMission);
+    context.missionType = 'MAINTENANCE';
+    context.userRole = 'operator';
+
+    const decision = {
+      kind: 'self_patch',
+      errorMessage,
+      stackTrace: stackTrace ?? '',
+      context: errorContext ?? '',
+    };
+
+    const maintenanceDispatchTool = async (toolName, parameters, toolContext) => {
+      const result = await dispatchTool(toolName, parameters, toolContext);
+      if (result?.status === 'ok' && result.output != null) {
+        return typeof result.output === 'object' ? result.output : { value: result.output };
+      }
+      return result;
+    };
+
+    const gatewayResult = await executionGateway({
+      decision,
+      context,
+      dispatchTool: maintenanceDispatchTool,
+    });
+    const response = mapPlannerDecisionToIntakeResponse(gatewayResult, context);
+    return res.json(response);
+  } catch (err) {
+    console.error('[performerIntakeV2Routes /maintenance] unhandled error:', err);
+    return res.status(500).json({
+      error: 'Internal server error.',
+      ...(process.env.NODE_ENV !== 'production' ? { detail: err.message } : {}),
+    });
+  }
+});
+
+router.post('/maintenance/confirm', superAdminOnly, async (req, res) => {
+  try {
+    const { file, patch, missionId, storeId, errorType } = req.body ?? {};
+
+    if (!String(file ?? '').trim() || !String(patch ?? '').trim()) {
+      return res.status(400).json({
+        error: 'file and patch are required.',
+      });
+    }
+
+    const context = {
+      missionType: 'MAINTENANCE',
+      userRole: 'super_admin',
+      missionId: missionId ?? null,
+      storeId: storeId ?? null,
+      errorType: errorType ?? 'unknown',
+    };
+
+    const result = await dispatchTool(
+      'apply_patch',
+      { file: String(file).trim(), patch: String(patch) },
+      context,
+    );
+
+    if (result?.status === 'ok' && result.output?.status === 'applied') {
+      return res.json({
+        action: 'patch_applied',
+        file: result.output.file,
+        hunksApplied: result.output.hunksApplied,
+        backupFile: result.output.backupFile,
+        auditEntry: result.output.auditEntry,
+      });
+    }
+
+    const errCode = result?.error?.code ?? result?.output?.error ?? 'APPLY_PATCH_FAILED';
+    return res.status(422).json({
+      error: errCode,
+      detail: result?.error?.message ?? null,
+    });
+  } catch (err) {
+    console.error('[performerIntakeV2Routes /maintenance/confirm] unhandled error:', err);
+    return res.status(500).json({
+      error: 'Internal server error.',
+      ...(process.env.NODE_ENV !== 'production' ? { detail: err.message } : {}),
+    });
+  }
 });
 
 router.post('/confirm', requireUserOrGuest, async (req, res) => {

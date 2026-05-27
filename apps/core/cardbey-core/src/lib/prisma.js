@@ -14,6 +14,8 @@
  */
 
 import { PrismaClient } from './prismaClient.js';
+import { getPrismaInteractiveTransactionOptions } from './prismaTransactionOptions.js';
+import { logDbCapabilitiesOnce } from './persistence/dbCapabilityRegistry.js';
 
 let prisma = null;
 let connectionTested = false;
@@ -47,7 +49,10 @@ export function getPrismaClient() {
   if (!prisma) {
     prisma = new PrismaClient({
       log: getPrismaLogLevels(),
+      transactionOptions: getPrismaInteractiveTransactionOptions(),
     });
+
+    logDbCapabilitiesOnce();
 
     if (process.env.NODE_ENV !== 'production') {
       console.log('[Prisma sanity] workflowRun delegate:', typeof prisma.workflowRun?.findFirst);

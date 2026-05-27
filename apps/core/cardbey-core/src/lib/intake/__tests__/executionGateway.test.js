@@ -64,7 +64,8 @@ describe('executionGateway (pure orchestration layer)', () => {
     });
     expect(out).toEqual({
       action: 'chat',
-      message: 'I’m not able to perform that action yet.',
+      message:
+        "I'm here to assist with business-related tasks such as store management, marketing, and promotions. If you have any questions or need help in those areas, feel free to ask!",
     });
     expect(dispatchTool).not.toHaveBeenCalled();
   });

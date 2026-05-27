@@ -4,6 +4,7 @@
  */
 
 import { executeMissionAction } from '../execution/executeMissionAction.js';
+import { actionIdForTool, withExecutionTelemetry } from '../broker/executionTelemetry.js';
 
 /**
  * @param {string} toolName
@@ -12,9 +13,23 @@ import { executeMissionAction } from '../execution/executeMissionAction.js';
  * @returns {Promise<import('../toolDispatcher.js').DispatchResult>}
  */
 export async function dispatchOpenClawTask(toolName, input = {}, context = undefined) {
+  const ctx = context && typeof context === 'object' ? context : {};
+  const missionId = ctx.missionId ?? ctx.activeMissionId ?? null;
   try {
-    const { spawnChildAgentForMissionTask } = await import('../agents/childAgentBridge.js');
-    const out = await spawnChildAgentForMissionTask({ toolName, input, context });
+    const out = await withExecutionTelemetry({
+      actionId: actionIdForTool(toolName),
+      toolName,
+      source: 'openclaw_bridge',
+      missionId,
+      run: async () => {
+        const { spawnChildAgentForMissionTask } = await import('../agents/childAgentBridge.js');
+        return spawnChildAgentForMissionTask({ toolName, input, context: ctx });
+      },
+      mapResult: (r) => ({
+        status: r?.status === 'blocked' ? 'blocked' : r?.status === 'failed' ? 'failed' : 'completed',
+        failureCode: r?.error?.code ?? null,
+      }),
+    });
     if (out?.status === 'ok' || out?.status === 'blocked' || out?.status === 'failed') {
       return out;
     }
@@ -49,8 +64,20 @@ export async function dispatchTaskWithAgentHint(toolName, input = {}, context = 
   }
   if (hint === 'langchain') {
     try {
-      const { executeLangChain } = await import('./langchainExecutor.js');
-      const out = await executeLangChain({ ...cleanInput, toolName }, ctx);
+      const out = await withExecutionTelemetry({
+        actionId: actionIdForTool(toolName),
+        toolName,
+        source: 'langchain_executor',
+        missionId: ctx?.missionId ?? null,
+        run: async () => {
+          const { executeLangChain } = await import('./langchainExecutor.js');
+          return executeLangChain({ ...cleanInput, toolName }, ctx);
+        },
+        mapResult: (r) => ({
+          status: r?.status === 'ok' ? 'completed' : 'failed',
+          failureCode: r?.error?.code ?? null,
+        }),
+      });
       if (out?.status === 'ok') return out;
       return {
         status: 'failed',

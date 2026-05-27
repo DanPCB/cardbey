@@ -542,6 +542,9 @@ router.get('/list', requireAuth, async (req, res) => {
       };
     });
 
+    const { markDuplicateDevicesInList } = await import('../lib/deviceListDuplicateMarking.js');
+    markDuplicateDevicesInList(formattedDevices, now);
+
     console.log('[DEVICE_PROJECTION_REFRESH]', {
       tenantId: String(tenantId),
       storeId: String(storeId),
@@ -657,6 +660,55 @@ router.post('/archive/:deviceId', requireAuth, async (req, res) => {
     res.status(500).json({
       ok: false,
       error: error.message || 'Failed to archive device',
+    });
+  }
+});
+
+/**
+ * POST /api/device/:deviceId/unpair
+ * Soft-unpair device from store: clear bindings, reset tenant/store (optional), queue returnHome.
+ * Body/query: tenantId, storeId (required unless admin); optional reason, archive, clearBindings, resetToTemp.
+ */
+router.post('/:deviceId/unpair', requireAuth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const tenantId = String(
+      req.body?.tenantId || req.query?.tenantId || req.userId || req.user?.tenantId || '',
+    ).trim();
+    const storeId = String(req.body?.storeId || req.query?.storeId || '').trim();
+    const reason = String(req.body?.reason || 'manual_unpair').trim();
+    const archive = Boolean(req.body?.archive);
+    const clearBindings = req.body?.clearBindings !== false;
+    const resetToTemp = req.body?.resetToTemp !== false;
+
+    if (!deviceId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing required field',
+        message: 'deviceId is required',
+      });
+    }
+
+    const { unpairDevice: runUnpairDevice } = await import('../services/deviceUnpairService.js');
+    const result = await runUnpairDevice(prisma, {
+      deviceId,
+      tenantId,
+      storeId,
+      userId: req.userId,
+      user: req.user,
+      reason,
+      archive,
+      clearBindings,
+      resetToTemp,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    const status = error.status || 500;
+    console.error('[DEVICE_UNPAIR_FAILED]', error);
+    return res.status(status).json({
+      ok: false,
+      error: error.message || 'Failed to unpair device',
     });
   }
 });
@@ -1914,6 +1966,8 @@ router.post('/:deviceId/command', requireAuth, async (req, res) => {
       'setVolume',
       'setBrightness',
       'screenshot',
+      'returnHome',
+      'RETURN_HOME',
     ];
     const normalizedType = type === 'reload' ? 'reloadPlaylist' : type;
     if (!normalizedType || !validTypes.includes(normalizedType)) {

@@ -24,6 +24,11 @@ export default defineConfig(({ mode }) => {
   return {
     test: {
       environment: 'node',
+      server: {
+        deps: {
+          external: ['node:sqlite'],
+        },
+      },
       globals: false,
       threads: false,
       isolate: true,

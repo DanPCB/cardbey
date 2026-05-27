@@ -68,6 +68,8 @@ const TOOLS = [
   { toolName: 'generate_social_posts', label: 'Generate social posts', description: 'Generate social media posts for your store', category: 'content', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['social_posts'] },
   { toolName: 'smart_visual', label: 'Smart visual', description: 'Generate images or moodboards from a text prompt (intake / campaigns)', category: 'content', targetTypes: ['store', 'draft_store', 'promotion'], requiresConfirmation: false },
   { toolName: 'create_offer', label: 'Create offer', description: 'Create an offer and optional promotion', category: 'promotion', targetTypes: ['promotion'], requiresConfirmation: false },
+  { toolName: 'create_offer_draft', label: 'Create offer draft', description: 'Build a read-only first-offer draft artifact (no publish)', category: 'promotion', targetTypes: ['store', 'draft_store'], requiresConfirmation: true },
+  { toolName: 'revise_offer_draft', label: 'Revise offer draft', description: 'Create a new offer draft version from revision notes (no publish)', category: 'promotion', targetTypes: ['store', 'draft_store'], requiresConfirmation: true },
   { toolName: 'mini_website_get_sections', label: 'Load mini website sections', description: 'Read published mini website sections and theme for a store', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false },
   { toolName: 'generate_section_patches', label: 'Plan section edits', description: 'LLM: minimal section patches from user intent', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false },
   { toolName: 'mini_website_patch_sections', label: 'Apply mini website patches', description: 'Merge patches into mini website and save', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false },
@@ -215,6 +217,33 @@ const TOOLS = [
     category: 'i18n',
     targetTypes: ['generic'],
     requiresConfirmation: false,
+  },
+  {
+    toolName: 'audit_codebase',
+    label: 'Audit codebase',
+    description: 'Traces a runtime error to a source file and line.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    requiresConfirmation: false,
+  },
+  {
+    toolName: 'propose_patch',
+    label: 'Propose patch',
+    description: 'Generates a before/after diff fix for a traced error.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    requiresConfirmation: false,
+  },
+  {
+    toolName: 'apply_patch',
+    label: 'Apply patch',
+    description:
+      'Atomically applies a proposed patch to a source file and logs to patches.audit.json.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    requiresConfirmation: true,
+    riskLevel: 'state_change',
+    missionTypes: ['MAINTENANCE'],
   },
 ];
 

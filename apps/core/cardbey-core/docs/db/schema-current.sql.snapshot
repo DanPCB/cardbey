@@ -1,0 +1,2301 @@
+CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+    "id"                    TEXT PRIMARY KEY NOT NULL,
+    "checksum"              TEXT NOT NULL,
+    "finished_at"           DATETIME,
+    "migration_name"        TEXT NOT NULL,
+    "logs"                  TEXT,
+    "rolled_back_at"        DATETIME,
+    "started_at"            DATETIME NOT NULL DEFAULT current_timestamp,
+    "applied_steps_count"   INTEGER UNSIGNED NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS "Demand" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "scope" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "intent" TEXT NOT NULL,
+    "context" TEXT,
+    "fulfilled" BOOLEAN NOT NULL DEFAULT false,
+    "fulfilledAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Demand_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "JourneyTemplate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "slug" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "summary" TEXT,
+    "category" TEXT,
+    "tags" TEXT NOT NULL DEFAULT '[]',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "JourneyStepTemplate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "orderIndex" INTEGER NOT NULL,
+    "title" TEXT NOT NULL,
+    "hint" TEXT,
+    "kind" TEXT NOT NULL DEFAULT 'INFO',
+    "action" TEXT NOT NULL DEFAULT 'NONE',
+    "templateId" TEXT NOT NULL,
+    "paramsJson" TEXT,
+    CONSTRAINT "JourneyStepTemplate_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "JourneyTemplate" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "JourneyInstance" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "templateId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "title" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "JourneyInstance_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "JourneyTemplate" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "JourneyStep" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "instanceId" TEXT NOT NULL,
+    "stepTemplateId" TEXT NOT NULL,
+    "orderIndex" INTEGER NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "kind" TEXT NOT NULL DEFAULT 'INFO',
+    "action" TEXT NOT NULL DEFAULT 'NONE',
+    "paramsJson" TEXT,
+    "resultJson" TEXT,
+    "scheduledAt" DATETIME,
+    "startedAt" DATETIME,
+    "finishedAt" DATETIME,
+    CONSTRAINT "JourneyStep_instanceId_fkey" FOREIGN KEY ("instanceId") REFERENCES "JourneyInstance" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "JourneyStep_stepTemplateId_fkey" FOREIGN KEY ("stepTemplateId") REFERENCES "JourneyStepTemplate" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "PlannerTask" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "journeyId" TEXT NOT NULL,
+    "stepId" TEXT NOT NULL,
+    "runAt" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "lastError" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PlannerTask_journeyId_fkey" FOREIGN KEY ("journeyId") REFERENCES "JourneyInstance" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "AssistantSuggestion" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "mode" TEXT NOT NULL,
+    "templateId" TEXT,
+    "title" TEXT NOT NULL,
+    "reason" TEXT,
+    "score" REAL NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "EventLog" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "kind" TEXT NOT NULL,
+    "zone" TEXT NOT NULL,
+    "payload" TEXT NOT NULL,
+    "occurredAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "meta" TEXT
+);
+CREATE TABLE IF NOT EXISTS "SuggestionLog" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "node" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "confidence" REAL NOT NULL,
+    "impact" TEXT,
+    "actions" TEXT NOT NULL,
+    "sourceEvent" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "appliedBy" TEXT,
+    "appliedAt" DATETIME,
+    "latencyZoneAMs" INTEGER,
+    "latencyZoneBMs" INTEGER,
+    "latencyEndToEndMs" INTEGER,
+    "tenantId" TEXT
+);
+CREATE TABLE IF NOT EXISTS "IdempotencyKey" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "keyHash" TEXT NOT NULL,
+    "response" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "PriceChange" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "suggestionId" TEXT NOT NULL,
+    "sku" TEXT NOT NULL,
+    "oldPrice" REAL,
+    "newPrice" REAL,
+    "deltaPercent" REAL NOT NULL,
+    "duration" TEXT NOT NULL,
+    "testGroup" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "activatedAt" DATETIME,
+    "completedAt" DATETIME
+);
+CREATE TABLE IF NOT EXISTS "ReorderRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "suggestionId" TEXT NOT NULL,
+    "sku" TEXT NOT NULL,
+    "quantity" INTEGER NOT NULL,
+    "priority" TEXT NOT NULL,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "orderedAt" DATETIME,
+    "receivedAt" DATETIME
+);
+CREATE TABLE IF NOT EXISTS "CreativeRefreshTask" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "suggestionId" TEXT NOT NULL,
+    "banner" TEXT,
+    "reason" TEXT NOT NULL,
+    "currentCTR" REAL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startedAt" DATETIME,
+    "completedAt" DATETIME
+);
+CREATE INDEX "Demand_userId_idx" ON "Demand"("userId");
+CREATE UNIQUE INDEX "JourneyTemplate_slug_key" ON "JourneyTemplate"("slug");
+CREATE INDEX "JourneyTemplate_slug_idx" ON "JourneyTemplate"("slug");
+CREATE INDEX "JourneyTemplate_category_idx" ON "JourneyTemplate"("category");
+CREATE INDEX "JourneyStepTemplate_templateId_orderIndex_idx" ON "JourneyStepTemplate"("templateId", "orderIndex");
+CREATE INDEX "JourneyInstance_userId_idx" ON "JourneyInstance"("userId");
+CREATE INDEX "JourneyInstance_status_idx" ON "JourneyInstance"("status");
+CREATE INDEX "JourneyStep_instanceId_orderIndex_idx" ON "JourneyStep"("instanceId", "orderIndex");
+CREATE INDEX "JourneyStep_status_idx" ON "JourneyStep"("status");
+CREATE INDEX "PlannerTask_userId_idx" ON "PlannerTask"("userId");
+CREATE INDEX "PlannerTask_status_runAt_idx" ON "PlannerTask"("status", "runAt");
+CREATE INDEX "AssistantSuggestion_userId_mode_idx" ON "AssistantSuggestion"("userId", "mode");
+CREATE INDEX "AssistantSuggestion_score_idx" ON "AssistantSuggestion"("score");
+CREATE INDEX "EventLog_kind_idx" ON "EventLog"("kind");
+CREATE INDEX "EventLog_zone_idx" ON "EventLog"("zone");
+CREATE INDEX "EventLog_occurredAt_idx" ON "EventLog"("occurredAt");
+CREATE INDEX "SuggestionLog_node_idx" ON "SuggestionLog"("node");
+CREATE INDEX "SuggestionLog_status_idx" ON "SuggestionLog"("status");
+CREATE INDEX "SuggestionLog_createdAt_idx" ON "SuggestionLog"("createdAt");
+CREATE INDEX "SuggestionLog_tenantId_idx" ON "SuggestionLog"("tenantId");
+CREATE UNIQUE INDEX "IdempotencyKey_keyHash_key" ON "IdempotencyKey"("keyHash");
+CREATE INDEX "IdempotencyKey_keyHash_idx" ON "IdempotencyKey"("keyHash");
+CREATE INDEX "IdempotencyKey_expiresAt_idx" ON "IdempotencyKey"("expiresAt");
+CREATE INDEX "PriceChange_suggestionId_idx" ON "PriceChange"("suggestionId");
+CREATE INDEX "PriceChange_sku_idx" ON "PriceChange"("sku");
+CREATE INDEX "PriceChange_status_idx" ON "PriceChange"("status");
+CREATE INDEX "ReorderRequest_suggestionId_idx" ON "ReorderRequest"("suggestionId");
+CREATE INDEX "ReorderRequest_sku_idx" ON "ReorderRequest"("sku");
+CREATE INDEX "ReorderRequest_status_idx" ON "ReorderRequest"("status");
+CREATE INDEX "CreativeRefreshTask_suggestionId_idx" ON "CreativeRefreshTask"("suggestionId");
+CREATE INDEX "CreativeRefreshTask_status_idx" ON "CreativeRefreshTask"("status");
+CREATE TABLE IF NOT EXISTS "Campaign" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "title" TEXT NOT NULL,
+    "productId" TEXT,
+    "data" JSONB NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "workflowId" TEXT,
+    CONSTRAINT "Campaign_workflowId_fkey" FOREIGN KEY ("workflowId") REFERENCES "Workflow" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "Workflow" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "prompt" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "trigger" TEXT NOT NULL DEFAULT 'MANUAL',
+    "actions" JSONB NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "PairCode" (
+    "code" TEXT NOT NULL PRIMARY KEY,
+    "fingerprint" TEXT,
+    "screenId" TEXT,
+    "expiresAt" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "PairCode_screenId_fkey" FOREIGN KEY ("screenId") REFERENCES "Screen" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "PairCode_fingerprint_idx" ON "PairCode"("fingerprint");
+CREATE TABLE IF NOT EXISTS "PairingSession" (
+    "sessionId" TEXT NOT NULL PRIMARY KEY,
+    "code" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'showing_code',
+    "expiresAt" DATETIME NOT NULL,
+    "deviceToken" TEXT,
+    "fingerprint" TEXT NOT NULL,
+    "model" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "location" TEXT,
+    "screenId" TEXT,
+    "claimedBy" TEXT,
+    "origin" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "PairingSession_screenId_fkey" FOREIGN KEY ("screenId") REFERENCES "Screen" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "PairingSession_code_key" ON "PairingSession"("code");
+CREATE INDEX "PairingSession_code_idx" ON "PairingSession"("code");
+CREATE INDEX "PairingSession_expiresAt_idx" ON "PairingSession"("expiresAt");
+CREATE INDEX "PairingSession_status_idx" ON "PairingSession"("status");
+CREATE INDEX "PairingSession_fingerprint_idx" ON "PairingSession"("fingerprint");
+CREATE TABLE IF NOT EXISTS "TrendProfile" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "slug" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "season" TEXT,
+    "domain" TEXT,
+    "goal" TEXT,
+    "source" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "weight" INTEGER NOT NULL DEFAULT 1,
+    "data" JSONB NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "TrendProfile_slug_key" ON "TrendProfile"("slug");
+CREATE INDEX "TrendProfile_slug_idx" ON "TrendProfile"("slug");
+CREATE INDEX "TrendProfile_isActive_goal_idx" ON "TrendProfile"("isActive", "goal");
+CREATE INDEX "TrendProfile_season_idx" ON "TrendProfile"("season");
+CREATE TABLE IF NOT EXISTS "Content" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "elements" JSONB NOT NULL,
+    "settings" JSONB NOT NULL,
+    "renderSlide" JSONB,
+    "thumbnailUrl" TEXT,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Content_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "Media" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "url" TEXT NOT NULL,
+    "storageKey" TEXT,
+    "optimizedUrl" TEXT,
+    "optimizedKey" TEXT,
+    "isOptimized" BOOLEAN NOT NULL DEFAULT false,
+    "optimizedAt" DATETIME,
+    "kind" TEXT NOT NULL,
+    "mime" TEXT NOT NULL,
+    "width" INTEGER,
+    "height" INTEGER,
+    "durationS" REAL,
+    "sizeBytes" INTEGER NOT NULL,
+    "missingFile" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "Media_missingFile_idx" ON "Media"("missingFile");
+CREATE INDEX "Media_isOptimized_idx" ON "Media"("isOptimized");
+CREATE INDEX "Media_storageKey_idx" ON "Media"("storageKey");
+CREATE INDEX "Content_userId_idx" ON "Content"("userId");
+CREATE INDEX "Content_createdAt_idx" ON "Content"("createdAt");
+CREATE TABLE IF NOT EXISTS "LoyaltyProgram" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "stampsRequired" INTEGER NOT NULL,
+    "reward" TEXT NOT NULL,
+    "expiresAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "LoyaltyReward" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "programId" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "reward" TEXT NOT NULL,
+    "redeemedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "LoyaltyProgram_tenantId_idx" ON "LoyaltyProgram"("tenantId");
+CREATE INDEX "LoyaltyProgram_storeId_idx" ON "LoyaltyProgram"("storeId");
+CREATE INDEX "LoyaltyProgram_expiresAt_idx" ON "LoyaltyProgram"("expiresAt");
+CREATE INDEX "LoyaltyReward_tenantId_idx" ON "LoyaltyReward"("tenantId");
+CREATE INDEX "LoyaltyReward_storeId_idx" ON "LoyaltyReward"("storeId");
+CREATE INDEX "LoyaltyReward_programId_idx" ON "LoyaltyReward"("programId");
+CREATE INDEX "LoyaltyReward_customerId_idx" ON "LoyaltyReward"("customerId");
+CREATE INDEX "LoyaltyReward_redeemedAt_idx" ON "LoyaltyReward"("redeemedAt");
+CREATE TABLE IF NOT EXISTS "PromoRule" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "targetType" TEXT NOT NULL,
+    "targetId" TEXT,
+    "value" REAL NOT NULL,
+    "startAt" DATETIME,
+    "endAt" DATETIME,
+    "usageLimit" INTEGER,
+    "usageCount" INTEGER NOT NULL DEFAULT 0,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "PlaylistSchedule" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "playlistId" TEXT NOT NULL,
+    "deviceId" TEXT,
+    "deviceGroupId" TEXT,
+    "startAt" DATETIME,
+    "endAt" DATETIME,
+    "daysOfWeek" TEXT,
+    "timeRange" TEXT,
+    CONSTRAINT "PlaylistSchedule_playlistId_fkey" FOREIGN KEY ("playlistId") REFERENCES "Playlist" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "Device" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "pairingCode" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'offline',
+    "name" TEXT,
+    "model" TEXT,
+    "location" TEXT,
+    "appVersion" TEXT,
+    "lastSeenAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+, "lastScreenshotAt" DATETIME, "lastScreenshotBase64" TEXT, "platform" TEXT, "type" TEXT, "orientation" TEXT DEFAULT 'horizontal', "lastPlaybackReportAt" DATETIME, "playbackReportIsPlaying" BOOLEAN, "playbackReportState" TEXT);
+CREATE TABLE IF NOT EXISTS "DeviceCapability" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "deviceId" TEXT NOT NULL,
+    "capabilities" JSONB NOT NULL,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "DeviceCapability_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "DeviceStateSnapshot" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "deviceId" TEXT NOT NULL,
+    "playlistVersion" TEXT,
+    "storageFreeMb" INTEGER,
+    "wifiStrength" INTEGER,
+    "errorCodes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "DeviceStateSnapshot_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "DevicePlaylistBinding" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "deviceId" TEXT NOT NULL,
+    "playlistId" TEXT NOT NULL,
+    "version" TEXT NOT NULL,
+    "lastPushedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    CONSTRAINT "DevicePlaylistBinding_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "PlaylistItem" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "playlistId" TEXT NOT NULL,
+    "orderIndex" INTEGER NOT NULL,
+    "durationS" INTEGER NOT NULL DEFAULT 8,
+    "mediaId" TEXT,
+    "fit" TEXT DEFAULT 'cover',
+    "muted" BOOLEAN DEFAULT false,
+    "loop" BOOLEAN DEFAULT false,
+    "displayOrientation" TEXT DEFAULT 'AUTO',
+    "assetId" TEXT,
+    CONSTRAINT "PlaylistItem_playlistId_fkey" FOREIGN KEY ("playlistId") REFERENCES "Playlist" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "PlaylistItem_mediaId_fkey" FOREIGN KEY ("mediaId") REFERENCES "Media" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "PlaylistItem_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "SignageAsset" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "PlaylistItem_playlistId_orderIndex_idx" ON "PlaylistItem"("playlistId", "orderIndex");
+CREATE INDEX "PlaylistItem_mediaId_idx" ON "PlaylistItem"("mediaId");
+CREATE INDEX "PlaylistItem_assetId_idx" ON "PlaylistItem"("assetId");
+CREATE INDEX "PromoRule_tenantId_idx" ON "PromoRule"("tenantId");
+CREATE INDEX "PromoRule_storeId_idx" ON "PromoRule"("storeId");
+CREATE INDEX "PromoRule_active_idx" ON "PromoRule"("active");
+CREATE INDEX "PromoRule_startAt_endAt_idx" ON "PromoRule"("startAt", "endAt");
+CREATE INDEX "PlaylistSchedule_tenantId_idx" ON "PlaylistSchedule"("tenantId");
+CREATE INDEX "PlaylistSchedule_storeId_idx" ON "PlaylistSchedule"("storeId");
+CREATE INDEX "PlaylistSchedule_playlistId_idx" ON "PlaylistSchedule"("playlistId");
+CREATE INDEX "PlaylistSchedule_deviceId_idx" ON "PlaylistSchedule"("deviceId");
+CREATE UNIQUE INDEX "Device_pairingCode_key" ON "Device"("pairingCode");
+CREATE INDEX "Device_tenantId_idx" ON "Device"("tenantId");
+CREATE INDEX "Device_storeId_idx" ON "Device"("storeId");
+CREATE INDEX "Device_status_idx" ON "Device"("status");
+CREATE INDEX "Device_pairingCode_idx" ON "Device"("pairingCode");
+CREATE INDEX "Device_lastSeenAt_idx" ON "Device"("lastSeenAt");
+CREATE UNIQUE INDEX "DeviceCapability_deviceId_key" ON "DeviceCapability"("deviceId");
+CREATE INDEX "DeviceStateSnapshot_deviceId_createdAt_idx" ON "DeviceStateSnapshot"("deviceId", "createdAt");
+CREATE INDEX "DevicePlaylistBinding_deviceId_idx" ON "DevicePlaylistBinding"("deviceId");
+CREATE INDEX "DevicePlaylistBinding_playlistId_idx" ON "DevicePlaylistBinding"("playlistId");
+CREATE INDEX "DevicePlaylistBinding_status_idx" ON "DevicePlaylistBinding"("status");
+CREATE UNIQUE INDEX "DevicePlaylistBinding_deviceId_playlistId_key" ON "DevicePlaylistBinding"("deviceId", "playlistId");
+CREATE TABLE IF NOT EXISTS "DeviceCommand" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "deviceId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "payload" JSONB,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "DeviceCommand_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "SystemEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "source" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "deviceId" TEXT,
+    "tenantId" TEXT,
+    "severity" TEXT NOT NULL DEFAULT 'info',
+    "payload" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "SystemInsight" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "title" TEXT NOT NULL,
+    "severity" TEXT NOT NULL DEFAULT 'info',
+    "category" TEXT NOT NULL,
+    "summary" TEXT NOT NULL,
+    "payload" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "DeviceLog" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "deviceId" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "level" TEXT NOT NULL DEFAULT 'info',
+    "message" TEXT NOT NULL,
+    "payload" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "DeviceLog_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "DeviceCommand_deviceId_idx" ON "DeviceCommand"("deviceId");
+CREATE INDEX "DeviceCommand_deviceId_status_idx" ON "DeviceCommand"("deviceId", "status");
+CREATE INDEX "DeviceCommand_status_idx" ON "DeviceCommand"("status");
+CREATE INDEX "DeviceCommand_createdAt_idx" ON "DeviceCommand"("createdAt");
+CREATE INDEX "SystemEvent_source_idx" ON "SystemEvent"("source");
+CREATE INDEX "SystemEvent_type_idx" ON "SystemEvent"("type");
+CREATE INDEX "SystemEvent_deviceId_idx" ON "SystemEvent"("deviceId");
+CREATE INDEX "SystemEvent_tenantId_idx" ON "SystemEvent"("tenantId");
+CREATE INDEX "SystemEvent_severity_idx" ON "SystemEvent"("severity");
+CREATE INDEX "SystemEvent_createdAt_idx" ON "SystemEvent"("createdAt");
+CREATE INDEX "SystemInsight_severity_idx" ON "SystemInsight"("severity");
+CREATE INDEX "SystemInsight_category_idx" ON "SystemInsight"("category");
+CREATE INDEX "SystemInsight_createdAt_idx" ON "SystemInsight"("createdAt");
+CREATE INDEX "DeviceLog_deviceId_idx" ON "DeviceLog"("deviceId");
+CREATE INDEX "DeviceLog_deviceId_createdAt_idx" ON "DeviceLog"("deviceId", "createdAt");
+CREATE INDEX "DeviceLog_source_idx" ON "DeviceLog"("source");
+CREATE INDEX "DeviceLog_level_idx" ON "DeviceLog"("level");
+CREATE INDEX "DeviceLog_createdAt_idx" ON "DeviceLog"("createdAt");
+CREATE TABLE IF NOT EXISTS "DeviceAlert" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "deviceId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "reason" TEXT,
+    "message" TEXT,
+    "deviceType" TEXT,
+    "ip" TEXT,
+    "engineVersion" TEXT,
+    "env" TEXT,
+    "resolved" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "resolvedAt" DATETIME,
+    CONSTRAINT "DeviceAlert_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "Screen" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "fingerprint" TEXT NOT NULL,
+    "name" TEXT,
+    "location" TEXT,
+    "paired" BOOLEAN NOT NULL DEFAULT false,
+    "status" TEXT NOT NULL DEFAULT 'OFFLINE',
+    "statusText" TEXT,
+    "lastSeen" DATETIME,
+    "deletedAt" DATETIME,
+    "orientation" TEXT NOT NULL DEFAULT 'horizontal',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "assignedPlaylistId" TEXT,
+    "currentAsset" TEXT,
+    "currentPlaylistId" TEXT,
+    CONSTRAINT "Screen_assignedPlaylistId_fkey" FOREIGN KEY ("assignedPlaylistId") REFERENCES "Playlist" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "Screen_fingerprint_key" ON "Screen"("fingerprint");
+CREATE INDEX "Screen_deletedAt_idx" ON "Screen"("deletedAt");
+CREATE INDEX "DeviceAlert_deviceId_idx" ON "DeviceAlert"("deviceId");
+CREATE INDEX "DeviceAlert_deviceId_createdAt_idx" ON "DeviceAlert"("deviceId", "createdAt");
+CREATE INDEX "DeviceAlert_type_idx" ON "DeviceAlert"("type");
+CREATE INDEX "DeviceAlert_status_idx" ON "DeviceAlert"("status");
+CREATE INDEX "DeviceAlert_createdAt_idx" ON "DeviceAlert"("createdAt");
+CREATE TABLE IF NOT EXISTS "RagChunk" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "scope" TEXT NOT NULL,
+    "sourcePath" TEXT NOT NULL,
+    "chunkIndex" INTEGER NOT NULL,
+    "content" TEXT NOT NULL,
+    "embedding" BLOB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+, "tenantId" TEXT);
+CREATE INDEX "RagChunk_scope_idx" ON "RagChunk"("scope");
+CREATE INDEX "RagChunk_sourcePath_chunkIndex_idx" ON "RagChunk"("sourcePath", "chunkIndex");
+CREATE UNIQUE INDEX "RagChunk_sourcePath_chunkIndex_key" ON "RagChunk"("sourcePath", "chunkIndex");
+CREATE TABLE IF NOT EXISTS "ActivityEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT,
+    "deviceId" TEXT,
+    "storeId" TEXT,
+    "userId" TEXT,
+    "type" TEXT NOT NULL,
+    "payload" JSONB NOT NULL,
+    "occurredAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "TenantReport" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "periodKey" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "contentMd" TEXT NOT NULL,
+    "scope" TEXT NOT NULL,
+    "tags" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE INDEX "ActivityEvent_tenantId_occurredAt_idx" ON "ActivityEvent"("tenantId", "occurredAt");
+CREATE INDEX "ActivityEvent_deviceId_occurredAt_idx" ON "ActivityEvent"("deviceId", "occurredAt");
+CREATE INDEX "ActivityEvent_storeId_occurredAt_idx" ON "ActivityEvent"("storeId", "occurredAt");
+CREATE INDEX "ActivityEvent_type_occurredAt_idx" ON "ActivityEvent"("type", "occurredAt");
+CREATE INDEX "TenantReport_tenantId_kind_periodKey_idx" ON "TenantReport"("tenantId", "kind", "periodKey");
+CREATE INDEX "RagChunk_scope_tenantId_idx" ON "RagChunk"("scope", "tenantId");
+CREATE TABLE IF NOT EXISTS "TenantInsight" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "reportId" TEXT,
+    "kind" TEXT NOT NULL,
+    "severity" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "summaryMd" TEXT NOT NULL,
+    "tags" TEXT,
+    "periodKey" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "TenantInsight_tenantId_kind_idx" ON "TenantInsight"("tenantId", "kind");
+CREATE INDEX "TenantInsight_tenantId_createdAt_idx" ON "TenantInsight"("tenantId", "createdAt");
+CREATE INDEX "TenantInsight_reportId_idx" ON "TenantInsight"("reportId");
+CREATE TABLE IF NOT EXISTS "OrchestratorTask" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "entryPoint" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "insightId" TEXT,
+    "status" TEXT NOT NULL,
+    "request" JSONB NOT NULL,
+    "result" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+, "missionId" TEXT);
+CREATE INDEX "OrchestratorTask_tenantId_createdAt_idx" ON "OrchestratorTask"("tenantId", "createdAt");
+CREATE INDEX "OrchestratorTask_tenantId_status_idx" ON "OrchestratorTask"("tenantId", "status");
+CREATE INDEX "OrchestratorTask_entryPoint_idx" ON "OrchestratorTask"("entryPoint");
+CREATE INDEX "OrchestratorTask_insightId_idx" ON "OrchestratorTask"("insightId");
+CREATE TABLE IF NOT EXISTS "MIEntity" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "productId" TEXT NOT NULL,
+    "productType" TEXT NOT NULL,
+    "mediaType" TEXT NOT NULL,
+    "fileUrl" TEXT NOT NULL,
+    "previewUrl" TEXT,
+    "dimensions" TEXT,
+    "orientation" TEXT,
+    "durationSec" INTEGER,
+    "createdByUserId" TEXT NOT NULL,
+    "createdByEngine" TEXT NOT NULL,
+    "sourceProjectId" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "tenantId" TEXT,
+    "storeId" TEXT,
+    "campaignId" TEXT,
+    "creativeAssetId" TEXT,
+    "reportId" TEXT,
+    "screenItemId" TEXT,
+    "packagingId" TEXT,
+    "miBrain" JSONB NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "validFrom" DATETIME,
+    "validTo" DATETIME,
+    "updatedAt" DATETIME NOT NULL
+, "templateId" TEXT);
+CREATE INDEX "MIEntity_productId_idx" ON "MIEntity"("productId");
+CREATE INDEX "MIEntity_productType_idx" ON "MIEntity"("productType");
+CREATE INDEX "MIEntity_tenantId_idx" ON "MIEntity"("tenantId");
+CREATE INDEX "MIEntity_storeId_idx" ON "MIEntity"("storeId");
+CREATE INDEX "MIEntity_campaignId_idx" ON "MIEntity"("campaignId");
+CREATE INDEX "MIEntity_creativeAssetId_idx" ON "MIEntity"("creativeAssetId");
+CREATE INDEX "MIEntity_reportId_idx" ON "MIEntity"("reportId");
+CREATE INDEX "MIEntity_screenItemId_idx" ON "MIEntity"("screenItemId");
+CREATE INDEX "MIEntity_status_idx" ON "MIEntity"("status");
+CREATE INDEX "MIEntity_createdByUserId_idx" ON "MIEntity"("createdByUserId");
+CREATE UNIQUE INDEX "MIEntity_creativeAssetId_key" ON "MIEntity"("creativeAssetId");
+CREATE UNIQUE INDEX "MIEntity_reportId_key" ON "MIEntity"("reportId");
+CREATE UNIQUE INDEX "MIEntity_screenItemId_key" ON "MIEntity"("screenItemId");
+CREATE INDEX "MIEntity_templateId_idx" ON "MIEntity"("templateId");
+CREATE UNIQUE INDEX "MIEntity_templateId_key" ON "MIEntity"("templateId");
+CREATE UNIQUE INDEX "MIEntity_packagingId_key" ON "MIEntity"("packagingId");
+CREATE TABLE IF NOT EXISTS "GreetingCard" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "ownerId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "templateKey" TEXT NOT NULL,
+    "title" TEXT,
+    "message" TEXT,
+    "coverImageUrl" TEXT,
+    "mediaUrl" TEXT,
+    "payloadJson" JSONB,
+    "shareSlug" TEXT NOT NULL,
+    "isPublished" BOOLEAN NOT NULL DEFAULT false,
+    "publishedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "GreetingCard_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "CreativeTemplate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT,
+    "storeId" TEXT,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "thumbnailUrl" TEXT,
+    "baseContentId" TEXT,
+    "channels" TEXT NOT NULL DEFAULT '[]',
+    "role" TEXT,
+    "primaryIntent" TEXT,
+    "orientation" TEXT,
+    "minDurationS" INTEGER,
+    "maxDurationS" INTEGER,
+    "tags" TEXT NOT NULL DEFAULT '[]',
+    "isSystem" BOOLEAN NOT NULL DEFAULT false,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "fields" JSONB,
+    "aiContext" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+, "businessCategories" JSONB, "styleTags" JSONB, "useCases" JSONB);
+CREATE INDEX "CreativeTemplate_tenantId_storeId_idx" ON "CreativeTemplate"("tenantId", "storeId");
+CREATE INDEX "CreativeTemplate_role_primaryIntent_idx" ON "CreativeTemplate"("role", "primaryIntent");
+CREATE INDEX "CreativeTemplate_orientation_idx" ON "CreativeTemplate"("orientation");
+CREATE INDEX "CreativeTemplate_isActive_idx" ON "CreativeTemplate"("isActive");
+CREATE INDEX "CreativeTemplate_isSystem_idx" ON "CreativeTemplate"("isSystem");
+CREATE TABLE IF NOT EXISTS "Playlist" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "type" TEXT NOT NULL DEFAULT 'MEDIA',
+    "name" TEXT NOT NULL,
+    "tenantId" TEXT,
+    "storeId" TEXT,
+    "description" TEXT,
+    "translations" JSONB,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE INDEX "Playlist_type_idx" ON "Playlist"("type");
+CREATE INDEX "Playlist_tenantId_storeId_idx" ON "Playlist"("tenantId", "storeId");
+CREATE INDEX "Playlist_active_idx" ON "Playlist"("active");
+CREATE INDEX "Playlist_type_active_idx" ON "Playlist"("type", "active");
+CREATE TABLE IF NOT EXISTS "SignageAsset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "durationS" INTEGER NOT NULL,
+    "tags" TEXT,
+    "translations" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "SignageAsset_tenantId_idx" ON "SignageAsset"("tenantId");
+CREATE INDEX "SignageAsset_storeId_idx" ON "SignageAsset"("storeId");
+CREATE INDEX "SignageAsset_type_idx" ON "SignageAsset"("type");
+CREATE UNIQUE INDEX "GreetingCard_shareSlug_key" ON "GreetingCard"("shareSlug");
+CREATE INDEX "GreetingCard_ownerId_idx" ON "GreetingCard"("ownerId");
+CREATE INDEX "GreetingCard_shareSlug_idx" ON "GreetingCard"("shareSlug");
+CREATE INDEX "GreetingCard_isPublished_idx" ON "GreetingCard"("isPublished");
+CREATE INDEX "GreetingCard_type_idx" ON "GreetingCard"("type");
+CREATE TABLE IF NOT EXISTS "DevicePairing" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "pairingCode" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "deviceId" TEXT,
+    "deviceLabel" TEXT
+);
+CREATE TABLE IF NOT EXISTS "MiMusicTrack" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "key" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "audioUrl" TEXT NOT NULL,
+    "duration" INTEGER,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "MiVideoTemplate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "key" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "occasionType" TEXT NOT NULL,
+    "orientation" TEXT NOT NULL,
+    "backgroundUrl" TEXT NOT NULL,
+    "posterUrl" TEXT NOT NULL,
+    "textZonesJson" JSONB NOT NULL,
+    "textStylesJson" JSONB NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "MiVideoTemplate_key_key" ON "MiVideoTemplate"("key");
+CREATE INDEX "MiVideoTemplate_occasionType_idx" ON "MiVideoTemplate"("occasionType");
+CREATE INDEX "MiVideoTemplate_orientation_idx" ON "MiVideoTemplate"("orientation");
+CREATE INDEX "MiVideoTemplate_isActive_idx" ON "MiVideoTemplate"("isActive");
+CREATE UNIQUE INDEX "DevicePairing_pairingCode_key" ON "DevicePairing"("pairingCode");
+CREATE INDEX "DevicePairing_pairingCode_idx" ON "DevicePairing"("pairingCode");
+CREATE INDEX "DevicePairing_tenantId_storeId_idx" ON "DevicePairing"("tenantId", "storeId");
+CREATE INDEX "DevicePairing_status_idx" ON "DevicePairing"("status");
+CREATE INDEX "DevicePairing_expiresAt_idx" ON "DevicePairing"("expiresAt");
+CREATE UNIQUE INDEX "MiMusicTrack_key_key" ON "MiMusicTrack"("key");
+CREATE INDEX "MiMusicTrack_category_idx" ON "MiMusicTrack"("category");
+CREATE INDEX "MiMusicTrack_isActive_idx" ON "MiMusicTrack"("isActive");
+CREATE INDEX "MiMusicTrack_key_idx" ON "MiMusicTrack"("key");
+CREATE TABLE IF NOT EXISTS "SmartObject" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "publicCode" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "productId" TEXT,
+    "type" TEXT NOT NULL DEFAULT 'print_bag',
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "activePromoId" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "SmartObject_publicCode_key" ON "SmartObject"("publicCode");
+CREATE INDEX "SmartObject_storeId_idx" ON "SmartObject"("storeId");
+CREATE INDEX "SmartObject_publicCode_idx" ON "SmartObject"("publicCode");
+CREATE INDEX "SmartObject_status_idx" ON "SmartObject"("status");
+CREATE TABLE IF NOT EXISTS "Product" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "businessId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "normalizedName" TEXT,
+    "description" TEXT,
+    "translations" JSONB,
+    "price" REAL,
+    "currency" TEXT DEFAULT 'USD',
+    "category" TEXT,
+    "imageUrl" TEXT,
+    "sku" TEXT,
+    "isPublished" BOOLEAN NOT NULL DEFAULT false,
+    "images" JSONB,
+    "viewCount" INTEGER NOT NULL DEFAULT 0,
+    "likeCount" INTEGER NOT NULL DEFAULT 0,
+    "hasSam3Cutout" BOOLEAN NOT NULL DEFAULT false,
+    "cutoutPath" TEXT,
+    "deletedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Product_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "Product_businessId_idx" ON "Product"("businessId");
+CREATE INDEX "Product_businessId_isPublished_idx" ON "Product"("businessId", "isPublished");
+CREATE INDEX "Product_category_idx" ON "Product"("category");
+CREATE INDEX "Product_deletedAt_idx" ON "Product"("deletedAt");
+CREATE INDEX "Product_hasSam3Cutout_idx" ON "Product"("hasSam3Cutout");
+CREATE UNIQUE INDEX "Product_businessId_normalizedName_key" ON "Product"("businessId", "normalizedName");
+CREATE TABLE IF NOT EXISTS "PaidAiJob" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "refId" TEXT NOT NULL,
+    "actionName" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "PaidAiJob_userId_refId_actionName_key" ON "PaidAiJob"("userId", "refId", "actionName");
+CREATE INDEX "PaidAiJob_userId_status_idx" ON "PaidAiJob"("userId", "status");
+CREATE INDEX "PaidAiJob_refId_idx" ON "PaidAiJob"("refId");
+CREATE TABLE IF NOT EXISTS "StorePromo" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "storeId" TEXT NOT NULL,
+    "productId" TEXT,
+    "title" TEXT NOT NULL,
+    "subtitle" TEXT,
+    "description" TEXT,
+    "heroImage" TEXT,
+    "heroImageUrl" TEXT,
+    "ctaLabel" TEXT,
+    "targetUrl" TEXT NOT NULL,
+    "code" TEXT,
+    "startsAt" DATETIME,
+    "endsAt" DATETIME,
+    "slug" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "scanCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "StorePromo_storeId_fkey" FOREIGN KEY ("storeId") REFERENCES "Business" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "StorePromo_slug_key" ON "StorePromo"("slug");
+CREATE INDEX "StorePromo_storeId_idx" ON "StorePromo"("storeId");
+CREATE INDEX "StorePromo_slug_idx" ON "StorePromo"("slug");
+CREATE INDEX "StorePromo_isActive_idx" ON "StorePromo"("isActive");
+CREATE TABLE IF NOT EXISTS "PasswordResetToken" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "tokenHash" TEXT NOT NULL,
+    "expiresAt" DATETIME NOT NULL,
+    "usedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "SeedCatalog" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "verticalSlug" TEXT NOT NULL,
+    "subIntent" TEXT NOT NULL DEFAULT '',
+    "itemsJson" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "DynamicQr" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "code" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "payload" JSONB,
+    "targetPath" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdByUserId" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "ScanEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "dynamicQrId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "scannedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "userAgent" TEXT,
+    "referer" TEXT,
+    CONSTRAINT "ScanEvent_dynamicQrId_fkey" FOREIGN KEY ("dynamicQrId") REFERENCES "DynamicQr" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "AuditEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "entityType" TEXT NOT NULL,
+    "entityId" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "fromStatus" TEXT,
+    "toStatus" TEXT,
+    "actorType" TEXT NOT NULL,
+    "actorId" TEXT,
+    "correlationId" TEXT,
+    "reason" TEXT,
+    "metadata" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "AuditEvent_entityType_entityId_createdAt_idx" ON "AuditEvent"("entityType", "entityId", "createdAt");
+CREATE INDEX "AuditEvent_correlationId_idx" ON "AuditEvent"("correlationId");
+CREATE TABLE IF NOT EXISTS "ContentIngestSample" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "generationRunId" TEXT,
+    "jobId" TEXT,
+    "draftId" TEXT,
+    "sourceType" TEXT NOT NULL,
+    "goal" TEXT NOT NULL,
+    "mode" TEXT NOT NULL,
+    "includeImages" BOOLEAN NOT NULL DEFAULT true,
+    "templateKey" TEXT,
+    "websiteDomain" TEXT,
+    "vertical" TEXT,
+    "rawInputSanitized" TEXT,
+    "ocrTextSanitized" TEXT,
+    "outputCatalog" JSONB NOT NULL,
+    "meta" JSONB
+);
+CREATE INDEX "ContentIngestSample_createdAt_idx" ON "ContentIngestSample"("createdAt");
+CREATE INDEX "ContentIngestSample_sourceType_idx" ON "ContentIngestSample"("sourceType");
+CREATE INDEX "ContentIngestSample_goal_idx" ON "ContentIngestSample"("goal");
+CREATE INDEX "ContentIngestSample_draftId_idx" ON "ContentIngestSample"("draftId");
+CREATE TABLE IF NOT EXISTS "DraftStore" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "expiresAt" DATETIME NOT NULL,
+    "mode" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'draft',
+    "generationRunId" TEXT,
+    "input" JSONB NOT NULL,
+    "preview" JSONB,
+    "error" TEXT,
+    "errorCode" TEXT,
+    "recommendedAction" TEXT,
+    "committedAt" DATETIME,
+    "committedStoreId" TEXT,
+    "committedUserId" TEXT,
+    "ownerUserId" TEXT,
+    "guestSessionId" TEXT,
+    "ipHash" TEXT,
+    "userAgent" TEXT, "publishSnapshot" TEXT, "publishSnapshotVersion" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "DraftStore_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "DraftStore_generationRunId_key" ON "DraftStore"("generationRunId");
+CREATE INDEX "DraftStore_expiresAt_idx" ON "DraftStore"("expiresAt");
+CREATE INDEX "DraftStore_status_idx" ON "DraftStore"("status");
+CREATE INDEX "DraftStore_createdAt_idx" ON "DraftStore"("createdAt");
+CREATE INDEX "DraftStore_committedStoreId_idx" ON "DraftStore"("committedStoreId");
+CREATE INDEX "DraftStore_committedUserId_idx" ON "DraftStore"("committedUserId");
+CREATE INDEX "DraftStore_ownerUserId_idx" ON "DraftStore"("ownerUserId");
+CREATE INDEX "DraftStore_guestSessionId_idx" ON "DraftStore"("guestSessionId");
+CREATE INDEX "PasswordResetToken_userId_idx" ON "PasswordResetToken"("userId");
+CREATE INDEX "PasswordResetToken_tokenHash_idx" ON "PasswordResetToken"("tokenHash");
+CREATE INDEX "SeedCatalog_verticalSlug_idx" ON "SeedCatalog"("verticalSlug");
+CREATE INDEX "SeedCatalog_updatedAt_idx" ON "SeedCatalog"("updatedAt");
+CREATE UNIQUE INDEX "SeedCatalog_verticalSlug_subIntent_key" ON "SeedCatalog"("verticalSlug", "subIntent");
+CREATE UNIQUE INDEX "DynamicQr_code_key" ON "DynamicQr"("code");
+CREATE INDEX "DynamicQr_storeId_idx" ON "DynamicQr"("storeId");
+CREATE INDEX "DynamicQr_code_idx" ON "DynamicQr"("code");
+CREATE INDEX "DynamicQr_isActive_idx" ON "DynamicQr"("isActive");
+CREATE INDEX "ScanEvent_dynamicQrId_idx" ON "ScanEvent"("dynamicQrId");
+CREATE INDEX "ScanEvent_storeId_idx" ON "ScanEvent"("storeId");
+CREATE INDEX "ScanEvent_scannedAt_idx" ON "ScanEvent"("scannedAt");
+CREATE TABLE IF NOT EXISTS "Notification" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "userId" TEXT NOT NULL,
+    "draftId" TEXT,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "meta" JSONB,
+    "readAt" DATETIME
+);
+CREATE INDEX "Notification_userId_createdAt_idx" ON "Notification"("userId", "createdAt");
+CREATE INDEX "DraftStore_updatedAt_idx" ON "DraftStore"("updatedAt");
+CREATE TABLE IF NOT EXISTS "SeedAssetFile" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "seedAssetId" TEXT NOT NULL,
+    "fileUrl" TEXT NOT NULL,
+    "role" TEXT NOT NULL DEFAULT 'full',
+    "width" INTEGER,
+    "height" INTEGER,
+    "mimeType" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "SeedAssetFile_seedAssetId_fkey" FOREIGN KEY ("seedAssetId") REFERENCES "SeedAsset" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "SeedAssetFile_seedAssetId_idx" ON "SeedAssetFile"("seedAssetId");
+CREATE INDEX "SeedAssetFile_role_idx" ON "SeedAssetFile"("role");
+CREATE TABLE IF NOT EXISTS "AgentChatConfig" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "useResearchAgent" BOOLEAN NOT NULL DEFAULT true,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "AgentChatConfig_missionId_key" ON "AgentChatConfig"("missionId");
+CREATE INDEX "AgentChatConfig_missionId_idx" ON "AgentChatConfig"("missionId");
+CREATE TABLE IF NOT EXISTS "ChatThread" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT,
+    "title" TEXT,
+    "createdByUserId" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ChatThread_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ChatThreadParticipant" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "threadId" TEXT NOT NULL,
+    "participantType" TEXT NOT NULL,
+    "participantId" TEXT NOT NULL,
+    "role" TEXT NOT NULL,
+    "joinedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ChatThreadParticipant_threadId_fkey" FOREIGN KEY ("threadId") REFERENCES "ChatThread" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "ChatThread_missionId_idx" ON "ChatThread"("missionId");
+CREATE INDEX "ChatThread_createdByUserId_idx" ON "ChatThread"("createdByUserId");
+CREATE INDEX "ChatThreadParticipant_threadId_idx" ON "ChatThreadParticipant"("threadId");
+CREATE INDEX "ChatThreadParticipant_threadId_participantType_idx" ON "ChatThreadParticipant"("threadId", "participantType");
+CREATE TABLE IF NOT EXISTS "ConversationThread" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "title" TEXT,
+    "missionId" TEXT,
+    "createdByUserId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL, "kind" TEXT, "scopeKey" TEXT,
+    CONSTRAINT "ConversationThread_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ThreadParticipant" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "threadId" TEXT NOT NULL,
+    "participantType" TEXT NOT NULL,
+    "participantId" TEXT NOT NULL,
+    "role" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ThreadParticipant_threadId_fkey" FOREIGN KEY ("threadId") REFERENCES "ConversationThread" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "ConversationThread_tenantId_createdAt_idx" ON "ConversationThread"("tenantId", "createdAt");
+CREATE INDEX "ConversationThread_missionId_idx" ON "ConversationThread"("missionId");
+CREATE INDEX "ConversationThread_createdByUserId_idx" ON "ConversationThread"("createdByUserId");
+CREATE UNIQUE INDEX "ThreadParticipant_threadId_participantType_participantId_key" ON "ThreadParticipant"("threadId", "participantType", "participantId");
+CREATE INDEX "ThreadParticipant_threadId_idx" ON "ThreadParticipant"("threadId");
+CREATE INDEX "ThreadParticipant_threadId_participantType_idx" ON "ThreadParticipant"("threadId", "participantType");
+CREATE INDEX "ConversationThread_tenantId_updatedAt_idx" ON "ConversationThread"("tenantId", "updatedAt");
+CREATE INDEX "ThreadParticipant_threadId_createdAt_idx" ON "ThreadParticipant"("threadId", "createdAt");
+CREATE TABLE IF NOT EXISTS "Mission" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "createdByUserId" TEXT NOT NULL,
+    "title" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "context" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Mission_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE INDEX "Mission_tenantId_updatedAt_idx" ON "Mission"("tenantId", "updatedAt");
+CREATE INDEX "Mission_createdByUserId_updatedAt_idx" ON "Mission"("createdByUserId", "updatedAt");
+CREATE TABLE IF NOT EXISTS "OrchestratorRunReward" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "orchestratorTaskId" TEXT NOT NULL,
+    "missionId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "toolCompletenessScore" REAL NOT NULL,
+    "outcomeQualityScore" REAL NOT NULL,
+    "overallReward" REAL NOT NULL,
+    "details" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "OrchestratorRunReward_orchestratorTaskId_idx" ON "OrchestratorRunReward"("orchestratorTaskId");
+CREATE INDEX "OrchestratorRunReward_missionId_idx" ON "OrchestratorRunReward"("missionId");
+CREATE INDEX "OrchestratorRunReward_tenantId_idx" ON "OrchestratorRunReward"("tenantId");
+CREATE INDEX "OrchestratorRunReward_createdAt_idx" ON "OrchestratorRunReward"("createdAt");
+CREATE TABLE IF NOT EXISTS "SeedAsset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "provider" TEXT NOT NULL,
+    "providerAssetId" TEXT NOT NULL,
+    "sourcePageUrl" TEXT,
+    "photographerName" TEXT,
+    "photographerUrl" TEXT,
+    "licenseName" TEXT,
+    "licenseUrl" TEXT,
+    "attributionText" TEXT,
+    "width" INTEGER,
+    "height" INTEGER,
+    "orientation" TEXT,
+    "tags" JSONB,
+    "vertical" TEXT,
+    "categoryKey" TEXT,
+    "sha256" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "rejectReason" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "ingestionJobId" TEXT,
+    CONSTRAINT "SeedAsset_ingestionJobId_fkey" FOREIGN KEY ("ingestionJobId") REFERENCES "SeedIngestionJob" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX "SeedAsset_provider_idx" ON "SeedAsset"("provider");
+CREATE INDEX "SeedAsset_vertical_idx" ON "SeedAsset"("vertical");
+CREATE INDEX "SeedAsset_categoryKey_idx" ON "SeedAsset"("categoryKey");
+CREATE INDEX "SeedAsset_status_idx" ON "SeedAsset"("status");
+CREATE INDEX "SeedAsset_ingestionJobId_idx" ON "SeedAsset"("ingestionJobId");
+CREATE UNIQUE INDEX "SeedAsset_provider_providerAssetId_key" ON "SeedAsset"("provider", "providerAssetId");
+CREATE UNIQUE INDEX "SeedAsset_sha256_key" ON "SeedAsset"("sha256");
+CREATE TABLE IF NOT EXISTS "SeedIngestionJob" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "provider" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'running',
+    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" DATETIME,
+    "meta" JSONB,
+    "errorMessage" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE INDEX "SeedIngestionJob_provider_idx" ON "SeedIngestionJob"("provider");
+CREATE INDEX "SeedIngestionJob_status_idx" ON "SeedIngestionJob"("status");
+CREATE INDEX "SeedIngestionJob_startedAt_idx" ON "SeedIngestionJob"("startedAt");
+CREATE TABLE IF NOT EXISTS "MissionTask" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "sourceMessageId" TEXT NOT NULL,
+    "chainId" TEXT,
+    "suggestionId" TEXT,
+    "agentKey" TEXT,
+    "intent" TEXT,
+    "risk" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+, "agentKeyRecommended" TEXT, "lastRunId" TEXT, "meta" JSONB, "normalizedLabel" TEXT);
+CREATE INDEX "MissionTask_missionId_createdAt_idx" ON "MissionTask"("missionId", "createdAt");
+CREATE TABLE IF NOT EXISTS "InteractionFeedback" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "userMessageId" TEXT,
+    "assignmentId" TEXT NOT NULL,
+    "userRating" TEXT,
+    "systemQualityScore" REAL,
+    "comment" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "InteractionFeedback_assignmentId_fkey" FOREIGN KEY ("assignmentId") REFERENCES "Assignment" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "InteractionFeedback_missionId_idx" ON "InteractionFeedback"("missionId");
+CREATE INDEX "InteractionFeedback_assignmentId_idx" ON "InteractionFeedback"("assignmentId");
+CREATE INDEX "ConversationThread_kind_idx" ON "ConversationThread"("kind");
+CREATE UNIQUE INDEX "ConversationThread_scopeKey_key" ON "ConversationThread"("scopeKey");
+CREATE TABLE IF NOT EXISTS "CampaignPlan" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "missionId" TEXT,
+    "storeId" TEXT,
+    "draftStoreId" TEXT,
+    "objective" TEXT NOT NULL,
+    "target" JSONB,
+    "timeWindow" JSONB,
+    "budget" JSONB,
+    "channelsRequested" JSONB,
+    "status" TEXT NOT NULL DEFAULT 'draft',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "CampaignValidationResult" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "planId" TEXT NOT NULL,
+    "checks" JSONB NOT NULL,
+    "blockers" JSONB NOT NULL,
+    "warnings" JSONB NOT NULL,
+    "risk" TEXT NOT NULL DEFAULT 'med',
+    "confidence" TEXT NOT NULL DEFAULT 'med',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CampaignValidationResult_planId_fkey" FOREIGN KEY ("planId") REFERENCES "CampaignPlan" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "CampaignV2" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "planId" TEXT NOT NULL,
+    "missionId" TEXT,
+    "storeId" TEXT,
+    "draftStoreId" TEXT,
+    "title" TEXT NOT NULL,
+    "objective" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "degradedMode" JSONB,
+    "allowedChannels" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CampaignV2_planId_fkey" FOREIGN KEY ("planId") REFERENCES "CampaignPlan" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "CreativeCopy" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "campaignId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL DEFAULT 'caption',
+    "text" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CreativeCopy_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "CampaignV2" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "CampaignScheduleItem" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "campaignId" TEXT NOT NULL,
+    "channel" TEXT NOT NULL DEFAULT 'scheduled_posts',
+    "scheduledAt" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "creativeCopyId" TEXT,
+    "creativeAssetId" TEXT,
+    "externalRef" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CampaignScheduleItem_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "CampaignV2" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "Offer" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "campaignId" TEXT NOT NULL,
+    "type" TEXT NOT NULL DEFAULT 'discount',
+    "data" JSONB NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Offer_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "CampaignV2" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ChannelDeployment" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "campaignId" TEXT NOT NULL,
+    "channel" TEXT NOT NULL,
+    "mode" TEXT NOT NULL DEFAULT 'scheduled_posts',
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "data" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ChannelDeployment_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "CampaignV2" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "CampaignReport" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "campaignId" TEXT NOT NULL,
+    "missionId" TEXT,
+    "summary" TEXT NOT NULL,
+    "links" JSONB NOT NULL,
+    "scheduleRecap" JSONB NOT NULL,
+    "nextSteps" JSONB NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CampaignReport_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "CampaignV2" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "LlmCache" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL DEFAULT 'global',
+    "purpose" TEXT NOT NULL DEFAULT 'llm',
+    "promptHash" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "model" TEXT NOT NULL DEFAULT '',
+    "response" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" DATETIME NOT NULL,
+    "lastAccessedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "hitCount" INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS "LlmUsageDaily" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "purpose" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "model" TEXT NOT NULL DEFAULT '',
+    "day" TEXT NOT NULL,
+    "calls" INTEGER NOT NULL DEFAULT 0,
+    "tokensIn" INTEGER NOT NULL DEFAULT 0,
+    "tokensOut" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "IntentRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "agent" TEXT,
+    "payload" JSONB,
+    "result" JSONB,
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "IntentRequest_missionId_fkey" FOREIGN KEY ("missionId") REFERENCES "Mission" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "MissionEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "intentId" TEXT,
+    "agent" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "payload" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "StoreOffer" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "storeId" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "priceText" TEXT,
+    "startsAt" DATETIME,
+    "endsAt" DATETIME,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "StoreOffer_storeId_fkey" FOREIGN KEY ("storeId") REFERENCES "Business" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "IntentSignal" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "type" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "offerId" TEXT,
+    "code" TEXT,
+    "userAgent" TEXT,
+    "referrer" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "IntentOpportunity" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "storeId" TEXT NOT NULL,
+    "offerId" TEXT,
+    "type" TEXT NOT NULL,
+    "severity" TEXT NOT NULL DEFAULT 'medium',
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "summary" TEXT NOT NULL,
+    "evidence" JSONB,
+    "recommendedIntentType" TEXT NOT NULL,
+    "payload" JSONB,
+    "source" TEXT NOT NULL DEFAULT 'rules',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "OpportunityInferenceRun" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "storeId" TEXT NOT NULL,
+    "lastRunAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "Promotion" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "storeId" TEXT,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT,
+    "mediaType" TEXT,
+    "mediaUrl" TEXT,
+    "ctaLabel" TEXT,
+    "ctaUrl" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'draft',
+    "startAt" DATETIME,
+    "endAt" DATETIME,
+    "priority" INTEGER NOT NULL DEFAULT 0,
+    "metadataJson" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "PromotionSlot" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "slotKey" TEXT NOT NULL,
+    "surfaceType" TEXT NOT NULL,
+    "displayMode" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "configJson" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "PromotionPlacement" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "promotionId" TEXT NOT NULL,
+    "slotId" TEXT NOT NULL,
+    "storeId" TEXT,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "startAt" DATETIME,
+    "endAt" DATETIME,
+    "priority" INTEGER NOT NULL DEFAULT 0,
+    "metadataJson" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "PromotionPlacement_promotionId_fkey" FOREIGN KEY ("promotionId") REFERENCES "Promotion" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "PromotionPlacement_slotId_fkey" FOREIGN KEY ("slotId") REFERENCES "PromotionSlot" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "AgentProfile" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "agentKey" TEXT NOT NULL,
+    "skills" JSONB,
+    "baseQuality" REAL NOT NULL DEFAULT 0.8,
+    "baseCost" REAL NOT NULL DEFAULT 1,
+    "baseLatency" INTEGER NOT NULL DEFAULT 5000,
+    "reliabilityScore" REAL NOT NULL DEFAULT 0.8,
+    "maxConcurrency" INTEGER NOT NULL DEFAULT 5,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "AgentProfile_agentKey_key" ON "AgentProfile"("agentKey");
+CREATE INDEX "AgentProfile_agentKey_idx" ON "AgentProfile"("agentKey");
+CREATE TABLE IF NOT EXISTS "AgentRun" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "agentKey" TEXT NOT NULL,
+    "triggerMessageId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "input" JSONB,
+    "output" JSONB,
+    "error" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "AgentRun_missionId_fkey" FOREIGN KEY ("missionId") REFERENCES "Mission" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE INDEX "AgentRun_missionId_createdAt_idx" ON "AgentRun"("missionId", "createdAt");
+CREATE INDEX "AgentRun_tenantId_createdAt_idx" ON "AgentRun"("tenantId", "createdAt");
+CREATE INDEX "AgentRun_status_updatedAt_idx" ON "AgentRun"("status", "updatedAt");
+CREATE TABLE IF NOT EXISTS "AgentTask" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "userMessageId" TEXT,
+    "type" TEXT NOT NULL,
+    "payload" JSONB,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE INDEX "AgentTask_missionId_createdAt_idx" ON "AgentTask"("missionId", "createdAt");
+CREATE INDEX "AgentTask_status_idx" ON "AgentTask"("status");
+CREATE INDEX "AgentTask_type_idx" ON "AgentTask"("type");
+CREATE TABLE IF NOT EXISTS "Assignment" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "taskId" TEXT NOT NULL,
+    "agentKey" TEXT NOT NULL,
+    "agentRunId" TEXT,
+    "matchedScore" REAL NOT NULL,
+    "assignedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" DATETIME,
+    "success" BOOLEAN,
+    "metrics" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Assignment_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "AgentTask" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Assignment_agentRunId_fkey" FOREIGN KEY ("agentRunId") REFERENCES "AgentRun" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "Assignment_agentRunId_key" ON "Assignment"("agentRunId");
+CREATE INDEX "Assignment_taskId_idx" ON "Assignment"("taskId");
+CREATE INDEX "Assignment_agentKey_idx" ON "Assignment"("agentKey");
+CREATE INDEX "Assignment_agentRunId_idx" ON "Assignment"("agentRunId");
+CREATE INDEX "Assignment_assignedAt_idx" ON "Assignment"("assignedAt");
+CREATE TABLE IF NOT EXISTS "Bid" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "taskId" TEXT NOT NULL,
+    "agentKey" TEXT NOT NULL,
+    "score" REAL NOT NULL,
+    "components" JSONB,
+    "rationale" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Bid_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "AgentTask" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "Bid_taskId_idx" ON "Bid"("taskId");
+CREATE INDEX "Bid_agentKey_idx" ON "Bid"("agentKey");
+CREATE UNIQUE INDEX "Bid_taskId_agentKey_key" ON "Bid"("taskId", "agentKey");
+CREATE TABLE IF NOT EXISTS "WorkflowIncident" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "workflowKey" TEXT NOT NULL,
+    "severity" TEXT NOT NULL,
+    "draftStoreId" TEXT,
+    "runId" TEXT,
+    "reasonKey" TEXT NOT NULL,
+    "summary" TEXT NOT NULL,
+    "evidence" JSONB NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "resolvedAt" DATETIME,
+    CONSTRAINT "WorkflowIncident_draftStoreId_fkey" FOREIGN KEY ("draftStoreId") REFERENCES "DraftStore" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "WorkflowIncident_runId_fkey" FOREIGN KEY ("runId") REFERENCES "WorkflowRun" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX "WorkflowIncident_workflowKey_idx" ON "WorkflowIncident"("workflowKey");
+CREATE INDEX "WorkflowIncident_draftStoreId_idx" ON "WorkflowIncident"("draftStoreId");
+CREATE INDEX "WorkflowIncident_runId_idx" ON "WorkflowIncident"("runId");
+CREATE INDEX "WorkflowIncident_createdAt_idx" ON "WorkflowIncident"("createdAt");
+CREATE TABLE IF NOT EXISTS "WorkflowReport" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "workflowKey" TEXT NOT NULL,
+    "periodStart" DATETIME NOT NULL,
+    "periodEnd" DATETIME NOT NULL,
+    "payload" JSONB NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "WorkflowReport_workflowKey_idx" ON "WorkflowReport"("workflowKey");
+CREATE INDEX "WorkflowReport_periodStart_periodEnd_idx" ON "WorkflowReport"("periodStart", "periodEnd");
+CREATE TABLE IF NOT EXISTS "WorkflowRun" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "workflowKey" TEXT NOT NULL,
+    "draftStoreId" TEXT,
+    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endedAt" DATETIME,
+    "status" TEXT NOT NULL,
+    "failureCode" TEXT,
+    "meta" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "WorkflowRun_draftStoreId_fkey" FOREIGN KEY ("draftStoreId") REFERENCES "DraftStore" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX "WorkflowRun_workflowKey_idx" ON "WorkflowRun"("workflowKey");
+CREATE INDEX "WorkflowRun_draftStoreId_idx" ON "WorkflowRun"("draftStoreId");
+CREATE INDEX "WorkflowRun_startedAt_idx" ON "WorkflowRun"("startedAt");
+CREATE INDEX "WorkflowRun_status_idx" ON "WorkflowRun"("status");
+CREATE INDEX "CampaignPlan_tenantKey_createdAt_idx" ON "CampaignPlan"("tenantKey", "createdAt");
+CREATE INDEX "CampaignPlan_missionId_idx" ON "CampaignPlan"("missionId");
+CREATE INDEX "CampaignValidationResult_tenantKey_createdAt_idx" ON "CampaignValidationResult"("tenantKey", "createdAt");
+CREATE INDEX "CampaignValidationResult_planId_idx" ON "CampaignValidationResult"("planId");
+CREATE INDEX "CampaignV2_tenantKey_createdAt_idx" ON "CampaignV2"("tenantKey", "createdAt");
+CREATE INDEX "CampaignV2_planId_idx" ON "CampaignV2"("planId");
+CREATE INDEX "CampaignV2_missionId_idx" ON "CampaignV2"("missionId");
+CREATE INDEX "CreativeCopy_campaignId_idx" ON "CreativeCopy"("campaignId");
+CREATE INDEX "CreativeCopy_tenantKey_createdAt_idx" ON "CreativeCopy"("tenantKey", "createdAt");
+CREATE INDEX "CampaignScheduleItem_campaignId_idx" ON "CampaignScheduleItem"("campaignId");
+CREATE INDEX "CampaignScheduleItem_tenantKey_scheduledAt_idx" ON "CampaignScheduleItem"("tenantKey", "scheduledAt");
+CREATE INDEX "Offer_campaignId_idx" ON "Offer"("campaignId");
+CREATE INDEX "ChannelDeployment_campaignId_idx" ON "ChannelDeployment"("campaignId");
+CREATE INDEX "CampaignReport_tenantKey_createdAt_idx" ON "CampaignReport"("tenantKey", "createdAt");
+CREATE INDEX "CampaignReport_campaignId_idx" ON "CampaignReport"("campaignId");
+CREATE INDEX "CampaignReport_missionId_idx" ON "CampaignReport"("missionId");
+CREATE INDEX "LlmCache_expiresAt_idx" ON "LlmCache"("expiresAt");
+CREATE INDEX "LlmCache_tenantKey_expiresAt_idx" ON "LlmCache"("tenantKey", "expiresAt");
+CREATE INDEX "LlmCache_tenantKey_lastAccessedAt_idx" ON "LlmCache"("tenantKey", "lastAccessedAt");
+CREATE UNIQUE INDEX "LlmCache_tenantKey_purpose_promptHash_provider_model_key" ON "LlmCache"("tenantKey", "purpose", "promptHash", "provider", "model");
+CREATE INDEX "LlmUsageDaily_tenantKey_day_idx" ON "LlmUsageDaily"("tenantKey", "day");
+CREATE INDEX "LlmUsageDaily_day_idx" ON "LlmUsageDaily"("day");
+CREATE UNIQUE INDEX "LlmUsageDaily_tenantKey_purpose_provider_model_day_key" ON "LlmUsageDaily"("tenantKey", "purpose", "provider", "model", "day");
+CREATE INDEX "IntentRequest_missionId_status_idx" ON "IntentRequest"("missionId", "status");
+CREATE INDEX "IntentRequest_missionId_createdAt_idx" ON "IntentRequest"("missionId", "createdAt");
+CREATE INDEX "MissionEvent_missionId_createdAt_idx" ON "MissionEvent"("missionId", "createdAt");
+CREATE INDEX "MissionEvent_intentId_createdAt_idx" ON "MissionEvent"("intentId", "createdAt");
+CREATE INDEX "StoreOffer_storeId_idx" ON "StoreOffer"("storeId");
+CREATE INDEX "StoreOffer_isActive_idx" ON "StoreOffer"("isActive");
+CREATE UNIQUE INDEX "StoreOffer_storeId_slug_key" ON "StoreOffer"("storeId", "slug");
+CREATE INDEX "IntentSignal_storeId_idx" ON "IntentSignal"("storeId");
+CREATE INDEX "IntentSignal_offerId_idx" ON "IntentSignal"("offerId");
+CREATE INDEX "IntentSignal_type_createdAt_idx" ON "IntentSignal"("type", "createdAt");
+CREATE INDEX "IntentOpportunity_storeId_idx" ON "IntentOpportunity"("storeId");
+CREATE INDEX "IntentOpportunity_storeId_status_idx" ON "IntentOpportunity"("storeId", "status");
+CREATE INDEX "IntentOpportunity_storeId_source_idx" ON "IntentOpportunity"("storeId", "source");
+CREATE INDEX "IntentOpportunity_createdAt_idx" ON "IntentOpportunity"("createdAt");
+CREATE UNIQUE INDEX "OpportunityInferenceRun_storeId_key" ON "OpportunityInferenceRun"("storeId");
+CREATE INDEX "OpportunityInferenceRun_lastRunAt_idx" ON "OpportunityInferenceRun"("lastRunAt");
+CREATE INDEX "Promotion_storeId_idx" ON "Promotion"("storeId");
+CREATE INDEX "Promotion_status_idx" ON "Promotion"("status");
+CREATE INDEX "Promotion_startAt_endAt_idx" ON "Promotion"("startAt", "endAt");
+CREATE UNIQUE INDEX "PromotionSlot_slotKey_key" ON "PromotionSlot"("slotKey");
+CREATE INDEX "PromotionSlot_slotKey_idx" ON "PromotionSlot"("slotKey");
+CREATE INDEX "PromotionSlot_isActive_idx" ON "PromotionSlot"("isActive");
+CREATE INDEX "PromotionPlacement_promotionId_idx" ON "PromotionPlacement"("promotionId");
+CREATE INDEX "PromotionPlacement_slotId_idx" ON "PromotionPlacement"("slotId");
+CREATE INDEX "PromotionPlacement_storeId_idx" ON "PromotionPlacement"("storeId");
+CREATE INDEX "PromotionPlacement_slotId_storeId_idx" ON "PromotionPlacement"("slotId", "storeId");
+CREATE INDEX "PromotionPlacement_enabled_idx" ON "PromotionPlacement"("enabled");
+CREATE UNIQUE INDEX "MissionTask_missionId_sourceMessageId_normalizedLabel_key" ON "MissionTask"("missionId", "sourceMessageId", "normalizedLabel");
+CREATE INDEX "OrchestratorTask_missionId_idx" ON "OrchestratorTask"("missionId");
+CREATE TABLE IF NOT EXISTS "MissionOperatorRun" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "missionType" TEXT NOT NULL,
+    "goal" TEXT,
+    "tenantId" TEXT,
+    "userId" TEXT,
+    "currentStage" TEXT NOT NULL DEFAULT 'planning',
+    "currentDraftId" TEXT,
+    "currentJobId" TEXT,
+    "currentGenerationRunId" TEXT,
+    "currentStoreId" TEXT,
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "maxAttempts" INTEGER NOT NULL DEFAULT 20,
+    "status" TEXT NOT NULL DEFAULT 'running',
+    "lastError" JSONB,
+    "artifactSnapshot" JSONB,
+    "agentThreadId" TEXT,
+    "runPipelineAsSingleStep" BOOLEAN DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "AgentMessage" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "senderType" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "visibleToUser" BOOLEAN NOT NULL DEFAULT true,
+    "channel" TEXT NOT NULL,
+    "performative" TEXT,
+    "messageType" TEXT NOT NULL DEFAULT 'text',
+    "content" JSONB NOT NULL,
+    "payload" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "taskId" TEXT,
+    "missionRunId" TEXT,
+    "threadId" TEXT,
+    CONSTRAINT "AgentMessage_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "OrchestratorTask" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "AgentMessage_missionRunId_fkey" FOREIGN KEY ("missionRunId") REFERENCES "MissionRun" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "AgentMessage_threadId_fkey" FOREIGN KEY ("threadId") REFERENCES "ChatThread" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX "AgentMessage_missionId_idx" ON "AgentMessage"("missionId");
+CREATE INDEX "AgentMessage_missionId_channel_idx" ON "AgentMessage"("missionId", "channel");
+CREATE INDEX "AgentMessage_createdAt_idx" ON "AgentMessage"("createdAt");
+CREATE INDEX "AgentMessage_threadId_idx" ON "AgentMessage"("threadId");
+CREATE INDEX "AgentMessage_missionRunId_idx" ON "AgentMessage"("missionRunId");
+CREATE TABLE IF NOT EXISTS "MissionRun" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "storeId" TEXT,
+    "intentType" TEXT NOT NULL,
+    "title" TEXT,
+    "mode" TEXT NOT NULL DEFAULT 'fast',
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "runState" TEXT NOT NULL DEFAULT 'idle',
+    "steps" JSONB,
+    "lastResult" JSONB,
+    "planSnapshot" JSONB,
+    "consensusRecord" JSONB,
+    "contentBundle" JSONB,
+    "scheduleBundle" JSONB,
+    "requiresConfirmation" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE INDEX "MissionRun_userId_idx" ON "MissionRun"("userId");
+CREATE INDEX "MissionRun_storeId_idx" ON "MissionRun"("storeId");
+CREATE INDEX "MissionRun_status_idx" ON "MissionRun"("status");
+CREATE INDEX "MissionRun_createdAt_idx" ON "MissionRun"("createdAt");
+CREATE INDEX "MissionOperatorRun_missionId_idx" ON "MissionOperatorRun"("missionId");
+CREATE INDEX "MissionOperatorRun_status_idx" ON "MissionOperatorRun"("status");
+CREATE INDEX "MissionOperatorRun_createdAt_idx" ON "MissionOperatorRun"("createdAt");
+CREATE TABLE IF NOT EXISTS "MissionContext" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "contextJson" TEXT NOT NULL DEFAULT '{}',
+    "snapshotsJson" TEXT NOT NULL DEFAULT '[]',
+    "outcomeJson" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX "MissionContext_missionId_key" ON "MissionContext"("missionId");
+CREATE INDEX "MissionContext_missionId_idx" ON "MissionContext"("missionId");
+CREATE TABLE IF NOT EXISTS "McpToken" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "tokenHash" TEXT NOT NULL,
+    "label" TEXT NOT NULL DEFAULT 'MCP Token',
+    "revoked" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastUsedAt" DATETIME
+);
+CREATE UNIQUE INDEX "McpToken_tokenHash_key" ON "McpToken"("tokenHash");
+CREATE INDEX "McpToken_userId_idx" ON "McpToken"("userId");
+CREATE INDEX "McpToken_storeId_idx" ON "McpToken"("storeId");
+CREATE INDEX "McpToken_tokenHash_idx" ON "McpToken"("tokenHash");
+CREATE TABLE IF NOT EXISTS "UserIdentifier" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "hash" TEXT NOT NULL,
+    "hashVersion" TEXT NOT NULL DEFAULT 'v1',
+    "source" TEXT NOT NULL DEFAULT 'email',
+    "verifiedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "UserIdentifier_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ContactSyncConsent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'granted',
+    "policyVersion" TEXT NOT NULL,
+    "grantedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "revokedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "ContactSyncSource" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "consentId" TEXT NOT NULL,
+    "platform" TEXT NOT NULL,
+    "deviceFingerprint" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "lastSyncAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ContactSyncSource_consentId_fkey" FOREIGN KEY ("consentId") REFERENCES "ContactSyncConsent" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ContactSyncJob" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "sourceId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'started',
+    "counts" JSONB,
+    "errorCode" TEXT,
+    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "finishedAt" DATETIME,
+    CONSTRAINT "ContactSyncJob_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ContactSyncSource" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ContactIdentifier" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "sourceId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "hash" TEXT NOT NULL,
+    "hashVersion" TEXT NOT NULL DEFAULT 'v1',
+    "firstSeenAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeenAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ContactIdentifier_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ContactSyncSource" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ContactMatch" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "sourceId" TEXT NOT NULL,
+    "matchedUserId" TEXT NOT NULL,
+    "matchBasis" TEXT NOT NULL,
+    "confidence" REAL NOT NULL DEFAULT 1.0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeenAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ContactMatch_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ContactSyncSource" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ContactSuggestion" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "matchedUserId" TEXT,
+    "rankScore" REAL NOT NULL DEFAULT 0,
+    "reasonCode" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" DATETIME
+);
+CREATE TABLE IF NOT EXISTS "User" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "email" TEXT NOT NULL,
+    "passwordHash" TEXT NOT NULL,
+    "displayName" TEXT,
+    "fullName" TEXT,
+    "handle" TEXT,
+    "avatarUrl" TEXT,
+    "accountType" TEXT,
+    "tagline" TEXT,
+    "hasBusiness" BOOLEAN NOT NULL DEFAULT false,
+    "onboarding" TEXT,
+    "roles" TEXT NOT NULL DEFAULT '["viewer"]',
+    "role" TEXT NOT NULL DEFAULT 'owner',
+    "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+    "verificationToken" TEXT,
+    "verificationTokenRaw" TEXT,
+    "verificationExpires" DATETIME,
+    "resetToken" TEXT,
+    "resetExpires" DATETIME,
+    "aiCreditsBalance" INTEGER NOT NULL DEFAULT 0,
+    "welcomeFullStoreRemaining" INTEGER NOT NULL DEFAULT 1,
+    "aiCreditsUpdatedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "profilePhoto" TEXT,
+    "bio" TEXT,
+    "qrCodeUrl" TEXT,
+    "personalPresenceStoreId" TEXT, "addressLine1" TEXT, "addressLine2" TEXT, "city" TEXT, "country" TEXT, "phone" TEXT, "postcode" TEXT, "socialLinks" JSONB,
+    CONSTRAINT "User_personalPresenceStoreId_fkey" FOREIGN KEY ("personalPresenceStoreId") REFERENCES "Business" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX "User_handle_key" ON "User"("handle");
+CREATE UNIQUE INDEX "User_personalPresenceStoreId_key" ON "User"("personalPresenceStoreId");
+CREATE INDEX "User_email_idx" ON "User"("email");
+CREATE INDEX "User_handle_idx" ON "User"("handle");
+CREATE INDEX "User_verificationToken_idx" ON "User"("verificationToken");
+CREATE INDEX "User_resetToken_idx" ON "User"("resetToken");
+CREATE INDEX "UserIdentifier_userId_idx" ON "UserIdentifier"("userId");
+CREATE INDEX "UserIdentifier_kind_hash_idx" ON "UserIdentifier"("kind", "hash");
+CREATE INDEX "UserIdentifier_verifiedAt_idx" ON "UserIdentifier"("verifiedAt");
+CREATE UNIQUE INDEX "UserIdentifier_kind_hash_hashVersion_key" ON "UserIdentifier"("kind", "hash", "hashVersion");
+CREATE INDEX "ContactSyncConsent_userId_status_idx" ON "ContactSyncConsent"("userId", "status");
+CREATE INDEX "ContactSyncConsent_userId_grantedAt_idx" ON "ContactSyncConsent"("userId", "grantedAt");
+CREATE INDEX "ContactSyncSource_userId_idx" ON "ContactSyncSource"("userId");
+CREATE INDEX "ContactSyncSource_consentId_idx" ON "ContactSyncSource"("consentId");
+CREATE INDEX "ContactSyncSource_status_lastSyncAt_idx" ON "ContactSyncSource"("status", "lastSyncAt");
+CREATE INDEX "ContactSyncJob_sourceId_startedAt_idx" ON "ContactSyncJob"("sourceId", "startedAt");
+CREATE INDEX "ContactSyncJob_status_startedAt_idx" ON "ContactSyncJob"("status", "startedAt");
+CREATE INDEX "ContactIdentifier_kind_hash_idx" ON "ContactIdentifier"("kind", "hash");
+CREATE INDEX "ContactIdentifier_sourceId_lastSeenAt_idx" ON "ContactIdentifier"("sourceId", "lastSeenAt");
+CREATE UNIQUE INDEX "ContactIdentifier_sourceId_kind_hash_hashVersion_key" ON "ContactIdentifier"("sourceId", "kind", "hash", "hashVersion");
+CREATE INDEX "ContactMatch_matchedUserId_idx" ON "ContactMatch"("matchedUserId");
+CREATE INDEX "ContactMatch_sourceId_lastSeenAt_idx" ON "ContactMatch"("sourceId", "lastSeenAt");
+CREATE UNIQUE INDEX "ContactMatch_sourceId_matchedUserId_key" ON "ContactMatch"("sourceId", "matchedUserId");
+CREATE INDEX "ContactSuggestion_userId_status_rankScore_idx" ON "ContactSuggestion"("userId", "status", "rankScore");
+CREATE INDEX "ContactSuggestion_userId_createdAt_idx" ON "ContactSuggestion"("userId", "createdAt");
+CREATE INDEX "ContactSuggestion_expiresAt_idx" ON "ContactSuggestion"("expiresAt");
+CREATE TABLE IF NOT EXISTS "Business" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "description" TEXT,
+    "showOwnerProfile" BOOLEAN NOT NULL DEFAULT false,
+    "translations" JSONB,
+    "logo" TEXT,
+    "region" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "tradingHours" JSONB,
+    "address" TEXT,
+    "suburb" TEXT,
+    "postcode" TEXT,
+    "country" TEXT,
+    "phone" TEXT,
+    "lat" REAL,
+    "lng" REAL,
+    "primaryColor" TEXT,
+    "secondaryColor" TEXT,
+    "tagline" TEXT,
+    "heroText" TEXT,
+    "heroImageUrl" TEXT,
+    "avatarImageUrl" TEXT,
+    "publishedAt" DATETIME,
+    "stylePreferences" JSONB,
+    "storefrontSettings" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL, "socialLinks" JSONB,
+    CONSTRAINT "Business_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "Business_slug_key" ON "Business"("slug");
+CREATE INDEX "Business_userId_idx" ON "Business"("userId");
+CREATE INDEX "Business_slug_idx" ON "Business"("slug");
+CREATE TABLE IF NOT EXISTS "PersonalMedia" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PersonalMedia_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "PersonalMedia_userId_idx" ON "PersonalMedia"("userId");
+CREATE TABLE IF NOT EXISTS "MissionPipeline" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'requested',
+    "runState" TEXT NOT NULL DEFAULT 'idle',
+    "executionMode" TEXT NOT NULL DEFAULT 'AUTO_RUN',
+    "targetType" TEXT NOT NULL,
+    "targetId" TEXT,
+    "targetLabel" TEXT,
+    "tenantId" TEXT,
+    "createdBy" TEXT,
+    "assignedAgent" TEXT,
+    "requiresConfirmation" BOOLEAN NOT NULL DEFAULT false,
+    "confirmationReason" TEXT,
+    "currentStepId" TEXT,
+    "progressCompletedSteps" INTEGER NOT NULL DEFAULT 0,
+    "progressTotalSteps" INTEGER NOT NULL DEFAULT 0,
+    "blockersJson" JSONB,
+    "warningsJson" JSONB,
+    "outputsJson" JSONB,
+    "metadataJson" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "startedAt" DATETIME,
+    "completedAt" DATETIME,
+    "failedAt" DATETIME,
+    "cancelledAt" DATETIME
+, "pipelineConfig" JSONB);
+CREATE INDEX "MissionPipeline_tenantId_status_idx" ON "MissionPipeline"("tenantId", "status");
+CREATE INDEX "MissionPipeline_createdAt_idx" ON "MissionPipeline"("createdAt");
+CREATE INDEX "MissionPipeline_status_runState_idx" ON "MissionPipeline"("status", "runState");
+CREATE TABLE IF NOT EXISTS "TelemetryProbe" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tag" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "missionId" TEXT,
+    "payload" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX "TelemetryProbe_tag_idx" ON "TelemetryProbe"("tag");
+CREATE INDEX "TelemetryProbe_createdAt_idx" ON "TelemetryProbe"("createdAt");
+CREATE INDEX "TelemetryProbe_missionId_idx" ON "TelemetryProbe"("missionId");
+CREATE TABLE IF NOT EXISTS "LoyaltyProgramStamp" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "programId" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "count" INTEGER NOT NULL DEFAULT 0,
+    "rewarded" BOOLEAN NOT NULL DEFAULT false,
+    "updatedAt" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "LoyaltyProgramStamp_programId_fkey" FOREIGN KEY ("programId") REFERENCES "LoyaltyProgram" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "PromoRuleRedemption" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "promoId" TEXT NOT NULL,
+    "customerId" TEXT,
+    "deviceId" TEXT,
+    "orderId" TEXT,
+    "redeemedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PromoRuleRedemption_promoId_fkey" FOREIGN KEY ("promoId") REFERENCES "PromoRule" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "SmartDocument" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "businessId" TEXT,
+    "docType" TEXT NOT NULL,
+    "subtype" TEXT,
+    "title" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "phase" TEXT NOT NULL DEFAULT 'pre',
+    "designJson" TEXT,
+    "renderedUrl" TEXT,
+    "printUrl" TEXT,
+    "qrCodeUrl" TEXT,
+    "liveUrl" TEXT,
+    "sizeW" REAL,
+    "sizeH" REAL,
+    "sizeUnit" TEXT DEFAULT 'mm',
+    "sizeDpi" INTEGER DEFAULT 300,
+    "agentPersonality" TEXT,
+    "knowledgeBase" TEXT,
+    "capabilities" TEXT NOT NULL DEFAULT '[]',
+    "autoApprove" BOOLEAN NOT NULL DEFAULT true,
+    "phaseConfig" TEXT,
+    "expiresAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "SmartDocument_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "SmartDocument_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "DocVisitor" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "sessionToken" TEXT NOT NULL,
+    "phone" TEXT,
+    "email" TEXT,
+    "name" TEXT,
+    "platformVisitorId" TEXT,
+    "firstSeenAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeenAt" DATETIME NOT NULL,
+    CONSTRAINT "DocVisitor_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "DocConversation" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "visitorId" TEXT NOT NULL,
+    "channel" TEXT NOT NULL DEFAULT 'web',
+    "messages" TEXT NOT NULL DEFAULT '[]',
+    "outcome" TEXT,
+    "intent" TEXT,
+    "sentiment" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "DocConversation_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "DocConversation_visitorId_fkey" FOREIGN KEY ("visitorId") REFERENCES "DocVisitor" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "DocScheduledMessage" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "sendAt" DATETIME NOT NULL,
+    "channel" TEXT NOT NULL DEFAULT 'web',
+    "payload" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "sentAt" DATETIME,
+    "error" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "DocScheduledMessage_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "EventRsvp" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "visitorId" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "rsvpAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "EventRsvp_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "EventRsvp_visitorId_fkey" FOREIGN KEY ("visitorId") REFERENCES "DocVisitor" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "DocCheckIn" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "visitorId" TEXT NOT NULL,
+    "checkedInAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "note" TEXT,
+    CONSTRAINT "DocCheckIn_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "DocCheckIn_visitorId_fkey" FOREIGN KEY ("visitorId") REFERENCES "DocVisitor" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "DocSignature" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "visitorId" TEXT NOT NULL,
+    "signedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "signatureUrl" TEXT,
+    "ipAddress" TEXT,
+    CONSTRAINT "DocSignature_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "DocSignature_visitorId_fkey" FOREIGN KEY ("visitorId") REFERENCES "DocVisitor" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "LoyaltyStamp" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "visitorId" TEXT NOT NULL,
+    "stampedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "redeemedAt" DATETIME,
+    CONSTRAINT "LoyaltyStamp_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "LoyaltyStamp_visitorId_fkey" FOREIGN KEY ("visitorId") REFERENCES "DocVisitor" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "LoyaltyStamp_docId_stampedAt_idx" ON "LoyaltyStamp"("docId", "stampedAt");
+CREATE INDEX "LoyaltyStamp_visitorId_stampedAt_idx" ON "LoyaltyStamp"("visitorId", "stampedAt");
+CREATE TABLE IF NOT EXISTS "PromoRedemption" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "docId" TEXT NOT NULL,
+    "visitorId" TEXT NOT NULL,
+    "redeemedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "discountApplied" TEXT,
+    CONSTRAINT "PromoRedemption_docId_fkey" FOREIGN KEY ("docId") REFERENCES "SmartDocument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "PromoRedemption_visitorId_fkey" FOREIGN KEY ("visitorId") REFERENCES "DocVisitor" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "PromoRedemption_docId_redeemedAt_idx" ON "PromoRedemption"("docId", "redeemedAt");
+CREATE INDEX "PromoRedemption_visitorId_redeemedAt_idx" ON "PromoRedemption"("visitorId", "redeemedAt");
+CREATE INDEX "LoyaltyProgramStamp_tenantId_idx" ON "LoyaltyProgramStamp"("tenantId");
+CREATE INDEX "LoyaltyProgramStamp_storeId_idx" ON "LoyaltyProgramStamp"("storeId");
+CREATE INDEX "LoyaltyProgramStamp_programId_idx" ON "LoyaltyProgramStamp"("programId");
+CREATE INDEX "LoyaltyProgramStamp_customerId_idx" ON "LoyaltyProgramStamp"("customerId");
+CREATE UNIQUE INDEX "LoyaltyProgramStamp_tenantId_storeId_programId_customerId_key" ON "LoyaltyProgramStamp"("tenantId", "storeId", "programId", "customerId");
+CREATE INDEX "PromoRuleRedemption_tenantId_idx" ON "PromoRuleRedemption"("tenantId");
+CREATE INDEX "PromoRuleRedemption_storeId_idx" ON "PromoRuleRedemption"("storeId");
+CREATE INDEX "PromoRuleRedemption_promoId_idx" ON "PromoRuleRedemption"("promoId");
+CREATE INDEX "PromoRuleRedemption_customerId_idx" ON "PromoRuleRedemption"("customerId");
+CREATE INDEX "PromoRuleRedemption_redeemedAt_idx" ON "PromoRuleRedemption"("redeemedAt");
+CREATE INDEX "SmartDocument_userId_createdAt_idx" ON "SmartDocument"("userId", "createdAt");
+CREATE INDEX "SmartDocument_businessId_createdAt_idx" ON "SmartDocument"("businessId", "createdAt");
+CREATE INDEX "SmartDocument_docType_status_idx" ON "SmartDocument"("docType", "status");
+CREATE INDEX "SmartDocument_phase_status_idx" ON "SmartDocument"("phase", "status");
+CREATE UNIQUE INDEX "DocVisitor_sessionToken_key" ON "DocVisitor"("sessionToken");
+CREATE INDEX "DocVisitor_docId_lastSeenAt_idx" ON "DocVisitor"("docId", "lastSeenAt");
+CREATE INDEX "DocVisitor_platformVisitorId_idx" ON "DocVisitor"("platformVisitorId");
+CREATE INDEX "DocConversation_docId_updatedAt_idx" ON "DocConversation"("docId", "updatedAt");
+CREATE INDEX "DocConversation_visitorId_updatedAt_idx" ON "DocConversation"("visitorId", "updatedAt");
+CREATE INDEX "DocConversation_channel_createdAt_idx" ON "DocConversation"("channel", "createdAt");
+CREATE INDEX "DocScheduledMessage_docId_sendAt_idx" ON "DocScheduledMessage"("docId", "sendAt");
+CREATE INDEX "DocScheduledMessage_status_sendAt_idx" ON "DocScheduledMessage"("status", "sendAt");
+CREATE INDEX "EventRsvp_docId_rsvpAt_idx" ON "EventRsvp"("docId", "rsvpAt");
+CREATE INDEX "EventRsvp_visitorId_rsvpAt_idx" ON "EventRsvp"("visitorId", "rsvpAt");
+CREATE INDEX "DocCheckIn_docId_checkedInAt_idx" ON "DocCheckIn"("docId", "checkedInAt");
+CREATE INDEX "DocCheckIn_visitorId_checkedInAt_idx" ON "DocCheckIn"("visitorId", "checkedInAt");
+CREATE INDEX "DocSignature_docId_signedAt_idx" ON "DocSignature"("docId", "signedAt");
+CREATE INDEX "DocSignature_visitorId_signedAt_idx" ON "DocSignature"("visitorId", "signedAt");
+CREATE TABLE IF NOT EXISTS "DevSystemProposal" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT,
+    "createdByUserId" TEXT NOT NULL,
+    "createdByEmail" TEXT,
+    "type" TEXT NOT NULL DEFAULT 'code_task_proposal',
+    "title" TEXT NOT NULL,
+    "objective" TEXT NOT NULL,
+    "engine" TEXT,
+    "mode" TEXT NOT NULL DEFAULT 'proposal_only',
+    "status" TEXT NOT NULL DEFAULT 'guarded',
+    "normalizedTaskJson" JSONB NOT NULL,
+    "guardJson" JSONB NOT NULL,
+    "notesJson" JSONB,
+    "reviewedByUserId" TEXT,
+    "reviewedByEmail" TEXT,
+    "reviewedAt" DATETIME,
+    "reviewDecisionReason" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "DevSystemExecutionPreview" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT,
+    "proposalId" TEXT NOT NULL,
+    "createdByUserId" TEXT NOT NULL,
+    "createdByEmail" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'dry_run_generated',
+    "engine" TEXT,
+    "mode" TEXT NOT NULL DEFAULT 'dry_run_only',
+    "executionIntentJson" JSONB NOT NULL,
+    "normalizedTaskJson" JSONB NOT NULL,
+    "authorizationJson" JSONB NOT NULL,
+    "resultPreviewJson" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "SecurityEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT,
+    "actorUserId" TEXT,
+    "actorEmail" TEXT,
+    "type" TEXT NOT NULL,
+    "severity" TEXT NOT NULL DEFAULT 'info',
+    "source" TEXT NOT NULL,
+    "route" TEXT,
+    "ip" TEXT,
+    "userAgent" TEXT,
+    "detailsJson" JSONB,
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE INDEX "DevSystemProposal_createdAt_idx" ON "DevSystemProposal"("createdAt");
+CREATE INDEX "DevSystemProposal_createdByUserId_idx" ON "DevSystemProposal"("createdByUserId");
+CREATE INDEX "DevSystemProposal_reviewedByUserId_idx" ON "DevSystemProposal"("reviewedByUserId");
+CREATE INDEX "DevSystemProposal_status_createdAt_idx" ON "DevSystemProposal"("status", "createdAt");
+CREATE INDEX "DevSystemProposal_type_createdAt_idx" ON "DevSystemProposal"("type", "createdAt");
+CREATE INDEX "DevSystemExecutionPreview_createdAt_idx" ON "DevSystemExecutionPreview"("createdAt");
+CREATE INDEX "DevSystemExecutionPreview_proposalId_createdAt_idx" ON "DevSystemExecutionPreview"("proposalId", "createdAt");
+CREATE INDEX "DevSystemExecutionPreview_createdByUserId_createdAt_idx" ON "DevSystemExecutionPreview"("createdByUserId", "createdAt");
+CREATE INDEX "DevSystemExecutionPreview_status_createdAt_idx" ON "DevSystemExecutionPreview"("status", "createdAt");
+CREATE INDEX "SecurityEvent_createdAt_idx" ON "SecurityEvent"("createdAt");
+CREATE INDEX "SecurityEvent_severity_createdAt_idx" ON "SecurityEvent"("severity", "createdAt");
+CREATE INDEX "SecurityEvent_type_createdAt_idx" ON "SecurityEvent"("type", "createdAt");
+CREATE INDEX "SecurityEvent_source_createdAt_idx" ON "SecurityEvent"("source", "createdAt");
+CREATE INDEX "SecurityEvent_isRead_createdAt_idx" ON "SecurityEvent"("isRead", "createdAt");
+CREATE TABLE IF NOT EXISTS "MerchantDesign" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "storeId" TEXT NOT NULL,
+    "name" TEXT,
+    "specJson" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "MerchantDesign_storeId_fkey" FOREIGN KEY ("storeId") REFERENCES "Business" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "MerchantDesign_storeId_idx" ON "MerchantDesign"("storeId");
+CREATE TABLE IF NOT EXISTS "Card" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "designJson" JSONB NOT NULL,
+    "agentPersonality" TEXT NOT NULL,
+    "knowledgeBase" JSONB NOT NULL,
+    "capabilities" TEXT NOT NULL,
+    "autoApprove" BOOLEAN NOT NULL DEFAULT true,
+    "liveUrl" TEXT NOT NULL,
+    "qrCodeUrl" TEXT,
+    "sizeW" REAL NOT NULL,
+    "sizeH" REAL NOT NULL,
+    "sizeUnit" TEXT NOT NULL,
+    "sizeDpi" INTEGER NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Card_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "Card_userId_createdAt_idx" ON "Card"("userId", "createdAt");
+CREATE TABLE IF NOT EXISTS "ContentLibraryAsset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "storeId" TEXT,
+    "name" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "sourceUrl" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "format" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "category" TEXT,
+    "tags" JSONB,
+    "license" TEXT,
+    "metadata" JSONB,
+    "usageCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ContentLibraryAsset_storeId_fkey" FOREIGN KEY ("storeId") REFERENCES "Business" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "MissionPipelineStep" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "orderIndex" INTEGER NOT NULL,
+    "stepKind" TEXT NOT NULL DEFAULT 'action',
+    "toolName" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "description" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "configJson" JSONB,
+    "inputJson" JSONB,
+    "outputJson" JSONB,
+    "errorJson" JSONB,
+    "startedAt" DATETIME,
+    "completedAt" DATETIME,
+    "updatedAt" DATETIME NOT NULL, "metadata" JSONB, "outputsJson" JSONB,
+    CONSTRAINT "MissionPipelineStep_missionId_fkey" FOREIGN KEY ("missionId") REFERENCES "MissionPipeline" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX "MissionPipelineStep_missionId_orderIndex_idx" ON "MissionPipelineStep"("missionId", "orderIndex");
+CREATE INDEX "ContentLibraryAsset_storeId_idx" ON "ContentLibraryAsset"("storeId");
+CREATE TABLE IF NOT EXISTS "ApprovalRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "tenantId" TEXT,
+    "storeId" TEXT,
+    "pendingCapability" TEXT NOT NULL,
+    "pendingParameters" JSONB NOT NULL,
+    "riskSummary" TEXT NOT NULL,
+    "confirmLabel" TEXT NOT NULL,
+    "cancelLabel" TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "ClarificationRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "tenantId" TEXT,
+    "storeId" TEXT,
+    "question" TEXT NOT NULL,
+    "missingContext" JSONB NOT NULL,
+    "options" JSONB,
+    "resumeCapability" TEXT NOT NULL,
+    "resumeParameters" JSONB NOT NULL
+);
+CREATE INDEX "ApprovalRequest_tenantId_status_idx" ON "ApprovalRequest"("tenantId", "status");
+CREATE INDEX "ApprovalRequest_expiresAt_idx" ON "ApprovalRequest"("expiresAt");
+CREATE INDEX "ClarificationRequest_tenantId_status_idx" ON "ClarificationRequest"("tenantId", "status");
+CREATE TABLE IF NOT EXISTS "CreativeAsset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tenantKey" TEXT NOT NULL,
+    "campaignId" TEXT,
+    "missionId" TEXT,
+    "type" TEXT NOT NULL DEFAULT 'image_prompt',
+    "prompt" TEXT,
+    "mediaId" TEXT,
+    "metadata" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CreativeAsset_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "CampaignV2" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX "CreativeAsset_campaignId_idx" ON "CreativeAsset"("campaignId");
+CREATE INDEX "CreativeAsset_tenantKey_missionId_idx" ON "CreativeAsset"("tenantKey", "missionId");
+CREATE TABLE IF NOT EXISTS "MissionCheckpoint" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "missionId" TEXT NOT NULL,
+    "stepId" TEXT,
+    "tenantId" TEXT,
+    "storeId" TEXT,
+    "type" TEXT NOT NULL DEFAULT 'approval',
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "capability" TEXT NOT NULL,
+    "parameters" JSONB NOT NULL,
+    "riskSummary" TEXT NOT NULL DEFAULT '',
+    "confirmLabel" TEXT NOT NULL DEFAULT 'Confirm',
+    "cancelLabel" TEXT NOT NULL DEFAULT 'Cancel',
+    "result" JSONB,
+    "error" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "expiresAt" DATETIME NOT NULL
+);
+CREATE INDEX "MissionCheckpoint_missionId_status_idx" ON "MissionCheckpoint"("missionId", "status");
+CREATE INDEX "MissionCheckpoint_tenantId_status_idx" ON "MissionCheckpoint"("tenantId", "status");
+CREATE INDEX "MissionCheckpoint_expiresAt_idx" ON "MissionCheckpoint"("expiresAt");
+CREATE TABLE IF NOT EXISTS "PublishedArtifactProjection" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "artifactType" TEXT NOT NULL DEFAULT 'business',
+    "businessId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "storeId" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "version" TEXT NOT NULL DEFAULT 'v1',
+    "projectionJson" JSONB NOT NULL,
+    "sourceDraftId" TEXT,
+    "publishRunId" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "PublishedArtifactProjection_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "PublishedArtifactProjection_businessId_key" ON "PublishedArtifactProjection"("businessId");
+CREATE INDEX "PublishedArtifactProjection_slug_idx" ON "PublishedArtifactProjection"("slug");
+CREATE INDEX "PublishedArtifactProjection_tenantId_slug_idx" ON "PublishedArtifactProjection"("tenantId", "slug");
+CREATE TABLE IF NOT EXISTS "MissionBlackboard" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "missionId" TEXT NOT NULL,
+        "seq" INTEGER NOT NULL,
+        "eventType" TEXT NOT NULL,
+        "payload" TEXT NOT NULL DEFAULT '{}',
+        "agentId" TEXT,
+        "correlationId" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+CREATE UNIQUE INDEX "MissionBlackboard_missionId_seq_key"
+      ON "MissionBlackboard"("missionId", "seq");
+CREATE INDEX "MissionBlackboard_missionId_seq_idx"
+      ON "MissionBlackboard"("missionId", "seq");
+CREATE INDEX "MissionBlackboard_missionId_createdAt_idx"
+      ON "MissionBlackboard"("missionId", "createdAt");
+CREATE INDEX "MissionBlackboard_correlationId_idx"
+      ON "MissionBlackboard"("correlationId");

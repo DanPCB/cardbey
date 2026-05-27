@@ -106,6 +106,13 @@ export async function runDeviceCleanupStale(prisma, { tenantId, storeId }) {
     });
   }
 
+  console.log('[DEVICE_STALE_ARCHIVE_START]', {
+    tenantId,
+    storeId,
+    deviceCount: visible.length,
+    duplicateGroups: duplicatePlans.length,
+  });
+
   console.log('[DEVICE_DUPLICATE_SCAN]', {
     tenantId,
     storeId,
@@ -128,9 +135,11 @@ export async function runDeviceCleanupStale(prisma, { tenantId, storeId }) {
         skippedCount += 1;
         continue;
       }
+      console.log('[DEVICE_STALE_ARCHIVE_ROW]', { deviceId, reason: 'duplicate_stale_row', winnerId: plan.primaryId });
       await softArchiveDevice(prisma, deviceId, 'duplicate_stale_row');
       archivedIds.push(deviceId);
       archivedCount += 1;
+      console.log('[DEVICE_DUPLICATE_HIDDEN]', { deviceId, winnerId: plan.primaryId, fingerprint: plan.fingerprint });
     }
   }
 
@@ -163,6 +172,14 @@ export async function runDeviceCleanupStale(prisma, { tenantId, storeId }) {
       archivedCount += 1;
     }
   }
+
+  console.log('[DEVICE_STALE_ARCHIVE_DONE]', {
+    tenantId,
+    storeId,
+    archivedCount,
+    skippedCount,
+    archivedIds,
+  });
 
   return { archivedCount, skippedCount, archivedIds, duplicatePlans };
 }

@@ -69,7 +69,7 @@ describe('buildCatalog with generationProfile (businessType primary)', () => {
       audience: profile.audience,
     });
     expect(result).toBeDefined();
-    expect(result.products.length).toBeGreaterThanOrEqual(MIN_ITEMS);
+    expect(result.products.length).toBeGreaterThanOrEqual(20);
     expect(result.products.length).toBeLessThanOrEqual(MAX_ITEMS);
 
     const namesAndDescriptions = result.products.map((p) => `${p.name || ''} ${p.description || ''}`).join(' ');
@@ -98,7 +98,7 @@ describe('buildCatalog with generationProfile (businessType primary)', () => {
       audience: profile.audience,
     });
     expect(result).toBeDefined();
-    expect(result.products.length).toBeGreaterThanOrEqual(MIN_ITEMS);
+    expect(result.products.length).toBeGreaterThanOrEqual(20);
     expect(result.products.length).toBeLessThanOrEqual(MAX_ITEMS);
 
     const namesAndDescriptions = result.products.map((p) => `${p.name || ''} ${p.description || ''}`).join(' ');

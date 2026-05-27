@@ -10,7 +10,7 @@ import { prisma } from '../../lib/prisma.js';
 // Initialize immediately to ensure it's available
 /**
  * Device Command Types
- * @typedef {'play' | 'pause' | 'next' | 'previous' | 'reloadPlaylist' | 'setPlaylistIndex' | 'setVolume' | 'setBrightness' | 'screenshot'} DeviceCommandType
+ * @typedef {'play' | 'pause' | 'next' | 'previous' | 'reloadPlaylist' | 'setPlaylistIndex' | 'setVolume' | 'setBrightness' | 'screenshot' | 'returnHome' | 'RETURN_HOME'} DeviceCommandType
  */
 
 /**

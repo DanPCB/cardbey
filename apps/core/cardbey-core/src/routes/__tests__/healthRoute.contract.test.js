@@ -21,6 +21,17 @@ vi.mock('../../auth/providers.js', () => ({
   getOAuthStatus: vi.fn().mockResolvedValue({ configured: false }),
 }));
 
+vi.mock('../../lib/schemaFingerprint.js', () => ({
+  buildHealthDbFingerprint: vi.fn().mockReturnValue({
+    ok: true,
+    environment: 'test',
+    provider: 'sqlite',
+    databaseKind: 'sqlite',
+    requiredColumnsOk: true,
+    warnings: [],
+  }),
+}));
+
 import healthRoutes from '../healthRoutes.js';
 
 function appWithHealth() {

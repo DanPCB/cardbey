@@ -16,6 +16,10 @@ import {
   actionIdForTool,
   withExecutionTelemetry,
 } from './broker/executionTelemetry.js';
+import {
+  detectExecutionDuplication,
+  incrementRuntimeAuthorityMetric,
+} from './runtime/performerRuntime/runtimeAuthorityStaging.js';
 
 /**
  * @typedef {import('./toolRegistry.js').ToolDefinition} ToolDefinition
@@ -47,6 +51,10 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
 
   const ownership = await import('./runtime/performerRuntime/runtimeOwnership.js');
   const ownershipCheck = ownership.assertRuntimeOwnership(ctx, ctx.source ?? 'tool_dispatcher');
+  if (ownershipCheck.violation) {
+    incrementRuntimeAuthorityMetric('orphanWarnings');
+    if (!ownershipCheck.allowed) incrementRuntimeAuthorityMetric('ownershipBlocks');
+  }
   if (!ownershipCheck.allowed) {
     return {
       status: 'blocked',
@@ -143,23 +151,48 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
   const telemetrySource =
     typeof ctx.source === 'string' && ctx.source.trim() ? ctx.source.trim() : 'tool_dispatcher';
 
+  detectExecutionDuplication({
+    missionId,
+    toolName: name,
+    actionId: actionIdForTool(name),
+    source: telemetrySource,
+  });
+
+  const skipNestedTelemetry = ctx.skipNestedBrokerTelemetry === true;
+
   try {
-    const result = await withExecutionTelemetry({
-      actionId: actionIdForTool(name),
-      toolName: name,
-      source: telemetrySource,
-      missionId,
-      intentId,
-      run: () => executor.execute(input, context),
-      mapResult: (r) => {
-        const status =
-          r?.status === 'blocked' ? 'blocked' : r?.status === 'failed' ? 'failed' : 'completed';
-        return {
-          status,
-          failureCode: r?.error?.code ?? r?.blocker?.code ?? null,
-        };
-      },
-    });
+    const runExecutor = () => executor.execute(input, context);
+    let result;
+    if (skipNestedTelemetry) {
+      incrementRuntimeAuthorityMetric('telemetrySkippedNested');
+      const raw = await runExecutor();
+      const innerStatus =
+        raw?.status === 'blocked' ? 'blocked' : raw?.status === 'failed' ? 'failed' : 'ok';
+      result = {
+        status: innerStatus,
+        ...(raw?.output != null && { output: raw.output }),
+        ...(raw?.blocker != null && { blocker: raw.blocker }),
+        ...(raw?.error != null && { error: raw.error }),
+      };
+    } else {
+      result = await withExecutionTelemetry({
+        actionId: actionIdForTool(name),
+        toolName: name,
+        source: telemetrySource,
+        missionId,
+        intentId,
+        run: runExecutor,
+        mapResult: (r) => {
+          const status =
+            r?.status === 'blocked' ? 'blocked' : r?.status === 'failed' ? 'failed' : 'completed';
+          return {
+            status,
+            failureCode: r?.error?.code ?? r?.blocker?.code ?? null,
+          };
+        },
+      });
+      incrementRuntimeAuthorityMetric('telemetryEmitted');
+    }
     const status = result?.status === 'blocked' ? 'blocked' : result?.status === 'failed' ? 'failed' : 'ok';
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[ToolDispatcher] completed tool: ${name} status=${status}`);

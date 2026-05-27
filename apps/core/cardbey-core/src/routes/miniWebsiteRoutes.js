@@ -12,6 +12,14 @@ import { getTenantId } from '../lib/tenant.js';
 import { canAccessDraftStore } from '../lib/draftOwnership.js';
 import { getDraft } from '../services/draftStore/draftStoreService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
+import {
+  getPublishSnapshot,
+  verifyPublishIdentity,
+  verifyPublishedStoreRoute,
+  snapshotToPreviewShape,
+  isPublishSnapshotV1Enabled,
+  PublishSnapshotError,
+} from '../services/draftStore/publishSnapshotService.js';
 import { computeStylePreferencesUpdate } from '../lib/miniWebsiteSectionMerge.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
 
@@ -92,12 +100,33 @@ router.post('/publish/cardbey', requireAuth, async (req, res, next) => {
       });
     }
 
-    const result = await publishDraft(prisma, {
+    let publishedFingerprint;
+    let publishedSnapshotVersion;
+    let publishParams = {
       storeId: 'temp',
       draftId: draftStoreId,
       userId: req.userId,
       entrypoint: 'mini_website_modal',
-    });
+    };
+
+    if (isPublishSnapshotV1Enabled()) {
+      const { snapshot } = await getPublishSnapshot(prisma, draftStoreId);
+      verifyPublishIdentity(snapshot, {
+        expectedDraftId: draftStoreId,
+        expectedGenerationRunId: snapshot.generationRunId,
+        expectedSnapshotVersion: snapshot.version,
+        expectedSourceFingerprint: snapshot.sourceFingerprint,
+      });
+      publishParams = {
+        ...publishParams,
+        generationRunId: snapshot.generationRunId,
+        canonicalPreviewOverride: snapshotToPreviewShape(snapshot),
+      };
+      publishedFingerprint = snapshot.sourceFingerprint;
+      publishedSnapshotVersion = snapshot.version;
+    }
+
+    const result = await publishDraft(prisma, publishParams);
 
     let slug = result.slug;
     if (!slug && result.storeId) {
@@ -108,17 +137,42 @@ router.post('/publish/cardbey', requireAuth, async (req, res, next) => {
       slug = business?.slug ?? null;
     }
 
-    const webBase = publicWebBase();
-    const publicUrl = slug
-      ? `${webBase}/s/${encodeURIComponent(slug)}`
-      : `${webBase}/preview/store/${result.storeId}?view=public`;
+    let publicUrl = result.storefrontUrl;
+    if (isPublishSnapshotV1Enabled() && slug && result.storeId) {
+      try {
+        const verified = await verifyPublishedStoreRoute(prisma, {
+          slug,
+          storeId: result.storeId,
+          expectedFingerprint: publishedFingerprint,
+        });
+        publicUrl = verified.liveUrl;
+        slug = verified.slug;
+      } catch (verifyErr) {
+        if (verifyErr instanceof PublishSnapshotError) {
+          return res.status(verifyErr.statusCode).json({
+            ok: false,
+            code: verifyErr.code,
+            error: verifyErr.code,
+            message: verifyErr.message,
+          });
+        }
+        throw verifyErr;
+      }
+    } else {
+      const webBase = publicWebBase();
+      publicUrl = slug
+        ? `${webBase}/s/${encodeURIComponent(slug)}`
+        : `${webBase}/preview/store/${result.storeId}?view=public`;
+    }
 
     return res.status(200).json({
       ok: true,
       url: publicUrl,
       publishedSiteId: result.storeId,
-      storefrontUrl: result.storefrontUrl,
+      storefrontUrl: publicUrl,
       slug,
+      publishedFingerprint,
+      publishedSnapshotVersion,
     });
   } catch (error) {
     if (error instanceof PublishDraftError) {

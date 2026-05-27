@@ -100,6 +100,16 @@ async function loadExistingStorefrontSettings(prisma, businessId) {
 import { isDraftOwnedByUser } from '../../lib/draftOwnership.js';
 import { transitionDraftStoreStatus } from '../../kernel/transitions/transitionService.js';
 import { refreshPersonalPresenceQrForBusiness } from '../personalPresence/personalPresenceQr.js';
+import { publicWebBase } from '../../utils/publicWebBase.js';
+import { isMultiStoreIdentityV1Enabled, isExplicitStoreId, logStoreIdentity } from '../store/storeIdentity.js';
+
+function buildVerifiedStorefrontUrl(slug, storeId) {
+  const webBase = publicWebBase();
+  if (slug && String(slug).trim()) {
+    return `${webBase}/s/${encodeURIComponent(String(slug).trim())}`;
+  }
+  return `${webBase}/preview/store/${storeId}?view=public`;
+}
 
 /**
  * Draft mini-website featured sections use stable keys (idx_0, draft temp ids) from mergeWebsiteIntoPreview.
@@ -248,8 +258,8 @@ async function findTargetDraft(prisma, storeId, generationRunId) {
  * Publish a draft to a store. Creates Business if storeId is 'temp'.
  * When draftId is provided, that exact draft is used (ensures we publish the draft just saved by the client).
  * @param {import('../../lib/prismaClient.js').PrismaClient} prisma
- * @param {{ storeId: string, generationRunId?: string, draftId?: string, userId: string, entrypoint?: string }} params
- * @returns {Promise<{ storeId: string, slug: string, storefrontUrl: string }>}
+ * @param {{ storeId: string, generationRunId?: string, draftId?: string, userId: string, entrypoint?: string, canonicalPreviewOverride?: object, expectedStoreId?: string }} params
+ * @returns {Promise<{ storeId: string, slug: string, storefrontUrl: string, publishedFingerprint?: string, publishedSnapshotVersion?: number }>}
  * @throws {PublishDraftError} DRAFT_NOT_FOUND, AUTH_REQUIRED, etc.
  */
 export async function publishDraft(prisma, {
@@ -258,6 +268,8 @@ export async function publishDraft(prisma, {
   draftId,
   userId,
   entrypoint = 'unknown',
+  canonicalPreviewOverride,
+  expectedStoreId,
 }) {
   if (!userId) {
     throw new PublishDraftError('AUTH_REQUIRED', 'Authentication required to publish a store.', 401);
@@ -368,7 +380,7 @@ export async function publishDraft(prisma, {
         return {
           storeId: existingStore.id,
           slug: existingStore.slug,
-          storefrontUrl: `/app/store/${existingStore.id}`,
+          storefrontUrl: buildVerifiedStorefrontUrl(existingStore.slug, existingStore.id),
         };
       }
     }
@@ -410,7 +422,7 @@ export async function publishDraft(prisma, {
       return {
         storeId: existingStore.id,
         slug: existingStore.slug,
-        storefrontUrl: `/app/store/${existingStore.id}`,
+        storefrontUrl: buildVerifiedStorefrontUrl(existingStore.slug, existingStore.id),
       };
     }
   }
@@ -472,9 +484,12 @@ export async function publishDraft(prisma, {
     }
   }
 
-  const rawPreview = typeof targetDraft.preview === 'string'
-    ? JSON.parse(targetDraft.preview)
-    : (targetDraft.preview || {});
+  const rawPreview =
+    canonicalPreviewOverride && typeof canonicalPreviewOverride === 'object'
+      ? { ...canonicalPreviewOverride }
+      : typeof targetDraft.preview === 'string'
+        ? JSON.parse(targetDraft.preview)
+        : (targetDraft.preview || {});
   const draftMiniWebsite = resolveMiniWebsiteForPublish(rawPreview);
 
   // E2E guardrail: "Workflow Steps Are Immutable" — log when publish happens without preview step recorded
@@ -630,20 +645,78 @@ export async function publishDraft(prisma, {
     }
   }
 
-  /** Set after publish transaction — featured section ids remapped to real Product.id (draft uses idx_N / temp keys). */
+  /** Set after catalog batch writes — featured section ids remapped to pre-assigned Product.id values. */
   let remappedMiniWebsiteForPublish = null;
 
-  await prisma.$transaction(async (tx) => {
-    if (isTempStore && !effectiveStoreId) {
+  const {
+    CommitDraftStageTimer,
+    logOversizedPreviewIfNeeded,
+    prepareCatalogProductRows,
+    replaceStoreCatalogInBatches,
+    rollbackPartialCatalogWrites,
+  } = await import('./stagedCatalogPublish.js');
+  const { getPrismaInteractiveTransactionOptions } = await import('../../lib/prismaTransactionOptions.js');
+  const stageTimer = new CommitDraftStageTimer();
+  logOversizedPreviewIfNeeded(rawPreview, targetDraft.id);
+
+  const phaseAStart = Date.now();
+  const { rows: preparedRows, publishedIdsByDraftIndex, preparedCount, skippedCount } = prepareCatalogProductRows(
+    products,
+    {
+      categoryMap: draftCatIdToName,
+      otherCategoryName,
+      defaultCurrency: 'USD',
+    },
+  );
+  stageTimer.log('phase_a_prepare_catalog', {
+    itemCount: preparedCount,
+    durationMs: Date.now() - phaseAStart,
+    skippedCount,
+    sourceItemCount: products.length,
+    draftId: targetDraft.id,
+    entrypoint,
+  });
+
+  const txOpts = getPrismaInteractiveTransactionOptions();
+  const intendedSlug = slugify(storeName);
+  const shellStart = Date.now();
+  stageTimer.beginTransaction();
+  const shell = await prisma.$transaction(async (tx) => {
+    let shellStoreId = effectiveStoreId;
+    let shellStore = store;
+    let shellSlug = newSlug;
+
+    if (isTempStore && !shellStoreId) {
       const ownerId = publishUserIdForTemp;
       if (!ownerId) {
         throw new PublishDraftError('AUTH_REQUIRED', 'Authentication required to publish a store.', 401);
       }
 
-      const intendedSlug = slugify(storeName);
       let matchedBusiness = null;
+      const multiStoreV1 = isMultiStoreIdentityV1Enabled();
+      const explicitExpected =
+        expectedStoreId && isExplicitStoreId(expectedStoreId) ? String(expectedStoreId).trim() : null;
 
-      if (targetDraft.committedStoreId) {
+      if (explicitExpected) {
+        matchedBusiness = await tx.business.findFirst({
+          where: { id: explicitExpected, userId: ownerId },
+          select: { id: true, userId: true, name: true, slug: true },
+        });
+        if (!matchedBusiness) {
+          throw new PublishDraftError(
+            'publish_store_mismatch',
+            'This draft is not linked to the expected store. Choose the correct store or create a new one.',
+            409,
+          );
+        }
+        logStoreIdentity('STORE_IDENTITY_PUBLISH_EXPECTED', {
+          draftId: targetDraft.id,
+          storeId: matchedBusiness.id,
+          mode: 'update',
+          reason: 'expected_store_id',
+          ownerId,
+        });
+      } else if (targetDraft.committedStoreId) {
         matchedBusiness = await tx.business.findFirst({
           where: { id: targetDraft.committedStoreId, userId: ownerId },
           select: { id: true, userId: true, name: true, slug: true },
@@ -657,33 +730,33 @@ export async function publishDraft(prisma, {
             draftId: targetDraft.id,
           });
         }
-      }
-
-      if (!matchedBusiness && intendedSlug) {
-        matchedBusiness = await tx.business.findFirst({
-          where: { userId: ownerId, slug: intendedSlug },
-          select: { id: true, userId: true, name: true, slug: true },
-        });
-        if (matchedBusiness) {
-          logPublishRunway('STORE_UPSERT_MATCH', {
-            reason: 'tenant_slug',
-            businessId: matchedBusiness.id,
-            slug: matchedBusiness.slug,
-            tenantId: ownerId,
-            draftId: targetDraft.id,
+      } else if (!multiStoreV1) {
+        if (intendedSlug) {
+          matchedBusiness = await tx.business.findFirst({
+            where: { userId: ownerId, slug: intendedSlug },
+            select: { id: true, userId: true, name: true, slug: true },
           });
+          if (matchedBusiness) {
+            logPublishRunway('STORE_UPSERT_MATCH', {
+              reason: 'tenant_slug_legacy',
+              businessId: matchedBusiness.id,
+              slug: matchedBusiness.slug,
+              tenantId: ownerId,
+              draftId: targetDraft.id,
+            });
+          }
         }
       }
 
       if (matchedBusiness) {
-        effectiveStoreId = matchedBusiness.id;
-        store = {
+        shellStoreId = matchedBusiness.id;
+        shellStore = {
           id: matchedBusiness.id,
           userId: matchedBusiness.userId,
           name: matchedBusiness.name,
           slug: matchedBusiness.slug,
         };
-        newSlug = matchedBusiness.slug;
+        shellSlug = matchedBusiness.slug;
         logPublishRunway('STORE_UPSERT_UPDATE', {
           businessId: matchedBusiness.id,
           slug: matchedBusiness.slug,
@@ -745,14 +818,14 @@ export async function publishDraft(prisma, {
             throw createErr;
           }
         }
-        effectiveStoreId = createdBusiness.id;
-        store = {
+        shellStoreId = createdBusiness.id;
+        shellStore = {
           id: createdBusiness.id,
           userId: createdBusiness.userId,
           name: createdBusiness.name,
           slug: createdBusiness.slug,
         };
-        newSlug = createdBusiness.slug;
+        shellSlug = createdBusiness.slug;
         logPublishRunway('STORE_UPSERT_CREATE', {
           businessId: createdBusiness.id,
           slug: createdBusiness.slug,
@@ -763,102 +836,126 @@ export async function publishDraft(prisma, {
     }
 
     await tx.product.deleteMany({
-      where: { businessId: effectiveStoreId },
+      where: { businessId: shellStoreId },
     });
 
-    /** @type {(string|undefined)[]} */
-    const publishedIdsByDraftIndex = new Array(products.length);
-    for (let i = 0; i < products.length; i++) {
-      const productData = products[i];
-      if (!productData.name || productData.name.trim().length === 0) continue;
-      try {
-        const normalizedPrice = normalizeDraftProductPrice(productData);
-        const categoryName = resolveDraftProductCategoryName(productData, draftCatIdToName, otherCategoryName);
-        const imageUrl = resolveDraftItemImageUrl(productData);
-        const created = await tx.product.create({
-          data: {
-            businessId: effectiveStoreId,
-            name: productData.name.trim(),
-            description: productData.description || null,
-            price: normalizedPrice,
-            currency: productData.currency || 'USD',
-            category: categoryName || otherCategoryName,
-            imageUrl,
-            isPublished: true,
-            viewCount: 0,
-            likeCount: 0,
-          },
-        });
-        publishedIdsByDraftIndex[i] = created.id;
-      } catch (productError) {
-        console.warn(`[publishDraft] Failed to create product "${productData.name}":`, productError.message);
-      }
-    }
+    return { effectiveStoreId: shellStoreId, store: shellStore, newSlug: shellSlug };
+  }, txOpts);
 
-    remappedMiniWebsiteForPublish =
-      draftMiniWebsite && typeof draftMiniWebsite === 'object'
-        ? remapMiniWebsiteFeaturedProductIds(draftMiniWebsite, products, publishedIdsByDraftIndex)
-        : null;
+  effectiveStoreId = shell.effectiveStoreId;
+  store = shell.store;
+  newSlug = shell.newSlug;
+  stageTimer.log('phase_b_publish_shell', {
+    itemCount: preparedCount,
+    durationMs: Date.now() - shellStart,
+    transactionOpenMs: stageTimer.endTransaction(),
+    draftId: targetDraft.id,
+    storeId: effectiveStoreId,
+  });
 
-    const existingStylePrefs = await loadExistingStylePreferences(tx, effectiveStoreId);
-    const stylePreferencesFinal = {
-      ...existingStylePrefs,
-      ...(businessData.stylePreferences && typeof businessData.stylePreferences === 'object'
-        ? businessData.stylePreferences
-        : {}),
-      ...(remappedMiniWebsiteForPublish ? { miniWebsite: remappedMiniWebsiteForPublish } : {}),
-      ...(storeHeroVideo ? { heroVideo: storeHeroVideo } : {}),
-      ...(storeHeroImage ? { heroImage: storeHeroImage } : {}),
-    };
-
-    const slugForUpdate = newSlug ?? store?.slug ?? businessData.slug;
-    if (slugForUpdate) {
-      businessData.slug = slugForUpdate;
-    }
-
-    await tx.business.update({
-      where: { id: effectiveStoreId },
-      data: sanitizeBusinessPublishData({
-        ...businessData,
-        stylePreferences: stylePreferencesFinal,
-      }),
-    });
-
-    await transitionDraftStoreStatus({
-      prisma: tx,
+  const batchStart = Date.now();
+  try {
+    const batchResult = await replaceStoreCatalogInBatches(prisma, {
+      businessId: effectiveStoreId,
+      rows: preparedRows,
+      timer: stageTimer,
       draftId: targetDraft.id,
-      toStatus: 'committed',
-      fromStatus: 'ready',
-      actorType: 'human',
-      actorId: userId,
-      reason: 'PUBLISH',
-      extraData: {
-        committedAt: publishedAt,
-        committedStoreId: effectiveStoreId,
-        committedUserId: userId,
-      },
     });
+    stageTimer.log('phase_c_catalog_batches', {
+      itemCount: batchResult.written,
+      durationMs: Date.now() - batchStart,
+      writeAmplification: batchResult.writeAmplification,
+      draftId: targetDraft.id,
+    });
+  } catch (batchErr) {
+    await rollbackPartialCatalogWrites(prisma, effectiveStoreId, {
+      draftId: targetDraft.id,
+      reason: batchErr?.message || 'publish_catalog_batch_failed',
+    });
+    throw batchErr;
+  }
 
-    try {
-      await tx.activityEvent.create({
-        data: {
-          tenantId: userId,
-          storeId: effectiveStoreId,
-          userId,
-          type: 'store_published',
-          payload: {
-            draftId: targetDraft.id,
-            generationRunId: generationRunId || null,
-            productsCount: products.length,
-            categoriesCount: categories.length,
-            publishedAt: publishedAt.toISOString(),
-          },
-          occurredAt: publishedAt,
+  remappedMiniWebsiteForPublish =
+    draftMiniWebsite && typeof draftMiniWebsite === 'object'
+      ? remapMiniWebsiteFeaturedProductIds(draftMiniWebsite, products, publishedIdsByDraftIndex)
+      : null;
+
+  const existingStylePrefs = await loadExistingStylePreferences(prisma, effectiveStoreId);
+  const stylePreferencesFinal = {
+    ...existingStylePrefs,
+    ...(businessData.stylePreferences && typeof businessData.stylePreferences === 'object'
+      ? businessData.stylePreferences
+      : {}),
+    ...(remappedMiniWebsiteForPublish ? { miniWebsite: remappedMiniWebsiteForPublish } : {}),
+    ...(storeHeroVideo ? { heroVideo: storeHeroVideo } : {}),
+    ...(storeHeroImage ? { heroImage: storeHeroImage } : {}),
+  };
+
+  const slugForUpdate = newSlug ?? store?.slug ?? businessData.slug;
+  if (slugForUpdate) {
+    businessData.slug = slugForUpdate;
+  }
+
+  const finalizeStart = Date.now();
+  stageTimer.beginTransaction();
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.business.update({
+        where: { id: effectiveStoreId },
+        data: sanitizeBusinessPublishData({
+          ...businessData,
+          stylePreferences: stylePreferencesFinal,
+        }),
+      });
+
+      await transitionDraftStoreStatus({
+        prisma: tx,
+        draftId: targetDraft.id,
+        toStatus: 'committed',
+        fromStatus: 'ready',
+        actorType: 'human',
+        actorId: userId,
+        reason: 'PUBLISH',
+        extraData: {
+          committedAt: publishedAt,
+          committedStoreId: effectiveStoreId,
+          committedUserId: userId,
         },
       });
-    } catch (activityError) {
-      console.warn('[publishDraft] Failed to create ActivityEvent (non-fatal):', activityError.message);
-    }
+
+      try {
+        await tx.activityEvent.create({
+          data: {
+            tenantId: userId,
+            storeId: effectiveStoreId,
+            userId,
+            type: 'store_published',
+            payload: {
+              draftId: targetDraft.id,
+              generationRunId: generationRunId || null,
+              productsCount: preparedCount,
+              categoriesCount: categories.length,
+              publishedAt: publishedAt.toISOString(),
+            },
+            occurredAt: publishedAt,
+          },
+        });
+      } catch (activityError) {
+        console.warn('[publishDraft] Failed to create ActivityEvent (non-fatal):', activityError.message);
+      }
+    }, txOpts);
+  } catch (finalizeErr) {
+    await rollbackPartialCatalogWrites(prisma, effectiveStoreId, {
+      draftId: targetDraft.id,
+      reason: finalizeErr?.message || 'publish_finalize_failed',
+    });
+    throw finalizeErr;
+  }
+  stageTimer.log('phase_d_finalize_publish', {
+    itemCount: preparedCount,
+    durationMs: Date.now() - finalizeStart,
+    transactionOpenMs: stageTimer.endTransaction(),
+    draftId: targetDraft.id,
   });
 
   const rawPreviewForSync = {
@@ -916,13 +1013,14 @@ export async function publishDraft(prisma, {
     });
   }
 
-  const storefrontUrl = `/app/store/${effectiveStoreId}`;
+  const publicSlug = business?.slug ?? newSlug;
+  const storefrontUrl = buildVerifiedStorefrontUrl(publicSlug, effectiveStoreId);
   refreshPersonalPresenceQrForBusiness(prisma, effectiveStoreId).catch((e) => {
     console.warn('[PublishDraft] refreshPersonalPresenceQrForBusiness failed (non-fatal):', e?.message || e);
   });
   return {
     storeId: effectiveStoreId,
-    slug: business?.slug ?? newSlug,
+    slug: publicSlug,
     storefrontUrl,
   };
 }

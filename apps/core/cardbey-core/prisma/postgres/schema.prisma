@@ -2208,6 +2208,8 @@ model DraftStore {
   generationRunId String?   @unique // O(1) lookup for MI job run; also stored in input JSON for backward compatibility
   input           Json      // Stores prompt, businessType, location, templateId, uploaded media references, etc.
   preview         Json?    // Generated preview payload: storeName, slogan, categories, items, assets
+  publishSnapshot Json?    // Canonical publish snapshot (preview + publish source of truth when PUBLISH_SNAPSHOT_V1)
+  publishSnapshotVersion Int @default(0)
   error           String?   // Store stack/err summary (user-safe message)
   errorCode       String?   // Structured code for UI: AUTH_REQUIRED_FOR_AI, INSUFFICIENT_CREDITS, etc.
   recommendedAction String? // login | topup | adjust | fixInput | retry | startOver

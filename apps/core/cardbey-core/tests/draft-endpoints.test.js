@@ -41,14 +41,42 @@ describe('Draft alias endpoints (no 404)', () => {
     await resetDb(prisma);
   });
 
-  it('GET /api/stores/temp/draft returns 200 with ok and valid status (never 404)', async () => {
+  it('GET /api/stores/temp/draft without generationRunId returns 400 missing_generation_run_id', async () => {
     const res = await testRequest
       .get('/api/stores/temp/draft')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(400);
+
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toBe('missing_generation_run_id');
+  });
+
+  it('GET /api/stores/temp/draft with generationRunId returns 200 when draft is ready', async () => {
+    const runId = 'test-stores-temp-draft-run-' + Date.now();
+    await prisma.draftStore.create({
+      data: {
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        mode: 'ai',
+        status: 'ready',
+        input: { storeId: 'temp', generationRunId: runId },
+        preview: {
+          storeName: 'Test Store',
+          storeType: 'General',
+          items: [{ id: 'p1', name: 'Product 1', price: 10 }],
+          categories: [{ id: 'c1', name: 'Category 1' }],
+        },
+        committedStoreId: null,
+      },
+    });
+
+    const res = await testRequest
+      .get(`/api/stores/temp/draft?generationRunId=${runId}`)
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     expect(res.body.ok).toBe(true);
-    expect(ALLOWED_STATUSES).toContain(res.body.status);
+    expect(res.body.status).toBe('ready');
+    expect(res.body.generationRunId).toBe(runId);
     expect(res.body.storeId).toBe('temp');
     expect(Array.isArray(res.body.products)).toBe(true);
     expect(Array.isArray(res.body.categories)).toBe(true);

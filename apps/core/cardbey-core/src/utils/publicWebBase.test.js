@@ -1,12 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
-  buildPostVerifyDashboardRedirectUrl,
-  resolveSafePostVerifyRedirect,
-} from './publicWebBase.js';
+import { publicWebBase } from './publicWebBase.js';
 
-const KEYS = ['FRONTEND_PUBLIC_URL', 'PUBLIC_APP_URL', 'DASHBOARD_URL', 'NODE_ENV'];
+const KEYS = ['PUBLIC_APP_URL', 'DASHBOARD_URL', 'NODE_ENV'];
 
-describe('post-verify dashboard redirect', () => {
+describe('publicWebBase', () => {
   const saved = {};
 
   beforeEach(() => {
@@ -24,32 +21,23 @@ describe('post-verify dashboard redirect', () => {
     }
   });
 
-  it('builds absolute URL from FRONTEND_PUBLIC_URL', () => {
-    process.env.FRONTEND_PUBLIC_URL = 'http://192.168.1.11:5174';
-    expect(buildPostVerifyDashboardRedirectUrl()).toBe(
-      'http://192.168.1.11:5174/onboarding/business?verified=1',
-    );
+  it('prefers PUBLIC_APP_URL over DASHBOARD_URL', () => {
+    process.env.PUBLIC_APP_URL = 'https://app.example.com/';
+    process.env.DASHBOARD_URL = 'https://dash.example.com';
+    expect(publicWebBase()).toBe('https://app.example.com');
   });
 
-  it('accepts absolute redirect_uri on allowed dashboard origin', () => {
-    process.env.DASHBOARD_URL = 'http://192.168.1.11:5174';
-    const target = resolveSafePostVerifyRedirect(
-      'http://192.168.1.11:5174/onboarding/business?verified=1',
-    );
-    expect(target).toBe('http://192.168.1.11:5174/onboarding/business?verified=1');
+  it('falls back to DASHBOARD_URL when PUBLIC_APP_URL is unset', () => {
+    process.env.DASHBOARD_URL = 'http://192.168.1.11:5174/';
+    expect(publicWebBase()).toBe('http://192.168.1.11:5174');
   });
 
-  it('rejects absolute redirect_uri on API origin', () => {
-    process.env.FRONTEND_PUBLIC_URL = 'http://192.168.1.11:5174';
-    expect(
-      resolveSafePostVerifyRedirect('http://192.168.1.11:3001/onboarding/business?verified=1'),
-    ).toBeNull();
+  it('returns localhost default in non-production when env is unset', () => {
+    expect(publicWebBase()).toBe('http://localhost:5174');
   });
 
-  it('resolves relative redirect_uri against dashboard base', () => {
-    process.env.FRONTEND_PUBLIC_URL = 'http://192.168.1.11:5174';
-    expect(resolveSafePostVerifyRedirect('/onboarding/business?verified=1')).toBe(
-      'http://192.168.1.11:5174/onboarding/business?verified=1',
-    );
+  it('returns empty string in production when unset and emptyInProductionIfUnset is true', () => {
+    process.env.NODE_ENV = 'production';
+    expect(publicWebBase({ emptyInProductionIfUnset: true })).toBe('');
   });
 });

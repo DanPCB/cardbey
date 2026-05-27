@@ -1,0 +1,9 @@
+{
+  "databaseLabel": "prisma/dev.db",
+  "schemaPrismaHash": "<from schema-fingerprint.json>",
+  "tableColumnHash": "<from schema-fingerprint.json>",
+  "acceptedMigrationCount": 111,
+  "migrationFolderCount": 118,
+  "acceptedAt": "2026-05-27T00:00:00.000Z",
+  "reason": "Option A conservative baseline verified"
+}

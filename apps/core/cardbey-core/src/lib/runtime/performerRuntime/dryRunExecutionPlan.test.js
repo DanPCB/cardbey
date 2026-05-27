@@ -142,4 +142,66 @@ describe('dryRunExecutionPlan', () => {
     expect(result.status).toBe('unsupported');
     expect(validateDryRunIntent({ actionType: 'bad', intentId: 'i', missionId: 'm1' }).ok).toBe(false);
   });
+
+  it('blocks publish_offer when latest offer draft is not approved', async () => {
+    const intent = {
+      ...baseIntent,
+      actionType: 'launch_first_offer',
+    };
+    const plan = {
+      ...basePlan,
+      actionType: 'launch_first_offer',
+      steps: [
+        { stepId: 'pub-0', capabilityId: 'publish_offer', kind: 'client_action', order: 0 },
+      ],
+    };
+    const result = await dryRunExecutionPlan({
+      missionId: 'm1',
+      intent,
+      plan,
+      executionRecords: [
+        {
+          capabilityId: 'create_offer_draft',
+          offerDraft: { status: 'approved', versionNumber: 1 },
+        },
+        {
+          capabilityId: 'revise_offer_draft',
+          offerDraft: { status: 'review_required', versionNumber: 2 },
+        },
+      ],
+    });
+    expect(result.status).toBe('blocked');
+    expect(result.blockedPrerequisites).toContain('offer_draft_approved');
+    expect(result.missingCapabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capabilityId: 'publish_offer',
+          blockReason: 'offer_draft_not_approved',
+        }),
+      ]),
+    );
+  });
+
+  it('does not block publish_offer on review when latest offer draft is approved', async () => {
+    const intent = {
+      ...baseIntent,
+      actionType: 'launch_first_offer',
+    };
+    const plan = {
+      ...basePlan,
+      actionType: 'launch_first_offer',
+      steps: [
+        { stepId: 'pub-0', capabilityId: 'publish_offer', kind: 'client_action', order: 0 },
+      ],
+    };
+    const result = await dryRunExecutionPlan({
+      missionId: 'm1',
+      intent,
+      plan,
+      reviewContext: { offerDraftStatus: 'approved' },
+    });
+    expect(result.blockedPrerequisites ?? []).not.toContain('offer_draft_approved');
+    const publishEntry = result.missingCapabilities?.find((c) => c.capabilityId === 'publish_offer');
+    expect(publishEntry?.blockReason).not.toBe('offer_draft_not_approved');
+  });
 });

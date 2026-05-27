@@ -2861,6 +2861,17 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
     });
   }
 
+  try {
+    const { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } = await import(
+      './publishSnapshotService.js'
+    );
+    if (isPublishSnapshotV1Enabled()) {
+      await refreshPublishSnapshotFromCurrentPreview(prisma, draftId);
+    }
+  } catch (snapErr) {
+    console.warn('[patchDraftPreview] publish snapshot sync failed (non-fatal):', snapErr?.message || snapErr);
+  }
+
   return getDraft(draftId);
 }
 
@@ -3114,146 +3125,221 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
   const commitAvatarUrl = meta.profileAvatarUrl ?? meta.logo ?? (preview.avatar && (preview.avatar.imageUrl ?? preview.avatar.url)) ?? preview.avatarImageUrl ?? (preview.brand && preview.brand.logoUrl) ?? null;
   const resolvedCommitAvatar = commitAvatarUrl == null ? null : typeof commitAvatarUrl === 'string' ? commitAvatarUrl : (commitAvatarUrl?.url ?? commitAvatarUrl?.imageUrl ?? null);
 
-  // Use transaction to ensure atomicity (reuse existing Business row when user already has one)
+  const commitItems =
+    Array.isArray(preview.items) && preview.items.length > 0
+      ? preview.items
+      : Array.isArray(preview.catalog?.products)
+        ? preview.catalog.products
+        : [];
+
+  if (commitItems.length === 0) {
+    throw new Error(
+      `COMMIT_DRAFT_FAILED: Draft ${draftId} has no catalog items in preview; refusing to clear store products`,
+    );
+  }
+
+  const {
+    CommitDraftStageTimer,
+    logOversizedPreviewIfNeeded,
+    prepareCatalogProductRows,
+    replaceStoreCatalogInBatches,
+    rollbackPartialCatalogWrites,
+  } = await import('./stagedCatalogPublish.js');
+  const { getPrismaInteractiveTransactionOptions } = await import('../../lib/prismaTransactionOptions.js');
+
+  const stageTimer = new CommitDraftStageTimer();
+  logOversizedPreviewIfNeeded(preview, draftId);
+
+  const commitCategoryMap = buildCategoryIdToNameMap(preview.categories ?? []);
+  const otherCategoryName = commitCategoryMap.get('other') ?? 'Other';
+
+  const phaseAStart = Date.now();
+  const { rows: preparedRows, preparedCount, skippedCount } = prepareCatalogProductRows(commitItems, {
+    categoryMap: commitCategoryMap,
+    otherCategoryName,
+    defaultCurrency: commitProductCurrency,
+  });
+  stageTimer.log('phase_a_prepare_catalog', {
+    itemCount: preparedCount,
+    durationMs: Date.now() - phaseAStart,
+    skippedCount,
+    sourceItemCount: commitItems.length,
+    draftId,
+  });
+
+  if (preparedCount === 0) {
+    throw new Error(
+      `COMMIT_DRAFT_FAILED: Draft ${draftId} has no valid catalog items after normalization`,
+    );
+  }
+
+  const txOpts = getPrismaInteractiveTransactionOptions();
   let result;
+  let shellBusinessId = null;
   try {
-    result = await prisma.$transaction(async (tx) => {
-    if (!user) {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      user = await tx.user.create({
-        data: {
-          email: email.toLowerCase().trim(),
-          passwordHash: hashedPassword,
-          displayName: name || preview.storeName || 'User',
-          hasBusiness: true,
-          onboarding: JSON.stringify({
-            completed: false,
-            currentStep: 'welcome',
-            steps: { welcome: false, profile: false, business: true },
-          }),
-        },
-      });
-    }
-
-    const publishedAtCommit = new Date();
-    const businessPayload = {
-      name: businessName,
-      type: businessType,
-      description: preview.heroText || preview.description || null,
-      primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
-      secondaryColor: preview.brandColors?.secondary || null,
-      tagline: preview.tagline || preview.slogan || null,
-      heroText: preview.heroText || null,
-      stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
-      heroImageUrl: commitHeroUrl || null,
-      avatarImageUrl: resolvedCommitAvatar || null,
-      publishedAt: publishedAtCommit,
-      isActive: true,
-    };
-
-    const existingBusiness = await tx.business.findFirst({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    let business;
-    if (existingBusiness) {
-      const slugForUpdate = await generateUniqueStoreSlugForTx(tx, businessName, existingBusiness.id);
-      business = await tx.business.update({
-        where: { id: existingBusiness.id },
-        data: {
-          ...businessPayload,
-          slug: slugForUpdate,
-        },
-      });
-    } else {
-      const slug = await generateUniqueStoreSlugForTx(tx, businessName);
-      business = await tx.business.create({
-        data: {
-          userId: user.id,
-          slug,
-          ...businessPayload,
-        },
-      });
-    }
-
-    // Replace catalog from draft (avoids duplicate products when recommitting to an existing store)
-    await tx.product.deleteMany({ where: { businessId: business.id } });
-
-    const commitItems =
-      Array.isArray(preview.items) && preview.items.length > 0
-        ? preview.items
-        : Array.isArray(preview.catalog?.products)
-          ? preview.catalog.products
-          : [];
-
-    if (commitItems.length === 0) {
-      throw new Error(
-        `COMMIT_DRAFT_FAILED: Draft ${draftId} has no catalog items in preview; refusing to clear store products`,
-      );
-    }
-
-    const commitCategoryMap = buildCategoryIdToNameMap(preview.categories ?? []);
-    const otherCategoryName = commitCategoryMap.get('other') ?? 'Other';
-
-    // Create products from draft
-    const createdProducts = [];
-    for (const item of commitItems) {
-      if (!item || typeof item !== 'object') continue;
-      const nameTrim = typeof item.name === 'string' ? item.name.trim() : '';
-      if (!nameTrim) continue;
-      try {
-        const imageUrl = resolveDraftItemImageUrl(item);
-        const categoryName = resolveDraftProductCategoryName(item, commitCategoryMap, otherCategoryName);
-        const price = normalizeDraftProductPrice(item);
-        const product = await tx.product.create({
+    const shellStart = Date.now();
+    stageTimer.beginTransaction();
+    const shell = await prisma.$transaction(async (tx) => {
+      if (!user) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        user = await tx.user.create({
           data: {
-            businessId: business.id,
-            name: nameTrim,
-            description: item.description || null,
-            price,
-            currency:
-              (item.currency != null && String(item.currency).trim()
-                ? String(item.currency).trim().toUpperCase()
-                : null) || commitProductCurrency,
-            category: categoryName || otherCategoryName,
-            imageUrl,
-            isPublished: true,
-            viewCount: 0,
-            likeCount: 0,
+            email: email.toLowerCase().trim(),
+            passwordHash: hashedPassword,
+            displayName: name || preview.storeName || 'User',
+            hasBusiness: true,
+            onboarding: JSON.stringify({
+              completed: false,
+              currentStep: 'welcome',
+              steps: { welcome: false, profile: false, business: true },
+            }),
           },
         });
-        createdProducts.push(product);
-      } catch (productError) {
-        console.warn(`[DraftStore] Failed to create product "${item.name}":`, productError);
-        // Continue with other products
       }
-    }
 
-    // Mark draft as committed with timestamp (tx for atomic update; syncPrisma so WorkflowRun sync uses full client)
-    await transitionDraftStoreStatus({
-      prisma: tx,
-      syncPrisma: prisma,
+      const publishedAtCommit = new Date();
+      const businessPayload = {
+        name: businessName,
+        type: businessType,
+        description: preview.heroText || preview.description || null,
+        primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
+        secondaryColor: preview.brandColors?.secondary || null,
+        tagline: preview.tagline || preview.slogan || null,
+        heroText: preview.heroText || null,
+        stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
+        heroImageUrl: commitHeroUrl || null,
+        avatarImageUrl: resolvedCommitAvatar || null,
+        publishedAt: publishedAtCommit,
+        isActive: true,
+      };
+
+      const { resolveStoreWriteMode, logStoreIdentity, isMultiStoreIdentityV1Enabled } = await import(
+        '../store/storeIdentity.js'
+      );
+      const targetStoreId =
+        businessFields?.targetStoreId ??
+        businessFields?.existingStoreId ??
+        draft.committedStoreId ??
+        null;
+      const writeMode = isMultiStoreIdentityV1Enabled()
+        ? resolveStoreWriteMode({ draft, targetStoreId })
+        : { mode: 'legacy', storeId: null, reason: 'legacy_singleton' };
+
+      let business;
+      if (writeMode.mode === 'update' && writeMode.storeId) {
+        const existingRow = await tx.business.findFirst({
+          where: { id: writeMode.storeId, userId: user.id },
+        });
+        if (!existingRow) {
+          throw new Error(
+            `COMMIT_DRAFT_FAILED: Cannot update store ${writeMode.storeId} — not found or not owned by user`,
+          );
+        }
+        const slugForUpdate = await generateUniqueStoreSlugForTx(tx, businessName, existingRow.id);
+        business = await tx.business.update({
+          where: { id: existingRow.id },
+          data: {
+            ...businessPayload,
+            slug: slugForUpdate,
+          },
+        });
+        logStoreIdentity('STORE_IDENTITY_COMMIT_UPDATE', {
+          draftId,
+          storeId: business.id,
+          mode: 'update',
+          reason: writeMode.reason,
+          ownerId: user.id,
+        });
+      } else {
+        const slug = await generateUniqueStoreSlugForTx(tx, businessName);
+        business = await tx.business.create({
+          data: {
+            userId: user.id,
+            slug,
+            ...businessPayload,
+          },
+        });
+        logStoreIdentity('STORE_IDENTITY_COMMIT_CREATE', {
+          draftId,
+          storeId: business.id,
+          mode: 'create',
+          reason: writeMode.reason ?? 'greenfield',
+          ownerId: user.id,
+        });
+      }
+
+      await tx.product.deleteMany({ where: { businessId: business.id } });
+      return { user, business };
+    }, txOpts);
+    stageTimer.log('phase_b_catalog_shell', {
+      itemCount: preparedCount,
+      durationMs: Date.now() - shellStart,
+      transactionOpenMs: stageTimer.endTransaction(),
       draftId,
-      toStatus: 'committed',
-      fromStatus: 'ready',
-      actorType: 'human',
-      actorId: user.id,
-      reason: 'PUBLISH',
-      extraData: {
-        committedAt: new Date(),
-        committedStoreId: business.id,
-        committedUserId: user.id,
-      },
     });
 
-    return {
-      user,
-      business,
-      products: createdProducts,
+    shellBusinessId = shell.business.id;
+    const batchStart = Date.now();
+    let batchResult;
+    try {
+      batchResult = await replaceStoreCatalogInBatches(prisma, {
+        businessId: shell.business.id,
+        rows: preparedRows,
+        timer: stageTimer,
+        draftId,
+      });
+    } catch (batchErr) {
+      await rollbackPartialCatalogWrites(prisma, shell.business.id, {
+        draftId,
+        reason: batchErr?.message || 'catalog_batch_failed',
+      });
+      throw batchErr;
+    }
+    stageTimer.log('phase_c_catalog_batches', {
+      itemCount: batchResult.written,
+      durationMs: Date.now() - batchStart,
+      writeAmplification: batchResult.writeAmplification,
+      draftId,
+    });
+
+    const finalizeStart = Date.now();
+    stageTimer.beginTransaction();
+    await prisma.$transaction(async (tx) => {
+      await transitionDraftStoreStatus({
+        prisma: tx,
+        syncPrisma: prisma,
+        draftId,
+        toStatus: 'committed',
+        fromStatus: 'ready',
+        actorType: 'human',
+        actorId: shell.user.id,
+        reason: 'PUBLISH',
+        extraData: {
+          committedAt: new Date(),
+          committedStoreId: shell.business.id,
+          committedUserId: shell.user.id,
+        },
+      });
+    }, txOpts);
+    stageTimer.log('phase_d_finalize_draft', {
+      itemCount: batchResult.written,
+      durationMs: Date.now() - finalizeStart,
+      transactionOpenMs: stageTimer.endTransaction(),
+      draftId,
+    });
+
+    result = {
+      user: shell.user,
+      business: shell.business,
+      itemsCreated: batchResult.written,
     };
-  });
   } catch (err) {
+    if (shellBusinessId) {
+      await rollbackPartialCatalogWrites(prisma, shellBusinessId, {
+        draftId,
+        reason: err?.message || 'commit_finalize_failed',
+      }).catch(() => {});
+    }
     if (err?.code === 'P2002') {
       const uid = existingUserId ?? draft?.ownerUserId;
       console.error('[commitDraft] Unique constraint failed:', {
@@ -3273,7 +3359,7 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
   // Generate JWT token for the new user
   const token = generateToken(result.user.id);
 
-  console.log(`[DraftStore] Commit done for draft ${draftId}: storeId=${result.business.id}, userId=${result.user.id}, itemsCreated=${result.products.length}`);
+  console.log(`[DraftStore] Commit done for draft ${draftId}: storeId=${result.business.id}, userId=${result.user.id}, itemsCreated=${result.itemsCreated}`);
 
   return {
     ok: true,
@@ -3281,7 +3367,7 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
     businessId: result.business.id,
     storeId: result.business.id, // Alias for backward compatibility
     storeSlug: result.business.slug,
-    itemsCreated: result.products.length,
+    itemsCreated: result.itemsCreated,
     token, // JWT token for immediate login
     redirectTo: `/app/back`, // Redirect to dashboard (store management)
   };

@@ -5,7 +5,7 @@
  * - Success verification
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -57,7 +57,8 @@ describe('POST /api/auth/request-verification', () => {
 
     expect(response.body.ok).toBe(true);
     // Non-production returns token for testing
-    if (response.body.token) expect(response.body.token.length).toBe(64);
+    // Raw token is base64url (32 bytes → 43 chars), not 64-char hex
+    if (response.body.token) expect(response.body.token.length).toBe(43);
 
     const user = await prisma.user.findUnique({
       where: { id: testUser.id }
@@ -216,6 +217,61 @@ describe('GET /api/auth/verify/confirm', () => {
   });
 });
 
+describe('post-verify dashboard redirect (via verify/confirm)', () => {
+  const savedEnv = {};
+
+  beforeEach(() => {
+    for (const k of ['PUBLIC_APP_URL', 'DASHBOARD_URL']) {
+      savedEnv[k] = process.env[k];
+      delete process.env[k];
+    }
+    process.env.DASHBOARD_URL = 'http://192.168.1.11:5174';
+  });
+
+  afterEach(() => {
+    for (const k of ['PUBLIC_APP_URL', 'DASHBOARD_URL']) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+  });
+
+  it('redirects relative redirect_uri to DASHBOARD_URL origin', async () => {
+    const requestRes = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const rawToken = requestRes.body.token;
+
+    const confirmRes = await testRequest
+      .get(
+        `/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}&redirect_uri=${encodeURIComponent('/onboarding/business?verified=1')}`,
+      )
+      .expect(302);
+
+    expect(confirmRes.headers.location).toBe(
+      'http://192.168.1.11:5174/onboarding/business?verified=1',
+    );
+  });
+
+  it('returns JSON instead of redirect when redirect_uri is an absolute URL', async () => {
+    const requestRes = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const rawToken = requestRes.body.token;
+
+    const confirmRes = await testRequest
+      .get(
+        `/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}&redirect_uri=${encodeURIComponent('http://192.168.1.11:3001/onboarding/business?verified=1')}`,
+      )
+      .expect(200);
+
+    expect(confirmRes.body.ok).toBe(true);
+    expect(confirmRes.body.verified).toBe(true);
+    expect(confirmRes.headers.location).toBeUndefined();
+  });
+});
+
 describe('GET /api/auth/verify', () => {
   it('should verify email with valid token (using token from request response)', async () => {
     const requestRes = await testRequest
@@ -328,7 +384,7 @@ describe('Token generation', () => {
     expect(user.verificationToken.length).toBe(64);
   });
 
-  it('should generate unique tokens', async () => {
+  it('should rotate token on every request', async () => {
     const hashes = new Set();
     for (let i = 0; i < 5; i++) {
       await testRequest
@@ -338,8 +394,7 @@ describe('Token generation', () => {
       const user = await prisma.user.findUnique({ where: { id: testUser.id } });
       hashes.add(user.verificationToken);
     }
-    // Current behavior prefers reusing a valid token rather than rotating each request.
-    expect(hashes.size).toBe(1);
+    expect(hashes.size).toBe(5);
   });
 
   it('GET /api/auth/me includes emailVerified after verification', async () => {
@@ -358,7 +413,7 @@ describe('Token generation', () => {
     expect(meRes.body.user.emailVerified).toBe(true);
   });
 
-  it('should set expiry to 30 minutes from now', async () => {
+  it('should set expiry to 24 hours from now in non-production', async () => {
     await testRequest
       .post('/api/auth/request-verification')
       .set('Authorization', `Bearer ${testToken}`)
@@ -367,8 +422,8 @@ describe('Token generation', () => {
     const expiresAt = new Date(user.verificationExpires).getTime();
     const now = Date.now();
     const minutesUntilExpiry = (expiresAt - now) / (1000 * 60);
-    expect(minutesUntilExpiry).toBeGreaterThan(29);
-    expect(minutesUntilExpiry).toBeLessThan(31);
+    expect(minutesUntilExpiry).toBeGreaterThan(23 * 60);
+    expect(minutesUntilExpiry).toBeLessThan(25 * 60);
   });
 });
 

@@ -5,7 +5,15 @@ build/
 *.db
 *.db-journal
 *.db*
+# Ghost SQLite paths (Prisma CLI mis-resolution); canonical DB is prisma/dev.db only
+prisma/sqlite/prisma/
+prisma/prisma/
+test.db
+docs/db/baseline-acceptance.local.json
 models/
 *.pt
 
 uploads/
+
+# Maintenance patch backups — for local recovery only
+*.patch.bak

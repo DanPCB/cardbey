@@ -1,18 +1,26 @@
 /**
  * DANH: sqlite-schema-drift-fix — runtime flags for schema differences (SQLite local vs Postgres prod).
- * Pure config; no Prisma imports.
+ * Capability detection is centralized in lib/persistence/dbCapabilityRegistry.js.
  */
 
 import { coerceServiceCtaLabel, isServiceVertical } from './storeTransactionMode.js';
+import { getDbCapabilities, resolveDbProvider } from './persistence/dbCapabilityRegistry.js';
 
 /** @type {string} */
-export const DB_PROVIDER = process.env.DATABASE_PROVIDER ?? 'sqlite';
+export const DB_PROVIDER = resolveDbProvider();
+
+const _caps = () => getDbCapabilities();
 
 export const dbSupports = {
-  /** Business.transactionMode, catalogLabel, ctaLabel (Postgres migration 20260518120000). */
-  extendedBusinessFields: DB_PROVIDER !== 'sqlite',
-  // DANH: sqlite-schema-drift-fix — Prisma mode:"insensitive" is Postgres-only
-  caseInsensitiveMode: DB_PROVIDER !== 'sqlite',
+  get extendedBusinessFields() {
+    return _caps().supportsExtendedBusinessFields;
+  },
+  get caseInsensitiveMode() {
+    return _caps().supportsCaseInsensitiveMode;
+  },
+  get createManySkipDuplicates() {
+    return _caps().supportsCreateManySkipDuplicates;
+  },
 };
 
 // DANH: sqlite-schema-drift-fix

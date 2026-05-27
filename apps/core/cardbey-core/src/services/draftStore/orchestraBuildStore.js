@@ -528,7 +528,9 @@ export async function createBuildStoreJob(
     user = null,
   },
 ) {
-  const finalStoreId = storeId || 'temp';
+  const { isExplicitStoreId } = await import('../store/storeIdentity.js');
+  const explicitUpdate = isExplicitStoreId(storeId);
+  const finalStoreId = explicitUpdate ? String(storeId).trim() : 'temp';
   const runId = clientRunId && typeof clientRunId === 'string' && clientRunId.trim() ? clientRunId.trim() : null;
   let normalizedIntent = 'store';
   if (intentMode != null && String(intentMode).trim()) {
@@ -681,7 +683,7 @@ export async function createBuildStoreJob(
         mode: resolvedDraftMode,
         status: 'generating',
         generationRunId: resolvedRunId,
-        committedStoreId: finalStoreId,
+        ...(explicitUpdate ? { committedStoreId: finalStoreId } : {}),
       });
     }
     createdDraftId = createdDraft.id;

@@ -174,7 +174,8 @@ router.get('/orchestra/templates/suggestions', optionalAuth, handleTemplateSugge
 /**
  * Helper to extract tenant/store context (reused from creativeTemplates routes)
  */
-function requireTenantStoreContext(req) {
+function requireTenantStoreContext(req, options = {}) {
+  const allowActiveStoreFallback = options.allowActiveStoreFallback !== false;
   // Try to extract from query params first (highest priority)
   let tenantId = req.query.tenantId;
   let storeId = req.query.storeId;
@@ -187,19 +188,25 @@ function requireTenantStoreContext(req) {
   if (!tenantId && req.userId) {
     tenantId = req.userId; // Use userId as tenantId
   }
-  if (!storeId && req.user?.businesses?.[0]?.id) {
-    storeId = req.user.businesses?.[0].id; // Use business.id as storeId
+  if (allowActiveStoreFallback && !storeId && req.user?.businesses?.[0]?.id) {
+    storeId = req.user.businesses[0].id; // Use business.id as storeId
   }
   
   // Legacy fallback
   if (!tenantId) tenantId = req.user?.businesses?.[0]?.tenantId || req.workspace?.tenantId;
-  if (!storeId) storeId = req.user?.businesses?.[0]?.storeId || req.workspace?.storeId;
+  if (allowActiveStoreFallback && !storeId) {
+    storeId = req.user?.businesses?.[0]?.storeId || req.workspace?.storeId;
+  }
   
   // For dev mode, allow default tenant/store when none is passed
   const isDev = process.env.NODE_ENV !== 'production';
   if (isDev) {
     tenantId = tenantId || process.env.DEV_TENANT_ID || req.userId || 'temp';
-    storeId = storeId || process.env.DEV_STORE_ID || req.user?.businesses?.[0]?.id || 'temp';
+    if (allowActiveStoreFallback) {
+      storeId = storeId || process.env.DEV_STORE_ID || req.user?.businesses?.[0]?.id || 'temp';
+    } else {
+      storeId = storeId || process.env.DEV_STORE_ID || 'temp';
+    }
   }
   
   // Convert to strings and trim
@@ -917,9 +924,21 @@ async function handleOrchestraStart(req, res) {
       });
     }
 
-    const { tenantId: contextTenantId, storeId: contextStoreId } = requireTenantStoreContext(req);
+    const isBuildStoreGoalEarly =
+      goal === 'build_store' ||
+      goal === 'store_build' ||
+      entryPoint === 'build_store';
+    const { tenantId: contextTenantId, storeId: contextStoreId } = requireTenantStoreContext(req, {
+      allowActiveStoreFallback: !isBuildStoreGoalEarly,
+    });
     const finalTenantId = tenantId || contextTenantId || req.userId;
-    const finalStoreId = storeId || contextStoreId;
+    const bodyStoreExplicit =
+      storeId && typeof storeId === 'string' && storeId.trim() && storeId.trim() !== 'temp'
+        ? storeId.trim()
+        : null;
+    const finalStoreId = isBuildStoreGoalEarly
+      ? bodyStoreExplicit || 'temp'
+      : storeId || contextStoreId || 'temp';
 
     if (!finalTenantId) {
       return res.status(400).json({
