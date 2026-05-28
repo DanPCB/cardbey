@@ -110,5 +110,7 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile || pnpm install
         working-directory: .
+      - name: Check i18n coverage (no new gap regressions)
+        run: pnpm run i18n:check
       - name: Vitest run
         run: pnpm exec vitest run

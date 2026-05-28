@@ -225,6 +225,9 @@ const TOOLS = [
     category: 'maintenance',
     targetTypes: ['generic'],
     requiresConfirmation: false,
+    riskLevel: 'safe_read',
+    missionTypes: ['MAINTENANCE'],
+    requiresOperatorSession: true,
   },
   {
     toolName: 'propose_patch',
@@ -233,6 +236,9 @@ const TOOLS = [
     category: 'maintenance',
     targetTypes: ['generic'],
     requiresConfirmation: false,
+    riskLevel: 'safe_read',
+    missionTypes: ['MAINTENANCE'],
+    requiresOperatorSession: true,
   },
   {
     toolName: 'apply_patch',
@@ -244,10 +250,100 @@ const TOOLS = [
     requiresConfirmation: true,
     riskLevel: 'state_change',
     missionTypes: ['MAINTENANCE'],
+    requiresOperatorSession: true,
   },
 ];
 
-const BY_NAME = new Map(TOOLS.map((t) => [t.toolName, t]));
+// NOTE: Keep TOOLS stable for proactive runway contracts/tests. These internal
+// tools are available for dispatch + executionGateway auth lookup, but they are
+// not part of the proactive runway allowlist.
+const INTERNAL_MAINTENANCE_TOOLS = [
+  // file_read
+  {
+    toolName: 'file_read',
+    label: 'File read',
+    description: 'Reads a source file from the repo.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    riskLevel: 'safe_read',
+    missionTypes: ['MAINTENANCE'],
+    requiresConfirmation: false,
+    requiresOperatorSession: true,
+  },
+  // file_write
+  {
+    toolName: 'file_write',
+    label: 'File write',
+    description: 'Writes content to a source file.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    riskLevel: 'state_change',
+    missionTypes: ['MAINTENANCE'],
+    requiresConfirmation: true,
+    requiresOperatorSession: true,
+  },
+  // read_mission_log
+  {
+    toolName: 'read_mission_log',
+    label: 'Read mission log',
+    description: 'Reads mission execution logs from MissionBlackboard.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    riskLevel: 'safe_read',
+    missionTypes: ['MAINTENANCE'],
+    requiresConfirmation: false,
+    requiresOperatorSession: true,
+  },
+  // restart_service
+  {
+    toolName: 'restart_service',
+    label: 'Restart service',
+    description: 'Restarts a backend service process.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    riskLevel: 'destructive',
+    missionTypes: ['MAINTENANCE'],
+    requiresConfirmation: true,
+    requiresOperatorSession: true,
+  },
+  // query_control_tower
+  {
+    toolName: 'query_control_tower',
+    label: 'Query Control Tower',
+    description:
+      'Reads Control Tower telemetry, deployment gates, and mission corrections to identify what needs fixing.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    riskLevel: 'safe_read',
+    missionTypes: ['MAINTENANCE'],
+    requiresConfirmation: false,
+    requiresOperatorSession: true,
+  },
+  {
+    toolName: 'detect_i18n_gaps',
+    label: 'Detect i18n gaps',
+    description: 'Scans dashboard src for hardcoded UI strings missing from i18n.js.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    riskLevel: 'safe_read',
+    missionTypes: ['MAINTENANCE'],
+    requiresConfirmation: false,
+    requiresOperatorSession: true,
+  },
+  {
+    toolName: 'apply_i18n_translations',
+    label: 'Apply i18n translations',
+    description: 'Translates detected gaps via Claude and merges keys into dashboard i18n.js.',
+    category: 'maintenance',
+    targetTypes: ['generic'],
+    riskLevel: 'state_change',
+    missionTypes: ['MAINTENANCE'],
+    requiresConfirmation: true,
+    requiresOperatorSession: true,
+  },
+];
+
+const BY_NAME = new Map([...TOOLS, ...INTERNAL_MAINTENANCE_TOOLS].map((t) => [t.toolName, t]));
 
 if (process.env.NODE_ENV !== 'production') {
   console.log(`[ToolRegistry] loaded tools: ${TOOLS.length}`);

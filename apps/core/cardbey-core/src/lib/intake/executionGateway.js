@@ -10,35 +10,16 @@
  * - Must not bypass injected dispatchTool for execution
  */
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-/**
- * Tools that are only available in MAINTENANCE mission context.
- * These will be rejected if missionType !== 'MAINTENANCE'.
- */
-const MAINTENANCE_ONLY_TOOLS = new Set([
-  'file_read',
-  'file_write',
-  'audit_codebase',
-  'propose_patch',
-  'apply_patch',
-  'read_mission_log',
-  'restart_service',
-]);
-
-/**
- * Tools that require operator role regardless of mission type.
- */
-const OPERATOR_ONLY_TOOLS = new Set([
-  'apply_patch',
-  'restart_service',
-]);
+import { getToolDefinition } from '../toolRegistry.js';
 
 /**
  * Risk levels that block auto-apply — operator must confirm manually.
  */
 const HIGH_RISK_PATCH_ACTIONS = new Set([
   'apply_patch',
+  'apply_i18n_translations',
+  'file_write',
+  'restart_service',
 ]);
 
 // ─── Typedefs ─────────────────────────────────────────────────────────────────
@@ -109,11 +90,11 @@ function isMaintenanceMission(context) {
 }
 
 /**
- * Returns true if the current user is an operator.
+ * Returns true if the current request is an operator session.
  * @param {GatewayContext} context
  */
-function isOperator(context) {
-  return context?.userRole === 'operator';
+function isOperatorSession(context) {
+  return context?.operatorSession === true;
 }
 
 /**
@@ -123,17 +104,21 @@ function isOperator(context) {
  * @returns {{ blocked: boolean; reason?: string }}
  */
 function checkToolAuthorization(toolName, context) {
-  if (OPERATOR_ONLY_TOOLS.has(toolName) && !isOperator(context)) {
+  const toolDef = getToolDefinition(toolName);
+  if (!toolDef) return { blocked: false };
+
+  if (toolDef.requiresOperatorSession && !isOperatorSession(context)) {
     return {
       blocked: true,
-      reason: `Tool "${toolName}" requires operator role. Current role: ${context?.userRole ?? 'unknown'}.`,
+      reason: `Tool "${toolName}" requires operator session.`,
     };
   }
 
-  if (MAINTENANCE_ONLY_TOOLS.has(toolName) && !isMaintenanceMission(context)) {
+  const allowedMissionTypes = Array.isArray(toolDef.missionTypes) ? toolDef.missionTypes : [];
+  if (allowedMissionTypes.length > 0 && !allowedMissionTypes.includes(context?.missionType)) {
     return {
       blocked: true,
-      reason: `Tool "${toolName}" is only available in MAINTENANCE missions. Current mission type: ${context?.missionType ?? 'unset'}.`,
+      reason: `Tool "${toolName}" is only available in ${allowedMissionTypes.join('/')} missions.`,
     };
   }
 
@@ -220,7 +205,7 @@ export async function executionGateway({ decision, context, dispatchTool }) {
         );
       }
 
-      if (!isOperator(context)) {
+      if (!isOperatorSession(context)) {
         return unsupportedResponse(
           'self_patch decisions require operator role.',
           'self_patch'
@@ -258,18 +243,143 @@ export async function executionGateway({ decision, context, dispatchTool }) {
         context
       );
 
+      if (proposal?.status === 'failed') {
+        return {
+          action: 'chat',
+          message:
+            proposal?.error?.message ??
+            'Audit succeeded but could not generate a patch proposal.',
+        };
+      }
+
+      const proposalFile = proposal?.file ?? auditResult.file ?? '';
+      const proposalPatch = proposal?.patch ?? '';
+
       return {
         action: 'approval_required',
         tool: 'apply_patch',
         parameters: {
-          file: proposal.file,
-          patch: proposal.patch,
+          file: proposalFile,
+          patch: proposalPatch,
         },
         confirmation: {
-          message: proposal.explanation,
-          riskLevel: proposal.riskLevel ?? 'medium',
-          diff: proposal.patch,
-          auditSource: auditResult.file,
+          message: proposal?.explanation ?? '',
+          riskLevel: proposal?.riskLevel ?? 'medium',
+          diff: proposalPatch,
+          auditSource: auditResult.file ?? '',
+        },
+      };
+    }
+
+    // ── i18n sync (maintenance operator session) ─────────────────────────────
+    case 'i18n_sync': {
+      if (!isMaintenanceMission(context)) {
+        return unsupportedResponse(
+          'i18n_sync decisions require missionType: MAINTENANCE.',
+          'i18n_sync',
+        );
+      }
+
+      if (!isOperatorSession(context)) {
+        return unsupportedResponse(
+          'i18n_sync decisions require operator session.',
+          'i18n_sync',
+        );
+      }
+
+      const detectAuth = checkToolAuthorization('detect_i18n_gaps', context);
+      if (detectAuth.blocked) {
+        return unsupportedResponse(detectAuth.reason, 'detect_i18n_gaps');
+      }
+
+      const gaps = await dispatchTool('detect_i18n_gaps', {}, context);
+      const count = Number(gaps?.count ?? 0);
+      const fileCount = Number(gaps?.fileCount ?? 0);
+
+      if (count === 0) {
+        return {
+          action: 'chat',
+          message: '✅ All strings are translated. No gaps found.',
+          data: { gaps },
+        };
+      }
+
+      const mode = decision.mode === 'sync' ? 'sync' : 'check';
+
+      if (mode === 'check') {
+        return {
+          action: 'chat',
+          message: `Found ${count} untranslated strings across ${fileCount} files. Say "update translations" to generate Vietnamese entries.`,
+          data: { gaps },
+        };
+      }
+
+      const applyAuth = checkToolAuthorization('apply_i18n_translations', context);
+      if (applyAuth.blocked) {
+        return unsupportedResponse(applyAuth.reason, 'apply_i18n_translations');
+      }
+
+      const preview = await dispatchTool(
+        'apply_i18n_translations',
+        { gaps: gaps?.items ?? [], dryRun: true },
+        context,
+      );
+
+      return {
+        action: 'approval_required',
+        tool: 'apply_i18n_translations',
+        parameters: { gaps: gaps?.items ?? [] },
+        confirmation: {
+          message: `Found ${count} untranslated strings across ${fileCount} files. Claude has generated VI translations for review. Apply to i18n.js?`,
+          riskLevel: 'low',
+          diff: preview?.preview ?? preview?.log ?? '',
+        },
+      };
+    }
+
+    // ── Control Tower Query ───────────────────────────────────────────────────
+    case 'control_tower_query': {
+      const authCheck = checkToolAuthorization('query_control_tower', context);
+      if (authCheck.blocked) {
+        return unsupportedResponse(authCheck.reason, 'query_control_tower');
+      }
+
+      const summary = await dispatchTool('query_control_tower', {}, context);
+      const actionableBlockers = Array.isArray(summary?.blockers)
+        ? summary.blockers.filter((b) => b && typeof b === 'object' && b.actionable)
+        : [];
+
+      const tracedBlockers = await Promise.all(
+        actionableBlockers.map(async (blocker) => {
+          const audit = await dispatchTool(
+            'audit_codebase',
+            {
+              errorMessage: blocker.description,
+              stackTrace: '',
+              context: blocker.source,
+            },
+            context
+          ).catch(() => null);
+
+          return {
+            ...blocker,
+            tracedFile: audit?.file ?? null,
+            errorType: audit?.errorType ?? 'unknown',
+            codeSnippet: audit?.codeSnippet ?? null,
+          };
+        }),
+      );
+
+      // Lazy import to keep gateway lightweight and avoid circulars.
+      const { formatControlTowerSummary: fmt } = await import('./controlTowerQuery.js');
+
+      return {
+        action: 'chat',
+        message: fmt(summary, tracedBlockers),
+        data: {
+          summary,
+          tracedBlockers,
+          suggestedNextFix: tracedBlockers.find((b) => b.tracedFile !== null) ?? null,
         },
       };
     }

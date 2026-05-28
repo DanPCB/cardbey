@@ -49,6 +49,9 @@ import * as mutate_poster from './mutatePoster.js';
 import * as audit_codebase from './maintenance/audit_codebase.js';
 import * as propose_patch from './maintenance/propose_patch.js';
 import * as apply_patch from './maintenance/apply_patch.js';
+import * as query_control_tower from './maintenance/query_control_tower.js';
+import * as detect_i18n_gaps from './maintenance/detect_i18n_gaps.js';
+import * as apply_i18n_translations from './maintenance/apply_i18n_translations.js';
 import { getPrismaClient } from '../prisma.js';
 import { scanHardcodedStrings } from './i18n/scanHardcodedStrings.js'
 import { checkI18nKey }         from './i18n/checkI18nKey.js'
@@ -126,6 +129,9 @@ export const executors = {
   audit_codebase,
   propose_patch,
   apply_patch,
+  query_control_tower,
+  detect_i18n_gaps,
+  apply_i18n_translations,
   // i18n repair agent tools
   scanHardcodedStrings: wrapI18nExecutor(scanHardcodedStrings),
   checkI18nKey: wrapI18nExecutor(checkI18nKey),

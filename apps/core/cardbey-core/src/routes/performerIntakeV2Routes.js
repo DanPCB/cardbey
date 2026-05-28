@@ -2,9 +2,12 @@
  * POST /api/performer/intake/v2
  *
  * Layers: system shortcuts → classifier → contract validation → plan normalize → execution policy → response.
+ *
+ * Error shape (route layer): { error: string, detail?: string }
  */
 
 import express from 'express';
+import crypto from 'node:crypto';
 import { requireUserOrGuest } from '../middleware/guestAuth.js';
 import { classifyIntent } from '../lib/intake/intakeClassifier.js';
 import {
@@ -116,9 +119,21 @@ import {
 import { planNextSteps } from '../lib/missionCompletion/nextStepPlanner.js';
 import { executionGateway } from '../lib/intake/executionGateway.js';
 import { superAdminOnly } from '../lib/intake/guardPolicy.js';
+import { buildMaintenanceContext } from '../lib/intake/buildMaintenanceContext.js';
 import { mapPlannerDecisionToIntakeResponse } from '../lib/intake/mapPlannerDecisionToIntakeResponse.js';
 import { getMissionById } from '../lib/missionBlackboard.js';
 import { dispatchTool } from '../lib/toolDispatcher.js';
+import { reactPlanner } from '../lib/intake/reactPlanner.js';
+import { formatControlTowerSummary } from '../lib/intake/controlTowerQuery.js';
+import { normalizeLocale } from '../lib/localePrompt.js';
+import fs from 'node:fs';
+import path from 'node:path';
+
+function withPipelineLocale(metadata, locale) {
+  const base =
+    metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? { ...metadata } : {};
+  return { ...base, locale: normalizeLocale(locale ?? base.locale ?? base.preferredLocale ?? base.lang) };
+}
 
 const VALID_MISSION_TYPES = new Set([
   'STORE_MANAGEMENT',
@@ -127,7 +142,7 @@ const VALID_MISSION_TYPES = new Set([
   'MAINTENANCE',
 ]);
 
-const VALID_USER_ROLES = new Set(['operator', 'owner', 'guest']);
+const VALID_USER_ROLES = new Set(['operator', 'owner', 'guest', 'super_admin', 'generic_operator']);
 
 function resolveMissionType(req, existingMission) {
   const from = (req.body?.missionType ?? existingMission?.missionType ?? 'STORE_MANAGEMENT').toUpperCase();
@@ -135,23 +150,41 @@ function resolveMissionType(req, existingMission) {
 }
 
 function resolveUserRole(req) {
-  // TODO: replace with req.user?.role once auth middleware is wired
-  const from = (req.body?.userRole ?? req.headers?.['x-performer-role'] ?? 'owner').toLowerCase();
-  return VALID_USER_ROLES.has(from) ? from : 'owner';
+  const from =
+    req.body?.userRole ??
+    req.headers?.['x-performer-role'] ??
+    req.user?.role ??
+    'owner';
+  const normalized = String(from ?? '').toLowerCase();
+  return VALID_USER_ROLES.has(normalized) ? normalized : 'owner';
 }
 
 async function buildContext(req, existingMission) {
+  const localeRaw = req.body?.locale ?? req.headers?.['x-locale'] ?? req.headers?.['accept-language'];
+  const locale =
+    typeof localeRaw === 'string' && localeRaw.trim()
+      ? localeRaw.trim().toLowerCase().split(',')[0].split('-')[0]
+      : 'en';
   return {
     missionId: req.body?.missionId ?? existingMission?.id ?? null,
     storeId: req.body?.storeId ?? existingMission?.storeId ?? null,
     userId: req.body?.userId ?? null,
     missionType: resolveMissionType(req, existingMission),
     userRole: resolveUserRole(req),
+    locale,
     rawUserMessage: req.body?.userMessage ?? '',
     intakeV2Selection: req.body?.intakeV2Selection ?? null,
     originalGoal: req.body?.intakeV2Selection?.originalGoal ?? req.body?.userMessage ?? '',
     mission: existingMission ?? null,
   };
+}
+
+async function maintenanceDispatchTool(toolName, parameters, toolContext) {
+  const result = await dispatchTool(toolName, parameters, toolContext);
+  if (result?.status === 'ok' && result.output != null) {
+    return typeof result.output === 'object' ? result.output : { value: result.output };
+  }
+  return result;
 }
 
 const router = express.Router();
@@ -551,23 +584,25 @@ async function maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams) 
 }
 
 async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req }) {
-  const { guardBrokerDirectAction } = await import('../lib/broker/brokerRunwayGuard.js');
-  const directGuard = guardBrokerDirectAction();
-  if (directGuard.blocked) {
-    return {
-      toolResult: {
-        status: 'blocked',
-        blocker: {
-          code: directGuard.code,
-          message: directGuard.message,
-        },
-      },
-      payload: { ...cleanedParams, missionId: missionId ?? null },
-    };
-  }
-
   const { isBrokerDirectViaFacadeEnabled } = await import('../lib/broker/brokerFlags.js');
   const { isPerformerRuntimeEnabled } = await import('../lib/runtime/performerRuntime/runtimeFlags.js');
+  // Stage D: Block only legacy direct_action bypass. Runtime-owned and facade-owned paths remain allowed.
+  if (!isPerformerRuntimeEnabled() && !isBrokerDirectViaFacadeEnabled()) {
+    const { guardBrokerDirectAction } = await import('../lib/broker/brokerRunwayGuard.js');
+    const directGuard = guardBrokerDirectAction();
+    if (directGuard.blocked) {
+      return {
+        toolResult: {
+          status: 'blocked',
+          blocker: {
+            code: directGuard.code,
+            message: directGuard.message,
+          },
+        },
+        payload: { ...cleanedParams, missionId: missionId ?? null },
+      };
+    }
+  }
   const dispatchMissionId =
     (typeof missionId === 'string' && missionId.trim()) ||
     (typeof cleanedParams?.missionId === 'string' && cleanedParams.missionId.trim()) ||
@@ -589,6 +624,7 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
       : null;
   const entry = String(performeeContextRaw?.entry ?? '').trim().toLowerCase();
   const source = entry === 'performee' ? 'performee' : 'performer';
+  const intakeLocale = String(req.body?.locale ?? 'en').trim().toLowerCase().split('-')[0] || 'en';
   const toolCtx = {
     missionId: dispatchMissionId,
     activeMissionId: dispatchMissionId,
@@ -596,6 +632,8 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
     createdBy: req.user?.id ?? null,
     tenantId: getTenantId(req.user),
     storeId: storeId ?? undefined,
+    locale: intakeLocale,
+    missionType: resolveMissionType(req, null),
     source: isBrokerDirectViaFacadeEnabled() ? 'performer_intake_facade' : source,
   };
 
@@ -619,6 +657,10 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
       ...(runtimeResult.blocker !== undefined && { blocker: runtimeResult.blocker }),
     };
   } else if (isBrokerDirectViaFacadeEnabled()) {
+    const { incrementRuntimeAuthorityMetric } = await import(
+      '../lib/runtime/performerRuntime/runtimeAuthorityStaging.js'
+    );
+    incrementRuntimeAuthorityMetric('directFacadeExecutions');
     const { executeMissionAction } = await import('../lib/execution/executeMissionAction.js');
     const facade = await executeMissionAction({
       actionType: 'dispatch_tool',
@@ -626,7 +668,7 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
       userId: req.user?.id ?? null,
       tenantId: getTenantId(req.user),
       storeId: storeId ?? undefined,
-      source: 'performer_intake_v2_direct',
+      source: 'performer_intake_facade',
       payload: { toolName: tool, input: payload, context: toolCtx },
     });
     toolResult = {
@@ -635,6 +677,9 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
       ...(facade.error !== undefined && { error: facade.error }),
       ...(facade.blocker !== undefined && { blocker: facade.blocker }),
     };
+    if (toolResult.status === 'failed' || toolResult.status === 'blocked') {
+      incrementRuntimeAuthorityMetric('executionFailures');
+    }
   } else {
     const { dispatchTool } = await import('../lib/toolDispatcher.js');
     const { recordRuntimeBypass } = await import(
@@ -752,6 +797,52 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       ? body.intentSourceContext
       : null;
 
+  // ── Maintenance pre-check (super_admin only) ─────────────────────────────
+  // This runs before the main classifier/planner so operators can type "check for errors" naturally.
+  const existingMission = missionId ? await getMissionById(missionId).catch(() => null) : null;
+  const context = await buildContext(req, existingMission);
+  context.lastKnownError =
+    currentContext?.lastKnownError && typeof currentContext.lastKnownError === 'object'
+      ? currentContext.lastKnownError
+      : null;
+
+  // Preserve super_admin role from verified headers
+  const expectedMaintenanceSecret = String(process.env.PERFORMER_MAINTENANCE_SECRET ?? '');
+  const providedMaintenanceToken = String(req.headers?.['x-maintenance-token'] ?? '');
+  if (
+    expectedMaintenanceSecret.length > 0 &&
+    providedMaintenanceToken.length === expectedMaintenanceSecret.length &&
+    crypto.timingSafeEqual(
+      Buffer.from(providedMaintenanceToken),
+      Buffer.from(expectedMaintenanceSecret),
+    ) &&
+    req.headers?.['x-performer-role'] === 'super_admin'
+  ) {
+    context.userRole = 'super_admin';
+    context.operatorSession = true;
+  }
+
+  const maintenanceDecision = await reactPlanner({
+    userMessage,
+    classification: null,
+    context,
+    toolRegistry: [],
+  });
+
+  if (maintenanceDecision?.kind === 'self_patch') {
+    // Ensure executionGateway sees MAINTENANCE context even when using standard POST / handler.
+    context.missionType = 'MAINTENANCE';
+    context.operatorSession = true;
+
+    const gatewayResult = await executionGateway({
+      decision: maintenanceDecision,
+      context,
+      dispatchTool: maintenanceDispatchTool,
+    });
+    const response = mapPlannerDecisionToIntakeResponse(gatewayResult, context);
+    return res.json(response);
+  }
+
   const isServiceRequestProviderSelect =
     intentSourceContext &&
     typeof intentSourceContext === 'object' &&
@@ -842,11 +933,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
                 targetType: 'generic',
                 targetId: undefined,
                 targetLabel: undefined,
-                metadata: {
-                  source: 'intake_v2_business_card',
-                  businessName: bizName,
-                  businessType: extractedEntities?.businessType ?? null,
-                },
+                metadata: withPipelineLocale(
+                  {
+                    source: 'intake_v2_business_card',
+                    businessName: bizName,
+                    businessType: extractedEntities?.businessType ?? null,
+                  },
+                  locale,
+                ),
                 requiresConfirmation: true,
                 executionMode: 'AUTO_RUN',
                 tenantId: getTenantId(req.user) ?? tenantKey,
@@ -3439,16 +3533,19 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           targetType: 'store',
           targetId: undefined,
           targetLabel: undefined,
-          metadata: {
-            businessName,
-            businessType,
-            location: locationTrim,
-            websiteMode: ctxIntentMode === 'website',
-            generateWebsite: ctxIntentMode === 'website',
-            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-            source: 'intake_v2_autosubmit',
-            cardbeyTraceId,
-          },
+          metadata: withPipelineLocale(
+            {
+              businessName,
+              businessType,
+              location: locationTrim,
+              websiteMode: ctxIntentMode === 'website',
+              generateWebsite: ctxIntentMode === 'website',
+              intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+              source: 'intake_v2_autosubmit',
+              cardbeyTraceId,
+            },
+            locale,
+          ),
           requiresConfirmation: true,
           executionMode: 'AUTO_RUN',
           tenantId,
@@ -3699,8 +3796,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
 router.post('/maintenance', superAdminOnly, async (req, res) => {
   try {
-    const userRole = 'super_admin'; // enforced by superAdminOnly middleware
-
     const { errorMessage, stackTrace, context: errorContext, missionId } = req.body ?? {};
 
     if (!errorMessage?.trim()) {
@@ -3711,23 +3806,16 @@ router.post('/maintenance', superAdminOnly, async (req, res) => {
 
     const existingMission = missionId ? await getMissionById(missionId).catch(() => null) : null;
 
-    const context = await buildContext(req, existingMission);
-    context.missionType = 'MAINTENANCE';
-    context.userRole = 'operator';
+    const context = buildMaintenanceContext(req, {
+      missionId: existingMission?.id ?? req.body?.missionId ?? null,
+      storeId: existingMission?.storeId ?? req.body?.storeId ?? null,
+    });
 
     const decision = {
       kind: 'self_patch',
       errorMessage,
       stackTrace: stackTrace ?? '',
       context: errorContext ?? '',
-    };
-
-    const maintenanceDispatchTool = async (toolName, parameters, toolContext) => {
-      const result = await dispatchTool(toolName, parameters, toolContext);
-      if (result?.status === 'ok' && result.output != null) {
-        return typeof result.output === 'object' ? result.output : { value: result.output };
-      }
-      return result;
     };
 
     const gatewayResult = await executionGateway({
@@ -3756,13 +3844,11 @@ router.post('/maintenance/confirm', superAdminOnly, async (req, res) => {
       });
     }
 
-    const context = {
-      missionType: 'MAINTENANCE',
-      userRole: 'super_admin',
+    const context = buildMaintenanceContext(req, {
       missionId: missionId ?? null,
       storeId: storeId ?? null,
       errorType: errorType ?? 'unknown',
-    };
+    });
 
     const result = await dispatchTool(
       'apply_patch',
@@ -3787,6 +3873,78 @@ router.post('/maintenance/confirm', superAdminOnly, async (req, res) => {
     });
   } catch (err) {
     console.error('[performerIntakeV2Routes /maintenance/confirm] unhandled error:', err);
+    return res.status(500).json({
+      error: 'Internal server error.',
+      ...(process.env.NODE_ENV !== 'production' ? { detail: err.message } : {}),
+    });
+  }
+});
+
+router.post('/maintenance/health', superAdminOnly, async (req, res) => {
+  try {
+    const context = buildMaintenanceContext(req);
+
+    const result = await dispatchTool('query_control_tower', {}, context);
+
+    return res.json({
+      action: 'health_report',
+      summary: result,
+      message: formatControlTowerSummary(result, []),
+    });
+  } catch (err) {
+    console.error('[performerIntakeV2Routes /maintenance/health]', err);
+    return res.status(500).json({
+      error: 'Internal server error.',
+      ...(process.env.NODE_ENV !== 'production' ? { detail: err.message } : {}),
+    });
+  }
+});
+
+router.post('/maintenance/error-log', superAdminOnly, async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const message = typeof body.message === 'string' ? body.message : '';
+    const stackTrace = typeof body.stackTrace === 'string' ? body.stackTrace : '';
+    const source = typeof body.source === 'string' && body.source.trim() ? body.source.trim() : 'frontend';
+    const timestamp =
+      typeof body.timestamp === 'string' && body.timestamp.trim()
+        ? body.timestamp.trim()
+        : new Date().toISOString();
+
+    const entry = {
+      id: crypto.randomUUID(),
+      timestamp,
+      source,
+      message,
+      stackTrace,
+      resolved: false,
+      patchId: null,
+    };
+
+    const coreRoot = process.env.CARDBEY_MONOREPO_ROOT
+      ? path.resolve(process.env.CARDBEY_MONOREPO_ROOT, 'apps/core/cardbey-core')
+      : path.resolve(process.cwd());
+    const logPath = path.join(coreRoot, 'error.log.json');
+    let entries = [];
+    try {
+      if (fs.existsSync(logPath)) {
+        const parsed = JSON.parse(fs.readFileSync(logPath, 'utf8'));
+        entries = Array.isArray(parsed) ? parsed : [];
+      }
+    } catch {
+      entries = [];
+    }
+
+    if (entries.length >= 500) {
+      entries = entries.slice(-400);
+    }
+    entries.push(entry);
+
+    fs.writeFileSync(logPath, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+
+    return res.json({ logged: true, id: entry.id });
+  } catch (err) {
+    console.error('[performerIntakeV2Routes /maintenance/error-log]', err);
     return res.status(500).json({
       error: 'Internal server error.',
       ...(process.env.NODE_ENV !== 'production' ? { detail: err.message } : {}),

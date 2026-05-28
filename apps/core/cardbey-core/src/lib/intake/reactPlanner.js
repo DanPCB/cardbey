@@ -61,7 +61,27 @@
  */
  
 /**
- * @typedef {AskDecision | ConfirmDecision | ExecuteDecision | UnsupportedDecision} ReactPlannerDecision
+ * @typedef {{
+ *   kind: 'self_patch';
+ *   errorMessage: string;
+ *   stackTrace?: string;
+ *   context?: string;
+ * }} SelfPatchDecision
+ */
+ 
+/**
+ * @typedef {{
+ *   kind: 'control_tower_query';
+ * }} ControlTowerQueryDecision
+ */
+ 
+/**
+ * @typedef {{
+ *   kind: 'i18n_sync';
+ *   mode?: 'check' | 'sync';
+ * }} I18nSyncDecision
+ *
+ * @typedef {AskDecision | ConfirmDecision | ExecuteDecision | UnsupportedDecision | SelfPatchDecision | ControlTowerQueryDecision | I18nSyncDecision} ReactPlannerDecision
  */
  
 function asTrimmedString(v) {
@@ -72,11 +92,6 @@ function getTool(toolRegistry, toolName) {
   const t = asTrimmedString(toolName);
   if (!t) return null;
   return (Array.isArray(toolRegistry) ? toolRegistry : []).find((x) => x && x.toolName === t) ?? null;
-}
- 
-function toolRequiresStoreId(toolDef) {
-  const req = toolDef?.parameterSchema?.required;
-  return Array.isArray(req) && req.includes('storeId');
 }
  
 function requiredParamKeys(toolDef) {
@@ -104,11 +119,54 @@ function classifyToolHint(input) {
  * @param {ReactPlannerInput} input
  * @returns {Promise<ReactPlannerDecision>}
  */
+import {
+  isMaintenanceIntent,
+  isI18nMaintenanceIntent,
+  getI18nSyncMode,
+} from './maintenanceIntent.js';
+
 export async function reactPlanner(input) {
   const userMessage = asTrimmedString(input?.userMessage);
   const toolRegistry = Array.isArray(input?.toolRegistry) ? input.toolRegistry : [];
   const context = input?.context && typeof input.context === 'object' ? input.context : {};
   const storeId = asTrimmedString(context?.storeId ?? '');
+
+  if (context?.operatorSession === true && isI18nMaintenanceIntent(userMessage)) {
+    return {
+      kind: 'i18n_sync',
+      mode: getI18nSyncMode(userMessage),
+    };
+  }
+
+  if (
+    context?.operatorSession === true &&
+    isMaintenanceIntent(userMessage)
+  ) {
+    const lower = String(userMessage || '').toLowerCase();
+    const isHealthCheck = [
+      'what is failing',
+      'show me the blockers',
+      'what needs fixing',
+      'system health',
+      'deployment status',
+      'control tower',
+      'what is broken',
+      'overall status',
+      'health check',
+      'run a health check',
+    ].some((p) => lower.includes(p));
+
+    if (isHealthCheck) {
+      return { kind: 'control_tower_query' };
+    }
+
+    return {
+      kind: 'self_patch',
+      errorMessage: userMessage,
+      stackTrace: context.lastKnownError?.stackTrace ?? '',
+      context: context.lastKnownError?.message ?? '',
+    };
+  }
  
   const msgLower = String(userMessage || '').toLowerCase();
   // Fixture: "delete 3 items in my menu" -> ask (no delete tool registered, ids unknown).
