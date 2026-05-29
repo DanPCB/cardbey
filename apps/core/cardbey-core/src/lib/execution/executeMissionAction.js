@@ -13,6 +13,7 @@
 
 import { dispatchTool } from '../toolDispatcher.js';
 import { withExecutionTelemetry } from '../broker/executionTelemetry.js';
+import { markRuntimeOwnedContext } from '../runtime/performerRuntime/runtimeOwnership.js';
 
 /**
  * @typedef {'dispatch_tool' | 'run_pipeline_step'} ExecutionFacadeActionType
@@ -98,7 +99,12 @@ export async function executeMissionAction(request) {
       payload.context && typeof payload.context === 'object' && !Array.isArray(payload.context)
         ? payload.context
         : buildDispatchContextFallback(request);
-    const dr = await dispatchTool(toolName, input, { ...toolCtx, source });
+    const dispatchCtx = { ...toolCtx, source };
+    const ownedCtx =
+      dispatchCtx.runtimeOwned === true || dispatchCtx.performerRuntimeOwned === true
+        ? dispatchCtx
+        : markRuntimeOwnedContext(dispatchCtx, missionId ?? source);
+    const dr = await dispatchTool(toolName, input, ownedCtx);
     return {
       status: dr.status,
       ...(dr.output !== undefined && { output: dr.output }),
