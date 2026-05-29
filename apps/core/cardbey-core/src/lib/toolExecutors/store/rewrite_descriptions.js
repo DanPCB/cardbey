@@ -7,11 +7,13 @@
 
 import { llmGateway } from '../../llm/llmGateway.ts';
 import { getPrismaClient } from '../../../lib/prisma.js';
+import { localeInstruction, normalizeLocale } from '../../localePrompt.js';
 
 const MAX_PRODUCTS_PER_CALL = 10;
 
-export async function execute(input = {}) {
+export async function execute(input = {}, context = {}) {
   const prisma = getPrismaClient();
+  const locale = normalizeLocale(context?.locale ?? context?.executionFrame?.locale ?? input?.locale ?? 'en');
   const storeId = typeof input?.storeId === 'string' ? input.storeId.trim() : '';
   if (!storeId) {
     return { status: 'ok', output: { rewrittenCount: 0, items: [] } };
@@ -46,6 +48,7 @@ export async function execute(input = {}) {
     const result = await llmGateway.generate({
       purpose: 'rewrite_descriptions',
       prompt: `Rewrite these ${products.length} product descriptions to be more engaging and customer-focused for a small business.
+${localeInstruction(locale)}
 
 Products:
 ${products

@@ -110,6 +110,7 @@ export async function resolveMissionState(missionId) {
         stepId: st.id,
         prompt: typeof cfg.prompt === 'string' ? cfg.prompt : cfg.checkpointPrompt ?? null,
         options: Array.isArray(cfg.options) ? cfg.options : cfg.checkpointOptions ?? null,
+        ...(Array.isArray(cfg.optionItems) ? { optionItems: cfg.optionItems } : {}),
         outputKey: typeof cfg.outputKey === 'string' ? cfg.outputKey : null,
       };
     }

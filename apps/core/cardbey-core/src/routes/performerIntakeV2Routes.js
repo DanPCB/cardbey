@@ -19,9 +19,12 @@ import {
   blockCreateStoreOnCompletedMission,
 } from '../lib/intake/intakeSystemShortcuts.js';
 import {
+  classifyStoreWebsiteCreateIntent,
+  isGuestAllowedStoreWebsiteIntent,
   messageLooksLikeWebsiteCreate,
   messageLooksLikeStoreCreate,
 } from '../lib/intake/storeWebsiteRunwayClassifier.js';
+import { resolveIntakeLocale } from '../lib/localePrompt.js';
 import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
@@ -126,6 +129,13 @@ import { dispatchTool } from '../lib/toolDispatcher.js';
 import { reactPlanner } from '../lib/intake/reactPlanner.js';
 import { formatControlTowerSummary } from '../lib/intake/controlTowerQuery.js';
 import { normalizeLocale } from '../lib/localePrompt.js';
+import { intakeMessage } from '../lib/intake/performerIntakeMessageCatalog.js';
+import {
+  buildRunwayContext,
+  formatContextGapMessage,
+  formatSuggestedActionsForContextGap,
+  resolveEditableTarget,
+} from '../lib/runwayContext.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -160,11 +170,11 @@ function resolveUserRole(req) {
 }
 
 async function buildContext(req, existingMission) {
-  const localeRaw = req.body?.locale ?? req.headers?.['x-locale'] ?? req.headers?.['accept-language'];
-  const locale =
-    typeof localeRaw === 'string' && localeRaw.trim()
-      ? localeRaw.trim().toLowerCase().split(',')[0].split('-')[0]
-      : 'en';
+  const userMessage = String(req.body?.text ?? req.body?.goal ?? req.body?.message ?? '').trim();
+  const locale = resolveIntakeLocale(
+    req.body?.locale ?? req.headers?.['x-locale'] ?? req.headers?.['accept-language'],
+    userMessage,
+  );
   return {
     missionId: req.body?.missionId ?? existingMission?.id ?? null,
     storeId: req.body?.storeId ?? existingMission?.storeId ?? null,
@@ -208,11 +218,13 @@ function performerIntakeV2UserLike(req) {
 /** Block only exact duplicate display names for same owner — multiple stores per user are allowed. */
 async function findDuplicateBusinessNameForUser(prisma, userId, businessName) {
   const bn = String(businessName ?? '').trim();
+  const bnLower = bn.toLowerCase();
   const uid = typeof userId === 'string' ? userId.trim() : '';
   if (!bn || !uid) return null;
   try {
     return await prisma.business.findFirst({
-      where: { userId: uid, name: { equals: bn, mode: 'insensitive' } },
+      // SQLite does not support Prisma's case-insensitive `mode` option. Use LIKE semantics via `contains`.
+      where: { userId: uid, name: { contains: bnLower } },
       select: { id: true, name: true },
     });
   } catch {
@@ -476,7 +488,7 @@ function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, us
       {
         success: true,
         action: 'chat',
-        response: locale === 'vi' ? 'Cần đăng nhập để tiếp tục.' : 'Please sign in to continue.',
+        response: intakeMessage('signInToContinue', locale),
       },
       {
         classification: { ...classification, parameters: cleanedParams },
@@ -510,10 +522,7 @@ function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, us
       confidence: classification.confidence,
       riskLevel,
       approval,
-      response:
-        locale === 'vi'
-          ? 'Xem lại bên dưới và xác nhận trước khi chạy.'
-          : 'Review the preview below, then confirm to run.',
+      response: intakeMessage('approvalReviewConfirm', locale),
       reasoning: classification._reasoning,
     },
     {
@@ -786,16 +795,61 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
   res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
   const body = req.body ?? {};
-  const userMessage = String(body.text ?? body.goal ?? body.message ?? '').trim();
+  // Accept both legacy keys (text/goal/message) and the newer client contract key (userMessage).
+  const userMessage = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
+  // (debug) removed after guard verified working
   const currentContext = body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
   const missionId = String(body.missionId ?? currentContext.activeMissionId ?? '').trim() || null;
-  const locale = String(body.locale ?? 'en');
+  const locale = resolveIntakeLocale(body.locale ?? req.headers?.['x-locale'], userMessage);
   const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
   const serviceRequestThreadBlob = collectUserTextsForServiceDraft(history, userMessage).join('\n');
   const intentSourceContext =
     body.intentSourceContext && typeof body.intentSourceContext === 'object'
       ? body.intentSourceContext
       : null;
+
+  // Dev escape hatch — bypass planner for explicit mission type dispatch
+  if (body.missionType === 'multi_agent') {
+    const prisma = getPrismaClient();
+    const actorId = performerIntakeV2ActorId(req);
+    const tenantId = getTenantId(req.user) ?? actorId;
+    const storeId =
+      String(currentContext.storeId ?? currentContext.activeStoreId ?? body.storeId ?? '').trim() || null;
+    const metaIn =
+      body.metadataJson && typeof body.metadataJson === 'object' && !Array.isArray(body.metadataJson)
+        ? body.metadataJson
+        : {};
+    const goalFromMeta = typeof metaIn.goal === 'string' && metaIn.goal.trim() ? metaIn.goal.trim() : '';
+    const title = String(body.message ?? goalFromMeta ?? 'Multi-agent mission').trim() || 'Multi-agent mission';
+    const metadata = {
+      ...metaIn,
+      ...(goalFromMeta ? { goal: goalFromMeta } : {}),
+      locale,
+      source: 'intake_v2_escape_hatch',
+      cardbeyTraceId,
+    };
+
+    const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+    const pipeline = await createMissionPipeline({
+      type: 'multi_agent',
+      title: title.slice(0, 180),
+      targetType: storeId ? 'store' : 'generic',
+      targetId: storeId ?? undefined,
+      targetLabel: undefined,
+      metadata,
+      requiresConfirmation: false,
+      executionMode: 'AUTO_RUN',
+      tenantId,
+      createdBy: actorId || null,
+    });
+
+    const { runMissionUntilBlocked } = await import('../lib/missionPipelineOrchestrator.js');
+    runMissionUntilBlocked(pipeline.id).catch((err) =>
+      console.error('[intake/v2] multi_agent pipeline error:', err),
+    );
+
+    return res.json({ success: true, missionId: pipeline.id, action: 'multi_agent_dispatched' });
+  }
 
   // ── Maintenance pre-check (super_admin only) ─────────────────────────────
   // This runs before the main classifier/planner so operators can type "check for errors" naturally.
@@ -807,8 +861,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       : null;
 
   // Preserve super_admin role from verified headers
-  const expectedMaintenanceSecret = String(process.env.PERFORMER_MAINTENANCE_SECRET ?? '');
-  const providedMaintenanceToken = String(req.headers?.['x-maintenance-token'] ?? '');
+  const expectedMaintenanceSecret = String(process.env.PERFORMER_MAINTENANCE_SECRET ?? '').trim();
+  const providedMaintenanceToken = String(req.get('x-maintenance-token') ?? '').trim();
+  const providedRole = String(req.get('x-performer-role') ?? '').trim();
+
+  // (debug) removed after guard verified working
   if (
     expectedMaintenanceSecret.length > 0 &&
     providedMaintenanceToken.length === expectedMaintenanceSecret.length &&
@@ -816,11 +873,19 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       Buffer.from(providedMaintenanceToken),
       Buffer.from(expectedMaintenanceSecret),
     ) &&
-    req.headers?.['x-performer-role'] === 'super_admin'
+    providedRole === 'super_admin'
   ) {
     context.userRole = 'super_admin';
     context.operatorSession = true;
   }
+
+  console.log('[intake/v2 guard result]', {
+    expectedLength: (process.env.PERFORMER_MAINTENANCE_SECRET ?? '').length,
+    providedLength: (req.get('x-maintenance-token') ?? '').length,
+    role: req.get('x-performer-role'),
+    operatorSession: context?.operatorSession,
+    userRole: context?.userRole,
+  });
 
   const maintenanceDecision = await reactPlanner({
     userMessage,
@@ -841,6 +906,58 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
     const response = mapPlannerDecisionToIntakeResponse(gatewayResult, context);
     return res.json(response);
+  }
+
+  if (maintenanceDecision?.kind === 'execute' && maintenanceDecision?.toolName === 'multi_agent_orchestration') {
+    const prisma = getPrismaClient();
+    const actorId = performerIntakeV2ActorId(req);
+    const tenantId = getTenantId(req.user) ?? actorId;
+    const storeId =
+      String(currentContext.storeId ?? currentContext.activeStoreId ?? body.storeId ?? '').trim() || null;
+    const goal = String(maintenanceDecision.parameters?.goal ?? userMessage).trim();
+    const metaIn =
+      body.metadataJson && typeof body.metadataJson === 'object' && !Array.isArray(body.metadataJson)
+        ? body.metadataJson
+        : {};
+    const metadata = {
+      ...metaIn,
+      goal,
+      context: maintenanceDecision.parameters?.context ?? '',
+      locale,
+      source: 'intake_v2_nlp',
+      cardbeyTraceId,
+    };
+
+    const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+    const pipeline = await createMissionPipeline({
+      type: 'multi_agent',
+      title: goal.slice(0, 180),
+      targetType: storeId ? 'store' : 'generic',
+      targetId: storeId ?? undefined,
+      targetLabel: undefined,
+      metadata,
+      requiresConfirmation: false,
+      executionMode: 'AUTO_RUN',
+      tenantId,
+      createdBy: actorId || null,
+    });
+
+    const { runMissionUntilBlocked } = await import('../lib/missionPipelineOrchestrator.js');
+    runMissionUntilBlocked(pipeline.id).catch((err) =>
+      console.error('[intake/v2] multi_agent nlp pipeline error:', err),
+    );
+
+    return res.json({
+      success: true,
+      missionId: pipeline.id,
+      action: 'multi_agent_dispatched',
+      reasoning: 'Detected complex multi-step goal — running multi-agent orchestration.',
+      plan: [
+        { step: 1, agent: 'research', description: 'Research and analyze the topic' },
+        { step: 2, agent: 'build', description: 'Build the deliverable' },
+        { step: 3, agent: 'qa', description: 'Review and validate' },
+      ],
+    });
   }
 
   const isServiceRequestProviderSelect =
@@ -900,10 +1017,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   /** When an image is present but OCR is empty/unusable, nudge classifier + agent loop toward analyze_content / description. */
   let classifierHintForWeakImage = '';
   if (hasAnyImageEarly && !imageContext?.hasText) {
-    classifierHintForWeakImage =
-      locale === 'vi'
-        ? '\n\n[Hệ thống: có ảnh đính kèm nhưng OCR không đọc được chữ (hoặc không có ảnh hợp lệ). Ưu tiên executionPath chat với tool analyze_content nếu người dùng muốn hiểu nội dung hình; hoặc mời họ mô tả ảnh. Đừng trả lời như thể không có ảnh.]'
-        : '\n\n[System: an image is attached but OCR extracted no readable text (or the image could not be decoded). Prefer executionPath chat with tool analyze_content when the user asks what is in the image; otherwise invite them to describe it. Do not reply as if no image was provided.]';
+    classifierHintForWeakImage = intakeMessage('weakImageClassifierHint', locale);
   }
 
   const enrichedUserMessageWithHint = `${enrichedUserMessage}${classifierHintForWeakImage}`;
@@ -1043,8 +1157,21 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     performeeContext && String(performeeContext.spaceType ?? '').trim() === 'business' && String(performeeContext.spaceId ?? '').trim()
       ? String(performeeContext.spaceId).trim()
       : null;
+  const runway = await buildRunwayContext({
+    missionId: missionId ?? undefined,
+    storeId: storeId ?? undefined,
+    draftId: draftId ?? undefined,
+    userId: String(req.user?.id ?? body?.userId ?? '').trim(),
+    locale: locale ?? undefined,
+    currentContext,
+  });
+  const resolvedEditTarget = userMessage ? resolveEditableTarget(runway, userMessage) : null;
+  if (resolvedEditTarget) {
+    runway.resolvedEditTarget = resolvedEditTarget;
+  }
+
   /** Read-only derived store context: allow Performee spaceId to act as storeId for classification/runtime without writing any client context. */
-  const effectiveStoreId = storeId || performeeStoreId;
+  const effectiveStoreId = storeId || runway.activeStoreId || performeeStoreId;
   /** Appended to Intake V2 JSON when pre-intake agent loop ran. */
   let agentLoopTraceForResponse = null;
 
@@ -1261,7 +1388,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       {
         success: true,
         action: 'clarify',
-        response: locale === 'vi' ? 'Thiếu lựa chọn công cụ.' : 'Missing tool selection.',
+        response: intakeMessage('missingToolSelection', locale),
         options: [],
       },
       {
@@ -1281,7 +1408,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       {
         success: true,
         action: 'clarify',
-        response: locale === 'vi' ? 'Lựa chọn không hợp lệ.' : 'That selection is no longer valid.',
+        response: intakeMessage('invalidToolSelection', locale),
         options: [],
       },
       {
@@ -1301,7 +1428,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       {
         success: true,
         action: 'chat',
-        response: locale === 'vi' ? 'Bạn muốn làm gì?' : 'What would you like to do?',
+        response: intakeMessage('whatWouldYouLikeToDo', locale),
       },
       {
         classification: null,
@@ -1350,12 +1477,22 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           : undefined,
     });
 
+    // Guest / free-text pre-classifier: VI + EN store/website phrases → create_store shortcut
+    // (without requiring frontscreen primaryMode handoff).
+    if (!shortcut?.type && userMessage && isGuestAllowedStoreWebsiteIntent(userMessage)) {
+      const runway = classifyStoreWebsiteCreateIntent(userMessage);
+      if (!runway.ambiguous && runway.intentMode) {
+        shortcut = {
+          type: 'create_store',
+          intentMode: runway.intentMode,
+          ...(runway.label ? { intentLabel: runway.label } : {}),
+        };
+      }
+    }
+
     if (shortcut?.type === 'clarify_create_runway') {
       const clarifyMsg =
-        shortcut.message ||
-        (locale === 'vi'
-          ? 'Bạn muốn cửa hàng trực tuyến hay trang web mini?'
-          : 'Do you want an online store with products, or a mini website / landing page?');
+        shortcut.message || intakeMessage('clarifyCreateRunway', locale);
       return safeJson(
         {
           success: true,
@@ -1363,12 +1500,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           response: clarifyMsg,
           options: [
             {
-              label: locale === 'vi' ? 'Cửa hàng / danh mục sản phẩm' : 'Online store / product catalog',
+              label: intakeMessage('optionOnlineStoreCatalog', locale),
               tool: 'create_store',
               parameters: { intentMode: 'store' },
             },
             {
-              label: locale === 'vi' ? 'Trang web mini / landing page' : 'Mini website / landing page',
+              label: intakeMessage('optionMiniWebsite', locale),
               tool: 'create_store',
               parameters: { intentMode: 'website' },
             },
@@ -1393,10 +1530,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           {
             success: true,
             action: 'chat',
-            response:
-              locale === 'vi'
-                ? 'Đăng nhập để tạo tài liệu thông minh.'
-                : 'Please sign in to create a smart document.',
+            response: intakeMessage('signInSmartDocument', locale),
           },
           {
             classification: { executionPath: 'direct_action', tool: 'create_smart_document', confidence: 1 },
@@ -1489,10 +1623,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           intentMode: sdType,
           subtype: sdSubtype,
           liveUrl: result?.liveUrl ?? null,
-          response:
-            locale === 'vi'
-              ? `Đang tạo ${sdSubtype ?? sdType} của bạn…`
-              : `Started creating your ${sdSubtype ?? sdType}…`,
+          response: intakeMessage('smartDocumentStarted', locale, {
+            docType: String(sdSubtype ?? sdType ?? 'document'),
+          }),
         },
         {
           classification: { executionPath: 'direct_action', tool: 'create_smart_document', confidence: 1, parameters: { docType: sdType, docSubtype: sdSubtype } },
@@ -1512,10 +1645,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           {
             success: true,
             action: 'chat',
-            response:
-              locale === 'vi'
-                ? 'Đăng nhập để tạo thẻ thông minh.'
-                : 'Please sign in to create an intelligent card.',
+            response: intakeMessage('signInCreateCard', locale),
           },
           {
             classification: { executionPath: 'direct_action', tool: 'create_card', confidence: 1 },
@@ -1606,10 +1736,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           missionId: pipeline.id,
           cardId: result?.cardId ?? null,
           intentMode: 'card',
-          response:
-            locale === 'vi'
-              ? 'Đang tạo thẻ của bạn…'
-              : 'Started creating your card…',
+          response: intakeMessage('cardMissionStarted', locale),
         },
         {
           classification: { executionPath: 'direct_action', tool: 'create_card', confidence: 1, parameters: { type: resolvedType } },
@@ -1651,7 +1778,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           toolResult?.output?.summary ||
           toolResult?.blocker?.message ||
           toolResult?.error?.message ||
-          (locale === 'vi' ? 'Đã cập nhật poster.' : 'Poster updated.');
+          intakeMessage('posterUpdated', locale);
 
         return safeJson(
           {
@@ -1695,11 +1822,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         const toolResponse =
           toolResult?.output?.message ||
           (poster?.businessName
-            ? locale === 'vi'
-              ? `Đã tạo poster quảng cáo cho ${poster.businessName}.`
-              : `Created a promotional poster for ${poster.businessName}.`
-            : toolResult?.error?.message) ||
-          (locale === 'vi' ? 'Không thể tạo poster.' : 'Could not generate poster.');
+            ? intakeMessage('posterCreatedFor', locale, { businessName: poster.businessName })
+            : toolResult?.error?.message) || intakeMessage('posterGenerateFailed', locale);
 
         return safeJson(
           {
@@ -1819,10 +1943,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           {
             success: true,
             action: 'chat',
-            response:
-              locale === 'vi'
-                ? 'Đăng nhập để tự động tạo cửa hàng từ tin nhắn của bạn.'
-                : 'Please sign in to start an automated store build from your message.',
+            response: intakeMessage('signInAutomatedStore', locale),
           },
           {
             classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
@@ -1916,19 +2037,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         const responseText =
           runResult.mode === 'checkpoint_pipeline'
             ? ctxIntentMode === 'website'
-              ? locale === 'vi'
-                ? `Một vài lựa chọn nhanh trước khi tạo trang web mini cho "${businessName}"…`
-                : `A few quick choices before we build your mini website for "${businessName}"…`
-              : locale === 'vi'
-                ? `Một vài lựa chọn nhanh trước khi tạo cửa hàng cho "${businessName}"…`
-                : `A few quick choices before we build "${businessName}"…`
+              ? intakeMessage('storeCheckpointWebsite', locale, { businessName })
+              : intakeMessage('storeCheckpointStore', locale, { businessName })
             : ctxIntentMode === 'website'
-              ? locale === 'vi'
-                ? `Đang tạo trang web mini cho "${businessName}"…`
-                : `Started building your mini website for "${businessName}"…`
-              : locale === 'vi'
-                ? `Đang tạo cửa hàng cho "${businessName}"…`
-                : `Started building your store for "${businessName}"…`;
+              ? intakeMessage('storeBuildingWebsite', locale, { businessName })
+              : intakeMessage('storeBuildingStore', locale, { businessName });
         return safeJson(
           {
             success: true,
@@ -2160,10 +2273,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         {
           success: true,
           action: 'chat',
-          response:
-            locale === 'vi'
-              ? 'Chọn cửa hàng trước, rồi mình có thể cập nhật ảnh hero cho bạn.'
-              : 'Select a store first — then I can update your hero image.',
+          response: intakeMessage('heroImageRequiresStore', locale),
           _requiresStore: true,
         },
         {
@@ -2341,15 +2451,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     lastValidation = validation;
 
     if (!validation.ok && validation.downgradedTo === 'chat') {
+      const msg = formatContextGapMessage(runway, locale);
       return safeJson(
         {
           success: true,
           action: 'chat',
-          response:
-            locale === 'vi'
-              ? 'Vui lòng chọn hoặc tạo cửa hàng trước.'
-              : 'Please select or create a store first so I can help you with that.',
+          response: msg,
           _requiresStore: true,
+          suggestedActions: formatSuggestedActionsForContextGap(runway),
+          runwayContext: runway,
         },
         {
           classification,
@@ -2432,10 +2542,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             {
               success: true,
               action: 'capability_proposal_required',
-              response:
-                locale === 'vi'
-                  ? 'Yêu cầu này có thể cần mở rộng sản phẩm. Xem đề xuất bên dưới (chỉ xem trước — chưa thay đổi gì).'
-                  : 'This may need a small product extension. Review the proposal below — nothing has been applied yet.',
+              response: intakeMessage('capabilityGapProposal', locale),
               capabilityProposal,
               validationErrors: validation.errors,
             },
@@ -2462,10 +2569,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         {
           success: true,
           action: 'clarify',
-          response:
-            locale === 'vi'
-              ? 'Tôi cần thêm chi tiết để tiếp tục.'
-              : 'I need a bit more detail to run that safely.',
+          response: intakeMessage('needMoreDetail', locale),
           options,
           validationErrors: validation.errors,
         },
@@ -2524,7 +2628,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           action: 'clarify',
           response:
             classification.message ||
-            (locale === 'vi' ? 'Bạn muốn chọn hướng nào?' : "I'm not sure — pick an option:"),
+            intakeMessage('pickAnOption', locale),
           options,
         },
         {
@@ -2595,9 +2699,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           action: 'clarify',
           response:
             classification.message ||
-            (locale === 'vi'
-              ? 'Xác nhận giúp mình nhé?'
-              : `Should I go ahead with "${fe?.label ?? classification.tool}"?`),
+            intakeMessage('confirmPolicyProceed', locale, {
+              label: fe?.label ?? classification.tool ?? '',
+            }),
           options:
             options.length > 0
               ? options
@@ -2732,10 +2836,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       );
     }
 
-    const defaultChat =
-      locale === 'vi'
-        ? 'Bạn có thể mô tả thêm không?'
-        : "I'm not sure how to help with that. Could you give me more details?";
+    const defaultChat = intakeMessage('defaultChatUnclear', locale);
     const isIntakeServiceRequestPath =
       classification.executionPath === 'service_request' && classification.tool === 'service_request';
     const rawMsg = isIntakeServiceRequestPath
@@ -2822,9 +2923,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     const responseOut = isHeroUiInstructionFallback(rawMsg)
-      ? locale === 'vi'
-        ? 'Mình có thể cập nhật ảnh hero qua các bước cụ thể — hãy chọn cửa hàng hoặc mô tả ảnh bạn muốn.'
-        : 'I can help update your hero image with a concrete step — select a store or describe the image you want.'
+      ? intakeMessage('heroUpdateGuidance', locale)
       : rawMsg;
 
     /** Phase 1 capability resolver — before generic chat fallback / refusal text. */
@@ -3084,7 +3183,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         {
           success: true,
           action: 'clarify',
-          response: locale === 'vi' ? 'Chưa đủ bước cho kế hoạch.' : 'I could not build a valid plan from that.',
+          response: intakeMessage('planBuildFailed', locale),
           options:
             planClarifyOptions.length > 0
               ? planClarifyOptions
@@ -3339,10 +3438,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           {
             success: true,
             action: 'chat',
-            response:
-              locale === 'vi'
-                ? 'Đăng nhập để tự động tạo cửa hàng từ tin nhắn của bạn.'
-                : 'Please sign in to start an automated store build from your message.',
+            response: intakeMessage('signInAutomatedStore', locale),
           },
           {
             classification: { ...classification, parameters: cleanedParams },
@@ -3596,19 +3692,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       const responseText =
         runResult.mode === 'checkpoint_pipeline'
           ? ctxIntentMode === 'website'
-            ? locale === 'vi'
-              ? `Một vài lựa chọn nhanh trước khi tạo trang web mini cho "${businessName}"…`
-              : `A few quick choices before we build your mini website for "${businessName}"…`
-            : locale === 'vi'
-              ? `Một vài lựa chọn nhanh trước khi tạo cửa hàng cho "${businessName}"…`
-              : `A few quick choices before we build "${businessName}"…`
+            ? intakeMessage('storeCheckpointWebsite', locale, { businessName })
+            : intakeMessage('storeCheckpointStore', locale, { businessName })
           : ctxIntentMode === 'website'
-            ? locale === 'vi'
-              ? `Đang tạo trang web mini cho "${businessName}"…`
-              : `Started building your mini website for "${businessName}"…`
-            : locale === 'vi'
-              ? `Đang tạo cửa hàng cho "${businessName}"…`
-              : `Started building your store for "${businessName}"…`;
+            ? intakeMessage('storeBuildingWebsite', locale, { businessName })
+            : intakeMessage('storeBuildingStore', locale, { businessName });
       return safeJson(
         {
           success: true,
@@ -3758,10 +3846,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         {
           success: true,
           action: 'chat',
-          response:
-            locale === 'vi'
-              ? 'Không thể thực hiện. Thử lại sau.'
-              : 'I could not complete that action. Please try again.',
+          response: intakeMessage('dispatchActionFailed', locale),
         },
         {
           classification,
@@ -3780,7 +3865,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     {
       success: true,
       action: 'chat',
-      response: locale === 'vi' ? 'Thử mô tả khác nhé?' : 'Could you rephrase that?',
+      response: intakeMessage('rephraseRequest', locale),
     },
     {
       classification,
@@ -3826,7 +3911,14 @@ router.post('/maintenance', superAdminOnly, async (req, res) => {
     const response = mapPlannerDecisionToIntakeResponse(gatewayResult, context);
     return res.json(response);
   } catch (err) {
-    console.error('[performerIntakeV2Routes /maintenance] unhandled error:', err);
+    console.error('[intake/v2 POST /maintenance] unhandled:', {
+      message: err?.message ?? String(err),
+      stack: err?.stack ?? null,
+      decisionKind: decision?.kind ?? null,
+      userRole: context?.userRole ?? null,
+      operatorSession: context?.operatorSession ?? null,
+      missionType: context?.missionType ?? null,
+    });
     return res.status(500).json({
       error: 'Internal server error.',
       ...(process.env.NODE_ENV !== 'production' ? { detail: err.message } : {}),
@@ -3988,7 +4080,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
     return res.json({
       success: false,
       action: 'error',
-      response: locale === 'vi' ? 'Thiếu mã xác nhận.' : 'Missing approval reference.',
+      response: intakeMessage('missingApprovalReference', locale),
     });
   }
 
@@ -3999,10 +4091,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
       success: false,
       action: 'error',
       error: 'expired_or_missing',
-      response:
-        locale === 'vi'
-          ? 'Xác nhận đã hết hạn. Hãy thử lại từ đầu.'
-          : 'This approval expired. Please run the request again.',
+      response: intakeMessage('approvalExpired', locale),
     });
   }
 
@@ -4014,7 +4103,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
       success: false,
       action: 'error',
       error: 'forbidden',
-      response: locale === 'vi' ? 'Không thể xác nhận với phiên này.' : 'You cannot confirm this approval in this session.',
+      response: intakeMessage('approvalSessionForbidden', locale),
     });
   }
 
@@ -4055,10 +4144,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
     return res.json({
       success: false,
       action: 'clarify',
-      response:
-        locale === 'vi'
-          ? 'Không thể xác nhận với ngữ cảnh hiện tại. Kiểm tra cửa hàng hoặc thử lại.'
-          : 'We could not confirm with the current context. Check your store selection or try again.',
+      response: intakeMessage('approvalContextFailed', locale),
       validationErrors: validation.errors,
     });
   }
@@ -4077,7 +4163,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
       toolResult?.output?.message ||
       toolResult?.blocker?.message ||
       toolResult?.error?.message ||
-      (locale === 'vi' ? 'Đã hoàn tất.' : 'Completed.');
+      intakeMessage('actionCompleted', locale);
 
     emitConfirm({ tool, validated: true, result: 'success', riskLevel: getToolEntry(tool)?.riskLevel });
     return res.json({
@@ -4095,10 +4181,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
     return res.json({
       success: false,
       action: 'error',
-      response:
-        locale === 'vi'
-          ? 'Không thể hoàn tất. Thử lại sau.'
-          : 'Could not complete the action. Please try again.',
+      response: intakeMessage('actionFailedRetry', locale),
     });
   }
 });

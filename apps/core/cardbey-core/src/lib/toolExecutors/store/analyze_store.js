@@ -6,6 +6,7 @@
 
 import { getPrismaClient } from '../../../lib/prisma.js';
 import { inferOpportunities } from '../../opportunities/inferOpportunities.js';
+import { normalizeLocale } from '../../localePrompt.js';
 import { getDraft, getDraftByGenerationRunId } from '../../../services/draftStore/draftStoreService.js';
 
 /**
@@ -387,7 +388,8 @@ export async function execute(input = {}, context = {}) {
     };
 
     const tenantKey = context?.tenantId ?? context?.storeId ?? storeId;
-    inferOpportunities(prisma, storeId, storeAnalysis, tenantKey).then((res) => {
+    const locale = normalizeLocale(context?.locale ?? context?.executionFrame?.locale ?? 'en');
+    inferOpportunities(prisma, storeId, storeAnalysis, tenantKey, locale).then((res) => {
       if (res?.reason === 'table_missing') return;
       if (res?.ok === false) {
         console.warn('[inferOpportunities]', res.reason, res.error || '');

@@ -5,6 +5,7 @@
 
 import { llmGateway } from '../llm/llmGateway.ts';
 import { isPrismaMissingTableError } from '../prismaTableErrors.js';
+import { localeInstruction, normalizeLocale } from '../localePrompt.js';
 
 const VALID_INTENT_TYPES = new Set([
   'rewrite_descriptions',
@@ -25,9 +26,11 @@ function priorityToSeverity(priority) {
  * @param {string} storeId
  * @param {{ storeName?: string; storeType?: string; productCount?: number; issues?: string[]; missing?: string[] }} storeAnalysis
  * @param {string} tenantKey
+ * @param {string} [locale]
  * @returns {Promise<{ ok: boolean, reason?: string, error?: string, created?: number }>}
  */
-export async function inferOpportunities(prisma, storeId, storeAnalysis, tenantKey) {
+export async function inferOpportunities(prisma, storeId, storeAnalysis, tenantKey, locale = 'en') {
+  const normalizedLocale = normalizeLocale(locale);
   try {
     const storeName = storeAnalysis?.storeName ?? 'Store';
     const storeType = storeAnalysis?.storeType ?? 'retail';
@@ -36,6 +39,7 @@ export async function inferOpportunities(prisma, storeId, storeAnalysis, tenantK
     const missing = Array.isArray(storeAnalysis?.missing) ? storeAnalysis.missing : [];
 
     const prompt = `You are a marketing advisor for SMB stores on Cardbey platform.
+${localeInstruction(normalizedLocale)}
 
 Based on this store analysis, suggest the 3 most impactful next actions the store owner should take.
 

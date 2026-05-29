@@ -21,6 +21,17 @@ import { dispatchTaskWithAgentHint } from './agentPlanning/agentOrchestrator.js'
 import { enrichStepInputFromPriorOutputs } from './agentPlanning/artifactInputEnrichment.js';
 import { buildRunnerDualWriteMetadataJson } from './orchestrator/pipelineCanonicalResults.js';
 import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
+import { appendEvent as appendBlackboardEvent } from './missionBlackboard.js';
+import { AgentCoordinator } from './orchestration/agentCoordinator.js';
+import { createOrchestrationBlackboard } from './orchestration/blackboardWriteBuffer.js';
+import { safePipelineUpdate, safePipelineStepUpdate } from './safePipelineUpdate.js';
+import { normalizeLocale } from './localePrompt.js';
+import { resolveCheckpointOptionsForLocale } from './missionPipelineStructured.js';
+
+function resolveMissionLocale(meta) {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return 'en';
+  return normalizeLocale(meta.locale ?? meta.preferredLocale ?? meta.lang ?? 'en');
+}
 
 /**
  * Build execution input for a step from mission context (e.g. targetId as storeId) and metadata (e.g. slotKey, promotionId).
@@ -141,7 +152,7 @@ async function recoverOrphanedRunningSteps(prisma, missionId, steps) {
   console.warn('[MissionRunner] found orphaned running steps on resume:', orphaned.map((s) => s.toolName));
   const now = new Date();
   for (const step of orphaned) {
-    await prisma.missionPipelineStep.update({
+    await safePipelineStepUpdate(prisma, {
       where: { id: step.id },
       data: {
         status: 'failed',
@@ -198,6 +209,111 @@ export async function runNextMissionPipelineStep(missionId) {
     return { ok: false, error: 'invalid_state', status };
   }
 
+  // ── Multi-agent orchestration (NEW mission type) ────────────────────────────
+  // Must not affect existing mission types.
+  const typeToken = typeof mission.type === 'string' ? mission.type.trim().toLowerCase() : '';
+  if (typeToken === 'multi_agent') {
+    const meta =
+      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+        ? mission.metadataJson
+        : {};
+    const locale = resolveMissionLocale(meta);
+    const goal =
+      typeof meta.goal === 'string' && meta.goal.trim()
+        ? meta.goal.trim()
+        : typeof mission.title === 'string' && mission.title.trim()
+          ? mission.title.trim()
+          : 'Multi-agent mission';
+    const missionContext = meta.context ?? meta ?? {};
+
+    if (status === 'queued' && canTransitionMissionPipeline('queued', 'executing')) {
+      await safePipelineUpdate(prisma, {
+        where: { id },
+        data: { status: 'executing', runState: 'running', startedAt: mission.startedAt ?? new Date() },
+      });
+    } else if (mission.runState !== 'running') {
+      await safePipelineUpdate(prisma, {
+        where: { id },
+        data: { runState: 'running' },
+      });
+    }
+
+    const blackboard = createOrchestrationBlackboard(mission.id);
+    const coordinator = new AgentCoordinator({
+      missionId: mission.id,
+      blackboard,
+      locale,
+      tenantKey: mission.tenantId ?? mission.createdBy ?? 'default',
+      baseContext: {
+        missionId: mission.id,
+        tenantId: mission.tenantId ?? undefined,
+        userId: mission.createdBy ?? undefined,
+        ...(mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')
+          ? { storeId: mission.targetId }
+          : {}),
+        ...(mission.targetId ? { targetId: mission.targetId } : {}),
+        ...(mission.targetType ? { targetType: mission.targetType } : {}),
+      },
+    });
+
+    let results = {};
+    try {
+      results = await coordinator.orchestrate(goal, missionContext);
+    } catch (e) {
+      console.warn('[MissionRunner] multi_agent orchestrate error (non-fatal):', e?.message || e);
+      results = {};
+    }
+
+    try {
+      await blackboard.appendEvent(mission.id, 'orchestration_complete', {
+        results,
+        agentCount: coordinator.agents.size,
+      });
+      if (typeof blackboard.flushOrchestrationEvents === 'function') {
+        await blackboard.flushOrchestrationEvents();
+      }
+    } catch (e) {
+      console.warn('[MissionRunner] orchestration_complete append failed (non-fatal):', e?.message || e);
+    }
+
+    const priorOutputsAgg = parseJsonObject(mission.outputsJson);
+    const outputsToPersist = {
+      ...priorOutputsAgg,
+      orchestrationResults: results,
+    };
+
+    const dualMetaComplete = await buildRunnerDualWriteMetadataJson(
+      prisma,
+      id,
+      mission.metadataJson,
+      outputsToPersist,
+    );
+
+    await safePipelineUpdate(prisma, {
+      where: { id },
+      data: {
+        status: 'completed',
+        runState: 'done',
+        completedAt: new Date(),
+        progressTotalSteps: mission.progressTotalSteps ?? 1,
+        progressCompletedSteps: mission.progressTotalSteps ?? 1,
+        currentStepId: null,
+        blockersJson: [],
+        outputsJson: outputsToPersist,
+        ...(dualMetaComplete != null ? { metadataJson: dualMetaComplete } : {}),
+      },
+    });
+
+    void runPostMissionCompletionSummary({
+      missionId: id,
+      missionType: mission.type ?? null,
+      metadataJson: mission.metadataJson,
+      outputsJson: outputsToPersist,
+    }).catch(() => {});
+
+    return { ok: true, stepRun: true, toolName: 'multi_agent', status: 'completed', runState: 'done' };
+  }
+
   let steps = mission.steps || [];
   steps = await recoverOrphanedRunningSteps(prisma, id, steps);
   const nextStep = steps.find((s) => s.status === 'pending');
@@ -211,7 +327,7 @@ export async function runNextMissionPipelineStep(missionId) {
   // ── Checkpoint: suspend for owner response (no tool dispatch) ────────────────
   if (stepKind === 'checkpoint' || toolName === 'mission.checkpoint') {
     if (status === 'queued' && canTransitionMissionPipeline('queued', 'executing')) {
-      await prisma.missionPipeline.update({
+      await safePipelineUpdate(prisma, {
         where: { id },
         data: {
           status: 'executing',
@@ -221,7 +337,7 @@ export async function runNextMissionPipelineStep(missionId) {
         },
       });
     } else if (mission.runState !== 'running') {
-      await prisma.missionPipeline.update({
+      await safePipelineUpdate(prisma, {
         where: { id },
         data: { runState: 'running', currentStepId: nextStep.id },
       });
@@ -232,23 +348,34 @@ export async function runNextMissionPipelineStep(missionId) {
       ...cfg,
       awaitingSince: new Date().toISOString(),
     };
-    await prisma.missionPipelineStep.update({
+    await safePipelineStepUpdate(prisma, {
       where: { id: nextStep.id },
       data: { status: 'awaiting_input', configJson: mergedConfig },
     });
     if (!canTransitionMissionPipeline('executing', 'awaiting_input')) {
       return { ok: false, error: 'transition_denied_checkpoint', status: mission.status };
     }
-    await prisma.missionPipeline.update({
+    await safePipelineUpdate(prisma, {
       where: { id },
       data: { status: 'awaiting_input', runState: 'blocked_on_checkpoint', currentStepId: nextStep.id },
     });
 
     const { broadcastMissionCheckpoint } = await import('../realtime/simpleSse.js');
+    const checkpointMeta =
+      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+        ? mission.metadataJson
+        : {};
+    const pipelineLocale = resolveMissionLocale(checkpointMeta);
+    const optionItems = Array.isArray(cfg.optionItems) ? cfg.optionItems : null;
+    const resolvedOptions = optionItems
+      ? resolveCheckpointOptionsForLocale(optionItems, pipelineLocale)
+      : null;
     broadcastMissionCheckpoint(id, {
       stepId: nextStep.id,
       prompt: cfg.prompt,
       options: cfg.options ?? null,
+      ...(optionItems ? { optionItems } : {}),
+      ...(resolvedOptions ? { displayOptions: resolvedOptions } : {}),
       outputKey: cfg.outputKey ?? null,
     });
 
@@ -273,18 +400,18 @@ export async function runNextMissionPipelineStep(missionId) {
   }
 
   if (status === 'queued' && canTransitionMissionPipeline('queued', 'executing')) {
-    await prisma.missionPipeline.update({
+    await safePipelineUpdate(prisma, {
       where: { id },
       data: { status: 'executing', runState: 'running', currentStepId: nextStep.id, startedAt: mission.startedAt ?? new Date() },
     });
   } else if (mission.runState !== 'running') {
-    await prisma.missionPipeline.update({
+    await safePipelineUpdate(prisma, {
       where: { id },
       data: { runState: 'running', currentStepId: nextStep.id },
     });
   }
 
-  await prisma.missionPipelineStep.update({
+  await safePipelineStepUpdate(prisma, {
     where: { id: nextStep.id },
     data: { status: 'running', startedAt: new Date() },
   });
@@ -335,11 +462,11 @@ export async function runNextMissionPipelineStep(missionId) {
 
     dispatchToolName = conditionResult ? cfg.ifTrueTool : cfg.ifFalseTool;
     if (!dispatchToolName || typeof dispatchToolName !== 'string') {
-      await prisma.missionPipelineStep.update({
+      await safePipelineStepUpdate(prisma, {
         where: { id: nextStep.id },
         data: { status: 'failed', errorJson: { code: 'conditional_missing_branch' }, completedAt: new Date() },
       });
-      await prisma.missionPipeline.update({
+      await safePipelineUpdate(prisma, {
         where: { id },
         data: { status: 'failed', runState: 'error', failedAt: new Date() },
       });
@@ -357,6 +484,10 @@ export async function runNextMissionPipelineStep(missionId) {
   }
 
   const priorOutputsAgg = parseJsonObject(mission.outputsJson);
+  const metaJson =
+    mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+      ? mission.metadataJson
+      : {};
   const context = {
     missionId: id,
     stepId: nextStep.id,
@@ -365,6 +496,8 @@ export async function runNextMissionPipelineStep(missionId) {
     outputs: { ...priorOutputsAgg, ...stepOutputs },
     tenantId: mission.tenantId ?? undefined,
     userId: mission.createdBy ?? undefined,
+    locale: resolveMissionLocale(metaJson),
+    ...(String(mission.type || '').toUpperCase() === 'MAINTENANCE' ? { missionType: 'MAINTENANCE' } : {}),
   };
   if (mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')) {
     context.storeId = mission.targetId;
@@ -386,7 +519,7 @@ export async function runNextMissionPipelineStep(missionId) {
     errorJson: result.error ?? null,
     status: result.status === 'ok' ? 'completed' : result.status === 'blocked' ? 'blocked' : 'failed',
   };
-  await prisma.missionPipelineStep.update({
+  await safePipelineStepUpdate(prisma, {
     where: { id: nextStep.id },
     data: stepUpdate,
   });
@@ -451,7 +584,7 @@ export async function runNextMissionPipelineStep(missionId) {
       mission.metadataJson,
       outputsToPersist,
     );
-    await prisma.missionPipeline.update({
+    await safePipelineUpdate(prisma, {
       where: { id },
       data: {
         status: 'paused',
@@ -476,7 +609,7 @@ export async function runNextMissionPipelineStep(missionId) {
       mission.metadataJson,
       outputsToPersist,
     );
-    await prisma.missionPipeline.update({
+    await safePipelineUpdate(prisma, {
       where: { id },
       data: {
         status: 'failed',
@@ -532,7 +665,7 @@ export async function runNextMissionPipelineStep(missionId) {
         mission.metadataJson,
         outputsToPersist,
       );
-      await prisma.missionPipeline.update({
+      await safePipelineUpdate(prisma, {
         where: { id },
         data: {
           status: 'awaiting_input',
@@ -558,7 +691,7 @@ export async function runNextMissionPipelineStep(missionId) {
       mission.metadataJson,
       outputsToPersist,
     );
-    await prisma.missionPipeline.update({
+    await safePipelineUpdate(prisma, {
       where: { id },
       data: {
         status: 'completed',
@@ -606,7 +739,7 @@ export async function runNextMissionPipelineStep(missionId) {
     mission.metadataJson,
     outputsToPersist,
   );
-  await prisma.missionPipeline.update({
+  await safePipelineUpdate(prisma, {
     where: { id },
     data: {
       progressCompletedSteps: completedCount,
