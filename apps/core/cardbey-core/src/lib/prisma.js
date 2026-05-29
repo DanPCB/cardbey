@@ -218,6 +218,27 @@ export async function initializeDatabase() {
 
     console.log(`[DB] ✅ Connected (${result.dialect}, ${result.latencyMs}ms) — using: ${dbDisplay}`);
 
+    // Enable WAL mode for SQLite to reduce write contention (P1008 timeouts).
+    // Use a brief direct sqlite handle: at this point getPrismaClient() may already be in use
+    // (imports / bootstrap), so $executeRawUnsafe can hit "database is locked".
+    if (result.dialect === 'sqlite') {
+      try {
+        const { resolveSqliteDatabasePath } = await import('./sqliteDbPath.js');
+        const dbPath = resolveSqliteDatabasePath();
+        if (dbPath) {
+          const { DatabaseSync } = await import('node:sqlite');
+          const sqlite = new DatabaseSync(dbPath);
+          sqlite.exec('PRAGMA journal_mode=WAL;');
+          sqlite.exec('PRAGMA synchronous=NORMAL;');
+          sqlite.exec('PRAGMA cache_size=-64000;');
+          sqlite.close();
+          console.log('[DB] WAL mode enabled (SQLite contention fix)');
+        }
+      } catch (walErr) {
+        console.warn('[DB] WAL pragma failed (non-fatal):', walErr?.message || walErr);
+      }
+    }
+
     if (process.env.NODE_ENV !== 'test' && !campaignModelsAsserted) {
       try {
         assertCampaignModels(getPrismaClient());
