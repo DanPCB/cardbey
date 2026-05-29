@@ -11,6 +11,7 @@ describe('POST /api/auth/guest', () => {
   it('returns 200 and ok=true with token and user when NODE_ENV=test', async () => {
     const res = await request(app)
       .post('/api/auth/guest')
+      .send({ locale: 'vi' })
       .expect(200);
 
     expect(res.body.ok).toBe(true);
@@ -20,5 +21,7 @@ describe('POST /api/auth/guest', () => {
     expect(res.body.user.id).toBeDefined();
     expect(String(res.body.user.id).startsWith('guest_')).toBe(true);
     expect(res.body.user.role).toBe('guest');
+    expect(res.body.user.locale).toBe('vi');
+    expect(res.body.locale).toBe('vi');
   });
 });

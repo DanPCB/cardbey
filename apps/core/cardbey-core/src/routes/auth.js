@@ -18,8 +18,32 @@ import { registerWithEmailPassword, loginWithEmailPassword } from '../services/a
 import { getPersonalPresenceLinkFields } from '../services/personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
 import { normalizeSocialLinks, parseSocialLinks } from '../lib/socialLinks.js';
+import { normalizeLocale } from '../lib/localePrompt.js';
 
 const router = express.Router();
+
+function resolveRequestIp(req) {
+  return (
+    req.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ??
+    req.socket?.remoteAddress ??
+    ''
+  );
+}
+
+function assertMaintenanceIpAllowlistIfConfigured(req) {
+  const rawAllowlist = process.env.PERFORMER_MAINTENANCE_IP_ALLOWLIST ?? '';
+  if (!rawAllowlist.trim()) return;
+  const allowedIps = rawAllowlist
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter(Boolean);
+  const requestIp = resolveRequestIp(req);
+  if (!allowedIps.includes(requestIp)) {
+    const err = new Error('MAINTENANCE_IP_DENIED');
+    err.statusCode = 403;
+    throw err;
+  }
+}
 
 /** Rate limit: 3 verification requests per 15 minutes per user (skipped in test) */
 const verificationRequestLimiter = (req, res, next) => {
@@ -432,9 +456,30 @@ router.post('/register', async (req, res, next) => {
     const name = fullName?.trim() || displayName?.trim() || undefined;
     const { user, token } = await registerWithEmailPassword({ email, password, name });
 
+    // Dev-only convenience: allow skipping email verification entirely for local development.
+    const skipEmailVerification =
+      process.env.NODE_ENV !== 'production' &&
+      (process.env.SKIP_EMAIL_VERIFICATION === 'true' || process.env.SKIP_EMAIL_VERIFICATION === '1');
+    if (skipEmailVerification && user?.id) {
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: true },
+        });
+        user.emailVerified = true;
+        user.emailVerificationRequired = false;
+        user.allowUnverifiedPublish = true;
+        user.verificationToken = null;
+        user.verificationTokenRaw = null;
+        user.verificationExpires = null;
+      } catch (e) {
+        console.warn('[Auth] SKIP_EMAIL_VERIFICATION update failed (non-fatal):', e?.message || e);
+      }
+    }
+
     // When email verification is enabled, send verification email on signup (fire-and-forget; do not block 201)
     const verificationEnabled = process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1';
-    if (verificationEnabled && user?.id && user?.email) {
+    if (!skipEmailVerification && verificationEnabled && user?.id && user?.email) {
       const rawToken = generateVerificationRawToken();
       const hashedToken = hashVerificationToken(rawToken);
       const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
@@ -488,6 +533,24 @@ router.post('/login', async (req, res, next) => {
       emailOrUsername: identifierRaw,
       password,
     });
+
+    // Dev-only convenience: if SKIP_EMAIL_VERIFICATION is enabled, auto-verify legacy unverified accounts on login.
+    const skipEmailVerification =
+      process.env.NODE_ENV !== 'production' &&
+      (process.env.SKIP_EMAIL_VERIFICATION === 'true' || process.env.SKIP_EMAIL_VERIFICATION === '1');
+    if (skipEmailVerification && user?.id && user.emailVerified === false) {
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: true },
+        });
+        user.emailVerified = true;
+        user.emailVerificationRequired = false;
+        user.allowUnverifiedPublish = true;
+      } catch (e) {
+        console.warn('[Auth] SKIP_EMAIL_VERIFICATION login update failed (non-fatal):', e?.message || e);
+      }
+    }
     res.json({
       ok: true,
       token,
@@ -521,7 +584,69 @@ router.post('/logout', (req, res) => {
     secure: process.env.NODE_ENV === 'production',
   });
 
+  res.clearCookie('performer_role', {
+    httpOnly: true,
+    sameSite: 'strict',
+  });
+
   return res.json({ success: true });
+});
+
+/**
+ * POST /api/auth/maintenance-session
+ * Body: { maintenanceToken: string }
+ *
+ * Creates a first-class operator maintenance session (super_admin role) for 8 hours.
+ * - IP allowlist is enforced first (if configured)
+ * - Token comparison uses timingSafeEqual (length mismatch handled safely)
+ * - Always returns 401 { error: 'INVALID_TOKEN' } for missing/wrong/unset token
+ */
+router.post('/maintenance-session', async (req, res) => {
+  try {
+    assertMaintenanceIpAllowlistIfConfigured(req);
+  } catch (err) {
+    if (err?.message === 'MAINTENANCE_IP_DENIED') {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
+  const expected = String(process.env.PERFORMER_MAINTENANCE_SECRET || '');
+  const provided = String(req.body?.maintenanceToken || '');
+
+  // Fail closed without revealing configuration state.
+  if (!expected || !provided) {
+    return res.status(401).json({ error: 'INVALID_TOKEN' });
+  }
+
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  const providedBuf = Buffer.from(provided, 'utf8');
+  if (expectedBuf.length !== providedBuf.length) {
+    return res.status(401).json({ error: 'INVALID_TOKEN' });
+  }
+
+  let ok = false;
+  try {
+    ok = crypto.timingSafeEqual(expectedBuf, providedBuf);
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    return res.status(401).json({ error: 'INVALID_TOKEN' });
+  }
+
+  const maxAgeMs = 8 * 60 * 60 * 1000;
+  res.cookie('performer_role', 'super_admin', {
+    httpOnly: true,
+    sameSite: 'strict',
+    maxAge: maxAgeMs,
+  });
+
+  return res.json({
+    role: 'super_admin',
+    expiresAt: Date.now() + maxAgeMs,
+    token: provided,
+  });
 });
 
 /**
@@ -1001,6 +1126,19 @@ async function sendVerificationEmail({ to, rawToken, displayName }) {
   });
   const fullLink = `${apiBase}${confirmPath}?${query.toString()}`;
   const storedHash = hashVerificationToken(rawToken);
+
+  // Always log which base URL was selected in non-production (never log tokens).
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[Auth] verify/email base selected', {
+      apiBase,
+      source: (process.env.EMAIL_VERIFICATION_API_ORIGIN || '').trim()
+        ? 'EMAIL_VERIFICATION_API_ORIGIN'
+        : (process.env.PUBLIC_API_BASE_URL || process.env.PUBLIC_BASE_URL || '').trim()
+          ? 'PUBLIC_API_BASE_URL|PUBLIC_BASE_URL'
+          : 'fallback_localhost',
+      isFallback,
+    });
+  }
 
   if (verifyDebugEnabled()) {
     const rawLooksSha256Hex = /^[a-f0-9]{64}$/i.test(String(rawToken));
@@ -1622,11 +1760,15 @@ router.post('/guest', guestAuthLimiter, (req, res, next) => {
         message: 'Guest auth is not enabled in this environment.',
       });
     }
-    const { token, userId } = generateGuestToken();
+    const locale = normalizeLocale(
+      req.body?.locale ?? req.headers['x-locale'] ?? req.get?.('accept-language'),
+    );
+    const { token, userId, locale: guestLocale } = generateGuestToken({ locale });
     res.json({
       ok: true,
       token,
-      user: { id: userId, role: 'guest' },
+      locale: guestLocale,
+      user: { id: userId, role: 'guest', locale: guestLocale },
     });
   } catch (error) {
     console.error('[Auth] Guest token error:', error);

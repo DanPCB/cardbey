@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../lib/prisma.js';
 import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
+import { normalizeLocale } from '../lib/localePrompt.js';
 const JWT_SECRET = requireJwtSecret();
 
 
@@ -153,7 +154,11 @@ export async function requireAuth(req, res, next) {
     
     // Minimal guest token: no DB lookup, compatible with optionalAuth/requireAuth
     if (decoded.role === 'guest' && decoded.auth === 'guest') {
-      req.user = { id: userId, role: 'guest' };
+      req.user = {
+        id: userId,
+        role: 'guest',
+        locale: normalizeLocale(decoded.locale),
+      };
       req.userId = req.userId ?? req.user?.id ?? userId;
       if (process.env.NODE_ENV !== 'production') {
         console.log('[Auth] Bearer parsed, req.user set', { userId, source: 'guest' });
@@ -282,7 +287,11 @@ export async function optionalAuth(req, res, next) {
       if (userId) {
         // Minimal guest token: no DB lookup
         if (decoded.role === 'guest' && decoded.auth === 'guest') {
-          req.user = { id: userId, role: 'guest' };
+          req.user = {
+            id: userId,
+            role: 'guest',
+            locale: normalizeLocale(decoded.locale),
+          };
           req.userId = userId;
         } else {
           const user = await prisma.user.findUnique({
@@ -330,19 +339,21 @@ export function generateToken(userId) {
 }
 
 /**
- * Generate minimal guest JWT (no DB user). Payload: { userId, role: 'guest', auth: 'guest' }.
+ * Generate minimal guest JWT (no DB user). Payload: { userId, role: 'guest', auth: 'guest', locale? }.
  * Compatible with requireAuth/optionalAuth when they recognize role:'guest'.
- * @returns {{ token: string, userId: string }}
+ * @param {{ locale?: string }} [options]
+ * @returns {{ token: string, userId: string, locale: string }}
  */
-export function generateGuestToken() {
+export function generateGuestToken(options = {}) {
   const userId = `guest_${crypto.randomUUID?.() ?? crypto.randomBytes(16).toString('hex')}`;
-  const payload = { userId, role: 'guest', auth: 'guest' };
+  const locale = normalizeLocale(options.locale);
+  const payload = { userId, role: 'guest', auth: 'guest', locale };
   const token = jwt.sign(
     payload,
     JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
-  return { token, userId };
+  return { token, userId, locale };
 }
 
 /**
