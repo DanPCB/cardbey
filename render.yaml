@@ -68,6 +68,43 @@ services:
       - key: VITE_PERFORMER_EXECUTION_REAL_CAPABILITIES
         value: "1"
 
+  # Core API (production / live) — same build + health probe as staging; branch main tracks staging merges.
+  - type: web
+    name: cardbey-core
+    runtime: node
+    repo: https://github.com/DanPCB/cardbey
+    branch: main
+    rootDir: apps/core/cardbey-core
+    buildCommand: npm install && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    preDeployCommand: node scripts/prisma-bootstrap.js
+    startCommand: npm start
+    healthCheckPath: /api/performer/intake/v2
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_PERFORMER_RUNTIME_KERNEL
+        value: "true"
+      - key: ENABLE_RUNTIME_STEP_EXECUTION
+        value: "true"
+      - key: ENABLE_SHARED_RUNTIME_TOOL_REGISTRY
+        value: "true"
+      - key: ENABLE_PROACTIVE_CAMPAIGN_RUNWAY
+        value: "true"
+      - key: ENABLE_RUNTIME_SESSION_REHYDRATION
+        value: "true"
+      - key: ENABLE_RUNTIME_STORE_FALLBACK
+        value: "true"
+      - key: PERFORMER_RUNTIME_UNIFIED_STREAM
+        value: "true"
+      - key: ENABLE_RUNTIME_MISSION_ORCHESTRATOR
+        value: "true"
+      - key: EMAIL_VERIFICATION_BASE_URL
+        value: https://cardbey-core.onrender.com
+      - key: PUBLIC_APP_URL
+        value: https://cardbey-dashboard.onrender.com
+      - key: DASHBOARD_URL
+        value: https://cardbey-dashboard.onrender.com
+
   # Dashboard (production) — static site build (Vite)
   # Reconcile with existing Render service before blueprint sync if cardbey-dashboard already exists.
   - type: web
