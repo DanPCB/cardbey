@@ -1,5 +1,13 @@
 // scripts/prisma-bootstrap.js
 // Prefers `prisma migrate deploy` when prisma/migrations is present in the repo.
+//
+// Local SQLite lock (dev.db): if bootstrap fails with "database is locked", another process
+// may hold the file — stop stale holders before retrying:
+//   - node.exe (previous API / nodemon / tests)
+//   - npx prisma studio
+//   - other terminals running npm run dev:api
+// Windows: netstat -ano | findstr :3001  then  taskkill /PID <pid> /F
+// Optional: remove dev.db-wal / dev.db-shm only (not dev.db) after all Node processes exit.
 // SQLite: after dropping MissionBlackboard (legacy JSONB DDL), a one-shot db push
 // --accept-data-loss recreates it; migrate deploy alone may not. No-migrations push
 // still refuses when Device rows exist.
@@ -51,12 +59,28 @@ function prismaChildEnv() {
   return next;
 }
 
-function sleepSync(seconds) {
+function sleepMs(ms) {
+  const n = Math.max(0, Number(ms) || 0);
+  if (n <= 0) return;
   try {
-    execSync(`sleep ${seconds}`, { stdio: "ignore", shell: true });
+    if (process.platform === "win32") {
+      execSync(`powershell -NoProfile -Command "Start-Sleep -Milliseconds ${n}"`, {
+        stdio: "ignore",
+      });
+      return;
+    }
+    const sec = Math.max(1, Math.ceil(n / 1000));
+    execSync(`sleep ${sec}`, { stdio: "ignore", shell: true });
   } catch {
-    /* Windows / minimal images — skip delay */
+    const end = Date.now() + n;
+    while (Date.now() < end) {
+      /* sync fallback when shell sleep unavailable */
+    }
   }
+}
+
+function sleepSync(seconds) {
+  sleepMs(Math.round(Number(seconds) * 1000) || 0);
 }
 
 function isSqliteLockOutput(text) {
@@ -123,24 +147,43 @@ function runPrisma(cmdLabel, cmd, { retries = 5, retryDelaySec = 3 } = {}) {
   }
 }
 
-/** Run migrate deploy; on failure attach stderr/stdout for P3005 detection. */
+/**
+ * Run migrate deploy; on failure attach stderr/stdout for P3005 detection.
+ * SQLite (local dev only): bounded retry when another process briefly holds dev.db.
+ * Postgres / Render: single attempt — unchanged.
+ */
 function runMigrateDeploy(schemaPath) {
-  try {
-    const stdout = execSync(`npx prisma migrate deploy --schema=${schemaPath}`, {
+  const isSqliteLocal = !isPostgresDatabaseUrl(pickDatabaseUrlForPrisma());
+  const maxAttempts = isSqliteLocal ? 5 : 1;
+  const backoffMs = 1500;
+  const cmd = `npx prisma migrate deploy --schema=${schemaPath}`;
+
+  let lastCombined = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const r = spawnSync(cmd, {
       encoding: "utf8",
       maxBuffer: 50 * 1024 * 1024,
-      stdio: ["inherit", "pipe", "pipe"],
       env: prismaChildEnv(),
       shell: true,
+      stdio: ["inherit", "pipe", "pipe"],
     });
+    const stdout = toStr(r.stdout);
+    const stderr = toStr(r.stderr);
     if (stdout) process.stdout.write(stdout);
-  } catch (e) {
-    const toStr = (x) => (Buffer.isBuffer(x) ? x.toString("utf8") : String(x ?? ""));
-    if (e.stdout) process.stdout.write(toStr(e.stdout));
-    if (e.stderr) process.stderr.write(toStr(e.stderr));
-    const combined = `${toStr(e.stderr)}${toStr(e.stdout)}${e.message || ""}`;
-    const err = new Error(combined);
-    err.original = e;
+    if (stderr) process.stderr.write(stderr);
+    lastCombined = `${stderr}${stdout}`;
+    if (r.status === 0) return;
+
+    if (isSqliteLocal && isSqliteLockOutput(lastCombined) && attempt < maxAttempts) {
+      console.warn(
+        `[prisma] sqlite locked, retrying migrate deploy attempt ${attempt}/${maxAttempts}`,
+      );
+      sleepMs(backoffMs);
+      continue;
+    }
+
+    const err = new Error(lastCombined || `migrate deploy failed (exit ${r.status ?? "?"})`);
+    err.original = r;
     throw err;
   }
 }
