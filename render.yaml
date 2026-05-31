@@ -16,6 +16,21 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Runtime Kernel — Foundation only (Phase B–E remain OFF until soak passes each phase)
+      - key: ENABLE_PERFORMER_RUNTIME_KERNEL
+        value: "true"
+      - key: ENABLE_RUNTIME_STEP_EXECUTION
+        value: "true"
+      - key: ENABLE_SHARED_RUNTIME_TOOL_REGISTRY
+        value: "true"
+      - key: ENABLE_PROACTIVE_CAMPAIGN_RUNWAY
+        value: "true"
+      - key: ENABLE_RUNTIME_SESSION_REHYDRATION
+        value: "true"
+      - key: ENABLE_RUNTIME_STORE_FALLBACK
+        value: "true"
+      - key: PERFORMER_RUNTIME_UNIFIED_STREAM
+        value: "true"
 
   # Dashboard (staging) — static site build (Vite)
   # rootDir MUST be monorepo root: Render runs "Installing dependencies with pnpm" before buildCommand
