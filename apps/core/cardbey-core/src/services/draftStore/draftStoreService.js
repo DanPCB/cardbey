@@ -3183,9 +3183,10 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
       businessFields,
       draft,
     );
-    const { isAbortedTransactionError, isUserIdUniqueViolation, logCommitDraftStructured } = await import(
-      './commitDraftBusinessResolve.js'
-    );
+    const {
+      isCommitBusinessRetryableError,
+      logCommitDraftStructured,
+    } = await import('./commitDraftBusinessResolve.js');
 
     let shell = null;
     let lastShellErr = null;
@@ -3245,6 +3246,10 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
             businessFields: { ...businessFields, userId: user.id },
             writeMode,
             generateUniqueStoreSlugForTx,
+            preflightOptions: {
+              preferOwnedBusiness: shellAttempt > 0,
+              forceRegenerateSlug: shellAttempt > 0,
+            },
           });
 
           await tx.product.deleteMany({ where: { businessId: business.id } });
@@ -3254,8 +3259,7 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
         break;
       } catch (shellErr) {
         lastShellErr = shellErr;
-        const retryable =
-          shellAttempt === 0 && (isUserIdUniqueViolation(shellErr) || isAbortedTransactionError(shellErr));
+        const retryable = shellAttempt === 0 && isCommitBusinessRetryableError(shellErr);
         logCommitDraftStructured('shell_transaction_failed', {
           ...commitLogCtx,
           userId: existingUserId ?? draft?.ownerUserId ?? user?.id ?? null,
@@ -3338,27 +3342,26 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
         reason: err?.message || 'commit_finalize_failed',
       }).catch(() => {});
     }
-    if (err?.code === 'P2002') {
+    if (err?.code === 'P2002' || err?.code === '25P02') {
+      const { isCommitBusinessRetryableError, isSlugUniqueViolation } = await import(
+        './commitDraftBusinessResolve.js'
+      );
       const uid = existingUserId ?? draft?.ownerUserId;
-      const targetLabel = Array.isArray(err?.meta?.target) ? err.meta.target.join(', ') : String(err?.meta?.target ?? 'unknown');
-      const isUserIdConflict =
-        (Array.isArray(err?.meta?.target) && err.meta.target.includes('userId')) ||
-        /userId/i.test(targetLabel);
-      if (isUserIdConflict) {
-        console.error('[commitDraft] Unrecovered userId unique conflict after recovery attempt:', {
-          target: err?.meta?.target,
-          userId: uid,
-          draftId: draft?.id,
-        });
-      }
-      console.error('[commitDraft] Unique constraint failed:', {
+      console.error('[commitDraft] Unrecovered identity conflict after shell retry:', {
+        code: err?.code,
         target: err?.meta?.target,
         userId: uid,
         draftId: draft?.id,
+        retryableKind: isCommitBusinessRetryableError(err) ? 'identity' : 'unknown',
+        slugConflict: isSlugUniqueViolation(err),
       });
-      throw new Error(
-        `COMMIT_DRAFT_FAILED: Business record conflict for userId=${uid ?? 'unknown'}. Constraint: ${targetLabel}`,
+      const friendly = new Error(
+        isSlugUniqueViolation(err)
+          ? "We couldn't finish creating your store because this store address is already taken. Please try again."
+          : 'We updated your existing store profile instead of creating a duplicate. Please try again.',
       );
+      friendly.code = isSlugUniqueViolation(err) ? 'STORE_SLUG_TAKEN' : 'STORE_BUSINESS_CONFLICT';
+      throw friendly;
     }
     const { logCommitDraftStructured, resolveCommitLogContext } = await import('./commitDraftBusinessResolve.js');
     logCommitDraftStructured('commit_failed', {

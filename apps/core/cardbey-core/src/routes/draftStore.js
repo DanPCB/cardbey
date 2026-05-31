@@ -1484,6 +1484,22 @@ router.post('/:draftId/commit', optionalAuth, async (req, res, next) => {
       });
     }
 
+    if (error.code === 'STORE_SLUG_TAKEN' || error.code === 'STORE_BUSINESS_CONFLICT') {
+      return res.status(409).json({
+        ok: false,
+        error: error.code,
+        message: error.message,
+      });
+    }
+
+    if (error.code === '25P02') {
+      return res.status(409).json({
+        ok: false,
+        error: 'STORE_PUBLISH_RETRY',
+        message: 'Publish was interrupted. Please try again.',
+      });
+    }
+
     res.status(500).json({
       ok: false,
       error: 'commit_failed',

@@ -3017,8 +3017,16 @@ router.post('/publish', requireAuth, async (req, res, next) => {
     if (error?.code === 'P2002') {
       return res.status(409).json({
         ok: false,
-        error: 'conflict',
-        message: 'A store with this identifier already exists. Please try again or use a different store.',
+        error: 'STORE_SLUG_TAKEN',
+        message:
+          "We couldn't publish because this store address is already taken. We generated a new address — please try again.",
+      });
+    }
+    if (error?.code === '25P02') {
+      return res.status(409).json({
+        ok: false,
+        error: 'STORE_PUBLISH_RETRY',
+        message: 'Publish was interrupted. Please try again.',
       });
     }
     next(error);

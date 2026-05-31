@@ -8,7 +8,7 @@
  * Verification: Publish same draft twice -> second call returns same store. Guest draft -> sign in -> publish works. User with existing store(s) publishing temp draft -> new store created.
  */
 
-import { generateUniqueStoreSlug, generateUniqueStoreSlugForTx, slugify } from '../../utils/slug.js';
+import { generateUniqueStoreSlug, slugify } from '../../utils/slug.js';
 import { extendedBusinessFieldsFromCommerce } from '../../lib/dbCapabilities.js';
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
@@ -101,7 +101,6 @@ import { isDraftOwnedByUser } from '../../lib/draftOwnership.js';
 import { transitionDraftStoreStatus } from '../../kernel/transitions/transitionService.js';
 import { refreshPersonalPresenceQrForBusiness } from '../personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../../utils/publicWebBase.js';
-import { isMultiStoreIdentityV1Enabled, isExplicitStoreId, logStoreIdentity } from '../store/storeIdentity.js';
 
 function buildVerifiedStorefrontUrl(slug, storeId) {
   const webBase = publicWebBase();
@@ -681,166 +680,121 @@ export async function publishDraft(prisma, {
   const intendedSlug = slugify(storeName);
   const shellStart = Date.now();
   stageTimer.beginTransaction();
-  const shell = await prisma.$transaction(async (tx) => {
-    let shellStoreId = effectiveStoreId;
-    let shellStore = store;
-    let shellSlug = newSlug;
 
-    if (isTempStore && !shellStoreId) {
-      const ownerId = publishUserIdForTemp;
-      if (!ownerId) {
-        throw new PublishDraftError('AUTH_REQUIRED', 'Authentication required to publish a store.', 401);
-      }
+  const {
+    preflightPublishBusinessPlan,
+    executePublishBusinessPlan,
+    isPublishBusinessRetryableError,
+    friendlyPublishIdentityError,
+    logPublishDraftStructured,
+  } = await import('./publishDraftBusinessResolve.js');
 
-      let matchedBusiness = null;
-      const multiStoreV1 = isMultiStoreIdentityV1Enabled();
-      const explicitExpected =
-        expectedStoreId && isExplicitStoreId(expectedStoreId) ? String(expectedStoreId).trim() : null;
-
-      if (explicitExpected) {
-        matchedBusiness = await tx.business.findFirst({
-          where: { id: explicitExpected, userId: ownerId },
-          select: { id: true, userId: true, name: true, slug: true },
-        });
-        if (!matchedBusiness) {
-          throw new PublishDraftError(
-            'publish_store_mismatch',
-            'This draft is not linked to the expected store. Choose the correct store or create a new one.',
-            409,
-          );
-        }
-        logStoreIdentity('STORE_IDENTITY_PUBLISH_EXPECTED', {
-          draftId: targetDraft.id,
-          storeId: matchedBusiness.id,
-          mode: 'update',
-          reason: 'expected_store_id',
-          ownerId,
-        });
-      } else if (targetDraft.committedStoreId) {
-        matchedBusiness = await tx.business.findFirst({
-          where: { id: targetDraft.committedStoreId, userId: ownerId },
-          select: { id: true, userId: true, name: true, slug: true },
-        });
-        if (matchedBusiness) {
-          logPublishRunway('STORE_UPSERT_MATCH', {
-            reason: 'draft_committed_store_id',
-            businessId: matchedBusiness.id,
-            slug: matchedBusiness.slug,
-            tenantId: ownerId,
-            draftId: targetDraft.id,
-          });
-        }
-      } else if (!multiStoreV1) {
-        if (intendedSlug) {
-          matchedBusiness = await tx.business.findFirst({
-            where: { userId: ownerId, slug: intendedSlug },
-            select: { id: true, userId: true, name: true, slug: true },
-          });
-          if (matchedBusiness) {
-            logPublishRunway('STORE_UPSERT_MATCH', {
-              reason: 'tenant_slug_legacy',
-              businessId: matchedBusiness.id,
-              slug: matchedBusiness.slug,
-              tenantId: ownerId,
-              draftId: targetDraft.id,
-            });
-          }
-        }
-      }
-
-      if (matchedBusiness) {
-        shellStoreId = matchedBusiness.id;
-        shellStore = {
-          id: matchedBusiness.id,
-          userId: matchedBusiness.userId,
-          name: matchedBusiness.name,
-          slug: matchedBusiness.slug,
-        };
-        shellSlug = matchedBusiness.slug;
-        logPublishRunway('STORE_UPSERT_UPDATE', {
-          businessId: matchedBusiness.id,
-          slug: matchedBusiness.slug,
-          tenantId: ownerId,
-          draftId: targetDraft.id,
-        });
-        logPublishRunway('DUPLICATE_STORE_PREVENTED', {
-          businessId: matchedBusiness.id,
-          slug: matchedBusiness.slug,
-          tenantId: ownerId,
-          draftId: targetDraft.id,
-        });
-      } else {
-        let slugForCreate = await generateUniqueStoreSlugForTx(tx, storeName);
-        let createdBusiness;
+  let shell = null;
+  let lastShellErr = null;
+  for (let shellAttempt = 0; shellAttempt < 2; shellAttempt++) {
+    let preflightPlan = null;
+    try {
+      if (isTempStore && !effectiveStoreId) {
         try {
-          createdBusiness = await tx.business.create({
-            data: {
-              userId: ownerId,
-              name: storeName,
-              type: storeType,
-              slug: slugForCreate,
-              description: storeDescription,
-              tagline: storeTagline,
-              isActive: false,
+          preflightPlan = await preflightPublishBusinessPlan(prisma, {
+            ownerId: publishUserIdForTemp,
+            targetDraft,
+            expectedStoreId,
+            storeName,
+            storeType,
+            storeDescription,
+            storeTagline,
+            isTempStore: true,
+            existingStoreId: null,
+            preflightOptions: {
+              preferOwnedBusiness: shellAttempt > 0,
+              forceRegenerateSlug: shellAttempt > 0,
             },
           });
-        } catch (createErr) {
-          if (createErr?.code === 'P2002') {
-            const retrySlug = intendedSlug
-              ? await tx.business.findFirst({
-                  where: { userId: ownerId, slug: intendedSlug },
-                  select: { id: true, userId: true, name: true, slug: true },
-                })
-              : null;
-            if (retrySlug) {
-              createdBusiness = retrySlug;
-              logPublishRunway('STORE_UPSERT_MATCH', {
-                reason: 'slug_unique_race',
-                businessId: retrySlug.id,
-                slug: retrySlug.slug,
-                tenantId: ownerId,
-              });
-            } else {
-              slugForCreate = await generateUniqueStoreSlugForTx(tx, `${storeName}-${Date.now()}`);
-              createdBusiness = await tx.business.create({
-                data: {
-                  userId: ownerId,
-                  name: storeName,
-                  type: storeType,
-                  slug: slugForCreate,
-                  description: storeDescription,
-                  tagline: storeTagline,
-                  isActive: false,
-                },
-              });
-            }
-          } else {
-            throw createErr;
+        } catch (preflightErr) {
+          if (preflightErr?.code === 'publish_store_mismatch') {
+            throw new PublishDraftError('publish_store_mismatch', preflightErr.message, 409);
           }
+          throw preflightErr;
         }
-        shellStoreId = createdBusiness.id;
-        shellStore = {
-          id: createdBusiness.id,
-          userId: createdBusiness.userId,
-          name: createdBusiness.name,
-          slug: createdBusiness.slug,
-        };
-        shellSlug = createdBusiness.slug;
-        logPublishRunway('STORE_UPSERT_CREATE', {
-          businessId: createdBusiness.id,
-          slug: createdBusiness.slug,
-          tenantId: ownerId,
-          draftId: targetDraft.id,
+      }
+
+      shell = await prisma.$transaction(async (tx) => {
+        let shellStoreId = effectiveStoreId;
+        let shellStore = store;
+        let shellSlug = newSlug;
+
+        if (isTempStore && !shellStoreId) {
+          if (!publishUserIdForTemp) {
+            throw new PublishDraftError('AUTH_REQUIRED', 'Authentication required to publish a store.', 401);
+          }
+          const bizResult = await executePublishBusinessPlan(tx, preflightPlan, {
+            ownerId: publishUserIdForTemp,
+            targetDraft,
+            storeName,
+            storeType,
+            storeDescription,
+            storeTagline,
+          });
+          shellStoreId = bizResult.effectiveStoreId;
+          shellSlug = bizResult.newSlug;
+          shellStore = {
+            id: shellStoreId,
+            userId: publishUserIdForTemp,
+            name: storeName,
+            slug: shellSlug,
+          };
+          logPublishDraftStructured('shell_business_resolved', {
+            userId: publishUserIdForTemp,
+            draftStoreId: targetDraft.id,
+            intendedSlug: preflightPlan?.intendedSlug ?? intendedSlug,
+            finalSlug: shellSlug,
+            businessId: shellStoreId,
+            path: preflightPlan?.path ?? null,
+            attempt: shellAttempt + 1,
+          });
+        }
+
+        await tx.product.deleteMany({
+          where: { businessId: shellStoreId },
         });
+
+        return { effectiveStoreId: shellStoreId, store: shellStore, newSlug: shellSlug };
+      }, txOpts);
+      lastShellErr = null;
+      break;
+    } catch (shellErr) {
+      lastShellErr = shellErr;
+      if (shellErr instanceof PublishDraftError) throw shellErr;
+      const retryable = shellAttempt === 0 && isPublishBusinessRetryableError(shellErr);
+      logPublishDraftStructured('shell_transaction_failed', {
+        userId: publishUserIdForTemp ?? userId,
+        draftStoreId: targetDraft.id,
+        intendedSlug: preflightPlan?.intendedSlug ?? intendedSlug,
+        finalSlug: preflightPlan?.finalSlug ?? null,
+        businessId: null,
+        firstFailureCode: shellErr?.code ?? null,
+        path: preflightPlan?.path ?? null,
+        attempt: shellAttempt + 1,
+        retryable,
+        message: shellErr?.message ?? String(shellErr),
+      });
+      if (!retryable) {
+        const friendly = friendlyPublishIdentityError(shellErr);
+        if (friendly) {
+          throw new PublishDraftError(friendly.code, friendly.message, friendly.statusCode);
+        }
+        throw shellErr;
       }
     }
-
-    await tx.product.deleteMany({
-      where: { businessId: shellStoreId },
-    });
-
-    return { effectiveStoreId: shellStoreId, store: shellStore, newSlug: shellSlug };
-  }, txOpts);
+  }
+  if (!shell) {
+    const friendly = friendlyPublishIdentityError(lastShellErr);
+    if (friendly) {
+      throw new PublishDraftError(friendly.code, friendly.message, friendly.statusCode);
+    }
+    throw lastShellErr ?? new Error('publish shell transaction did not complete');
+  }
 
   effectiveStoreId = shell.effectiveStoreId;
   store = shell.store;

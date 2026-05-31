@@ -6,6 +6,14 @@ export function isMultiStoreIdentityV1Enabled() {
   return process.env.MULTI_STORE_IDENTITY_V1 !== 'false' && process.env.MULTI_STORE_IDENTITY_V1 !== '0';
 }
 
+/** Staging/legacy DBs may still enforce one Business row per userId. */
+export function isLegacyBusinessUserIdUniqueEnabled() {
+  return (
+    process.env.LEGACY_BUSINESS_USER_ID_UNIQUE === 'true' ||
+    process.env.LEGACY_BUSINESS_USER_ID_UNIQUE === '1'
+  );
+}
+
 /**
  * @param {string | null | undefined} storeId
  */
