@@ -1,10 +1,8 @@
 // scripts/scan-missing-media-runner.js
 // Exportable scanner function for use in admin endpoints
 
-import { PrismaClient } from '@prisma/client';
+import { getPrismaClient } from '../src/lib/prisma.js';
 import { fileExistsOnDisk } from '../src/utils/publicUrl.js';
-
-const prisma = new PrismaClient();
 
 /**
  * Check if a media file exists on disk
@@ -38,6 +36,7 @@ function checkMediaFileExists(media) {
  * Main scanner function - exported for use in admin endpoints
  */
 export async function scanMissingMedia() {
+  const prisma = getPrismaClient();
   const startTime = Date.now();
   const pageSize = 200;
   let skip = 0;
