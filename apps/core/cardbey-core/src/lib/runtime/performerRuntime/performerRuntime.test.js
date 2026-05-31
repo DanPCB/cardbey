@@ -57,6 +57,7 @@ describe('performerRuntime kernel', () => {
 
   it('categorizes stream events', () => {
     expect(categorizeStreamEvent('runtime.execution.started')).toBe('execution');
+    expect(categorizeStreamEvent('runtime.graph.created')).toBe('orchestration');
     expect(categorizeStreamEvent('reasoning_line')).toBe('telemetry');
     expect(normalizeStreamEvent({ id: '1', seq: 1, eventType: 'completed_action', payload: {} }).category).toBe(
       'execution',

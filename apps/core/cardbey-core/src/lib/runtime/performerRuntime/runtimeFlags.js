@@ -46,3 +46,18 @@ export function isPerformerRuntimeStatePersistEnabled() {
 export function isPerformerExecutionRecordsPersistEnabled() {
   return envTruthy('PERFORMER_EXECUTION_RECORDS_PERSIST', true);
 }
+
+/** Route proactive mission steps through performerRuntimeKernel.executeMissionStep. */
+export function isRuntimeStepExecutionEnabled() {
+  return envTruthy('ENABLE_RUNTIME_STEP_EXECUTION', false);
+}
+
+/** Use shared runtimeToolRegistry for tool validation. */
+export function isSharedRuntimeToolRegistryEnabled() {
+  return envTruthy('ENABLE_SHARED_RUNTIME_TOOL_REGISTRY', false);
+}
+
+/** Master switch for Runtime Kernel step authority layer. */
+export function isPerformerRuntimeKernelEnabled() {
+  return envTruthy('ENABLE_PERFORMER_RUNTIME_KERNEL', false);
+}

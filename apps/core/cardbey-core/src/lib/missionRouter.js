@@ -48,16 +48,14 @@ export function resolveMode(intentType, forceMode) {
  * @param {object} [params.context]
  * @returns {Promise<import('./prismaClient.js').MissionRun>}
  */
-export async function createMissionRun({
-  userId,
-  storeId,
-  intentType,
-  title,
-  mode,
-  requiresConfirmation = false,
-  context = {},
-}) {
-  const prisma = getPrismaClient();
+/**
+ * @param {object} prisma - Prisma client or transaction client.
+ * @param {Parameters<typeof createMissionRun>[0]} params
+ */
+export async function createMissionRunCore(
+  prisma,
+  { userId, storeId, intentType, title, mode, requiresConfirmation = false, context = {} },
+) {
   const resolvedMode = resolveMode(intentType, mode);
 
   const run = await prisma.missionRun.create({
@@ -82,6 +80,11 @@ export async function createMissionRun({
   });
 
   return run;
+}
+
+export async function createMissionRun(params) {
+  const prisma = getPrismaClient();
+  return createMissionRunCore(prisma, params);
 }
 
 /**

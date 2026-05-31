@@ -34,10 +34,14 @@ import {
 } from '../services/missionContextService.js';
 import { buildAndStoreMissionHypothesis } from '../services/missionContextService.js';
 import {
-  buildStepContext,
-  writeStepOutput,
-  shouldPersistStepOutputToBus,
-} from '../lib/missionContextBus.js';
+  assertProactivePipelineOrMissionAccess,
+  executeProactiveRunwayStep,
+  proactivePlanStepTitle,
+} from '../lib/runtime/proactiveRunwayStepExecutor.js';
+import {
+  executeMissionStep,
+  isRuntimeStepExecutionEnabled,
+} from '../lib/runtime/performerRuntimeKernel.js';
 import {
   sendCampaignEmail,
   createCalendarEvent,
@@ -45,72 +49,6 @@ import {
 } from '../lib/externalActions/index.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
-
-function proactivePlanStepTitle(body) {
-  const ps = body?.proactivePlanStep;
-  if (ps && typeof ps === 'object' && typeof ps.title === 'string' && ps.title.trim()) {
-    return ps.title.trim();
-  }
-  return null;
-}
-
-/**
- * Same ownership idea as missionBlackboard / missionAccess: pipeline id may also exist as a shadow Mission row.
- * MissionAccess resolves Mission first (kind=mission), which made POST / reject when we required kind=mission_pipeline only.
- * Here: authorize via MissionPipeline if present, else Mission — rules aligned with missionAccess.js.
- *
- * @returns {Promise<{ ok: true } | { ok: false, reason: 'NOT_FOUND' | 'FORBIDDEN' }>}
- */
-async function assertProactivePipelineOrMissionAccess(user, missionId) {
-  const prisma = getPrismaClient();
-  const pipeline = await prisma.missionPipeline.findFirst({
-    where: { id: missionId },
-    select: { id: true, tenantId: true, createdBy: true },
-  });
-
-  if (pipeline) {
-    const tenantId = getTenantId(user);
-    const allowed =
-      !pipeline.tenantId ||
-      pipeline.tenantId === tenantId ||
-      (pipeline.createdBy && user?.id && pipeline.createdBy === user.id);
-    if (!allowed) {
-      if (isDev) console.log('[ProactiveStep] forbidden mission_pipeline missionId=', missionId);
-      return { ok: false, reason: 'FORBIDDEN' };
-    }
-    if (isDev) console.log('[ProactiveStep] access ok via mission_pipeline missionId=', missionId);
-    return { ok: true };
-  }
-
-  const mission = await prisma.mission.findFirst({
-    where: { id: missionId },
-    select: { id: true, tenantId: true, createdByUserId: true },
-  });
-
-  if (!mission) {
-    if (isDev) console.log('[ProactiveStep] not found missionId=', missionId);
-    return { ok: false, reason: 'NOT_FOUND' };
-  }
-
-  const ownerId = user?.id;
-  const businessId = user?.business?.id;
-  const isOwner =
-    mission.createdByUserId === ownerId ||
-    mission.tenantId === ownerId ||
-    mission.tenantId === businessId;
-  const devPlaceholder =
-    mission.createdByUserId === 'temp' ||
-    mission.tenantId === 'temp' ||
-    mission.createdByUserId === 'dev-user-id' ||
-    mission.tenantId === 'dev-user-id';
-  const devBypass = isDev && ownerId && devPlaceholder;
-  if (!(isOwner || devBypass)) {
-    if (isDev) console.log('[ProactiveStep] forbidden mission missionId=', missionId);
-    return { ok: false, reason: 'FORBIDDEN' };
-  }
-  if (isDev) console.log('[ProactiveStep] access ok via mission (shadow) missionId=', missionId);
-  return { ok: true };
-}
 
 const router = express.Router();
 
@@ -939,6 +877,22 @@ router.post('/', requireAuth, async (req, res, next) => {
         message: 'missionId, stepNumber, and recommendedTool are required',
       });
     }
+
+    if (isRuntimeStepExecutionEnabled()) {
+      const kernelResult = await executeMissionStep({
+        user: req.user,
+        missionId,
+        stepNumber,
+        requestedTool: recommendedTool,
+        source: 'performer_proactive_step',
+        body,
+        parameters: body.parameters && typeof body.parameters === 'object' ? body.parameters : {},
+        proactivePlanTotal,
+        forceRetry: body.forceRetry === true || body.regenerate === true,
+      });
+      return res.status(kernelResult.httpStatus ?? (kernelResult.ok ? 200 : 500)).json(kernelResult);
+    }
+
     if (!ALLOWED_TOOLS.has(recommendedTool)) {
       return res.status(400).json({ ok: false, message: 'recommendedTool not allowed for proactive step' });
     }
@@ -948,291 +902,31 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(403).json({ ok: false, message: 'Mission pipeline not found or access denied' });
     }
 
-    const prisma = getPrismaClient();
-    const pipeline = await prisma.missionPipeline.findUnique({
-      where: { id: missionId },
-      select: {
-        id: true,
-        status: true,
-        runState: true,
-        metadataJson: true,
-        targetId: true,
-        executionMode: true,
-      },
+    const legacyResult = await executeProactiveRunwayStep({
+      user: req.user,
+      missionId,
+      stepNumber,
+      recommendedTool,
+      proactivePlanTotal,
+      parameters: body.parameters && typeof body.parameters === 'object' ? body.parameters : {},
+      body,
+      source: 'performer_proactive_step',
+      allowGeneralChat: true,
     });
-    if (!pipeline) {
-      return res.status(404).json({ ok: false, message: 'Mission pipeline not found' });
-    }
 
-    const st = String(pipeline.status || '').toLowerCase();
-    const rs = String(pipeline.runState || '').toLowerCase();
-    const wasCompleted = st === 'completed' && rs === 'done';
-    const isSocialFollowUpTool = SOCIAL_POST_COMPLETE_TOOLS.has(recommendedTool);
-    if (['completed', 'cancelled', 'failed'].includes(st) && !(wasCompleted && isSocialFollowUpTool)) {
-      return res.status(409).json({ ok: false, message: 'Mission is already in a terminal state' });
-    }
-
-    const meta = asObject(pipeline.metadataJson);
-    const stepOutputs = asObject(meta.stepOutputs);
-
-    if (!(wasCompleted && isSocialFollowUpTool)) {
-      if (
-        respondIfAdvanceFailed(
-          res,
-          await advanceProactivePipelineStep(prisma, {
-            missionId,
-            executionMode: pipeline.executionMode,
-            data: { status: 'executing', runState: 'running' },
-            source: 'performer_proactive_step',
-            correlationId: missionId,
-          }),
-        )
-      ) {
-        return;
-      }
-    }
-
-    const parameters = asObject(body.parameters);
-    const payload = { ...parameters };
-    payload.missionId = payload.missionId || missionId;
-    if (recommendedTool === 'create_promotion') {
-      const rawImg = parameters.imageDataUrl ?? body.imageDataUrl;
-      if (typeof rawImg === 'string' && rawImg.trim()) {
-        payload.imageDataUrl = String(rawImg).trim();
-      }
-    }
-    if (recommendedTool === 'create_promotion') {
-      console.log(
-        '[DEBUG cp] imageDataUrl in payload:',
-        payload.imageDataUrl ? 'PRESENT len=' + payload.imageDataUrl.length : 'MISSING',
-      );
-    }
-    if (!payload.storeId && typeof meta.storeId === 'string' && meta.storeId.trim()) {
-      payload.storeId = meta.storeId.trim();
-    }
-    if (!payload.storeId && pipeline.targetId && String(pipeline.targetId).trim()) {
-      payload.storeId = String(pipeline.targetId).trim();
-    }
-
-    if (!payload.storeId) {
-      try {
-        const userBusiness = await prisma.business.findFirst({
-          where: { userId: req.user.id, isActive: true },
-          orderBy: { createdAt: 'desc' },
-          select: { id: true },
-        });
-        if (userBusiness?.id) {
-          payload.storeId = userBusiness.id;
-          console.log('[ProactiveStep] storeId resolved from user business:', payload.storeId);
-        }
-      } catch (e) {
-        console.warn('[ProactiveStep] could not resolve storeId from user business:', e?.message || e);
-      }
-    }
-
-    console.log('[ProactiveStep] final payload.storeId:', payload.storeId ?? 'MISSING');
-
-    if (!payload.userId && req.user?.id) {
-      payload.userId = req.user.id;
-    }
-
-    const stepTitleForBus = proactivePlanStepTitle(body);
-
-    if (stepNumber > 1) {
-      try {
-        const prior = await buildStepContext({
-          missionId,
-          currentStepIndex: stepNumber,
-          step: { index: stepNumber, toolName: recommendedTool, name: stepTitleForBus ?? undefined },
-        });
-        if (prior) payload.priorStepsContext = prior;
-      } catch (e) {
-        console.warn('[ProactiveStep] buildStepContext skipped:', e?.message || e);
-      }
-    }
-
-    let toolResult;
-
-    if (recommendedTool === 'code_fix') {
-      const description =
-        String(body.description ?? '').trim() ||
-        String(parameters.description ?? '').trim() ||
-        String(parameters.prompt ?? '').trim() ||
-        String(parameters.message ?? '').trim() ||
-        '';
-      const filePathsFromBody = Array.isArray(body.filePaths) ? body.filePaths : null;
-      const filePathsFromParams = Array.isArray(parameters.filePaths) ? parameters.filePaths : null;
-      const filePaths = filePathsFromBody || filePathsFromParams || [];
-      const repoContext =
-        String(body.repoContext ?? parameters.repoContext ?? '').trim() || undefined;
-      const hasSourceFilePaths = filePaths.some((p) =>
-        /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cs|rb|php)$/i.test(String(p ?? '').trim()),
-      );
-      const { runCodeFixAnalysis, tryBuildStoreContentFixOutputFromIntakePatch } = await import(
-        '../services/codeFixPerformerService.js',
-      );
-      const intakePatch = parameters.storeContentPatch ?? body.storeContentPatch;
-      const fromIntake = tryBuildStoreContentFixOutputFromIntakePatch({
-        storeContentPatch: intakePatch,
-        description,
-      });
-      if (fromIntake && !hasSourceFilePaths) {
-        toolResult = { status: 'ok', output: fromIntake.output };
-      } else {
-        const analysis = await runCodeFixAnalysis({ description, filePaths, repoContext });
-        if (!analysis.ok) {
-          const advCf = await advanceProactivePipelineStep(prisma, {
-            missionId,
-            executionMode: pipeline.executionMode,
-            data: { status: 'failed', runState: 'error' },
-            source: 'performer_proactive_step',
-            correlationId: missionId,
-          });
-          if (respondIfAdvanceFailed(res, advCf)) return;
-          return res.status(200).json({
-            ok: false,
-            message: analysis.message,
-            output: buildCanonicalCodeFixErrorOutput(analysis.message),
-          });
-        }
-        toolResult = { status: 'ok', output: analysis.output };
-      }
-    } else if (recommendedTool === 'generate_slideshow') {
-      toolResult = {
-        status: 'ok',
-        output: {
-          slideshowUrl: null,
-          status: 'pending_client_export',
-          promotionId: parameters.promotionId ?? payload.promotionId ?? null,
-          instanceId: parameters.instanceId ?? payload.instanceId ?? null,
-        },
-      };
-    } else if (recommendedTool === 'general_chat') {
-      toolResult = { status: 'ok', output: { message: 'OK' } };
-    } else {
-      const dispatchName = resolveRunwayDispatchToolName(recommendedTool);
-      const ctx = {
-        missionId,
-        tenantId: getTenantId(req.user),
-        userId: req.user?.id,
-        createdBy: req.user?.id,
-        stepOutputs,
-        storeId: payload.storeId,
-      };
-      const agentHint = await resolveAgentHintForStep(missionId, stepNumber);
-      if (recommendedTool === 'create_promotion') {
-        console.log('[DEBUG cp] agentHint:', agentHint, 'dispatchName:', dispatchName);
-      }
-      toolResult = await dispatchExecution(
-        {
-          source: 'performer',
-          executionType: 'proactive_step',
-          missionId,
-          action: dispatchName,
-          correlationId: missionId,
-          legacySource: 'performer_proactive_step',
-          context: { stepNumber, recommendedTool },
-        },
-        () =>
-          dispatchTaskWithAgentHint(dispatchName, { ...payload, _agentHint: agentHint }, ctx),
-      );
-      if (isDev) {
-        console.log('[ProactiveStep] dispatched via orchestrator', {
-          tool: dispatchName,
-          agentHint,
-          missionId,
-          stepNumber,
-        });
-      }
-    }
-
-    const failed = toolResult.status === 'failed' || toolResult.status === 'blocked';
-    if (failed) {
-      if (!(wasCompleted && isSocialFollowUpTool)) {
-        const advToolFail = await advanceProactivePipelineStep(prisma, {
-          missionId,
-          executionMode: pipeline.executionMode,
-          data: { status: 'failed', runState: 'error' },
-          source: 'performer_proactive_step',
-          correlationId: missionId,
-        });
-        if (!advToolFail.ok && isDev) {
-          console.warn('[ProactiveStep] advance on tool failure:', advToolFail.code, advToolFail.message);
-        }
-      }
-      return res.status(200).json({
+    if (!legacyResult.ok) {
+      return res.status(legacyResult.httpStatus ?? 500).json({
         ok: false,
-        message:
-          toolResult.error?.message ||
-          toolResult.blocker?.message ||
-          'proactive_step_failed',
-        output: toolResult.output ?? toolResult,
+        message: legacyResult.message,
+        code: legacyResult.code,
+        output: legacyResult.output,
       });
-    }
-
-    const isLastStep = proactivePlanTotal > 0 && stepNumber >= proactivePlanTotal;
-    const stepOut = toolResult.output && typeof toolResult.output === 'object' ? toolResult.output : {};
-    const blocksTerminalComplete =
-      (recommendedTool === 'create_promotion' && stepOut.phase === 'awaiting_product_selection') ||
-      (recommendedTool === 'launch_campaign' && stepOut.phase === 'awaiting_channel_selection') ||
-      (recommendedTool === 'code_fix' && stepOut.phase === 'awaiting_approval') ||
-      (recommendedTool === 'edit_artifact' && stepOut.phase === 'image_search_results');
-    const pipelineComplete = isLastStep && !blocksTerminalComplete;
-
-    if (recommendedTool === 'launch_campaign' && stepOut.phase !== 'awaiting_channel_selection') {
-      await attachSocialShareRecommendationToLaunchOutput(stepOut, {
-        userId: req.user.id,
-        prisma,
-        stepOutputs,
-      });
-    }
-
-    const restoreCompletedAfterSocial =
-      wasCompleted && isSocialFollowUpTool && toolResult.status === 'ok';
-    const nextStatus = restoreCompletedAfterSocial ? 'completed' : pipelineComplete ? 'completed' : 'executing';
-    const nextRunState = restoreCompletedAfterSocial ? 'done' : pipelineComplete ? 'done' : 'idle';
-
-    if (
-      respondIfAdvanceFailed(
-        res,
-        await advanceProactivePipelineStep(prisma, {
-          missionId,
-          executionMode: pipeline.executionMode,
-          data: {
-            status: nextStatus,
-            runState: nextRunState,
-            metadataJson: {
-              ...meta,
-              stepOutputs: {
-                ...stepOutputs,
-                [recommendedTool]: toolResult.output ?? {},
-              },
-            },
-          },
-          source: 'performer_proactive_step',
-          correlationId: missionId,
-        }),
-      )
-    ) {
-      return;
-    }
-
-    if (shouldPersistStepOutputToBus(recommendedTool)) {
-      writeStepOutput(
-        missionId,
-        {
-          stepIndex: stepNumber,
-          toolName: recommendedTool,
-          stepTitle: stepTitleForBus,
-        },
-        stepOut,
-      ).catch((e) => console.warn('[missionContextBus] writeStepOutput:', e?.message || e));
     }
 
     return res.json({
       ok: true,
-      output: toolResult.output ?? { status: toolResult.status },
-      stepNumber,
+      output: legacyResult.output,
+      stepNumber: legacyResult.stepNumber,
     });
   } catch (err) {
     next(err);

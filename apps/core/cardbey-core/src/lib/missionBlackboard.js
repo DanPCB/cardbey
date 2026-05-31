@@ -7,6 +7,13 @@ import { getPrismaClient } from '../lib/prisma.js';
 import { getPrismaInteractiveTransactionOptions } from './prismaTransactionOptions.js';
 import { resolveMissionCorrelationId } from './agentRun.js';
 import { ensureShadowUserRowForGuest } from './mission.js';
+import {
+  isPrismaSocketTimeoutError,
+  recordBlackboardAppend,
+  recordPrismaObservation,
+} from './orchestration/orchestrationStabilityMetrics.js';
+import { isPerformerOrchestrationStabilityEnabled } from './broker/brokerFlags.js';
+import { onRuntimeEventAppended } from './runtime/observability/runtimeSnapshotStreamHook.js';
 
 /** One-time warn when MissionBlackboard table is missing (staging / pending migration). */
 let missionBlackboardMissingTableWarned = false;
@@ -173,6 +180,7 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
     (typeof e?.message === 'string' && e.message.includes('Unique constraint') && e.message.includes('missionId'));
 
   const txOpts = getPrismaInteractiveTransactionOptions();
+  const startedAt = isPerformerOrchestrationStabilityEnabled() ? Date.now() : 0;
   try {
     let row = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -206,11 +214,21 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
       }
     }
     if (!row) {
+      if (startedAt) recordBlackboardAppend({ latencyMs: Date.now() - startedAt, ok: false });
       return { ok: false, error: 'blackboard_append_failed' };
     }
+    if (startedAt) recordBlackboardAppend({ latencyMs: Date.now() - startedAt, ok: true });
+    onRuntimeEventAppended(mid, { seq: row.seq, eventType: et, payload });
     console.log(`[missionBlackboard][traceId=${traceId}] appendEvent missionId=${mid} eventType=${et} seq=${row.seq}`);
     return { ok: true, seq: row.seq, id: row.id };
   } catch (e) {
+    if (startedAt) {
+      recordBlackboardAppend({ latencyMs: Date.now() - startedAt, ok: false });
+      recordPrismaObservation({
+        latencyMs: Date.now() - startedAt,
+        socketTimeout: isPrismaSocketTimeoutError(e),
+      });
+    }
     if (isMissingBlackboardTableError(e)) {
       if (!missionBlackboardMissingTableWarned) {
         console.warn(
@@ -223,6 +241,146 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
     const msg = e?.message || String(e);
     console.warn(`[missionBlackboard][traceId=${traceId}] appendEvent failed:`, msg);
     return { ok: false, error: msg };
+  }
+}
+
+const isBlackboardSeqCollision = (e) =>
+  e?.code === 'P2002' ||
+  (typeof e?.message === 'string' && e.message.includes('Unique constraint') && e.message.includes('missionId'));
+
+/**
+ * Append multiple blackboard events in one transaction (preserves seq ordering).
+ * On batch failure, falls back to sequential appendEvent (partial success tolerated).
+ *
+ * @param {string} missionId
+ * @param {Array<{ eventType: string, payload: unknown, agentId?: string|null }>} events
+ * @param {{ correlationId?: string|null }} [opts]
+ * @returns {Promise<{ ok: boolean, results?: Array<{ ok: boolean, seq?: number, id?: string, eventType: string, error?: string }>, error?: string }>}
+ */
+export async function appendEventBatch(missionId, events, opts = {}) {
+  const mid = typeof missionId === 'string' ? missionId.trim() : '';
+  const list = Array.isArray(events) ? events.filter((e) => e && typeof e.eventType === 'string' && e.eventType.trim()) : [];
+  if (!mid) return { ok: false, error: 'mission_id_required' };
+  if (!list.length) return { ok: true, results: [] };
+
+  const prisma = getPrismaClient();
+  if (!prisma.missionBlackboard || typeof prisma.missionBlackboard.create !== 'function') {
+    const msg = 'MissionBlackboard model missing in Prisma client';
+    console.warn(`[missionBlackboard] appendEventBatch skipped: ${msg}`);
+    return { ok: false, error: msg };
+  }
+
+  const traceId = await resolveMissionCorrelationId(mid, opts.correlationId ?? null);
+  const txOpts = getPrismaInteractiveTransactionOptions();
+  const startedAt = isPerformerOrchestrationStabilityEnabled() ? Date.now() : 0;
+
+  const writeBatch = async () => {
+    const rows = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const created = await prisma.$transaction(async (tx) => {
+          const ensured = await ensureMissionRowForBlackboardTx(tx, mid);
+          if (!ensured) {
+            throw new Error('blackboard_parent_missing');
+          }
+          const agg = await tx.missionBlackboard.aggregate({
+            where: { missionId: mid },
+            _max: { seq: true },
+          });
+          let nextSeq = (agg._max.seq ?? 0) + 1;
+          const out = [];
+          for (const ev of list) {
+            const et = String(ev.eventType).trim();
+            const agentId =
+              ev.agentId != null && String(ev.agentId).trim() ? String(ev.agentId).trim() : null;
+            const row = await tx.missionBlackboard.create({
+              data: {
+                missionId: mid,
+                seq: nextSeq,
+                eventType: et,
+                payload: serializeBlackboardPayload(ev.payload),
+                agentId,
+                correlationId: traceId,
+              },
+            });
+            out.push(row);
+            nextSeq += 1;
+          }
+          return out;
+        }, txOpts);
+        rows.push(...created);
+        break;
+      } catch (inner) {
+        if (!isBlackboardSeqCollision(inner) || attempt >= 2) throw inner;
+      }
+    }
+    return rows;
+  };
+
+  try {
+    const rows = await writeBatch();
+    const results = rows.map((row, i) => ({
+      ok: true,
+      seq: row.seq,
+      id: row.id,
+      eventType: list[i]?.eventType ?? row.eventType,
+    }));
+    if (startedAt) {
+      recordBlackboardAppend({
+        latencyMs: Date.now() - startedAt,
+        ok: true,
+        batched: true,
+        eventCount: results.length,
+      });
+    }
+    for (let i = 0; i < rows.length; i += 1) {
+      onRuntimeEventAppended(mid, {
+        seq: rows[i].seq,
+        eventType: list[i]?.eventType ?? rows[i].eventType,
+        payload: list[i]?.payload,
+      });
+    }
+    console.log(
+      `[missionBlackboard][traceId=${traceId}] appendEventBatch missionId=${mid} count=${results.length} lastSeq=${results[results.length - 1]?.seq ?? 'n/a'}`,
+    );
+    return { ok: true, results };
+  } catch (e) {
+    if (startedAt) {
+      recordBlackboardAppend({
+        latencyMs: Date.now() - startedAt,
+        ok: false,
+        batched: true,
+        eventCount: list.length,
+      });
+      recordPrismaObservation({
+        latencyMs: Date.now() - startedAt,
+        socketTimeout: isPrismaSocketTimeoutError(e),
+      });
+    }
+    if (isMissingBlackboardTableError(e)) {
+      return { ok: false, reason: 'table_missing' };
+    }
+    console.warn('[missionBlackboard] appendEventBatch failed, falling back to sequential:', e?.message || e);
+    const results = [];
+    for (const ev of list) {
+      try {
+        const one = await appendEvent(mid, ev.eventType, ev.payload, {
+          agentId: ev.agentId,
+          correlationId: traceId,
+        });
+        results.push({
+          ok: !!one.ok,
+          seq: one.seq,
+          id: one.id,
+          eventType: ev.eventType,
+          error: one.error,
+        });
+      } catch (inner) {
+        results.push({ ok: false, eventType: ev.eventType, error: inner?.message || String(inner) });
+      }
+    }
+    const anyOk = results.some((r) => r.ok);
+    return { ok: anyOk, results, error: anyOk ? undefined : 'batch_and_fallback_failed' };
   }
 }
 
@@ -241,7 +399,7 @@ export async function setBlackboardKey(missionId, key, value, opts = {}) {
 
 /**
  * @param {string} missionId
- * @param {{ afterSeq?: number, limit?: number, correlationId?: string }} [opts]
+ * @param {{ afterSeq?: number, limit?: number, correlationId?: string } | string | null} [opts]
  * @returns {Promise<{ events: Array<{ id: string, seq: number, eventType: string, payload: unknown, agentId: string | null, correlationId: string | null, createdAt: Date }>, error?: string }>}
  */
 export async function getEvents(missionId, opts = {}) {
@@ -249,13 +407,26 @@ export async function getEvents(missionId, opts = {}) {
   if (!mid) {
     return { events: [], error: 'mission_id_required' };
   }
-  const afterSeq = typeof opts.afterSeq === 'number' && opts.afterSeq >= 0 ? opts.afterSeq : undefined;
+  // Phase 2: overload getEvents(missionId, type=null) for read-only "all events" access.
+  // Backwards compatible: if opts is an object, preserve existing pagination/correlation semantics.
+  const typeFilter =
+    opts === null || typeof opts === 'string'
+      ? typeof opts === 'string' && opts.trim()
+        ? opts.trim()
+        : null
+      : null;
+  const isLegacyOptsObject = opts != null && typeof opts === 'object' && !Array.isArray(opts);
+  const afterSeq = isLegacyOptsObject && typeof opts.afterSeq === 'number' && opts.afterSeq >= 0 ? opts.afterSeq : undefined;
   const cid =
-    typeof opts.correlationId === 'string' && opts.correlationId.trim() ? opts.correlationId.trim() : undefined;
+    isLegacyOptsObject && typeof opts.correlationId === 'string' && opts.correlationId.trim()
+      ? opts.correlationId.trim()
+      : undefined;
   const limit =
-    typeof opts.limit === 'number' && opts.limit > 0
+    isLegacyOptsObject && typeof opts.limit === 'number' && opts.limit > 0
       ? Math.min(opts.limit, 5000)
-      : DEFAULT_BLACKBOARD_LIMIT;
+      : isLegacyOptsObject
+        ? DEFAULT_BLACKBOARD_LIMIT
+        : undefined;
   const prisma = getPrismaClient();
   if (!prisma?.missionBlackboard || typeof prisma.missionBlackboard.findMany !== 'function') {
     console.warn('[missionBlackboard] model missing on client');
@@ -266,12 +437,13 @@ export async function getEvents(missionId, opts = {}) {
     const events = await prisma.missionBlackboard.findMany({
       where: {
         missionId: mid,
+        ...(typeFilter ? { eventType: typeFilter } : {}),
         ...(cid ? { correlationId: cid } : {}),
         /** Exclusive cursor: afterSeq=N returns only rows with seq > N (never re-send seq N). */
         ...(afterSeq != null ? { seq: { gt: afterSeq } } : {}),
       },
       orderBy: { seq: 'asc' },
-      take: limit,
+      ...(limit != null ? { take: limit } : {}),
       select: {
         id: true,
         seq: true,

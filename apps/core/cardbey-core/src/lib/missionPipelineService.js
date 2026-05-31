@@ -6,10 +6,20 @@
 import { getPrismaClient } from '../lib/prisma.js';
 import { canTransitionMissionPipeline } from './missionPipelineTransitions.js';
 import { buildDefaultMissionSteps } from './missionPipelineSteps.js';
+import { insertMissingPipelineSteps } from './missionPipelineStepWriter.js';
 import { getStructuredMissionSteps } from './missionPipelineStructured.js';
+import { normalizeLocale } from './localePrompt.js';
 import { getTaskGraphFromMetadata } from './agentPlanning/taskGraphPersistence.js';
 import { materializeStepsFromTaskGraph } from './agentPlanning/taskGraphMaterialize.js';
 import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
+import { isPerformerPipelineWriteHardeningEnabled } from './broker/brokerFlags.js';
+import { safePipelineUpdate } from './safePipelineUpdate.js';
+import { runMissionCreateBurst } from './mission/missionCreateBurst.js';
+
+/** SQLite creation txn — bounded wait under contention (Step 6; no retry loop). */
+const CREATION_TX_TIMEOUT_MS = 30_000;
+
+const PERFORMER_DRIVEN_TYPES = new Set(['launch_campaign', 'create_promotion', 'code_fix']);
 
 const TERMINAL_STATUSES = ['completed', 'cancelled'];
 
@@ -20,6 +30,7 @@ const TERMINAL_STATUSES = ['completed', 'cancelled'];
  * @param {string} params.targetType
  * @param {string} [params.targetId]
  * @param {string} [params.targetLabel]
+ * @param {string} [params.parentMissionId]
  * @param {object} [params.metadata]
  * @param {boolean} [params.requiresConfirmation]
  * @param {string} [params.tenantId]
@@ -27,103 +38,27 @@ const TERMINAL_STATUSES = ['completed', 'cancelled'];
  * @param {'AUTO_RUN'|'GUIDED_RUN'} [params.executionMode] — default AUTO_RUN
  * @returns {Promise<{ id: string, status: string, stepsCreated: number }>}
  */
-export async function createMissionPipeline(params) {
-  const prisma = getPrismaClient();
+/**
+ * Resolve execution mode and step configs from create params (no DB writes).
+ * @param {Parameters<typeof createMissionPipeline>[0]} params
+ */
+export function buildStepConfigsForMissionPipeline(params) {
   const {
     type,
-    title,
-    targetType,
-    targetId = '',
-    targetLabel,
     metadata = {},
     requiresConfirmation = false,
-    tenantId = null,
-    createdBy = null,
     executionMode = 'AUTO_RUN',
   } = params;
   const mode = executionMode === 'GUIDED_RUN' ? 'GUIDED_RUN' : 'AUTO_RUN';
-
-  // Performer-driven mission types must always go to awaiting_confirmation so
-  // runMissionUntilBlocked does not auto-complete them before the performer drives
-  // steps via the proactive-step / proactive-confirm routes.
-  // MissionPipelineStep records for these types are execution metadata only —
-  // the performer owns actual execution authority.
-  // PERFORMER_DRIVEN_TYPES: mission types where MissionPipelineStep records are execution
-  // metadata only. Actual step execution is owned by performerProactiveStepRoutes.js.
-  // Adding a type here prevents runMissionUntilBlocked from auto-completing the mission
-  // before the performer drives it. See docs/ORCHESTRATION_AUTHORITY_CONFLICTS_AUDIT.md §6
-  const PERFORMER_DRIVEN_TYPES = new Set(['launch_campaign', 'create_promotion', 'code_fix']);
   const effectiveRequiresConfirmation =
     Boolean(requiresConfirmation) || PERFORMER_DRIVEN_TYPES.has(String(type).trim());
 
-  const mission = await prisma.missionPipeline.create({
-    data: {
-      type: String(type).trim() || 'generic',
-      title: String(title).trim() || 'Untitled mission',
-      targetType: String(targetType).trim() || 'generic',
-      targetId: targetId != null ? String(targetId) : null,
-      targetLabel: targetLabel != null ? String(targetLabel).trim() || null : null,
-      status: 'requested',
-      runState: 'idle',
-      executionMode: mode,
-      tenantId,
-      createdBy,
-      requiresConfirmation: effectiveRequiresConfirmation,
-      metadataJson: metadata && typeof metadata === 'object' ? metadata : {},
-      progressCompletedSteps: 0,
-      progressTotalSteps: 0,
-    },
-  });
-
-  // Shadow Mission row: MissionBlackboard + AgentRun FK to Mission.id; pipeline id matches Mission.id.
-  // IMPORTANT: Mission.createdByUserId has a FK → User.id. In guest + business-tenant contexts,
-  // fallbacks like "temp" or a businessId will violate the FK. Since MissionPipeline is the source of truth
-  // for the pipeline routes, we treat this as best-effort and only upsert when createdBy is a real User.id.
-  const tenantFallback =
-    (tenantId != null && String(tenantId).trim()) ||
-    (createdBy != null && String(createdBy).trim()) ||
-    'temp';
-  const createdByTrimmed = createdBy != null ? String(createdBy).trim() : '';
-  const isPlaceholder = createdByTrimmed === 'temp' || createdByTrimmed === 'dev-user-id' || createdByTrimmed === '';
-  const isGuestCreatedBy =
-    createdByTrimmed.length > 0 && createdByTrimmed.toLowerCase().startsWith('guest_');
-  if (isGuestCreatedBy) {
-    const { ensureShadowUserRowForGuest } = await import('./mission.js');
-    await ensureShadowUserRowForGuest(prisma, createdByTrimmed);
-  }
-  let isRealUserId = false;
-  if (!isPlaceholder) {
-    const existingUser = await prisma.user
-      .findUnique({ where: { id: createdByTrimmed }, select: { id: true } })
-      .catch(() => null);
-    isRealUserId = Boolean(existingUser?.id);
-  }
-  if (isRealUserId) {
-    try {
-      await prisma.mission.upsert({
-        where: { id: mission.id },
-        create: {
-          id: mission.id,
-          tenantId: tenantFallback,
-          createdByUserId: createdByTrimmed,
-          title: mission.title != null ? String(mission.title).trim() || null : null,
-          status: 'active',
-        },
-        update: {},
-      });
-    } catch (err) {
-      console.warn('[missionPipelineService] shadow Mission upsert failed (non-fatal):', err?.message || err);
-    }
-  } else if (process.env.NODE_ENV !== 'production') {
-    console.log('[missionPipelineService] skipping shadow Mission upsert (no real user):', {
-      missionId: mission.id,
-      tenantId: tenantFallback,
-      createdBy: createdByTrimmed || null,
-    });
-  }
-
-  let stepConfigs = buildDefaultMissionSteps(mission.type, metadata);
-  const structured = getStructuredMissionSteps(mission.type);
+  const missionType = String(type).trim() || 'generic';
+  let stepConfigs = buildDefaultMissionSteps(missionType, metadata);
+  const pipelineLocale = normalizeLocale(
+    metadata?.locale ?? metadata?.preferredLocale ?? metadata?.lang,
+  );
+  const structured = getStructuredMissionSteps(missionType, pipelineLocale);
   if (Array.isArray(structured) && structured.length > 0) {
     stepConfigs = structured;
   }
@@ -133,7 +68,7 @@ export async function createMissionPipeline(params) {
     if (fromGraph.length > 0) stepConfigs = fromGraph;
   }
   if (!Array.isArray(stepConfigs) || stepConfigs.length === 0) {
-    const t = typeof mission.type === 'string' ? mission.type.trim().toLowerCase() : '';
+    const t = missionType.toLowerCase();
     switch (t) {
       case 'launch_campaign':
         stepConfigs = [
@@ -181,10 +116,62 @@ export async function createMissionPipeline(params) {
         break;
     }
   }
+
+  return { stepConfigs, effectiveRequiresConfirmation, mode };
+}
+
+/**
+ * Creation-phase DB writes only (caller supplies prisma or transaction client).
+ * Shadow Mission upsert is intentionally OUT of scope — run ensureShadowMissionRowBestEffort after commit.
+ *
+ * @param {object} prisma
+ * @param {Parameters<typeof createMissionPipeline>[0]} params
+ * @param {{ stepConfigs: object[], effectiveRequiresConfirmation: boolean, mode: string }} prepared
+ * @returns {Promise<{ id: string, status: string, stepsCreated: number }>}
+ */
+export async function createMissionPipelineCore(prisma, params, prepared) {
+  const {
+    type,
+    title,
+    targetType,
+    targetId = '',
+    targetLabel,
+    parentMissionId = null,
+    metadata = {},
+    tenantId = null,
+    createdBy = null,
+  } = params;
+  const { stepConfigs, effectiveRequiresConfirmation, mode } = prepared;
+
+  const parentId =
+    parentMissionId != null && String(parentMissionId).trim() ? String(parentMissionId).trim() : null;
+
+  const mission = await prisma.missionPipeline.create({
+    data: {
+      type: String(type).trim() || 'generic',
+      title: String(title).trim() || 'Untitled mission',
+      targetType: String(targetType).trim() || 'generic',
+      targetId: targetId != null ? String(targetId) : null,
+      targetLabel: targetLabel != null ? String(targetLabel).trim() || null : null,
+      ...(parentId ? { parentMissionId: parentId } : {}),
+      status: 'requested',
+      runState: 'idle',
+      executionMode: mode,
+      tenantId,
+      createdBy,
+      requiresConfirmation: effectiveRequiresConfirmation,
+      metadataJson: metadata && typeof metadata === 'object' ? metadata : {},
+      progressCompletedSteps: 0,
+      progressTotalSteps: 0,
+    },
+  });
+
   let stepsCreated = 0;
   if (stepConfigs.length > 0) {
-    await prisma.missionPipelineStep.createMany({
-      data: stepConfigs.map((c) => ({
+    await insertMissingPipelineSteps(
+      prisma,
+      mission.id,
+      stepConfigs.map((c) => ({
         missionId: mission.id,
         orderIndex: c.orderIndex,
         toolName: c.toolName,
@@ -194,38 +181,40 @@ export async function createMissionPipeline(params) {
         ...(c.configJson != null && typeof c.configJson === 'object' ? { configJson: c.configJson } : {}),
         ...(c.inputJson != null && typeof c.inputJson === 'object' ? { inputJson: c.inputJson } : {}),
       })),
-    });
+      { logPrefix: '[MissionSteps]' },
+    );
     stepsCreated = stepConfigs.length;
-    await prisma.missionPipeline.update({
-      where: { id: mission.id },
-      data: { progressTotalSteps: stepsCreated },
-    });
+    await safePipelineUpdate(
+      prisma,
+      { where: { id: mission.id }, data: { progressTotalSteps: stepsCreated } },
+      { label: 'create.progressTotalSteps' },
+    );
   } else if (mode === 'AUTO_RUN') {
-    // AUTO_RUN missions may execute a single autonomous job without pipeline step rows.
-    // Represent this as a 0/1 → 1/1 progress arc (without fabricating MissionPipelineStep rows).
-    await prisma.missionPipeline.update({
-      where: { id: mission.id },
-      data: { progressTotalSteps: 1, progressCompletedSteps: 0 },
-    });
+    await safePipelineUpdate(
+      prisma,
+      { where: { id: mission.id }, data: { progressTotalSteps: 1, progressCompletedSteps: 0 } },
+      { label: 'create.autoRunProgress' },
+    );
   }
 
-  // requested -> planned
   if (!canTransitionMissionPipeline('requested', 'planned')) {
     return { id: mission.id, status: mission.status, stepsCreated };
   }
-  await prisma.missionPipeline.update({
-    where: { id: mission.id },
-    data: { status: 'planned' },
-  });
+  await safePipelineUpdate(
+    prisma,
+    { where: { id: mission.id }, data: { status: 'planned' } },
+    { label: 'create.statusPlanned' },
+  );
 
   const nextStatus = effectiveRequiresConfirmation ? 'awaiting_confirmation' : 'queued';
   if (!canTransitionMissionPipeline('planned', nextStatus)) {
     return { id: mission.id, status: 'planned', stepsCreated };
   }
-  await prisma.missionPipeline.update({
-    where: { id: mission.id },
-    data: { status: nextStatus },
-  });
+  await safePipelineUpdate(
+    prisma,
+    { where: { id: mission.id }, data: { status: nextStatus } },
+    { label: 'create.statusNext' },
+  );
 
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[Mission] created: ${mission.id} type=${mission.type}`);
@@ -239,6 +228,99 @@ export async function createMissionPipeline(params) {
     status: nextStatus,
     stepsCreated,
   };
+}
+
+/**
+ * Best-effort shadow Mission row after pipeline creation (non-fatal; outside creation txn).
+ * @param {object} prisma
+ * @param {{ id: string, title?: string|null }} missionResult
+ * @param {Parameters<typeof createMissionPipeline>[0]} params
+ */
+export async function ensureShadowMissionRowBestEffort(prisma, missionResult, params) {
+  const { tenantId = null, createdBy = null } = params;
+  const tenantFallback =
+    (tenantId != null && String(tenantId).trim()) ||
+    (createdBy != null && String(createdBy).trim()) ||
+    'temp';
+  const createdByTrimmed = createdBy != null ? String(createdBy).trim() : '';
+  const isPlaceholder = createdByTrimmed === 'temp' || createdByTrimmed === 'dev-user-id' || createdByTrimmed === '';
+  const isGuestCreatedBy =
+    createdByTrimmed.length > 0 && createdByTrimmed.toLowerCase().startsWith('guest_');
+  if (isGuestCreatedBy) {
+    const { ensureShadowUserRowForGuest } = await import('./mission.js');
+    await ensureShadowUserRowForGuest(prisma, createdByTrimmed);
+  }
+  let isRealUserId = false;
+  if (!isPlaceholder) {
+    const existingUser = await prisma.user
+      .findUnique({ where: { id: createdByTrimmed }, select: { id: true } })
+      .catch(() => null);
+    isRealUserId = Boolean(existingUser?.id);
+  }
+  if (isRealUserId) {
+    try {
+      await prisma.mission.upsert({
+        where: { id: missionResult.id },
+        create: {
+          id: missionResult.id,
+          tenantId: tenantFallback,
+          createdByUserId: createdByTrimmed,
+          title: missionResult.title != null ? String(missionResult.title).trim() || null : null,
+          status: 'active',
+        },
+        update: {},
+      });
+    } catch (err) {
+      console.warn('[missionPipelineService] shadow Mission upsert failed (non-fatal):', err?.message || err);
+    }
+  } else if (process.env.NODE_ENV !== 'production') {
+    console.log('[missionPipelineService] skipping shadow Mission upsert (no real user):', {
+      missionId: missionResult.id,
+      tenantId: tenantFallback,
+      createdBy: createdByTrimmed || null,
+    });
+  }
+}
+
+async function createMissionPipelineImpl(params) {
+  const prisma = getPrismaClient();
+  const prepared = buildStepConfigsForMissionPipeline(params);
+
+  let result;
+  if (isPerformerPipelineWriteHardeningEnabled()) {
+    result = await prisma.$transaction(
+      (tx) => createMissionPipelineCore(tx, params, prepared),
+      { timeout: CREATION_TX_TIMEOUT_MS },
+    );
+  } else {
+    result = await createMissionPipelineCore(prisma, params, prepared);
+  }
+
+  await ensureShadowMissionRowBestEffort(prisma, { id: result.id, title: params.title }, params);
+
+  const metaForContinuation =
+    params.metadata && typeof params.metadata === 'object' && !Array.isArray(params.metadata)
+      ? params.metadata
+      : null;
+  const continuationContract =
+    metaForContinuation?.continuationContract &&
+    typeof metaForContinuation.continuationContract === 'object'
+      ? metaForContinuation.continuationContract
+      : null;
+
+  if (continuationContract && process.env.ENABLE_MISSION_HANDOFF === 'true') {
+    const { logMissionContinuationSpawned } = await import('./missionContinuationService.js');
+    await logMissionContinuationSpawned({
+      childMissionId: result.id,
+      contract: continuationContract,
+    });
+  }
+
+  return result;
+}
+
+export async function createMissionPipeline(params) {
+  return runMissionCreateBurst('pipeline', () => createMissionPipelineImpl(params));
 }
 
 /**

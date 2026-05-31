@@ -10,6 +10,7 @@
  * runtime-owned call sites (`dispatch_tool` routes here). This dispatcher remains the tool implementation seam.
  */
 
+import { buildExecutionFrame } from './executionFrame.js';
 import { getToolDefinition } from './toolRegistry.js';
 import { getExecutor } from './toolExecutors/index.js';
 import {
@@ -35,6 +36,8 @@ import {
  * }} DispatchResult
  */
 
+export { buildExecutionFrame } from './executionFrame.js';
+
 /**
  * Dispatch a tool by name. Validates tool exists in registry, runs executor if present, returns normalized result.
  * Does not throw for missing executor or tool; returns status 'failed' with error.
@@ -46,14 +49,19 @@ import {
  */
 export async function dispatchTool(toolName, input = {}, context = undefined) {
   const name = typeof toolName === 'string' ? toolName.trim() : '';
-  const ctx =
+  const baseCtx =
     context && typeof context === 'object' && !Array.isArray(context) ? context : {};
+  const frame = await buildExecutionFrame(baseCtx);
+  const ctx = { ...baseCtx, locale: frame.locale, executionFrame: frame };
 
   const ownership = await import('./runtime/performerRuntime/runtimeOwnership.js');
   const ownershipCheck = ownership.assertRuntimeOwnership(ctx, ctx.source ?? 'tool_dispatcher');
   if (ownershipCheck.violation) {
-    incrementRuntimeAuthorityMetric('orphanWarnings');
-    if (!ownershipCheck.allowed) incrementRuntimeAuthorityMetric('ownershipBlocks');
+    // Metrics semantics:
+    // - orphanWarnings: warn-only orphan executions (allowed to proceed)
+    // - ownershipBlocks: blocked orphan executions (Stage E)
+    if (ownershipCheck.allowed) incrementRuntimeAuthorityMetric('orphanWarnings');
+    else incrementRuntimeAuthorityMetric('ownershipBlocks');
   }
   if (!ownershipCheck.allowed) {
     return {
@@ -151,17 +159,20 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
   const telemetrySource =
     typeof ctx.source === 'string' && ctx.source.trim() ? ctx.source.trim() : 'tool_dispatcher';
 
-  detectExecutionDuplication({
-    missionId,
-    toolName: name,
-    actionId: actionIdForTool(name),
-    source: telemetrySource,
-  });
-
   const skipNestedTelemetry = ctx.skipNestedBrokerTelemetry === true;
+  // If we are nested under Performer Runtime (skipNestedBrokerTelemetry), runtime already performs
+  // duplication detection at the runtime facade boundary.
+  if (!skipNestedTelemetry) {
+    detectExecutionDuplication({
+      missionId,
+      toolName: name,
+      actionId: actionIdForTool(name),
+      source: telemetrySource,
+    });
+  }
 
   try {
-    const runExecutor = () => executor.execute(input, context);
+    const runExecutor = () => executor.execute(input, ctx);
     let result;
     if (skipNestedTelemetry) {
       incrementRuntimeAuthorityMetric('telemetrySkippedNested');

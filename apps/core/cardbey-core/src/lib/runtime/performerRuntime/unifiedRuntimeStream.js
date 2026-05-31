@@ -21,7 +21,7 @@ export function categorizeStreamEvent(eventType) {
   if (et.startsWith('runtime.telemetry') || et === 'reasoning_line') return 'telemetry';
   if (et.startsWith('runtime.approval') || et === 'approval_required') return 'approval';
   if (et.startsWith('runtime.pipeline') || et === 'plan_proposed') return 'pipeline';
-  if (et.startsWith('runtime.orchestration') || et === 'handoff') return 'orchestration';
+  if (et.startsWith('runtime.orchestration') || et.startsWith('runtime.graph') || et.startsWith('runtime.worker') || et.startsWith('runtime.skill') || et.startsWith('runtime.queue') || et.startsWith('runtime.lease') || et.startsWith('runtime.replay') || et.startsWith('runtime.node') || et === 'handoff') return 'orchestration';
   if (et.startsWith('runtime.artifact')) return 'artifact';
   if (et.startsWith('runtime.failure')) return 'failure';
   return 'lifecycle';

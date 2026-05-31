@@ -33,6 +33,155 @@ function resolveMissionLocale(meta) {
   return normalizeLocale(meta.locale ?? meta.preferredLocale ?? meta.lang ?? 'en');
 }
 
+function findCampaignPackageInResults(results) {
+  if (!results || typeof results !== 'object') return null;
+  for (const envelope of Object.values(results)) {
+    if (envelope?.agentType === 'package' && envelope.result) return envelope.result;
+  }
+  return null;
+}
+
+/**
+ * Shared multi-agent / campaign orchestration runner (does not affect step-based mission types).
+ */
+async function runOrchestratedAgentMission(prisma, mission, id, { orchestrationKind = 'default', returnToolName = 'multi_agent' } = {}) {
+  const meta =
+    mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+      ? mission.metadataJson
+      : {};
+  const locale = resolveMissionLocale(meta);
+  const goal =
+    typeof meta.goal === 'string' && meta.goal.trim()
+      ? meta.goal.trim()
+      : typeof mission.title === 'string' && mission.title.trim()
+        ? mission.title.trim()
+        : orchestrationKind === 'campaign_orchestration'
+          ? 'Campaign orchestration'
+          : 'Multi-agent mission';
+  const missionContext = meta.context ?? meta ?? {};
+  const status = mission.status;
+
+  if (status === 'queued' && canTransitionMissionPipeline('queued', 'executing')) {
+    await safePipelineUpdate(prisma, {
+      where: { id },
+      data: { status: 'executing', runState: 'running', startedAt: mission.startedAt ?? new Date() },
+    });
+  } else if (mission.runState !== 'running') {
+    await safePipelineUpdate(prisma, {
+      where: { id },
+      data: { runState: 'running' },
+    });
+  }
+
+  const blackboard = createOrchestrationBlackboard(mission.id);
+  const coordinator = new AgentCoordinator({
+    missionId: mission.id,
+    blackboard,
+    locale,
+    tenantKey: mission.tenantId ?? mission.createdBy ?? 'default',
+    orchestrationKind,
+    baseContext: {
+      missionId: mission.id,
+      tenantId: mission.tenantId ?? undefined,
+      userId: mission.createdBy ?? undefined,
+      ...(mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')
+        ? { storeId: mission.targetId }
+        : {}),
+      ...(mission.targetId ? { targetId: mission.targetId } : {}),
+      ...(mission.targetType ? { targetType: mission.targetType } : {}),
+    },
+  });
+
+  let results = {};
+  try {
+    results = await coordinator.orchestrate(goal, missionContext);
+  } catch (e) {
+    console.warn(`[MissionRunner] ${returnToolName} orchestrate error (non-fatal):`, e?.message || e);
+    results = {};
+  }
+
+  const campaignPackage = findCampaignPackageInResults(results);
+
+  if (campaignPackage) {
+    try {
+      const { persistCampaignPackageArtifacts } = await import(
+        '../orchestrator/memory/artifactMemory.ts'
+      );
+      const persistResult = await persistCampaignPackageArtifacts({
+        tenantId: mission.tenantId ?? mission.createdBy ?? 'default',
+        missionId: mission.id,
+        storeId:
+          campaignPackage.storeId ??
+          (mission.targetId && ['store', 'draft_store', 'business'].includes(mission.targetType)
+            ? mission.targetId
+            : null),
+        parentMissionId: mission.parentMissionId ?? null,
+        pkg: campaignPackage,
+      });
+      console.log('[MissionRunner] artifact persist after orchestration', persistResult);
+    } catch (e) {
+      console.error('[MissionRunner] artifact persist failed (non-fatal):', e?.message || e);
+    }
+  }
+
+  try {
+    await blackboard.appendEvent(mission.id, 'orchestration_complete', {
+      results,
+      ...(campaignPackage != null ? { campaignPackage } : {}),
+      agentCount: coordinator.agents.size,
+    });
+    if (campaignPackage) {
+      await blackboard.appendEvent(mission.id, 'package_assembled', {
+        summary: `Campaign package assembled: ${campaignPackage.campaignName ?? 'Campaign'}`,
+        campaignPackage,
+      });
+    }
+    if (typeof blackboard.flushOrchestrationEvents === 'function') {
+      await blackboard.flushOrchestrationEvents();
+    }
+  } catch (e) {
+    console.warn('[MissionRunner] orchestration_complete append failed (non-fatal):', e?.message || e);
+  }
+
+  const priorOutputsAgg = parseJsonObject(mission.outputsJson);
+  const outputsToPersist = {
+    ...priorOutputsAgg,
+    orchestrationResults: results,
+    ...(campaignPackage != null ? { campaignPackage } : {}),
+  };
+
+  const dualMetaComplete = await buildRunnerDualWriteMetadataJson(
+    prisma,
+    id,
+    mission.metadataJson,
+    outputsToPersist,
+  );
+
+  await safePipelineUpdate(prisma, {
+    where: { id },
+    data: {
+      status: 'completed',
+      runState: 'done',
+      completedAt: new Date(),
+      progressTotalSteps: mission.progressTotalSteps ?? 1,
+      progressCompletedSteps: mission.progressTotalSteps ?? 1,
+      currentStepId: null,
+      blockersJson: [],
+      outputsJson: outputsToPersist,
+      ...(dualMetaComplete != null ? { metadataJson: dualMetaComplete } : {}),
+    },
+  });
+
+  void runPostMissionCompletionSummary({
+    missionId: id,
+    missionType: mission.type ?? null,
+    metadataJson: mission.metadataJson,
+    outputsJson: outputsToPersist,
+  }).catch(() => {});
+
+  return { ok: true, stepRun: true, toolName: returnToolName, status: 'completed', runState: 'done' };
+}
+
 /**
  * Build execution input for a step from mission context (e.g. targetId as storeId) and metadata (e.g. slotKey, promotionId).
  * @param {object} mission - MissionPipeline record with targetType, targetId, metadataJson
@@ -209,109 +358,19 @@ export async function runNextMissionPipelineStep(missionId) {
     return { ok: false, error: 'invalid_state', status };
   }
 
-  // ── Multi-agent orchestration (NEW mission type) ────────────────────────────
-  // Must not affect existing mission types.
+  // ── Multi-agent / campaign orchestration mission types ─────────────────────
   const typeToken = typeof mission.type === 'string' ? mission.type.trim().toLowerCase() : '';
   if (typeToken === 'multi_agent') {
-    const meta =
-      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
-        ? mission.metadataJson
-        : {};
-    const locale = resolveMissionLocale(meta);
-    const goal =
-      typeof meta.goal === 'string' && meta.goal.trim()
-        ? meta.goal.trim()
-        : typeof mission.title === 'string' && mission.title.trim()
-          ? mission.title.trim()
-          : 'Multi-agent mission';
-    const missionContext = meta.context ?? meta ?? {};
-
-    if (status === 'queued' && canTransitionMissionPipeline('queued', 'executing')) {
-      await safePipelineUpdate(prisma, {
-        where: { id },
-        data: { status: 'executing', runState: 'running', startedAt: mission.startedAt ?? new Date() },
-      });
-    } else if (mission.runState !== 'running') {
-      await safePipelineUpdate(prisma, {
-        where: { id },
-        data: { runState: 'running' },
-      });
-    }
-
-    const blackboard = createOrchestrationBlackboard(mission.id);
-    const coordinator = new AgentCoordinator({
-      missionId: mission.id,
-      blackboard,
-      locale,
-      tenantKey: mission.tenantId ?? mission.createdBy ?? 'default',
-      baseContext: {
-        missionId: mission.id,
-        tenantId: mission.tenantId ?? undefined,
-        userId: mission.createdBy ?? undefined,
-        ...(mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')
-          ? { storeId: mission.targetId }
-          : {}),
-        ...(mission.targetId ? { targetId: mission.targetId } : {}),
-        ...(mission.targetType ? { targetType: mission.targetType } : {}),
-      },
+    return runOrchestratedAgentMission(prisma, mission, id, {
+      orchestrationKind: 'default',
+      returnToolName: 'multi_agent',
     });
-
-    let results = {};
-    try {
-      results = await coordinator.orchestrate(goal, missionContext);
-    } catch (e) {
-      console.warn('[MissionRunner] multi_agent orchestrate error (non-fatal):', e?.message || e);
-      results = {};
-    }
-
-    try {
-      await blackboard.appendEvent(mission.id, 'orchestration_complete', {
-        results,
-        agentCount: coordinator.agents.size,
-      });
-      if (typeof blackboard.flushOrchestrationEvents === 'function') {
-        await blackboard.flushOrchestrationEvents();
-      }
-    } catch (e) {
-      console.warn('[MissionRunner] orchestration_complete append failed (non-fatal):', e?.message || e);
-    }
-
-    const priorOutputsAgg = parseJsonObject(mission.outputsJson);
-    const outputsToPersist = {
-      ...priorOutputsAgg,
-      orchestrationResults: results,
-    };
-
-    const dualMetaComplete = await buildRunnerDualWriteMetadataJson(
-      prisma,
-      id,
-      mission.metadataJson,
-      outputsToPersist,
-    );
-
-    await safePipelineUpdate(prisma, {
-      where: { id },
-      data: {
-        status: 'completed',
-        runState: 'done',
-        completedAt: new Date(),
-        progressTotalSteps: mission.progressTotalSteps ?? 1,
-        progressCompletedSteps: mission.progressTotalSteps ?? 1,
-        currentStepId: null,
-        blockersJson: [],
-        outputsJson: outputsToPersist,
-        ...(dualMetaComplete != null ? { metadataJson: dualMetaComplete } : {}),
-      },
+  }
+  if (typeToken === 'campaign_orchestration') {
+    return runOrchestratedAgentMission(prisma, mission, id, {
+      orchestrationKind: 'campaign_orchestration',
+      returnToolName: 'campaign_orchestration',
     });
-
-    void runPostMissionCompletionSummary({
-      missionId: id,
-      missionType: mission.type ?? null,
-      metadataJson: mission.metadataJson,
-      outputsJson: outputsToPersist,
-    }).catch(() => {});
-
-    return { ok: true, stepRun: true, toolName: 'multi_agent', status: 'completed', runState: 'done' };
   }
 
   let steps = mission.steps || [];
@@ -730,6 +789,31 @@ export async function runNextMissionPipelineStep(missionId) {
       metadataJson: mission.metadataJson,
       outputsJson: outputsToPersist,
     }).catch(() => {});
+
+    const metaForPrereq =
+      mission.metadataJson && typeof mission.metadataJson === 'object' && !Array.isArray(mission.metadataJson)
+        ? mission.metadataJson
+        : {};
+    if (metaForPrereq.runtimePrerequisiteChild === true) {
+      void (async () => {
+        try {
+          const { isRuntimePrerequisiteResolutionEnabled } = await import(
+            './runtime/runtimePrerequisiteResolver.js'
+          );
+          if (!isRuntimePrerequisiteResolutionEnabled()) return;
+          const { tryResumeAfterPrerequisiteChildCompleted } = await import(
+            './runtime/runtimePrerequisiteService.js'
+          );
+          await tryResumeAfterPrerequisiteChildCompleted(id, {
+            user: mission.createdBy ? { id: mission.createdBy } : null,
+            autoResume: true,
+          });
+        } catch (e) {
+          console.warn('[RuntimePrerequisite] child completion resume failed:', e?.message || e);
+        }
+      })();
+    }
+
     return { ok: true, stepRun: true, toolName, status: 'completed', runState: 'done' };
   }
 

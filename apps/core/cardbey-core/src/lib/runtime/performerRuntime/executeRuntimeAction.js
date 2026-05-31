@@ -94,6 +94,11 @@ export async function executeRuntimeAction(request) {
     actionId = actionIdForTool(toolName);
   }
 
+  // Normalize actionId for pipeline facade so telemetry is stable and queryable.
+  if (actionType === 'run_pipeline_step') {
+    actionId = 'pipeline:run_next_step';
+  }
+
   const routePlan = toolName ? routeToolToAction(toolName) : null;
   const capabilityId = req.capabilityId ?? routePlan?.capabilityFamily ?? null;
   const brokerAction = toolName ? getBrokerActionForTool(toolName) : null;
@@ -103,16 +108,20 @@ export async function executeRuntimeAction(request) {
     intentId: req.intentId ?? ctx.intentId,
   }) ?? ctx;
 
-  detectExecutionDuplication({
-    missionId: ctx.missionId,
-    toolName: toolName || null,
-    actionId: actionId || null,
-    source,
-  });
+  // Duplication detection is for user-triggered tool dispatch. Pipeline facade can legitimately
+  // call multiple sequential steps quickly; do not flag those as duplicates.
+  if (actionType !== 'run_pipeline_step') {
+    detectExecutionDuplication({
+      missionId: ctx.missionId,
+      toolName: toolName || null,
+      actionId: actionId || null,
+      source,
+    });
+  }
 
   const startMs = Date.now();
   const executionId = recordExecutionTelemetry({
-    actionId: actionId || 'runtime:unknown',
+    actionId: actionType === 'run_pipeline_step' ? 'pipeline:run_next_step' : actionId || 'runtime:unknown',
     source,
     status: 'started',
     missionId: ctx.missionId,
@@ -185,7 +194,7 @@ export async function executeRuntimeAction(request) {
 
   recordExecutionTelemetry({
     executionId: executionId ?? undefined,
-    actionId: actionId || 'runtime:unknown',
+    actionId: actionType === 'run_pipeline_step' ? 'pipeline:run_next_step' : actionId || 'runtime:unknown',
     source,
     status,
     missionId: ctx.missionId,

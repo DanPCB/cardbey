@@ -10,6 +10,8 @@ import {
   runtimeContextSnapshot,
 } from './runtimeContext.js';
 import { isPerformerRuntimeStatePersistEnabled } from './runtimeFlags.js';
+import { isPerformerMissionPipelineWriteIsolationEnabled } from '../../broker/brokerFlags.js';
+import { queueRuntimeSnapshotPersist } from '../../mission/missionWriteQueue.js';
 
 /** @type {Map<string, import('./runtimeContext.js').PerformerRuntimeContext>} */
 const byRuntimeId = new Map();
@@ -91,11 +93,13 @@ async function persistRuntimeSnapshot(ctx) {
   const prisma = getPrismaClient();
   if (!prisma?.mission) return;
   const snapshot = runtimeContextSnapshot(ctx);
-  await mergeMissionContext(
-    mid,
-    { performerRuntime: snapshot },
-    { prisma },
-  );
+  const run = () => mergeMissionContext(mid, { performerRuntime: snapshot }, { prisma });
+
+  if (isPerformerMissionPipelineWriteIsolationEnabled()) {
+    queueRuntimeSnapshotPersist(mid, run, { label: 'runtimeSnapshot.persist' });
+    return;
+  }
+  await run();
 }
 
 /** Clear caches (tests). */

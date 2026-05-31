@@ -51,6 +51,8 @@ const metrics = {
   telemetryEmitted: 0,
   telemetrySkippedNested: 0,
   authorityProbes: 0,
+  directFacadeExecutions: 0,
+  executionFailures: 0,
 };
 
 /**
@@ -116,6 +118,12 @@ export function getRuntimeAuthoritySnapshot() {
   return {
     ok: true,
     rolloutStage: stage,
+    rawEnv: {
+      BROKER_DIRECT_VIA_FACADE: process.env.BROKER_DIRECT_VIA_FACADE ?? null,
+      BROKER_EXECUTION_TELEMETRY: process.env.BROKER_EXECUTION_TELEMETRY ?? null,
+      BROKER_BLOCK_DIRECT_ACTION: process.env.BROKER_BLOCK_DIRECT_ACTION ?? null,
+      PERFORMER_RUNTIME_PIPELINE_FACADE: process.env.PERFORMER_RUNTIME_PIPELINE_FACADE ?? null,
+    },
     rolloutSequence: {
       A: 'BROKER_DIRECT_VIA_FACADE=true',
       B: 'PERFORMER_RUNTIME_ENABLED=true',

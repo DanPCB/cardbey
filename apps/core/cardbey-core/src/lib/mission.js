@@ -6,6 +6,8 @@
 
 import { getPrismaClient } from '../lib/prisma.js';
 import { getTenantId } from './tenant.js';
+import { safeMissionUpdate } from './safeMissionUpdate.js';
+import { enqueueMissionContextMerge } from './missionContextMergeQueue.js';
 
 /** Guest JWT users have no User row yet; Mission.createdByUserId FK requires one. */
 function isGuestSessionUserId(id) {
@@ -106,16 +108,27 @@ export async function mergeMissionContext(missionId, patch, options = {}) {
   const existing = (mission.context && typeof mission.context === 'object') ? mission.context : {};
   const merged = deepMerge(existing, patch);
   try {
-    await prisma.mission.update({
-      where: { id },
-      data: { context: merged, updatedAt: new Date() },
-    });
+    // Non-critical context metadata write. Best-effort under SQLite contention: retries lightly,
+    // then defers (never throws) so it can never break the store-creation runway.
+    const res = await safeMissionUpdate(
+      {
+        where: { id },
+        data: { context: merged, updatedAt: new Date() },
+      },
+      { prisma, label: 'mergeMissionContext', nonCritical: true, maxAttempts: 3 },
+    );
+    if (res && res.ok === false && res.skipped) {
+      // Persist later in the background; return the intended context optimistically so callers
+      // (which treat the merged context as authoritative for the response) keep working.
+      enqueueMissionContextMerge(id, patch);
+    }
   } catch (e) {
     if (e?.code === 'P2025') {
       console.warn('[mergeMissionContext] mission row missing at update (race or deleted):', id);
       return null;
     }
-    throw e;
+    // Unexpected non-transient error: non-critical context must never break the runway.
+    console.warn('[mergeMissionContext] non-fatal update error (context not persisted):', e?.message || e);
   }
   return merged;
 }
@@ -170,10 +183,21 @@ export async function mergeMissionPlanStep(missionId, jobId, stepId, patch, opti
       missionPlan: { ...ctx.missionPlan, [jobId]: updatedPlan },
     };
 
-    await prisma.mission.update({
-      where: { id: missionId },
-      data: { context: updatedContext, updatedAt: new Date() },
-    });
+    // Non-critical plan-step status write — best-effort under SQLite contention (never throws).
+    const res = await safeMissionUpdate(
+      {
+        where: { id: missionId },
+        data: { context: updatedContext, updatedAt: new Date() },
+      },
+      { prisma, label: 'mergeMissionPlanStep', nonCritical: true },
+    );
+    if (res && res.ok === false && res.skipped) {
+      // Defer just the plan-step delta for later best-effort persistence.
+      enqueueMissionContextMerge(missionId, {
+        missionPlan: { [jobId]: { ...plan, steps: updatedSteps } },
+      });
+      return false;
+    }
     return true;
   } catch (e) {
     console.warn('[mergeMissionPlanStep] failed (non-fatal):', e?.message);

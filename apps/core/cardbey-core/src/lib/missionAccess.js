@@ -8,8 +8,47 @@
  */
 
 import { getPrismaClient } from '../lib/prisma.js';
+import { isPerformerOrchestrationStabilityEnabled } from './broker/brokerFlags.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
+
+/**
+ * Phase 2.3-B — short-window coalescing for mission access resolution.
+ *
+ * After create_store the dashboard fires a burst of reads (/state, /mission, /executions,
+ * /blackboard, /reasoning-log, /events) that each re-resolve access via 2–4 sequential DB
+ * queries. We (a) dedupe concurrent in-flight resolves and (b) cache the result for a short
+ * window, both keyed by user + mission. Gated behind PERFORMER_ORCHESTRATION_STABILITY so the
+ * default behavior is unchanged. Access decisions do not change within the tiny TTL window.
+ */
+const RESOLVE_CACHE_TTL_MS = (() => {
+  const raw = process.env.PERFORMER_MISSION_ACCESS_COALESCE_MS;
+  const n = raw == null || String(raw).trim() === '' ? NaN : parseInt(String(raw).trim(), 10);
+  return Number.isFinite(n) && n >= 0 ? n : 1500;
+})();
+const RESOLVE_CACHE_MAX = 1000;
+
+/** @type {Map<string, { at: number, value: object }>} */
+const resolveCache = new Map();
+/** @type {Map<string, Promise<object>>} */
+const resolveInflight = new Map();
+
+function resolveCacheKey(user, missionId) {
+  return `${user?.id ?? 'anon'}::${user?.business?.id ?? ''}::${missionId}`;
+}
+
+function pruneResolveCache(now) {
+  if (resolveCache.size <= RESOLVE_CACHE_MAX) return;
+  for (const [k, v] of resolveCache) {
+    if (now - v.at >= RESOLVE_CACHE_TTL_MS) resolveCache.delete(k);
+  }
+}
+
+/** Test helper: clear coalescing state. */
+export function resetMissionAccessCacheForTests() {
+  resolveCache.clear();
+  resolveInflight.clear();
+}
 
 /** Same as missionsRoutes / miIntentsRoutes: user's tenant for pipeline and mission ownership. */
 export function getTenantId(user) {
@@ -46,6 +85,36 @@ function isDevPlaceholderId(value) {
  * }>}
  */
 export async function resolveAccessibleMission(user, missionIdTrimmed) {
+  // Default (flag OFF): no coalescing — identical to legacy behavior.
+  if (!isPerformerOrchestrationStabilityEnabled() || RESOLVE_CACHE_TTL_MS === 0) {
+    return resolveAccessibleMissionUncached(user, missionIdTrimmed);
+  }
+
+  const key = resolveCacheKey(user, missionIdTrimmed);
+  const now = Date.now();
+
+  const cached = resolveCache.get(key);
+  if (cached && now - cached.at < RESOLVE_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const inflight = resolveInflight.get(key);
+  if (inflight) return inflight;
+
+  const p = resolveAccessibleMissionUncached(user, missionIdTrimmed)
+    .then((value) => {
+      resolveCache.set(key, { at: Date.now(), value });
+      pruneResolveCache(Date.now());
+      return value;
+    })
+    .finally(() => {
+      resolveInflight.delete(key);
+    });
+  resolveInflight.set(key, p);
+  return p;
+}
+
+async function resolveAccessibleMissionUncached(user, missionIdTrimmed) {
   if (isDev) {
     console.log('[MissionAccess] resolve missionId=', missionIdTrimmed);
   }

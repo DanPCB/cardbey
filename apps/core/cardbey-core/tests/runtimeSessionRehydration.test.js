@@ -1,0 +1,218 @@
+/**
+ * Runtime session rehydration — unit + integration tests.
+ */
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import jwt from 'jsonwebtoken';
+import { getPrismaClient } from '../src/lib/prisma.js';
+import { resetDb } from '../src/test/helpers/resetDb.js';
+import {
+  resolveActiveRuntimeSession,
+  isRuntimeSessionRehydrationEnabled,
+} from '../src/lib/runtime/runtimeSessionService.js';
+import runtimeSessionRoutes from '../src/routes/runtimeSessionRoutes.js';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+const dbAvailable = (() => {
+  try {
+    getPrismaClient();
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+const SESSION_FLAGS = {
+  ENABLE_RUNTIME_SESSION_REHYDRATION: 'true',
+  ENABLE_RUNTIME_STORE_FALLBACK: 'true',
+  ENABLE_RUNTIME_MISSION_RESUME: 'true',
+  ENABLE_MISSION_HANDOFF: 'true',
+};
+
+vi.mock('../src/lib/orchestrator/advanceProactivePipelineStep.js', () => ({
+  advanceProactivePipelineStep: vi.fn(async () => ({ ok: true })),
+}));
+
+function makeApp(user) {
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.user = user;
+    next();
+  });
+  app.use('/api/runtime/session', runtimeSessionRoutes);
+  return app;
+}
+
+describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
+  let prisma;
+  let userId;
+
+  beforeAll(() => {
+    Object.assign(process.env, SESSION_FLAGS);
+    prisma = getPrismaClient();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    const user = await prisma.user.create({
+      data: {
+        email: `session-test-${Date.now()}@example.com`,
+        passwordHash: 'x',
+        handle: `session_${Date.now()}`,
+      },
+    });
+    userId = user.id;
+  });
+
+  afterAll(async () => {
+    await prisma?.$disconnect?.();
+  });
+
+  it('returns latest active mission for user', async () => {
+    const older = await prisma.missionPipeline.create({
+      data: {
+        type: 'launch_campaign',
+        title: 'Older mission',
+        status: 'executing',
+        runState: 'running',
+        targetType: 'generic',
+        executionMode: 'GUIDED_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+      },
+    });
+    await prisma.missionPipeline.create({
+      data: {
+        type: 'launch_campaign',
+        title: 'Newer mission',
+        status: 'queued',
+        runState: 'idle',
+        targetType: 'generic',
+        executionMode: 'GUIDED_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+      },
+    });
+    await prisma.missionPipeline.update({
+      where: { id: older.id },
+      data: { updatedAt: new Date(Date.now() - 60_000) },
+    });
+
+    const session = await resolveActiveRuntimeSession({ userId, source: 'test' });
+    expect(session.ok).toBe(true);
+    expect(session.activeMissionId).toBeTruthy();
+    expect(session.activeMission?.title).toBe('Newer mission');
+  });
+
+  it('returns latest store when no active mission exists', async () => {
+    await prisma.business.create({
+      data: {
+        userId,
+        name: 'Store A',
+        type: 'retail',
+        slug: `store-a-${Date.now()}`,
+        isActive: true,
+      },
+    });
+    const session = await resolveActiveRuntimeSession({ userId, source: 'test' });
+    expect(session.ok).toBe(true);
+    expect(session.activeStoreId).toBeTruthy();
+    expect(session.latestStore?.name).toBe('Store A');
+    expect(session.needsStoreFirst).toBe(false);
+  });
+
+  it('returns requiresStoreSelection when multiple stores and no mission store', async () => {
+    await prisma.business.createMany({
+      data: [
+        { userId, name: 'Alpha', type: 'retail', slug: `alpha-${Date.now()}`, isActive: true },
+        { userId, name: 'Beta', type: 'retail', slug: `beta-${Date.now()}`, isActive: true },
+      ],
+    });
+    const session = await resolveActiveRuntimeSession({ userId, source: 'test' });
+    expect(session.requiresStoreSelection).toBe(true);
+    expect(session.storeCandidates.length).toBeGreaterThanOrEqual(2);
+    expect(session.activeStoreId).toBeNull();
+    expect(session.needsStoreFirst).toBe(false);
+  });
+
+  it('hydrates completed analyze_store step after refresh scenario', async () => {
+    const store = await prisma.business.create({
+      data: {
+        userId,
+        name: 'Hydrate Store',
+        type: 'retail',
+        slug: `hydrate-${Date.now()}`,
+        isActive: true,
+      },
+    });
+    const mission = await prisma.missionPipeline.create({
+      data: {
+        type: 'launch_campaign',
+        title: 'Campaign plan',
+        status: 'completed',
+        runState: 'done',
+        targetType: 'store',
+        targetId: store.id,
+        executionMode: 'GUIDED_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+        metadataJson: {
+          proactiveStepStatus: {
+            '1': { status: 'completed', tool: 'analyze_store' },
+            '2': { status: 'pending', tool: 'create_promotion' },
+          },
+          proactivePlanSteps: [
+            { step: 1, title: 'Analyze store', description: 'Review store', recommendedTool: 'analyze_store' },
+            { step: 2, title: 'Create promo', description: 'Promo', recommendedTool: 'create_promotion' },
+          ],
+        },
+      },
+    });
+
+    const session = await resolveActiveRuntimeSession({
+      userId,
+      requestedMissionId: mission.id,
+      source: 'refresh_test',
+    });
+    expect(session.activeMissionId).toBe(mission.id);
+    expect(session.completedStepNumbers).toEqual([1]);
+    expect(session.pendingProactiveStepNumber).toBe(2);
+    expect(session.proactivePlanSteps.length).toBe(2);
+  });
+
+  it('GET /api/runtime/session/active returns session payload', async () => {
+    expect(isRuntimeSessionRehydrationEnabled()).toBe(true);
+    const token = jwt.sign({ sub: userId, id: userId }, JWT_SECRET);
+    const app = makeApp({ id: userId });
+    await prisma.missionPipeline.create({
+      data: {
+        type: 'launch_campaign',
+        title: 'API mission',
+        status: 'executing',
+        runState: 'running',
+        targetType: 'generic',
+        executionMode: 'GUIDED_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+      },
+    });
+    const res = await request(app)
+      .get('/api/runtime/session/active')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.activeMissionId).toBeTruthy();
+  });
+
+  it('regression: needsStoreFirst only when user has zero stores', async () => {
+    const session = await resolveActiveRuntimeSession({ userId, source: 'test' });
+    expect(session.needsStoreFirst).toBe(true);
+    expect(session.warnings).toContain('NEEDS_STORE_FIRST');
+  });
+});
