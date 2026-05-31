@@ -183,3 +183,13 @@ export function messageLooksLikeStoreCreate(raw) {
   const { intentMode, ambiguous } = classifyStoreWebsiteCreateIntent(raw);
   return !ambiguous && intentMode === 'store';
 }
+
+/**
+ * Guest intake guard: allow free-text store / mini-website create phrases only.
+ * @param {string} raw
+ * @returns {boolean}
+ */
+export function isGuestAllowedStoreWebsiteIntent(raw) {
+  const { intentMode, ambiguous } = classifyStoreWebsiteCreateIntent(raw);
+  return !ambiguous && (intentMode === 'store' || intentMode === 'website');
+}
