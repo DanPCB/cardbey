@@ -1261,8 +1261,10 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
     res.json({
       ok: true,
       draftId: draft.id,
+      generationRunId: draft.generationRunId ?? null,
       status: uiStatus,
       committed: draft.status === 'committed',
+      committedStoreId,
       ...(draft.status === 'committed'
         ? { redirectTo: '/app/back', message: 'Draft already saved. You can keep editing the preview.' }
         : {}),

@@ -2605,6 +2605,97 @@ export async function getDraftByGenerationRunId(generationRunId) {
 /** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
 const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'heroVideo', 'avatar', 'avatarImageUrl']);
 
+function parseStylePreferencesBlob(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed && !Array.isArray(parsed) ? { ...parsed } : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * Sync committed draft hero/avatar edits to Business + published projection (/s/:slug reads projection first).
+ * @param {import('@prisma/client').PrismaClient} prismaClient
+ * @param {{ id: string; committedStoreId?: string | null; ownerUserId?: string | null; generationRunId?: string | null }} draft
+ * @param {object} mergedPreview
+ */
+async function syncCommittedHeroAvatarToPublishedStore(prismaClient, draft, mergedPreview) {
+  const businessId = draft.committedStoreId != null ? String(draft.committedStoreId).trim() : '';
+  if (!businessId) return;
+
+  const existing = await prismaClient.business.findUnique({
+    where: { id: businessId },
+    select: { stylePreferences: true, userId: true },
+  });
+  if (!existing) return;
+
+  const prefs = parseStylePreferencesBlob(existing.stylePreferences);
+  const miniWebsite =
+    mergedPreview?.stylePreferences?.miniWebsite ??
+    mergedPreview?.website ??
+    prefs.miniWebsite ??
+    null;
+  const heroUrl =
+    (typeof mergedPreview?.heroImageUrl === 'string' && mergedPreview.heroImageUrl.trim()) ||
+    mergedPreview?.hero?.imageUrl ||
+    mergedPreview?.hero?.url ||
+    null;
+  const heroVideo =
+    (typeof mergedPreview?.heroVideo === 'string' && mergedPreview.heroVideo.trim()) ||
+    mergedPreview?.hero?.videoUrl ||
+    null;
+
+  const stylePreferences = {
+    ...prefs,
+    ...(miniWebsite ? { miniWebsite } : {}),
+    ...(heroUrl ? { heroImage: heroUrl } : {}),
+    ...(heroVideo ? { heroVideo } : {}),
+  };
+
+  await prismaClient.business.update({
+    where: { id: businessId },
+    data: {
+      ...(heroUrl ? { heroImageUrl: heroUrl } : {}),
+      stylePreferences,
+      updatedAt: new Date(),
+    },
+  });
+
+  try {
+    const { buildPersistAndApplyPublishedProjection } = await import(
+      '../publishedArtifactProjection/publishProjectionHooks.js'
+    );
+    const freshDraft = await getDraft(draft.id);
+    await buildPersistAndApplyPublishedProjection(prismaClient, {
+      businessId,
+      tenantId: draft.ownerUserId ?? existing.userId ?? null,
+      draft: freshDraft,
+      draftPreview: mergedPreview,
+      publishRunId: draft.id,
+      source: 'hero_avatar_patch',
+    });
+  } catch (projErr) {
+    console.warn('[patchDraftPreview] published projection refresh failed (non-fatal):', projErr?.message || projErr);
+  }
+
+  try {
+    const { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } = await import(
+      './publishSnapshotService.js'
+    );
+    if (isPublishSnapshotV1Enabled()) {
+      await refreshPublishSnapshotFromCurrentPreview(prismaClient, draft.id);
+    }
+  } catch (snapErr) {
+    console.warn('[patchDraftPreview] publish snapshot sync failed (non-fatal):', snapErr?.message || snapErr);
+  }
+}
+
 /**
  * Tier-2 store-build QA runs after publish/commit; catalog patches need a short edit window.
  * Temporarily sets committed → ready, runs fn, then restores status (direct update — not in transition rules).
@@ -2834,6 +2925,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
       where: { id: draftId },
       data: { preview: merged, updatedAt: new Date() },
     });
+    await syncCommittedHeroAvatarToPublishedStore(prisma, draft, merged);
     return getDraft(draftId);
   }
 
