@@ -2631,57 +2631,61 @@ async function syncCommittedHeroAvatarToPublishedStore(prismaClient, draft, merg
 
   const existing = await prismaClient.business.findUnique({
     where: { id: businessId },
-    select: { stylePreferences: true, userId: true },
+    select: { stylePreferences: true, userId: true, publishedAt: true, isActive: true },
   });
   if (!existing) return;
 
-  const prefs = parseStylePreferencesBlob(existing.stylePreferences);
-  const miniWebsite =
-    mergedPreview?.stylePreferences?.miniWebsite ??
-    mergedPreview?.website ??
-    prefs.miniWebsite ??
-    null;
-  const heroUrl =
-    (typeof mergedPreview?.heroImageUrl === 'string' && mergedPreview.heroImageUrl.trim()) ||
-    mergedPreview?.hero?.imageUrl ||
-    mergedPreview?.hero?.url ||
-    null;
-  const heroVideo =
-    (typeof mergedPreview?.heroVideo === 'string' && mergedPreview.heroVideo.trim()) ||
-    mergedPreview?.hero?.videoUrl ||
-    null;
+  const isLivePublished = existing.publishedAt != null && existing.isActive === true;
 
-  const stylePreferences = {
-    ...prefs,
-    ...(miniWebsite ? { miniWebsite } : {}),
-    ...(heroUrl ? { heroImage: heroUrl } : {}),
-    ...(heroVideo ? { heroVideo } : {}),
-  };
+  if (!isLivePublished) {
+    const prefs = parseStylePreferencesBlob(existing.stylePreferences);
+    const miniWebsite =
+      mergedPreview?.stylePreferences?.miniWebsite ??
+      mergedPreview?.website ??
+      prefs.miniWebsite ??
+      null;
+    const heroUrl =
+      (typeof mergedPreview?.heroImageUrl === 'string' && mergedPreview.heroImageUrl.trim()) ||
+      mergedPreview?.hero?.imageUrl ||
+      mergedPreview?.hero?.url ||
+      null;
+    const heroVideo =
+      (typeof mergedPreview?.heroVideo === 'string' && mergedPreview.heroVideo.trim()) ||
+      mergedPreview?.hero?.videoUrl ||
+      null;
 
-  await prismaClient.business.update({
-    where: { id: businessId },
-    data: {
-      ...(heroUrl ? { heroImageUrl: heroUrl } : {}),
-      stylePreferences,
-      updatedAt: new Date(),
-    },
-  });
+    const stylePreferences = {
+      ...prefs,
+      ...(miniWebsite ? { miniWebsite } : {}),
+      ...(heroUrl ? { heroImage: heroUrl } : {}),
+      ...(heroVideo ? { heroVideo } : {}),
+    };
 
-  try {
-    const { buildPersistAndApplyPublishedProjection } = await import(
-      '../publishedArtifactProjection/publishProjectionHooks.js'
-    );
-    const freshDraft = await getDraft(draft.id);
-    await buildPersistAndApplyPublishedProjection(prismaClient, {
-      businessId,
-      tenantId: draft.ownerUserId ?? existing.userId ?? null,
-      draft: freshDraft,
-      draftPreview: mergedPreview,
-      publishRunId: draft.id,
-      source: 'hero_avatar_patch',
+    await prismaClient.business.update({
+      where: { id: businessId },
+      data: {
+        ...(heroUrl ? { heroImageUrl: heroUrl } : {}),
+        stylePreferences,
+        updatedAt: new Date(),
+      },
     });
-  } catch (projErr) {
-    console.warn('[patchDraftPreview] published projection refresh failed (non-fatal):', projErr?.message || projErr);
+
+    try {
+      const { buildPersistAndApplyPublishedProjection } = await import(
+        '../publishedArtifactProjection/publishProjectionHooks.js'
+      );
+      const freshDraft = await getDraft(draft.id);
+      await buildPersistAndApplyPublishedProjection(prismaClient, {
+        businessId,
+        tenantId: draft.ownerUserId ?? existing.userId ?? null,
+        draft: freshDraft,
+        draftPreview: mergedPreview,
+        publishRunId: draft.id,
+        source: 'hero_avatar_patch',
+      });
+    } catch (projErr) {
+      console.warn('[patchDraftPreview] published projection refresh failed (non-fatal):', projErr?.message || projErr);
+    }
   }
 
   try {
@@ -2871,9 +2875,16 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
   }
 
   if (committedHeroAvatarOnly && draft.committedStoreId) {
+    const committedBusiness = await prisma.business.findUnique({
+      where: { id: draft.committedStoreId },
+      select: { publishedAt: true, isActive: true, stylePreferences: true },
+    });
+    const isLivePublished =
+      committedBusiness?.publishedAt != null && committedBusiness?.isActive === true;
+
     const bizData = {};
     let heroVideoUrl = null;
-    if (incoming.hero !== undefined || incoming.heroImageUrl !== undefined || incoming.heroVideo !== undefined) {
+    if (!isLivePublished && (incoming.hero !== undefined || incoming.heroImageUrl !== undefined || incoming.heroVideo !== undefined)) {
       let heroUrl = null;
       if (typeof merged.heroImageUrl === 'string' && merged.heroImageUrl.trim()) heroUrl = merged.heroImageUrl.trim();
       else if (merged.hero && typeof merged.hero === 'object') {
@@ -2888,7 +2899,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
       if (typeof merged.heroVideo === 'string' && merged.heroVideo.trim()) heroVideoUrl = merged.heroVideo.trim();
       if (heroUrl) bizData.heroImageUrl = heroUrl;
     }
-    if (incoming.avatar !== undefined || incoming.avatarImageUrl !== undefined) {
+    if (!isLivePublished && (incoming.avatar !== undefined || incoming.avatarImageUrl !== undefined)) {
       let avUrl = null;
       if (typeof merged.avatarImageUrl === 'string' && merged.avatarImageUrl.trim()) avUrl = merged.avatarImageUrl.trim();
       else if (merged.avatar && typeof merged.avatar === 'object') {
@@ -2897,14 +2908,10 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
       }
       if (avUrl) bizData.avatarImageUrl = avUrl;
     }
-    if (Object.keys(bizData).length > 0 || heroVideoUrl) {
+    if (!isLivePublished && (Object.keys(bizData).length > 0 || heroVideoUrl)) {
       if (heroVideoUrl) {
-        const existing = await prisma.business.findUnique({
-          where: { id: draft.committedStoreId },
-          select: { stylePreferences: true },
-        });
         let prefs = {};
-        const raw = existing?.stylePreferences;
+        const raw = committedBusiness?.stylePreferences;
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) prefs = { ...raw };
         else if (typeof raw === 'string') {
           try {

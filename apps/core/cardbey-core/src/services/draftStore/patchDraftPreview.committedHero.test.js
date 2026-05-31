@@ -64,7 +64,7 @@ describe('patchDraftPreview committed hero', () => {
     if (userId) await prisma.user.delete({ where: { id: userId } }).catch(() => {});
   });
 
-  it('persists heroImageUrl to DraftStore preview and Business row', async () => {
+  it('persists heroImageUrl to DraftStore preview when store is already live (draft-only until republish)', async () => {
     const newUrl = 'https://cdn.example.com/new-hero.jpg';
     await patchDraftPreview(draftId, {
       heroImageUrl: newUrl,
@@ -80,11 +80,6 @@ describe('patchDraftPreview committed hero', () => {
       where: { id: businessId },
       select: { heroImageUrl: true, stylePreferences: true },
     });
-    expect(business?.heroImageUrl).toBe(newUrl);
-    const prefs =
-      typeof business?.stylePreferences === 'object' && business.stylePreferences
-        ? business.stylePreferences
-        : JSON.parse(String(business?.stylePreferences ?? '{}'));
-    expect(prefs.heroImage).toBe(newUrl);
+    expect(business?.heroImageUrl).toBe('https://cdn.example.com/old-hero.jpg');
   });
 });

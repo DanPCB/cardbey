@@ -22,6 +22,7 @@ import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 import { hasRole } from '../lib/authorization.js';
 import { createDraft, createDraftStoreForUser, generateDraft, getDraft, getDraftByGenerationRunId, commitDraft, patchDraftPreview, normalizePreviewCategories, repairCatalog } from '../services/draftStore/draftStoreService.js';
+import { buildDraftPublishState } from '../services/draftStore/buildDraftPublishState.js';
 import { isDraftOwnedByUser, canAccessDraftStore, draftOwnershipFieldsForLog } from '../lib/draftOwnership.js';
 import { getTenantId } from '../lib/tenant.js';
 
@@ -1265,6 +1266,7 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
       status: uiStatus,
       committed: draft.status === 'committed',
       committedStoreId,
+      publishState: await buildDraftPublishState(prisma, draft),
       ...(draft.status === 'committed'
         ? { redirectTo: '/app/back', message: 'Draft already saved. You can keep editing the preview.' }
         : {}),
