@@ -32,14 +32,19 @@ if (!isRestart) {
     stdio: 'inherit',
     env: { ...process.env },
   });
-  if (r.status !== 0 && r.status != null) {
-    process.exit(r.status);
-  }
+  // Always mark this nodemon generation so file-change restarts skip bootstrap
+  // (avoids migrate-deploy lock storms while another child still holds dev.db).
   try {
     fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.writeFileSync(statePath, JSON.stringify({ ppid, t: Date.now() }));
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({ ppid, t: Date.now(), bootstrapExit: r.status ?? 1 }),
+    );
   } catch {
     /* non-fatal */
+  }
+  if (r.status !== 0 && r.status != null) {
+    process.exit(r.status);
   }
 } else {
   console.log('[prisma] nodemon restart — skipping prisma bootstrap');

@@ -38,6 +38,13 @@ function toStr(x) {
   return Buffer.isBuffer(x) ? x.toString("utf8") : String(x ?? "");
 }
 
+function envTruthy(name, defaultValue = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === "") return defaultValue;
+  const v = String(raw).trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
 /** Child env: CI helps Prisma stay non-interactive on Render. */
 function prismaChildEnv() {
   const effectiveUrl = pickDatabaseUrlForPrisma();
@@ -148,14 +155,83 @@ function runPrisma(cmdLabel, cmd, { retries = 5, retryDelaySec = 3 } = {}) {
 }
 
 /**
+ * Local SQLite: true when migrate status reports nothing pending (read-only check).
+ * @param {string} schemaPath
+ * @param {{ maxAttempts?: number, backoffMs?: number }} [opts]
+ * @returns {boolean|null} true = up to date, false = pending/failed, null = unknown (e.g. still locked)
+ */
+function checkSqliteMigrateUpToDate(schemaPath, opts = {}) {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const backoffMs = opts.backoffMs ?? 1000;
+  const cmd = `npx prisma migrate status --schema=${schemaPath}`;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const r = spawnSync(cmd, {
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      env: prismaChildEnv(),
+      shell: true,
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+    const stdout = toStr(r.stdout);
+    const stderr = toStr(r.stderr);
+    if (stdout) process.stdout.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+    const combined = `${stderr}${stdout}`;
+
+    if (
+      r.status === 0 &&
+      (combined.includes("Database schema is up to date") ||
+        combined.includes("No pending migrations to apply"))
+    ) {
+      return true;
+    }
+    if (
+      combined.includes("following migrations have not yet been applied") ||
+      combined.includes("migrations have failed")
+    ) {
+      return false;
+    }
+    if (isSqliteLockOutput(combined) && attempt < maxAttempts) {
+      sleepMs(backoffMs);
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * SQLite dev: migrate deploy failed only due to lock while API/Studio holds dev.db.
+ * @param {string} schemaPath
+ * @param {string} combinedOutput
+ */
+function tryContinueSqliteMigrateDeployDespiteLock(schemaPath, combinedOutput) {
+  if (!isSqliteLockOutput(combinedOutput)) return false;
+  const upToDate = checkSqliteMigrateUpToDate(schemaPath);
+  if (upToDate !== true) return false;
+  console.warn(
+    "[prisma] sqlite locked during migrate deploy but migration history is up to date — continuing bootstrap",
+  );
+  console.warn(
+    "[prisma] tip: stop duplicate node/prisma processes on dev.db to avoid lock noise (see prisma-bootstrap.js header)",
+  );
+  return true;
+}
+
+/**
  * Run migrate deploy; on failure attach stderr/stdout for P3005 detection.
  * SQLite (local dev only): bounded retry when another process briefly holds dev.db.
  * Postgres / Render: single attempt — unchanged.
  */
 function runMigrateDeploy(schemaPath) {
   const isSqliteLocal = !isPostgresDatabaseUrl(pickDatabaseUrlForPrisma());
-  const maxAttempts = isSqliteLocal ? 5 : 1;
-  const backoffMs = 1500;
+  if (isSqliteLocal && envTruthy("PRISMA_SKIP_MIGRATE_DEPLOY", false)) {
+    console.log("[prisma] PRISMA_SKIP_MIGRATE_DEPLOY=1 — skipping migrate deploy (sqlite dev)");
+    return;
+  }
+  const maxAttempts = isSqliteLocal ? 8 : 1;
+  const backoffMs = 2500;
   const cmd = `npx prisma migrate deploy --schema=${schemaPath}`;
 
   let lastCombined = "";
@@ -180,6 +256,10 @@ function runMigrateDeploy(schemaPath) {
       );
       sleepMs(backoffMs);
       continue;
+    }
+
+    if (isSqliteLocal && tryContinueSqliteMigrateDeployDespiteLock(schemaPath, lastCombined)) {
+      return;
     }
 
     const err = new Error(lastCombined || `migrate deploy failed (exit ${r.status ?? "?"})`);
@@ -331,7 +411,21 @@ if (hasMigrations) {
         "  Do not run prisma db push --accept-data-loss on a DB you need to keep without a backup.",
       );
       process.exit(1);
+    } else if (
+      !schemaIsPostgres &&
+      isSqliteLockOutput(msg) &&
+      tryContinueSqliteMigrateDeployDespiteLock(schemaPath, msg)
+    ) {
+      /* continue bootstrap */
     } else {
+      if (!schemaIsPostgres && isSqliteLockOutput(msg)) {
+        console.error(
+          "[prisma] sqlite locked during migrate deploy — stop holders of dev.db then retry:",
+        );
+        console.error(
+          "  - Other node.exe (npm start / old nodemon / tests)  -  npx prisma studio  -  port 3001: netstat -ano | findstr :3001",
+        );
+      }
       console.error("[prisma] migrate deploy failed:", msg.slice(0, 2000));
       process.exit(1);
     }
