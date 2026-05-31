@@ -244,12 +244,12 @@ describe('post-verify dashboard redirect (via verify/confirm)', () => {
 
     const confirmRes = await testRequest
       .get(
-        `/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}&redirect_uri=${encodeURIComponent('/onboarding/business?verified=1')}`,
+        `/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}&redirect_uri=${encodeURIComponent('/app?verified=1')}`,
       )
       .expect(302);
 
     expect(confirmRes.headers.location).toBe(
-      'http://192.168.1.11:5174/onboarding/business?verified=1',
+      'http://192.168.1.11:5174/app?verified=1',
     );
   });
 

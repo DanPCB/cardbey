@@ -17,6 +17,15 @@ import { getResetPasswordContent } from '../services/email/templates/resetPasswo
 import { registerWithEmailPassword, loginWithEmailPassword } from '../services/auth/authService.js';
 import { getPersonalPresenceLinkFields } from '../services/personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
+import {
+  getVerificationLinkBaseUrl,
+  VERIFICATION_CONFIRM_PATH,
+  verificationTokenLogFields,
+  logVerificationEmailDispatch,
+} from '../utils/verificationLinkBase.js';
+
+/** Post-verify SPA path — must exist in dashboard (Performer /app). */
+const DEFAULT_VERIFY_REDIRECT_URI = '/app?verified=1';
 import { normalizeSocialLinks, parseSocialLinks } from '../lib/socialLinks.js';
 import { normalizeLocale } from '../lib/localePrompt.js';
 
@@ -949,55 +958,6 @@ function resolveVerificationExpiryMs() {
 
 const VERIFICATION_EXPIRY_MS = resolveVerificationExpiryMs();
 
-/** Default API origin for verification links when env is unset or invalid */
-const VERIFICATION_LINK_FALLBACK_ORIGIN = 'http://localhost:3001';
-
-/** Temporary path segments that must not appear in verification link base (e.g. short-link or dev paths) */
-const INVALID_BASE_PATH_PATTERNS = ['/q/', '/go/'];
-
-/**
- * Canonical base URL for email verification links. Must be the API origin (no frontend or short-link URLs).
- * Normalizes trailing slashes and rejects bases containing temporary path segments like /q/ or /go/.
- * EMAIL_VERIFICATION_API_ORIGIN overrides PUBLIC_API_BASE_URL so links work when the latter is a LAN IP
- * the mail recipient cannot reach (e.g. open email on same PC → use http://localhost:3001).
- * @returns {{ base: string, isFallback: boolean }} Origin with no trailing slash; isFallback true when using localhost default.
- */
-function getVerificationLinkBaseUrl() {
-  const override = (process.env.EMAIL_VERIFICATION_API_ORIGIN || '').trim().replace(/\/+$/, '');
-  if (override) {
-    const bad = INVALID_BASE_PATH_PATTERNS.some((p) => override.includes(p));
-    if (!bad) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[Auth] Verification links use EMAIL_VERIFICATION_API_ORIGIN', { base: override });
-      }
-      return { base: override, isFallback: false };
-    }
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[Auth] EMAIL_VERIFICATION_API_ORIGIN ignored (invalid path segment)', { value: override });
-    }
-  }
-
-  const raw = (process.env.PUBLIC_API_BASE_URL || process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (!raw) return { base: VERIFICATION_LINK_FALLBACK_ORIGIN, isFallback: true };
-  const hasInvalidPath = INVALID_BASE_PATH_PATTERNS.some((p) => raw.includes(p));
-  if (hasInvalidPath) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('[Auth] Verification link base URL rejected (contains temporary path segment like /q/ or /go/)', { value: raw });
-    }
-    return { base: VERIFICATION_LINK_FALLBACK_ORIGIN, isFallback: true };
-  }
-  if (
-    process.env.NODE_ENV !== 'production' &&
-    !process.env.EMAIL_VERIFICATION_API_ORIGIN &&
-    /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(raw)
-  ) {
-    console.warn(
-      '[Auth] Verification emails use PUBLIC_API_BASE_URL with a private LAN IP. If the link fails in the browser, set EMAIL_VERIFICATION_API_ORIGIN=http://localhost:3001 (same machine) or your reachable public API URL.'
-    );
-  }
-  return { base: raw, isFallback: false };
-}
-
 /**
  * Absolute origin for post-verification browser redirects (SPA).
  * Never emit a relative Location header — clients resolve it against the API host and users land on the wrong origin.
@@ -1116,29 +1076,31 @@ function isVerificationEmailConfigured() {
  * Never logs raw token. Used by handleRequestVerification (await) and register (fire-and-forget).
  * @returns {Promise<{ sent: boolean, code?: string, error?: string }>}
  */
-async function sendVerificationEmail({ to, rawToken, displayName }) {
-  const { base: apiBase, isFallback } = getVerificationLinkBaseUrl();
-  const redirectUri = '/onboarding/business?verified=1';
-  const confirmPath = '/api/auth/verify/confirm';
+async function sendVerificationEmail({ to, rawToken, displayName, redirectUri = DEFAULT_VERIFY_REDIRECT_URI }) {
+  const { base: apiBase, isFallback, source } = getVerificationLinkBaseUrl();
+  const safeRedirect =
+    typeof redirectUri === 'string' && redirectUri.startsWith('/') && !redirectUri.startsWith('//')
+      ? redirectUri
+      : DEFAULT_VERIFY_REDIRECT_URI;
   const query = new URLSearchParams({
     token: rawToken,
-    redirect_uri: redirectUri
+    redirect_uri: safeRedirect,
   });
-  const fullLink = `${apiBase}${confirmPath}?${query.toString()}`;
+  const fullLink = `${apiBase}${VERIFICATION_CONFIRM_PATH}?${query.toString()}`;
   const storedHash = hashVerificationToken(rawToken);
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
 
-  // Always log which base URL was selected in non-production (never log tokens).
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[Auth] verify/email base selected', {
-      apiBase,
-      source: (process.env.EMAIL_VERIFICATION_API_ORIGIN || '').trim()
-        ? 'EMAIL_VERIFICATION_API_ORIGIN'
-        : (process.env.PUBLIC_API_BASE_URL || process.env.PUBLIC_BASE_URL || '').trim()
-          ? 'PUBLIC_API_BASE_URL|PUBLIC_BASE_URL'
-          : 'fallback_localhost',
-      isFallback,
-    });
-  }
+  logVerificationEmailDispatch({
+    to: to ? `${String(to).slice(0, 3)}***` : null,
+    apiBase,
+    linkSource: source,
+    isFallback,
+    confirmPath: VERIFICATION_CONFIRM_PATH,
+    redirectUri: safeRedirect,
+    postVerifyRedirect: webBase ? `${webBase}${safeRedirect}` : null,
+    ...verificationTokenLogFields(rawToken),
+    storedHashPrefix: String(storedHash).slice(0, 10),
+  });
 
   if (verifyDebugEnabled()) {
     const rawLooksSha256Hex = /^[a-f0-9]{64}$/i.test(String(rawToken));
@@ -1467,7 +1429,17 @@ router.get('/verify/confirm', async (req, res, next) => {
       });
     }
 
-    console.log('[Auth] verify/confirm success', { userId: user.id });
+    const webBase = resolvePublicWebBaseForBrowserRedirect();
+    console.log('[Auth] verify/confirm success', {
+      userId: user.id,
+      email: user.email ? `${String(user.email).slice(0, 3)}***` : null,
+      redirect_uri: typeof redirect_uri === 'string' ? redirect_uri : null,
+      postVerifyRedirect:
+        webBase && typeof redirect_uri === 'string' && redirect_uri.startsWith('/')
+          ? `${webBase}${redirect_uri}`
+          : null,
+      ...verificationTokenLogFields(token),
+    });
 
     return respondAfterEmailVerified(res, redirect_uri);
   } catch (error) {

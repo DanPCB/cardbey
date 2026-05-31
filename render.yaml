@@ -34,6 +34,13 @@ services:
       # Phase B — mission orchestrator (run-next / run-all on staging only)
       - key: ENABLE_RUNTIME_MISSION_ORCHESTRATOR
         value: "true"
+      # V1 — verification email hits Core API; post-verify redirect opens dashboard staging SPA
+      - key: EMAIL_VERIFICATION_BASE_URL
+        value: https://cardbey-core-staging.onrender.com
+      - key: PUBLIC_APP_URL
+        value: https://cardbey-dashboard-staging.onrender.com
+      - key: DASHBOARD_URL
+        value: https://cardbey-dashboard-staging.onrender.com
 
   # Dashboard (staging) — static site build (Vite)
   # rootDir MUST be monorepo root: Render runs "Installing dependencies with pnpm" before buildCommand

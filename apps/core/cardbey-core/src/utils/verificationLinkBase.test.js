@@ -10,6 +10,7 @@ const ENV_KEYS = [
   'LOCAL_NETWORK_HOST',
   'NODE_ENV',
   'PORT',
+  'RENDER_EXTERNAL_URL',
 ];
 
 describe('getVerificationLinkBaseUrl', () => {
@@ -60,6 +61,14 @@ describe('getVerificationLinkBaseUrl', () => {
     process.env.CORE_PUBLIC_URL = 'http://api.example.com';
     const { base } = getVerificationLinkBaseUrl();
     expect(base).toBe('http://api.example.com:3001');
+  });
+
+  it('uses RENDER_EXTERNAL_URL when explicit verification env unset', () => {
+    process.env.RENDER_EXTERNAL_URL = 'https://cardbey-core-staging.onrender.com';
+    const { base, isFallback, source } = getVerificationLinkBaseUrl();
+    expect(base).toBe('https://cardbey-core-staging.onrender.com');
+    expect(isFallback).toBe(false);
+    expect(source).toBe('RENDER_EXTERNAL_URL');
   });
 
   it('adds default API port when env URL omits port', () => {

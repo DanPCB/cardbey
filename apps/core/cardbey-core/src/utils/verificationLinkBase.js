@@ -19,6 +19,9 @@ function ensureApiOriginHasPort(base) {
   try {
     const u = new URL(base);
     if (!u.port) {
+      if (u.protocol === 'https:') {
+        return u.origin;
+      }
       const defaultPort = String(process.env.PORT || '3001').trim();
       u.port = defaultPort;
       const withPort = u.origin;
@@ -93,12 +96,14 @@ function isEmailVerificationActive() {
  * @returns {{ base: string, isFallback: boolean, source: string }}
  */
 export function getVerificationLinkBaseUrl() {
+  const renderExternal = normalizeOrigin(process.env.RENDER_EXTERNAL_URL);
   const envKeys = [
     ['EMAIL_VERIFICATION_BASE_URL', process.env.EMAIL_VERIFICATION_BASE_URL],
     ['EMAIL_VERIFICATION_API_ORIGIN', process.env.EMAIL_VERIFICATION_API_ORIGIN],
     ['CORE_PUBLIC_URL', process.env.CORE_PUBLIC_URL],
     ['PUBLIC_API_BASE_URL', process.env.PUBLIC_API_BASE_URL],
     ['PUBLIC_BASE_URL', process.env.PUBLIC_BASE_URL],
+    ...(renderExternal ? [['RENDER_EXTERNAL_URL', renderExternal]] : []),
   ];
 
   for (const [key, value] of envKeys) {
@@ -124,6 +129,20 @@ export function getVerificationLinkBaseUrl() {
 }
 
 /** Log origin + path at startup; never includes tokens. */
+/** Safe token logging — prefix only, never full secret. */
+export function verificationTokenLogFields(rawToken) {
+  const t = String(rawToken ?? '');
+  return {
+    tokenLength: t.length,
+    tokenPrefix: t.length >= 8 ? `${t.slice(0, 8)}…` : '(short)',
+  };
+}
+
+export function logVerificationEmailDispatch(fields = {}) {
+  if (process.env.NODE_ENV === 'test') return;
+  console.log('[Auth] verify/email dispatch', fields);
+}
+
 export function logVerificationEmailBaseOnStartup() {
   const { base, isFallback, source } = getVerificationLinkBaseUrl();
   let origin = base;

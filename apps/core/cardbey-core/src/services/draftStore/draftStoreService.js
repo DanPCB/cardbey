@@ -3179,66 +3179,96 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
   try {
     const shellStart = Date.now();
     stageTimer.beginTransaction();
-    const shell = await prisma.$transaction(async (tx) => {
-      if (!user) {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        user = await tx.user.create({
-          data: {
-            email: email.toLowerCase().trim(),
-            passwordHash: hashedPassword,
-            displayName: name || preview.storeName || 'User',
-            hasBusiness: true,
-            onboarding: JSON.stringify({
-              completed: false,
-              currentStep: 'welcome',
-              steps: { welcome: false, profile: false, business: true },
-            }),
-          },
+    const commitLogCtx = (await import('./commitDraftBusinessResolve.js')).resolveCommitLogContext(
+      businessFields,
+      draft,
+    );
+    const { isAbortedTransactionError, isUserIdUniqueViolation, logCommitDraftStructured } = await import(
+      './commitDraftBusinessResolve.js'
+    );
+
+    let shell = null;
+    let lastShellErr = null;
+    for (let shellAttempt = 0; shellAttempt < 2; shellAttempt++) {
+      try {
+        shell = await prisma.$transaction(async (tx) => {
+          if (!user) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            user = await tx.user.create({
+              data: {
+                email: email.toLowerCase().trim(),
+                passwordHash: hashedPassword,
+                displayName: name || preview.storeName || 'User',
+                hasBusiness: true,
+                onboarding: JSON.stringify({
+                  completed: false,
+                  currentStep: 'welcome',
+                  steps: { welcome: false, profile: false, business: true },
+                }),
+              },
+            });
+          }
+
+          const publishedAtCommit = new Date();
+          const businessPayload = {
+            name: businessName,
+            type: businessType,
+            description: preview.heroText || preview.description || null,
+            primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
+            secondaryColor: preview.brandColors?.secondary || null,
+            tagline: preview.tagline || preview.slogan || null,
+            heroText: preview.heroText || null,
+            stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
+            heroImageUrl: commitHeroUrl || null,
+            avatarImageUrl: resolvedCommitAvatar || null,
+            publishedAt: publishedAtCommit,
+            isActive: true,
+          };
+
+          const { resolveStoreWriteMode, isMultiStoreIdentityV1Enabled } = await import('../store/storeIdentity.js');
+          const targetStoreId =
+            businessFields?.targetStoreId ??
+            businessFields?.existingStoreId ??
+            draft.committedStoreId ??
+            null;
+          const writeMode = isMultiStoreIdentityV1Enabled()
+            ? resolveStoreWriteMode({ draft, targetStoreId })
+            : { mode: 'legacy', storeId: null, reason: 'legacy_singleton' };
+
+          const { resolveBusinessForDraftCommit } = await import('./commitDraftBusinessResolve.js');
+          const business = await resolveBusinessForDraftCommit(tx, {
+            prismaClient: prisma,
+            user,
+            draft,
+            businessPayload,
+            businessName,
+            businessFields: { ...businessFields, userId: user.id },
+            writeMode,
+            generateUniqueStoreSlugForTx,
+          });
+
+          await tx.product.deleteMany({ where: { businessId: business.id } });
+          return { user, business };
+        }, txOpts);
+        lastShellErr = null;
+        break;
+      } catch (shellErr) {
+        lastShellErr = shellErr;
+        const retryable =
+          shellAttempt === 0 && (isUserIdUniqueViolation(shellErr) || isAbortedTransactionError(shellErr));
+        logCommitDraftStructured('shell_transaction_failed', {
+          ...commitLogCtx,
+          userId: existingUserId ?? draft?.ownerUserId ?? user?.id ?? null,
+          draftStoreId: draftId,
+          firstFailureCode: shellErr?.code ?? null,
+          attempt: shellAttempt + 1,
+          retryable,
+          message: shellErr?.message ?? String(shellErr),
         });
+        if (!retryable) throw shellErr;
       }
-
-      const publishedAtCommit = new Date();
-      const businessPayload = {
-        name: businessName,
-        type: businessType,
-        description: preview.heroText || preview.description || null,
-        primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
-        secondaryColor: preview.brandColors?.secondary || null,
-        tagline: preview.tagline || preview.slogan || null,
-        heroText: preview.heroText || null,
-        stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
-        heroImageUrl: commitHeroUrl || null,
-        avatarImageUrl: resolvedCommitAvatar || null,
-        publishedAt: publishedAtCommit,
-        isActive: true,
-      };
-
-      const { resolveStoreWriteMode, logStoreIdentity, isMultiStoreIdentityV1Enabled } = await import(
-        '../store/storeIdentity.js'
-      );
-      const targetStoreId =
-        businessFields?.targetStoreId ??
-        businessFields?.existingStoreId ??
-        draft.committedStoreId ??
-        null;
-      const writeMode = isMultiStoreIdentityV1Enabled()
-        ? resolveStoreWriteMode({ draft, targetStoreId })
-        : { mode: 'legacy', storeId: null, reason: 'legacy_singleton' };
-
-      const { resolveBusinessForDraftCommit } = await import('./commitDraftBusinessResolve.js');
-      const business = await resolveBusinessForDraftCommit(tx, {
-        user,
-        draft,
-        businessPayload,
-        businessName,
-        businessFields: { ...businessFields, userId: user.id },
-        writeMode,
-        generateUniqueStoreSlugForTx,
-      });
-
-      await tx.product.deleteMany({ where: { businessId: business.id } });
-      return { user, business };
-    }, txOpts);
+    }
+    if (!shell) throw lastShellErr ?? new Error('COMMIT_DRAFT_FAILED: shell transaction did not complete');
     stageTimer.log('phase_b_catalog_shell', {
       itemCount: preparedCount,
       durationMs: Date.now() - shellStart,
@@ -3330,6 +3360,14 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
         `COMMIT_DRAFT_FAILED: Business record conflict for userId=${uid ?? 'unknown'}. Constraint: ${targetLabel}`,
       );
     }
+    const { logCommitDraftStructured, resolveCommitLogContext } = await import('./commitDraftBusinessResolve.js');
+    logCommitDraftStructured('commit_failed', {
+      ...resolveCommitLogContext(businessFields, draft),
+      draftStoreId: draftId,
+      userId: existingUserId ?? draft?.ownerUserId ?? null,
+      firstFailureCode: err?.code ?? null,
+      message: err?.message ?? String(err),
+    });
     console.error('[commitDraft] Transaction failed:', err);
     throw err;
   }
