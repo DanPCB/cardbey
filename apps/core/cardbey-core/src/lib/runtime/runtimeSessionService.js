@@ -27,6 +27,7 @@ import {
 } from './runtimeTargetReadinessService.js';
 import { resolveRuntimeGuidanceForSession } from './runtimeGuidanceService.js';
 import { getMissionParentMissionId } from '../mission/missionParentLineage.js';
+import { isMissionEndedByUser } from './missionRuntimeEnd.js';
 
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
@@ -97,6 +98,25 @@ function missionOwnedByUser(row, userId, tenantId) {
   if (str(row.tenantId) === uid) return true;
   if (tenantId && str(row.tenantId) === str(tenantId)) return true;
   return false;
+}
+
+/**
+ * @param {object|null|undefined} row
+ * @param {string} userId
+ * @param {string} tenantId
+ * @returns {boolean}
+ */
+function shouldRecoverMissionRow(row, userId, tenantId) {
+  if (!row || !missionOwnedByUser(row, userId, tenantId)) return false;
+  if (isMissionEndedByUser(row)) {
+    console.log('[runtime-session] skipped ended mission', {
+      missionId: row.id,
+      status: row.status ?? null,
+      runState: row.runState ?? null,
+    });
+    return false;
+  }
+  return true;
 }
 
 function resolveStoreIdFromMissionRow(row) {
@@ -280,15 +300,19 @@ export async function resolveActiveRuntimeSession(input) {
   if (requestedMissionId) {
     const row = await findMissionForUser(prisma, requestedMissionId, userId, tenantId);
     if (row) {
-      const terminal = isTerminalMissionPipelineStatus(row.status, { runState: row.runState });
-      const successTerminal = isSuccessfulTerminalMissionPipelineStatus(row.status, {
-        runState: row.runState,
-      });
-      if (!terminal || successTerminal) {
-        activeMissionRow = row;
-        activeMissionId = row.id;
+      if (!shouldRecoverMissionRow(row, userId, tenantId)) {
+        warnings.push('REQUESTED_MISSION_ENDED');
       } else {
-        warnings.push('REQUESTED_MISSION_TERMINAL');
+        const terminal = isTerminalMissionPipelineStatus(row.status, { runState: row.runState });
+        const successTerminal = isSuccessfulTerminalMissionPipelineStatus(row.status, {
+          runState: row.runState,
+        });
+        if (!terminal || successTerminal) {
+          activeMissionRow = row;
+          activeMissionId = row.id;
+        } else {
+          warnings.push('REQUESTED_MISSION_TERMINAL');
+        }
       }
     } else {
       warnings.push('REQUESTED_MISSION_NOT_FOUND');
@@ -306,7 +330,7 @@ export async function resolveActiveRuntimeSession(input) {
       orderBy: { updatedAt: 'desc' },
       select: CHECKPOINT_MISSION_SELECT,
     });
-    if (checkpointRow && missionOwnedByUser(checkpointRow, userId, tenantId)) {
+    if (checkpointRow && shouldRecoverMissionRow(checkpointRow, userId, tenantId)) {
       activeMissionRow = checkpointRow;
       activeMissionId = checkpointRow.id;
     }
@@ -322,10 +346,15 @@ export async function resolveActiveRuntimeSession(input) {
       orderBy: { updatedAt: 'desc' },
       select: CHECKPOINT_MISSION_SELECT,
     });
-    if (row && missionOwnedByUser(row, userId, tenantId)) {
+    if (row && shouldRecoverMissionRow(row, userId, tenantId)) {
       activeMissionRow = row;
       activeMissionId = row.id;
     }
+  }
+
+  if (activeMissionRow && !shouldRecoverMissionRow(activeMissionRow, userId, tenantId)) {
+    activeMissionRow = null;
+    activeMissionId = null;
   }
 
   // ── 4. Latest completed store mission with targetId (continuation context) ──
@@ -506,7 +535,7 @@ export async function resolveActiveRuntimeSession(input) {
       },
     });
     for (const r of rows) {
-      if (missionOwnedByUser(r, userId, tenantId)) {
+      if (shouldRecoverMissionRow(r, userId, tenantId)) {
         recoverableMissions.push(mapMissionSummary(r));
       }
     }

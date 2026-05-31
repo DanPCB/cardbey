@@ -216,6 +216,38 @@ describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
     expect(session.warnings).toContain('NEEDS_STORE_FIRST');
   });
 
+  it('does not return checkpoint mission after user end (cancelled + endedByUser)', async () => {
+    const mission = await prisma.missionPipeline.create({
+      data: {
+        type: 'store',
+        title: 'Ended checkpoint',
+        status: 'cancelled',
+        runState: 'cancelled',
+        targetType: 'store',
+        executionMode: 'AUTO_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+        metadataJson: { endedByUser: true, endedAt: new Date().toISOString() },
+      },
+    });
+    await prisma.missionPipelineStep.create({
+      data: {
+        missionId: mission.id,
+        orderIndex: 1,
+        toolName: 'owner_logo_checkpoint',
+        label: 'Upload logo',
+        status: 'awaiting_input',
+        stepKind: 'checkpoint',
+        configJson: { prompt: 'Upload logo', options: ['Skip'] },
+      },
+    });
+
+    const session = await resolveActiveRuntimeSession({ userId, source: 'after_end_mission' });
+    expect(session.activeMissionId).not.toBe(mission.id);
+    expect(session.hasActiveCheckpoint).toBe(false);
+  });
+
   it('returns awaiting_input checkpoint mission on refresh', async () => {
     const mission = await prisma.missionPipeline.create({
       data: {
@@ -257,5 +289,13 @@ describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
     expect(session.activeCheckpoint?.stepId).toBe(step.id);
     expect(session.activeCheckpoint?.prompt).toContain('logo');
     expect(session.activeCheckpoint?.options).toEqual(['Skip', 'Upload logo']);
+
+    const { cancelMissionPipeline } = await import('../src/lib/missionPipelineService.js');
+    const cancelled = await cancelMissionPipeline(mission.id);
+    expect(cancelled.ok).toBe(true);
+
+    const afterEnd = await resolveActiveRuntimeSession({ userId, source: 'after_end_mission' });
+    expect(afterEnd.activeMissionId).not.toBe(mission.id);
+    expect(afterEnd.hasActiveCheckpoint).toBe(false);
   });
 });
