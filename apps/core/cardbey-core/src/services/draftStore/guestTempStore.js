@@ -259,6 +259,21 @@ export async function claimGuestTempStoreForUser(storeId, newUserId) {
     });
   }
 
+  try {
+    const { collectMissionIdsForStoreClaim, normalizeMissionOwnershipForUser } = await import(
+      '../../lib/missionOwnership.js'
+    );
+    const missionIds = await collectMissionIdsForStoreClaim(prisma, { storeId: sid, draft });
+    for (const missionId of missionIds) {
+      await normalizeMissionOwnershipForUser(prisma, missionId, uid, { tenantId: uid });
+    }
+    if (missionIds.length) {
+      console.log('[claim-guest] mission ownership normalized:', { storeId: sid, missionIds });
+    }
+  } catch (err) {
+    console.warn('[claim-guest] mission ownership normalize failed:', err?.message || err);
+  }
+
   console.log('[claim-guest] store claimed:', { storeId: sid, userId: uid });
   return { storeId: sid };
 }

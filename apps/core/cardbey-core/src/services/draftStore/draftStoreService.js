@@ -3339,6 +3339,20 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
 
   console.log(`[DraftStore] Commit done for draft ${draftId}: storeId=${result.business.id}, userId=${result.user.id}, itemsCreated=${result.itemsCreated}`);
 
+  try {
+    const { normalizeMissionOwnershipForUser } = await import('../../lib/missionOwnership.js');
+    const { resolveCommitLogContext } = await import('./commitDraftBusinessResolve.js');
+    const missionId = resolveCommitLogContext(businessFields, draft).missionId;
+    if (missionId && result.user?.id) {
+      await normalizeMissionOwnershipForUser(prisma, missionId, result.user.id, {
+        user: result.user,
+        tenantId: result.business?.id ?? result.user.id,
+      });
+    }
+  } catch (ownErr) {
+    console.warn('[commitDraft] mission ownership normalize failed (non-fatal):', ownErr?.message || ownErr);
+  }
+
   return {
     ok: true,
     userId: result.user.id,

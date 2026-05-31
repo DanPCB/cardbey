@@ -9,6 +9,7 @@
 
 import { getPrismaClient } from '../lib/prisma.js';
 import { isPerformerOrchestrationStabilityEnabled } from './broker/brokerFlags.js';
+import { canAccessBusiness } from './tenant.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -57,6 +58,104 @@ export function getTenantId(user) {
 
 function isDevPlaceholderId(value) {
   return value === 'temp' || value === 'dev-user-id';
+}
+
+function isGuestActorId(value) {
+  return typeof value === 'string' && value.trim().toLowerCase().startsWith('guest_');
+}
+
+/** Pipeline tenant/createdBy match, guest-session handoff, or dev placeholder bypass. */
+function pipelineOwnedByUser(pipelineRow, user) {
+  if (!pipelineRow || !user?.id) return false;
+  const tenantId = getTenantId(user);
+  if (!pipelineRow.tenantId || pipelineRow.tenantId === tenantId) return true;
+  if (pipelineRow.createdBy && pipelineRow.createdBy === user.id) return true;
+  if (isGuestActorId(pipelineRow.createdBy) || isGuestActorId(pipelineRow.tenantId)) return true;
+  const devPlaceholder = isDevPlaceholderId(pipelineRow.tenantId) || isDevPlaceholderId(pipelineRow.createdBy);
+  return isDev && devPlaceholder;
+}
+
+function missionRowOwnedByUser(mission, user) {
+  if (!mission || !user?.id) return false;
+  const ownerId = user.id;
+  const businessId = user.business?.id;
+  if (
+    mission.createdByUserId === ownerId ||
+    mission.tenantId === ownerId ||
+    mission.tenantId === businessId
+  ) {
+    return true;
+  }
+  if (isGuestActorId(mission.createdByUserId) || isGuestActorId(mission.tenantId)) return true;
+  const devPlaceholder =
+    mission.createdByUserId === 'temp' ||
+    mission.tenantId === 'temp' ||
+    mission.createdByUserId === 'dev-user-id' ||
+    mission.tenantId === 'dev-user-id';
+  return isDev && devPlaceholder;
+}
+
+function orchestratorTaskOwnedByUser(task, user) {
+  if (!task || !user?.id) return false;
+  const ownerId = user.id;
+  const businessId = user.business?.id;
+  const effectiveTenant = businessId ?? ownerId;
+  if (
+    task.userId === ownerId ||
+    task.userId === effectiveTenant ||
+    task.tenantId === ownerId ||
+    task.tenantId === businessId
+  ) {
+    return true;
+  }
+  if (isGuestActorId(task.userId)) return true;
+  const devPlaceholder =
+    task.userId === 'temp' ||
+    task.tenantId === 'temp' ||
+    task.userId === 'dev-user-id' ||
+    task.tenantId === 'dev-user-id';
+  return isDev && devPlaceholder;
+}
+
+/**
+ * Store-linked pipeline: user owns Business for targetId or draft tied to outputsJson.draftId.
+ * @param {import('./prismaClient.js').PrismaClient} prisma
+ * @param {string} missionIdTrimmed
+ * @param {object} user
+ */
+async function pipelineStoreOrDraftOwnedByUser(prisma, missionIdTrimmed, user) {
+  if (!user?.id) return false;
+  const pipe = await prisma.missionPipeline.findUnique({
+    where: { id: missionIdTrimmed },
+    select: { targetType: true, targetId: true, outputsJson: true },
+  });
+  if (!pipe) return false;
+
+  const tenantKey = getTenantId(user);
+  if (pipe.targetType === 'store' && pipe.targetId) {
+    const storeId = String(pipe.targetId).trim();
+    if (storeId && (await canAccessBusiness(prisma, { tenantKey, user, storeId }))) {
+      return true;
+    }
+  }
+
+  const outputs =
+    pipe.outputsJson && typeof pipe.outputsJson === 'object' && !Array.isArray(pipe.outputsJson)
+      ? pipe.outputsJson
+      : {};
+  const draftId = typeof outputs.draftId === 'string' ? outputs.draftId.trim() : '';
+  if (draftId) {
+    const draft = await prisma.draftStore.findUnique({
+      where: { id: draftId },
+      select: { ownerUserId: true, committedStoreId: true },
+    });
+    if (draft?.ownerUserId === user.id) return true;
+    if (draft?.committedStoreId && tenantKey) {
+      return canAccessBusiness(prisma, { tenantKey, user, storeId: draft.committedStoreId });
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -126,33 +225,14 @@ async function resolveAccessibleMissionUncached(user, missionIdTrimmed) {
     select: { createdByUserId: true, tenantId: true },
   });
   if (mission) {
-    const ownerId = user?.id;
-    const businessId = user?.business?.id;
-    const isOwner =
-      mission.createdByUserId === ownerId ||
-      mission.tenantId === ownerId ||
-      mission.tenantId === businessId;
-    const devPlaceholder =
-      mission.createdByUserId === 'temp' ||
-      mission.tenantId === 'temp' ||
-      mission.createdByUserId === 'dev-user-id' ||
-      mission.tenantId === 'dev-user-id';
-    const devBypass = isDev && ownerId && devPlaceholder;
-    if (isOwner || devBypass) {
+    if (missionRowOwnedByUser(mission, user)) {
       // Prefer MissionPipeline when the same id exists (pipeline endpoints require kind=mission_pipeline).
       const pipeline = await prisma.missionPipeline.findUnique({
         where: { id: missionIdTrimmed },
         select: { tenantId: true, createdBy: true },
       });
       if (pipeline) {
-        const tenantId = getTenantId(user);
-        const allowed =
-          !pipeline.tenantId ||
-          pipeline.tenantId === tenantId ||
-          (pipeline.createdBy && user?.id && pipeline.createdBy === user.id);
-        const pipelineDevPlaceholder = isDevPlaceholderId(pipeline.tenantId) || isDevPlaceholderId(pipeline.createdBy);
-        const pipelineDevBypass = isDev && user?.id && pipelineDevPlaceholder;
-        if (allowed || pipelineDevBypass) {
+        if (pipelineOwnedByUser(pipeline, user)) {
           if (isDev) console.log('[MissionAccess] resolved kind=mission_pipeline missionId=', missionIdTrimmed);
           return {
             ok: true,
@@ -185,17 +265,30 @@ async function resolveAccessibleMissionUncached(user, missionIdTrimmed) {
       select: { tenantId: true, createdBy: true },
     });
     if (pipelineOwned) {
-      const tenantId = getTenantId(user);
-      const allowed =
-        !pipelineOwned.tenantId ||
-        pipelineOwned.tenantId === tenantId ||
-        (pipelineOwned.createdBy && user?.id && pipelineOwned.createdBy === user.id);
-      const pipelineDevPlaceholder =
-        isDevPlaceholderId(pipelineOwned.tenantId) || isDevPlaceholderId(pipelineOwned.createdBy);
-      const pipelineDevBypass = isDev && user?.id && pipelineDevPlaceholder;
-      if (allowed || pipelineDevBypass) {
+      if (pipelineOwnedByUser(pipelineOwned, user)) {
         if (isDev) {
           console.log('[MissionAccess] resolved kind=mission_pipeline (mission row not owner) missionId=', missionIdTrimmed);
+        }
+        return {
+          ok: true,
+          kind: 'mission_pipeline',
+          missionId: missionIdTrimmed,
+          record: pipelineOwned,
+          tenantId: pipelineOwned.tenantId ?? null,
+          createdBy: pipelineOwned.createdBy ?? null,
+          canAccess: true,
+          displayType: 'Pipeline Mission',
+        };
+      }
+    }
+    if (await pipelineStoreOrDraftOwnedByUser(prisma, missionIdTrimmed, user)) {
+      const pipelineOwned = await prisma.missionPipeline.findUnique({
+        where: { id: missionIdTrimmed },
+        select: { tenantId: true, createdBy: true },
+      });
+      if (pipelineOwned) {
+        if (isDev) {
+          console.log('[MissionAccess] resolved kind=mission_pipeline (store/draft owner) missionId=', missionIdTrimmed);
         }
         return {
           ok: true,
@@ -219,21 +312,7 @@ async function resolveAccessibleMissionUncached(user, missionIdTrimmed) {
     select: { userId: true, tenantId: true },
   });
   if (task) {
-    const ownerId = user?.id;
-    const businessId = user?.business?.id;
-    const effectiveTenant = businessId ?? ownerId;
-    const isOwner =
-      task.userId === ownerId ||
-      task.userId === effectiveTenant ||
-      task.tenantId === ownerId ||
-      task.tenantId === businessId;
-    const devPlaceholder =
-      task.userId === 'temp' ||
-      task.tenantId === 'temp' ||
-      task.userId === 'dev-user-id' ||
-      task.tenantId === 'dev-user-id';
-    const devBypass = isDev && ownerId && devPlaceholder;
-    if (isOwner || devBypass) {
+    if (orchestratorTaskOwnedByUser(task, user)) {
       if (isDev) console.log('[MissionAccess] resolved kind=orchestrator_task missionId=', missionIdTrimmed);
       return {
         ok: true,
@@ -257,14 +336,7 @@ async function resolveAccessibleMissionUncached(user, missionIdTrimmed) {
     select: { tenantId: true, createdBy: true },
   });
   if (pipelineRow) {
-    const tenantId = getTenantId(user);
-    const allowed =
-      !pipelineRow.tenantId ||
-      pipelineRow.tenantId === tenantId ||
-      (pipelineRow.createdBy && user?.id && pipelineRow.createdBy === user.id);
-    const devPlaceholder = isDevPlaceholderId(pipelineRow.tenantId) || isDevPlaceholderId(pipelineRow.createdBy);
-    const devBypass = isDev && user?.id && devPlaceholder;
-    if (allowed || devBypass) {
+    if (pipelineOwnedByUser(pipelineRow, user)) {
       if (isDev) console.log('[MissionAccess] resolved kind=mission_pipeline missionId=', missionIdTrimmed);
       return {
         ok: true,
@@ -282,10 +354,20 @@ async function resolveAccessibleMissionUncached(user, missionIdTrimmed) {
 
   // 2b. OrchestratorTask linked by missionId (store / website build: task.missionId === MissionPipeline.id)
   if (user?.id) {
-    const taskForPipeline = await prisma.orchestratorTask.findFirst({
+    let taskForPipeline = await prisma.orchestratorTask.findFirst({
       where: { missionId: missionIdTrimmed, userId: user.id },
       select: { id: true, userId: true, tenantId: true },
+      orderBy: { createdAt: 'desc' },
     });
+    if (!taskForPipeline) {
+      const guestLinked = await prisma.orchestratorTask.findMany({
+        where: { missionId: missionIdTrimmed },
+        select: { id: true, userId: true, tenantId: true },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      taskForPipeline = guestLinked.find((t) => isGuestActorId(t.userId)) ?? null;
+    }
     if (taskForPipeline) {
       if (isDev) {
         console.log('[MissionAccess] resolved kind=orchestrator_task (by missionId) missionId=', missionIdTrimmed);
@@ -304,6 +386,21 @@ async function resolveAccessibleMissionUncached(user, missionIdTrimmed) {
   }
 
   if (pipelineRow) {
+    if (await pipelineStoreOrDraftOwnedByUser(prisma, missionIdTrimmed, user)) {
+      if (isDev) {
+        console.log('[MissionAccess] resolved kind=mission_pipeline (store/draft owner) missionId=', missionIdTrimmed);
+      }
+      return {
+        ok: true,
+        kind: 'mission_pipeline',
+        missionId: missionIdTrimmed,
+        record: pipelineRow,
+        tenantId: pipelineRow.tenantId ?? null,
+        createdBy: pipelineRow.createdBy ?? null,
+        canAccess: true,
+        displayType: 'Pipeline Mission',
+      };
+    }
     if (isDev) console.log('[MissionAccess] forbidden kind=mission_pipeline missionId=', missionIdTrimmed);
     return { ok: false, reason: 'FORBIDDEN', kind: 'mission_pipeline', missionId: missionIdTrimmed };
   }

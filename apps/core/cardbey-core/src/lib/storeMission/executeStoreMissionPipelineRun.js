@@ -326,6 +326,13 @@ async function executeStoreMissionPipelineRunCore({
 
   console.log('[ReAct] missionId linked (store pipeline run):', missionId, 'task:', created.jobId);
 
+  try {
+    const { normalizeMissionOwnershipForUser } = await import('../missionOwnership.js');
+    await normalizeMissionOwnershipForUser(prisma, missionId, userId, { user, tenantId });
+  } catch (ownErr) {
+    console.warn('[executeStoreMissionPipelineRun] mission ownership normalize failed:', ownErr?.message || ownErr);
+  }
+
   const missionRow = await db.mission
     .findUnique({
       where: { id: missionId },
