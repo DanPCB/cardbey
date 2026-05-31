@@ -16,7 +16,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # Runtime Kernel — Foundation only (Phase B–E remain OFF until soak passes each phase)
+      # Runtime Kernel — Foundation + Phase B (C–E remain OFF until soak passes each phase)
       - key: ENABLE_PERFORMER_RUNTIME_KERNEL
         value: "true"
       - key: ENABLE_RUNTIME_STEP_EXECUTION
@@ -30,6 +30,9 @@ services:
       - key: ENABLE_RUNTIME_STORE_FALLBACK
         value: "true"
       - key: PERFORMER_RUNTIME_UNIFIED_STREAM
+        value: "true"
+      # Phase B — mission orchestrator (run-next / run-all on staging only)
+      - key: ENABLE_RUNTIME_MISSION_ORCHESTRATOR
         value: "true"
 
   # Dashboard (staging) — static site build (Vite)
