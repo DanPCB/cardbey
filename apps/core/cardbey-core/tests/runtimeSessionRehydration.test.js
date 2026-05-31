@@ -215,4 +215,47 @@ describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
     expect(session.needsStoreFirst).toBe(true);
     expect(session.warnings).toContain('NEEDS_STORE_FIRST');
   });
+
+  it('returns awaiting_input checkpoint mission on refresh', async () => {
+    const mission = await prisma.missionPipeline.create({
+      data: {
+        type: 'store',
+        title: 'Create store checkpoint',
+        status: 'awaiting_input',
+        runState: 'blocked_on_checkpoint',
+        targetType: 'store',
+        executionMode: 'AUTO_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+        metadataJson: {},
+      },
+    });
+    const step = await prisma.missionPipelineStep.create({
+      data: {
+        missionId: mission.id,
+        orderIndex: 1,
+        toolName: 'owner_logo_checkpoint',
+        label: 'Upload logo',
+        status: 'awaiting_input',
+        stepKind: 'checkpoint',
+        configJson: {
+          prompt: 'Upload your logo or skip for now',
+          options: ['Skip', 'Upload logo'],
+          outputKey: 'logo',
+        },
+      },
+    });
+    await prisma.missionPipeline.update({
+      where: { id: mission.id },
+      data: { currentStepId: step.id },
+    });
+
+    const session = await resolveActiveRuntimeSession({ userId, source: 'logo_checkpoint_refresh' });
+    expect(session.activeMissionId).toBe(mission.id);
+    expect(session.hasActiveCheckpoint).toBe(true);
+    expect(session.activeCheckpoint?.stepId).toBe(step.id);
+    expect(session.activeCheckpoint?.prompt).toContain('logo');
+    expect(session.activeCheckpoint?.options).toEqual(['Skip', 'Upload logo']);
+  });
 });

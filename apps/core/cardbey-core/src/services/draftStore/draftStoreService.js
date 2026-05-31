@@ -3225,48 +3225,16 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
         ? resolveStoreWriteMode({ draft, targetStoreId })
         : { mode: 'legacy', storeId: null, reason: 'legacy_singleton' };
 
-      let business;
-      if (writeMode.mode === 'update' && writeMode.storeId) {
-        const existingRow = await tx.business.findFirst({
-          where: { id: writeMode.storeId, userId: user.id },
-        });
-        if (!existingRow) {
-          throw new Error(
-            `COMMIT_DRAFT_FAILED: Cannot update store ${writeMode.storeId} — not found or not owned by user`,
-          );
-        }
-        const slugForUpdate = await generateUniqueStoreSlugForTx(tx, businessName, existingRow.id);
-        business = await tx.business.update({
-          where: { id: existingRow.id },
-          data: {
-            ...businessPayload,
-            slug: slugForUpdate,
-          },
-        });
-        logStoreIdentity('STORE_IDENTITY_COMMIT_UPDATE', {
-          draftId,
-          storeId: business.id,
-          mode: 'update',
-          reason: writeMode.reason,
-          ownerId: user.id,
-        });
-      } else {
-        const slug = await generateUniqueStoreSlugForTx(tx, businessName);
-        business = await tx.business.create({
-          data: {
-            userId: user.id,
-            slug,
-            ...businessPayload,
-          },
-        });
-        logStoreIdentity('STORE_IDENTITY_COMMIT_CREATE', {
-          draftId,
-          storeId: business.id,
-          mode: 'create',
-          reason: writeMode.reason ?? 'greenfield',
-          ownerId: user.id,
-        });
-      }
+      const { resolveBusinessForDraftCommit } = await import('./commitDraftBusinessResolve.js');
+      const business = await resolveBusinessForDraftCommit(tx, {
+        user,
+        draft,
+        businessPayload,
+        businessName,
+        businessFields: { ...businessFields, userId: user.id },
+        writeMode,
+        generateUniqueStoreSlugForTx,
+      });
 
       await tx.product.deleteMany({ where: { businessId: business.id } });
       return { user, business };
@@ -3342,12 +3310,22 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
     }
     if (err?.code === 'P2002') {
       const uid = existingUserId ?? draft?.ownerUserId;
+      const targetLabel = Array.isArray(err?.meta?.target) ? err.meta.target.join(', ') : String(err?.meta?.target ?? 'unknown');
+      const isUserIdConflict =
+        (Array.isArray(err?.meta?.target) && err.meta.target.includes('userId')) ||
+        /userId/i.test(targetLabel);
+      if (isUserIdConflict) {
+        console.error('[commitDraft] Unrecovered userId unique conflict after recovery attempt:', {
+          target: err?.meta?.target,
+          userId: uid,
+          draftId: draft?.id,
+        });
+      }
       console.error('[commitDraft] Unique constraint failed:', {
         target: err?.meta?.target,
         userId: uid,
         draftId: draft?.id,
       });
-      const targetLabel = Array.isArray(err?.meta?.target) ? err.meta.target.join(', ') : String(err?.meta?.target ?? 'unknown');
       throw new Error(
         `COMMIT_DRAFT_FAILED: Business record conflict for userId=${uid ?? 'unknown'}. Constraint: ${targetLabel}`,
       );

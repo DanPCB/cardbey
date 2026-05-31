@@ -56,12 +56,30 @@ export const RECOVERABLE_MISSION_STATUSES = [
   'requested',
   'planned',
   'awaiting_confirmation',
+  'awaiting_input',
   'queued',
   'executing',
   'paused',
   'running',
   'draft',
 ];
+
+const CHECKPOINT_MISSION_SELECT = {
+  id: true,
+  type: true,
+  title: true,
+  status: true,
+  runState: true,
+  executionMode: true,
+  targetType: true,
+  targetId: true,
+  metadataJson: true,
+  outputsJson: true,
+  createdBy: true,
+  tenantId: true,
+  updatedAt: true,
+  currentStepId: true,
+};
 
 function str(v) {
   return typeof v === 'string' ? v.trim() : '';
@@ -86,7 +104,7 @@ function resolveStoreIdFromMissionRow(row) {
   return ids.storeId || null;
 }
 
-function mapMissionSummary(row) {
+function mapMissionSummary(row, extras = {}) {
   if (!row) return null;
   const meta = asObj(row.metadataJson);
   const runtimePrerequisites = readRuntimePrerequisites(meta);
@@ -96,6 +114,7 @@ function mapMissionSummary(row) {
     title: row.title ?? null,
     status: row.status ?? null,
     runState: row.runState ?? null,
+    currentStepId: row.currentStepId ?? extras.currentStepId ?? null,
     executionMode: row.executionMode ?? null,
     targetType: row.targetType ?? null,
     targetId: row.targetId ?? null,
@@ -110,7 +129,34 @@ function mapMissionSummary(row) {
     isSuccessTerminal: isSuccessfulTerminalMissionPipelineStatus(row.status, {
       runState: row.runState,
     }),
+    ...(extras.activeCheckpoint ? { activeCheckpoint: extras.activeCheckpoint } : {}),
+    ...(extras.checkpointContinuation ? { checkpointContinuation: extras.checkpointContinuation } : {}),
   };
+}
+
+async function loadCheckpointExtrasForMission(missionId) {
+  const mid = str(missionId);
+  if (!mid) return { activeCheckpoint: null, checkpointContinuation: null, currentStepId: null };
+  try {
+    const { resolveMissionState } = await import('../missionPipelineResolver.js');
+    const state = await resolveMissionState(mid);
+    if (!state) return { activeCheckpoint: null, checkpointContinuation: null, currentStepId: null };
+    const cp = state.activeCheckpoint ?? state.pendingCheckpoint ?? null;
+    const meta = asObj(state.metadata);
+    const checkpointContinuation =
+      meta.checkpointContinuation && typeof meta.checkpointContinuation === 'object'
+        ? meta.checkpointContinuation
+        : meta.continuationPayload && typeof meta.continuationPayload === 'object'
+          ? meta.continuationPayload
+          : null;
+    return {
+      activeCheckpoint: cp,
+      checkpointContinuation,
+      currentStepId: state.currentStep?.stepId ?? cp?.stepId ?? null,
+    };
+  } catch {
+    return { activeCheckpoint: null, checkpointContinuation: null, currentStepId: null };
+  }
 }
 
 async function loadUserStores(userId, limit = 20) {
@@ -249,6 +295,23 @@ export async function resolveActiveRuntimeSession(input) {
     }
   }
 
+  // ── 2b. Blocked checkpoint mission (refresh must restore logo / owner-input step) ──
+  if (!activeMissionRow && userId) {
+    const checkpointRow = await prisma.missionPipeline.findFirst({
+      where: {
+        status: 'awaiting_input',
+        runState: 'blocked_on_checkpoint',
+        OR: [{ createdBy: userId }, { tenantId: tenantId || userId }],
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: CHECKPOINT_MISSION_SELECT,
+    });
+    if (checkpointRow && missionOwnedByUser(checkpointRow, userId, tenantId)) {
+      activeMissionRow = checkpointRow;
+      activeMissionId = checkpointRow.id;
+    }
+  }
+
   // ── 3. Latest active/recoverable mission ──
   if (!activeMissionRow && userId) {
     const row = await prisma.missionPipeline.findFirst({
@@ -257,21 +320,7 @@ export async function resolveActiveRuntimeSession(input) {
         OR: [{ createdBy: userId }, { tenantId: tenantId || userId }],
       },
       orderBy: { updatedAt: 'desc' },
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        status: true,
-        runState: true,
-        executionMode: true,
-        targetType: true,
-        targetId: true,
-        metadataJson: true,
-        outputsJson: true,
-        createdBy: true,
-        tenantId: true,
-        updatedAt: true,
-      },
+      select: CHECKPOINT_MISSION_SELECT,
     });
     if (row && missionOwnedByUser(row, userId, tenantId)) {
       activeMissionRow = row;
@@ -463,7 +512,12 @@ export async function resolveActiveRuntimeSession(input) {
     }
   }
 
-  const activeMission = mapMissionSummary(activeMissionRow);
+  let checkpointExtras = { activeCheckpoint: null, checkpointContinuation: null, currentStepId: null };
+  if (activeMissionRow && str(activeMissionRow.status) === 'awaiting_input') {
+    checkpointExtras = await loadCheckpointExtrasForMission(activeMissionRow.id);
+  }
+
+  const activeMission = mapMissionSummary(activeMissionRow, checkpointExtras);
   const latestStore = userStores[0] ?? null;
 
   const pendingProactiveStepNumber = (() => {
@@ -526,6 +580,9 @@ export async function resolveActiveRuntimeSession(input) {
     completedStepNumbers: activeMission?.completedStepNumbers ?? [],
     proactivePlanSteps,
     proactivePlanTotal: proactivePlanSteps.length,
+    activeCheckpoint: checkpointExtras.activeCheckpoint,
+    checkpointContinuation: checkpointExtras.checkpointContinuation,
+    hasActiveCheckpoint: Boolean(checkpointExtras.activeCheckpoint?.stepId),
     warnings,
   };
 }

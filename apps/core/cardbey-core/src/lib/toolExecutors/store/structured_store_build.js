@@ -237,7 +237,7 @@ export async function execute(_input = {}, context = {}) {
       const committed = await commitDraft(draftIdForRun, {
         userId: userRow.id,
         acceptTerms: true,
-        businessFields: {},
+        businessFields: { missionId: missionId ?? undefined },
       });
       storeId = committed?.storeId ?? committed?.businessId ?? null;
       storeSlug = committed?.storeSlug ?? committed?.slug ?? null;
