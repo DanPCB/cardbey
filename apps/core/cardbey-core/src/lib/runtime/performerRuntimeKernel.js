@@ -140,7 +140,6 @@ export async function executeMissionStep(input) {
       runState: true,
       targetId: true,
       targetType: true,
-      parentMissionId: true,
       metadataJson: true,
     },
   });

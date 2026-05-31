@@ -15,6 +15,7 @@ import {
   readRuntimePrerequisites,
   RUNTIME_PREREQ_STATUS,
 } from './runtimePrerequisiteState.js';
+import { getMissionParentMissionId } from '../mission/missionParentLineage.js';
 
 function str(v) {
   return typeof v === 'string' ? v.trim() : '';
@@ -40,7 +41,6 @@ async function assertMissionAccess(user, missionId) {
       runState: true,
       targetId: true,
       targetType: true,
-      parentMissionId: true,
       metadataJson: true,
       createdBy: true,
       tenantId: true,
@@ -266,7 +266,6 @@ export async function tryResumeAfterPrerequisiteChildCompleted(childMissionId, o
       status: true,
       runState: true,
       targetId: true,
-      parentMissionId: true,
       metadataJson: true,
       outputsJson: true,
       createdBy: true,
@@ -298,7 +297,8 @@ export async function tryResumeAfterPrerequisiteChildCompleted(childMissionId, o
     };
   }
 
-  const parentMissionId = str(child.parentMissionId) || str(childMeta.blockedParentMissionId);
+  const parentMissionId =
+    getMissionParentMissionId(child) || str(childMeta.blockedParentMissionId);
   if (!parentMissionId) {
     return { ok: false, httpStatus: 409, code: 'NO_PARENT', message: 'Parent mission not linked' };
   }

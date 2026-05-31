@@ -15,6 +15,7 @@ import { runPostMissionCompletionSummary } from './missionCompletion/postMission
 import { isPerformerPipelineWriteHardeningEnabled } from './broker/brokerFlags.js';
 import { safePipelineUpdate } from './safePipelineUpdate.js';
 import { runMissionCreateBurst } from './mission/missionCreateBurst.js';
+import { withParentMissionIdInMetadata } from './mission/missionParentLineage.js';
 
 /** SQLite creation txn — bounded wait under contention (Step 6; no retry loop). */
 const CREATION_TX_TIMEOUT_MS = 30_000;
@@ -145,6 +146,10 @@ export async function createMissionPipelineCore(prisma, params, prepared) {
 
   const parentId =
     parentMissionId != null && String(parentMissionId).trim() ? String(parentMissionId).trim() : null;
+  const metadataJson = withParentMissionIdInMetadata(
+    metadata && typeof metadata === 'object' ? metadata : {},
+    parentId,
+  );
 
   const mission = await prisma.missionPipeline.create({
     data: {
@@ -153,14 +158,13 @@ export async function createMissionPipelineCore(prisma, params, prepared) {
       targetType: String(targetType).trim() || 'generic',
       targetId: targetId != null ? String(targetId) : null,
       targetLabel: targetLabel != null ? String(targetLabel).trim() || null : null,
-      ...(parentId ? { parentMissionId: parentId } : {}),
       status: 'requested',
       runState: 'idle',
       executionMode: mode,
       tenantId,
       createdBy,
       requiresConfirmation: effectiveRequiresConfirmation,
-      metadataJson: metadata && typeof metadata === 'object' ? metadata : {},
+      metadataJson,
       progressCompletedSteps: 0,
       progressTotalSteps: 0,
     },

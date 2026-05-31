@@ -26,6 +26,7 @@ import {
   STORE_READINESS,
 } from './runtimeTargetReadinessService.js';
 import { resolveRuntimeGuidanceForSession } from './runtimeGuidanceService.js';
+import { getMissionParentMissionId } from '../mission/missionParentLineage.js';
 
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
@@ -98,7 +99,7 @@ function mapMissionSummary(row) {
     executionMode: row.executionMode ?? null,
     targetType: row.targetType ?? null,
     targetId: row.targetId ?? null,
-    parentMissionId: row.parentMissionId ?? null,
+    parentMissionId: getMissionParentMissionId(row),
     storeId: resolveStoreIdFromMissionRow(row),
     proactiveStepStatus: readProactiveStepStatusMap(meta),
     completedStepNumbers: hydrateCompletedStepNumbers(meta),
@@ -193,7 +194,6 @@ async function findMissionForUser(prisma, missionId, userId, tenantId) {
       executionMode: true,
       targetType: true,
       targetId: true,
-      parentMissionId: true,
       metadataJson: true,
       outputsJson: true,
       createdBy: true,
@@ -266,7 +266,6 @@ export async function resolveActiveRuntimeSession(input) {
         executionMode: true,
         targetType: true,
         targetId: true,
-        parentMissionId: true,
         metadataJson: true,
         outputsJson: true,
         createdBy: true,
@@ -298,7 +297,6 @@ export async function resolveActiveRuntimeSession(input) {
         executionMode: true,
         targetType: true,
         targetId: true,
-        parentMissionId: true,
         metadataJson: true,
         outputsJson: true,
         createdBy: true,
@@ -451,7 +449,6 @@ export async function resolveActiveRuntimeSession(input) {
         executionMode: true,
         targetType: true,
         targetId: true,
-        parentMissionId: true,
         metadataJson: true,
         outputsJson: true,
         createdBy: true,

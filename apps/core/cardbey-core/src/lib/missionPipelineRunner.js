@@ -23,6 +23,7 @@ import { buildRunnerDualWriteMetadataJson } from './orchestrator/pipelineCanonic
 import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
 import { appendEvent as appendBlackboardEvent } from './missionBlackboard.js';
 import { AgentCoordinator } from './orchestration/agentCoordinator.js';
+import { getMissionParentMissionId } from './mission/missionParentLineage.js';
 import { createOrchestrationBlackboard } from './orchestration/blackboardWriteBuffer.js';
 import { safePipelineUpdate, safePipelineStepUpdate } from './safePipelineUpdate.js';
 import { normalizeLocale } from './localePrompt.js';
@@ -115,7 +116,7 @@ async function runOrchestratedAgentMission(prisma, mission, id, { orchestrationK
           (mission.targetId && ['store', 'draft_store', 'business'].includes(mission.targetType)
             ? mission.targetId
             : null),
-        parentMissionId: mission.parentMissionId ?? null,
+        parentMissionId: getMissionParentMissionId(mission),
         pkg: campaignPackage,
       });
       console.log('[MissionRunner] artifact persist after orchestration', persistResult);

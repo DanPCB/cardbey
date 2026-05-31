@@ -8,6 +8,7 @@ import { getTenantId } from '../missionAccess.js';
 import { getToolEntry } from '../intake/intakeToolRegistry.js';
 import { normalizeToolName } from './runtimeToolRegistry.js';
 import { getRuntimeCapabilities } from './runtimeCapabilitiesService.js';
+import { getMissionParentMissionId } from '../mission/missionParentLineage.js';
 
 export function isRuntimePrerequisiteResolutionEnabled() {
   return getRuntimeCapabilities().runtimePrerequisiteResolution;
@@ -89,7 +90,7 @@ function buildResumableIntent({ mission, requestedTool, stepNumber, continuation
       null,
     originalMissionId: str(mission?.id) || null,
     originalMissionType: str(mission?.type) || null,
-    parentMissionId: str(mission?.parentMissionId) || str(mission?.id) || null,
+    parentMissionId: getMissionParentMissionId(mission) || str(mission?.id) || null,
     stepNumber: Number.isFinite(stepNumber) ? stepNumber : null,
     continuationContract: continuationContract ?? null,
     parameters: asObj(parameters),

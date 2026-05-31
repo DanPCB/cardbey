@@ -263,11 +263,14 @@ describe.skipIf(!dbAvailable)('runtime prerequisite resolution', () => {
     expect(res.body.childMissionId).toBeTruthy();
     expect(res.body.parentMissionId).toBe(mission.id);
 
+    const { getMissionParentMissionId } = await import(
+      '../src/lib/mission/missionParentLineage.js'
+    );
     const child = await prisma.missionPipeline.findUnique({
       where: { id: res.body.childMissionId },
-      select: { parentMissionId: true, type: true, metadataJson: true },
+      select: { type: true, metadataJson: true },
     });
-    expect(child?.parentMissionId).toBe(mission.id);
+    expect(getMissionParentMissionId(child)).toBe(mission.id);
     expect(child?.type).toBe('store');
     expect(child?.metadataJson?.runtimePrerequisiteChild).toBe(true);
 
