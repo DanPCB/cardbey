@@ -67,10 +67,12 @@ When `VITE_PERFORMER_EXECUTION_SERVER_BRIDGE=1`, dry-run results can render **on
 | Dry-run status | User-facing card |
 |----------------|------------------|
 | `planned` | Silent (no card) |
+| `ok` / healthy | Silent (no card) |
 | `blocked` | `execution_capability_readiness` setup/readiness card |
 | `unsupported` | Unsupported capability card |
-| `missing` broker capability | Capability setup card (e.g. domain not connected) |
-| HTTP / bridge error | Swallowed — no card, dispatch unchanged |
+| `missing_capability` | Capability setup card (e.g. domain not connected) |
+| `failed` (Core `ok: false`) | Runtime diagnostic card (`status: failed`, diagnostic styling) |
+| HTTP / transport error | Swallowed (`silentFailure`) — no card, dispatch unchanged |
 
 ### Card type: `execution_capability_readiness`
 
@@ -91,6 +93,9 @@ Examples:
 - “Store analytics needs a published store”
 - “Offer creation capability is not enabled”
 - “This capability is not available in this environment”
+- “Dry-run validation could not complete” (Core rejected dry-run; not a setup blocker)
+
+**Failed vs transport:** only Core validation failures (`ok: false`, `status: failed`, no `silentFailure`) surface a diagnostic card. Network/HTTP failures set `silentFailure: true` and remain silent so dispatch is never noisy.
 
 Files:
 

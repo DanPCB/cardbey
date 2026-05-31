@@ -200,6 +200,7 @@ import performerMissionsRoutes from './routes/performerMissionsRoutes.js';
 import performerDesignRoutes from './routes/performerDesignRoutes.js';
 import devApplyPatchRoutes from './routes/devApplyPatchRoutes.js';
 import devSystemMissionsRoutes from './routes/devSystemMissions.js';
+import devBrokerRuntimeProofRoutes from './routes/devBrokerRuntimeProofRoutes.js';
 import { initializeToolsRegistry } from './orchestrator/toolsRegistry.js';
 import { startInsightGenerationJob } from './scheduler/systemWatcherJob.js';
 import { initReportScheduler } from './scheduler/reportScheduler.js';
@@ -810,6 +811,10 @@ app.use('/api/performer/missions', performerMissionsRoutes);
 app.use('/api/performer/design', performerDesignRoutes);
 app.use('/api/dev', devApplyPatchRoutes);
 app.use('/api/dev', devSystemMissionsRoutes);
+// Dev-only proof endpoints: never mount in production.
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/dev/broker', devBrokerRuntimeProofRoutes);
+}
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read

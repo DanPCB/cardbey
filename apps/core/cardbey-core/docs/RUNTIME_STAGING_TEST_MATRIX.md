@@ -15,6 +15,8 @@ PERFORMER_EXECUTION_RECORDS_PERSIST=true
 
 Advance one stage at a time per `RUNTIME_OWNERSHIP_GAP_MAP.md`.
 
+**Runtime Kernel (Phases B–E):** See `docs/RUNTIME_KERNEL_STAGING_SOAK.md` and `.env.staging.runtime-kernel.example`. Check stage via `GET /api/runtime/capabilities` → `runtimeKernelRollout.rolloutStage`.
+
 ---
 
 ## Global checks (every test)
