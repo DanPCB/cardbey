@@ -77,3 +77,10 @@ Path **C** `applyHero` (paste/product) still uses `apiPATCH …/draft/hero`, whi
 - **Single upload endpoint:** `POST /api/stores/:storeId/upload/hero` for all file uploads.
 - **Sync read API:** `GET /api/stores/:storeId/hero` for dashboard indicators.
 - **Shared hook:** `useHeroUpdate` for dashboard surfaces A–C.
+
+## Fix: video inSync + hasUnpublishedHeroChanges (2026-06)
+
+- **`inSync`:** Compare draft video URL to `businessVideoUrl` (canonical), not stale `business.heroImageUrl` poster.
+- **`syncBusinessHeroProfile`:** `heroImageUrl = heroImage || heroVideo`; always write row; video draft patch no longer keeps old `existingHero.imageUrl` on `heroImageUrl`.
+- **`hasUnpublishedHeroChanges`:** `isLive && draftNorm && (liveNorm == null || draftNorm !== liveNorm)`.
+- Tests: `heroUpdateService.test.js`.

@@ -90,7 +90,7 @@ export function buildHeroPreviewPatchFromUrls({
     const vid = videoUrl || imageUrl;
     if (vid) {
       patch.heroVideo = vid;
-      patch.heroImageUrl = hero.imageUrl || existingHero.imageUrl || vid;
+      patch.heroImageUrl = hero.imageUrl || vid;
       patch.heroMediaType = 'video';
     }
   } else if (imageUrl != null) {
@@ -124,7 +124,7 @@ export async function resolveDraftForHeroUpdate(prisma, { storeId, draftId, gene
  * Sync Business.heroImageUrl (+ stylePreferences hero video) for profile/dashboard.
  * Does not apply published projection to live /s/:slug.
  */
-async function syncBusinessHeroProfile(prisma, businessId, mergedPreview) {
+export async function syncBusinessHeroProfile(prisma, businessId, mergedPreview) {
   const existing = await prisma.business.findUnique({
     where: { id: businessId },
     select: { stylePreferences: true, publishedAt: true, isActive: true },
@@ -132,8 +132,8 @@ async function syncBusinessHeroProfile(prisma, businessId, mergedPreview) {
   if (!existing) return false;
 
   const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(mergedPreview);
-  const profileHeroUrl = heroImage || (!isVideo ? heroVideo : null);
-  if (!profileHeroUrl && !heroVideo) return false;
+  const profileHeroUrl = heroImage || heroVideo || null;
+  if (!profileHeroUrl) return false;
 
   const prefs = parseStylePreferencesBlob(existing.stylePreferences);
   const stylePreferences = { ...prefs };
@@ -144,7 +144,7 @@ async function syncBusinessHeroProfile(prisma, businessId, mergedPreview) {
   await prisma.business.update({
     where: { id: businessId },
     data: {
-      ...(profileHeroUrl ? { heroImageUrl: profileHeroUrl } : {}),
+      heroImageUrl: profileHeroUrl,
       stylePreferences,
       updatedAt: new Date(),
     },
@@ -246,7 +246,7 @@ export async function updateHeroForStore({
   }
 
   const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(mergedPreview);
-  const heroImageUrl = heroImage || (!isVideo ? heroVideo : null);
+  const heroImageUrl = heroImage || heroVideo || null;
   const heroVideoUrl = isVideo ? heroVideo : null;
 
   return {
@@ -305,11 +305,15 @@ export async function getHeroSyncStateForStore(prisma, storeId, userId) {
 
   const isLive = business.publishedAt != null && business.isActive === true;
   const draftNorm = normUrl(draftHeroUrl);
-  const businessNorm = normUrl(businessHeroUrl);
+  const businessCanonical =
+    isVideo && businessVideoUrl ? businessVideoUrl : businessHeroUrl;
+  const businessNorm = normUrl(businessCanonical);
   const liveNorm = normUrl(liveHeroUrl);
   const draftBusinessInSync = !draftNorm || !businessNorm || draftNorm === businessNorm;
   const draftLiveInSync = !isLive || !draftNorm || !liveNorm || draftNorm === liveNorm;
   const inSync = draftBusinessInSync && draftLiveInSync;
+  const hasUnpublishedHeroChanges =
+    isLive && Boolean(draftNorm) && (liveNorm == null || draftNorm !== liveNorm);
 
   return {
     ok: true,
@@ -318,10 +322,11 @@ export async function getHeroSyncStateForStore(prisma, storeId, userId) {
     draftHeroUrl,
     businessHeroUrl,
     businessVideoUrl,
+    businessCanonical,
     liveHeroUrl,
     heroMediaType: isVideo ? 'video' : 'image',
     isLive,
     inSync,
-    hasUnpublishedHeroChanges: isLive && Boolean(draftNorm && liveNorm && draftNorm !== liveNorm),
+    hasUnpublishedHeroChanges,
   };
 }
