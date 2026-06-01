@@ -2403,15 +2403,38 @@ router.patch('/:id/opportunities/:opportunityId', requireAuth, async (req, res, 
 });
 
 // Zod schema for store update validation
+const optionalHttpsOrDataImageUrl = z
+  .string()
+  .trim()
+  .nullable()
+  .optional()
+  .refine(
+    (v) =>
+      v === undefined ||
+      v === null ||
+      v === '' ||
+      v.startsWith('data:image/') ||
+      v.startsWith('https://') ||
+      v.startsWith('http://'),
+    { message: 'Must be a data: or http(s) URL' },
+  );
+
 const StoreUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   description: z.string().trim().nullable().optional(),
+  tagline: z.string().trim().nullable().optional(),
   tradingHours: z.any().optional(), // JSON object, validate structure if needed
   address: z.string().trim().nullable().optional(),
   suburb: z.string().trim().nullable().optional(),
   postcode: z.string().trim().nullable().optional(),
   country: z.string().trim().nullable().optional(),
   phone: z.string().trim().nullable().optional(),
+  contactEmail: z.preprocess(
+    (val) => (val === '' ? null : val),
+    z.union([z.string().trim().email(), z.null()]).optional(),
+  ),
+  avatarImageUrl: optionalHttpsOrDataImageUrl,
+  heroImageUrl: optionalHttpsOrDataImageUrl,
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
   storefrontSettings: z.object({
@@ -2501,6 +2524,36 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
     }
     if (updateData.description !== undefined) {
       prismaUpdateData.description = updateData.description === '' ? null : updateData.description;
+    }
+    if (updateData.tagline !== undefined) {
+      prismaUpdateData.tagline = updateData.tagline === '' ? null : updateData.tagline;
+    }
+    if (updateData.avatarImageUrl !== undefined) {
+      prismaUpdateData.avatarImageUrl = updateData.avatarImageUrl === '' ? null : updateData.avatarImageUrl;
+    }
+    if (updateData.heroImageUrl !== undefined) {
+      prismaUpdateData.heroImageUrl = updateData.heroImageUrl === '' ? null : updateData.heroImageUrl;
+    }
+    if (updateData.contactEmail !== undefined) {
+      let existingMeta = {};
+      if (store.stylePreferences && typeof store.stylePreferences === 'object') {
+        existingMeta = store.stylePreferences;
+      } else if (typeof store.stylePreferences === 'string') {
+        try {
+          existingMeta = JSON.parse(store.stylePreferences);
+        } catch {
+          existingMeta = {};
+        }
+      }
+      const email =
+        updateData.contactEmail === '' || updateData.contactEmail == null
+          ? null
+          : updateData.contactEmail;
+      prismaUpdateData.stylePreferences = {
+        ...existingMeta,
+        contactEmail: email,
+        profileUpdatedAt: new Date().toISOString(),
+      };
     }
     if (updateData.tradingHours !== undefined) {
       prismaUpdateData.tradingHours = updateData.tradingHours;
@@ -3035,6 +3088,27 @@ router.post('/publish', requireAuth, async (req, res, next) => {
       });
     }
     next(error);
+  }
+});
+
+/**
+ * GET /api/stores/:storeId/artifacts
+ * ArtifactRecord history for a store (campaign packages, posters, etc.)
+ */
+router.get('/:storeId/artifacts', requireAuth, requireOwner, async (req, res, next) => {
+  try {
+    const storeId = typeof req.params?.storeId === 'string' ? req.params.storeId.trim() : '';
+    if (!storeId) {
+      return res.status(400).json({ ok: false, error: 'storeId_required' });
+    }
+    const type = typeof req.query?.type === 'string' ? req.query.type.trim() : undefined;
+    const limitRaw = parseInt(String(req.query?.limit ?? '10'), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 10;
+    const { getArtifactsForStore } = await import('../orchestrator/memory/artifactMemory.ts');
+    const artifacts = await getArtifactsForStore(storeId, type ?? null, limit);
+    return res.json({ ok: true, artifacts });
+  } catch (err) {
+    return next(err);
   }
 });
 
