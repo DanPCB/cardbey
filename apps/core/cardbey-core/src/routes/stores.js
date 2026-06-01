@@ -18,6 +18,11 @@ import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
 import { buildTempDraftByGenerationRunIdResponse } from '../lib/tempDraftApiResponse.js';
 import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview, recomputeDraftCategoriesFromItems } from '../services/draftStore/draftStoreService.js';
+import {
+  buildHeroPreviewPatchFromUrls,
+  updateHeroForStore,
+  getHeroSyncStateForStore,
+} from '../services/draftStore/heroUpdateService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 import { isDraftOwnedByUser } from '../lib/draftOwnership.js';
 import { getOrCreateMission } from '../lib/mission.js';
@@ -1076,10 +1081,29 @@ router.get('/:storeId/draft', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * GET /api/stores/:storeId/hero
+ * Canonical hero URLs across draft preview, business profile, and live projection.
+ */
+router.get('/:storeId/hero', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId || storeId === 'temp') {
+      return res.status(400).json({ ok: false, error: 'invalid_store', message: 'A committed store id is required' });
+    }
+    const state = await getHeroSyncStateForStore(prisma, storeId, req.userId);
+    return res.status(200).json(state);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    if (status !== 500) {
+      return res.status(status).json({ ok: false, error: err.message, message: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
  * PATCH /api/stores/:storeId/draft/hero
- * Persist hero (and optionally avatar) URLs to draft preview. Auth required; draft ownership enforced.
- * Body: { imageUrl?, videoUrl?, source? } (dashboard) or { heroImageUrl?, avatarImageUrl?, generationRunId? }.
- * Response: 200 with updated draft summary or 404 if draft not found.
+ * Persist hero (and optionally avatar) URLs to draft preview + business profile. Auth required.
  */
 router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
   try {
@@ -1092,55 +1116,54 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
     const imageUrl = typeof body.heroImageUrl === 'string' ? body.heroImageUrl.trim() : (typeof body.imageUrl === 'string' ? body.imageUrl.trim() : null);
     const avatarImageUrl = typeof body.avatarImageUrl === 'string' ? body.avatarImageUrl.trim() : null;
     const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : null;
-    const source = typeof body.source === 'string' ? body.source.trim() : null;
-    const heroBody = body.hero && typeof body.hero === 'object' ? body.hero : null;
-    const isVideoHero =
-      heroBody?.type === 'video' ||
-      Boolean(videoUrl) ||
-      (imageUrl && /\.(mp4|webm|mov)(\?|#|$)/i.test(imageUrl));
+    const source = typeof body.source === 'string' ? body.source.trim() : 'upload';
     const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const existingHero = existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
-    const hero = { ...existingHero };
-    if (isVideoHero) {
-      const vid = videoUrl || imageUrl;
-      hero.type = 'video';
-      hero.videoUrl = vid;
-      hero.url = vid;
-      hero.autoplay = heroBody?.autoplay !== false;
-      hero.muted = heroBody?.muted !== false;
-      hero.loop = heroBody?.loop !== false;
-      if (imageUrl && imageUrl !== vid) hero.imageUrl = imageUrl;
-    } else if (imageUrl != null) {
-      hero.type = 'image';
-      hero.imageUrl = imageUrl;
-      hero.url = imageUrl;
-      hero.videoUrl = null;
-    }
-    if (source != null) hero.source = source;
-    const patch = {};
-    if (Object.keys(hero).length) patch.hero = hero;
-    if (isVideoHero) {
-      const vid = videoUrl || imageUrl;
-      if (vid) {
-        patch.heroVideo = vid;
-        patch.heroImageUrl = hero.imageUrl || existingHero.imageUrl || vid;
-        patch.heroMediaType = 'video';
-      }
-    } else if (imageUrl != null) {
-      patch.heroImageUrl = imageUrl;
-      patch.heroVideo = null;
-      patch.heroMediaType = 'image';
-    }
+
+    const heroPatch = buildHeroPreviewPatchFromUrls({
+      imageUrl,
+      videoUrl,
+      source,
+      existingPreview,
+    });
+
     if (avatarImageUrl) {
-      patch.avatar = { imageUrl: avatarImageUrl, url: avatarImageUrl };
-      patch.avatarImageUrl = avatarImageUrl;
+      await patchDraftPreview(draft.id, {
+        avatar: { imageUrl: avatarImageUrl, url: avatarImageUrl },
+        avatarImageUrl,
+      });
     }
-    if (Object.keys(patch).length === 0) {
+
+    if (!Object.keys(heroPatch).length && !avatarImageUrl) {
       return res.status(400).json({ ok: false, error: 'no_urls', message: 'Provide at least one of imageUrl/heroImageUrl, avatarImageUrl, videoUrl, or source' });
     }
-    await patchDraftPreview(draft.id, patch);
+
+    let heroResult = null;
+    if (Object.keys(heroPatch).length) {
+      const storeIdParam = req.params.storeId !== 'temp' ? req.params.storeId : draft.committedStoreId;
+      heroResult = await updateHeroForStore({
+        prisma,
+        userId: req.userId,
+        storeId: storeIdParam,
+        draftId: draft.id,
+        generationRunId:
+          (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+          (typeof body.generationRunId === 'string' ? body.generationRunId.trim() : null),
+        previewPatch: heroPatch,
+        source,
+      });
+    }
+
     const updated = await getDraft(draft.id);
-    return res.status(200).json({ ok: true, draftId: updated.id, status: updated.status, hero: patch.hero, heroImageUrl: patch.heroImageUrl });
+    return res.status(200).json({
+      ok: true,
+      draftId: updated.id,
+      status: updated.status,
+      hero: heroPatch.hero,
+      heroImageUrl: heroResult?.heroImageUrl ?? heroPatch.heroImageUrl,
+      heroVideoUrl: heroResult?.heroVideoUrl ?? heroPatch.heroVideo,
+      draftUpdated: heroResult?.draftUpdated ?? false,
+      businessUpdated: heroResult?.businessUpdated ?? false,
+    });
   } catch (err) {
     console.error('[Stores:PATCH /:storeId/draft/hero]', err?.message || err);
     next(err);
@@ -1821,39 +1844,38 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     }
     const heroImageUrl = normalizedUrl;
     const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const prevHero = existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
-    const mergedHero = isVideo
-      ? {
-          ...prevHero,
-          type: 'video',
-          imageUrl: prevHero.imageUrl || heroImageUrl,
-          url: heroImageUrl,
-          videoUrl: heroImageUrl,
-          autoplay: true,
-          muted: true,
-          loop: true,
-        }
-      : {
-          ...prevHero,
-          type: 'image',
-          imageUrl: heroImageUrl,
-          url: heroImageUrl,
-          videoUrl: null,
-        };
-    await patchDraftPreview(draft.id, {
-      hero: mergedHero,
-      heroImageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
-      ...(isVideo ? { heroVideo: heroImageUrl } : {}),
+    const prevHero =
+      existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
+    const previewPatch = buildHeroPreviewPatchFromUrls({
+      imageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
+      videoUrl: isVideo ? heroImageUrl : null,
+      source: 'upload',
+      existingPreview,
+    });
+    const storeIdParam =
+      req.params.storeId !== 'temp' ? req.params.storeId : draft.committedStoreId;
+    const heroResult = await updateHeroForStore({
+      prisma,
+      userId: req.userId,
+      storeId: storeIdParam,
+      draftId: draft.id,
+      generationRunId:
+        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      previewPatch,
+      source: 'upload',
     });
     return res.status(200).json({
       ok: true,
       url: heroImageUrl,
-      heroImageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
-      videoUrl: isVideo ? heroImageUrl : null,
+      heroImageUrl: heroResult.heroImageUrl,
+      videoUrl: heroResult.heroVideoUrl,
       mimeType: mime,
       isVideo,
       key,
       storageKey: key,
+      draftUpdated: heroResult.draftUpdated,
+      businessUpdated: heroResult.businessUpdated,
     });
   } catch (err) {
     next(err);
