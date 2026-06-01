@@ -101,6 +101,10 @@ import { isDraftOwnedByUser } from '../../lib/draftOwnership.js';
 import { transitionDraftStoreStatus } from '../../kernel/transitions/transitionService.js';
 import { refreshPersonalPresenceQrForBusiness } from '../personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../../utils/publicWebBase.js';
+import {
+  applyCanonicalSlugOnPublish,
+  storeNameFromDraftPreview,
+} from './resolveCanonicalBusinessSlug.js';
 
 function buildVerifiedStorefrontUrl(slug, storeId) {
   const webBase = publicWebBase();
@@ -340,6 +344,33 @@ export async function publishDraft(prisma, {
     logPublishRunway('STORE_CARD_SYNC', { businessId: id, slug: null, tagline, description });
   }
 
+  /** Committed draft republish: sync content, refresh auto slug from name, rebuild projection. */
+  async function finishCommittedDraftRepublish(existingStoreId, targetDraftRow, rawPreview) {
+    const storeName = storeNameFromDraftPreview(rawPreview);
+    await syncPublishedStoreFromDraft(existingStoreId, rawPreview);
+    const applied = await applyCanonicalSlugOnPublish(prisma, {
+      businessId: existingStoreId,
+      storeName,
+    });
+    await ensureBusinessPubliclyVisible(prisma, existingStoreId);
+    const slug = applied?.slug ?? null;
+    if (slug) {
+      await buildPersistAndApplyPublishedProjection(prisma, {
+        businessId: existingStoreId,
+        tenantId: userId,
+        draft: targetDraftRow,
+        draftPreview: rawPreview,
+        publishRunId: targetDraftRow.id,
+        source: entrypoint ?? 'publishDraft_republish',
+      });
+    }
+    return {
+      storeId: existingStoreId,
+      slug: slug ?? undefined,
+      storefrontUrl: buildVerifiedStorefrontUrl(slug, existingStoreId),
+    };
+  }
+
   const isTempStore = storeId === 'temp';
   let store = null;
   if (!isTempStore) {
@@ -374,13 +405,7 @@ export async function publishDraft(prisma, {
         const rawPreview = typeof targetDraft.preview === 'string'
           ? JSON.parse(targetDraft.preview)
           : (targetDraft.preview || {});
-        await syncPublishedStoreFromDraft(existingStore.id, rawPreview);
-        await ensureBusinessPubliclyVisible(prisma, existingStore.id);
-        return {
-          storeId: existingStore.id,
-          slug: existingStore.slug,
-          storefrontUrl: buildVerifiedStorefrontUrl(existingStore.slug, existingStore.id),
-        };
+        return finishCommittedDraftRepublish(existingStore.id, targetDraft, rawPreview);
       }
     }
     if (
@@ -416,13 +441,7 @@ export async function publishDraft(prisma, {
       const rawPreview = typeof targetDraft.preview === 'string'
         ? JSON.parse(targetDraft.preview)
         : (targetDraft.preview || {});
-      await syncPublishedStoreFromDraft(existingStore.id, rawPreview);
-      await ensureBusinessPubliclyVisible(prisma, existingStore.id);
-      return {
-        storeId: existingStore.id,
-        slug: existingStore.slug,
-        storefrontUrl: buildVerifiedStorefrontUrl(existingStore.slug, existingStore.id),
-      };
+      return finishCommittedDraftRepublish(existingStore.id, targetDraft, rawPreview);
     }
   }
 
@@ -564,11 +583,14 @@ export async function publishDraft(prisma, {
 
   /** For temp drafts the Business row is created in the transaction — slug is assigned there (avoids orphan slug reservations). */
   let newSlug = store?.slug ?? null;
-  if (!isTempStore) {
-    if (!newSlug) {
-      newSlug = await generateUniqueStoreSlug(prisma, storeName);
-    }
-    if (store?.name && storeName !== store.name) {
+  if (!isTempStore && storeId) {
+    const applied = await applyCanonicalSlugOnPublish(prisma, {
+      businessId: storeId,
+      storeName,
+    });
+    if (applied?.slug) {
+      newSlug = applied.slug;
+    } else if (!newSlug) {
       newSlug = await generateUniqueStoreSlug(prisma, storeName);
     }
   }
@@ -919,6 +941,13 @@ export async function publishDraft(prisma, {
       : {}),
   };
   await syncPublishedStoreFromDraft(effectiveStoreId, rawPreviewForSync, publishedAt);
+  const slugApplied = await applyCanonicalSlugOnPublish(prisma, {
+    businessId: effectiveStoreId,
+    storeName,
+  });
+  if (slugApplied?.slug) {
+    newSlug = slugApplied.slug;
+  }
   await ensureBusinessPubliclyVisible(prisma, effectiveStoreId, publishedAt);
 
   await buildPersistAndApplyPublishedProjection(prisma, {
