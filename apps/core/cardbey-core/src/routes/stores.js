@@ -70,10 +70,10 @@ const OwnerProfileVisibilitySchema = z.object({
   showOwnerProfile: z.boolean(),
 });
 
-/** Multer for store draft hero/avatar uploads: images/GIF/SVG up to 10MB, video up to 50MB */
+/** Multer for store draft hero/avatar uploads: images/GIF/SVG up to 20MB, video up to 75MB */
 const storeAssetUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 75 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const mime = file.mimetype ? String(file.mimetype).toLowerCase() : '';
     if (mime && ALLOWED_HERO_MIMES.includes(mime)) {
@@ -1234,7 +1234,12 @@ router.patch('/:storeId/owner-profile-visibility', requireAuth, async (req, res,
 function storeAssetUploadSingle(req, res, next) {
   storeAssetUpload.single('file')(req, res, (err) => {
     if (err) {
-      return res.status(400).json({ ok: false, error: 'invalid_file', message: err.message || 'Invalid or missing file' });
+      const isLimit = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(400).json({
+        ok: false,
+        error: isLimit ? 'file_too_large' : 'invalid_file',
+        message: isLimit ? 'File must be 75MB or smaller.' : err.message || 'Invalid or missing file',
+      });
     }
     next();
   });
@@ -1787,12 +1792,12 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     const buffer = req.file.buffer;
     const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
     const isVideo = mime.startsWith('video/');
-    const maxBytes = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+    const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
     if (buffer.length > maxBytes) {
       return res.status(400).json({
         ok: false,
         error: 'file_too_large',
-        message: isVideo ? 'Video must be 50MB or smaller.' : 'Image must be 10MB or smaller.',
+        message: isVideo ? 'Video must be 75MB or smaller.' : 'Image must be 20MB or smaller.',
       });
     }
     const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
