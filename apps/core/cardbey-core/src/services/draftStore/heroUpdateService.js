@@ -75,7 +75,10 @@ export function buildHeroPreviewPatchFromUrls({
     hero.autoplay = hero.autoplay !== false;
     hero.muted = hero.muted !== false;
     hero.loop = hero.loop !== false;
-    if (imageUrl && imageUrl !== vid) hero.imageUrl = imageUrl;
+    const poster =
+      imageUrl && imageUrl !== vid && !/\.(mp4|webm|mov)(\?|#|$)/i.test(imageUrl) ? imageUrl : null;
+    if (poster) hero.imageUrl = poster;
+    else delete hero.imageUrl;
   } else if (imageUrl != null) {
     hero.type = 'image';
     hero.imageUrl = imageUrl;

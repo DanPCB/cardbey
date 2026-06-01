@@ -1847,7 +1847,7 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     const prevHero =
       existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
     const previewPatch = buildHeroPreviewPatchFromUrls({
-      imageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
+      imageUrl: isVideo ? null : heroImageUrl,
       videoUrl: isVideo ? heroImageUrl : null,
       source: 'upload',
       existingPreview,

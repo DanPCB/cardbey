@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  buildHeroPreviewPatchFromUrls,
   getHeroSyncStateForStore,
   syncBusinessHeroProfile,
 } from './heroUpdateService.js';
@@ -150,6 +151,23 @@ describe('getHeroSyncStateForStore', () => {
 
     expect(state.hasUnpublishedHeroChanges).toBe(true);
     expect(state.inSync).toBe(false);
+  });
+});
+
+describe('buildHeroPreviewPatchFromUrls', () => {
+  it('video-only upload does not keep stale Pexels on hero.imageUrl', () => {
+    const patch = buildHeroPreviewPatchFromUrls({
+      videoUrl: VIDEO,
+      source: 'upload',
+      existingPreview: {
+        hero: { type: 'video', imageUrl: PEXELS, videoUrl: '/uploads/old.mp4' },
+        heroImageUrl: PEXELS,
+      },
+    });
+    expect(patch.heroVideo).toBe(VIDEO);
+    expect(patch.heroImageUrl).toBe(VIDEO);
+    expect(patch.hero?.videoUrl).toBe(VIDEO);
+    expect(patch.hero?.imageUrl).toBeUndefined();
   });
 });
 
