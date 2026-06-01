@@ -1124,9 +1124,12 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
       if (vid) {
         patch.heroVideo = vid;
         patch.heroImageUrl = hero.imageUrl || existingHero.imageUrl || vid;
+        patch.heroMediaType = 'video';
       }
     } else if (imageUrl != null) {
       patch.heroImageUrl = imageUrl;
+      patch.heroVideo = null;
+      patch.heroMediaType = 'image';
     }
     if (avatarImageUrl) {
       patch.avatar = { imageUrl: avatarImageUrl, url: avatarImageUrl };
@@ -1849,6 +1852,8 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       videoUrl: isVideo ? heroImageUrl : null,
       mimeType: mime,
       isVideo,
+      key,
+      storageKey: key,
     });
   } catch (err) {
     next(err);
