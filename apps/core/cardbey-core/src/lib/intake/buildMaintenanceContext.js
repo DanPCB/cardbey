@@ -11,6 +11,7 @@ export function buildMaintenanceContext(req, overrides = {}) {
     maintenanceToken: req.headers?.['x-maintenance-token'] ?? null,
     missionId: req.body?.missionId ?? null,
     storeId: req.body?.storeId ?? null,
+    userId: req.user?.id ?? req.userId ?? null,
     errorType: req.body?.errorType ?? 'unknown',
     ...overrides,
   };

@@ -127,6 +127,7 @@ import { mapPlannerDecisionToIntakeResponse } from '../lib/intake/mapPlannerDeci
 import { getMissionById } from '../lib/missionBlackboard.js';
 import { dispatchTool } from '../lib/toolDispatcher.js';
 import { reactPlanner } from '../lib/intake/reactPlanner.js';
+import { hydrateContext, hydratedContextToPlannerContext } from '../lib/memory/memoryHydrator.js';
 import { formatControlTowerSummary } from '../lib/intake/controlTowerQuery.js';
 import { normalizeLocale } from '../lib/localePrompt.js';
 import { intakeMessage } from '../lib/intake/performerIntakeMessageCatalog.js';
@@ -637,7 +638,7 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   const toolCtx = {
     missionId: dispatchMissionId,
     activeMissionId: dispatchMissionId,
-    userId: req.user?.id ?? null,
+    userId: req.user?.id ?? performerIntakeV2ActorId(req) ?? null,
     createdBy: req.user?.id ?? null,
     tenantId: getTenantId(req.user),
     storeId: storeId ?? undefined,
@@ -887,10 +888,26 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     userRole: context?.userRole,
   });
 
+  const actorIdForMemory = performerIntakeV2ActorId(req);
+  let hydratedContext = null;
+  try {
+    hydratedContext = await hydrateContext({
+      message: userMessage,
+      userId: actorIdForMemory || context.userId,
+      missionId: context.missionId,
+      activeStoreId: context.storeId,
+      sessionContext: currentContext,
+    });
+    Object.assign(context, hydratedContextToPlannerContext(hydratedContext, context));
+  } catch (hydrateErr) {
+    console.error('[intake/v2] hydrateContext failed (non-fatal):', hydrateErr?.message ?? hydrateErr);
+  }
+
   const maintenanceDecision = await reactPlanner({
     userMessage,
     classification: null,
     context,
+    hydratedContext,
     toolRegistry: [],
   });
 
@@ -2200,13 +2217,29 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         classifierInputMessage = loopOut.messageForClassifier ?? classifierInputMessage;
       }
 
+      let intakeHydratedContext = null;
+      try {
+        intakeHydratedContext = await hydrateContext({
+          message: classifierInputMessage,
+          userId: intakeActorKey ?? performerIntakeV2ActorId(req),
+          missionId,
+          activeStoreId: effectiveStoreId,
+          sessionContext: currentContext,
+        });
+      } catch (hydrateMainErr) {
+        console.error('[intake/v2] hydrateContext (classifier) failed:', hydrateMainErr?.message ?? hydrateMainErr);
+      }
+      const classifierStoreId =
+        intakeHydratedContext?.entities?.store?.id ?? effectiveStoreId ?? null;
+
       classification = await classifyIntent({
         userMessage: classifierInputMessage,
-        storeContext: { storeId: effectiveStoreId, draftId, missionId },
+        storeContext: { storeId: classifierStoreId, draftId, missionId },
         conversationHistory: history,
         locale,
         tenantKey,
         missionId,
+        hydratedContext: intakeHydratedContext,
       });
     } catch (e) {
       if (isDev) console.error('[IntakeV2] classifyIntent threw', e);
@@ -2240,6 +2273,43 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
     classifierDowngraded = classifierDowngraded || Boolean(classification._downgraded);
     classifierReason = classification._downgradedReason ?? classifierReason;
+
+    // V1 consolidation: route legacy mini-website creation tools through canonical create_store runway.
+    // Keep legacy strings backward-compatible; do not change performer UX (only server dispatch).
+    const legacy = String(classification?.tool ?? '').trim();
+    if (
+      legacy === 'generate_mini_website' ||
+      legacy === 'mini_website' ||
+      legacy === 'create_mini_website' ||
+      legacy === 'create_website'
+    ) {
+      if (isDev) {
+        // eslint-disable-next-line no-console
+        console.warn('[legacy-store-path] remap tool -> create_store', { from: legacy, to: 'create_store' });
+        // eslint-disable-next-line no-console
+        console.log('[store-website-path] selected handler', { tool: 'create_store', intentMode: 'website', legacyTool: legacy });
+      }
+      classification = {
+        ...classification,
+        tool: 'create_store',
+        parameters: {
+          ...(classification.parameters && typeof classification.parameters === 'object' && !Array.isArray(classification.parameters)
+            ? classification.parameters
+            : {}),
+          intentMode: 'website',
+          intentLabel: 'create_mini_website',
+        },
+      };
+    } else if (legacy === 'create_store' && isDev) {
+      // eslint-disable-next-line no-console
+      console.log('[store-website-path] selected handler', {
+        tool: 'create_store',
+        intentMode:
+          classification?.parameters && typeof classification.parameters === 'object'
+            ? classification.parameters.intentMode
+            : undefined,
+      });
+    }
 
     if (!forcedTool && signalsServiceRequest(userMessage)) {
       classification = {
