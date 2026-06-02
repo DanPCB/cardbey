@@ -93,16 +93,23 @@ export async function buildDraftPublishState(prismaClient, draftRow) {
   const prefs = parseStylePreferences(business.stylePreferences);
   const slug = typeof business.slug === 'string' && business.slug.trim() ? business.slug.trim() : null;
   const isLive = Boolean(business.publishedAt && business.isActive && slug);
-  const liveHeroUrl =
+  const liveHeroImage =
     (typeof business.heroImageUrl === 'string' && business.heroImageUrl.trim()) ||
     (typeof prefs.heroImage === 'string' && prefs.heroImage.trim()) ||
     null;
-  const draftHeroUrl = readCanonicalHeroFromPreview(preview).heroImage;
+  const liveHeroVideo =
+    typeof prefs.heroVideo === 'string' && prefs.heroVideo.trim() ? prefs.heroVideo.trim() : null;
+  const liveHeroUrl = liveHeroVideo || liveHeroImage;
+
+  const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(preview);
+  const draftHeroUrl = isVideo && heroVideo ? heroVideo : heroImage;
   const changeHints = [];
 
   const hasUnpublishedHero =
     isLive && normUrl(draftHeroUrl) !== normUrl(liveHeroUrl) && Boolean(draftHeroUrl || liveHeroUrl);
-  if (hasUnpublishedHero) changeHints.push('Hero image');
+  if (hasUnpublishedHero) {
+    changeHints.push(isVideo || liveHeroVideo ? 'Hero media' : 'Hero image');
+  }
 
   let hasUnpublishedCatalog = false;
   const draftItems = catalogItemsFromPreview(preview);

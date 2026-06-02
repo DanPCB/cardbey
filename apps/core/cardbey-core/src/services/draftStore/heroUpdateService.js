@@ -4,7 +4,12 @@
 import { resolveDraftForStore } from '../../lib/draftResolver.js';
 import { canAccessDraftStore } from '../../lib/draftOwnership.js';
 import { getDraft, patchDraftPreview } from './draftStoreService.js';
-import { readCanonicalHeroFromPreview } from './draftPreviewHeroSync.js';
+import {
+  readCanonicalHeroFromPreview,
+  writeCanonicalHeroMediaToPreview,
+  getExistingVideoUrlFromPreview,
+  isAllowedToReplaceVideoWithImage,
+} from './draftPreviewHeroSync.js';
 import { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } from './publishSnapshotService.js';
 import { getPublishedBusinessArtifact } from '../publishedArtifactProjection/getPublishedBusinessArtifact.js';
 
@@ -45,63 +50,97 @@ function normUrl(v) {
   return s ? s.replace(/\/$/, '') : null;
 }
 
+const VIDEO_EXT = /\.(mp4|webm|mov)(\?|#|$)/i;
+
+/** @param {object} written - preview after writeCanonicalHeroMediaToPreview */
+function heroPatchFromCanonicalPreview(written) {
+  const patch = {};
+  if (written.hero && typeof written.hero === 'object') patch.hero = { ...written.hero };
+  if (written.heroMediaType !== undefined) patch.heroMediaType = written.heroMediaType;
+  if (written.heroVideoUrl !== undefined) patch.heroVideoUrl = written.heroVideoUrl;
+  if (written.heroVideo !== undefined) patch.heroVideo = written.heroVideo;
+  if (written.heroPosterUrl !== undefined) patch.heroPosterUrl = written.heroPosterUrl;
+  if (written.heroPoster !== undefined) patch.heroPoster = written.heroPoster;
+  if (written.heroImageUrl !== undefined) patch.heroImageUrl = written.heroImageUrl;
+  return patch;
+}
+
 /**
  * Build preview patch object (hero, heroImageUrl, heroVideo, heroMediaType) from URLs.
+ * All hero fields are written via writeCanonicalHeroMediaToPreview (canonical boundary).
+ *
  * @param {object} opts
  * @param {string|null} [opts.imageUrl]
  * @param {string|null} [opts.videoUrl]
  * @param {string|null} [opts.source]
  * @param {object} [opts.existingPreview]
+ * @param {boolean} [opts.allowReplaceVideoWithImage]
+ * @param {string} [opts.heroWriteIntent] - image_upload | image_select | replace_video_with_image
  */
 export function buildHeroPreviewPatchFromUrls({
   imageUrl = null,
   videoUrl = null,
   source = null,
   existingPreview = {},
+  allowReplaceVideoWithImage = false,
+  heroWriteIntent,
 }) {
-  const existingHero =
-    existingPreview.hero && typeof existingPreview.hero === 'object'
-      ? { ...existingPreview.hero }
-      : {};
   const isVideoHero =
-    Boolean(videoUrl) || (imageUrl && /\.(mp4|webm|mov)(\?|#|$)/i.test(imageUrl));
-  const hero = { ...existingHero };
+    Boolean(videoUrl) || (imageUrl && VIDEO_EXT.test(imageUrl));
 
-  if (isVideoHero) {
-    const vid = videoUrl || imageUrl;
-    hero.type = 'video';
-    hero.videoUrl = vid;
-    hero.url = vid;
-    hero.autoplay = hero.autoplay !== false;
-    hero.muted = hero.muted !== false;
-    hero.loop = hero.loop !== false;
-    const poster =
-      imageUrl && imageUrl !== vid && !/\.(mp4|webm|mov)(\?|#|$)/i.test(imageUrl) ? imageUrl : null;
-    if (poster) hero.imageUrl = poster;
-    else delete hero.imageUrl;
-  } else if (imageUrl != null) {
-    hero.type = 'image';
-    hero.imageUrl = imageUrl;
-    hero.url = imageUrl;
-    hero.videoUrl = null;
-  }
-  if (source != null) hero.source = source;
+  if (!isVideoHero && imageUrl == null) return {};
 
-  const patch = {};
-  if (Object.keys(hero).length) patch.hero = hero;
-  if (isVideoHero) {
-    const vid = videoUrl || imageUrl;
-    if (vid) {
-      patch.heroVideo = vid;
-      patch.heroImageUrl = hero.imageUrl || vid;
-      patch.heroMediaType = 'video';
+  const existingVideo = getExistingVideoUrlFromPreview(existingPreview);
+  if (!isVideoHero && imageUrl != null && existingVideo) {
+    const intent =
+      heroWriteIntent ??
+      (source === 'upload' ? 'image_upload' : source === 'draft' ? 'image_select' : undefined);
+    if (
+      !isAllowedToReplaceVideoWithImage({
+        allowReplaceVideoWithImage,
+        heroWriteIntent: intent,
+      })
+    ) {
+      return {};
     }
-  } else if (imageUrl != null) {
-    patch.heroImageUrl = imageUrl;
-    patch.heroVideo = null;
-    patch.heroMediaType = 'image';
   }
-  return patch;
+
+  let canonical;
+  if (isVideoHero) {
+    const vid = videoUrl || imageUrl;
+    const poster =
+      imageUrl && imageUrl !== vid && !VIDEO_EXT.test(imageUrl) ? imageUrl : null;
+    canonical = { mediaType: 'video', imageUrl: null, videoUrl: vid, posterUrl: poster };
+  } else {
+    canonical = { mediaType: 'image', imageUrl, videoUrl: null, posterUrl: null };
+  }
+
+  const temp =
+    existingPreview && typeof existingPreview === 'object'
+      ? JSON.parse(JSON.stringify(existingPreview))
+      : {};
+  writeCanonicalHeroMediaToPreview(temp, canonical);
+
+  if (canonical.mediaType === 'video' && !canonical.posterUrl) {
+    temp.heroImageUrl = null;
+    if (temp.hero && typeof temp.hero === 'object') {
+      delete temp.hero.imageUrl;
+    }
+  }
+
+  if (source != null && temp.hero && typeof temp.hero === 'object') {
+    temp.hero.source = source;
+  } else if (source != null) {
+    temp.hero = { ...(temp.hero || {}), source };
+  }
+
+  if (canonical.mediaType === 'video' && temp.hero && typeof temp.hero === 'object') {
+    temp.hero.autoplay = temp.hero.autoplay !== false;
+    temp.hero.muted = temp.hero.muted !== false;
+    temp.hero.loop = temp.hero.loop !== false;
+  }
+
+  return heroPatchFromCanonicalPreview(temp);
 }
 
 /**
@@ -134,6 +173,11 @@ export async function syncBusinessHeroProfile(prisma, businessId, mergedPreview)
   });
   if (!existing) return false;
 
+  const isLivePublished = existing.publishedAt != null && existing.isActive === true;
+  if (isLivePublished) {
+    return false;
+  }
+
   const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(mergedPreview);
   const profileHeroUrl = heroImage || heroVideo || null;
   if (!profileHeroUrl) return false;
@@ -160,7 +204,8 @@ export async function syncBusinessHeroProfile(prisma, businessId, mergedPreview)
  * @param {string} userId
  * @param {{ storeId?: string|null, draftId?: string|null, generationRunId?: string|null }} scope
  */
-async function assertHeroUpdateAccess(prisma, userId, { storeId, draftId, generationRunId }) {
+/** Shared access gate for store hero/logo multipart uploads. */
+export async function assertHeroUpdateAccess(prisma, userId, { storeId, draftId, generationRunId }) {
   const draft = await resolveDraftForHeroUpdate(prisma, { storeId, draftId, generationRunId });
   if (draft) {
     const allowed = await canAccessDraftStore(draft, { userId, tenantKey: userId });
@@ -231,7 +276,27 @@ export async function updateHeroForStore({
     if (previewPatch.hero?.source == null && source) {
       previewPatch.hero = { ...(previewPatch.hero || {}), source };
     }
-    await patchDraftPreview(effectiveDraftId, previewPatch);
+    const allowReplaceVideoWithImage =
+      previewPatch.heroMediaType === 'image' ||
+      previewPatch.hero?.type === 'image' ||
+      (previewPatch.heroImageUrl != null &&
+        previewPatch.heroVideoUrl == null &&
+        previewPatch.heroVideo == null &&
+        !previewPatch.hero?.videoUrl);
+    const heroWriteIntent =
+      source === 'upload'
+        ? previewPatch.heroMediaType === 'video' || previewPatch.hero?.type === 'video'
+          ? 'video_upload'
+          : 'image_upload'
+        : source === 'draft'
+          ? 'image_select'
+          : undefined;
+    await patchDraftPreview(effectiveDraftId, previewPatch, {
+      allowReplaceVideoWithImage,
+      heroWriteIntent,
+      writer: 'updateHeroForStore',
+      storeId: effectiveStoreId,
+    });
     draftUpdated = true;
     const fresh = await getDraft(effectiveDraftId);
     mergedPreview = parsePreviewBlob(fresh?.preview);
@@ -249,8 +314,12 @@ export async function updateHeroForStore({
   }
 
   const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(mergedPreview);
-  const heroImageUrl = heroImage || heroVideo || null;
-  const heroVideoUrl = isVideo ? heroVideo : null;
+  const posterOnly =
+    heroImage && heroVideo && heroImage !== heroVideo && !/\.(mp4|webm|mov)(\?|#|$)/i.test(heroImage)
+      ? heroImage
+      : null;
+  const heroImageUrl = isVideo ? posterOnly : heroImage || heroVideo || null;
+  const heroVideoUrl = isVideo ? heroVideo || null : null;
 
   return {
     ok: true,

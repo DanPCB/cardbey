@@ -87,4 +87,135 @@ describe('publishSnapshotService', () => {
     expect(preview.items).toHaveLength(1);
     expect(preview.catalog.products).toHaveLength(1);
   });
+
+  it('buildPublishSnapshotFromPreview canonicalizes video hero (video wins)', () => {
+    const draft = {
+      id: 'draft-hero',
+      input: {},
+      preview: {
+        heroMediaType: 'video',
+        heroVideoUrl: 'https://cdn.example.com/hero.mp4',
+        // legacy image should only become poster (must not override video)
+        hero: { imageUrl: 'https://cdn.example.com/poster.jpg' },
+        items: [{ name: 'Tea', price: 3 }],
+      },
+    };
+    const snap = buildPublishSnapshotFromPreview(draft, draft.preview, 1);
+    expect(snap.hero).toMatchObject({
+      type: 'video',
+      url: 'https://cdn.example.com/hero.mp4',
+      videoUrl: 'https://cdn.example.com/hero.mp4',
+      imageUrl: 'https://cdn.example.com/poster.jpg',
+    });
+  });
+
+  it('snapshotToPreviewShape keeps heroVideoUrl + poster in preview', () => {
+    const snap = {
+      draftId: 'd1',
+      name: 'X',
+      catalog: { products: [], categories: [] },
+      meta: {},
+      hero: {
+        type: 'video',
+        url: 'https://cdn.example.com/hero.mp4',
+        videoUrl: 'https://cdn.example.com/hero.mp4',
+        imageUrl: 'https://cdn.example.com/poster.jpg',
+      },
+    };
+    const preview = snapshotToPreviewShape(snap);
+    expect(preview.heroMediaType).toBe('video');
+    expect(preview.heroVideoUrl).toBe('https://cdn.example.com/hero.mp4');
+    expect(preview.heroImageUrl).toBe('https://cdn.example.com/poster.jpg');
+    expect(preview.heroPosterUrl).toBe('https://cdn.example.com/poster.jpg');
+  });
+
+  it('snapshotToPreviewShape rehydrate keeps video when hero has videoUrl', () => {
+    const snap = {
+      draftId: 'd1',
+      name: 'X',
+      catalog: { products: [], categories: [] },
+      meta: {},
+      hero: {
+        videoUrl: 'https://cdn.example.com/user-hero.mp4',
+        imageUrl: 'https://cdn.example.com/stale-still.jpg',
+      },
+    };
+    const preview = snapshotToPreviewShape(snap);
+    expect(preview.heroMediaType).toBe('video');
+    expect(preview.heroVideoUrl).toBe('https://cdn.example.com/user-hero.mp4');
+    expect(preview.hero?.videoUrl).toBe('https://cdn.example.com/user-hero.mp4');
+    expect(preview.heroImageUrl).toBe('https://cdn.example.com/stale-still.jpg');
+  });
+
+  it('snapshotToPreviewShape does not promote stale hero.imageUrl over video', () => {
+    const snap = {
+      draftId: 'd1',
+      name: 'X',
+      catalog: { products: [], categories: [] },
+      meta: {},
+      hero: {
+        type: 'video',
+        videoUrl: 'https://cdn.example.com/user-hero.mp4',
+        url: 'https://cdn.example.com/user-hero.mp4',
+        imageUrl: 'https://cdn.example.com/stale-only-image.jpg',
+      },
+    };
+    const preview = snapshotToPreviewShape(snap);
+    expect(preview.heroMediaType).toBe('video');
+    expect(preview.heroVideoUrl).toBe('https://cdn.example.com/user-hero.mp4');
+    expect(preview.hero?.url).toBe('https://cdn.example.com/user-hero.mp4');
+    expect(preview.heroImageUrl).toBe('https://cdn.example.com/stale-only-image.jpg');
+  });
+
+  it('ensurePublishSnapshot rebuilds snapshot when only hero changed (catalog fingerprint unchanged)', async () => {
+    const prev = process.env.PUBLISH_SNAPSHOT_V1;
+    process.env.PUBLISH_SNAPSHOT_V1 = 'true';
+    const items = [{ name: 'Tea', price: 3 }];
+    const staleSnap = buildPublishSnapshotFromPreview(
+      { id: 'draft-hero-drift', input: {}, preview: { items } },
+      { items, heroMediaType: 'image', heroImageUrl: 'https://cdn.example.com/old.jpg' },
+      1,
+    );
+    const prisma = {
+      draftStore: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'draft-hero-drift',
+          input: {},
+          preview: {
+            items,
+            heroMediaType: 'video',
+            heroVideoUrl: 'https://cdn.example.com/hero.mp4',
+          },
+          publishSnapshot: staleSnap,
+          publishSnapshotVersion: 1,
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+    };
+    const { snapshot, reconciled } = await ensurePublishSnapshot(prisma, 'draft-hero-drift');
+    expect(reconciled).toBe(true);
+    expect(snapshot.hero?.videoUrl).toBe('https://cdn.example.com/hero.mp4');
+    expect(snapshot.hero?.type).toBe('video');
+    expect(prisma.draftStore.update).toHaveBeenCalled();
+    if (prev === undefined) delete process.env.PUBLISH_SNAPSHOT_V1;
+    else process.env.PUBLISH_SNAPSHOT_V1 = prev;
+  });
+
+  it('snapshotToPreviewShape rehydrates image-only snapshot', () => {
+    const snap = {
+      draftId: 'd1',
+      name: 'X',
+      catalog: { products: [], categories: [] },
+      meta: {},
+      hero: {
+        type: 'image',
+        imageUrl: 'https://cdn.example.com/hero.jpg',
+        url: 'https://cdn.example.com/hero.jpg',
+      },
+    };
+    const preview = snapshotToPreviewShape(snap);
+    expect(preview.heroMediaType).toBe('image');
+    expect(preview.heroImageUrl).toBe('https://cdn.example.com/hero.jpg');
+    expect(preview.heroVideoUrl).toBeNull();
+  });
 });

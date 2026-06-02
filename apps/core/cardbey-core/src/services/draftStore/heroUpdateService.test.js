@@ -165,9 +165,49 @@ describe('buildHeroPreviewPatchFromUrls', () => {
       },
     });
     expect(patch.heroVideo).toBe(VIDEO);
-    expect(patch.heroImageUrl).toBe(VIDEO);
+    expect(patch.heroVideoUrl).toBe(VIDEO);
+    expect(patch.heroImageUrl).toBeNull();
     expect(patch.hero?.videoUrl).toBe(VIDEO);
     expect(patch.hero?.imageUrl).toBeUndefined();
+  });
+
+  it('image-only patch with existing video keeps video when not explicit replace', () => {
+    const patch = buildHeroPreviewPatchFromUrls({
+      imageUrl: 'https://cdn.example.com/generated-still.jpg',
+      source: 'url',
+      existingPreview: {
+        heroVideoUrl: VIDEO,
+        heroMediaType: 'video',
+        hero: { type: 'video', videoUrl: VIDEO },
+      },
+    });
+    expect(patch).toEqual({});
+  });
+
+  it('image-only patch with no video writes canonical image hero', () => {
+    const patch = buildHeroPreviewPatchFromUrls({
+      imageUrl: 'https://cdn.example.com/new-hero.jpg',
+      source: 'upload',
+      existingPreview: {},
+    });
+    expect(patch.heroMediaType).toBe('image');
+    expect(patch.heroImageUrl).toBe('https://cdn.example.com/new-hero.jpg');
+    expect(patch.heroVideoUrl).toBeNull();
+    expect(patch.hero?.type).toBe('image');
+  });
+
+  it('explicit image upload may replace video', () => {
+    const patch = buildHeroPreviewPatchFromUrls({
+      imageUrl: 'https://cdn.example.com/new-hero.jpg',
+      source: 'upload',
+      existingPreview: {
+        heroVideoUrl: VIDEO,
+        heroMediaType: 'video',
+      },
+    });
+    expect(patch.heroMediaType).toBe('image');
+    expect(patch.heroImageUrl).toBe('https://cdn.example.com/new-hero.jpg');
+    expect(patch.heroVideoUrl).toBeNull();
   });
 });
 
@@ -176,7 +216,7 @@ describe('syncBusinessHeroProfile', () => {
     vi.clearAllMocks();
   });
 
-  it('video without poster: sets heroImageUrl to video URL (not stale Pexels)', async () => {
+  it('skips business row update when store is live (draft-only until republish)', async () => {
     const update = vi.fn().mockResolvedValue({});
     const prisma = {
       business: {
@@ -184,6 +224,31 @@ describe('syncBusinessHeroProfile', () => {
           stylePreferences: { heroImage: PEXELS },
           publishedAt: new Date(),
           isActive: true,
+        }),
+        update,
+      },
+    };
+
+    const mergedPreview = {
+      heroMediaType: 'video',
+      heroVideo: VIDEO,
+      hero: { type: 'video', videoUrl: VIDEO, url: VIDEO },
+      heroImageUrl: VIDEO,
+    };
+
+    const ok = await syncBusinessHeroProfile(prisma, STORE_ID, mergedPreview);
+    expect(ok).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('video without poster: sets heroImageUrl to video URL when store is not live', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const prisma = {
+      business: {
+        findUnique: vi.fn().mockResolvedValue({
+          stylePreferences: { heroImage: PEXELS },
+          publishedAt: null,
+          isActive: false,
         }),
         update,
       },

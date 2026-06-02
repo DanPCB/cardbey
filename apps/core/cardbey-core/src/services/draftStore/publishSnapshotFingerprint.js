@@ -62,3 +62,34 @@ export function buildCatalogFingerprint(items) {
 export function buildSourceFingerprintFromCatalog(products) {
   return buildCatalogFingerprint(products).hash;
 }
+
+/**
+ * Fingerprint for hero media on draft preview (catalog fingerprint ignores hero-only edits).
+ * @param {object} preview
+ */
+export function buildHeroFingerprintFromPreview(preview) {
+  if (!preview || typeof preview !== 'object') return '';
+  const hero =
+    preview.hero && typeof preview.hero === 'object' && !Array.isArray(preview.hero) ? preview.hero : {};
+  const parts = [
+    String(preview.heroMediaType ?? hero.type ?? ''),
+    String(preview.heroVideoUrl ?? preview.heroVideo ?? hero.videoUrl ?? ''),
+    String(preview.heroImageUrl ?? hero.imageUrl ?? hero.url ?? ''),
+    String(preview.heroPosterUrl ?? preview.heroPoster ?? ''),
+  ].map((s) => s.trim());
+  return djb2Hash(parts.join('|'));
+}
+
+/**
+ * @param {object|null|undefined} hero - snapshot.hero
+ */
+export function buildHeroFingerprintFromSnapshotHero(hero) {
+  if (!hero || typeof hero !== 'object') return '';
+  const parts = [
+    String(hero.type ?? ''),
+    String(hero.videoUrl ?? ''),
+    String(hero.imageUrl ?? ''),
+    String(hero.url ?? ''),
+  ].map((s) => s.trim());
+  return djb2Hash(parts.join('|'));
+}

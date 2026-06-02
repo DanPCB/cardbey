@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { patchDraftPreview } from './draftStoreService.js';
+import { buildHeroPreviewPatchFromUrls } from './heroUpdateService.js';
 
 describe('patchDraftPreview committed hero', () => {
   let userId;
@@ -75,6 +76,49 @@ describe('patchDraftPreview committed hero', () => {
     const preview =
       typeof draft?.preview === 'string' ? JSON.parse(draft.preview) : draft?.preview;
     expect(preview?.heroImageUrl).toBe(newUrl);
+
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { heroImageUrl: true, stylePreferences: true },
+    });
+    expect(business?.heroImageUrl).toBe('https://cdn.example.com/old-hero.jpg');
+  });
+
+  it('allows POST /upload/hero patch shape on committed draft (heroMediaType included)', async () => {
+    const newUrl = 'https://cdn.example.com/uploaded-hero.jpg';
+    await patchDraftPreview(draftId, {
+      hero: { type: 'image', imageUrl: newUrl, url: newUrl, videoUrl: null },
+      heroImageUrl: newUrl,
+      heroVideo: null,
+      heroMediaType: 'image',
+    });
+
+    const draft = await prisma.draftStore.findUnique({ where: { id: draftId } });
+    const preview =
+      typeof draft?.preview === 'string' ? JSON.parse(draft.preview) : draft?.preview;
+    expect(preview?.heroImageUrl).toBe(newUrl);
+    expect(preview?.heroMediaType).toBe('image');
+    expect(preview?.heroVideo).toBeNull();
+  });
+
+  it('allows canonical upload patch from buildHeroPreviewPatchFromUrls (poster fields) on committed live draft', async () => {
+    const videoUrl = 'https://cdn.example.com/new-hero.mp4';
+    const patch = buildHeroPreviewPatchFromUrls({
+      videoUrl,
+      source: 'upload',
+      existingPreview: {
+        heroImageUrl: 'https://cdn.example.com/old-hero.jpg',
+        heroMediaType: 'image',
+      },
+    });
+    await patchDraftPreview(draftId, patch);
+
+    const draft = await prisma.draftStore.findUnique({ where: { id: draftId } });
+    const preview =
+      typeof draft?.preview === 'string' ? JSON.parse(draft.preview) : draft?.preview;
+    expect(preview?.heroMediaType).toBe('video');
+    expect(preview?.heroVideoUrl).toBe(videoUrl);
+    expect(preview?.meta?.hasUnpublishedHeroChanges).toBe(true);
 
     const business = await prisma.business.findUnique({
       where: { id: businessId },

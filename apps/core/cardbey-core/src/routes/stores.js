@@ -4,7 +4,7 @@
  * GET /api/stores - Get user's stores
  * GET /api/stores/:id - Get a specific store
  * PATCH /api/stores/:id - Update a store
- * POST /api/stores/:storeId/upload/hero | upload/avatar - Upload and persist to draft preview
+ * POST /api/stores/:storeId/upload/hero | upload/logo | upload/avatar - Upload and persist to draft preview
  * PATCH /api/stores/:storeId/draft/hero | draft/avatar - Set hero/avatar by URL
  */
 
@@ -23,6 +23,7 @@ import {
   updateHeroForStore,
   getHeroSyncStateForStore,
 } from '../services/draftStore/heroUpdateService.js';
+import { updateLogoForStore } from '../services/draftStore/logoUpdateService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 import { isDraftOwnedByUser } from '../lib/draftOwnership.js';
 import { getOrCreateMission } from '../lib/mission.js';
@@ -35,6 +36,7 @@ import {
 import { createAgentRun } from '../lib/agentRun.js';
 import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
+import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
@@ -173,7 +175,15 @@ async function resolveDraftForStoreAsset(req) {
   }
   const resolved = await resolveDraftForStore(prisma, storeId, generationRunId);
   if (!resolved.draft) {
-    return { errorResponse: { status: 404, body: { ok: false, error: 'draft_not_found', message: 'Draft not found' } } };
+    const business = await prisma.business.findUnique({ where: { id: storeId }, select: { userId: true } });
+    if (!business) {
+      return { errorResponse: { status: 404, body: { ok: false, error: 'store_not_found', message: 'Store not found' } } };
+    }
+    if (business.userId !== userId) {
+      return { errorResponse: { status: 403, body: { ok: false, error: 'forbidden', message: 'You do not have access to this store.' } } };
+    }
+    // Business-only media persist when no draft row exists (profile upload still updates Business).
+    return { draft: null };
   }
   const business = await prisma.business.findUnique({ where: { id: storeId }, select: { userId: true } });
   if (!business || business.userId !== userId) {
@@ -1815,8 +1825,8 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       return res.status(result.errorResponse.status).json(result.errorResponse.body);
     }
     const draft = result.draft;
-    const buffer = req.file.buffer;
-    const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
+    let buffer = req.file.buffer;
+    let mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
     const isVideo = mime.startsWith('video/');
     const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
     if (buffer.length > maxBytes) {
@@ -1825,6 +1835,28 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
         error: 'file_too_large',
         message: isVideo ? 'Video must be 75MB or smaller.' : 'Image must be 20MB or smaller.',
       });
+    }
+    if (isVideo) {
+      try {
+        const processed = await ensureWebCompatibleVideoBuffer(
+          buffer,
+          req.file.originalname || 'hero.mp4',
+          { context: 'stores.upload.hero' },
+        );
+        buffer = processed.buffer;
+        mime = processed.mime;
+        if (processed.transcoded) {
+          console.log('[Stores] upload/hero: video transcoded for browser/TV compatibility', {
+            originalName: req.file.originalname,
+            sizeBytes: buffer.length,
+          });
+        }
+      } catch (videoErr) {
+        console.warn(
+          '[Stores] upload/hero: video compat processing failed (non-fatal):',
+          videoErr?.message || videoErr,
+        );
+      }
     }
     const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
     const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || defaultName, mime);
@@ -1843,9 +1875,9 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       console.warn('[Stores] upload/hero: Media create failed (non-fatal), draft preview will still be updated:', mediaErr?.message);
     }
     const heroImageUrl = normalizedUrl;
-    const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const prevHero =
-      existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
+    const existingPreview = draft
+      ? (typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {}))
+      : {};
     const previewPatch = buildHeroPreviewPatchFromUrls({
       imageUrl: isVideo ? null : heroImageUrl,
       videoUrl: isVideo ? heroImageUrl : null,
@@ -1853,29 +1885,119 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       existingPreview,
     });
     const storeIdParam =
-      req.params.storeId !== 'temp' ? req.params.storeId : draft.committedStoreId;
+      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
     const heroResult = await updateHeroForStore({
       prisma,
       userId: req.userId,
       storeId: storeIdParam,
-      draftId: draft.id,
+      draftId: draft?.id ?? null,
       generationRunId:
         (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
         (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
       previewPatch,
       source: 'upload',
     });
+    let hasUnpublishedHeroChanges = false;
+    if (heroResult.storeId && heroResult.draftUpdated) {
+      try {
+        const { buildDraftPublishState } = await import('../services/draftStore/buildDraftPublishState.js');
+        const freshDraft = heroResult.draftId ? await getDraft(heroResult.draftId) : draft;
+        if (freshDraft) {
+          const pubState = await buildDraftPublishState(prisma, freshDraft);
+          hasUnpublishedHeroChanges = Boolean(pubState.hasUnpublishedChanges);
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     return res.status(200).json({
       ok: true,
       url: heroImageUrl,
-      heroImageUrl: heroResult.heroImageUrl,
-      videoUrl: heroResult.heroVideoUrl,
+      heroImageUrl: heroResult.heroImageUrl ?? (isVideo ? null : heroImageUrl),
+      heroVideoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
+      heroMediaType: heroResult.heroMediaType ?? (isVideo ? 'video' : 'image'),
+      videoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
       mimeType: mime,
       isVideo,
       key,
       storageKey: key,
       draftUpdated: heroResult.draftUpdated,
       businessUpdated: heroResult.businessUpdated,
+      hasUnpublishedHeroChanges,
+    });
+  } catch (err) {
+    if (err?.code === 'draft_already_committed' || String(err?.message || '').includes('already been committed')) {
+      return res.status(409).json({
+        ok: false,
+        error: 'draft_already_committed',
+        message:
+          'This draft is locked for full edits. Use Preview changes to update the hero, then Republish.',
+      });
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/stores/:storeId/upload/logo
+ * Upload business logo and persist to draft preview + Business profile. Auth required.
+ * Multipart field: "file". Query: draftId?, generationRunId? (required when storeId is "temp").
+ * Returns: { ok: true, logoUrl, avatarImageUrl, url, draftUpdated, businessUpdated }.
+ */
+router.post('/:storeId/upload/logo', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ ok: false, error: 'no_file', message: 'No file uploaded; use multipart field "file".' });
+    }
+    const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
+    if (!mime.startsWith('image/')) {
+      return res.status(400).json({ ok: false, error: 'invalid_type', message: 'Logo must be an image file.' });
+    }
+    const result = await resolveDraftForStoreAsset(req);
+    if (result.errorResponse) {
+      return res.status(result.errorResponse.status).json(result.errorResponse.body);
+    }
+    const draft = result.draft;
+    const buffer = req.file.buffer;
+    const maxBytes = 20 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      return res.status(400).json({ ok: false, error: 'file_too_large', message: 'Image must be 20MB or smaller.' });
+    }
+    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || 'logo.jpg', mime);
+    const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
+    try {
+      await prisma.media.create({
+        data: {
+          url: normalizedUrl,
+          storageKey: key,
+          kind: 'IMAGE',
+          mime,
+          sizeBytes: buffer.length,
+        },
+      });
+    } catch (mediaErr) {
+      console.warn('[Stores] upload/logo: Media create failed (non-fatal):', mediaErr?.message);
+    }
+    const storeIdParam =
+      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
+    const logoResult = await updateLogoForStore({
+      prisma,
+      userId: req.userId,
+      storeId: storeIdParam,
+      draftId: draft?.id ?? null,
+      generationRunId:
+        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      logoUrl: normalizedUrl,
+    });
+    return res.status(200).json({
+      ok: true,
+      url: normalizedUrl,
+      logoUrl: logoResult.logoUrl,
+      avatarImageUrl: logoResult.avatarImageUrl,
+      draftUpdated: logoResult.draftUpdated,
+      businessUpdated: logoResult.businessUpdated,
     });
   } catch (err) {
     next(err);
@@ -1884,9 +2006,7 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
 
 /**
  * POST /api/stores/:storeId/upload/avatar
- * Upload avatar image and persist URL to draft preview. Auth required; draft ownership enforced.
- * Multipart field: "file". Query: generationRunId (required when storeId is "temp").
- * Returns: { ok: true, avatarImageUrl, url }.
+ * Legacy alias for logo upload — same persistence as /upload/logo.
  */
 router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
   try {
@@ -1913,16 +2033,28 @@ router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, asyn
         },
       });
     } catch (mediaErr) {
-      console.warn('[Stores] upload/avatar: Media create failed (non-fatal), draft preview will still be updated:', mediaErr?.message);
+      console.warn('[Stores] upload/avatar: Media create failed (non-fatal):', mediaErr?.message);
     }
-    const avatarImageUrl = normalizedUrl;
-    const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const mergedAvatar = { ...(existingPreview.avatar && typeof existingPreview.avatar === 'object' ? existingPreview.avatar : {}), imageUrl: avatarImageUrl, url: avatarImageUrl };
-    await patchDraftPreview(draft.id, {
-      avatar: mergedAvatar,
-      avatarImageUrl,
+    const storeIdParam =
+      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
+    const logoResult = await updateLogoForStore({
+      prisma,
+      userId: req.userId,
+      storeId: storeIdParam,
+      draftId: draft?.id ?? null,
+      generationRunId:
+        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      logoUrl: normalizedUrl,
     });
-    return res.status(200).json({ ok: true, url: avatarImageUrl, avatarImageUrl });
+    return res.status(200).json({
+      ok: true,
+      url: normalizedUrl,
+      logoUrl: logoResult.logoUrl,
+      avatarImageUrl: logoResult.avatarImageUrl,
+      draftUpdated: logoResult.draftUpdated,
+      businessUpdated: logoResult.businessUpdated,
+    });
   } catch (err) {
     next(err);
   }
@@ -3189,5 +3321,6 @@ router.delete('/:storeId', requireAuth, requireOwner, async (req, res, next) => 
 });
 
 export default router;
+
 
 

@@ -21,6 +21,7 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
   const heroVideo = hero.videoUrl ?? null;
   const heroImage = hero.imageUrl ?? hero.posterUrl ?? null;
   const heroUrl = heroVideo ?? heroImage ?? null;
+  const heroMediaType = hero.type === 'video' || heroVideo ? 'video' : heroImage ? 'image' : null;
 
   const sections = Array.isArray(projection.website?.sections) ? projection.website.sections : [];
   const website =
@@ -92,6 +93,8 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
     bannerUrl: heroUrl,
     heroUrl,
     heroVideo,
+    heroVideoUrl: heroVideo,
+    heroMediaType,
     heroImage: heroImage && !heroVideo ? heroImage : hero.posterUrl ?? heroImage,
     city: null,
     country: null,

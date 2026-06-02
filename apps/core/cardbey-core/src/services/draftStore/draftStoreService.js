@@ -10,7 +10,13 @@ import { prisma } from '../../lib/prisma.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
-import { syncHeroFieldsIntoPreviewWebsite } from './draftPreviewHeroSync.js';
+import {
+  syncHeroFieldsIntoPreviewWebsite,
+  applyPipelineGeneratedHeroImage,
+  copyVideoHeroFieldsToPreview,
+  protectVideoHeroFromImageOnlyOverwrite,
+  getExistingVideoUrlFromPreview,
+} from './draftPreviewHeroSync.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -937,9 +943,10 @@ async function finalizeDraft(draftId, {
     const firstWithImage = items.find((p) => p?.imageUrl);
     avatarImageUrl = firstWithImage?.imageUrl ?? null;
   }
-  preview.hero = { imageUrl: heroImageUrl };
+  if (heroImageUrl) {
+    applyPipelineGeneratedHeroImage(preview, heroImageUrl, { writer: 'finalizeDraft', draftId });
+  }
   preview.avatar = { imageUrl: avatarImageUrl };
-  preview.heroImageUrl = heroImageUrl ?? null;
   preview.avatarUrl = avatarImageUrl ?? null;
   mergeWebsiteIntoPreview(preview, draft.input || {});
 
@@ -2370,9 +2377,24 @@ export async function generateDraft(draftId, options = {}) {
       const firstProductWithImage = (Array.isArray(itemsForPreview) ? itemsForPreview : []).find((p) => p?.imageUrl);
       avatarImageUrl = firstProductWithImage?.imageUrl ?? null;
     }
-    preview.hero = { imageUrl: heroImageUrl };
+    const priorPreview =
+      draft.preview && typeof draft.preview === 'object'
+        ? draft.preview
+        : typeof draft.preview === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(draft.preview) || {};
+              } catch {
+                return {};
+              }
+            })()
+          : {};
+    // Preserve user video from prior preview before pipeline still-hero (empty preview would bypass guard).
+    copyVideoHeroFieldsToPreview(preview, priorPreview);
+    if (heroImageUrl) {
+      applyPipelineGeneratedHeroImage(preview, heroImageUrl, { writer: 'generateDraft', draftId });
+    }
     preview.avatar = { imageUrl: avatarImageUrl };
-    preview.heroImageUrl = heroImageUrl ?? null;
     preview.avatarUrl = avatarImageUrl ?? null;
     mergeWebsiteIntoPreview(preview, input);
 
@@ -2603,7 +2625,26 @@ export async function getDraftByGenerationRunId(generationRunId) {
  * other preview fields (storeName, categories, brandColors, etc.) are kept.
  */
 /** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
-const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'heroVideo', 'avatar', 'avatarImageUrl']);
+/** Class A post-publish manual edits: hero/avatar media only (no catalog / rebuild). */
+const COMMITTED_PREVIEW_PATCH_KEYS = new Set([
+  'hero',
+  'heroImageUrl',
+  'heroVideo',
+  'heroVideoUrl',
+  'heroMediaType',
+  'heroPosterUrl',
+  'heroPoster',
+  'avatar',
+  'avatarImageUrl',
+]);
+
+/** True when incoming patch only touches post-commit editable hero/avatar fields. */
+export function isCommittedHeroAvatarOnlyPatch(incoming) {
+  if (!incoming || typeof incoming !== 'object') return false;
+  const keys = Object.keys(incoming);
+  if (!keys.length) return false;
+  return keys.every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
+}
 
 function parseStylePreferencesBlob(raw) {
   if (raw == null) return {};
@@ -2644,27 +2685,32 @@ async function syncCommittedHeroAvatarToPublishedStore(prismaClient, draft, merg
       mergedPreview?.website ??
       prefs.miniWebsite ??
       null;
-    const heroUrl =
-      (typeof mergedPreview?.heroImageUrl === 'string' && mergedPreview.heroImageUrl.trim()) ||
-      mergedPreview?.hero?.imageUrl ||
-      mergedPreview?.hero?.url ||
-      null;
-    const heroVideo =
-      (typeof mergedPreview?.heroVideo === 'string' && mergedPreview.heroVideo.trim()) ||
-      mergedPreview?.hero?.videoUrl ||
-      null;
+    const { readCanonicalHeroFromPreview } = await import('./draftPreviewHeroSync.js');
+    const { heroImage, heroVideo } = readCanonicalHeroFromPreview(mergedPreview);
+    const VIDEO_EXT = /\.(mp4|webm|mov)(\?|#|$)/i;
+    const heroColumnUrl = heroVideo
+      ? heroImage && !VIDEO_EXT.test(heroImage)
+        ? heroImage
+        : heroVideo
+      : heroImage || null;
 
     const stylePreferences = {
       ...prefs,
       ...(miniWebsite ? { miniWebsite } : {}),
-      ...(heroUrl ? { heroImage: heroUrl } : {}),
-      ...(heroVideo ? { heroVideo } : {}),
+      ...(heroVideo
+        ? {
+            heroVideo,
+            ...(heroImage && !VIDEO_EXT.test(heroImage) ? { heroImage } : {}),
+          }
+        : heroImage
+          ? { heroImage }
+          : {}),
     };
 
     await prismaClient.business.update({
       where: { id: businessId },
       data: {
-        ...(heroUrl ? { heroImageUrl: heroUrl } : {}),
+        ...(heroColumnUrl ? { heroImageUrl: heroColumnUrl } : {}),
         stylePreferences,
         updatedAt: new Date(),
       },
@@ -2747,16 +2793,18 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
     throw new Error(`Draft not found: ${draftId}`);
   }
 
-  const incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
+  let incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
   const allowCommitted = options && options.allowCommitted === true;
   const isCommitted = draft.status === 'committed';
-  const committedHeroAvatarOnly =
-    isCommitted &&
-    Object.keys(incoming).length > 0 &&
-    Object.keys(incoming).every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
+  const committedHeroAvatarOnly = isCommitted && isCommittedHeroAvatarOnlyPatch(incoming);
 
   if (isCommitted && !allowCommitted && !committedHeroAvatarOnly) {
-    throw new Error(`Draft ${draftId} has already been committed`);
+    const err = new Error(
+      `Draft ${draftId} has already been committed. Create a new draft or use hero/avatar edits only.`,
+    );
+    err.statusCode = 409;
+    err.code = 'draft_already_committed';
+    throw err;
   }
 
   if (!isCommitted && new Date() > draft.expiresAt) {
@@ -2771,6 +2819,27 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
       existing = JSON.parse(draft.preview) || {};
     } catch (_) { /* keep empty */ }
   }
+
+  const heroPatchKeys = [
+    'hero',
+    'heroImageUrl',
+    'heroVideo',
+    'heroVideoUrl',
+    'heroMediaType',
+    'heroPosterUrl',
+    'heroPoster',
+  ];
+  if (heroPatchKeys.some((k) => incoming[k] !== undefined)) {
+    const { incoming: safeIncoming } = protectVideoHeroFromImageOnlyOverwrite(existing, incoming, {
+      writer: options.heroWriteIntent || options.writer || 'patchDraftPreview',
+      draftId,
+      storeId: options.storeId ?? draft.committedStoreId ?? null,
+      allowReplaceVideoWithImage: options.allowReplaceVideoWithImage,
+      heroWriteIntent: options.heroWriteIntent,
+    });
+    incoming = safeIncoming;
+  }
+
   const merged = { ...existing, ...incoming };
 
   // When client sends partial items (e.g. Day2 autofill only filled items with imageUrl), merge by id
@@ -2820,7 +2889,8 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
   if (
     incoming.hero !== undefined ||
     incoming.heroImageUrl !== undefined ||
-    incoming.heroVideo !== undefined
+    incoming.heroVideo !== undefined ||
+    incoming.heroVideoUrl !== undefined
   ) {
     syncHeroFieldsIntoPreviewWebsite(merged);
   }
@@ -2928,6 +2998,16 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
         data: bizData,
       });
     }
+    const meta =
+      merged.meta && typeof merged.meta === 'object' && !Array.isArray(merged.meta)
+        ? { ...merged.meta }
+        : {};
+    if (isLivePublished) {
+      meta.hasUnpublishedHeroChanges = true;
+      meta.previewDirtyAt = new Date().toISOString();
+    }
+    merged.meta = meta;
+
     await prisma.draftStore.update({
       where: { id: draftId },
       data: { preview: merged, updatedAt: new Date() },
@@ -3285,75 +3365,86 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
     const {
       isCommitBusinessRetryableError,
       logCommitDraftStructured,
+      preflightBusinessCommitPlan,
+      executeBusinessCommitPlan,
     } = await import('./commitDraftBusinessResolve.js');
+
+    if (!user) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      user = await prisma.$transaction(
+        async (tx) =>
+          tx.user.create({
+            data: {
+              email: email.toLowerCase().trim(),
+              passwordHash: hashedPassword,
+              displayName: name || preview.storeName || 'User',
+              hasBusiness: true,
+              onboarding: JSON.stringify({
+                completed: false,
+                currentStep: 'welcome',
+                steps: { welcome: false, profile: false, business: true },
+              }),
+            },
+          }),
+        txOpts,
+      );
+    }
+
+    const publishedAtCommit = new Date();
+    const businessPayload = {
+      name: businessName,
+      type: businessType,
+      description: preview.heroText || preview.description || null,
+      primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
+      secondaryColor: preview.brandColors?.secondary || null,
+      tagline: preview.tagline || preview.slogan || null,
+      heroText: preview.heroText || null,
+      stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
+      heroImageUrl: commitHeroUrl || null,
+      avatarImageUrl: resolvedCommitAvatar || null,
+      publishedAt: publishedAtCommit,
+      isActive: true,
+    };
+
+    const { resolveStoreWriteMode, isMultiStoreIdentityV1Enabled } = await import('../store/storeIdentity.js');
+    const targetStoreId =
+      businessFields?.targetStoreId ??
+      businessFields?.existingStoreId ??
+      draft.committedStoreId ??
+      null;
+    const writeMode = isMultiStoreIdentityV1Enabled()
+      ? resolveStoreWriteMode({ draft, targetStoreId })
+      : { mode: 'legacy', storeId: null, reason: 'legacy_singleton' };
+
+    const businessResolveCtx = {
+      prismaClient: prisma,
+      user,
+      draft,
+      businessPayload,
+      businessName,
+      businessFields: { ...businessFields, userId: user.id },
+      writeMode,
+      generateUniqueStoreSlugForTx,
+    };
 
     let shell = null;
     let lastShellErr = null;
     for (let shellAttempt = 0; shellAttempt < 2; shellAttempt++) {
       try {
+        const shellPlan = await preflightBusinessCommitPlan(prisma, {
+          ...businessResolveCtx,
+          preflightOptions: {
+            preferOwnedBusiness: shellAttempt > 0,
+            forceRegenerateSlug: shellAttempt > 0,
+          },
+        });
+
         shell = await prisma.$transaction(async (tx) => {
-          if (!user) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            user = await tx.user.create({
-              data: {
-                email: email.toLowerCase().trim(),
-                passwordHash: hashedPassword,
-                displayName: name || preview.storeName || 'User',
-                hasBusiness: true,
-                onboarding: JSON.stringify({
-                  completed: false,
-                  currentStep: 'welcome',
-                  steps: { welcome: false, profile: false, business: true },
-                }),
-              },
-            });
-          }
-
-          const publishedAtCommit = new Date();
-          const businessPayload = {
-            name: businessName,
-            type: businessType,
-            description: preview.heroText || preview.description || null,
-            primaryColor: preview.brandColors?.primary || businessFields.primaryColor || '#6C4CF1',
-            secondaryColor: preview.brandColors?.secondary || null,
-            tagline: preview.tagline || preview.slogan || null,
-            heroText: preview.heroText || null,
-            stylePreferences: preview.stylePreferences ? JSON.stringify(preview.stylePreferences) : null,
-            heroImageUrl: commitHeroUrl || null,
-            avatarImageUrl: resolvedCommitAvatar || null,
-            publishedAt: publishedAtCommit,
-            isActive: true,
-          };
-
-          const { resolveStoreWriteMode, isMultiStoreIdentityV1Enabled } = await import('../store/storeIdentity.js');
-          const targetStoreId =
-            businessFields?.targetStoreId ??
-            businessFields?.existingStoreId ??
-            draft.committedStoreId ??
-            null;
-          const writeMode = isMultiStoreIdentityV1Enabled()
-            ? resolveStoreWriteMode({ draft, targetStoreId })
-            : { mode: 'legacy', storeId: null, reason: 'legacy_singleton' };
-
-          const { resolveBusinessForDraftCommit } = await import('./commitDraftBusinessResolve.js');
-          const business = await resolveBusinessForDraftCommit(tx, {
-            prismaClient: prisma,
-            user,
-            draft,
-            businessPayload,
-            businessName,
-            businessFields: { ...businessFields, userId: user.id },
-            writeMode,
-            generateUniqueStoreSlugForTx,
-            preflightOptions: {
-              preferOwnedBusiness: shellAttempt > 0,
-              forceRegenerateSlug: shellAttempt > 0,
-            },
-          });
-
-          await tx.product.deleteMany({ where: { businessId: business.id } });
+          const business = await executeBusinessCommitPlan(tx, shellPlan, businessResolveCtx);
           return { user, business };
         }, txOpts);
+
+        await prisma.product.deleteMany({ where: { businessId: shell.business.id } });
         lastShellErr = null;
         break;
       } catch (shellErr) {
@@ -3404,28 +3495,28 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
     });
 
     const finalizeStart = Date.now();
-    stageTimer.beginTransaction();
-    await prisma.$transaction(async (tx) => {
-      await transitionDraftStoreStatus({
-        prisma: tx,
-        syncPrisma: prisma,
-        draftId,
-        toStatus: 'committed',
-        fromStatus: 'ready',
-        actorType: 'human',
-        actorId: shell.user.id,
-        reason: 'PUBLISH',
-        extraData: {
-          committedAt: new Date(),
-          committedStoreId: shell.business.id,
-          committedUserId: shell.user.id,
-        },
-      });
-    }, txOpts);
+    const transitionResult = await transitionDraftStoreStatus({
+      prisma,
+      draftId,
+      toStatus: 'committed',
+      fromStatus: 'ready',
+      actorType: 'human',
+      actorId: shell.user.id,
+      reason: 'PUBLISH',
+      extraData: {
+        committedAt: new Date(),
+        committedStoreId: shell.business.id,
+        committedUserId: shell.user.id,
+      },
+    });
+    if (!transitionResult.ok) {
+      throw new Error(
+        transitionResult.message || `COMMIT_DRAFT_FAILED: draft transition ${transitionResult.code ?? 'failed'}`,
+      );
+    }
     stageTimer.log('phase_d_finalize_draft', {
       itemCount: batchResult.written,
       durationMs: Date.now() - finalizeStart,
-      transactionOpenMs: stageTimer.endTransaction(),
       draftId,
     });
 
