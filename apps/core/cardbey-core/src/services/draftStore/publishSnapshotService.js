@@ -4,9 +4,18 @@
  */
 
 import crypto from 'crypto';
-import { buildSourceFingerprintFromCatalog } from './publishSnapshotFingerprint.js';
+import {
+  buildHeroFingerprintFromPreview,
+  buildHeroFingerprintFromSnapshotHero,
+  buildSourceFingerprintFromCatalog,
+} from './publishSnapshotFingerprint.js';
+import { enforcePublishHeroCanonical } from './heroPublishInvariant.js';
 import { normalizePreviewCategories } from './draftStoreService.js';
 import { publicWebBase } from '../../utils/publicWebBase.js';
+import {
+  resolveCanonicalHeroMediaFromPreview,
+  writeCanonicalHeroMediaToPreview,
+} from './draftPreviewHeroSync.js';
 
 export function isPublishSnapshotV1Enabled() {
   return process.env.PUBLISH_SNAPSHOT_V1 === 'true' || process.env.PUBLISH_SNAPSHOT_V1 === '1';
@@ -60,6 +69,14 @@ function newPublishSourceId(draftId) {
 export function buildPublishSnapshotFromPreview(draft, preview, version = 1, publishSourceId) {
   const normalized = { ...preview };
   normalizePreviewCategories(normalized);
+  let heroFingerprint = '';
+  try {
+    enforcePublishHeroCanonical(normalized, { source: 'buildPublishSnapshotFromPreview' });
+    heroFingerprint = buildHeroFingerprintFromPreview(normalized);
+  } catch (e) {
+    console.warn('[publish-snapshot] hero canonicalize failed (non-fatal):', e?.message || e);
+    heroFingerprint = buildHeroFingerprintFromPreview(normalized);
+  }
   const products = catalogProductsFromPreview(normalized);
   const categories = Array.isArray(normalized.categories) ? normalized.categories : [];
   const input = parseInputBlob(draft.input);
@@ -100,6 +117,7 @@ export function buildPublishSnapshotFromPreview(draft, preview, version = 1, pub
     website: normalized.website || normalized.miniWebsite || undefined,
     theme: normalized.theme || normalized.stylePreferences || undefined,
     hero: normalized.hero || undefined,
+    heroFingerprint: heroFingerprint || buildHeroFingerprintFromSnapshotHero(normalized.hero),
     media: normalized.media || undefined,
     meta,
     sourceFingerprint: fingerprint,
@@ -130,7 +148,33 @@ export function snapshotToPreviewShape(snapshot) {
       previewVersion: snapshot.previewVersion,
     },
   };
-  if (snapshot.hero) preview.hero = snapshot.hero;
+  if (snapshot.hero && typeof snapshot.hero === 'object') {
+    const hero = snapshot.hero;
+    const seed = { hero: { ...hero } };
+    const videoFromSnapshot =
+      (typeof hero.videoUrl === 'string' && hero.videoUrl.trim()) ||
+      (hero.type === 'video' && typeof hero.url === 'string' && hero.url.trim()) ||
+      null;
+    if (videoFromSnapshot) {
+      seed.heroVideoUrl = videoFromSnapshot;
+      seed.heroVideo = videoFromSnapshot;
+      seed.heroMediaType = 'video';
+    } else if (hero.type === 'image' || (typeof hero.imageUrl === 'string' && hero.imageUrl.trim())) {
+      seed.heroMediaType = 'image';
+      if (typeof hero.imageUrl === 'string' && hero.imageUrl.trim()) {
+        seed.heroImageUrl = hero.imageUrl.trim();
+      }
+    } else if (typeof hero.url === 'string' && hero.url.trim()) {
+      seed.heroImageUrl = hero.url.trim();
+      seed.heroMediaType = 'image';
+    }
+    const canonical = resolveCanonicalHeroMediaFromPreview(seed);
+    writeCanonicalHeroMediaToPreview(preview, canonical);
+    enforcePublishHeroCanonical(preview, { source: 'snapshotToPreviewShape', silent: true });
+    if (hero.source && preview.hero && typeof preview.hero === 'object') {
+      preview.hero.source = hero.source;
+    }
+  }
   if (snapshot.website) preview.website = snapshot.website;
   if (snapshot.theme) preview.theme = snapshot.theme;
   if (snapshot.media) preview.media = snapshot.media;
@@ -226,7 +270,11 @@ export async function ensurePublishSnapshot(prisma, draftId) {
     const previewProducts = catalogProductsFromPreview(preview);
     const previewFp = buildSourceFingerprintFromCatalog(previewProducts);
     const storedFp = stored.sourceFingerprint || '';
-    if (previewFp && storedFp && previewFp !== storedFp) {
+    const previewHeroFp = buildHeroFingerprintFromPreview(preview);
+    const storedHeroFp =
+      stored.heroFingerprint || buildHeroFingerprintFromSnapshotHero(stored.hero);
+    const heroDrift = previewHeroFp && storedHeroFp && previewHeroFp !== storedHeroFp;
+    if ((previewFp && storedFp && previewFp !== storedFp) || heroDrift) {
       const nextVersion = (Number(draft.publishSnapshotVersion) || version || 0) + 1;
       const snapshot = buildPublishSnapshotFromPreview(
         draft,
@@ -250,7 +298,7 @@ export async function ensurePublishSnapshot(prisma, draftId) {
         firstNames: catalogFirstNames(previewProducts),
         source: 'reconcile_preview_drift',
         reconciled: true,
-        reason: 'preview_fingerprint_drift',
+        reason: heroDrift ? 'preview_hero_drift' : 'preview_fingerprint_drift',
       });
       return { snapshot, version: nextVersion, migrated: false, draft, reconciled: true };
     }

@@ -4,7 +4,7 @@
  * GET /api/stores - Get user's stores
  * GET /api/stores/:id - Get a specific store
  * PATCH /api/stores/:id - Update a store
- * POST /api/stores/:storeId/upload/hero | upload/avatar - Upload and persist to draft preview
+ * POST /api/stores/:storeId/upload/hero | upload/logo | upload/avatar - Upload and persist to draft preview
  * PATCH /api/stores/:storeId/draft/hero | draft/avatar - Set hero/avatar by URL
  */
 
@@ -18,6 +18,12 @@ import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
 import { resolveDraftForStore } from '../lib/draftResolver.js';
 import { buildTempDraftByGenerationRunIdResponse } from '../lib/tempDraftApiResponse.js';
 import { getDraftByGenerationRunId, getDraft, autoCategorizeDraft, detectStoreImageMismatch, patchDraftPreview, recomputeDraftCategoriesFromItems } from '../services/draftStore/draftStoreService.js';
+import {
+  buildHeroPreviewPatchFromUrls,
+  updateHeroForStore,
+  getHeroSyncStateForStore,
+} from '../services/draftStore/heroUpdateService.js';
+import { updateLogoForStore } from '../services/draftStore/logoUpdateService.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
 import { isDraftOwnedByUser } from '../lib/draftOwnership.js';
 import { getOrCreateMission } from '../lib/mission.js';
@@ -30,6 +36,7 @@ import {
 import { createAgentRun } from '../lib/agentRun.js';
 import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
+import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
@@ -168,7 +175,15 @@ async function resolveDraftForStoreAsset(req) {
   }
   const resolved = await resolveDraftForStore(prisma, storeId, generationRunId);
   if (!resolved.draft) {
-    return { errorResponse: { status: 404, body: { ok: false, error: 'draft_not_found', message: 'Draft not found' } } };
+    const business = await prisma.business.findUnique({ where: { id: storeId }, select: { userId: true } });
+    if (!business) {
+      return { errorResponse: { status: 404, body: { ok: false, error: 'store_not_found', message: 'Store not found' } } };
+    }
+    if (business.userId !== userId) {
+      return { errorResponse: { status: 403, body: { ok: false, error: 'forbidden', message: 'You do not have access to this store.' } } };
+    }
+    // Business-only media persist when no draft row exists (profile upload still updates Business).
+    return { draft: null };
   }
   const business = await prisma.business.findUnique({ where: { id: storeId }, select: { userId: true } });
   if (!business || business.userId !== userId) {
@@ -1076,10 +1091,29 @@ router.get('/:storeId/draft', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * GET /api/stores/:storeId/hero
+ * Canonical hero URLs across draft preview, business profile, and live projection.
+ */
+router.get('/:storeId/hero', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = String(req.params.storeId || '').trim();
+    if (!storeId || storeId === 'temp') {
+      return res.status(400).json({ ok: false, error: 'invalid_store', message: 'A committed store id is required' });
+    }
+    const state = await getHeroSyncStateForStore(prisma, storeId, req.userId);
+    return res.status(200).json(state);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    if (status !== 500) {
+      return res.status(status).json({ ok: false, error: err.message, message: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
  * PATCH /api/stores/:storeId/draft/hero
- * Persist hero (and optionally avatar) URLs to draft preview. Auth required; draft ownership enforced.
- * Body: { imageUrl?, videoUrl?, source? } (dashboard) or { heroImageUrl?, avatarImageUrl?, generationRunId? }.
- * Response: 200 with updated draft summary or 404 if draft not found.
+ * Persist hero (and optionally avatar) URLs to draft preview + business profile. Auth required.
  */
 router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
   try {
@@ -1092,55 +1126,54 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
     const imageUrl = typeof body.heroImageUrl === 'string' ? body.heroImageUrl.trim() : (typeof body.imageUrl === 'string' ? body.imageUrl.trim() : null);
     const avatarImageUrl = typeof body.avatarImageUrl === 'string' ? body.avatarImageUrl.trim() : null;
     const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : null;
-    const source = typeof body.source === 'string' ? body.source.trim() : null;
-    const heroBody = body.hero && typeof body.hero === 'object' ? body.hero : null;
-    const isVideoHero =
-      heroBody?.type === 'video' ||
-      Boolean(videoUrl) ||
-      (imageUrl && /\.(mp4|webm|mov)(\?|#|$)/i.test(imageUrl));
+    const source = typeof body.source === 'string' ? body.source.trim() : 'upload';
     const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const existingHero = existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
-    const hero = { ...existingHero };
-    if (isVideoHero) {
-      const vid = videoUrl || imageUrl;
-      hero.type = 'video';
-      hero.videoUrl = vid;
-      hero.url = vid;
-      hero.autoplay = heroBody?.autoplay !== false;
-      hero.muted = heroBody?.muted !== false;
-      hero.loop = heroBody?.loop !== false;
-      if (imageUrl && imageUrl !== vid) hero.imageUrl = imageUrl;
-    } else if (imageUrl != null) {
-      hero.type = 'image';
-      hero.imageUrl = imageUrl;
-      hero.url = imageUrl;
-      hero.videoUrl = null;
-    }
-    if (source != null) hero.source = source;
-    const patch = {};
-    if (Object.keys(hero).length) patch.hero = hero;
-    if (isVideoHero) {
-      const vid = videoUrl || imageUrl;
-      if (vid) {
-        patch.heroVideo = vid;
-        patch.heroImageUrl = hero.imageUrl || existingHero.imageUrl || vid;
-        patch.heroMediaType = 'video';
-      }
-    } else if (imageUrl != null) {
-      patch.heroImageUrl = imageUrl;
-      patch.heroVideo = null;
-      patch.heroMediaType = 'image';
-    }
+
+    const heroPatch = buildHeroPreviewPatchFromUrls({
+      imageUrl,
+      videoUrl,
+      source,
+      existingPreview,
+    });
+
     if (avatarImageUrl) {
-      patch.avatar = { imageUrl: avatarImageUrl, url: avatarImageUrl };
-      patch.avatarImageUrl = avatarImageUrl;
+      await patchDraftPreview(draft.id, {
+        avatar: { imageUrl: avatarImageUrl, url: avatarImageUrl },
+        avatarImageUrl,
+      });
     }
-    if (Object.keys(patch).length === 0) {
+
+    if (!Object.keys(heroPatch).length && !avatarImageUrl) {
       return res.status(400).json({ ok: false, error: 'no_urls', message: 'Provide at least one of imageUrl/heroImageUrl, avatarImageUrl, videoUrl, or source' });
     }
-    await patchDraftPreview(draft.id, patch);
+
+    let heroResult = null;
+    if (Object.keys(heroPatch).length) {
+      const storeIdParam = req.params.storeId !== 'temp' ? req.params.storeId : draft.committedStoreId;
+      heroResult = await updateHeroForStore({
+        prisma,
+        userId: req.userId,
+        storeId: storeIdParam,
+        draftId: draft.id,
+        generationRunId:
+          (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+          (typeof body.generationRunId === 'string' ? body.generationRunId.trim() : null),
+        previewPatch: heroPatch,
+        source,
+      });
+    }
+
     const updated = await getDraft(draft.id);
-    return res.status(200).json({ ok: true, draftId: updated.id, status: updated.status, hero: patch.hero, heroImageUrl: patch.heroImageUrl });
+    return res.status(200).json({
+      ok: true,
+      draftId: updated.id,
+      status: updated.status,
+      hero: heroPatch.hero,
+      heroImageUrl: heroResult?.heroImageUrl ?? heroPatch.heroImageUrl,
+      heroVideoUrl: heroResult?.heroVideoUrl ?? heroPatch.heroVideo,
+      draftUpdated: heroResult?.draftUpdated ?? false,
+      businessUpdated: heroResult?.businessUpdated ?? false,
+    });
   } catch (err) {
     console.error('[Stores:PATCH /:storeId/draft/hero]', err?.message || err);
     next(err);
@@ -1792,8 +1825,8 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       return res.status(result.errorResponse.status).json(result.errorResponse.body);
     }
     const draft = result.draft;
-    const buffer = req.file.buffer;
-    const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
+    let buffer = req.file.buffer;
+    let mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
     const isVideo = mime.startsWith('video/');
     const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
     if (buffer.length > maxBytes) {
@@ -1802,6 +1835,28 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
         error: 'file_too_large',
         message: isVideo ? 'Video must be 75MB or smaller.' : 'Image must be 20MB or smaller.',
       });
+    }
+    if (isVideo) {
+      try {
+        const processed = await ensureWebCompatibleVideoBuffer(
+          buffer,
+          req.file.originalname || 'hero.mp4',
+          { context: 'stores.upload.hero' },
+        );
+        buffer = processed.buffer;
+        mime = processed.mime;
+        if (processed.transcoded) {
+          console.log('[Stores] upload/hero: video transcoded for browser/TV compatibility', {
+            originalName: req.file.originalname,
+            sizeBytes: buffer.length,
+          });
+        }
+      } catch (videoErr) {
+        console.warn(
+          '[Stores] upload/hero: video compat processing failed (non-fatal):',
+          videoErr?.message || videoErr,
+        );
+      }
     }
     const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
     const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || defaultName, mime);
@@ -1820,40 +1875,129 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       console.warn('[Stores] upload/hero: Media create failed (non-fatal), draft preview will still be updated:', mediaErr?.message);
     }
     const heroImageUrl = normalizedUrl;
-    const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const prevHero = existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
-    const mergedHero = isVideo
-      ? {
-          ...prevHero,
-          type: 'video',
-          imageUrl: prevHero.imageUrl || heroImageUrl,
-          url: heroImageUrl,
-          videoUrl: heroImageUrl,
-          autoplay: true,
-          muted: true,
-          loop: true,
-        }
-      : {
-          ...prevHero,
-          type: 'image',
-          imageUrl: heroImageUrl,
-          url: heroImageUrl,
-          videoUrl: null,
-        };
-    await patchDraftPreview(draft.id, {
-      hero: mergedHero,
-      heroImageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
-      ...(isVideo ? { heroVideo: heroImageUrl } : {}),
+    const existingPreview = draft
+      ? (typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {}))
+      : {};
+    const previewPatch = buildHeroPreviewPatchFromUrls({
+      imageUrl: isVideo ? null : heroImageUrl,
+      videoUrl: isVideo ? heroImageUrl : null,
+      source: 'upload',
+      existingPreview,
     });
+    const storeIdParam =
+      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
+    const heroResult = await updateHeroForStore({
+      prisma,
+      userId: req.userId,
+      storeId: storeIdParam,
+      draftId: draft?.id ?? null,
+      generationRunId:
+        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      previewPatch,
+      source: 'upload',
+    });
+    let hasUnpublishedHeroChanges = false;
+    if (heroResult.storeId && heroResult.draftUpdated) {
+      try {
+        const { buildDraftPublishState } = await import('../services/draftStore/buildDraftPublishState.js');
+        const freshDraft = heroResult.draftId ? await getDraft(heroResult.draftId) : draft;
+        if (freshDraft) {
+          const pubState = await buildDraftPublishState(prisma, freshDraft);
+          hasUnpublishedHeroChanges = Boolean(pubState.hasUnpublishedChanges);
+        }
+      } catch {
+        /* non-fatal */
+      }
+    }
+
     return res.status(200).json({
       ok: true,
       url: heroImageUrl,
-      heroImageUrl: isVideo ? (prevHero.imageUrl || heroImageUrl) : heroImageUrl,
-      videoUrl: isVideo ? heroImageUrl : null,
+      heroImageUrl: heroResult.heroImageUrl ?? (isVideo ? null : heroImageUrl),
+      heroVideoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
+      heroMediaType: heroResult.heroMediaType ?? (isVideo ? 'video' : 'image'),
+      videoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
       mimeType: mime,
       isVideo,
       key,
       storageKey: key,
+      draftUpdated: heroResult.draftUpdated,
+      businessUpdated: heroResult.businessUpdated,
+      hasUnpublishedHeroChanges,
+    });
+  } catch (err) {
+    if (err?.code === 'draft_already_committed' || String(err?.message || '').includes('already been committed')) {
+      return res.status(409).json({
+        ok: false,
+        error: 'draft_already_committed',
+        message:
+          'This draft is locked for full edits. Use Preview changes to update the hero, then Republish.',
+      });
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/stores/:storeId/upload/logo
+ * Upload business logo and persist to draft preview + Business profile. Auth required.
+ * Multipart field: "file". Query: draftId?, generationRunId? (required when storeId is "temp").
+ * Returns: { ok: true, logoUrl, avatarImageUrl, url, draftUpdated, businessUpdated }.
+ */
+router.post('/:storeId/upload/logo', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ ok: false, error: 'no_file', message: 'No file uploaded; use multipart field "file".' });
+    }
+    const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
+    if (!mime.startsWith('image/')) {
+      return res.status(400).json({ ok: false, error: 'invalid_type', message: 'Logo must be an image file.' });
+    }
+    const result = await resolveDraftForStoreAsset(req);
+    if (result.errorResponse) {
+      return res.status(result.errorResponse.status).json(result.errorResponse.body);
+    }
+    const draft = result.draft;
+    const buffer = req.file.buffer;
+    const maxBytes = 20 * 1024 * 1024;
+    if (buffer.length > maxBytes) {
+      return res.status(400).json({ ok: false, error: 'file_too_large', message: 'Image must be 20MB or smaller.' });
+    }
+    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || 'logo.jpg', mime);
+    const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
+    try {
+      await prisma.media.create({
+        data: {
+          url: normalizedUrl,
+          storageKey: key,
+          kind: 'IMAGE',
+          mime,
+          sizeBytes: buffer.length,
+        },
+      });
+    } catch (mediaErr) {
+      console.warn('[Stores] upload/logo: Media create failed (non-fatal):', mediaErr?.message);
+    }
+    const storeIdParam =
+      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
+    const logoResult = await updateLogoForStore({
+      prisma,
+      userId: req.userId,
+      storeId: storeIdParam,
+      draftId: draft?.id ?? null,
+      generationRunId:
+        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      logoUrl: normalizedUrl,
+    });
+    return res.status(200).json({
+      ok: true,
+      url: normalizedUrl,
+      logoUrl: logoResult.logoUrl,
+      avatarImageUrl: logoResult.avatarImageUrl,
+      draftUpdated: logoResult.draftUpdated,
+      businessUpdated: logoResult.businessUpdated,
     });
   } catch (err) {
     next(err);
@@ -1862,9 +2006,7 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
 
 /**
  * POST /api/stores/:storeId/upload/avatar
- * Upload avatar image and persist URL to draft preview. Auth required; draft ownership enforced.
- * Multipart field: "file". Query: generationRunId (required when storeId is "temp").
- * Returns: { ok: true, avatarImageUrl, url }.
+ * Legacy alias for logo upload — same persistence as /upload/logo.
  */
 router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
   try {
@@ -1891,16 +2033,28 @@ router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, asyn
         },
       });
     } catch (mediaErr) {
-      console.warn('[Stores] upload/avatar: Media create failed (non-fatal), draft preview will still be updated:', mediaErr?.message);
+      console.warn('[Stores] upload/avatar: Media create failed (non-fatal):', mediaErr?.message);
     }
-    const avatarImageUrl = normalizedUrl;
-    const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const mergedAvatar = { ...(existingPreview.avatar && typeof existingPreview.avatar === 'object' ? existingPreview.avatar : {}), imageUrl: avatarImageUrl, url: avatarImageUrl };
-    await patchDraftPreview(draft.id, {
-      avatar: mergedAvatar,
-      avatarImageUrl,
+    const storeIdParam =
+      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
+    const logoResult = await updateLogoForStore({
+      prisma,
+      userId: req.userId,
+      storeId: storeIdParam,
+      draftId: draft?.id ?? null,
+      generationRunId:
+        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      logoUrl: normalizedUrl,
     });
-    return res.status(200).json({ ok: true, url: avatarImageUrl, avatarImageUrl });
+    return res.status(200).json({
+      ok: true,
+      url: normalizedUrl,
+      logoUrl: logoResult.logoUrl,
+      avatarImageUrl: logoResult.avatarImageUrl,
+      draftUpdated: logoResult.draftUpdated,
+      businessUpdated: logoResult.businessUpdated,
+    });
   } catch (err) {
     next(err);
   }
@@ -2408,15 +2562,38 @@ router.patch('/:id/opportunities/:opportunityId', requireAuth, async (req, res, 
 });
 
 // Zod schema for store update validation
+const optionalHttpsOrDataImageUrl = z
+  .string()
+  .trim()
+  .nullable()
+  .optional()
+  .refine(
+    (v) =>
+      v === undefined ||
+      v === null ||
+      v === '' ||
+      v.startsWith('data:image/') ||
+      v.startsWith('https://') ||
+      v.startsWith('http://'),
+    { message: 'Must be a data: or http(s) URL' },
+  );
+
 const StoreUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   description: z.string().trim().nullable().optional(),
+  tagline: z.string().trim().nullable().optional(),
   tradingHours: z.any().optional(), // JSON object, validate structure if needed
   address: z.string().trim().nullable().optional(),
   suburb: z.string().trim().nullable().optional(),
   postcode: z.string().trim().nullable().optional(),
   country: z.string().trim().nullable().optional(),
   phone: z.string().trim().nullable().optional(),
+  contactEmail: z.preprocess(
+    (val) => (val === '' ? null : val),
+    z.union([z.string().trim().email(), z.null()]).optional(),
+  ),
+  avatarImageUrl: optionalHttpsOrDataImageUrl,
+  heroImageUrl: optionalHttpsOrDataImageUrl,
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
   storefrontSettings: z.object({
@@ -2506,6 +2683,36 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
     }
     if (updateData.description !== undefined) {
       prismaUpdateData.description = updateData.description === '' ? null : updateData.description;
+    }
+    if (updateData.tagline !== undefined) {
+      prismaUpdateData.tagline = updateData.tagline === '' ? null : updateData.tagline;
+    }
+    if (updateData.avatarImageUrl !== undefined) {
+      prismaUpdateData.avatarImageUrl = updateData.avatarImageUrl === '' ? null : updateData.avatarImageUrl;
+    }
+    if (updateData.heroImageUrl !== undefined) {
+      prismaUpdateData.heroImageUrl = updateData.heroImageUrl === '' ? null : updateData.heroImageUrl;
+    }
+    if (updateData.contactEmail !== undefined) {
+      let existingMeta = {};
+      if (store.stylePreferences && typeof store.stylePreferences === 'object') {
+        existingMeta = store.stylePreferences;
+      } else if (typeof store.stylePreferences === 'string') {
+        try {
+          existingMeta = JSON.parse(store.stylePreferences);
+        } catch {
+          existingMeta = {};
+        }
+      }
+      const email =
+        updateData.contactEmail === '' || updateData.contactEmail == null
+          ? null
+          : updateData.contactEmail;
+      prismaUpdateData.stylePreferences = {
+        ...existingMeta,
+        contactEmail: email,
+        profileUpdatedAt: new Date().toISOString(),
+      };
     }
     if (updateData.tradingHours !== undefined) {
       prismaUpdateData.tradingHours = updateData.tradingHours;
@@ -3044,6 +3251,27 @@ router.post('/publish', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * GET /api/stores/:storeId/artifacts
+ * ArtifactRecord history for a store (campaign packages, posters, etc.)
+ */
+router.get('/:storeId/artifacts', requireAuth, requireOwner, async (req, res, next) => {
+  try {
+    const storeId = typeof req.params?.storeId === 'string' ? req.params.storeId.trim() : '';
+    if (!storeId) {
+      return res.status(400).json({ ok: false, error: 'storeId_required' });
+    }
+    const type = typeof req.query?.type === 'string' ? req.query.type.trim() : undefined;
+    const limitRaw = parseInt(String(req.query?.limit ?? '10'), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 10;
+    const { getArtifactsForStore } = await import('../orchestrator/memory/artifactMemory.ts');
+    const artifacts = await getArtifactsForStore(storeId, type ?? null, limit);
+    return res.json({ ok: true, artifacts });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
  * DELETE /api/stores/:storeId
  * Hard delete a store and its dependent data. Owner only.
  *
@@ -3093,5 +3321,6 @@ router.delete('/:storeId', requireAuth, requireOwner, async (req, res, next) => 
 });
 
 export default router;
+
 
 

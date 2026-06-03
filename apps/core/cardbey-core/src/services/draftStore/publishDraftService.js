@@ -15,8 +15,11 @@ import { parseDraftPreview } from './draftPreviewSchema.js';
 import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
 import {
   readCanonicalHeroFromPreview,
+  resolveCanonicalHeroMediaFromPreview,
   resolveMiniWebsiteForPublish,
 } from './draftPreviewHeroSync.js';
+import { enforcePublishHeroCanonical } from './heroPublishInvariant.js';
+import { heroImageUrlForBusinessColumn } from './publishDraftHeroHelpers.js';
 import {
   logPublishCanonicalTarget,
   logPublishEntry,
@@ -24,6 +27,17 @@ import {
   resolvePublishedStoreCopyFromPreview,
 } from './publishRunway.js';
 import { buildPersistAndApplyPublishedProjection } from '../publishedArtifactProjection/publishProjectionHooks.js';
+
+const VIDEO_EXT = /\.(mp4|webm|mov)(\?|#|$)/i;
+
+/** @param {object} rawPreview */
+function heroMediaForPublish(rawPreview) {
+  const canonical = resolveCanonicalHeroMediaFromPreview(rawPreview);
+  const storeHeroVideo = canonical.mediaType === 'video' ? canonical.videoUrl : null;
+  const storeHeroImage =
+    canonical.mediaType === 'image' ? canonical.imageUrl : canonical.posterUrl || null;
+  return { storeHeroVideo, storeHeroImage, canonical };
+}
 
 const BUSINESS_PUBLISH_SCALAR_KEYS = new Set([
   'name',
@@ -101,6 +115,10 @@ import { isDraftOwnedByUser } from '../../lib/draftOwnership.js';
 import { transitionDraftStoreStatus } from '../../kernel/transitions/transitionService.js';
 import { refreshPersonalPresenceQrForBusiness } from '../personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../../utils/publicWebBase.js';
+import {
+  applyCanonicalSlugOnPublish,
+  storeNameFromDraftPreview,
+} from './resolveCanonicalBusinessSlug.js';
 
 function buildVerifiedStorefrontUrl(slug, storeId) {
   const webBase = publicWebBase();
@@ -286,7 +304,7 @@ export async function publishDraft(prisma, {
     const id = String(businessId ?? '').trim();
     if (!id) return;
 
-    const { heroImage, heroVideo } = readCanonicalHeroFromPreview(rawPreview);
+    const { storeHeroVideo: heroVideo, storeHeroImage: heroImage } = heroMediaForPublish(rawPreview);
     const miniWebsite = resolveMiniWebsiteForPublish(rawPreview);
 
     const meta =
@@ -313,13 +331,20 @@ export async function publishDraft(prisma, {
     if (!existing) return;
 
     const existingPrefs = parseStylePreferencesBlob(existing.stylePreferences);
-    const heroUrlForColumn = heroVideo || heroImage || existing.heroImageUrl;
+    const heroUrlForColumn =
+      heroImageUrlForBusinessColumn(heroVideo, heroImage) || existing.heroImageUrl;
     const { tagline, description } = resolvePublishedStoreCopyFromPreview(rawPreview);
 
     const stylePreferences = {
       ...existingPrefs,
-      ...(heroImage ? { heroImage } : {}),
-      ...(heroVideo ? { heroVideo } : {}),
+      ...(heroVideo
+        ? {
+            heroVideo,
+            ...(heroImage && !VIDEO_EXT.test(heroImage) ? { heroImage } : {}),
+          }
+        : heroImage
+          ? { heroImage }
+          : {}),
       ...(miniWebsite ? { miniWebsite } : {}),
       publishedAt: existingPrefs.publishedAt ?? publishedAt.toISOString(),
     };
@@ -338,6 +363,34 @@ export async function publishDraft(prisma, {
       }),
     });
     logPublishRunway('STORE_CARD_SYNC', { businessId: id, slug: null, tagline, description });
+  }
+
+  /** Committed draft republish: sync content, refresh auto slug from name, rebuild projection. */
+  async function finishCommittedDraftRepublish(existingStoreId, targetDraftRow, rawPreview) {
+    enforcePublishHeroCanonical(rawPreview, { source: 'finishCommittedDraftRepublish' });
+    const storeName = storeNameFromDraftPreview(rawPreview);
+    await syncPublishedStoreFromDraft(existingStoreId, rawPreview);
+    const applied = await applyCanonicalSlugOnPublish(prisma, {
+      businessId: existingStoreId,
+      storeName,
+    });
+    await ensureBusinessPubliclyVisible(prisma, existingStoreId);
+    const slug = applied?.slug ?? null;
+    if (slug) {
+      await buildPersistAndApplyPublishedProjection(prisma, {
+        businessId: existingStoreId,
+        tenantId: userId,
+        draft: targetDraftRow,
+        draftPreview: rawPreview,
+        publishRunId: targetDraftRow.id,
+        source: entrypoint ?? 'publishDraft_republish',
+      });
+    }
+    return {
+      storeId: existingStoreId,
+      slug: slug ?? undefined,
+      storefrontUrl: buildVerifiedStorefrontUrl(slug, existingStoreId),
+    };
   }
 
   const isTempStore = storeId === 'temp';
@@ -374,13 +427,7 @@ export async function publishDraft(prisma, {
         const rawPreview = typeof targetDraft.preview === 'string'
           ? JSON.parse(targetDraft.preview)
           : (targetDraft.preview || {});
-        await syncPublishedStoreFromDraft(existingStore.id, rawPreview);
-        await ensureBusinessPubliclyVisible(prisma, existingStore.id);
-        return {
-          storeId: existingStore.id,
-          slug: existingStore.slug,
-          storefrontUrl: buildVerifiedStorefrontUrl(existingStore.slug, existingStore.id),
-        };
+        return finishCommittedDraftRepublish(existingStore.id, targetDraft, rawPreview);
       }
     }
     if (
@@ -416,13 +463,7 @@ export async function publishDraft(prisma, {
       const rawPreview = typeof targetDraft.preview === 'string'
         ? JSON.parse(targetDraft.preview)
         : (targetDraft.preview || {});
-      await syncPublishedStoreFromDraft(existingStore.id, rawPreview);
-      await ensureBusinessPubliclyVisible(prisma, existingStore.id);
-      return {
-        storeId: existingStore.id,
-        slug: existingStore.slug,
-        storefrontUrl: buildVerifiedStorefrontUrl(existingStore.slug, existingStore.id),
-      };
+      return finishCommittedDraftRepublish(existingStore.id, targetDraft, rawPreview);
     }
   }
 
@@ -489,6 +530,7 @@ export async function publishDraft(prisma, {
       : typeof targetDraft.preview === 'string'
         ? JSON.parse(targetDraft.preview)
         : (targetDraft.preview || {});
+  enforcePublishHeroCanonical(rawPreview, { source: entrypoint ?? 'publishDraft' });
   const draftMiniWebsite = resolveMiniWebsiteForPublish(rawPreview);
 
   // E2E guardrail: "Workflow Steps Are Immutable" — log when publish happens without preview step recorded
@@ -541,9 +583,8 @@ export async function publishDraft(prisma, {
     ?? (preview.brand && preview.brand.logoUrl)
     ?? preview.logo
     ?? null;
-  const canonicalHero = readCanonicalHeroFromPreview(rawPreview);
-  let storeHeroImage = canonicalHero.heroImage;
-  const storeHeroVideo = canonicalHero.heroVideo;
+  const { storeHeroImage: initialHeroImage, storeHeroVideo } = heroMediaForPublish(rawPreview);
+  let storeHeroImage = initialHeroImage;
   let resolvedAvatarUrl = storeLogo == null
     ? null
     : typeof storeLogo === 'string'
@@ -564,11 +605,14 @@ export async function publishDraft(prisma, {
 
   /** For temp drafts the Business row is created in the transaction — slug is assigned there (avoids orphan slug reservations). */
   let newSlug = store?.slug ?? null;
-  if (!isTempStore) {
-    if (!newSlug) {
-      newSlug = await generateUniqueStoreSlug(prisma, storeName);
-    }
-    if (store?.name && storeName !== store.name) {
+  if (!isTempStore && storeId) {
+    const applied = await applyCanonicalSlugOnPublish(prisma, {
+      businessId: storeId,
+      storeName,
+    });
+    if (applied?.slug) {
+      newSlug = applied.slug;
+    } else if (!newSlug) {
       newSlug = await generateUniqueStoreSlug(prisma, storeName);
     }
   }
@@ -610,12 +654,18 @@ export async function publishDraft(prisma, {
     tagline: storeTagline,
     logo: storeLogo ? (typeof storeLogo === 'string' ? storeLogo : JSON.stringify(storeLogo)) : null,
     isActive: true,
-    heroImageUrl: storeHeroImage || storeHeroVideo || null,
+    heroImageUrl: heroImageUrlForBusinessColumn(storeHeroVideo, storeHeroImage),
     avatarImageUrl: resolvedAvatarUrl || null,
     publishedAt,
     stylePreferences: {
-      ...(storeHeroImage ? { heroImage: storeHeroImage } : {}),
-      ...(storeHeroVideo ? { heroVideo: storeHeroVideo } : {}),
+      ...(storeHeroVideo
+        ? {
+            heroVideo: storeHeroVideo,
+            ...(storeHeroImage && !VIDEO_EXT.test(storeHeroImage) ? { heroImage: storeHeroImage } : {}),
+          }
+        : storeHeroImage
+          ? { heroImage: storeHeroImage }
+          : {}),
       publishedAt: publishedAt.toISOString(),
       ...(draftMiniWebsite ? { miniWebsite: draftMiniWebsite } : {}),
     },
@@ -841,8 +891,14 @@ export async function publishDraft(prisma, {
       ? businessData.stylePreferences
       : {}),
     ...(remappedMiniWebsiteForPublish ? { miniWebsite: remappedMiniWebsiteForPublish } : {}),
-    ...(storeHeroVideo ? { heroVideo: storeHeroVideo } : {}),
-    ...(storeHeroImage ? { heroImage: storeHeroImage } : {}),
+    ...(storeHeroVideo
+      ? {
+          heroVideo: storeHeroVideo,
+          ...(storeHeroImage && !VIDEO_EXT.test(storeHeroImage) ? { heroImage: storeHeroImage } : {}),
+        }
+      : storeHeroImage
+        ? { heroImage: storeHeroImage }
+        : {}),
   };
 
   const slugForUpdate = newSlug ?? store?.slug ?? businessData.slug;
@@ -919,6 +975,13 @@ export async function publishDraft(prisma, {
       : {}),
   };
   await syncPublishedStoreFromDraft(effectiveStoreId, rawPreviewForSync, publishedAt);
+  const slugApplied = await applyCanonicalSlugOnPublish(prisma, {
+    businessId: effectiveStoreId,
+    storeName,
+  });
+  if (slugApplied?.slug) {
+    newSlug = slugApplied.slug;
+  }
   await ensureBusinessPubliclyVisible(prisma, effectiveStoreId, publishedAt);
 
   await buildPersistAndApplyPublishedProjection(prisma, {

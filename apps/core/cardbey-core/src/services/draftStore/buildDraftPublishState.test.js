@@ -69,4 +69,34 @@ describe('buildDraftPublishState', () => {
     expect(state.draftHeroUrl).toBe('https://cdn.example.com/draft-hero.jpg');
     expect(state.publishedAt).toBeTruthy();
   });
+
+  it('detects unpublished video hero when draft has video and live has image only', async () => {
+    await prisma.business.update({
+      where: { id: businessId },
+      data: {
+        heroImageUrl: 'https://cdn.example.com/live-hero.jpg',
+        stylePreferences: { heroImage: 'https://cdn.example.com/live-hero.jpg' },
+      },
+    });
+    await prisma.draftStore.update({
+      where: { id: draftId },
+      data: {
+        preview: {
+          storeName: 'Pub State Store',
+          storeType: 'cafe',
+          heroMediaType: 'video',
+          heroVideoUrl: 'https://cdn.example.com/draft-video.mp4',
+          heroVideo: 'https://cdn.example.com/draft-video.mp4',
+          hero: { type: 'video', videoUrl: 'https://cdn.example.com/draft-video.mp4' },
+          items: [{ name: 'Latte', price: 5 }],
+          categories: [],
+        },
+      },
+    });
+    const draft = await prisma.draftStore.findUnique({ where: { id: draftId } });
+    const state = await buildDraftPublishState(prisma, draft);
+    expect(state.hasUnpublishedChanges).toBe(true);
+    expect(state.changeHints.some((h) => h.includes('Hero'))).toBe(true);
+    expect(state.draftHeroUrl).toBe('https://cdn.example.com/draft-video.mp4');
+  });
 });

@@ -1,0 +1,179 @@
+/**
+ * Unified business logo update for store + draft (Class A manual edit — no auto-republish).
+ */
+import { getDraft, patchDraftPreview } from './draftStoreService.js';
+import { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } from './publishSnapshotService.js';
+import {
+  assertHeroUpdateAccess,
+  resolveDraftForHeroUpdate,
+} from './heroUpdateService.js';
+
+function trimStr(v) {
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+function parsePreviewBlob(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw);
+      return o && typeof o === 'object' && !Array.isArray(o) ? { ...o } : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * @param {string} logoUrl
+ * @param {object} [existingPreview]
+ */
+export function buildLogoPreviewPatchFromUrl(logoUrl, existingPreview = {}) {
+  const url = trimStr(logoUrl);
+  if (!url) return {};
+
+  const existingAvatar =
+    existingPreview.avatar && typeof existingPreview.avatar === 'object'
+      ? { ...existingPreview.avatar }
+      : {};
+  const existingBrand =
+    existingPreview.brand && typeof existingPreview.brand === 'object'
+      ? { ...existingPreview.brand }
+      : {};
+  const existingMeta =
+    existingPreview.meta && typeof existingPreview.meta === 'object'
+      ? { ...existingPreview.meta }
+      : {};
+
+  return {
+    avatarImageUrl: url,
+    avatar: {
+      ...existingAvatar,
+      type: 'image',
+      source: 'upload',
+      imageUrl: url,
+      url,
+    },
+    brand: {
+      ...existingBrand,
+      logoUrl: url,
+    },
+    meta: {
+      ...existingMeta,
+      profileAvatarUrl: url,
+      logo: url,
+    },
+  };
+}
+
+/**
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} businessId
+ * @param {string} logoUrl
+ */
+export async function syncBusinessLogoProfile(prisma, businessId, logoUrl) {
+  const url = trimStr(logoUrl);
+  if (!url) return false;
+
+  const existing = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { logo: true },
+  });
+  if (!existing) return false;
+
+  let logoPayload = { url, avatarUrl: url };
+  if (existing.logo) {
+    try {
+      const prev = typeof existing.logo === 'string' ? JSON.parse(existing.logo) : existing.logo;
+      if (prev && typeof prev === 'object') {
+        logoPayload = { ...prev, url, avatarUrl: url };
+      }
+    } catch {
+      /* use fresh payload */
+    }
+  }
+
+  await prisma.business.update({
+    where: { id: businessId },
+    data: {
+      avatarImageUrl: url,
+      logo: JSON.stringify(logoPayload),
+      updatedAt: new Date(),
+    },
+  });
+  return true;
+}
+
+/**
+ * @param {object} params
+ * @param {import('@prisma/client').PrismaClient} params.prisma
+ * @param {string} params.userId
+ * @param {string|null} [params.storeId]
+ * @param {string|null} [params.draftId]
+ * @param {string|null} [params.generationRunId]
+ * @param {string} params.logoUrl
+ */
+export async function updateLogoForStore({
+  prisma,
+  userId,
+  storeId = null,
+  draftId = null,
+  generationRunId = null,
+  logoUrl,
+}) {
+  const url = trimStr(logoUrl);
+  if (!url) {
+    const err = new Error('No logo URL to save');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const draft = await assertHeroUpdateAccess(prisma, userId, { storeId, draftId, generationRunId });
+  const effectiveDraftId = draft?.id ?? (draftId ? String(draftId).trim() : null);
+  const effectiveStoreId =
+    (storeId && storeId !== 'temp' ? String(storeId).trim() : null) ||
+    (draft?.committedStoreId ? String(draft.committedStoreId).trim() : null);
+
+  let draftUpdated = false;
+  let businessUpdated = false;
+
+  if (effectiveDraftId) {
+    const fresh = await getDraft(effectiveDraftId);
+    const existingPreview = parsePreviewBlob(fresh?.preview);
+    const previewPatch = buildLogoPreviewPatchFromUrl(url, existingPreview);
+    await patchDraftPreview(effectiveDraftId, previewPatch);
+    draftUpdated = true;
+    if (isPublishSnapshotV1Enabled()) {
+      try {
+        await refreshPublishSnapshotFromCurrentPreview(prisma, effectiveDraftId);
+      } catch (snapErr) {
+        console.warn('[logoUpdateService] publish snapshot refresh failed (non-fatal):', snapErr?.message || snapErr);
+      }
+    }
+  } else if (storeId && storeId !== 'temp') {
+    const resolved = await resolveDraftForHeroUpdate(prisma, { storeId, draftId: null, generationRunId });
+    if (resolved?.id) {
+      const fresh = await getDraft(resolved.id);
+      const existingPreview = parsePreviewBlob(fresh?.preview);
+      const previewPatch = buildLogoPreviewPatchFromUrl(url, existingPreview);
+      await patchDraftPreview(resolved.id, previewPatch);
+      draftUpdated = true;
+    }
+  }
+
+  if (effectiveStoreId) {
+    businessUpdated = await syncBusinessLogoProfile(prisma, effectiveStoreId, url);
+  }
+
+  return {
+    ok: true,
+    draftId: effectiveDraftId,
+    storeId: effectiveStoreId,
+    logoUrl: url,
+    avatarImageUrl: url,
+    draftUpdated,
+    businessUpdated,
+  };
+}

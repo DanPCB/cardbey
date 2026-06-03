@@ -23,8 +23,12 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.join(__dirname, '..', '..');
 const envPath = path.join(PACKAGE_ROOT, '.env');
+const envLocalPath = path.join(PACKAGE_ROOT, '.env.local');
 if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath, override: false });
+}
+if (fs.existsSync(envLocalPath)) {
+  dotenv.config({ path: envLocalPath, override: true });
 }
 
 /** Paths wiped on Render/container restart — must not be used in production. */

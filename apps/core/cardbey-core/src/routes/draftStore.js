@@ -43,6 +43,7 @@ import {
   isPublishSnapshotV1Enabled,
   PublishSnapshotError,
 } from '../services/draftStore/publishSnapshotService.js';
+import { enforcePublishHeroCanonical } from '../services/draftStore/heroPublishInvariant.js';
 
 /** Single shared Prisma client (same as rest of app). Ensures draft create and summary read use same DB. */
 const prisma = getPrismaClient();
@@ -854,7 +855,30 @@ router.post('/:draftId/publish', requireAuth, async (req, res, next) => {
       console.warn('[PUBLISH_SOURCE_CHECK] log_failed', logErr?.message || logErr);
     }
 
+    const previewRawForHero =
+      typeof draft.preview === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(draft.preview);
+            } catch {
+              return {};
+            }
+          })()
+        : draft.preview || {};
+    enforcePublishHeroCanonical(previewRawForHero, { source: 'draft_store_publish_draft_preview' });
     const previewOverride = snapshotToPreviewShape(snapshot);
+    if (previewRawForHero.heroVideoUrl || previewRawForHero.heroMediaType === 'video') {
+      previewOverride.heroVideoUrl = previewRawForHero.heroVideoUrl;
+      previewOverride.heroVideo = previewRawForHero.heroVideo;
+      previewOverride.heroMediaType = previewRawForHero.heroMediaType;
+      previewOverride.heroPosterUrl = previewRawForHero.heroPosterUrl;
+      previewOverride.heroPoster = previewRawForHero.heroPoster;
+      if (previewRawForHero.hero && typeof previewRawForHero.hero === 'object') {
+        previewOverride.hero = { ...previewRawForHero.hero };
+      }
+    }
+    enforcePublishHeroCanonical(previewOverride, { source: 'draft_store_publish_snapshot' });
+
     const storeId =
       body.storeId && typeof body.storeId === 'string' && body.storeId.trim()
         ? body.storeId.trim()
@@ -1237,6 +1261,8 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
 
     // Return same shape as GET /api/stores/temp/draft so frontend normalizer gets products/categories and does not overwrite good state
     const preview = typeof draft.preview === 'string' ? JSON.parse(draft.preview) : (draft.preview || {});
+    const { readCanonicalHeroFromPreview } = await import('../services/draftStore/draftPreviewHeroSync.js');
+    const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(preview);
     const products = (Array.isArray(preview.items) ? preview.items : preview.products || []).map((item) => ({
       ...item,
       description: item?.description ?? null,
@@ -1274,6 +1300,10 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
       products,
       categories,
       preview: draft.preview,
+      heroImageUrl: isVideo ? (heroImage || heroVideo || undefined) : (heroImage || heroVideo || undefined),
+      heroVideoUrl: heroVideo || undefined,
+      heroVideo: heroVideo || undefined,
+      heroMediaType: isVideo ? 'video' : heroImage || heroVideo ? 'image' : undefined,
       mode: draft.mode,
       input: draft.input,
       error: draft.error,

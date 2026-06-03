@@ -36,6 +36,19 @@ function asObj(v) {
   return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 }
 
+/** @param {string} userId */
+export function draftOwnerWhere(userId) {
+  const uid = str(userId);
+  if (!uid) return { ownerUserId: '__none__' };
+  if (uid.toLowerCase().startsWith('guest_')) {
+    const guestSessionId = uid.slice(6);
+    return {
+      OR: [{ ownerUserId: uid }, ...(guestSessionId ? [{ guestSessionId }] : [])],
+    };
+  }
+  return { ownerUserId: uid };
+}
+
 /**
  * @param {object|null|undefined} row MissionPipeline row or summary
  */
@@ -128,18 +141,66 @@ export async function resolveStoreReadiness(input) {
   if (!storeId && userId) {
     const latestDraft = await prisma.draftStore.findFirst({
       where: {
-        ownerUserId: userId,
+        ...draftOwnerWhere(userId),
         status: { in: ['ready', 'generating', 'draft', 'committed'] },
       },
       orderBy: { updatedAt: 'desc' },
       select: { id: true, status: true, committedStoreId: true },
     });
     if (latestDraft) {
-      return resolveStoreReadiness({
-        userId,
-        storeId: latestDraft.committedStoreId,
-        draftId: latestDraft.id,
+      if (latestDraft.committedStoreId) {
+        return resolveStoreReadiness({
+          userId,
+          storeId: latestDraft.committedStoreId,
+          draftId: latestDraft.id,
+        });
+      }
+      const st = str(latestDraft.status).toLowerCase();
+      if (st === 'generating' || st === 'draft') {
+        return buildStoreReadinessResult({
+          exists: true,
+          readinessState: STORE_READINESS.DRAFT_CREATED,
+          storeId: null,
+          draftId: latestDraft.id,
+          blockingIssues: [{ type: 'draft_generating', message: 'Your store draft is still being created.' }],
+          recommendedActions: ['wait_for_draft'],
+          operationalCapabilities: { canPreview: false, canPublish: false, canCampaign: false },
+        });
+      }
+      if (st === 'ready' || st === 'committed') {
+        return buildStoreReadinessResult({
+          exists: true,
+          readinessState: STORE_READINESS.DRAFT_READY,
+          storeId: latestDraft.committedStoreId || null,
+          draftId: latestDraft.id,
+          blockingIssues: [{ type: 'unpublished', message: 'Your store is ready to publish.' }],
+          recommendedActions: ['publish_store', 'connect_domain', 'review_store_draft'],
+          operationalCapabilities: { canPreview: true, canPublish: true, canCampaign: false },
+        });
+      }
+    }
+  }
+
+  if (!storeId && userId) {
+    const ownedStores = await prisma.business.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      take: 2,
+      select: { id: true },
+    });
+    if (ownedStores.length >= 2) {
+      return buildStoreReadinessResult({
+        exists: true,
+        readinessState: STORE_READINESS.ACTIVE,
+        storeId: null,
+        draftId: null,
+        blockingIssues: [{ type: 'store_selection_required', message: 'Choose which store to use.' }],
+        recommendedActions: ['select_existing_store'],
+        operationalCapabilities: { canPreview: false, canPublish: false, canCampaign: false },
       });
+    }
+    if (ownedStores.length === 1) {
+      return resolveStoreReadiness({ userId, storeId: ownedStores[0].id, draftId });
     }
   }
 

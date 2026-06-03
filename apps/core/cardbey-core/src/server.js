@@ -73,11 +73,12 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import compression from 'compression';
 import pairRouter from './routes/pair.js';
-import { corsOptions, WHITELIST, isOriginAllowed } from './config/cors.js';
+import { corsOptions, CORS_API_ALLOWED_HEADERS_VALUE, WHITELIST, isOriginAllowed } from './config/cors.js';
 import healthRoutes from './routes/healthRoutes.js';
 import systemRoutes from './routes/systemRoutes.js';
 import { initializeDatabase, testDatabaseConnection, getPrismaClient } from './lib/prisma.js';
 import { signalShutdown } from './lib/coreShutdown.js';
+import { flushWriteQueue } from './lib/sqliteWriteQueue.js';
 import { bootstrapSuperAdmin } from './lib/bootstrapSuperAdmin.js';
 import { startHeartbeat, getStatus as getSchedulerStatus } from './scheduler/heartbeat.js';
 import { startQaSweepScheduler } from './services/qa/qaSweepScheduler.js';
@@ -95,6 +96,11 @@ import adminPipelineRoutes from './routes/admin/pipeline.js';
 import adminEventsRoutes from './routes/admin/events.js';
 import adminCaiRoutes from './routes/admin/cai.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
+import {
+  applyUploadsMediaHeaders,
+  logMediaStaticResponse,
+  resolveUploadContentType,
+} from './lib/uploadsStatic.js';
 import { startOfflineWatcher } from './worker/offlineWatcher.js';
 import { startSessionCleanup } from './worker/sessionCleanup.js';
 import { startDeviceCleanupWorker } from './worker/deviceCleanup.js';
@@ -275,8 +281,8 @@ app.use((req, res, next) => {
   if (pathNoQuery.startsWith('/uploads')) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, If-Range, Origin');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Max-Age', '86400');
       return res.status(204).end();
@@ -332,7 +338,10 @@ app.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (!res.getHeader('Access-Control-Allow-Headers')) {
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, x-cardbey-context, x-user-key, X-User-Key, Last-Event-ID, Content-Length, Accept, Origin, Range, If-Range');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        `${CORS_API_ALLOWED_HEADERS_VALUE}, Range, If-Range`,
+      );
     }
     if (!res.getHeader('Access-Control-Allow-Credentials')) {
       // Only set to true if origin is not *
@@ -359,8 +368,8 @@ app.options('*', (req, res) => {
   if (optPath.startsWith('/uploads')) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, If-Range, Origin');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     res.setHeader('Access-Control-Max-Age', '86400');
     return res.status(204).end();
   }
@@ -389,7 +398,10 @@ app.options('*', (req, res) => {
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, x-cardbey-context, x-user-key, X-User-Key, Last-Event-ID, Content-Length, Accept, Origin, Range, If-Range');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    `${CORS_API_ALLOWED_HEADERS_VALUE}, Range, If-Range`,
+  );
   res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
   
   // Return 204 No Content for preflight (CORS spec)
@@ -597,116 +609,127 @@ app.use(runwayLegacyGuard);
 // Serve uploads reliably (before routes)
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-// Helper function to detect Content-Type from file path
-// Handles files with or without extensions, and detects video vs image
-function detectContentType(filePath) {
-  if (!filePath) return null;
-  
-  // Extract extension from file path
-  // path.extname() works even if there are query params in the original URL
-  // because filePath is the actual file system path, not the URL
-  let ext = path.extname(filePath).toLowerCase();
-  
-  // Video formats - all support Range requests for streaming
-  if (ext === '.mp4' || ext === '.m4v') {
-    return { type: 'video/mp4', supportsRange: true };
-  } else if (ext === '.webm') {
-    return { type: 'video/webm', supportsRange: true };
-  } else if (ext === '.mov') {
-    return { type: 'video/quicktime', supportsRange: true };
-  } else if (ext === '.avi') {
-    return { type: 'video/x-msvideo', supportsRange: true };
-  } else if (ext === '.mkv') {
-    return { type: 'video/x-matroska', supportsRange: true };
-  } else if (ext === '.flv') {
-    return { type: 'video/x-flv', supportsRange: true };
-  } else if (ext === '.m3u8') {
-    return { type: 'application/vnd.apple.mpegurl', supportsRange: false }; // HLS playlist
-  }
-  // Image formats
-  else if (ext === '.jpg' || ext === '.jpeg') {
-    return { type: 'image/jpeg', supportsRange: false };
-  } else if (ext === '.png') {
-    return { type: 'image/png', supportsRange: false };
-  } else if (ext === '.gif') {
-    return { type: 'image/gif', supportsRange: false };
-  } else if (ext === '.webp') {
-    return { type: 'image/webp', supportsRange: false };
-  } else if (ext === '.svg') {
-    return { type: 'image/svg+xml', supportsRange: false };
-  }
-  
-  // Fallback: If no extension, try to infer from file path
-  // This is a last resort - files should have extensions in production
-  if (!ext) {
-    const lowerPath = filePath.toLowerCase();
-    // Check if file path suggests it's a video (e.g., contains 'video' or 'optimized')
-    if (lowerPath.includes('video') || lowerPath.includes('optimized')) {
-      // Default to mp4 for video files without extension
-      console.warn('[UPLOADS] File has no extension, inferring video/mp4 from path:', path.basename(filePath));
-      return { type: 'video/mp4', supportsRange: true };
-    }
-  }
-  
-  return null;
-}
 
 // OPTIONS for /uploads is handled in the global CORS middleware (before app.options('*')) so Range is allowed
 
-// Middleware to capture request path for Content-Type detection
-// This allows us to detect extension even if URL has query params
+// Explicit video route (narrow) BEFORE express.static to ensure correct Range semantics in all browsers.
+app.all(['/uploads/media/:filename', '/uploads/media/:filename/*'], (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return res.status(405).end();
+  }
+  try {
+    const filenameRaw = String(req.params.filename || '');
+    const filename = path.basename(filenameRaw);
+    const mediaDir = path.join(uploadsDir, 'media');
+    const filePath = path.join(mediaDir, filename);
+
+    const exists = fs.existsSync(filePath);
+    let size = null;
+    try {
+      if (exists) size = fs.statSync(filePath).size;
+    } catch {
+      size = null;
+    }
+
+    const range = req.headers.range ? String(req.headers.range) : null;
+    console.log('[media-video] request', { file: filename, exists, size, range });
+
+    // Always set the required CORS + Range headers for <video>.
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    const contentTypeInfo = resolveUploadContentType(filePath, `/uploads/media/${filename}`);
+    res.setHeader('Content-Type', contentTypeInfo?.type || 'video/mp4');
+
+    if (!exists || !size) {
+      console.log('[media-video] response', {
+        status: 404,
+        contentType: res.getHeader('Content-Type') ?? null,
+        contentRange: null,
+        contentLength: null,
+      });
+      return res.status(404).end();
+    }
+
+    if (req.method === 'HEAD') {
+      res.setHeader('Content-Length', String(size));
+      console.log('[media-video] response', {
+        status: 200,
+        contentType: res.getHeader('Content-Type') ?? null,
+        contentRange: null,
+        contentLength: size,
+      });
+      return res.status(200).end();
+    }
+
+    if (range && range.startsWith('bytes=')) {
+      const m = range.replace(/^bytes=/, '').match(/^(\d*)-(\d*)$/);
+      if (m) {
+        const start = m[1] ? Number(m[1]) : 0;
+        const end = m[2] ? Number(m[2]) : size - 1;
+        const safeStart = Number.isFinite(start) ? Math.max(0, start) : 0;
+        const safeEnd = Number.isFinite(end) ? Math.min(size - 1, end) : size - 1;
+        const chunkSize = safeEnd - safeStart + 1;
+
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${safeStart}-${safeEnd}/${size}`);
+        res.setHeader('Content-Length', String(chunkSize));
+
+        console.log('[media-video] response', {
+          status: 206,
+          contentType: res.getHeader('Content-Type') ?? null,
+          contentRange: res.getHeader('Content-Range') ?? null,
+          contentLength: chunkSize,
+        });
+
+        return fs
+          .createReadStream(filePath, { start: safeStart, end: safeEnd })
+          .pipe(res);
+      }
+    }
+
+    res.setHeader('Content-Length', String(size));
+    console.log('[media-video] response', {
+      status: 200,
+      contentType: res.getHeader('Content-Type') ?? null,
+      contentRange: null,
+      contentLength: size,
+    });
+    return fs.createReadStream(filePath).pipe(res);
+  } catch (e) {
+    console.warn('[media-video] handler failed', e?.message || e);
+    return res.status(500).end();
+  }
+});
+
 app.use('/uploads', (req, res, next) => {
-  // Store request path in res.locals for use in setHeaders
   res.locals.requestPath = req.path;
+  res.on('finish', () => logMediaStaticResponse(req, res));
   next();
 });
 
 app.use('/uploads', express.static(uploadsDir, {
-  fallthrough: true, // Changed to true to allow custom 404 handling
+  fallthrough: true,
   etag: true,
   lastModified: true,
   immutable: true,
   maxAge: '365d',
   setHeaders(res, filePath, stat) {
-    // Get clean path and extension ignoring query params
     const cleanPath = filePath ? filePath.split('?')[0] : '';
     const ext = path.extname(cleanPath).toLowerCase();
-    
-    // CORS headers for cross-origin video/image loading (CORE-003)
-    res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Range, Content-Type, Authorization');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Type');
-    res.setHeader('Accept-Ranges', 'bytes'); // Critical for video streaming
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    
-    // Set proper Content-Type for video/image files (critical for playback) - CORE-002
-    // Try to detect from file path first (most reliable)
-    let contentTypeInfo = detectContentType(filePath);
-    
-    // If no extension in file path, try to get it from request URL path
-    // This handles cases where URL has query params: /uploads/video.mp4?id=123
-    if (!contentTypeInfo && res.locals?.requestPath) {
-      const urlPath = res.locals.requestPath.split('?')[0].split('#')[0];
-      const urlExt = path.extname(urlPath).toLowerCase();
-      if (urlExt) {
-        // Create a temporary path with the extension to use detectContentType
-        contentTypeInfo = detectContentType(`temp${urlExt}`);
-      }
-    }
-    
-    // If extension is missing, log warning
-    if (!ext && stat && stat.isFile()) {
+    const contentTypeInfo = resolveUploadContentType(filePath, res.locals?.requestPath);
+
+    if (!ext && stat?.isFile()) {
       console.warn('[server] No extension for static file:', cleanPath);
     }
-    
-    if (contentTypeInfo) {
-      res.setHeader('Content-Type', contentTypeInfo.type);
-    } else {
-      // Log warning when content type can't be determined
-      if (!res.getHeader('Content-Type')) {
-        console.warn('[server] Unable to determine Content-Type for:', cleanPath);
-      }
+
+    const contentType = contentTypeInfo?.type ?? null;
+    applyUploadsMediaHeaders(res, contentType);
+
+    if (!contentType && !res.getHeader('Content-Type')) {
+      console.warn('[server] Unable to determine Content-Type for:', cleanPath);
     }
   },
 }));
@@ -1219,7 +1242,12 @@ if (process.env.ROLE === 'api') {
       console.warn('[CORE] Shutdown timeout — forcing exit');
       process.exit(1);
     }, SHUTDOWN_FORCE_MS);
-    server.close(() => {
+    server.close(async () => {
+      try {
+        await flushWriteQueue();
+      } catch {
+        /* non-fatal */
+      }
       clearTimeout(forceTimer);
       console.log('[CORE] HTTP server closed');
       process.exit(0);
@@ -1233,7 +1261,12 @@ if (process.env.ROLE === 'api') {
       console.warn('[CORE] Shutdown timeout — forcing exit');
       process.exit(1);
     }, SHUTDOWN_FORCE_MS);
-    server.close(() => {
+    server.close(async () => {
+      try {
+        await flushWriteQueue();
+      } catch {
+        /* non-fatal */
+      }
       clearTimeout(forceTimer);
       console.log('[CORE] HTTP server closed');
       process.exit(0);

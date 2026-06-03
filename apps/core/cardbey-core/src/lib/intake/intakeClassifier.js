@@ -5,6 +5,7 @@
 
 import { llmGateway } from '../llm/llmGateway.ts';
 import { getBlackboardContextSummary } from '../blackboard/blackboardContextSummary.js';
+import { formatHydratedContextForPrompt } from '../memory/plannerResolutionPrompt.js';
 import { formatToolRegistryForPrompt, isRegisteredTool, getToolEntry, RISK } from './intakeToolRegistry.js';
 
 export const CONFIDENCE = {
@@ -31,12 +32,20 @@ export const FALLBACK_CLARIFY = {
  * @param {object} args
  * @param {string} args.userMessage
  * @param {{ storeId?: string | null, draftId?: string | null, missionId?: string | null }} [args.storeContext] — missionId loads recent blackboard context into the prompt when set
+ * @param {import('../memory/memoryHydrator.js').HydratedContext} [args.hydratedContext] — memory layer entity + episodic context
  * @param {Array<{ role: string, content: string }>} [args.conversationHistory]
  * @param {string} [args.locale]
  * @param {string} [args.tenantKey]
  * @param {string | null | undefined} [args.missionId] — explicit mission (e.g. req.body); overrides storeContext.missionId
  */
-async function buildClassifierPrompt({ userMessage, storeContext, conversationHistory, locale, missionId }) {
+async function buildClassifierPrompt({
+  userMessage,
+  storeContext,
+  conversationHistory,
+  locale,
+  missionId,
+  hydratedContext,
+}) {
   const langLine =
     locale === 'vi'
       ? 'Respond in Vietnamese for natural language strings (message, reasoning, clarifyOptions labels).'
@@ -60,6 +69,10 @@ async function buildClassifierPrompt({ userMessage, storeContext, conversationHi
     ? `## Active mission context\n${await getBlackboardContextSummary(missionId)}\n`
     : '';
 
+  const memoryBlock = hydratedContext
+    ? `## Resolved memory context\n${formatHydratedContextForPrompt(hydratedContext)}\n`
+    : '';
+
   return `You are Performer, an AI business assistant for SMBs. Classify the user message.
 
 ## Available tools
@@ -67,6 +80,7 @@ ${toolList}
 
 ${storeBlock}
 ${missionBlock}
+${memoryBlock}
 ${historyBlock}
 ## Rules
 - Output ONE JSON object only (no markdown).
@@ -212,6 +226,7 @@ export async function classifyIntent(opts) {
     tenantKey = 'intake-v2',
     originSurface,
     missionId: missionIdOpt,
+    hydratedContext: hydratedContextOpt,
   } = opts;
 
   const msg = String(userMessage ?? '').trim();
@@ -229,6 +244,7 @@ export async function classifyIntent(opts) {
     conversationHistory,
     locale,
     missionId,
+    hydratedContext: hydratedContextOpt ?? null,
   });
 
   let text = '';

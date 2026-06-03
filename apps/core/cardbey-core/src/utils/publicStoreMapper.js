@@ -19,8 +19,6 @@ import { coerceServiceCtaLabel } from '../lib/storeTransactionMode.js';
 export function toPublicStore(business, options = {}) {
   const { lang } = options;
 
-  console.log('[DEBUG socialLinks]', business?.socialLinks);
-  
   // Parse logo if it's a JSON string (supports url, avatarUrl, bannerUrl, heroUrl, coverUrl)
   let avatarUrl = null;
   let bannerUrl = null;
@@ -117,6 +115,8 @@ export function toPublicStore(business, options = {}) {
     bannerUrl: resolvedBannerUrl,
     heroUrl: resolvedBannerUrl,
     heroVideo: heroVideo ?? null,
+    heroVideoUrl: heroVideo ?? null,
+    heroMediaType: heroVideo ? 'video' : resolvedHeroImage || resolvedHeroUrl ? 'image' : null,
     heroImage: resolvedHeroImage ?? (resolvedHeroUrl && !heroVideo ? resolvedHeroUrl : null),
     city: null, // Can be extracted from region if needed
     country: null, // Can be extracted from region if needed

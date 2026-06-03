@@ -4,6 +4,10 @@
  */
 
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
+import {
+  applyPipelineGeneratedHeroImage,
+  getExistingVideoUrlFromPreview,
+} from './draftPreviewHeroSync.js';
 
 /**
  * @param {string} storeType
@@ -36,7 +40,9 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
   if (!preview || typeof preview !== 'object') return;
 
   const heroUrl = preview.heroImageUrl ?? preview.hero?.imageUrl ?? preview.hero?.url ?? null;
-  if (heroUrl && !preview.heroImageUrl) preview.heroImageUrl = heroUrl;
+  if (heroUrl && !preview.heroImageUrl && !getExistingVideoUrlFromPreview(preview)) {
+    applyPipelineGeneratedHeroImage(preview, heroUrl, { writer: 'mergeWebsiteIntoPreview' });
+  }
 
   const avUrl = preview.avatarUrl ?? preview.avatar?.imageUrl ?? preview.avatar?.url ?? null;
   if (avUrl && !preview.avatarUrl) preview.avatarUrl = avUrl;

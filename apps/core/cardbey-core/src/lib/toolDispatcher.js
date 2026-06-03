@@ -21,6 +21,7 @@ import {
   detectExecutionDuplication,
   incrementRuntimeAuthorityMetric,
 } from './runtime/performerRuntime/runtimeAuthorityStaging.js';
+import { writeEpisodicEventAsync } from './memory/episodicWriter.js';
 
 /**
  * @typedef {import('./toolRegistry.js').ToolDefinition} ToolDefinition
@@ -155,6 +156,15 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
     (typeof ctx.missionId === 'string' && ctx.missionId.trim()) ||
     (typeof ctx.activeMissionId === 'string' && ctx.activeMissionId.trim()) ||
     null;
+  const episodicUserId =
+    (typeof ctx.userId === 'string' && ctx.userId.trim()) ||
+    (typeof ctx.actorId === 'string' && ctx.actorId.trim()) ||
+    (typeof ctx.executionFrame?.userId === 'string' && ctx.executionFrame.userId.trim()) ||
+    null;
+  const resolvedStoreId =
+    (typeof ctx.storeId === 'string' && ctx.storeId.trim()) ||
+    (typeof input?.storeId === 'string' && input.storeId.trim()) ||
+    null;
   const intentId = typeof ctx.intentId === 'string' && ctx.intentId.trim() ? ctx.intentId.trim() : null;
   const telemetrySource =
     typeof ctx.source === 'string' && ctx.source.trim() ? ctx.source.trim() : 'tool_dispatcher';
@@ -205,6 +215,20 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
       incrementRuntimeAuthorityMetric('telemetryEmitted');
     }
     const status = result?.status === 'blocked' ? 'blocked' : result?.status === 'failed' ? 'failed' : 'ok';
+    if (episodicUserId) {
+      const outStoreId =
+        (result?.output && typeof result.output === 'object' && result.output.storeId) ||
+        resolvedStoreId;
+      writeEpisodicEventAsync({
+        userId: episodicUserId,
+        missionId,
+        type: 'execution_outcome',
+        toolName: name,
+        storeId: typeof outStoreId === 'string' ? outStoreId : null,
+        result: status === 'ok' ? 'success' : 'error',
+        errorMsg: status === 'ok' ? null : result?.error?.message ?? result?.blocker?.message ?? null,
+      });
+    }
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[ToolDispatcher] completed tool: ${name} status=${status}`);
     }
@@ -216,6 +240,17 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
     };
   } catch (err) {
     const message = err?.message || String(err);
+    if (episodicUserId) {
+      writeEpisodicEventAsync({
+        userId: episodicUserId,
+        missionId,
+        type: 'execution_outcome',
+        toolName: name,
+        storeId: resolvedStoreId,
+        result: 'error',
+        errorMsg: message,
+      });
+    }
     if (name === 'create_store') {
       console.error('[create_store] FAILED:', message, err?.stack);
       throw err;

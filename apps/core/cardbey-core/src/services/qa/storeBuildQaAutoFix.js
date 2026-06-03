@@ -787,9 +787,10 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
       orientation: 'landscape',
     });
     if (heroUrl) {
-      preview.hero = { ...(preview.hero && typeof preview.hero === 'object' ? preview.hero : {}), imageUrl: heroUrl };
-      preview.heroImageUrl = heroUrl;
-      autoFixed.push('hero');
+      const { applyPipelineGeneratedHeroImage } = await import('../draftStore/draftPreviewHeroSync.js');
+      if (applyPipelineGeneratedHeroImage(preview, heroUrl, { writer: 'storeBuildQaAutoFix', draftId })) {
+        autoFixed.push('hero');
+      }
     }
   }
 

@@ -7,6 +7,7 @@
 
 import { isDraftStoreTransitionAllowed, isOrchestratorTaskTransitionAllowed } from './transitionRules.js';
 import { mirrorOrchestraStatusToPipeline } from '../../lib/orchestraMirror.js';
+import { runCriticalSqliteWriteWithP1008Retry } from '../../lib/sqliteCriticalWrite.js';
 
 const WORKFLOW_KEY_STORE_CREATION = 'store_creation';
 const TERMINAL_SUCCESS_STATUSES = new Set(['ready', 'committed']);
@@ -280,10 +281,14 @@ export async function transitionOrchestratorTaskStatus({
   try {
     // Special case: queued->running must be atomic (updateMany)
     if (expectedFrom === 'queued' && to === 'running') {
-      const { count } = await prisma.orchestratorTask.updateMany({
-        where: { id: taskId, status: 'queued' },
-        data: { status: 'running', updatedAt: new Date() },
-      });
+      const { count } = await runCriticalSqliteWriteWithP1008Retry(
+        () =>
+          prisma.orchestratorTask.updateMany({
+            where: { id: taskId, status: 'queued' },
+            data: { status: 'running', updatedAt: new Date() },
+          }),
+        { label: 'orchestratorTask.updateMany', logPrefix: '[OrchestratorTask]' },
+      );
       if (process.env.NODE_ENV !== 'production') {
         console.log('[OrchestratorTask:update]', { taskId, fromStatus: 'queued', toStatus: 'running' });
       }
@@ -358,10 +363,14 @@ export async function transitionOrchestratorTaskStatus({
       ...(result != null ? { result } : {}),
     };
 
-    await prisma.orchestratorTask.update({
-      where: { id: taskId },
-      data: updateData,
-    });
+    await runCriticalSqliteWriteWithP1008Retry(
+      () =>
+        prisma.orchestratorTask.update({
+          where: { id: taskId },
+          data: updateData,
+        }),
+      { label: 'orchestratorTask.update', logPrefix: '[OrchestratorTask]' },
+    );
 
     if (process.env.NODE_ENV !== 'production') {
       console.log('[OrchestratorTask:update]', { taskId, fromStatus: before, toStatus: to });

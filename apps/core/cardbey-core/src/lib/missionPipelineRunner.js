@@ -25,7 +25,11 @@ import { appendEvent as appendBlackboardEvent } from './missionBlackboard.js';
 import { AgentCoordinator } from './orchestration/agentCoordinator.js';
 import { getMissionParentMissionId } from './mission/missionParentLineage.js';
 import { createOrchestrationBlackboard } from './orchestration/blackboardWriteBuffer.js';
-import { safePipelineUpdate, safePipelineStepUpdate } from './safePipelineUpdate.js';
+import { safePipelineUpdate, safeMissionPipelineStepUpdate } from './safePipelineUpdate.js';
+import {
+  markMissionPipelineExecuting,
+  clearMissionPipelineExecuting,
+} from './missionExecutionGuard.js';
 import { normalizeLocale } from './localePrompt.js';
 import { resolveCheckpointOptionsForLocale } from './missionPipelineStructured.js';
 
@@ -302,17 +306,21 @@ async function recoverOrphanedRunningSteps(prisma, missionId, steps) {
   console.warn('[MissionRunner] found orphaned running steps on resume:', orphaned.map((s) => s.toolName));
   const now = new Date();
   for (const step of orphaned) {
-    await safePipelineStepUpdate(prisma, {
-      where: { id: step.id },
-      data: {
-        status: 'failed',
-        completedAt: now,
-        errorJson: {
-          code: 'orphaned_on_resume',
-          message: 'Step was still running when the pipeline resumed; marked failed so the mission can retry.',
+    await safeMissionPipelineStepUpdate(
+      prisma,
+      {
+        where: { id: step.id },
+        data: {
+          status: 'failed',
+          completedAt: now,
+          errorJson: {
+            code: 'orphaned_on_resume',
+            message: 'Step was still running when the pipeline resumed; marked failed so the mission can retry.',
+          },
         },
       },
-    });
+      { missionId },
+    );
   }
   return prisma.missionPipelineStep.findMany({
     where: { missionId },
@@ -336,6 +344,19 @@ export async function runNextMissionPipelineStep(missionId) {
     return { ok: false, error: 'mission_id_required' };
   }
 
+  markMissionPipelineExecuting(id);
+  try {
+    return await runNextMissionPipelineStepBody(prisma, id);
+  } finally {
+    clearMissionPipelineExecuting(id);
+  }
+}
+
+/**
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
+ * @param {string} id
+ */
+async function runNextMissionPipelineStepBody(prisma, id) {
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[MissionRunner] running next step for mission=${id}`);
   }
@@ -345,7 +366,7 @@ export async function runNextMissionPipelineStep(missionId) {
     include: { steps: { orderBy: { orderIndex: 'asc' } } },
   });
   console.log('[RUNNER_DEBUG] mission status check:', {
-    missionId,
+    missionId: id,
     status: mission?.status,
     runState: mission?.runState,
     stepsCount: mission?.steps?.length,
@@ -408,10 +429,14 @@ export async function runNextMissionPipelineStep(missionId) {
       ...cfg,
       awaitingSince: new Date().toISOString(),
     };
-    await safePipelineStepUpdate(prisma, {
-      where: { id: nextStep.id },
-      data: { status: 'awaiting_input', configJson: mergedConfig },
-    });
+    await safeMissionPipelineStepUpdate(
+      prisma,
+      {
+        where: { id: nextStep.id },
+        data: { status: 'awaiting_input', configJson: mergedConfig },
+      },
+      { missionId: id },
+    );
     if (!canTransitionMissionPipeline('executing', 'awaiting_input')) {
       return { ok: false, error: 'transition_denied_checkpoint', status: mission.status };
     }
@@ -451,7 +476,7 @@ export async function runNextMissionPipelineStep(missionId) {
 
   console.log('[RUNNER_DEBUG] dispatching tool:', {
     toolName,
-    missionId,
+    missionId: id,
     stepId: nextStep?.id,
     stepKind,
   });
@@ -471,10 +496,14 @@ export async function runNextMissionPipelineStep(missionId) {
     });
   }
 
-  await safePipelineStepUpdate(prisma, {
-    where: { id: nextStep.id },
-    data: { status: 'running', startedAt: new Date() },
-  });
+  await safeMissionPipelineStepUpdate(
+    prisma,
+    {
+      where: { id: nextStep.id },
+      data: { status: 'running', startedAt: new Date() },
+    },
+    { missionId: id },
+  );
 
   const stepOutputs = buildStepOutputsFromSteps(steps);
   let input = buildStepInput(mission, nextStep);
@@ -522,10 +551,14 @@ export async function runNextMissionPipelineStep(missionId) {
 
     dispatchToolName = conditionResult ? cfg.ifTrueTool : cfg.ifFalseTool;
     if (!dispatchToolName || typeof dispatchToolName !== 'string') {
-      await safePipelineStepUpdate(prisma, {
-        where: { id: nextStep.id },
-        data: { status: 'failed', errorJson: { code: 'conditional_missing_branch' }, completedAt: new Date() },
-      });
+      await safeMissionPipelineStepUpdate(
+        prisma,
+        {
+          where: { id: nextStep.id },
+          data: { status: 'failed', errorJson: { code: 'conditional_missing_branch' }, completedAt: new Date() },
+        },
+        { missionId: id },
+      );
       await safePipelineUpdate(prisma, {
         where: { id },
         data: { status: 'failed', runState: 'error', failedAt: new Date() },
@@ -579,10 +612,14 @@ export async function runNextMissionPipelineStep(missionId) {
     errorJson: result.error ?? null,
     status: result.status === 'ok' ? 'completed' : result.status === 'blocked' ? 'blocked' : 'failed',
   };
-  await safePipelineStepUpdate(prisma, {
-    where: { id: nextStep.id },
-    data: stepUpdate,
-  });
+  await safeMissionPipelineStepUpdate(
+    prisma,
+    {
+      where: { id: nextStep.id },
+      data: stepUpdate,
+    },
+    { missionId: id },
+  );
 
   // Persist accumulated stepOutputs so consensus engine (Step 4) can read prior run's MarketReport without re-calling researcher.
   // Merge prior mission.outputsJson first so owner checkpoint fields (logoChoice, heroImageChoice) survive tools that share toolName keys in stepOutputs.

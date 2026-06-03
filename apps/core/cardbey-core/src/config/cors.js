@@ -82,6 +82,31 @@ export function isOriginAllowed(origin) {
  * In development: Allows all origins for easier testing
  * In production: Uses whitelist
  */
+/** Shared allowlist for JSON API preflight (used by cors middleware and server.js fallbacks). */
+export const CORS_API_ALLOWED_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'Pragma', // Required - browser sends this header
+  'Cache-Control',
+  'X-Requested-With',
+  'x-cardbey-context',
+  'x-user-key', // Performer app uses this header
+  'X-User-Key', // Also support uppercase variant
+  'Last-Event-ID',
+  // Locale (dashboard apiFetch / intake)
+  'x-locale',
+  'X-Locale',
+  // Dev routing marker (legacy clients; harmless when absent)
+  'x-local',
+  'X-Local',
+  // File upload headers
+  'Content-Length',
+  'Accept',
+  'Origin',
+];
+
+export const CORS_API_ALLOWED_HEADERS_VALUE = CORS_API_ALLOWED_HEADERS.join(', ');
+
 export const corsOptions = {
   origin(origin, callback) {
     // In development, allow all origins
@@ -97,21 +122,7 @@ export const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'Pragma', // Required - browser sends this header
-    'Cache-Control',
-    'X-Requested-With',
-    'x-cardbey-context',
-    'x-user-key', // Performer app uses this header
-    'X-User-Key', // Also support uppercase variant
-    'Last-Event-ID',
-    // File upload headers
-    'Content-Length',
-    'Accept',
-    'Origin',
-  ],
+  allowedHeaders: CORS_API_ALLOWED_HEADERS,
   exposedHeaders: ['Content-Length'],
   maxAge: 86400, // 24 hours
 };
