@@ -297,6 +297,27 @@ export function resolveCanonicalHeroMediaFromPreview(rawPreview) {
 }
 
 /**
+ * API-facing hero fields for temp draft / public responses (heroImageUrl, heroVideo, heroMediaType).
+ * @param {object} rawPreview
+ * @returns {{ heroImageUrl: string|null, heroVideo: string|null, heroMediaType: 'image'|'video' }}
+ */
+export function resolveCanonicalHeroApiFields(rawPreview) {
+  const canonical = resolveCanonicalHeroMediaFromPreview(rawPreview);
+  if (canonical.mediaType === 'video') {
+    return {
+      heroImageUrl: canonical.posterUrl ?? null,
+      heroVideo: canonical.videoUrl,
+      heroMediaType: 'video',
+    };
+  }
+  return {
+    heroImageUrl: canonical.imageUrl,
+    heroVideo: null,
+    heroMediaType: 'image',
+  };
+}
+
+/**
  * Write canonical hero fields into preview, without removing legacy fields.
  * This is intentionally conservative: it only sets canonical keys + `preview.hero` envelope.
  *
