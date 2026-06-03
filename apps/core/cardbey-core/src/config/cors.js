@@ -14,6 +14,8 @@ const BASE_WHITELIST = [
   "http://192.168.1.9:3001",
   'http://127.0.0.1:5174',
   'http://192.168.1.9:5174',
+  'http://192.168.1.11:5174',
+  'http://192.168.1.11:3001',
   'http://192.168.1.12:5174', // Added for LAN access
   'http://192.168.1.12:3000', // LAN dashboard on port 3000
   'http://192.168.1.12:5173', // LAN dashboard on port 5173 (Vite default)
