@@ -44,6 +44,11 @@ import {
   PublishSnapshotError,
 } from '../services/draftStore/publishSnapshotService.js';
 import { enforcePublishHeroCanonical } from '../services/draftStore/heroPublishInvariant.js';
+import {
+  heroAssetUploadSingle,
+  resolveDraftForHeroUpload,
+  executeHeroAssetUpload,
+} from '../services/draftStore/heroAssetUpload.js';
 
 /** Single shared Prisma client (same as rest of app). Ensures draft create and summary read use same DB. */
 const prisma = getPrismaClient();
@@ -924,6 +929,35 @@ router.post('/:draftId/publish', requireAuth, async (req, res, next) => {
         message: err.message,
       });
     }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/draft-store/:draftId/upload/hero
+ * Multipart field "file". Query: generationRunId? (optional, for runway/temp resolution).
+ */
+router.post('/:draftId/upload/hero', requireAuth, heroAssetUploadSingle, async (req, res, next) => {
+  try {
+    const draftId = String(req.params.draftId ?? '').trim();
+    const generationRunId =
+      typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : '';
+    const resolved = await resolveDraftForHeroUpload({
+      userId: req.userId,
+      user: req.user,
+      draftId,
+      generationRunId,
+      routeStoreId: null,
+    });
+    if (resolved.errorResponse) {
+      return res.status(resolved.errorResponse.status).json(resolved.errorResponse.body);
+    }
+    return await executeHeroAssetUpload(req, res, {
+      draft: resolved.draft,
+      routeStoreId: resolved.draft?.committedStoreId ?? null,
+    });
+  } catch (err) {
+    console.error('[draftStore] POST /:draftId/upload/hero error:', err?.message || err);
     next(err);
   }
 });
