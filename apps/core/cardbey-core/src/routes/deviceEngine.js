@@ -79,6 +79,12 @@ import {
   markCommandsAsSent,
 } from '../engines/device/commands.js';
 import { addDeviceLog, getRecentLogs } from '../engines/device/logs.js';
+import { hasActiveMissionPipelineExecution } from '../lib/missionExecutionGuard.js';
+import {
+  isSqliteBestEffortLaneEnabled,
+  runBestEffortSqliteWrite,
+  runBestEffortSqliteWriteAwait,
+} from '../lib/sqliteBestEffortWrite.js';
 import {
   RequestPairingInput,
   CompletePairingInput,
@@ -1305,25 +1311,44 @@ router.post('/heartbeat', async (req, res) => {
             console.log(`[device.heartbeatV2] First heartbeat from device: ${deviceId} (${currentDevice.name || 'unnamed'})`);
           }
 
-          device = await prisma.device.update({
-            where: { id: deviceId },
-            data: updateData,
-            select: {
-              id: true,
-              name: true,
-              status: true,
-              orientation: true,
-              tenantId: true,
-              storeId: true,
-              lastSeenAt: true,
-              platform: true,
-              appVersion: true,
-              pairingCode: true, // Include pairingCode to check pairing state
-              lastPlaybackReportAt: true,
-              playbackReportIsPlaying: true,
-              playbackReportState: true,
-            },
-          });
+          const heartbeatSelect = {
+            id: true,
+            name: true,
+            status: true,
+            orientation: true,
+            tenantId: true,
+            storeId: true,
+            lastSeenAt: true,
+            platform: true,
+            appVersion: true,
+            pairingCode: true,
+            lastPlaybackReportAt: true,
+            playbackReportIsPlaying: true,
+            playbackReportState: true,
+          };
+          const runHeartbeatUpdate = () =>
+            prisma.device.update({
+              where: { id: deviceId },
+              data: updateData,
+              select: heartbeatSelect,
+            });
+          const optimisticDevice = {
+            ...currentDevice,
+            ...updateData,
+            id: deviceId,
+            lastSeenAt: now,
+          };
+          if (hasActiveMissionPipelineExecution()) {
+            void runBestEffortSqliteWrite(runHeartbeatUpdate, 'device.heartbeat');
+            device = optimisticDevice;
+          } else if (isSqliteBestEffortLaneEnabled()) {
+            device = await runBestEffortSqliteWriteAwait(runHeartbeatUpdate, 'device.heartbeat');
+            if (!device) {
+              device = optimisticDevice;
+            }
+          } else {
+            device = await runHeartbeatUpdate();
+          }
 
           console.log('[HEARTBEAT IDENTITY]', {
             deviceId: device.id,

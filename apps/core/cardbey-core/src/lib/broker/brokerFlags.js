@@ -69,12 +69,18 @@ export function isPerformerAdaptivePollingEnabled() {
 
 /** Phase 2.3-E: mission pipeline write isolation umbrella. Default OFF. */
 export function isPerformerMissionPipelineWriteIsolationEnabled() {
-  return envTruthy('PERFORMER_MISSION_PIPELINE_WRITE_ISOLATION', false);
+  return (
+    envTruthy('PERFORMER_MISSION_PIPELINE_WRITE_ISOLATION', false) ||
+    envTruthy('MISSION_PIPELINE_WRITE_ISOLATION_ENABLED', false)
+  );
 }
 
 /** Phase 2.3-F: SQLite authority write serialization lane. Default OFF. */
 export function isPerformerSqliteRuntimeWriteSerializationEnabled() {
-  return envTruthy('PERFORMER_SQLITE_RUNTIME_WRITE_SERIALIZATION', false);
+  return (
+    envTruthy('PERFORMER_SQLITE_RUNTIME_WRITE_SERIALIZATION', false) ||
+    envTruthy('SQLITE_RUNTIME_WRITE_SERIALIZATION_ENABLED', false)
+  );
 }
 
 /** Phase 2.3-F2: mission create burst hardening. Default OFF. */

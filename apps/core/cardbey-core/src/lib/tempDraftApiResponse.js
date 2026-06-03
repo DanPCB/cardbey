@@ -5,6 +5,7 @@
 
 import { getDraftByGenerationRunId } from '../services/draftStore/draftStoreService.js';
 import { resolveDraftBusinessName, resolveDraftBusinessType, resolveDraftLocation } from '../services/draftStore/draftStoreService.js';
+import { resolveCanonicalHeroApiFields } from '../services/draftStore/draftPreviewHeroSync.js';
 import { CATALOG_ITEM_LIMIT } from '../config/catalogLimits.js';
 
 function parseJsonField(raw) {
@@ -38,20 +39,7 @@ function mapPreviewItems(preview, limit = CATALOG_ITEM_LIMIT) {
 }
 
 function heroImageFromPreview(preview) {
-  if (preview?.hero?.imageUrl && String(preview.hero.imageUrl).trim()) return String(preview.hero.imageUrl).trim();
-  if (preview?.hero?.url && String(preview.hero.url).trim()) return String(preview.hero.url).trim();
-  if (typeof preview?.heroImageUrl === 'string' && preview.heroImageUrl.trim()) return preview.heroImageUrl.trim();
-  if (Array.isArray(preview?.website?.sections)) {
-    const hSec = preview.website.sections.find((s) => s && s.type === 'hero');
-    const c = hSec?.content;
-    if (c && typeof c === 'object') {
-      const iu = c.imageUrl;
-      const bi = c.backgroundImage;
-      if (typeof iu === 'string' && iu.trim()) return iu.trim();
-      if (typeof bi === 'string' && bi.trim()) return bi.trim();
-    }
-  }
-  return null;
+  return resolveCanonicalHeroApiFields(preview).heroImageUrl;
 }
 
 function avatarImageFromPreview(preview) {
@@ -154,7 +142,9 @@ export async function buildTempDraftByGenerationRunIdResponse(generationRunId, o
 
   const items = mapPreviewItems(preview);
   const miniWebsiteSections = preview?.website?.sections ?? null;
-  const heroImage = heroImageFromPreview(preview);
+  const canonicalHero = resolveCanonicalHeroApiFields(preview);
+  const heroImage = canonicalHero.heroImageUrl;
+  const heroVideo = canonicalHero.heroVideo;
   const avatarImage = avatarImageFromPreview(preview);
 
   const previewDraft = {
@@ -163,6 +153,8 @@ export async function buildTempDraftByGenerationRunIdResponse(generationRunId, o
     businessType: businessType || 'general',
     location: location || '',
     heroImage,
+    heroVideo,
+    heroMediaType: canonicalHero.heroMediaType,
     avatarImage,
     slug: preview?.meta?.slug ?? input?.slug ?? null,
     items,
@@ -186,6 +178,8 @@ export async function buildTempDraftByGenerationRunIdResponse(generationRunId, o
       products,
       categories,
       heroImageUrl: heroImage,
+      heroVideo: heroVideo ?? undefined,
+      heroMediaType: canonicalHero.heroMediaType ?? undefined,
       qaReport: preview?.meta?.qaReport ?? null,
     },
   };

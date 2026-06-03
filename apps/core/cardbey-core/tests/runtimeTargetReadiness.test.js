@@ -185,4 +185,19 @@ describe.skipIf(!dbAvailable)('runtime target readiness', () => {
     expect(pubReady.readinessState).toBe(STORE_READINESS.PUBLISHED);
     expect(draftReady.readinessState).toBe(STORE_READINESS.DRAFT_READY);
   });
+
+  it('owned business without explicit storeId resolves as draft_ready', async () => {
+    const store = await prisma.business.create({
+      data: {
+        userId,
+        name: 'Owned Fallback',
+        type: 'retail',
+        slug: `owned-fb-${Date.now()}`,
+      },
+    });
+    const r = await resolveStoreReadiness({ userId });
+    expect(r.exists).toBe(true);
+    expect(r.storeId).toBe(store.id);
+    expect(r.readinessState).toBe(STORE_READINESS.DRAFT_READY);
+  });
 });

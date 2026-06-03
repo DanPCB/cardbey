@@ -5,13 +5,14 @@
  */
 
 import { recordPipelineWriteEvent } from './missionConsoleTelemetryStore.js';
+import { safeMissionPipelineUpdate } from '../safePipelineUpdate.js';
 
 /**
  * @param {import('../prismaClient.js').PrismaClient} prisma
- * @param {{ where: object, data: object, source: string, correlationId?: string|null }} args
+ * @param {{ where: object, data: object, source: string, correlationId?: string|null, retryLog?: (attempt: number) => string }} args
  * @returns {Promise<object>}
  */
-export async function auditedPipelineUpdate(prisma, { where, data, source, correlationId = null }) {
+export async function auditedPipelineUpdate(prisma, { where, data, source, correlationId = null, retryLog }) {
   const missionId = where && typeof where.id === 'string' ? where.id : where?.id ?? null;
   const fields =
     data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : [];
@@ -27,5 +28,13 @@ export async function auditedPipelineUpdate(prisma, { where, data, source, corre
     });
     console.log(line);
   }
-  return prisma.missionPipeline.update({ where, data });
+  return safeMissionPipelineUpdate(
+    prisma,
+    { where, data },
+    {
+      missionId: missionId != null ? String(missionId) : undefined,
+      label: source || 'auditedPipelineUpdate',
+      retryLog,
+    },
+  );
 }

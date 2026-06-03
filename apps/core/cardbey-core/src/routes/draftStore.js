@@ -22,6 +22,7 @@ import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 import { hasRole } from '../lib/authorization.js';
 import { createDraft, createDraftStoreForUser, generateDraft, getDraft, getDraftByGenerationRunId, commitDraft, patchDraftPreview, normalizePreviewCategories, repairCatalog } from '../services/draftStore/draftStoreService.js';
+import { resolveCanonicalHeroApiFields } from '../services/draftStore/draftPreviewHeroSync.js';
 import { buildDraftPublishState } from '../services/draftStore/buildDraftPublishState.js';
 import { isDraftOwnedByUser, canAccessDraftStore, draftOwnershipFieldsForLog } from '../lib/draftOwnership.js';
 import { getTenantId } from '../lib/tenant.js';
@@ -43,6 +44,11 @@ import {
   isPublishSnapshotV1Enabled,
   PublishSnapshotError,
 } from '../services/draftStore/publishSnapshotService.js';
+import {
+  executeHeroAssetUpload,
+  heroAssetUploadSingle,
+  resolveDraftForHeroUpload,
+} from '../services/draftStore/heroAssetUpload.js';
 
 /** Single shared Prisma client (same as rest of app). Ensures draft create and summary read use same DB. */
 const prisma = getPrismaClient();
@@ -1199,6 +1205,41 @@ router.post('/:draftId/generate', requireAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/draft-store/:draftId/upload/hero
+ * Canonical hero/video upload for website preview (draft id in path).
+ * Query: generationRunId (optional, resolves temp/legacy rows).
+ */
+router.post('/:draftId/upload/hero', requireAuth, heroAssetUploadSingle, async (req, res, next) => {
+  try {
+    const draftId = typeof req.params.draftId === 'string' ? req.params.draftId.trim() : '';
+    const result = await resolveDraftForHeroUpload({
+      userId: req.userId,
+      user: req.user,
+      draftId,
+      generationRunId:
+        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      routeStoreId: null,
+    });
+    if (result.errorResponse) {
+      return res.status(result.errorResponse.status).json(result.errorResponse.body);
+    }
+    return await executeHeroAssetUpload(req, res, { draft: result.draft, routeStoreId: null });
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg.includes('already been committed')) {
+      return res.status(409).json({
+        ok: false,
+        error: 'draft_already_committed',
+        message:
+          'This store is published. Hero changes save to your draft preview — use Republish to go live. If upload failed, refresh and try again.',
+      });
+    }
+    next(err);
+  }
+});
+
 router.get('/:draftId', requireAuth, async (req, res, next) => {
   try {
     const { draftId } = req.params;
@@ -1259,6 +1300,8 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
           ? 'ready'
           : draft.status;
 
+    const canonicalHero = resolveCanonicalHeroApiFields(preview);
+
     res.json({
       ok: true,
       draftId: draft.id,
@@ -1266,6 +1309,9 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
       status: uiStatus,
       committed: draft.status === 'committed',
       committedStoreId,
+      ...(canonicalHero.heroImageUrl ? { heroImageUrl: canonicalHero.heroImageUrl } : {}),
+      ...(canonicalHero.heroVideo ? { heroVideo: canonicalHero.heroVideo } : {}),
+      ...(canonicalHero.heroMediaType ? { heroMediaType: canonicalHero.heroMediaType } : {}),
       publishState: await buildDraftPublishState(prisma, draft),
       ...(draft.status === 'committed'
         ? { redirectTo: '/app/back', message: 'Draft already saved. You can keep editing the preview.' }

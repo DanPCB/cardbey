@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
+import { buildHeroPreviewPatchFromUrls } from './heroUpdateService.js';
 import { patchDraftPreview } from './draftStoreService.js';
 
 describe('patchDraftPreview committed hero', () => {
@@ -81,5 +82,26 @@ describe('patchDraftPreview committed hero', () => {
       select: { heroImageUrl: true, stylePreferences: true },
     });
     expect(business?.heroImageUrl).toBe('https://cdn.example.com/old-hero.jpg');
+  });
+
+  it('allows video hero upload patch shape (heroMediaType) on committed live draft', async () => {
+    const videoUrl = 'https://cdn.example.com/new-hero.mp4';
+    const row = await prisma.draftStore.findUnique({ where: { id: draftId } });
+    const existingPreview =
+      row?.preview && typeof row.preview === 'object' ? row.preview : {};
+    const patch = buildHeroPreviewPatchFromUrls({
+      videoUrl,
+      source: 'upload',
+      existingPreview,
+    });
+
+    await patchDraftPreview(draftId, patch);
+
+    const draft = await prisma.draftStore.findUnique({ where: { id: draftId } });
+    const preview =
+      typeof draft?.preview === 'string' ? JSON.parse(draft.preview) : draft?.preview;
+    expect(preview?.heroVideo).toBe(videoUrl);
+    expect(preview?.heroMediaType).toBe('video');
+    expect(preview?.hero?.type).toBe('video');
   });
 });

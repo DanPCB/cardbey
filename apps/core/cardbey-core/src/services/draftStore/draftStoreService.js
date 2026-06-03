@@ -11,6 +11,7 @@ import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
 import { syncHeroFieldsIntoPreviewWebsite } from './draftPreviewHeroSync.js';
+import { safeDraftStoreCreate } from '../../lib/safeDraftStoreCreate.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -523,7 +524,7 @@ export async function createDraftStoreForUser(prismaClient, { user, userId, tena
     });
   }
 
-  const draft = await prismaClient.draftStore.create({
+  const draft = await safeDraftStoreCreate(prismaClient, {
     data: {
       ...rest,
       ownerUserId,
@@ -568,7 +569,7 @@ export async function createDraft({ mode, input, meta = {} }) {
   const inputObj = input || {};
   const generationRunId = inputObj.generationRunId || meta.generationRunId || null;
 
-  const draft = await prisma.draftStore.create({
+  const draft = await safeDraftStoreCreate(prisma, {
     data: {
       mode,
       status: 'generating',
@@ -2603,7 +2604,22 @@ export async function getDraftByGenerationRunId(generationRunId) {
  * other preview fields (storeName, categories, brandColors, etc.) are kept.
  */
 /** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
-const COMMITTED_PREVIEW_PATCH_KEYS = new Set(['hero', 'heroImageUrl', 'heroVideo', 'avatar', 'avatarImageUrl']);
+const COMMITTED_PREVIEW_PATCH_KEYS = new Set([
+  'hero',
+  'heroImageUrl',
+  'heroVideo',
+  'heroMediaType',
+  'imageUrl',
+  'avatar',
+  'avatarImageUrl',
+]);
+
+/** @param {object} incoming */
+export function isCommittedHeroAvatarPreviewPatch(incoming) {
+  const keys = Object.keys(incoming && typeof incoming === 'object' ? incoming : {});
+  if (keys.length === 0) return false;
+  return keys.every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
+}
 
 function parseStylePreferencesBlob(raw) {
   if (raw == null) return {};
@@ -2750,10 +2766,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
   const incoming = incomingPreview && typeof incomingPreview === 'object' ? incomingPreview : {};
   const allowCommitted = options && options.allowCommitted === true;
   const isCommitted = draft.status === 'committed';
-  const committedHeroAvatarOnly =
-    isCommitted &&
-    Object.keys(incoming).length > 0 &&
-    Object.keys(incoming).every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
+  const committedHeroAvatarOnly = isCommitted && isCommittedHeroAvatarPreviewPatch(incoming);
 
   if (isCommitted && !allowCommitted && !committedHeroAvatarOnly) {
     throw new Error(`Draft ${draftId} has already been committed`);

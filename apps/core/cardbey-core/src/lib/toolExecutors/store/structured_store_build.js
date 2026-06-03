@@ -12,6 +12,7 @@ import { transitionOrchestratorTaskStatus } from '../../../kernel/transitions/tr
 import { createEmitContextUpdate } from '../../missionPlan/agentMemory.js';
 import { mergeMissionContext } from '../../mission.js';
 import { mergeCanonicalOutputs } from '../../orchestrator/pipelineCanonicalResults.js';
+import { safeMissionPipelineUpdate } from '../../safePipelineUpdate.js';
 
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
@@ -151,12 +152,15 @@ export async function execute(_input = {}, context = {}) {
     stepStatus: 'running',
   });
 
-  await prisma.orchestratorTask
-    .update({
-      where: { id: created.jobId },
-      data: { missionId },
-    })
-    .catch(() => {});
+  const { runCriticalSqliteWriteWithP1008Retry } = await import('../../sqliteCriticalWrite.js');
+  await runCriticalSqliteWriteWithP1008Retry(
+    () =>
+      prisma.orchestratorTask.update({
+        where: { id: created.jobId },
+        data: { missionId },
+      }),
+    { label: 'orchestratorTask.update.missionId', logPrefix: '[structured_store_build]' },
+  ).catch(() => {});
 
   const trRun = await transitionOrchestratorTaskStatus({
     prisma,
@@ -298,10 +302,14 @@ export async function execute(_input = {}, context = {}) {
   }
 
   if (storeId) {
-    await prisma.missionPipeline.update({
-      where: { id: missionId },
-      data: { targetType: 'store', targetId: storeId },
-    });
+    await safeMissionPipelineUpdate(
+      prisma,
+      {
+        where: { id: missionId },
+        data: { targetType: 'store', targetId: storeId },
+      },
+      { missionId, label: 'structured_store_build.target' },
+    );
   }
 
   try {
@@ -326,10 +334,14 @@ export async function execute(_input = {}, context = {}) {
       ...(guestTempStore ? { guestTempStore: true } : {}),
       structured_store_build: structuredSlice,
     });
-    await prisma.missionPipeline.update({
-      where: { id: missionId },
-      data: { outputsJson },
-    });
+    await safeMissionPipelineUpdate(
+      prisma,
+      {
+        where: { id: missionId },
+        data: { outputsJson },
+      },
+      { missionId, label: 'structured_store_build.outputs' },
+    );
   } catch (outputsErr) {
     console.warn('[structured_store_build] outputsJson persist skipped:', outputsErr?.message ?? outputsErr);
   }
@@ -377,10 +389,14 @@ export async function execute(_input = {}, context = {}) {
       });
     }
     if (desired && curTitle.toLowerCase() !== desired.toLowerCase()) {
-      await prisma.missionPipeline.update({
-        where: { id: missionId },
-        data: { title: desired },
-      });
+      await safeMissionPipelineUpdate(
+        prisma,
+        {
+          where: { id: missionId },
+          data: { title: desired },
+        },
+        { missionId, label: 'structured_store_build.title' },
+      );
     }
   } catch (titlePatchErr) {
     if (process.env.NODE_ENV !== 'production') {

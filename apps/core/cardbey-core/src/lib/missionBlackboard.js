@@ -14,6 +14,7 @@ import {
 } from './orchestration/orchestrationStabilityMetrics.js';
 import { isPerformerOrchestrationStabilityEnabled } from './broker/brokerFlags.js';
 import { onRuntimeEventAppended } from './runtime/observability/runtimeSnapshotStreamHook.js';
+import { runCriticalSqliteWriteWithP1008Retry } from './sqliteCriticalWrite.js';
 
 /** One-time warn when MissionBlackboard table is missing (staging / pending migration). */
 let missionBlackboardMissingTableWarned = false;
@@ -185,29 +186,33 @@ export async function appendEvent(missionId, eventType, payload, opts = {}) {
     let row = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        row = await prisma.$transaction(async (tx) => {
-          const ensured = await ensureMissionRowForBlackboardTx(tx, mid);
-          if (!ensured) {
-            throw new Error(
-              'blackboard_parent_missing: no Mission or MissionPipeline row for this id (cannot satisfy MissionBlackboard FK)',
-            );
-          }
-          const agg = await tx.missionBlackboard.aggregate({
-            where: { missionId: mid },
-            _max: { seq: true },
-          });
-          const nextSeq = (agg._max.seq ?? 0) + 1;
-          return tx.missionBlackboard.create({
-            data: {
-              missionId: mid,
-              seq: nextSeq,
-              eventType: et,
-              payload: serializeBlackboardPayload(payload),
-              agentId,
-              correlationId: traceId,
-            },
-          });
-        }, txOpts);
+        row = await runCriticalSqliteWriteWithP1008Retry(
+          () =>
+            prisma.$transaction(async (tx) => {
+              const ensured = await ensureMissionRowForBlackboardTx(tx, mid);
+              if (!ensured) {
+                throw new Error(
+                  'blackboard_parent_missing: no Mission or MissionPipeline row for this id (cannot satisfy MissionBlackboard FK)',
+                );
+              }
+              const agg = await tx.missionBlackboard.aggregate({
+                where: { missionId: mid },
+                _max: { seq: true },
+              });
+              const nextSeq = (agg._max.seq ?? 0) + 1;
+              return tx.missionBlackboard.create({
+                data: {
+                  missionId: mid,
+                  seq: nextSeq,
+                  eventType: et,
+                  payload: serializeBlackboardPayload(payload),
+                  agentId,
+                  correlationId: traceId,
+                },
+              });
+            }, txOpts),
+          { label: 'missionBlackboard.append', logPrefix: '[missionBlackboard]' },
+        );
         break;
       } catch (inner) {
         if (!isBlackboardSeqCollision(inner) || attempt >= 2) throw inner;

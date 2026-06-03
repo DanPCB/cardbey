@@ -5,6 +5,10 @@
 
 const VIDEO_EXT = /\.(mp4|webm|mov)(\?|$)/i;
 
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
 function trimStr(v) {
   return typeof v === 'string' && v.trim() ? v.trim() : null;
 }
@@ -13,6 +17,41 @@ function trimStr(v) {
  * @param {object} rawPreview - DraftStore.preview JSON
  * @returns {{ heroImage: string|null, heroVideo: string|null, isVideo: boolean }}
  */
+/**
+ * Top-level API fields for dashboards (video wins over legacy poster-only heroImageUrl).
+ * @param {object} rawPreview
+ * @returns {{ heroImageUrl: string|null, heroVideo: string|null, heroMediaType: 'video'|'image'|null }}
+ */
+export function resolveCanonicalHeroApiFields(rawPreview) {
+  const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(rawPreview);
+  if (!heroImage && !heroVideo) {
+    return { heroImageUrl: null, heroVideo: null, heroMediaType: null };
+  }
+  const posterUrl =
+    heroImage && !VIDEO_EXT.test(heroImage) ? heroImage : null;
+  if (isVideo) {
+    const vid = heroVideo || (heroImage && VIDEO_EXT.test(heroImage) ? heroImage : null);
+    return {
+      heroImageUrl: posterUrl || vid || heroImage,
+      heroVideo: vid,
+      heroMediaType: 'video',
+    };
+  }
+  return {
+    heroImageUrl: heroImage,
+    heroVideo: null,
+    heroMediaType: 'image',
+  };
+}
+
+function pickNonVideoPosterUrl(...candidates) {
+  for (const c of candidates) {
+    const s = trimStr(c);
+    if (s && !VIDEO_EXT.test(s)) return s;
+  }
+  return null;
+}
+
 export function readCanonicalHeroFromPreview(rawPreview) {
   const meta =
     rawPreview?.meta && typeof rawPreview.meta === 'object' && !Array.isArray(rawPreview.meta)
@@ -28,19 +67,38 @@ export function readCanonicalHeroFromPreview(rawPreview) {
     trimStr(meta.heroVideo) ??
     trimStr(rawPreview?.heroVideo) ??
     trimStr(heroObj.videoUrl) ??
+    (heroObj.type === 'video' ? trimStr(heroObj.url) : null) ??
     null;
 
-  const heroImage =
-    trimStr(meta.profileHeroUrl) ??
-    trimStr(heroObj.imageUrl) ??
-    trimStr(heroObj.url) ??
-    trimStr(rawPreview?.heroImageUrl) ??
-    trimStr(meta.heroImage) ??
-    trimStr(rawPreview?.heroImage) ??
-    null;
+  let heroImage;
+  if (heroVideo) {
+    // When hero.type is video without imageUrl, ignore meta.profileHeroUrl (often stale Pexels stock).
+    const metaPosterCandidates =
+      heroObj.type === 'video' && !trimStr(heroObj.imageUrl)
+        ? []
+        : [meta.profileHeroUrl, meta.heroImage];
+    heroImage =
+      pickNonVideoPosterUrl(
+        heroObj.imageUrl,
+        rawPreview?.heroImageUrl,
+        ...metaPosterCandidates,
+        rawPreview?.heroImage,
+        heroObj.type !== 'video' ? heroObj.url : null,
+      ) ?? null;
+  } else {
+    heroImage =
+      trimStr(meta.profileHeroUrl) ??
+      trimStr(heroObj.imageUrl) ??
+      trimStr(heroObj.url) ??
+      trimStr(rawPreview?.heroImageUrl) ??
+      trimStr(meta.heroImage) ??
+      trimStr(rawPreview?.heroImage) ??
+      null;
+  }
 
   const isVideo =
     heroObj.type === 'video' ||
+    str(rawPreview?.heroMediaType).toLowerCase() === 'video' ||
     !!heroVideo ||
     (heroImage != null && VIDEO_EXT.test(heroImage));
 
@@ -84,7 +142,21 @@ export function applyCanonicalHeroToMiniWebsite(miniWebsite, rawPreview) {
       prev.content && typeof prev.content === 'object' && !Array.isArray(prev.content)
         ? { ...prev.content }
         : {};
-    sections[hi] = { ...prev, content: { ...prevContent, ...contentPatch } };
+    const nextContent = { ...prevContent, ...contentPatch };
+    if (isVideo && videoUrl) {
+      nextContent.type = 'video';
+      nextContent.videoUrl = videoUrl;
+    }
+    // Video upload without poster: drop stale stock imageUrl/backgroundImage from merged section.
+    if (isVideo && !posterUrl) {
+      for (const key of ['imageUrl', 'url', 'backgroundImage']) {
+        const v = nextContent[key];
+        if (typeof v === 'string' && v.trim() && !VIDEO_EXT.test(v)) {
+          delete nextContent[key];
+        }
+      }
+    }
+    sections[hi] = { ...prev, content: nextContent };
   } else {
     sections.unshift({ type: 'hero', content: contentPatch });
   }
@@ -149,8 +221,13 @@ export function syncHeroFieldsIntoPreviewWebsite(merged) {
     merged.meta && typeof merged.meta === 'object' && !Array.isArray(merged.meta)
       ? { ...merged.meta }
       : {};
-  if (heroImage && !VIDEO_EXT.test(heroImage)) meta.profileHeroUrl = heroImage;
-  else if (heroImage) meta.profileHeroUrl = heroImage;
-  if (heroVideo) meta.profileHeroVideoUrl = heroVideo;
+  if (heroVideo) {
+    meta.profileHeroVideoUrl = heroVideo;
+    if (heroImage && !VIDEO_EXT.test(heroImage)) meta.profileHeroUrl = heroImage;
+    else delete meta.profileHeroUrl;
+  } else if (heroImage) {
+    meta.profileHeroUrl = heroImage;
+    delete meta.profileHeroVideoUrl;
+  }
   merged.meta = meta;
 }

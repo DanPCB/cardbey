@@ -3,7 +3,7 @@
  */
 import { resolveDraftForStore } from '../../lib/draftResolver.js';
 import { canAccessDraftStore } from '../../lib/draftOwnership.js';
-import { getDraft, patchDraftPreview } from './draftStoreService.js';
+import { getDraft, patchDraftPreview, isCommittedHeroAvatarPreviewPatch } from './draftStoreService.js';
 import { readCanonicalHeroFromPreview } from './draftPreviewHeroSync.js';
 import { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } from './publishSnapshotService.js';
 import { getPublishedBusinessArtifact } from '../publishedArtifactProjection/getPublishedBusinessArtifact.js';
@@ -95,6 +95,7 @@ export function buildHeroPreviewPatchFromUrls({
       patch.heroVideo = vid;
       patch.heroImageUrl = hero.imageUrl || vid;
       patch.heroMediaType = 'video';
+      patch.heroImage = null;
     }
   } else if (imageUrl != null) {
     patch.heroImageUrl = imageUrl;
@@ -230,6 +231,14 @@ export async function updateHeroForStore({
   if (effectiveDraftId) {
     if (previewPatch.hero?.source == null && source) {
       previewPatch.hero = { ...(previewPatch.hero || {}), source };
+    }
+    const draftRow = draft ?? (await getDraft(effectiveDraftId));
+    if (draftRow?.status === 'committed' && !isCommittedHeroAvatarPreviewPatch(previewPatch)) {
+      const err = new Error(
+        `Draft ${effectiveDraftId} has already been committed; only hero/avatar media can be updated`,
+      );
+      err.statusCode = 409;
+      throw err;
     }
     await patchDraftPreview(effectiveDraftId, previewPatch);
     draftUpdated = true;

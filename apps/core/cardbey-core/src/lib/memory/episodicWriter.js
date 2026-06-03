@@ -5,6 +5,7 @@
 
 import { getPrismaClient } from '../prisma.js';
 import { appendEvent } from '../missionBlackboard.js';
+import { runBestEffortSqliteWrite } from '../sqliteBestEffortWrite.js';
 
 const EPISODIC_EVENT_TYPE = 'episodic_event';
 const MAX_EVENTS_PER_USER = 200;
@@ -53,54 +54,64 @@ async function resolveEpisodicMissionId(userId, missionId) {
 }
 
 /**
- * Trim old episodic rows for missions owned by userId.
+ * Trim old episodic rows for missions owned by userId (runs inside best-effort lane).
  * @param {string} userId
  */
-async function trimEpisodicRetention(userId) {
+async function trimEpisodicRetentionWork(userId) {
   const uid = typeof userId === 'string' ? userId.trim() : '';
   if (!uid) return;
 
-  try {
-    const prisma = getPrismaClient();
-    if (!prisma.missionBlackboard?.findMany) return;
+  const prisma = getPrismaClient();
+  if (!prisma.missionBlackboard?.findMany) return;
 
-    const missions = await prisma.missionPipeline.findMany({
-      where: { createdBy: uid },
-      select: { id: true },
-      take: 50,
-      orderBy: { updatedAt: 'desc' },
-    });
-    const missionIds = missions.map((m) => m.id);
-    if (!missionIds.length) return;
+  const missions = await prisma.missionPipeline.findMany({
+    where: { createdBy: uid },
+    select: { id: true },
+    take: 50,
+    orderBy: { updatedAt: 'desc' },
+  });
+  const missionIds = missions.map((m) => m.id);
+  if (!missionIds.length) return;
 
-    const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
 
+  await prisma.missionBlackboard.deleteMany({
+    where: {
+      missionId: { in: missionIds },
+      eventType: EPISODIC_EVENT_TYPE,
+      createdAt: { lt: cutoff },
+    },
+  });
+
+  const rows = await prisma.missionBlackboard.findMany({
+    where: {
+      missionId: { in: missionIds },
+      eventType: EPISODIC_EVENT_TYPE,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+    skip: MAX_EVENTS_PER_USER,
+  });
+
+  if (rows.length > 0) {
     await prisma.missionBlackboard.deleteMany({
-      where: {
-        missionId: { in: missionIds },
-        eventType: EPISODIC_EVENT_TYPE,
-        createdAt: { lt: cutoff },
-      },
+      where: { id: { in: rows.map((r) => r.id) } },
     });
-
-    const rows = await prisma.missionBlackboard.findMany({
-      where: {
-        missionId: { in: missionIds },
-        eventType: EPISODIC_EVENT_TYPE,
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
-      skip: MAX_EVENTS_PER_USER,
-    });
-
-    if (rows.length > 0) {
-      await prisma.missionBlackboard.deleteMany({
-        where: { id: { in: rows.map((r) => r.id) } },
-      });
-    }
-  } catch (err) {
-    console.error('[EpisodicWriter] trim failed:', err?.message ?? err);
   }
+}
+
+/**
+ * Fire-and-forget episodic trim — never blocks mission paths; never throws.
+ * @param {string} userId
+ */
+function trimEpisodicRetention(userId) {
+  runBestEffortSqliteWrite(async () => {
+    try {
+      await trimEpisodicRetentionWork(userId);
+    } catch (err) {
+      console.warn('[EpisodicWriter] trim failed:', err?.message ?? err);
+    }
+  }, 'missionBlackboard.trim');
 }
 
 /**

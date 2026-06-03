@@ -41,6 +41,11 @@ import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
 import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
+import {
+  executeHeroAssetUpload,
+  heroAssetUploadSingle,
+  resolveDraftForHeroUpload,
+} from '../services/draftStore/heroAssetUpload.js';
 
 import { prisma } from '../lib/prisma.js';
 
@@ -131,55 +136,17 @@ function menuExtractUploadSingle(req, res, next) {
  * Returns { draft } or { errorResponse: { status, body } } for the route to send.
  */
 async function resolveDraftForStoreAsset(req) {
-  const storeId = req.params.storeId;
-  const explicitDraftId =
-    (typeof req.query.draftId === 'string' ? req.query.draftId.trim() : null) ||
-    (typeof req.body?.draftId === 'string' ? req.body.draftId.trim() : null);
-  const generationRunId = (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null)
-    || (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null);
-  const userId = req.userId;
-  if (!userId) {
-    return { errorResponse: { status: 401, body: { ok: false, error: 'unauthorized', message: 'Authentication required' } } };
-  }
-  if (explicitDraftId) {
-    const draft = await getDraft(explicitDraftId);
-    if (!draft) {
-      return { errorResponse: { status: 404, body: { ok: false, error: 'draft_not_found', message: 'Draft not found' } } };
-    }
-    const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
-    const allowed = await canAccessDraftStore(draft, {
-      userId,
-      tenantKey: userId,
-      isSuperAdmin: req.user?.role === 'super_admin',
-    });
-    if (!allowed) {
-      return { errorResponse: { status: 403, body: { ok: false, error: 'forbidden', message: 'You do not have access to this draft.' } } };
-    }
-    return { draft };
-  }
-  if (storeId === 'temp') {
-    if (!generationRunId) {
-      return { errorResponse: { status: 400, body: { ok: false, error: 'generationRunId_required', message: 'Query generationRunId required when storeId is temp' } } };
-    }
-    const allowed = await isDraftOwnedByUser(generationRunId, userId);
-    if (!allowed) {
-      return { errorResponse: { status: 403, body: { ok: false, error: 'forbidden', message: 'You do not have access to this draft.' } } };
-    }
-    const draft = await getDraftByGenerationRunId(generationRunId);
-    if (!draft) {
-      return { errorResponse: { status: 404, body: { ok: false, error: 'draft_not_found', message: 'Draft not found' } } };
-    }
-    return { draft };
-  }
-  const resolved = await resolveDraftForStore(prisma, storeId, generationRunId);
-  if (!resolved.draft) {
-    return { errorResponse: { status: 404, body: { ok: false, error: 'draft_not_found', message: 'Draft not found' } } };
-  }
-  const business = await prisma.business.findUnique({ where: { id: storeId }, select: { userId: true } });
-  if (!business || business.userId !== userId) {
-    return { errorResponse: { status: 403, body: { ok: false, error: 'forbidden', message: 'You do not have access to this store.' } } };
-  }
-  return { draft: resolved.draft };
+  return resolveDraftForHeroUpload({
+    userId: req.userId,
+    user: req.user,
+    draftId:
+      (typeof req.query.draftId === 'string' ? req.query.draftId.trim() : null) ||
+      (typeof req.body?.draftId === 'string' ? req.body.draftId.trim() : null),
+    generationRunId:
+      (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+      (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+    routeStoreId: req.params.storeId,
+  });
 }
 
 /**
@@ -1805,79 +1772,26 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
   }
 });
 
-router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
+router.post('/:storeId/upload/hero', requireAuth, heroAssetUploadSingle, async (req, res, next) => {
   try {
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ ok: false, error: 'no_file', message: 'No file uploaded; use multipart field "file".' });
-    }
     const result = await resolveDraftForStoreAsset(req);
     if (result.errorResponse) {
       return res.status(result.errorResponse.status).json(result.errorResponse.body);
     }
-    const draft = result.draft;
-    const buffer = req.file.buffer;
-    const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
-    const isVideo = mime.startsWith('video/');
-    const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
-    if (buffer.length > maxBytes) {
-      return res.status(400).json({
-        ok: false,
-        error: 'file_too_large',
-        message: isVideo ? 'Video must be 75MB or smaller.' : 'Image must be 20MB or smaller.',
-      });
-    }
-    const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || defaultName, mime);
-    const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
-    try {
-      await prisma.media.create({
-        data: {
-          url: normalizedUrl,
-          storageKey: key,
-          kind: isVideo ? 'VIDEO' : 'IMAGE',
-          mime,
-          sizeBytes: buffer.length,
-        },
-      });
-    } catch (mediaErr) {
-      console.warn('[Stores] upload/hero: Media create failed (non-fatal), draft preview will still be updated:', mediaErr?.message);
-    }
-    const heroImageUrl = normalizedUrl;
-    const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
-    const prevHero =
-      existingPreview.hero && typeof existingPreview.hero === 'object' ? existingPreview.hero : {};
-    const previewPatch = buildHeroPreviewPatchFromUrls({
-      imageUrl: isVideo ? null : heroImageUrl,
-      videoUrl: isVideo ? heroImageUrl : null,
-      source: 'upload',
-      existingPreview,
-    });
-    const storeIdParam =
-      req.params.storeId !== 'temp' ? req.params.storeId : draft.committedStoreId;
-    const heroResult = await updateHeroForStore({
-      prisma,
-      userId: req.userId,
-      storeId: storeIdParam,
-      draftId: draft.id,
-      generationRunId:
-        (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
-        (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
-      previewPatch,
-      source: 'upload',
-    });
-    return res.status(200).json({
-      ok: true,
-      url: heroImageUrl,
-      heroImageUrl: heroResult.heroImageUrl,
-      videoUrl: heroResult.heroVideoUrl,
-      mimeType: mime,
-      isVideo,
-      key,
-      storageKey: key,
-      draftUpdated: heroResult.draftUpdated,
-      businessUpdated: heroResult.businessUpdated,
+    return await executeHeroAssetUpload(req, res, {
+      draft: result.draft,
+      routeStoreId: req.params.storeId,
     });
   } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg.includes('already been committed')) {
+      return res.status(409).json({
+        ok: false,
+        error: 'draft_already_committed',
+        message:
+          'This store is published. Hero changes save to your draft preview — use Republish to go live. If upload failed, refresh and try again.',
+      });
+    }
     next(err);
   }
 });

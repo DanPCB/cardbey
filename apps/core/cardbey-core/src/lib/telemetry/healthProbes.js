@@ -1,8 +1,13 @@
 import { prisma } from '../prisma.js';
-import { isDiagnosticTelemetryTag, PERSISTENCE_CATEGORY } from './persistenceClassification.js';
+import { hasActiveMissionPipelineExecution } from '../missionExecutionGuard.js';
+import { PERSISTENCE_CATEGORY, isDiagnosticTelemetryTag } from './persistenceClassification.js';
+import { runBestEffortSqliteWrite } from '../sqliteBestEffortWrite.js';
 
 /** Per tag+mission debounce window for diagnostic probes (ms). */
 const DIAGNOSTIC_DEBOUNCE_MS = 5_000;
+
+/** Longer debounce while a mission pipeline step is executing (local dev). */
+const DIAGNOSTIC_DEBOUNCE_MISSION_ACTIVE_MS = 30_000;
 
 /** Max queued diagnostic writes before dropping oldest. */
 const MAX_DIAGNOSTIC_QUEUE = 64;
@@ -20,6 +25,14 @@ function debounceKey(tag, missionId) {
   return `${tag}::${missionId ?? ''}`;
 }
 
+function shouldSuppressTelemetryInDev() {
+  return process.env.NODE_ENV !== 'production' && hasActiveMissionPipelineExecution();
+}
+
+function diagnosticDebounceMs() {
+  return shouldSuppressTelemetryInDev() ? DIAGNOSTIC_DEBOUNCE_MISSION_ACTIVE_MS : DIAGNOSTIC_DEBOUNCE_MS;
+}
+
 function scheduleDiagnosticFlush() {
   if (diagnosticFlushScheduled) return;
   diagnosticFlushScheduled = true;
@@ -31,23 +44,31 @@ function scheduleDiagnosticFlush() {
 
 async function flushDiagnosticQueue() {
   if (diagnosticFlushInFlight) return;
+  if (shouldSuppressTelemetryInDev()) {
+    diagnosticQueue.length = 0;
+    return;
+  }
   diagnosticFlushInFlight = true;
   try {
     while (diagnosticQueue.length > 0) {
+      if (shouldSuppressTelemetryInDev()) {
+        diagnosticQueue.length = 0;
+        break;
+      }
       const item = diagnosticQueue.shift();
       if (!item) continue;
-      try {
-        await prisma.telemetryProbe.create({
-          data: {
-            tag: item.tag,
-            status: item.status,
-            missionId: item.missionId,
-            payload: item.payload,
-          },
-        });
-      } catch {
-        /* timeout / SQLITE_BUSY — never propagate */
-      }
+      runBestEffortSqliteWrite(
+        () =>
+          prisma.telemetryProbe.create({
+            data: {
+              tag: item.tag,
+              status: item.status,
+              missionId: item.missionId,
+              payload: item.payload,
+            },
+          }),
+        'telemetryProbe',
+      );
     }
   } finally {
     diagnosticFlushInFlight = false;
@@ -56,10 +77,12 @@ async function flushDiagnosticQueue() {
 }
 
 function enqueueDiagnosticProbe(tag, status, missionId, payload) {
+  if (shouldSuppressTelemetryInDev()) return;
+
   const key = debounceKey(tag, missionId);
   const now = Date.now();
   const last = diagnosticLastEmitAt.get(key) ?? 0;
-  if (now - last < DIAGNOSTIC_DEBOUNCE_MS) return;
+  if (now - last < diagnosticDebounceMs()) return;
   diagnosticLastEmitAt.set(key, now);
 
   if (diagnosticQueue.length >= MAX_DIAGNOSTIC_QUEUE) {
@@ -67,6 +90,23 @@ function enqueueDiagnosticProbe(tag, status, missionId, payload) {
   }
   diagnosticQueue.push({ tag, status, missionId, payload });
   scheduleDiagnosticFlush();
+}
+
+function persistEventualProbe(tag, status, missionId, payload) {
+  if (shouldSuppressTelemetryInDev()) return;
+
+  runBestEffortSqliteWrite(
+    () =>
+      prisma.telemetryProbe.create({
+        data: {
+          tag,
+          status,
+          missionId,
+          payload,
+        },
+      }),
+    'telemetryProbe',
+  );
 }
 
 /**
@@ -84,6 +124,8 @@ export function emitHealthProbe(tag, data = {}) {
     const t = typeof tag === 'string' ? tag.trim() : '';
     if (!t) return;
 
+    if (shouldSuppressTelemetryInDev()) return;
+
     const d = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
     const missionIdRaw = typeof d.missionId === 'string' ? d.missionId.trim() : '';
     const statusRaw = typeof d.status === 'string' ? d.status.trim().toLowerCase() : '';
@@ -99,16 +141,7 @@ export function emitHealthProbe(tag, data = {}) {
       return;
     }
 
-    void prisma.telemetryProbe
-      .create({
-        data: {
-          tag: t,
-          status,
-          missionId,
-          payload: d,
-        },
-      })
-      .catch(() => {});
+    persistEventualProbe(t, status, missionId, d);
   } catch {
     // never throw
   }
