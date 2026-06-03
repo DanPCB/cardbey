@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   readCanonicalHeroFromPreview,
   resolveCanonicalHeroMediaFromPreview,
+  resolveCanonicalHeroApiFields,
   writeCanonicalHeroMediaToPreview,
   resolveMiniWebsiteForPublish,
   applyCanonicalHeroToMiniWebsite,
@@ -81,6 +82,19 @@ describe('draftPreviewHeroSync', () => {
       imageUrl: null,
       videoUrl: 'https://cdn.example.com/hero.mp4',
       posterUrl: 'https://cdn.example.com/legacy.jpg',
+    });
+  });
+
+  it('resolveCanonicalHeroApiFields maps video canonical to API shape', () => {
+    const raw = {
+      heroMediaType: 'video',
+      heroVideoUrl: 'https://cdn.example.com/hero.mp4',
+      hero: { imageUrl: 'https://cdn.example.com/poster.jpg' },
+    };
+    expect(resolveCanonicalHeroApiFields(raw)).toEqual({
+      heroImageUrl: 'https://cdn.example.com/poster.jpg',
+      heroVideo: 'https://cdn.example.com/hero.mp4',
+      heroMediaType: 'video',
     });
   });
 
