@@ -15,6 +15,29 @@ describe('CORS API allowed headers', () => {
   });
 });
 
+describe('OPTIONS /api/draft-store/:draftId/upload/hero preflight', () => {
+  function appWithCors() {
+    const app = express();
+    app.use(cors(corsOptions));
+    app.options('/api/draft-store/:draftId/upload/hero', (_req, res) => {
+      res.sendStatus(204);
+    });
+    return app;
+  }
+
+  it('allows x-local on draft-store hero upload preflight', async () => {
+    const res = await request(appWithCors())
+      .options('/api/draft-store/draft-1/upload/hero')
+      .set('Origin', 'http://192.168.1.11:5174')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'authorization, x-local');
+
+    expect(res.status).toBe(204);
+    const allowed = String(res.headers['access-control-allow-headers'] || '').toLowerCase();
+    expect(allowed).toContain('x-local');
+  });
+});
+
 describe('OPTIONS /api/stores/:storeId/upload/hero preflight', () => {
   function appWithCors() {
     const app = express();
