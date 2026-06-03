@@ -392,6 +392,19 @@ export async function cancelMissionPipeline(missionId) {
       console.log('[mission-end] cleared active runtime session', { missionId, idempotent: true });
       return { ok: true, status: 'cancelled' };
     }
+    // User "End mission" on a completed/success terminal row — dismiss so runtime session won't rehydrate it.
+    const dismissTerminal = ['completed', 'done', 'succeeded', 'success'].includes(st);
+    if (dismissTerminal) {
+      await prisma.missionPipeline.update({
+        where: { id: missionId },
+        data: {
+          metadataJson: buildEndedByUserMetadata(m.metadataJson),
+          currentStepId: null,
+        },
+      });
+      console.log('[mission-end] dismissed completed mission', { missionId, status: st });
+      return { ok: true, status: st, dismissed: true };
+    }
     return { ok: false, error: 'already_terminal', status: m.status };
   }
   const updated = await transitionMission(missionId, m.status, 'cancelled', { runState: 'cancelled' });

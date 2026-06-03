@@ -5,6 +5,8 @@
 
 
 import { prisma } from '../../lib/prisma.js';
+import { hasActiveMissionPipelineExecution } from '../../lib/missionExecutionGuard.js';
+import { runBestEffortSqliteWrite } from '../../lib/sqliteBestEffortWrite.js';
 
 /**
  * Add a log entry for a device
@@ -20,33 +22,55 @@ import { prisma } from '../../lib/prisma.js';
 export async function addDeviceLog(input) {
   const { deviceId, source, level = 'info', message, payload } = input;
 
-  try {
-    const log = await prisma.deviceLog.create({
-      data: {
-        deviceId,
-        source,
-        level,
-        message,
-        payload: payload || {},
-      },
-    });
-
-    console.log(`[Device Logs] Added log: ${level} [${source}] ${message}`, { deviceId, logId: log.id });
-
-    return {
-      id: log.id,
-      deviceId: log.deviceId,
-      source: log.source,
-      level: log.level,
-      message: log.message,
-      payload: log.payload,
-      createdAt: log.createdAt,
-    };
-  } catch (error) {
-    console.error('[Device Logs] Error adding log:', error);
-    // Don't throw - logging failures shouldn't break the main flow
+  if (hasActiveMissionPipelineExecution()) {
+    void runBestEffortSqliteWrite(async () => {
+      try {
+        await prisma.deviceLog.create({
+          data: {
+            deviceId,
+            source,
+            level,
+            message,
+            payload: payload || {},
+          },
+        });
+      } catch (error) {
+        console.error('[Device Logs] Error adding log:', error);
+      }
+    }, 'deviceLog');
     return null;
   }
+
+  return new Promise((resolve) => {
+    runBestEffortSqliteWrite(async () => {
+      try {
+        const log = await prisma.deviceLog.create({
+          data: {
+            deviceId,
+            source,
+            level,
+            message,
+            payload: payload || {},
+          },
+        });
+
+        console.log(`[Device Logs] Added log: ${level} [${source}] ${message}`, { deviceId, logId: log.id });
+
+        resolve({
+          id: log.id,
+          deviceId: log.deviceId,
+          source: log.source,
+          level: log.level,
+          message: log.message,
+          payload: log.payload,
+          createdAt: log.createdAt,
+        });
+      } catch (error) {
+        console.error('[Device Logs] Error adding log:', error);
+        resolve(null);
+      }
+    }, 'deviceLog');
+  });
 }
 
 /**

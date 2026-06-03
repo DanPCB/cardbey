@@ -1,7 +1,7 @@
 // scripts/prisma-bootstrap.js
 // Prefers `prisma migrate deploy` when prisma/migrations is present in the repo.
 //
-// Local SQLite lock (dev.db): if bootstrap fails with "database is locked", another process
+// Local SQLite lock (prod.db / dev.db): if bootstrap fails with "database is locked", another process
 // may hold the file — stop stale holders before retrying:
 //   - node.exe (previous API / nodemon / tests)
 //   - npx prisma studio
@@ -230,6 +230,20 @@ function runMigrateDeploy(schemaPath) {
     console.log("[prisma] PRISMA_SKIP_MIGRATE_DEPLOY=1 — skipping migrate deploy (sqlite dev)");
     return;
   }
+
+  // migrate deploy needs a write lock even when nothing is pending; status is read-only and
+  // succeeds while the API holds prod.db — skip deploy when history is already current.
+  if (isSqliteLocal) {
+    const upToDate = checkSqliteMigrateUpToDate(schemaPath, { maxAttempts: 6, backoffMs: 1500 });
+    if (upToDate === true) {
+      console.log("[prisma] sqlite migrations already up to date — skipping migrate deploy");
+      return;
+    }
+    if (upToDate === false) {
+      console.log("[prisma] sqlite has pending migrations — running migrate deploy");
+    }
+  }
+
   const maxAttempts = isSqliteLocal ? 8 : 1;
   const backoffMs = 2500;
   const cmd = `npx prisma migrate deploy --schema=${schemaPath}`;
@@ -419,8 +433,17 @@ if (hasMigrations) {
       /* continue bootstrap */
     } else {
       if (!schemaIsPostgres && isSqliteLockOutput(msg)) {
+        const dbHint = (() => {
+          try {
+            const url = pickDatabaseUrlForPrisma() || "";
+            const m = url.match(/file:([^?]+)/i);
+            return m ? path.basename(m[1]) : "prod.db";
+          } catch {
+            return "prod.db";
+          }
+        })();
         console.error(
-          "[prisma] sqlite locked during migrate deploy — stop holders of dev.db then retry:",
+          `[prisma] sqlite locked during migrate deploy — stop holders of ${dbHint} then retry:`,
         );
         console.error(
           "  - Other node.exe (npm start / old nodemon / tests)  -  npx prisma studio  -  port 3001: netstat -ano | findstr :3001",

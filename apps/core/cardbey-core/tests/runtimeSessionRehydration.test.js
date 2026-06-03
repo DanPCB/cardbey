@@ -11,6 +11,7 @@ import {
   resolveActiveRuntimeSession,
   isRuntimeSessionRehydrationEnabled,
 } from '../src/lib/runtime/runtimeSessionService.js';
+import { initRuntimeCapabilities, resetRuntimeCapabilitiesForTests } from '../src/lib/runtime/runtimeCapabilitiesService.js';
 import runtimeSessionRoutes from '../src/routes/runtimeSessionRoutes.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
@@ -28,6 +29,7 @@ const SESSION_FLAGS = {
   ENABLE_RUNTIME_STORE_FALLBACK: 'true',
   ENABLE_RUNTIME_MISSION_RESUME: 'true',
   ENABLE_MISSION_HANDOFF: 'true',
+  ENABLE_RUNTIME_TARGET_READINESS: 'true',
 };
 
 vi.mock('../src/lib/orchestrator/advanceProactivePipelineStep.js', () => ({
@@ -55,6 +57,9 @@ describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
   });
 
   beforeEach(async () => {
+    resetRuntimeCapabilitiesForTests();
+    Object.assign(process.env, SESSION_FLAGS);
+    initRuntimeCapabilities();
     await resetDb(prisma);
     const user = await prisma.user.create({
       data: {
@@ -214,6 +219,66 @@ describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
     const session = await resolveActiveRuntimeSession({ userId, source: 'test' });
     expect(session.needsStoreFirst).toBe(true);
     expect(session.warnings).toContain('NEEDS_STORE_FIRST');
+    expect(session.runtimeGuidance?.length ?? 0).toBe(0);
+  });
+
+  it('regression: missing-store runtimeGuidance when active mission needs a store', async () => {
+    const mission = await prisma.missionPipeline.create({
+      data: {
+        type: 'launch_campaign',
+        title: 'Launch campaign',
+        status: 'executing',
+        runState: 'running',
+        targetType: 'generic',
+        executionMode: 'GUIDED_RUN',
+        createdBy: userId,
+      },
+    });
+    const session = await resolveActiveRuntimeSession({
+      userId,
+      requestedMissionId: mission.id,
+      source: 'test',
+    });
+    expect(session.needsStoreFirst).toBe(true);
+    expect(session.runtimeGuidance?.length).toBe(1);
+    expect(session.runtimeGuidance[0].message).toMatch(/need a store first/i);
+  });
+
+  it('regression: needsStoreFirst false while store mission is at checkpoint', async () => {
+    const mission = await prisma.missionPipeline.create({
+      data: {
+        type: 'store',
+        title: 'Create mini website: Test Cafe',
+        status: 'awaiting_input',
+        runState: 'blocked_on_checkpoint',
+        targetType: 'store',
+        executionMode: 'AUTO_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+      },
+    });
+    await prisma.missionPipelineStep.create({
+      data: {
+        missionId: mission.id,
+        orderIndex: 1,
+        toolName: 'owner_logo_checkpoint',
+        label: 'Upload logo',
+        status: 'awaiting_input',
+        stepKind: 'checkpoint',
+        configJson: { prompt: 'Upload logo', options: ['Skip'] },
+      },
+    });
+
+    const session = await resolveActiveRuntimeSession({
+      userId,
+      requestedMissionId: mission.id,
+      source: 'checkpoint_store_build',
+    });
+
+    expect(session.activeMissionId).toBe(mission.id);
+    expect(session.needsStoreFirst).toBe(false);
+    expect(session.runtimeGuidance?.some((g) => g.message?.includes('need a store first'))).not.toBe(true);
   });
 
   it('does not return checkpoint mission after user end (cancelled + endedByUser)', async () => {

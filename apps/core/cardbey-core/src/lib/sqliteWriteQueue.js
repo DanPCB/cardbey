@@ -14,6 +14,9 @@
  * They should be awaited directly so failures surface immediately.
  */
 
+import { isPrismaSocketTimeoutError, isSqliteBusyError } from './orchestration/orchestrationStabilityMetrics.js';
+import { isSqliteAuthorityWriteInFlight } from './sqliteWriteLane.js';
+
 const QUEUE_INTERVAL_MS = 50; // Drain interval — how often to flush
 const MAX_BATCH_SIZE = 10; // Max writes per drain cycle
 const MAX_QUEUE_SIZE = 500; // Drop oldest if queue exceeds this
@@ -37,25 +40,62 @@ export function enqueueWrite(fn, label = 'unknown') {
   ensureDraining();
 }
 
+/**
+ * Enqueue and await result (for paths that need a return value, e.g. device heartbeat).
+ *
+ * @param {() => Promise<T>} fn
+ * @param {string} [label]
+ * @returns {Promise<T>}
+ * @template T
+ */
+export function enqueueWriteAwait(fn, label = 'unknown') {
+  return new Promise((resolve, reject) => {
+    enqueueWrite(async () => {
+      try {
+        resolve(await fn());
+      } catch (err) {
+        reject(err);
+      }
+    }, label);
+  });
+}
+
 function ensureDraining() {
   if (drainInterval) return;
   drainInterval = setInterval(drain, QUEUE_INTERVAL_MS);
 }
 
+function logWriteQueueFailure(err, label) {
+  if (isPrismaSocketTimeoutError(err)) {
+    console.warn(`[WriteQueue] P1008 (${label}): ${err?.message || err}`);
+    return;
+  }
+  if (isSqliteBusyError(err)) {
+    console.warn(`[WriteQueue] SQLITE_BUSY (${label}): ${err?.message || err}`);
+    return;
+  }
+  const msg = err?.message ?? String(err);
+  if (process.env.NODE_ENV !== 'production') {
+    console.debug(`[WriteQueue] write failed (${label}):`, msg);
+  }
+}
+
 async function drain() {
   if (draining || queue.length === 0) return;
+  if (isSqliteAuthorityWriteInFlight()) return;
   draining = true;
 
   const batch = queue.splice(0, MAX_BATCH_SIZE);
 
   for (const { fn, label } of batch) {
+    if (isSqliteAuthorityWriteInFlight()) {
+      queue.unshift({ fn, label });
+      continue;
+    }
     try {
       await fn();
     } catch (err) {
-      const msg = err?.message ?? String(err);
-      if (!msg.includes('Socket timeout') && !msg.includes('database is locked')) {
-        console.debug(`[WriteQueue] write failed (${label}):`, msg);
-      }
+      logWriteQueueFailure(err, label);
     }
   }
 

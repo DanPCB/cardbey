@@ -22,6 +22,8 @@ import {
 } from './orchestrator/pipelineCanonicalResults.js';
 import { emitHealthProbe } from './telemetry/healthProbes.js';
 import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
+import { runCriticalSqliteWriteWithP1008Retry } from './sqliteCriticalWrite.js';
+import { isPrismaSocketTimeoutError } from './orchestration/orchestrationStabilityMetrics.js';
 
 const STATUS_MAP = {
   queued: { status: 'queued', runState: 'idle' },
@@ -36,11 +38,12 @@ function asObject(v) {
   return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 const PIPELINE_STEP_TERMINAL = new Set(['completed', 'skipped', 'failed']);
+
+/** @param {number} attempt */
+function orchestraMirrorRetryLog(attempt) {
+  return `[orchestraMirror] critical update retry P1008 attempt=${attempt}`;
+}
 
 /**
  * Structured store missions (checkpoint → conditional → structured_store_build → analyze_store)
@@ -61,9 +64,8 @@ async function missionPipelineHasOutstandingSteps(prisma, missionId) {
  * @param {string} missionId - MissionPipeline.id
  * @param {string} taskStatus - OrchestratorTask.status
  * @param {object} [extra] - outputsPatch?, errorMessage?, correlationId?, auditSource?, outputsFallback?
- * @param {number} [attempt] - internal retry counter
  */
-export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, extra = {}, attempt = 1) {
+export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, extra = {}) {
   const id = typeof missionId === 'string' ? missionId.trim() : '';
   const key = (taskStatus || '').toLowerCase().trim();
   const mapped = STATUS_MAP[key];
@@ -176,12 +178,15 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
       data.failedAt = new Date();
     }
 
+    console.log(`[orchestraMirror] critical update queued missionId=${id}`);
     await auditedPipelineUpdate(prisma, {
       where: { id },
       data,
       source: auditSource,
       correlationId,
+      retryLog: orchestraMirrorRetryLog,
     });
+    console.log(`[orchestraMirror] critical update success missionId=${id}`);
 
     if (effectiveMapped.status === 'completed' && !pipelineStepsOutstanding) {
       emitHealthProbe('orchestra_mirror', {
@@ -206,14 +211,11 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
     }
   } catch (err) {
     const msg = err?.message || String(err);
-    if (attempt <= 3) {
-      const delay = attempt * 200;
-      console.warn(`[orchestraMirror] DB error attempt ${attempt}/3 for ${id}, retrying in ${delay}ms: ${msg}`);
-      await sleep(delay);
-      return mirrorOrchestraStatusToPipeline(missionId, taskStatus, extra, attempt + 1);
-    }
+    const code = err && typeof err === 'object' && 'code' in err ? String(/** @type {{ code?: string }} */ (err).code) : '';
+    console.error(
+      `[orchestraMirror] MIRROR FAILED for mission=${id}${code ? ` code=${code}` : ''}: ${msg}`,
+    );
 
-    console.error(`[orchestraMirror] MIRROR FAILED after 3 attempts for mission=${id}: ${msg}`);
     try {
       const current = await prisma.missionPipeline.findUnique({
         where: { id },
@@ -223,15 +225,25 @@ export async function mirrorOrchestraStatusToPipeline(missionId, taskStatus, ext
       if (String(current?.status ?? '').toLowerCase() === 'completed') {
         return;
       }
-      await prisma.missionPipeline.updateMany({
-        where: { id },
-        data: {
-          runState: 'error',
-          updatedAt: new Date(),
+      await runCriticalSqliteWriteWithP1008Retry(
+        () =>
+          prisma.missionPipeline.updateMany({
+            where: { id },
+            data: {
+              runState: 'error',
+              updatedAt: new Date(),
+            },
+          }),
+        {
+          label: 'orchestraMirror.error',
+          logPrefix: '[orchestraMirror]',
+          retryLog: orchestraMirrorRetryLog,
         },
-      });
-    } catch {
-      /* ignore secondary failure */
+      );
+    } catch (secondary) {
+      if (!isPrismaSocketTimeoutError(secondary) && process.env.NODE_ENV !== 'production') {
+        console.warn('[orchestraMirror] secondary error mark failed:', secondary?.message || secondary);
+      }
     }
   }
 }

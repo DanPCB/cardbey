@@ -24,6 +24,7 @@ import {
   resolveTargetReadiness,
   resolveTargetIdsFromMission,
   STORE_READINESS,
+  draftOwnerWhere,
 } from './runtimeTargetReadinessService.js';
 import { resolveRuntimeGuidanceForSession } from './runtimeGuidanceService.js';
 import { getMissionParentMissionId } from '../mission/missionParentLineage.js';
@@ -88,6 +89,32 @@ function str(v) {
 
 function asObj(v) {
   return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+}
+
+/**
+ * Store-creation mission in flight — do not show "need a store first" while user is already building one.
+ * @param {object|null|undefined} row
+ */
+export function isStoreCreationMissionActive(row) {
+  if (!row) return false;
+  const status = str(row.status).toLowerCase();
+  if (['cancelled', 'failed', 'completed', 'done', 'succeeded', 'success'].includes(status)) {
+    return false;
+  }
+  if (!['queued', 'executing', 'awaiting_input', 'paused', 'planned', 'running'].includes(status)) {
+    return false;
+  }
+  const type = str(row.type).toLowerCase();
+  const title = str(row.title).toLowerCase();
+  if (type === 'store' || type === 'store_improvement') return true;
+  if (/create (mini website|a store|store)/.test(title)) return true;
+  const outputs = asObj(row.outputsJson);
+  if (outputs.draftId || outputs.structured_store_build) return true;
+  const meta = asObj(row.metadataJson);
+  if (meta.intentMode === 'website' || meta.generateWebsite === true || meta.websiteMode === true) {
+    return true;
+  }
+  return false;
 }
 
 function missionOwnedByUser(row, userId, tenantId) {
@@ -229,7 +256,7 @@ async function resolveLatestStoreTargetForUser(prisma, userId, tenantId) {
 
   const draft = await prisma.draftStore.findFirst({
     where: {
-      ownerUserId: uid,
+      ...draftOwnerWhere(uid),
       status: { in: ['ready', 'committed', 'generating', 'draft'] },
     },
     orderBy: { updatedAt: 'desc' },
@@ -241,6 +268,16 @@ async function resolveLatestStoreTargetForUser(prisma, userId, tenantId) {
       draftId: draft.id,
       source: 'latest_draft',
     };
+  }
+
+  const ownedStores = await prisma.business.findMany({
+    where: { userId: uid },
+    orderBy: { updatedAt: 'desc' },
+    take: 2,
+    select: { id: true },
+  });
+  if (ownedStores.length === 1) {
+    return { storeId: ownedStores[0].id, draftId: null, source: 'latest_owned_store' };
   }
 
   return { storeId: null, draftId: null, source: null };
@@ -382,7 +419,7 @@ export async function resolveActiveRuntimeSession(input) {
         updatedAt: true,
       },
     });
-    if (row) {
+    if (row && shouldRecoverMissionRow(row, userId, tenantId)) {
       activeMissionRow = row;
       activeMissionId = row.id;
       try {
@@ -455,7 +492,7 @@ export async function resolveActiveRuntimeSession(input) {
         draftId: missionIds.draftId,
       },
     });
-    if (!activeStoreId && targetReadiness?.storeId) {
+    if (!activeStoreId && targetReadiness?.storeId && userStores.length <= 1) {
       activeStoreId = targetReadiness.storeId;
       targetType = 'store';
       targetId = targetReadiness.storeId;
@@ -469,14 +506,17 @@ export async function resolveActiveRuntimeSession(input) {
     runtimePrerequisitesEarly &&
     str(runtimePrerequisitesEarly.status) === 'waiting_for_prerequisite';
 
+  const storeCreationInProgress = isStoreCreationMissionActive(activeMissionRow);
+
   const needsStoreFirst = readinessEnabled
     ? Boolean(
-        targetReadiness &&
+        !storeCreationInProgress &&
+          targetReadiness &&
           !targetReadiness.exists &&
           targetReadiness.readinessState === STORE_READINESS.MISSING &&
           !waitingForPrerequisiteEarly,
       )
-    : userStores.length === 0 && !activeStoreId;
+    : userStores.length === 0 && !activeStoreId && !storeCreationInProgress;
 
   if (needsStoreFirst) {
     warnings.push('NEEDS_STORE_FIRST');

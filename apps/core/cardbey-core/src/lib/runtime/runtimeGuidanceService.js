@@ -270,7 +270,7 @@ export function resolveRuntimeGuidanceForSession(input) {
     return out;
   }
 
-  if (input?.needsStoreFirst) {
+  if (input?.needsStoreFirst && missionId) {
     out.push(buildMissingStoreGuidance({ missionId }));
     return out;
   }

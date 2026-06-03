@@ -8,6 +8,7 @@ import { generateDraft, getDraftByGenerationRunId } from './draftStoreService.js
 import { captureIngestSample, extractDomain } from '../contentIngest/captureSample.js';
 import { mapErrorToDraftFailure } from '../errors/mapErrorToDraftFailure.js';
 import { transitionOrchestratorTaskStatus } from '../../kernel/transitions/transitionService.js';
+import { runCriticalSqliteWriteWithP1008Retry } from '../../lib/sqliteCriticalWrite.js';
 import { inferCurrencyFromLocationText } from './currencyInfer.js';
 
 function newTraceId() {
@@ -584,26 +585,34 @@ export async function createBuildStoreJob(
     job = { id: existingIdTrim };
     resolvedRunId = runId;
   } else {
-    job = await prisma.orchestratorTask.create({
-      data: {
-        tenantId,
-        userId: userId || tenantId,
-        insightId: null,
-        entryPoint: 'build_store',
-        status: 'queued',
-        request: requestPayload,
-      },
-    });
+    job = await runCriticalSqliteWriteWithP1008Retry(
+      () =>
+        prisma.orchestratorTask.create({
+          data: {
+            tenantId,
+            userId: userId || tenantId,
+            insightId: null,
+            entryPoint: 'build_store',
+            status: 'queued',
+            request: requestPayload,
+          },
+        }),
+      { label: 'orchestratorTask.create', logPrefix: '[createBuildStoreJob]' },
+    );
 
     resolvedRunId = runId || job.id;
     if (!runId) {
-      await prisma.orchestratorTask.update({
-        where: { id: job.id },
-        data: {
-          request: { ...requestPayload, generationRunId: resolvedRunId },
-          updatedAt: new Date(),
-        },
-      }).catch(() => {});
+      await runCriticalSqliteWriteWithP1008Retry(
+        () =>
+          prisma.orchestratorTask.update({
+            where: { id: job.id },
+            data: {
+              request: { ...requestPayload, generationRunId: resolvedRunId },
+              updatedAt: new Date(),
+            },
+          }),
+        { label: 'orchestratorTask.update', logPrefix: '[createBuildStoreJob]' },
+      ).catch(() => {});
     }
   }
 

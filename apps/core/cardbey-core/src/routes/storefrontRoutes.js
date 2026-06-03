@@ -2,8 +2,9 @@
  * Storefront Routes
  * Public, no auth. Frontscreen and published store feed.
  *
- * CONTRACT (Step 5): Reads published snapshot only. All fields (heroImageUrl, avatarImageUrl,
- * publishedAt) come from the Business row — source of truth. No draft or computed values.
+ * CONTRACT (Step 5): Reads published snapshot only. All fields (heroImageUrl, heroVideo,
+ * avatarImageUrl, publishedAt) come from the published projection — not draft-only values.
+ * Dashboard frontscreen MUST map via mapFrontscreenStoreFromApi (video → bannerUrl + <video> render).
  * There is no separate PublishedStore table; Business with isActive === true is the published entity.
  *
  * Type filtering (Food | Products | Services): Aligns with Explore tabs so food stores

@@ -17,11 +17,9 @@ const __dirname = dirname(__filename);
 // From src/env/loadEnv.ts -> src/ -> project root
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
 
-// Env file paths (in order of precedence)
-const ENV_PATHS = [
-  join(PROJECT_ROOT, '.env.local'),  // Highest priority (local overrides)
-  join(PROJECT_ROOT, '.env'),         // Standard .env file
-];
+// Env file paths: .env first, then .env.local overrides
+const ENV_DOT_PATH = join(PROJECT_ROOT, '.env');
+const ENV_LOCAL_PATH = join(PROJECT_ROOT, '.env.local');
 
 let envLoaded = false;
 
@@ -37,16 +35,19 @@ export function loadEnv(): void {
   const loadedPaths: string[] = [];
   const missingPaths: string[] = [];
 
-  // Try to load each .env file in order
-  for (const envPath of ENV_PATHS) {
-    if (existsSync(envPath)) {
-      const result = config({ path: envPath, override: false });
-      if (!result.error) {
-        loadedPaths.push(envPath);
-      }
-    } else {
-      missingPaths.push(envPath);
-    }
+  // Load .env, then .env.local (local overrides)
+  if (existsSync(ENV_DOT_PATH)) {
+    const result = config({ path: ENV_DOT_PATH, override: false });
+    if (!result.error) loadedPaths.push(ENV_DOT_PATH);
+  } else {
+    missingPaths.push(ENV_DOT_PATH);
+  }
+
+  if (existsSync(ENV_LOCAL_PATH)) {
+    const result = config({ path: ENV_LOCAL_PATH, override: true });
+    if (!result.error) loadedPaths.push(ENV_LOCAL_PATH);
+  } else {
+    missingPaths.push(ENV_LOCAL_PATH);
   }
 
   // Log in dev mode

@@ -78,4 +78,19 @@ describe('toPublicStore', () => {
     const result = toPublicStore(baseBusiness);
     expect(result.socialLinks).toBeNull();
   });
+
+  it('exposes heroVideo and video bannerUrl from stylePreferences.heroVideo', () => {
+    const business = {
+      ...baseBusiness,
+      heroImageUrl: 'https://example.com/poster.jpg',
+      stylePreferences: JSON.stringify({
+        heroVideo: 'https://example.com/hero.mp4',
+        heroImage: 'https://example.com/poster.jpg',
+      }),
+    };
+    const result = toPublicStore(business);
+    expect(result.heroVideo).toBe('https://example.com/hero.mp4');
+    expect(result.bannerUrl).toBe('https://example.com/hero.mp4');
+    expect(result.heroUrl).toBe('https://example.com/hero.mp4');
+  });
 });
