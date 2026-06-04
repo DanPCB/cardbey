@@ -55,6 +55,7 @@ import aiRouter from './routes/ai.js';
 import aiImagesRouter from './routes/aiImages.js';
 import studioRouter from './routes/studio.js';
 import assetsRouter from './routes/assets.js';
+import mediaVideoRouter from './routes/mediaVideo.js';
 import trendsRouter from './routes/trends.js';
 import screensRoutes from './routes/screens.js';
 import playlistsRoutes from './routes/playlists.js';
@@ -131,6 +132,8 @@ import promotionsRoutes from './routes/promotionsRoutes.js';
 import notificationsRoutes from './routes/notifications.js';
 import businessRoutes from './routes/business.js';
 import businessBrandRoutes from './routes/businessBrandRoutes.js';
+import discoveryRoutes from './routes/discoveryRoutes.js';
+import passiveGenerationRoutes from './routes/passiveGenerationRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
@@ -848,6 +851,8 @@ app.use('/api/public/promos', promosPublicRoutes); // Public: GET /:slug, POST /
 app.use('/api/promotions', promotionsRoutes); // Public: GET /public/:publicId; slots resolve; optional POSTs
 app.use('/api/business', businessRoutes); // Business Builder routes: /api/business/create
 app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
+app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
+app.use('/api/passive-generation', passiveGenerationRoutes); // Passive intent-to-artifact pipeline (foundation)
 app.use('/api/automation', automationRoutes); // Headless automation: /api/automation/store-from-input
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
@@ -936,6 +941,7 @@ app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards,
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
 app.use('/api/assets', assetsRouter);
+app.use('/api/media', mediaVideoRouter); // Multi-source video search: GET /api/media/video/search (Pexels, Pixabay, Coverr, Mixkit)
 app.use('/api/trends', trendsRouter); // Trend profiles for AI Design Assistant
 app.use('/api/playlists', playlistsRoutes); // Playlist management
 app.use('/api/player', playerRoutes); // Player configuration
