@@ -139,6 +139,13 @@ import {
 } from '../lib/runwayContext.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  createMissionPipelineForIntakeRoute,
+  isMissionCreateBusyError,
+  isMissionCreateTimeoutError,
+  respondMissionCreateBusy,
+  respondMissionCreateTimeout,
+} from '../lib/mission/missionCreateWrite.js';
 
 function withPipelineLocale(metadata, locale) {
   const base =
@@ -792,6 +799,7 @@ router.get('/', (req, res) => {
 });
 
 router.post('/', requireUserOrGuest, async (req, res) => {
+  try {
   const startMs = Date.now();
   const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
   res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
@@ -1079,6 +1087,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               });
               effectiveMissionId = pipeline.id;
             } catch (err) {
+              if (isMissionCreateBusyError(err) || isMissionCreateTimeoutError(err)) {
+                console.warn('[PerformerIntakeV2] business card mission create deferred (non-fatal)', {
+                  code: err?.code,
+                });
+                return;
+              }
               if (isDev) console.warn('[IntakeV2] business-card pipeline creation failed:', err?.message ?? err);
             }
           }
@@ -1996,7 +2010,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       const tenantId = getTenantId(req.user) ?? actorId;
       const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
       const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-      const pipeline = await createMissionPipeline({
+      const createResult = await createMissionPipelineForIntakeRoute(res, createMissionPipeline, {
         type: 'store',
         title: `${titlePrefix}: ${businessName.slice(0, 120)}`,
         targetType: 'store',
@@ -2017,6 +2031,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         tenantId,
         createdBy: actorId,
       });
+      if (createResult.handled) return;
+      const pipeline = createResult.pipeline;
 
       await ensureStructuredStoreCheckpointSteps(prismaShortcut, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
 
@@ -3693,7 +3709,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
 
       if (!pipeline) {
-        pipeline = await createMissionPipeline({
+        const createResult = await createMissionPipelineForIntakeRoute(res, createMissionPipeline, {
           type: 'store',
           title: pipelineTitle,
           targetType: 'store',
@@ -3717,6 +3733,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           tenantId,
           createdBy: actorId,
         });
+        if (createResult.handled) return;
+        pipeline = createResult.pipeline;
       }
 
       await ensureStructuredStoreCheckpointSteps(prisma, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
@@ -3947,6 +3965,24 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       result: 'fallback',
     },
   );
+  } catch (err) {
+    if (res.headersSent) {
+      console.error('[PerformerIntakeV2] error after response sent:', err?.message ?? err);
+      return;
+    }
+    if (isMissionCreateBusyError(err)) {
+      return respondMissionCreateBusy(res);
+    }
+    if (isMissionCreateTimeoutError(err)) {
+      return respondMissionCreateTimeout(res);
+    }
+    console.error('[PerformerIntakeV2] unhandled intake error:', err?.message ?? err);
+    return res.status(500).json({
+      ok: false,
+      error: 'intake_error',
+      message: 'Something went wrong. Please try again.',
+    });
+  }
 });
 
 router.post('/maintenance', superAdminOnly, async (req, res) => {
