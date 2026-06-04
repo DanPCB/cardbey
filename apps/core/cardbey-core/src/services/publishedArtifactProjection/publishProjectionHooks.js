@@ -2,6 +2,7 @@ import { buildPublishedBusinessArtifact } from './buildPublishedBusinessArtifact
 import { validatePublishedBusinessArtifact } from './validatePublishedBusinessArtifact.js';
 import { persistPublishedBusinessArtifact } from './persistPublishedBusinessArtifact.js';
 import { parseJsonBlob } from './parseJsonBlob.js';
+import { heroImageUrlForBusinessColumn } from '../draftStore/publishDraftHeroHelpers.js';
 
 /**
  * Build, validate, persist projection and sync indexed Business columns.
@@ -72,12 +73,28 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
   const hero = projection.hero ?? {};
   const existingPrefs = parseJsonBlob(business.stylePreferences) ?? {};
   const existingMini = existingPrefs.miniWebsite ?? {};
+  const heroImageUrl = heroImageUrlForBusinessColumn(
+    hero.videoUrl ?? null,
+    hero.posterUrl ?? hero.imageUrl ?? null,
+  );
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[public-video-chain] publish_payload', {
+      storeId: businessId,
+      heroType: hero.type ?? null,
+      heroVideoUrl: hero.videoUrl ?? null,
+      heroImageUrl: hero.posterUrl ?? hero.imageUrl ?? null,
+      heroPosterUrl: hero.posterUrl ?? null,
+      hero,
+    });
+  }
+
   const updateData = {
     name: projection.name,
     slug: projection.slug,
     tagline: projection.content?.tagline ?? null,
     description: projection.content?.description ?? null,
-    heroImageUrl: hero.videoUrl || hero.imageUrl || null,
+    heroImageUrl,
     isActive: projection.status === 'published',
     publishedAt: projection.publishedAt ? new Date(projection.publishedAt) : new Date(),
     stylePreferences: {

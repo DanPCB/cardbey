@@ -98,7 +98,7 @@ describe('draftPreviewHeroSync', () => {
     });
   });
 
-  it('writeCanonicalHeroMediaToPreview: does not set heroImageUrl to video url', () => {
+  it('writeCanonicalHeroMediaToPreview: clears stale heroImageUrl when video has no poster', () => {
     const merged = { heroImageUrl: 'https://cdn.example.com/old.jpg' };
     writeCanonicalHeroMediaToPreview(merged, {
       mediaType: 'video',
@@ -108,8 +108,7 @@ describe('draftPreviewHeroSync', () => {
     });
     expect(merged.heroMediaType).toBe('video');
     expect(merged.heroVideoUrl).toBe('https://cdn.example.com/hero.mp4');
-    // poster missing -> keep existing heroImageUrl (do not replace with video)
-    expect(merged.heroImageUrl).toBe('https://cdn.example.com/old.jpg');
+    expect(merged.heroImageUrl).toBeNull();
   });
 
   it('syncHeroFieldsIntoPreviewWebsite updates stylePreferences.miniWebsite hero section', async () => {

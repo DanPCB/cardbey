@@ -17,4 +17,19 @@ describe('heroMediaResolve', () => {
     expect(isVideoMediaUrl('https://x.com/a.mp4')).toBe(true);
     expect(isVideoMediaUrl('https://x.com/a.jpg')).toBe(false);
   });
+
+  it('treats extensionless upload column hero as video when heroMediaType is video', () => {
+    const media = resolveHeroMediaFromBusiness({
+      id: '2',
+      slug: 'my-nails',
+      heroImageUrl: '/uploads/media/store-2/hero',
+      stylePreferences: {
+        heroMediaType: 'video',
+        heroImage: 'https://cdn.example.com/poster.jpg',
+      },
+    });
+    expect(media.heroVideo).toBe('/uploads/media/store-2/hero');
+    expect(media.heroUrl).toBe('/uploads/media/store-2/hero');
+    expect(media.heroImage).toBe('https://cdn.example.com/poster.jpg');
+  });
 });

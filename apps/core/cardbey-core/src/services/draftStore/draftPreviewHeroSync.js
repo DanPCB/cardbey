@@ -342,8 +342,9 @@ export function writeCanonicalHeroMediaToPreview(mergedPreview, canonical) {
   // - video hero → posterUrl when present, otherwise keep existing heroImageUrl (do not set to the video url)
   if (mediaType === 'image' && imageUrl) {
     mergedPreview.heroImageUrl = imageUrl;
-  } else if (mediaType === 'video' && posterUrl) {
-    mergedPreview.heroImageUrl = posterUrl;
+  } else if (mediaType === 'video') {
+    // Video wins — clear stale image primary; poster only when explicit.
+    mergedPreview.heroImageUrl = posterUrl ?? null;
   }
 
   const existingHero =
@@ -358,7 +359,8 @@ export function writeCanonicalHeroMediaToPreview(mergedPreview, canonical) {
       ? {
           videoUrl: videoUrl || existingHero.videoUrl || undefined,
           url: videoUrl || existingHero.url || undefined,
-          imageUrl: posterUrl || imageUrl || existingHero.imageUrl || undefined,
+          imageUrl: posterUrl ?? null,
+          posterUrl: posterUrl ?? null,
         }
       : {
           videoUrl: undefined,
