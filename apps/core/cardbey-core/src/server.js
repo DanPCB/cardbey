@@ -56,6 +56,7 @@ import aiImagesRouter from './routes/aiImages.js';
 import studioRouter from './routes/studio.js';
 import assetsRouter from './routes/assets.js';
 import mediaVideoRouter from './routes/mediaVideo.js';
+import mediaLogoRouter from './routes/mediaLogo.js';
 import trendsRouter from './routes/trends.js';
 import screensRoutes from './routes/screens.js';
 import playlistsRoutes from './routes/playlists.js';
@@ -153,6 +154,7 @@ import menuPhotoAssignRoutes from './routes/menuPhotoAssign.js';
 import loyaltyRoutes from './routes/loyalty.js';
 import loyaltyEngineRoutes from './routes/loyaltyRoutes.js';
 import watcherRoutes from './routes/watcher.js';
+import pilRoutes from './routes/pilRoutes.js';
 import promoEngineRoutes from './routes/promoEngine.js';
 import signageEngineRoutes from './routes/signageEngine.js';
 import signageRoutes from './routes/signageRoutes.js';
@@ -861,6 +863,7 @@ app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /a
 app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/programs, /api/loyalty/stamp/*
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.
 app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/event, /api/watcher/insights, /api/watcher/chat
+app.use('/api/pil', pilRoutes); // PIL intelligence events: POST /api/pil/events, /api/pil/events/batch
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
 app.use('/api', signageRoutes); // Signage REST API routes: /api/signage-assets, /api/signage-playlists, etc.
@@ -942,6 +945,7 @@ app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
 app.use('/api/assets', assetsRouter);
 app.use('/api/media', mediaVideoRouter); // Multi-source video search: GET /api/media/video/search (Pexels, Pixabay, Coverr, Mixkit)
+app.use('/api/media', mediaLogoRouter); // Logo search + generation: GET /api/media/logo/search, POST /api/media/logo/generate
 app.use('/api/trends', trendsRouter); // Trend profiles for AI Design Assistant
 app.use('/api/playlists', playlistsRoutes); // Playlist management
 app.use('/api/player', playerRoutes); // Player configuration
