@@ -125,6 +125,9 @@ model Business {
   stylePreferences Json? // Style preferences: { style: "modern", mood: "warm", etc. }
   storefrontSettings Json? // { defaultView: "list"|"grid", allowUserToggle: boolean }; default grid, true
   socialLinks      Json? // { instagram?, facebook?, tiktok?, x?, youtube?, linkedin?, whatsapp? }
+  brandTone        String? // e.g. luxury, friendly, minimal, bold
+  brandStyle       String? // e.g. modern, vintage, playful
+  brandColors      String? // JSON array string e.g. '["pink","gold"]'
   isGuestDraft  Boolean   @default(false)
   expiresAt     DateTime?
   createdAt    DateTime @default(now())
@@ -2221,6 +2224,9 @@ model DraftStore {
   guestSessionId  String?   // Set when draft is created by guest (cookie/header); used for claim
   ipHash          String?   // Optional: hashed IP for rate limiting
   userAgent       String?   // Optional: user agent string
+  brandTone       String?   // e.g. luxury, friendly, minimal, bold
+  brandStyle      String?   // e.g. modern, vintage, playful
+  brandColors     String?   // JSON array string e.g. '["pink","gold"]'
 
   workflowRuns WorkflowRun[]     // Phase 1: workflow tracking (e.g. store_creation)
   workflowIncidents WorkflowIncident[]
@@ -2935,4 +2941,23 @@ model DocSignature {
 
   @@index([docId, signedAt])
   @@index([visitorId, signedAt])
+}
+
+model PilEvent {
+  id         String   @id @default(cuid())
+  type       String
+  timestamp  DateTime @default(now())
+  sessionId  String?
+  userId     String?
+  entityType String?
+  entityId   String?
+  storeId    String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([type, timestamp])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([storeId, timestamp])
+  @@index([entityType, entityId])
 }
