@@ -43,6 +43,11 @@ import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
 import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
+import {
+  resolveBrandKitTarget,
+  updateBrandKitForStoreId,
+  validateBrandKitPatch,
+} from '../services/store/brandKitService.js';
 
 import { prisma } from '../lib/prisma.js';
 
@@ -1112,6 +1117,55 @@ router.get('/:storeId/hero', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * PATCH /api/store/:storeId/brandkit
+ * Update brand kit fields on DraftStore (by draft id) or Business (committed store id).
+ */
+router.patch('/:storeId/brandkit', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = String(req.params.storeId ?? '').trim();
+    if (!storeId) {
+      return res.status(400).json({ ok: false, error: 'store_id_required', message: 'storeId is required' });
+    }
+
+    const validated = validateBrandKitPatch(req.body ?? {});
+    if (!validated.ok) {
+      return res.status(400).json({ ok: false, error: validated.code, message: validated.message });
+    }
+
+    const target = await resolveBrandKitTarget(prisma, storeId);
+    if (!target) {
+      return res.status(404).json({ ok: false, error: 'store_not_found', message: 'Store or draft not found' });
+    }
+
+    if (target.kind === 'business') {
+      if (target.record.userId !== req.userId) {
+        return res.status(403).json({ ok: false, error: 'forbidden', message: 'You do not own this store.' });
+      }
+    } else {
+      const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
+      const allowed = await canAccessDraftStore(target.record, {
+        userId: req.userId,
+        tenantKey: req.userId,
+        isSuperAdmin: req.user?.role === 'super_admin',
+      });
+      if (!allowed) {
+        return res.status(403).json({ ok: false, error: 'forbidden', message: 'You do not have access to this draft.' });
+      }
+    }
+
+    const result = await updateBrandKitForStoreId(prisma, storeId, validated.data);
+    if (!result.ok) {
+      return res.status(404).json({ ok: false, error: result.code, message: result.message });
+    }
+
+    return res.status(200).json({ ok: true, brandKit: result.brandKit });
+  } catch (err) {
+    console.error('[Stores:PATCH /:storeId/brandkit]', err?.message || err);
+    next(err);
+  }
+});
+
+/**
  * PATCH /api/stores/:storeId/draft/hero
  * Persist hero (and optionally avatar) URLs to draft preview + business profile. Auth required.
  */
@@ -1828,6 +1882,17 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     let buffer = req.file.buffer;
     let mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
     const isVideo = mime.startsWith('video/');
+    if (isVideo) {
+      const { assertValidHeroVideoUpload } = await import('../utils/videoBinaryValidation.js');
+      const videoCheck = assertValidHeroVideoUpload(buffer, mime);
+      if (!videoCheck.ok) {
+        return res.status(400).json({
+          ok: false,
+          error: videoCheck.error,
+          message: videoCheck.message,
+        });
+      }
+    }
     const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
     if (buffer.length > maxBytes) {
       return res.status(400).json({
@@ -1913,12 +1978,14 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
 
     return res.status(200).json({
       ok: true,
-      url: heroImageUrl,
+      url: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : heroImageUrl,
+      mediaType: isVideo ? 'video' : 'image',
+      mimeType: mime,
+      size: buffer.length,
       heroImageUrl: heroResult.heroImageUrl ?? (isVideo ? null : heroImageUrl),
       heroVideoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
       heroMediaType: heroResult.heroMediaType ?? (isVideo ? 'video' : 'image'),
       videoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
-      mimeType: mime,
       isVideo,
       key,
       storageKey: key,
