@@ -6,7 +6,8 @@
 import { getPrismaClient } from '../../prisma.js';
 import { inferCurrencyFromLocationText } from '../../../services/draftStore/currencyInfer.js';
 import { createBuildStoreJob } from '../../../services/draftStore/orchestraBuildStore.js';
-import { generateDraft, commitDraft } from '../../../services/draftStore/draftStoreService.js';
+import { generateDraft } from '../../../services/draftStore/draftStoreService.js';
+import { safePublishGeneratedDraft } from '../../storeMission/safePublishGeneratedDraft.js';
 import { createGuestTempStoreFromDraft } from '../../../services/draftStore/guestTempStore.js';
 import { transitionOrchestratorTaskStatus } from '../../../kernel/transitions/transitionService.js';
 import { createEmitContextUpdate } from '../../missionPlan/agentMemory.js';
@@ -237,38 +238,87 @@ export async function execute(_input = {}, context = {}) {
   let storeSlug = null;
   let guestTempStore = false;
   if (userRow?.id && !isGuestUserId(userRow.id)) {
-    try {
-      const committed = await commitDraft(draftIdForRun, {
-        userId: userRow.id,
-        acceptTerms: true,
-        businessFields: { missionId: missionId ?? undefined },
-      });
-      storeId = committed?.storeId ?? committed?.businessId ?? null;
-      storeSlug = committed?.storeSlug ?? committed?.slug ?? null;
-    } catch (commitErr) {
+    const publishResult = await safePublishGeneratedDraft({
+      prisma,
+      draftId: draftIdForRun,
+      userId: userRow.id,
+      missionId: missionId ?? undefined,
+      correlationId: created.generationRunId,
+      taskId: created.jobId,
+    });
+
+    if (!publishResult.ok) {
+      try {
+        const pipeRow = await prisma.missionPipeline.findUnique({
+          where: { id: missionId },
+          select: { outputsJson: true },
+        });
+        const publishPendingSlice = {
+          ok: false,
+          publishFailed: true,
+          retryable: publishResult.retryable === true,
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+          error: publishResult.error ?? null,
+        };
+        const outputsJson = mergeCanonicalOutputs(pipeRow?.outputsJson, {
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+          publishFailed: true,
+          structured_store_build: publishPendingSlice,
+        });
+        await safeMissionPipelineUpdate(
+          prisma,
+          {
+            where: { id: missionId },
+            data: { outputsJson },
+          },
+          { missionId, label: 'structured_store_build.publish_pending_outputs' },
+        );
+      } catch (outputsErr) {
+        console.warn('[structured_store_build] publish_pending outputs persist skipped:', outputsErr?.message ?? outputsErr);
+      }
+
       await transitionOrchestratorTaskStatus({
         prisma,
         taskId: created.jobId,
-        toStatus: 'failed',
+        toStatus: 'completed',
         fromStatus: 'running',
         actorType: 'worker',
         correlationId: created.generationRunId,
-        reason: 'STRUCTURED_STORE_BUILD',
+        reason: 'PUBLISH_PENDING',
         result: {
           ok: false,
-          error: commitErr?.message || String(commitErr),
-          generationRunId: created.generationRunId,
+          publishFailed: true,
+          retryable: publishResult.retryable === true,
           draftId: draftIdForRun,
+          error: publishResult.error ?? null,
+          generationRunId: created.generationRunId,
         },
       }).catch(() => {});
+
       return {
-        status: 'failed',
+        status: 'publish_pending',
+        draftId: draftIdForRun,
+        output: {
+          ok: false,
+          publishFailed: true,
+          retryable: publishResult.retryable === true,
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+        },
         error: {
-          code: 'COMMIT_DRAFT_FAILED',
-          message: commitErr?.message || String(commitErr),
+          code: 'PUBLISH_PENDING',
+          message: publishResult.error ?? 'Publish failed',
         },
       };
     }
+
+    storeId = publishResult.storeId ?? null;
+    storeSlug = publishResult.storeSlug ?? null;
   }
 
   if (!storeId && isGuestUserId(uid)) {

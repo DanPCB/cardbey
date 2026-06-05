@@ -15,6 +15,16 @@ import * as replace_store_catalog from './store/replace_store_catalog.js';
 import * as update_store_hero from './store/update_store_hero.js';
 import * as setBusinessSocialLinks from './store/setBusinessSocialLinks.js';
 import * as update_brand_kit from './store/update_brand_kit.js';
+import * as search_hero_media from './media/search_hero_media.js';
+import * as create_campaign_brief from './campaign/create_campaign_brief.js';
+import * as generate_campaign_graphics from './campaign/generate_campaign_graphics.js';
+import * as generate_campaign_copy from './campaign/generate_campaign_copy.js';
+import * as qa_campaign_package from './campaign/qa_campaign_package.js';
+import * as package_campaign_artifact from './campaign/package_campaign_artifact.js';
+import * as select_display_content from './display/select_display_content.js';
+import * as format_for_display from './display/format_for_display.js';
+import * as push_to_display_device from './display/push_to_display_device.js';
+import * as verify_display_output from './display/verify_display_output.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -108,6 +118,16 @@ export const executors = {
   update_store_hero,
   setBusinessSocialLinks,
   update_brand_kit,
+  search_hero_media,
+  create_campaign_brief,
+  generate_campaign_graphics,
+  generate_campaign_copy,
+  qa_campaign_package,
+  package_campaign_artifact,
+  select_display_content,
+  format_for_display,
+  push_to_display_device,
+  verify_display_output,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,

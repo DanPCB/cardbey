@@ -9,6 +9,7 @@
  */
 
 import express from 'express';
+import { randomUUID } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
@@ -3180,6 +3181,55 @@ router.post('/:id/identity', requireAuth, requireOwner, async (req, res, next) =
  *   - 404: No draft to publish
  *   - 500: Commit failed
  */
+/**
+ * POST /api/stores/publish-draft
+ * Retry publish for a generated draft (generation succeeded, commit failed).
+ * Body: { draftId: string }
+ */
+router.post('/publish-draft', requireAuth, async (req, res, next) => {
+  try {
+    const draftId = typeof req.body?.draftId === 'string' ? req.body.draftId.trim() : '';
+    if (!draftId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'draftId_required',
+        message: 'draftId is required',
+        retryable: false,
+      });
+    }
+
+    const { safePublishGeneratedDraft } = await import('../lib/storeMission/safePublishGeneratedDraft.js');
+    const result = await safePublishGeneratedDraft({
+      prisma,
+      draftId,
+      userId: req.userId,
+      missionId: null,
+      correlationId: randomUUID(),
+      taskId: null,
+    });
+
+    if (!result.ok) {
+      return res.status(result.retryable ? 409 : 400).json({
+        ok: false,
+        error: result.error ?? 'publish_failed',
+        retryable: result.retryable === true,
+        draftId: result.draftId ?? draftId,
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      storeId: result.storeId ?? null,
+      storeSlug: result.storeSlug ?? null,
+      draftId: result.draftId ?? draftId,
+      alreadyCommitted: result.alreadyCommitted === true,
+    });
+  } catch (error) {
+    console.error('[StorePublishDraft] Error:', error);
+    return next(error);
+  }
+});
+
 router.post('/publish', requireAuth, async (req, res, next) => {
   try {
     const { storeId: rawStoreId, generationRunId, draftId } = req.body ?? {};

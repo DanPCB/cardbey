@@ -13,6 +13,7 @@ import './env/loadEnv.js';
 import './env/ensureDatabaseUrl.js';
 import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentity.js';
 import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
+import './lib/skills/index.js';
 
 assertDatabaseIdentityAtStartup();
 assertSchemaFingerprintAtStartup();

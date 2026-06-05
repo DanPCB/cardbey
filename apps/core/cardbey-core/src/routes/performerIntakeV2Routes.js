@@ -126,6 +126,7 @@ import { buildMaintenanceContext } from '../lib/intake/buildMaintenanceContext.j
 import { mapPlannerDecisionToIntakeResponse } from '../lib/intake/mapPlannerDecisionToIntakeResponse.js';
 import { getMissionById } from '../lib/missionBlackboard.js';
 import { dispatchTool } from '../lib/toolDispatcher.js';
+import { skillRouter } from '../lib/skills/index.js';
 import { reactPlanner } from '../lib/intake/reactPlanner.js';
 import { hydrateContext, hydratedContextToPlannerContext } from '../lib/memory/memoryHydrator.js';
 import { formatControlTowerSummary } from '../lib/intake/controlTowerQuery.js';
@@ -600,7 +601,7 @@ async function maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams) 
   }
 }
 
-async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req }) {
+async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req, hydratedContext = null }) {
   const { isBrokerDirectViaFacadeEnabled } = await import('../lib/broker/brokerFlags.js');
   const { isPerformerRuntimeEnabled } = await import('../lib/runtime/performerRuntime/runtimeFlags.js');
   // Stage D: Block only legacy direct_action bypass. Runtime-owned and facade-owned paths remain allowed.
@@ -653,6 +654,63 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
     missionType: resolveMissionType(req, null),
     source: isBrokerDirectViaFacadeEnabled() ? 'performer_intake_facade' : source,
   };
+
+  const intentLabel = typeof tool === 'string' ? tool.trim() : '';
+  try {
+    const skillRouterResult = await skillRouter.route(intentLabel, {
+      missionId: dispatchMissionId,
+      storeId: storeId ?? toolCtx.storeId ?? null,
+      userId: toolCtx.userId,
+      intentLabel,
+      toolInput: payload,
+      hydratedContext,
+      blackboard: null,
+    });
+
+    if (skillRouterResult.matched) {
+      console.log(
+        `[SkillRouter] skill "${skillRouterResult.skillName}" executed via ${skillRouterResult.executionId ?? 'n/a'}`,
+      );
+
+      if (skillRouterResult.result?.reason === 'MISSING_CONTEXT') {
+        return {
+          toolResult: {
+            status: 'blocked',
+            blocker: {
+              code: 'MISSING_CONTEXT',
+              message: `Skill requires: ${(skillRouterResult.result.missing ?? []).join(', ')}`,
+            },
+          },
+          payload,
+        };
+      }
+
+      const execution = skillRouterResult.result;
+      const ok = execution?.status === 'completed';
+      return {
+        toolResult: {
+          status: ok ? 'ok' : 'failed',
+          output: {
+            skillExecution: execution,
+            dispatchedVia: 'skill',
+            skillName: skillRouterResult.skillName,
+            executionId: skillRouterResult.executionId,
+          },
+          ...(ok
+            ? {}
+            : {
+                error: {
+                  code: 'SKILL_FAILED',
+                  message: execution?.failedReason ?? 'Skill execution failed',
+                },
+              }),
+        },
+        payload,
+      };
+    }
+  } catch (skillRouteErr) {
+    console.warn('[SkillRouter] route failed (falling through to tool):', skillRouteErr?.message ?? skillRouteErr);
+  }
 
   let toolResult;
   if (isPerformerRuntimeEnabled()) {
@@ -2128,6 +2186,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   let classifierDowngraded = false;
   let classifierReason = null;
+  let intakeHydratedContext = null;
 
   if (forcedTool && isRegisteredTool(forcedTool)) {
     const fe = getToolEntry(forcedTool);
@@ -2233,7 +2292,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         classifierInputMessage = loopOut.messageForClassifier ?? classifierInputMessage;
       }
 
-      let intakeHydratedContext = null;
       try {
         intakeHydratedContext = await hydrateContext({
           message: classifierInputMessage,
@@ -3913,6 +3971,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         missionId: directToolMissionId,
         storeId,
         req,
+        hydratedContext: intakeHydratedContext,
       });
 
       const { body: intakeBody, telemetryResult } = buildDirectToolIntakeResponse(tool, toolResult, payload, locale, {
