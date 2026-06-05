@@ -7,6 +7,11 @@ import { getPrismaClient } from '../../db/prisma.js';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import { broadcastSse } from '../../realtime/simpleSse.js';
 import { emitDeviceEvent, DEVICE_ENGINE_EVENT_TYPES } from './deviceEvents.js';
+import {
+  isPairingSessionExpired,
+  loadPairingCodeIssuedAt,
+  pairingExpiresAt,
+} from './pairingSessionTiming.js';
 
 const prisma = getPrismaClient();
 
@@ -152,14 +157,23 @@ export const completePairing = async (input, ctx) => {
     console.error('[PAIRING_FAILED]', { reason: 'not_pending', deviceId: device.id });
     throw new Error('Pairing session is not pending');
   }
-  if (normalizeCode(device.pairingCode) !== normalizedCode) {
-    console.error('[PAIRING_FAILED]', {
-      reason: 'invalid_code',
-      deviceId: device.id,
-      expected: device.pairingCode,
-      received: normalizedCode,
-    });
-    throw new Error('Invalid pairing code');
+  const deviceCode = normalizeCode(device.pairingCode);
+  if (deviceCode !== normalizedCode) {
+    if (resolveMode === 'sessionId' && deviceCode) {
+      console.warn('[PAIRING_RESOLVE] Stale dashboard code — using device row code', {
+        deviceId: device.id,
+        dashboardCode: normalizedCode,
+        deviceCode,
+      });
+    } else {
+      console.error('[PAIRING_FAILED]', {
+        reason: 'invalid_code',
+        deviceId: device.id,
+        expected: device.pairingCode,
+        received: normalizedCode,
+      });
+      throw new Error('Invalid pairing code');
+    }
   }
 
   if (device.storeId && device.storeId !== 'temp' && storeId && device.storeId !== storeId) {
@@ -176,13 +190,16 @@ export const completePairing = async (input, ctx) => {
   const oldStoreId = device.storeId;
 
   const now = new Date();
-  const createdAt = device.createdAt;
-  const expiresAt = new Date(createdAt.getTime() + 10 * 60 * 1000);
-  if (now > expiresAt) {
+  const pairingCodeIssuedAt = await loadPairingCodeIssuedAt(db, device.id);
+  const expiresAt = pairingExpiresAt(device, pairingCodeIssuedAt);
+  if (isPairingSessionExpired(device, now, pairingCodeIssuedAt)) {
     console.error('[PAIRING_FAILED]', {
       reason: 'expired',
       deviceId: device.id,
       expiresAt: expiresAt.toISOString(),
+      pairingCodeIssuedAt,
+      updatedAt: device.updatedAt?.toISOString?.() || device.updatedAt,
+      createdAt: device.createdAt?.toISOString?.() || device.createdAt,
     });
     throw new Error('Pairing code has expired');
   }
