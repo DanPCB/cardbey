@@ -135,10 +135,41 @@ router.post('/message', requireMcpBearer, async (req, res) => {
         storeId,
         tenantId: storeId,
         missionId: null,
+        toolName: internalTool,
         executionSource: 'external_mcp_client',
+        source: 'external_mcp_client',
       };
 
-      const dr = await dispatchTool(internalTool, toolInput, ctx);
+      const { guardPhaseFMcpDispatch } = await import('../lib/broker/phaseFBypassGuards.js');
+      const mcpGuard = guardPhaseFMcpDispatch(ctx);
+      if (mcpGuard.blocked) {
+        return replyError(-32603, mcpGuard.message || 'MCP dispatch blocked');
+      }
+
+      let dr;
+      if (mcpGuard.useFacade) {
+        const { executeMissionAction } = await import('../lib/execution/executeMissionAction.js');
+        const { markRuntimeOwnedContext } = await import(
+          '../lib/runtime/performerRuntime/runtimeOwnership.js'
+        );
+        const ownedCtx = markRuntimeOwnedContext(ctx, `mcp:${storeId}`);
+        const facade = await executeMissionAction({
+          actionType: 'dispatch_tool',
+          missionId: null,
+          userId,
+          storeId,
+          source: 'mcp_facade',
+          payload: { toolName: internalTool, input: toolInput, context: ownedCtx },
+        });
+        dr = {
+          status: facade.status === 'ok' ? 'ok' : facade.status === 'blocked' ? 'blocked' : 'failed',
+          ...(facade.output !== undefined && { output: facade.output }),
+          ...(facade.error !== undefined && { error: facade.error }),
+          ...(facade.blocker !== undefined && { blocker: facade.blocker }),
+        };
+      } else {
+        dr = await dispatchTool(internalTool, toolInput, ctx);
+      }
 
       if (dr.status !== 'ok') {
         const msg =

@@ -893,6 +893,16 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(kernelResult.httpStatus ?? (kernelResult.ok ? 200 : 500)).json(kernelResult);
     }
 
+    const { guardPhaseFProactiveStepLegacy } = await import('../lib/broker/phaseFBypassGuards.js');
+    const legacyGuard = guardPhaseFProactiveStepLegacy();
+    if (legacyGuard.blocked) {
+      return res.status(503).json({
+        ok: false,
+        code: legacyGuard.code,
+        message: legacyGuard.message,
+      });
+    }
+
     if (!ALLOWED_TOOLS.has(recommendedTool)) {
       return res.status(400).json({ ok: false, message: 'recommendedTool not allowed for proactive step' });
     }

@@ -38,3 +38,25 @@ export {
   guardBrokerOrchestraStart,
   extractMissionIdFromRequestBody,
 } from './brokerRunwayGuard.js';
+
+export {
+  isPhaseFBypassTelemetryEnabled,
+  isPhaseFBlockMcpDirectDispatchEnabled,
+  isPhaseFRouteMcpViaFacadeEnabled,
+  isPhaseFBlockProactiveStepLegacyEnabled,
+  isPhaseFBlockDraftStoreRunwayEnabled,
+} from './phaseFBypassFlags.js';
+
+export {
+  guardPhaseFOrchestraStart,
+  guardPhaseFMcpDispatch,
+  guardPhaseFProactiveStepLegacy,
+  guardPhaseFDraftStoreRunway,
+  extractMissionIdFromDraftRequest,
+} from './phaseFBypassGuards.js';
+
+export {
+  getPhaseFBypassSnapshot,
+  getPhaseFBypassMetrics,
+  recordPhaseFBypass,
+} from './phaseFBypassStaging.js';

@@ -891,8 +891,8 @@ async function handleOrchestraStart(req, res) {
   });
   try {
     const body = req.body || {};
-    const { guardBrokerOrchestraStart } = await import('../lib/broker/brokerRunwayGuard.js');
-    const orchestraGuard = guardBrokerOrchestraStart(body);
+    const { guardPhaseFOrchestraStart } = await import('../lib/broker/phaseFBypassGuards.js');
+    const orchestraGuard = guardPhaseFOrchestraStart(body);
     if (orchestraGuard.blocked) {
       return res.status(403).json({
         ok: false,
