@@ -34,6 +34,11 @@ services:
       # Phase B — mission orchestrator (run-next / run-all on staging only)
       - key: ENABLE_RUNTIME_MISSION_ORCHESTRATOR
         value: "true"
+      # Phase F Step 1 — orchestra/start + missionId bypass closure (lowest-risk; rollback = unset flag)
+      - key: PHASE_F_BYPASS_TELEMETRY
+        value: "true"
+      - key: BROKER_BLOCK_ORCHESTRA_WITH_MISSION
+        value: "true"
       # V1 — verification email hits Core API; post-verify redirect opens dashboard staging SPA
       - key: EMAIL_VERIFICATION_BASE_URL
         value: https://cardbey-core-staging.onrender.com
