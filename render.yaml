@@ -65,6 +65,10 @@ services:
         value: "true"
       - key: VITE_ENV
         value: staging
+      - key: VITE_CORE_BASE_URL
+        value: https://cardbey-core-staging.onrender.com
+      - key: VITE_CORE_ORIGIN
+        value: https://cardbey-core-staging.onrender.com
       - key: VITE_PERFORMER_EXECUTION_INTENTS
         value: "1"
       - key: VITE_PERFORMER_EXECUTION_PLANNER
