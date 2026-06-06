@@ -89,3 +89,101 @@ export function shouldBlockStoreBuildForMissingArtifact(outputs = {}) {
   }
   return { blocked: false };
 }
+
+/**
+ * Resolve mission pipeline id for hero upload side effects.
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {{ missionId?: string|null, generationRunId?: string|null, storeId?: string|null, draftId?: string|null }} ctx
+ */
+export async function resolveMissionIdForHeroUpload(prisma, ctx = {}) {
+  const explicit = typeof ctx.missionId === 'string' ? ctx.missionId.trim() : '';
+  if (explicit) return explicit;
+
+  const runId = typeof ctx.generationRunId === 'string' ? ctx.generationRunId.trim() : '';
+  if (runId) {
+    const tasks = await prisma.orchestratorTask.findMany({
+      where: { missionId: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      take: 80,
+      select: { missionId: true, request: true },
+    });
+    for (const t of tasks) {
+      const req = t.request && typeof t.request === 'object' ? t.request : null;
+      if (req?.generationRunId === runId && t.missionId) {
+        return String(t.missionId).trim();
+      }
+    }
+  }
+
+  const storeId = typeof ctx.storeId === 'string' ? ctx.storeId.trim() : '';
+  if (storeId && storeId !== 'temp') {
+    const pipeline = await prisma.missionPipeline.findFirst({
+      where: { targetType: 'store', targetId: storeId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    if (pipeline?.id) return String(pipeline.id).trim();
+  }
+
+  const draftId = typeof ctx.draftId === 'string' ? ctx.draftId.trim() : '';
+  if (draftId) {
+    const pipeline = await prisma.missionPipeline.findFirst({
+      where: { targetType: 'draft_store', targetId: draftId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    if (pipeline?.id) return String(pipeline.id).trim();
+  }
+
+  return null;
+}
+
+/**
+ * Record hero artifact URLs on mission pipeline outputs so checkpoint authority resolves.
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {{ missionId: string, heroImageUrl?: string|null, heroVideoUrl?: string|null, heroMediaType?: string|null }} args
+ */
+export async function recordHeroArtifactCheckpoint(prisma, args) {
+  const missionId = typeof args.missionId === 'string' ? args.missionId.trim() : '';
+  if (!missionId) return { recorded: false, reason: 'missing_mission_id' };
+
+  const pipeline = await prisma.missionPipeline.findUnique({
+    where: { id: missionId },
+    select: { id: true, outputsJson: true },
+  });
+  if (!pipeline) return { recorded: false, reason: 'pipeline_not_found' };
+
+  const heroImageUrl =
+    typeof args.heroImageUrl === 'string' && args.heroImageUrl.trim() ? args.heroImageUrl.trim() : null;
+  const heroVideoUrl =
+    typeof args.heroVideoUrl === 'string' && args.heroVideoUrl.trim() ? args.heroVideoUrl.trim() : null;
+  if (!heroImageUrl && !heroVideoUrl) {
+    return { recorded: false, reason: 'missing_hero_urls' };
+  }
+
+  const prev =
+    pipeline.outputsJson && typeof pipeline.outputsJson === 'object' && !Array.isArray(pipeline.outputsJson)
+      ? { ...pipeline.outputsJson }
+      : {};
+  const merged = { ...prev, heroUploadStatus: 'uploaded' };
+
+  if (heroVideoUrl) {
+    merged.heroVideoUrl = heroVideoUrl;
+    merged.videoUrl = heroVideoUrl;
+    merged.assetUrl = heroVideoUrl;
+  }
+  if (heroImageUrl) {
+    merged.heroImageUrl = heroImageUrl;
+    merged.imageUrl = heroImageUrl;
+    merged.heroUrl = heroImageUrl;
+    if (!heroVideoUrl) merged.assetUrl = heroImageUrl;
+  }
+  if (args.heroMediaType) merged.heroMediaType = args.heroMediaType;
+
+  await prisma.missionPipeline.update({
+    where: { id: missionId },
+    data: { outputsJson: merged },
+  });
+
+  return { recorded: true, missionId, outputsJson: merged };
+}

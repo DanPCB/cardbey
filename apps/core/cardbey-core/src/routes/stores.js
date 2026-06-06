@@ -1960,6 +1960,9 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       generationRunId:
         (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
         (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
+      missionId:
+        (typeof req.query.missionId === 'string' ? req.query.missionId.trim() : null) ||
+        (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null),
       previewPatch,
       source: 'upload',
     });
