@@ -32,7 +32,14 @@ export async function execute(input = {}, context = {}) {
   });
 
   return {
-    status: 'ok',
+    status: 'blocked',
+    reason: 'requires_user_input',
+    message: 'Website patch proposal requires your approval before changes are applied.',
+    blocker: {
+      code: 'requires_user_input',
+      message: 'Review and approve the website patch proposal.',
+      requiredAction: 'approve_website_patch',
+    },
     output: {
       pendingApproval: true,
       websitePatchProposal: proposal,
