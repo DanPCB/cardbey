@@ -1,0 +1,14 @@
+# Root .dockerignore for the dashboard image (build context = monorepo root).
+# Keep submodule + app sources; drop installable / regenerable artifacts.
+**/node_modules
+**/dist
+**/.next
+**/build
+.git
+**/*.log
+**/.env
+**/.env.*
+**/*.db
+**/*.sqlite
+**/test-results
+**/coverage

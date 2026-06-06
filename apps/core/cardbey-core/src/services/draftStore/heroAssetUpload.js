@@ -268,12 +268,17 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
     (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null);
 
+  const missionId =
+    (typeof req.query.missionId === 'string' ? req.query.missionId.trim() : null) ||
+    (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null);
+
   const heroResult = await updateHeroForStore({
     prisma,
     userId: req.userId,
     storeId: storeIdParam,
     draftId: draft.id,
     generationRunId,
+    missionId,
     previewPatch,
     source: 'upload',
   });

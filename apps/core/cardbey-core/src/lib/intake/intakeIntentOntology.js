@@ -108,6 +108,22 @@ export const INTENT_SUBTYPES = [
       /\bhow\s+(many|much)\b/i,
     ],
   },
+  // DANH: skill-runtime-phase7
+  {
+    family: 'analytics_reporting',
+    subtype: 'store_performance_report',
+    description: 'Store performance overview, stats, and metrics (not sales/orders detail).',
+    candidateTools: ['get_store_analytics', 'orders_report'],
+    defaultTool: 'get_store_analytics',
+    requiredContext: ['store'],
+    clarifyStrategy: 'report_vs_analyze',
+    matchPatterns: [
+      /\bhow\s+is\s+my\s+store/i,
+      /\bstore\s+perform/i,
+      /\bstore\s+stats/i,
+      /\bstore\s+health\s+report/i,
+    ],
+  },
   {
     family: 'website_edit',
     subtype: 'website_content',
@@ -179,6 +195,7 @@ export function inferFamilyFromTool(toolName) {
     launch_campaign: 'promotion_campaign',
     market_research: 'promotion_campaign',
     orders_report: 'analytics_reporting',
+    get_store_analytics: 'analytics_reporting',
     'signage.list-devices': 'devices_signage',
     'signage.publish-to-devices': 'devices_signage',
     smart_visual: 'content_edit',

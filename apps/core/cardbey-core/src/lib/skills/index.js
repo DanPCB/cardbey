@@ -18,6 +18,9 @@ import './definitions/LocalGrowthSkill.js';
 import './definitions/BookingManagementSkill.js';
 import './definitions/ProductCatalogSkill.js';
 import './definitions/MenuSyncSkill.js';
+import './definitions/AnalyticsReportSkill.js';
+import './definitions/StoreHealthSkill.js';
+import './definitions/ReviewManagementSkill.js';
 
 const skillExecutor = new SkillExecutor({
   toolDispatcher: dispatchTool,

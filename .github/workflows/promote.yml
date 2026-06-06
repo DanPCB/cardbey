@@ -1,0 +1,85 @@
+name: Promote Artifact
+
+# Phase 2 of immutable artifact promotion: PROMOTE THE SAME ARTIFACT.
+# Retags an already-built commit-SHA image as a target channel (staging | live)
+# WITHOUT rebuilding. Uses `docker buildx imagetools create`, which copies the
+# manifest in-registry (no pull/rebuild), guaranteeing the exact same bytes.
+#
+# This does NOT itself trigger a Render deploy — it produces the promoted tag.
+# Wiring Render to pull these tags is the Phase 3 cutover (requires confirmation).
+# See docs/IMPACT_REPORT_artifact_promotion_cicd.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Short commit SHA already built by Build Artifact (e.g. a1b2c3d). The 'sha-' prefix is optional."
+        required: true
+        type: string
+      target:
+        description: "Promotion channel to assign to that image."
+        required: true
+        type: choice
+        options:
+          - staging
+          - live
+      component:
+        description: "Which image(s) to promote."
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - core
+          - dashboard
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  promote:
+    name: Retag SHA image as ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lowercase owner + normalize SHA
+        id: vars
+        run: |
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          sha="${{ inputs.sha }}"
+          sha="${sha#sha-}"
+          echo "sha=sha-${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote core
+        if: ${{ inputs.component == 'both' || inputs.component == 'core' }}
+        run: |
+          IMG="ghcr.io/${{ steps.vars.outputs.owner }}/cardbey-core"
+          echo "Promoting ${IMG}:${{ steps.vars.outputs.sha }} -> ${IMG}:${{ inputs.target }}"
+          docker buildx imagetools create \
+            --tag "${IMG}:${{ inputs.target }}" \
+            "${IMG}:${{ steps.vars.outputs.sha }}"
+
+      - name: Promote dashboard
+        if: ${{ inputs.component == 'both' || inputs.component == 'dashboard' }}
+        run: |
+          IMG="ghcr.io/${{ steps.vars.outputs.owner }}/cardbey-dashboard"
+          echo "Promoting ${IMG}:${{ steps.vars.outputs.sha }} -> ${IMG}:${{ inputs.target }}"
+          docker buildx imagetools create \
+            --tag "${IMG}:${{ inputs.target }}" \
+            "${IMG}:${{ steps.vars.outputs.sha }}"
+
+      - name: Summary
+        run: |
+          echo "### Promotion complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Component: \`${{ inputs.component }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source: \`${{ steps.vars.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Channel: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "_Rollback = re-run this workflow with a previous SHA and the same target._" >> "$GITHUB_STEP_SUMMARY"

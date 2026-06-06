@@ -1147,6 +1147,31 @@ or share their website with customers.`,
     semanticDescription: `Orders, sales, revenue, growth targets, best sellers.`,
     examples: ['show me my orders', 'set a revenue goal', 'increase sales target by 10%'],
   },
+  // DANH: skill-runtime-phase7
+  {
+    toolName: 'get_store_analytics',
+    executionPath: 'direct_action',
+    label: 'Store Performance Analytics',
+    riskLevel: RISK.SAFE_READ,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        storeId: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['storeId'],
+    semanticDescription: `Retrieve store performance metrics — bookings, products, active promotions, and days since last update.`,
+    examples: [
+      'how is my store performing',
+      'show store stats',
+      'store performance overview',
+      'how is my store doing',
+    ],
+  },
   {
     toolName: 'device.sendInput',
     executionPath: 'direct_action',

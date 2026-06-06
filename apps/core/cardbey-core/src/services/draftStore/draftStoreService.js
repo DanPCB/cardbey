@@ -7,6 +7,7 @@ if (process.env.NODE_ENV !== 'production') {
  */
 
 import { prisma } from '../../lib/prisma.js';
+import { runCriticalSqliteWriteWithP1008Retry } from '../../lib/sqliteCriticalWrite.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
@@ -2785,19 +2786,27 @@ export async function runWithCommittedDraftReopenedForCatalogPatch(draftId, fn) 
     if (draft.expiresAt && new Date() > draft.expiresAt) {
       reopenData.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     }
-    await prisma.draftStore.update({
-      where: { id },
-      data: reopenData,
-    });
+    await runCriticalSqliteWriteWithP1008Retry(
+      () =>
+        prisma.draftStore.update({
+          where: { id },
+          data: reopenData,
+        }),
+      { label: 'draftStore.reopenForCatalogPatch' },
+    );
   }
   try {
     await fn();
   } finally {
     if (wasCommitted) {
-      await prisma.draftStore.update({
-        where: { id },
-        data: { status: priorStatus },
-      });
+      await runCriticalSqliteWriteWithP1008Retry(
+        () =>
+          prisma.draftStore.update({
+            where: { id },
+            data: { status: priorStatus },
+          }),
+        { label: 'draftStore.restoreAfterCatalogPatch' },
+      );
     }
   }
 }

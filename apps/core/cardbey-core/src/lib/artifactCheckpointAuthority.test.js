@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   isArtifactCheckpointDeferredRespond,
   isArtifactCheckpointResolved,
+  recordHeroArtifactCheckpoint,
   shouldBlockStoreBuildForMissingArtifact,
 } from './artifactCheckpointAuthority.js';
 
@@ -60,5 +61,36 @@ describe('artifactCheckpointAuthority', () => {
       }).blocked,
     ).toBe(false);
     expect(shouldBlockStoreBuildForMissingArtifact({ logoChoice: 'Skip' }).blocked).toBe(false);
+  });
+
+  it('records hero video on mission pipeline outputsJson', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const prisma = {
+      missionPipeline: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'mission-1',
+          outputsJson: { heroVideoChoice: 'Upload file' },
+        }),
+        update,
+      },
+    };
+
+    const result = await recordHeroArtifactCheckpoint(prisma, {
+      missionId: 'mission-1',
+      heroVideoUrl: '/uploads/hero.mp4',
+      heroMediaType: 'video',
+    });
+
+    expect(result.recorded).toBe(true);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'mission-1' },
+      data: {
+        outputsJson: expect.objectContaining({
+          heroVideoUrl: '/uploads/hero.mp4',
+          videoUrl: '/uploads/hero.mp4',
+          heroUploadStatus: 'uploaded',
+        }),
+      },
+    });
   });
 });

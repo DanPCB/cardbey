@@ -2587,6 +2587,51 @@ model TelemetryProbe {
   @@index([missionId])
 }
 
+/// Hero video upload / verify / playback client telemetry (dashboard → POST /api/telemetry/hero-video).
+model TelemetryHeroVideo {
+  id            String   @id @default(cuid())
+  eventType     String
+  url           String?
+  storageKey    String?
+  attemptNumber Int?
+  httpStatus    Int?
+  durationMs    Int?
+  errorCode     Int?
+  environment   String?
+  userId        String?
+  clientTs      DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([eventType])
+  @@index([createdAt])
+  @@index([storageKey])
+  @@index([environment])
+}
+
+/// Dashboard navigation / admin tool discovery telemetry.
+model TelemetryNavigation {
+  id            String    @id @default(cuid())
+  eventType     String
+  userId        String?
+  userRole      String?
+  sessionId     String?
+  fromPath      String?
+  toPath        String?
+  targetSection String?
+  searchQuery   String?
+  timeOnPageMs  Int?
+  environment   String?
+  metadata      Json?
+  clientTs      DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([eventType])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([userRole])
+}
+
 // ============================================
 // Promotion Slot Pipeline v1
 // ============================================

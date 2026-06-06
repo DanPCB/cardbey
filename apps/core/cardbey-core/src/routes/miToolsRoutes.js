@@ -10,6 +10,12 @@ import express from 'express';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 
 import { prisma } from '../lib/prisma.js';
+// DANH: skill-round2-booking
+import {
+  checkAvailability,
+  createBooking,
+  updateBookingStatus,
+} from '../lib/booking/bookingService.js';
 
 const router = express.Router();
 const VALID_ROLES = ['buyer', 'seller', 'admin', 'system'];
@@ -302,12 +308,153 @@ router.post('/availability/get', async (req, res, next) => {
   }
 });
 
+// ---------- Booking (Round 2 — real persistence) ----------
+// DANH: skill-round2-booking
+router.post('/booking/draft/create', async (req, res, next) => {
+  try {
+    const parsed = parseMIRequest(req, res);
+    if (!parsed) return;
+    const { requestId, input } = parsed;
+    const {
+      storeId,
+      serviceId,
+      customerName,
+      customerEmail,
+      customerPhone,
+      date,
+      timeSlot,
+      durationMins,
+      notes,
+      price,
+      missionId,
+      staffId,
+    } = input;
+
+    if (!storeId || !date || !timeSlot) {
+      return fail(res, requestId, 'VALIDATION_ERROR', 'input.storeId, input.date, and input.timeSlot are required', {}, 400);
+    }
+
+    const booking = await createBooking(prisma, {
+      storeId,
+      serviceId,
+      staffId,
+      customerName,
+      customerEmail,
+      customerPhone,
+      date,
+      timeSlot,
+      durationMins,
+      notes,
+      price,
+      sourceAgent: 'mi',
+      missionId,
+    });
+
+    return ok(res, requestId, {
+      bookingId: booking.id,
+      status: booking.status,
+      booking,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/booking/draft/update', async (req, res, next) => {
+  try {
+    const parsed = parseMIRequest(req, res);
+    if (!parsed) return;
+    const { requestId, input } = parsed;
+    const { bookingId, status, notes } = input;
+
+    if (!bookingId) {
+      return fail(res, requestId, 'VALIDATION_ERROR', 'input.bookingId is required', {}, 400);
+    }
+    if (!status) {
+      return fail(res, requestId, 'VALIDATION_ERROR', 'input.status is required', {}, 400);
+    }
+
+    const booking = await updateBookingStatus(prisma, bookingId, status, { notes });
+    return ok(res, requestId, { bookingId: booking.id, status: booking.status, booking });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/booking/price', async (req, res, next) => {
+  try {
+    const parsed = parseMIRequest(req, res);
+    if (!parsed) return;
+    const { requestId, input } = parsed;
+    const { storeId, serviceId, durationMins } = input;
+
+    if (!storeId) {
+      return fail(res, requestId, 'VALIDATION_ERROR', 'input.storeId is required', {}, 400);
+    }
+
+    let price = 0;
+    if (serviceId) {
+      const service = await prisma.product.findFirst({
+        where: { businessId: storeId, id: serviceId, deletedAt: null },
+      });
+      price = service?.price != null ? Number(service.price) : 0;
+    }
+
+    return ok(res, requestId, {
+      price,
+      currency: 'AUD',
+      serviceId: serviceId ?? null,
+      durationMins: durationMins ?? 30,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/booking/confirm', async (req, res, next) => {
+  try {
+    const parsed = parseMIRequest(req, res);
+    if (!parsed) return;
+    const { requestId, input } = parsed;
+    const bookingId = input.bookingId;
+
+    if (!bookingId) {
+      return fail(res, requestId, 'VALIDATION_ERROR', 'input.bookingId is required', {}, 400);
+    }
+
+    const booking = await updateBookingStatus(prisma, bookingId, 'confirmed');
+    return ok(res, requestId, { bookingId: booking.id, status: booking.status, booking });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/booking/availability', async (req, res, next) => {
+  try {
+    const parsed = parseMIRequest(req, res);
+    if (!parsed) return;
+    const { requestId, input } = parsed;
+    const { storeId, date, timeSlot, staffId, durationMins } = input;
+
+    if (!storeId || !date || !timeSlot) {
+      return fail(res, requestId, 'VALIDATION_ERROR', 'input.storeId, input.date, and input.timeSlot are required', {}, 400);
+    }
+
+    const result = await checkAvailability(prisma, storeId, {
+      date,
+      timeSlot,
+      staffId,
+      durationMins,
+    });
+
+    return ok(res, requestId, result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ---------- 501 placeholders ----------
 const NOT_IMPLEMENTED_PATHS = [
-  ['/booking/draft/create', 'booking.draft.create'],
-  ['/booking/draft/update', 'booking.draft.update'],
-  ['/booking/price', 'booking.price'],
-  ['/booking/confirm', 'booking.confirm'],
   ['/order/draft/create', 'order.draft.create'],
   ['/order/draft/update', 'order.draft.update'],
   ['/order/price', 'order.price'],

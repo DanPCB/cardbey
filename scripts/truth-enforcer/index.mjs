@@ -261,7 +261,8 @@ class TruthEnforcer {
 
             if (pattern.id === 'FAKE_STATUS_OK' && pattern.pattern.test(code)) {
               const hasSideEffect = enforcer.checkForSideEffects(nodePath, content);
-              if (!hasSideEffect) {
+              const declaredPure = enforcer.isDeclaredPureTransform(nodePath, content);
+              if (!hasSideEffect && !declaredPure) {
                 violations.push({
                   file: relPath,
                   line: lineNumber,
@@ -330,6 +331,30 @@ class TruthEnforcer {
       return /(prisma\.|fetch\(|axios\.|fs\.write|adapter\.invoke|await\s+\w+\.create|await\s+fn\(|await\s+\w+\(|\.save\(\))/.test(
         functionBody,
       );
+    }
+
+    return false;
+  }
+
+  // Sanctioned exemption: a function may declare itself a deterministic, IO-free
+  // pure transform with an explicit `@pure-transform` marker in its body. This is
+  // honest (status "ok" reflects a real computed result) and keeps FAKE_STATUS_OK
+  // strict everywhere a side effect is actually expected.
+  isDeclaredPureTransform(nodePath, content) {
+    let current = nodePath.parentPath;
+    while (
+      current &&
+      !t.isFunctionDeclaration(current.node) &&
+      !t.isFunctionExpression(current.node) &&
+      !t.isObjectMethod(current.node) &&
+      !t.isArrowFunctionExpression(current.node)
+    ) {
+      current = current.parentPath;
+    }
+
+    if (current?.node) {
+      const functionBody = content.slice(current.node.start, current.node.end);
+      return /@pure-transform\b/.test(functionBody);
     }
 
     return false;

@@ -126,7 +126,15 @@ import { buildMaintenanceContext } from '../lib/intake/buildMaintenanceContext.j
 import { mapPlannerDecisionToIntakeResponse } from '../lib/intake/mapPlannerDecisionToIntakeResponse.js';
 import { getMissionById } from '../lib/missionBlackboard.js';
 import { dispatchTool } from '../lib/toolDispatcher.js';
-import { skillRouter } from '../lib/skills/index.js';
+// DANH: skill-runtime-phase4
+// skillRegistry is imported (read-only) alongside skillRouter so the cooperative
+// gate can test for a legacy match WITHOUT executing it (see gate note below).
+import { skillRouter, skillRegistry } from '../lib/skills/index.js';
+// DANH: skill-runtime-phase3
+// Explicit .ts extension: this is a .js file importing a .ts module; that is
+// the resolution pattern that works under both tsx (runtime) and vitest in
+// this repo (see src/routes/stores.js importing artifactMemory.ts).
+import { dispatchWithRuntime } from '../lib/skill_runtime/dispatchWithRuntime.ts';
 import { reactPlanner } from '../lib/intake/reactPlanner.js';
 import { hydrateContext, hydratedContextToPlannerContext } from '../lib/memory/memoryHydrator.js';
 import { formatControlTowerSummary } from '../lib/intake/controlTowerQuery.js';
@@ -656,6 +664,93 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   };
 
   const intentLabel = typeof tool === 'string' ? tool.trim() : '';
+
+  // DANH: skill-runtime-phase4
+  // Cooperative gate: the runtime only intercepts when the legacy keyword router
+  // has NO matching skill — preventing the Phase 3 no-op regression where a
+  // matching intent bypassed real legacy execution and ran a no-op planning skill.
+  //
+  // IMPORTANT — why findByTrigger() and not skillRouter.route():
+  //   skillRouter.route() is async AND has side effects (on a match it calls
+  //   skillExecutor.execute, i.e. it *runs* the skill). Calling it here just to
+  //   probe for a match would (a) execute prematurely with the wrong ctx and
+  //   (b) double-execute once the real route(intentLabel, fullCtx) call below
+  //   runs. route() decides `matched` solely from skillRegistry.findByTrigger()
+  //   (see SkillRouter.route), so this lookup is the exact, side-effect-free
+  //   equivalent of the legacy match decision. The single legacy route() call
+  //   below remains the only execution point (no double-call).
+  //
+  // DANH: skill-runtime-phase7
+  // userMessage is not a parameter of this function — derive from req.body using
+  // the same field order as the main intake handler (text / goal / message).
+  const intakeUserMessage =
+    String(
+      req?.body?.text ?? req?.body?.goal ?? req?.body?.message ?? req?.body?.userMessage ?? '',
+    ).trim() || null;
+
+  const legacyWouldMatch = Boolean(skillRegistry.findByTrigger(intentLabel));
+  if (!legacyWouldMatch) {
+    const runtimeResult = await dispatchWithRuntime(
+      {
+        intentLabel,
+        userMessage: intakeUserMessage,
+        storeId: storeId ?? toolCtx.storeId ?? null,
+        userId: toolCtx.userId,
+        sessionId: null,
+      },
+      getPrismaClient(),
+    );
+    // DANH: skill-runtime-phase8
+    if (runtimeResult) {
+      const checkpoint = runtimeResult.result;
+
+      const stepResults =
+        checkpoint?.stepResults instanceof Map
+          ? Object.fromEntries(checkpoint.stepResults)
+          : checkpoint?.stepResults ?? {};
+
+      const lastStepOutput = Object.values(stepResults).at(-1);
+      const summaryMessage =
+        lastStepOutput?.output?.message ??
+        lastStepOutput?.output?.summary ??
+        lastStepOutput?.output?.topAction ??
+        (runtimeResult.state === 'completed'
+          ? 'Your store analytics are ready.'
+          : `Skill ended in state: ${runtimeResult.state}`);
+
+      const ok = runtimeResult.state === 'completed';
+
+      return {
+        toolResult: {
+          status: ok ? 'ok' : 'failed',
+          output: {
+            dispatchedVia: 'skill_runtime',
+            skillId: runtimeResult.skillId,
+            state: runtimeResult.state,
+            stepResults,
+            message: summaryMessage,
+          },
+          ...(ok
+            ? {}
+            : {
+                error: {
+                  code: 'SKILL_RUNTIME_FAILED',
+                  message: `Skill ended in state: ${runtimeResult.state}`,
+                },
+              }),
+        },
+        payload: {
+          missionId: dispatchMissionId ?? null,
+          dispatchedVia: 'skill_runtime',
+          skillId: runtimeResult.skillId,
+          state: runtimeResult.state,
+          result: runtimeResult.result,
+          stepResults,
+        },
+      };
+    }
+  }
+
   try {
     const skillRouterResult = await skillRouter.route(intentLabel, {
       missionId: dispatchMissionId,

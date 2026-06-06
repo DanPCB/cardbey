@@ -40,6 +40,12 @@ import * as handle_booking_outcome from './booking/handle_booking_outcome.js';
 import * as get_booking_summary from './booking/get_booking_summary.js';
 import * as manage_product_catalog from './catalog/manage_product_catalog.js';
 import * as manage_menu_sync from './menu/manage_menu_sync.js';
+import * as get_store_analytics from './get_store_analytics.js';
+import * as generate_report_summary from './generate_report_summary.js';
+import * as audit_store_completeness from './audit_store_completeness.js';
+import * as generate_health_report from './generate_health_report.js';
+import * as get_review_summary from './get_review_summary.js';
+import * as draft_review_response from './draft_review_response.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -171,6 +177,12 @@ export const executors = {
   get_booking_summary,
   manage_product_catalog,
   manage_menu_sync,
+  get_store_analytics,
+  generate_report_summary,
+  audit_store_completeness,
+  generate_health_report,
+  get_review_summary,
+  draft_review_response,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,

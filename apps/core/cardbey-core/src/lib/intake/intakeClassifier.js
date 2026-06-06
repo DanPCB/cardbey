@@ -143,6 +143,7 @@ REGISTERED TOOL NAMES (use exact strings, no variations):
 - "launch_campaign"    — deploy campaign across channels (FINAL step)
 - "improve_hero"       — update store hero image or headline (STANDALONE)
 - "analyze_store"      — audit store performance (STANDALONE)
+- "get_store_analytics" — store performance metrics overview (STANDALONE, direct_action)
 - "generate_mini_website" — create a mini website for the store (STANDALONE)
 - "smart_visual"       — generate visual/image assets (STANDALONE)
 - "video_generate_multimodal" — generate or deliver AI video clips for the store/marketing (STANDALONE)
@@ -183,6 +184,10 @@ Never invent tool names not listed above.
 - Hero/banner image swap (not headline text) → proactive_plan tool improve_hero with a short plan, or direct_action smart_visual if they want AI-generated art; never instruct them to click a UI button.
 - User wants an actual video clip / promo reel / TikTok/Reel-style output → video_generate_multimodal (distinct from moodboard/smart_visual images).
 - Sales/orders/revenue/targets → orders_report.
+// DANH: skill-runtime-phase7
+- Store performance / stats / "how is my store performing" → get_store_analytics (direct_action).
+  Requires active storeId. NOT for sales/revenue/orders detail → orders_report.
+  NOT for store audit/completeness checklist → analyze_store.
 - Text/headline fixes → code_fix for editor/preview fixes; edit_artifact for promotion or profile or draft-preview copy and bulk translation (not images).
 - confidence: honest 0–1.
 - If the user message includes "[Attached image content:" with extracted text, use that text to answer questions about the image — tool "general_chat", executionPath "chat", message field summarizes or quotes the relevant extracted content. Do not say you cannot see the image.
