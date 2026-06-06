@@ -25,6 +25,18 @@ import * as select_display_content from './display/select_display_content.js';
 import * as format_for_display from './display/format_for_display.js';
 import * as push_to_display_device from './display/push_to_display_device.js';
 import * as verify_display_output from './display/verify_display_output.js';
+import * as analyze_offer_performance from './offer/analyze_offer_performance.js';
+import * as suggest_offer_improvements from './offer/suggest_offer_improvements.js';
+import * as apply_offer_optimization from './offer/apply_offer_optimization.js';
+import * as track_offer_outcome from './offer/track_offer_outcome.js';
+import * as audit_local_presence from './growth/audit_local_presence.js';
+import * as generate_growth_plan from './growth/generate_growth_plan.js';
+import * as monitor_growth_baseline from './growth/monitor_growth_baseline.js';
+import * as check_booking_availability from './booking/check_booking_availability.js';
+import * as create_booking_record from './booking/create_booking_record.js';
+import * as confirm_booking_customer from './booking/confirm_booking_customer.js';
+import * as schedule_booking_reminder from './booking/schedule_booking_reminder.js';
+import * as handle_booking_outcome from './booking/handle_booking_outcome.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -72,6 +84,19 @@ import { generateI18nKey }      from './i18n/generateI18nKey.js'
 import { translateString }      from './i18n/translateString.js'
 import { runI18nTests }         from './i18n/runI18nTests.js'
 import { reportI18nProgress }   from './i18n/reportI18nProgress.js'
+
+/** Honest blocker for tools not implemented yet (no fake success payloads). */
+function honestBlocker(toolName, message) {
+  return {
+    async execute() {
+      return {
+        status: 'blocked',
+        reason: 'not_implemented',
+        output: { toolName, message },
+      };
+    },
+  };
+}
 
 /** Wrap i18n repair helpers (named fn exports) into standard executor shape. */
 function wrapI18nExecutor(fn) {
@@ -128,6 +153,18 @@ export const executors = {
   format_for_display,
   push_to_display_device,
   verify_display_output,
+  analyze_offer_performance,
+  suggest_offer_improvements,
+  apply_offer_optimization,
+  track_offer_outcome,
+  audit_local_presence,
+  generate_growth_plan,
+  monitor_growth_baseline,
+  check_booking_availability,
+  create_booking_record,
+  confirm_booking_customer,
+  schedule_booking_reminder,
+  handle_booking_outcome,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,
@@ -163,21 +200,10 @@ export const executors = {
   translateString: wrapI18nExecutor(translateString),
   runI18nTests: wrapI18nExecutor(runI18nTests),
   reportI18nProgress: wrapI18nExecutor(reportI18nProgress),
-  // Stub executors for tools without real implementations yet.
-  generate_promotion_asset: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'generate_promotion_asset',
-          input,
-          context,
-          message: 'Promotion asset generated (stub executor).',
-        },
-      };
-    },
-  },
+  generate_promotion_asset: honestBlocker(
+    'generate_promotion_asset',
+    'Promotion asset generation is not implemented yet.',
+  ),
   mission_pipeline_stub: {
     async execute(input = {}, context = {}) {
       const stepId = typeof context?.stepId === 'string' ? context.stepId.trim() : '';
@@ -198,110 +224,31 @@ export const executors = {
       };
     },
   },
-  resolve_target_screens: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'resolve_target_screens',
-          input,
-          context,
-          message: 'Target screens resolved (stub executor).',
-        },
-      };
-    },
-  },
-  prepare_screen_asset: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'prepare_screen_asset',
-          input,
-          context,
-          message: 'Screen asset prepared (stub executor).',
-        },
-      };
-    },
-  },
-  assign_screen_slot: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'assign_screen_slot',
-          input,
-          context,
-          message: 'Screen slot assigned (stub executor).',
-        },
-      };
-    },
-  },
-  activate_screen_content: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'activate_screen_content',
-          input,
-          context,
-          message: 'Screen content activated (stub executor).',
-        },
-      };
-    },
-  },
-  generate_social_posts: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          posts: [],
-          generated: true,
-          storeId: input?.storeId ?? null,
-        },
-      };
-    },
-  },
-  create_offer: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          offerId: null,
-          created: true,
-          stub: true,
-          storeId: input?.storeId ?? null,
-        },
-      };
-    },
-  },
-  smart_visual: {
-    async execute(input = {}, context = {}) {
-      const prompt = typeof input?.prompt === 'string' ? input.prompt : '';
-      return {
-        status: 'ok',
-        output: {
-          message: 'Visual generation completed (stub executor — wire to your image pipeline as needed).',
-          storeId: input?.storeId ?? null,
-          campaignContext: typeof input?.campaignContext === 'string' ? input.campaignContext : null,
-          heroBannerIntent: Boolean(prompt && /hero|banner|storefront/i.test(prompt)),
-          artifacts: prompt
-            ? [
-                {
-                  kind: 'generated_visual_placeholder',
-                  prompt: prompt.slice(0, 2000),
-                  pendingHeroApply: /hero|banner|storefront/i.test(prompt),
-                },
-              ]
-            : [],
-        },
-      };
-    },
-  },
+  resolve_target_screens: honestBlocker(
+    'resolve_target_screens',
+    'Target screen resolution is not implemented yet.',
+  ),
+  prepare_screen_asset: honestBlocker(
+    'prepare_screen_asset',
+    'Screen asset preparation is not implemented yet.',
+  ),
+  assign_screen_slot: honestBlocker(
+    'assign_screen_slot',
+    'Screen slot assignment is not implemented yet.',
+  ),
+  activate_screen_content: honestBlocker(
+    'activate_screen_content',
+    'Screen content activation is not implemented yet.',
+  ),
+  generate_social_posts: honestBlocker(
+    'generate_social_posts',
+    'Social post generation is not implemented yet. Use content_creator or publish_to_social.',
+  ),
+  create_offer: honestBlocker('create_offer', 'Offer creation is not implemented yet. Use create_offer_draft.'),
+  smart_visual: honestBlocker(
+    'smart_visual',
+    'Smart visual generation is coming soon. Use search_hero_media or edit_artifact meanwhile.',
+  ),
   'signage.list-devices': signage_list_devices,
   'signage.publish-to-devices': signage_publish_to_devices,
   'device.sendInput': device_send_input,
