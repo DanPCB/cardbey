@@ -977,7 +977,9 @@ export async function executeAgentRunInProcess(runId) {
       if (trigger?.content && typeof trigger.content === 'object' && trigger.content.text) {
         userMessage = String(trigger.content.text);
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[agentRunExecutor] trigger message load failed:', err?.message || err);
+    }
   }
   if (!userMessage.trim()) userMessage = 'Research request';
 

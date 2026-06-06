@@ -146,7 +146,9 @@ Mission hypothesis:
 `.trim();
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[llmTaskPlanner] mission hypothesis context load failed:', err?.message || err);
+    }
   }
   const fallback = () => ({
     ok: true,

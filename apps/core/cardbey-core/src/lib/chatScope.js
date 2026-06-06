@@ -190,7 +190,9 @@ async function resolveChatScopeInner(prisma, user, { userId, tenantId, threadId,
         select: { name: true },
       });
       if (business?.name) storeName = business.name;
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[chatScope] store name lookup failed:', err?.message || err);
+    }
     const scopeLabel = `Working on: Store ${storeName}`;
     return {
       threadId: thread.id,
