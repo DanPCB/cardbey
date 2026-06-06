@@ -10,6 +10,13 @@ import { Router } from 'express';
 import { getPrismaClient } from '../lib/prisma.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { loadGithubCiSummary } from '../lib/controlTowerGithubCi.js';
+import {
+  STALE_THRESHOLD_MS,
+  buildEnvFlagsProvenance,
+  buildGithubCiProvenance,
+  buildOperatorInputProvenance,
+  buildOverviewDbProvenance,
+} from '../lib/controlTowerProvenance.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -703,6 +710,14 @@ router.get('/overview', async (req, res) => {
       },
     ];
 
+    const fetchedAt = new Date().toISOString();
+    const provenance = {
+      ...buildOverviewDbProvenance(fetchedAt, snap.since),
+      ci_status: buildGithubCiProvenance(snap.ciSummary),
+      feature_flags: buildEnvFlagsProvenance(fetchedAt),
+      operator_input: buildOperatorInputProvenance(fetchedAt),
+    };
+
     return res.json({
       ok: true,
       sourceStatus,
@@ -712,6 +727,9 @@ router.get('/overview', async (req, res) => {
       timeline,
       actionQueue,
       window: { days: WINDOW_DAYS, since: snap.since },
+      fetchedAt,
+      stale_threshold_ms: STALE_THRESHOLD_MS,
+      provenance,
     });
   } catch (err) {
     console.error('[control-tower/overview]', err);

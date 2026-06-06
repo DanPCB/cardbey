@@ -12,6 +12,7 @@ import {
 } from './draftPreviewHeroSync.js';
 import { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } from './publishSnapshotService.js';
 import { getPublishedBusinessArtifact } from '../publishedArtifactProjection/getPublishedBusinessArtifact.js';
+import { emitHeroUploadSideEffects } from './heroUploadSideEffects.js';
 
 function parsePreviewBlob(raw) {
   if (raw == null) return {};
@@ -320,6 +321,23 @@ export async function updateHeroForStore({
       : null;
   const heroImageUrl = isVideo ? posterOnly : heroImage || heroVideo || null;
   const heroVideoUrl = isVideo ? heroVideo || null : null;
+  const heroMediaType = isVideo ? 'video' : 'image';
+
+  if (draftUpdated) {
+    try {
+      await emitHeroUploadSideEffects(prisma, {
+        missionId,
+        draftId: effectiveDraftId,
+        storeId: effectiveStoreId,
+        generationRunId,
+        heroImageUrl,
+        heroVideoUrl,
+        heroMediaType,
+      });
+    } catch (sideErr) {
+      console.warn('[heroUpdateService] upload side effects failed (non-fatal):', sideErr?.message || sideErr);
+    }
+  }
 
   return {
     ok: true,
@@ -327,7 +345,7 @@ export async function updateHeroForStore({
     storeId: effectiveStoreId,
     heroImageUrl,
     heroVideoUrl,
-    heroMediaType: isVideo ? 'video' : 'image',
+    heroMediaType,
     draftUpdated,
     businessUpdated,
     source,

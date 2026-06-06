@@ -9,6 +9,10 @@ import {
   appendTruthMetricsHistory,
   buildTruthMetricsSnapshot,
 } from '../lib/truthEnforcerMetrics.js';
+import {
+  STALE_THRESHOLD_MS,
+  buildTruthScoreProvenance,
+} from '../lib/controlTowerProvenance.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -88,17 +92,32 @@ export default function truthEnforcerRoutes(app) {
   app.get('/api/dev/truth-metrics', async (req, res) => {
     try {
       const strict = req.query?.strict === '1' || req.query?.strict === 'true';
+      const forceRefresh = req.query?.refresh === '1' || req.query?.refresh === 'true';
       const violations = await runTruthAudit({ strict });
       const snapshot = buildTruthMetricsSnapshot(violations);
       const metricsPath = path.join(REPO_ROOT, '.cardbey', 'truth-metrics.json');
 
+      const provenance = {
+        truth_score: buildTruthAuditProvenance(REPO_ROOT, snapshot.scannedAt),
+      };
+
       let payload;
-      if (existsSync(metricsPath)) {
+      if (!forceRefresh && existsSync(metricsPath)) {
         try {
           const cached = JSON.parse(readFileSync(metricsPath, 'utf-8'));
           const cacheAge = Date.now() - new Date(cached?.updatedAt ?? 0).getTime();
           if (cacheAge < 5 * 60 * 1000 && cached?.current) {
-            payload = { ...cached, violations: violations.slice(0, 50) };
+            const cachedProvenance = {
+              truth_score: buildTruthScoreProvenance(
+                cached.current?.scannedAt ?? cached.updatedAt,
+              ),
+            };
+            payload = {
+              ...cached,
+              violations: violations.slice(0, 50),
+              provenance: cachedProvenance,
+              fetchedAt: new Date().toISOString(),
+            };
             return res.json(payload);
           }
         } catch {
@@ -107,7 +126,13 @@ export default function truthEnforcerRoutes(app) {
       }
 
       payload = appendTruthMetricsHistory(REPO_ROOT, snapshot);
-      res.json({ ...payload, violations: violations.slice(0, 50) });
+      res.json({
+        ...payload,
+        violations: violations.slice(0, 50),
+        provenance,
+        fetchedAt: new Date().toISOString(),
+        stale_threshold_ms: STALE_THRESHOLD_MS,
+      });
     } catch (error) {
       res.status(500).json({
         ok: false,
@@ -117,6 +142,9 @@ export default function truthEnforcerRoutes(app) {
         current: buildTruthMetricsSnapshot([]),
         history: [],
         topFiles: [],
+        provenance: {
+          truth_score: buildTruthScoreProvenance(new Date().toISOString()),
+        },
       });
     }
   });
