@@ -1,8 +1,11 @@
 /**
- * check_booking_availability — Deterministic slot generation (Phase 6: DB wiring).
+ * check_booking_availability — slot generation with DB conflict overlay (Round 2).
+ * DANH: skill-round2-booking
  */
 
 import { randomUUID } from 'node:crypto';
+import { getBookedTimeSlotsForDate } from '../../booking/bookingService.js';
+import { getPrismaClient } from '../../prisma.js';
 import { executeAnalysisTool } from '../executeAnalysisTool.js';
 
 const BUSINESS_START_HOUR = 9;
@@ -36,9 +39,10 @@ function resolveDate(dateStr) {
  * @param {string} storeId
  * @param {string} date
  * @param {number} durationMinutes
+ * @param {Set<string>} [bookedTimeSlots]
  * @returns {Array<object>}
  */
-export function generateSlots(storeId, date, durationMinutes = 60) {
+export function generateSlots(storeId, date, durationMinutes = 60, bookedTimeSlots = new Set()) {
   const stepHours = Math.max(1, Math.floor(durationMinutes / 60));
   /** @type {Array<object>} */
   const slots = [];
@@ -48,7 +52,8 @@ export function generateSlots(storeId, date, durationMinutes = 60) {
     const endHour = hour + stepHours;
     const endTime = `${String(endHour).padStart(2, '0')}:00`;
     const slotSeed = hashSeed(`${storeId}:${date}:${startTime}`);
-    const available = slotSeed % 10 < 7;
+    const dbBooked = bookedTimeSlots.has(startTime);
+    const available = !dbBooked && slotSeed % 10 < 7;
     const id = `slot-${hashSeed(`${storeId}|${date}|${startTime}`).toString(16).padStart(8, '0')}`;
 
     slots.push({
@@ -58,6 +63,7 @@ export function generateSlots(storeId, date, durationMinutes = 60) {
       available,
       capacity: available ? Math.max(1, (slotSeed % 3) + 1) : 0,
       scheduledAt: new Date(`${date}T${startTime}:00`).toISOString(),
+      dbConflict: dbBooked,
     });
   }
 
@@ -73,7 +79,7 @@ export async function execute(input = {}, context = {}) {
     toolName: 'check_booking_availability',
     input,
     context,
-    analyzer: (inp) => {
+    analyzer: async (inp) => {
       const storeId =
         (typeof inp?.storeId === 'string' && inp.storeId.trim()) ||
         (typeof context?.storeId === 'string' && context.storeId.trim()) ||
@@ -87,10 +93,21 @@ export async function execute(input = {}, context = {}) {
       const partySize =
         Number.isFinite(partySizeRaw) && partySizeRaw > 0 ? Math.floor(partySizeRaw) : 1;
 
-      const slots = generateSlots(storeId, date, duration);
+      let bookedTimeSlots = new Set();
+      try {
+        const prisma = getPrismaClient();
+        if (prisma?.booking?.findMany) {
+          bookedTimeSlots = await getBookedTimeSlotsForDate(prisma, storeId, date);
+        }
+      } catch {
+        /* Booking table may not exist until migration — fall back to hash slots only */
+      }
+
+      const slots = generateSlots(storeId, date, duration, bookedTimeSlots);
       const openSlots = slots.filter((s) => s.available);
       const nextAvailable = openSlots[0]?.scheduledAt ?? null;
 
+      // Side effect: read Booking rows for storeId+date to mark conflicting slots unavailable.
       return {
         availability: {
           storeId,
@@ -104,6 +121,7 @@ export async function execute(input = {}, context = {}) {
           openSlots: openSlots.length,
           availabilityId: randomUUID(),
           checkedAt: new Date().toISOString(),
+          dbBacked: bookedTimeSlots.size > 0,
         },
       };
     },

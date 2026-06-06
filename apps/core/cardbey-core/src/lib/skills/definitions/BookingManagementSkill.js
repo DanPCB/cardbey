@@ -1,5 +1,6 @@
 /**
  * Booking management — availability through confirmation, reminder, and outcome.
+ * DANH: skill-round2-booking
  */
 
 import { skillRegistry } from '../SkillRegistry.js';
@@ -18,11 +19,30 @@ export const BookingManagementSkill = {
     'take_booking',
     'new_appointment',
     'reserve_slot',
+    'booking',
+    'appointment',
+    'availability',
+    'booking_summary',
+    'confirm_booking',
+    'cancel_booking',
   ],
   requiredContext: ['storeId', 'userId'],
   observable: true,
   composes: ['campaign'],
   steps: [
+    {
+      id: 'booking_summary',
+      name: 'Booking summary',
+      tool: 'get_booking_summary',
+      required: false,
+      condition: (ctx) =>
+        Boolean(
+          ctx.toolInput?.subIntent === 'get_summary' ||
+            ctx.toolInput?.action === 'get_summary' ||
+            /summary/i.test(String(ctx.toolInput?.prompt ?? '')),
+        ),
+      buildInput: (ctx) => ({ storeId: ctx.storeId }),
+    },
     {
       id: 'check_availability',
       name: 'Check availability',

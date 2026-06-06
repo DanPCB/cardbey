@@ -16,10 +16,19 @@ describe('BookingManagementSkill', () => {
     expect(skillRegistry.findByTrigger('reserve_slot')?.name).toBe('booking_management');
   });
 
-  it('has 5 steps with correct tool names', () => {
+  it('findByTrigger(booking) returns BookingManagementSkill', () => {
+    expect(skillRegistry.findByTrigger('booking')?.name).toBe('booking_management');
+  });
+
+  it('findByTrigger(appointment) returns BookingManagementSkill', () => {
+    expect(skillRegistry.findByTrigger('appointment')?.name).toBe('booking_management');
+  });
+
+  it('has 6 steps including optional booking summary', () => {
     const steps = BookingManagementSkill.steps;
-    expect(steps).toHaveLength(5);
+    expect(steps).toHaveLength(6);
     expect(steps.map((s) => s.tool)).toEqual([
+      'get_booking_summary',
       'check_booking_availability',
       'create_booking_record',
       'confirm_booking_customer',

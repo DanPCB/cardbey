@@ -135,6 +135,7 @@ model Business {
 
   // Relations
   products    Product[]
+  bookings    Booking[]
   storePromos StorePromo[]
   storeOffers StoreOffer[]
   personalPresenceOwner User? @relation("PersonalPresenceStore")
@@ -146,6 +147,37 @@ model Business {
   @@index([userId])
   @@index([slug])
   @@index([expiresAt])
+}
+
+// DANH: skill-round2-booking — store appointments (Performer + MI + storefront)
+model Booking {
+  id            String   @id @default(cuid())
+  storeId       String
+  serviceId     String?
+  staffId       String?
+  customerId    String?
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  date          String // ISO date YYYY-MM-DD
+  timeSlot      String // HH:MM
+  durationMins  Int      @default(30)
+  status        String   @default("pending") // pending | confirmed | cancelled | completed
+  notes         String?
+  price         Float?
+  currency      String?  @default("AUD")
+  sourceAgent   String? // performer | storefront | mi
+  missionId     String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, date])
+  @@index([storeId, status])
+  @@index([date, timeSlot])
 }
 
 /// Canonical published store projection (single source for public read surfaces).

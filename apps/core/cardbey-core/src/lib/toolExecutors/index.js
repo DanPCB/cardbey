@@ -37,6 +37,9 @@ import * as create_booking_record from './booking/create_booking_record.js';
 import * as confirm_booking_customer from './booking/confirm_booking_customer.js';
 import * as schedule_booking_reminder from './booking/schedule_booking_reminder.js';
 import * as handle_booking_outcome from './booking/handle_booking_outcome.js';
+import * as get_booking_summary from './booking/get_booking_summary.js';
+import * as manage_product_catalog from './catalog/manage_product_catalog.js';
+import * as manage_menu_sync from './menu/manage_menu_sync.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -165,6 +168,9 @@ export const executors = {
   confirm_booking_customer,
   schedule_booking_reminder,
   handle_booking_outcome,
+  get_booking_summary,
+  manage_product_catalog,
+  manage_menu_sync,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,

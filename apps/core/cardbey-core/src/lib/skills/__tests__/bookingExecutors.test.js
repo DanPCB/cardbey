@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execute as checkBookingAvailability } from '../../toolExecutors/booking/check_booking_availability.js';
 import { execute as createBookingRecord } from '../../toolExecutors/booking/create_booking_record.js';
+import * as prismaModule from '../../prisma.js';
 import { execute as confirmBookingCustomer } from '../../toolExecutors/booking/confirm_booking_customer.js';
 import { execute as scheduleBookingReminder } from '../../toolExecutors/booking/schedule_booking_reminder.js';
 import { execute as handleBookingOutcome } from '../../toolExecutors/booking/handle_booking_outcome.js';
@@ -8,6 +9,26 @@ import { execute as handleBookingOutcome } from '../../toolExecutors/booking/han
 describe('booking executors', () => {
   const storeId = 'booking-store-1';
   const date = '2026-06-10';
+
+  beforeEach(() => {
+    vi.spyOn(prismaModule, 'getPrismaClient').mockReturnValue({
+      booking: {
+        create: vi.fn().mockResolvedValue({
+          id: 'bk-db-1',
+          storeId,
+          status: 'pending',
+          date,
+          timeSlot: '09:00',
+          createdAt: new Date('2026-06-01T00:00:00.000Z'),
+        }),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('check_booking_availability returns slots and openSlots count', async () => {
     const result = await checkBookingAvailability({ storeId, date });
@@ -45,7 +66,9 @@ describe('booking executors', () => {
     expect(result.status).toBe('ok');
     expect(result.output?.booking?.customerName).toBe('Jane Doe');
     expect(result.output?.booking?.reference).toMatch(/^[A-Z0-9]{6}$/);
-    expect(result.output?.booking?.status).toBe('confirmed');
+    expect(result.output?.booking?.status).toBe('pending');
+    expect(result.output?.booking?.persisted).toBe(true);
+    expect(result.output?.booking?.bookingId).toBe('bk-db-1');
   });
 
   it('confirm_booking_customer message contains customerName', async () => {
@@ -60,9 +83,10 @@ describe('booking executors', () => {
 
     const result = await confirmBookingCustomer({ booking });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.message).toContain('Alex');
-    expect(result.output?.message).toContain('BK12AB');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('requires_user_input');
+    expect(result.output?.partial?.message).toContain('Alex');
+    expect(result.output?.partial?.message).toContain('BK12AB');
   });
 
   it('confirm channel defaults to whatsapp', async () => {
@@ -70,7 +94,7 @@ describe('booking executors', () => {
       booking: { customerName: 'Sam', storeId, date: '2026-06-10', startTime: '11:00', reference: 'BK99ZZ' },
     });
 
-    expect(result.output?.channel).toBe('whatsapp');
+    expect(result.output?.partial?.channel).toBe('whatsapp');
   });
 
   it('schedule_booking_reminder scheduledAt is 24h before slot', async () => {
@@ -85,11 +109,13 @@ describe('booking executors', () => {
     };
 
     const result = await scheduleBookingReminder({ booking, reminderLeadHours: 24 });
-    const reminderAt = new Date(result.output?.reminder?.scheduledAt).getTime();
     const slotAt = new Date(scheduledAt).getTime();
-    const diffHours = (slotAt - reminderAt) / (60 * 60 * 1000);
 
-    expect(result.status).toBe('ok');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('reminder_not_scheduled');
+    expect(result.output?.partial?.reminder?.scheduledAt).toBeTruthy();
+    const reminderAt = new Date(result.output.partial.reminder.scheduledAt).getTime();
+    const diffHours = (slotAt - reminderAt) / (60 * 60 * 1000);
     expect(diffHours).toBeCloseTo(24, 1);
   });
 
