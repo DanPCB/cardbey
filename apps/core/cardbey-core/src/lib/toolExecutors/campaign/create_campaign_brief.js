@@ -3,47 +3,51 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { executeContentTool } from '../executeContentTool.js';
 
 /**
  * @param {object} [input]
  * @param {string} [input.storeId]
- * @param {string} [input.objective]
- * @param {string} [input.targetAudience]
- * @param {string|null} [input.offer]
- * @param {string} [input.duration]
- * @param {string} [input.tone]
  * @param {object} [context]
  */
 export async function execute(input = {}, context = {}) {
-  try {
-    const storeId =
-      (typeof input?.storeId === 'string' && input.storeId.trim()) ||
-      (typeof context?.storeId === 'string' && context.storeId.trim()) ||
-      null;
+  return await executeContentTool({
+    toolName: 'create_campaign_brief',
+    input,
+    context,
+    processor: (inp, ctx) => {
+      const storeId =
+        (typeof inp?.storeId === 'string' && inp.storeId.trim()) ||
+        (typeof ctx?.storeId === 'string' && ctx.storeId.trim()) ||
+        null;
 
-    const brief = {
-      id: randomUUID(),
-      storeId,
-      objective: String(input?.objective ?? '').trim() || 'promote my business',
-      targetAudience: String(input?.targetAudience ?? 'local customers').trim() || 'local customers',
-      offer: input?.offer != null ? String(input.offer).trim() || null : null,
-      duration: String(input?.duration ?? '7 days').trim() || '7 days',
-      tone: String(input?.tone ?? 'friendly').trim() || 'friendly',
-      createdAt: new Date().toISOString(),
-    };
+      const objective = String(inp?.objective ?? '').trim() || 'promote my business';
+      const brief = {
+        id: randomUUID(),
+        storeId,
+        objective,
+        targetAudience: String(inp?.targetAudience ?? 'local customers').trim() || 'local customers',
+        offer: inp?.offer != null ? String(inp.offer).trim() || null : null,
+        duration: String(inp?.duration ?? '7 days').trim() || '7 days',
+        tone: String(inp?.tone ?? 'friendly').trim() || 'friendly',
+        createdAt: new Date().toISOString(),
+      };
 
-    return {
-      status: 'ok',
-      output: { ok: true, brief },
-    };
-  } catch (err) {
-    const message = err?.message || String(err);
-    return {
-      status: 'failed',
-      error: { code: 'BRIEF_FAILED', message },
-      output: { ok: false, error: message },
-    };
-  }
+      return { brief, objectiveLength: objective.length };
+    },
+    validateResult: (result) => {
+      const objectiveLen = result?.objectiveLength ?? String(result?.brief?.objective ?? '').length;
+      if (objectiveLen < 3) {
+        return {
+          blocked: true,
+          reason: 'insufficient_content',
+          message: 'Unable to generate campaign brief with available data',
+        };
+      }
+      return null;
+    },
+    isEmpty: (result) => !result?.brief,
+  });
 }
 
 export default execute;

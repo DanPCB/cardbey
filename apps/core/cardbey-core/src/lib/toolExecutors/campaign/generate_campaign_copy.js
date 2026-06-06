@@ -2,6 +2,8 @@
  * generate_campaign_copy — Deterministic campaign copy from brief (Phase 2 template).
  */
 
+import { executeContentTool } from '../executeContentTool.js';
+
 /**
  * @param {object} brief
  * @param {string} tone
@@ -32,43 +34,31 @@ function buildCopyFromBrief(brief, tone, platforms) {
 
 /**
  * @param {object} [input]
- * @param {string} [input.storeId]
- * @param {object} [input.brief]
- * @param {string} [input.tone]
- * @param {string[]} [input.platforms]
  * @param {object} [context]
  */
 export async function execute(input = {}, context = {}) {
-  try {
-    const storeId =
-      (typeof input?.storeId === 'string' && input.storeId.trim()) ||
-      (typeof context?.storeId === 'string' && context.storeId.trim()) ||
-      null;
+  return await executeContentTool({
+    toolName: 'generate_campaign_copy',
+    input,
+    context,
+    processor: (inp, ctx) => {
+      const storeId =
+        (typeof inp?.storeId === 'string' && inp.storeId.trim()) ||
+        (typeof ctx?.storeId === 'string' && ctx.storeId.trim()) ||
+        null;
 
-    const brief = input?.brief && typeof input.brief === 'object' ? input.brief : {};
-    const tone = String(input?.tone ?? brief?.tone ?? 'friendly').trim() || 'friendly';
-    const platforms = Array.isArray(input?.platforms) && input.platforms.length
-      ? input.platforms.map((p) => String(p).trim()).filter(Boolean)
-      : ['instagram', 'facebook', 'whatsapp'];
+      const brief = inp?.brief && typeof inp.brief === 'object' ? inp.brief : {};
+      const tone = String(inp?.tone ?? brief?.tone ?? 'friendly').trim() || 'friendly';
+      const platforms = Array.isArray(inp?.platforms) && inp.platforms.length
+        ? inp.platforms.map((p) => String(p).trim()).filter(Boolean)
+        : ['instagram', 'facebook', 'whatsapp'];
 
-    const copy = buildCopyFromBrief(brief, tone, platforms);
-
-    return {
-      status: 'ok',
-      output: {
-        ok: true,
-        storeId,
-        copy,
-      },
-    };
-  } catch (err) {
-    const message = err?.message || String(err);
-    return {
-      status: 'failed',
-      error: { code: 'COPY_FAILED', message },
-      output: { ok: false, error: message },
-    };
-  }
+      const copy = buildCopyFromBrief(brief, tone, platforms);
+      return { storeId, copy };
+    },
+    isEmpty: (result) => !String(result?.copy?.headline ?? '').trim(),
+    countRecords: (result) => Object.keys(result?.copy?.platformVariants ?? {}).length || 1,
+  });
 }
 
 export default execute;

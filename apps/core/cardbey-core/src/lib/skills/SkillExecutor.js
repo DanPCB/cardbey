@@ -146,6 +146,17 @@ export class SkillExecutor {
         }
       }
 
+      if (!step.tool) {
+        execution.stepResults[step.id] = { skipped: true, reason: 'delegated_to_skill' };
+        if (skillDef.observable !== false) {
+          this._emitStepEvent(execution, step, 'skipped', {
+            skipped: true,
+            reason: 'delegated_to_skill',
+          });
+        }
+        continue;
+      }
+
       const builtInput =
         typeof step.buildInput === 'function'
           ? step.buildInput(ctx, execution.stepResults)

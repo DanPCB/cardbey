@@ -13,6 +13,9 @@ import { SkillRouter } from './SkillRouter.js';
 import './definitions/StoreLaunchSkill.js';
 import './definitions/CampaignSkill.js';
 import './definitions/SmartDisplayPublishSkill.js';
+import './definitions/OfferOptimizationSkill.js';
+import './definitions/LocalGrowthSkill.js';
+import './definitions/BookingManagementSkill.js';
 
 const skillExecutor = new SkillExecutor({
   toolDispatcher: dispatchTool,

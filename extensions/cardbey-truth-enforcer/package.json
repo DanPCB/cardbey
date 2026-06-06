@@ -1,0 +1,49 @@
+{
+  "name": "cardbey-truth-enforcer",
+  "displayName": "Cardbey Truth Enforcer",
+  "description": "Detect fake functions and hidden lies in Cardbey code before they reach production.",
+  "version": "0.1.0",
+  "publisher": "cardbey",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:javascriptreact",
+    "onLanguage:typescriptreact"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Truth Enforcer",
+      "properties": {
+        "truthEnforcer.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable truth enforcer diagnostics and save checks."
+        },
+        "truthEnforcer.autoFixOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-fix supported violations when saving a file."
+        },
+        "truthEnforcer.strictMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Treat stub executors as errors instead of warnings."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "cardbey.truthEnforcer.runFile",
+        "title": "Truth Enforcer: Check Current File"
+      }
+    ]
+  }
+}

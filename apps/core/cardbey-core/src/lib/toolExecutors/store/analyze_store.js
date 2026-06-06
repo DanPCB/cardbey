@@ -131,24 +131,22 @@ export async function execute(input = {}, context = {}) {
         draftInput.businessType ??
         'retail';
       return {
-        status: 'ok',
-        output: {
-          storeId: draft?.committedStoreId ?? null,
-          draftId: draft?.id ?? null,
-          storeName: businessName,
-          storeType,
-          productCount,
-          categoryCount,
-          hasImages,
-          publishStatus: 'draft',
-          source: 'draft',
-          summary:
-            productCount > 0
-              ? `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}`
-              : `${businessName} draft is ready`,
-          findings: [],
-          suggestions: [],
-        },
+        storeId: draft?.committedStoreId ?? null,
+        draftId: draft?.id ?? null,
+        storeName: businessName,
+        storeType,
+        productCount,
+        categoryCount,
+        hasImages,
+        publishStatus: 'draft',
+        source: 'draft',
+        summary:
+          productCount > 0
+            ? `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}`
+            : `${businessName} draft is ready`,
+        findings: [],
+        suggestions: [],
+        analysisCompleted: true,
       };
     };
 
@@ -171,7 +169,7 @@ export async function execute(input = {}, context = {}) {
       try {
         const draft = await getDraftByGenerationRunId(generationRunId.trim());
         const out = resolvePreview(draft);
-        if (out) return out;
+        if (out) return { status: 'ok', output: out };
       } catch (err) {
         console.warn('[analyze_store] generationRunId draft lookup failed', err?.message ?? err);
       }
@@ -181,7 +179,7 @@ export async function execute(input = {}, context = {}) {
       try {
         const draft = await getDraft(draftId.trim());
         const out = resolvePreview(draft);
-        if (out) return out;
+        if (out) return { status: 'ok', output: out };
       } catch (err) {
         console.warn('[analyze_store] draftId lookup failed', err?.message ?? err);
       }
@@ -305,21 +303,19 @@ export async function execute(input = {}, context = {}) {
           hasImages,
         });
         return {
-          status: 'ok',
-          output: {
-            storeId,
-            draftId: draft.id ?? draftIdForFallback,
-            storeName: businessName,
-            storeType,
-            productCount,
-            categoryCount,
-            hasImages,
-            publishStatus: store.publishedAt ? 'published' : 'draft',
-            source: 'draft_fallback',
-            summary: `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}${hasImages ? ' with images' : ''}.`,
-            findings: [],
-            suggestions: [],
-          },
+          storeId,
+          draftId: draft.id ?? draftIdForFallback,
+          storeName: businessName,
+          storeType,
+          productCount,
+          categoryCount,
+          hasImages,
+          publishStatus: store.publishedAt ? 'published' : 'draft',
+          source: 'draft_fallback',
+          summary: `${businessName} is ready with ${productCount} product${productCount === 1 ? '' : 's'}${hasImages ? ' with images' : ''}.`,
+          findings: [],
+          suggestions: [],
+          analysisCompleted: true,
         };
       };
 
@@ -327,7 +323,7 @@ export async function execute(input = {}, context = {}) {
         try {
           const draft = await getDraft(draftIdForFallback.trim());
           const out = await tryDraftFallback(draft, 'draftId');
-          if (out) return out;
+          if (out) return { status: 'ok', output: out };
         } catch (fallbackErr) {
           console.warn('[analyze_store] draftId fallback failed:', fallbackErr?.message ?? fallbackErr);
         }
@@ -337,7 +333,7 @@ export async function execute(input = {}, context = {}) {
         try {
           const draft = await getDraftByGenerationRunId(generationRunId.trim());
           const out = await tryDraftFallback(draft, 'generationRunId');
-          if (out) return out;
+          if (out) return { status: 'ok', output: out };
         } catch (fallbackErr) {
           console.warn('[analyze_store] generationRunId draft fallback failed:', fallbackErr?.message ?? fallbackErr);
         }

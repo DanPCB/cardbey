@@ -160,5 +160,32 @@
     "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
     "appliedBy": "operator",
     "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-05T12:34:39.018Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-05T12:40:21.756Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-05T12:45:35.714Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
   }
 ]

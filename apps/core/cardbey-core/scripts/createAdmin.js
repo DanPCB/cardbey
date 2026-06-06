@@ -5,6 +5,7 @@
  * Do NOT hardcode credentials; use env vars only.
  */
 
+import '../src/env/ensureDatabaseUrl.js';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 

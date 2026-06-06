@@ -86,7 +86,10 @@
     "create:admin": "node scripts/createAdmin.js",
     "admin:promote": "node scripts/promoteUserRole.js",
     "test:marketing-agent": "node scripts/marketing-agent-test-flow.js",
-    "e2e:french-baguette": "node ../../../scripts/e2e-french-baguette.js"
+    "e2e:french-baguette": "node ../../../scripts/e2e-french-baguette.js",
+    "truth:check": "node scripts/truth-enforcer/index.js",
+    "truth:fix": "node scripts/truth-enforcer/index.js --fix",
+    "truth:strict": "node scripts/truth-enforcer/index.js --strict"
   },
   "keywords": [
     "cardbey",

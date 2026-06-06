@@ -1,41 +1,48 @@
 /**
- * verify_display_output — Confirm device received and is playing content (Phase 3: pushResult-based).
+ * verify_display_output — Confirm device received and is playing content.
  */
+
+import { executeContentTool } from '../executeContentTool.js';
 
 /**
  * @param {object} [input]
- * @param {string|null} [input.deviceId]
- * @param {string|null} [input.contentId]
- * @param {object} [input.pushResult]
  */
 export async function execute(input = {}) {
-  try {
-    const pushResult = input?.pushResult && typeof input.pushResult === 'object' ? input.pushResult : {};
-    const verified = pushResult.ok === true;
-    const deviceStatus = verified ? 'playing' : 'error';
-    const message = verified
-      ? 'Device received content and is playing'
-      : 'Device did not confirm playback';
+  return await executeContentTool({
+    toolName: 'verify_display_output',
+    input,
+    context: {},
+    processor: (inp) => {
+      const pushResult = inp?.pushResult && typeof inp.pushResult === 'object' ? inp.pushResult : {};
+      const verified =
+        pushResult.ok === true &&
+        !pushResult.stub &&
+        Boolean(pushResult.pushId) &&
+        Boolean(pushResult.deviceId);
 
-    return {
-      status: 'ok',
-      output: {
-        ok: true,
+      return {
         verified,
-        deviceStatus,
-        message,
-        deviceId: input?.deviceId ?? pushResult.deviceId ?? null,
-        contentId: input?.contentId ?? null,
-      },
-    };
-  } catch (err) {
-    const message = err?.message || String(err);
-    return {
-      status: 'failed',
-      error: { code: 'VERIFY_FAILED', message },
-      output: { ok: false, verified: false, deviceStatus: 'error', message },
-    };
-  }
+        deviceStatus: verified ? 'playing' : 'error',
+        message: verified
+          ? 'Device received content and is playing'
+          : 'Device did not confirm playback',
+        deviceId: inp?.deviceId ?? pushResult.deviceId ?? null,
+        contentId: inp?.contentId ?? null,
+      };
+    },
+    validateResult: (result) => {
+      if (!result?.verified) {
+        return {
+          blocked: true,
+          reason: 'playback_not_verified',
+          message: result?.message ?? 'Device did not confirm playback',
+        };
+      }
+      return null;
+    },
+    isEmpty: () => false,
+    countRecords: (result) => (result?.verified ? 1 : 0),
+  });
 }
 
 export default execute;

@@ -1,57 +1,50 @@
 /**
- * push_to_display_device — Queue content push to a paired display (Phase 3: stub payload).
+ * push_to_display_device — Queue content push to a paired display (not wired to device transport).
  */
 
 import { randomUUID } from 'node:crypto';
+import { executeContentTool } from '../executeContentTool.js';
 
 /**
  * @param {object} [input]
- * @param {string|null} [input.deviceId]
- * @param {string} [input.storeId]
- * @param {object} [input.formatted]
  * @param {object} [context]
  */
 export async function execute(input = {}, context = {}) {
-  try {
-    const deviceId =
-      (typeof input?.deviceId === 'string' && input.deviceId.trim()) ||
-      (typeof context?.deviceId === 'string' && context.deviceId.trim()) ||
-      null;
+  return await executeContentTool({
+    toolName: 'push_to_display_device',
+    input,
+    context,
+    processor: (inp, ctx) => {
+      const deviceId =
+        (typeof inp?.deviceId === 'string' && inp.deviceId.trim()) ||
+        (typeof ctx?.deviceId === 'string' && ctx.deviceId.trim()) ||
+        null;
 
-    const storeId =
-      (typeof input?.storeId === 'string' && input.storeId.trim()) ||
-      (typeof context?.storeId === 'string' && context.storeId.trim()) ||
-      null;
+      const storeId =
+        (typeof inp?.storeId === 'string' && inp.storeId.trim()) ||
+        (typeof ctx?.storeId === 'string' && ctx.storeId.trim()) ||
+        null;
 
-    const formatted =
-      input?.formatted && typeof input.formatted === 'object' ? input.formatted : {};
+      const formatted =
+        inp?.formatted && typeof inp.formatted === 'object' ? inp.formatted : {};
 
-    const pushId = randomUUID();
-
-    return {
-      status: 'ok',
-      output: {
-        ok: true,
-        pushId,
+      return {
+        pushId: randomUUID(),
         deviceId,
         storeId,
         status: 'queued',
         queuedAt: new Date().toISOString(),
-        payload: {
-          deviceId,
-          storeId,
-          formatted,
-        },
-      },
-    };
-  } catch (err) {
-    const message = err?.message || String(err);
-    return {
-      status: 'failed',
-      error: { code: 'PUSH_FAILED', message },
-      output: { ok: false, error: message },
-    };
-  }
+        payload: { deviceId, storeId, formatted },
+        stub: true,
+      };
+    },
+    validateResult: () => ({
+      blocked: true,
+      reason: 'display_push_not_wired',
+      message: 'Display device push is not connected to device transport yet',
+    }),
+    isEmpty: () => false,
+  });
 }
 
 export default execute;

@@ -327,7 +327,7 @@ class TruthEnforcer {
 
     if (current?.node) {
       const functionBody = content.slice(current.node.start, current.node.end);
-      return /(prisma\.|fetch\(|axios\.|fs\.write|await\s+\w+\.create|await\s+fn\(|await\s+\w+\(|\.save\(\))/.test(
+      return /(prisma\.|fetch\(|axios\.|fs\.write|adapter\.invoke|await\s+\w+\.create|await\s+fn\(|await\s+\w+\(|\.save\(\))/.test(
         functionBody,
       );
     }

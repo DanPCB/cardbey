@@ -89,12 +89,18 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
     });
   }
 
+  const brandLogoUrl =
+    typeof projection.brand?.logoUrl === 'string' && projection.brand.logoUrl.trim()
+      ? projection.brand.logoUrl.trim()
+      : null;
+
   const updateData = {
     name: projection.name,
     slug: projection.slug,
     tagline: projection.content?.tagline ?? null,
     description: projection.content?.description ?? null,
     heroImageUrl,
+    ...(brandLogoUrl ? { avatarImageUrl: brandLogoUrl } : {}),
     isActive: projection.status === 'published',
     publishedAt: projection.publishedAt ? new Date(projection.publishedAt) : new Date(),
     stylePreferences: {

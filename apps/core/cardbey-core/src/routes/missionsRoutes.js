@@ -41,6 +41,7 @@ import { extractTextWithFallback } from '../lib/ocr/ocrFallback.js';
 import { parseBusinessCardOCR } from '../lib/businessCardParser.js';
 import { businessCardLooksLikeOcrText, isRefusalResponse } from '../modules/vision/runOcr.js';
 import { runPostMissionCompletionSummary } from '../lib/missionCompletion/postMissionSummary.js';
+import { isArtifactCheckpointDeferredRespond } from '../lib/artifactCheckpointAuthority.js';
 
 const router = Router();
 
@@ -1535,6 +1536,21 @@ router.post('/:missionId/respond', optionalAuth, async (req, res, next) => {
     }
     const cfg = step.configJson && typeof step.configJson === 'object' ? step.configJson : {};
     const outputKey = typeof cfg.outputKey === 'string' ? cfg.outputKey : 'ownerResponse';
+    if (isArtifactCheckpointDeferredRespond(outputKey, response, data)) {
+      // eslint-disable-next-line no-console
+      console.log('[artifact-checkpoint:respond-not-sent-yet]', {
+        missionId: missionIdTrimmed,
+        stepId,
+        outputKey,
+        response: typeof response === 'string' ? response.trim() : response,
+        reason: 'artifact_required_before_resume',
+      });
+      return res.status(409).json({
+        ok: false,
+        error: 'artifact_required',
+        message: 'Checkpoint requires a successful upload or library selection before continuing.',
+      });
+    }
     const outPayload = {
       ownerResponse: response,
       [outputKey]: response,
@@ -1542,6 +1558,17 @@ router.post('/:missionId/respond', optionalAuth, async (req, res, next) => {
     };
     const prevOutputs = pipeline.outputsJson && typeof pipeline.outputsJson === 'object' ? { ...pipeline.outputsJson } : {};
     const mergedOutputs = { ...prevOutputs, [outputKey]: response, ...data };
+    const checkpointLogoUrl =
+      typeof data.logoUrl === 'string' && data.logoUrl.trim() ? data.logoUrl.trim() : '';
+    if (checkpointLogoUrl) {
+      // eslint-disable-next-line no-console
+      console.log('[logo-checkpoint:core-output]', {
+        missionId: missionIdTrimmed,
+        stepId,
+        logoUrl: checkpointLogoUrl,
+        logoUploadStatus: data.logoUploadStatus ?? null,
+      });
+    }
     const newCompleted = (pipeline.progressCompletedSteps ?? 0) + 1;
 
     if (!canTransitionMissionPipeline('awaiting_input', 'executing')) {

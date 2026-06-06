@@ -2,52 +2,52 @@
  * qa_campaign_package — Validate campaign brief, graphics, and copy completeness.
  */
 
+import { executeContentTool } from '../executeContentTool.js';
+
 /**
  * @param {object} [input]
- * @param {object} [input.brief]
- * @param {object[]} [input.graphics]
- * @param {object} [input.copy]
  */
 export async function execute(input = {}) {
-  try {
-    const brief = input?.brief && typeof input.brief === 'object' ? input.brief : {};
-    const graphics = Array.isArray(input?.graphics) ? input.graphics : [];
-    const copy = input?.copy && typeof input.copy === 'object' ? input.copy : {};
+  return await executeContentTool({
+    toolName: 'qa_campaign_package',
+    input,
+    context: {},
+    processor: (inp) => {
+      const brief = inp?.brief && typeof inp.brief === 'object' ? inp.brief : {};
+      const graphics = Array.isArray(inp?.graphics) ? inp.graphics : [];
+      const copy = inp?.copy && typeof inp.copy === 'object' ? inp.copy : {};
 
-    /** @type {string[]} */
-    const issues = [];
+      /** @type {string[]} */
+      const issues = [];
 
-    if (!String(brief?.objective ?? '').trim()) {
-      issues.push('brief.objective is empty');
-    }
-    if (graphics.length < 1) {
-      issues.push('graphics has no results');
-    }
-    if (!String(copy?.headline ?? '').trim()) {
-      issues.push('copy.headline is empty');
-    }
-    if (!String(copy?.cta ?? '').trim()) {
-      issues.push('copy.cta is empty');
-    }
+      if (!String(brief?.objective ?? '').trim()) {
+        issues.push('brief.objective is empty');
+      }
+      if (graphics.length < 1) {
+        issues.push('graphics has no results');
+      }
+      if (!String(copy?.headline ?? '').trim()) {
+        issues.push('copy.headline is empty');
+      }
+      if (!String(copy?.cta ?? '').trim()) {
+        issues.push('copy.cta is empty');
+      }
 
-    const passed = issues.length === 0;
-
-    return {
-      status: 'ok',
-      output: {
-        ok: true,
-        passed,
-        issues,
-      },
-    };
-  } catch (err) {
-    const message = err?.message || String(err);
-    return {
-      status: 'failed',
-      error: { code: 'QA_FAILED', message },
-      output: { ok: false, passed: false, issues: [message] },
-    };
-  }
+      return { passed: issues.length === 0, issues };
+    },
+    validateResult: (result) => {
+      if (!result?.passed) {
+        return {
+          blocked: true,
+          reason: 'qa_failed',
+          message: `Campaign QA failed: ${(result?.issues ?? []).join('; ') || 'unknown issues'}`,
+        };
+      }
+      return null;
+    },
+    isEmpty: () => false,
+    countRecords: (result) => (result?.passed ? 1 : 0),
+  });
 }
 
 export default execute;

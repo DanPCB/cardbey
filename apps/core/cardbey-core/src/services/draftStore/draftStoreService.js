@@ -2394,8 +2394,26 @@ export async function generateDraft(draftId, options = {}) {
     if (heroImageUrl) {
       applyPipelineGeneratedHeroImage(preview, heroImageUrl, { writer: 'generateDraft', draftId });
     }
-    preview.avatar = { imageUrl: avatarImageUrl };
-    preview.avatarUrl = avatarImageUrl ?? null;
+    const { hasUserUploadedLogo } = await import('./logoUpdateService.js');
+    if (hasUserUploadedLogo(priorPreview)) {
+      if (priorPreview.avatar && typeof priorPreview.avatar === 'object') {
+        preview.avatar = { ...priorPreview.avatar };
+      }
+      preview.avatarUrl = priorPreview.avatarUrl ?? priorPreview.avatarImageUrl ?? preview.avatarUrl ?? null;
+      preview.avatarImageUrl = priorPreview.avatarImageUrl ?? preview.avatarImageUrl ?? null;
+      if (priorPreview.brand && typeof priorPreview.brand === 'object') {
+        preview.brand = { ...(preview.brand && typeof preview.brand === 'object' ? preview.brand : {}), ...priorPreview.brand };
+      }
+      if (priorPreview.meta && typeof priorPreview.meta === 'object') {
+        preview.meta = { ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}), ...priorPreview.meta };
+      }
+      if (priorPreview.store && typeof priorPreview.store === 'object') {
+        preview.store = { ...(preview.store && typeof preview.store === 'object' ? preview.store : {}), ...priorPreview.store };
+      }
+    } else {
+      preview.avatar = { imageUrl: avatarImageUrl };
+      preview.avatarUrl = avatarImageUrl ?? null;
+    }
     mergeWebsiteIntoPreview(preview, input);
 
     normalizePreviewCategories(preview);

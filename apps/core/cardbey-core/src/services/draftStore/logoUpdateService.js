@@ -27,6 +27,24 @@ function parsePreviewBlob(raw) {
 }
 
 /**
+ * True when preview carries an owner-uploaded logo that must not be replaced by generated avatars.
+ * @param {object} [preview]
+ */
+export function hasUserUploadedLogo(preview) {
+  if (!preview || typeof preview !== 'object' || Array.isArray(preview)) return false;
+  const meta = preview.meta && typeof preview.meta === 'object' ? preview.meta : {};
+  if (meta.userUploadedLogo === true || meta.logoSource === 'checkpoint_upload') return true;
+  const avatar = preview.avatar && typeof preview.avatar === 'object' ? preview.avatar : {};
+  const avUrl =
+    trimStr(avatar.imageUrl) ??
+    trimStr(avatar.url) ??
+    trimStr(preview.avatarImageUrl) ??
+    trimStr(preview.avatarUrl) ??
+    trimStr(preview.brand?.logoUrl);
+  return avatar.source === 'upload' && !!avUrl;
+}
+
+/**
  * @param {string} logoUrl
  * @param {object} [existingPreview]
  */
@@ -46,8 +64,13 @@ export function buildLogoPreviewPatchFromUrl(logoUrl, existingPreview = {}) {
     existingPreview.meta && typeof existingPreview.meta === 'object'
       ? { ...existingPreview.meta }
       : {};
+  const existingStore =
+    existingPreview.store && typeof existingPreview.store === 'object'
+      ? { ...existingPreview.store }
+      : {};
 
   return {
+    avatarUrl: url,
     avatarImageUrl: url,
     avatar: {
       ...existingAvatar,
@@ -64,7 +87,68 @@ export function buildLogoPreviewPatchFromUrl(logoUrl, existingPreview = {}) {
       ...existingMeta,
       profileAvatarUrl: url,
       logo: url,
+      userUploadedLogo: true,
+      logoSource: 'checkpoint_upload',
     },
+    store: {
+      ...existingStore,
+      profileAvatarUrl: url,
+      avatarUrl: url,
+      logo: url,
+    },
+  };
+}
+
+/**
+ * Pipeline-internal logo apply (structured_store_build) — no owner access gate.
+ * @param {object} params
+ * @param {import('@prisma/client').PrismaClient} params.prisma
+ * @param {string} params.draftId
+ * @param {string} params.logoUrl
+ * @param {string|null} [params.storeId]
+ */
+export async function applyCheckpointLogoToDraft({ prisma, draftId, logoUrl, storeId = null }) {
+  const url = trimStr(logoUrl);
+  const effectiveDraftId = draftId ? String(draftId).trim() : null;
+  if (!url || !effectiveDraftId) {
+    return { ok: false, applied: false, reason: 'missing_draft_or_url' };
+  }
+
+  const fresh = await getDraft(effectiveDraftId);
+  const existingPreview = parsePreviewBlob(fresh?.preview);
+  const previewPatch = buildLogoPreviewPatchFromUrl(url, existingPreview);
+  await patchDraftPreview(effectiveDraftId, previewPatch);
+
+  let businessUpdated = false;
+  const effectiveStoreId =
+    (storeId && storeId !== 'temp' ? String(storeId).trim() : null) ||
+    (fresh?.committedStoreId ? String(fresh.committedStoreId).trim() : null);
+  if (effectiveStoreId) {
+    businessUpdated = await syncBusinessLogoProfile(prisma, effectiveStoreId, url);
+  }
+
+  if (isPublishSnapshotV1Enabled()) {
+    try {
+      await refreshPublishSnapshotFromCurrentPreview(prisma, effectiveDraftId);
+    } catch (snapErr) {
+      console.warn('[logoUpdateService] checkpoint snapshot refresh failed (non-fatal):', snapErr?.message || snapErr);
+    }
+  }
+
+  console.log('[store-build:logo-applied]', {
+    draftId: effectiveDraftId,
+    storeId: effectiveStoreId,
+    logoUrl: url,
+    businessUpdated,
+  });
+
+  return {
+    ok: true,
+    applied: true,
+    draftId: effectiveDraftId,
+    storeId: effectiveStoreId,
+    logoUrl: url,
+    businessUpdated,
   };
 }
 
