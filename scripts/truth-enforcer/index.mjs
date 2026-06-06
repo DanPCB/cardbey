@@ -97,6 +97,7 @@ class TruthEnforcer {
     this.quiet = options.quiet || false;
     this.files = options.files || null;
     this.fileMode = Array.isArray(options.files) && options.files.length > 0;
+    this.audit = options.audit || false;
     this.withRegistry = options.withRegistry || false;
     this.violations = [];
   }
@@ -127,7 +128,9 @@ class TruthEnforcer {
       return true;
     }
 
-    if (this.fileMode) {
+    if (this.audit) {
+      this.log(`Auditing ${filesToCheck.length} tracked file(s) under apps/, packages/, scripts/...\n`);
+    } else if (this.fileMode) {
       this.log(`Checking ${filesToCheck.length} file(s) directly (bypasses git staging)...\n`);
     } else {
       this.log(`Checking ${filesToCheck.length} staged file(s)...\n`);
@@ -137,22 +140,43 @@ class TruthEnforcer {
       await this.checkFile(file);
     }
 
-    if (!this.fileMode || this.withRegistry) {
+    if (this.audit || !this.fileMode || this.withRegistry) {
       await this.checkToolRegistry();
     }
     return await this.report();
   }
 
   getFilesToCheck() {
+    if (this.audit) return this.getAuditFiles();
     if (Array.isArray(this.files) && this.files.length > 0) {
       return this.files
         .map((f) => toRepoRelative(f))
-        .filter((f) => f.match(/\.(js|ts|jsx|tsx)$/))
+        .filter((f) => f.match(/\.(js|ts|jsx|tsx|mjs|cjs)$/))
         .filter((f) => !f.includes('node_modules'))
         .filter((f) => !f.includes('dist'))
         .filter((f) => !f.includes('build'));
     }
     return this.getStagedFiles();
+  }
+
+  getAuditFiles() {
+    try {
+      const output = execSync('git ls-files apps packages scripts', {
+        encoding: 'utf-8',
+        cwd: REPO_ROOT,
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      return output
+        .split('\n')
+        .filter((f) => f.trim())
+        .filter((f) => /\.(js|ts|jsx|tsx|mjs|cjs)$/.test(f))
+        .filter((f) => !f.includes('node_modules'))
+        .filter((f) => !f.includes('/dist/'))
+        .filter((f) => !f.includes('/build/'))
+        .filter((f) => !f.endsWith('.min.js'));
+    } catch {
+      return [];
+    }
   }
 
   getStagedFiles() {
@@ -488,17 +512,18 @@ async function main() {
   const strict = args.includes('--strict');
   const quiet = args.includes('--quiet');
   const withRegistry = args.includes('--with-registry');
+  const audit = args.includes('--audit');
   const fileIdx = args.indexOf('--file');
   const files = fileIdx >= 0 && args[fileIdx + 1] ? [args[fileIdx + 1]] : null;
 
   if (args.includes('--json')) {
-    const enforcer = new TruthEnforcer({ fix: false, strict, quiet: true, files, withRegistry });
+    const enforcer = new TruthEnforcer({ fix: false, strict, quiet: true, files, withRegistry, audit });
     await enforcer.run();
     console.log(JSON.stringify(enforcer.violations, null, 2));
     process.exit(enforcer.violations.filter((v) => v.severity === 'error').length > 0 ? 1 : 0);
   }
 
-  const enforcer = new TruthEnforcer({ fix, strict, quiet, files, withRegistry });
+  const enforcer = new TruthEnforcer({ fix, strict, quiet, files, withRegistry, audit });
   const success = await enforcer.run();
   process.exit(success ? 0 : 1);
 }

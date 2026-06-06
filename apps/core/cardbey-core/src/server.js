@@ -191,6 +191,7 @@ import researcherRoutes from './routes/researcherRoutes.js';
 import campaignRoutes from './routes/campaignRoutes.js';
 import devContentIngestRoutes from './routes/devContentIngest.js';
 import devCreditsRoutes from './routes/devCredits.js';
+import truthEnforcerRoutes from './routes/truthEnforcerRoutes.js';
 import smartObjectsRoutes from './routes/smartObjects.js';
 import qrRoutes from './routes/qr.js';
 import miVideoTemplatesRoutes from './routes/miVideoTemplates.js';
@@ -998,7 +999,8 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/api/debug', createDebugRoutesLite(app));
   app.use('/api/dev', devContentIngestRoutes); // GET /api/dev/content-ingest/export (gated by ENABLE_CONTENT_INGEST_LOGS)
   app.use('/api/dev/credits', devCreditsRoutes); // POST /api/dev/credits/add (add credits for testing top-up)
-  console.log('[CORE] Debug routes enabled: /api/debug/pairing-stats, /api/debug/routes, POST /api/dev/credits/add');
+  truthEnforcerRoutes(app); // GET /api/dev/truth-violations, POST /api/dev/truth-fix
+  console.log('[CORE] Debug routes enabled: /api/debug/pairing-stats, /api/debug/routes, POST /api/dev/credits/add, /api/dev/truth-violations');
 }
 
 // Static file hosting for production builds
