@@ -215,6 +215,9 @@ model PublishedArtifactProjection {
   slug           String
   version        String   @default("v1")
   projectionJson Json
+  // DANH: fix-hero-video-publish
+  heroVideoUrl   String?
+  heroMediaType  String?
   sourceDraftId  String?
   publishRunId   String?
   createdAt      DateTime @default(now())
