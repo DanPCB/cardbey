@@ -77,6 +77,10 @@ services:
         value: "1"
       - key: VITE_PERFORMER_EXECUTION_REAL_CAPABILITIES
         value: "1"
+      - key: VITE_PIL_ACTIVITY_AWARE
+        value: "true"
+      - key: VITE_ENABLE_ORB_COPILOT
+        value: "true"
 
   # Core API (production / live) — same build + health probe as staging; branch main tracks staging merges.
   - type: web
