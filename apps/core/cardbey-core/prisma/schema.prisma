@@ -309,6 +309,8 @@ model Product {
   likeCount     Int       @default(0)
   hasSam3Cutout Boolean   @default(false) // Whether product has SAM-3 generated cutout
   cutoutPath    String? // Path to SAM-3 cutout image (e.g., /public/catalog-cutouts/product-id.png)
+  isFeatured    Boolean   @default(false) // DANH: schema-gap-product-featured
+  featuredAt    DateTime? // DANH: schema-gap-product-featured
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -318,6 +320,7 @@ model Product {
   @@index([category])
   @@index([deletedAt])
   @@index([hasSam3Cutout])
+  @@index([businessId, isFeatured])
   @@unique([businessId, normalizedName], name: "unique_business_normalized_name")
 }
 
