@@ -1226,6 +1226,7 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
       hero: heroPatch.hero,
       heroImageUrl: heroResult?.heroImageUrl ?? heroPatch.heroImageUrl,
       heroVideoUrl: heroResult?.heroVideoUrl ?? heroPatch.heroVideo,
+      heroMediaType: heroResult?.heroMediaType ?? heroPatch.heroMediaType ?? null,
       draftUpdated: heroResult?.draftUpdated ?? false,
       businessUpdated: heroResult?.businessUpdated ?? false,
     });

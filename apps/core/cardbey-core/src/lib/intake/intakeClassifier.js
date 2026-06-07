@@ -144,9 +144,13 @@ REGISTERED TOOL NAMES (use exact strings, no variations):
 - "improve_hero"       — update store hero image or headline (STANDALONE)
 - "analyze_store"      — audit store performance (STANDALONE)
 - "get_store_analytics" — store performance metrics overview (STANDALONE, direct_action)
+- "get_review_summary" — customer reviews, ratings, feedback, or reply drafts (STANDALONE, direct_action)
+- "setup_loyalty_program" — loyalty/rewards/points program for repeat customers (STANDALONE, direct_action)
 - "generate_mini_website" — create a mini website for the store (STANDALONE)
 - "smart_visual"       — generate visual/image assets (STANDALONE)
-- "video_generate_multimodal" — generate or deliver AI video clips for the store/marketing (STANDALONE)
+- "video_generate_multimodal" — legacy multimodal video clip delivery to mission console (STANDALONE)
+- "create_video"       — generate AI promotional/store video via video_generation skill (STANDALONE, direct_action, requires store)
+- "scan_document"      — extract products/promos/events from uploaded flyer/brochure/document image via document_ingestion skill (STANDALONE, direct_action, requires store)
 - "edit_artifact"     — edit or translate DB-backed copy: promotion, business profile, storefront hero, mini-website draft preview; use artifactType sweep for “translate everything” (STANDALONE)
 - "publish_to_social" — share or post a campaign to Facebook, Instagram, Zalo, WhatsApp, Telegram, Twitter, or email. Use when user wants to share, post, or distribute their campaign. (STANDALONE)
 - "connect_social_account" — connect Facebook, Instagram, or Zalo so Cardbey can post automatically. Use when user wants to link social media or when publish_to_social fails due to missing connection. (STANDALONE)
@@ -164,6 +168,8 @@ Routing examples:
 - "link my social media" → connect_social_account
 - "publish my store" / "go live" / "launch my website" / "make my store live" → publish_store
 - Mini-website or storefront "go live" / "publish my site" → publish_store (not publish_to_social; that tool is for social campaign posts).
+- "create a video for my store" / "generate a promotional video" / "make a store video" → create_video (direct_action, requires storeId).
+- "scan this flyer" / "import from this brochure" / "read this document and create products" → scan_document (direct_action, requires storeId + image attachment).
 
 CAMPAIGN SEQUENCE RULE (critical):
 When intent is promotion_campaign or the user wants to launch/create/run a
@@ -182,17 +188,39 @@ Never invent tool names not listed above.
 - edit_artifact: use when the user wants to change stored promotion/business/mini-website draft copy or bulk-translate store copy (sweep), or change the storefront hero photo via stock search (artifactType hero + image wording). Use code_fix for preview/code-path or generic “fix the headline” tied to the editor pipeline — not mutually exclusive; pick the best fit from the user wording.
 - Hero photo / banner image / “change hero image to …” → edit_artifact, artifactType hero (Turn 2 confirm is UI-driven with confirmImageSelection, not the classifier).
 - Hero/banner image swap (not headline text) → proactive_plan tool improve_hero with a short plan, or direct_action smart_visual if they want AI-generated art; never instruct them to click a UI button.
-- User wants an actual video clip / promo reel / TikTok/Reel-style output → video_generate_multimodal (distinct from moodboard/smart_visual images).
+- User wants an actual video clip / promo reel / TikTok/Reel-style output → create_video when owner wants a store promo video (requires active storeId). Use video_generate_multimodal only for legacy mission-console multimodal delivery without the video_generation skill pipeline.
+- Image or moodboard only (no video) → smart_visual (distinct from create_video).
 - Sales/orders/revenue/targets → orders_report.
 // DANH: skill-runtime-phase7
 - Store performance / stats / "how is my store performing" → get_store_analytics (direct_action).
   Requires active storeId. NOT for sales/revenue/orders detail → orders_report.
   NOT for store audit/completeness checklist → analyze_store.
+// DANH: review-routing-fix
+- Customer reviews / ratings / feedback / "show my reviews" / respond to reviews → get_review_summary (direct_action).
+  Requires active storeId. NOT for store performance metrics → get_store_analytics.
+  NOT for store health audit → analyze_store or store_health.
+// DANH: skill-round4-loyalty
+- setup_loyalty_program — use when owner wants to set up a loyalty/rewards/points
+  program for repeat customers. NOT for one-off discounts or promotions → use
+  create_promotion instead.
+// DANH: fix-video-routing
+- create_video — use when owner wants to create, generate, or produce a video
+  for their store. Includes: promotional video, store video, product video,
+  social video. Requires active storeId. NOT for images → use smart_visual.
+  NOT for campaigns without video → use create_promotion or launch_campaign.
+  executionPath: direct_action.
+// DANH: skill-round6-document
+- scan_document — use when owner uploads a business document (flyer, brochure, poster, PDF image)
+  and wants to extract/import products, promotions, or event info. Requires active storeId.
+  Prefer over market_research when the primary goal is document ingestion (not generic campaign research).
+  NOT for business card scan → use scan_card. NOT for menu-only import → replace_store_catalog.
+  executionPath: direct_action.
 - Text/headline fixes → code_fix for editor/preview fixes; edit_artifact for promotion or profile or draft-preview copy and bulk translation (not images).
 - confidence: honest 0–1.
 - If the user message includes "[Attached image content:" with extracted text, use that text to answer questions about the image — tool "general_chat", executionPath "chat", message field summarizes or quotes the relevant extracted content. Do not say you cannot see the image.
 - If the user message includes "[System: an image is attached but OCR" (no usable OCR) and the user asks to see, understand, or describe what is in the photo/image, use tool "analyze_content", executionPath "chat", with parameters extractionGoal or contentType as appropriate.
 - If the user asks to CREATE, LAUNCH, or BUILD something from an image (e.g. "create a campaign from this", "make a promotion based on this flyer", "read this and create a campaign"), use tool: "market_research", executionPath: "proactive_plan". Add the image context as campaignContext parameter. This IS a creation request.
+- EXCEPTION: when the user explicitly wants to scan/import/extract from a flyer, brochure, or document image (products, prices, events from the doc itself), use scan_document (direct_action) instead of market_research.
 - "Read this AND create/launch/make something" = creation intent. Always route to market_research, never to general_chat or capability_gap.
 - Use analyze_content only for visual understanding when OCR text is missing or insufficient, or when the user wants structured extraction with NO downstream creation.
 

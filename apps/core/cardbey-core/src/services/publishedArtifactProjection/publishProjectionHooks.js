@@ -94,6 +94,26 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
       ? projection.brand.logoUrl.trim()
       : null;
 
+  const stylePreferences = {
+    ...existingPrefs,
+    ...(hero.videoUrl ? { heroVideo: hero.videoUrl } : {}),
+    miniWebsite: {
+      ...existingMini,
+      sections: projection.website?.sections ?? existingMini.sections ?? [],
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  if (hero.type === 'video') {
+    const poster =
+      hero.posterUrl ||
+      (hero.imageUrl && !/\.(mp4|webm|mov)(\?|#|$)/i.test(hero.imageUrl) ? hero.imageUrl : null);
+    if (poster) stylePreferences.heroImage = poster;
+    else delete stylePreferences.heroImage;
+  } else if (hero.imageUrl) {
+    stylePreferences.heroImage = hero.imageUrl;
+    delete stylePreferences.heroVideo;
+  }
+
   const updateData = {
     name: projection.name,
     slug: projection.slug,
@@ -103,18 +123,7 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
     ...(brandLogoUrl ? { avatarImageUrl: brandLogoUrl } : {}),
     isActive: projection.status === 'published',
     publishedAt: projection.publishedAt ? new Date(projection.publishedAt) : new Date(),
-    stylePreferences: {
-      ...existingPrefs,
-      ...(hero.videoUrl ? { heroVideo: hero.videoUrl } : {}),
-      ...(hero.imageUrl || hero.posterUrl
-        ? { heroImage: hero.posterUrl || hero.imageUrl }
-        : {}),
-      miniWebsite: {
-        ...existingMini,
-        sections: projection.website?.sections ?? existingMini.sections ?? [],
-        updatedAt: new Date().toISOString(),
-      },
-    },
+    stylePreferences,
   };
 
   await prisma.business.update({

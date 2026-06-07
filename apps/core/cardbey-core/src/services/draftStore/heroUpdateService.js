@@ -291,7 +291,9 @@ export async function updateHeroForStore({
           : 'image_upload'
         : source === 'draft'
           ? 'image_select'
-          : undefined;
+          : previewPatch.heroMediaType === 'video' || previewPatch.hero?.type === 'video'
+            ? 'video_link'
+            : undefined;
     await patchDraftPreview(effectiveDraftId, previewPatch, {
       allowReplaceVideoWithImage,
       heroWriteIntent,

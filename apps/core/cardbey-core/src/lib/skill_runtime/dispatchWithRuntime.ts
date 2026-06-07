@@ -31,6 +31,13 @@ export async function dispatchWithRuntime(
 ): Promise<RuntimeDispatchResult | null> {
   try {
     const ctx = await buildSkillContext(intakePayload, prisma);
+    // DANH: fix-runtime-ownership
+    ctx.metadata = {
+      ...ctx.metadata,
+      runtimeOwned: true,
+      performerRuntimeOwned: true,
+      source: 'skill_runtime',
+    };
     const skill = await runtimeRegistry.dispatch(ctx);
     if (skill) {
       await skill.start();

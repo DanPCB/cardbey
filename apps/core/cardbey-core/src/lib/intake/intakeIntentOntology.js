@@ -65,6 +65,24 @@ export const INTENT_SUBTYPES = [
       /\bfix\s+(my\s+)?store\b/i,
     ],
   },
+  // DANH: review-routing-fix
+  {
+    family: 'store_improvement',
+    subtype: 'review_management',
+    description: 'Customer reviews, ratings, feedback, or drafting replies.',
+    candidateTools: ['get_review_summary', 'draft_review_response'],
+    defaultTool: 'get_review_summary',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /show.*review/i,
+      /my.*review/i,
+      /customer.*feedback/i,
+      /respond.*review/i,
+      /reply.*review/i,
+      /what.*customer.*say/i,
+    ],
+  },
   {
     family: 'content_edit',
     subtype: 'change_headline',
@@ -78,6 +96,43 @@ export const INTENT_SUBTYPES = [
       /\bfix\s+(the\s+)?(headline|title|text)\b/i,
       /\bchange\s+(the\s+)?(headline|title|text)\b/i,
       /\brewrite\s+(the\s+)?(headline|title)\b/i,
+    ],
+  },
+  // DANH: fix-video-routing
+  {
+    family: 'content_edit',
+    subtype: 'video_creation',
+    description: 'Create or generate AI video content for the store.',
+    candidateTools: ['create_video'],
+    defaultTool: 'create_video',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /create.*video/i,
+      /generate.*video/i,
+      /make.*video/i,
+      /video.*store/i,
+      /promotional.*video/i,
+      /store.*video/i,
+      /video.*content/i,
+    ],
+  },
+  // DANH: skill-round6-document
+  {
+    family: 'promotion_campaign',
+    subtype: 'document_ingestion',
+    description: 'Import products and promotions from uploaded flyer, brochure, or document image.',
+    candidateTools: ['scan_document'],
+    defaultTool: 'scan_document',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /scan.*(document|flyer|brochure|poster)/i,
+      /upload.*(flyer|brochure|document|poster)/i,
+      /import.*(document|flyer|brochure|from.*image)/i,
+      /read.*(flyer|brochure|poster|document)/i,
+      /extract.*(from.*document|from.*flyer|from.*brochure|from.*image)/i,
+      /(flyer|brochure|poster).*(import|scan|read|extract)/i,
     ],
   },
   {
@@ -189,6 +244,8 @@ export function inferFamilyFromTool(toolName) {
     generate_tags: 'store_improvement',
     rewrite_descriptions: 'store_improvement',
     improve_hero: 'store_improvement',
+    get_review_summary: 'store_improvement',
+    draft_review_response: 'store_improvement',
     code_fix: 'content_edit',
     create_offer: 'promotion_campaign',
     create_promotion: 'promotion_campaign',
@@ -199,6 +256,8 @@ export function inferFamilyFromTool(toolName) {
     'signage.list-devices': 'devices_signage',
     'signage.publish-to-devices': 'devices_signage',
     smart_visual: 'content_edit',
+    create_video: 'content_edit',
+    scan_document: 'promotion_campaign',
     general_chat: 'general_help',
   };
   return map[t] ?? null;

@@ -46,6 +46,17 @@ import * as audit_store_completeness from './audit_store_completeness.js';
 import * as generate_health_report from './generate_health_report.js';
 import * as get_review_summary from './get_review_summary.js';
 import * as draft_review_response from './draft_review_response.js';
+import * as segment_loyal_customers from './loyalty/segment_loyal_customers.js';
+import * as define_loyalty_tiers from './loyalty/define_loyalty_tiers.js';
+import * as create_loyalty_offer from './loyalty/create_loyalty_offer.js';
+import * as schedule_loyalty_campaign from './loyalty/schedule_loyalty_campaign.js';
+import * as fetch_store_content from './content/fetch_store_content.js';
+import * as rewrite_content_copy from './content/rewrite_content_copy.js';
+import * as generate_seo_tags from './content/generate_seo_tags.js';
+import * as audit_hero_media from './hero/audit_hero_media.js';
+import * as suggest_hero_media from './hero/suggest_hero_media.js';
+import * as identify_feature_target from './homepage/identify_feature_target.js';
+import * as apply_homepage_feature from './homepage/apply_homepage_feature.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -93,6 +104,19 @@ import { generateI18nKey }      from './i18n/generateI18nKey.js'
 import { translateString }      from './i18n/translateString.js'
 import { runI18nTests }         from './i18n/runI18nTests.js'
 import { reportI18nProgress }   from './i18n/reportI18nProgress.js'
+import * as analyze_video_brief from './video/analyze_video_brief.js'; // DANH: skill-round5-video
+import * as generate_video_script from './video/generate_video_script.js'; // DANH: skill-round5-video
+import * as queue_video_generation from './video/queue_video_generation.js'; // DANH: skill-round5-video
+import * as check_scan_capability from './scan/check_scan_capability.js'; // DANH: skill-round5-cardscan
+import * as extract_card_data from './scan/extract_card_data.js'; // DANH: skill-round5-cardscan
+import * as create_product_from_card from './scan/create_product_from_card.js'; // DANH: skill-round5-cardscan
+import * as check_cnet_config from './cnet/check_cnet_config.js'; // DANH: skill-round5-cnet
+import * as prepare_cnet_payload from './cnet/prepare_cnet_payload.js'; // DANH: skill-round5-cnet
+import * as deploy_to_cnet from './cnet/deploy_to_cnet.js'; // DANH: skill-round5-cnet
+import * as extract_document_data from './document/extract_document_data.js'; // DANH: skill-round6-document
+import * as create_products_from_document from './document/create_products_from_document.js'; // DANH: skill-round6-document
+import * as create_promotions_from_document from './document/create_promotions_from_document.js'; // DANH: skill-round6-document
+import * as suggest_campaign_plan from './document/suggest_campaign_plan.js'; // DANH: skill-round6-document
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
 function honestBlocker(toolName, message) {
@@ -183,6 +207,17 @@ export const executors = {
   generate_health_report,
   get_review_summary,
   draft_review_response,
+  segment_loyal_customers,
+  define_loyalty_tiers,
+  create_loyalty_offer,
+  schedule_loyalty_campaign,
+  fetch_store_content,
+  rewrite_content_copy,
+  generate_seo_tags,
+  audit_hero_media,
+  suggest_hero_media,
+  identify_feature_target,
+  apply_homepage_feature,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,
@@ -218,6 +253,19 @@ export const executors = {
   translateString: wrapI18nExecutor(translateString),
   runI18nTests: wrapI18nExecutor(runI18nTests),
   reportI18nProgress: wrapI18nExecutor(reportI18nProgress),
+  analyze_video_brief, // DANH: skill-round5-video
+  generate_video_script, // DANH: skill-round5-video
+  queue_video_generation, // DANH: skill-round5-video
+  check_scan_capability, // DANH: skill-round5-cardscan
+  extract_card_data, // DANH: skill-round5-cardscan
+  create_product_from_card, // DANH: skill-round5-cardscan
+  check_cnet_config, // DANH: skill-round5-cnet
+  prepare_cnet_payload, // DANH: skill-round5-cnet
+  deploy_to_cnet, // DANH: skill-round5-cnet
+  extract_document_data, // DANH: skill-round6-document
+  create_products_from_document, // DANH: skill-round6-document
+  create_promotions_from_document, // DANH: skill-round6-document
+  suggest_campaign_plan, // DANH: skill-round6-document
   generate_promotion_asset: honestBlocker(
     'generate_promotion_asset',
     'Promotion asset generation is not implemented yet.',

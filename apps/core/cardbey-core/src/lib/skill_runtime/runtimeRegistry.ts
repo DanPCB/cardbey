@@ -12,9 +12,8 @@
  * Execution / PIL governance rules — the cooperative gate in the route still
  * gives the legacy router first refusal.
  *
- * `setup_loyalty_program` retains a side-effect-free planning step: there is no
- * dedicated loyalty executor (loyalty/campaign execution lives in the legacy
- * CampaignSkill, same territory as create_promotion's stub).
+ * `setup_loyalty_program` runs real loyalty executors via `loyaltyCampaignSteps`
+ * (Round 4 — segment, tiers, offers, schedule).
  *
  * Each runtime is created with `id === intent` so `getCheckpoint().skillId`
  * equals the resolved intent (what callers key on).
@@ -30,6 +29,8 @@ import {
   storeHealthSteps,
   analyticsReportSteps,
   createPromotionSteps,
+  loyaltyCampaignSteps,
+  videoGenerationSteps,
 } from './executorFactories.js';
 import {
   setupLoyaltyProgramPattern,
@@ -39,6 +40,7 @@ import {
   bookingManagementPattern,
   storeHealthPattern,
   analyticsReportPattern,
+  videoGenerationPattern,
   LOYALTY_INTENT,
   PROMOTION_INTENT,
   CATALOG_MANAGEMENT_INTENT,
@@ -46,6 +48,7 @@ import {
   BOOKING_MANAGEMENT_INTENT,
   STORE_HEALTH_INTENT,
   ANALYTICS_REPORT_INTENT,
+  VIDEO_GENERATION_INTENT,
 } from './patterns.js';
 
 /** A single, side-effect-free planning step (governance-safe default). */
@@ -63,12 +66,12 @@ function planningStep(intent: string): Step {
 
 export const runtimeRegistry = new SkillRegistry();
 
-// TODO(loyalty-executor): wire LoyaltyCampaignSkill steps when LoyaltyCampaignSkill is built in Round 4
+// DANH: skill-round4-loyalty
 runtimeRegistry.register({
   intent: LOYALTY_INTENT,
   patterns: [setupLoyaltyProgramPattern],
   factory: (context) =>
-    new SkillRuntime(LOYALTY_INTENT, LOYALTY_INTENT, [planningStep(LOYALTY_INTENT)], context),
+    new SkillRuntime(LOYALTY_INTENT, LOYALTY_INTENT, loyaltyCampaignSteps(), context),
 });
 
 runtimeRegistry.register({
@@ -124,6 +127,19 @@ runtimeRegistry.register({
       ANALYTICS_REPORT_INTENT,
       ANALYTICS_REPORT_INTENT,
       analyticsReportSteps(),
+      context
+    ),
+});
+
+// DANH: fix-video-routing
+runtimeRegistry.register({
+  intent: VIDEO_GENERATION_INTENT,
+  patterns: [videoGenerationPattern],
+  factory: (context) =>
+    new SkillRuntime(
+      VIDEO_GENERATION_INTENT,
+      VIDEO_GENERATION_INTENT,
+      videoGenerationSteps(),
       context
     ),
 });

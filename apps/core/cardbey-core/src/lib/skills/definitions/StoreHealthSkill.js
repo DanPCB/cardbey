@@ -12,7 +12,10 @@ export const StoreHealthSkill = {
   description:
     'Audit store profile completeness, score health, and return prioritised fixes.',
   triggers: [
-    'store health',
+    // DANH: fix-trigger-collision — no 'setup' or 'store health' (prefix-steals setup_* intents)
+    'store_health',
+    'store_health_check',
+    'check_store_health',
     'audit my store',
     "what's missing",
     'complete my profile',
@@ -20,7 +23,6 @@ export const StoreHealthSkill = {
     'improve my store',
     'checklist',
     'store completeness',
-    'setup',
   ],
   requiredContext: ['storeId', 'userId'],
   observable: true,

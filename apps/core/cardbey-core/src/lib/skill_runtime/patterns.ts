@@ -46,6 +46,11 @@ export const createPromotionPattern: IntentPattern = {
     if (/promotion|discount|offer|sale/.test(q)) score += 0.65;
     if (context.userHasProducts) score += 0.3;
     if (/loyalty/.test(q)) score -= 0.4; // demote loyalty
+    // DANH: fix-video-routing
+    // Demote when user explicitly wants video
+    if (/video|film|clip|footage/.test(q)) {
+      score -= 0.5;
+    }
     return Math.min(score, 1.0);
   },
 };
@@ -68,6 +73,8 @@ export const BOOKING_MANAGEMENT_INTENT = 'booking_management';
 export const STORE_HEALTH_INTENT = 'store_health';
 // DANH: skill-runtime-phase6
 export const ANALYTICS_REPORT_INTENT = 'analytics_report';
+// DANH: fix-video-routing
+export const VIDEO_GENERATION_INTENT = 'video_generation';
 
 export const catalogManagementPattern: IntentPattern = {
   intent: CATALOG_MANAGEMENT_INTENT,
@@ -159,10 +166,32 @@ export const analyticsReportPattern: IntentPattern = {
   },
 };
 
+/** AI video generation for store promos and content. */
+export const videoGenerationPattern: IntentPattern = {
+  intent: VIDEO_GENERATION_INTENT,
+  priority: 3,
+  requiredConfidence: 0.65,
+  matches: async (context: SkillContext): Promise<number> => {
+    const q = context.query.toLowerCase();
+    let score = 0;
+    if (
+      /create.*video|generate.*video|make.*video|video.*store|store.*video|promotional.*video|product.*video|video.*content|film.*store/.test(
+        q,
+      )
+    ) {
+      score += 0.8;
+    }
+    if (/image|photo|picture/.test(q)) score -= 0.4;
+    return Math.min(score, 1.0);
+  },
+};
+
 /** All Cardbey patterns, ready to register on a disambiguator. */
 export const CARDBEY_INTENT_PATTERNS: IntentPattern[] = [
   setupLoyaltyProgramPattern,
   createPromotionPattern,
+  // DANH: fix-video-routing
+  videoGenerationPattern,
   // DANH: skill-runtime-phase2
   catalogManagementPattern,
   menuSyncPattern,

@@ -30,6 +30,13 @@ import getStoreAnalytics from '../toolExecutors/get_store_analytics.js';
 import generateReportSummary from '../toolExecutors/generate_report_summary.js';
 import auditStoreCompleteness from '../toolExecutors/audit_store_completeness.js';
 import generateHealthReport from '../toolExecutors/generate_health_report.js';
+import segmentLoyalCustomers from '../toolExecutors/loyalty/segment_loyal_customers.js';
+import defineLoyaltyTiers from '../toolExecutors/loyalty/define_loyalty_tiers.js';
+import createLoyaltyOffer from '../toolExecutors/loyalty/create_loyalty_offer.js';
+import scheduleLoyaltyCampaign from '../toolExecutors/loyalty/schedule_loyalty_campaign.js';
+import analyzeVideoBrief from '../toolExecutors/video/analyze_video_brief.js';
+import generateVideoScript from '../toolExecutors/video/generate_video_script.js';
+import queueVideoGeneration from '../toolExecutors/video/queue_video_generation.js';
 
 type Executor = (input: Record<string, unknown>) => Promise<unknown> | unknown;
 
@@ -144,4 +151,116 @@ export function createPromotionSteps(): Step[] {
       })
     ),
   ];
+}
+
+/** Pull segment fields from segment_loyal_customers executor return. */
+function extractSegmentForChain(output: unknown): Record<string, unknown> {
+  const bag = output as Record<string, unknown> | null;
+  const nested = bag?.output as Record<string, unknown> | undefined;
+  const out = nested ?? bag;
+  return {
+    customerCount: typeof out?.customerCount === 'number' ? out.customerCount : 0,
+    segmented: out?.segmented ?? false,
+  };
+}
+
+/** Pull tiers from define_loyalty_tiers executor return. */
+function extractTiersForChain(output: unknown): Record<string, unknown> {
+  const bag = output as Record<string, unknown> | null;
+  const nested = bag?.output as Record<string, unknown> | undefined;
+  const out = nested ?? bag;
+  return { tiers: Array.isArray(out?.tiers) ? out.tiers : [] };
+}
+
+/** Pull offers from create_loyalty_offer executor return. */
+function extractOffersForChain(output: unknown): Record<string, unknown> {
+  const bag = output as Record<string, unknown> | null;
+  const nested = bag?.output as Record<string, unknown> | undefined;
+  const out = nested ?? bag;
+  return { offers: Array.isArray(out?.offers) ? out.offers : [] };
+}
+
+// DANH: skill-round4-loyalty
+/** setup_loyalty_program → segment → tiers → offers → schedule (chained). */
+export function loyaltyCampaignSteps(): Step[] {
+  return wrapChainedSteps([
+    {
+      id: 'segment_loyal_customers',
+      name: 'Segment loyal customers',
+      fn: (input) => asExecutor(segmentLoyalCustomers)(input),
+      toAccumulator: extractSegmentForChain,
+    },
+    {
+      id: 'define_loyalty_tiers',
+      name: 'Define loyalty tiers',
+      fn: (input) => asExecutor(defineLoyaltyTiers)(input),
+      toAccumulator: extractTiersForChain,
+    },
+    {
+      id: 'create_loyalty_offer',
+      name: 'Create loyalty offers',
+      fn: (input) => asExecutor(createLoyaltyOffer)(input),
+      toAccumulator: extractOffersForChain,
+    },
+    {
+      id: 'schedule_loyalty_campaign',
+      name: 'Schedule loyalty campaign',
+      fn: (input) => asExecutor(scheduleLoyaltyCampaign)(input),
+    },
+  ]);
+}
+
+/** Pull brief fields from analyze_video_brief executor return. */
+function extractBriefForChain(output: unknown): Record<string, unknown> {
+  const bag = output as Record<string, unknown> | null;
+  const nested = bag?.output as Record<string, unknown> | undefined;
+  const out = nested ?? bag ?? {};
+  return {
+    style: out.style,
+    duration: out.duration,
+    mood: out.mood,
+    storeName: out.storeName,
+  };
+}
+
+/** Pull script from generate_video_script executor return. */
+function extractScriptForChain(output: unknown): Record<string, unknown> {
+  const bag = output as Record<string, unknown> | null;
+  const nested = bag?.output as Record<string, unknown> | undefined;
+  const out = nested ?? bag ?? {};
+  return { script: out.script ?? out };
+}
+
+// DANH: fix-video-routing
+/** video_generation → brief → script → queue (chained). */
+export function videoGenerationSteps(): Step[] {
+  return wrapChainedSteps([
+    {
+      id: 'analyze_video_brief',
+      name: 'Analyze video brief',
+      fn: (input) =>
+        asExecutor(analyzeVideoBrief)({
+          ...input,
+          userMessage: String(input.userMessage ?? input.query ?? ''),
+        }),
+      toAccumulator: extractBriefForChain,
+    },
+    {
+      id: 'generate_video_script',
+      name: 'Generate video script',
+      fn: (input) => asExecutor(generateVideoScript)(input),
+      toAccumulator: extractScriptForChain,
+    },
+    {
+      id: 'queue_video_generation',
+      name: 'Queue video generation',
+      fn: (input) =>
+        asExecutor(queueVideoGeneration)({
+          script: input.script,
+          style: input.style,
+          storeName: input.storeName,
+          duration: typeof input.duration === 'number' ? input.duration : 5,
+        }),
+    },
+  ]);
 }

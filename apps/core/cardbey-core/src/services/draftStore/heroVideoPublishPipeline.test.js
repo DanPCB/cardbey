@@ -112,4 +112,53 @@ describe('heroVideoPublishPipeline', () => {
     expect(preview.heroVideoUrl).toBe(VIDEO);
     expect(preview.heroImageUrl).toBe(STALE_IMAGE);
   });
+
+  it('republish ignores stale business heroImage when draft video has no poster', () => {
+    const NEW_VIDEO = '/uploads/media/new-hero.mp4';
+    const STALE_PEXELS = 'https://images.pexels.com/photos/29880935/pexels-photo.jpeg';
+    const preview = {
+      heroMediaType: 'video',
+      heroVideoUrl: NEW_VIDEO,
+      heroVideo: NEW_VIDEO,
+      heroImageUrl: null,
+      hero: { type: 'video', videoUrl: NEW_VIDEO, url: NEW_VIDEO },
+      website: {
+        sections: [
+          {
+            type: 'hero',
+            content: {
+              type: 'video',
+              videoUrl: NEW_VIDEO,
+              headline: 'Store',
+            },
+          },
+        ],
+      },
+    };
+    const business = {
+      heroImageUrl: STALE_PEXELS,
+      stylePreferences: {
+        heroVideo: '/uploads/media/old-hero.mp4',
+        heroImage: STALE_PEXELS,
+        miniWebsite: {
+          sections: [
+            {
+              type: 'hero',
+              content: {
+                type: 'video',
+                videoUrl: '/uploads/media/old-hero.mp4',
+                backgroundImage: STALE_PEXELS,
+                imageUrl: STALE_PEXELS,
+              },
+            },
+          ],
+        },
+      },
+    };
+    const hero = resolveHeroForProjection({ business, draftPreview: preview });
+    expect(hero.type).toBe('video');
+    expect(hero.videoUrl).toBe(NEW_VIDEO);
+    expect(hero.posterUrl).toBeNull();
+    expect(hero.imageUrl).toBeNull();
+  });
 });

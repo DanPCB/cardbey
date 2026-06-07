@@ -16,6 +16,7 @@ import {
 import { mirrorOrchestraStatusToPipeline } from '../orchestraMirror.js';
 import { resolveAccessibleMission, getTenantId } from '../missionAccess.js';
 import { canTransitionMissionPipeline } from '../missionPipelineTransitions.js';
+import { guestDraftOptsForActor } from './guestDraftOpts.js';
 
 /**
  * Store POST /run expects the pipeline in `queued`. `approveMissionPipeline` only advances
@@ -254,7 +255,11 @@ async function executeStoreMissionPipelineRunCore({
     ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
   };
 
-  const created = await createBuildStoreJob(prisma, jobRequest);
+  const created = await createBuildStoreJob(prisma, {
+    ...jobRequest,
+    user,
+    ...guestDraftOptsForActor(user, userId),
+  });
   if (!created?.jobId || !created?.generationRunId || !created?.draftId) {
     return {
       ok: false,

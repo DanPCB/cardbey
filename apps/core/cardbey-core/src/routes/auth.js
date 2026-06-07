@@ -1703,6 +1703,23 @@ router.post('/reset', async (req, res, next) => {
 
 function envTrue(v) { return String(v || '').toLowerCase() === 'true' || v === '1'; }
 
+/** Guest JWT issuance — dev always; prod when explicitly enabled or on staging hosts. */
+function isGuestAuthEnabled() {
+  if (process.env.NODE_ENV !== 'production') return true;
+  if (
+    envTrue(process.env.GUEST_AUTH_ENABLED) ||
+    envTrue(process.env.ENABLE_GUEST_AUTH) ||
+    envTrue(process.env.ALLOW_GUEST_AUTH)
+  ) {
+    return true;
+  }
+  const cardbeyEnv = String(process.env.CARDBEY_ENV ?? '').trim().toLowerCase();
+  if (cardbeyEnv === 'staging' || cardbeyEnv === 'preview') return true;
+  const renderService = String(process.env.RENDER_SERVICE_NAME ?? '').trim().toLowerCase();
+  if (renderService.includes('staging')) return true;
+  return false;
+}
+
 /** Rate limit: 5/min per IP for guest auth */
 const guestAuthLimiter = (req, res, next) => {
   if (process.env.NODE_ENV === 'test') return next();
@@ -1714,18 +1731,15 @@ const guestAuthLimiter = (req, res, next) => {
  * POST /api/auth/guest
  * Create a minimal guest session (no account, no DB user). JWT payload: { userId, role: 'guest', auth: 'guest' }.
  * - Dev/test: always allowed.
- * - Production: only if GUEST_AUTH_ENABLED, ENABLE_GUEST_AUTH, or ALLOW_GUEST_AUTH is true/1, otherwise 410.
+ * - Production: when GUEST_AUTH_* env is true/1, or CARDBEY_ENV=staging|preview, or RENDER_SERVICE_NAME contains "staging"; otherwise 410.
  *
  * Response (200): { ok: true, token, user: { id, role: 'guest' } }
  */
 router.post('/guest', guestAuthLimiter, (req, res, next) => {
   try {
-    const guestEnabled =
-      envTrue(process.env.GUEST_AUTH_ENABLED) ||
-      envTrue(process.env.ENABLE_GUEST_AUTH) ||
-      envTrue(process.env.ALLOW_GUEST_AUTH);
+    const guestEnabled = isGuestAuthEnabled();
     console.log('[guest] enabled=', guestEnabled, 'GUEST_AUTH_ENABLED=', process.env.GUEST_AUTH_ENABLED);
-    if (process.env.NODE_ENV === 'production' && !guestEnabled) {
+    if (!guestEnabled) {
       return res.status(410).json({
         ok: false,
         error: 'guest_disabled',

@@ -1,6 +1,6 @@
 /**
  * LLM-backed code fix proposal for Performer proactive runway (no disk writes).
- * Uses llmGateway (default: xAI grok; override via CODE_FIX_PROVIDER / CODE_FIX_MODEL).
+ * Uses llmGateway (default: anthropic; override via CODE_FIX_PROVIDER / CODE_FIX_MODEL).
  *
  * Two execution paths:
  *   1. Store content fix — detected from description keywords, no LLM/filesystem needed.
@@ -233,8 +233,8 @@ Respond with JSON only using the shape described in the system message.`;
 
   const combinedPrompt = `${systemPrompt}\n\n---\n\n${userMessage}`;
 
-  const provider = process.env.CODE_FIX_PROVIDER ?? 'xai';
-  const model = process.env.CODE_FIX_MODEL ?? 'grok-3-beta';
+  const provider = process.env.CODE_FIX_PROVIDER ?? 'anthropic';
+  const model = process.env.CODE_FIX_MODEL ?? 'claude-sonnet-4-20250514';
 
   let text = '';
   try {

@@ -135,6 +135,7 @@ import notificationsRoutes from './routes/notifications.js';
 import businessRoutes from './routes/business.js';
 import businessBrandRoutes from './routes/businessBrandRoutes.js';
 import discoveryRoutes from './routes/discoveryRoutes.js';
+import exploreRoutes from './routes/exploreRoutes.js';
 import passiveGenerationRoutes from './routes/passiveGenerationRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
@@ -148,6 +149,7 @@ import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
+import skillSuitcaseRoutes from './routes/skillSuitcaseRoutes.js';
 import cardRoutes from './routes/cardRoutes.js';
 import orchestratorRoutes from './orchestrator/api/orchestratorRoutes.js';
 import orchestratorFeedbackRoutes from './routes/orchestratorFeedbackRoutes.js';
@@ -184,6 +186,7 @@ import contactsSyncRoutes from './routes/contactsSyncRoutes.js';
 import aiOperatorRoutes from './routes/aiOperatorRoutes.js';
 import missionsRoutes from './routes/missionsRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
+import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
 import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
 import agentsV1Routes from './routes/agentsV1Routes.js';
@@ -856,6 +859,7 @@ app.use('/api/promotions', promotionsRoutes); // Public: GET /public/:publicId; 
 app.use('/api/business', businessRoutes); // Business Builder routes: /api/business/create
 app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
 app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
+app.use('/api/explore', exploreRoutes); // Featured explore videos: GET/POST/PATCH/DELETE /api/explore/videos
 app.use('/api/passive-generation', passiveGenerationRoutes); // Passive intent-to-artifact pipeline (foundation)
 app.use('/api/automation', automationRoutes); // Headless automation: /api/automation/store-from-input
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
@@ -930,8 +934,10 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 }
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
-app.use('/api/broker', brokerRoutes); // Broker Phase 1: GET /api/broker/actions, /agent-capabilities
+app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
 console.log('[CORE] mounted /api/telemetry (GET /summary, POST /code-fix-proposal)');
+console.log('[CORE] mounted /api/self-healing (GET /discovery-gaps, POST /propose-from-discovery)');
+app.use('/api/broker', brokerRoutes); // Broker Phase 1: GET /api/broker/actions, /agent-capabilities
 // missionsRoutes mounted earlier (after /api/tools) so /api/missions/* is not swallowed by other /api stacks.
 // Second stack: POST /api/missions/:missionId/spawn (OpenClaw child) when not defined on missionsRoutes
 app.use('/api/missions', agentsV1Routes);
@@ -942,6 +948,7 @@ app.use('/api/qr', qrRoutes); // Dynamic QR v0: POST create, GET :code/resolve, 
 app.use('/q', qRedirect); // GET /q/:code — 302 redirect, record ScanEvent + IntentSignal (no auth)
 app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug — public offer page (no auth)
 app.use('/api/docs', smartDocumentRoutes); // Smart documents + suitcase list: GET/POST /api/docs
+app.use('/api/suitcase', skillSuitcaseRoutes); // DANH: suitcase-skill-output — skill reports + mission history
 app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards, visitor chat, etc.
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)

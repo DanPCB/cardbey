@@ -12,76 +12,14 @@ import {
   isPipelineOutputDualWriteEnabled,
   ORCHESTRA_STORE_BUILD_STEP_KEY,
 } from '../lib/orchestrator/pipelineCanonicalResults.js';
+import {
+  validateCodeFixGuardrails,
+  validatePlaybookShape,
+  validateTelemetryIssueShape,
+  buildTelemetryCodeFixDescription,
+} from '../lib/telemetry/telemetryCodeFixGuardrails.js';
 
 const router = express.Router();
-
-const ALLOWED_TELEMETRY_ISSUE_CATEGORIES = new Set([
-  'orchestra_mirror_gap',
-  'planner_missing_context',
-  'performer_result_shape',
-  'telemetry_stream_missing',
-]);
-
-/**
- * @param {unknown} playbook
- * @param {string} category
- */
-function validatePlaybookShape(playbook, category) {
-  if (!playbook || typeof playbook !== 'object' || Array.isArray(playbook)) return false;
-  const pb = /** @type {Record<string, unknown>} */ (playbook);
-  if (pb.category !== category) return false;
-  if (!Array.isArray(pb.likelyFiles) || pb.likelyFiles.length === 0) return false;
-  if (!Array.isArray(pb.constraints) || pb.constraints.length === 0) return false;
-  if (!Array.isArray(pb.validationSteps) || pb.validationSteps.length === 0) return false;
-  return true;
-}
-
-/**
- * @param {unknown} issue
- */
-function validateTelemetryIssueShape(issue) {
-  if (!issue || typeof issue !== 'object' || Array.isArray(issue)) return false;
-  const i = /** @type {Record<string, unknown>} */ (issue);
-  const cat = typeof i.category === 'string' ? i.category : '';
-  if (!ALLOWED_TELEMETRY_ISSUE_CATEGORIES.has(cat)) return false;
-  if (i.suggestedTool !== 'code_fix') return false;
-  if (typeof i.title !== 'string' || !i.title.trim()) return false;
-  if (typeof i.summary !== 'string' || !i.summary.trim()) return false;
-  if (!Array.isArray(i.evidence)) return false;
-  return true;
-}
-
-/**
- * @param {Record<string, unknown>} issue
- * @param {Record<string, unknown>} playbook
- * @param {Record<string, unknown>} telemetryContext
- */
-function buildTelemetryCodeFixDescription(issue, playbook, telemetryContext) {
-  const evidence = Array.isArray(issue.evidence) ? issue.evidence : [];
-  const likelyFiles = Array.isArray(playbook.likelyFiles) ? playbook.likelyFiles : [];
-  const constraints = Array.isArray(playbook.constraints) ? playbook.constraints : [];
-  const validationSteps = Array.isArray(playbook.validationSteps) ? playbook.validationSteps : [];
-
-  const parts = [
-    '[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.',
-    `Category: ${issue.category}`,
-    `Title: ${issue.title}`,
-    `Severity: ${typeof issue.severity === 'string' ? issue.severity : 'unknown'}`,
-    `Telemetry heuristic confidence: ${typeof issue.confidence === 'number' ? issue.confidence : 'n/a'}`,
-    `Summary: ${issue.summary}`,
-    'Evidence:',
-    ...evidence.map((e) => ` - ${String(e)}`),
-    'Playbook — likely files:',
-    ...likelyFiles.map((f) => ` - ${String(f)}`),
-    'Playbook — constraints:',
-    ...constraints.map((c) => ` - ${String(c)}`),
-    'Playbook — validation steps (after manual patch):',
-    ...validationSteps.map((v) => ` - ${String(v)}`),
-    'Telemetry context (JSON):',
-    JSON.stringify(telemetryContext, null, 2),
-  ];
-  return parts.join('\n');
-}
 
 /** One-time diagnostic: first authenticated hit to /summary (no user-identifying data). */
 let loggedFirstSummaryRequest = false;
@@ -199,14 +137,7 @@ router.post('/code-fix-proposal', requireAuth, async (req, res, next) => {
       return res.status(200).json({ ok: false, message: 'invalid_action' });
     }
     const g = body.guardrails;
-    if (
-      !g ||
-      typeof g !== 'object' ||
-      g.proposalOnly !== true ||
-      g.noFileWrites !== true ||
-      g.noAutoApply !== true ||
-      g.humanApprovalRequired !== true
-    ) {
+    if (!validateCodeFixGuardrails(g)) {
       return res.status(200).json({ ok: false, message: 'guardrails_required' });
     }
     const issue = body.issue;

@@ -282,12 +282,28 @@ export function resolveRuntimeGuidanceForSession(input) {
     readiness.readinessState &&
     readiness.readinessState !== STORE_READINESS.MISSING
   ) {
-    const g = buildReadinessGuidance({
-      readiness,
-      missionId,
-      storeId: input?.activeStoreId ?? readiness.storeId ?? null,
-    });
-    if (g.actions.length > 0 || g.message) out.push(g);
+    const state = readiness.readinessState;
+    const hasBlocking =
+      Array.isArray(readiness.blockingIssues) && readiness.blockingIssues.length > 0;
+    const isDraftBlocking =
+      state === STORE_READINESS.DRAFT_CREATED || state === STORE_READINESS.DRAFT_READY;
+    // ACTIVE / published nudges are Explore territory; omit from idle runtime session guidance.
+    const skipIdleInformational =
+      !missionId &&
+      (state === STORE_READINESS.ACTIVE || state === STORE_READINESS.PUBLISHED);
+    const skipActiveScaling = state === STORE_READINESS.ACTIVE;
+    if (
+      !skipActiveScaling &&
+      !skipIdleInformational &&
+      (hasBlocking || isDraftBlocking || missionId)
+    ) {
+      const g = buildReadinessGuidance({
+        readiness,
+        missionId,
+        storeId: input?.activeStoreId ?? readiness.storeId ?? null,
+      });
+      if (g.actions.length > 0 || g.message) out.push(g);
+    }
   }
 
   return out.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));

@@ -9,8 +9,8 @@ function matchesTrigger(intent) {
 }
 
 describe('StoreHealthSkill', () => {
-  it('matches primary trigger store health', () => {
-    expect(matchesTrigger('store health')).toBe(true);
+  it('matches primary trigger store_health', () => {
+    expect(matchesTrigger('store_health')).toBe(true);
   });
 
   it('does not match unrelated intent', () => {

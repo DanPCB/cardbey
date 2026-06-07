@@ -214,18 +214,19 @@ export function readCanonicalHeroFromPreview(rawPreview) {
 
   const heroVideo = explicitImage
     ? null
-    : trimStr(meta.profileHeroVideoUrl) ??
-      trimStr(meta.heroVideo) ??
-      trimStr(rawPreview?.heroVideoUrl) ??
+    : trimStr(rawPreview?.heroVideoUrl) ??
       trimStr(rawPreview?.heroVideo) ??
       trimStr(heroObj.videoUrl) ??
+      (heroObj.type === 'video' ? trimStr(heroObj.url) : null) ??
+      trimStr(meta.profileHeroVideoUrl) ??
+      trimStr(meta.heroVideo) ??
       null;
 
   const heroImage =
-    trimStr(meta.profileHeroUrl) ??
-    trimStr(heroObj.imageUrl) ??
-    trimStr(heroObj.url) ??
     trimStr(rawPreview?.heroImageUrl) ??
+    trimStr(heroObj.imageUrl) ??
+    (heroObj.type !== 'video' ? trimStr(heroObj.url) : null) ??
+    trimStr(meta.profileHeroUrl) ??
     trimStr(meta.heroImage) ??
     trimStr(rawPreview?.heroImage) ??
     null;
@@ -368,6 +369,21 @@ export function writeCanonicalHeroMediaToPreview(mergedPreview, canonical) {
           imageUrl: imageUrl || existingHero.imageUrl || undefined,
         }),
   };
+
+  // Keep meta cache aligned with canonical top-level fields (meta is derived, not authoritative).
+  const meta =
+    mergedPreview.meta && typeof mergedPreview.meta === 'object' && !Array.isArray(mergedPreview.meta)
+      ? { ...mergedPreview.meta }
+      : {};
+  if (mediaType === 'video' && videoUrl) {
+    meta.profileHeroVideoUrl = videoUrl;
+    if (posterUrl) meta.profileHeroUrl = posterUrl;
+    else delete meta.profileHeroUrl;
+  } else if (mediaType === 'image' && imageUrl) {
+    meta.profileHeroUrl = imageUrl;
+    delete meta.profileHeroVideoUrl;
+  }
+  mergedPreview.meta = meta;
 }
 
 /**
@@ -378,14 +394,14 @@ export function writeCanonicalHeroMediaToPreview(mergedPreview, canonical) {
  */
 export function applyCanonicalHeroToMiniWebsite(miniWebsite, rawPreview) {
   if (!miniWebsite || typeof miniWebsite !== 'object') return miniWebsite;
-  const { heroImage, heroVideo, isVideo } = readCanonicalHeroFromPreview(rawPreview);
-  if (!heroImage && !heroVideo) return miniWebsite;
+  const canonical = resolveCanonicalHeroMediaFromPreview(rawPreview);
+  const isVideo = canonical.mediaType === 'video';
+  if (!isVideo && !canonical.imageUrl) return miniWebsite;
 
   const sections = Array.isArray(miniWebsite.sections) ? [...miniWebsite.sections] : [];
   const hi = sections.findIndex((s) => s && s.type === 'hero');
-  const posterUrl =
-    heroImage && (!isVideo || !VIDEO_EXT.test(heroImage)) ? heroImage : null;
-  const videoUrl = heroVideo || (isVideo && heroImage ? heroImage : null);
+  const posterUrl = canonical.posterUrl;
+  const videoUrl = canonical.videoUrl;
 
   const contentPatch = isVideo
     ? {
@@ -398,7 +414,9 @@ export function applyCanonicalHeroToMiniWebsite(miniWebsite, rawPreview) {
       }
     : {
         type: 'image',
-        ...(heroImage ? { imageUrl: heroImage, url: heroImage, backgroundImage: heroImage } : {}),
+        ...(canonical.imageUrl
+          ? { imageUrl: canonical.imageUrl, url: canonical.imageUrl, backgroundImage: canonical.imageUrl }
+          : {}),
       };
 
   if (hi >= 0) {
@@ -407,7 +425,14 @@ export function applyCanonicalHeroToMiniWebsite(miniWebsite, rawPreview) {
       prev.content && typeof prev.content === 'object' && !Array.isArray(prev.content)
         ? { ...prev.content }
         : {};
-    sections[hi] = { ...prev, content: { ...prevContent, ...contentPatch } };
+    const nextContent = { ...prevContent, ...contentPatch };
+    // DANH: fix-suitcase-hero-video — drop stale image backgrounds when video has no poster
+    if (isVideo && !posterUrl) {
+      delete nextContent.imageUrl;
+      delete nextContent.url;
+      delete nextContent.backgroundImage;
+    }
+    sections[hi] = { ...prev, content: nextContent };
   } else {
     sections.unshift({ type: 'hero', content: contentPatch });
   }
@@ -450,8 +475,8 @@ export function resolveMiniWebsiteForPublish(rawPreview) {
  */
 export function syncHeroFieldsIntoPreviewWebsite(merged) {
   if (!merged || typeof merged !== 'object') return;
-  const { heroImage, heroVideo } = readCanonicalHeroFromPreview(merged);
-  if (!heroImage && !heroVideo) return;
+  const canonical = resolveCanonicalHeroMediaFromPreview(merged);
+  if (canonical.mediaType !== 'video' && !canonical.imageUrl) return;
 
   if (!merged.website || typeof merged.website !== 'object') {
     merged.website = { sections: [], theme: {} };
@@ -472,9 +497,13 @@ export function syncHeroFieldsIntoPreviewWebsite(merged) {
     merged.meta && typeof merged.meta === 'object' && !Array.isArray(merged.meta)
       ? { ...merged.meta }
       : {};
-  if (heroImage && !VIDEO_EXT.test(heroImage)) meta.profileHeroUrl = heroImage;
-  else if (heroImage) meta.profileHeroUrl = heroImage;
-  if (heroVideo) meta.profileHeroVideoUrl = heroVideo;
-  else delete meta.profileHeroVideoUrl;
+  if (canonical.mediaType === 'video' && canonical.videoUrl) {
+    meta.profileHeroVideoUrl = canonical.videoUrl;
+    if (canonical.posterUrl) meta.profileHeroUrl = canonical.posterUrl;
+    else delete meta.profileHeroUrl;
+  } else if (canonical.imageUrl) {
+    meta.profileHeroUrl = canonical.imageUrl;
+    delete meta.profileHeroVideoUrl;
+  }
   merged.meta = meta;
 }

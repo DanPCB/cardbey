@@ -21,6 +21,15 @@ import './definitions/MenuSyncSkill.js';
 import './definitions/AnalyticsReportSkill.js';
 import './definitions/StoreHealthSkill.js';
 import './definitions/ReviewManagementSkill.js';
+import './definitions/LoyaltyCampaignSkill.js';
+import './definitions/ContentRewriteSkill.js';
+import './definitions/TagGenerationSkill.js';
+import './definitions/HeroOptimizationSkill.js';
+import './definitions/HomepageFeatureSkill.js';
+import './definitions/VideoGenerationSkill.js'; // DANH: skill-round5-video
+import './definitions/CardScanSkill.js'; // DANH: skill-round5-cardscan
+import './definitions/DeployCNetSkill.js'; // DANH: skill-round5-cnet
+import './definitions/DocumentIngestionSkill.js'; // DANH: skill-round6-document
 
 const skillExecutor = new SkillExecutor({
   toolDispatcher: dispatchTool,

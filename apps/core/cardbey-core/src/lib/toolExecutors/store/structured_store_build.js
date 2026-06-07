@@ -15,6 +15,7 @@ import { mergeMissionContext } from '../../mission.js';
 import { mergeCanonicalOutputs } from '../../orchestrator/pipelineCanonicalResults.js';
 import { safeMissionPipelineUpdate } from '../../safePipelineUpdate.js';
 import { shouldBlockStoreBuildForMissingArtifact } from '../../artifactCheckpointAuthority.js';
+import { guestDraftOptsForActor } from '../../storeMission/guestDraftOpts.js';
 
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
@@ -157,7 +158,10 @@ export async function execute(_input = {}, context = {}) {
     ...(Object.keys(draftInputPatch).length > 0 ? { draftInput: draftInputPatch } : {}),
   };
 
-  const created = await createBuildStoreJob(prisma, jobRequest);
+  const created = await createBuildStoreJob(prisma, {
+    ...jobRequest,
+    ...guestDraftOptsForActor(isGuestUserId(uid) ? { role: 'guest', id: uid } : userRow, uid),
+  });
   if (!created?.jobId || !created?.generationRunId || !created?.draftId) {
     return {
       status: 'failed',

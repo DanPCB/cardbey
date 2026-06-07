@@ -36,6 +36,7 @@ function mapHit(hit) {
     resolution: largeWidth >= 1920 ? '4K or HD' : 'HD',
     license: 'Pixabay License',
     attribution_required: true,
+    pageURL: hit?.pageURL ?? null, // DANH: pixabay-attribution
     tags: typeof hit?.tags === 'string'
       ? hit.tags.split(',').map((t) => t.trim()).filter(Boolean)
       : [],

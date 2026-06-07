@@ -191,6 +191,9 @@ model PublishedArtifactProjection {
   slug           String
   version        String   @default("v1")
   projectionJson Json
+  // DANH: fix-hero-video-publish
+  heroVideoUrl   String?  // AI-generated or uploaded video hero
+  heroMediaType  String?  // 'video' | 'image'
   sourceDraftId  String?
   publishRunId   String?
   createdAt      DateTime @default(now())
@@ -253,6 +256,7 @@ model StorePromo {
   endsAt       DateTime?
   slug         String    @unique
   isActive     Boolean   @default(true)
+  promoType    String?   @default("general") // DANH: schema-gap-storepromo-type — loyalty / discount / event promos
   scanCount    Int       @default(0)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -285,6 +289,8 @@ model Product {
   likeCount     Int       @default(0)
   hasSam3Cutout Boolean   @default(false) // Whether product has SAM-3 generated cutout
   cutoutPath    String? // Path to SAM-3 cutout image (e.g., /public/catalog-cutouts/product-id.png)
+  isFeatured    Boolean   @default(false) // DANH: schema-gap-product-featured
+  featuredAt    DateTime? // DANH: schema-gap-product-featured
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -294,6 +300,7 @@ model Product {
   @@index([category])
   @@index([deletedAt])
   @@index([hasSam3Cutout])
+  @@index([businessId, isFeatured])
   @@unique([businessId, normalizedName], name: "unique_business_normalized_name")
 }
 
@@ -2179,6 +2186,27 @@ model Card {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// Explore featured guide videos (/frontscreen showcase)
+model ExploreVideo {
+  id           String   @id @default(cuid())
+  title        String
+  description  String   @default("")
+  category     String   @default("")
+  videoUrl     String
+  thumbnailUrl String?
+  duration     Int?
+  ctaIntent    String?
+  status       String   @default("published")
+  priority     Int      @default(50)
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdBy])
+  @@index([priority])
 }
 
 // MI Video Templates - Video background templates for greeting cards

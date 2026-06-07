@@ -2190,6 +2190,27 @@ model GreetingCard {
   @@index([type])
 }
 
+// Explore featured guide videos (/frontscreen showcase)
+model ExploreVideo {
+  id           String   @id @default(cuid())
+  title        String
+  description  String   @default("")
+  category     String   @default("")
+  videoUrl     String
+  thumbnailUrl String?
+  duration     Int?
+  ctaIntent    String?
+  status       String   @default("published")
+  priority     Int      @default(50)
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdBy])
+  @@index([priority])
+}
+
 // MI Video Templates - Video background templates for greeting cards
 model MiVideoTemplate {
   id             String   @id @default(cuid())

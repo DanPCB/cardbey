@@ -565,6 +565,26 @@ router.get('/stores/:slug', async (req, res, next) => {
 
     const { store: publicStore, usedFallback, projection } = await resolvePublicStoreFromArtifact(prisma, store);
 
+    let projectionHeroRow = null;
+    try {
+      projectionHeroRow = await prisma.publishedArtifactProjection.findUnique({
+        where: { businessId: store.id },
+        select: { heroVideoUrl: true, heroMediaType: true },
+      });
+    } catch {
+      projectionHeroRow = null;
+    }
+    if (projectionHeroRow) {
+      // DANH: fix-hero-video-publish
+      if (projectionHeroRow.heroVideoUrl) {
+        publicStore.heroVideoUrl = projectionHeroRow.heroVideoUrl;
+        publicStore.heroVideo = projectionHeroRow.heroVideoUrl;
+        publicStore.heroUrl = projectionHeroRow.heroVideoUrl;
+        publicStore.bannerUrl = projectionHeroRow.heroVideoUrl;
+      }
+      publicStore.heroMediaType = projectionHeroRow.heroMediaType ?? publicStore.heroMediaType ?? 'image';
+    }
+
     // Always emit socialLinks on slug route (parity with frontscreen card mapping).
     const mappedSocialLinks =
       publicStore.socialLinks ??

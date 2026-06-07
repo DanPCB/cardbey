@@ -39,6 +39,75 @@ function heroMediaForPublish(rawPreview) {
   return { storeHeroVideo, storeHeroImage, canonical };
 }
 
+/**
+ * Index hero video on PublishedArtifactProjection for public /s/:slug reads.
+ * @param {import('@prisma/client').PrismaClient} prismaClient
+ * @param {string} businessId
+ * @param {object|null} rawPreview
+ * @param {object|null} projection
+ */
+async function syncPublishedArtifactProjectionHeroIndex(prismaClient, businessId, rawPreview, projection) {
+  const id = String(businessId ?? '').trim();
+  if (!id || typeof prismaClient?.publishedArtifactProjection?.update !== 'function') return;
+
+  const { storeHeroVideo, storeHeroImage } = heroMediaForPublish(rawPreview ?? {});
+  let stylePrefs = {};
+  try {
+    const biz = await prismaClient.business.findUnique({
+      where: { id },
+      select: { stylePreferences: true },
+    });
+    stylePrefs = parseStylePreferencesBlob(biz?.stylePreferences);
+  } catch {
+    /* non-fatal */
+  }
+
+  const heroMedia = projection?.hero ?? {};
+  // DANH: fix-hero-video-publish — draft canonical video wins over stale stylePreferences cache
+  const heroVideoUrl =
+    storeHeroVideo ??
+    heroMedia?.videoUrl ??
+    stylePrefs?.heroVideo ??
+    stylePrefs?.heroVideoUrl ??
+    null;
+  const heroMediaType = heroVideoUrl ? 'video' : 'image';
+  const heroImageUrl = heroImageUrlForBusinessColumn(storeHeroVideo, storeHeroImage);
+
+  try {
+    await prismaClient.publishedArtifactProjection.update({
+      where: { businessId: id },
+      data: {
+        heroVideoUrl: heroVideoUrl || null,
+        heroMediaType,
+      },
+    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[publishDraft] projection hero index synced', {
+        businessId: id,
+        heroVideoUrl: heroVideoUrl || null,
+        heroMediaType,
+        heroImageUrl: heroImageUrl || null,
+      });
+    }
+  } catch (err) {
+    console.warn('[publishDraft] projection hero index sync failed (non-fatal):', err?.message || err);
+  }
+}
+
+/** @param {import('@prisma/client').PrismaClient} prismaClient @param {object} ctx */
+async function buildPersistAndApplyPublishedProjectionWithHeroIndex(prismaClient, ctx) {
+  const projection = await buildPersistAndApplyPublishedProjection(prismaClient, ctx);
+  if (projection) {
+    await syncPublishedArtifactProjectionHeroIndex(
+      prismaClient,
+      ctx.businessId,
+      ctx.draftPreview ?? null,
+      projection,
+    );
+  }
+  return projection;
+}
+
 const BUSINESS_PUBLISH_SCALAR_KEYS = new Set([
   'name',
   'type',
@@ -377,7 +446,7 @@ export async function publishDraft(prisma, {
     await ensureBusinessPubliclyVisible(prisma, existingStoreId);
     const slug = applied?.slug ?? null;
     if (slug) {
-      await buildPersistAndApplyPublishedProjection(prisma, {
+      await buildPersistAndApplyPublishedProjectionWithHeroIndex(prisma, {
         businessId: existingStoreId,
         tenantId: userId,
         draft: targetDraftRow,
@@ -984,7 +1053,7 @@ export async function publishDraft(prisma, {
   }
   await ensureBusinessPubliclyVisible(prisma, effectiveStoreId, publishedAt);
 
-  await buildPersistAndApplyPublishedProjection(prisma, {
+  await buildPersistAndApplyPublishedProjectionWithHeroIndex(prisma, {
     businessId: effectiveStoreId,
     tenantId: userId,
     draft: targetDraft,

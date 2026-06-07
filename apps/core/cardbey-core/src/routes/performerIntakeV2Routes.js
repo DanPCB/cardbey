@@ -73,6 +73,10 @@ import {
   maybePersistIntakeIntentResolution,
 } from '../lib/intake/intakePersistedIntentStore.js';
 import {
+  resolveStoreAmbiguity,
+  tryAutoResolveSingleStoreId,
+} from '../lib/intake/resolveStoreAmbiguity.js';
+import {
   COMMERCIAL_INTENT_RE,
   detectCapabilityGap,
   isIntakeV2CapabilityGapEnabled,
@@ -239,11 +243,11 @@ async function findDuplicateBusinessNameForUser(prisma, userId, businessName) {
   const uid = typeof userId === 'string' ? userId.trim() : '';
   if (!bn || !uid) return null;
   try {
-    return await prisma.business.findFirst({
-      // SQLite does not support Prisma's case-insensitive `mode` option. Use LIKE semantics via `contains`.
-      where: { userId: uid, name: { contains: bnLower } },
+    const rows = await prisma.business.findMany({
+      where: { userId: uid },
       select: { id: true, name: true },
     });
+    return rows.find((row) => String(row?.name ?? '').trim().toLowerCase() === bnLower) ?? null;
   } catch {
     return null;
   }
@@ -641,6 +645,12 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   const payload = { ...cleanedParams };
   if (dispatchMissionId) payload.missionId = dispatchMissionId;
   if (storeId && !payload.storeId) payload.storeId = storeId;
+  // DANH: skill-round6-document — pass attached image to document ingestion skill
+  const intakeImageRef = resolveIntakeImageRefForOcr(req?.body);
+  if (intakeImageRef && !payload.imageUrl && !payload.imageDataUrl) {
+    payload.imageUrl = intakeImageRef;
+    payload.imageDataUrl = intakeImageRef;
+  }
   const performeeContextRaw =
     req?.body?.intentSourceContext &&
     typeof req.body.intentSourceContext === 'object' &&
@@ -752,7 +762,9 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   }
 
   try {
-    const skillRouterResult = await skillRouter.route(intentLabel, {
+    // DANH: fix-runtime-ownership
+    const skillCtx = {
+      ...toolCtx,
       missionId: dispatchMissionId,
       storeId: storeId ?? toolCtx.storeId ?? null,
       userId: toolCtx.userId,
@@ -760,7 +772,11 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
       toolInput: payload,
       hydratedContext,
       blackboard: null,
-    });
+      runtimeOwned: true,
+      performerRuntimeOwned: true,
+      source: 'skill_executor',
+    };
+    const skillRouterResult = await skillRouter.route(intentLabel, skillCtx);
 
     if (skillRouterResult.matched) {
       console.log(
@@ -1327,7 +1343,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       : {};
   const originalGoal = selection ? String(selection.originalGoal ?? userMessage).trim() : '';
 
-  const storeId = resolveStoreId(currentContext);
+  let storeId = resolveStoreId(currentContext);
+  // DANH: store-disambiguation — replay store pick from clarify chip (intakeV2Selection)
+  const selectionStoreId = String(forcedParams?.storeId ?? forcedParams?.activeStoreId ?? '').trim();
+  if (!storeId && selectionStoreId) {
+    storeId = selectionStoreId;
+  }
   const draftId = resolveDraftId(currentContext);
   const tenantKey = String(req.user?.id ?? req.guest?.id ?? 'intake-v2').slice(0, 120);
   const performeeContext =
@@ -1356,6 +1377,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   /** Read-only derived store context: allow Performee spaceId to act as storeId for classification/runtime without writing any client context. */
   const effectiveStoreId = storeId || runway.activeStoreId || performeeStoreId;
+  /** Store id used for validation + dispatch (may auto-resolve single-store owners). */
+  let dispatchStoreId = effectiveStoreId;
   /** Appended to Intake V2 JSON when pre-intake agent loop ran. */
   let agentLoopTraceForResponse = null;
 
@@ -2672,6 +2695,59 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   /** Last validation result (for telemetry / fallback branches). */
   let lastValidation = /** @type {{ ok: boolean, errors?: unknown[], downgradedTo?: string } | null} */ (null);
 
+  const intakeActorUserId = req.user?.id ?? performerIntakeV2ActorId(req) ?? null;
+
+  // DANH: store-disambiguation — multi-store clarify before validation / skill dispatch
+  if (classification?.tool) {
+    const toolMetaForStore = getToolEntry(classification.tool);
+    const pathNeedsStore =
+      classification.executionPath === 'direct_action' || classification.executionPath === 'proactive_plan';
+    if (toolMetaForStore?.requiresStore && pathNeedsStore && !dispatchStoreId) {
+      const ambiguity = await resolveStoreAmbiguity({
+        userId: intakeActorUserId,
+        effectiveStoreId: null,
+        intentRequiresStore: true,
+        userMessage: originalGoal || userMessage,
+      });
+      if (ambiguity?.needsClarification) {
+        const clarifyTool = classification.tool;
+        const options = ambiguity.options.map((o) => ({
+          label: o.label,
+          tool: clarifyTool,
+          parameters: {
+            storeId: o.value,
+            ...(classification.parameters &&
+            typeof classification.parameters === 'object' &&
+            !Array.isArray(classification.parameters)
+              ? classification.parameters
+              : {}),
+          },
+        }));
+        return safeJson(
+          {
+            success: true,
+            action: 'clarify',
+            clarifyType: ambiguity.clarifyType,
+            response: ambiguity.question,
+            options,
+            pendingIntent: ambiguity.pendingIntent,
+          },
+          {
+            classification,
+            validated: true,
+            downgraded: false,
+            downgradeReason: null,
+            validationErrors: [],
+            riskLevel: toolMetaForStore?.riskLevel ?? RISK.SAFE_READ,
+            result: 'clarify_store',
+          },
+        );
+      }
+      const autoStoreId = await tryAutoResolveSingleStoreId(intakeActorUserId);
+      if (autoStoreId) dispatchStoreId = autoStoreId;
+    }
+  }
+
   // ── 3–4) Validate + execution policy with one intent-recovery retry ────────
   for (let recoveryAttempt = 0; recoveryAttempt < 2; recoveryAttempt++) {
     toolEntry = getToolEntry(classification.tool);
@@ -2684,12 +2760,60 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         parameters: classification.parameters,
         plan: classification.plan,
       },
-      effectiveStoreId,
+      dispatchStoreId ?? effectiveStoreId,
       { missionId },
     );
     lastValidation = validation;
 
     if (!validation.ok && validation.downgradedTo === 'chat') {
+      const toolMetaChat = getToolEntry(classification.tool);
+      const storeRequired = validation.errors?.some((e) => e?.reason === 'requires_store');
+      if (storeRequired && toolMetaChat?.requiresStore && !dispatchStoreId) {
+        const ambiguity = await resolveStoreAmbiguity({
+          userId: intakeActorUserId,
+          effectiveStoreId: null,
+          intentRequiresStore: true,
+          userMessage: originalGoal || userMessage,
+        });
+        if (ambiguity?.needsClarification) {
+          const options = ambiguity.options.map((o) => ({
+            label: o.label,
+            tool: classification.tool,
+            parameters: {
+              storeId: o.value,
+              ...(classification.parameters &&
+              typeof classification.parameters === 'object' &&
+              !Array.isArray(classification.parameters)
+                ? classification.parameters
+                : {}),
+            },
+          }));
+          return safeJson(
+            {
+              success: true,
+              action: 'clarify',
+              clarifyType: ambiguity.clarifyType,
+              response: ambiguity.question,
+              options,
+              pendingIntent: ambiguity.pendingIntent,
+            },
+            {
+              classification,
+              validated: true,
+              downgraded: false,
+              downgradeReason: null,
+              validationErrors: validation.errors,
+              riskLevel,
+              result: 'clarify_store',
+            },
+          );
+        }
+        const autoStoreId = await tryAutoResolveSingleStoreId(intakeActorUserId);
+        if (autoStoreId) {
+          dispatchStoreId = autoStoreId;
+          continue;
+        }
+      }
       const msg = formatContextGapMessage(runway, locale);
       return safeJson(
         {
@@ -3815,8 +3939,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         'awaiting_input',
       ]);
       const existingMissionId = typeof missionId === 'string' ? missionId.trim() : '';
+      const forceNewStoreMission =
+        body.freshStoreMission === true ||
+        body.freshStore === true ||
+        body.newStore === true;
       let pipeline = null;
-      if (existingMissionId) {
+      if (existingMissionId && !forceNewStoreMission) {
         const access = await resolveAccessibleMission(userLike, existingMissionId);
         if (access.ok && access.kind === 'mission_pipeline') {
           const existing = await prisma.missionPipeline.findUnique({
@@ -4064,7 +4192,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     try {
       const { toolResult, payload } = await dispatchIntakeV2DirectTool(tool, cleanedParams, {
         missionId: directToolMissionId,
-        storeId,
+        storeId: dispatchStoreId ?? effectiveStoreId ?? storeId,
         req,
         hydratedContext: intakeHydratedContext,
       });
