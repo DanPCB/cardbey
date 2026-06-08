@@ -25,6 +25,7 @@ import storefrontRouter from './routes/storefrontRoutes.js';
 import publicUsersRouter from './routes/publicUsers.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
+import userMemoryRoutes from './routes/userMemoryRoutes.js';
 import performerProactiveStepRoutes from './routes/performerProactiveStepRoutes.js';
 import performerMissionsRoutes from './routes/performerMissionsRoutes.js';
 import performerDesignRoutes from './routes/performerDesignRoutes.js';
@@ -159,6 +160,7 @@ export async function createCardbeyApp() {
   console.log('[cardbey-core/createApp] mounted /api/performer/intake (performerIntakeRoutes)');
   app.use('/api/performer/intake/v2', performerIntakeV2Routes);
   console.log('[cardbey-core/createApp] mounted /api/performer/intake/v2 (performerIntakeV2Routes)');
+  app.use('/api', userMemoryRoutes);
   app.use('/api/performer/proactive-step', performerProactiveStepRoutes);
   console.log('[cardbey-core/createApp] mounted /api/performer/proactive-step (performerProactiveStepRoutes)');
   app.use('/api/performer/missions', performerMissionsRoutes);

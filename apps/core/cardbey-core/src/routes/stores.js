@@ -2431,6 +2431,131 @@ router.get('/:id/signals-summary', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * Resolve store by id or slug (public read helpers).
+ */
+async function resolveStoreByIdOrSlug(idOrSlug) {
+  const key = String(idOrSlug ?? '').trim();
+  if (!key) return null;
+  let store = await prisma.business.findUnique({
+    where: { id: key },
+    select: { id: true, slug: true, name: true },
+  });
+  if (!store) {
+    store = await prisma.business.findUnique({
+      where: { slug: key },
+      select: { id: true, slug: true, name: true },
+    });
+  }
+  return store;
+}
+
+/**
+ * GET /api/stores/:idOrSlug/offers
+ * Public read — active store offers. Empty array when none exist.
+ */
+router.get('/:id/offers', optionalAuth, async (req, res, next) => {
+  try {
+    const store = await resolveStoreByIdOrSlug(req.params.id);
+    if (!store) {
+      return res.status(404).json({ ok: false, error: 'store_not_found' });
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
+    const activeOnly = req.query.active !== 'false';
+    const now = new Date();
+
+    const offers = await prisma.storeOffer.findMany({
+      where: {
+        storeId: store.id,
+        ...(activeOnly
+          ? {
+              isActive: true,
+              OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+            }
+          : {}),
+      },
+      take: limit,
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        priceText: true,
+        slug: true,
+        startsAt: true,
+        endsAt: true,
+      },
+    });
+
+    const items = offers.map((o) => ({
+      id: o.id,
+      title: o.title,
+      description: o.description ?? undefined,
+      discount: o.priceText ?? undefined,
+      slug: o.slug,
+      startsAt: o.startsAt ?? undefined,
+      endsAt: o.endsAt ?? undefined,
+    }));
+
+    return res.json({ ok: true, items });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /api/stores/:idOrSlug/events
+ * Public read — upcoming promos/events. Empty array when none exist.
+ */
+router.get('/:id/events', optionalAuth, async (req, res, next) => {
+  try {
+    const store = await resolveStoreByIdOrSlug(req.params.id);
+    if (!store) {
+      return res.status(404).json({ ok: false, error: 'store_not_found' });
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
+    const upcomingOnly = req.query.upcoming !== 'false';
+    const now = new Date();
+
+    const promos = await prisma.storePromo.findMany({
+      where: {
+        storeId: store.id,
+        isActive: true,
+        ...(upcomingOnly
+          ? {
+              OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+            }
+          : {}),
+      },
+      take: limit,
+      orderBy: [{ startsAt: 'asc' }, { updatedAt: 'desc' }],
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        startsAt: true,
+        endsAt: true,
+        promoType: true,
+      },
+    });
+
+    const items = promos.map((p) => ({
+      id: p.id,
+      title: p.title,
+      description: p.description ?? undefined,
+      date: p.startsAt ? p.startsAt.toISOString() : undefined,
+      endsAt: p.endsAt ? p.endsAt.toISOString() : undefined,
+      type: p.promoType ?? 'general',
+    }));
+
+    return res.json({ ok: true, items });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
  * GET /api/stores/:id/offers/:offerId/signals
  * Promotion signal summary for an offer (views, qrScans, ctaClicks, redeems). requireAuth; store owner only.
  */

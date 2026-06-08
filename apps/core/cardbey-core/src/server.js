@@ -158,6 +158,7 @@ import loyaltyRoutes from './routes/loyalty.js';
 import loyaltyEngineRoutes from './routes/loyaltyRoutes.js';
 import watcherRoutes from './routes/watcher.js';
 import pilRoutes from './routes/pilRoutes.js';
+import userMemoryRoutes from './routes/userMemoryRoutes.js';
 import promoEngineRoutes from './routes/promoEngine.js';
 import signageEngineRoutes from './routes/signageEngine.js';
 import signageRoutes from './routes/signageRoutes.js';
@@ -832,6 +833,7 @@ app.use('/api/tools', toolsRoutes);
 // Mount before broad /api routers and /api/assistant so POST /api/missions/* (e.g. extract-card) hits this stack first.
 app.use('/api/missions', missionsRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
+app.use('/api', userMemoryRoutes);
 app.use('/api/performer/proactive-step', performerProactiveStepRoutes);
 app.use('/api/runtime/missions', runtimeMissionStepRoutes);
 app.use('/api/runtime/missions', runtimeMissionOrchestratorRoutes);
