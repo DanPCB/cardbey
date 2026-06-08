@@ -27,6 +27,7 @@ import {
   resolvePublishedStoreCopyFromPreview,
 } from './publishRunway.js';
 import { buildPersistAndApplyPublishedProjection } from '../publishedArtifactProjection/publishProjectionHooks.js';
+import { normalizedHeroVideoIndexUrl } from './normalizeHeroMediaUrlsForStorage.js';
 
 const VIDEO_EXT = /\.(mp4|webm|mov)(\?|#|$)/i;
 
@@ -64,12 +65,13 @@ async function syncPublishedArtifactProjectionHeroIndex(prismaClient, businessId
 
   const heroMedia = projection?.hero ?? {};
   // DANH: fix-hero-video-publish — draft canonical video wins over stale stylePreferences cache
-  const heroVideoUrl =
+  const heroVideoUrl = normalizedHeroVideoIndexUrl(
     storeHeroVideo ??
-    heroMedia?.videoUrl ??
-    stylePrefs?.heroVideo ??
-    stylePrefs?.heroVideoUrl ??
-    null;
+      heroMedia?.videoUrl ??
+      stylePrefs?.heroVideo ??
+      stylePrefs?.heroVideoUrl ??
+      null,
+  );
   const heroMediaType = heroVideoUrl ? 'video' : 'image';
   const heroImageUrl = heroImageUrlForBusinessColumn(storeHeroVideo, storeHeroImage);
 

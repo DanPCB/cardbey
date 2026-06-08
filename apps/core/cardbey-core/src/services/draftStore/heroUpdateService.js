@@ -13,6 +13,7 @@ import {
 import { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } from './publishSnapshotService.js';
 import { getPublishedBusinessArtifact } from '../publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { emitHeroUploadSideEffects } from './heroUploadSideEffects.js';
+import { normalizeMediaUrlField } from './normalizeHeroMediaUrlsForStorage.js';
 
 function parsePreviewBlob(raw) {
   if (raw == null) return {};
@@ -86,6 +87,9 @@ export function buildHeroPreviewPatchFromUrls({
   allowReplaceVideoWithImage = false,
   heroWriteIntent,
 }) {
+  imageUrl = imageUrl ? normalizeMediaUrlField(imageUrl) : null;
+  videoUrl = videoUrl ? normalizeMediaUrlField(videoUrl) : null;
+
   const isVideoHero =
     Boolean(videoUrl) || (imageUrl && VIDEO_EXT.test(imageUrl));
 

@@ -18,6 +18,10 @@ import {
   protectVideoHeroFromImageOnlyOverwrite,
   getExistingVideoUrlFromPreview,
 } from './draftPreviewHeroSync.js';
+import {
+  normalizeHeroFieldsInPreview,
+  normalizeHeroPreviewPatchForStorage,
+} from './normalizeHeroMediaUrlsForStorage.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -2857,6 +2861,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
     'heroPoster',
   ];
   if (heroPatchKeys.some((k) => incoming[k] !== undefined)) {
+    incoming = normalizeHeroPreviewPatchForStorage(incoming);
     const { incoming: safeIncoming } = protectVideoHeroFromImageOnlyOverwrite(existing, incoming, {
       writer: options.heroWriteIntent || options.writer || 'patchDraftPreview',
       draftId,
@@ -2920,6 +2925,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
     incoming.heroVideoUrl !== undefined
   ) {
     syncHeroFieldsIntoPreviewWebsite(merged);
+    normalizeHeroFieldsInPreview(merged);
   }
   if (merged.brand == null && existing.brand != null) merged.brand = existing.brand;
   else if (merged.brand != null && existing.brand != null && typeof merged.brand === 'object' && typeof existing.brand === 'object') {

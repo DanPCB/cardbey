@@ -3,6 +3,10 @@ import { validatePublishedBusinessArtifact } from './validatePublishedBusinessAr
 import { persistPublishedBusinessArtifact } from './persistPublishedBusinessArtifact.js';
 import { parseJsonBlob } from './parseJsonBlob.js';
 import { heroImageUrlForBusinessColumn } from '../draftStore/publishDraftHeroHelpers.js';
+import {
+  normalizeMediaUrlField,
+  normalizeProjectionHeroForStorage,
+} from '../draftStore/normalizeHeroMediaUrlsForStorage.js';
 
 /**
  * Build, validate, persist projection and sync indexed Business columns.
@@ -34,13 +38,14 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
     draftId: draft?.id ?? null,
   });
 
-  const projection = buildPublishedBusinessArtifact({
+  let projection = buildPublishedBusinessArtifact({
     business,
     draft,
     draftPreview,
     publishRunId,
     source,
   });
+  projection = normalizeProjectionHeroForStorage(projection);
 
   const validation = validatePublishedBusinessArtifact(projection);
   projection.diagnostics.warnings = validation.warnings;
@@ -73,9 +78,8 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
   const hero = projection.hero ?? {};
   const existingPrefs = parseJsonBlob(business.stylePreferences) ?? {};
   const existingMini = existingPrefs.miniWebsite ?? {};
-  const heroImageUrl = heroImageUrlForBusinessColumn(
-    hero.videoUrl ?? null,
-    hero.posterUrl ?? hero.imageUrl ?? null,
+  const heroImageUrl = normalizeMediaUrlField(
+    heroImageUrlForBusinessColumn(hero.videoUrl ?? null, hero.posterUrl ?? hero.imageUrl ?? null),
   );
 
   if (process.env.NODE_ENV !== 'production') {

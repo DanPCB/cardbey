@@ -41,6 +41,7 @@ import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
+import { normalizeMediaUrlField } from '../services/draftStore/normalizeHeroMediaUrlsForStorage.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
 import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
@@ -1178,9 +1179,16 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
     }
     const draft = result.draft;
     const body = req.body ?? {};
-    const imageUrl = typeof body.heroImageUrl === 'string' ? body.heroImageUrl.trim() : (typeof body.imageUrl === 'string' ? body.imageUrl.trim() : null);
+    const imageUrlRaw =
+      typeof body.heroImageUrl === 'string'
+        ? body.heroImageUrl.trim()
+        : typeof body.imageUrl === 'string'
+          ? body.imageUrl.trim()
+          : null;
+    const imageUrl = imageUrlRaw ? normalizeMediaUrlField(imageUrlRaw) : null;
     const avatarImageUrl = typeof body.avatarImageUrl === 'string' ? body.avatarImageUrl.trim() : null;
-    const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : null;
+    const videoUrlRaw = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : null;
+    const videoUrl = videoUrlRaw ? normalizeMediaUrlField(videoUrlRaw) : null;
     const source = typeof body.source === 'string' ? body.source.trim() : 'upload';
     const existingPreview = typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {});
 
