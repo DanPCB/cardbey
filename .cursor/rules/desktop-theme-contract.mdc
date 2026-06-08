@@ -1,0 +1,37 @@
+# Desktop Theme Contract (LOCKED)
+
+Immersive shell is a **mobile interaction pattern**, not a global visual theme.
+
+## Breakpoint rule
+
+| Viewport | Mode | Experience |
+|----------|------|------------|
+| **&lt; 1024px** (`max-lg`) | `immersive=true` | Full-screen, media-first, TikTok/Reels-like; dark overlays allowed; floating chrome |
+| **≥ 1024px** (`lg+`) | `immersive=false`, `theatreMode=true` | Light marketplace; information-dense; business-friendly |
+
+## Desktop requirements (≥ 1024px)
+
+Applies to: `/`, `/frontscreen`, `/explore`, `/s/:slug`, `/space/:id`, `/promo/:id`.
+
+1. **Light theme by default** — `background: var(--cb-bg)`; white/light card surfaces.
+2. **No full-page dark immersive backgrounds** — no black viewport canvas; no blown-up phone UI centred on dark letterbox.
+3. **Marketplace density preserved** — category navigation, discovery panels, nearby/offers/recommendations remain visible where the route provides them.
+4. **Feed theatre** — home feed stays in a centred theatre column on desktop; single-card snap is mobile-only behaviour.
+5. **ImmersiveScreenShell** may use dark overlays, hero media, and full-bleed presentation **only below `lg`**.
+
+## Mobile requirements (&lt; 1024px)
+
+- Immersive full-screen presentation is allowed and preferred.
+- Floating chrome, safe-area insets, and dark media overlays are allowed.
+
+## Implementation contract
+
+- Gate immersive visuals with `max-lg:` / `lg:` — never apply kiosk black backgrounds or full-viewport dark overlays at `lg+`.
+- Desktop shell fallback: `var(--cb-bg)`; hide or neutralize `__media` / `__overlay` layers at `lg+` when not showing real hero photography.
+- `bodyLock` / `frontscreen-mode` should apply to mobile kiosk feed only (`max-lg`), not desktop document scroll.
+
+## Acceptance
+
+- **Desktop homepage** = modern light marketplace (Apple + Notion + marketplace).
+- **Mobile homepage** = immersive commerce feed (TikTok + Instagram).
+- **Theme consistency:** Desktop = Light; Mobile = Immersive.
