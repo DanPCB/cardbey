@@ -2786,8 +2786,9 @@ const optionalHttpsOrDataImageUrl = z
       v === '' ||
       v.startsWith('data:image/') ||
       v.startsWith('https://') ||
-      v.startsWith('http://'),
-    { message: 'Must be a data: or http(s) URL' },
+      v.startsWith('http://') ||
+      (typeof v === 'string' && v.startsWith('/uploads/')),
+    { message: 'Must be a data:, http(s), or /uploads/ URL' },
   );
 
 const StoreUpdateSchema = z.object({

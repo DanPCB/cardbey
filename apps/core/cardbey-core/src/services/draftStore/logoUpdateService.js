@@ -223,27 +223,31 @@ export async function updateLogoForStore({
   let draftUpdated = false;
   let businessUpdated = false;
 
-  if (effectiveDraftId) {
-    const fresh = await getDraft(effectiveDraftId);
+  const tryPatchDraftLogo = async (draftIdToPatch) => {
+    const fresh = await getDraft(draftIdToPatch);
     const existingPreview = parsePreviewBlob(fresh?.preview);
     const previewPatch = buildLogoPreviewPatchFromUrl(url, existingPreview);
-    await patchDraftPreview(effectiveDraftId, previewPatch);
-    draftUpdated = true;
-    if (isPublishSnapshotV1Enabled()) {
-      try {
-        await refreshPublishSnapshotFromCurrentPreview(prisma, effectiveDraftId);
-      } catch (snapErr) {
-        console.warn('[logoUpdateService] publish snapshot refresh failed (non-fatal):', snapErr?.message || snapErr);
+    try {
+      await patchDraftPreview(draftIdToPatch, previewPatch);
+      draftUpdated = true;
+      if (isPublishSnapshotV1Enabled()) {
+        try {
+          await refreshPublishSnapshotFromCurrentPreview(prisma, draftIdToPatch);
+        } catch (snapErr) {
+          console.warn('[logoUpdateService] publish snapshot refresh failed (non-fatal):', snapErr?.message || snapErr);
+        }
       }
+    } catch (draftErr) {
+      console.warn('[logoUpdateService] draft logo patch failed (non-fatal):', draftErr?.message || draftErr);
     }
+  };
+
+  if (effectiveDraftId) {
+    await tryPatchDraftLogo(effectiveDraftId);
   } else if (storeId && storeId !== 'temp') {
     const resolved = await resolveDraftForHeroUpdate(prisma, { storeId, draftId: null, generationRunId });
     if (resolved?.id) {
-      const fresh = await getDraft(resolved.id);
-      const existingPreview = parsePreviewBlob(fresh?.preview);
-      const previewPatch = buildLogoPreviewPatchFromUrl(url, existingPreview);
-      await patchDraftPreview(resolved.id, previewPatch);
-      draftUpdated = true;
+      await tryPatchDraftLogo(resolved.id);
     }
   }
 
