@@ -54,12 +54,17 @@ export const VideoGenerationSkill = {
       name: 'Queue video generation',
       tool: 'queue_video_generation',
       required: true,
-      buildInput: (_ctx, stepResults) => {
+      buildInput: (ctx, stepResults) => {
         const scriptOut = stepResults.generate_video_script?.output ?? {};
         const brief = stepResults.analyze_video_brief?.output ?? {};
         return {
           script: scriptOut.script,
           style: brief.style,
+          storeId: ctx.storeId ?? null,
+          storeName: brief.storeName ?? ctx.hydratedContext?.entities?.store?.name ?? '',
+          userMessage: ctx.toolInput?.userMessage ?? ctx.intent ?? '',
+          autoPrompt: brief.autoPrompt ?? null,
+          duration: brief.duration ?? 5,
         };
       },
     },

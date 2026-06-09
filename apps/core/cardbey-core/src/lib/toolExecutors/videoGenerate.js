@@ -11,6 +11,7 @@ import {
   buildVideoArtifact,
   generateVideoViaProvider,
   isVideoGenerationProviderAvailable,
+  resolveVideoProvider,
 } from '../video/videoArtifactContract.js';
 import { OpenAiVideoUnavailableError } from '../video/openaiVideoErrors.js';
 
@@ -58,7 +59,7 @@ export async function execute(input = {}, context = {}) {
     sourceTool: 'video_generate_multimodal',
     title: 'Promotional video',
     message: 'Generating your promotional video…',
-    provider: String(process.env.VIDEO_GENERATION_PROVIDER ?? '').trim() || null,
+    provider: resolveVideoProvider(),
   });
   emitMissionArtifact(missionId, processingArtifact);
 

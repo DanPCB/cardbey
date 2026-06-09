@@ -3,99 +3,72 @@
 // Returns taskId immediately; video URL available
 // after polling completes (see waitForVideo)
 
-import { createVideoTask, waitForVideo } from '../../video/klingClient.js';
+import { resolveVideoProvider } from '../../video/videoProvider.js';
+import { generateVideoViaKling } from '../../video/generateVideoViaKling.js';
+import { buildVideoPromptFromStoreContext } from './analyze_video_brief.js';
 
 export async function execute(input = {}) {
   const {
     script,
     style = 'professional',
     storeName = '',
+    storeId = '',
+    userMessage = '',
+    autoPrompt = '',
     duration = 5,
     aspectRatio = '16:9',
   } = input;
 
-  // Check env config
-  if (!process.env.KLING_ACCESS_KEY || !process.env.KLING_SECRET_KEY) {
+  if (!resolveVideoProvider()) {
     return {
       status: 'ok',
       output: {
         queued: false,
-        reason: 'Kling API credentials not configured',
+        reason: 'Video provider not configured',
         suggestion:
-          'Add KLING_ACCESS_KEY and ' + 'KLING_SECRET_KEY to .env',
+          'Set VIDEO_GENERATION_PROVIDER=kling or add KLING_ACCESS_KEY and KLING_SECRET_KEY to .env',
       },
     };
   }
 
-  // Build video prompt from script
+  const explicitMessage = String(userMessage ?? autoPrompt ?? '').trim();
+  let storePrompt = '';
+  const sid = typeof storeId === 'string' ? storeId.trim() : '';
+  if (sid) {
+    storePrompt = await buildVideoPromptFromStoreContext(sid);
+  }
+
   const prompt = buildVideoPrompt({
     script,
     style,
     storeName,
+    userMessage: explicitMessage,
+    storePrompt,
   });
 
   try {
-    // Submit generation task (returns immediately)
-    const { taskId } = await createVideoTask({
+    const result = await generateVideoViaKling({
       prompt,
       duration,
       aspectRatio,
     });
 
-    // Poll for completion (up to 5 min)
-    const result = await waitForVideo(taskId);
-
-    if (result.completed && result.videoUrl) {
-      // DANH: kling-video-storage
-      let finalVideoUrl = result.videoUrl;
-      let stored = null;
-
-      try {
-        const { downloadAndStoreVideo } = await import('../../video/downloadVideo.js');
-        stored = await downloadAndStoreVideo(result.videoUrl, { prefix: 'kling' });
-        finalVideoUrl = stored.publicPath;
-        console.log('[VideoGen] stored locally:', {
-          original: stored.publicPath,
-          iosSafe: stored.iosSafePublicPath ?? stored.publicPath,
-          createdIosDerivative: stored.createdIosDerivative ?? false,
-        });
-      } catch (downloadErr) {
-        console.warn(
-          '[VideoGen] download failed, using CDN URL:',
-          downloadErr?.message ?? downloadErr,
-        );
-      }
-
-      return {
-        status: 'ok',
-        output: {
-          queued: true,
-          completed: true,
-          taskId,
-          videoUrl: finalVideoUrl,
-          heroVideoUrl: finalVideoUrl,
-          heroVideoUrlOriginal: finalVideoUrl,
-          heroVideoUrlIosSafe:
-            typeof stored?.iosSafePublicPath === 'string'
-              ? stored.iosSafePublicPath
-              : finalVideoUrl,
-          cdnUrl: result.videoUrl,
-          thumbnailUrl: result.thumbnailUrl,
-          duration: result.duration,
-          prompt,
-          storeName,
-        },
-      };
-    }
-
     return {
       status: 'ok',
       output: {
         queued: true,
-        completed: false,
-        taskId,
-        error: result.error ?? 'Generation incomplete',
+        completed: true,
+        taskId: result.taskId,
+        videoUrl: result.videoUrl,
+        heroVideoUrl: result.heroVideoUrl,
+        heroVideoUrlOriginal: result.videoUrl,
+        heroVideoUrlIosSafe: result.heroVideoUrlIosSafe,
+        cdnUrl: result.cdnUrl,
+        thumbnailUrl: result.thumbnailUrl,
+        duration: result.duration,
         prompt,
+        storeName,
+        sourceType: 'video_generation',
       },
     };
   } catch (err) {
@@ -112,11 +85,20 @@ export async function execute(input = {}) {
 /**
  * Build a video prompt optimised for store promos
  */
-function buildVideoPrompt({ script, style, storeName }) {
+function buildVideoPrompt({ script, style, storeName, userMessage, storePrompt }) {
   const styleMap = {
     professional:
       'cinematic, professional lighting, ' +
       'smooth camera movement',
+    fashion_runway:
+      'high fashion runway, elegant models, ' +
+      'dramatic lighting, luxury boutique atmosphere',
+    promotional:
+      'dynamic promotional energy, vibrant colors, ' +
+      'product highlights',
+    brand_story:
+      'warm brand storytelling, inviting atmosphere, ' +
+      'authentic business showcase',
     energetic:
       'dynamic cuts, vibrant colors, ' + 'upbeat energy',
     minimal:
@@ -126,10 +108,8 @@ function buildVideoPrompt({ script, style, storeName }) {
   };
 
   const styleDesc = styleMap[style] ?? styleMap.professional;
-
   const storeContext = storeName ? `for ${storeName}, ` : '';
 
-  // Use first scene or voiceover from script
   const scriptText =
     typeof script === 'object'
       ? (script.voiceover ??
@@ -137,11 +117,13 @@ function buildVideoPrompt({ script, style, storeName }) {
         JSON.stringify(script).slice(0, 200))
       : String(script ?? '').slice(0, 400);
 
+  const contextLead = [storePrompt, userMessage].filter(Boolean).join('. ');
+
   return (
-    `${storeContext}${scriptText}. ` +
+    `${storeContext}${contextLead || scriptText}. ` +
     `Style: ${styleDesc}. ` +
     `High quality, 4K, professional video.`
-  );
+  ).trim();
 }
 
 export default execute;

@@ -22,7 +22,8 @@ const router = Router();
  */
 router.get('/video/search', async (req, res) => {
   const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-  const perPage = Math.min(50, Math.max(1, parseInt(req.query.perPage, 10) || 12));
+  const perPage = Math.min(50, Math.max(1, parseInt(req.query.perPage, 10) || 30));
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const sources = typeof req.query.sources === 'string' && req.query.sources.trim()
     ? req.query.sources.split(',').map((s) => s.trim()).filter(Boolean)
     : undefined;
@@ -30,6 +31,7 @@ router.get('/video/search', async (req, res) => {
   try {
     const { results, bySource, skipped, errors } = await searchAllSources(query, {
       perPage,
+      page,
       sources,
     });
 

@@ -10,6 +10,9 @@ describe('capabilityResolver', () => {
     delete process.env.VIDEO_ARTIFACT_MOCK_URL;
     delete process.env.SLIDESHOW_GENERATION_PROVIDER;
     delete process.env.SLIDESHOW_ARTIFACT_MOCK_URL;
+    delete process.env.KLING_ACCESS_KEY;
+    delete process.env.KLING_SECRET_KEY;
+    delete process.env.OPENAI_API_KEY;
   });
 
   afterEach(() => {
@@ -65,6 +68,21 @@ describe('capabilityResolver', () => {
     expect(plan.userMessage).toMatch(/No alternative/i);
 
     vi.restoreAllMocks();
+  });
+
+  it('3b. promo_video with Kling keys auto-detected → primary selected', () => {
+    process.env.KLING_ACCESS_KEY = 'ak-test';
+    process.env.KLING_SECRET_KEY = 'sk-test';
+
+    const plan = resolveCapabilityExecutionPlan({
+      capability: 'promo_video',
+      requestedTool: 'video_generate_multimodal',
+      context: { activeStoreId: 'store-1' },
+    });
+
+    expect(plan.selectedStrategy).toBe('primary');
+    expect(plan.selectedTool).toBe('video_generate_multimodal');
+    expect(intakeSuccessFromCapabilityPlan(plan)).toBe(true);
   });
 
   it('3. promo_video with video mock provider → primary selected', () => {

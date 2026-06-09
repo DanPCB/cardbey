@@ -14,6 +14,9 @@ describe('video_generate_multimodal executor', () => {
     vi.clearAllMocks();
     delete process.env.VIDEO_GENERATION_PROVIDER;
     delete process.env.VIDEO_ARTIFACT_MOCK_URL;
+    delete process.env.KLING_ACCESS_KEY;
+    delete process.env.KLING_SECRET_KEY;
+    delete process.env.OPENAI_API_KEY;
   });
 
   afterEach(() => {

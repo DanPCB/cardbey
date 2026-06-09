@@ -9,19 +9,45 @@ import {
   artifactUnavailable,
   createArtifact,
 } from '../artifacts/artifactContract.js';
+import { resolveVideoProvider, isVideoGenerationProviderAvailable } from './videoProvider.js';
+
+export { resolveVideoProvider, isVideoGenerationProviderAvailable } from './videoProvider.js';
 
 export const VIDEO_ARTIFACT_UNAVAILABLE_MESSAGE =
   'Video generation is not connected yet. We can help with images, copy, and campaigns in the meantime.';
 
-export function isVideoGenerationProviderAvailable() {
-  const provider = String(process.env.VIDEO_GENERATION_PROVIDER ?? '').trim().toLowerCase();
-  if (provider === 'mock') {
-    return Boolean(String(process.env.VIDEO_ARTIFACT_MOCK_URL ?? '').trim());
+/**
+ * @param {object} [input]
+ * @param {object} [context]
+ */
+async function resolveGenerationPrompt(input = {}, context = {}) {
+  const explicit =
+    (typeof input?.prompt === 'string' && input.prompt.trim()) ||
+    (typeof input?.description === 'string' && input.description.trim()) ||
+    (typeof input?.userMessage === 'string' && input.userMessage.trim()) ||
+    (typeof input?.autoPrompt === 'string' && input.autoPrompt.trim()) ||
+    '';
+
+  const storeId =
+    (typeof input?.storeId === 'string' && input.storeId.trim()) ||
+    (typeof context?.storeId === 'string' && context.storeId.trim()) ||
+    '';
+
+  if (storeId) {
+    try {
+      const { buildVideoPromptFromStoreContext } = await import(
+        '../toolExecutors/video/analyze_video_brief.js'
+      );
+      const storePrompt = await buildVideoPromptFromStoreContext(storeId);
+      if (storePrompt) {
+        return explicit ? `${storePrompt}. ${explicit}` : storePrompt;
+      }
+    } catch {
+      /* non-fatal */
+    }
   }
-  if (provider === 'openai') {
-    return Boolean(String(process.env.OPENAI_API_KEY ?? '').trim());
-  }
-  return false;
+
+  return explicit || 'Promotional video for store';
 }
 
 /**
@@ -45,12 +71,58 @@ export function buildVideoArtifact(fields) {
  * }} [options]
  */
 export async function generateVideoViaProvider(input = {}, context = {}, options = {}) {
-  const provider = String(process.env.VIDEO_GENERATION_PROVIDER ?? '').trim().toLowerCase();
+  const provider = resolveVideoProvider();
   const missionId =
     options.missionId ||
     (context?.missionId && String(context.missionId).trim()) ||
     (input?.missionId && String(input.missionId).trim()) ||
     undefined;
+
+  if (provider === 'kling') {
+    const { generateVideoViaKling } = await import('./generateVideoViaKling.js');
+    const prompt = await resolveGenerationPrompt(input, context);
+
+    const emitProcessing = async (info) => {
+      if (!options.onProcessingUpdate) return;
+      await options.onProcessingUpdate(
+        artifactProcessing({
+          id: options.artifactId,
+          type: 'video',
+          missionId,
+          provider: 'kling',
+          message:
+            info.status === 'submitted'
+              ? 'Video job queued with Kling…'
+              : 'Generating your promotional video with Kling…',
+          metadata: { taskId: info.taskId, klingStatus: info.status },
+        }),
+      );
+    };
+
+    const result = await generateVideoViaKling({
+      prompt,
+      duration: input?.lengthSeconds ?? input?.duration,
+      aspectRatio: input?.aspectRatio,
+      onPoll: emitProcessing,
+    });
+
+    return artifactReady({
+      id: options.artifactId,
+      type: 'video',
+      missionId,
+      url: result.videoUrl,
+      previewUrl: result.videoUrl,
+      thumbnailUrl: result.thumbnailUrl ?? null,
+      provider: 'kling',
+      message: 'Your promotional video is ready.',
+      metadata: {
+        taskId: result.taskId,
+        cdnUrl: result.cdnUrl,
+        heroVideoUrlIosSafe: result.heroVideoUrlIosSafe,
+        sourceType: 'video_generation',
+      },
+    });
+  }
 
   if (provider === 'mock') {
     const url = String(process.env.VIDEO_ARTIFACT_MOCK_URL ?? '').trim();
@@ -144,7 +216,9 @@ export async function generateVideoViaProvider(input = {}, context = {}, options
     }
   }
 
-  throw new Error(`Unknown VIDEO_GENERATION_PROVIDER: ${provider || '(unset)'}`);
+  throw new Error(
+    `Unknown or unconfigured video provider: ${provider || '(unset) — set VIDEO_GENERATION_PROVIDER or KLING keys'}`,
+  );
 }
 
 export { artifactProcessing, artifactFailed, artifactUnavailable, artifactReady };
