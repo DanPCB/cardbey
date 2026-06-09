@@ -60,9 +60,11 @@ export async function search(query, opts = {}) {
   }
 
   const perPage = Math.min(30, Math.max(1, Number(opts.perPage) || 12));
+  const page = Math.max(1, Number(opts.page) || 1);
   const params = new URLSearchParams({
     query: String(query || '').slice(0, 200),
     per_page: String(perPage),
+    page: String(page),
   });
 
   const res = await fetch(`${PEXELS_VIDEOS_SEARCH_URL}?${params.toString()}`, {

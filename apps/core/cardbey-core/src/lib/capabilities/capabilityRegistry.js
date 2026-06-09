@@ -4,7 +4,7 @@
  */
 
 import { isSlideshowGenerationProviderAvailable } from '../artifacts/slideshowArtifactContract.js';
-import { isVideoGenerationProviderAvailable } from '../video/videoArtifactContract.js';
+import { isVideoGenerationProviderAvailable, videoProviderUnavailableReason } from '../video/videoProvider.js';
 
 /** @typedef {'promo_video' | 'slideshow' | 'promo_image' | 'promo_poster' | 'social_posts' | 'offer' | 'qr_campaign' | 'store_website' | 'unknown'} OperationalCapability */
 
@@ -146,10 +146,10 @@ const RE_SOCIAL = /\b(social\s+post|instagram\s+caption|facebook\s+post|caption)
 export function isToolProviderAvailable(toolName, env = process.env) {
   const t = String(toolName ?? '').trim();
   if (t === 'video_generate_multimodal') {
-    if (isVideoGenerationProviderAvailable()) return { available: true };
+    if (isVideoGenerationProviderAvailable(env)) return { available: true };
     return {
       available: false,
-      reason: 'Direct AI video is not connected yet (set VIDEO_GENERATION_PROVIDER).',
+      reason: videoProviderUnavailableReason(env),
     };
   }
   if (t === 'generate_slideshow') {

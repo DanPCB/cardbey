@@ -72,10 +72,12 @@ export async function search(query, opts = {}) {
   }
 
   const pageSize = Math.min(100, Math.max(1, Number(opts.perPage) || 12));
+  const page = Math.max(1, Number(opts.page) || 1);
   const params = new URLSearchParams({
     query: String(query || '').slice(0, 200),
     urls: 'true',
     page_size: String(pageSize),
+    page: String(page),
     api_key: token.trim(),
   });
 

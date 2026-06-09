@@ -66,7 +66,7 @@ export async function searchAllSources(query, opts = {}) {
     requested.map(async (key) => {
       const adapter = adapters[key];
       try {
-        const items = await adapter.search(query, { perPage: opts.perPage });
+        const items = await adapter.search(query, { perPage: opts.perPage, page: opts.page });
         return { key, items: Array.isArray(items) ? items : [] };
       } catch (err) {
         if (err instanceof VideoSourceNotConfiguredError) {
