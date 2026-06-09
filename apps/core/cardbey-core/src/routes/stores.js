@@ -1239,6 +1239,13 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
       businessUpdated: heroResult?.businessUpdated ?? false,
     });
   } catch (err) {
+    if (err?.code === 'draft_already_committed' || String(err?.message || '').includes('already been committed')) {
+      return res.status(409).json({
+        ok: false,
+        error: 'draft_already_committed',
+        message: err.message || 'This draft is locked for full edits. Use hero/avatar edits only.',
+      });
+    }
     console.error('[Stores:PATCH /:storeId/draft/hero]', err?.message || err);
     next(err);
   }
@@ -3009,6 +3016,15 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
       where: { id },
       data: prismaUpdateData
     });
+
+    try {
+      const { syncBusinessProfileToCommittedDraft } = await import(
+        '../services/draftStore/businessProfileDraftSync.js'
+      );
+      await syncBusinessProfileToCommittedDraft(prisma, id, updateData);
+    } catch (draftSyncErr) {
+      console.warn('[Stores] draft profile sync failed (non-fatal):', draftSyncErr?.message || draftSyncErr);
+    }
 
     if (
       socialLinksUpdated &&
