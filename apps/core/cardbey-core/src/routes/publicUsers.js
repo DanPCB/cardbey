@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
+import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
 import {
   resolvePublicStoresForList,
   PUBLIC_STORE_LIST_SELECT,
@@ -185,6 +186,7 @@ router.get('/stores/feed', async (req, res, next) => {
     const pageBusinesses = hasMore ? businesses.slice(0, limit) : businesses;
     const resolved = await resolvePublicStoresForList(prisma, pageBusinesses, {
       route: 'GET /api/public/stores/feed',
+      req,
     });
     const items = resolved.map(({ store }) => store);
     const last = items[items.length - 1];
@@ -234,6 +236,7 @@ router.get('/stores', async (req, res, next) => {
 
     const resolved = await resolvePublicStoresForList(prisma, stores, {
       route: 'GET /api/public/stores',
+      req,
     });
     const publicStores = resolved.map(({ store }) => store);
 
@@ -587,9 +590,15 @@ router.get('/stores/:slug', async (req, res, next) => {
       publicStore.heroMediaType = projectionHeroRow.heroMediaType ?? publicStore.heroMediaType ?? 'image';
     }
 
-    Object.assign(publicStore, enrichStoreHeroVideoUrls(publicStore, {
-      uploadsDir: process.env.UPLOADS_DIR,
-    }));
+    Object.assign(
+      publicStore,
+      resolvePublicStoreMediaUrls(
+        enrichStoreHeroVideoUrls(publicStore, {
+          uploadsDir: process.env.UPLOADS_DIR,
+        }),
+        req,
+      ),
+    );
 
     // Always emit socialLinks on slug route (parity with frontscreen card mapping).
     const mappedSocialLinks =

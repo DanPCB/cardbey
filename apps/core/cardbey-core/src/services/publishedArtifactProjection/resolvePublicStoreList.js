@@ -9,6 +9,7 @@ import { publishedBusinessArtifactToPublicStore } from './publishedBusinessArtif
 import { loadPersistedProjectionsByBusinessIds } from './persistPublishedBusinessArtifact.js';
 import { toPublicStore } from '../../utils/publicStoreMapper.js';
 import { enrichStoreHeroVideoUrls } from '../../lib/videoIosSafe.js';
+import { resolvePublicStoreMediaUrls } from '../../utils/publicUrl.js';
 import { loadActiveFeedPromoArtifacts } from '../feed/loadActiveFeedPromoArtifacts.js';
 
 /** Fields required for projection build + public DTO on list/feed routes. */
@@ -20,7 +21,7 @@ export const PUBLIC_STORE_LIST_SELECT = businessPublicReadSelect();
  * @param {{ route?: string, lang?: string }} [opts]
  */
 export async function resolvePublicStoresForList(prisma, businesses, opts = {}) {
-  const { route = 'public_list', lang } = opts;
+  const { route = 'public_list', lang, req = null } = opts;
   if (!Array.isArray(businesses) || businesses.length === 0) {
     return [];
   }
@@ -73,15 +74,18 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
     const slug = store.slug ?? business.slug;
     const storeUrl = slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null;
     const feedPromoArtifacts = feedPromoArtifactsByStore.get(business.id) ?? [];
-    const enriched = enrichStoreHeroVideoUrls(
-      {
-        ...store,
-        storeUrl,
-        ...(feedPromoArtifacts.length > 0 ? { feedPromoArtifacts } : {}),
-      },
-      {
-        uploadsDir: process.env.UPLOADS_DIR,
-      },
+    const enriched = resolvePublicStoreMediaUrls(
+      enrichStoreHeroVideoUrls(
+        {
+          ...store,
+          storeUrl,
+          ...(feedPromoArtifacts.length > 0 ? { feedPromoArtifacts } : {}),
+        },
+        {
+          uploadsDir: process.env.UPLOADS_DIR,
+        },
+      ),
+      req,
     );
 
     console.log('[PUBLIC_FEED_PROJECTION_PARITY]', {

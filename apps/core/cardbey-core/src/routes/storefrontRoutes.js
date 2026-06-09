@@ -16,6 +16,8 @@ import { getPrismaClient } from '../lib/prisma.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
 import { businessPublicReadSelect, publicCommerceFields } from '../lib/dbCapabilities.js';
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
+import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
+import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
 
 const router = express.Router();
 
@@ -88,23 +90,30 @@ router.get('/frontscreen', async (req, res, next) => {
     for (const s of stores) {
       const { store: pub } = await resolvePublicStoreFromArtifact(prisma, s);
       const slug = pub.slug ?? s.slug;
-      mapped.push({
-        id: s.id,
-        name: pub.name,
-        slug,
-        type: pub.type ?? s.type,
-        heroImageUrl: pub.heroUrl ?? s.heroImageUrl ?? null,
-        heroVideo: pub.heroVideo ?? null,
-        avatarImageUrl: pub.avatarUrl ?? s.avatarImageUrl ?? null,
-        publishedAt: s.publishedAt?.toISOString?.() ?? null,
-        description: pub.description ?? null,
-        tagline: pub.tagline ?? null,
-        website: pub.website ?? null,
-        liveUrl: slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null,
-        ...publicCommerceFields(s, pub),
-        storefrontSettings: pub.storefrontSettings ?? jsonToPlainObject(s.storefrontSettings),
-        socialLinks: pub.socialLinks ?? null,
-      });
+      const row = resolvePublicStoreMediaUrls(
+        enrichStoreHeroVideoUrls(
+          {
+            id: s.id,
+            name: pub.name,
+            slug,
+            type: pub.type ?? s.type,
+            heroImageUrl: pub.heroUrl ?? s.heroImageUrl ?? null,
+            heroVideo: pub.heroVideo ?? null,
+            avatarImageUrl: pub.avatarUrl ?? s.avatarImageUrl ?? null,
+            publishedAt: s.publishedAt?.toISOString?.() ?? null,
+            description: pub.description ?? null,
+            tagline: pub.tagline ?? null,
+            website: pub.website ?? null,
+            liveUrl: slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null,
+            ...publicCommerceFields(s, pub),
+            storefrontSettings: pub.storefrontSettings ?? jsonToPlainObject(s.storefrontSettings),
+            socialLinks: pub.socialLinks ?? null,
+          },
+          { uploadsDir: process.env.UPLOADS_DIR },
+        ),
+        req,
+      );
+      mapped.push(row);
     }
 
     return res.json({

@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildPublicUrl, resolvePublicUrl, normalizePublicOrigin, joinMediaUrl } from '../src/utils/publicUrl.js';
+import {
+  buildPublicUrl,
+  resolvePublicUrl,
+  normalizePublicOrigin,
+  joinMediaUrl,
+  rebaseCrossDeployCoreUrl,
+  buildMediaUrl,
+} from '../src/utils/publicUrl.js';
 
 describe('publicUrl utilities', () => {
   const originalEnv = process.env.PUBLIC_BASE_URL;
@@ -142,6 +149,41 @@ describe('publicUrl utilities', () => {
       expect(joinMediaUrl('http://192.168.1.1:3001', '/uploads/media/a.mp4')).toBe(
         'http://192.168.1.1:3001/uploads/media/a.mp4',
       );
+    });
+  });
+
+  describe('rebaseCrossDeployCoreUrl', () => {
+    it('rebases staging Core /uploads onto production request host', () => {
+      const mockReq = {
+        protocol: 'https',
+        get: (key) => {
+          if (key === 'host') return 'cardbey-core.onrender.com';
+          return null;
+        },
+        headers: { host: 'cardbey-core.onrender.com' },
+      };
+      const rebased = rebaseCrossDeployCoreUrl(
+        'https://cardbey-core-staging.onrender.com/uploads/media/logo.png',
+        mockReq,
+      );
+      expect(rebased).toBe('https://cardbey-core.onrender.com/uploads/media/logo.png');
+    });
+
+    it('passes buildMediaUrl through cross-deploy rebase', () => {
+      const mockReq = {
+        protocol: 'https',
+        get: (key) => {
+          if (key === 'host') return 'cardbey-core.onrender.com';
+          return null;
+        },
+        headers: { host: 'cardbey-core.onrender.com' },
+      };
+      expect(
+        buildMediaUrl(
+          'https://cardbey-core-staging.onrender.com/uploads/media/logo.png',
+          mockReq,
+        ),
+      ).toBe('https://cardbey-core.onrender.com/uploads/media/logo.png');
     });
   });
 });

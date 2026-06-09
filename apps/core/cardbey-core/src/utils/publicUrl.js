@@ -403,6 +403,61 @@ export function getBaseUrlFromRequest(req) {
  * @param {object} req - Express request object (optional, for getting current origin)
  * @returns {string} Full absolute URL using current server origin
  */
+const STAGING_CORE_HOST = 'cardbey-core-staging.onrender.com';
+const PRODUCTION_CORE_HOST = 'cardbey-core.onrender.com';
+
+/**
+ * Rebase absolute /uploads URLs from the wrong Cardbey Core deploy onto the active API host.
+ * Fixes live DB rows that still reference staging after promotion.
+ */
+export function rebaseCrossDeployCoreUrl(url, req = null) {
+  if (!url || typeof url !== 'string') return url;
+  const trimmed = normalizePublicOrigin(url.trim());
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) return url;
+  try {
+    const u = new URL(trimmed);
+    if (!u.pathname.startsWith('/uploads/')) return trimmed;
+    const base = getBaseUrlFromRequest(req);
+    const baseHost = new URL(base.match(/^https?:\/\//i) ? base : `https://${base}`).hostname.toLowerCase();
+    const host = u.hostname.toLowerCase();
+    if (host === baseHost) return trimmed;
+    const crossDeploy =
+      (host === STAGING_CORE_HOST && baseHost === PRODUCTION_CORE_HOST) ||
+      (host === PRODUCTION_CORE_HOST && baseHost === STAGING_CORE_HOST);
+    if (!crossDeploy) return trimmed;
+    const rebased = joinMediaUrl(base, `${u.pathname}${u.search}${u.hash}`);
+    console.warn('[buildMediaUrl] Rebased cross-deploy media URL:', { from: trimmed, to: rebased });
+    return rebased;
+  } catch {
+    return trimmed;
+  }
+}
+
+/** Resolve all public store media fields to absolute URLs for browser clients. */
+export function resolvePublicStoreMediaUrls(store, req = null) {
+  if (!store || typeof store !== 'object') return store;
+  const mediaKeys = [
+    'avatarUrl',
+    'avatarImageUrl',
+    'bannerUrl',
+    'heroUrl',
+    'heroVideo',
+    'heroVideoUrl',
+    'heroImage',
+    'heroImageUrl',
+    'heroVideoUrlIosSafe',
+    'heroVideoUrlOriginal',
+  ];
+  const out = { ...store };
+  for (const key of mediaKeys) {
+    const raw = out[key];
+    if (typeof raw === 'string' && raw.trim()) {
+      out[key] = buildMediaUrl(raw.trim(), req);
+    }
+  }
+  return out;
+}
+
 export function buildMediaUrl(urlOrPath, req = null) {
   if (!urlOrPath || typeof urlOrPath !== 'string') {
     console.warn('[publicUrl] Empty or invalid urlOrPath provided to buildMediaUrl');
@@ -416,6 +471,7 @@ export function buildMediaUrl(urlOrPath, req = null) {
 
   if (urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://')) {
     urlOrPath = normalizePublicOrigin(urlOrPath);
+    urlOrPath = rebaseCrossDeployCoreUrl(urlOrPath, req);
   }
   
   // CloudFront/S3 URLs - return unchanged
