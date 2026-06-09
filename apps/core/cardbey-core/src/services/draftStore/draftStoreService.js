@@ -2647,8 +2647,8 @@ export async function getDraftByGenerationRunId(generationRunId) {
  * When you pass { items }, preview.items is replaced entirely (preserves stable ids item_${draftId}_${index});
  * other preview fields (storeName, categories, brandColors, etc.) are kept.
  */
-/** After commit, only hero/avatar URL patches are allowed (preview panel); full catalog edits stay blocked. */
-/** Class A post-publish manual edits: hero/avatar media only (no catalog / rebuild). */
+/** After commit, only Class A manual edits are allowed; full catalog edits stay blocked. */
+/** Hero/avatar media (preview panel + profile uploads). */
 const COMMITTED_PREVIEW_PATCH_KEYS = new Set([
   'hero',
   'heroImageUrl',
@@ -2661,12 +2661,36 @@ const COMMITTED_PREVIEW_PATCH_KEYS = new Set([
   'avatarImageUrl',
 ]);
 
-/** True when incoming patch only touches post-commit editable hero/avatar fields. */
+/** Logo upload patches (buildLogoPreviewPatchFromUrl). */
+const COMMITTED_LOGO_PATCH_KEYS = new Set(['brand', 'meta', 'store', 'avatarUrl']);
+
+/** Manual business profile text/contact fields (dashboard PATCH /api/stores/:id). */
+const COMMITTED_BUSINESS_PROFILE_PATCH_KEYS = new Set([
+  'storeName',
+  'name',
+  'tagline',
+  'slogan',
+  'description',
+  'phone',
+  'email',
+  'contactEmail',
+  'address',
+  'suburb',
+  'postcode',
+  'country',
+]);
+
+/** True when incoming patch only touches post-commit editable hero/avatar/logo/profile fields. */
 export function isCommittedHeroAvatarOnlyPatch(incoming) {
   if (!incoming || typeof incoming !== 'object') return false;
   const keys = Object.keys(incoming);
   if (!keys.length) return false;
-  return keys.every((k) => COMMITTED_PREVIEW_PATCH_KEYS.has(k));
+  return keys.every(
+    (k) =>
+      COMMITTED_PREVIEW_PATCH_KEYS.has(k) ||
+      COMMITTED_LOGO_PATCH_KEYS.has(k) ||
+      COMMITTED_BUSINESS_PROFILE_PATCH_KEYS.has(k),
+  );
 }
 
 function parseStylePreferencesBlob(raw) {

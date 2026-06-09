@@ -5,6 +5,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../../lib/prisma.js';
 import { patchDraftPreview } from './draftStoreService.js';
 import { buildHeroPreviewPatchFromUrls } from './heroUpdateService.js';
+import { buildLogoPreviewPatchFromUrl } from './logoUpdateService.js';
+import { buildBusinessProfileDraftPatch } from './businessProfileDraftSync.js';
 
 describe('patchDraftPreview committed hero', () => {
   let userId;
@@ -125,5 +127,33 @@ describe('patchDraftPreview committed hero', () => {
       select: { heroImageUrl: true, stylePreferences: true },
     });
     expect(business?.heroImageUrl).toBe('https://cdn.example.com/old-hero.jpg');
+  });
+
+  it('allows logo upload patch on committed live draft', async () => {
+    const logoUrl = 'https://cdn.example.com/logo.png';
+    const patch = buildLogoPreviewPatchFromUrl(logoUrl, {});
+    await patchDraftPreview(draftId, patch);
+
+    const draft = await prisma.draftStore.findUnique({ where: { id: draftId } });
+    const preview =
+      typeof draft?.preview === 'string' ? JSON.parse(draft.preview) : draft?.preview;
+    expect(preview?.avatarImageUrl).toBe(logoUrl);
+    expect(preview?.brand?.logoUrl).toBe(logoUrl);
+  });
+
+  it('allows business profile text patch on committed live draft', async () => {
+    const patch = buildBusinessProfileDraftPatch({
+      name: 'Renamed Flooring Co',
+      tagline: 'New tagline',
+      description: 'Updated description',
+    });
+    await patchDraftPreview(draftId, patch);
+
+    const draft = await prisma.draftStore.findUnique({ where: { id: draftId } });
+    const preview =
+      typeof draft?.preview === 'string' ? JSON.parse(draft.preview) : draft?.preview;
+    expect(preview?.storeName).toBe('Renamed Flooring Co');
+    expect(preview?.tagline).toBe('New tagline');
+    expect(preview?.description).toBe('Updated description');
   });
 });
