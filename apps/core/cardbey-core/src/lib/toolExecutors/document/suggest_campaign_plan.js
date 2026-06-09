@@ -1,17 +1,39 @@
 // DANH: skill-round6-document
 /**
- * suggest_campaign_plan — week-by-week content calendar leading up to event dates.
+ * suggest_campaign_plan — week-by-week content calendar with optional CampaignPlan persistence.
  */
+
+import { getPrismaClient } from '../../prisma.js';
+import { appendEvent } from '../../missionBlackboard.js';
+import { parseDocumentDeadline } from '../../../services/documentExtraction/parseDocumentDeadline.js';
 
 /**
  * @param {string | null | undefined} raw
  * @returns {Date | null}
  */
 function parseEventDate(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+  return parseDocumentDeadline(raw);
+}
+
+/**
+ * @param {Date} anchor
+ * @param {number} weeksBefore
+ */
+function scheduledDateFromWeeksBefore(anchor, weeksBefore) {
+  const d = new Date(anchor);
+  d.setDate(d.getDate() - weeksBefore * 7);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * @param {string} weekLabel
+ * @returns {number | null}
+ */
+function parseWeeksBefore(weekLabel) {
+  const m = String(weekLabel ?? '').match(/-?\s*(\d+)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -55,6 +77,83 @@ const WEEK_TEMPLATES = {
 };
 
 /**
+ * @param {Array<object>} products
+ * @param {Array<object>} events
+ * @param {Array<object>} offers
+ * @returns {Date | null}
+ */
+function earliestDeadline(products, events, offers) {
+  /** @type {Date[]} */
+  const dates = [];
+  for (const p of products) {
+    const d = parseEventDate(p?.deadline || p?.dates);
+    if (d) dates.push(d);
+  }
+  for (const ev of events) {
+    const d = parseEventDate(ev?.date);
+    if (d) dates.push(d);
+  }
+  for (const offer of offers) {
+    const d = parseEventDate(offer.eventDate || offer.endsAt || offer.startsAt);
+    if (d) dates.push(d);
+  }
+  if (!dates.length) return null;
+  dates.sort((a, b) => a.getTime() - b.getTime());
+  return dates[0];
+}
+
+/**
+ * @param {object} data
+ * @param {string} businessName
+ */
+function campaignObjectiveLabel(data, businessName) {
+  const campaign = data?.campaign && typeof data.campaign === 'object' ? data.campaign : null;
+  const fromCampaign = String(campaign?.name ?? '').trim();
+  if (fromCampaign) return fromCampaign;
+  const fromList = Array.isArray(data?.campaigns) ? String(data.campaigns[0]?.name ?? '').trim() : '';
+  if (fromList) return fromList;
+  if (businessName) return businessName;
+  return 'Document campaign';
+}
+
+/**
+ * @param {object} params
+ */
+function buildCampaignPlanRecord({
+  tenantKey,
+  storeId,
+  missionId,
+  data,
+  businessName,
+  productIds,
+  calendar,
+  earliestEnd,
+}) {
+  const campaign = data?.campaign && typeof data.campaign === 'object' ? data.campaign : null;
+  const label = campaignObjectiveLabel(data, businessName);
+
+  return {
+    tenantKey,
+    storeId,
+    missionId: missionId ?? undefined,
+    objective: `${label} — DocumentIngestionSkill`,
+    target: {
+      products: productIds,
+      business: data?.business?.name ?? businessName ?? null,
+      campaign: campaign ?? (Array.isArray(data?.campaigns) && data.campaigns[0] ? data.campaigns[0] : null),
+      source: 'document_ingestion',
+    },
+    timeWindow: {
+      start: new Date().toISOString(),
+      end: earliestEnd ? earliestEnd.toISOString() : null,
+      tz: 'Australia/Melbourne',
+    },
+    channelsRequested: calendar,
+    status: 'draft',
+  };
+}
+
+/**
  * @param {Array<object>} events
  * @param {Array<object>} offers
  */
@@ -87,15 +186,49 @@ function collectEventDates(events, offers) {
 }
 
 /**
- * @param {object} [input]
+ * @param {Array<object>} calendar
+ * @param {Date | null} anchor
  */
-export async function execute(input = {}) {
-  // @pure-transform: deterministic campaign calendar from extracted doc; no DB/API side effects.
+function enrichCalendarWithDates(calendar, anchor) {
+  if (!anchor) {
+    return calendar.map((entry) => ({
+      ...entry,
+      scheduledDate: entry.scheduledDate ?? null,
+    }));
+  }
+
+  return calendar.map((entry) => {
+    const weeksBefore = parseWeeksBefore(entry.week);
+    const scheduledDate =
+      weeksBefore != null
+        ? scheduledDateFromWeeksBefore(anchor, weeksBefore)
+        : entry.scheduledDate ?? null;
+    return { ...entry, scheduledDate };
+  });
+}
+
+/**
+ * @param {object} [input]
+ * @param {object} [context]
+ */
+export async function execute(input = {}, context = {}) {
   const extracted = input?.extracted === true;
   const data = input?.data && typeof input.data === 'object' ? input.data : null;
+  const storeId = typeof input?.storeId === 'string' ? input.storeId.trim() : '';
+  const tenantKey =
+    (typeof context?.tenantKey === 'string' && context.tenantKey.trim()) ||
+    (typeof input?.tenantKey === 'string' && input.tenantKey.trim()) ||
+    storeId;
+  const missionId =
+    (typeof context?.missionId === 'string' && context.missionId.trim()) ||
+    (typeof input?.missionId === 'string' && input.missionId.trim()) ||
+    null;
+  const productIds = Array.isArray(input?.productIds) ? input.productIds.filter(Boolean) : [];
   const events = Array.isArray(data?.events) ? data.events : [];
   const offers = Array.isArray(data?.offers) ? data.offers : [];
+  const products = Array.isArray(data?.products) ? data.products : [];
   const businessName = String(data?.businessName ?? input?.businessName ?? '').trim();
+  const anchor = earliestDeadline(products, events, offers);
 
   if (!extracted || !data) {
     return {
@@ -104,36 +237,112 @@ export async function execute(input = {}) {
         planReady: false,
         reason: 'No extracted document data for campaign planning',
         calendar: [],
+        weeks: [],
       },
     };
   }
 
-  const eventDates = collectEventDates(events, offers);
-  if (!eventDates.length) {
-    return {
-      status: 'ok',
-      output: {
-        planReady: false,
-        reason: 'No event dates found in document — add dates to generate a calendar',
-        calendar: [],
-      },
-    };
+  /** @type {Array<object>} */
+  let calendar = [];
+
+  if (Array.isArray(data.calendar) && data.calendar.length) {
+    calendar = data.calendar.map((entry) => ({
+      week: String(entry?.week ?? ''),
+      action: String(entry?.action ?? ''),
+      content: String(entry?.content ?? ''),
+      channel: String(entry?.channel ?? 'social'),
+    }));
+    calendar = enrichCalendarWithDates(calendar, anchor);
+  } else {
+    const eventDates = collectEventDates(events, offers);
+    const deadlineAnchor = anchor ?? eventDates[0]?.date ?? null;
+    if (!deadlineAnchor && !eventDates.length) {
+      return {
+        status: 'ok',
+        output: {
+          planReady: false,
+          reason: 'No event dates or calendar entries found in document',
+          calendar: [],
+          weeks: [],
+        },
+      };
+    }
+
+    const datesToPlan = eventDates.length
+      ? eventDates
+      : [{ name: businessName || 'Campaign', date: deadlineAnchor, venue: undefined }];
+
+    for (const ev of datesToPlan) {
+      const evAnchor = ev.date;
+      for (const weeksBefore of [4, 3, 2, 1, 0]) {
+        const tpl = WEEK_TEMPLATES[weeksBefore];
+        calendar.push({
+          week: weekLabel(evAnchor, weeksBefore),
+          action: tpl.action,
+          content: `${tpl.content}${businessName ? ` (${businessName}` : ''}${ev.venue ? ` @ ${ev.venue}` : ''}${businessName || ev.venue ? ')' : ''} — ${ev.name}`,
+          channel: tpl.channel,
+          eventName: ev.name,
+          eventDate: evAnchor.toISOString().slice(0, 10),
+          scheduledDate: scheduledDateFromWeeksBefore(evAnchor, weeksBefore),
+        });
+      }
+    }
   }
 
-  /** @type {Array<{ week: string, action: string, content: string, channel: string, eventName: string, eventDate: string }>} */
-  const calendar = [];
+  /** @type {string | null} */
+  let planId = null;
+  /** @type {boolean} */
+  let planPersisted = false;
+  /** @type {string | null} */
+  let persistError = null;
 
-  for (const ev of eventDates) {
-    for (const weeksBefore of [4, 3, 2, 1, 0]) {
-      const tpl = WEEK_TEMPLATES[weeksBefore];
-      calendar.push({
-        week: weekLabel(ev.date, weeksBefore),
-        action: tpl.action,
-        content: `${tpl.content}${businessName ? ` (${businessName}` : ''}${ev.venue ? ` @ ${ev.venue}` : ''}${businessName || ev.venue ? ')' : ''} — ${ev.name}`,
-        channel: tpl.channel,
-        eventName: ev.name,
-        eventDate: ev.date.toISOString().slice(0, 10),
+  if (storeId && tenantKey) {
+    try {
+      const prisma = getPrismaClient();
+      const planData = buildCampaignPlanRecord({
+        tenantKey,
+        storeId,
+        missionId,
+        data,
+        businessName,
+        productIds,
+        calendar,
+        earliestEnd: anchor,
       });
+      const plan = await prisma.campaignPlan.create({ data: planData });
+      planId = plan.id;
+      planPersisted = true;
+    } catch (err) {
+      persistError = err?.message ?? String(err);
+      console.warn('[suggest_campaign_plan] CampaignPlan persistence failed:', persistError);
+    }
+  }
+
+  let screensQueued = 0;
+  let displayQueuePlanned = false;
+  if (storeId && calendar.length > 0) {
+    try {
+      const prismaForScreens = getPrismaClient();
+      const signagePlaylists = await prismaForScreens.playlist.findMany({
+        where: { storeId, active: true, type: 'SIGNAGE' },
+        select: { id: true, name: true },
+        take: 10,
+      });
+      if (signagePlaylists.length > 0) {
+        screensQueued = signagePlaylists.length;
+        displayQueuePlanned = true;
+        if (missionId) {
+          await appendEvent(missionId, 'document_ingestion.display_queue', {
+            storeId,
+            skill: 'smart_display_publish',
+            content: calendar[0],
+            playlistIds: signagePlaylists.map((p) => p.id),
+            source: 'document_ingestion_calendar',
+          }).catch(() => {});
+        }
+      }
+    } catch (screenErr) {
+      console.warn('[suggest_campaign_plan] display queue skipped:', screenErr?.message ?? screenErr);
     }
   }
 
@@ -141,15 +350,23 @@ export async function execute(input = {}) {
     status: 'ok',
     output: {
       planReady: true,
-      eventCount: eventDates.length,
+      planId,
+      planPersisted,
+      persistError,
+      persistTarget: 'CampaignPlan',
+      eventCount: collectEventDates(events, offers).length || (anchor ? 1 : 0),
       calendar,
+      weeks: calendar,
+      screensQueued,
+      displayQueuePlanned,
       executionPlan: {
-        summary: `${calendar.length} scheduled actions across ${eventDates.length} event(s)`,
+        summary: `${calendar.length} scheduled actions`,
         nextAction: calendar[0] ?? null,
       },
-      message: `Campaign plan: ${calendar.length} actions over ${eventDates.length} event(s)`,
+      message: `Campaign plan: ${calendar.length} actions`,
     },
   };
 }
 
+export { buildCampaignPlanRecord };
 export default execute;

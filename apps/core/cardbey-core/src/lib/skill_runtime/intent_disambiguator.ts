@@ -10,6 +10,7 @@
  */
 
 import { createLogger } from '../logger.js';
+import { getAdaptiveWeightService } from '../pil/adaptiveWeights.js';
 import {
   DEFAULT_REQUIRED_CONFIDENCE,
   type IntentPattern,
@@ -35,6 +36,7 @@ export interface IntentScore {
 
 export class IntentDisambiguator {
   private readonly patterns: IntentPattern[] = [];
+  private readonly adaptiveWeights = getAdaptiveWeightService();
 
   register(pattern: IntentPattern): void {
     if (!pattern || typeof pattern.intent !== 'string' || !pattern.intent.trim()) {
@@ -71,6 +73,11 @@ export class IntentDisambiguator {
           const message = err instanceof Error ? err.message : String(err);
           log.error('pattern matcher threw', { intent: pattern.intent, error: message });
         }
+
+        const patternId = `${pattern.intent}:${pattern.intent}`;
+        const weight = await this.adaptiveWeights.getWeight(patternId);
+        confidence = clamp01(confidence * weight);
+
         return {
           intent: pattern.intent,
           confidence,

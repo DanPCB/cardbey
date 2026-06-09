@@ -24,6 +24,27 @@ function parseWindowHours(raw) {
 }
 
 /**
+ * GET /api/self-healing/proposals
+ * Read-only list of governed self-healing proposals (super_admin).
+ * Query: status=draft|pending|applied (default: draft)
+ */
+router.get('/proposals', requireAuth, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const prisma = getPrismaClient();
+    const status = String(req.query.status ?? 'draft').trim() || 'draft';
+    const proposals = await prisma.selfHealingProposal.findMany({
+      where: { status },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return res.status(200).json({ ok: true, proposals, count: proposals.length });
+  } catch (err) {
+    console.error('[SelfHealing] GET /proposals failed:', err?.message || err);
+    return next(err);
+  }
+});
+
+/**
  * GET /api/self-healing/discovery-gaps
  * Read-only admin tool discovery analysis.
  */

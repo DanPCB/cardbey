@@ -48,12 +48,17 @@ export async function execute(input = {}) {
     if (result.completed && result.videoUrl) {
       // DANH: kling-video-storage
       let finalVideoUrl = result.videoUrl;
+      let stored = null;
 
       try {
         const { downloadAndStoreVideo } = await import('../../video/downloadVideo.js');
-        const stored = await downloadAndStoreVideo(result.videoUrl, { prefix: 'kling' });
+        stored = await downloadAndStoreVideo(result.videoUrl, { prefix: 'kling' });
         finalVideoUrl = stored.publicPath;
-        console.log('[VideoGen] stored locally:', stored.publicPath);
+        console.log('[VideoGen] stored locally:', {
+          original: stored.publicPath,
+          iosSafe: stored.iosSafePublicPath ?? stored.publicPath,
+          createdIosDerivative: stored.createdIosDerivative ?? false,
+        });
       } catch (downloadErr) {
         console.warn(
           '[VideoGen] download failed, using CDN URL:',
@@ -68,6 +73,12 @@ export async function execute(input = {}) {
           completed: true,
           taskId,
           videoUrl: finalVideoUrl,
+          heroVideoUrl: finalVideoUrl,
+          heroVideoUrlOriginal: finalVideoUrl,
+          heroVideoUrlIosSafe:
+            typeof stored?.iosSafePublicPath === 'string'
+              ? stored.iosSafePublicPath
+              : finalVideoUrl,
           cdnUrl: result.videoUrl,
           thumbnailUrl: result.thumbnailUrl,
           duration: result.duration,

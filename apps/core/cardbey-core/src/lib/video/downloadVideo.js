@@ -42,10 +42,34 @@ export async function downloadAndStoreVideo(
     const fileStream = createWriteStream(localPath);
     await pipeline(Readable.fromWeb(res.body), fileStream);
 
+    let iosSafePublicPath = publicPath;
+    let iosSafeLocalPath = localPath;
+    let createdIosDerivative = false;
+    try {
+      const { ensureIosSafeVideoDerivativeOnDisk } = await import('../videoIosSafe.js');
+      const derivative = await ensureIosSafeVideoDerivativeOnDisk(localPath);
+      iosSafePublicPath = derivative.iosSafePublicPath;
+      iosSafeLocalPath = derivative.iosSafeLocalPath;
+      createdIosDerivative = derivative.createdDerivative;
+      if (createdIosDerivative) {
+        console.log('[VIDEO_IOS_SAFE] kling download derivative ready', {
+          original: publicPath,
+          iosSafe: iosSafePublicPath,
+        });
+      }
+    } catch (derivErr) {
+      console.warn('[VIDEO_IOS_SAFE] derivative step failed (non-fatal):', derivErr?.message ?? derivErr);
+    }
+
     return {
       localPath,
       publicPath,
       filename,
+      iosSafePublicPath,
+      iosSafeLocalPath,
+      createdIosDerivative,
+      heroVideoUrlOriginal: publicPath,
+      heroVideoUrlIosSafe: iosSafePublicPath,
     };
   } finally {
     clearTimeout(timeout);

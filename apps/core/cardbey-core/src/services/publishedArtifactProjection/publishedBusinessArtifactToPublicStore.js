@@ -108,6 +108,7 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
       parseSocialLinks(projection.content?.socialLinks) ??
       parseSocialLinks(business?.socialLinks) ??
       null,
+    ...(business?.phone ? { phone: business.phone } : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
     products,
     _projectionMeta: {

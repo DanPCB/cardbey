@@ -33,6 +33,9 @@
  *   prompt: string;
  *   missing: string[];
  *   toolName?: string;
+ *   pendingSkill?: string;
+ *   pendingInputs?: Record<string, unknown>;
+ *   missionContext?: Record<string, unknown>;
  * }} AskDecision
  */
 
@@ -50,6 +53,8 @@
  *   kind: 'execute';
  *   toolName: string;
  *   parameters: Record<string, unknown>;
+ *   skillTrigger?: string;
+ *   skillName?: string;
  * }} ExecuteDecision
  */
 
@@ -92,6 +97,15 @@ import {
 } from './maintenanceIntent.js';
 import { buildResolutionAskFromErrors } from '../memory/plannerResolutionPrompt.js';
 import { createEmptyHydratedContext } from '../memory/memoryHydrator.js';
+import {
+  detectDocumentIngestionIntent,
+  extractIngestionInputs,
+} from './documentIngestionIntent.js';
+import {
+  buildPendingSkillMissionContext,
+  PENDING_SKILL_DOCUMENT_INGESTION,
+  pickDocumentPendingInputs,
+} from './pendingSkillResume.js';
 
 function asTrimmedString(v) {
   return typeof v === 'string' && v.trim() ? v.trim() : '';
@@ -195,6 +209,51 @@ export async function reactPlanner(input) {
     asTrimmedString(context?.storeId) ||
     asTrimmedString(hydratedContext?.working?.activeMission?.storeId) ||
     '';
+
+  const missionContext = {
+    ...context,
+    attachments: context?.attachments,
+    runwayContext: context?.runwayContext,
+    hydratedContext,
+    storeId: storeId || context?.storeId || null,
+    imageDataUrl: context?.imageDataUrl ?? null,
+    imageUrl: context?.imageUrl ?? null,
+  };
+  const fastIntent = detectDocumentIngestionIntent(userMessage, missionContext);
+  if (fastIntent) {
+    const inputs = extractIngestionInputs(userMessage, missionContext);
+    const resolvedStoreId = asTrimmedString(inputs.storeId) || storeId;
+    const parameters = {
+      ...(resolvedStoreId ? { storeId: resolvedStoreId } : {}),
+      ...(inputs.documentUrl ? { documentUrl: inputs.documentUrl, imageUrl: inputs.documentUrl } : {}),
+      ...(inputs.documentBase64 ? { documentBase64: inputs.documentBase64 } : {}),
+      ...(inputs.mimeType ? { mimeType: inputs.mimeType } : {}),
+      ...(inputs.imageDataUrl ? { imageDataUrl: inputs.imageDataUrl } : {}),
+    };
+    if (!resolvedStoreId) {
+      const pendingInputs = pickDocumentPendingInputs(parameters);
+      const missionContext = buildPendingSkillMissionContext(
+        PENDING_SKILL_DOCUMENT_INGESTION,
+        pendingInputs,
+      );
+      return {
+        kind: 'ask',
+        prompt: 'I need a store to import this document into. Select or create a store first.',
+        missing: ['storeId'],
+        toolName: 'ingest_document',
+        pendingSkill: PENDING_SKILL_DOCUMENT_INGESTION,
+        pendingInputs,
+        missionContext,
+      };
+    }
+    return {
+      kind: 'execute',
+      toolName: 'ingest_document',
+      parameters,
+      skillTrigger: 'ingest_document',
+      skillName: 'document_ingestion',
+    };
+  }
 
   if (context?.operatorSession === true && isI18nMaintenanceIntent(userMessage)) {
     return {

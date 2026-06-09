@@ -117,6 +117,9 @@ import * as extract_document_data from './document/extract_document_data.js'; //
 import * as create_products_from_document from './document/create_products_from_document.js'; // DANH: skill-round6-document
 import * as create_promotions_from_document from './document/create_promotions_from_document.js'; // DANH: skill-round6-document
 import * as suggest_campaign_plan from './document/suggest_campaign_plan.js'; // DANH: skill-round6-document
+import * as generate_execution_summary from './document/generate_execution_summary.js'; // DANH: skill-round6-document
+import * as generate_living_document from './document/generate_living_document.js'; // DANH: living-document-platform
+import * as activate_campaigns from './campaign/activate_campaigns.js'; // DANH: living-document-platform
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
 function honestBlocker(toolName, message) {
@@ -266,6 +269,9 @@ export const executors = {
   create_products_from_document, // DANH: skill-round6-document
   create_promotions_from_document, // DANH: skill-round6-document
   suggest_campaign_plan, // DANH: skill-round6-document
+  generate_execution_summary, // DANH: skill-round6-document
+  generate_living_document, // DANH: living-document-platform
+  activate_campaigns, // DANH: living-document-platform
   generate_promotion_asset: honestBlocker(
     'generate_promotion_asset',
     'Promotion asset generation is not implemented yet.',

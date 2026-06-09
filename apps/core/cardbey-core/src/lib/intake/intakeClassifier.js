@@ -7,6 +7,20 @@ import { llmGateway } from '../llm/llmGateway.ts';
 import { getBlackboardContextSummary } from '../blackboard/blackboardContextSummary.js';
 import { formatHydratedContextForPrompt } from '../memory/plannerResolutionPrompt.js';
 import { formatToolRegistryForPrompt, isRegisteredTool, getToolEntry, RISK } from './intakeToolRegistry.js';
+import {
+  detectDocumentIngestionIntent,
+  buildDocumentIngestionClassification,
+} from './documentIngestionIntent.js';
+import {
+  isPendingSkillClarificationReply,
+  PENDING_SKILL_DOCUMENT_INGESTION,
+  readPendingSkillContext,
+  resumeDocumentIngestionClassification,
+} from './pendingSkillResume.js';
+
+function asTrimmedString(v) {
+  return typeof v === 'string' && v.trim() ? v.trim() : '';
+}
 
 export const CONFIDENCE = {
   HIGH: 0.8,
@@ -263,8 +277,72 @@ export async function classifyIntent(opts) {
   } = opts;
 
   const msg = String(userMessage ?? '').trim();
-  if (!msg) {
+  const hasImageAttachment =
+    (Array.isArray(opts.attachments) && opts.attachments.length > 0) ||
+    Boolean(opts.imageDataUrl);
+  if (!msg && !hasImageAttachment) {
     return { ...FALLBACK_CLARIFY, _downgradedReason: 'empty_message' };
+  }
+
+  const resolvedStoreId =
+    asTrimmedString(opts.storeContext?.storeId) ||
+    asTrimmedString(opts.currentContext?.activeStoreId) ||
+    asTrimmedString(opts.currentContext?.storeId) ||
+    asTrimmedString(opts.runwayContext?.activeStoreId) ||
+    asTrimmedString(opts.blackboardContext?.storeId) ||
+    asTrimmedString(opts.blackboardContext?.activeStoreId) ||
+    '';
+
+  const pendingSkillContext = readPendingSkillContext({
+    currentContext: opts.currentContext,
+    runwayContext: opts.runwayContext,
+    blackboardContext: opts.blackboardContext,
+    missionContext: opts.missionContext,
+    pendingIntent: opts.pendingIntent,
+  });
+
+  const clarificationReply = isPendingSkillClarificationReply({
+    isSelectionConfirm: opts.isSelectionConfirm,
+    intakeV2Selection: opts.intakeV2Selection,
+    pendingSkillContext,
+    resolvedStoreId,
+  });
+
+  if (
+    pendingSkillContext?.pendingSkill === PENDING_SKILL_DOCUMENT_INGESTION &&
+    clarificationReply &&
+    resolvedStoreId
+  ) {
+    return resumeDocumentIngestionClassification(pendingSkillContext.pendingInputs, resolvedStoreId);
+  }
+
+  const docIntentContext = {
+    attachments: opts.attachments,
+    runwayContext: opts.runwayContext,
+    storeId: storeContext?.storeId ?? null,
+    hydratedContext: hydratedContextOpt ?? null,
+    currentContext: opts.currentContext,
+    imageDataUrl: opts.imageDataUrl ?? null,
+    imageUrl: opts.imageUrl ?? null,
+  };
+  const fastDocIntent = detectDocumentIngestionIntent(msg, docIntentContext);
+  if (fastDocIntent && !clarificationReply) {
+    return buildDocumentIngestionClassification(msg, docIntentContext);
+  }
+
+  if (
+    resolvedStoreId &&
+    (/activate.*campaign/i.test(msg) ||
+      /launch.*campaign/i.test(msg) ||
+      /go.*live.*campaign/i.test(msg))
+  ) {
+    return {
+      executionPath: 'direct_action',
+      tool: 'activate_campaigns',
+      confidence: CONFIDENCE.HIGH,
+      parameters: { storeId: resolvedStoreId },
+      _fastPath: 'activate_campaigns',
+    };
   }
 
   const ctxMid = storeContext?.missionId != null ? String(storeContext.missionId).trim() : '';

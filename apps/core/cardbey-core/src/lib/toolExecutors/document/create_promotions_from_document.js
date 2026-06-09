@@ -1,20 +1,19 @@
 // DANH: skill-round6-document
 /**
- * create_promotions_from_document — storePromo drafts for date-limited offers/events.
+ * create_promotions_from_document — storePromo drafts for campaigns, offers, and events.
  */
 
 import { randomUUID } from 'node:crypto';
 import { getPrismaClient } from '../../prisma.js';
+import { runCriticalSqliteWriteWithP1008Retry } from '../../sqliteCriticalWrite.js';
+import { parseDocumentDeadline } from '../../../services/documentExtraction/parseDocumentDeadline.js';
 
 /**
  * @param {string | null | undefined} raw
  * @returns {Date | null}
  */
 function parseEventDate(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+  return parseDocumentDeadline(raw);
 }
 
 /**
@@ -34,6 +33,13 @@ export async function execute(input = {}) {
   const storeId = typeof input?.storeId === 'string' ? input.storeId.trim() : '';
   const extracted = input?.extracted === true;
   const data = input?.data && typeof input.data === 'object' ? input.data : null;
+  const productIds = Array.isArray(input?.productIds) ? input.productIds.filter(Boolean) : [];
+  const productsExpected =
+    typeof input?.productsExpected === 'number'
+      ? input.productsExpected
+      : Array.isArray(data?.products)
+        ? data.products.length
+        : 0;
 
   if (!storeId) {
     return {
@@ -46,7 +52,8 @@ export async function execute(input = {}) {
     return {
       status: 'ok',
       output: {
-        created: false,
+        created: [],
+        skipped: [],
         count: 0,
         reason: 'No extracted document data',
         promos: [],
@@ -54,11 +61,51 @@ export async function execute(input = {}) {
     };
   }
 
+  const campaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
   const offers = Array.isArray(data.offers) ? data.offers : [];
   const events = Array.isArray(data.events) ? data.events : [];
+  const docCampaign = data.campaign && typeof data.campaign === 'object' ? data.campaign : null;
+
+  /** Document had products but step 2 created none — avoid orphaned campaign promos. */
+  const blockCampaignPromos = productsExpected > 0 && productIds.length === 0;
 
   /** @type {Array<object>} */
   const candidates = [];
+  /** @type {Array<{ title: string, reason: string }>} */
+  const skipped = [];
+
+  for (const campaign of campaigns) {
+    const title = String(campaign?.name ?? '').trim();
+    if (!title) continue;
+    if (blockCampaignPromos) {
+      skipped.push({ title, reason: 'no_linked_products' });
+      continue;
+    }
+    candidates.push({
+      title,
+      description: String(campaign?.copy ?? campaign?.description ?? '').slice(0, 500) || null,
+      channel: campaign?.channel ? String(campaign.channel) : null,
+      urgency: campaign?.urgency ? String(campaign.urgency) : null,
+      promoType: 'campaign',
+      source: 'campaign',
+    });
+  }
+
+  if (docCampaign && String(docCampaign.name ?? '').trim()) {
+    const title = String(docCampaign.name).trim();
+    if (blockCampaignPromos) {
+      skipped.push({ title, reason: 'no_linked_products' });
+    } else {
+      candidates.push({
+        title,
+        description: String(docCampaign.copy ?? '').slice(0, 500) || null,
+        channel: docCampaign.channel ? String(docCampaign.channel) : null,
+        urgency: docCampaign.urgency ? String(docCampaign.urgency) : null,
+        promoType: 'campaign',
+        source: 'campaign',
+      });
+    }
+  }
 
   for (const offer of offers) {
     const title = String(offer?.title ?? '').trim();
@@ -70,6 +117,7 @@ export async function execute(input = {}) {
       description: String(offer?.description ?? offer?.discount ?? '').slice(0, 500) || null,
       endsAt: eventDate,
       venue: offer?.venue ? String(offer.venue) : null,
+      promoType: 'discount',
       source: 'offer',
     });
   }
@@ -85,6 +133,7 @@ export async function execute(input = {}) {
       description: highlights.slice(0, 500) || null,
       endsAt: eventDate,
       venue: event?.venue ? String(event.venue) : null,
+      promoType: 'event',
       source: 'event',
     });
   }
@@ -93,45 +142,66 @@ export async function execute(input = {}) {
     return {
       status: 'ok',
       output: {
-        created: false,
+        created: [],
+        skipped,
         count: 0,
-        reason: 'No date-limited offers or events in document',
+        reason: blockCampaignPromos
+          ? 'Campaign promos skipped — document products failed to create; no productIds to link'
+          : 'No campaigns, offers, or events in document',
         promos: [],
+        blockCampaignPromos,
       },
     };
   }
 
   const prisma = getPrismaClient();
+  /** @type {string[]} */
+  const created = [];
   /** @type {Array<object>} */
   const promos = [];
 
-  for (const c of candidates.slice(0, 20)) {
-    const urgencyDays = daysUntil(c.endsAt);
+  for (let i = 0; i < candidates.slice(0, 20).length; i += 1) {
+    const c = candidates[i];
+    const urgencyDays = c.endsAt ? daysUntil(c.endsAt) : null;
     const slug = `doc-${storeId.slice(0, 8)}-${randomUUID().slice(0, 8)}`;
+    const productId =
+      c.promoType === 'campaign' && productIds.length
+        ? productIds[i] ?? productIds[0]
+        : productIds[i] ?? productIds[0] ?? null;
+    const subtitleParts = [c.urgency, c.channel, c.venue].filter(Boolean);
     try {
-      const row = await prisma.storePromo.create({
-        data: {
-          storeId,
-          title: c.title,
-          description: c.description,
-          targetUrl: `/store/${storeId}`,
-          slug,
-          isActive: false,
-          endsAt: c.endsAt ?? undefined,
-          subtitle:
-            urgencyDays != null
-              ? `${urgencyDays} day(s) until event`
-              : c.venue
-                ? String(c.venue).slice(0, 120)
-                : null,
-        },
-      });
+      const row = await runCriticalSqliteWriteWithP1008Retry(
+        () =>
+          prisma.storePromo.create({
+            data: {
+              storeId,
+              productId: productId ?? undefined,
+              title: c.title,
+              description: c.description,
+              targetUrl: `/store/${storeId}`,
+              slug,
+              isActive: false,
+              endsAt: c.endsAt ?? undefined,
+              promoType: c.promoType ?? 'campaign',
+              subtitle:
+                subtitleParts.length > 0
+                  ? subtitleParts.join(' · ').slice(0, 120)
+                  : urgencyDays != null
+                    ? `${urgencyDays} day(s) until event`
+                    : null,
+            },
+          }),
+        { label: 'create_promotions_from_document', logPrefix: '[create_promotions_from_document]' },
+      );
+      created.push(row.id);
       promos.push({
         promoId: row.id,
         title: row.title,
+        productId: row.productId ?? null,
         endsAt: row.endsAt,
         urgencyDays,
         source: c.source,
+        channel: c.channel ?? null,
       });
     } catch (err) {
       promos.push({
@@ -142,15 +212,15 @@ export async function execute(input = {}) {
     }
   }
 
-  const createdCount = promos.filter((p) => p.promoId).length;
-
   return {
     status: 'ok',
     output: {
-      created: createdCount > 0,
-      count: createdCount,
+      created,
+      skipped,
+      count: created.length,
       promos,
-      message: `Created ${createdCount} promotion draft(s) from document`,
+      blockCampaignPromos,
+      message: `Created ${created.length} promotion draft(s) from document`,
     },
   };
 }

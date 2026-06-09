@@ -11,14 +11,36 @@ import { generateText } from '../../lib/llm/anthropicProvider.js';
 import { runOcr } from '../../modules/vision/runOcr.js';
 import { parseIntakePreprocessVisionOutput } from '../../lib/ocr/intakeImagePreprocess.js';
 
-export const DOCUMENT_BUSINESS_EXTRACTION_PROMPT = `Analyze this business document image (flyer, brochure, promo poster, menu, event ad).
+export const DOCUMENT_BUSINESS_EXTRACTION_PROMPT = `You are DocumentIngestionSkill for Cardbey. Extract ALL structured business data from this document.
 
-Extract ALL visible business information and return ONLY valid JSON with this shape:
+Return ONLY valid JSON with this schema:
 {
   "documentType": "flyer|brochure|menu|promo|event|price_list|other",
+  "business": { "name": "", "type": "" },
   "businessName": "",
+  "contacts": [{ "phone": "", "email": "", "website": "", "address": "", "role": "" }],
+  "campaign": { "name": "", "copy": "", "channel": "", "urgency": "" },
   "products": [
-    { "name": "", "description": "", "price": null, "priceDisplay": "", "category": "" }
+    {
+      "name": "",
+      "description": "",
+      "dates": "",
+      "location": "",
+      "venues": [],
+      "pricing": [{ "tier": "", "price": null, "currency": "" }],
+      "includes": [],
+      "highlights": [],
+      "deadline": "",
+      "price": null,
+      "priceDisplay": "",
+      "category": ""
+    }
+  ],
+  "campaigns": [
+    { "name": "", "copy": "", "channel": "", "urgency": "" }
+  ],
+  "calendar": [
+    { "week": "", "action": "", "content": "", "channel": "" }
   ],
   "offers": [
     {
@@ -41,7 +63,7 @@ Extract ALL visible business information and return ONLY valid JSON with this sh
       "inclusions": []
     }
   ],
-  "contacts": { "phone": "", "email": "", "website": "", "address": "" },
+  "gaps": [],
   "highlights": []
 }
 
@@ -49,6 +71,7 @@ Rules:
 - Preserve original language for names/titles; use English only for descriptions when unclear.
 - Use ISO dates (YYYY-MM-DD) when a date is visible; otherwise empty string.
 - price is numeric only (no currency symbol); priceDisplay is as printed.
+- businessName should mirror business.name when present.
 - Empty arrays when nothing found. No markdown fences.`;
 
 /**
@@ -85,12 +108,132 @@ export function parseDocumentExtractionJson(text) {
   }
   return {
     documentType: 'other',
+    business: { name: '', type: '' },
     businessName: '',
+    contacts: [],
+    campaign: null,
     products: [],
+    campaigns: [],
+    calendar: [],
     offers: [],
     events: [],
-    contacts: {},
+    gaps: [],
     highlights: [],
+  };
+}
+
+/**
+ * Normalize legacy + new extraction shapes for downstream executors.
+ * Fills defaults for partial vision/OCR output (low-res scans, overlapping text).
+ * @param {object} data
+ */
+export function normalizeDocumentExtraction(data) {
+  const raw = data && typeof data === 'object' ? data : {};
+  const businessName =
+    String(raw.businessName ?? raw.business?.name ?? '').trim();
+  const business = {
+    name: String(raw.business?.name ?? businessName).trim(),
+    type: String(raw.business?.type ?? '').trim(),
+  };
+
+  const contacts = (Array.isArray(raw.contacts)
+    ? raw.contacts
+    : raw.contacts && typeof raw.contacts === 'object'
+      ? [raw.contacts]
+      : []
+  ).map((c) => ({
+    phone: String(c?.phone ?? '').trim(),
+    email: String(c?.email ?? '').trim(),
+    website: String(c?.website ?? '').trim(),
+    address: String(c?.address ?? '').trim(),
+    role: String(c?.role ?? '').trim(),
+  }));
+
+  const products = (Array.isArray(raw.products) ? raw.products : []).map((p, idx) => {
+    const item = p && typeof p === 'object' ? p : {};
+    const name = String(item.name ?? '').trim() || `Untitled Product ${idx + 1}`;
+    return {
+      ...item,
+      name,
+      description: String(item.description ?? '').trim(),
+      dates: String(item.dates ?? '').trim(),
+      location: String(item.location ?? '').trim(),
+      venues: Array.isArray(item.venues) ? item.venues.map(String) : [],
+      pricing: Array.isArray(item.pricing)
+        ? item.pricing.map((tier) => ({
+            tier: String(tier?.tier ?? '').trim(),
+            price: tier?.price != null && !Number.isNaN(Number(tier.price)) ? Number(tier.price) : null,
+            currency: String(tier?.currency ?? '').trim() || null,
+          }))
+        : [],
+      includes: Array.isArray(item.includes) ? item.includes.map(String) : [],
+      highlights: Array.isArray(item.highlights) ? item.highlights.map(String) : [],
+      deadline: item.deadline != null && String(item.deadline).trim() ? String(item.deadline).trim() : null,
+      price: item.price != null && !Number.isNaN(Number(item.price)) ? Number(item.price) : null,
+      priceDisplay: String(item.priceDisplay ?? '').trim(),
+      category: String(item.category ?? '').trim() || 'General',
+    };
+  });
+
+  const campaigns = (Array.isArray(raw.campaigns) ? raw.campaigns : []).map((c, idx) => {
+    const item = c && typeof c === 'object' ? c : {};
+    return {
+      name: String(item.name ?? '').trim() || `Campaign ${idx + 1}`,
+      copy: String(item.copy ?? item.description ?? '').trim(),
+      channel: String(item.channel ?? 'social').trim(),
+      urgency: String(item.urgency ?? '').trim(),
+    };
+  });
+
+  const calendar = (Array.isArray(raw.calendar) ? raw.calendar : []).map((entry) => ({
+    week: String(entry?.week ?? '').trim(),
+    action: String(entry?.action ?? '').trim(),
+    content: String(entry?.content ?? '').trim(),
+    channel: String(entry?.channel ?? 'social').trim(),
+  }));
+
+  const offers = (Array.isArray(raw.offers) ? raw.offers : []).map((o) => ({
+    title: String(o?.title ?? '').trim(),
+    description: String(o?.description ?? '').trim(),
+    price: o?.price != null && !Number.isNaN(Number(o.price)) ? Number(o.price) : null,
+    discount: String(o?.discount ?? '').trim(),
+    startsAt: String(o?.startsAt ?? '').trim(),
+    endsAt: String(o?.endsAt ?? '').trim(),
+    eventDate: String(o?.eventDate ?? '').trim(),
+    venue: String(o?.venue ?? '').trim(),
+  }));
+
+  const events = (Array.isArray(raw.events) ? raw.events : []).map((ev) => ({
+    name: String(ev?.name ?? '').trim(),
+    date: String(ev?.date ?? '').trim(),
+    venue: String(ev?.venue ?? '').trim(),
+    highlights: Array.isArray(ev?.highlights) ? ev.highlights.map(String) : [],
+    inclusions: Array.isArray(ev?.inclusions) ? ev.inclusions.map(String) : [],
+  }));
+
+  const campaign =
+    raw.campaign && typeof raw.campaign === 'object'
+      ? {
+          name: String(raw.campaign.name ?? '').trim(),
+          copy: String(raw.campaign.copy ?? '').trim(),
+          channel: String(raw.campaign.channel ?? '').trim(),
+          urgency: String(raw.campaign.urgency ?? '').trim(),
+        }
+      : null;
+
+  return {
+    documentType: String(raw.documentType ?? 'other').trim() || 'other',
+    businessName,
+    business,
+    contacts,
+    campaign,
+    products,
+    campaigns,
+    calendar,
+    offers,
+    events,
+    gaps: Array.isArray(raw.gaps) ? raw.gaps.map((g) => String(g ?? '').trim()).filter(Boolean) : [],
+    highlights: Array.isArray(raw.highlights) ? raw.highlights.map(String) : [],
   };
 }
 
@@ -206,10 +349,10 @@ ${text.slice(0, 12000)}`;
 
   const r = await generateText(prompt, { maxTokens: 4096 });
   if (r?.text?.trim()) {
-    return parseDocumentExtractionJson(r.text);
+    return normalizeDocumentExtraction(parseDocumentExtractionJson(r.text));
   }
 
-  return parseDocumentExtractionJson('');
+  return normalizeDocumentExtraction(parseDocumentExtractionJson(''));
 }
 
 /**
@@ -242,11 +385,15 @@ export async function extractStructuredDocumentFromImage(imageUrl, ctx = {}) {
     const parsed = parseIntakePreprocessVisionOutput(ocrRaw);
     const fallbackText = [parsed.imageText, parsed.imageDescription].filter(Boolean).join('\n\n');
     if (fallbackText.trim()) {
-      const data = await extractStructuredDocumentFromText(fallbackText);
+      const data = normalizeDocumentExtraction(await extractStructuredDocumentFromText(fallbackText));
       return { data, provider: 'ocr+llm', rawText: fallbackText };
     }
-    return { data: parseDocumentExtractionJson(''), provider: 'none' };
+    return { data: normalizeDocumentExtraction(parseDocumentExtractionJson('')), provider: 'none' };
   }
 
-  return { data: parseDocumentExtractionJson(raw), provider, rawText: raw };
+  return {
+    data: normalizeDocumentExtraction(parseDocumentExtractionJson(raw)),
+    provider,
+    rawText: raw,
+  };
 }

@@ -72,6 +72,8 @@
     "backfill:store-slugs": "node src/scripts/backfillStoreSlugs.js",
     "backfill:draft-generation-run-id": "node scripts/backfillDraftStoreGenerationRunId.js",
     "backfill:mi-signage": "tsx scripts/backfillMIForSignage.js",
+    "backfill:ios-video": "node scripts/backfill-ios-video-derivatives.mjs",
+    "backfill:ios-video:apply": "node scripts/backfill-ios-video-derivatives.mjs --apply",
     "rag:ingest": "tsx scripts/ingestRagKnowledge.ts",
     "rag:ingest:reports": "tsx scripts/ingestRagReports.ts",
     "reports:daily": "tsx scripts/generateDailyReports.ts",

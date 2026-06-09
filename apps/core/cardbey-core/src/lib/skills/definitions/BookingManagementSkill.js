@@ -13,6 +13,7 @@ export const BookingManagementSkill = {
     'Manage the full booking lifecycle: check availability, create and confirm a booking, schedule a reminder, and handle the outcome with follow-up.',
   triggers: [
     'book_appointment',
+    'book_product',
     'create_booking',
     'manage_booking',
     'schedule_customer',

@@ -1,4 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../../pil/adaptiveWeights.js', () => ({
+  getAdaptiveWeightService: () => ({
+    getWeight: vi.fn(async () => 1.0),
+  }),
+}));
+
 import { IntentDisambiguator } from '../intent_disambiguator.js';
 import {
   setupLoyaltyProgramPattern,

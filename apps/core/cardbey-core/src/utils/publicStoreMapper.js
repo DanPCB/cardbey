@@ -124,6 +124,7 @@ export function toPublicStore(business, options = {}) {
     showOwnerProfile: business.showOwnerProfile ?? false,
     ownerProfileSlug: business.user?.personalPresenceStore?.slug ?? null,
     socialLinks: parseSocialLinks(business.socialLinks) ?? null,
+    ...(business.phone ? { phone: business.phone } : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
   };
 

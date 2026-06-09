@@ -32,6 +32,7 @@
  * @property {RetryPolicy} [retryPolicy]
  * @property {boolean} [observable]
  * @property {string[]} [composes]
+ * @property {string} [displayResultType]
  */
 
 /**

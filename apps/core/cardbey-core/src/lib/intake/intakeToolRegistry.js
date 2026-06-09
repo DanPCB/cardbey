@@ -391,6 +391,35 @@ export const INTAKE_TOOL_REGISTRY = [
   },
   // DANH: skill-round6-document
   {
+    toolName: 'ingest_document',
+    executionPath: 'direct_action',
+    label: 'Ingest Business Document',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        storeId: { type: 'string' },
+        documentUrl: { type: 'string' },
+        documentBase64: { type: 'string' },
+        mimeType: { type: 'string' },
+        imageUrl: { type: 'string' },
+        imageDataUrl: { type: 'string' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['storeId', 'documentUrl', 'documentBase64', 'mimeType', 'imageUrl', 'imageDataUrl'],
+    semanticDescription:
+      'Extract products, promotions, and campaign calendar from a flyer, brochure, or document image (URL paste or upload).',
+    examples: [
+      'here is our flyer',
+      'scan this brochure',
+      'https://example.com/promo.jpg',
+    ],
+  },
+  {
     toolName: 'scan_document',
     executionPath: 'direct_action',
     label: 'Import Business Document',
@@ -1147,6 +1176,30 @@ or share their website with customers.`,
       'launch my website',
       'publish my mini website',
       'I want to publish',
+    ],
+  },
+  {
+    toolName: 'activate_campaigns',
+    executionPath: 'direct_action',
+    label: 'Activate Campaigns',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: false,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        storeId: { type: 'string' },
+      },
+    },
+    requiredParams: ['storeId'],
+    optionalParams: [],
+    semanticDescription: `Activate draft store promotions created from document ingestion or campaign planning.`,
+    examples: [
+      'activate campaigns',
+      'launch campaigns',
+      'go live with campaigns',
+      'make my promos active',
     ],
   },
   {

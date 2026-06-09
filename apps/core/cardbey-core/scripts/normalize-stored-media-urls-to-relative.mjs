@@ -21,7 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.chdir(path.join(__dirname, '..'));
 
 await import('../src/env/loadEnv.js');
-const { PrismaClient } = await import('@prisma/client');
+const { PrismaClient, Prisma } = await import('@prisma/client');
 const { normalizeMediaUrlForStorage, isCloudFrontUrl } = await import('../src/utils/publicUrl.js');
 const {
   normalizeHeroFieldsInPreview,
@@ -57,6 +57,14 @@ function parseJsonBlob(raw) {
 
 function jsonChanged(before, after) {
   return JSON.stringify(before) !== JSON.stringify(after);
+}
+
+function publishedArtifactProjectionFieldNames() {
+  return (
+    Prisma.dmmf.datamodel.models
+      .find((m) => m.name === 'PublishedArtifactProjection')
+      ?.fields.map((f) => f.name) ?? []
+  );
 }
 
 async function main() {
@@ -145,35 +153,65 @@ async function main() {
     console.log('[normalize-media-urls] DraftStore', row.id, '(preview hero media relativized)');
   }
 
-  const projections = await prisma.publishedArtifactProjection.findMany({
-    select: { businessId: true, heroVideoUrl: true, projectionJson: true },
-  });
-
-  for (const row of projections) {
-    const data = {};
-    const heroVideo = normField(row.heroVideoUrl);
-    if (heroVideo.changed) data.heroVideoUrl = heroVideo.next;
-
-    const projectionBefore = parseJsonBlob(row.projectionJson);
-    if (projectionBefore) {
-      const projectionAfter = normalizeProjectionHeroForStorage(structuredClone(projectionBefore));
-      if (jsonChanged(projectionBefore, projectionAfter)) data.projectionJson = projectionAfter;
-      if (!heroVideo.changed && projectionAfter?.hero?.videoUrl) {
-        const indexed = normalizeMediaUrlField(projectionAfter.hero.videoUrl);
-        if (indexed && indexed !== row.heroVideoUrl) data.heroVideoUrl = indexed;
-      }
+  let projectionScanned = 0;
+  const projectionDelegate = prisma.publishedArtifactProjection;
+  if (projectionDelegate && typeof projectionDelegate.findMany === 'function') {
+    const projectionFields = publishedArtifactProjectionFieldNames();
+    const hasHeroVideoUrl = projectionFields.includes('heroVideoUrl');
+    if (!hasHeroVideoUrl) {
+      console.log(
+        '[normalize-media-urls] PublishedArtifactProjection.heroVideoUrl not present; skipping column normalization',
+      );
     }
 
-    if (!Object.keys(data).length) continue;
-    await prisma.publishedArtifactProjection.update({
-      where: { businessId: row.businessId },
-      data,
-    });
-    projectionUpdated += 1;
-    console.log('[normalize-media-urls] PublishedArtifactProjection', row.businessId, {
-      heroVideoUrl: data.heroVideoUrl !== undefined ? { from: row.heroVideoUrl, to: data.heroVideoUrl } : undefined,
-      projectionJson: data.projectionJson ? '(updated)' : undefined,
-    });
+    const projectionSelect = {
+      id: true,
+      businessId: true,
+      projectionJson: true,
+      ...(hasHeroVideoUrl ? { heroVideoUrl: true } : {}),
+    };
+
+    const projections = await projectionDelegate.findMany({ select: projectionSelect });
+    projectionScanned = projections.length;
+
+    for (const row of projections) {
+      const data = {};
+      let heroVideo = { next: null, changed: false };
+      if (hasHeroVideoUrl) {
+        heroVideo = normField(row.heroVideoUrl);
+        if (heroVideo.changed) data.heroVideoUrl = heroVideo.next;
+      }
+
+      const projectionBefore = parseJsonBlob(row.projectionJson);
+      if (projectionBefore) {
+        const projectionAfter = normalizeProjectionHeroForStorage(structuredClone(projectionBefore));
+        if (jsonChanged(projectionBefore, projectionAfter)) data.projectionJson = projectionAfter;
+        if (
+          hasHeroVideoUrl &&
+          !heroVideo.changed &&
+          projectionAfter?.hero?.videoUrl
+        ) {
+          const indexed = normalizeMediaUrlField(projectionAfter.hero.videoUrl);
+          if (indexed && indexed !== row.heroVideoUrl) data.heroVideoUrl = indexed;
+        }
+      }
+
+      if (!Object.keys(data).length) continue;
+      await projectionDelegate.update({
+        where: { businessId: row.businessId },
+        data,
+      });
+      projectionUpdated += 1;
+      console.log('[normalize-media-urls] PublishedArtifactProjection', row.businessId, {
+        heroVideoUrl:
+          hasHeroVideoUrl && data.heroVideoUrl !== undefined
+            ? { from: row.heroVideoUrl, to: data.heroVideoUrl }
+            : undefined,
+        projectionJson: data.projectionJson ? '(updated)' : undefined,
+      });
+    }
+  } else {
+    console.log('[normalize-media-urls] PublishedArtifactProjection delegate not available; skipping');
   }
 
   console.log('[normalize-media-urls] Done.', {
@@ -186,7 +224,7 @@ async function main() {
     signageScanned: assets.length,
     businessScanned: businesses.length,
     draftScanned: drafts.length,
-    projectionScanned: projections.length,
+    projectionScanned,
   });
 }
 

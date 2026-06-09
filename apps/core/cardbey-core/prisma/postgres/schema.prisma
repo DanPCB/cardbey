@@ -3066,3 +3066,104 @@ model PilEvent {
   @@index([storeId, timestamp])
   @@index([entityType, entityId])
 }
+
+model SkillDispatchLog {
+  id            String   @id @default(cuid())
+  traceId       String
+  userId        String?
+  sessionId     String?
+  query         String
+  intent        String
+  matchedSkill  String?
+  confidence    Float
+  executionPath String?
+  outcome       String?
+  latencyMs     Int?
+  createdAt     DateTime @default(now())
+  feedback      SkillDispatchFeedback[]
+
+  @@index([userId, createdAt])
+  @@index([intent, confidence])
+  @@index([createdAt])
+  @@index([traceId])
+}
+
+model SkillDispatchFeedback {
+  id             String   @id @default(cuid())
+  dispatchLogId  String
+  userId         String?
+  rating         Int
+  correctionText String?
+  createdAt      DateTime @default(now())
+
+  dispatchLog SkillDispatchLog @relation(fields: [dispatchLogId], references: [id], onDelete: Cascade)
+
+  @@index([dispatchLogId])
+  @@index([userId])
+}
+
+// PIL learning Phase 3 — governed self-healing proposals from misroute detection.
+model SelfHealingProposal {
+  id                   String    @id @default(cuid())
+  type                 String
+  title                String
+  description          String
+  suggestedFix         Json
+  metadata             Json
+  status               String    @default("draft")
+  requiresConfirmation Boolean   @default(true)
+  occurrenceCount      Int       @default(1)
+  lastSeen             DateTime  @default(now())
+  appliedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// PIL learning Phase 4 — adaptive pattern weights (governed adjustments only).
+model PatternWeight {
+  id                String   @id @default(cuid())
+  patternId         String   @unique
+  intent            String
+  matchedSkill      String
+  weight            Float    @default(1.0)
+  adjustmentHistory Json     @default("[]")
+  lastAdjusted      DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([intent])
+  @@index([matchedSkill])
+}
+
+// Universal PIL Assistant — user memory and onboarding progress.
+model UserMemory {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  lastAction     String?
+  lastActionAt   DateTime?
+  visitCount     Int       @default(1)
+  actionHistory  Json      @default("[]")
+  abandonedTasks Json      @default("[]")
+  completedTasks Json      @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model OnboardingProgress {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  step           Int       @default(0)
+  total          Int       @default(5)
+  completedSteps Json      @default("[]")
+  lastStepAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+}

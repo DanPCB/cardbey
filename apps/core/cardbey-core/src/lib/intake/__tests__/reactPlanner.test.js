@@ -59,6 +59,33 @@ describe('reactPlanner (Phase 1 decision module)', () => {
     expect(out.confirmation.riskLevel).toBe('state_change');
   });
 
+  it('document ingestion: URL paste -> execute ingest_document', async () => {
+    const out = await reactPlanner({
+      userMessage: 'Import this flyer https://cdn.example.com/summer.jpg',
+      classification: null,
+      context: { storeId: 'store_doc', runwayContext: { activeStoreId: 'store_doc' } },
+      toolRegistry: [],
+    });
+    expect(out.kind).toBe('execute');
+    expect(out.toolName).toBe('ingest_document');
+    expect(out.parameters.documentUrl).toBe('https://cdn.example.com/summer.jpg');
+    expect(out.skillName).toBe('document_ingestion');
+  });
+
+  it('document ingestion: missing storeId -> ask with pendingSkill context', async () => {
+    const out = await reactPlanner({
+      userMessage: 'Import this flyer https://cdn.example.com/summer.jpg',
+      classification: null,
+      context: {},
+      toolRegistry: [],
+    });
+    expect(out.kind).toBe('ask');
+    expect(out.toolName).toBe('ingest_document');
+    expect(out.pendingSkill).toBe('document_ingestion');
+    expect(out.pendingInputs?.documentUrl).toBe('https://cdn.example.com/summer.jpg');
+    expect(out.missionContext?.pendingInputs?.documentUrl).toBe('https://cdn.example.com/summer.jpg');
+  });
+
   it('fixture 4: unknown request with no matching tool -> unsupported', async () => {
     const out = await reactPlanner({
       userMessage: 'do something totally unknown',

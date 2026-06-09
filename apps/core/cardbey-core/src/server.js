@@ -205,6 +205,7 @@ import performerRoutes from './routes/performer.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
+import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import performerProactiveStepRoutes from './routes/performerProactiveStepRoutes.js';
 import runtimeMissionStepRoutes from './routes/runtimeMissionStepRoutes.js';
 import runtimeMissionOrchestratorRoutes from './routes/runtimeMissionOrchestratorRoutes.js';
@@ -833,6 +834,7 @@ app.use('/api/tools', toolsRoutes);
 // Mount before broad /api routers and /api/assistant so POST /api/missions/* (e.g. extract-card) hits this stack first.
 app.use('/api/missions', missionsRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
+app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
 app.use('/api', userMemoryRoutes);
 app.use('/api/performer/proactive-step', performerProactiveStepRoutes);
 app.use('/api/runtime/missions', runtimeMissionStepRoutes);

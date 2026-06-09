@@ -107,7 +107,12 @@ export function checkVideoCompatibility(probe) {
     reasons.push('no_video_stream');
   } else {
     const codec = String(probe.video.codec || '').toLowerCase();
-    if (codec !== 'h264') reasons.push(`video_codec:${probe.video.codec}`);
+    if (codec !== 'h264') {
+      reasons.push(`video_codec:${probe.video.codec}`);
+    }
+    if (codec === 'hevc' || codec === 'h265') {
+      reasons.push('video_codec:hevc_not_ios_safe');
+    }
 
     const pix = String(probe.video.pixFmt || '').toLowerCase();
     if (pix !== 'yuv420p') reasons.push(`pixel_format:${probe.video.pixFmt}`);
@@ -173,7 +178,7 @@ export function transcodeToWebCompatible(inputPath, outputPath) {
         '-c:v libx264',
         '-pix_fmt yuv420p',
         '-profile:v main',
-        '-level 4.1',
+        '-level 4.0',
         '-movflags +faststart',
         '-c:a aac',
         '-b:a 128k',

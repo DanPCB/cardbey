@@ -86,6 +86,7 @@ export function businessPublicReadSelect(extra = {}) {
     secondaryColor: true,
     showOwnerProfile: true,
     socialLinks: true,
+    phone: true,
     createdAt: true,
     updatedAt: true,
     ...extra,

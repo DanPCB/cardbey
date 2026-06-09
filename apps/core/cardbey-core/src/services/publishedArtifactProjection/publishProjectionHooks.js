@@ -73,6 +73,8 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
   console.log('[PUBLISH_PROJECTION_PERSIST_SUCCESS]', {
     businessId,
     storage: persistResult.storage,
+    heroVideoUrl: projection.hero?.videoUrl ?? null,
+    heroMediaType: projection.hero?.videoUrl ? 'video' : 'image',
   });
 
   const hero = projection.hero ?? {};

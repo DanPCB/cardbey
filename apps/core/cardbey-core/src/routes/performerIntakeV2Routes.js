@@ -77,6 +77,12 @@ import {
   tryAutoResolveSingleStoreId,
 } from '../lib/intake/resolveStoreAmbiguity.js';
 import {
+  enrichPendingIntentForDocumentIngestion,
+  mergePendingDocumentIntoForcedParams,
+  PENDING_SKILL_DOCUMENT_INGESTION,
+  readPendingSkillContext,
+} from '../lib/intake/pendingSkillResume.js';
+import {
   COMMERCIAL_INTENT_RE,
   detectCapabilityGap,
   isIntakeV2CapabilityGapEnabled,
@@ -1343,9 +1349,25 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       : {};
   const originalGoal = selection ? String(selection.originalGoal ?? userMessage).trim() : '';
 
+  const blackboardContextRaw = body.blackboardContext;
+  const blackboardContext =
+    blackboardContextRaw && typeof blackboardContextRaw === 'object' && !Array.isArray(blackboardContextRaw)
+      ? blackboardContextRaw
+      : null;
+  const pendingIntentFromBody =
+    body.pendingIntent && typeof body.pendingIntent === 'object' && !Array.isArray(body.pendingIntent)
+      ? body.pendingIntent
+      : null;
+  const pendingSkillContextEarly = readPendingSkillContext({
+    currentContext,
+    blackboardContext,
+    pendingIntent: pendingIntentFromBody,
+  });
+  const mergedForcedParams = mergePendingDocumentIntoForcedParams(forcedParams, pendingSkillContextEarly);
+
   let storeId = resolveStoreId(currentContext);
   // DANH: store-disambiguation — replay store pick from clarify chip (intakeV2Selection)
-  const selectionStoreId = String(forcedParams?.storeId ?? forcedParams?.activeStoreId ?? '').trim();
+  const selectionStoreId = String(mergedForcedParams?.storeId ?? mergedForcedParams?.activeStoreId ?? '').trim();
   if (!storeId && selectionStoreId) {
     storeId = selectionStoreId;
   }
@@ -1419,7 +1441,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       null,
   };
 
-  const safeJson = (payload, telExtra = {}) => {
+  const safeJson = async (payload, telExtra = {}) => {
     const cls =
       telExtra.classification !== undefined && telExtra.classification !== null
         ? telExtra.classification
@@ -1443,7 +1465,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           ? cls.executionPath
           : classification.executionPath ?? null,
     });
-    emitIntakeV2Telemetry({
+    const sessionId =
+      (typeof req.body?.sessionId === 'string' && req.body.sessionId.trim()) ||
+      (req.guestSessionId ? `guest_${req.guestSessionId}` : null);
+    const dispatchLogId = await emitIntakeV2Telemetry({
       ...buildTelemetryBase({ userMessage, missionId, storeId, startMs, traceId: cardbeyTraceId, ...telExtra }),
       ...intentResolutionTelemetryFields(ir),
       ...heroGenTelemetry,
@@ -1454,6 +1479,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       resolvedFamily: telExtra.resolvedFamily,
       resolvedSubtype: telExtra.resolvedSubtype,
       capabilityAwareV1: telExtra.capabilityAwareV1 ?? null,
+      userId: req.user?.id ?? performerIntakeV2ActorId(req) ?? null,
+      sessionId,
+      query: userMessage,
+      intent:
+        ir?.family && ir?.subtype
+          ? `${ir.family}:${ir.subtype}`
+          : cls?.tool ?? classification?.tool ?? 'unknown',
+      outcome: telExtra.result ?? null,
     });
     let responsePayload = payload;
     const responseMetadata = {};
@@ -1547,6 +1580,25 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       responsePayload.agentTrace == null
     ) {
       responsePayload = { ...responsePayload, agentTrace: agentLoopTraceForResponse };
+    }
+    if (
+      dispatchLogId &&
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload)
+    ) {
+      const matchedSkill =
+        cls && typeof cls === 'object' && cls.tool != null ? String(cls.tool) : null;
+      const classificationIntent =
+        ir?.family && ir?.subtype
+          ? `${ir.family}:${ir.subtype}`
+          : matchedSkill ?? null;
+      responsePayload = {
+        ...responsePayload,
+        dispatchLogId,
+        classificationIntent,
+        matchedSkill,
+      };
     }
     return res.json(responsePayload);
   };
@@ -2312,7 +2364,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       executionPath: fe.executionPath,
       tool: forcedTool,
       confidence: 1,
-      parameters: { ...forcedParams },
+      parameters: { ...mergedForcedParams },
       message: undefined,
       plan: undefined,
       clarifyOptions: undefined,
@@ -2432,6 +2484,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         tenantKey,
         missionId,
         hydratedContext: intakeHydratedContext,
+        runwayContext: runway,
+        attachments: body.attachments,
+        imageDataUrl: resolveIntakeImageRefForOcr(body),
+        currentContext,
+        blackboardContext,
+        pendingIntent: pendingIntentFromBody,
+        isSelectionConfirm,
+        intakeV2Selection: selection,
       });
     } catch (e) {
       if (isDev) console.error('[IntakeV2] classifyIntent threw', e);
@@ -2723,6 +2783,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               : {}),
           },
         }));
+        const pendingIntent = enrichPendingIntentForDocumentIngestion(
+          classification,
+          ambiguity.pendingIntent,
+        );
         return safeJson(
           {
             success: true,
@@ -2730,7 +2794,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             clarifyType: ambiguity.clarifyType,
             response: ambiguity.question,
             options,
-            pendingIntent: ambiguity.pendingIntent,
+            pendingIntent,
+            ...(pendingIntent.pendingSkill
+              ? {
+                  pendingSkill: pendingIntent.pendingSkill,
+                  pendingInputs: pendingIntent.pendingInputs,
+                }
+              : {}),
           },
           {
             classification,
@@ -2788,6 +2858,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
                 : {}),
             },
           }));
+          const pendingIntent = enrichPendingIntentForDocumentIngestion(
+            classification,
+            ambiguity.pendingIntent,
+          );
           return safeJson(
             {
               success: true,
@@ -2795,7 +2869,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               clarifyType: ambiguity.clarifyType,
               response: ambiguity.question,
               options,
-              pendingIntent: ambiguity.pendingIntent,
+              pendingIntent,
+              ...(pendingIntent.pendingSkill
+                ? {
+                    pendingSkill: pendingIntent.pendingSkill,
+                    pendingInputs: pendingIntent.pendingInputs,
+                  }
+                : {}),
             },
             {
               classification,
