@@ -2,6 +2,11 @@ import { buildPublishedBusinessArtifact } from './buildPublishedBusinessArtifact
 import { validatePublishedBusinessArtifact } from './validatePublishedBusinessArtifact.js';
 import { persistPublishedBusinessArtifact } from './persistPublishedBusinessArtifact.js';
 import { parseJsonBlob } from './parseJsonBlob.js';
+import { heroImageUrlForBusinessColumn } from '../draftStore/publishDraftHeroHelpers.js';
+import {
+  normalizeMediaUrlField,
+  normalizeProjectionHeroForStorage,
+} from '../draftStore/normalizeHeroMediaUrlsForStorage.js';
 
 /**
  * Build, validate, persist projection and sync indexed Business columns.
@@ -33,13 +38,14 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
     draftId: draft?.id ?? null,
   });
 
-  const projection = buildPublishedBusinessArtifact({
+  let projection = buildPublishedBusinessArtifact({
     business,
     draft,
     draftPreview,
     publishRunId,
     source,
   });
+  projection = normalizeProjectionHeroForStorage(projection);
 
   const validation = validatePublishedBusinessArtifact(projection);
   projection.diagnostics.warnings = validation.warnings;
@@ -67,31 +73,63 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
   console.log('[PUBLISH_PROJECTION_PERSIST_SUCCESS]', {
     businessId,
     storage: persistResult.storage,
+    heroVideoUrl: projection.hero?.videoUrl ?? null,
+    heroMediaType: projection.hero?.videoUrl ? 'video' : 'image',
   });
 
   const hero = projection.hero ?? {};
   const existingPrefs = parseJsonBlob(business.stylePreferences) ?? {};
   const existingMini = existingPrefs.miniWebsite ?? {};
+  const heroImageUrl = normalizeMediaUrlField(
+    heroImageUrlForBusinessColumn(hero.videoUrl ?? null, hero.posterUrl ?? hero.imageUrl ?? null),
+  );
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[public-video-chain] publish_payload', {
+      storeId: businessId,
+      heroType: hero.type ?? null,
+      heroVideoUrl: hero.videoUrl ?? null,
+      heroImageUrl: hero.posterUrl ?? hero.imageUrl ?? null,
+      heroPosterUrl: hero.posterUrl ?? null,
+      hero,
+    });
+  }
+
+  const brandLogoUrl =
+    typeof projection.brand?.logoUrl === 'string' && projection.brand.logoUrl.trim()
+      ? projection.brand.logoUrl.trim()
+      : null;
+
+  const stylePreferences = {
+    ...existingPrefs,
+    ...(hero.videoUrl ? { heroVideo: hero.videoUrl } : {}),
+    miniWebsite: {
+      ...existingMini,
+      sections: projection.website?.sections ?? existingMini.sections ?? [],
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  if (hero.type === 'video') {
+    const poster =
+      hero.posterUrl ||
+      (hero.imageUrl && !/\.(mp4|webm|mov)(\?|#|$)/i.test(hero.imageUrl) ? hero.imageUrl : null);
+    if (poster) stylePreferences.heroImage = poster;
+    else delete stylePreferences.heroImage;
+  } else if (hero.imageUrl) {
+    stylePreferences.heroImage = hero.imageUrl;
+    delete stylePreferences.heroVideo;
+  }
+
   const updateData = {
     name: projection.name,
     slug: projection.slug,
     tagline: projection.content?.tagline ?? null,
     description: projection.content?.description ?? null,
-    heroImageUrl: hero.videoUrl || hero.imageUrl || null,
+    heroImageUrl,
+    ...(brandLogoUrl ? { avatarImageUrl: brandLogoUrl } : {}),
     isActive: projection.status === 'published',
     publishedAt: projection.publishedAt ? new Date(projection.publishedAt) : new Date(),
-    stylePreferences: {
-      ...existingPrefs,
-      ...(hero.videoUrl ? { heroVideo: hero.videoUrl } : {}),
-      ...(hero.imageUrl || hero.posterUrl
-        ? { heroImage: hero.posterUrl || hero.imageUrl }
-        : {}),
-      miniWebsite: {
-        ...existingMini,
-        sections: projection.website?.sections ?? existingMini.sections ?? [],
-        updatedAt: new Date().toISOString(),
-      },
-    },
+    stylePreferences,
   };
 
   await prisma.business.update({

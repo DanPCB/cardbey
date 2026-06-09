@@ -65,6 +65,24 @@ export const INTENT_SUBTYPES = [
       /\bfix\s+(my\s+)?store\b/i,
     ],
   },
+  // DANH: review-routing-fix
+  {
+    family: 'store_improvement',
+    subtype: 'review_management',
+    description: 'Customer reviews, ratings, feedback, or drafting replies.',
+    candidateTools: ['get_review_summary', 'draft_review_response'],
+    defaultTool: 'get_review_summary',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /show.*review/i,
+      /my.*review/i,
+      /customer.*feedback/i,
+      /respond.*review/i,
+      /reply.*review/i,
+      /what.*customer.*say/i,
+    ],
+  },
   {
     family: 'content_edit',
     subtype: 'change_headline',
@@ -78,6 +96,43 @@ export const INTENT_SUBTYPES = [
       /\bfix\s+(the\s+)?(headline|title|text)\b/i,
       /\bchange\s+(the\s+)?(headline|title|text)\b/i,
       /\brewrite\s+(the\s+)?(headline|title)\b/i,
+    ],
+  },
+  // DANH: fix-video-routing
+  {
+    family: 'content_edit',
+    subtype: 'video_creation',
+    description: 'Create or generate AI video content for the store.',
+    candidateTools: ['create_video'],
+    defaultTool: 'create_video',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /create.*video/i,
+      /generate.*video/i,
+      /make.*video/i,
+      /video.*store/i,
+      /promotional.*video/i,
+      /store.*video/i,
+      /video.*content/i,
+    ],
+  },
+  // DANH: skill-round6-document
+  {
+    family: 'promotion_campaign',
+    subtype: 'document_ingestion',
+    description: 'Import products and promotions from uploaded flyer, brochure, or document image.',
+    candidateTools: ['scan_document'],
+    defaultTool: 'scan_document',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /scan.*(document|flyer|brochure|poster)/i,
+      /upload.*(flyer|brochure|document|poster)/i,
+      /import.*(document|flyer|brochure|from.*image)/i,
+      /read.*(flyer|brochure|poster|document)/i,
+      /extract.*(from.*document|from.*flyer|from.*brochure|from.*image)/i,
+      /(flyer|brochure|poster).*(import|scan|read|extract)/i,
     ],
   },
   {
@@ -106,6 +161,22 @@ export const INTENT_SUBTYPES = [
     matchPatterns: [
       /\b(report|reports|sales|revenue|orders|analytics|kpi|metric)\b/i,
       /\bhow\s+(many|much)\b/i,
+    ],
+  },
+  // DANH: skill-runtime-phase7
+  {
+    family: 'analytics_reporting',
+    subtype: 'store_performance_report',
+    description: 'Store performance overview, stats, and metrics (not sales/orders detail).',
+    candidateTools: ['get_store_analytics', 'orders_report'],
+    defaultTool: 'get_store_analytics',
+    requiredContext: ['store'],
+    clarifyStrategy: 'report_vs_analyze',
+    matchPatterns: [
+      /\bhow\s+is\s+my\s+store/i,
+      /\bstore\s+perform/i,
+      /\bstore\s+stats/i,
+      /\bstore\s+health\s+report/i,
     ],
   },
   {
@@ -173,15 +244,20 @@ export function inferFamilyFromTool(toolName) {
     generate_tags: 'store_improvement',
     rewrite_descriptions: 'store_improvement',
     improve_hero: 'store_improvement',
+    get_review_summary: 'store_improvement',
+    draft_review_response: 'store_improvement',
     code_fix: 'content_edit',
     create_offer: 'promotion_campaign',
     create_promotion: 'promotion_campaign',
     launch_campaign: 'promotion_campaign',
     market_research: 'promotion_campaign',
     orders_report: 'analytics_reporting',
+    get_store_analytics: 'analytics_reporting',
     'signage.list-devices': 'devices_signage',
     'signage.publish-to-devices': 'devices_signage',
     smart_visual: 'content_edit',
+    create_video: 'content_edit',
+    scan_document: 'promotion_campaign',
     general_chat: 'general_help',
   };
   return map[t] ?? null;

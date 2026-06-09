@@ -782,6 +782,24 @@ router.patch('/:draftId/publish-snapshot', requireAuth, async (req, res, next) =
  */
 router.post('/:draftId/publish', requireAuth, async (req, res, next) => {
   try {
+    const {
+      guardPhaseFDraftStoreRunway,
+      extractMissionIdFromDraftRequest,
+    } = await import('../lib/broker/phaseFBypassGuards.js');
+    const runwayGuard = guardPhaseFDraftStoreRunway({
+      route: 'POST /:draftId/publish',
+      draftId: req.params?.draftId ?? null,
+      missionId: extractMissionIdFromDraftRequest(req),
+      action: 'publish',
+    });
+    if (runwayGuard.blocked) {
+      return res.status(403).json({
+        ok: false,
+        error: runwayGuard.code,
+        message: runwayGuard.message,
+      });
+    }
+
     if (!isPublishSnapshotV1Enabled()) {
       console.warn('[DraftStore] POST /:draftId/publish called while PUBLISH_SNAPSHOT_V1 is disabled — use POST /api/store/publish');
       return res.status(503).json({
@@ -1204,6 +1222,24 @@ router.get('/:draftId/summary', requireAuth, async (req, res, next) => {
  */
 router.post('/:draftId/generate', requireAuth, async (req, res, next) => {
   try {
+    const {
+      guardPhaseFDraftStoreRunway,
+      extractMissionIdFromDraftRequest,
+    } = await import('../lib/broker/phaseFBypassGuards.js');
+    const runwayGuard = guardPhaseFDraftStoreRunway({
+      route: 'POST /:draftId/generate',
+      draftId: req.params?.draftId ?? null,
+      missionId: extractMissionIdFromDraftRequest(req),
+      action: 'generate',
+    });
+    if (runwayGuard.blocked) {
+      return res.status(403).json({
+        ok: false,
+        error: runwayGuard.code,
+        message: runwayGuard.message,
+      });
+    }
+
     const draftId = req.params.draftId;
     const draft = await getDraft(draftId);
     if (!draft) {
@@ -1356,6 +1392,24 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
 router.post('/:draftId/commit', optionalAuth, async (req, res, next) => {
   try {
     const { draftId } = req.params;
+
+    const {
+      guardPhaseFDraftStoreRunway,
+      extractMissionIdFromDraftRequest,
+    } = await import('../lib/broker/phaseFBypassGuards.js');
+    const runwayGuard = guardPhaseFDraftStoreRunway({
+      route: 'POST /:draftId/commit',
+      draftId,
+      missionId: extractMissionIdFromDraftRequest(req),
+      action: 'commit',
+    });
+    if (runwayGuard.blocked) {
+      return res.status(403).json({
+        ok: false,
+        error: runwayGuard.code,
+        message: runwayGuard.message,
+      });
+    }
 
     console.log(`[DraftCommit] POST /api/draft-store/${draftId}/commit`);
 

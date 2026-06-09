@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { selectPexelsVideoFile } from '../utils/pexelsVideoSelect.js';
+import { isAllowedVideoFetchUrl } from '../utils/videoFetchAllowlist.js';
+import { validateVideoBinary } from '../utils/videoBinaryValidation.js';
 
 const router = Router();
 
@@ -148,8 +151,12 @@ router.get('/search', (req, res) => {
   });
 });
 
-const PEXELS_API_KEY = process.env.PEXELS_API_KEY || null;
 const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search';
+const PEXELS_VIDEOS_SEARCH_URL = 'https://api.pexels.com/videos/search';
+
+function getPexelsApiKey() {
+  return process.env.PEXELS_API_KEY || null;
+}
 
 /** Map Pexels API photo to dashboard PexelsPhoto shape */
 function fromPexelsApi(photo) {
@@ -186,7 +193,8 @@ router.get('/photos', async (req, res) => {
   const orientation = req.query.orientation; // optional: landscape | portrait | square
 
   // Live Pexels search when key is set and user provided a search term
-  if (PEXELS_API_KEY && query) {
+  const pexelsApiKey = getPexelsApiKey();
+  if (pexelsApiKey && query) {
     try {
       const params = new URLSearchParams({
         query: query.slice(0, 200),
@@ -198,7 +206,7 @@ router.get('/photos', async (req, res) => {
       }
       const pexelsRes = await fetch(`${PEXELS_SEARCH_URL}?${params.toString()}`, {
         method: 'GET',
-        headers: { Authorization: PEXELS_API_KEY },
+        headers: { Authorization: pexelsApiKey },
       });
       if (pexelsRes.ok) {
         const data = await pexelsRes.json();
@@ -242,6 +250,221 @@ router.get('/photos', async (req, res) => {
     items,
     results: items,
   });
+});
+
+/** Map Pexels API video to dashboard video search item shape */
+function fromPexelsApiVideo(video) {
+  const selected = selectPexelsVideoFile(video?.video_files, { preferPortrait: true });
+  if (!selected?.url) return null;
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.debug('[contentSourceProvider] selected_video_file', {
+      width: selected.width,
+      height: selected.height,
+      quality: selected.quality,
+    });
+  }
+  const photographer = video?.user?.name ?? 'Pexels';
+  return {
+    id: String(video?.id ?? ''),
+    type: 'video',
+    thumbUrl: video?.image ?? selected.url,
+    fullUrl: selected.url,
+    url: selected.url,
+    width: video?.width ?? selected.width,
+    height: video?.height ?? selected.height,
+    duration: typeof video?.duration === 'number' ? video.duration : undefined,
+    photographer,
+    photographerUrl: video?.user?.url ?? 'https://www.pexels.com',
+    sourcePageUrl: video?.url ?? selected.url,
+    licenseNote: 'Free to use (Pexels)',
+    attributionText: `${photographer} / pexels`,
+    mimeType: 'video/mp4',
+    source: 'pexels',
+  };
+}
+
+/**
+ * GET /api/assets/videos?q=&page=1&perPage=12
+ * Pexels Videos proxy for HeroMediaPicker (requires PEXELS_API_KEY).
+ */
+router.get('/videos', async (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const perPage = Math.min(30, Math.max(1, parseInt(req.query.perPage, 10) || 12));
+  const orientation = req.query.orientation;
+
+  if (!getPexelsApiKey()) {
+    return res.status(503).json({
+      ok: false,
+      provider: 'pexels',
+      query,
+      page,
+      perPage,
+      total: 0,
+      items: [],
+      results: [],
+      error: {
+        code: 'provider_not_configured',
+        message: 'PEXELS_API_KEY not set',
+      },
+    });
+  }
+
+  if (!query) {
+    return res.status(400).json({
+      ok: false,
+      provider: 'pexels',
+      query: '',
+      page,
+      perPage,
+      items: [],
+      results: [],
+      error: { code: 'EMPTY_QUERY', message: 'Query required' },
+    });
+  }
+
+  try {
+    const params = new URLSearchParams({
+      query: query.slice(0, 200),
+      page: String(page),
+      per_page: String(perPage),
+    });
+    if (orientation === 'landscape' || orientation === 'portrait' || orientation === 'square') {
+      params.set('orientation', orientation);
+    }
+    const pexelsRes = await fetch(`${PEXELS_VIDEOS_SEARCH_URL}?${params.toString()}`, {
+      method: 'GET',
+      headers: { Authorization: getPexelsApiKey() },
+    });
+
+    if (!pexelsRes.ok) {
+      return res.status(pexelsRes.status === 401 ? 503 : 502).json({
+        ok: false,
+        provider: 'pexels',
+        query,
+        page,
+        perPage,
+        items: [],
+        results: [],
+        error: {
+          code: 'PEXELS_ERROR',
+          message: `Pexels videos HTTP ${pexelsRes.status}`,
+        },
+      });
+    }
+
+    const data = await pexelsRes.json();
+    const videos = Array.isArray(data.videos) ? data.videos : [];
+    const items = videos.map(fromPexelsApiVideo).filter(Boolean);
+
+    return res.json({
+      ok: true,
+      provider: 'pexels',
+      query,
+      page,
+      perPage,
+      total: data.total_results ?? items.length,
+      items,
+      results: items,
+    });
+  } catch (err) {
+    console.warn('[assets/videos] Pexels search failed:', err?.message);
+    return res.status(502).json({
+      ok: false,
+      provider: 'pexels',
+      query,
+      page,
+      perPage,
+      items: [],
+      results: [],
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err?.message || 'Video search failed',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/assets/fetch-video
+ * Server-side fetch + validation for provider video URLs (host allowlist).
+ * Body: { provider?: string, url: string }
+ */
+router.post('/fetch-video', async (req, res) => {
+  const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  const provider = typeof req.body?.provider === 'string' ? req.body.provider.trim() : '';
+
+  if (!url) {
+    return res.status(400).json({
+      ok: false,
+      error: 'missing_url',
+      message: 'url is required',
+    });
+  }
+
+  if (!isAllowedVideoFetchUrl(url, provider)) {
+    return res.status(400).json({
+      ok: false,
+      error: 'url_not_allowed',
+      message: 'Video URL host is not allowed for proxy fetch',
+    });
+  }
+
+  try {
+    const upstream = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { Accept: 'video/*,*/*;q=0.8' },
+    });
+    const contentType = upstream.headers.get('content-type') || '';
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    const validation = validateVideoBinary(buffer, contentType);
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[assets/fetch-video] video_validation', {
+        provider: provider || null,
+        url: url.slice(0, 120),
+        status: upstream.status,
+        contentType,
+        size: buffer.length,
+        valid: validation.valid,
+        reason: validation.reason ?? null,
+      });
+    }
+
+    if (!upstream.ok) {
+      return res.status(502).json({
+        ok: false,
+        error: 'upstream_error',
+        message: `Provider returned HTTP ${upstream.status}`,
+        validation,
+      });
+    }
+
+    if (!validation.valid) {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_video',
+        message: 'Fetched response is not a valid playable video',
+        reason: validation.reason,
+        size: validation.size,
+      });
+    }
+
+    const outType = validation.contentType || contentType || 'video/mp4';
+    res.setHeader('Content-Type', outType);
+    res.setHeader('Content-Length', String(buffer.length));
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.status(200).send(buffer);
+  } catch (err) {
+    console.warn('[assets/fetch-video] failed:', err?.message);
+    return res.status(502).json({
+      ok: false,
+      error: 'fetch_failed',
+      message: err?.message || 'Video fetch failed',
+    });
+  }
 });
 
 /**

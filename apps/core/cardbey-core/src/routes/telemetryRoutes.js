@@ -5,83 +5,21 @@
  */
 
 import express from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, optionalAuth } from '../middleware/auth.js';
 import { getPrismaClient } from '../lib/prisma.js';
 import { getMissionConsoleTelemetryBuffers } from '../lib/orchestrator/missionConsoleTelemetryStore.js';
 import {
   isPipelineOutputDualWriteEnabled,
   ORCHESTRA_STORE_BUILD_STEP_KEY,
 } from '../lib/orchestrator/pipelineCanonicalResults.js';
+import {
+  validateCodeFixGuardrails,
+  validatePlaybookShape,
+  validateTelemetryIssueShape,
+  buildTelemetryCodeFixDescription,
+} from '../lib/telemetry/telemetryCodeFixGuardrails.js';
 
 const router = express.Router();
-
-const ALLOWED_TELEMETRY_ISSUE_CATEGORIES = new Set([
-  'orchestra_mirror_gap',
-  'planner_missing_context',
-  'performer_result_shape',
-  'telemetry_stream_missing',
-]);
-
-/**
- * @param {unknown} playbook
- * @param {string} category
- */
-function validatePlaybookShape(playbook, category) {
-  if (!playbook || typeof playbook !== 'object' || Array.isArray(playbook)) return false;
-  const pb = /** @type {Record<string, unknown>} */ (playbook);
-  if (pb.category !== category) return false;
-  if (!Array.isArray(pb.likelyFiles) || pb.likelyFiles.length === 0) return false;
-  if (!Array.isArray(pb.constraints) || pb.constraints.length === 0) return false;
-  if (!Array.isArray(pb.validationSteps) || pb.validationSteps.length === 0) return false;
-  return true;
-}
-
-/**
- * @param {unknown} issue
- */
-function validateTelemetryIssueShape(issue) {
-  if (!issue || typeof issue !== 'object' || Array.isArray(issue)) return false;
-  const i = /** @type {Record<string, unknown>} */ (issue);
-  const cat = typeof i.category === 'string' ? i.category : '';
-  if (!ALLOWED_TELEMETRY_ISSUE_CATEGORIES.has(cat)) return false;
-  if (i.suggestedTool !== 'code_fix') return false;
-  if (typeof i.title !== 'string' || !i.title.trim()) return false;
-  if (typeof i.summary !== 'string' || !i.summary.trim()) return false;
-  if (!Array.isArray(i.evidence)) return false;
-  return true;
-}
-
-/**
- * @param {Record<string, unknown>} issue
- * @param {Record<string, unknown>} playbook
- * @param {Record<string, unknown>} telemetryContext
- */
-function buildTelemetryCodeFixDescription(issue, playbook, telemetryContext) {
-  const evidence = Array.isArray(issue.evidence) ? issue.evidence : [];
-  const likelyFiles = Array.isArray(playbook.likelyFiles) ? playbook.likelyFiles : [];
-  const constraints = Array.isArray(playbook.constraints) ? playbook.constraints : [];
-  const validationSteps = Array.isArray(playbook.validationSteps) ? playbook.validationSteps : [];
-
-  const parts = [
-    '[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.',
-    `Category: ${issue.category}`,
-    `Title: ${issue.title}`,
-    `Severity: ${typeof issue.severity === 'string' ? issue.severity : 'unknown'}`,
-    `Telemetry heuristic confidence: ${typeof issue.confidence === 'number' ? issue.confidence : 'n/a'}`,
-    `Summary: ${issue.summary}`,
-    'Evidence:',
-    ...evidence.map((e) => ` - ${String(e)}`),
-    'Playbook — likely files:',
-    ...likelyFiles.map((f) => ` - ${String(f)}`),
-    'Playbook — constraints:',
-    ...constraints.map((c) => ` - ${String(c)}`),
-    'Playbook — validation steps (after manual patch):',
-    ...validationSteps.map((v) => ` - ${String(v)}`),
-    'Telemetry context (JSON):',
-    JSON.stringify(telemetryContext, null, 2),
-  ];
-  return parts.join('\n');
-}
 
 /** One-time diagnostic: first authenticated hit to /summary (no user-identifying data). */
 let loggedFirstSummaryRequest = false;
@@ -199,14 +137,7 @@ router.post('/code-fix-proposal', requireAuth, async (req, res, next) => {
       return res.status(200).json({ ok: false, message: 'invalid_action' });
     }
     const g = body.guardrails;
-    if (
-      !g ||
-      typeof g !== 'object' ||
-      g.proposalOnly !== true ||
-      g.noFileWrites !== true ||
-      g.noAutoApply !== true ||
-      g.humanApprovalRequired !== true
-    ) {
+    if (!validateCodeFixGuardrails(g)) {
       return res.status(200).json({ ok: false, message: 'guardrails_required' });
     }
     const issue = body.issue;
@@ -255,6 +186,89 @@ router.post('/code-fix-proposal', requireAuth, async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * POST /api/telemetry/hero-video — dashboard hero upload verify / playback events.
+ * Body: { event, url?, storageKey?, attempt?, status?, durationMs?, errorCode?, environment?, ts? }
+ */
+router.post('/hero-video', optionalAuth, async (req, res, next) => {
+  try {
+    const {
+      parseHeroVideoTelemetryBody,
+      recordHeroVideoTelemetry,
+      logHeroVideoTelemetrySideEffects,
+    } = await import('../services/telemetry/heroVideoTelemetryService.js');
+
+    const parsed = parseHeroVideoTelemetryBody(req.body);
+    if (!parsed) {
+      return res.status(400).json({ ok: false, error: 'invalid_event', message: 'Unknown or missing event type' });
+    }
+
+    const prisma = getPrismaClient();
+    const row = await recordHeroVideoTelemetry(prisma, parsed, { userId: req.userId ?? null });
+    logHeroVideoTelemetrySideEffects(row);
+
+    return res.status(200).json({ ok: true, id: row.id });
+  } catch (err) {
+    console.error('[telemetry] POST /hero-video failed:', err?.message || err);
+    return next(err);
+  }
+});
+
+/**
+ * POST /api/telemetry/navigation — dashboard navigation / admin discovery events.
+ */
+router.post('/navigation', optionalAuth, async (req, res, next) => {
+  try {
+    const {
+      parseNavigationTelemetryBody,
+      recordNavigationTelemetry,
+      logNavigationTelemetrySideEffects,
+    } = await import('../services/telemetry/navigationTelemetryService.js');
+
+    const parsed = parseNavigationTelemetryBody({
+      ...req.body,
+      userId: req.body?.userId ?? req.userId ?? null,
+      userRole: req.body?.userRole ?? req.user?.role ?? null,
+    });
+    if (!parsed) {
+      return res.status(400).json({ ok: false, error: 'invalid_event', message: 'Unknown or missing event type' });
+    }
+
+    const prisma = getPrismaClient();
+    const row = await recordNavigationTelemetry(prisma, parsed, {
+      userId: req.userId ?? parsed.userId,
+      userRole: req.user?.role ?? parsed.userRole,
+    });
+    logNavigationTelemetrySideEffects(row);
+
+    return res.status(200).json({ ok: true, id: row.id });
+  } catch (err) {
+    console.error('[telemetry] POST /navigation failed:', err?.message || err);
+    return next(err);
+  }
+});
+
+/**
+ * GET /api/telemetry/navigation/discovery — admin-only admin tool discovery analysis.
+ */
+router.get('/navigation/discovery', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const prisma = getPrismaClient();
+    const { detectAdminToolDiscoveryIssues, buildAdminDiscoveryMetrics } = await import(
+      '../services/detection/adminToolDiscovery.js'
+    );
+    const windowHours = parseInt(String(req.query.windowHours ?? '24'), 10);
+    const [discovery, metrics] = await Promise.all([
+      detectAdminToolDiscoveryIssues(prisma, { windowHours: Number.isFinite(windowHours) ? windowHours : 24 }),
+      buildAdminDiscoveryMetrics(prisma),
+    ]);
+    return res.status(200).json({ ok: true, discovery, metrics });
+  } catch (err) {
+    console.error('[telemetry] GET /navigation/discovery failed:', err?.message || err);
+    return next(err);
   }
 });
 

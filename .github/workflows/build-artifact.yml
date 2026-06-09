@@ -1,0 +1,102 @@
+name: Build Artifact
+
+# Phase 1 of immutable artifact promotion: BUILD ONCE per commit.
+# Builds core + dashboard images, tags them with the commit SHA, and pushes to GHCR.
+# This runs in PARALLEL to Render's existing git build and does NOT change any live
+# deploy. The SHA tag is the immutable artifact that Phase 2 (promote.yml) promotes.
+# See docs/IMPACT_REPORT_artifact_promotion_cicd.md.
+
+on:
+  push:
+    branches: [dev, staging, main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-artifact-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  compute:
+    name: Compute image namespace
+    runs-on: ubuntu-latest
+    outputs:
+      owner: ${{ steps.vars.outputs.owner }}
+    steps:
+      - id: vars
+        name: Lowercase repository owner (GHCR requires lowercase)
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+  build-core:
+    name: Build core image
+    needs: compute
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ needs.compute.outputs.owner }}/cardbey-core
+          tags: |
+            type=sha,format=short,prefix=sha-
+            type=ref,event=branch
+
+      - name: Build and push core
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/core/cardbey-core
+          file: apps/core/cardbey-core/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-dashboard:
+    name: Build dashboard image
+    needs: compute
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ needs.compute.outputs.owner }}/cardbey-dashboard
+          tags: |
+            type=sha,format=short,prefix=sha-
+            type=ref,event=branch
+
+      - name: Build and push dashboard
+        uses: docker/build-push-action@v6
+        with:
+          # Context is the monorepo root (pnpm workspace + submodules).
+          context: .
+          file: apps/dashboard/cardbey-marketing-dashboard/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

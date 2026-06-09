@@ -56,6 +56,7 @@
     "soak:runtime-kernel": "node scripts/runtime-kernel-staging-soak.mjs",
     "soak:runtime-kernel:mock": "cross-env RUNTIME_KERNEL_SOAK_USE_MOCK=true node scripts/runtime-kernel-staging-soak.mjs",
     "soak:stage-e": "node scripts/stage-e-soak.mjs",
+    "audit:phase-f-bypass": "node scripts/phase-f-bypass-audit.mjs",
     "test:contracts": "vitest run src/routes/__tests__/runwayRouteContract.test.js src/routes/__tests__/healthRoute.contract.test.js src/routes/__tests__/journeysTemplates.smoke.test.js src/realtime/simpleSse.streamPolicy.test.js",
     "test:playlist": "node scripts/test/playlist-full.js",
     "scan:missing-media": "node scripts/scan-missing-media.js",
@@ -71,6 +72,8 @@
     "backfill:store-slugs": "node src/scripts/backfillStoreSlugs.js",
     "backfill:draft-generation-run-id": "node scripts/backfillDraftStoreGenerationRunId.js",
     "backfill:mi-signage": "tsx scripts/backfillMIForSignage.js",
+    "backfill:ios-video": "node scripts/backfill-ios-video-derivatives.mjs",
+    "backfill:ios-video:apply": "node scripts/backfill-ios-video-derivatives.mjs --apply",
     "rag:ingest": "tsx scripts/ingestRagKnowledge.ts",
     "rag:ingest:reports": "tsx scripts/ingestRagReports.ts",
     "reports:daily": "tsx scripts/generateDailyReports.ts",
@@ -85,7 +88,10 @@
     "create:admin": "node scripts/createAdmin.js",
     "admin:promote": "node scripts/promoteUserRole.js",
     "test:marketing-agent": "node scripts/marketing-agent-test-flow.js",
-    "e2e:french-baguette": "node ../../../scripts/e2e-french-baguette.js"
+    "e2e:french-baguette": "node ../../../scripts/e2e-french-baguette.js",
+    "truth:check": "node scripts/truth-enforcer/index.js",
+    "truth:fix": "node scripts/truth-enforcer/index.js --fix",
+    "truth:strict": "node scripts/truth-enforcer/index.js --strict"
   },
   "keywords": [
     "cardbey",

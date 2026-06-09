@@ -26,12 +26,17 @@ export async function execute(input = {}, context = {}) {
   if (supportsOAuthConnectForAlias(platform)) {
     if (!FACEBOOK_APP_ID || !FACEBOOK_REDIRECT) {
       return {
-        status: 'ok',
+        status: 'failed',
+        reason: 'facebook_not_configured',
+        error: {
+          code: 'facebook_not_configured',
+          message:
+            'Facebook app credentials are not set. Add FACEBOOK_APP_ID and FACEBOOK_REDIRECT_URI to environment.',
+        },
         output: {
           ok: false,
           error: 'facebook_not_configured',
-          message:
-            'Facebook app credentials are not set. Add FACEBOOK_APP_ID and FACEBOOK_REDIRECT_URI to environment.',
+          platform,
         },
       };
     }
@@ -44,21 +49,36 @@ export async function execute(input = {}, context = {}) {
     oauthUrl.searchParams.set('response_type', 'code');
     oauthUrl.searchParams.set('state', state);
 
+    const oauthMessage =
+      'Open this URL to connect your Facebook Page. You will be redirected back automatically.';
     return {
-      status: 'ok',
+      status: 'blocked',
+      reason: 'requires_user_input',
+      message: oauthMessage,
+      blocker: {
+        code: 'requires_user_input',
+        message: oauthMessage,
+        requiredAction: 'complete_oauth_redirect',
+      },
       output: {
         ok: true,
         phase: 'oauth_redirect',
         platform,
         oauthUrl: oauthUrl.toString(),
-        message:
-          'Open this URL to connect your Facebook Page. You will be redirected back automatically.',
+        message: oauthMessage,
       },
     };
   }
 
   return {
-    status: 'ok',
+    status: 'blocked',
+    reason: 'platform_not_supported',
+    message: `Social platform not supported: ${platform || 'unknown'}`,
+    blocker: {
+      code: 'platform_not_supported',
+      message: `Social platform not supported: ${platform || 'unknown'}`,
+      requiredAction: 'choose_supported_platform',
+    },
     output: { ok: false, error: 'platform_not_supported', platform: platform || null },
   };
 }

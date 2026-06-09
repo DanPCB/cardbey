@@ -209,6 +209,18 @@ describe('buildHeroPreviewPatchFromUrls', () => {
     expect(patch.heroImageUrl).toBe('https://cdn.example.com/new-hero.jpg');
     expect(patch.heroVideoUrl).toBeNull();
   });
+
+  it('relativizes LAN absolute video URL before writing preview patch', () => {
+    const lanVideo = 'http://192.168.1.11:3001/uploads/media/hero.mp4';
+    const patch = buildHeroPreviewPatchFromUrls({
+      videoUrl: lanVideo,
+      source: 'upload',
+      existingPreview: {},
+    });
+    expect(patch.heroVideoUrl).toBe('/uploads/media/hero.mp4');
+    expect(patch.heroVideo).toBe('/uploads/media/hero.mp4');
+    expect(patch.hero?.videoUrl).toBe('/uploads/media/hero.mp4');
+  });
 });
 
 describe('syncBusinessHeroProfile', () => {

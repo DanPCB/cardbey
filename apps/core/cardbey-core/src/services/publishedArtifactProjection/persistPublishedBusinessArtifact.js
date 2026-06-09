@@ -25,6 +25,12 @@ export async function persistPublishedBusinessArtifact(prisma, projection, meta 
   const publishRunId = meta.publishRunId ?? projection.diagnostics?.sourcePublishRunId ?? null;
 
   if (hasPublishedArtifactProjectionTable(prisma)) {
+    const heroVideoUrl =
+      typeof projection?.hero?.videoUrl === 'string' && projection.hero.videoUrl.trim()
+        ? projection.hero.videoUrl.trim()
+        : null;
+    const heroMediaType = heroVideoUrl ? 'video' : 'image';
+
     await prisma.publishedArtifactProjection.upsert({
       where: { businessId },
       create: {
@@ -35,6 +41,8 @@ export async function persistPublishedBusinessArtifact(prisma, projection, meta 
         slug: projection.slug,
         version: projection.artifactVersion ?? PUBLISHED_ARTIFACT_VERSION,
         projectionJson: projection,
+        heroVideoUrl,
+        heroMediaType,
         sourceDraftId,
         publishRunId,
       },
@@ -44,6 +52,8 @@ export async function persistPublishedBusinessArtifact(prisma, projection, meta 
         slug: projection.slug,
         version: projection.artifactVersion ?? PUBLISHED_ARTIFACT_VERSION,
         projectionJson: projection,
+        heroVideoUrl,
+        heroMediaType,
         sourceDraftId,
         publishRunId,
         updatedAt: new Date(),

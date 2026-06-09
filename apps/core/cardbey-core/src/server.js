@@ -13,6 +13,7 @@ import './env/loadEnv.js';
 import './env/ensureDatabaseUrl.js';
 import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentity.js';
 import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
+import './lib/skills/index.js';
 
 assertDatabaseIdentityAtStartup();
 assertSchemaFingerprintAtStartup();
@@ -55,6 +56,8 @@ import aiRouter from './routes/ai.js';
 import aiImagesRouter from './routes/aiImages.js';
 import studioRouter from './routes/studio.js';
 import assetsRouter from './routes/assets.js';
+import mediaVideoRouter from './routes/mediaVideo.js';
+import mediaLogoRouter from './routes/mediaLogo.js';
 import trendsRouter from './routes/trends.js';
 import screensRoutes from './routes/screens.js';
 import playlistsRoutes from './routes/playlists.js';
@@ -131,6 +134,9 @@ import promotionsRoutes from './routes/promotionsRoutes.js';
 import notificationsRoutes from './routes/notifications.js';
 import businessRoutes from './routes/business.js';
 import businessBrandRoutes from './routes/businessBrandRoutes.js';
+import discoveryRoutes from './routes/discoveryRoutes.js';
+import exploreRoutes from './routes/exploreRoutes.js';
+import passiveGenerationRoutes from './routes/passiveGenerationRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
@@ -143,6 +149,7 @@ import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
+import skillSuitcaseRoutes from './routes/skillSuitcaseRoutes.js';
 import cardRoutes from './routes/cardRoutes.js';
 import orchestratorRoutes from './orchestrator/api/orchestratorRoutes.js';
 import orchestratorFeedbackRoutes from './routes/orchestratorFeedbackRoutes.js';
@@ -150,6 +157,8 @@ import menuPhotoAssignRoutes from './routes/menuPhotoAssign.js';
 import loyaltyRoutes from './routes/loyalty.js';
 import loyaltyEngineRoutes from './routes/loyaltyRoutes.js';
 import watcherRoutes from './routes/watcher.js';
+import pilRoutes from './routes/pilRoutes.js';
+import userMemoryRoutes from './routes/userMemoryRoutes.js';
 import promoEngineRoutes from './routes/promoEngine.js';
 import signageEngineRoutes from './routes/signageEngine.js';
 import signageRoutes from './routes/signageRoutes.js';
@@ -178,6 +187,7 @@ import contactsSyncRoutes from './routes/contactsSyncRoutes.js';
 import aiOperatorRoutes from './routes/aiOperatorRoutes.js';
 import missionsRoutes from './routes/missionsRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
+import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
 import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
 import agentsV1Routes from './routes/agentsV1Routes.js';
@@ -185,6 +195,7 @@ import researcherRoutes from './routes/researcherRoutes.js';
 import campaignRoutes from './routes/campaignRoutes.js';
 import devContentIngestRoutes from './routes/devContentIngest.js';
 import devCreditsRoutes from './routes/devCredits.js';
+import truthEnforcerRoutes from './routes/truthEnforcerRoutes.js';
 import smartObjectsRoutes from './routes/smartObjects.js';
 import qrRoutes from './routes/qr.js';
 import miVideoTemplatesRoutes from './routes/miVideoTemplates.js';
@@ -194,6 +205,7 @@ import performerRoutes from './routes/performer.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
+import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import performerProactiveStepRoutes from './routes/performerProactiveStepRoutes.js';
 import runtimeMissionStepRoutes from './routes/runtimeMissionStepRoutes.js';
 import runtimeMissionOrchestratorRoutes from './routes/runtimeMissionOrchestratorRoutes.js';
@@ -822,6 +834,8 @@ app.use('/api/tools', toolsRoutes);
 // Mount before broad /api routers and /api/assistant so POST /api/missions/* (e.g. extract-card) hits this stack first.
 app.use('/api/missions', missionsRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
+app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
+app.use('/api', userMemoryRoutes);
 app.use('/api/performer/proactive-step', performerProactiveStepRoutes);
 app.use('/api/runtime/missions', runtimeMissionStepRoutes);
 app.use('/api/runtime/missions', runtimeMissionOrchestratorRoutes);
@@ -848,6 +862,9 @@ app.use('/api/public/promos', promosPublicRoutes); // Public: GET /:slug, POST /
 app.use('/api/promotions', promotionsRoutes); // Public: GET /public/:publicId; slots resolve; optional POSTs
 app.use('/api/business', businessRoutes); // Business Builder routes: /api/business/create
 app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
+app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
+app.use('/api/explore', exploreRoutes); // Featured explore videos: GET/POST/PATCH/DELETE /api/explore/videos
+app.use('/api/passive-generation', passiveGenerationRoutes); // Passive intent-to-artifact pipeline (foundation)
 app.use('/api/automation', automationRoutes); // Headless automation: /api/automation/store-from-input
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
@@ -856,6 +873,7 @@ app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /a
 app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/programs, /api/loyalty/stamp/*
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.
 app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/event, /api/watcher/insights, /api/watcher/chat
+app.use('/api/pil', pilRoutes); // PIL intelligence events: POST /api/pil/events, /api/pil/events/batch
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
 app.use('/api', signageRoutes); // Signage REST API routes: /api/signage-assets, /api/signage-playlists, etc.
@@ -920,8 +938,10 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 }
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
-app.use('/api/broker', brokerRoutes); // Broker Phase 1: GET /api/broker/actions, /agent-capabilities
+app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
 console.log('[CORE] mounted /api/telemetry (GET /summary, POST /code-fix-proposal)');
+console.log('[CORE] mounted /api/self-healing (GET /discovery-gaps, POST /propose-from-discovery)');
+app.use('/api/broker', brokerRoutes); // Broker Phase 1: GET /api/broker/actions, /agent-capabilities
 // missionsRoutes mounted earlier (after /api/tools) so /api/missions/* is not swallowed by other /api stacks.
 // Second stack: POST /api/missions/:missionId/spawn (OpenClaw child) when not defined on missionsRoutes
 app.use('/api/missions', agentsV1Routes);
@@ -932,10 +952,13 @@ app.use('/api/qr', qrRoutes); // Dynamic QR v0: POST create, GET :code/resolve, 
 app.use('/q', qRedirect); // GET /q/:code — 302 redirect, record ScanEvent + IntentSignal (no auth)
 app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug — public offer page (no auth)
 app.use('/api/docs', smartDocumentRoutes); // Smart documents + suitcase list: GET/POST /api/docs
+app.use('/api/suitcase', skillSuitcaseRoutes); // DANH: suitcase-skill-output — skill reports + mission history
 app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards, visitor chat, etc.
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
 app.use('/api/assets', assetsRouter);
+app.use('/api/media', mediaVideoRouter); // Multi-source video search: GET /api/media/video/search (Pexels, Pixabay, Coverr, Mixkit)
+app.use('/api/media', mediaLogoRouter); // Logo search + generation: GET /api/media/logo/search, POST /api/media/logo/generate
 app.use('/api/trends', trendsRouter); // Trend profiles for AI Design Assistant
 app.use('/api/playlists', playlistsRoutes); // Playlist management
 app.use('/api/player', playerRoutes); // Player configuration
@@ -987,7 +1010,8 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/api/debug', createDebugRoutesLite(app));
   app.use('/api/dev', devContentIngestRoutes); // GET /api/dev/content-ingest/export (gated by ENABLE_CONTENT_INGEST_LOGS)
   app.use('/api/dev/credits', devCreditsRoutes); // POST /api/dev/credits/add (add credits for testing top-up)
-  console.log('[CORE] Debug routes enabled: /api/debug/pairing-stats, /api/debug/routes, POST /api/dev/credits/add');
+  truthEnforcerRoutes(app); // GET /api/dev/truth-violations, POST /api/dev/truth-fix
+  console.log('[CORE] Debug routes enabled: /api/debug/pairing-stats, /api/debug/routes, POST /api/dev/credits/add, /api/dev/truth-violations');
 }
 
 // Static file hosting for production builds

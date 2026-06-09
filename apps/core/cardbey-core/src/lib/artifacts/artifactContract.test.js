@@ -66,4 +66,24 @@ describe('artifactContract', () => {
     expect(deriveIntakeSuccessFromToolResult(toolResult)).toBe(true);
     expect(resolveIntakeMessageFromToolResult(toolResult)).toContain('started');
   });
+
+  it('skill execution summary replaces generic Done message', () => {
+    const toolResult = {
+      status: 'ok',
+      output: {
+        skillExecution: {
+          stepResults: {
+            generate_execution_summary: {
+              output: {
+                summary: 'Created 2 product(s), 1 campaign(s), 6-week content calendar.',
+                display: { type: 'document_ingestion_result' },
+              },
+            },
+          },
+        },
+      },
+    };
+    expect(resolveIntakeMessageFromToolResult(toolResult)).toContain('Created 2 product(s)');
+    expect(resolveIntakeMessageFromToolResult(toolResult)).not.toBe('Done.');
+  });
 });

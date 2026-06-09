@@ -36,6 +36,9 @@ async function lookupBusinessLocale(storeId, cache) {
     cache.set(id, locale);
     return locale;
   } catch {
+    // DANH: fix-locale-schema-drift
+    // Business.locale does not exist in schema — this query always fails; catch returns 'en'.
+    // TODO: remove locale lookup or add locale to schema.
     cache.set(id, 'en');
     return 'en';
   }

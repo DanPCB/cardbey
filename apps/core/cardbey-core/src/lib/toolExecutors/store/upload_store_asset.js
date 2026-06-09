@@ -2,6 +2,8 @@
  * UI-first: signals the client to open the logo/asset upload flow (no server upload).
  */
 
+import { uiDelegateBlockedResult } from '../uiDelegateBlockedResult.js';
+
 /**
  * @param {object} [input]
  * @param {string} [input.assetType]
@@ -16,15 +18,14 @@ export async function execute(input = {}, context = {}) {
     context?.stepOutputs?.structured_store_build?.generationRunId ??
     null;
   const storeId = input?.storeId ?? context?.storeId ?? null;
-  return {
-    status: 'ok',
+  return uiDelegateBlockedResult({
+    action: 'open_upload_ui',
+    message: `Manual ${assetType} upload required. Please select a file.`,
     output: {
-      action: 'open_upload_ui',
       assetType,
       generationRunId,
       storeId,
-      message: `Ready to upload your ${assetType}. Please select a file.`,
       uploadEndpoint: `/api/stores/temp/upload/avatar`,
     },
-  };
+  });
 }

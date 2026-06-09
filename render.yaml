@@ -7,7 +7,8 @@ services:
     branch: staging
     rootDir: apps/core/cardbey-core
     # DATABASE_URL must be Postgres; applies prisma/postgres/migrations before generate (belt + suspenders with preDeploy/prestart bootstrap).
-    buildCommand: npm install && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
+    buildCommand: npm ci && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
     # DATABASE_URL must be postgresql://... (not file:). Bootstrap picks prisma/postgres/schema.prisma + migrate deploy.
     preDeployCommand: node scripts/prisma-bootstrap.js
     startCommand: npm start
@@ -34,6 +35,11 @@ services:
       # Phase B — mission orchestrator (run-next / run-all on staging only)
       - key: ENABLE_RUNTIME_MISSION_ORCHESTRATOR
         value: "true"
+      # Phase F Step 1 — orchestra/start + missionId bypass closure (lowest-risk; rollback = unset flag)
+      - key: PHASE_F_BYPASS_TELEMETRY
+        value: "true"
+      - key: BROKER_BLOCK_ORCHESTRA_WITH_MISSION
+        value: "true"
       # V1 — verification email hits Core API; post-verify redirect opens dashboard staging SPA
       - key: EMAIL_VERIFICATION_BASE_URL
         value: https://cardbey-core-staging.onrender.com
@@ -59,6 +65,10 @@ services:
         value: "true"
       - key: VITE_ENV
         value: staging
+      - key: VITE_CORE_BASE_URL
+        value: https://cardbey-core-staging.onrender.com
+      - key: VITE_CORE_ORIGIN
+        value: https://cardbey-core-staging.onrender.com
       - key: VITE_PERFORMER_EXECUTION_INTENTS
         value: "1"
       - key: VITE_PERFORMER_EXECUTION_PLANNER
@@ -67,6 +77,10 @@ services:
         value: "1"
       - key: VITE_PERFORMER_EXECUTION_REAL_CAPABILITIES
         value: "1"
+      - key: VITE_PIL_ACTIVITY_AWARE
+        value: "true"
+      - key: VITE_ENABLE_ORB_COPILOT
+        value: "true"
 
   # Core API (production / live) — same build + health probe as staging; branch main tracks staging merges.
   - type: web
@@ -75,7 +89,8 @@ services:
     repo: https://github.com/DanPCB/cardbey
     branch: main
     rootDir: apps/core/cardbey-core
-    buildCommand: npm install && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
+    buildCommand: npm ci && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
     preDeployCommand: node scripts/prisma-bootstrap.js
     startCommand: npm start
     healthCheckPath: /api/performer/intake/v2

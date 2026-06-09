@@ -53,27 +53,30 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
     }
   }
 
-  const products = Array.isArray(business?.products)
-    ? business.products.map((p) => ({
-        id: p.id,
-        name: (lang && getTranslatedField(p, 'name', lang)) || p.name,
-        description: (lang && getTranslatedField(p, 'description', lang)) ?? p.description ?? null,
-        category: (lang && getTranslatedField(p, 'category', lang)) ?? p.category ?? null,
-        price: p.price ?? null,
-        currency: p.currency ?? null,
-        imageUrl: p.imageUrl ?? null,
-      }))
-    : Array.isArray(projection.commerce?.products)
-      ? projection.commerce.products.map((p) => ({
+  const dbProducts = Array.isArray(business?.products) ? business.products : [];
+  const projectionProducts = Array.isArray(projection.commerce?.products) ? projection.commerce.products : [];
+  // Republish can rebuild projection from draft items while Product rows are still empty — prefer DB when
+  // present, otherwise fall back to projection commerce so /s/:slug featured + catalog sections resolve.
+  const products =
+    dbProducts.length > 0
+      ? dbProducts.map((p) => ({
+          id: p.id,
+          name: (lang && getTranslatedField(p, 'name', lang)) || p.name,
+          description: (lang && getTranslatedField(p, 'description', lang)) ?? p.description ?? null,
+          category: (lang && getTranslatedField(p, 'category', lang)) ?? p.category ?? null,
+          price: p.price ?? null,
+          currency: p.currency ?? null,
+          imageUrl: p.imageUrl ?? null,
+        }))
+      : projectionProducts.map((p) => ({
           id: p.id,
           name: p.name,
           description: p.description ?? null,
           price: p.price ?? null,
           imageUrl: p.imageUrl ?? null,
-          category: p.categoryId ?? null,
-          currency: null,
-        }))
-      : [];
+          category: p.category ?? p.categoryId ?? null,
+          currency: p.currency ?? null,
+        }));
 
   return {
     id: projection.businessId ?? projection.storeId,
@@ -105,6 +108,7 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
       parseSocialLinks(projection.content?.socialLinks) ??
       parseSocialLinks(business?.socialLinks) ??
       null,
+    ...(business?.phone ? { phone: business.phone } : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
     products,
     _projectionMeta: {

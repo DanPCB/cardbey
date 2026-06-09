@@ -1,0 +1,70 @@
+---
+description: LOCKED RULE — Safe Execution Governance. No auto-run of destructive/publishing/customer-facing actions; confirmation + audit trace required.
+alwaysApply: true
+---
+
+# Safe Execution Governance (LOCKED) – Entire Project
+
+**Never auto-run** destructive, publishing, billing, customer-facing, or irreversible actions.
+
+## Actions that require governance (confirmation before execution)
+
+Any action that can affect:
+
+- live public pages
+- campaigns
+- offers
+- customer messages
+- payments
+- bookings
+- device signage
+- data deletion
+- external publishing
+- business ownership/claims
+
+## Required flow (high-impact)
+
+1. **Performer mission planning** (intent staged, not auto-executed)
+2. **Clear action summary** for the user
+3. **User confirmation checkpoint** (`awaiting_confirmation` / explicit confirm)
+4. **Execution only after confirmation**
+
+## Allowed without confirmation checkpoint
+
+- analysis
+- draft creation
+- preview generation
+- recommendations
+- internal data enrichment
+- non-public artifact preparation
+- read-only navigation (e.g. open business preview)
+
+## Implementation contract (code)
+
+Use `apps/dashboard/cardbey-marketing-dashboard/src/lib/governance/safeExecutionGovernance.ts`:
+
+- Classify with `requiresUserConfirmation(proposedAction)`
+- Hand off via `buildGovernedPerformerIntent` / `applySafeExecutionGovernance`
+- **Never** set `autoSubmit: true` for confirmation-required `proposedAction` values
+- Record every proposed handoff with `appendExecutionTrace` / `createExecutionTrace`
+
+## Traceability fields (required on proposed/executed actions)
+
+| Field | Purpose |
+|-------|---------|
+| `sourceIntent` | Human or surface intent text |
+| `missionId` | Performer mission when known |
+| `targetId` | Store/business/artifact id |
+| `proposedAction` | Stable action key (e.g. `create_campaign`) |
+| `confirmationState` | `pending` \| `confirmed` \| `rejected` \| `not_required` |
+| `executedBy` | Actor id when executed |
+| `timestamp` | ISO time of record |
+
+Stash on intent: `sourceContext.safeExecutionTrace`. Session audit: `cardbey.safeExecution.audit.v1`.
+
+## Agent / developer checklist
+
+- [ ] Does this path publish, message customers, bill, book, push signage, delete data, or claim ownership?
+- [ ] If yes: use governance helpers; `autoSubmit` must be false; user must confirm before run.
+- [ ] Is `proposedAction` set and trace appended?
+- [ ] No silent execution from Discover rails, feed CTAs, or shortcuts.

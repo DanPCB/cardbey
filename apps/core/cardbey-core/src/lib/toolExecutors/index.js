@@ -14,6 +14,49 @@ import * as upload_store_asset from './store/upload_store_asset.js';
 import * as replace_store_catalog from './store/replace_store_catalog.js';
 import * as update_store_hero from './store/update_store_hero.js';
 import * as setBusinessSocialLinks from './store/setBusinessSocialLinks.js';
+import * as update_brand_kit from './store/update_brand_kit.js';
+import * as search_hero_media from './media/search_hero_media.js';
+import * as create_campaign_brief from './campaign/create_campaign_brief.js';
+import * as generate_campaign_graphics from './campaign/generate_campaign_graphics.js';
+import * as generate_campaign_copy from './campaign/generate_campaign_copy.js';
+import * as qa_campaign_package from './campaign/qa_campaign_package.js';
+import * as package_campaign_artifact from './campaign/package_campaign_artifact.js';
+import * as select_display_content from './display/select_display_content.js';
+import * as format_for_display from './display/format_for_display.js';
+import * as push_to_display_device from './display/push_to_display_device.js';
+import * as verify_display_output from './display/verify_display_output.js';
+import * as analyze_offer_performance from './offer/analyze_offer_performance.js';
+import * as suggest_offer_improvements from './offer/suggest_offer_improvements.js';
+import * as apply_offer_optimization from './offer/apply_offer_optimization.js';
+import * as track_offer_outcome from './offer/track_offer_outcome.js';
+import * as audit_local_presence from './growth/audit_local_presence.js';
+import * as generate_growth_plan from './growth/generate_growth_plan.js';
+import * as monitor_growth_baseline from './growth/monitor_growth_baseline.js';
+import * as check_booking_availability from './booking/check_booking_availability.js';
+import * as create_booking_record from './booking/create_booking_record.js';
+import * as confirm_booking_customer from './booking/confirm_booking_customer.js';
+import * as schedule_booking_reminder from './booking/schedule_booking_reminder.js';
+import * as handle_booking_outcome from './booking/handle_booking_outcome.js';
+import * as get_booking_summary from './booking/get_booking_summary.js';
+import * as manage_product_catalog from './catalog/manage_product_catalog.js';
+import * as manage_menu_sync from './menu/manage_menu_sync.js';
+import * as get_store_analytics from './get_store_analytics.js';
+import * as generate_report_summary from './generate_report_summary.js';
+import * as audit_store_completeness from './audit_store_completeness.js';
+import * as generate_health_report from './generate_health_report.js';
+import * as get_review_summary from './get_review_summary.js';
+import * as draft_review_response from './draft_review_response.js';
+import * as segment_loyal_customers from './loyalty/segment_loyal_customers.js';
+import * as define_loyalty_tiers from './loyalty/define_loyalty_tiers.js';
+import * as create_loyalty_offer from './loyalty/create_loyalty_offer.js';
+import * as schedule_loyalty_campaign from './loyalty/schedule_loyalty_campaign.js';
+import * as fetch_store_content from './content/fetch_store_content.js';
+import * as rewrite_content_copy from './content/rewrite_content_copy.js';
+import * as generate_seo_tags from './content/generate_seo_tags.js';
+import * as audit_hero_media from './hero/audit_hero_media.js';
+import * as suggest_hero_media from './hero/suggest_hero_media.js';
+import * as identify_feature_target from './homepage/identify_feature_target.js';
+import * as apply_homepage_feature from './homepage/apply_homepage_feature.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
@@ -61,6 +104,35 @@ import { generateI18nKey }      from './i18n/generateI18nKey.js'
 import { translateString }      from './i18n/translateString.js'
 import { runI18nTests }         from './i18n/runI18nTests.js'
 import { reportI18nProgress }   from './i18n/reportI18nProgress.js'
+import * as analyze_video_brief from './video/analyze_video_brief.js'; // DANH: skill-round5-video
+import * as generate_video_script from './video/generate_video_script.js'; // DANH: skill-round5-video
+import * as queue_video_generation from './video/queue_video_generation.js'; // DANH: skill-round5-video
+import * as check_scan_capability from './scan/check_scan_capability.js'; // DANH: skill-round5-cardscan
+import * as extract_card_data from './scan/extract_card_data.js'; // DANH: skill-round5-cardscan
+import * as create_product_from_card from './scan/create_product_from_card.js'; // DANH: skill-round5-cardscan
+import * as check_cnet_config from './cnet/check_cnet_config.js'; // DANH: skill-round5-cnet
+import * as prepare_cnet_payload from './cnet/prepare_cnet_payload.js'; // DANH: skill-round5-cnet
+import * as deploy_to_cnet from './cnet/deploy_to_cnet.js'; // DANH: skill-round5-cnet
+import * as extract_document_data from './document/extract_document_data.js'; // DANH: skill-round6-document
+import * as create_products_from_document from './document/create_products_from_document.js'; // DANH: skill-round6-document
+import * as create_promotions_from_document from './document/create_promotions_from_document.js'; // DANH: skill-round6-document
+import * as suggest_campaign_plan from './document/suggest_campaign_plan.js'; // DANH: skill-round6-document
+import * as generate_execution_summary from './document/generate_execution_summary.js'; // DANH: skill-round6-document
+import * as generate_living_document from './document/generate_living_document.js'; // DANH: living-document-platform
+import * as activate_campaigns from './campaign/activate_campaigns.js'; // DANH: living-document-platform
+
+/** Honest blocker for tools not implemented yet (no fake success payloads). */
+function honestBlocker(toolName, message) {
+  return {
+    async execute() {
+      return {
+        status: 'blocked',
+        reason: 'not_implemented',
+        output: { toolName, message },
+      };
+    },
+  };
+}
 
 /** Wrap i18n repair helpers (named fn exports) into standard executor shape. */
 function wrapI18nExecutor(fn) {
@@ -106,6 +178,49 @@ export const executors = {
   replace_store_catalog,
   update_store_hero,
   setBusinessSocialLinks,
+  update_brand_kit,
+  search_hero_media,
+  create_campaign_brief,
+  generate_campaign_graphics,
+  generate_campaign_copy,
+  qa_campaign_package,
+  package_campaign_artifact,
+  select_display_content,
+  format_for_display,
+  push_to_display_device,
+  verify_display_output,
+  analyze_offer_performance,
+  suggest_offer_improvements,
+  apply_offer_optimization,
+  track_offer_outcome,
+  audit_local_presence,
+  generate_growth_plan,
+  monitor_growth_baseline,
+  check_booking_availability,
+  create_booking_record,
+  confirm_booking_customer,
+  schedule_booking_reminder,
+  handle_booking_outcome,
+  get_booking_summary,
+  manage_product_catalog,
+  manage_menu_sync,
+  get_store_analytics,
+  generate_report_summary,
+  audit_store_completeness,
+  generate_health_report,
+  get_review_summary,
+  draft_review_response,
+  segment_loyal_customers,
+  define_loyalty_tiers,
+  create_loyalty_offer,
+  schedule_loyalty_campaign,
+  fetch_store_content,
+  rewrite_content_copy,
+  generate_seo_tags,
+  audit_hero_media,
+  suggest_hero_media,
+  identify_feature_target,
+  apply_homepage_feature,
   assign_promotion_slot,
   activate_promotion,
   create_promotion,
@@ -141,21 +256,26 @@ export const executors = {
   translateString: wrapI18nExecutor(translateString),
   runI18nTests: wrapI18nExecutor(runI18nTests),
   reportI18nProgress: wrapI18nExecutor(reportI18nProgress),
-  // Stub executors for tools without real implementations yet.
-  generate_promotion_asset: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'generate_promotion_asset',
-          input,
-          context,
-          message: 'Promotion asset generated (stub executor).',
-        },
-      };
-    },
-  },
+  analyze_video_brief, // DANH: skill-round5-video
+  generate_video_script, // DANH: skill-round5-video
+  queue_video_generation, // DANH: skill-round5-video
+  check_scan_capability, // DANH: skill-round5-cardscan
+  extract_card_data, // DANH: skill-round5-cardscan
+  create_product_from_card, // DANH: skill-round5-cardscan
+  check_cnet_config, // DANH: skill-round5-cnet
+  prepare_cnet_payload, // DANH: skill-round5-cnet
+  deploy_to_cnet, // DANH: skill-round5-cnet
+  extract_document_data, // DANH: skill-round6-document
+  create_products_from_document, // DANH: skill-round6-document
+  create_promotions_from_document, // DANH: skill-round6-document
+  suggest_campaign_plan, // DANH: skill-round6-document
+  generate_execution_summary, // DANH: skill-round6-document
+  generate_living_document, // DANH: living-document-platform
+  activate_campaigns, // DANH: living-document-platform
+  generate_promotion_asset: honestBlocker(
+    'generate_promotion_asset',
+    'Promotion asset generation is not implemented yet.',
+  ),
   mission_pipeline_stub: {
     async execute(input = {}, context = {}) {
       const stepId = typeof context?.stepId === 'string' ? context.stepId.trim() : '';
@@ -176,110 +296,31 @@ export const executors = {
       };
     },
   },
-  resolve_target_screens: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'resolve_target_screens',
-          input,
-          context,
-          message: 'Target screens resolved (stub executor).',
-        },
-      };
-    },
-  },
-  prepare_screen_asset: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'prepare_screen_asset',
-          input,
-          context,
-          message: 'Screen asset prepared (stub executor).',
-        },
-      };
-    },
-  },
-  assign_screen_slot: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'assign_screen_slot',
-          input,
-          context,
-          message: 'Screen slot assigned (stub executor).',
-        },
-      };
-    },
-  },
-  activate_screen_content: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          stub: true,
-          toolName: 'activate_screen_content',
-          input,
-          context,
-          message: 'Screen content activated (stub executor).',
-        },
-      };
-    },
-  },
-  generate_social_posts: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          posts: [],
-          generated: true,
-          storeId: input?.storeId ?? null,
-        },
-      };
-    },
-  },
-  create_offer: {
-    async execute(input = {}, context = {}) {
-      return {
-        status: 'ok',
-        output: {
-          offerId: null,
-          created: true,
-          stub: true,
-          storeId: input?.storeId ?? null,
-        },
-      };
-    },
-  },
-  smart_visual: {
-    async execute(input = {}, context = {}) {
-      const prompt = typeof input?.prompt === 'string' ? input.prompt : '';
-      return {
-        status: 'ok',
-        output: {
-          message: 'Visual generation completed (stub executor — wire to your image pipeline as needed).',
-          storeId: input?.storeId ?? null,
-          campaignContext: typeof input?.campaignContext === 'string' ? input.campaignContext : null,
-          heroBannerIntent: Boolean(prompt && /hero|banner|storefront/i.test(prompt)),
-          artifacts: prompt
-            ? [
-                {
-                  kind: 'generated_visual_placeholder',
-                  prompt: prompt.slice(0, 2000),
-                  pendingHeroApply: /hero|banner|storefront/i.test(prompt),
-                },
-              ]
-            : [],
-        },
-      };
-    },
-  },
+  resolve_target_screens: honestBlocker(
+    'resolve_target_screens',
+    'Target screen resolution is not implemented yet.',
+  ),
+  prepare_screen_asset: honestBlocker(
+    'prepare_screen_asset',
+    'Screen asset preparation is not implemented yet.',
+  ),
+  assign_screen_slot: honestBlocker(
+    'assign_screen_slot',
+    'Screen slot assignment is not implemented yet.',
+  ),
+  activate_screen_content: honestBlocker(
+    'activate_screen_content',
+    'Screen content activation is not implemented yet.',
+  ),
+  generate_social_posts: honestBlocker(
+    'generate_social_posts',
+    'Social post generation is not implemented yet. Use content_creator or publish_to_social.',
+  ),
+  create_offer: honestBlocker('create_offer', 'Offer creation is not implemented yet. Use create_offer_draft.'),
+  smart_visual: honestBlocker(
+    'smart_visual',
+    'Smart visual generation is coming soon. Use search_hero_media or edit_artifact meanwhile.',
+  ),
   'signage.list-devices': signage_list_devices,
   'signage.publish-to-devices': signage_publish_to_devices,
   'device.sendInput': device_send_input,

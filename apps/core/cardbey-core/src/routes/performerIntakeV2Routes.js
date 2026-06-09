@@ -73,6 +73,16 @@ import {
   maybePersistIntakeIntentResolution,
 } from '../lib/intake/intakePersistedIntentStore.js';
 import {
+  resolveStoreAmbiguity,
+  tryAutoResolveSingleStoreId,
+} from '../lib/intake/resolveStoreAmbiguity.js';
+import {
+  enrichPendingIntentForDocumentIngestion,
+  mergePendingDocumentIntoForcedParams,
+  PENDING_SKILL_DOCUMENT_INGESTION,
+  readPendingSkillContext,
+} from '../lib/intake/pendingSkillResume.js';
+import {
   COMMERCIAL_INTENT_RE,
   detectCapabilityGap,
   isIntakeV2CapabilityGapEnabled,
@@ -126,6 +136,15 @@ import { buildMaintenanceContext } from '../lib/intake/buildMaintenanceContext.j
 import { mapPlannerDecisionToIntakeResponse } from '../lib/intake/mapPlannerDecisionToIntakeResponse.js';
 import { getMissionById } from '../lib/missionBlackboard.js';
 import { dispatchTool } from '../lib/toolDispatcher.js';
+// DANH: skill-runtime-phase4
+// skillRegistry is imported (read-only) alongside skillRouter so the cooperative
+// gate can test for a legacy match WITHOUT executing it (see gate note below).
+import { skillRouter, skillRegistry } from '../lib/skills/index.js';
+// DANH: skill-runtime-phase3
+// Explicit .ts extension: this is a .js file importing a .ts module; that is
+// the resolution pattern that works under both tsx (runtime) and vitest in
+// this repo (see src/routes/stores.js importing artifactMemory.ts).
+import { dispatchWithRuntime } from '../lib/skill_runtime/dispatchWithRuntime.ts';
 import { reactPlanner } from '../lib/intake/reactPlanner.js';
 import { hydrateContext, hydratedContextToPlannerContext } from '../lib/memory/memoryHydrator.js';
 import { formatControlTowerSummary } from '../lib/intake/controlTowerQuery.js';
@@ -139,6 +158,13 @@ import {
 } from '../lib/runwayContext.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  createMissionPipelineForIntakeRoute,
+  isMissionCreateBusyError,
+  isMissionCreateTimeoutError,
+  respondMissionCreateBusy,
+  respondMissionCreateTimeout,
+} from '../lib/mission/missionCreateWrite.js';
 
 function withPipelineLocale(metadata, locale) {
   const base =
@@ -223,11 +249,11 @@ async function findDuplicateBusinessNameForUser(prisma, userId, businessName) {
   const uid = typeof userId === 'string' ? userId.trim() : '';
   if (!bn || !uid) return null;
   try {
-    return await prisma.business.findFirst({
-      // SQLite does not support Prisma's case-insensitive `mode` option. Use LIKE semantics via `contains`.
-      where: { userId: uid, name: { contains: bnLower } },
+    const rows = await prisma.business.findMany({
+      where: { userId: uid },
       select: { id: true, name: true },
     });
+    return rows.find((row) => String(row?.name ?? '').trim().toLowerCase() === bnLower) ?? null;
   } catch {
     return null;
   }
@@ -593,7 +619,7 @@ async function maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams) 
   }
 }
 
-async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req }) {
+async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req, hydratedContext = null }) {
   const { isBrokerDirectViaFacadeEnabled } = await import('../lib/broker/brokerFlags.js');
   const { isPerformerRuntimeEnabled } = await import('../lib/runtime/performerRuntime/runtimeFlags.js');
   // Stage D: Block only legacy direct_action bypass. Runtime-owned and facade-owned paths remain allowed.
@@ -625,6 +651,12 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   const payload = { ...cleanedParams };
   if (dispatchMissionId) payload.missionId = dispatchMissionId;
   if (storeId && !payload.storeId) payload.storeId = storeId;
+  // DANH: skill-round6-document — pass attached image to document ingestion skill
+  const intakeImageRef = resolveIntakeImageRefForOcr(req?.body);
+  if (intakeImageRef && !payload.imageUrl && !payload.imageDataUrl) {
+    payload.imageUrl = intakeImageRef;
+    payload.imageDataUrl = intakeImageRef;
+  }
   const performeeContextRaw =
     req?.body?.intentSourceContext &&
     typeof req.body.intentSourceContext === 'object' &&
@@ -646,6 +678,156 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
     missionType: resolveMissionType(req, null),
     source: isBrokerDirectViaFacadeEnabled() ? 'performer_intake_facade' : source,
   };
+
+  const intentLabel = typeof tool === 'string' ? tool.trim() : '';
+
+  // DANH: skill-runtime-phase4
+  // Cooperative gate: the runtime only intercepts when the legacy keyword router
+  // has NO matching skill — preventing the Phase 3 no-op regression where a
+  // matching intent bypassed real legacy execution and ran a no-op planning skill.
+  //
+  // IMPORTANT — why findByTrigger() and not skillRouter.route():
+  //   skillRouter.route() is async AND has side effects (on a match it calls
+  //   skillExecutor.execute, i.e. it *runs* the skill). Calling it here just to
+  //   probe for a match would (a) execute prematurely with the wrong ctx and
+  //   (b) double-execute once the real route(intentLabel, fullCtx) call below
+  //   runs. route() decides `matched` solely from skillRegistry.findByTrigger()
+  //   (see SkillRouter.route), so this lookup is the exact, side-effect-free
+  //   equivalent of the legacy match decision. The single legacy route() call
+  //   below remains the only execution point (no double-call).
+  //
+  // DANH: skill-runtime-phase7
+  // userMessage is not a parameter of this function — derive from req.body using
+  // the same field order as the main intake handler (text / goal / message).
+  const intakeUserMessage =
+    String(
+      req?.body?.text ?? req?.body?.goal ?? req?.body?.message ?? req?.body?.userMessage ?? '',
+    ).trim() || null;
+
+  const legacyWouldMatch = Boolean(skillRegistry.findByTrigger(intentLabel));
+  if (!legacyWouldMatch) {
+    const runtimeResult = await dispatchWithRuntime(
+      {
+        intentLabel,
+        userMessage: intakeUserMessage,
+        storeId: storeId ?? toolCtx.storeId ?? null,
+        userId: toolCtx.userId,
+        sessionId: null,
+      },
+      getPrismaClient(),
+    );
+    // DANH: skill-runtime-phase8
+    if (runtimeResult) {
+      const checkpoint = runtimeResult.result;
+
+      const stepResults =
+        checkpoint?.stepResults instanceof Map
+          ? Object.fromEntries(checkpoint.stepResults)
+          : checkpoint?.stepResults ?? {};
+
+      const lastStepOutput = Object.values(stepResults).at(-1);
+      const summaryMessage =
+        lastStepOutput?.output?.message ??
+        lastStepOutput?.output?.summary ??
+        lastStepOutput?.output?.topAction ??
+        (runtimeResult.state === 'completed'
+          ? 'Your store analytics are ready.'
+          : `Skill ended in state: ${runtimeResult.state}`);
+
+      const ok = runtimeResult.state === 'completed';
+
+      return {
+        toolResult: {
+          status: ok ? 'ok' : 'failed',
+          output: {
+            dispatchedVia: 'skill_runtime',
+            skillId: runtimeResult.skillId,
+            state: runtimeResult.state,
+            stepResults,
+            message: summaryMessage,
+          },
+          ...(ok
+            ? {}
+            : {
+                error: {
+                  code: 'SKILL_RUNTIME_FAILED',
+                  message: `Skill ended in state: ${runtimeResult.state}`,
+                },
+              }),
+        },
+        payload: {
+          missionId: dispatchMissionId ?? null,
+          dispatchedVia: 'skill_runtime',
+          skillId: runtimeResult.skillId,
+          state: runtimeResult.state,
+          result: runtimeResult.result,
+          stepResults,
+        },
+      };
+    }
+  }
+
+  try {
+    // DANH: fix-runtime-ownership
+    const skillCtx = {
+      ...toolCtx,
+      missionId: dispatchMissionId,
+      storeId: storeId ?? toolCtx.storeId ?? null,
+      userId: toolCtx.userId,
+      intentLabel,
+      toolInput: payload,
+      hydratedContext,
+      blackboard: null,
+      runtimeOwned: true,
+      performerRuntimeOwned: true,
+      source: 'skill_executor',
+    };
+    const skillRouterResult = await skillRouter.route(intentLabel, skillCtx);
+
+    if (skillRouterResult.matched) {
+      console.log(
+        `[SkillRouter] skill "${skillRouterResult.skillName}" executed via ${skillRouterResult.executionId ?? 'n/a'}`,
+      );
+
+      if (skillRouterResult.result?.reason === 'MISSING_CONTEXT') {
+        return {
+          toolResult: {
+            status: 'blocked',
+            blocker: {
+              code: 'MISSING_CONTEXT',
+              message: `Skill requires: ${(skillRouterResult.result.missing ?? []).join(', ')}`,
+            },
+          },
+          payload,
+        };
+      }
+
+      const execution = skillRouterResult.result;
+      const ok = execution?.status === 'completed';
+      return {
+        toolResult: {
+          status: ok ? 'ok' : 'failed',
+          output: {
+            skillExecution: execution,
+            dispatchedVia: 'skill',
+            skillName: skillRouterResult.skillName,
+            executionId: skillRouterResult.executionId,
+          },
+          ...(ok
+            ? {}
+            : {
+                error: {
+                  code: 'SKILL_FAILED',
+                  message: execution?.failedReason ?? 'Skill execution failed',
+                },
+              }),
+        },
+        payload,
+      };
+    }
+  } catch (skillRouteErr) {
+    console.warn('[SkillRouter] route failed (falling through to tool):', skillRouteErr?.message ?? skillRouteErr);
+  }
 
   let toolResult;
   if (isPerformerRuntimeEnabled()) {
@@ -792,6 +974,7 @@ router.get('/', (req, res) => {
 });
 
 router.post('/', requireUserOrGuest, async (req, res) => {
+  try {
   const startMs = Date.now();
   const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
   res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
@@ -1079,6 +1262,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               });
               effectiveMissionId = pipeline.id;
             } catch (err) {
+              if (isMissionCreateBusyError(err) || isMissionCreateTimeoutError(err)) {
+                console.warn('[PerformerIntakeV2] business card mission create deferred (non-fatal)', {
+                  code: err?.code,
+                });
+                return;
+              }
               if (isDev) console.warn('[IntakeV2] business-card pipeline creation failed:', err?.message ?? err);
             }
           }
@@ -1160,7 +1349,28 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       : {};
   const originalGoal = selection ? String(selection.originalGoal ?? userMessage).trim() : '';
 
-  const storeId = resolveStoreId(currentContext);
+  const blackboardContextRaw = body.blackboardContext;
+  const blackboardContext =
+    blackboardContextRaw && typeof blackboardContextRaw === 'object' && !Array.isArray(blackboardContextRaw)
+      ? blackboardContextRaw
+      : null;
+  const pendingIntentFromBody =
+    body.pendingIntent && typeof body.pendingIntent === 'object' && !Array.isArray(body.pendingIntent)
+      ? body.pendingIntent
+      : null;
+  const pendingSkillContextEarly = readPendingSkillContext({
+    currentContext,
+    blackboardContext,
+    pendingIntent: pendingIntentFromBody,
+  });
+  const mergedForcedParams = mergePendingDocumentIntoForcedParams(forcedParams, pendingSkillContextEarly);
+
+  let storeId = resolveStoreId(currentContext);
+  // DANH: store-disambiguation — replay store pick from clarify chip (intakeV2Selection)
+  const selectionStoreId = String(mergedForcedParams?.storeId ?? mergedForcedParams?.activeStoreId ?? '').trim();
+  if (!storeId && selectionStoreId) {
+    storeId = selectionStoreId;
+  }
   const draftId = resolveDraftId(currentContext);
   const tenantKey = String(req.user?.id ?? req.guest?.id ?? 'intake-v2').slice(0, 120);
   const performeeContext =
@@ -1189,6 +1399,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   /** Read-only derived store context: allow Performee spaceId to act as storeId for classification/runtime without writing any client context. */
   const effectiveStoreId = storeId || runway.activeStoreId || performeeStoreId;
+  /** Store id used for validation + dispatch (may auto-resolve single-store owners). */
+  let dispatchStoreId = effectiveStoreId;
   /** Appended to Intake V2 JSON when pre-intake agent loop ran. */
   let agentLoopTraceForResponse = null;
 
@@ -1229,7 +1441,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       null,
   };
 
-  const safeJson = (payload, telExtra = {}) => {
+  const safeJson = async (payload, telExtra = {}) => {
     const cls =
       telExtra.classification !== undefined && telExtra.classification !== null
         ? telExtra.classification
@@ -1253,7 +1465,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           ? cls.executionPath
           : classification.executionPath ?? null,
     });
-    emitIntakeV2Telemetry({
+    const sessionId =
+      (typeof req.body?.sessionId === 'string' && req.body.sessionId.trim()) ||
+      (req.guestSessionId ? `guest_${req.guestSessionId}` : null);
+    const dispatchLogId = await emitIntakeV2Telemetry({
       ...buildTelemetryBase({ userMessage, missionId, storeId, startMs, traceId: cardbeyTraceId, ...telExtra }),
       ...intentResolutionTelemetryFields(ir),
       ...heroGenTelemetry,
@@ -1264,6 +1479,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       resolvedFamily: telExtra.resolvedFamily,
       resolvedSubtype: telExtra.resolvedSubtype,
       capabilityAwareV1: telExtra.capabilityAwareV1 ?? null,
+      userId: req.user?.id ?? performerIntakeV2ActorId(req) ?? null,
+      sessionId,
+      query: userMessage,
+      intent:
+        ir?.family && ir?.subtype
+          ? `${ir.family}:${ir.subtype}`
+          : cls?.tool ?? classification?.tool ?? 'unknown',
+      outcome: telExtra.result ?? null,
     });
     let responsePayload = payload;
     const responseMetadata = {};
@@ -1357,6 +1580,25 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       responsePayload.agentTrace == null
     ) {
       responsePayload = { ...responsePayload, agentTrace: agentLoopTraceForResponse };
+    }
+    if (
+      dispatchLogId &&
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload)
+    ) {
+      const matchedSkill =
+        cls && typeof cls === 'object' && cls.tool != null ? String(cls.tool) : null;
+      const classificationIntent =
+        ir?.family && ir?.subtype
+          ? `${ir.family}:${ir.subtype}`
+          : matchedSkill ?? null;
+      responsePayload = {
+        ...responsePayload,
+        dispatchLogId,
+        classificationIntent,
+        matchedSkill,
+      };
     }
     return res.json(responsePayload);
   };
@@ -1996,7 +2238,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       const tenantId = getTenantId(req.user) ?? actorId;
       const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
       const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-      const pipeline = await createMissionPipeline({
+      const createResult = await createMissionPipelineForIntakeRoute(res, createMissionPipeline, {
         type: 'store',
         title: `${titlePrefix}: ${businessName.slice(0, 120)}`,
         targetType: 'store',
@@ -2017,6 +2259,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         tenantId,
         createdBy: actorId,
       });
+      if (createResult.handled) return;
+      const pipeline = createResult.pipeline;
 
       await ensureStructuredStoreCheckpointSteps(prismaShortcut, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
 
@@ -2112,6 +2356,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   let classifierDowngraded = false;
   let classifierReason = null;
+  let intakeHydratedContext = null;
 
   if (forcedTool && isRegisteredTool(forcedTool)) {
     const fe = getToolEntry(forcedTool);
@@ -2119,7 +2364,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       executionPath: fe.executionPath,
       tool: forcedTool,
       confidence: 1,
-      parameters: { ...forcedParams },
+      parameters: { ...mergedForcedParams },
       message: undefined,
       plan: undefined,
       clarifyOptions: undefined,
@@ -2217,7 +2462,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         classifierInputMessage = loopOut.messageForClassifier ?? classifierInputMessage;
       }
 
-      let intakeHydratedContext = null;
       try {
         intakeHydratedContext = await hydrateContext({
           message: classifierInputMessage,
@@ -2240,6 +2484,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         tenantKey,
         missionId,
         hydratedContext: intakeHydratedContext,
+        runwayContext: runway,
+        attachments: body.attachments,
+        imageDataUrl: resolveIntakeImageRefForOcr(body),
+        currentContext,
+        blackboardContext,
+        pendingIntent: pendingIntentFromBody,
+        isSelectionConfirm,
+        intakeV2Selection: selection,
       });
     } catch (e) {
       if (isDev) console.error('[IntakeV2] classifyIntent threw', e);
@@ -2503,6 +2755,69 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   /** Last validation result (for telemetry / fallback branches). */
   let lastValidation = /** @type {{ ok: boolean, errors?: unknown[], downgradedTo?: string } | null} */ (null);
 
+  const intakeActorUserId = req.user?.id ?? performerIntakeV2ActorId(req) ?? null;
+
+  // DANH: store-disambiguation — multi-store clarify before validation / skill dispatch
+  if (classification?.tool) {
+    const toolMetaForStore = getToolEntry(classification.tool);
+    const pathNeedsStore =
+      classification.executionPath === 'direct_action' || classification.executionPath === 'proactive_plan';
+    if (toolMetaForStore?.requiresStore && pathNeedsStore && !dispatchStoreId) {
+      const ambiguity = await resolveStoreAmbiguity({
+        userId: intakeActorUserId,
+        effectiveStoreId: null,
+        intentRequiresStore: true,
+        userMessage: originalGoal || userMessage,
+      });
+      if (ambiguity?.needsClarification) {
+        const clarifyTool = classification.tool;
+        const options = ambiguity.options.map((o) => ({
+          label: o.label,
+          tool: clarifyTool,
+          parameters: {
+            storeId: o.value,
+            ...(classification.parameters &&
+            typeof classification.parameters === 'object' &&
+            !Array.isArray(classification.parameters)
+              ? classification.parameters
+              : {}),
+          },
+        }));
+        const pendingIntent = enrichPendingIntentForDocumentIngestion(
+          classification,
+          ambiguity.pendingIntent,
+        );
+        return safeJson(
+          {
+            success: true,
+            action: 'clarify',
+            clarifyType: ambiguity.clarifyType,
+            response: ambiguity.question,
+            options,
+            pendingIntent,
+            ...(pendingIntent.pendingSkill
+              ? {
+                  pendingSkill: pendingIntent.pendingSkill,
+                  pendingInputs: pendingIntent.pendingInputs,
+                }
+              : {}),
+          },
+          {
+            classification,
+            validated: true,
+            downgraded: false,
+            downgradeReason: null,
+            validationErrors: [],
+            riskLevel: toolMetaForStore?.riskLevel ?? RISK.SAFE_READ,
+            result: 'clarify_store',
+          },
+        );
+      }
+      const autoStoreId = await tryAutoResolveSingleStoreId(intakeActorUserId);
+      if (autoStoreId) dispatchStoreId = autoStoreId;
+    }
+  }
+
   // ── 3–4) Validate + execution policy with one intent-recovery retry ────────
   for (let recoveryAttempt = 0; recoveryAttempt < 2; recoveryAttempt++) {
     toolEntry = getToolEntry(classification.tool);
@@ -2515,12 +2830,70 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         parameters: classification.parameters,
         plan: classification.plan,
       },
-      effectiveStoreId,
+      dispatchStoreId ?? effectiveStoreId,
       { missionId },
     );
     lastValidation = validation;
 
     if (!validation.ok && validation.downgradedTo === 'chat') {
+      const toolMetaChat = getToolEntry(classification.tool);
+      const storeRequired = validation.errors?.some((e) => e?.reason === 'requires_store');
+      if (storeRequired && toolMetaChat?.requiresStore && !dispatchStoreId) {
+        const ambiguity = await resolveStoreAmbiguity({
+          userId: intakeActorUserId,
+          effectiveStoreId: null,
+          intentRequiresStore: true,
+          userMessage: originalGoal || userMessage,
+        });
+        if (ambiguity?.needsClarification) {
+          const options = ambiguity.options.map((o) => ({
+            label: o.label,
+            tool: classification.tool,
+            parameters: {
+              storeId: o.value,
+              ...(classification.parameters &&
+              typeof classification.parameters === 'object' &&
+              !Array.isArray(classification.parameters)
+                ? classification.parameters
+                : {}),
+            },
+          }));
+          const pendingIntent = enrichPendingIntentForDocumentIngestion(
+            classification,
+            ambiguity.pendingIntent,
+          );
+          return safeJson(
+            {
+              success: true,
+              action: 'clarify',
+              clarifyType: ambiguity.clarifyType,
+              response: ambiguity.question,
+              options,
+              pendingIntent,
+              ...(pendingIntent.pendingSkill
+                ? {
+                    pendingSkill: pendingIntent.pendingSkill,
+                    pendingInputs: pendingIntent.pendingInputs,
+                  }
+                : {}),
+            },
+            {
+              classification,
+              validated: true,
+              downgraded: false,
+              downgradeReason: null,
+              validationErrors: validation.errors,
+              riskLevel,
+              result: 'clarify_store',
+            },
+          );
+        }
+        const autoStoreId = await tryAutoResolveSingleStoreId(intakeActorUserId);
+        if (autoStoreId) {
+          dispatchStoreId = autoStoreId;
+          continue;
+        }
+      }
       const msg = formatContextGapMessage(runway, locale);
       return safeJson(
         {
@@ -3646,8 +4019,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         'awaiting_input',
       ]);
       const existingMissionId = typeof missionId === 'string' ? missionId.trim() : '';
+      const forceNewStoreMission =
+        body.freshStoreMission === true ||
+        body.freshStore === true ||
+        body.newStore === true;
       let pipeline = null;
-      if (existingMissionId) {
+      if (existingMissionId && !forceNewStoreMission) {
         const access = await resolveAccessibleMission(userLike, existingMissionId);
         if (access.ok && access.kind === 'mission_pipeline') {
           const existing = await prisma.missionPipeline.findUnique({
@@ -3693,7 +4070,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
 
       if (!pipeline) {
-        pipeline = await createMissionPipeline({
+        const createResult = await createMissionPipelineForIntakeRoute(res, createMissionPipeline, {
           type: 'store',
           title: pipelineTitle,
           targetType: 'store',
@@ -3717,6 +4094,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           tenantId,
           createdBy: actorId,
         });
+        if (createResult.handled) return;
+        pipeline = createResult.pipeline;
       }
 
       await ensureStructuredStoreCheckpointSteps(prisma, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
@@ -3893,8 +4272,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     try {
       const { toolResult, payload } = await dispatchIntakeV2DirectTool(tool, cleanedParams, {
         missionId: directToolMissionId,
-        storeId,
+        storeId: dispatchStoreId ?? effectiveStoreId ?? storeId,
         req,
+        hydratedContext: intakeHydratedContext,
       });
 
       const { body: intakeBody, telemetryResult } = buildDirectToolIntakeResponse(tool, toolResult, payload, locale, {
@@ -3947,6 +4327,24 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       result: 'fallback',
     },
   );
+  } catch (err) {
+    if (res.headersSent) {
+      console.error('[PerformerIntakeV2] error after response sent:', err?.message ?? err);
+      return;
+    }
+    if (isMissionCreateBusyError(err)) {
+      return respondMissionCreateBusy(res);
+    }
+    if (isMissionCreateTimeoutError(err)) {
+      return respondMissionCreateTimeout(res);
+    }
+    console.error('[PerformerIntakeV2] unhandled intake error:', err?.message ?? err);
+    return res.status(500).json({
+      ok: false,
+      error: 'intake_error',
+      message: 'Something went wrong. Please try again.',
+    });
+  }
 });
 
 router.post('/maintenance', superAdminOnly, async (req, res) => {

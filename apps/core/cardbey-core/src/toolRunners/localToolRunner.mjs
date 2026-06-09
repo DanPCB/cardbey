@@ -15,9 +15,6 @@ function readStdin() {
   });
 }
 
-function ok(output) {
-  return { status: 'ok', output: output ?? {} };
-}
 function failed(code, message) {
   return { status: 'failed', error: { code, message } };
 }
@@ -140,21 +137,27 @@ async function runChangeHeroHeadline(input = {}) {
     });
     updatedTargets.business = true;
 
-    return ok({
-      storeId,
-      draftId: draftId || null,
-      updated: { headline: headline || null, subheadline: subheadline || null },
-      targets: updatedTargets,
-      sectionsCount: Array.isArray(nextSections) ? nextSections.length : 0,
-    });
+    return {
+      status: 'ok',
+      output: {
+        storeId,
+        draftId: draftId || null,
+        updated: { headline: headline || null, subheadline: subheadline || null },
+        targets: updatedTargets,
+        sectionsCount: Array.isArray(nextSections) ? nextSections.length : 0,
+      },
+    };
   }
 
-  return ok({
-    storeId: null,
-    draftId,
-    updated: { headline: headline || null, subheadline: subheadline || null },
-    targets: updatedTargets,
-  });
+  return {
+    status: 'ok',
+    output: {
+      storeId: null,
+      draftId,
+      updated: { headline: headline || null, subheadline: subheadline || null },
+      targets: updatedTargets,
+    },
+  };
 }
 
 async function main() {

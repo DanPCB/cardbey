@@ -8,6 +8,8 @@ import { buildPublishedBusinessArtifact } from './buildPublishedBusinessArtifact
 import { publishedBusinessArtifactToPublicStore } from './publishedBusinessArtifactToPublicStore.js';
 import { loadPersistedProjectionsByBusinessIds } from './persistPublishedBusinessArtifact.js';
 import { toPublicStore } from '../../utils/publicStoreMapper.js';
+import { enrichStoreHeroVideoUrls } from '../../lib/videoIosSafe.js';
+import { loadActiveFeedPromoArtifacts } from '../feed/loadActiveFeedPromoArtifacts.js';
 
 /** Fields required for projection build + public DTO on list/feed routes. */
 export const PUBLIC_STORE_LIST_SELECT = businessPublicReadSelect();
@@ -23,11 +25,11 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
     return [];
   }
 
-  const projectionMap = await loadPersistedProjectionsByBusinessIds(
-    prisma,
-    businesses.map((b) => b.id),
-    businesses,
-  );
+  const businessIds = businesses.map((b) => b.id);
+  const [projectionMap, feedPromoArtifactsByStore] = await Promise.all([
+    loadPersistedProjectionsByBusinessIds(prisma, businessIds, businesses),
+    loadActiveFeedPromoArtifacts(prisma, businessIds),
+  ]);
 
   const webBase = publicWebBase();
   const results = [];
@@ -70,7 +72,17 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
 
     const slug = store.slug ?? business.slug;
     const storeUrl = slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null;
-    const enriched = { ...store, storeUrl };
+    const feedPromoArtifacts = feedPromoArtifactsByStore.get(business.id) ?? [];
+    const enriched = enrichStoreHeroVideoUrls(
+      {
+        ...store,
+        storeUrl,
+        ...(feedPromoArtifacts.length > 0 ? { feedPromoArtifacts } : {}),
+      },
+      {
+        uploadsDir: process.env.UPLOADS_DIR,
+      },
+    );
 
     console.log('[PUBLIC_FEED_PROJECTION_PARITY]', {
       route,

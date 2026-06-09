@@ -29,6 +29,11 @@ export function runSqliteAuthorityWrite(fn, _label = 'authority') {
   if (!isPerformerSqliteRuntimeWriteSerializationEnabled()) {
     return fn();
   }
+  // Nested authority write (e.g. mission create → safePipelineUpdate): run inline to avoid
+  // FIFO deadlock where the outer task waits on tail while tail waits on the outer task.
+  if (authorityInFlight) {
+    return fn();
+  }
   const run = tail.then(async () => {
     authorityInFlight = true;
     try {

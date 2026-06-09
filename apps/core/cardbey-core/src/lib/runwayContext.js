@@ -341,3 +341,22 @@ export function formatSuggestedActionsForContextGap(ctx) {
   }
   return ['create_store', 'select_store'];
 }
+
+/**
+ * Read activeStoreId from an already-built RunwayContext or intake/planner signals.
+ * Does not query the database — call buildRunwayContext() upstream for full recovery.
+ *
+ * @param {object} [signals]
+ * @returns {string | null}
+ */
+export function recoverStoreId(signals) {
+  const s = signals && typeof signals === 'object' ? signals : {};
+  return (
+    str(s.runwayContext?.activeStoreId) ||
+    str(s.activeStoreId) ||
+    str(s.storeId) ||
+    str(s.hydratedContext?.entities?.store?.id) ||
+    str(s.currentContext?.activeStoreId) ||
+    null
+  );
+}

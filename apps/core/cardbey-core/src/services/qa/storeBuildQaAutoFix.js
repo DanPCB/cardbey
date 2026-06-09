@@ -15,6 +15,7 @@ import { getSeedImageForCategory } from '../../lib/seedLibrary/getSeedImageForCa
 import { auditDraftCatalogQa, applyDraftCatalogQaTier1AutoRepair, planDraftCatalogQaTier2Fixes, applyDraftCatalogQaTier2Fixes } from './draftCatalogQa.js';
 import { runDraftQa } from './draftQaAgent.js';
 import { mergeMissionContext } from '../../lib/mission.js';
+import { hasUserUploadedLogo } from '../draftStore/logoUpdateService.js';
 
 /** @typedef {'vertical' | 'tagline' | 'description' | 'imageUrl' | 'hero' | 'avatar' | 'product_description'} FixableIssueKey */
 
@@ -133,9 +134,10 @@ export function detectFixableStoreBuildIssues(preview, input = {}, metadata = {}
     issues.add('hero');
   }
 
+  const userUploadedLogo = hasUserUploadedLogo(p);
   const avatarUrl =
-    p?.avatar?.imageUrl ?? p?.avatarImageUrl ?? p?.avatar?.url ?? p?.brand?.logoUrl;
-  if (!avatarUrl || !String(avatarUrl).trim()) {
+    p?.avatar?.imageUrl ?? p?.avatarImageUrl ?? p?.avatar?.url ?? p?.brand?.logoUrl ?? p?.avatarUrl;
+  if (!userUploadedLogo && (!avatarUrl || !String(avatarUrl).trim())) {
     issues.add('avatar');
   }
 
@@ -794,7 +796,7 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
     }
   }
 
-  if (fixable.has('avatar')) {
+  if (fixable.has('avatar') && !hasUserUploadedLogo(preview)) {
     const firstWithImage = items.find((it) => resolveDraftItemImageUrl(it));
     const av = firstWithImage ? resolveDraftItemImageUrl(firstWithImage) : preview.heroImageUrl;
     if (av) {

@@ -2,12 +2,26 @@
  * Single hero resolver for PublishedBusinessArtifact — used at publish and read time.
  */
 
-import { readCanonicalHeroFromPreview } from '../draftStore/draftPreviewHeroSync.js';
+import { resolveCanonicalHeroMediaFromPreview } from '../draftStore/draftPreviewHeroSync.js';
 import { resolveHeroMediaFromBusiness } from '../../utils/heroMediaResolve.js';
 import { isVideoMediaUrl } from '../../utils/heroMediaResolve.js';
 import { parseJsonBlob } from './parseJsonBlob.js';
 
 const GENERIC_HERO_SOURCE = 'projection.hero';
+
+function readHeroSectionCopy(miniWebsite) {
+  const heroSection = Array.isArray(miniWebsite?.sections)
+    ? miniWebsite.sections.find((s) => s && s.type === 'hero')
+    : null;
+  const hc = heroSection?.content && typeof heroSection.content === 'object' ? heroSection.content : null;
+  if (!hc) return { headline: null, subheadline: null, overlay: null, hasSection: false };
+  return {
+    headline: typeof hc.headline === 'string' ? hc.headline.trim() : null,
+    subheadline: typeof hc.subheadline === 'string' ? hc.subheadline.trim() : null,
+    overlay: hc.overlay ?? null,
+    hasSection: true,
+  };
+}
 
 /**
  * @param {{ business?: object, draftPreview?: object, miniWebsite?: object|null }} input
@@ -22,20 +36,41 @@ export function resolveHeroForProjection(input = {}) {
     parseJsonBlob(rawPreview?.stylePreferences)?.miniWebsite ??
     null;
 
+  const { headline, subheadline, overlay, hasSection } = readHeroSectionCopy(miniWebsite);
+  let source = hasSection ? 'miniWebsite.hero' : 'none';
+
+  // Draft preview is authoritative on republish — do not inherit stale business meta/section posters.
+  if (rawPreview) {
+    const canonical = resolveCanonicalHeroMediaFromPreview(rawPreview);
+    if (canonical.mediaType === 'video' && canonical.videoUrl) {
+      return {
+        type: 'video',
+        imageUrl: canonical.posterUrl || null,
+        videoUrl: canonical.videoUrl,
+        posterUrl: canonical.posterUrl || null,
+        headline,
+        subheadline,
+        overlay,
+        source: source === 'none' ? 'draft.preview' : `draft.preview+${source}`,
+      };
+    }
+    if (canonical.mediaType === 'image' && canonical.imageUrl) {
+      return {
+        type: 'image',
+        imageUrl: canonical.imageUrl,
+        videoUrl: null,
+        posterUrl: null,
+        headline,
+        subheadline,
+        overlay,
+        source: source === 'none' ? 'draft.preview' : `draft.preview+${source}`,
+      };
+    }
+  }
+
   let imageUrl = null;
   let videoUrl = null;
   let posterUrl = null;
-  let headline = null;
-  let subheadline = null;
-  let overlay = null;
-  let source = 'none';
-
-  if (rawPreview) {
-    const fromDraft = readCanonicalHeroFromPreview(rawPreview);
-    imageUrl = fromDraft.heroImage;
-    videoUrl = fromDraft.heroVideo;
-    source = 'draft.preview';
-  }
 
   const heroSection = Array.isArray(miniWebsite?.sections)
     ? miniWebsite.sections.find((s) => s && s.type === 'hero')
@@ -53,15 +88,12 @@ export function resolveHeroForProjection(input = {}) {
       null;
     if (sectionVideo) {
       videoUrl = videoUrl || sectionVideo;
-      source = source === 'none' ? 'miniWebsite.hero' : `${source}+miniWebsite.hero`;
+      source = source === 'none' ? 'miniWebsite.hero' : `${source}+video`;
     }
     if (sectionImage) {
       imageUrl = imageUrl || sectionImage;
       posterUrl = posterUrl || sectionImage;
     }
-    headline = typeof hc.headline === 'string' ? hc.headline.trim() : headline;
-    subheadline = typeof hc.subheadline === 'string' ? hc.subheadline.trim() : subheadline;
-    overlay = hc.overlay ?? overlay;
   }
 
   if (business) {

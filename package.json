@@ -34,11 +34,23 @@
     "regression:smoke": "node scripts/regression-smoke.mjs",
     "regression:smoke:offline": "node scripts/regression-smoke.mjs --offline",
     "regression": "pnpm regression:preflight && pnpm regression:contracts && pnpm regression:core && pnpm regression:dashboard",
-    "regression:preflight:staged": "node scripts/scan-secrets.mjs --staged"
+    "regression:preflight:staged": "node scripts/scan-secrets.mjs --staged",
+    "truth:check": "node scripts/truth-enforcer/index.mjs",
+    "truth:check:file": "node scripts/truth-enforcer/index.mjs --file",
+    "truth:audit": "node scripts/truth-enforcer/audit-repo.mjs",
+    "truth:fix": "node scripts/truth-enforcer/index.mjs --fix",
+    "truth:strict": "node scripts/truth-enforcer/index.mjs --strict",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@babel/generator": "^7.29.7",
+    "@babel/parser": "^7.29.7",
+    "@babel/traverse": "^7.29.7",
+    "@babel/types": "^7.29.7",
     "@typescript-eslint/eslint-plugin": "^8.52.0",
-    "@typescript-eslint/parser": "^8.52.0"
+    "@typescript-eslint/parser": "^8.52.0",
+    "chalk": "^5.6.2",
+    "husky": "^9.1.7"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.4.0",

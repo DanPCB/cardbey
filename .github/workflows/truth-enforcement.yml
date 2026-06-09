@@ -1,0 +1,76 @@
+name: Truth Enforcement
+
+on:
+  pull_request:
+    branches: [main, develop, staging]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'scripts/truth-enforcer/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/truth-enforcement.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'scripts/truth-enforcer/**'
+
+jobs:
+  truth-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Run Truth Enforcer (repo audit, strict)
+        run: node scripts/truth-enforcer/index.mjs --audit --strict --json --quiet > truth-violations.json
+
+      - name: Upload violation report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: truth-violations
+          path: truth-violations.json
+
+      - name: Comment on PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let violations = [];
+            try {
+              violations = JSON.parse(fs.readFileSync('truth-violations.json', 'utf-8'));
+            } catch {
+              violations = [];
+            }
+            const errors = violations.filter((v) => v.severity === 'error');
+            let comment = '## Truth enforcement failed\n\n';
+            comment += `Found **${errors.length}** error(s) and **${violations.length - errors.length}** warning(s).\n\n`;
+            for (const v of errors.slice(0, 20)) {
+              comment += `- **${v.file}:${v.line ?? '?'}** — ${v.message}\n`;
+              if (v.fix) comment += `  - Fix: ${v.fix}\n`;
+            }
+            if (errors.length > 20) comment += `\n_...and ${errors.length - 20} more errors._\n`;
+            comment += '\nRun locally: `pnpm run truth:audit`';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment,
+            });

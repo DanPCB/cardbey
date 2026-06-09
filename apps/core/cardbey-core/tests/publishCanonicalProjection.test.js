@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildPublishedBusinessArtifact } from '../src/services/publishedArtifactProjection/buildPublishedBusinessArtifact.js';
 import { publishedBusinessArtifactToPublicStore } from '../src/services/publishedArtifactProjection/publishedBusinessArtifactToPublicStore.js';
 import { validatePublishedBusinessArtifact } from '../src/services/publishedArtifactProjection/validatePublishedBusinessArtifact.js';
+import { persistPublishedBusinessArtifact } from '../src/services/publishedArtifactProjection/persistPublishedBusinessArtifact.js';
 import { toPublicStore } from '../src/utils/publicStoreMapper.js';
 
 const MC_BUSINESS = {
@@ -127,6 +128,36 @@ describe('publishCanonicalProjection', () => {
     const { valid, warnings } = validatePublishedBusinessArtifact(projection);
     expect(valid).toBe(false);
     expect(warnings.some((w) => w.code === 'missing_slug')).toBe(true);
+  });
+
+  it('republish preserves heroVideoUrl — does not revert to null', async () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const prisma = {
+      publishedArtifactProjection: { upsert, findMany: vi.fn() },
+    };
+    const projection = buildPublishedBusinessArtifact({
+      business: MC_BUSINESS,
+      draftPreview: MC_DRAFT_PREVIEW,
+    });
+    expect(projection.hero.videoUrl).toBe('https://cdn.example.com/hero.mp4');
+
+    await persistPublishedBusinessArtifact(prisma, projection, {
+      sourceDraftId: 'draft-first',
+      publishRunId: 'run-first',
+    });
+    const createCall = upsert.mock.calls[0][0];
+    expect(createCall.create.heroVideoUrl).toBe('https://cdn.example.com/hero.mp4');
+    expect(createCall.update.heroVideoUrl).toBe('https://cdn.example.com/hero.mp4');
+
+    upsert.mockClear();
+    await persistPublishedBusinessArtifact(prisma, projection, {
+      sourceDraftId: 'draft-republish',
+      publishRunId: 'run-republish',
+    });
+    const updateCall = upsert.mock.calls[0][0];
+    expect(updateCall.update.heroVideoUrl).toBe('https://cdn.example.com/hero.mp4');
+    expect(updateCall.update.heroMediaType).toBe('video');
+    expect(updateCall.update.heroVideoUrl).not.toBeNull();
   });
 
   it('rejects generic business.description when miniWebsite hero headline exists', () => {

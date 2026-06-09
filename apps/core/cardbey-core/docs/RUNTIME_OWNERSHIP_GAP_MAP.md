@@ -113,3 +113,19 @@ LEGACY BYPASS (default intake V2): intake → dispatchTool (skips both kernel bo
 ## Rollback
 
 Unset flags in reverse order (E → D → C → B → A). Keep `PERFORMER_RUNTIME_OWNERSHIP_WARN=true` and `BROKER_EXECUTION_TELEMETRY=true` for observability.
+
+---
+
+## Phase F — bypass closure (2026-06-05)
+
+| # | Surface | Guard | Flag(s) | API / metric |
+|---|---------|-------|-----------|--------------|
+| F1 | `POST /api/mi/orchestra/start` + missionId | `guardPhaseFOrchestraStart` | `BROKER_BLOCK_ORCHESTRA_WITH_MISSION` | `orchestraStartWithMission`, `orchestraStartBlocked` |
+| F2 | MCP `dispatchTool` | `guardPhaseFMcpDispatch` | `PHASE_F_BLOCK_MCP_DIRECT_DISPATCH`, `PHASE_F_ROUTE_MCP_VIA_FACADE` | `mcpDirectDispatch`, `mcpFacadeDispatch`, `mcpDispatchBlocked` |
+| F3 | Proactive-step legacy fallback | `guardPhaseFProactiveStepLegacy` | `PHASE_F_BLOCK_PROACTIVE_STEP_LEGACY` | `proactiveStepLegacy`, `proactiveStepLegacyBlocked` |
+| F4 | Draft-store publish/generate/commit | `guardPhaseFDraftStoreRunway` | `PHASE_F_BLOCK_DRAFT_STORE_RUNWAY` | `draftStoreDirectMutation`, `draftStoreRunwayBlocked` |
+| F5 | Client `executeCapabilityPlan` | `isPhaseFViewerOnlyCapabilityPlanEnabled` | `VITE_PHASE_F_VIEWER_ONLY_CAPABILITY_PLAN` | UI early return |
+
+**Snapshot:** `GET /api/broker/phase-f-bypass`  
+**Audit:** `pnpm --filter @cardbey/core audit:phase-f-bypass`  
+**Impact:** `docs/IMPACT_REPORT_PHASE_F_LEGACY_BYPASS.md`

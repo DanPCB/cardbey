@@ -12,6 +12,8 @@ import {
 } from './draftPreviewHeroSync.js';
 import { refreshPublishSnapshotFromCurrentPreview, isPublishSnapshotV1Enabled } from './publishSnapshotService.js';
 import { getPublishedBusinessArtifact } from '../publishedArtifactProjection/getPublishedBusinessArtifact.js';
+import { emitHeroUploadSideEffects } from './heroUploadSideEffects.js';
+import { normalizeMediaUrlField } from './normalizeHeroMediaUrlsForStorage.js';
 
 function parsePreviewBlob(raw) {
   if (raw == null) return {};
@@ -85,6 +87,9 @@ export function buildHeroPreviewPatchFromUrls({
   allowReplaceVideoWithImage = false,
   heroWriteIntent,
 }) {
+  imageUrl = imageUrl ? normalizeMediaUrlField(imageUrl) : null;
+  videoUrl = videoUrl ? normalizeMediaUrlField(videoUrl) : null;
+
   const isVideoHero =
     Boolean(videoUrl) || (imageUrl && VIDEO_EXT.test(imageUrl));
 
@@ -290,7 +295,9 @@ export async function updateHeroForStore({
           : 'image_upload'
         : source === 'draft'
           ? 'image_select'
-          : undefined;
+          : previewPatch.heroMediaType === 'video' || previewPatch.hero?.type === 'video'
+            ? 'video_link'
+            : undefined;
     await patchDraftPreview(effectiveDraftId, previewPatch, {
       allowReplaceVideoWithImage,
       heroWriteIntent,
@@ -320,6 +327,23 @@ export async function updateHeroForStore({
       : null;
   const heroImageUrl = isVideo ? posterOnly : heroImage || heroVideo || null;
   const heroVideoUrl = isVideo ? heroVideo || null : null;
+  const heroMediaType = isVideo ? 'video' : 'image';
+
+  if (draftUpdated) {
+    try {
+      await emitHeroUploadSideEffects(prisma, {
+        missionId,
+        draftId: effectiveDraftId,
+        storeId: effectiveStoreId,
+        generationRunId,
+        heroImageUrl,
+        heroVideoUrl,
+        heroMediaType,
+      });
+    } catch (sideErr) {
+      console.warn('[heroUpdateService] upload side effects failed (non-fatal):', sideErr?.message || sideErr);
+    }
+  }
 
   return {
     ok: true,
@@ -327,7 +351,7 @@ export async function updateHeroForStore({
     storeId: effectiveStoreId,
     heroImageUrl,
     heroVideoUrl,
-    heroMediaType: isVideo ? 'video' : 'image',
+    heroMediaType,
     draftUpdated,
     businessUpdated,
     source,

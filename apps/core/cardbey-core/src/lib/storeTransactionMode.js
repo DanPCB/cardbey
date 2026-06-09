@@ -58,13 +58,15 @@ export function isServiceVertical(businessType) {
  */
 export function coerceServiceCtaLabel({ businessType, transactionMode, ctaLabel } = {}) {
   const trimmed = String(ctaLabel ?? '').trim();
+  // Explicit order mode wins over vertical heuristics (e.g. type "Sports" retail stores).
   const isService =
-    transactionMode === 'booking' || isServiceVertical(businessType);
+    transactionMode === 'booking' ||
+    (transactionMode !== 'order' && isServiceVertical(businessType));
   if (isService) {
     if (!trimmed || /^order\s+now$/i.test(trimmed)) return 'Book now';
     return trimmed;
   }
-  if (!trimmed) return 'Order now';
+  if (!trimmed || /^book(\s+now|\s+appointment)?$/i.test(trimmed)) return 'Order now';
   return trimmed;
 }
 

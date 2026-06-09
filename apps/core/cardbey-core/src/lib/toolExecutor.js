@@ -1,9 +1,9 @@
 /**
- * Tool Executor - stub for mission pipeline step execution.
- * Validates tool exists in registry; does not implement real tool logic yet.
+ * Tool Executor - legacy entry; delegates to toolDispatcher for real executor routing.
  */
 
 import { getToolDefinition } from './toolRegistry.js';
+import { dispatchTool } from './toolDispatcher.js';
 
 export class ToolNotRegisteredError extends Error {
   constructor(toolName) {
@@ -14,14 +14,15 @@ export class ToolNotRegisteredError extends Error {
 }
 
 /**
- * Execute a tool by name (stub: always returns ok with empty output).
+ * Execute a tool by name via toolDispatcher (registered executors).
  * Throws ToolNotRegisteredError if toolName is not in the registry.
  *
  * @param {string} toolName
  * @param {object} [input]
- * @returns {Promise<{ status: 'ok', output: object }>}
+ * @param {object} [context]
+ * @returns {Promise<import('./toolDispatcher.js').DispatchResult>}
  */
-export async function executeTool(toolName, input = {}) {
+export async function executeTool(toolName, input = {}, context = {}) {
   const def = getToolDefinition(toolName);
   if (!def) {
     throw new ToolNotRegisteredError(toolName);
@@ -29,8 +30,5 @@ export async function executeTool(toolName, input = {}) {
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[MissionSteps] executing tool: ${toolName}`);
   }
-  return {
-    status: 'ok',
-    output: {},
-  };
+  return await dispatchTool(toolName, input, context);
 }

@@ -16,6 +16,11 @@ import { isPerformerPipelineWriteHardeningEnabled } from './broker/brokerFlags.j
 import { safePipelineUpdate } from './safePipelineUpdate.js';
 import { runMissionCreateBurst } from './mission/missionCreateBurst.js';
 import { withParentMissionIdInMetadata } from './mission/missionParentLineage.js';
+import {
+  attachStoreMissionIdempotencyKey,
+  findRecentStoreMissionByIdempotencyKey,
+  runMissionCreateWrite,
+} from './mission/missionCreateWrite.js';
 
 /** SQLite creation txn — bounded wait under contention (Step 6; no retry loop). */
 const CREATION_TX_TIMEOUT_MS = 30_000;
@@ -287,40 +292,73 @@ export async function ensureShadowMissionRowBestEffort(prisma, missionResult, pa
 }
 
 async function createMissionPipelineImpl(params) {
-  const prisma = getPrismaClient();
-  const prepared = buildStepConfigsForMissionPipeline(params);
-
-  let result;
-  if (isPerformerPipelineWriteHardeningEnabled()) {
-    result = await prisma.$transaction(
-      (tx) => createMissionPipelineCore(tx, params, prepared),
-      { timeout: CREATION_TX_TIMEOUT_MS },
-    );
-  } else {
-    result = await createMissionPipelineCore(prisma, params, prepared);
-  }
-
-  await ensureShadowMissionRowBestEffort(prisma, { id: result.id, title: params.title }, params);
-
-  const metaForContinuation =
-    params.metadata && typeof params.metadata === 'object' && !Array.isArray(params.metadata)
-      ? params.metadata
-      : null;
-  const continuationContract =
-    metaForContinuation?.continuationContract &&
-    typeof metaForContinuation.continuationContract === 'object'
-      ? metaForContinuation.continuationContract
+  const paramsWithIdempotency = attachStoreMissionIdempotencyKey(params);
+  const idempotencyKey =
+    paramsWithIdempotency.metadata &&
+    typeof paramsWithIdempotency.metadata === 'object' &&
+    !Array.isArray(paramsWithIdempotency.metadata)
+      ? paramsWithIdempotency.metadata.idempotencyKey
       : null;
 
-  if (continuationContract && process.env.ENABLE_MISSION_HANDOFF === 'true') {
-    const { logMissionContinuationSpawned } = await import('./missionContinuationService.js');
-    await logMissionContinuationSpawned({
-      childMissionId: result.id,
-      contract: continuationContract,
-    });
-  }
+  return runMissionCreateWrite(async () => {
+    const prisma = getPrismaClient();
+    const prepared = buildStepConfigsForMissionPipeline(paramsWithIdempotency);
 
-  return result;
+    if (
+      idempotencyKey &&
+      paramsWithIdempotency.createdBy &&
+      String(paramsWithIdempotency.type ?? '').trim().toLowerCase() === 'store'
+    ) {
+      const existing = await findRecentStoreMissionByIdempotencyKey(
+        prisma,
+        String(idempotencyKey),
+        String(paramsWithIdempotency.createdBy),
+      );
+      if (existing?.id) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[mission-create] reused_existing', {
+            missionId: existing.id,
+            idempotencyKey,
+          });
+        }
+        return { id: existing.id, status: existing.status, stepsCreated: 0, reused: true };
+      }
+    }
+
+    let result;
+    if (isPerformerPipelineWriteHardeningEnabled()) {
+      result = await prisma.$transaction(
+        (tx) => createMissionPipelineCore(tx, paramsWithIdempotency, prepared),
+        { timeout: CREATION_TX_TIMEOUT_MS },
+      );
+    } else {
+      result = await createMissionPipelineCore(prisma, paramsWithIdempotency, prepared);
+    }
+
+    await ensureShadowMissionRowBestEffort(prisma, { id: result.id, title: paramsWithIdempotency.title }, paramsWithIdempotency);
+
+    const metaForContinuation =
+      paramsWithIdempotency.metadata &&
+      typeof paramsWithIdempotency.metadata === 'object' &&
+      !Array.isArray(paramsWithIdempotency.metadata)
+        ? paramsWithIdempotency.metadata
+        : null;
+    const continuationContract =
+      metaForContinuation?.continuationContract &&
+      typeof metaForContinuation.continuationContract === 'object'
+        ? metaForContinuation.continuationContract
+        : null;
+
+    if (continuationContract && process.env.ENABLE_MISSION_HANDOFF === 'true') {
+      const { logMissionContinuationSpawned } = await import('./missionContinuationService.js');
+      await logMissionContinuationSpawned({
+        childMissionId: result.id,
+        contract: continuationContract,
+      });
+    }
+
+    return result;
+  }, { label: 'missionPipeline.create' });
 }
 
 export async function createMissionPipeline(params) {

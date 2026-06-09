@@ -606,11 +606,17 @@ async function runNextMissionPipelineStepBody(prisma, id) {
     stepKind === 'conditional' || toolName === 'mission.conditional'
       ? { branchTool: dispatchToolName, output: result.output ?? {} }
       : result.output ?? null;
+  const isPublishPending = result.status === 'publish_pending';
   const stepUpdate = {
     completedAt: now,
     outputJson: stepOutputPayload,
     errorJson: result.error ?? null,
-    status: result.status === 'ok' ? 'completed' : result.status === 'blocked' ? 'blocked' : 'failed',
+    status:
+      result.status === 'ok' || isPublishPending
+        ? 'completed'
+        : result.status === 'blocked'
+          ? 'blocked'
+          : 'failed',
   };
   await safeMissionPipelineStepUpdate(
     prisma,
@@ -626,7 +632,7 @@ async function runNextMissionPipelineStepBody(prisma, id) {
   // Flatten structured store build ids for /state parity with POST /missions/:id/run (draftId, jobId, generationRunId at top level).
   // On failure, also persist _failed so debugging can see the failed step's error and any partial output without loading the step record.
   const structuredFlat =
-    result.status === 'ok' &&
+    (result.status === 'ok' || isPublishPending) &&
     toolName === 'structured_store_build' &&
     stepOutputPayload &&
     typeof stepOutputPayload === 'object' &&
@@ -638,10 +644,11 @@ async function runNextMissionPipelineStepBody(prisma, id) {
             : {}),
           ...(typeof stepOutputPayload.jobId === 'string' ? { jobId: stepOutputPayload.jobId } : {}),
           ...(typeof stepOutputPayload.storeId === 'string' ? { storeId: stepOutputPayload.storeId } : {}),
+          ...(isPublishPending ? { publishFailed: true } : {}),
         }
       : {};
   const outputsToPersist =
-    result.status === 'ok'
+    result.status === 'ok' || isPublishPending
       ? { ...priorOutputsAgg, ...structuredFlat, ...stepOutputs, [toolName]: stepOutputPayload ?? {} }
       : result.status === 'failed'
         ? {

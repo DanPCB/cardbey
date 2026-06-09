@@ -1,6 +1,6 @@
 # Phase F — Legacy Bypass Closure Plan (GATED)
 
-**Status:** NOT STARTED — blocked until **Phase E** staging soak passes (API + soak script + Performer UI verification).
+**Status:** IN PROGRESS — measurement + flag-gated guards landed 2026-06-05. Block flags remain **default OFF**.
 
 **Goal:** Audit and gradually close legacy execution bypasses so all proactive/tool dispatch flows through Runtime Kernel authority.
 
@@ -51,9 +51,15 @@ Each bypass gets: **(1) what could break**, **(2) impact scope**, **(3) smallest
 
 ## Deliverables (when unblocked)
 
-- [ ] `docs/IMPACT_REPORT_PHASE_F_LEGACY_BYPASS.md` — per-surface impact reports
-- [ ] Feature flags per bypass closure (default OFF)
-- [ ] Soak extension or dedicated `scripts/phase-f-bypass-audit.mjs`
-- [ ] Performer Console migration checklist (viewer-only confirmation)
+- [x] `docs/IMPACT_REPORT_PHASE_F_LEGACY_BYPASS.md` — per-surface impact reports
+- [x] Feature flags per bypass closure (default OFF) — `phaseFBypassFlags.js`
+- [x] Guards + telemetry — `phaseFBypassGuards.js`, `phaseFBypassStaging.js`
+- [x] `GET /api/broker/phase-f-bypass` snapshot endpoint
+- [x] `scripts/phase-f-bypass-audit.mjs` + `pnpm audit:phase-f-bypass`
+- [x] Frontend viewer-only gate — `VITE_PHASE_F_VIEWER_ONLY_CAPABILITY_PLAN` + `executeCapabilityPlan` early return
+- [ ] Staging soak per closure flag (enable one at a time)
+- [ ] Performer Console migration checklist sign-off (viewer-only confirmation in staging)
 
-**Do not implement until Phase E soak passes.**
+**Step 1 (staging):** `PHASE_F_BYPASS_TELEMETRY=true` + `BROKER_BLOCK_ORCHESTRA_WITH_MISSION=true` in `render.yaml` (`cardbey-core-staging`). See `docs/PHASE_F_STEP1_STAGING_CHECKLIST.md`.
+
+**Next:** After Step 1 soak passes, enable MCP facade (Step 2) per impact report.

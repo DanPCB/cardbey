@@ -7,6 +7,11 @@ import { getPrismaClient } from '../../db/prisma.js';
 import { getEventEmitter, DEVICE_EVENTS } from './events.js';
 import { emitDeviceEvent, DEVICE_ENGINE_EVENT_TYPES } from './deviceEvents.js';
 import crypto from 'crypto';
+import {
+  PAIRING_TTL_MS,
+  pairingExpiresAt,
+  pairingTtlLeftMs,
+} from './pairingSessionTiming.js';
 
 const prisma = getPrismaClient();
 
@@ -78,8 +83,8 @@ export const requestPairing = async (input, ctx) => {
 
     console.log(`[DeviceEngine V2] [${requestId}] Generated pairing code: ${pairingCode}`);
 
-    // Pairing code expires in 10 minutes
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + PAIRING_TTL_MS);
+    const pairingCodeIssuedAt = new Date().toISOString();
 
     // Infer device type from platform or use explicit deviceType from input
     console.log(`[DeviceEngine V2] [${requestId}] Inferring device type`, {
@@ -163,12 +168,42 @@ export const requestPairing = async (input, ctx) => {
           existing.storeId !== 'temp' &&
           !existing.pairingCode
         ) {
-          console.warn(`[DeviceEngine V2] [${requestId}] Device already paired`, {
+          console.log(`[DeviceEngine V2] [${requestId}] Device already paired — returning alreadyPaired`, {
             deviceId: existing.id,
             tenantId: existing.tenantId,
             storeId: existing.storeId,
           });
-          throw new Error('Device already paired');
+          return {
+            alreadyPaired: true,
+            id: existing.id,
+            deviceId: existing.id,
+            tenantId: existing.tenantId,
+            storeId: existing.storeId,
+            status: 'claimed',
+          };
+        }
+        if (
+          existing.pairingCode &&
+          existing.tenantId === 'temp' &&
+          existing.storeId === 'temp'
+        ) {
+          const ttlLeft = pairingTtlLeftMs(existing);
+          if (ttlLeft > 0) {
+            const pendingExpiresAt = pairingExpiresAt(existing);
+            console.log(`[DeviceEngine V2] [${requestId}] Reusing active pairing code`, {
+              deviceId: existing.id,
+              code: existing.pairingCode,
+              expiresAt: pendingExpiresAt.toISOString(),
+              ttlLeftMs: ttlLeft,
+            });
+            return {
+              id: existing.id,
+              code: existing.pairingCode,
+              expiresAt: pendingExpiresAt.toISOString(),
+              deviceId: existing.id,
+              pairingCode: existing.pairingCode,
+            };
+          }
         }
         device = await db.device.update({
           where: { id: effectiveDeviceId },
@@ -216,13 +251,26 @@ export const requestPairing = async (input, ctx) => {
 
     // Store capabilities, platform, and initialState in DeviceCapability table
     // This uses the existing JSON field to store all additional metadata
+    const existingCap = await db.deviceCapability.findUnique({
+      where: { deviceId: device.id },
+      select: { capabilities: true },
+    });
+    const priorCaps =
+      existingCap?.capabilities && typeof existingCap.capabilities === 'object'
+        ? existingCap.capabilities
+        : {};
+
     const capabilityData = {
+      ...priorCaps,
       ...(capabilities || {}),
-      platform: platform || null,
-      initialState: initialState || {},
+      platform: platform || priorCaps.platform || null,
+      initialState: initialState || priorCaps.initialState || {},
+      pairingCodeIssuedAt,
     };
 
-    console.log(`[DeviceEngine V2] [${requestId}] Upserting device capabilities`);
+    console.log(`[DeviceEngine V2] [${requestId}] Upserting device capabilities`, {
+      pairingCodeIssuedAt,
+    });
 
     await db.deviceCapability.upsert({
       where: { deviceId: device.id },

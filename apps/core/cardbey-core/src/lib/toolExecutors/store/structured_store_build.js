@@ -6,13 +6,16 @@
 import { getPrismaClient } from '../../prisma.js';
 import { inferCurrencyFromLocationText } from '../../../services/draftStore/currencyInfer.js';
 import { createBuildStoreJob } from '../../../services/draftStore/orchestraBuildStore.js';
-import { generateDraft, commitDraft } from '../../../services/draftStore/draftStoreService.js';
+import { generateDraft } from '../../../services/draftStore/draftStoreService.js';
+import { safePublishGeneratedDraft } from '../../storeMission/safePublishGeneratedDraft.js';
 import { createGuestTempStoreFromDraft } from '../../../services/draftStore/guestTempStore.js';
 import { transitionOrchestratorTaskStatus } from '../../../kernel/transitions/transitionService.js';
 import { createEmitContextUpdate } from '../../missionPlan/agentMemory.js';
 import { mergeMissionContext } from '../../mission.js';
 import { mergeCanonicalOutputs } from '../../orchestrator/pipelineCanonicalResults.js';
 import { safeMissionPipelineUpdate } from '../../safePipelineUpdate.js';
+import { shouldBlockStoreBuildForMissingArtifact } from '../../artifactCheckpointAuthority.js';
+import { guestDraftOptsForActor } from '../../storeMission/guestDraftOpts.js';
 
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
@@ -74,6 +77,29 @@ export async function execute(_input = {}, context = {}) {
 
   const logoChoice = outputs.logoChoice != null ? String(outputs.logoChoice) : '';
   const heroImageChoice = outputs.heroImageChoice != null ? String(outputs.heroImageChoice) : '';
+  const checkpointLogoUrl =
+    (typeof outputs.logoUrl === 'string' && outputs.logoUrl.trim()) || '';
+  const artifactBlock = shouldBlockStoreBuildForMissingArtifact(outputs);
+  if (artifactBlock.blocked) {
+    // eslint-disable-next-line no-console
+    console.log('[artifact-checkpoint:respond-not-sent-yet]', {
+      missionId,
+      outputKey: artifactBlock.outputKey,
+      choice: artifactBlock.choice,
+      reason: 'store_build_blocked_until_artifact',
+    });
+    return {
+      status: 'blocked',
+      blocker: {
+        code: 'ARTIFACT_REQUIRED',
+        message: 'Store build cannot start until required upload or library selection is complete.',
+        outputKey: artifactBlock.outputKey,
+      },
+    };
+  }
+  if (checkpointLogoUrl && process.env.NODE_ENV !== 'production') {
+    console.log('[logo-checkpoint:core-output]', { missionId, logoUrl: checkpointLogoUrl });
+  }
 
   const uid = typeof context.userId === 'string' && context.userId.trim() ? context.userId.trim() : mission.createdBy;
   const userRow =
@@ -112,6 +138,7 @@ export async function execute(_input = {}, context = {}) {
   const draftInputPatch = {
     ...(logoChoice ? { logoChoice } : {}),
     ...(heroImageChoice ? { heroImageChoice } : {}),
+    ...(checkpointLogoUrl ? { logoUrl: checkpointLogoUrl, userUploadedLogo: true } : {}),
   };
 
   const jobRequest = {
@@ -131,7 +158,10 @@ export async function execute(_input = {}, context = {}) {
     ...(Object.keys(draftInputPatch).length > 0 ? { draftInput: draftInputPatch } : {}),
   };
 
-  const created = await createBuildStoreJob(prisma, jobRequest);
+  const created = await createBuildStoreJob(prisma, {
+    ...jobRequest,
+    ...guestDraftOptsForActor(isGuestUserId(uid) ? { role: 'guest', id: uid } : userRow, uid),
+  });
   if (!created?.jobId || !created?.generationRunId || !created?.draftId) {
     return {
       status: 'failed',
@@ -208,6 +238,19 @@ export async function execute(_input = {}, context = {}) {
     };
   }
 
+  if (checkpointLogoUrl) {
+    try {
+      const { applyCheckpointLogoToDraft } = await import('../../../services/draftStore/logoUpdateService.js');
+      await applyCheckpointLogoToDraft({
+        prisma,
+        draftId: draftIdForRun,
+        logoUrl: checkpointLogoUrl,
+      });
+    } catch (logoErr) {
+      console.warn('[structured_store_build] checkpoint logo apply skipped:', logoErr?.message ?? logoErr);
+    }
+  }
+
   let qaTier2Pending = [];
   try {
     const { applyStoreBuildQaAutoFix } = await import('../../../services/qa/storeBuildQaAutoFix.js');
@@ -233,41 +276,116 @@ export async function execute(_input = {}, context = {}) {
     console.warn('[structured_store_build] store QA auto-fix skipped:', qaErr?.message ?? qaErr);
   }
 
+  if (checkpointLogoUrl) {
+    try {
+      const { applyCheckpointLogoToDraft } = await import('../../../services/draftStore/logoUpdateService.js');
+      await applyCheckpointLogoToDraft({
+        prisma,
+        draftId: draftIdForRun,
+        logoUrl: checkpointLogoUrl,
+      });
+    } catch (logoErr) {
+      console.warn('[structured_store_build] checkpoint logo re-apply after QA skipped:', logoErr?.message ?? logoErr);
+    }
+  }
+
   let storeId = null;
   let storeSlug = null;
   let guestTempStore = false;
   if (userRow?.id && !isGuestUserId(userRow.id)) {
-    try {
-      const committed = await commitDraft(draftIdForRun, {
-        userId: userRow.id,
-        acceptTerms: true,
-        businessFields: { missionId: missionId ?? undefined },
-      });
-      storeId = committed?.storeId ?? committed?.businessId ?? null;
-      storeSlug = committed?.storeSlug ?? committed?.slug ?? null;
-    } catch (commitErr) {
+    const publishResult = await safePublishGeneratedDraft({
+      prisma,
+      draftId: draftIdForRun,
+      userId: userRow.id,
+      missionId: missionId ?? undefined,
+      correlationId: created.generationRunId,
+      taskId: created.jobId,
+    });
+
+    if (!publishResult.ok) {
+      try {
+        const pipeRow = await prisma.missionPipeline.findUnique({
+          where: { id: missionId },
+          select: { outputsJson: true },
+        });
+        const publishPendingSlice = {
+          ok: false,
+          publishFailed: true,
+          retryable: publishResult.retryable === true,
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+          error: publishResult.error ?? null,
+        };
+        const outputsJson = mergeCanonicalOutputs(pipeRow?.outputsJson, {
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+          publishFailed: true,
+          structured_store_build: publishPendingSlice,
+        });
+        await safeMissionPipelineUpdate(
+          prisma,
+          {
+            where: { id: missionId },
+            data: { outputsJson },
+          },
+          { missionId, label: 'structured_store_build.publish_pending_outputs' },
+        );
+      } catch (outputsErr) {
+        console.warn('[structured_store_build] publish_pending outputs persist skipped:', outputsErr?.message ?? outputsErr);
+      }
+
       await transitionOrchestratorTaskStatus({
         prisma,
         taskId: created.jobId,
-        toStatus: 'failed',
+        toStatus: 'completed',
         fromStatus: 'running',
         actorType: 'worker',
         correlationId: created.generationRunId,
-        reason: 'STRUCTURED_STORE_BUILD',
+        reason: 'PUBLISH_PENDING',
         result: {
           ok: false,
-          error: commitErr?.message || String(commitErr),
-          generationRunId: created.generationRunId,
+          publishFailed: true,
+          retryable: publishResult.retryable === true,
           draftId: draftIdForRun,
+          error: publishResult.error ?? null,
+          generationRunId: created.generationRunId,
         },
       }).catch(() => {});
+
       return {
-        status: 'failed',
+        status: 'publish_pending',
+        draftId: draftIdForRun,
+        output: {
+          ok: false,
+          publishFailed: true,
+          retryable: publishResult.retryable === true,
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+        },
         error: {
-          code: 'COMMIT_DRAFT_FAILED',
-          message: commitErr?.message || String(commitErr),
+          code: 'PUBLISH_PENDING',
+          message: publishResult.error ?? 'Publish failed',
         },
       };
+    }
+
+    storeId = publishResult.storeId ?? null;
+    storeSlug = publishResult.storeSlug ?? null;
+    if (checkpointLogoUrl && storeId) {
+      try {
+        const { applyCheckpointLogoToDraft } = await import('../../../services/draftStore/logoUpdateService.js');
+        await applyCheckpointLogoToDraft({
+          prisma,
+          draftId: draftIdForRun,
+          logoUrl: checkpointLogoUrl,
+          storeId,
+        });
+      } catch (logoErr) {
+        console.warn('[structured_store_build] checkpoint logo business sync skipped:', logoErr?.message ?? logoErr);
+      }
     }
   }
 
@@ -299,6 +417,19 @@ export async function execute(_input = {}, context = {}) {
         console.error('[structured_store_build] guest retry also failed:', retryErr?.message ?? retryErr);
       }
     }
+    if (checkpointLogoUrl && storeId) {
+      try {
+        const { applyCheckpointLogoToDraft } = await import('../../../services/draftStore/logoUpdateService.js');
+        await applyCheckpointLogoToDraft({
+          prisma,
+          draftId: draftIdForRun,
+          logoUrl: checkpointLogoUrl,
+          storeId,
+        });
+      } catch (logoErr) {
+        console.warn('[structured_store_build] guest checkpoint logo sync skipped:', logoErr?.message ?? logoErr);
+      }
+    }
   }
 
   if (storeId) {
@@ -322,6 +453,7 @@ export async function execute(_input = {}, context = {}) {
       draftId: draftIdForRun,
       generationRunId: created.generationRunId,
       jobId: created.jobId,
+      ...(checkpointLogoUrl ? { logoUrl: checkpointLogoUrl, logoApplied: true } : {}),
       ...(storeId ? { storeId, storeSlug } : {}),
       ...(guestTempStore ? { guestTempStore: true, guestSkippedCommit: false } : {}),
       ...(!guestTempStore && !storeId && isGuestUserId(uid) ? { guestSkippedCommit: true } : {}),

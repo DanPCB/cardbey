@@ -22,6 +22,7 @@ import {
   incrementRuntimeAuthorityMetric,
 } from './runtime/performerRuntime/runtimeAuthorityStaging.js';
 import { writeEpisodicEventAsync } from './memory/episodicWriter.js';
+import { enrichMediaSearchInput } from '../services/media/mediaQueryEnrichment.js';
 
 /**
  * @typedef {import('./toolRegistry.js').ToolDefinition} ToolDefinition
@@ -182,7 +183,8 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
   }
 
   try {
-    const runExecutor = () => executor.execute(input, ctx);
+    const enrichedInput = await enrichMediaSearchInput(name, input, ctx);
+    const runExecutor = () => executor.execute(enrichedInput, ctx);
     let result;
     if (skipNestedTelemetry) {
       incrementRuntimeAuthorityMetric('telemetrySkippedNested');

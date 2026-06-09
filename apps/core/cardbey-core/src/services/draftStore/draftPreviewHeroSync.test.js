@@ -57,6 +57,22 @@ describe('draftPreviewHeroSync', () => {
     });
   });
 
+  it('readCanonicalHeroFromPreview prefers top-level heroVideoUrl over stale meta.profileHeroVideoUrl', () => {
+    const raw = {
+      heroMediaType: 'video',
+      heroVideoUrl: '/uploads/media/new-hero.mp4',
+      heroVideo: '/uploads/media/new-hero.mp4',
+      meta: {
+        profileHeroVideoUrl: '/uploads/media/old-hero.mp4',
+        profileHeroUrl: 'https://cdn.example.com/stale-poster.jpg',
+      },
+    };
+    expect(readCanonicalHeroFromPreview(raw)).toMatchObject({
+      heroVideo: '/uploads/media/new-hero.mp4',
+      isVideo: true,
+    });
+  });
+
   it('readCanonicalHeroFromPreview ignores stale meta video when heroMediaType is image', () => {
     const raw = {
       heroMediaType: 'image',
@@ -98,7 +114,7 @@ describe('draftPreviewHeroSync', () => {
     });
   });
 
-  it('writeCanonicalHeroMediaToPreview: does not set heroImageUrl to video url', () => {
+  it('writeCanonicalHeroMediaToPreview: clears stale heroImageUrl when video has no poster', () => {
     const merged = { heroImageUrl: 'https://cdn.example.com/old.jpg' };
     writeCanonicalHeroMediaToPreview(merged, {
       mediaType: 'video',
@@ -108,8 +124,7 @@ describe('draftPreviewHeroSync', () => {
     });
     expect(merged.heroMediaType).toBe('video');
     expect(merged.heroVideoUrl).toBe('https://cdn.example.com/hero.mp4');
-    // poster missing -> keep existing heroImageUrl (do not replace with video)
-    expect(merged.heroImageUrl).toBe('https://cdn.example.com/old.jpg');
+    expect(merged.heroImageUrl).toBeNull();
   });
 
   it('syncHeroFieldsIntoPreviewWebsite updates stylePreferences.miniWebsite hero section', async () => {
@@ -133,6 +148,33 @@ describe('draftPreviewHeroSync', () => {
     applyCanonicalHeroToMiniWebsite(mini, { heroImageUrl: 'https://cdn.example.com/new.jpg' });
     expect(mini.sections[0].type).toBe('hero');
     expect(mini.sections[0].content.imageUrl).toBe('https://cdn.example.com/new.jpg');
+  });
+
+  it('applyCanonicalHeroToMiniWebsite clears stale section image when video has no poster', () => {
+    const mini = {
+      sections: [
+        {
+          type: 'hero',
+          content: {
+            type: 'image',
+            imageUrl: 'https://cdn.example.com/stale.jpg',
+            backgroundImage: 'https://cdn.example.com/stale.jpg',
+            headline: 'Keep me',
+          },
+        },
+      ],
+    };
+    applyCanonicalHeroToMiniWebsite(mini, {
+      heroMediaType: 'video',
+      heroVideoUrl: '/uploads/media/hero.mp4',
+      heroVideo: '/uploads/media/hero.mp4',
+      meta: { profileHeroUrl: 'https://cdn.example.com/stale.jpg' },
+    });
+    const hero = mini.sections.find((s) => s.type === 'hero');
+    expect(hero.content.videoUrl).toBe('/uploads/media/hero.mp4');
+    expect(hero.content.imageUrl).toBeUndefined();
+    expect(hero.content.backgroundImage).toBeUndefined();
+    expect(hero.content.headline).toBe('Keep me');
   });
 
   it('resolveCanonicalHeroMediaFromPreview: stale heroMediaType image does not drop heroVideoUrl', () => {

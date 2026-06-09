@@ -7,6 +7,7 @@ import { getEventEmitter } from './events.js';
 import { broadcastSse } from '../../realtime/simpleSse.js';
 import { broadcast as broadcastWebsocket } from '../../realtime/websocket.js';
 import { requestPairing } from './requestPairing.js';
+import { pairingExpiresAt, pairingTtlLeftMs } from './pairingSessionTiming.js';
 
 const prisma = getPrismaClient();
 
@@ -120,6 +121,23 @@ export async function executeDeviceRequestPairing(opts = {}) {
   try {
     const result = await requestPairing(input, createEngineContext());
 
+    if (result?.alreadyPaired) {
+      const sessionId = result.deviceId || result.id;
+      console.log('[REQUEST_PAIRING_RESPONSE]', {
+        requestId,
+        alreadyPaired: true,
+        deviceId: sessionId,
+      });
+      return {
+        ok: true,
+        alreadyPaired: true,
+        sessionId,
+        deviceId: sessionId,
+        tenantId: result.tenantId,
+        storeId: result.storeId,
+      };
+    }
+
     const sessionId = result?.id || result?.deviceId || result?.sessionId;
     const code = result?.code || result?.pairingCode || result?.pairCode;
     const expiresAt = result?.expiresAt;
@@ -195,9 +213,8 @@ export function mapDeviceToLegacyPairStatus(device) {
   if (!device) return null;
 
   const now = Date.now();
-  const createdAt = device.createdAt ? new Date(device.createdAt).getTime() : now;
-  const expiresAtMs = createdAt + 10 * 60 * 1000;
-  const ttlLeftMs = Math.max(0, expiresAtMs - now);
+  const expiresAtMs = pairingExpiresAt(device).getTime();
+  const ttlLeftMs = pairingTtlLeftMs(device, new Date(now));
   const hasPairingCode = !!device.pairingCode;
   const isTemp = device.tenantId === 'temp' || device.storeId === 'temp';
   const isPaired = !hasPairingCode && !isTemp;

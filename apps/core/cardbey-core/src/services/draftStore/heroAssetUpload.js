@@ -11,6 +11,8 @@ import { updateHeroForStore } from './heroUpdateService.js';
 import { resolveDraftForStore } from '../../lib/draftResolver.js';
 import { canAccessDraftStore } from '../../lib/draftOwnership.js';
 import { hasRole } from '../../lib/authorization.js';
+import { assertValidHeroVideoUpload } from '../../utils/videoBinaryValidation.js';
+import { ensureWebCompatibleVideoBuffer } from '../../lib/videoCompat.js';
 
 const prisma = getPrismaClient();
 
@@ -181,9 +183,33 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     });
   }
 
-  const buffer = req.file.buffer;
-  const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
+  let buffer = req.file.buffer;
+  let mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
   const isVideo = mime.startsWith('video/');
+  if (isVideo) {
+    const videoCheck = assertValidHeroVideoUpload(buffer, mime);
+    if (!videoCheck.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: videoCheck.error,
+        message: videoCheck.message,
+      });
+    }
+    try {
+      const processed = await ensureWebCompatibleVideoBuffer(
+        buffer,
+        req.file.originalname || 'hero.mp4',
+        { context: 'draftStore.upload.hero' },
+      );
+      buffer = processed.buffer;
+      mime = processed.mime;
+    } catch (videoErr) {
+      console.warn(
+        '[heroAssetUpload] video compat processing failed (non-fatal):',
+        videoErr?.message || videoErr,
+      );
+    }
+  }
   const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
   if (buffer.length > maxBytes) {
     return res.status(400).json({
@@ -242,22 +268,30 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
     (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null);
 
+  const missionId =
+    (typeof req.query.missionId === 'string' ? req.query.missionId.trim() : null) ||
+    (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null);
+
   const heroResult = await updateHeroForStore({
     prisma,
     userId: req.userId,
     storeId: storeIdParam,
     draftId: draft.id,
     generationRunId,
+    missionId,
     previewPatch,
     source: 'upload',
   });
 
   return res.status(200).json({
     ok: true,
-    url: heroImageUrl,
-    heroImageUrl: heroResult.heroImageUrl,
-    videoUrl: heroResult.heroVideoUrl,
+    url: isVideo ? (heroResult.heroVideoUrl ?? normalizedUrl) : normalizedUrl,
+    mediaType: isVideo ? 'video' : 'image',
     mimeType: mime,
+    size: buffer.length,
+    heroImageUrl: heroResult.heroImageUrl ?? (isVideo ? null : normalizedUrl),
+    videoUrl: isVideo ? (heroResult.heroVideoUrl ?? normalizedUrl) : null,
+    heroVideoUrl: isVideo ? (heroResult.heroVideoUrl ?? normalizedUrl) : null,
     isVideo,
     key,
     storageKey: key,

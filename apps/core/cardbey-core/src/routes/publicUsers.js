@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
+import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
 import {
   resolvePublicStoresForList,
   PUBLIC_STORE_LIST_SELECT,
@@ -14,6 +15,7 @@ import { getPublishedBusinessArtifact } from '../services/publishedArtifactProje
 import { publicWebBase } from '../utils/publicWebBase.js';
 import { parseSocialLinks } from '../lib/socialLinks.js';
 import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
+import { parseDocumentIngestionContext } from '../lib/documentIngestion/documentAwareConcierge.js';
 
 import { prisma } from '../lib/prisma.js';
 
@@ -565,6 +567,30 @@ router.get('/stores/:slug', async (req, res, next) => {
 
     const { store: publicStore, usedFallback, projection } = await resolvePublicStoreFromArtifact(prisma, store);
 
+    let projectionHeroRow = null;
+    try {
+      projectionHeroRow = await prisma.publishedArtifactProjection.findUnique({
+        where: { businessId: store.id },
+        select: { heroVideoUrl: true, heroMediaType: true },
+      });
+    } catch {
+      projectionHeroRow = null;
+    }
+    if (projectionHeroRow) {
+      // DANH: fix-hero-video-publish
+      if (projectionHeroRow.heroVideoUrl) {
+        publicStore.heroVideoUrl = projectionHeroRow.heroVideoUrl;
+        publicStore.heroVideo = projectionHeroRow.heroVideoUrl;
+        publicStore.heroUrl = projectionHeroRow.heroVideoUrl;
+        publicStore.bannerUrl = projectionHeroRow.heroVideoUrl;
+      }
+      publicStore.heroMediaType = projectionHeroRow.heroMediaType ?? publicStore.heroMediaType ?? 'image';
+    }
+
+    Object.assign(publicStore, enrichStoreHeroVideoUrls(publicStore, {
+      uploadsDir: process.env.UPLOADS_DIR,
+    }));
+
     // Always emit socialLinks on slug route (parity with frontscreen card mapping).
     const mappedSocialLinks =
       publicStore.socialLinks ??
@@ -636,6 +662,11 @@ router.get('/stores/:slug', async (req, res, next) => {
     const webBase = publicWebBase();
     if (publicStore.slug) {
       publicStore.storeUrl = `${webBase}/s/${encodeURIComponent(publicStore.slug)}`;
+    }
+
+    const ingestionContext = parseDocumentIngestionContext(store.storefrontSettings);
+    if (ingestionContext) {
+      publicStore.documentContext = ingestionContext;
     }
 
     res.json({

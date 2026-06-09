@@ -233,6 +233,21 @@ export function artifactUnavailable(fields) {
 
 /**
  * @param {object | null | undefined} toolResult
+ * @returns {string | null}
+ */
+export function resolveSkillExecutionSummaryMessage(toolResult) {
+  const execution = toolResult?.output?.skillExecution;
+  if (!execution?.stepResults || typeof execution.stepResults !== 'object') return null;
+  const summaryStep = execution.stepResults.generate_execution_summary;
+  const raw = summaryStep?.output;
+  const out =
+    raw?.output && typeof raw.output === 'object' && !Array.isArray(raw.output) ? raw.output : raw;
+  const summary = typeof out?.summary === 'string' ? out.summary.trim() : '';
+  return summary || null;
+}
+
+/**
+ * @param {object | null | undefined} toolResult
  * @param {string} [locale]
  */
 export function resolveIntakeMessageFromToolResult(toolResult, locale = 'en') {
@@ -241,6 +256,9 @@ export function resolveIntakeMessageFromToolResult(toolResult, locale = 'en') {
   if (toolResult?.output?.message) return String(toolResult.output.message);
   if (toolResult?.blocker?.message) return String(toolResult.blocker.message);
   if (toolResult?.error?.message) return String(toolResult.error.message);
+
+  const skillSummary = resolveSkillExecutionSummaryMessage(toolResult);
+  if (skillSummary) return skillSummary;
 
   if (artifact) {
     switch (artifact.status) {

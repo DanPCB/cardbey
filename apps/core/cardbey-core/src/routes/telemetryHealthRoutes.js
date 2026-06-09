@@ -254,5 +254,22 @@ router.get('/health', async (_req, res) => {
   }
 });
 
+/**
+ * POST /api/telemetry/assistant
+ * Fire-and-forget assistant interaction telemetry (Universal PIL Assistant).
+ */
+router.post('/assistant', (req, res) => {
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[Telemetry] assistant_action', {
+      event: body.event ?? 'assistant_action',
+      role: body.role,
+      surface: body.surface,
+      suggestionsCount: body.suggestionsCount,
+    });
+  }
+  return res.status(204).end();
+});
+
 export default router;
 

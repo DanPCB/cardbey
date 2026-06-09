@@ -3,7 +3,8 @@
  * Simulates: upload video → draft preview → snapshot → republish → public projection.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { persistPublishedBusinessArtifact } from '../publishedArtifactProjection/persistPublishedBusinessArtifact.js';
 import {
   buildPublishSnapshotFromPreview,
   snapshotToPreviewShape,
@@ -30,6 +31,64 @@ function draftWithVideoHero() {
     hero: { type: 'video', videoUrl: VIDEO, url: VIDEO, imageUrl: POSTER },
   };
 }
+
+describe('persistPublishedBusinessArtifact hero index', () => {
+  it('writes heroVideoUrl on create', async () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const prisma = {
+      publishedArtifactProjection: { upsert, findMany: vi.fn() },
+    };
+    const projection = {
+      artifactType: 'business',
+      businessId: 'biz-hero',
+      tenantId: 'tenant-1',
+      storeId: 'biz-hero',
+      slug: 'my-fashion',
+      artifactVersion: 1,
+      hero: { type: 'video', videoUrl: 'https://cdn.example.com/promo.mp4' },
+    };
+
+    await persistPublishedBusinessArtifact(prisma, projection, {
+      sourceDraftId: 'draft-1',
+      publishRunId: 'run-1',
+    });
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    const call = upsert.mock.calls[0][0];
+    expect(call.create.heroVideoUrl).toBe('https://cdn.example.com/promo.mp4');
+    expect(call.create.heroMediaType).toBe('video');
+    expect(call.update.heroVideoUrl).toBe('https://cdn.example.com/promo.mp4');
+    expect(call.update.heroMediaType).toBe('video');
+  });
+
+  it('writes heroMediaType=image when no video', async () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const prisma = {
+      publishedArtifactProjection: { upsert, findMany: vi.fn() },
+    };
+    const projection = {
+      artifactType: 'business',
+      businessId: 'biz-img',
+      tenantId: 'tenant-1',
+      storeId: 'biz-img',
+      slug: 'my-bakery',
+      artifactVersion: 1,
+      hero: {
+        type: 'image',
+        videoUrl: null,
+        imageUrl: 'https://cdn.example.com/hero.jpg',
+      },
+    };
+
+    await persistPublishedBusinessArtifact(prisma, projection);
+
+    const call = upsert.mock.calls[0][0];
+    expect(call.create.heroVideoUrl).toBeNull();
+    expect(call.create.heroMediaType).toBe('image');
+    expect(call.update.heroVideoUrl).toBeNull();
+    expect(call.update.heroMediaType).toBe('image');
+  });
+});
 
 describe('heroVideoPublishPipeline', () => {
   it('upload → snapshot → preview shape keeps heroVideoUrl', () => {
@@ -111,5 +170,54 @@ describe('heroVideoPublishPipeline', () => {
     expect(preview.heroMediaType).toBe('video');
     expect(preview.heroVideoUrl).toBe(VIDEO);
     expect(preview.heroImageUrl).toBe(STALE_IMAGE);
+  });
+
+  it('republish ignores stale business heroImage when draft video has no poster', () => {
+    const NEW_VIDEO = '/uploads/media/new-hero.mp4';
+    const STALE_PEXELS = 'https://images.pexels.com/photos/29880935/pexels-photo.jpeg';
+    const preview = {
+      heroMediaType: 'video',
+      heroVideoUrl: NEW_VIDEO,
+      heroVideo: NEW_VIDEO,
+      heroImageUrl: null,
+      hero: { type: 'video', videoUrl: NEW_VIDEO, url: NEW_VIDEO },
+      website: {
+        sections: [
+          {
+            type: 'hero',
+            content: {
+              type: 'video',
+              videoUrl: NEW_VIDEO,
+              headline: 'Store',
+            },
+          },
+        ],
+      },
+    };
+    const business = {
+      heroImageUrl: STALE_PEXELS,
+      stylePreferences: {
+        heroVideo: '/uploads/media/old-hero.mp4',
+        heroImage: STALE_PEXELS,
+        miniWebsite: {
+          sections: [
+            {
+              type: 'hero',
+              content: {
+                type: 'video',
+                videoUrl: '/uploads/media/old-hero.mp4',
+                backgroundImage: STALE_PEXELS,
+                imageUrl: STALE_PEXELS,
+              },
+            },
+          ],
+        },
+      },
+    };
+    const hero = resolveHeroForProjection({ business, draftPreview: preview });
+    expect(hero.type).toBe('video');
+    expect(hero.videoUrl).toBe(NEW_VIDEO);
+    expect(hero.posterUrl).toBeNull();
+    expect(hero.imageUrl).toBeNull();
   });
 });

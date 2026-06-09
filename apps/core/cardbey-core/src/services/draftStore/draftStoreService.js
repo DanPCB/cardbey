@@ -7,6 +7,7 @@ if (process.env.NODE_ENV !== 'production') {
  */
 
 import { prisma } from '../../lib/prisma.js';
+import { runCriticalSqliteWriteWithP1008Retry } from '../../lib/sqliteCriticalWrite.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
@@ -17,6 +18,10 @@ import {
   protectVideoHeroFromImageOnlyOverwrite,
   getExistingVideoUrlFromPreview,
 } from './draftPreviewHeroSync.js';
+import {
+  normalizeHeroFieldsInPreview,
+  normalizeHeroPreviewPatchForStorage,
+} from './normalizeHeroMediaUrlsForStorage.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -2394,8 +2399,26 @@ export async function generateDraft(draftId, options = {}) {
     if (heroImageUrl) {
       applyPipelineGeneratedHeroImage(preview, heroImageUrl, { writer: 'generateDraft', draftId });
     }
-    preview.avatar = { imageUrl: avatarImageUrl };
-    preview.avatarUrl = avatarImageUrl ?? null;
+    const { hasUserUploadedLogo } = await import('./logoUpdateService.js');
+    if (hasUserUploadedLogo(priorPreview)) {
+      if (priorPreview.avatar && typeof priorPreview.avatar === 'object') {
+        preview.avatar = { ...priorPreview.avatar };
+      }
+      preview.avatarUrl = priorPreview.avatarUrl ?? priorPreview.avatarImageUrl ?? preview.avatarUrl ?? null;
+      preview.avatarImageUrl = priorPreview.avatarImageUrl ?? preview.avatarImageUrl ?? null;
+      if (priorPreview.brand && typeof priorPreview.brand === 'object') {
+        preview.brand = { ...(preview.brand && typeof preview.brand === 'object' ? preview.brand : {}), ...priorPreview.brand };
+      }
+      if (priorPreview.meta && typeof priorPreview.meta === 'object') {
+        preview.meta = { ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}), ...priorPreview.meta };
+      }
+      if (priorPreview.store && typeof priorPreview.store === 'object') {
+        preview.store = { ...(preview.store && typeof preview.store === 'object' ? preview.store : {}), ...priorPreview.store };
+      }
+    } else {
+      preview.avatar = { imageUrl: avatarImageUrl };
+      preview.avatarUrl = avatarImageUrl ?? null;
+    }
     mergeWebsiteIntoPreview(preview, input);
 
     normalizePreviewCategories(preview);
@@ -2767,19 +2790,27 @@ export async function runWithCommittedDraftReopenedForCatalogPatch(draftId, fn) 
     if (draft.expiresAt && new Date() > draft.expiresAt) {
       reopenData.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     }
-    await prisma.draftStore.update({
-      where: { id },
-      data: reopenData,
-    });
+    await runCriticalSqliteWriteWithP1008Retry(
+      () =>
+        prisma.draftStore.update({
+          where: { id },
+          data: reopenData,
+        }),
+      { label: 'draftStore.reopenForCatalogPatch' },
+    );
   }
   try {
     await fn();
   } finally {
     if (wasCommitted) {
-      await prisma.draftStore.update({
-        where: { id },
-        data: { status: priorStatus },
-      });
+      await runCriticalSqliteWriteWithP1008Retry(
+        () =>
+          prisma.draftStore.update({
+            where: { id },
+            data: { status: priorStatus },
+          }),
+        { label: 'draftStore.restoreAfterCatalogPatch' },
+      );
     }
   }
 }
@@ -2830,6 +2861,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
     'heroPoster',
   ];
   if (heroPatchKeys.some((k) => incoming[k] !== undefined)) {
+    incoming = normalizeHeroPreviewPatchForStorage(incoming);
     const { incoming: safeIncoming } = protectVideoHeroFromImageOnlyOverwrite(existing, incoming, {
       writer: options.heroWriteIntent || options.writer || 'patchDraftPreview',
       draftId,
@@ -2893,6 +2925,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
     incoming.heroVideoUrl !== undefined
   ) {
     syncHeroFieldsIntoPreviewWebsite(merged);
+    normalizeHeroFieldsInPreview(merged);
   }
   if (merged.brand == null && existing.brand != null) merged.brand = existing.brand;
   else if (merged.brand != null && existing.brand != null && typeof merged.brand === 'object' && typeof existing.brand === 'object') {

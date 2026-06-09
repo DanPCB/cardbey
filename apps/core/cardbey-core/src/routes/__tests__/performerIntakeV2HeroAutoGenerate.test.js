@@ -10,6 +10,12 @@ vi.mock('../../middleware/guestAuth.js', () => ({
   requireUserOrGuest: (_req, _res, next) => next(),
 }));
 
+vi.mock('../../lib/prisma.js', () => ({
+  getPrismaClient: vi.fn(() => ({
+    draftStore: { findFirst: vi.fn(async () => null) },
+  })),
+}));
+
 vi.mock('../../lib/intake/intakeClassifier.js', () => ({
   classifyIntent: vi.fn(async () => ({
     executionPath: 'chat',
@@ -24,6 +30,8 @@ vi.mock('../../lib/intake/intakeClassifier.js', () => ({
 vi.mock('../../lib/toolDispatcher.js', () => ({
   dispatchTool: vi.fn(async (toolName, input = {}) => {
     if (toolName === 'edit_artifact') {
+      const { getPrismaClient } = await import('../../lib/prisma.js');
+      await getPrismaClient().draftStore.findFirst({ take: 1 });
       return {
         status: 'ok',
         output: {

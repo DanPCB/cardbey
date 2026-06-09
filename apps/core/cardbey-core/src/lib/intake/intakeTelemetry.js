@@ -1,9 +1,10 @@
 /**
- * Structured INTAKE_V2 telemetry (JSON line).
+ * Structured INTAKE_V2 telemetry (JSON line + optional DB persistence).
  */
+import { getPrismaClient } from '../prisma.js';
 
-export function emitIntakeV2Telemetry(payload) {
-  const line = {
+function buildTelemetryLine(payload) {
+  return {
     tag: 'INTAKE_V2',
     ts: new Date().toISOString(),
     traceId: typeof payload.traceId === 'string' && payload.traceId.trim() ? payload.traceId.trim() : null,
@@ -50,6 +51,95 @@ export function emitIntakeV2Telemetry(payload) {
       typeof payload.heroGeneratedPrompt === 'string' ? payload.heroGeneratedPrompt.slice(0, 500) : null,
     heroAutoGenerateSource: payload.heroAutoGenerateSource ?? null,
   };
+}
+
+function resolveIntentLabel(payload) {
+  if (typeof payload.intent === 'string' && payload.intent.trim()) {
+    return payload.intent.trim().slice(0, 200);
+  }
+  const family = payload.intentFamily ?? payload.resolvedFamily;
+  const subtype = payload.intentSubtype ?? payload.resolvedSubtype;
+  if (family && subtype) return `${family}:${subtype}`.slice(0, 200);
+  if (family) return String(family).slice(0, 200);
+  if (typeof payload.tool === 'string' && payload.tool.trim()) return payload.tool.trim().slice(0, 200);
+  return 'unknown';
+}
+
+function resolveQuery(payload) {
+  if (typeof payload.query === 'string' && payload.query.trim()) {
+    return payload.query.trim().slice(0, 2000);
+  }
+  if (typeof payload.message === 'string' && payload.message.trim()) {
+    return payload.message.trim().slice(0, 2000);
+  }
+  return '';
+}
+
+async function persistSkillDispatchLog(payload) {
+  try {
+    const prisma = getPrismaClient();
+    if (!prisma?.skillDispatchLog?.create) return null;
+
+    const traceId =
+      typeof payload.traceId === 'string' && payload.traceId.trim()
+        ? payload.traceId.trim().slice(0, 128)
+        : `trace_${Date.now()}`;
+    const query = resolveQuery(payload);
+    if (!query) return null;
+
+    const confidenceRaw = payload.confidence;
+    const confidence =
+      typeof confidenceRaw === 'number' && Number.isFinite(confidenceRaw)
+        ? Math.max(0, Math.min(1, confidenceRaw))
+        : 0;
+
+    const row = await prisma.skillDispatchLog.create({
+      data: {
+        traceId,
+        userId: payload.userId ? String(payload.userId).slice(0, 128) : null,
+        sessionId: payload.sessionId ? String(payload.sessionId).slice(0, 128) : null,
+        query,
+        intent: resolveIntentLabel(payload),
+        matchedSkill:
+          typeof payload.tool === 'string' && payload.tool.trim()
+            ? payload.tool.trim().slice(0, 120)
+            : null,
+        confidence,
+        executionPath:
+          typeof payload.executionPath === 'string' && payload.executionPath.trim()
+            ? payload.executionPath.trim().slice(0, 64)
+            : null,
+        outcome:
+          typeof payload.outcome === 'string' && payload.outcome.trim()
+            ? payload.outcome.trim().slice(0, 32)
+            : typeof payload.result === 'string' && payload.result.trim()
+              ? payload.result.trim().slice(0, 32)
+              : null,
+        latencyMs:
+          typeof payload.latencyMs === 'number' && Number.isFinite(payload.latencyMs)
+            ? Math.round(payload.latencyMs)
+            : null,
+      },
+    });
+    return row.id;
+  } catch (error) {
+    console.error('[IntakeTelemetry] Failed to persist dispatch log:', error?.message ?? error);
+    return null;
+  }
+}
+
+/**
+ * Log INTAKE_V2 telemetry to stdout and persist dispatch metadata when possible.
+ * @returns {Promise<string|null>} dispatch log id when persisted
+ */
+export async function emitIntakeV2Telemetry(payload) {
+  const line = buildTelemetryLine(payload);
   // eslint-disable-next-line no-console
   console.log(JSON.stringify(line));
+  return persistSkillDispatchLog(payload);
+}
+
+/** Fire-and-forget variant — does not block callers. */
+export function emitIntakeV2TelemetryAsync(payload) {
+  void emitIntakeV2Telemetry(payload).catch(() => {});
 }

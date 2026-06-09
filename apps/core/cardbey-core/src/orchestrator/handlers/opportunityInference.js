@@ -147,7 +147,9 @@ async function callLlmForOpportunities(prisma, promptFull, tenantKey) {
           actualTokensOut,
           reservedTokensOut: budgetReservation.reservedTokensOut,
         });
-      } catch (_) {}
+      } catch (err) {
+        console.warn(LOG_PREFIX, 'budget commit failed:', err?.message || err);
+      }
     }
     if (text != null && !shouldSkipCacheForPrompt(promptFull)) {
       const promptHash = hashPrompt(promptFull);

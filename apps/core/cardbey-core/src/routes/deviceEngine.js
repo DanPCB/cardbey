@@ -799,6 +799,18 @@ const handleRequestPairing = async (req, res) => {
       source: 'POST /api/device/request-pairing',
     });
 
+    if (result.alreadyPaired) {
+      return res.status(200).json({
+        ok: true,
+        alreadyPaired: true,
+        sessionId: result.sessionId,
+        deviceId: result.deviceId,
+        tenantId: result.tenantId,
+        storeId: result.storeId,
+        status: 'claimed',
+      });
+    }
+
     res.status(200).json({
       ok: true,
       sessionId: result.sessionId,
@@ -2568,6 +2580,7 @@ router.get('/pair-status/:sessionId', async (req, res) => {
         tenantId: true,
         storeId: true,
         createdAt: true,
+        updatedAt: true,
         status: true,
       },
     });
@@ -2580,11 +2593,16 @@ router.get('/pair-status/:sessionId', async (req, res) => {
       });
     }
     
-    // Check if pairing code has expired (10 minutes)
+    const {
+      pairingExpiresAt,
+      pairingTtlLeftMs,
+      isPairingSessionExpired,
+      loadPairingCodeIssuedAt,
+    } = await import('../engines/device/pairingSessionTiming.js');
+    const pairingCodeIssuedAt = await loadPairingCodeIssuedAt(prisma, device.id);
     const now = new Date();
-    const createdAt = device.createdAt;
-    const expiresAt = new Date(createdAt.getTime() + 10 * 60 * 1000);
-    const expired = now > expiresAt;
+    const expiresAt = pairingExpiresAt(device, pairingCodeIssuedAt);
+    const expired = isPairingSessionExpired(device, now, pairingCodeIssuedAt);
     
     // Determine status
     // Priority order:
@@ -2627,7 +2645,7 @@ router.get('/pair-status/:sessionId', async (req, res) => {
       sessionId, // Include sessionId for consistency
       engine: 'DEVICE_V2',
       expiresAt: expiresAt.toISOString(),
-      ttlLeftMs: Math.max(0, expiresAt.getTime() - now.getTime()),
+      ttlLeftMs: pairingTtlLeftMs(device, now, pairingCodeIssuedAt),
     };
     
     // Include pairingCode when status is 'pending' (app needs it to display pairing screen)
@@ -2779,15 +2797,21 @@ router.post('/claim', requireAuth, async (req, res) => {
       });
     }
 
-    // Check if pairing code has expired (10 minutes)
-    const createdAt = device.createdAt;
-    const expiresAt = new Date(createdAt.getTime() + 10 * 60 * 1000);
+    const {
+      pairingExpiresAt,
+      isPairingSessionExpired,
+      loadPairingCodeIssuedAt,
+    } = await import('../engines/device/pairingSessionTiming.js');
+    const pairingCodeIssuedAt = await loadPairingCodeIssuedAt(prisma, device.id);
     const now = new Date();
+    const expiresAt = pairingExpiresAt(device, pairingCodeIssuedAt);
 
-    if (now > expiresAt) {
+    if (isPairingSessionExpired(device, now, pairingCodeIssuedAt)) {
       console.warn(`[DeviceEngine V2] [${requestId}] Pairing code expired`, {
         sessionId,
-        createdAt: createdAt.toISOString(),
+        pairingCodeIssuedAt,
+        updatedAt: device.updatedAt?.toISOString?.() || device.updatedAt,
+        createdAt: device.createdAt?.toISOString?.() || device.createdAt,
         expiresAt: expiresAt.toISOString(),
         now: now.toISOString(),
       });
