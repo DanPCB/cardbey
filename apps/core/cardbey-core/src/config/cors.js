@@ -29,6 +29,7 @@ const BASE_WHITELIST = [
   // Render staging/production dashboards (legacy support)
   'https://cardbey-marketing-dashboard.onrender.com',
   'http://cardbey-marketing-dashboard.onrender.com',
+  'https://cardbey-dashboard-staging.onrender.com',
   "https://appassets.androidplatform.net",
 ];
 
@@ -105,6 +106,8 @@ export const CORS_API_ALLOWED_HEADERS = [
   'Content-Length',
   'Accept',
   'Origin',
+  'x-guest-session',
+  'X-Guest-Session',
 ];
 
 export const CORS_API_ALLOWED_HEADERS_VALUE = CORS_API_ALLOWED_HEADERS.join(', ');
