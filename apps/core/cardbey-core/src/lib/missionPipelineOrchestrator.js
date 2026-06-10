@@ -114,6 +114,38 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
   }
 
   while (stepsRun < maxSteps) {
+    mission = await loadMission();
+    if (!mission) {
+      return {
+        ok: false,
+        missionId: id,
+        status: '',
+        runState: '',
+        stepsRun,
+        stoppedReason: 'not_found',
+      };
+    }
+    const loopStatus = String(mission.status ?? '').toLowerCase();
+    const loopRunState = String(mission.runState ?? '').toLowerCase();
+    if (
+      loopStatus === 'cancelled' ||
+      loopStatus === 'canceled' ||
+      loopRunState === 'done' ||
+      loopRunState === 'cancelled' ||
+      loopRunState === 'canceled'
+    ) {
+      console.log('[MissionRunner] cancelled mission — not auto-starting next', { missionId: id });
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'cancelled', stepsRun });
+      return {
+        ok: true,
+        missionId: id,
+        status: mission.status,
+        runState: mission.runState,
+        stepsRun,
+        stoppedReason: 'cancelled',
+      };
+    }
+
     let fr;
     if (isPerformerRuntimePipelineFacadeEnabled()) {
       fr = await executeRuntimeAction({

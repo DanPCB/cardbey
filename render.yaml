@@ -47,6 +47,22 @@ services:
         value: https://cardbey-dashboard-staging.onrender.com
       - key: DASHBOARD_URL
         value: https://cardbey-dashboard-staging.onrender.com
+      - key: DISCOVERY_ENABLED
+        value: "false"
+      - key: DISCOVERY_CRON
+        value: "0 */6 * * *"
+      - key: DISCOVERY_MAX_PER_RUN
+        value: "20"
+      - key: DISCOVERY_CONCURRENCY
+        value: "3"
+      - key: DISCOVERY_DELAY_MS
+        value: "2000"
+      - key: DISCOVERY_SYSTEM_USER_ID
+        sync: false
+      - key: DISCOVERY_INSTANCE_LOCK
+        value: "false"
+      - key: INSIGHT_JOB_ENABLED
+        value: "false"
 
   # Dashboard (staging) — static site build (Vite)
   # rootDir MUST be monorepo root: Render runs "Installing dependencies with pnpm" before buildCommand
@@ -119,6 +135,22 @@ services:
         value: https://cardbey-dashboard.onrender.com
       - key: DASHBOARD_URL
         value: https://cardbey-dashboard.onrender.com
+      - key: DISCOVERY_ENABLED
+        value: "false"
+      - key: DISCOVERY_CRON
+        value: "0 */6 * * *"
+      - key: DISCOVERY_MAX_PER_RUN
+        value: "20"
+      - key: DISCOVERY_CONCURRENCY
+        value: "3"
+      - key: DISCOVERY_DELAY_MS
+        value: "2000"
+      - key: DISCOVERY_SYSTEM_USER_ID
+        sync: false
+      - key: DISCOVERY_INSTANCE_LOCK
+        value: "false"
+      - key: INSIGHT_JOB_ENABLED
+        value: "false"
 
   # Dashboard (production) — static site build (Vite)
   # Reconcile with existing Render service before blueprint sync if cardbey-dashboard already exists.

@@ -4,6 +4,7 @@
  */
 
 import { coerceServiceCtaLabel, isServiceVertical } from './storeTransactionMode.js';
+import { hasBusinessColumn } from './businessColumnCapabilities.js';
 import { getDbCapabilities, resolveDbProvider } from './persistence/dbCapabilityRegistry.js';
 
 /** @type {string} */
@@ -64,31 +65,51 @@ export function extendedBusinessFieldsFromCommerce(commerce) {
   };
 }
 
-/** Prisma Business select for public read routes — omits Postgres-only columns on SQLite. */
+function pickBusinessSelectFields(...fields) {
+  /** @type {Record<string, true>} */
+  const out = {};
+  for (const field of fields) {
+    if (hasBusinessColumn(field)) out[field] = true;
+  }
+  return out;
+}
+
+/** Prisma Business select for public read routes — omits missing / Postgres-only columns. */
 export function businessPublicReadSelect(extra = {}) {
   const base = {
     id: true,
     name: true,
     slug: true,
     type: true,
-    tagline: true,
-    description: true,
-    heroText: true,
-    heroImageUrl: true,
-    avatarImageUrl: true,
-    logo: true,
-    publishedAt: true,
-    stylePreferences: true,
-    storefrontSettings: true,
     isActive: true,
     userId: true,
-    primaryColor: true,
-    secondaryColor: true,
-    showOwnerProfile: true,
-    socialLinks: true,
-    phone: true,
     createdAt: true,
     updatedAt: true,
+    ...pickBusinessSelectFields(
+      'tagline',
+      'description',
+      'heroText',
+      'heroImageUrl',
+      'avatarImageUrl',
+      'logo',
+      'publishedAt',
+      'stylePreferences',
+      'storefrontSettings',
+      'primaryColor',
+      'secondaryColor',
+      'showOwnerProfile',
+      'socialLinks',
+      'phone',
+      'email',
+      'websiteUrl',
+      'address',
+      'suburb',
+      'state',
+      'postcode',
+      'country',
+      'mapUrl',
+      'region',
+    ),
     ...extra,
   };
   if (dbSupports.extendedBusinessFields) {

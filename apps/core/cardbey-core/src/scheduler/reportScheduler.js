@@ -16,10 +16,14 @@ import {
   generateContentStudioActivityReport,
   generateCampaignPerformanceReport,
 } from '../services/reportService.js';
+import { getDiscoveryStats } from '../lib/discovery/UnclaimedStoreService.js';
 
 let dailyJob = null;
 let weeklyJob = null;
 let isInitialized = false;
+
+const PLATFORM_DISCOVERY_TENANT_ID =
+  process.env.DISCOVERY_REPORT_TENANT_ID || '__platform_discovery__';
 
 /**
  * Get list of active tenant IDs
@@ -200,6 +204,13 @@ export async function runDailyReportsJob() {
       }
     }
     
+    // Platform discovery stats (last 24h)
+    try {
+      await refreshDiscoveryDailyStats();
+    } catch (discoveryErr) {
+      console.error('[ReportScheduler] Discovery daily stats failed (non-fatal):', discoveryErr?.message || discoveryErr);
+    }
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[ReportScheduler] ===== Daily reports job completed in ${duration}s =====`);
     console.log(`[ReportScheduler] Summary: ${reportsCreated} created, ${reportsSkipped} skipped, ${errors.length} errors`);
@@ -322,6 +333,13 @@ export async function runWeeklyReportsJob() {
       }
     }
     
+    // Platform discovery stats (last 7d)
+    try {
+      await refreshDiscoveryWeeklyStats();
+    } catch (discoveryErr) {
+      console.error('[ReportScheduler] Discovery weekly stats failed (non-fatal):', discoveryErr?.message || discoveryErr);
+    }
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(`[ReportScheduler] ===== Weekly reports job completed in ${duration}s =====`);
     console.log(`[ReportScheduler] Summary: ${reportsCreated} created, ${reportsSkipped} skipped, ${errors.length} errors`);
@@ -345,6 +363,123 @@ export async function runWeeklyReportsJob() {
     console.error('[ReportScheduler] Error in weekly reports job:', error);
     throw error;
   }
+}
+
+function mapBatchSummary(b) {
+  const started = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+  const completed = b.completedAt ? new Date(b.completedAt).getTime() : Date.now();
+  return {
+    seedType: b.seedType ?? null,
+    seedValue: b.seedValue ?? null,
+    discovered: b.discovered ?? 0,
+    scraped: b.scraped ?? 0,
+    created: b.created ?? 0,
+    skipped: b.skipped ?? 0,
+    failed: b.failed ?? 0,
+    preBuilt: b.preBuilt ?? 0,
+    duration: started ? completed - started : 0,
+  };
+}
+
+async function loadDiscoveryReportPayload(periodKey) {
+  const existing = await prisma.tenantReport.findFirst({
+    where: {
+      tenantId: PLATFORM_DISCOVERY_TENANT_ID,
+      kind: 'discovery_daily',
+      periodKey,
+    },
+  });
+  if (!existing?.contentMd) {
+    return { sections: [], discoveryStats: null };
+  }
+  try {
+    return JSON.parse(existing.contentMd);
+  } catch {
+    return { sections: [], discoveryStats: null };
+  }
+}
+
+async function saveDiscoveryReport(periodKey, payload) {
+  const today = periodKey;
+  const title = `Discovery Report – ${today}`;
+  const contentMd = JSON.stringify(payload, null, 2);
+  const existing = await prisma.tenantReport.findFirst({
+    where: {
+      tenantId: PLATFORM_DISCOVERY_TENANT_ID,
+      kind: 'discovery_daily',
+      periodKey: today,
+    },
+  });
+  if (existing) {
+    return prisma.tenantReport.update({
+      where: { id: existing.id },
+      data: { title, contentMd, updatedAt: new Date() },
+    });
+  }
+  return prisma.tenantReport.create({
+    data: {
+      tenantId: PLATFORM_DISCOVERY_TENANT_ID,
+      kind: 'discovery_daily',
+      periodKey: today,
+      title,
+      contentMd,
+      scope: 'discovery_pipeline',
+      tags: 'discovery,daily',
+    },
+  });
+}
+
+/**
+ * Append discovery batch summaries to today's platform discovery report.
+ * @param {object[]} batchSummaries
+ */
+export async function appendDiscoveryReport(batchSummaries) {
+  if (!Array.isArray(batchSummaries) || batchSummaries.length === 0) {
+    return null;
+  }
+
+  const periodKey = new Date().toISOString().split('T')[0];
+  const payload = await loadDiscoveryReportPayload(periodKey);
+  const batches = batchSummaries.map(mapBatchSummary);
+
+  const section = {
+    type: 'discovery_batch',
+    timestamp: new Date().toISOString(),
+    batches,
+    totals: {
+      discovered: batches.reduce((s, b) => s + b.discovered, 0),
+      created: batches.reduce((s, b) => s + b.created, 0),
+      preBuilt: batches.reduce((s, b) => s + b.preBuilt, 0),
+      failed: batches.reduce((s, b) => s + b.failed, 0),
+    },
+  };
+
+  payload.sections = Array.isArray(payload.sections) ? payload.sections : [];
+  payload.sections.push(section);
+  payload.updatedAt = new Date().toISOString();
+
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  payload.discoveryStats = await getDiscoveryStats(since24h);
+
+  return saveDiscoveryReport(periodKey, payload);
+}
+
+async function refreshDiscoveryDailyStats() {
+  const periodKey = new Date().toISOString().split('T')[0];
+  const payload = await loadDiscoveryReportPayload(periodKey);
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  payload.discoveryStats = await getDiscoveryStats(since24h);
+  payload.updatedAt = new Date().toISOString();
+  return saveDiscoveryReport(periodKey, payload);
+}
+
+async function refreshDiscoveryWeeklyStats() {
+  const periodKey = new Date().toISOString().split('T')[0];
+  const payload = await loadDiscoveryReportPayload(periodKey);
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  payload.discoveryStatsWeekly = await getDiscoveryStats(since7d);
+  payload.updatedAt = new Date().toISOString();
+  return saveDiscoveryReport(periodKey, payload);
 }
 
 /**

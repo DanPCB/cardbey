@@ -8,6 +8,37 @@ import { getTranslatedField } from '../services/i18n/translationUtils.js';
 import { resolveHeroMediaFromBusiness } from './heroMediaResolve.js';
 import { parseSocialLinks } from '../lib/socialLinks.js';
 import { coerceServiceCtaLabel } from '../lib/storeTransactionMode.js';
+import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
+
+/**
+ * @param {object | null | undefined} business
+ * @returns {object}
+ */
+export function buildPublicStoreContact(business) {
+  if (!business || typeof business !== 'object') {
+    return {
+      phone: null,
+      email: null,
+      website: null,
+      address: null,
+      suburb: null,
+      state: null,
+      postcode: null,
+      mapUrl: null,
+    };
+  }
+  const contact = {
+    phone: hasBusinessColumn('phone') ? business.phone ?? null : null,
+    email: hasBusinessColumn('email') ? business.email ?? null : null,
+    website: hasBusinessColumn('websiteUrl') ? business.websiteUrl ?? null : null,
+    address: hasBusinessColumn('address') ? business.address ?? null : null,
+    suburb: hasBusinessColumn('suburb') ? business.suburb ?? null : null,
+    state: hasBusinessColumn('state') ? business.state ?? null : null,
+    postcode: hasBusinessColumn('postcode') ? business.postcode ?? null : null,
+    mapUrl: hasBusinessColumn('mapUrl') ? business.mapUrl ?? null : null,
+  };
+  return contact;
+}
 
 /**
  * Map Business to PublicStore
@@ -124,6 +155,7 @@ export function toPublicStore(business, options = {}) {
     showOwnerProfile: business.showOwnerProfile ?? false,
     ownerProfileSlug: business.user?.personalPresenceStore?.slug ?? null,
     socialLinks: parseSocialLinks(business.socialLinks) ?? null,
+    contact: buildPublicStoreContact(business),
     ...(business.phone ? { phone: business.phone } : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
   };

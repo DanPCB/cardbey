@@ -8,10 +8,12 @@ import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
 import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
+import { resolvePublicStoresForList } from '../services/publishedArtifactProjection/resolvePublicStoreList.js';
 import {
-  resolvePublicStoresForList,
-  PUBLIC_STORE_LIST_SELECT,
-} from '../services/publishedArtifactProjection/resolvePublicStoreList.js';
+  findPublicBusinesses,
+  findPublicBusinessByUnique,
+  publicStoreListWhere,
+} from '../services/publishedArtifactProjection/findPublicBusinesses.js';
 import { getPublishedBusinessArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
 import { parseSocialLinks } from '../lib/socialLinks.js';
@@ -150,33 +152,16 @@ router.get('/stores/feed', async (req, res, next) => {
 
     const take = limit + 1;
     const orderBy = [{ createdAt: 'desc' }, { id: 'desc' }];
-    const select = { ...PUBLIC_STORE_LIST_SELECT };
-    // Show stores that are active OR have been published (publishedAt set)
-    const where = {
-      OR: [
-        { isActive: true },
-        { publishedAt: { not: null } },
-      ],
-    };
+    const where = publicStoreListWhere();
 
     // Fetch extra rows when filtering by category so we have enough after in-memory keyword filter (no fallback to all stores)
     const takeDb = categoryRaw && FEED_CATEGORY_KEYWORDS[categoryRaw] ? Math.min(take * 4, 100) : take;
 
-    let businesses = cursor
-      ? await prisma.business.findMany({
-          where,
-          orderBy,
-          cursor,
-          skip: 1,
-          take: takeDb,
-          select,
-        })
-      : await prisma.business.findMany({
-          where,
-          orderBy,
-          take: takeDb,
-          select,
-        });
+    const listArgs = cursor
+      ? { where, orderBy, cursor, skip: 1, take: takeDb }
+      : { where, orderBy, take: takeDb };
+
+    let businesses = await findPublicBusinesses(prisma, listArgs);
 
     if (categoryRaw && FEED_CATEGORY_KEYWORDS[categoryRaw]) {
       businesses = businesses.filter((b) => businessTypeMatchesCategory(b.type, categoryRaw));
@@ -228,13 +213,10 @@ router.get('/stores/feed', async (req, res, next) => {
 router.get('/stores', async (req, res, next) => {
   try {
     // Find all active stores (no products for list view - lightweight)
-    const stores = await prisma.business.findMany({
+    const stores = await findPublicBusinesses(prisma, {
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
-      select: {
-        ...PUBLIC_STORE_LIST_SELECT,
-        region: true,
-      },
+      select: { region: true },
     });
 
     const eligibleStores = stores.filter(isPublicFeedEligibleBusiness);
@@ -381,11 +363,8 @@ router.get('/profile/:slug', async (req, res, next) => {
     }
     const normalizedSlug = raw.toLowerCase();
 
-    const business = await prisma.business.findUnique({
+    const business = await findPublicBusinessByUnique(prisma, {
       where: { slug: normalizedSlug },
-      select: {
-        ...PUBLIC_STORE_LIST_SELECT,
-      },
     });
 
     if (!business || !business.isActive) {

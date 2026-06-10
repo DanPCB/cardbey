@@ -376,6 +376,19 @@ async function runNextMissionPipelineStepBody(prisma, id) {
   }
 
   const status = mission.status;
+  const runState = String(mission.runState ?? '').toLowerCase();
+  const statusLower = String(status ?? '').toLowerCase();
+  if (
+    statusLower === 'cancelled' ||
+    statusLower === 'canceled' ||
+    runState === 'done' ||
+    runState === 'cancelled' ||
+    runState === 'canceled'
+  ) {
+    console.log('[MissionRunner] mission cancelled — stopping execution:', id);
+    return { ok: true, stopped: true, reason: 'cancelled', status, runState: mission.runState };
+  }
+
   if (status !== 'queued' && status !== 'executing') {
     return { ok: false, error: 'invalid_state', status };
   }

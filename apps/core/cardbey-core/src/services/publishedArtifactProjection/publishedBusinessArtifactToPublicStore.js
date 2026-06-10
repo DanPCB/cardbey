@@ -5,6 +5,7 @@
 import { getTranslatedField } from '../i18n/translationUtils.js';
 import { parseSocialLinks } from '../../lib/socialLinks.js';
 import { coerceServiceCtaLabel } from '../../lib/storeTransactionMode.js';
+import { buildPublicStoreContact } from '../../utils/publicStoreMapper.js';
 
 export function publishedBusinessArtifactToPublicStore(projection, options = {}) {
   const { lang, business = null } = options;
@@ -108,6 +109,7 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
       parseSocialLinks(projection.content?.socialLinks) ??
       parseSocialLinks(business?.socialLinks) ??
       null,
+    contact: buildPublicStoreContact(business),
     ...(business?.phone ? { phone: business.phone } : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
     products,

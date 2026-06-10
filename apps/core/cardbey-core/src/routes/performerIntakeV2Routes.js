@@ -9,7 +9,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { requireUserOrGuest } from '../middleware/guestAuth.js';
-import { classifyIntent } from '../lib/intake/intakeClassifier.js';
+import { classifyIntent, isCampaignOrchestrationIntent } from '../lib/intake/intakeClassifier.js';
 import {
   detectIntent,
   validateCreateStorePayload,
@@ -240,6 +240,66 @@ function performerIntakeV2UserLike(req) {
   const gid = performerIntakeV2ActorId(req);
   if (!gid) return null;
   return { id: gid, role: 'guest', isGuest: true };
+}
+
+async function dispatchCampaignOrchestrationFromIntake(
+  req,
+  res,
+  { body, currentContext, userMessage, locale, cardbeyTraceId, storeContext = null },
+) {
+  const goal =
+    String(body.message ?? body.goal ?? body.brief ?? userMessage ?? 'Campaign orchestration').trim() ||
+    'Campaign orchestration';
+  const actorId = performerIntakeV2ActorId(req);
+  const tenantId = getTenantId(req.user) ?? actorId;
+  const storeId =
+    String(currentContext.storeId ?? currentContext.activeStoreId ?? body.storeId ?? storeContext?.storeId ?? '')
+      .trim() || null;
+  const resolvedStoreContext = storeContext ?? {
+    businessName: body.businessName ?? null,
+    category: body.category ?? null,
+    location: body.location ?? null,
+    storeId,
+  };
+
+  console.log('[intake/v2] campaign_orchestration_dispatched', {
+    goal: goal.slice(0, 80),
+    storeId,
+  });
+
+  const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+  const pipeline = await createMissionPipeline({
+    type: 'campaign_orchestration',
+    title: `Campaign: ${goal.slice(0, 60)}`,
+    targetType: storeId ? 'store' : 'generic',
+    targetId: storeId ?? undefined,
+    targetLabel: undefined,
+    metadata: {
+      goal,
+      brief: goal,
+      intentType: 'campaign_orchestration',
+      storeContext: resolvedStoreContext,
+      source: 'performer_intake',
+      locale,
+      cardbeyTraceId,
+    },
+    requiresConfirmation: false,
+    executionMode: 'AUTO_RUN',
+    tenantId,
+    createdBy: actorId || null,
+  });
+
+  const { runMissionUntilBlocked } = await import('../lib/missionPipelineOrchestrator.js');
+  runMissionUntilBlocked(pipeline.id).catch((err) =>
+    console.error('[intake/v2] campaign_orchestration pipeline error:', err?.message ?? err),
+  );
+
+  return res.json({
+    success: true,
+    missionId: pipeline.id,
+    action: 'campaign_orchestration_dispatched',
+    reasoning: 'Running multi-agent campaign orchestration via AgentCoordinator.',
+  });
 }
 
 /** Block only exact duplicate display names for same owner — multiple stores per user are allowed. */
@@ -1033,6 +1093,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     );
 
     return res.json({ success: true, missionId: pipeline.id, action: 'multi_agent_dispatched' });
+  }
+
+  // ── Campaign orchestration via AgentCoordinator ──
+  if (body.missionType === 'campaign_orchestration' || isCampaignOrchestrationIntent(userMessage)) {
+    return dispatchCampaignOrchestrationFromIntake(req, res, {
+      body,
+      currentContext,
+      userMessage,
+      locale,
+      cardbeyTraceId,
+    });
   }
 
   // ── Maintenance pre-check (super_admin only) ─────────────────────────────
@@ -2745,6 +2816,27 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         },
       };
     }
+  }
+
+  if (
+    body.missionType === 'campaign_orchestration' ||
+    classification?.missionType === 'campaign_orchestration' ||
+    classification?.intentType === 'campaign_orchestration' ||
+    classification?.executionPath === 'campaign_orchestration'
+  ) {
+    return dispatchCampaignOrchestrationFromIntake(req, res, {
+      body,
+      currentContext,
+      userMessage,
+      locale,
+      cardbeyTraceId,
+      storeContext: {
+        storeId: storeId ?? null,
+        businessName: body.businessName ?? null,
+        category: body.category ?? null,
+        location: body.location ?? null,
+      },
+    });
   }
 
   let cleanedParams = {};

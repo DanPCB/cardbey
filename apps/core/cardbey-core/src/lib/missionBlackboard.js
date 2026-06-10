@@ -104,15 +104,27 @@ export async function ensureMissionRowForBlackboardTx(tx, missionId) {
   if (!tenantId) {
     tenantId = createdByUserId;
   }
-  if (isNonUserIdPlaceholder(createdByUserId)) {
-    console.warn('[missionBlackboard] cannot create shadow Mission: no valid User id for createdByUserId', { mid });
+
+  const systemUserId =
+    typeof process.env.DISCOVERY_SYSTEM_USER_ID === 'string' && process.env.DISCOVERY_SYSTEM_USER_ID.trim()
+      ? process.env.DISCOVERY_SYSTEM_USER_ID.trim()
+      : null;
+  const effectiveUserId =
+    !isNonUserIdPlaceholder(createdByUserId) ? createdByUserId : systemUserId;
+
+  if (!effectiveUserId || isNonUserIdPlaceholder(effectiveUserId)) {
+    console.debug('[missionBlackboard] skipping shadow mission — no userId available:', { mid });
     return false;
+  }
+  createdByUserId = effectiveUserId;
+  if (!tenantId || tenantId === 'temp') {
+    tenantId = effectiveUserId;
   }
 
   await ensureShadowUserRowForGuest(tx, createdByUserId);
   const creatorExists = await tx.user.findUnique({ where: { id: createdByUserId }, select: { id: true } });
   if (!creatorExists) {
-    console.warn('[missionBlackboard] cannot create shadow Mission: User row missing for createdByUserId', {
+    console.debug('[missionBlackboard] skipping shadow mission — User row missing for createdByUserId', {
       mid,
       createdByUserId,
     });

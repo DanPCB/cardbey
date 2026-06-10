@@ -51,13 +51,22 @@ function isEphemeralPath(filePath) {
 }
 
 /** Reduce SQLITE_BUSY failures when draft generation and reasoning-log writes overlap. */
-function appendSqliteBusyTimeout(url) {
+function appendSqliteConnectionParams(url) {
   if (!url || typeof url !== 'string' || !url.toLowerCase().startsWith('file:')) return url;
-  if (/[?&]busy_timeout=/i.test(url)) return url;
-  const ms = Number.parseInt(String(process.env.SQLITE_BUSY_TIMEOUT_MS ?? '30000'), 10);
-  const busyTimeout = Number.isFinite(ms) && ms > 0 ? ms : 30_000;
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}busy_timeout=${busyTimeout}`;
+  let out = url;
+  if (!/[?&]busy_timeout=/i.test(out)) {
+    const ms = Number.parseInt(String(process.env.SQLITE_BUSY_TIMEOUT_MS ?? '60000'), 10);
+    const busyTimeout = Number.isFinite(ms) && ms > 0 ? ms : 60_000;
+    const sep = out.includes('?') ? '&' : '?';
+    out = `${out}${sep}busy_timeout=${busyTimeout}`;
+  }
+  if (!/[?&]journal_mode=/i.test(out)) {
+    out += `${out.includes('?') ? '&' : '?'}journal_mode=WAL`;
+  }
+  if (!/[?&]synchronous=/i.test(out)) {
+    out += '&synchronous=NORMAL';
+  }
+  return out;
 }
 
 function stripSqliteUrlQuery(url) {
@@ -275,6 +284,6 @@ function logStartupAndFailIfEphemeral() {
 normalizeDatabaseUrl();
 ensureSqliteWritable();
 if (process.env.DATABASE_URL?.toLowerCase().startsWith('file:')) {
-  process.env.DATABASE_URL = appendSqliteBusyTimeout(process.env.DATABASE_URL);
+  process.env.DATABASE_URL = appendSqliteConnectionParams(process.env.DATABASE_URL);
 }
 logStartupAndFailIfEphemeral();

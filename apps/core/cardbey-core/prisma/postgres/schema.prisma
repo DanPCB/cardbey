@@ -106,9 +106,13 @@ model Business {
   tradingHours Json? // JSON object for trading hours
   address      String?
   suburb       String?
+  state        String?
   postcode     String?
   country      String?
   phone        String?
+  email        String?
+  websiteUrl   String?
+  mapUrl       String?
   lat          Float?
   lng          Float?
   // Brand fields for business creation and template binding
@@ -2287,11 +2291,25 @@ model DraftStore {
   brandTone       String?   // e.g. luxury, friendly, minimal, bold
   brandStyle      String?   // e.g. modern, vintage, playful
   brandColors     String?   // JSON array string e.g. '["pink","gold"]'
+  unclaimedStoreId String?  // Link to UnclaimedStore when pre-built from discovery agent
+  transferredAt   DateTime? // When pre-built draft transferred to claimer
+  phone           String?
+  email           String?
+  websiteUrl      String?
+  address         String?
+  suburb          String?
+  state           String?
+  postcode        String?
+  country         String?
+  mapUrl          String?
+  lat             Float?
+  lng             Float?
 
   workflowRuns WorkflowRun[]     // Phase 1: workflow tracking (e.g. store_creation)
   workflowIncidents WorkflowIncident[]
 
   @@index([expiresAt])
+  @@index([unclaimedStoreId])
   @@index([status])
   @@index([createdAt])
   @@index([updatedAt])
@@ -3166,4 +3184,104 @@ model OnboardingProgress {
   updatedAt      DateTime  @updatedAt
 
   @@index([userId])
+}
+
+// Content acquisition pipeline — agent-discovered unclaimed stores
+model UnclaimedStore {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  businessName    String
+  platform        String
+  sourceUrl       String    @unique
+  bioText         String?
+  avatarUrl       String?
+  followerCount   Int?
+  category        String?
+  location        String?
+  brandTone       String?
+  brandStyle      String?
+  phone           String?
+  email           String?
+  address         String?
+  hours           String?
+  priceRange      String?
+  websiteUrl      String?
+  socialLinks     String?
+  rawVideos       String?
+  importHashtags  String?
+  discoveryBatch  String?
+  claimAuthority  String?
+  status          String    @default("unclaimed")
+  claimedBy       String?
+  claimedAt       DateTime?
+  preBuiltStoreId String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime?
+
+  @@index([status])
+  @@index([platform])
+  @@index([createdAt])
+  @@index([discoveryBatch])
+}
+
+model DiscoverySeedSource {
+  id         String    @id @default(cuid())
+  type       String
+  platform   String
+  value      String
+  location   String?
+  category   String?
+  isActive   Boolean   @default(true)
+  priority   Int       @default(0)
+  batchLimit Int?
+  lastRunAt  DateTime?
+  runCount   Int       @default(0)
+  lastError  String?
+  errorCount Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  @@index([isActive])
+  @@index([type])
+  @@index([priority])
+}
+
+model DiscoveryBatchRun {
+  id             String    @id @default(cuid())
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  status         String    @default("running")
+  seedSourceId   String?
+  seedType       String?
+  seedValue      String?
+  discovered     Int       @default(0)
+  scraped        Int       @default(0)
+  created        Int       @default(0)
+  skipped        Int       @default(0)
+  failed         Int       @default(0)
+  preBuilt       Int       @default(0)
+  errorLog       String?
+  triggeredBy    String?
+  triggeredById  String?
+  configSnapshot String?
+
+  @@index([status])
+  @@index([startedAt])
+  @@index([seedSourceId])
+}
+
+// Singleton discovery agent configuration (one row only)
+model DiscoveryConfig {
+  id             String    @id @default(cuid())
+  enabled        Boolean   @default(false)
+  cronExpression String    @default("0 */6 * * *")
+  batchSize      Int       @default(20)
+  concurrency    Int       @default(3)
+  delayMs        Int       @default(2000)
+  maxRunsPerDay  Int       @default(4)
+  pausedUntil    DateTime?
+  updatedAt      DateTime  @updatedAt
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+
+  @@map("discovery_config")
 }

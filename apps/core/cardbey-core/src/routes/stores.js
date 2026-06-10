@@ -58,8 +58,263 @@ import {
 } from '../services/store/brandKitService.js';
 
 import { prisma } from '../lib/prisma.js';
+import { resolveAccessibleMission } from '../lib/missionAccess.js';
+import { approveMissionPipeline, cancelMissionPipeline } from '../lib/missionPipelineService.js';
+import { executeStoreMissionPipelineRun } from '../lib/storeMission/executeStoreMissionPipelineRun.js';
+import { resolveDbProvider } from '../lib/persistence/dbCapabilityRegistry.js';
+import { SOCIAL_IMPORT_SOURCE } from '../lib/social-import/SocialImportService.js';
 
 const router = express.Router();
+
+const SOCIAL_IMPORT_TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'failed']);
+
+function asMetadataObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function asSocialImportObject(meta) {
+  const social = meta?.socialImport;
+  return social && typeof social === 'object' && !Array.isArray(social) ? social : {};
+}
+
+function mapPendingSocialImportRow(row) {
+  const meta = asMetadataObject(row?.metadataJson);
+  const social = asSocialImportObject(meta);
+  const hashtags = Array.isArray(social.importHashtags)
+    ? social.importHashtags.filter((h) => typeof h === 'string' && h.trim())
+    : [];
+  return {
+    missionId: row.id,
+    createdAt: row.createdAt,
+    platform: typeof social.platform === 'string' ? social.platform : '',
+    profileUrl:
+      (typeof social.profileUrl === 'string' && social.profileUrl.trim()) ||
+      (typeof social.sourceUrl === 'string' && social.sourceUrl.trim()) ||
+      '',
+    displayName:
+      (typeof social.businessName === 'string' && social.businessName.trim()) ||
+      (typeof meta.businessName === 'string' && meta.businessName.trim()) ||
+      (typeof meta.storeName === 'string' && meta.storeName.trim()) ||
+      '',
+    bio:
+      (typeof social.bioText === 'string' && social.bioText.trim()) ||
+      (typeof social.scraped?.description === 'string' && social.scraped.description.trim()) ||
+      (typeof meta.rawUserText === 'string' && meta.rawUserText.trim()) ||
+      '',
+    avatarUrl:
+      (typeof social.avatarUrl === 'string' && social.avatarUrl.trim()) ||
+      (typeof meta.logoUrl === 'string' && meta.logoUrl.trim()) ||
+      (typeof meta.heroMediaUrl === 'string' && meta.heroMediaUrl.trim()) ||
+      '',
+    followerCount:
+      typeof social.followerCount === 'number' && Number.isFinite(social.followerCount)
+        ? social.followerCount
+        : null,
+    videoCount: Array.isArray(social.rawVideos)
+      ? social.rawVideos.length
+      : typeof social.productCount === 'number' && Number.isFinite(social.productCount)
+        ? social.productCount
+        : 0,
+    hashtags,
+    brandSignals: {
+      tone:
+        (typeof social.brandTone === 'string' && social.brandTone.trim()) ||
+        (typeof meta.brandTone === 'string' && meta.brandTone.trim()) ||
+        '',
+      style:
+        (typeof social.brandStyle === 'string' && social.brandStyle.trim()) ||
+        (typeof meta.brandStyle === 'string' && meta.brandStyle.trim()) ||
+        '',
+    },
+    status: row.status,
+  };
+}
+
+async function findPendingSocialImportMissions(userId) {
+  const isPg = resolveDbProvider() === 'postgres';
+  if (isPg) {
+    return prisma.$queryRaw`
+      SELECT id, "createdAt", "metadataJson", status
+      FROM "MissionPipeline"
+      WHERE type = 'store'
+        AND status = 'awaiting_confirmation'
+        AND "createdBy" = ${userId}
+        AND "metadataJson"->>'source' = ${SOCIAL_IMPORT_SOURCE}
+      ORDER BY "createdAt" DESC
+    `;
+  }
+  return prisma.$queryRaw`
+    SELECT id, createdAt, metadataJson, status
+    FROM MissionPipeline
+    WHERE type = 'store'
+      AND status = 'awaiting_confirmation'
+      AND createdBy = ${userId}
+      AND json_extract(metadataJson, '$.source') = ${SOCIAL_IMPORT_SOURCE}
+    ORDER BY createdAt DESC
+  `;
+}
+
+function parseJsonField(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function normalizePhone(value) {
+  return typeof value === 'string' ? value.replace(/\D/g, '') : '';
+}
+
+function mapUserImportToProposalItem(row) {
+  const pending = mapPendingSocialImportRow(row);
+  const createdAt =
+    row?.createdAt instanceof Date
+      ? row.createdAt.toISOString()
+      : typeof row?.createdAt === 'string'
+        ? row.createdAt
+        : new Date().toISOString();
+  return {
+    id: row.id,
+    entryType: 'user_import',
+    platform: pending.platform,
+    profileUrl: pending.profileUrl || null,
+    displayName: pending.displayName,
+    bio: pending.bio || null,
+    avatarUrl: pending.avatarUrl || null,
+    followerCount: pending.followerCount,
+    videoCount: pending.videoCount,
+    hashtags: pending.hashtags,
+    brandSignals: pending.brandSignals,
+    createdAt,
+    missionId: row.id,
+    missionStatus: pending.status,
+    unclaimedStoreId: null,
+    claimMethods: [],
+    preBuiltStoreId: null,
+  };
+}
+
+function mapUnclaimedStoreToProposalItem(row) {
+  const claimAuthority = parseJsonField(row?.claimAuthority, { methods: ['manual_review'] });
+  const rawVideos = parseJsonField(row?.rawVideos, []);
+  const importHashtags = parseJsonField(row?.importHashtags, []);
+  const hashtags = Array.isArray(importHashtags)
+    ? importHashtags.filter((h) => typeof h === 'string' && h.trim())
+    : [];
+  const createdAt =
+    row?.createdAt instanceof Date
+      ? row.createdAt.toISOString()
+      : typeof row?.createdAt === 'string'
+        ? row.createdAt
+        : new Date().toISOString();
+  return {
+    id: row.id,
+    entryType: 'agent_discovery',
+    platform: typeof row.platform === 'string' ? row.platform : '',
+    profileUrl: typeof row.sourceUrl === 'string' ? row.sourceUrl : null,
+    displayName: typeof row.businessName === 'string' ? row.businessName : '',
+    bio: typeof row.bioText === 'string' ? row.bioText : null,
+    avatarUrl: typeof row.avatarUrl === 'string' ? row.avatarUrl : null,
+    followerCount:
+      typeof row.followerCount === 'number' && Number.isFinite(row.followerCount) ? row.followerCount : null,
+    videoCount: Array.isArray(rawVideos) ? rawVideos.length : 0,
+    hashtags,
+    brandSignals: {
+      tone: typeof row.brandTone === 'string' ? row.brandTone : '',
+      style: typeof row.brandStyle === 'string' ? row.brandStyle : '',
+    },
+    createdAt,
+    missionId: null,
+    missionStatus: null,
+    unclaimedStoreId: row.id,
+    claimMethods: Array.isArray(claimAuthority.methods) ? claimAuthority.methods : ['manual_review'],
+    preBuiltStoreId: typeof row.preBuiltStoreId === 'string' ? row.preBuiltStoreId : null,
+  };
+}
+
+function userBusinessPlatforms(socialLinksRaw) {
+  const links = parseJsonField(socialLinksRaw, null);
+  if (!links || typeof links !== 'object') return new Set();
+  const platforms = new Set();
+  if (links.facebook) platforms.add('facebook');
+  if (links.instagram) platforms.add('instagram');
+  if (links.tiktok) platforms.add('tiktok');
+  if (links.youtube) platforms.add('youtube');
+  return platforms;
+}
+
+function platformMatchesUserSocial(storePlatform, userPlatforms) {
+  const p = String(storePlatform || '').toLowerCase();
+  if (!p || userPlatforms.size === 0) return false;
+  if (userPlatforms.has(p)) return true;
+  if (p === 'google_business' && userPlatforms.has('google')) return true;
+  if (p === 'google' && userPlatforms.has('google_business')) return true;
+  return false;
+}
+
+function unclaimedStoreMatchesUser(row, userEmail, userPhone, userPlatforms) {
+  const claimAuthority = parseJsonField(row?.claimAuthority, {});
+  const authorityEmail = normalizeEmail(claimAuthority.email);
+  const authorityPhone = normalizePhone(claimAuthority.phone);
+  if (userEmail && authorityEmail && userEmail === authorityEmail) return true;
+  if (userPhone && authorityPhone && userPhone === authorityPhone) return true;
+  if (platformMatchesUserSocial(row.platform, userPlatforms)) return true;
+  return false;
+}
+
+async function findRelevantUnclaimedStores(user) {
+  const userEmail = normalizeEmail(user?.email);
+  const userPhone = normalizePhone(user?.phone);
+  const businesses = await prisma.business.findMany({
+    where: { userId: user.id },
+    select: { socialLinks: true },
+  });
+  const userPlatforms = new Set();
+  for (const biz of businesses) {
+    for (const p of userBusinessPlatforms(biz.socialLinks)) {
+      userPlatforms.add(p);
+    }
+  }
+
+  const pool = await prisma.unclaimedStore.findMany({
+    where: { status: 'unclaimed' },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+
+  const hasProfileData = Boolean(userEmail || userPhone || userPlatforms.size > 0);
+  if (!hasProfileData) {
+    return pool.slice(0, 10);
+  }
+
+  return pool.filter((row) => unclaimedStoreMatchesUser(row, userEmail, userPhone, userPlatforms)).slice(0, 20);
+}
+
+async function loadOwnedSocialImportMission(user, missionId) {
+  const access = await resolveAccessibleMission(user, missionId);
+  if (!access.ok || access.kind !== 'mission_pipeline') {
+    return { ok: false, statusCode: 404, error: 'not_found', message: 'Mission not found or access denied' };
+  }
+  const mission = await prisma.missionPipeline.findUnique({
+    where: { id: missionId },
+    select: { id: true, type: true, status: true, metadataJson: true, outputsJson: true, createdBy: true },
+  });
+  if (!mission) {
+    return { ok: false, statusCode: 404, error: 'not_found', message: 'Mission not found' };
+  }
+  const meta = asMetadataObject(mission.metadataJson);
+  if (meta.source !== SOCIAL_IMPORT_SOURCE) {
+    return { ok: false, statusCode: 404, error: 'not_social_import', message: 'Mission is not a social import' };
+  }
+  return { ok: true, mission, meta };
+}
 
 /** Check if user has a given role. Handles role (string), roles (array or JSON string), or roles as objects [{ name }]. */
 function hasRole(user, role) {
@@ -331,6 +586,282 @@ router.get('/', requireAuth, async (req, res, next) => {
   } catch (error) {
     console.error('[Stores] List error:', error);
     next(error);
+  }
+});
+
+/**
+ * GET /api/stores/proposals
+ * Unified feed: user-import missions + agent-discovered unclaimed stores.
+ */
+router.get('/proposals', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required' });
+    }
+
+    const importRows = await findPendingSocialImportMissions(userId);
+    const userImports = (Array.isArray(importRows) ? importRows : []).map(mapUserImportToProposalItem);
+
+    const discoveryRows = await findRelevantUnclaimedStores(req.user);
+    const agentDiscovery = discoveryRows.map(mapUnclaimedStoreToProposalItem);
+
+    const items = [...userImports, ...agentDiscovery].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    return res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[StoreProposals] list failed:', err?.message || err);
+    return next(err);
+  }
+});
+
+/**
+ * GET /api/stores/import-from-social/pending
+ * Lists staged social-import store missions awaiting owner confirmation.
+ */
+router.get('/import-from-social/pending', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required' });
+    }
+    const rows = await findPendingSocialImportMissions(userId);
+    const items = (Array.isArray(rows) ? rows : []).map(mapPendingSocialImportRow);
+    return res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[StoreImportFromSocial] pending list failed:', err?.message || err);
+    return next(err);
+  }
+});
+
+/**
+ * POST /api/stores/import-from-social/:missionId/confirm
+ * Owner confirms a staged social import → approve + run the store mission pipeline.
+ */
+router.post('/import-from-social/:missionId/confirm', requireAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+
+    const loaded = await loadOwnedSocialImportMission(req.user, missionId);
+    if (!loaded.ok) {
+      return res.status(loaded.statusCode).json({
+        ok: false,
+        error: loaded.error,
+        message: loaded.message,
+      });
+    }
+
+    const { mission, meta } = loaded;
+    if (mission.status !== 'awaiting_confirmation') {
+      if (SOCIAL_IMPORT_TERMINAL_STATUSES.has(mission.status)) {
+        return res.status(409).json({
+          ok: false,
+          error: 'invalid_state',
+          message: `Mission is already ${mission.status}`,
+          status: mission.status,
+        });
+      }
+      if (mission.status === 'executing' || mission.status === 'queued') {
+        return res.json({ ok: true, missionId, status: 'running' });
+      }
+      return res.status(409).json({
+        ok: false,
+        error: 'invalid_state',
+        message: `Mission is ${mission.status}, expected awaiting_confirmation`,
+        status: mission.status,
+      });
+    }
+
+    const approve = await approveMissionPipeline(missionId);
+    if (!approve.ok) {
+      const code = approve.error === 'invalid_state' ? 409 : 400;
+      return res.status(code).json({
+        ok: false,
+        error: approve.error || 'approve_failed',
+        message: 'Could not approve the import mission',
+        status: approve.status,
+      });
+    }
+
+    const social = asSocialImportObject(meta);
+    const runResult = await executeStoreMissionPipelineRun({
+      prisma,
+      user: req.user,
+      missionId,
+      body: {
+        businessName: meta.businessName,
+        businessType: meta.businessType,
+        location: meta.location,
+        currencyCode: meta.currencyCode,
+        intentMode: meta.intentMode || 'store',
+        rawUserText: meta.rawUserText,
+        phone: meta.phone ?? null,
+        email: meta.email ?? null,
+        websiteUrl: meta.websiteUrl ?? null,
+        address: meta.address ?? null,
+        suburb: meta.suburb ?? null,
+        state: meta.state ?? null,
+        postcode: meta.postcode ?? null,
+        country: meta.country ?? null,
+        mapUrl: meta.mapUrl ?? null,
+        ...(meta.heroMediaUrl ? { heroMediaUrl: meta.heroMediaUrl } : {}),
+        ...(meta.logoUrl ? { logoUrl: meta.logoUrl } : {}),
+        ...(Array.isArray(social.products) && social.products.length > 0
+          ? { preloadedCatalogItems: social.products }
+          : {}),
+      },
+      auditSource: 'social_import_confirm',
+    });
+
+    if (!runResult.ok) {
+      return res.status(runResult.statusCode).json({
+        ok: false,
+        error: runResult.error,
+        message: runResult.message,
+        ...(runResult.pipelineStatus != null ? { status: runResult.pipelineStatus } : {}),
+      });
+    }
+
+    const responseStatus =
+      runResult.status === 'executing' || runResult.mode === 'checkpoint_pipeline' ? 'running' : runResult.status;
+
+    return res.json({
+      ok: true,
+      missionId,
+      status: responseStatus,
+      ...(runResult.draftId ? { draftId: runResult.draftId } : {}),
+      ...(runResult.jobId ? { jobId: runResult.jobId } : {}),
+    });
+  } catch (err) {
+    console.error('[StoreImportFromSocial] confirm failed:', err?.message || err);
+    return next(err);
+  }
+});
+
+/**
+ * POST /api/stores/import-from-social/:missionId/dismiss
+ * Owner dismisses a staged social import (cancels the mission).
+ */
+router.post('/import-from-social/:missionId/dismiss', requireAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+
+    const loaded = await loadOwnedSocialImportMission(req.user, missionId);
+    if (!loaded.ok) {
+      return res.status(loaded.statusCode).json({
+        ok: false,
+        error: loaded.error,
+        message: loaded.message,
+      });
+    }
+
+    const { mission, meta } = loaded;
+    if (mission.status === 'cancelled') {
+      return res.json({ ok: true, missionId, status: 'cancelled' });
+    }
+
+    const cancel = await cancelMissionPipeline(missionId);
+    if (!cancel.ok && cancel.error !== 'already_terminal') {
+      const code = cancel.error === 'invalid_state' ? 409 : 400;
+      return res.status(code).json({
+        ok: false,
+        error: cancel.error || 'cancel_failed',
+        message: 'Could not dismiss the import mission',
+        status: cancel.status,
+      });
+    }
+
+    await prisma.missionPipeline
+      .update({
+        where: { id: missionId },
+        data: {
+          metadataJson: {
+            ...meta,
+            cancellationReason: 'dismissed_by_owner',
+            dismissedAt: new Date().toISOString(),
+          },
+        },
+      })
+      .catch(() => {});
+
+    return res.json({ ok: true, missionId, status: 'cancelled' });
+  } catch (err) {
+    console.error('[StoreImportFromSocial] dismiss failed:', err?.message || err);
+    return next(err);
+  }
+});
+
+/**
+ * POST /api/stores/import-from-social
+ * Body: { url: string }  ← platform auto-detected from the URL.
+ *
+ * Auto-Fetch Online → Pre-Create & List Stores. Scrapes a public social/business
+ * page, normalizes it to the store intake shape, and stages a governed `store`
+ * mission (skipQA: true) that the owner confirms with one click to build/publish.
+ *
+ * GOVERNANCE: store creation/publishing is confirmation-required, so the mission
+ * is staged (awaiting_confirmation) — it is NOT auto-executed here. Scraping +
+ * normalization + mission staging are non-public preparation steps.
+ */
+router.post('/import-from-social', requireAuth, async (req, res, next) => {
+  try {
+    const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+    if (!url) {
+      return res.status(400).json({ ok: false, error: 'url_required', message: 'A "url" string is required.' });
+    }
+
+    const { importFromSocial } = await import('../lib/social-import/SocialImportService.js');
+    const result = await importFromSocial({
+      url,
+      user: req.user,
+      prisma,
+      tenantId: getTenantId(req.user) ?? undefined,
+    });
+
+    if (!result.ok) {
+      const status = Math.min(Math.max(Number(result.statusCode) || 400, 400), 599);
+      return res.status(status).json({
+        ok: false,
+        error: result.error,
+        message: result.message,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      missionId: result.missionId,
+      status: result.status,
+      platform: result.platform,
+      source: result.source,
+      // Governed proposal: owner confirms to run the build/publish.
+      requiresConfirmation: true,
+      proposedAction: 'create_store',
+      store: {
+        businessName: result.normalized.businessName,
+        businessType: result.normalized.businessType,
+        location: result.normalized.location || null,
+        phone: result.normalized.phone ?? null,
+        email: result.normalized.email ?? null,
+        address: result.normalized.address ?? null,
+        mapUrl: result.normalized.mapUrl ?? null,
+        logoUrl: result.normalized.logoUrl || null,
+        heroMedia: result.normalized.heroMedia || null,
+        socialLinks: result.normalized.socialLinks || null,
+        productCount: Array.isArray(result.normalized.products) ? result.normalized.products.length : 0,
+        sourceUrl: result.normalized.sourceUrl,
+      },
+    });
+  } catch (err) {
+    console.error('[StoreImportFromSocial] Error:', err?.message || err);
+    return next(err);
   }
 });
 

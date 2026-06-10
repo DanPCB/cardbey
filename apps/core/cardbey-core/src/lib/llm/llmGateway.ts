@@ -247,59 +247,77 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + CACHE_TTL_DAYS);
 
-  await Promise.all([
-    prisma.llmCache.upsert({
-      where: {
-        LlmCache_key: {
-          tenantKey,
-          purpose,
-          promptHash,
-          provider: providerName,
-          model,
-        },
-      },
-      create: {
+  const cacheUpsert = prisma.llmCache.upsert({
+    where: {
+      LlmCache_key: {
         tenantKey,
         purpose,
         promptHash,
         provider: providerName,
         model,
-        response: text,
-        expiresAt,
       },
-      update: {
-        response: text,
-        expiresAt,
-        lastAccessedAt: new Date(),
-      },
-    }),
-    prisma.llmUsageDaily.upsert({
-      where: {
-        LlmUsageDaily_key: {
-          tenantKey,
-          purpose,
-          provider: providerName,
-          model,
-          day,
-        },
-      },
-      create: {
+    },
+    create: {
+      tenantKey,
+      purpose,
+      promptHash,
+      provider: providerName,
+      model,
+      response: text,
+      expiresAt,
+    },
+    update: {
+      response: text,
+      expiresAt,
+      lastAccessedAt: new Date(),
+    },
+  });
+
+  const usageUpsert = prisma.llmUsageDaily.upsert({
+    where: {
+      LlmUsageDaily_key: {
         tenantKey,
         purpose,
         provider: providerName,
         model,
         day,
-        calls: 1,
-        tokensIn: inputTokens,
-        tokensOut: outputTokens,
       },
-      update: {
-        calls: { increment: 1 },
-        tokensIn: { increment: inputTokens },
-        tokensOut: { increment: outputTokens },
-      },
-    }),
-  ]);
+    },
+    create: {
+      tenantKey,
+      purpose,
+      provider: providerName,
+      model,
+      day,
+      calls: 1,
+      tokensIn: inputTokens,
+      tokensOut: outputTokens,
+    },
+    update: {
+      calls: { increment: 1 },
+      tokensIn: { increment: inputTokens },
+      tokensOut: { increment: outputTokens },
+    },
+  });
+
+  const isSQLite = (process.env.DATABASE_URL ?? '').includes('.db');
+
+  if (isSQLite) {
+    try {
+      await cacheUpsert;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn('[llmGateway] cache upsert failed:', message);
+    }
+    try {
+      await usageUpsert;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn('[llmGateway] usage upsert failed:', message);
+    }
+  } else {
+    await Promise.all([cacheUpsert, usageUpsert]);
+  }
 
   return {
     text,

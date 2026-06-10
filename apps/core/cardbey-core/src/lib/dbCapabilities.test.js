@@ -41,6 +41,34 @@ describe('dbCapabilities', () => {
     expect(filter).toHaveProperty('contains', 'My Store');
   });
 
+  it('omits optional columns from public select when missing on sqlite', async () => {
+    vi.doMock('./businessColumnCapabilities.js', () => ({
+      hasBusinessColumn: (name) => !['heroImageUrl', 'storefrontSettings', 'socialLinks'].includes(name),
+    }));
+    vi.resetModules();
+    const mod = await import('./dbCapabilities.js');
+    const select = mod.businessPublicReadSelect();
+    expect(select.heroImageUrl).toBeUndefined();
+    expect(select.storefrontSettings).toBeUndefined();
+    expect(select.socialLinks).toBeUndefined();
+    expect(select.id).toBe(true);
+    expect(select.name).toBe(true);
+    vi.doUnmock('./businessColumnCapabilities.js');
+  });
+
+  it('includes optional columns from public select when present on sqlite', async () => {
+    vi.doMock('./businessColumnCapabilities.js', () => ({
+      hasBusinessColumn: () => true,
+    }));
+    vi.resetModules();
+    const mod = await import('./dbCapabilities.js');
+    const select = mod.businessPublicReadSelect();
+    expect(select.heroImageUrl).toBe(true);
+    expect(select.storefrontSettings).toBe(true);
+    expect(select.socialLinks).toBe(true);
+    vi.doUnmock('./businessColumnCapabilities.js');
+  });
+
   it('includes extended fields when DATABASE_PROVIDER is postgres', async () => {
     vi.stubEnv('DATABASE_PROVIDER', 'postgres');
     vi.resetModules();

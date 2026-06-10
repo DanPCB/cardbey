@@ -152,6 +152,7 @@ import creativeTemplatesRoutes from './routes/creativeTemplates.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
 import skillSuitcaseRoutes from './routes/skillSuitcaseRoutes.js';
+import suitcaseItemRoutes from './routes/suitcaseItemRoutes.js';
 import cardRoutes from './routes/cardRoutes.js';
 import orchestratorRoutes from './orchestrator/api/orchestratorRoutes.js';
 import orchestratorFeedbackRoutes from './routes/orchestratorFeedbackRoutes.js';
@@ -160,6 +161,8 @@ import loyaltyRoutes from './routes/loyalty.js';
 import loyaltyEngineRoutes from './routes/loyaltyRoutes.js';
 import watcherRoutes from './routes/watcher.js';
 import pilRoutes from './routes/pilRoutes.js';
+import businessMemoryRoutes from './routes/businessMemoryRoutes.js';
+import intelligenceRoutes from './routes/intelligenceRoutes.js';
 import userMemoryRoutes from './routes/userMemoryRoutes.js';
 import promoEngineRoutes from './routes/promoEngine.js';
 import signageEngineRoutes from './routes/signageEngine.js';
@@ -225,6 +228,7 @@ import devBrokerRuntimeProofRoutes from './routes/devBrokerRuntimeProofRoutes.js
 import { initializeToolsRegistry } from './orchestrator/toolsRegistry.js';
 import { startInsightGenerationJob } from './scheduler/systemWatcherJob.js';
 import { initReportScheduler } from './scheduler/reportScheduler.js';
+import { initDiscoveryScheduler } from './lib/discovery/DiscoveryScheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -878,6 +882,8 @@ app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.
 app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/event, /api/watcher/insights, /api/watcher/chat
 app.use('/api/pil', pilRoutes); // PIL intelligence events: POST /api/pil/events, /api/pil/events/batch
+app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observation → outcome memory
+app.use('/api/intelligence', intelligenceRoutes); // Foundation: /health, /memory, /express, /metrics (requires jsonParser above)
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
 app.use('/api', signageRoutes); // Signage REST API routes: /api/signage-assets, /api/signage-playlists, etc.
@@ -957,6 +963,7 @@ app.use('/q', qRedirect); // GET /q/:code — 302 redirect, record ScanEvent + I
 app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug — public offer page (no auth)
 app.use('/api/docs', smartDocumentRoutes); // Smart documents + suitcase list: GET/POST /api/docs
 app.use('/api/suitcase', skillSuitcaseRoutes); // DANH: suitcase-skill-output — skill reports + mission history
+app.use('/api/suitcase', suitcaseItemRoutes); // Phase 10 — account knowledge vault items CRUD
 app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards, visitor chat, etc.
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
@@ -1226,6 +1233,25 @@ if (process.env.ROLE === 'api') {
           initReportScheduler();
         } catch (e) {
           console.error('[CORE] initReportScheduler failed (non-fatal):', e?.message || e);
+        }
+      }
+
+      // Content acquisition meta-scheduler (DB config drives enabled/cron)
+      if (process.env.NODE_ENV !== 'test') {
+        try {
+          initDiscoveryScheduler();
+        } catch (e) {
+          console.error('[CORE] initDiscoveryScheduler failed (non-fatal):', e?.message || e);
+        }
+      }
+
+      // System watcher insight generation (INSIGHT_JOB_ENABLED, disabled by default)
+      if (process.env.NODE_ENV !== 'test' && process.env.INSIGHT_JOB_ENABLED === 'true') {
+        try {
+          startInsightGenerationJob();
+          console.log('[Startup] Insight generation job started');
+        } catch (e) {
+          console.error('[CORE] startInsightGenerationJob failed (non-fatal):', e?.message || e);
         }
       }
 

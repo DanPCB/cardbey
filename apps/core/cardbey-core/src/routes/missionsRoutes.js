@@ -599,16 +599,22 @@ router.post('/:missionId/cancel', requireAuth, async (req, res, next) => {
       return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found or access denied' });
     }
 
+    const userId = req.user?.id ?? null;
+
     if (access.kind === 'mission_pipeline') {
-      const result = await cancelMissionPipeline(missionId);
+      const result = await cancelMissionPipeline(missionId, { userId });
       if (!result.ok) {
         const code = result.error === 'already_terminal' ? 409 : 404;
         return res.status(code).json({ ok: false, error: result.error, status: result.status });
       }
-      return res.json({ ok: true, status: result.status });
+      return res.json({ ok: true, status: result.status, runState: 'done' });
     }
 
     if (access.kind === 'mission') {
+      const pipelineCancel = await cancelMissionPipeline(missionId, { userId });
+      if (pipelineCancel.ok) {
+        return res.json({ ok: true, status: pipelineCancel.status ?? 'cancelled', runState: 'done' });
+      }
       const prisma = getPrismaClient();
       try {
         const row = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true } });
@@ -616,14 +622,17 @@ router.post('/:missionId/cancel', requireAuth, async (req, res, next) => {
           return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found' });
         }
         const st = String(row.status || '').toLowerCase();
-        if (st === 'cancelled' || st === 'completed') {
+        if (st === 'cancelled' || st === 'canceled') {
+          return res.json({ ok: true, status: 'cancelled', runState: 'done' });
+        }
+        if (st === 'completed') {
           return res.status(409).json({ ok: false, error: 'already_terminal', status: row.status });
         }
         await prisma.mission.update({
           where: { id: missionId },
           data: { status: 'cancelled', updatedAt: new Date() },
         });
-        return res.json({ ok: true, status: 'cancelled' });
+        return res.json({ ok: true, status: 'cancelled', runState: 'done' });
       } catch (e) {
         if (e?.code === 'P2025') {
           return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found' });

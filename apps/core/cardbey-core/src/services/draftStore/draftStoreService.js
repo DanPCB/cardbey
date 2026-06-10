@@ -17,6 +17,7 @@ import {
   copyVideoHeroFieldsToPreview,
   protectVideoHeroFromImageOnlyOverwrite,
   getExistingVideoUrlFromPreview,
+  readCanonicalHeroFromPreview,
 } from './draftPreviewHeroSync.js';
 import {
   normalizeHeroFieldsInPreview,
@@ -641,6 +642,15 @@ async function saveDraftBase(draftId, catalog, params) {
     tagline: profile.tagline,
     heroText: profile.heroText,
     stylePreferences: profile.stylePreferences,
+    ...(prevPreview.hero && typeof prevPreview.hero === 'object' ? { hero: { ...prevPreview.hero } } : {}),
+    ...(typeof prevPreview.heroImageUrl === 'string' && prevPreview.heroImageUrl.trim()
+      ? { heroImageUrl: prevPreview.heroImageUrl.trim() }
+      : {}),
+    ...(prevPreview.avatar && typeof prevPreview.avatar === 'object' ? { avatar: { ...prevPreview.avatar } } : {}),
+    ...(typeof prevPreview.avatarUrl === 'string' && prevPreview.avatarUrl.trim()
+      ? { avatarUrl: prevPreview.avatarUrl.trim() }
+      : {}),
+    ...(prevPreview.contact && typeof prevPreview.contact === 'object' ? { contact: { ...prevPreview.contact } } : {}),
     meta: {
       ...(prevPreview.meta && typeof prevPreview.meta === 'object' ? prevPreview.meta : {}),
       ...(meta && typeof meta === 'object' ? meta : {}),
@@ -806,6 +816,14 @@ async function finalizeDraft(draftId, {
           break itemImages;
         }
         const p = batch[batchIdx];
+        const existingImageUrl = resolveUsableDraftItemImageUrl(p);
+        if (existingImageUrl) {
+          settled.push({
+            status: 'fulfilled',
+            value: { url: existingImageUrl, source: p.imageSource || 'imported' },
+          });
+          continue;
+        }
         if (guardsEnabled && effectiveVerticalType === 'food' && isBlockedCandidateForFood(p.name, p.description)) {
           settled.push({ status: 'fulfilled', value: null });
           continue;
@@ -887,7 +905,20 @@ async function finalizeDraft(draftId, {
 
   let heroImageUrl = null;
   let avatarImageUrl = null;
-  if (includeImages) {
+  const canonicalHero = readCanonicalHeroFromPreview(preview);
+  const importedHero =
+    preview?.meta?.heroImageSource === 'imported' &&
+    canonicalHero.heroImage &&
+    !getExistingVideoUrlFromPreview(preview);
+  const importedAvatarUrl =
+    preview?.meta?.avatarImageSource === 'imported'
+      ? preview.avatarUrl || preview.avatar?.imageUrl || null
+      : null;
+
+  if (importedHero) {
+    heroImageUrl = canonicalHero.heroImage;
+    console.log('[finalizeDraft] skipping hero gen — imported hero present:', heroImageUrl);
+  } else if (includeImages) {
     if (await isMissionPipelineCancelled(pipelineMissionId)) {
       await transitionDraftStoreStatus({
         prisma,
@@ -945,8 +976,13 @@ async function finalizeDraft(draftId, {
         // non-blocking: leave hero null
       }
     }
-    const firstWithImage = items.find((p) => p?.imageUrl);
-    avatarImageUrl = firstWithImage?.imageUrl ?? null;
+    if (!importedAvatarUrl) {
+      const firstWithImage = items.find((p) => p?.imageUrl);
+      avatarImageUrl = firstWithImage?.imageUrl ?? null;
+    }
+  }
+  if (importedAvatarUrl) {
+    avatarImageUrl = importedAvatarUrl;
   }
   if (heroImageUrl) {
     applyPipelineGeneratedHeroImage(preview, heroImageUrl, { writer: 'finalizeDraft', draftId });
@@ -2224,6 +2260,10 @@ export async function generateDraft(draftId, options = {}) {
         const batch = itemsToEnrich.slice(offset, offset + BATCH_SIZE);
         const settled = await Promise.allSettled(
           batch.map((p) => {
+            const existingImageUrl = resolveUsableDraftItemImageUrl(p);
+            if (existingImageUrl) {
+              return Promise.resolve(existingImageUrl);
+            }
             if (guardsEnabled && effectiveVerticalType === 'food' && isBlockedCandidateForFood(p.name, p.description)) {
               return Promise.resolve(null);
             }
