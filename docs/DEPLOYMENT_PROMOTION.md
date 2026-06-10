@@ -22,6 +22,8 @@ feature/*  ──PR──▶  dev  ──PR──▶  staging  ──PR──▶
   - `main` → `cardbey-core`, `cardbey-dashboard`
 - Core build uses **`npm ci`** (locked to `package-lock.json`) so staging and live
   resolve identical dependency versions.
+- **R2 media CDN CORS** (hero video playback): see [`R2_MEDIA_CDN_CORS.md`](./R2_MEDIA_CDN_CORS.md).
+  Upload can succeed while browser playback fails until bucket CORS allows dashboard/public origins.
 
 ### CI gates (GitHub Actions)
 `tests.yml`, `contract-tests.yml`, `foundation-regression.yml`, `truth-enforcement.yml`,
