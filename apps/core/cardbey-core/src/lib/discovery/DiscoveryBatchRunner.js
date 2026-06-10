@@ -154,13 +154,11 @@ async function processUrl(url, batchRun, seedId, errors) {
 
 async function runWithConcurrency(urls, batchRun, seedId, concurrency, delayMs) {
   const errors = [];
-  let index = 0;
+  const chunkSize = Math.max(1, concurrency);
 
-  async function worker() {
-    while (index < urls.length) {
-      const i = index;
-      index += 1;
-      const url = urls[i];
+  for (let i = 0; i < urls.length; i += chunkSize) {
+    const chunk = urls.slice(i, i + chunkSize);
+    await Promise.all(chunk.map(async (url) => {
       try {
         await processUrl(url, batchRun, seedId, errors);
       } catch (error) {
@@ -169,14 +167,12 @@ async function runWithConcurrency(urls, batchRun, seedId, concurrency, delayMs) 
         errors.push({ url, error: msg });
         await recordSeedError(seedId, msg);
       }
-      if (delayMs > 0 && index < urls.length) {
-        await sleep(delayMs);
-      }
+    }));
+    if (delayMs > 0 && i + chunkSize < urls.length) {
+      await sleep(delayMs);
     }
   }
 
-  const workers = Array.from({ length: Math.min(concurrency, Math.max(urls.length, 1)) }, () => worker());
-  await Promise.all(workers);
   return errors;
 }
 

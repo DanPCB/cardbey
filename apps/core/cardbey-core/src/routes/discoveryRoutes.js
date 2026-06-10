@@ -29,6 +29,7 @@ import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { requireSuperAdmin } from '../lib/authorization.js';
 import { prisma } from '../lib/prisma.js';
 import * as UnclaimedStoreService from '../lib/discovery/UnclaimedStoreService.js';
+import * as PreBuiltStoreService from '../lib/discovery/PreBuiltStoreService.js';
 import { runAllActive } from '../lib/discovery/DiscoveryBatchRunner.js';
 import * as DiscoveryConfigService from '../lib/discovery/DiscoveryConfigService.js';
 import { reloadDiscoverySchedule, reloadSchedule, isDiscoveryRunning } from '../lib/discovery/DiscoveryScheduler.js';
@@ -107,13 +108,8 @@ async function reloadDiscoveryConfigSchedule() {
 
 async function resolveClaimDraftStoreId(store, userId) {
   if (store.preBuiltStoreId) {
-    await prisma.draftStore
-      .update({
-        where: { id: store.preBuiltStoreId },
-        data: { ownerUserId: userId, status: 'draft' },
-      })
-      .catch(() => {});
-    return store.preBuiltStoreId;
+    const transferred = await PreBuiltStoreService.transferToClaimer(store.preBuiltStoreId, userId);
+    if (transferred) return transferred.id;
   }
   const draft = await UnclaimedStoreService.createDraftFromUnclaimed(store, userId);
   return draft.id;
@@ -375,6 +371,7 @@ router.post('/config/pause', requireAuth, requireSuperAdmin, async (req, res, ne
     if (!result.ok) {
       return res.status(400).json({ ok: false, error: result.error || 'invalid_hours' });
     }
+    await reloadDiscoveryConfigSchedule();
     return res.status(200).json({ ok: true, pausedUntil: result.config?.pausedUntil ?? null });
   } catch (error) {
     console.error('[discovery] config pause error:', error);
