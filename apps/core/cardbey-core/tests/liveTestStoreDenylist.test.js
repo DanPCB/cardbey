@@ -6,11 +6,13 @@ import {
 } from '../src/utils/publicStoreVisibility.js';
 
 describe('liveTestStoreDenylist', () => {
-  it('flags known live test slugs', () => {
+  it('flags orphan demo slugs only', () => {
     expect(isRetiredLiveTestStore({ slug: 'my-cafe' })).toBe(true);
-    expect(isRetiredLiveTestStore({ slug: 'abc-fashion' })).toBe(true);
-    expect(isRetiredLiveTestStore({ slug: 'real-bakery' })).toBe(false);
-    expect(LIVE_RETIRED_TEST_STORE_SLUGS.size).toBeGreaterThanOrEqual(7);
+    expect(isRetiredLiveTestStore({ slug: 'shop-cafe' })).toBe(true);
+    expect(isRetiredLiveTestStore({ slug: 'my-business' })).toBe(true);
+    expect(isRetiredLiveTestStore({ slug: 'abc-fashion' })).toBe(false);
+    expect(isRetiredLiveTestStore({ slug: 'aa-travel-golf-tour' })).toBe(false);
+    expect(LIVE_RETIRED_TEST_STORE_SLUGS.size).toBe(4);
   });
 
   it('excludes retired stores from public feed and owner lists', () => {

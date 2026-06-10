@@ -3,16 +3,12 @@
  * Run scripts/remove-live-test-stores.mjs on production Postgres to hard-delete rows.
  */
 
+/** Orphan demo rows only — keep ABC Fashion, AA Travel, My Fashion, Melbourne Flooring, etc. */
 export const LIVE_RETIRED_TEST_STORE_SLUGS = new Set([
+  'shop-cafe',
+  'my-cafe',
   'my-business',
   'my-business-2',
-  'my-cafe',
-  'shop-cafe',
-  'melbourne-flooring',
-  'abc-fashion',
-  'aa-travel-golf-tour',
-  'aa-travel-and-golf-tour',
-  'my-fashion',
 ]);
 
 /** @param {{ slug?: string | null } | null | undefined} business */
