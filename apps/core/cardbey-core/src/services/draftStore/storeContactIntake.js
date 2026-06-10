@@ -86,11 +86,29 @@ export function buildContactIntakeFromMissionMeta(meta) {
     mapUrl: meta.mapUrl ?? buildMapUrl(typeof address === 'string' ? address : null),
     lat: meta.lat ?? null,
     lng: meta.lng ?? null,
-    coverPhoto: meta.heroMediaUrl ?? null,
-    profilePhoto: meta.logoUrl ?? null,
-    heroImageUrl: meta.heroMediaUrl ?? null,
-    logoUrl: meta.logoUrl ?? null,
+    coverPhoto: meta.heroImageUrl ?? meta.heroMediaUrl ?? null,
+    profilePhoto: meta.avatarUrl ?? meta.logoUrl ?? null,
+    heroImageUrl: meta.heroImageUrl ?? meta.heroMediaUrl ?? null,
+    logoUrl: meta.avatarUrl ?? meta.logoUrl ?? null,
   };
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {object}
+ */
+export function parsePreviewJson(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
 /**
@@ -107,7 +125,7 @@ export async function applyStoreContactIntakeToDraft(prisma, draftId, intake) {
   });
   if (!draft) return null;
 
-  const prevPreview = draft.preview && typeof draft.preview === 'object' ? { ...draft.preview } : {};
+  const prevPreview = parsePreviewJson(draft.preview);
   const prevMeta = prevPreview.meta && typeof prevPreview.meta === 'object' ? { ...prevPreview.meta } : {};
 
   prevPreview.contact = {
@@ -126,6 +144,12 @@ export async function applyStoreContactIntakeToDraft(prisma, draftId, intake) {
   const existingHero = readCanonicalHeroFromPreview(prevPreview);
   if (heroCandidate && !existingHero.heroImage && !getExistingVideoUrlFromPreview(prevPreview)) {
     applyPipelineGeneratedHeroImage(prevPreview, heroCandidate, { writer: 'storeContactIntake', draftId });
+    prevPreview.hero = {
+      ...(prevPreview.hero && typeof prevPreview.hero === 'object' ? prevPreview.hero : {}),
+      imageUrl: heroCandidate,
+      imageSource: 'imported',
+    };
+    prevPreview.heroImageUrl = heroCandidate;
     prevMeta.heroImageSource = 'imported';
   }
 

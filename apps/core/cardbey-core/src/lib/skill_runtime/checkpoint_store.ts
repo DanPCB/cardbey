@@ -175,7 +175,29 @@ export class PostgresCheckpointStore implements CheckpointStore {
 
 /** JSONB columns come back as objects from `pg`, but tolerate string too. */
 function parseCheckpointColumn(value: unknown): SerializedCheckpoint {
-  if (typeof value === 'string') return JSON.parse(value) as SerializedCheckpoint;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as SerializedCheckpoint;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(
+        '[Checkpoint] parse failed:',
+        message,
+        'raw:',
+        value.slice(0, 100),
+      );
+      return {
+        skillId: '',
+        intent: '',
+        state: 'failed',
+        completedSteps: [],
+        currentStepIndex: 0,
+        context: {},
+        stepResults: {},
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
   return value as SerializedCheckpoint;
 }
 

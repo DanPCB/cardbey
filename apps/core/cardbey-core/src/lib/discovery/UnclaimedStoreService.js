@@ -47,6 +47,12 @@ export async function upsertFromPayload(data, batchRunId) {
       location: str(data.location) || null,
       brandTone: str(data.brandTone) || null,
       brandStyle: str(data.brandStyle) || null,
+      phone: str(data.phone) || null,
+      email: str(data.email) || null,
+      address: str(data.address) || null,
+      hours: str(data.hours) || null,
+      priceRange: str(data.priceRange) || null,
+      websiteUrl: str(data.websiteUrl) || null,
       socialLinks: data.socialLinks
         ? (typeof data.socialLinks === 'string' ? data.socialLinks : JSON.stringify(data.socialLinks))
         : null,

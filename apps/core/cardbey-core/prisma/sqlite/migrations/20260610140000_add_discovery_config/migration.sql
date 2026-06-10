@@ -10,7 +10,7 @@ ALTER TABLE "DiscoveryBatchRun" ADD COLUMN "triggeredById" TEXT;
 ALTER TABLE "DiscoveryBatchRun" ADD COLUMN "configSnapshot" TEXT;
 
 -- CreateTable
-CREATE TABLE "discovery_config" (
+CREATE TABLE IF NOT EXISTS "discovery_config" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "enabled" BOOLEAN NOT NULL DEFAULT false,
     "cronExpression" TEXT NOT NULL DEFAULT '0 */6 * * *',
@@ -24,4 +24,4 @@ CREATE TABLE "discovery_config" (
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX "DiscoverySeedSource_priority_idx" ON "DiscoverySeedSource"("priority");
+CREATE INDEX IF NOT EXISTS "DiscoverySeedSource_priority_idx" ON "DiscoverySeedSource"("priority");

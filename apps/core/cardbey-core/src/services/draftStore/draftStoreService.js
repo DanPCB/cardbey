@@ -642,6 +642,15 @@ async function saveDraftBase(draftId, catalog, params) {
     tagline: profile.tagline,
     heroText: profile.heroText,
     stylePreferences: profile.stylePreferences,
+    ...(prevPreview.hero && typeof prevPreview.hero === 'object' ? { hero: { ...prevPreview.hero } } : {}),
+    ...(typeof prevPreview.heroImageUrl === 'string' && prevPreview.heroImageUrl.trim()
+      ? { heroImageUrl: prevPreview.heroImageUrl.trim() }
+      : {}),
+    ...(prevPreview.avatar && typeof prevPreview.avatar === 'object' ? { avatar: { ...prevPreview.avatar } } : {}),
+    ...(typeof prevPreview.avatarUrl === 'string' && prevPreview.avatarUrl.trim()
+      ? { avatarUrl: prevPreview.avatarUrl.trim() }
+      : {}),
+    ...(prevPreview.contact && typeof prevPreview.contact === 'object' ? { contact: { ...prevPreview.contact } } : {}),
     meta: {
       ...(prevPreview.meta && typeof prevPreview.meta === 'object' ? prevPreview.meta : {}),
       ...(meta && typeof meta === 'object' ? meta : {}),
@@ -908,6 +917,7 @@ async function finalizeDraft(draftId, {
 
   if (importedHero) {
     heroImageUrl = canonicalHero.heroImage;
+    console.log('[finalizeDraft] skipping hero gen — imported hero present:', heroImageUrl);
   } else if (includeImages) {
     if (await isMissionPipelineCancelled(pipelineMissionId)) {
       await transitionDraftStoreStatus({

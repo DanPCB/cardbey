@@ -206,6 +206,50 @@ export async function execute(_input = {}, context = {}) {
   }
 
   try {
+    const socialImport =
+      meta.socialImport && typeof meta.socialImport === 'object' ? meta.socialImport : {};
+    const rawProducts = Array.isArray(socialImport.products) ? socialImport.products : [];
+    if (rawProducts.length > 0) {
+      const { sanitizePreloadedCatalogItems } = await import(
+        '../../../services/draftStore/preloadedCatalogFromItems.js'
+      );
+      const sanitized = sanitizePreloadedCatalogItems(
+        rawProducts.map((p) => ({
+          name: p?.name,
+          description: p?.description ?? null,
+          price: p?.price ?? null,
+          imageUrl: p?.imageUrl ?? null,
+          imageSource: p?.imageSource ?? null,
+          category: p?.category ?? null,
+          source: p?.source ?? 'social_import',
+        })),
+      );
+      if (sanitized?.length) {
+        const draftRow = await prisma.draftStore.findUnique({
+          where: { id: draftIdForRun },
+          select: { input: true },
+        });
+        const prevIn =
+          draftRow?.input && typeof draftRow.input === 'object' && !Array.isArray(draftRow.input)
+            ? draftRow.input
+            : {};
+        await prisma.draftStore.update({
+          where: { id: draftIdForRun },
+          data: {
+            input: {
+              ...prevIn,
+              preloadedCatalogItems: sanitized,
+            },
+          },
+        });
+        await mergeMissionContext(missionId, { preloadedCatalogItems: sanitized }, { prisma }).catch(() => {});
+      }
+    }
+  } catch (preloadErr) {
+    console.warn('[structured_store_build] preloaded catalog patch skipped:', preloadErr?.message ?? preloadErr);
+  }
+
+  try {
     const { buildContactIntakeFromMissionMeta, applyStoreContactIntakeToDraft } = await import(
       '../../../services/draftStore/storeContactIntake.js'
     );
@@ -248,6 +292,18 @@ export async function execute(_input = {}, context = {}) {
       status: 'failed',
       error: { code: 'GENERATE_DRAFT_FAILED', message },
     };
+  }
+
+  try {
+    const { buildContactIntakeFromMissionMeta, applyStoreContactIntakeToDraft } = await import(
+      '../../../services/draftStore/storeContactIntake.js'
+    );
+    const contactIntakeAfter = buildContactIntakeFromMissionMeta(meta);
+    if (contactIntakeAfter) {
+      await applyStoreContactIntakeToDraft(prisma, draftIdForRun, contactIntakeAfter);
+    }
+  } catch (contactAfterErr) {
+    console.warn('[structured_store_build] contact intake re-apply skipped:', contactAfterErr?.message ?? contactAfterErr);
   }
 
   if (checkpointLogoUrl) {

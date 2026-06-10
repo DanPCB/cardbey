@@ -110,6 +110,8 @@ function buildMissionMetadata(normalized, raw) {
     brandStyle: normalized.brandStyle,
     ...(normalized.logoUrl ? { logoUrl: normalized.logoUrl } : {}),
     ...(normalized.heroMedia?.url ? { heroMediaUrl: normalized.heroMedia.url } : {}),
+    ...(normalized.heroImageUrl ? { heroImageUrl: normalized.heroImageUrl } : {}),
+    ...(normalized.avatarUrl ? { avatarUrl: normalized.avatarUrl } : {}),
     ...(normalized.socialLinks ? { socialLinks: normalized.socialLinks } : {}),
     phone: normalized.phone ?? null,
     email: normalized.email ?? null,
@@ -206,7 +208,11 @@ export async function importFromSocial({ url, user, prisma, tenantId } = {}) {
     };
   }
 
-  if (!user?.id) {
+  const actorUserId =
+    (typeof user?.id === 'string' && user.id.trim()) ||
+    (typeof user?.userId === 'string' && user.userId.trim()) ||
+    null;
+  if (!actorUserId) {
     return { ok: false, statusCode: 401, error: 'unauthorized', message: 'Authentication required.' };
   }
 
@@ -236,7 +242,7 @@ export async function importFromSocial({ url, user, prisma, tenantId } = {}) {
   }
 
   const effectiveTenantId =
-    (typeof tenantId === 'string' && tenantId.trim()) || user?.business?.id || user.id;
+    (typeof tenantId === 'string' && tenantId.trim()) || user?.business?.id || actorUserId;
   const metadata = buildMissionMetadata(normalized, raw);
 
   const { createMissionPipeline } = await import('../missionPipelineService.js');
@@ -251,7 +257,7 @@ export async function importFromSocial({ url, user, prisma, tenantId } = {}) {
     requiresConfirmation: true,
     executionMode: 'AUTO_RUN',
     tenantId: effectiveTenantId,
-    createdBy: user.id,
+    createdBy: actorUserId,
   });
 
   if (!pipeline?.id) {

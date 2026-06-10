@@ -230,7 +230,10 @@ async function executeStoreMissionPipelineRunCore({
   const intentMode = bodyIntentRaw === 'website' || bodyIntentRaw === 'store' ? bodyIntentRaw : metaIntent || 'store';
 
   const tenantId = getTenantId(user) || user?.id;
-  const userId = user?.id;
+  const userId =
+    (typeof user?.id === 'string' && user.id.trim()) ||
+    (typeof user?.userId === 'string' && user.userId.trim()) ||
+    null;
   if (!tenantId || !userId) {
     return { ok: false, statusCode: 401, error: 'unauthorized', message: 'Not authenticated' };
   }

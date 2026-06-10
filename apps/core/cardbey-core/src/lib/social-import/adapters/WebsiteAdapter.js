@@ -79,12 +79,21 @@ export async function extract(url) {
     payload = buildPartialPayload(sourceUrl, html);
   }
 
+  console.log(
+    '[WebsiteAdapter] products from schema:',
+    payload.products?.length ?? 0,
+    'triggering crawl:',
+    !Array.isArray(payload.products) || payload.products.length === 0,
+  );
+
   if (!Array.isArray(payload.products) || payload.products.length === 0) {
     try {
+      console.log('[WebsiteAdapter] starting deep crawl for:', sourceUrl);
       const crawledProducts = await deepCrawlProducts(html, sourceUrl, {
         maxProductPages: 3,
         maxProducts: 20,
       });
+      console.log('[WebsiteAdapter] crawled products:', crawledProducts.length);
       if (crawledProducts.length > 0) {
         payload.products = crawledProducts;
         payload.productSource = 'crawled';
@@ -95,6 +104,8 @@ export async function extract(url) {
   } else {
     payload.productSource = 'schema';
   }
+
+  console.log('[WebsiteAdapter] final payload hero:', payload.coverPhoto, payload.profilePhoto);
 
   return payload;
 }
@@ -276,6 +287,12 @@ function buildPayloadFromHtml(sourceUrl, html) {
 
   const schemaIsPlaceholder = isPlaceholderSchema(schema);
   const dom = extractFromDom(html, sourceUrl);
+  console.log('[WebsiteAdapter] dom extracted:', {
+    name: dom.name,
+    phone: dom.phone,
+    heroImage: dom.heroImage,
+    logo: dom.logo,
+  });
 
   let name = '';
   if (schema && !schemaIsPlaceholder) {
@@ -319,7 +336,7 @@ function buildPayloadFromHtml(sourceUrl, html) {
   let description = schema ? pickString(schema.description) : '';
   let priceRange = schema ? pickString(schema.priceRange) : '';
   const category = schema ? pickString(schema.servesCuisine) || inferCategoryFromSchema(schema) : '';
-  let products = schema ? mapOfferCatalog(schema.hasOfferCatalog) : [];
+  let products = schema && !schemaIsPlaceholder ? mapOfferCatalog(schema.hasOfferCatalog) : [];
   let socialLinks = schema ? mapSameAsLinks(schema.sameAs) : {};
 
   if (!name) {

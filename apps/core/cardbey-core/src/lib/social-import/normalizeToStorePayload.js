@@ -121,13 +121,15 @@ export function normalizeToStorePayload(raw) {
         : JSON.stringify(hoursValue);
   const priceRange = str(safe.priceRange) || null;
 
-  return {
+  const normalized = {
     businessName,
     businessType,
     location: location || address,
     brandTone,
     brandStyle,
     logoUrl,
+    avatarUrl: logoUrl || null,
+    heroImageUrl: heroUrl || null,
     heroMedia,
     socialLinks,
     products,
@@ -149,6 +151,8 @@ export function normalizeToStorePayload(raw) {
     ...(hours ? { hours } : {}),
     ...(priceRange ? { priceRange } : {}),
   };
+  console.log('[normalize] heroImageUrl:', normalized.heroImageUrl, 'avatarUrl:', normalized.avatarUrl);
+  return normalized;
 }
 
 function str(value) {

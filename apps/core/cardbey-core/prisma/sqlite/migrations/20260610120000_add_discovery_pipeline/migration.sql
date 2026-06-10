@@ -1,12 +1,12 @@
--- AlterTable
+-- AlterTable (idempotent for DBs that received columns via db push)
 ALTER TABLE "DraftStore" ADD COLUMN "unclaimedStoreId" TEXT;
 ALTER TABLE "DraftStore" ADD COLUMN "transferredAt" DATETIME;
 
 -- CreateIndex
-CREATE INDEX "DraftStore_unclaimedStoreId_idx" ON "DraftStore"("unclaimedStoreId");
+CREATE INDEX IF NOT EXISTS "DraftStore_unclaimedStoreId_idx" ON "DraftStore"("unclaimedStoreId");
 
 -- CreateTable
-CREATE TABLE "UnclaimedStore" (
+CREATE TABLE IF NOT EXISTS "UnclaimedStore" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "slug" TEXT NOT NULL,
     "businessName" TEXT NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE "UnclaimedStore" (
 );
 
 -- CreateTable
-CREATE TABLE "DiscoverySeedSource" (
+CREATE TABLE IF NOT EXISTS "DiscoverySeedSource" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "type" TEXT NOT NULL,
     "platform" TEXT NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE "DiscoverySeedSource" (
 );
 
 -- CreateTable
-CREATE TABLE "DiscoveryBatchRun" (
+CREATE TABLE IF NOT EXISTS "DiscoveryBatchRun" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "completedAt" DATETIME,
@@ -65,14 +65,14 @@ CREATE TABLE "DiscoveryBatchRun" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "UnclaimedStore_slug_key" ON "UnclaimedStore"("slug");
-CREATE UNIQUE INDEX "UnclaimedStore_sourceUrl_key" ON "UnclaimedStore"("sourceUrl");
-CREATE INDEX "UnclaimedStore_status_idx" ON "UnclaimedStore"("status");
-CREATE INDEX "UnclaimedStore_platform_idx" ON "UnclaimedStore"("platform");
-CREATE INDEX "UnclaimedStore_createdAt_idx" ON "UnclaimedStore"("createdAt");
-CREATE INDEX "UnclaimedStore_discoveryBatch_idx" ON "UnclaimedStore"("discoveryBatch");
-CREATE INDEX "DiscoverySeedSource_isActive_idx" ON "DiscoverySeedSource"("isActive");
-CREATE INDEX "DiscoverySeedSource_type_idx" ON "DiscoverySeedSource"("type");
-CREATE INDEX "DiscoveryBatchRun_status_idx" ON "DiscoveryBatchRun"("status");
-CREATE INDEX "DiscoveryBatchRun_startedAt_idx" ON "DiscoveryBatchRun"("startedAt");
-CREATE INDEX "DiscoveryBatchRun_seedSourceId_idx" ON "DiscoveryBatchRun"("seedSourceId");
+CREATE UNIQUE INDEX IF NOT EXISTS "UnclaimedStore_slug_key" ON "UnclaimedStore"("slug");
+CREATE UNIQUE INDEX IF NOT EXISTS "UnclaimedStore_sourceUrl_key" ON "UnclaimedStore"("sourceUrl");
+CREATE INDEX IF NOT EXISTS "UnclaimedStore_status_idx" ON "UnclaimedStore"("status");
+CREATE INDEX IF NOT EXISTS "UnclaimedStore_platform_idx" ON "UnclaimedStore"("platform");
+CREATE INDEX IF NOT EXISTS "UnclaimedStore_createdAt_idx" ON "UnclaimedStore"("createdAt");
+CREATE INDEX IF NOT EXISTS "UnclaimedStore_discoveryBatch_idx" ON "UnclaimedStore"("discoveryBatch");
+CREATE INDEX IF NOT EXISTS "DiscoverySeedSource_isActive_idx" ON "DiscoverySeedSource"("isActive");
+CREATE INDEX IF NOT EXISTS "DiscoverySeedSource_type_idx" ON "DiscoverySeedSource"("type");
+CREATE INDEX IF NOT EXISTS "DiscoveryBatchRun_status_idx" ON "DiscoveryBatchRun"("status");
+CREATE INDEX IF NOT EXISTS "DiscoveryBatchRun_startedAt_idx" ON "DiscoveryBatchRun"("startedAt");
+CREATE INDEX IF NOT EXISTS "DiscoveryBatchRun_seedSourceId_idx" ON "DiscoveryBatchRun"("seedSourceId");
