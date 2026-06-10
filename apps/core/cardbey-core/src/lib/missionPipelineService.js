@@ -405,10 +405,64 @@ export async function approveMissionPipeline(missionId) {
 }
 
 /**
+ * Cancel non-terminal pipeline steps so the runner cannot pick them up after cancel.
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
  * @param {string} missionId
- * @returns {Promise<{ ok: boolean, status?: string, error?: string }>}
  */
-export async function cancelMissionPipeline(missionId) {
+async function cancelActivePipelineSteps(prisma, missionId) {
+  await prisma.missionPipelineStep.updateMany({
+    where: {
+      missionId,
+      status: { notIn: ['completed', 'cancelled', 'failed', 'skipped'] },
+    },
+    data: { status: 'cancelled' },
+  });
+}
+
+/**
+ * Shadow Mission row + blackboard + SSE after pipeline cancel.
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
+ * @param {string} missionId
+ * @param {string|null} userId
+ */
+async function emitMissionCancelledSideEffects(prisma, missionId, userId) {
+  await prisma.mission
+    .updateMany({
+      where: { id: missionId },
+      data: { status: 'cancelled', updatedAt: new Date() },
+    })
+    .catch(() => {});
+
+  try {
+    const { appendEvent } = await import('./missionBlackboard.js');
+    await appendEvent(
+      missionId,
+      'mission_cancelled',
+      {
+        cancelledBy: userId ?? null,
+        cancelledAt: new Date().toISOString(),
+      },
+      { agentId: 'system' },
+    );
+  } catch (e) {
+    console.warn('[cancelMissionPipeline] blackboard event failed (non-fatal):', e?.message || e);
+  }
+
+  try {
+    const { broadcastMissionCancelled } = await import('../realtime/simpleSse.js');
+    broadcastMissionCancelled(missionId, { status: 'cancelled', runState: 'done' });
+  } catch (e) {
+    console.warn('[cancelMissionPipeline] SSE cancel failed (non-fatal):', e?.message || e);
+  }
+}
+
+/**
+ * @param {string} missionId
+ * @param {{ userId?: string|null }} [options]
+ * @returns {Promise<{ ok: boolean, status?: string, error?: string, dismissed?: boolean }>}
+ */
+export async function cancelMissionPipeline(missionId, options = {}) {
+  const userId = options?.userId != null ? String(options.userId).trim() || null : null;
   const prisma = getPrismaClient();
   const { buildEndedByUserMetadata } = await import('./runtime/missionRuntimeEnd.js');
   const m = await prisma.missionPipeline.findUnique({
@@ -416,17 +470,23 @@ export async function cancelMissionPipeline(missionId) {
     select: { status: true, outputsJson: true, metadataJson: true, runState: true },
   });
   if (!m) return { ok: false, error: 'not_found' };
+
+  const cancelRuntimeData = (metadataJson) => ({
+    metadataJson: buildEndedByUserMetadata(metadataJson),
+    runState: 'done',
+    currentStepId: null,
+    cancelledAt: new Date(),
+  });
+
   if (TERMINAL_STATUSES.includes(m.status)) {
     const st = String(m.status ?? '').toLowerCase();
     if (st === 'cancelled' || st === 'canceled') {
       await prisma.missionPipeline.update({
         where: { id: missionId },
-        data: {
-          metadataJson: buildEndedByUserMetadata(m.metadataJson),
-          runState: 'cancelled',
-          currentStepId: null,
-        },
+        data: cancelRuntimeData(m.metadataJson),
       });
+      await cancelActivePipelineSteps(prisma, missionId);
+      await emitMissionCancelledSideEffects(prisma, missionId, userId);
       console.log('[mission-end] cleared active runtime session', { missionId, idempotent: true });
       return { ok: true, status: 'cancelled' };
     }
@@ -438,6 +498,7 @@ export async function cancelMissionPipeline(missionId) {
         data: {
           metadataJson: buildEndedByUserMetadata(m.metadataJson),
           currentStepId: null,
+          runState: 'done',
         },
       });
       console.log('[mission-end] dismissed completed mission', { missionId, status: st });
@@ -445,16 +506,14 @@ export async function cancelMissionPipeline(missionId) {
     }
     return { ok: false, error: 'already_terminal', status: m.status };
   }
-  const updated = await transitionMission(missionId, m.status, 'cancelled', { runState: 'cancelled' });
+
+  const updated = await transitionMission(missionId, m.status, 'cancelled', { runState: 'done' });
   if (!updated) return { ok: false, error: 'transition_failed' };
   await prisma.missionPipeline.update({
     where: { id: missionId },
-    data: {
-      metadataJson: buildEndedByUserMetadata(m.metadataJson),
-      runState: 'cancelled',
-      currentStepId: null,
-    },
+    data: cancelRuntimeData(m.metadataJson),
   });
+  await cancelActivePipelineSteps(prisma, missionId);
   console.log('[mission-end] cleared active runtime session', { missionId });
   if (process.env.NODE_ENV !== 'production') console.log('[MissionAPI] cancel');
 
@@ -487,6 +546,8 @@ export async function cancelMissionPipeline(missionId) {
       console.warn('[cancelMissionPipeline] orchestrator task cancel:', e?.message || e);
     }
   }
+
+  await emitMissionCancelledSideEffects(prisma, missionId, userId);
 
   return { ok: true, status: 'cancelled' };
 }
