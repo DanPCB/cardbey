@@ -105,7 +105,64 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
     results.push({ store: enriched, projection, usedFallback });
   }
 
-  return results;
+  return dedupeNearDuplicatePublicStoreResults(results);
+}
+
+function normalizePublicStoreIdentityKey(store) {
+  const slugStem = String(store?.slug ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/-and-/g, '-')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  if (slugStem.length >= 8) return `slug:${slugStem}`;
+
+  const name = String(store?.name ?? '')
+    .toLowerCase()
+    .replace(/\s*&\s*/g, ' and ')
+    .replace(/\band\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
+  if (name.length >= 8) return `name:${name}`;
+
+  return `id:${store?.id ?? ''}`;
+}
+
+function pickPreferredNearDuplicatePublicStore(candidates) {
+  if (candidates.length === 1) return candidates[0];
+  const withoutAndSlug = candidates.find(({ store }) => {
+    const slug = String(store?.slug ?? '').toLowerCase();
+    return slug.length > 0 && !slug.includes('-and-');
+  });
+  if (withoutAndSlug) return withoutAndSlug;
+  return candidates[0];
+}
+
+export function dedupeNearDuplicatePublicStoreResults(results) {
+  if (!Array.isArray(results) || results.length <= 1) return results;
+
+  const winners = new Map();
+  for (const row of results) {
+    const key = normalizePublicStoreIdentityKey(row.store);
+    const existing = winners.get(key);
+    winners.set(
+      key,
+      existing ? pickPreferredNearDuplicatePublicStore([existing, row]) : row,
+    );
+  }
+
+  const seen = new Set();
+  const out = [];
+  for (const row of results) {
+    const key = normalizePublicStoreIdentityKey(row.store);
+    const winner = winners.get(key);
+    if (winner !== row) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(winner);
+  }
+  return out;
 }
 
 /**
