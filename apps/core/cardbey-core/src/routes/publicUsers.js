@@ -19,6 +19,7 @@ import { listStoreProducts, parseProductPagination } from '../lib/listStoreProdu
 import { parseDocumentIngestionContext } from '../lib/documentIngestion/documentAwareConcierge.js';
 
 import { prisma } from '../lib/prisma.js';
+import { isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 
 const router = Router();
 /**
@@ -182,6 +183,8 @@ router.get('/stores/feed', async (req, res, next) => {
       businesses = businesses.slice(0, take);
     }
 
+    businesses = businesses.filter(isPublicFeedEligibleBusiness);
+
     const hasMore = businesses.length > limit;
     const pageBusinesses = hasMore ? businesses.slice(0, limit) : businesses;
     const resolved = await resolvePublicStoresForList(prisma, pageBusinesses, {
@@ -234,7 +237,8 @@ router.get('/stores', async (req, res, next) => {
       },
     });
 
-    const resolved = await resolvePublicStoresForList(prisma, stores, {
+    const eligibleStores = stores.filter(isPublicFeedEligibleBusiness);
+    const resolved = await resolvePublicStoresForList(prisma, eligibleStores, {
       route: 'GET /api/public/stores',
       req,
     });
@@ -556,9 +560,9 @@ router.get('/stores/:slug', async (req, res, next) => {
       });
     }
 
-    // Only return active stores
-    if (!store.isActive) {
-      console.log(`[PublicStores] Store ${store.id} is not active`);
+    // Only return active, publicly eligible stores
+    if (!store.isActive || !isPublicFeedEligibleBusiness(store)) {
+      console.log(`[PublicStores] Store ${store.id} is not publicly visible`);
       return res.status(404).json({
         ok: false,
         error: 'Store not found',

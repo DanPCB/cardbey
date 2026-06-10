@@ -26,4 +26,21 @@ describe('dedupeNearDuplicatePublicStoreResults', () => {
     expect(deduped).toHaveLength(1);
     expect(deduped[0]?.store.slug).toBe('aa-travel-golf-tour');
   });
+
+  it('collapses My Business slug suffix variants', () => {
+    const deduped = dedupeNearDuplicatePublicStoreResults([
+      {
+        store: { id: 'cmp6w53sz0030ss5d78ms2yg2', name: 'My Business', slug: 'my-business-2' },
+        projection: null,
+        usedFallback: false,
+      },
+      {
+        store: { id: 'cmp6ukzgm001zos5c917l954r', name: 'My Business', slug: 'my-business' },
+        projection: null,
+        usedFallback: false,
+      },
+    ]);
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]?.store.slug).toBe('my-business');
+  });
 });

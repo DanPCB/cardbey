@@ -97,6 +97,8 @@ export function businessPublicReadSelect(extra = {}) {
       transactionMode: true,
       catalogLabel: true,
       ctaLabel: true,
+      isGuestDraft: true,
+      expiresAt: true,
     };
   }
   return base;

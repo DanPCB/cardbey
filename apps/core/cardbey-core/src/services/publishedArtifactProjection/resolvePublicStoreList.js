@@ -113,6 +113,7 @@ function normalizePublicStoreIdentityKey(store) {
     .toLowerCase()
     .trim()
     .replace(/-and-/g, '-')
+    .replace(/-\d+$/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
@@ -129,8 +130,15 @@ function normalizePublicStoreIdentityKey(store) {
   return `id:${store?.id ?? ''}`;
 }
 
+function isCanonicalPublicStoreSlug(slug) {
+  const normalized = String(slug ?? '').toLowerCase();
+  return normalized.length > 0 && !normalized.includes('-and-') && !/-\d+$/.test(normalized);
+}
+
 function pickPreferredNearDuplicatePublicStore(candidates) {
   if (candidates.length === 1) return candidates[0];
+  const canonical = candidates.find(({ store }) => isCanonicalPublicStoreSlug(store?.slug));
+  if (canonical) return canonical;
   const withoutAndSlug = candidates.find(({ store }) => {
     const slug = String(store?.slug ?? '').toLowerCase();
     return slug.length > 0 && !slug.includes('-and-');

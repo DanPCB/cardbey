@@ -18,6 +18,7 @@ import { businessPublicReadSelect, publicCommerceFields } from '../lib/dbCapabil
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
 import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
+import { isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 
 const router = express.Router();
 
@@ -84,6 +85,8 @@ router.get('/frontscreen', async (req, res, next) => {
     if (typeParam) {
       stores = stores.filter((s) => businessMatchesType(s.type, typeParam)).slice(0, limit);
     }
+
+    stores = stores.filter(isPublicFeedEligibleBusiness);
 
     const webBase = publicWebBase();
     const mapped = [];
