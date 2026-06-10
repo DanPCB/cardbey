@@ -3185,6 +3185,12 @@ model UnclaimedStore {
   location        String?
   brandTone       String?
   brandStyle      String?
+  phone           String?
+  email           String?
+  address         String?
+  hours           String?
+  priceRange      String?
+  websiteUrl      String?
   socialLinks     String?
   rawVideos       String?
   importHashtags  String?

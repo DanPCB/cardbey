@@ -5,6 +5,7 @@
 import { prisma } from '../prisma.js';
 import { scrapeAndNormalize } from '../social-import/SocialImportService.js';
 import { fetchHtml } from '../social-import/scrapeUtils.js';
+import { extractBusinessUrls } from './sources/DirectoryCrawler.js';
 import { buildClaimAuthority } from './ClaimAuthorityBuilder.js';
 import * as UnclaimedStoreService from './UnclaimedStoreService.js';
 import * as PreBuiltStoreService from './PreBuiltStoreService.js';
@@ -34,7 +35,7 @@ export async function resolveUrlsFromSeed(seed, maxUrls) {
   const type = String(seed.type || '').toLowerCase();
   const value = String(seed.value || '').trim();
 
-  if (type === 'url_list') {
+  if (type === 'url_list' || type === 'web_crawl') {
     try {
       const parsed = JSON.parse(value);
       if (Array.isArray(parsed)) {
@@ -44,6 +45,12 @@ export async function resolveUrlsFromSeed(seed, maxUrls) {
       if (value.startsWith('http')) return [value].slice(0, maxUrls);
     }
     return [];
+  }
+
+  if (type === 'directory_crawl') {
+    if (!value.startsWith('http')) return [];
+    const urls = await extractBusinessUrls(value, maxUrls);
+    return urls.slice(0, maxUrls);
   }
 
   if (type === 'tiktok_hashtag') {
@@ -121,11 +128,17 @@ async function processUrl(url, batchRun, seedId, errors) {
   const { raw, normalized } = scraped;
   const enriched = {
     ...normalized,
-    bioText: raw?.description || '',
+    bioText: raw?.description || raw?.bio || '',
     avatarUrl: normalized.logoUrl || raw?.profilePhoto || '',
     followerCount: raw?.followerCount ?? null,
     sourcePlatform: normalized.platform,
     category: raw?.category || normalized.businessType,
+    phone: normalized.phone ?? raw?.phone ?? null,
+    email: normalized.email ?? raw?.email ?? null,
+    address: normalized.address ?? raw?.address ?? null,
+    hours: normalized.hours ?? raw?.hours ?? null,
+    priceRange: normalized.priceRange ?? raw?.priceRange ?? null,
+    websiteUrl: normalized.websiteUrl ?? (normalized.platform === 'website' ? normalized.sourceUrl : null),
   };
 
   const claimAuthority = buildClaimAuthority(raw, normalized);

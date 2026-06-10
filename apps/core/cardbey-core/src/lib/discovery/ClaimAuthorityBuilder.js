@@ -26,8 +26,16 @@ export function buildClaimAuthority(payload, normalized) {
     ? safePayload.contact
     : {};
 
-  const phone = extractPhone(bioText) || str(contact.phone);
-  const email = extractEmail(bioText) || str(contact.email);
+  const phone =
+    str(safeNormalized.phone) ||
+    str(safePayload.phone) ||
+    str(contact.phone) ||
+    extractPhoneFromText(bioText);
+  const email =
+    str(safeNormalized.email) ||
+    str(safePayload.email) ||
+    str(contact.email) ||
+    extractEmailFromText(bioText);
 
   const socialLinks = safeNormalized.socialLinks && typeof safeNormalized.socialLinks === 'object'
     ? safeNormalized.socialLinks
@@ -39,6 +47,12 @@ export function buildClaimAuthority(payload, normalized) {
 
   const methods = [];
 
+  if (platform === 'website') {
+    const domain = extractDomain(safePayload.profileUrl || safePayload.sourceUrl || safeNormalized.sourceUrl);
+    if (domain) {
+      methods.push('website_meta');
+    }
+  }
   if (platform === 'google' && googlePlaceId) {
     methods.push('google_verify');
   }
@@ -72,16 +86,25 @@ function str(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
-function extractPhone(text) {
+function extractPhoneFromText(text) {
   if (!text) return '';
   const matches = String(text).match(AU_PHONE_RE);
   return matches?.[0]?.trim() || '';
 }
 
-function extractEmail(text) {
+function extractEmailFromText(text) {
   if (!text) return '';
   const matches = String(text).match(EMAIL_RE);
   return matches?.[0]?.trim() || '';
+}
+
+function extractDomain(url) {
+  if (!url) return null;
+  try {
+    return new URL(String(url)).hostname.replace(/^www\./i, '').toLowerCase() || null;
+  } catch {
+    return null;
+  }
 }
 
 function extractTiktokHandle(sourceUrl, socialLinks) {

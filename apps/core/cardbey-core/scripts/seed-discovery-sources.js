@@ -166,6 +166,45 @@ const SEED_SOURCES = [
     category: 'travel',
     priority: 10,
   },
+
+  // ── Direct website seeds ──
+  {
+    type: 'web_crawl',
+    platform: 'website',
+    value: JSON.stringify(['https://www.aatravelandgolftour.com.au']),
+    location: 'Melbourne, VIC',
+    category: 'travel',
+    priority: 10,
+  },
+
+  // ── Directory crawl seeds (inactive until verified) ──
+  {
+    type: 'directory_crawl',
+    platform: 'website',
+    value: 'https://www.yellowpages.com.au/search/list?clue=cafe&state=VIC&suburb=melbourne',
+    location: 'Melbourne, VIC',
+    category: 'cafe',
+    priority: 6,
+    isActive: false,
+  },
+  {
+    type: 'directory_crawl',
+    platform: 'website',
+    value: 'https://www.truelocal.com.au/find/beauty-salons/melbourne-vic',
+    location: 'Melbourne, VIC',
+    category: 'beauty',
+    priority: 5,
+    isActive: false,
+  },
+  {
+    type: 'directory_crawl',
+    platform: 'website',
+    value: 'https://www.truelocal.com.au/find/travel-agents/melbourne-vic',
+    location: 'Melbourne, VIC',
+    category: 'travel',
+    priority: 6,
+    isActive: false,
+  },
 ];
 
 async function main() {
@@ -207,6 +246,9 @@ async function main() {
   console.log(`Created ${created}, skipped ${skipped}`);
   console.log('--- google_maps sources created as isActive:false');
   console.log('    Activate after GoogleMapsSource.js is implemented');
+  console.log('--- directory_crawl sources created as isActive:false');
+  console.log('    Activate after manual test: POST /api/discovery/run');
+  console.log('    with a single directory seed enabled');
 }
 
 main()

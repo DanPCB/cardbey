@@ -19,9 +19,10 @@ import GoogleBusinessAdapter from './adapters/GoogleBusinessAdapter.js';
 import FacebookAdapter from './adapters/FacebookAdapter.js';
 import TikTokAdapter from './adapters/TikTokAdapter.js';
 import InstagramAdapter from './adapters/InstagramAdapter.js';
+import WebsiteAdapter from './adapters/WebsiteAdapter.js';
 import { normalizeToStorePayload } from './normalizeToStorePayload.js';
 
-/** First-version scope: Google Business + Facebook are fully prioritized. */
+/** Platform-specific adapters checked before the generic website fallback. */
 const ADAPTERS = [GoogleBusinessAdapter, FacebookAdapter, TikTokAdapter, InstagramAdapter];
 
 /** Source key written to the mission blackboard context. */
@@ -33,14 +34,30 @@ export const SOCIAL_IMPORT_SOURCE = 'social_import';
  * @returns {{ platform: string, matches: Function, extract: Function } | null}
  */
 export function detectAdapter(url) {
-  if (typeof url !== 'string' || !url.trim()) return null;
-  return ADAPTERS.find((a) => {
+  const cleanUrl = sanitizeUrl(url);
+  if (!cleanUrl) return null;
+  const specific = ADAPTERS.find((a) => {
     try {
-      return a.matches(url);
+      return a.matches(cleanUrl);
     } catch {
       return false;
     }
-  }) || null;
+  });
+  if (specific) return specific;
+  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    return WebsiteAdapter;
+  }
+  return null;
+}
+
+/**
+ * Resolve platform key for a URL (social platforms or generic website).
+ * @param {string} url
+ * @returns {string | null}
+ */
+export function detectPlatform(url) {
+  const adapter = detectAdapter(url);
+  return adapter?.platform ?? null;
 }
 
 /**
@@ -175,7 +192,7 @@ export async function importFromSocial({ url, user, prisma, tenantId } = {}) {
       ok: false,
       statusCode: 422,
       error: 'unsupported_platform',
-      message: 'URL is not a supported platform (Facebook, Google Business/Maps, TikTok, Instagram).',
+      message: 'URL is not a supported platform (Facebook, Google Business/Maps, TikTok, Instagram, or website).',
     };
   }
 
@@ -187,8 +204,15 @@ export async function importFromSocial({ url, user, prisma, tenantId } = {}) {
   try {
     raw = await adapter.extract(cleanUrl);
   } catch (err) {
-    console.error('[social-import] adapter extract failed:', adapter.platform, err?.message || err);
-    return { ok: false, statusCode: 502, error: 'scrape_failed', message: 'Could not read the source page.' };
+    const code = err?.code === 'INVALID_URL' ? 'invalid_url' : 'scrape_failed';
+    const statusCode = err?.code === 'INVALID_URL' ? 400 : 502;
+    console.error('[social-import] adapter extract failed:', adapter.platform, err?.message || err?.code || err);
+    return {
+      ok: false,
+      statusCode,
+      error: code,
+      message: err?.code === 'INVALID_URL' ? 'A valid http(s) URL is required.' : 'Could not read the source page.',
+    };
   }
 
   const normalized = normalizeToStorePayload(raw);
@@ -249,4 +273,14 @@ export async function importFromSocial({ url, user, prisma, tenantId } = {}) {
   };
 }
 
-export default { detectAdapter, sanitizeUrl, scrapeAndNormalize, importFromSocial, SOCIAL_IMPORT_SOURCE };
+export const importFromUrl = importFromSocial;
+
+export default {
+  detectAdapter,
+  detectPlatform,
+  sanitizeUrl,
+  scrapeAndNormalize,
+  importFromSocial,
+  importFromUrl,
+  SOCIAL_IMPORT_SOURCE,
+};

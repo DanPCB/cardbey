@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "UnclaimedStore" ADD COLUMN IF NOT EXISTS "phone" TEXT;
+ALTER TABLE "UnclaimedStore" ADD COLUMN IF NOT EXISTS "email" TEXT;
+ALTER TABLE "UnclaimedStore" ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE "UnclaimedStore" ADD COLUMN IF NOT EXISTS "hours" TEXT;
+ALTER TABLE "UnclaimedStore" ADD COLUMN IF NOT EXISTS "priceRange" TEXT;
+ALTER TABLE "UnclaimedStore" ADD COLUMN IF NOT EXISTS "websiteUrl" TEXT;

@@ -75,7 +75,16 @@ export function normalizeToStorePayload(raw) {
   const businessType = mapCategoryToStoreType(category, description);
   const currencyCode = inferCurrencyFromLocationText(location) || 'AUD';
 
-  const { brandTone, brandStyle } = inferBrand(description, businessType);
+  const brandFromRaw =
+    safe.brandSignals && typeof safe.brandSignals === 'object'
+      ? {
+          brandTone: str(safe.brandSignals.tone) || null,
+          brandStyle: str(safe.brandSignals.style) || null,
+        }
+      : null;
+  const inferredBrand = inferBrand(description, businessType);
+  const brandTone = brandFromRaw?.brandTone || inferredBrand.brandTone;
+  const brandStyle = brandFromRaw?.brandStyle || inferredBrand.brandStyle;
 
   const logoUrl = firstHttpUrl([safe.profilePhoto]);
   const heroUrl = firstHttpUrl([safe.coverPhoto, ...(Array.isArray(safe.photos) ? safe.photos : [])]);
@@ -95,10 +104,22 @@ export function normalizeToStorePayload(raw) {
 
   const rawUserText = buildRawUserText(businessName, businessType, location, safe.sourceUrl);
 
+  const phone = str(safe.phone) || str(safe.contact?.phone) || '';
+  const email = str(safe.email) || str(safe.contact?.email) || '';
+  const address = str(safe.address) || '';
+  const hoursValue = safe.hours ?? null;
+  const hours =
+    hoursValue == null || hoursValue === ''
+      ? null
+      : typeof hoursValue === 'string'
+        ? hoursValue
+        : JSON.stringify(hoursValue);
+  const priceRange = str(safe.priceRange) || null;
+
   return {
     businessName,
     businessType,
-    location,
+    location: location || address,
     brandTone,
     brandStyle,
     logoUrl,
@@ -110,6 +131,12 @@ export function normalizeToStorePayload(raw) {
     sourceUrl: str(safe.sourceUrl),
     platform: str(safe.platform),
     source: 'social_import',
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(address ? { address } : {}),
+    ...(hours ? { hours } : {}),
+    ...(priceRange ? { priceRange } : {}),
+    ...(str(safe.platform) === 'website' && str(safe.sourceUrl) ? { websiteUrl: str(safe.sourceUrl) } : {}),
   };
 }
 
@@ -159,6 +186,21 @@ function buildSocialLinks(raw) {
       collected[key] = incoming[key].trim();
     }
   }
+
+  if (str(raw.platform) === 'website') {
+    const websiteUrl = typeof raw.sourceUrl === 'string' ? raw.sourceUrl.trim() : '';
+    const merged = { ...(websiteUrl ? { website: websiteUrl } : {}), ...collected };
+    for (const [key, value] of Object.entries(incoming)) {
+      if (typeof value === 'string' && value.trim() && !merged[key]) {
+        merged[key] = value.trim();
+      }
+    }
+    const normalized = normalizeSocialLinks(merged);
+    const base = normalized.ok && normalized.value ? { ...normalized.value } : {};
+    if (merged.website) base.website = merged.website;
+    return Object.keys(base).length ? base : null;
+  }
+
   const backlinkKey = platformToSocialKey(raw.platform);
   if (backlinkKey && !collected[backlinkKey] && typeof raw.sourceUrl === 'string' && raw.sourceUrl.trim()) {
     collected[backlinkKey] = raw.sourceUrl.trim();
