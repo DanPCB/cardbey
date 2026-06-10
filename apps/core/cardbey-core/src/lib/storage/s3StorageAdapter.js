@@ -95,6 +95,7 @@ export function createS3StorageAdapter() {
       Key: key,
       Body: buffer,
       ContentType: mimeType || 'application/octet-stream',
+      CacheControl: 'public, max-age=31536000, immutable',
     });
 
     try {

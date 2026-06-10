@@ -18,6 +18,7 @@ export {
   downloadFromS3ToFile,
   resetS3ClientForTests,
 } from './s3StorageAdapter.js';
+export { buildStorageUploadResponse, resolveClientHeroMediaUrl } from './uploadResponse.js';
 
 /** @type {ReturnType<typeof createLocalStorageAdapter> | ReturnType<typeof createS3StorageAdapter> | null} */
 let adapterInstance = null;

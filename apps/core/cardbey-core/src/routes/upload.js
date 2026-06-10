@@ -6,6 +6,8 @@ import fs from 'fs';
 import { lookup as mimeLookup } from 'mime-types';
 import { buildMediaUrl, normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
+import { isMediaCategory } from '../lib/storage/mediaCategories.js';
+import { buildStorageUploadResponse } from '../lib/storage/uploadResponse.js';
 import { info, error } from '../lib/logger.js';
 import { publishVideoOptimizeJob } from '../lib/sqsClient.js';
 import { createTempPath, safeUnlink } from '../lib/tempFiles.js';
@@ -102,6 +104,22 @@ const upload = multer({ storage, limits: { fileSize: 1024 * 1024 * 100 } }); // 
 const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+/**
+ * @param {import('express').Request} req
+ * @param {string} mime
+ * @returns {import('../lib/storage/mediaCategories.js').MediaCategory}
+ */
+function resolveUploadCategory(req, mime) {
+  const fromQuery = typeof req.query?.category === 'string' ? req.query.category.trim() : '';
+  if (isMediaCategory(fromQuery)) return fromQuery;
+  const purpose = typeof req.query?.purpose === 'string' ? req.query.purpose.trim().toLowerCase() : '';
+  if (purpose === 'avatar' || purpose === 'profile' || purpose === 'profile_photo') return 'avatars';
+  if (purpose === 'logo') return 'logos';
+  if (purpose === 'hero' || purpose === 'store' || purpose === 'background') return 'stores';
+  if (purpose === 'product' || purpose === 'catalog') return 'products';
+  return mime.startsWith('video/') ? 'videos' : 'artifacts';
 }
 
 // Shared upload handler function (used by both /playlist-media and /create routes)
@@ -218,8 +236,7 @@ async function handleFileUpload(req, res) {
       }
     }
 
-    // Upload to S3 (or local storage if S3 not configured)
-    const uploadCategory = mime.startsWith('video/') ? 'videos' : 'artifacts';
+    const uploadCategory = resolveUploadCategory(req, mime);
     const { key, url: storageUrl } = await uploadBufferToS3(
       buffer,
       req.file.originalname,
@@ -298,14 +315,25 @@ async function handleFileUpload(req, res) {
       });
     }
 
-    // Return response: url (relative/CloudFront), absoluteUrl (for client preview), storageKey (for OCR/internal)
+    const uploadPayload = buildStorageUploadResponse({
+      storageUrl,
+      key,
+      mime,
+      mediaType: kind === 'VIDEO' ? 'video' : 'image',
+      req,
+    });
     res.status(201).json({
       ok: true,
       data: {
         id: media.id,
-        url: normalizedUrl,
-        absoluteUrl: buildMediaUrl(normalizedUrl, req) || undefined,
-        storageKey: key || undefined,
+        url: uploadPayload.publicUrl,
+        publicUrl: uploadPayload.publicUrl,
+        absoluteUrl: uploadPayload.publicUrl,
+        key: uploadPayload.key,
+        storageKey: uploadPayload.storageKey,
+        mimeType: uploadPayload.mimeType,
+        mediaType: uploadPayload.mediaType,
+        storageDriver: uploadPayload.storageDriver,
         optimizedUrl: null,
         mime: media.mime,
         width: media.width,
@@ -591,7 +619,7 @@ async function handleJsonUpload(req, res, next) {
     }
     
     // Upload to S3 (or local storage if S3 not configured)
-    const jsonUploadCategory = mimeType.startsWith('video/') ? 'videos' : 'artifacts';
+    const jsonUploadCategory = resolveUploadCategory(req, mimeType);
     const { key, url: storageUrl } = await uploadBufferToS3(
       buffer,
       originalName,
@@ -657,15 +685,25 @@ async function handleJsonUpload(req, res, next) {
       }
     }
     
-    // Return response: url, absoluteUrl (for client preview), storageKey (for OCR/internal)
-    const absoluteUrlJson = buildMediaUrl(normalizedUrl, req);
+    const uploadPayload = buildStorageUploadResponse({
+      storageUrl,
+      key,
+      mime: mimeType,
+      mediaType: fileKind === 'VIDEO' ? 'video' : 'image',
+      req,
+    });
     res.status(201).json({
       ok: true,
       data: {
         id: media.id,
-        url: normalizedUrl,
-        absoluteUrl: absoluteUrlJson || undefined,
-        storageKey: key || undefined,
+        url: uploadPayload.publicUrl,
+        publicUrl: uploadPayload.publicUrl,
+        absoluteUrl: uploadPayload.publicUrl,
+        key: uploadPayload.key,
+        storageKey: uploadPayload.storageKey,
+        mimeType: uploadPayload.mimeType,
+        mediaType: uploadPayload.mediaType,
+        storageDriver: uploadPayload.storageDriver,
         optimizedUrl: null,
         mime: media.mime,
         width: media.width,

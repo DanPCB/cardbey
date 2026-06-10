@@ -6,6 +6,8 @@ import {
   joinMediaUrl,
   rebaseCrossDeployCoreUrl,
   buildMediaUrl,
+  resolvePersistableMediaUrl,
+  isCloudFrontUrl,
 } from '../src/utils/publicUrl.js';
 
 describe('publicUrl utilities', () => {
@@ -184,6 +186,31 @@ describe('publicUrl utilities', () => {
           mockReq,
         ),
       ).toBe('https://cardbey-core.onrender.com/uploads/media/logo.png');
+    });
+  });
+
+  describe('resolvePersistableMediaUrl', () => {
+    const originalMediaBase = process.env.MEDIA_PUBLIC_BASE_URL;
+
+    afterEach(() => {
+      if (originalMediaBase) {
+        process.env.MEDIA_PUBLIC_BASE_URL = originalMediaBase;
+      } else {
+        delete process.env.MEDIA_PUBLIC_BASE_URL;
+      }
+    });
+
+    it('accepts CDN URLs unchanged', () => {
+      process.env.MEDIA_PUBLIC_BASE_URL = 'https://media.cardbey.com';
+      const url = 'https://media.cardbey.com/media/avatars/abc.jpg';
+      expect(resolvePersistableMediaUrl(url, null)).toBe(url);
+      expect(isCloudFrontUrl(url)).toBe(true);
+    });
+
+    it('converts relative /uploads paths to absolute', () => {
+      process.env.PUBLIC_BASE_URL = 'https://cardbey-core.onrender.com';
+      const resolved = resolvePersistableMediaUrl('/uploads/media/avatars/x.jpg', null);
+      expect(resolved).toBe('https://cardbey-core.onrender.com/uploads/media/avatars/x.jpg');
     });
   });
 });

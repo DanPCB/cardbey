@@ -4,7 +4,7 @@
 import multer from 'multer';
 import { getPrismaClient } from '../../lib/prisma.js';
 import { uploadBufferToS3 } from '../../lib/s3Client.js';
-import { normalizeMediaUrlForStorage } from '../../utils/publicUrl.js';
+import { buildStorageUploadResponse, resolveClientHeroMediaUrl } from '../../lib/storage/uploadResponse.js';
 import { getDraft, getDraftByGenerationRunId } from './draftStoreService.js';
 import { buildHeroPreviewPatchFromUrls } from './heroUpdateService.js';
 import { updateHeroForStore } from './heroUpdateService.js';
@@ -189,12 +189,26 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
   if (isVideo) {
     const videoCheck = assertValidHeroVideoUpload(buffer, mime);
     if (!videoCheck.ok) {
+      console.warn('[VIDEO_PLAYABILITY_CHECK]', {
+        stage: 'server_binary',
+        mimeType: mime,
+        mediaType: 'video',
+        ok: false,
+        reason: videoCheck.error,
+      });
       return res.status(400).json({
         ok: false,
         error: videoCheck.error,
         message: videoCheck.message,
       });
     }
+    console.log('[VIDEO_PLAYABILITY_CHECK]', {
+      stage: 'server_binary',
+      mimeType: mime,
+      mediaType: 'video',
+      ok: true,
+      sizeBytes: buffer.length,
+    });
     try {
       const processed = await ensureWebCompatibleVideoBuffer(
         buffer,
@@ -227,7 +241,14 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     mime,
     heroCategory,
   );
-  const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
+  const uploadPayload = buildStorageUploadResponse({
+    storageUrl,
+    key,
+    mime,
+    mediaType: isVideo ? 'video' : 'image',
+    req,
+  });
+  const normalizedUrl = uploadPayload.normalizedUrl;
   try {
     await prisma.media.create({
       data: {
@@ -285,18 +306,38 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     source: 'upload',
   });
 
+  const publicUrl = uploadPayload.publicUrl;
+  const clientVideoUrl = isVideo
+    ? resolveClientHeroMediaUrl(heroResult.heroVideoUrl, publicUrl, req)
+    : null;
+  const clientImageUrl = !isVideo
+    ? resolveClientHeroMediaUrl(heroResult.heroImageUrl, publicUrl, req)
+    : (heroResult.heroImageUrl ?? null);
+
+  console.log('[HERO_MEDIA_APPLY]', {
+    mediaType: isVideo ? 'video' : 'image',
+    mimeType: mime,
+    storageDriver: uploadPayload.storageDriver,
+    publicUrl,
+    heroVideoUrl: clientVideoUrl,
+    heroImageUrl: clientImageUrl,
+    draftUpdated: heroResult.draftUpdated,
+  });
+
   return res.status(200).json({
     ok: true,
-    url: isVideo ? (heroResult.heroVideoUrl ?? normalizedUrl) : normalizedUrl,
+    url: isVideo ? clientVideoUrl : clientImageUrl,
+    publicUrl,
     mediaType: isVideo ? 'video' : 'image',
     mimeType: mime,
     size: buffer.length,
-    heroImageUrl: heroResult.heroImageUrl ?? (isVideo ? null : normalizedUrl),
-    videoUrl: isVideo ? (heroResult.heroVideoUrl ?? normalizedUrl) : null,
-    heroVideoUrl: isVideo ? (heroResult.heroVideoUrl ?? normalizedUrl) : null,
+    heroImageUrl: clientImageUrl,
+    videoUrl: clientVideoUrl,
+    heroVideoUrl: clientVideoUrl,
     isVideo,
     key,
     storageKey: key,
+    storageDriver: uploadPayload.storageDriver,
     draftUpdated: heroResult.draftUpdated,
     businessUpdated: heroResult.businessUpdated,
   });

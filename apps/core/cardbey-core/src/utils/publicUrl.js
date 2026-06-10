@@ -49,6 +49,8 @@ export function isCloudFrontUrl(url) {
     if (
       hostname.includes('.cloudfront.net') ||
       hostname.includes('.r2.cloudflarestorage.com') ||
+      hostname.endsWith('.r2.dev') ||
+      hostname === 'media.cardbey.com' ||
       hostname.includes('.s3.') ||
       hostname.includes('amazonaws.com') ||
       hostname.includes('s3.amazonaws.com') ||
@@ -548,6 +550,44 @@ export function buildMediaUrl(urlOrPath, req = null) {
   const base = getBaseUrlFromRequest(req);
   const cleanPath = (relativePath || urlOrPath).replace(/^\/+/, ''); // Remove leading slashes
   return joinMediaUrl(base, `/${cleanPath}`);
+}
+
+/**
+ * Resolve a client media URL to an absolute http(s) URL for API validation and persistence.
+ * Accepts CDN/R2 URLs, external URLs, and legacy /uploads relative paths.
+ *
+ * @param {string | null | undefined} url
+ * @param {object} [req]
+ * @returns {string | null}
+ */
+export function resolvePersistableMediaUrl(url, req = null) {
+  if (url == null || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    if (isCloudFrontUrl(trimmed)) return trimmed;
+    try {
+      const urlObj = new URL(trimmed);
+      if (urlObj.pathname.startsWith('/uploads/') || urlObj.pathname.startsWith('/assets/')) {
+        const rebuilt = buildMediaUrl(trimmed, req);
+        return rebuilt && (rebuilt.startsWith('http://') || rebuilt.startsWith('https://')) ? rebuilt : trimmed;
+      }
+      return trimmed;
+    } catch {
+      return null;
+    }
+  }
+
+  if (trimmed.startsWith('/uploads/') || trimmed.startsWith('/assets/')) {
+    const absolute = buildMediaUrl(trimmed, req);
+    if (absolute && (absolute.startsWith('http://') || absolute.startsWith('https://'))) {
+      return absolute;
+    }
+    return null;
+  }
+
+  return null;
 }
 
 /**

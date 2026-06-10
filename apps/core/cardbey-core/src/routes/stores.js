@@ -42,6 +42,7 @@ import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
+import { buildStorageUploadResponse, resolveClientHeroMediaUrl } from '../lib/storage/uploadResponse.js';
 import { normalizeMediaUrlField } from '../services/draftStore/normalizeHeroMediaUrlsForStorage.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
@@ -1949,7 +1950,14 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       mime,
       heroCategory,
     );
-    const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
+    const uploadPayload = buildStorageUploadResponse({
+      storageUrl,
+      key,
+      mime,
+      mediaType: isVideo ? 'video' : 'image',
+      req,
+    });
+    const normalizedUrl = uploadPayload.normalizedUrl;
     try {
       await prisma.media.create({
         data: {
@@ -2003,19 +2011,39 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       }
     }
 
+    const publicUrl = uploadPayload.publicUrl;
+    const clientVideoUrl = isVideo
+      ? resolveClientHeroMediaUrl(heroResult.heroVideoUrl, publicUrl, req)
+      : null;
+    const clientImageUrl = !isVideo
+      ? resolveClientHeroMediaUrl(heroResult.heroImageUrl, publicUrl, req)
+      : (heroResult.heroImageUrl ?? null);
+
+    console.log('[HERO_MEDIA_APPLY]', {
+      mediaType: isVideo ? 'video' : 'image',
+      mimeType: mime,
+      storageDriver: uploadPayload.storageDriver,
+      publicUrl,
+      heroVideoUrl: clientVideoUrl,
+      heroImageUrl: clientImageUrl,
+      draftUpdated: heroResult.draftUpdated,
+    });
+
     return res.status(200).json({
       ok: true,
-      url: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : heroImageUrl,
+      url: isVideo ? clientVideoUrl : clientImageUrl,
+      publicUrl,
       mediaType: isVideo ? 'video' : 'image',
       mimeType: mime,
       size: buffer.length,
-      heroImageUrl: heroResult.heroImageUrl ?? (isVideo ? null : heroImageUrl),
-      heroVideoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
+      heroImageUrl: clientImageUrl,
+      heroVideoUrl: clientVideoUrl,
       heroMediaType: heroResult.heroMediaType ?? (isVideo ? 'video' : 'image'),
-      videoUrl: isVideo ? (heroResult.heroVideoUrl ?? heroImageUrl) : null,
+      videoUrl: clientVideoUrl,
       isVideo,
       key,
       storageKey: key,
+      storageDriver: uploadPayload.storageDriver,
       draftUpdated: heroResult.draftUpdated,
       businessUpdated: heroResult.businessUpdated,
       hasUnpublishedHeroChanges,
@@ -2064,7 +2092,14 @@ router.post('/:storeId/upload/logo', requireAuth, storeAssetUploadSingle, async 
       mime,
       'logos',
     );
-    const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
+    const uploadPayload = buildStorageUploadResponse({
+      storageUrl,
+      key,
+      mime,
+      mediaType: 'image',
+      req,
+    });
+    const normalizedUrl = uploadPayload.normalizedUrl;
     try {
       await prisma.media.create({
         data: {
@@ -2092,9 +2127,14 @@ router.post('/:storeId/upload/logo', requireAuth, storeAssetUploadSingle, async 
     });
     return res.status(200).json({
       ok: true,
-      url: normalizedUrl,
+      url: uploadPayload.publicUrl,
+      publicUrl: uploadPayload.publicUrl,
       logoUrl: logoResult.logoUrl,
       avatarImageUrl: logoResult.avatarImageUrl,
+      key: uploadPayload.key,
+      mimeType: uploadPayload.mimeType,
+      mediaType: uploadPayload.mediaType,
+      storageDriver: uploadPayload.storageDriver,
       draftUpdated: logoResult.draftUpdated,
       businessUpdated: logoResult.businessUpdated,
     });
@@ -2125,7 +2165,14 @@ router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, asyn
       mime,
       'avatars',
     );
-    const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
+    const uploadPayload = buildStorageUploadResponse({
+      storageUrl,
+      key,
+      mime,
+      mediaType: 'image',
+      req,
+    });
+    const normalizedUrl = uploadPayload.normalizedUrl;
     try {
       await prisma.media.create({
         data: {
@@ -2153,9 +2200,14 @@ router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, asyn
     });
     return res.status(200).json({
       ok: true,
-      url: normalizedUrl,
+      url: uploadPayload.publicUrl,
+      publicUrl: uploadPayload.publicUrl,
       logoUrl: logoResult.logoUrl,
       avatarImageUrl: logoResult.avatarImageUrl,
+      key: uploadPayload.key,
+      mimeType: uploadPayload.mimeType,
+      mediaType: uploadPayload.mediaType,
+      storageDriver: uploadPayload.storageDriver,
       draftUpdated: logoResult.draftUpdated,
       businessUpdated: logoResult.businessUpdated,
     });

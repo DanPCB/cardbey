@@ -28,6 +28,7 @@ import {
 /** Post-verify SPA path — must exist in dashboard (Performer /app). */
 const DEFAULT_VERIFY_REDIRECT_URI = '/app?verified=1';
 import { normalizeSocialLinks, parseSocialLinks } from '../lib/socialLinks.js';
+import { resolvePersistableMediaUrl, normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { normalizeLocale } from '../lib/localePrompt.js';
 
 const router = express.Router();
@@ -262,14 +263,18 @@ export async function patchCurrentUserProfile(req, res, next) {
       });
     }
 
+    let resolvedProfilePhoto = null;
     if (profilePhoto !== undefined && typeof profilePhoto === 'string') {
       const trimmed = profilePhoto.trim();
-      if (trimmed.length > 0 && !isValidHttpUrl(trimmed)) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Invalid profile photo',
-          message: 'profilePhoto must be a valid http(s) URL',
-        });
+      if (trimmed.length > 0) {
+        resolvedProfilePhoto = resolvePersistableMediaUrl(trimmed, req);
+        if (!resolvedProfilePhoto) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Invalid profile photo',
+            message: 'profilePhoto must be a valid http(s) URL or /uploads path',
+          });
+        }
       }
     }
 
@@ -341,9 +346,10 @@ export async function patchCurrentUserProfile(req, res, next) {
     if (profilePhoto !== undefined) {
       if (profilePhoto === null) {
         updateData.profilePhoto = null;
+      } else if (resolvedProfilePhoto) {
+        updateData.profilePhoto = normalizeMediaUrlForStorage(resolvedProfilePhoto, req);
       } else {
-        const t = profilePhoto.trim();
-        updateData.profilePhoto = t.length ? t : null;
+        updateData.profilePhoto = null;
       }
     }
     if (bio !== undefined) {
@@ -881,8 +887,13 @@ router.post('/profile/media', requireAuth, async (req, res, next) => {
       return res.status(400).json({ ok: false, error: 'invalid_url', message: 'url is required' });
     }
     const trimmed = url.trim();
-    if (!isValidHttpUrl(trimmed)) {
-      return res.status(400).json({ ok: false, error: 'invalid_url', message: 'url must be a valid http(s) URL' });
+    const resolvedUrl = resolvePersistableMediaUrl(trimmed, req);
+    if (!resolvedUrl) {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_url',
+        message: 'url must be a valid http(s) URL or /uploads path',
+      });
     }
     const t = type === 'video' ? 'video' : type === 'image' ? 'image' : null;
     if (!t) {
@@ -893,7 +904,11 @@ router.post('/profile/media', requireAuth, async (req, res, next) => {
       });
     }
     const row = await prisma.personalMedia.create({
-      data: { userId: req.userId, url: trimmed, type: t },
+      data: {
+        userId: req.userId,
+        url: normalizeMediaUrlForStorage(resolvedUrl, req),
+        type: t,
+      },
     });
     res.status(201).json({ ok: true, media: row });
   } catch (error) {
