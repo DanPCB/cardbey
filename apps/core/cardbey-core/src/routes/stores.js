@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
+import { isOwnerVisibleStore } from '../utils/publicStoreVisibility.js';
 import { normalizeSocialLinks } from '../lib/socialLinks.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 import { generateUniqueStoreSlug, slugify } from '../utils/slug.js';
@@ -313,10 +314,10 @@ router.post('/', requireAuth, async (req, res, next) => {
  */
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const stores = await prisma.business.findMany({
+    const stores = (await prisma.business.findMany({
       where: { userId: req.userId },
       orderBy: { createdAt: 'desc' }
-    });
+    })).filter(isOwnerVisibleStore);
 
     res.json({
       ok: true,

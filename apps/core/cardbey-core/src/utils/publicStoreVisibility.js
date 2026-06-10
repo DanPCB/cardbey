@@ -2,6 +2,8 @@
  * Public feed / storefront visibility rules for Business rows.
  */
 
+import { isRetiredLiveTestStore } from './liveTestStoreDenylist.js';
+
 /**
  * Guest-owned or guest-draft stores must not appear on public discovery surfaces.
  * @param {{ userId?: string | null, isGuestDraft?: boolean | null, expiresAt?: Date | string | null } | null | undefined} business
@@ -23,6 +25,18 @@ export function isAbandonedGuestOwnedBusiness(business) {
  */
 export function isPublicFeedEligibleBusiness(business) {
   if (!business) return false;
+  if (isRetiredLiveTestStore(business)) return false;
   if (isAbandonedGuestOwnedBusiness(business)) return false;
   return business.isActive === true || business.publishedAt != null;
+}
+
+/** Owner store lists (GET /api/stores, /api/auth/me) — hide retired demo rows. */
+export function isOwnerVisibleStore(business) {
+  if (!business) return false;
+  return !isRetiredLiveTestStore(business);
+}
+
+export function filterOwnerVisibleStores(stores) {
+  if (!Array.isArray(stores)) return [];
+  return stores.filter(isOwnerVisibleStore);
 }

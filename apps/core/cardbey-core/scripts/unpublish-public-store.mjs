@@ -21,37 +21,34 @@ if (args.length === 0) {
 
 const prisma = getPrismaClient();
 
+function businessCleanupSelect() {
+  const base = {
+    id: true,
+    name: true,
+    slug: true,
+    userId: true,
+    isActive: true,
+    publishedAt: true,
+    user: { select: { id: true, email: true, role: true } },
+  };
+  if (dbSupports.extendedBusinessFields) {
+    return { ...base, isGuestDraft: true, expiresAt: true };
+  }
+  return base;
+}
+
 async function resolveBusiness(key) {
   const trimmed = String(key ?? '').trim();
   if (!trimmed) return null;
+  const select = businessCleanupSelect();
   const byId = await prisma.business.findUnique({
     where: { id: trimmed },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      userId: true,
-      isActive: true,
-      publishedAt: true,
-      isGuestDraft: true,
-      expiresAt: true,
-      user: { select: { id: true, email: true, role: true } },
-    },
+    select,
   });
   if (byId) return byId;
   return prisma.business.findUnique({
     where: { slug: trimmed.toLowerCase() },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      userId: true,
-      isActive: true,
-      publishedAt: true,
-      isGuestDraft: true,
-      expiresAt: true,
-      user: { select: { id: true, email: true, role: true } },
-    },
+    select,
   });
 }
 

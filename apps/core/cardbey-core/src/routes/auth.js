@@ -17,6 +17,7 @@ import { getResetPasswordContent } from '../services/email/templates/resetPasswo
 import { registerWithEmailPassword, loginWithEmailPassword } from '../services/auth/authService.js';
 import { getPersonalPresenceLinkFields } from '../services/personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
+import { filterOwnerVisibleStores } from '../utils/publicStoreVisibility.js';
 import {
   getVerificationLinkBaseUrl,
   VERIFICATION_CONFIRM_PATH,
@@ -127,8 +128,8 @@ function buildPatchProfileUserResponse(updatedUser) {
     ...userWithoutPassword,
     roles: JSON.parse(userWithoutPassword.roles || '["viewer"]'),
     onboarding: userWithoutPassword.onboarding ? JSON.parse(userWithoutPassword.onboarding) : null,
-    stores: updatedUser.businesses || [],
-    hasStore: Array.isArray(updatedUser.businesses) && updatedUser.businesses.length > 0,
+    stores: filterOwnerVisibleStores(updatedUser.businesses),
+    hasStore: filterOwnerVisibleStores(updatedUser.businesses).length > 0,
     handle: updatedUser.handle,
     displayName: jsonNullIfUnset(updatedUser.displayName),
     tagline: updatedUser.tagline,
@@ -426,7 +427,7 @@ export async function patchCurrentUserProfile(req, res, next) {
       where: { id: req.userId },
       data: updateData,
       include: {
-        businesses: { select: { id: true, name: true } },
+        businesses: { select: { id: true, name: true, slug: true } },
         personalPresenceStore: { select: { slug: true } },
       },
     });
@@ -687,7 +688,7 @@ router.get('/me', requireAuth, async (req, res, next) => {
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
       include: {
-        businesses: { select: { id: true, name: true } },
+        businesses: { select: { id: true, name: true, slug: true } },
         personalPresenceStore: { select: { slug: true } },
       },
     });
@@ -710,11 +711,8 @@ router.get('/me', requireAuth, async (req, res, next) => {
       ...userWithoutPassword,
       roles: JSON.parse(userWithoutPassword.roles || '["viewer"]'),
       onboarding: userWithoutPassword.onboarding ? JSON.parse(userWithoutPassword.onboarding) : null,
-      // Include stores array from businesses relation (schema: businesses Business[])
-      stores: user.businesses || [],
-      // Compute hasStore boolean
-      hasStore: Array.isArray(user.businesses) && user.businesses.length > 0,
-      // Ensure handle, displayName, tagline, avatarUrl are included
+      stores: filterOwnerVisibleStores(user.businesses),
+      hasStore: filterOwnerVisibleStores(user.businesses).length > 0,
       handle: user.handle,
       displayName: jsonNullIfUnset(user.displayName),
       tagline: user.tagline,
@@ -770,7 +768,7 @@ router.get('/profile', requireAuth, async (req, res, next) => {
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
       include: {
-        businesses: { select: { id: true, name: true } },
+        businesses: { select: { id: true, name: true, slug: true } },
         personalPresenceStore: { select: { slug: true } },
       },
     });
@@ -789,8 +787,8 @@ router.get('/profile', requireAuth, async (req, res, next) => {
       ...userWithoutPassword,
       roles: JSON.parse(userWithoutPassword.roles || '["viewer"]'),
       onboarding: userWithoutPassword.onboarding ? JSON.parse(userWithoutPassword.onboarding) : null,
-      stores: user.businesses || [],
-      hasStore: Array.isArray(user.businesses) && user.businesses.length > 0,
+      stores: filterOwnerVisibleStores(user.businesses),
+      hasStore: filterOwnerVisibleStores(user.businesses).length > 0,
       // Ensure handle, displayName, tagline, avatarUrl are included
       handle: user.handle,
       displayName: jsonNullIfUnset(user.displayName),

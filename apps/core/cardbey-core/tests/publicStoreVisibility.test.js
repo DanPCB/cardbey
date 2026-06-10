@@ -38,10 +38,22 @@ describe('publicStoreVisibility', () => {
   it('keeps owned published stores eligible', () => {
     expect(
       isPublicFeedEligibleBusiness({
+        slug: 'real-bakery',
         userId: 'user-real',
         isActive: true,
         publishedAt: new Date(),
       }),
     ).toBe(true);
+  });
+
+  it('excludes retired live test stores', () => {
+    expect(
+      isPublicFeedEligibleBusiness({
+        slug: 'my-cafe',
+        userId: 'user-real',
+        isActive: true,
+        publishedAt: new Date(),
+      }),
+    ).toBe(false);
   });
 });
