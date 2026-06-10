@@ -219,7 +219,13 @@ async function handleFileUpload(req, res) {
     }
 
     // Upload to S3 (or local storage if S3 not configured)
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname, mime);
+    const uploadCategory = mime.startsWith('video/') ? 'videos' : 'artifacts';
+    const { key, url: storageUrl } = await uploadBufferToS3(
+      buffer,
+      req.file.originalname,
+      mime,
+      uploadCategory,
+    );
     
     // Store relative paths for local files (/uploads/...); keep CloudFront URLs as-is.
     // Do not call resolvePublicUrl here — it bakes in PUBLIC_BASE_URL / CORE_BASE_URL and breaks other LAN clients.
@@ -260,11 +266,13 @@ async function handleFileUpload(req, res) {
 
     // Publish video optimization job to SQS (only if S3 is configured)
     // NOTE: Legacy local optimizer (videoOptimizerQueue.js) is disabled in favor of SQS + Lambda
-    if (kind === 'VIDEO' && process.env.S3_BUCKET_NAME) {
+    const { isS3StorageEnabled, getStorageConfig } = await import('../lib/storage/index.js');
+    const s3Bucket = getStorageConfig().bucket;
+    if (kind === 'VIDEO' && isS3StorageEnabled() && s3Bucket) {
       try {
         await publishVideoOptimizeJob({
           assetId: media.id,
-          bucket: process.env.S3_BUCKET_NAME,
+          bucket: s3Bucket,
           storageKey: key,
           mimeType: mime,
         });
@@ -283,7 +291,7 @@ async function handleFileUpload(req, res) {
         });
         // Upload succeeded, optimization job can be retried manually if needed
       }
-    } else if (kind === 'VIDEO' && !process.env.S3_BUCKET_NAME) {
+    } else if (kind === 'VIDEO' && !isS3StorageEnabled()) {
       info('OPTIMIZER', 'Skipping video optimization (S3 not configured, using local storage)', {
         assetId: media.id,
         requestId: req.requestId,
@@ -583,7 +591,13 @@ async function handleJsonUpload(req, res, next) {
     }
     
     // Upload to S3 (or local storage if S3 not configured)
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, originalName, mimeType);
+    const jsonUploadCategory = mimeType.startsWith('video/') ? 'videos' : 'artifacts';
+    const { key, url: storageUrl } = await uploadBufferToS3(
+      buffer,
+      originalName,
+      mimeType,
+      jsonUploadCategory,
+    );
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
 
     // Log URL for debugging
@@ -618,12 +632,13 @@ async function handleJsonUpload(req, res, next) {
       requestId: req.requestId,
     });
     
-    // Publish video optimization job if S3 configured
-    if (fileKind === 'VIDEO' && process.env.S3_BUCKET_NAME) {
+    const { isS3StorageEnabled: isS3On, getStorageConfig: getStorageCfg } = await import('../lib/storage/index.js');
+    const optimizeBucket = getStorageCfg().bucket;
+    if (fileKind === 'VIDEO' && isS3On() && optimizeBucket) {
       try {
         await publishVideoOptimizeJob({
           assetId: media.id,
-          bucket: process.env.S3_BUCKET_NAME,
+          bucket: optimizeBucket,
           storageKey: key,
           mimeType,
         });

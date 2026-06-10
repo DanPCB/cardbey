@@ -1,35 +1,28 @@
 /**
- * Persist generated video bytes to local uploads (durable URL for artifact).
+ * Persist generated video bytes via configured storage driver.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { buildPublicUrl } from '../../utils/publicUrl.js';
+import { uploadBuffer, isS3StorageEnabled } from '../storage/index.js';
+import { normalizeMediaUrlForStorage } from '../../utils/publicUrl.js';
 
 /**
  * @param {Buffer} buffer
  * @param {{ prefix?: string; extension?: string }} [opts]
- * @returns {Promise<{ relativeUrl: string; publicUrl: string; filePath: string; sizeBytes: number }>}
+ * @returns {Promise<{ relativeUrl: string; publicUrl: string; filePath: string | null; sizeBytes: number; storageKey: string }>}
  */
 export async function saveGeneratedVideoToUploads(buffer, opts = {}) {
-  const uploadsDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-
   const prefix = String(opts.prefix ?? 'openai-video').replace(/[^a-z0-9-_]/gi, '-');
   const ext = String(opts.extension ?? 'mp4').replace(/^\./, '');
-  const fileName = `${prefix}-${Date.now()}.${ext}`;
-  const filePath = path.join(uploadsDir, fileName);
-  await fs.promises.writeFile(filePath, buffer);
+  const originalName = `${prefix}.${ext}`;
 
-  const relativeUrl = `/uploads/${fileName}`;
-  const publicUrl = buildPublicUrl(relativeUrl);
+  const { key, url } = await uploadBuffer(buffer, originalName, 'video/mp4', 'videos');
+  const storedUrl = normalizeMediaUrlForStorage(url, null);
 
   return {
-    relativeUrl,
-    publicUrl,
-    filePath,
+    relativeUrl: isS3StorageEnabled() ? storedUrl : url,
+    publicUrl: storedUrl,
+    filePath: isS3StorageEnabled() ? null : url,
     sizeBytes: buffer.length,
+    storageKey: key,
   };
 }

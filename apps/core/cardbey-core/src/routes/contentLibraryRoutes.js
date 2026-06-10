@@ -251,7 +251,7 @@ router.post('/assets/save', optionalAuth, async (req, res) => {
       mimeLookup(originalName) ||
       (assetUrl.toLowerCase().includes('.svg') ? 'image/svg+xml' : 'application/octet-stream');
 
-    const { key, url: storageUrl } = await uploadBufferToS3(buf, originalName, mime);
+    const { key, url: storageUrl } = await uploadBufferToS3(buf, originalName, mime, 'artifacts');
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, null);
 
     let format = 'png';

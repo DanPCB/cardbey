@@ -1,29 +1,27 @@
 // src/services/s3Cleanup.js
 // S3 cleanup service for removing unused/original assets
 
-import { S3Client, ListObjectsV2Command, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { ListObjectsV2Command, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { info, warn, error } from '../lib/logger.js';
 import { extractS3KeyFromUrl } from '../lib/s3Client.js';
+import { getStorageConfig, isS3StorageEnabled } from '../lib/storage/index.js';
+import { getS3Client } from '../lib/storage/s3StorageAdapter.js';
 
 import { prisma } from '../lib/prisma.js';
 
-// Initialize S3 client
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'ap-southeast-2',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
-
-// Lazy initialization - only check bucket name when functions are called
-// This allows the module to be imported even if S3 is not configured
 function getBucketName() {
-  const bucketName = process.env.S3_BUCKET_NAME;
+  if (!isS3StorageEnabled()) {
+    throw new Error('STORAGE_DRIVER=s3 with bucket credentials required for S3 cleanup.');
+  }
+  const bucketName = getStorageConfig().bucket;
   if (!bucketName) {
-    throw new Error('S3_BUCKET_NAME environment variable is not set. S3 cleanup features require this variable.');
+    throw new Error('S3_BUCKET is not set. S3 cleanup features require this variable.');
   }
   return bucketName;
+}
+
+function getCleanupS3Client() {
+  return getS3Client();
 }
 
 /**
@@ -55,7 +53,7 @@ async function listAllS3Objects(prefix = '') {
       ContinuationToken: continuationToken,
     });
     
-    const response = await s3Client.send(command);
+    const response = await getCleanupS3Client().send(command);
     
     if (response.Contents) {
       objects.push(...response.Contents);
@@ -83,7 +81,7 @@ async function deleteS3Object(key) {
       Key: key,
     });
     
-    await s3Client.send(command);
+    await getCleanupS3Client().send(command);
     info('S3_CLEANUP', 'Deleted S3 object', { key });
     return { deleted: true, dryRun: false };
   } catch (err) {
@@ -187,7 +185,7 @@ async function cleanupOriginalVideos() {
       });
       
       try {
-        await s3Client.send(headCommand);
+        await getCleanupS3Client().send(headCommand);
         // Object exists, delete it
         await deleteS3Object(originalKey);
         deletedCount++;
@@ -276,7 +274,7 @@ async function cleanupUnusedAssets() {
         });
         
         try {
-          await s3Client.send(headCommand);
+          await getCleanupS3Client().send(headCommand);
           // Object exists, delete it
           await deleteS3Object(key);
           deletedCount++;

@@ -82,9 +82,10 @@ async function runLaunchpack(ctx: ToolContext, input: Record<string, unknown>): 
     const buffer = await zip.generateAsync({ type: 'nodebuffer' });
     const originalName = `launchpack-${missionId || 'mission'}.zip`;
 
-    const { key, url } = await uploadBufferToS3(buffer, originalName, 'application/zip');
+    const { key, url } = await uploadBufferToS3(buffer, originalName, 'application/zip', 'artifacts');
     storageKey = key;
-    if (key && process.env.S3_BUCKET_NAME) {
+    const { isS3StorageEnabled } = await import('../lib/storage/index.js');
+    if (key && isS3StorageEnabled()) {
       const signed = await getPresignedGetUrl(key, signedUrlTtlSeconds);
       downloadUrl = signed.url;
       signedUrlExpiresAt = signed.expiresAt;

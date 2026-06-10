@@ -3,24 +3,15 @@
 
 import { Router } from 'express';
 import { info, warn } from '../lib/logger.js';
-import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { HeadObjectCommand } from '@aws-sdk/client-s3';
+import { getStorageConfig, isS3StorageEnabled } from '../lib/storage/index.js';
+import { getS3Client } from '../lib/storage/s3StorageAdapter.js';
 
 import { prisma } from '../lib/prisma.js';
 
 const router = Router();
 // Internal API secret for authentication
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET;
-
-// Initialize S3 client for optional S3 checks
-const s3Client = process.env.S3_BUCKET_NAME ? new S3Client({
-  region: process.env.AWS_REGION || 'ap-southeast-2',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-}) : null;
-
-const bucketName = process.env.S3_BUCKET_NAME;
 
 /**
  * Middleware to validate internal API secret
@@ -59,9 +50,11 @@ function validateInternalSecret(req, res, next) {
  * Check if S3 object exists
  */
 async function checkS3ObjectExists(key) {
-  if (!s3Client || !bucketName) {
+  if (!isS3StorageEnabled()) {
     return { exists: null, error: 'S3 not configured' };
   }
+
+  const bucketName = getStorageConfig().bucket;
   
   try {
     const command = new HeadObjectCommand({
@@ -69,7 +62,7 @@ async function checkS3ObjectExists(key) {
       Key: key,
     });
     
-    await s3Client.send(command);
+    await getS3Client().send(command);
     return { exists: true };
   } catch (err) {
     if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
@@ -185,7 +178,7 @@ router.get('/health', validateInternalSecret, async (req, res) => {
     let missingS3ObjectsCount = 0;
     const missingS3Objects = [];
     
-    if (checkS3 && s3Client && bucketName) {
+    if (checkS3 && isS3StorageEnabled()) {
       // Check up to 20 assets with storageKey
       const assetsToCheck = allAssets
         .filter(asset => asset.storageKey)

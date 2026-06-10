@@ -13,6 +13,7 @@ import { buildHealthDbFingerprint } from '../lib/schemaFingerprint.js';
 import { getStatus as getSchedulerStatus } from '../scheduler/heartbeat.js';
 import { isSseHealthy } from '../realtime/sse.js';
 import { getOAuthStatus } from '../auth/providers.js';
+import { getStorageStatus } from '../lib/storage/index.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +38,16 @@ router.get('/ping', (req, res) => {
   console.log(`[PING] /api/ping from ${req.ip}`);
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: true, status: 'ok' });
+});
+
+/**
+ * GET /api/storage/status
+ * Storage driver configuration (no secrets).
+ */
+router.get('/storage/status', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const storage = getStorageStatus();
+  res.json({ ok: true, storage });
 });
 
 /**
@@ -95,6 +106,8 @@ router.get('/health', async (req, res) => {
     
     const dbFingerprint = buildHealthDbFingerprint();
 
+    const storage = getStorageStatus();
+
     const healthData = {
       version,
       uptimeSec,
@@ -104,6 +117,7 @@ router.get('/health', async (req, res) => {
       scheduler: schedulerStatus,
       sse: sseStatus,
       oauth: oauthStatus,
+      storage,
     };
     
     res.json(healthData);

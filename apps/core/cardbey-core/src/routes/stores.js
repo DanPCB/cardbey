@@ -1942,7 +1942,13 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       }
     }
     const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || defaultName, mime);
+    const heroCategory = isVideo ? 'videos' : 'stores';
+    const { key, url: storageUrl } = await uploadBufferToS3(
+      buffer,
+      req.file.originalname || defaultName,
+      mime,
+      heroCategory,
+    );
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
     try {
       await prisma.media.create({
@@ -2052,7 +2058,12 @@ router.post('/:storeId/upload/logo', requireAuth, storeAssetUploadSingle, async 
     if (buffer.length > maxBytes) {
       return res.status(400).json({ ok: false, error: 'file_too_large', message: 'Image must be 20MB or smaller.' });
     }
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || 'logo.jpg', mime);
+    const { key, url: storageUrl } = await uploadBufferToS3(
+      buffer,
+      req.file.originalname || 'logo.jpg',
+      mime,
+      'logos',
+    );
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
     try {
       await prisma.media.create({
@@ -2108,7 +2119,12 @@ router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, asyn
     const draft = result.draft;
     const buffer = req.file.buffer;
     const mime = req.file.mimetype || 'image/jpeg';
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, req.file.originalname || 'avatar.jpg', mime);
+    const { key, url: storageUrl } = await uploadBufferToS3(
+      buffer,
+      req.file.originalname || 'avatar.jpg',
+      mime,
+      'avatars',
+    );
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
     try {
       await prisma.media.create({

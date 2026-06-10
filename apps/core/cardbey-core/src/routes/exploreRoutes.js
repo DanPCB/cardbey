@@ -121,6 +121,7 @@ router.post(
         videoBuffer,
         videoFile.originalname || 'explore-video.mp4',
         videoMime,
+        'videos',
       );
 
       let thumbnailUrl = null;
@@ -136,6 +137,7 @@ router.post(
           thumbFile.buffer,
           thumbFile.originalname || 'explore-thumb.jpg',
           thumbFile.mimetype,
+          'stores',
         );
         thumbnailUrl = thumbUpload.url;
       }

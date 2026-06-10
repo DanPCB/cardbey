@@ -515,7 +515,7 @@ router.post('/signage-assets/upload', requireAuth, upload.single('file'), async 
     }
 
     // Upload to S3 (or local storage)
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, filename, mime);
+    const { key, url: storageUrl } = await uploadBufferToS3(buffer, filename, mime, 'artifacts');
     
     // Normalize URL for storage: prefer relative paths, preserve CloudFront URLs
     // This ensures URLs are portable and don't break when server IP changes

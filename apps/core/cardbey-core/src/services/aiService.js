@@ -629,19 +629,14 @@ export async function downloadAndSaveImage(imageUrl, filename = null) {
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Generate filename if not provided
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    const ext = '.png'; // DALL-E returns PNG
+    const ext = '.png';
     const baseName = filename || `ai-generated-${Date.now()}`;
-    const filePath = path.join(uploadsDir, `${baseName}${ext}`);
-    const relativeUrl = `/uploads/${path.basename(filePath)}`;
-
-    // Save file
-    await fs.promises.writeFile(filePath, buffer);
+    const originalName = `${baseName}${ext}`;
+    const { uploadBuffer } = await import('../lib/storage/index.js');
+    const { normalizeMediaUrlForStorage } = await import('../utils/publicUrl.js');
+    const { key, url } = await uploadBuffer(buffer, originalName, 'image/png', 'artifacts');
+    const relativeUrl = normalizeMediaUrlForStorage(url, null);
+    const filePath = url.startsWith('/uploads/') ? path.join(process.cwd(), url.slice(1)) : null;
 
     // Get image metadata using sharp (with error handling)
     let width, height;
@@ -659,6 +654,7 @@ export async function downloadAndSaveImage(imageUrl, filename = null) {
     return {
       filePath,
       url: relativeUrl,
+      storageKey: key,
       width: width || null,
       height: height || null,
       sizeBytes: buffer.length,

@@ -1,27 +1,21 @@
 // src/services/mediaCleanup.js
 // Media cleanup service for removing unused/original assets from S3
 
-import { S3Client, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { info, warn, error } from '../lib/logger.js';
 import { extractS3KeyFromUrl } from '../lib/s3Client.js';
+import { getStorageConfig, isS3StorageEnabled } from '../lib/storage/index.js';
+import { getS3Client } from '../lib/storage/s3StorageAdapter.js';
 
 import { prisma } from '../lib/prisma.js';
 
-// Initialize S3 client
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'ap-southeast-2',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  },
-});
-
-// Lazy initialization - only check bucket name when functions are called
-// This allows the module to be imported even if S3 is not configured
 function getBucketName() {
-  const bucketName = process.env.S3_BUCKET_NAME;
+  if (!isS3StorageEnabled()) {
+    throw new Error('STORAGE_DRIVER=s3 with bucket credentials required for media cleanup.');
+  }
+  const bucketName = getStorageConfig().bucket;
   if (!bucketName) {
-    throw new Error('S3_BUCKET_NAME environment variable is not set. S3 cleanup features require this variable.');
+    throw new Error('S3_BUCKET is not set. Media cleanup features require this variable.');
   }
   return bucketName;
 }
@@ -37,7 +31,7 @@ async function deleteS3Object(key) {
       Key: key,
     });
     
-    await s3Client.send(command);
+    await getS3Client().send(command);
     info('CLEANUP', 'Deleted S3 object', { key });
     return true;
   } catch (err) {
@@ -60,7 +54,7 @@ async function s3ObjectExists(key) {
       Key: key,
     });
     
-    await s3Client.send(command);
+    await getS3Client().send(command);
     return true;
   } catch (err) {
     if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {

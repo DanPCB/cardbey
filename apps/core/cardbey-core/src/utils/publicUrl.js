@@ -1,54 +1,67 @@
 import path from 'path';
 import fs from 'fs';
+import { resolveMediaPublicBaseUrl } from '../lib/storage/config.js';
 
 /**
- * Check if a URL is a CloudFront/S3 URL (external) vs local path
- * 
+ * @param {string} hostname
+ * @param {string} baseUrl
+ * @returns {boolean}
+ */
+function hostnameMatchesMediaBase(hostname, baseUrl) {
+  if (!baseUrl) return false;
+  try {
+    const baseHost = new URL(baseUrl).hostname.toLowerCase();
+    return hostname === baseHost || hostname.endsWith(`.${baseHost}`);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if a URL is remote object-storage/CDN media (not local /uploads).
+ *
  * @param {string} url - URL or path to check
- * @returns {boolean} True if URL is external (CloudFront/S3), false if local
+ * @returns {boolean} True if URL is external persisted media (CDN/R2/S3/CloudFront)
  */
 export function isCloudFrontUrl(url) {
   if (!url || typeof url !== 'string') {
     return false;
   }
-  
-  // Check if it's an absolute URL (starts with http:// or https://)
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    try {
-      const urlObj = new URL(url);
-      const hostname = urlObj.hostname.toLowerCase();
-      
-      // Check if it contains CloudFront domain or S3 domain
-      const cdnBaseUrl = process.env.CDN_BASE_URL || '';
-      if (cdnBaseUrl) {
-        try {
-          const cdnUrlObj = new URL(cdnBaseUrl);
-          if (hostname === cdnUrlObj.hostname.toLowerCase() || hostname.endsWith('.' + cdnUrlObj.hostname.toLowerCase())) {
-            return true;
-          }
-        } catch (e) {
-          // Invalid CDN_BASE_URL, continue with pattern matching
-        }
-      }
-      
-      // Check for common S3/CloudFront patterns
-      if (
-        hostname.includes('.cloudfront.net') ||
-        hostname.includes('.s3.') ||
-        hostname.includes('amazonaws.com') ||
-        hostname.includes('s3.amazonaws.com') ||
-        hostname.includes('s3-') ||
-        hostname.match(/^[a-z0-9-]+\.s3\.[a-z0-9-]+\.amazonaws\.com$/) ||
-        hostname.match(/^[a-z0-9-]+\.cloudfront\.net$/)
-      ) {
-        return true;
-      }
-    } catch (e) {
-      // Invalid URL format, not a CloudFront URL
-      return false;
-    }
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return false;
   }
-  
+
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname.toLowerCase();
+
+    const mediaBase = resolveMediaPublicBaseUrl();
+    if (hostnameMatchesMediaBase(hostname, mediaBase)) {
+      return true;
+    }
+
+    const cdnBaseUrl = process.env.CDN_BASE_URL || '';
+    if (hostnameMatchesMediaBase(hostname, cdnBaseUrl)) {
+      return true;
+    }
+
+    if (
+      hostname.includes('.cloudfront.net') ||
+      hostname.includes('.r2.cloudflarestorage.com') ||
+      hostname.includes('.s3.') ||
+      hostname.includes('amazonaws.com') ||
+      hostname.includes('s3.amazonaws.com') ||
+      hostname.includes('s3-') ||
+      hostname.match(/^[a-z0-9-]+\.s3\.[a-z0-9-]+\.amazonaws\.com$/) ||
+      hostname.match(/^[a-z0-9-]+\.cloudfront\.net$/)
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
   return false;
 }
 

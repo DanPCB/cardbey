@@ -58,7 +58,7 @@ export async function uploadCropImage({
     const finalFilename = filename || `menu-crop-${storeId}-${extractionId}-${index}.jpg`;
 
     // Upload to S3 (or local storage)
-    const { key, url: storageUrl } = await uploadBufferToS3(buffer, finalFilename, 'image/jpeg');
+    const { key, url: storageUrl } = await uploadBufferToS3(buffer, finalFilename, 'image/jpeg', 'products');
 
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
 

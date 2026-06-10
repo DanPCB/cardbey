@@ -219,7 +219,7 @@ async function saveCropAsAsset(cropBuffer, req) {
     // Upload to S3 or local storage
     const random = randomBytes(4).toString('hex');
     const filename = `menu-crop-${Date.now()}-${random}.png`;
-    const { key, url: storageUrl } = await uploadBufferToS3(cropBuffer, filename, 'image/png');
+    const { key, url: storageUrl } = await uploadBufferToS3(cropBuffer, filename, 'image/png', 'products');
     
     // Normalize URL
     const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);

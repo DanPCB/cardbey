@@ -220,10 +220,12 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
   }
 
   const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
+  const heroCategory = isVideo ? 'videos' : 'stores';
   const { key, url: storageUrl } = await uploadBufferToS3(
     buffer,
     req.file.originalname || defaultName,
     mime,
+    heroCategory,
   );
   const normalizedUrl = normalizeMediaUrlForStorage(storageUrl, req);
   try {
