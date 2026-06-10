@@ -177,6 +177,34 @@ describe('businessMemoryService', () => {
     prisma = makePrisma().prisma;
   });
 
+  it('modelAvailable skips when business memory delegates are absent', async () => {
+    const bare = { business: prisma.business };
+    const result = await recordBusinessObservation(snapshot, bare);
+    expect(result.skipped).toBe(true);
+    expect(result.id).toBeNull();
+  });
+
+  it('modelAvailable detects all business memory delegates on full prisma client', async () => {
+    const models = [
+      'businessObservationEvent',
+      'businessOpportunityEvent',
+      'businessDecisionEvent',
+      'businessActionEvent',
+      'businessOutcomeEvent',
+    ];
+    for (const model of models) {
+      const delegate = prisma[model];
+      expect(delegate).toBeTruthy();
+      expect(
+        typeof delegate.findUnique === 'function' ||
+          typeof delegate.create === 'function',
+      ).toBe(true);
+    }
+    const result = await recordBusinessObservation(snapshot, prisma);
+    expect(result.skipped).toBeUndefined();
+    expect(result.id).toBeTruthy();
+  });
+
   it('records observation once per snapshot', async () => {
     const a = await recordBusinessObservation(snapshot, prisma);
     const b = await recordBusinessObservation(snapshot, prisma);

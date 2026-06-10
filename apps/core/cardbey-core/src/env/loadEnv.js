@@ -15,6 +15,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(__dirname, '..', '..');
 
+/** Vitest / integration runs pin DATABASE_URL in setupEnv — never let .env.local clobber test.db. */
+function isVitestRun() {
+  const vitest = String(process.env.VITEST ?? '').toLowerCase();
+  return process.env.NODE_ENV === 'test' || vitest === 'true' || vitest === '1';
+}
+
 /**
  * @param {import('dotenv').DotenvConfigOptions['path']} envPath
  * @param {boolean} override
@@ -33,8 +39,12 @@ try {
   const envLocalPath = path.join(PACKAGE_ROOT, '.env.local');
   const loaded = [];
 
-  if (loadEnvFile(envPath, false, configFn)) loaded.push('.env');
-  if (loadEnvFile(envLocalPath, true, configFn)) loaded.push('.env.local');
+  if (!isVitestRun()) {
+    if (loadEnvFile(envPath, false, configFn)) loaded.push('.env');
+    if (loadEnvFile(envLocalPath, true, configFn)) loaded.push('.env.local');
+  } else if (process.env.NODE_ENV !== 'production') {
+    console.log('[env] vitest run — skipping .env / .env.local (test DATABASE_URL pinned)');
+  }
 
   if (loaded.length > 0) {
     console.log(`[env] loaded ${loaded.join(' → ')} (package root: ${PACKAGE_ROOT})`);

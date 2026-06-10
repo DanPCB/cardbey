@@ -3,6 +3,7 @@
  * Returns null when OpenAI is unavailable or response is invalid.
  */
 import OpenAI from 'openai';
+import { record as recordFoundationMetric } from '../metrics/foundationMetrics.js';
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -54,11 +55,39 @@ function isDiagnostic(text) {
  * @param {object} context - PILContext from dashboard
  * @returns {Promise<object|null>}
  */
+function recordConciergeFallback(reason, ms, surface) {
+  recordFoundationMetric(
+    'pil_concierge_interpret_total',
+    { source: 'fallback', reason },
+    {
+      log: {
+        evt: 'pil_concierge_interpret_fallback',
+        surface: surface ?? 'unknown',
+        reason,
+        ms,
+      },
+    },
+  );
+}
+
 export async function interpretPilConciergeWithLlm(context) {
-  if (!openai || !context || typeof context !== 'object') return null;
+  const started = Date.now();
+  const surface = context?.surface ?? 'unknown';
+
+  if (!openai) {
+    recordConciergeFallback('no_key', Date.now() - started, surface);
+    return null;
+  }
+  if (!context || typeof context !== 'object') {
+    recordConciergeFallback('invalid_context', Date.now() - started, surface);
+    return null;
+  }
 
   const availableActions = Array.isArray(context.availableActions) ? context.availableActions : [];
-  if (availableActions.length === 0) return null;
+  if (availableActions.length === 0) {
+    recordConciergeFallback('no_actions', Date.now() - started, surface);
+    return null;
+  }
 
   try {
     const completion = await openai.chat.completions.create({
@@ -85,15 +114,24 @@ export async function interpretPilConciergeWithLlm(context) {
     });
 
     const raw = completion.choices?.[0]?.message?.content;
-    if (!raw) return null;
+    if (!raw) {
+      recordConciergeFallback('llm_error', Date.now() - started, surface);
+      return null;
+    }
 
     const parsed = JSON.parse(raw);
     const title = String(parsed.title ?? '').trim();
     const message = String(parsed.message ?? '').trim();
-    if (!title || !message || isDiagnostic(title) || isDiagnostic(message)) return null;
+    if (!title || !message || isDiagnostic(title) || isDiagnostic(message)) {
+      recordConciergeFallback('validation_failed', Date.now() - started, surface);
+      return null;
+    }
 
     const primaryAction = pickAllowedAction(parsed.primaryAction, availableActions);
-    if (!primaryAction) return null;
+    if (!primaryAction) {
+      recordConciergeFallback('validation_failed', Date.now() - started, surface);
+      return null;
+    }
 
     const secondaryActions = (Array.isArray(parsed.secondaryActions) ? parsed.secondaryActions : [])
       .map((a) => pickAllowedAction(a, availableActions))
@@ -108,6 +146,8 @@ export async function interpretPilConciergeWithLlm(context) {
           .slice(0, 6)
       : undefined;
 
+    const latencyMs = Date.now() - started;
+    recordFoundationMetric('pil_concierge_interpret_total', { source: 'llm' });
     return {
       title: title.slice(0, 120),
       message: message.slice(0, 600),
@@ -119,6 +159,7 @@ export async function interpretPilConciergeWithLlm(context) {
     };
   } catch (err) {
     console.warn('[PIL Concierge] LLM interpret failed:', err?.message);
+    recordConciergeFallback('llm_error', Date.now() - started, surface);
     return null;
   }
 }

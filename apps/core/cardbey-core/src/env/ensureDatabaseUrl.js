@@ -12,6 +12,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'url';
 import {
   CANONICAL_DEV_DB,
+  CANONICAL_TEST_DB,
   CANONICAL_SQLITE_URLS,
   filePathFromSqliteUrl,
   getPathFromFileUrl,
@@ -22,13 +23,20 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.join(__dirname, '..', '..');
+function isVitestRun() {
+  const vitest = String(process.env.VITEST ?? '').toLowerCase();
+  return process.env.NODE_ENV === 'test' || vitest === 'true' || vitest === '1';
+}
+
 const envPath = path.join(PACKAGE_ROOT, '.env');
 const envLocalPath = path.join(PACKAGE_ROOT, '.env.local');
-if (fs.existsSync(envPath)) {
-  dotenv.config({ path: envPath, override: false });
-}
-if (fs.existsSync(envLocalPath)) {
-  dotenv.config({ path: envLocalPath, override: true });
+if (!isVitestRun()) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, override: false });
+  }
+  if (fs.existsSync(envLocalPath)) {
+    dotenv.config({ path: envLocalPath, override: true });
+  }
 }
 
 /** Paths wiped on Render/container restart — must not be used in production. */
@@ -281,9 +289,14 @@ function logStartupAndFailIfEphemeral() {
   }
 }
 
-normalizeDatabaseUrl();
-ensureSqliteWritable();
-if (process.env.DATABASE_URL?.toLowerCase().startsWith('file:')) {
-  process.env.DATABASE_URL = appendSqliteConnectionParams(process.env.DATABASE_URL);
+if (isVitestRun()) {
+  process.env.NODE_ENV = 'test';
+  process.env.DATABASE_URL = appendSqliteConnectionParams(toFileUrl(CANONICAL_TEST_DB));
+} else {
+  normalizeDatabaseUrl();
+  ensureSqliteWritable();
+  if (process.env.DATABASE_URL?.toLowerCase().startsWith('file:')) {
+    process.env.DATABASE_URL = appendSqliteConnectionParams(process.env.DATABASE_URL);
+  }
+  logStartupAndFailIfEphemeral();
 }
-logStartupAndFailIfEphemeral();

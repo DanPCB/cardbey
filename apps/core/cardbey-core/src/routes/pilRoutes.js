@@ -84,4 +84,24 @@ router.get('/events/volume', optionalAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/pil/concierge/interpret
+ * Body: { context: PILContext }
+ * Optional LLM interpretation — returns null interpretation on failure (client uses fallback).
+ */
+router.post('/concierge/interpret', guestSessionId, optionalAuth, async (req, res) => {
+  try {
+    const context = req.body?.context;
+    if (!context || typeof context !== 'object') {
+      return res.status(400).json({ ok: false, error: 'context_required' });
+    }
+    const { interpretPilConciergeWithLlm } = await import('../lib/pil/interpretPilConciergeWithLlm.js');
+    const interpretation = await interpretPilConciergeWithLlm(context);
+    return res.json({ ok: true, interpretation: interpretation ?? null });
+  } catch (err) {
+    console.warn('[PIL] concierge/interpret error:', err?.message);
+    return res.json({ ok: true, interpretation: null });
+  }
+});
+
 export default router;

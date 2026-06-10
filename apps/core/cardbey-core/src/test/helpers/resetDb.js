@@ -78,6 +78,7 @@ export async function resetDb(prisma) {
   await safeDeleteMany(prisma, 'business');
 
   // 4) Auth/user-owned misc tables.
+  await safeDeleteMany(prisma, 'intelligenceOverride');
   await safeDeleteMany(prisma, 'passwordResetToken');
   await safeDeleteMany(prisma, 'content');
   await safeDeleteMany(prisma, 'demand');
