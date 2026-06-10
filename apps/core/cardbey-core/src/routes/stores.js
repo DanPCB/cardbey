@@ -42,7 +42,11 @@ import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
 import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
-import { buildStorageUploadResponse, resolveClientHeroMediaUrl } from '../lib/storage/uploadResponse.js';
+import {
+  buildStorageUploadResponse,
+  resolveClientHeroMediaUrl,
+  resolvePersistedHeroMediaUrl,
+} from '../lib/storage/uploadResponse.js';
 import { normalizeMediaUrlField } from '../services/draftStore/normalizeHeroMediaUrlsForStorage.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
@@ -1904,6 +1908,13 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     if (isVideo) {
       const { assertValidHeroVideoUpload } = await import('../utils/videoBinaryValidation.js');
       const videoCheck = assertValidHeroVideoUpload(buffer, mime);
+      console.log('[HERO_VIDEO_VALIDATE]', {
+        stage: 'server_binary',
+        ok: videoCheck.ok,
+        mimeType: mime,
+        sizeBytes: buffer.length,
+        reason: videoCheck.ok ? null : videoCheck.error,
+      });
       if (!videoCheck.ok) {
         return res.status(400).json({
           ok: false,
@@ -1957,11 +1968,11 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       mediaType: isVideo ? 'video' : 'image',
       req,
     });
-    const normalizedUrl = uploadPayload.normalizedUrl;
+    const persistedHeroUrl = resolvePersistedHeroMediaUrl(uploadPayload);
     try {
       await prisma.media.create({
         data: {
-          url: normalizedUrl,
+          url: persistedHeroUrl,
           storageKey: key,
           kind: isVideo ? 'VIDEO' : 'IMAGE',
           mime,
@@ -1971,7 +1982,7 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
     } catch (mediaErr) {
       console.warn('[Stores] upload/hero: Media create failed (non-fatal), draft preview will still be updated:', mediaErr?.message);
     }
-    const heroImageUrl = normalizedUrl;
+    const heroImageUrl = persistedHeroUrl;
     const existingPreview = draft
       ? (typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {}))
       : {};
@@ -2019,14 +2030,16 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       ? resolveClientHeroMediaUrl(heroResult.heroImageUrl, publicUrl, req)
       : (heroResult.heroImageUrl ?? null);
 
-    console.log('[HERO_MEDIA_APPLY]', {
+    console.log('[HERO_VIDEO_APPLY]', {
       mediaType: isVideo ? 'video' : 'image',
       mimeType: mime,
       storageDriver: uploadPayload.storageDriver,
       publicUrl,
+      persistedHeroUrl,
       heroVideoUrl: clientVideoUrl,
       heroImageUrl: clientImageUrl,
       draftUpdated: heroResult.draftUpdated,
+      businessUpdated: heroResult.businessUpdated,
     });
 
     return res.status(200).json({
@@ -2038,7 +2051,7 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
       size: buffer.length,
       heroImageUrl: clientImageUrl,
       heroVideoUrl: clientVideoUrl,
-      heroMediaType: heroResult.heroMediaType ?? (isVideo ? 'video' : 'image'),
+      heroMediaType: isVideo ? 'video' : heroResult.heroMediaType ?? 'image',
       videoUrl: clientVideoUrl,
       isVideo,
       key,

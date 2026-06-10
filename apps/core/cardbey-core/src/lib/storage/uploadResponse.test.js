@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { buildStorageUploadResponse, resolveClientHeroMediaUrl } from './uploadResponse.js';
+import {
+  buildStorageUploadResponse,
+  resolveClientHeroMediaUrl,
+  resolvePersistedHeroMediaUrl,
+} from './uploadResponse.js';
 
 describe('buildStorageUploadResponse', () => {
   const envBackup = { ...process.env };
@@ -69,5 +73,27 @@ describe('resolveClientHeroMediaUrl', () => {
       'https://media.cardbey.com/media/videos/new.mp4',
     );
     expect(url).toBe('https://media.cardbey.com/media/videos/new.mp4');
+  });
+});
+
+describe('resolvePersistedHeroMediaUrl', () => {
+  afterEach(() => {
+    delete process.env.MEDIA_PUBLIC_BASE_URL;
+    delete process.env.STORAGE_DRIVER;
+  });
+
+  it('returns CDN public URL for s3 upload payload', () => {
+    process.env.STORAGE_DRIVER = 's3';
+    process.env.MEDIA_PUBLIC_BASE_URL = 'https://media.cardbey.com';
+    const payload = buildStorageUploadResponse({
+      storageUrl: 'https://media.cardbey.com/media/videos/hero.mp4',
+      key: 'media/videos/hero.mp4',
+      mime: 'video/mp4',
+      mediaType: 'video',
+    });
+    expect(resolvePersistedHeroMediaUrl(payload)).toBe(
+      'https://media.cardbey.com/media/videos/hero.mp4',
+    );
+    expect(resolvePersistedHeroMediaUrl(payload)).not.toContain('/uploads/');
   });
 });

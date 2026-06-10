@@ -4,7 +4,11 @@
 import multer from 'multer';
 import { getPrismaClient } from '../../lib/prisma.js';
 import { uploadBufferToS3 } from '../../lib/s3Client.js';
-import { buildStorageUploadResponse, resolveClientHeroMediaUrl } from '../../lib/storage/uploadResponse.js';
+import {
+  buildStorageUploadResponse,
+  resolveClientHeroMediaUrl,
+  resolvePersistedHeroMediaUrl,
+} from '../../lib/storage/uploadResponse.js';
 import { getDraft, getDraftByGenerationRunId } from './draftStoreService.js';
 import { buildHeroPreviewPatchFromUrls } from './heroUpdateService.js';
 import { updateHeroForStore } from './heroUpdateService.js';
@@ -189,7 +193,7 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
   if (isVideo) {
     const videoCheck = assertValidHeroVideoUpload(buffer, mime);
     if (!videoCheck.ok) {
-      console.warn('[VIDEO_PLAYABILITY_CHECK]', {
+      console.warn('[HERO_VIDEO_VALIDATE]', {
         stage: 'server_binary',
         mimeType: mime,
         mediaType: 'video',
@@ -202,7 +206,7 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
         message: videoCheck.message,
       });
     }
-    console.log('[VIDEO_PLAYABILITY_CHECK]', {
+    console.log('[HERO_VIDEO_VALIDATE]', {
       stage: 'server_binary',
       mimeType: mime,
       mediaType: 'video',
@@ -248,11 +252,11 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     mediaType: isVideo ? 'video' : 'image',
     req,
   });
-  const normalizedUrl = uploadPayload.normalizedUrl;
+  const persistedHeroUrl = resolvePersistedHeroMediaUrl(uploadPayload);
   try {
     await prisma.media.create({
       data: {
-        url: normalizedUrl,
+        url: persistedHeroUrl,
         storageKey: key,
         kind: isVideo ? 'VIDEO' : 'IMAGE',
         mime,
@@ -266,7 +270,7 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     );
   }
 
-  const heroImageUrl = normalizedUrl;
+  const heroImageUrl = persistedHeroUrl;
   const existingPreview =
     typeof draft.preview === 'string'
       ? (() => {
@@ -314,14 +318,16 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
     ? resolveClientHeroMediaUrl(heroResult.heroImageUrl, publicUrl, req)
     : (heroResult.heroImageUrl ?? null);
 
-  console.log('[HERO_MEDIA_APPLY]', {
+  console.log('[HERO_VIDEO_APPLY]', {
     mediaType: isVideo ? 'video' : 'image',
     mimeType: mime,
     storageDriver: uploadPayload.storageDriver,
     publicUrl,
+    persistedHeroUrl,
     heroVideoUrl: clientVideoUrl,
     heroImageUrl: clientImageUrl,
     draftUpdated: heroResult.draftUpdated,
+    businessUpdated: heroResult.businessUpdated,
   });
 
   return res.status(200).json({

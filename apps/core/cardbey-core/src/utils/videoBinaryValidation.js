@@ -16,9 +16,10 @@ export function detectVideoContainer(bytes) {
   if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
     return 'webm';
   }
-  if (bytes.length >= 8) {
-    const ftyp = String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]);
-    if (ftyp === 'ftyp') return 'mp4';
+  const scanLen = Math.min(bytes.length - 4, 64);
+  for (let i = 0; i <= scanLen; i += 1) {
+    const tag = String.fromCharCode(bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]);
+    if (tag === 'ftyp') return 'mp4';
   }
   return null;
 }

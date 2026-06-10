@@ -90,11 +90,18 @@ export function createS3StorageAdapter() {
       throw new Error('[STORAGE] S3 driver requires S3_BUCKET and MEDIA_PUBLIC_BASE_URL');
     }
 
+    let contentType = mimeType || 'application/octet-stream';
+    if (String(contentType).toLowerCase() === 'video/quicktime') {
+      contentType = 'video/mp4';
+    } else if (!contentType.startsWith('video/') && /\.mp4$/i.test(key)) {
+      contentType = 'video/mp4';
+    }
+
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: key,
       Body: buffer,
-      ContentType: mimeType || 'application/octet-stream',
+      ContentType: contentType,
       CacheControl: 'public, max-age=31536000, immutable',
     });
 
