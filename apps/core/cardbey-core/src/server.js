@@ -160,6 +160,7 @@ import loyaltyRoutes from './routes/loyalty.js';
 import loyaltyEngineRoutes from './routes/loyaltyRoutes.js';
 import watcherRoutes from './routes/watcher.js';
 import pilRoutes from './routes/pilRoutes.js';
+import businessMemoryRoutes from './routes/businessMemoryRoutes.js';
 import userMemoryRoutes from './routes/userMemoryRoutes.js';
 import promoEngineRoutes from './routes/promoEngine.js';
 import signageEngineRoutes from './routes/signageEngine.js';
@@ -879,6 +880,7 @@ app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.
 app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/event, /api/watcher/insights, /api/watcher/chat
 app.use('/api/pil', pilRoutes); // PIL intelligence events: POST /api/pil/events, /api/pil/events/batch
+app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observation → outcome memory
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
 app.use('/api', signageRoutes); // Signage REST API routes: /api/signage-assets, /api/signage-playlists, etc.
