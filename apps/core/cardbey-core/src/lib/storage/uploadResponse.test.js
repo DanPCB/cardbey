@@ -61,4 +61,13 @@ describe('resolveClientHeroMediaUrl', () => {
     );
     expect(url).toBe('https://media.cardbey.com/media/videos/stored.mp4');
   });
+
+  it('prefers fresh CDN upload URL over stored Core /uploads path', () => {
+    process.env.MEDIA_PUBLIC_BASE_URL = 'https://media.cardbey.com';
+    const url = resolveClientHeroMediaUrl(
+      '/uploads/media/videos/old.mp4',
+      'https://media.cardbey.com/media/videos/new.mp4',
+    );
+    expect(url).toBe('https://media.cardbey.com/media/videos/new.mp4');
+  });
 });

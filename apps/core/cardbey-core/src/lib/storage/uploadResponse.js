@@ -73,10 +73,15 @@ export function buildStorageUploadResponse({ storageUrl, key, mime, mediaType, r
 export function resolveClientHeroMediaUrl(storedUrl, uploadPublicUrl, req = null) {
   const stored = typeof storedUrl === 'string' ? storedUrl.trim() : '';
   if (stored && isCloudFrontUrl(stored)) return stored;
+
+  const upload =
+    typeof uploadPublicUrl === 'string' && uploadPublicUrl.trim() ? uploadPublicUrl.trim() : '';
+  if (upload && isCloudFrontUrl(upload)) return upload;
+
   if (stored) {
     const built = buildMediaUrl(stored, req);
     if (built && isCloudFrontUrl(built)) return built;
     if (built && !built.includes('/uploads/')) return built;
   }
-  return uploadPublicUrl;
+  return upload || stored;
 }
