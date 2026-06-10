@@ -28,6 +28,24 @@ export const CONFIDENCE = {
   LOW: 0.0,
 };
 
+const CAMPAIGN_ORCHESTRATION_PATTERNS = [
+  /\bcreate\s+a?\s*(winter|summer|spring|autumn|seasonal|holiday|flash|sale|launch)\s+campaign/i,
+  /\bcampaign\s+for\s+/i,
+  /\brun\s+a?\s*campaign/i,
+  /\bmulti.?agent/i,
+  /\borchestrat/i,
+  /\bfull\s+campaign/i,
+  /\bpromotional\s+campaign/i,
+  /\bmarketing\s+campaign/i,
+  /\blaunch\s+campaign\b/i,
+  /\bcontent\s+(plan|strategy|calendar)/i,
+];
+
+/** @param {string | null | undefined} message */
+export function isCampaignOrchestrationIntent(message) {
+  return CAMPAIGN_ORCHESTRATION_PATTERNS.some((p) => p.test(message ?? ''));
+}
+
 export const FALLBACK_CLARIFY = {
   executionPath: 'clarify',
   tool: 'general_chat',
@@ -342,6 +360,19 @@ export async function classifyIntent(opts) {
       confidence: CONFIDENCE.HIGH,
       parameters: { storeId: resolvedStoreId },
       _fastPath: 'activate_campaigns',
+    };
+  }
+
+  if (isCampaignOrchestrationIntent(msg)) {
+    return {
+      intentType: 'campaign_orchestration',
+      missionType: 'campaign_orchestration',
+      executionPath: 'campaign_orchestration',
+      tool: null,
+      confidence: 0.85,
+      skipPlan: true,
+      parameters: {},
+      _fastPath: 'campaign_orchestration',
     };
   }
 

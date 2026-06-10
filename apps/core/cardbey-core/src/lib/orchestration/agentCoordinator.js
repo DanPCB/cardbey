@@ -307,6 +307,7 @@ Return JSON only as an array.`,
     const completed = new Set();
     const pending = [...tasks];
     let halted = false;
+    let waveIndex = 0;
 
     while (pending.length > 0 && !halted) {
       if (isOverBudget(this.missionId)) {
@@ -342,6 +343,21 @@ Return JSON only as an array.`,
       );
       this.activeWaveCount += 1;
 
+      const missionId = this.baseContext?.missionId ?? this.missionId ?? null;
+      for (const task of ready) {
+        if (missionId) {
+          console.log(
+            '[AgentCoordinator] agent_step_start ' +
+              JSON.stringify({
+                missionId,
+                step: waveIndex + 1,
+                agentType: task?.agentType,
+                taskId: task?.taskId,
+              }),
+          );
+        }
+      }
+
       const settled = await Promise.allSettled(ready.map((t) => this.assignTask(t)));
       const waveResults = [];
 
@@ -366,6 +382,19 @@ Return JSON only as an array.`,
               };
 
         waveResults.push(envelope);
+
+        if (missionId) {
+          console.log(
+            '[AgentCoordinator] agent_step_complete ' +
+              JSON.stringify({
+                missionId,
+                step: waveIndex + 1,
+                agentType: task?.agentType,
+                ok: result.status === 'fulfilled' && !!envelope && !envelope.error,
+                summary: (envelope?.summary ?? '').slice(0, 80) || null,
+              }),
+          );
+        }
 
         const idx = pending.indexOf(task);
         if (idx >= 0) pending.splice(idx, 1);
@@ -430,7 +459,19 @@ Return JSON only as an array.`,
       } catch (e) {
         console.warn('[AgentCoordinator] runtime snapshot (non-fatal):', e?.message || e);
       }
+
+      waveIndex += 1;
     }
+
+    const missionIdComplete = this.baseContext?.missionId ?? this.missionId ?? null;
+    console.log(
+      '[AgentCoordinator] orchestration_complete ' +
+        JSON.stringify({
+          missionId: missionIdComplete,
+          totalAgents: tasks.length,
+          ok: true,
+        }),
+    );
 
     return this.mergeResults();
   }
