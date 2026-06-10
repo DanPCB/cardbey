@@ -10,6 +10,8 @@
 
 import { generateUniqueStoreSlug, slugify } from '../../utils/slug.js';
 import { extendedBusinessFieldsFromCommerce } from '../../lib/dbCapabilities.js';
+import { hasBusinessColumn } from '../../lib/businessColumnCapabilities.js';
+import { resolveContactFieldsForPublish } from './storeContactIntake.js';
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
 import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
@@ -39,6 +41,20 @@ function heroMediaForPublish(rawPreview) {
   return { storeHeroVideo, storeHeroImage, canonical };
 }
 
+const BUSINESS_CONTACT_PUBLISH_KEYS = [
+  'phone',
+  'email',
+  'websiteUrl',
+  'address',
+  'suburb',
+  'state',
+  'postcode',
+  'country',
+  'mapUrl',
+  'lat',
+  'lng',
+].filter((key) => hasBusinessColumn(key));
+
 const BUSINESS_PUBLISH_SCALAR_KEYS = new Set([
   'name',
   'type',
@@ -56,6 +72,7 @@ const BUSINESS_PUBLISH_SCALAR_KEYS = new Set([
   'transactionMode',
   'catalogLabel',
   'ctaLabel',
+  ...BUSINESS_CONTACT_PUBLISH_KEYS,
 ]);
 
 function parseStylePreferencesBlob(raw) {
@@ -398,7 +415,13 @@ export async function publishDraft(prisma, {
   if (!isTempStore) {
     store = await prisma.business.findUnique({
       where: { id: storeId },
-      select: { id: true, userId: true, name: true, slug: true },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        slug: true,
+        ...Object.fromEntries(BUSINESS_CONTACT_PUBLISH_KEYS.map((k) => [k, true])),
+      },
     });
     if (!store) {
       throw new PublishDraftError('store_not_found', 'Store not found', 404);
@@ -619,9 +642,12 @@ export async function publishDraft(prisma, {
 
   const publishedAt = new Date();
 
+  const contactFieldsForPublish = resolveContactFieldsForPublish(store, targetDraft, rawPreview);
+
   const BUSINESS_UPDATE_KEYS = [
     'name', 'type', 'slug', 'description', 'tagline', 'logo', 'isActive',
     'heroImageUrl', 'avatarImageUrl', 'publishedAt', 'stylePreferences', 'storefrontSettings', 'updatedAt',
+    ...BUSINESS_CONTACT_PUBLISH_KEYS,
   ];
   const existingStorefrontSettings = await loadExistingStorefrontSettings(prisma, effectiveStoreId);
   const draftStorefront = rawPreview.storefront && typeof rawPreview.storefront === 'object'
@@ -672,6 +698,9 @@ export async function publishDraft(prisma, {
     ...(storefrontSettings !== undefined ? { storefrontSettings } : {}),
     updatedAt: publishedAt,
     ...extendedBusinessFieldsFromCommerce(commerce),
+    ...Object.fromEntries(
+      BUSINESS_CONTACT_PUBLISH_KEYS.map((k) => [k, contactFieldsForPublish[k] ?? null]),
+    ),
   };
 
   let businessData = sanitizeBusinessPublishData(

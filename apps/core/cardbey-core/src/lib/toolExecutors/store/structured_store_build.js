@@ -206,6 +206,18 @@ export async function execute(_input = {}, context = {}) {
   }
 
   try {
+    const { buildContactIntakeFromMissionMeta, applyStoreContactIntakeToDraft } = await import(
+      '../../../services/draftStore/storeContactIntake.js'
+    );
+    const contactIntake = buildContactIntakeFromMissionMeta(meta);
+    if (contactIntake) {
+      await applyStoreContactIntakeToDraft(prisma, draftIdForRun, contactIntake);
+    }
+  } catch (contactErr) {
+    console.warn('[structured_store_build] contact intake apply skipped:', contactErr?.message ?? contactErr);
+  }
+
+  try {
     await generateDraft(draftIdForRun, {
       userId: uid,
       reactMissionId: missionId,

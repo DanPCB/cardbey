@@ -1,5 +1,6 @@
 // Cardbey Core API - Prisma Schema (SQLite)
-// Used for: local dev, unit tests (db push). Do not use migrate for SQLite.
+// Used for: local dev, unit tests. Migrations: prisma/sqlite/migrations (migrate deploy/dev).
+// Legacy DBs missing hero columns: node scripts/ensure-business-hero-columns.mjs
 // Generate: npx prisma generate --schema prisma/sqlite/schema.prisma
 // App must import from this output (client-gen); do not use @prisma/client default or WorkflowRun will be missing.
 //
@@ -168,9 +169,13 @@ model Business {
   tradingHours Json? // JSON object for trading hours
   address      String?
   suburb       String?
+  state        String?
   postcode     String?
   country      String?
   phone        String?
+  email        String?
+  websiteUrl   String?
+  mapUrl       String?
   lat          Float?
   lng          Float?
   // Brand fields for business creation and template binding
@@ -2324,6 +2329,17 @@ model DraftStore {
   brandColors     String?   // JSON array string e.g. '["pink","gold"]'
   unclaimedStoreId String?  // Link to UnclaimedStore when pre-built from discovery agent
   transferredAt   DateTime? // When pre-built draft transferred to claimer
+  phone           String?
+  email           String?
+  websiteUrl      String?
+  address         String?
+  suburb          String?
+  state           String?
+  postcode        String?
+  country         String?
+  mapUrl          String?
+  lat             Float?
+  lng             Float?
 
   workflowRuns WorkflowRun[]     // Phase 1: workflow tracking (e.g. store_creation)
   workflowIncidents WorkflowIncident[]

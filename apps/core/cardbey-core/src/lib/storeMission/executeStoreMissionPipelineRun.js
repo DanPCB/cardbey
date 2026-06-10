@@ -151,6 +151,18 @@ async function executeStoreMissionPipelineRunCore({
     where: { missionId, status: 'pending' },
   });
   if (hasStructuredStoreBuild > 0) {
+    const rawPreloadedStructured = body.preloadedCatalogItems;
+    if (rawPreloadedStructured != null) {
+      const { sanitizePreloadedCatalogItems } = await import('../../services/draftStore/preloadedCatalogFromItems.js');
+      const sanitizedPreloadedStructured = sanitizePreloadedCatalogItems(rawPreloadedStructured);
+      if (sanitizedPreloadedStructured?.length) {
+        await mergeMissionContext(
+          missionId,
+          { preloadedCatalogItems: sanitizedPreloadedStructured },
+          { prisma },
+        ).catch(() => {});
+      }
+    }
     if (pendingSteps > 0) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(

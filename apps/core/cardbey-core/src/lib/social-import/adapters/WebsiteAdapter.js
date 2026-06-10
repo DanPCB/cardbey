@@ -12,6 +12,7 @@ import {
   jsonLdTypeIncludes,
   decodeHtmlEntities,
 } from '../scrapeUtils.js';
+import { deepCrawlProducts } from '../ProductPageCrawler.js';
 
 export const platform = 'website';
 
@@ -71,25 +72,251 @@ export async function extract(url) {
     throw { code: 'SCRAPE_FAILED' };
   }
 
+  let payload;
   try {
-    return buildPayloadFromHtml(sourceUrl, html);
+    payload = buildPayloadFromHtml(sourceUrl, html);
   } catch {
-    return buildPartialPayload(sourceUrl, html);
+    payload = buildPartialPayload(sourceUrl, html);
   }
+
+  if (!Array.isArray(payload.products) || payload.products.length === 0) {
+    try {
+      const crawledProducts = await deepCrawlProducts(html, sourceUrl, {
+        maxProductPages: 3,
+        maxProducts: 20,
+      });
+      if (crawledProducts.length > 0) {
+        payload.products = crawledProducts;
+        payload.productSource = 'crawled';
+      }
+    } catch (e) {
+      console.warn('[WebsiteAdapter] product crawl failed:', e?.message || e);
+    }
+  } else {
+    payload.productSource = 'schema';
+  }
+
+  return payload;
+}
+
+/**
+ * @param {object | null | undefined} node
+ * @returns {boolean}
+ */
+function isPlaceholderSchema(node) {
+  if (!node) return true;
+
+  const name = typeof node.name === 'string' ? node.name.toLowerCase() : '';
+  const addrLocality = node.address?.addressLocality ?? '';
+  const addrRegion = node.address?.addressRegion ?? '';
+  const addrStreet = node.address?.streetAddress ?? '';
+
+  if (name.includes('.com') || name.includes('.au') || name.includes('.net') || name.includes('.org')) {
+    return true;
+  }
+
+  const vnPlaceholders = [
+    'hà nội',
+    'ha noi',
+    'hanoi',
+    'hồ chí minh',
+    'ho chi minh',
+    'việt nam',
+    'viet nam',
+    'vietnam',
+    'đà nẵng',
+    'da nang',
+  ];
+  const addrFull = [addrLocality, addrRegion, addrStreet].join(' ').toLowerCase();
+  if (vnPlaceholders.some((p) => addrFull.includes(p))) {
+    return true;
+  }
+
+  if (addrStreet && addrLocality && addrStreet.toLowerCase() === addrLocality.toLowerCase()) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * @param {string} html
+ * @param {string} baseUrl
+ * @returns {{ name: string | null, phone: string | null, email: string | null, address: string | null, logo: string | null, heroImage: string | null }}
+ */
+function extractFromDom(html, baseUrl) {
+  let name = null;
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch) {
+    name = titleMatch[1]
+      .split(/[|\-–—]/)[0]
+      .trim()
+      .replace(/&amp;/g, '&')
+      .replace(/&nbsp;/g, ' ');
+    if (!name || name.length > 80 || name.includes('.com') || name.includes('.au')) {
+      name = null;
+    }
+  }
+  if (!name) {
+    const logoAlt =
+      html.match(/<img[^>]*logo[^>]*alt=["']([^"']+)["']/i) ||
+      html.match(/alt=["']([^"']+)["'][^>]*logo/i);
+    if (logoAlt) {
+      name = logoAlt[1].trim().replace(/\s+PTY\s+LTD\.?/i, '').replace(/\s+/g, ' ').trim();
+    }
+  }
+  if (!name) {
+    const skipTitleRe = /^(home|rss|menu|search|cart|login|sign\s*in|contact|about|back)$/i;
+    const titleAttrs = [...html.matchAll(/\btitle=["']([^"']{4,80})["']/gi)];
+    for (const m of titleAttrs) {
+      const candidate = m[1].trim();
+      if (
+        skipTitleRe.test(candidate) ||
+        /^rss[\s.]/i.test(candidate) ||
+        candidate.includes('.com') ||
+        candidate.includes('.au')
+      ) {
+        continue;
+      }
+      name = candidate.replace(/\s+PTY\s+LTD\.?/i, '').replace(/\s+/g, ' ').trim();
+      if (name) break;
+    }
+  }
+
+  const phonePatterns = [
+    /href="tel:([^"]+)"/i,
+    /(\+61[\s.]?[2-9][\s.]?\d{4}[\s.]?\d{4})/,
+    /(04\d{2}[.\s]?\d{3}[.\s]?\d{3})/,
+    /(\(0[2-9]\)\s?\d{4}\s?\d{4})/,
+    /(0[2-9][\s.]?\d{4}[\s.]?\d{4})/,
+  ];
+  let phone = null;
+  for (const p of phonePatterns) {
+    const m = html.match(p);
+    if (m) {
+      phone = m[1].replace(/[.\s]/g, '').trim();
+      if (phone.startsWith('+61')) {
+        phone = `0${phone.slice(3)}`;
+      }
+      break;
+    }
+  }
+
+  let address = null;
+  const auAddrPattern =
+    /(\d+[^,\n]{3,50},\s*[A-Za-z\s]{2,30}\s+(?:NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\s+\d{4}(?:,?\s*Australia)?)/i;
+  const addrMatch = html.match(auAddrPattern);
+  if (addrMatch) {
+    address = addrMatch[1].replace(/\s+/g, ' ').trim();
+  }
+  if (!address) {
+    const auAddrNoCommaPattern =
+      /(\d+\/?\d*\s+[^<\n]{5,70}\s+(?:NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\s+\d{4}(?:,?\s*Australia)?)/i;
+    const addrMatch2 = html.match(auAddrNoCommaPattern);
+    if (addrMatch2) {
+      address = addrMatch2[1].replace(/\s+/g, ' ').trim();
+    }
+  }
+
+  let email = null;
+  const mailMatch = html.match(/href="mailto:([^"?]+)"/i);
+  if (mailMatch) {
+    email = mailMatch[1].trim().toLowerCase();
+  }
+  if (!email) {
+    const emailPattern = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-z]{2,}/;
+    const emailMatch = html.match(emailPattern);
+    if (emailMatch && !emailMatch[0].includes('example') && !emailMatch[0].includes('youremail')) {
+      email = emailMatch[0].toLowerCase();
+    }
+  }
+
+  let logo = null;
+  const logoPatterns = [
+    /src="([^"]*logo[^"]*\.(png|jpg|jpeg|webp|svg))"/i,
+    /src="([^"]*Logo[^"]*\.(png|jpg|jpeg|webp|svg))"/,
+  ];
+  for (const p of logoPatterns) {
+    const m = html.match(p);
+    if (m) {
+      try {
+        logo = new URL(m[1], baseUrl).href;
+      } catch {
+        continue;
+      }
+      break;
+    }
+  }
+
+  let heroImage = null;
+  const bannerPatterns = [
+    /(?:banner|hero|slider|carousel|slide-img)[^>]*src="([^"]+)"/i,
+    /src="([^"]*(?:banner|hero|slider|bg)[^"]*\.(jpg|jpeg|png|webp))"/i,
+    /data-src="([^"]*(?:banner|hero|slider)[^"]*\.(jpg|jpeg|png|webp))"/i,
+    /background(?:-image)?:\s*url\(['"]?([^'")]+)['"]?\)/i,
+  ];
+  for (const p of bannerPatterns) {
+    const m = html.match(p);
+    if (m && m[1] && !m[1].match(/logo|icon|favicon/i)) {
+      try {
+        heroImage = new URL(m[1], baseUrl).href;
+        break;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return { name, phone, email, address, logo, heroImage };
 }
 
 function buildPayloadFromHtml(sourceUrl, html) {
   const jsonLd = extractJsonLd(html);
   const schema = findBusinessSchema(jsonLd);
 
-  let name = schema ? pickString(schema.name) : '';
+  const schemaIsPlaceholder = isPlaceholderSchema(schema);
+  const dom = extractFromDom(html, sourceUrl);
+
+  let name = '';
+  if (schema && !schemaIsPlaceholder) {
+    name = pickString(schema.name) ?? '';
+  }
+  if (!name || name.includes('.com') || name.includes('.au')) {
+    name =
+      dom.name ??
+      extractMetaContent(html, 'og:site_name') ??
+      extractMetaContent(html, 'og:title') ??
+      '';
+    if (name) {
+      name = name.split(/[|\-–—]/)[0].trim();
+    }
+  }
+
+  let phone =
+    dom.phone ??
+    (schema && !schemaIsPlaceholder ? normalizePhone(pickString(schema.telephone)) : null) ??
+    '';
+
+  let email =
+    dom.email ?? (schema && !schemaIsPlaceholder ? pickString(schema.email) : null) ?? '';
+
+  let address = '';
+  if (schema && !schemaIsPlaceholder) {
+    address = formatPostalAddress(schema.address);
+  }
+  if (!address || isPlaceholderSchema(schema)) {
+    address = dom.address ?? '';
+  }
+
+  let hours = schema && !schemaIsPlaceholder ? normalizeHours(schema.openingHours) : null;
+
+  let logo = schema && !schemaIsPlaceholder ? pickImageUrl(schema.logo) : null;
+  logo = logo ?? dom.logo ?? '';
+
+  let image = schema && !schemaIsPlaceholder ? pickImageUrl(schema.image) : null;
+  image = image ?? dom.heroImage ?? '';
+
   let description = schema ? pickString(schema.description) : '';
-  let phone = schema ? normalizePhone(pickString(schema.telephone)) : '';
-  let email = schema ? pickString(schema.email) : '';
-  let address = schema ? formatPostalAddress(schema.address) : '';
-  let hours = schema ? normalizeHours(schema.openingHours) : null;
-  let logo = schema ? pickImageUrl(schema.logo) : '';
-  let image = schema ? pickImageUrl(schema.image) : '';
   let priceRange = schema ? pickString(schema.priceRange) : '';
   const category = schema ? pickString(schema.servesCuisine) || inferCategoryFromSchema(schema) : '';
   let products = schema ? mapOfferCatalog(schema.hasOfferCatalog) : [];

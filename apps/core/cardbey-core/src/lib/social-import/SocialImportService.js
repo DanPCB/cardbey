@@ -111,6 +111,15 @@ function buildMissionMetadata(normalized, raw) {
     ...(normalized.logoUrl ? { logoUrl: normalized.logoUrl } : {}),
     ...(normalized.heroMedia?.url ? { heroMediaUrl: normalized.heroMedia.url } : {}),
     ...(normalized.socialLinks ? { socialLinks: normalized.socialLinks } : {}),
+    phone: normalized.phone ?? null,
+    email: normalized.email ?? null,
+    websiteUrl: normalized.websiteUrl ?? null,
+    address: normalized.address ?? null,
+    suburb: normalized.suburb ?? null,
+    state: normalized.state ?? null,
+    postcode: normalized.postcode ?? null,
+    country: normalized.country ?? null,
+    mapUrl: normalized.mapUrl ?? null,
     rawUserText: normalized.rawUserText,
     intentMode: 'store',
     // Blackboard context source + import provenance
@@ -121,6 +130,7 @@ function buildMissionMetadata(normalized, raw) {
       platform: normalized.platform,
       sourceUrl: normalized.sourceUrl,
       productCount: Array.isArray(normalized.products) ? normalized.products.length : 0,
+      productSource: normalized.productSource ?? raw?.productSource ?? null,
       products: Array.isArray(normalized.products) ? normalized.products : [],
       scraped: {
         category: raw?.category ?? '',

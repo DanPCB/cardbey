@@ -41,6 +41,7 @@
  */
 
 import { inferCurrencyFromLocationText } from '../../services/draftStore/currencyInfer.js';
+import { buildMapUrl, parseAddress } from '../../services/draftStore/storeContactIntake.js';
 import { normalizeSocialLinks, SOCIAL_LINK_KEYS } from '../socialLinks.js';
 import { sanitizePreloadedCatalogItems } from '../../services/draftStore/preloadedCatalogFromItems.js';
 
@@ -95,18 +96,22 @@ export function normalizeToStorePayload(raw) {
     Array.isArray(safe.products)
       ? safe.products.map((p) => ({
           name: str(p?.name),
+          description: str(p?.description) || null,
           price: typeof p?.price === 'number' ? p.price : Number(p?.price) || 0,
+          imageUrl: str(p?.imageUrl) || null,
           category: str(p?.category) || 'Menu',
           source: 'social_import',
+          ...(str(p?.imageUrl) ? { imageSource: 'imported' } : {}),
         }))
       : null,
   ) || [];
 
   const rawUserText = buildRawUserText(businessName, businessType, location, safe.sourceUrl);
 
-  const phone = str(safe.phone) || str(safe.contact?.phone) || '';
-  const email = str(safe.email) || str(safe.contact?.email) || '';
-  const address = str(safe.address) || '';
+  const phone = str(safe.phone) || str(safe.contact?.phone) || null;
+  const email = str(safe.email) || str(safe.contact?.email) || null;
+  const address = str(safe.address) || str(safe.location) || null;
+  const addressParts = parseAddress(address);
   const hoursValue = safe.hours ?? null;
   const hours =
     hoursValue == null || hoursValue === ''
@@ -126,17 +131,23 @@ export function normalizeToStorePayload(raw) {
     heroMedia,
     socialLinks,
     products,
+    productSource: safe.productSource ?? null,
     currencyCode,
     rawUserText,
     sourceUrl: str(safe.sourceUrl),
     platform: str(safe.platform),
     source: 'social_import',
-    ...(phone ? { phone } : {}),
-    ...(email ? { email } : {}),
-    ...(address ? { address } : {}),
+    phone,
+    email,
+    websiteUrl: str(safe.websiteUrl) || str(safe.sourceUrl) || null,
+    address,
+    suburb: addressParts.suburb,
+    state: addressParts.state,
+    postcode: addressParts.postcode,
+    country: addressParts.country,
+    mapUrl: buildMapUrl(address),
     ...(hours ? { hours } : {}),
     ...(priceRange ? { priceRange } : {}),
-    ...(str(safe.platform) === 'website' && str(safe.sourceUrl) ? { websiteUrl: str(safe.sourceUrl) } : {}),
   };
 }
 

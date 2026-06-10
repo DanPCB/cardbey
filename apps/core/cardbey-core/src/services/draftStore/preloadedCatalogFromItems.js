@@ -34,15 +34,25 @@ export function buildCatalogFromPreloadedItems(rawItems, opts = {}) {
           ? Number(priceRaw)
           : 0;
     const nm = String(it?.name || `Service ${i + 1}`).trim();
+    const imageUrl =
+      typeof it?.imageUrl === 'string' && /^https?:\/\//i.test(it.imageUrl.trim()) ? it.imageUrl.trim() : null;
+    const description = typeof it?.description === 'string' ? it.description.trim() : '';
+    const imageSource =
+      typeof it?.imageSource === 'string' && it.imageSource.trim()
+        ? it.imageSource.trim()
+        : imageUrl
+          ? 'imported'
+          : undefined;
     return {
       id: `pre_item_${i}`,
       productId: `preloaded_${i}`,
       name: nm,
       title: nm,
-      description: '',
+      description,
       price,
       currency: currencyCode,
       categoryId: cat.id,
+      ...(imageUrl ? { imageUrl, imageSource: imageSource || 'imported' } : {}),
     };
   });
   const trimmedName = businessName.trim();
@@ -70,7 +80,19 @@ export function sanitizePreloadedCatalogItems(body) {
     if (!name) continue;
     const price = typeof it.price === 'number' && Number.isFinite(it.price) ? it.price : Number(it.price) || 0;
     const category = typeof it.category === 'string' ? it.category.trim() : 'Services';
-    out.push({ name, price, category, source: typeof it.source === 'string' ? it.source : 'pdf_preflight' });
+    const description = typeof it.description === 'string' ? it.description.trim() : '';
+    const imageUrl =
+      typeof it.imageUrl === 'string' && /^https?:\/\//i.test(it.imageUrl.trim()) ? it.imageUrl.trim() : null;
+    const imageSource =
+      typeof it.imageSource === 'string' && it.imageSource.trim() ? it.imageSource.trim() : imageUrl ? 'imported' : undefined;
+    out.push({
+      name,
+      price,
+      category,
+      source: typeof it.source === 'string' ? it.source : 'pdf_preflight',
+      ...(description ? { description } : {}),
+      ...(imageUrl ? { imageUrl, imageSource } : {}),
+    });
     if (out.length >= 200) break;
   }
   return out.length ? out : null;
