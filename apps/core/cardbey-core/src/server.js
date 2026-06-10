@@ -225,6 +225,7 @@ import devBrokerRuntimeProofRoutes from './routes/devBrokerRuntimeProofRoutes.js
 import { initializeToolsRegistry } from './orchestrator/toolsRegistry.js';
 import { startInsightGenerationJob } from './scheduler/systemWatcherJob.js';
 import { initReportScheduler } from './scheduler/reportScheduler.js';
+import { initDiscoveryScheduler } from './lib/discovery/DiscoveryScheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1226,6 +1227,25 @@ if (process.env.ROLE === 'api') {
           initReportScheduler();
         } catch (e) {
           console.error('[CORE] initReportScheduler failed (non-fatal):', e?.message || e);
+        }
+      }
+
+      // Content acquisition meta-scheduler (DB config drives enabled/cron)
+      if (process.env.NODE_ENV !== 'test') {
+        try {
+          initDiscoveryScheduler();
+        } catch (e) {
+          console.error('[CORE] initDiscoveryScheduler failed (non-fatal):', e?.message || e);
+        }
+      }
+
+      // System watcher insight generation (INSIGHT_JOB_ENABLED, disabled by default)
+      if (process.env.NODE_ENV !== 'test' && process.env.INSIGHT_JOB_ENABLED === 'true') {
+        try {
+          startInsightGenerationJob();
+          console.log('[Startup] Insight generation job started');
+        } catch (e) {
+          console.error('[CORE] startInsightGenerationJob failed (non-fatal):', e?.message || e);
         }
       }
 
