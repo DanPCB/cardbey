@@ -32,10 +32,48 @@ import {
 } from './missionExecutionGuard.js';
 import { normalizeLocale } from './localePrompt.js';
 import { resolveCheckpointOptionsForLocale } from './missionPipelineStructured.js';
+import conversationService, { isPerformerConversationEnabled } from '../services/conversation/conversationService.js';
 
 function resolveMissionLocale(meta) {
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return 'en';
   return normalizeLocale(meta.locale ?? meta.preferredLocale ?? meta.lang ?? 'en');
+}
+
+async function loadConversationContextForMission(mission, metaJson, prisma) {
+  if (!isPerformerConversationEnabled()) return null;
+  const embedded = metaJson?.conversationContext;
+  const sessionId = metaJson?.conversationSessionId;
+  try {
+    if (sessionId) {
+      return conversationService.buildConversationContext(String(sessionId), {}, prisma);
+    }
+    if (embedded?.conversationHistory?.length) {
+      return {
+        conversationHistory: embedded.conversationHistory,
+        pendingActions: embedded.pendingActions ?? [],
+        messageCount: embedded.messageCount ?? embedded.conversationHistory.length,
+        tokenEstimate: 0,
+        skipped: false,
+      };
+    }
+    const userId = mission?.createdBy ? String(mission.createdBy).trim() : '';
+    if (!userId || userId.startsWith('guest_')) return null;
+    const storeId =
+      mission?.targetType === 'store' && mission?.targetId ? String(mission.targetId).trim() : null;
+    const session = await prisma.conversationSession.findFirst({
+      where: {
+        userId,
+        status: 'active',
+        ...(storeId ? { storeId } : {}),
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+    if (!session) return null;
+    return conversationService.buildConversationContext(session.id, {}, prisma);
+  } catch (err) {
+    console.warn('[missionPipelineRunner] conversation context load failed (non-fatal):', err?.message ?? err);
+    return null;
+  }
 }
 
 function findCampaignPackageInResults(results) {
@@ -605,6 +643,11 @@ async function runNextMissionPipelineStepBody(prisma, id) {
     locale: resolveMissionLocale(metaJson),
     ...(String(mission.type || '').toUpperCase() === 'MAINTENANCE' ? { missionType: 'MAINTENANCE' } : {}),
   };
+  const conversationContext = await loadConversationContextForMission(mission, metaJson, prisma);
+  if (conversationContext?.conversationHistory?.length) {
+    context.conversationHistory = conversationContext.conversationHistory;
+    context.pendingActions = conversationContext.pendingActions ?? [];
+  }
   if (mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')) {
     context.storeId = mission.targetId;
   }

@@ -153,6 +153,7 @@ import greetingCardsRoutes from './routes/greetingCards.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
 import skillSuitcaseRoutes from './routes/skillSuitcaseRoutes.js';
 import suitcaseItemRoutes from './routes/suitcaseItemRoutes.js';
+import conversationRoutes from './routes/conversationRoutes.js';
 import cardRoutes from './routes/cardRoutes.js';
 import orchestratorRoutes from './orchestrator/api/orchestratorRoutes.js';
 import orchestratorFeedbackRoutes from './routes/orchestratorFeedbackRoutes.js';
@@ -884,6 +885,7 @@ app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/e
 app.use('/api/pil', pilRoutes); // PIL intelligence events: POST /api/pil/events, /api/pil/events/batch
 app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observation → outcome memory
 app.use('/api/intelligence', intelligenceRoutes); // Foundation: /health, /memory, /express, /metrics (requires jsonParser above)
+app.use('/api/conversations', conversationRoutes); // Phase 0 — continuous Performer conversation sessions
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
 app.use('/api', signageRoutes); // Signage REST API routes: /api/signage-assets, /api/signage-playlists, etc.

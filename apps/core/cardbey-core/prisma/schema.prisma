@@ -73,6 +73,7 @@ model User {
   smartDocuments             SmartDocument[]
   cards                      Card[]
   suitcaseItems              SuitcaseItem[]
+  conversationSessions       ConversationSession[]
 
   @@index([email])
   @@index([handle])
@@ -1785,7 +1786,8 @@ model MissionPipeline {
   failedAt                 DateTime?
   cancelledAt              DateTime?
 
-  steps MissionPipelineStep[]
+  steps                MissionPipelineStep[]
+  conversationMessages ConversationMessage[]
 
   @@index([tenantId, status])
   @@index([createdAt])
@@ -3320,4 +3322,69 @@ model SuitcaseItem {
   @@index([ownerId, missionId])
   @@index([ownerId, spaceId])
   @@map("suitcase_items")
+}
+
+// Phase 0 — Continuous conversation sessions (Performer console)
+model ConversationSession {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  storeId         String?  @map("store_id")
+  surface         String   @default("performer_console")
+  status          String   @default("active")
+  title           String?
+  summary         String?
+  messageCount    Int      @default(0) @map("message_count")
+  lastMessageAt   DateTime @default(now()) @map("last_message_at")
+  activeMissionId String?  @map("active_mission_id")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user           User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages       ConversationMessage[]
+  pendingActions ConversationPendingAction[]
+
+  @@index([userId, status, lastMessageAt])
+  @@index([storeId, lastMessageAt])
+  @@map("conversation_sessions")
+}
+
+model ConversationMessage {
+  id          String   @id @default(cuid())
+  sessionId   String   @map("session_id")
+  missionId   String?  @map("mission_id")
+  role        String
+  content     String
+  contentJson Json?    @map("content_json")
+  toolCalls   Json?    @map("tool_calls")
+  artifacts   Json?
+  tokenCount  Int?     @map("token_count")
+  sequence    Int
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  session ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  mission MissionPipeline?    @relation(fields: [missionId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, sequence])
+  @@index([sessionId, createdAt])
+  @@index([missionId])
+  @@map("conversation_messages")
+}
+
+model ConversationPendingAction {
+  id             String    @id @default(cuid())
+  sessionId      String    @map("session_id")
+  kind           String
+  proposedAction String?   @map("proposed_action")
+  missionId      String?   @map("mission_id")
+  stepId         String?   @map("step_id")
+  payload        Json?     @map("payload_json")
+  status         String    @default("pending")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  resolvedAt     DateTime? @map("resolved_at")
+
+  session ConversationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, status])
+  @@map("conversation_pending_actions")
 }
