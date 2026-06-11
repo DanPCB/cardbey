@@ -97,6 +97,14 @@ services:
         value: "true"
       - key: VITE_ENABLE_ORB_COPILOT
         value: "true"
+      - key: VITE_INTELLIGENCE_FOUNDATION
+        value: "true"
+      - key: VITE_INTELLIGENCE_SURFACE_BRIEFING
+        value: "true"
+      - key: VITE_INTELLIGENCE_SURFACE_PIL
+        value: "true"
+      - key: VITE_PIL_CONCIERGE_LLM
+        value: "true"
 
   # Core API (production / live) — same build + health probe as staging; branch main tracks staging merges.
   - type: web

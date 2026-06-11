@@ -9,6 +9,7 @@
 
 import dotenv from 'dotenv';
 import { resolve } from 'path';
+import { CANONICAL_TEST_DB, toFileUrl } from '../lib/sqliteDbPath.js';
 
 // Load .env.test explicitly (separate from dev .env)
 const envPath = resolve(process.cwd(), '.env.test');
@@ -33,8 +34,10 @@ if (process.env.NODE_ENV !== 'test') {
   );
 }
 
-// Assert DATABASE_URL points to the shared sqlite test db under prisma/test.db.
-if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.includes('test.db')) {
+// Pin to canonical prisma/test.db absolute URL (avoids ghost cardbey-core/test.db).
+process.env.DATABASE_URL = toFileUrl(CANONICAL_TEST_DB);
+
+if (!process.env.DATABASE_URL.includes('test.db')) {
   throw new Error(
     `[TestEnv] CRITICAL: DATABASE_URL must point to test.db, got: ${process.env.DATABASE_URL}. ` +
     `This prevents polluting dev.db. Check .env.test file exists and contains DATABASE_URL="file:../test.db"`

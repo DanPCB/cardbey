@@ -13,6 +13,8 @@ import {
   getBusinessMemorySummary,
   inferBusinessOutcomeType,
 } from '../services/businessMemory/businessMemoryService.js';
+import { mirrorMissionOutputToSuitcase } from '../services/suitcase/suitcaseMissionOutputBridge.js';
+import { getPrismaClient } from '../lib/prisma.js';
 
 const router = Router();
 
@@ -155,6 +157,27 @@ router.post('/outcome', requireAuth, async (req, res, next) => {
       outcomeJson: input.outcomeJson ?? { missionStatus: input.missionStatus, missionOutputs: input.missionOutputs },
       ownerId: req.userId,
     });
+
+    if (input.missionOutputs && input.missionId && !row.skipped) {
+      const prisma = getPrismaClient();
+      const actionRow = await prisma.businessActionEvent?.findUnique?.({
+        where: { id: input.actionEventId },
+        select: { storeId: true },
+      });
+      void mirrorMissionOutputToSuitcase(
+        {
+          ownerId: req.userId,
+          storeId: actionRow?.storeId ?? null,
+          missionId: input.missionId,
+          missionOutputs: input.missionOutputs,
+          missionStatus: input.missionStatus,
+          actionType: input.actionType,
+          outcomeEventId: row.id,
+        },
+        prisma,
+      ).catch(() => {});
+    }
+
     res.status(201).json({ ok: true, outcomeEventId: row.id, outcomeType, skipped: Boolean(row.skipped) });
   } catch (error) {
     if (error instanceof z.ZodError) {

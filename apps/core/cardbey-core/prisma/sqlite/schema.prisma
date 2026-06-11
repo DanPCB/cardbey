@@ -73,6 +73,7 @@ model User {
   userIdentifiers            UserIdentifier[]
   smartDocuments             SmartDocument[]
   cards                      Card[]
+  suitcaseItems              SuitcaseItem[]
 
   @@index([email])
   @@index([handle])
@@ -3273,6 +3274,16 @@ model DiscoveryBatchRun {
   @@index([seedSourceId])
 }
 
+// Fleet-wide intelligence foundation kill switch (singleton row id = "singleton")
+model IntelligenceOverride {
+  id            String   @id
+  overridesJson String   @default("{}")
+  updatedAt     DateTime @updatedAt
+  updatedBy     String?
+
+  @@map("intelligence_override")
+}
+
 // Singleton discovery agent configuration (one row only)
 model DiscoveryConfig {
   id             String    @id @default(cuid())
@@ -3288,4 +3299,37 @@ model DiscoveryConfig {
   createdAt      DateTime  @default(now())
 
   @@map("discovery_config")
+}
+
+// Phase 10 — Account knowledge vault (briefings, mission outputs, uploads, artifacts)
+model SuitcaseItem {
+  id              String   @id @default(cuid())
+  ownerId         String
+  spaceId         String?
+  storeId         String?
+  missionId       String?
+  sourceType      String
+  contentType     String
+  title           String
+  description     String?
+  summary         String?
+  tagsJson        String   @default("[]")
+  metadataJson    String   @default("{}")
+  fileUrl         String?
+  thumbnailUrl    String?
+  payloadJson     String?
+  visibility      String   @default("private")
+  embeddingStatus String   @default("pending")
+  idempotencyKey  String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+  @@index([ownerId, storeId])
+  @@index([ownerId, sourceType])
+  @@index([ownerId, missionId])
+  @@index([ownerId, spaceId])
+  @@map("suitcase_items")
 }

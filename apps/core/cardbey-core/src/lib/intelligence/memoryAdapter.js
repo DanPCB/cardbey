@@ -5,6 +5,7 @@
 import { getPrismaClient } from '../prisma.js';
 import { getBusinessMemorySummary } from '../../services/businessMemory/businessMemoryService.js';
 import { listSuitcaseItems } from '../../services/suitcase/suitcaseItemService.js';
+import { record as recordFoundationMetric } from '../metrics/foundationMetrics.js';
 
 export const SUITCASE_FETCH_LIMIT = 8;
 export const MAX_SUITCASE_HIGHLIGHTS = 5;
@@ -116,6 +117,37 @@ export async function fetchMemoryBundle(input) {
     (shouldFetchBusiness && businessResult.status === 'rejected') ||
     (shouldFetchSuitcase && suitcaseResult.status === 'rejected') ||
     (shouldFetchUserMemory && userMemoryResult.status === 'rejected');
+
+  let memoryOutcome = 'hydrated';
+  if (partial) {
+    memoryOutcome = 'error';
+  } else if (business?.skipped) {
+    memoryOutcome = 'empty_no_model';
+  } else {
+    const hasData = Boolean(
+      (business &&
+        (business.recentObservations?.length ||
+          business.recentOpportunities?.length ||
+          business.learnedSignals?.length)) ||
+        suitcase.length > 0 ||
+        user,
+    );
+    memoryOutcome = hasData ? 'hydrated' : 'empty_no_rows';
+  }
+
+  recordFoundationMetric(
+    'intelligence_memory_total',
+    { outcome: memoryOutcome },
+    memoryOutcome === 'error'
+      ? {
+          log: {
+            evt: 'intelligence_memory_error',
+            outcome: 'error',
+            ms: Date.now() - startTime,
+          },
+        }
+      : undefined,
+  );
 
   return {
     ok: true,

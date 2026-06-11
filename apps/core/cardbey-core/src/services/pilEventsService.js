@@ -2,6 +2,7 @@
  * PIL event ingestion — observe-only persistence (no execution side effects).
  */
 import { prisma } from '../lib/prisma.js';
+import { record as recordFoundationMetric } from '../lib/metrics/foundationMetrics.js';
 
 const MAX_BATCH = 50;
 
@@ -25,9 +26,10 @@ export async function recordPilEvent(input) {
   const metadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
   const storeId = extractStoreId(metadata);
 
-  return prisma.pilEvent.create({
+  const eventType = String(input.type ?? 'unknown').slice(0, 120);
+  const row = await prisma.pilEvent.create({
     data: {
-      type: String(input.type ?? 'unknown').slice(0, 120),
+      type: eventType,
       timestamp: normalizeTimestamp(input.timestamp),
       sessionId: input.sessionId ? String(input.sessionId).slice(0, 128) : null,
       userId: input.userId ? String(input.userId).slice(0, 128) : null,
@@ -37,6 +39,8 @@ export async function recordPilEvent(input) {
       metadata,
     },
   });
+  recordFoundationMetric('pil_event_ingest_total', { eventType });
+  return row;
 }
 
 /**
@@ -62,6 +66,9 @@ export async function recordPilEventBatch(events) {
   });
 
   const result = await prisma.pilEvent.createMany({ data });
+  for (const row of data) {
+    recordFoundationMetric('pil_event_ingest_total', { eventType: row.type });
+  }
   return { count: result.count };
 }
 

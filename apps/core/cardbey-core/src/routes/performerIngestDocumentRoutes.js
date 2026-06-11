@@ -11,6 +11,7 @@ import { dispatchTool } from '../lib/toolDispatcher.js';
 import { enrichDisplayWithLivingDoc } from '../lib/documentIngestion/ingestionDisplayEnrichment.js';
 import { createMiJobFromIngestion } from '../services/mi/miJobFromIngestion.js';
 import { getPrismaClient } from '../lib/prisma.js';
+import { saveUploadToSuitcase } from '../services/suitcase/suitcaseUploadBridge.js';
 
 const router = express.Router();
 
@@ -137,6 +138,23 @@ router.post('/ingest-document', requireUserOrGuest, upload.single('file'), async
     mergeLivingDocumentIntoSummaryDisplay(results);
     const extData = results.extract_document_data?.output?.data;
     queueMiJobFromIngestion(storeId, extData, missionId);
+    const ownerId = req.user?.id ?? null;
+    if (ownerId && !String(ownerId).startsWith('guest_')) {
+      const documentUrl = extractInput.documentUrl ?? null;
+      void saveUploadToSuitcase(
+        {
+          ownerId,
+          storeId,
+          missionId,
+          fileUrl: documentUrl,
+          originalFilename: req.file?.originalname ?? null,
+          mimeType: extractInput.mimeType ?? req.file?.mimetype ?? null,
+          scanSource: req.body?.scanSource ?? null,
+          extractedData: extData ?? null,
+        },
+        getPrismaClient(),
+      ).catch(() => {});
+    }
     return res.json({ ok: true, storeId, results });
   }
 
@@ -173,6 +191,23 @@ router.post('/ingest-document', requireUserOrGuest, upload.single('file'), async
     mergeLivingDocumentIntoSummaryDisplay(results);
     const extData = results.extract_document_data?.output?.data;
     queueMiJobFromIngestion(storeId, extData, missionId);
+    const ownerId = req.user?.id ?? null;
+    if (ownerId && !String(ownerId).startsWith('guest_')) {
+      const documentUrl = extractInput.documentUrl ?? null;
+      void saveUploadToSuitcase(
+        {
+          ownerId,
+          storeId,
+          missionId,
+          fileUrl: documentUrl,
+          originalFilename: req.file?.originalname ?? null,
+          mimeType: extractInput.mimeType ?? req.file?.mimetype ?? null,
+          scanSource: req.body?.scanSource ?? null,
+          extractedData: extData ?? null,
+        },
+        getPrismaClient(),
+      ).catch(() => {});
+    }
 
     sseWrite(res, 'pipeline.complete', {
       summary: results.generate_execution_summary?.output?.summary ?? null,

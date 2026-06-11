@@ -349,6 +349,48 @@ export function broadcastAgentMessage(missionId, payload) {
  * @param {string} missionId - Mission ID (clients connect with ?missionId=...)
  * @param {object} checkpoint - { stepId, prompt, options, outputKey }
  */
+/**
+ * Broadcast mission cancellation to agent-chat SSE subscribers.
+ *
+ * @param {string} missionId
+ * @param {{ status?: string, runState?: string }} [payload]
+ */
+export function broadcastMissionCancelled(missionId, payload = {}) {
+  if (!missionId || typeof missionId !== 'string') return;
+  const data = {
+    missionId,
+    status: payload.status ?? 'cancelled',
+    runState: payload.runState ?? 'done',
+  };
+  const line = `event: mission.cancelled\ndata: ${JSON.stringify(data)}\n\n`;
+
+  let sent = 0;
+  const toDelete = [];
+
+  for (const client of clients.values()) {
+    if (client.missionId !== missionId) continue;
+    if (client.res.writableEnded || client.res.destroyed) {
+      toDelete.push(client.id);
+      continue;
+    }
+    try {
+      client.res.write(line);
+      sent++;
+    } catch (err) {
+      console.error('[SSE] broadcastMissionCancelled error', { id: client.id, missionId, err: String(err) });
+      toDelete.push(client.id);
+    }
+  }
+
+  for (const id of toDelete) {
+    clients.delete(id);
+  }
+
+  if (sent > 0) {
+    console.log(`[SSE] Broadcast mission.cancelled to ${sent} client(s) for missionId=${missionId}`);
+  }
+}
+
 export function broadcastMissionCheckpoint(missionId, checkpoint) {
   if (!missionId || typeof missionId !== 'string') return;
   const data = { missionId, checkpoint };

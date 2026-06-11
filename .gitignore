@@ -10,6 +10,15 @@
 .env.*
 !.env.example
 
+# Backend secrets
+apps/core/cardbey-core/.env
+apps/core/cardbey-core/.env.*
+!apps/core/cardbey-core/.env.example
+
+# Frontend has no secrets, but keep example
+apps/dashboard/cardbey-marketing-dashboard/.env
+!apps/dashboard/cardbey-marketing-dashboard/.env.example
+
 apps/core/cardbey-core/.env.local
 apps/core/cardbey-core/test-body.json
 

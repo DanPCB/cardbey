@@ -7,6 +7,10 @@
 import OpenAI from 'openai';
 
 import { recordLlmExpressEvent } from './llmMonitor.js';
+import {
+  record as recordFoundationMetric,
+  mapExpressFallbackReason,
+} from '../metrics/foundationMetrics.js';
 
 
 
@@ -151,6 +155,20 @@ function recordFallback(surface, latencyMs, failureReason, validationErrors) {
 
   });
 
+  const reason = mapExpressFallbackReason(failureReason);
+  recordFoundationMetric(
+    'intelligence_express_total',
+    { source: 'fallback', reason, surface },
+    {
+      log: {
+        evt: 'intelligence_express_fallback',
+        surface,
+        reason,
+        ms: latencyMs,
+      },
+    },
+  );
+
 }
 
 
@@ -168,6 +186,8 @@ function recordSuccess(surface, latencyMs) {
     timestamp: Date.now(),
 
   });
+
+  recordFoundationMetric('intelligence_express_total', { source: 'llm', surface });
 
 }
 
@@ -241,6 +261,11 @@ function validateExpressionResponse(response, input) {
 
   return { valid: errors.length === 0, errors };
 
+}
+
+/** @internal Exported for unit tests */
+export function validateExpressionResponseForTest(response, input) {
+  return validateExpressionResponse(response, input);
 }
 
 
