@@ -165,11 +165,25 @@ import {
   respondMissionCreateBusy,
   respondMissionCreateTimeout,
 } from '../lib/mission/missionCreateWrite.js';
+import {
+  bootstrapConversationForIntake,
+  finalizeConversationIntakeResponse,
+  attachConversationToMissionMetadata,
+} from '../services/conversation/conversationIntakeBridge.js';
 
 function withPipelineLocale(metadata, locale) {
   const base =
     metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? { ...metadata } : {};
   return { ...base, locale: normalizeLocale(locale ?? base.locale ?? base.preferredLocale ?? base.lang) };
+}
+
+function withConversationMetadata(metadata, conversationState) {
+  if (!conversationState?.session?.id) return metadata;
+  return attachConversationToMissionMetadata(
+    metadata,
+    conversationState.context,
+    conversationState.session.id,
+  );
 }
 
 const VALID_MISSION_TYPES = new Set([
@@ -1045,7 +1059,28 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const currentContext = body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
   const missionId = String(body.missionId ?? currentContext.activeMissionId ?? '').trim() || null;
   const locale = resolveIntakeLocale(body.locale ?? req.headers?.['x-locale'], userMessage);
-  const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
+  let history = Array.isArray(body.history) ? body.history.slice(-10) : [];
+  const storeIdForConversation =
+    String(currentContext.storeId ?? currentContext.activeStoreId ?? body.storeId ?? '').trim() || null;
+  const conversationSessionIdHint =
+    String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+    null;
+
+  let conversationState = { session: null, context: null, history: [] };
+  if (userMessage && req.user?.id) {
+    conversationState = await bootstrapConversationForIntake({
+      userId: req.user.id,
+      storeId: storeIdForConversation,
+      sessionId: conversationSessionIdHint,
+      userMessage,
+      missionId,
+      clientHistory: history,
+    });
+    if (conversationState.history?.length) {
+      history = conversationState.history;
+    }
+  }
+
   const serviceRequestThreadBlob = collectUserTextsForServiceDraft(history, userMessage).join('\n');
   const intentSourceContext =
     body.intentSourceContext && typeof body.intentSourceContext === 'object'
@@ -1114,6 +1149,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     currentContext?.lastKnownError && typeof currentContext.lastKnownError === 'object'
       ? currentContext.lastKnownError
       : null;
+  if (conversationState.context) {
+    context.conversationHistory = conversationState.context.conversationHistory ?? [];
+    context.pendingActions = conversationState.context.pendingActions ?? [];
+    context.conversationSessionId = conversationState.session?.id ?? null;
+  }
 
   // Preserve super_admin role from verified headers
   const expectedMaintenanceSecret = String(process.env.PERFORMER_MAINTENANCE_SECRET ?? '').trim();
@@ -1670,6 +1710,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         classificationIntent,
         matchedSkill,
       };
+    }
+    if (conversationState.session?.id) {
+      res.setHeader('X-Session-ID', conversationState.session.id);
+      responsePayload = await finalizeConversationIntakeResponse({
+        session: conversationState.session,
+        context: conversationState.context,
+        payload: responsePayload,
+        missionId,
+      });
     }
     return res.json(responsePayload);
   };
