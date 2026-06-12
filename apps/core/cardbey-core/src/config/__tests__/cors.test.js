@@ -5,13 +5,30 @@ import express from 'express';
 import cors from 'cors';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { CORS_API_ALLOWED_HEADERS, corsOptions } from '../cors.js';
+import {
+  CORS_API_ALLOWED_HEADERS,
+  corsOptions,
+  resolvePreflightAllowHeaders,
+} from '../cors.js';
 
 describe('CORS API allowed headers', () => {
   it('includes x-local and x-locale for dashboard cross-origin uploads', () => {
     expect(CORS_API_ALLOWED_HEADERS).toEqual(
       expect.arrayContaining(['x-local', 'X-Local', 'x-locale', 'X-Locale']),
     );
+  });
+
+  it('includes X-Session-ID for Performer intake continuity', () => {
+    expect(CORS_API_ALLOWED_HEADERS).toEqual(
+      expect.arrayContaining(['X-Session-ID', 'x-session-id']),
+    );
+  });
+
+  it('resolvePreflightAllowHeaders echoes requested headers when all are allowed', () => {
+    const echoed = resolvePreflightAllowHeaders(
+      'content-type, authorization, x-session-id',
+    );
+    expect(echoed.toLowerCase()).toContain('x-session-id');
   });
 });
 
@@ -35,6 +52,39 @@ describe('OPTIONS /api/draft-store/:draftId/upload/hero preflight', () => {
     expect(res.status).toBe(204);
     const allowed = String(res.headers['access-control-allow-headers'] || '').toLowerCase();
     expect(allowed).toContain('x-local');
+  });
+});
+
+describe('OPTIONS /api/performer/intake/v2 preflight (cardbey.com → core)', () => {
+  function appWithCors() {
+    const app = express();
+    app.use(cors(corsOptions));
+    app.options('/api/performer/intake/v2', (req, res) => {
+      const allow = resolvePreflightAllowHeaders(req.get('Access-Control-Request-Headers'));
+      res.setHeader('Access-Control-Allow-Headers', allow);
+      res.sendStatus(204);
+    });
+    app.post('/api/performer/intake/v2', (_req, res) => {
+      res.json({ success: true });
+    });
+    return app;
+  }
+
+  it('allows real Performer intake header set from https://cardbey.com', async () => {
+    const res = await request(appWithCors())
+      .options('/api/performer/intake/v2')
+      .set('Origin', 'https://cardbey.com')
+      .set('Access-Control-Request-Method', 'POST')
+      .set(
+        'Access-Control-Request-Headers',
+        'content-type, authorization, x-session-id, x-maintenance-token, x-performer-role',
+      );
+
+    expect(res.status).toBe(204);
+    const allowed = String(res.headers['access-control-allow-headers'] || '').toLowerCase();
+    expect(allowed).toContain('x-session-id');
+    expect(allowed).toContain('x-maintenance-token');
+    expect(allowed).toContain('x-performer-role');
   });
 });
 

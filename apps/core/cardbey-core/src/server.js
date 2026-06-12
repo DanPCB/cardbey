@@ -78,13 +78,20 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import compression from 'compression';
 import pairRouter from './routes/pair.js';
-import { corsOptions, CORS_API_ALLOWED_HEADERS_VALUE, WHITELIST, isOriginAllowed } from './config/cors.js';
+import {
+  corsOptions,
+  CORS_API_ALLOWED_HEADERS_VALUE,
+  resolvePreflightAllowHeaders,
+  WHITELIST,
+  isOriginAllowed,
+} from './config/cors.js';
 import healthRoutes from './routes/healthRoutes.js';
 import systemRoutes from './routes/systemRoutes.js';
 import { initializeDatabase, testDatabaseConnection, getPrismaClient } from './lib/prisma.js';
 import { signalShutdown } from './lib/coreShutdown.js';
 import { flushWriteQueue } from './lib/sqliteWriteQueue.js';
 import { bootstrapSuperAdmin } from './lib/bootstrapSuperAdmin.js';
+import { warnIfMigrationHistoryDirty } from './lib/migrationHealthCheck.js';
 import { startHeartbeat, getStatus as getSchedulerStatus } from './scheduler/heartbeat.js';
 import { startQaSweepScheduler } from './services/qa/qaSweepScheduler.js';
 import { isSseHealthy } from './realtime/sse.js';
@@ -358,10 +365,8 @@ app.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (!res.getHeader('Access-Control-Allow-Headers')) {
-      res.setHeader(
-        'Access-Control-Allow-Headers',
-        `${CORS_API_ALLOWED_HEADERS_VALUE}, Range, If-Range`,
-      );
+      const allowHeaders = resolvePreflightAllowHeaders(req.get('Access-Control-Request-Headers'));
+      res.setHeader('Access-Control-Allow-Headers', `${allowHeaders}, Range, If-Range`);
     }
     if (!res.getHeader('Access-Control-Allow-Credentials')) {
       // Only set to true if origin is not *
@@ -418,10 +423,8 @@ app.options('*', (req, res) => {
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    `${CORS_API_ALLOWED_HEADERS_VALUE}, Range, If-Range`,
-  );
+  const allowHeaders = resolvePreflightAllowHeaders(req.get('Access-Control-Request-Headers'));
+  res.setHeader('Access-Control-Allow-Headers', `${allowHeaders}, Range, If-Range`);
   res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
   
   // Return 204 No Content for preflight (CORS spec)
@@ -1177,6 +1180,7 @@ if (process.env.ROLE === 'api') {
     
     // Dev-only: bootstrap super_admin from SUPER_ADMIN_EMAIL (never in production)
     bootstrapSuperAdmin(getPrismaClient()).catch(() => {});
+    warnIfMigrationHistoryDirty().catch(() => {});
 
     // Initialize WebSocket server after HTTP server is listening
     try {
