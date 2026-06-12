@@ -1,12 +1,9 @@
 /**
- * Single source of truth for custom request headers the dashboard may send cross-origin.
- * Core CORS must allow every header listed here or browser preflight will fail.
- *
- * Monorepo reference copy — also mirrored in:
- * - apps/core/cardbey-core/src/config/dashboardCorsHeaders.mjs
+ * Dashboard cross-origin request headers Core CORS must allow.
+ * Keep in sync with:
  * - apps/dashboard/cardbey-marketing-dashboard/src/lib/corsHeadersAllowlist.ts
+ * - packages/cors-headers/index.mjs (monorepo reference)
  */
-
 export const DASHBOARD_CORS_REQUEST_HEADERS = [
   'Content-Type',
   'Authorization',
@@ -17,27 +14,22 @@ export const DASHBOARD_CORS_REQUEST_HEADERS = [
   'Pragma',
   'Cache-Control',
   'X-Requested-With',
-  // Performer / intake
   'X-Session-ID',
   'x-session-id',
   'x-maintenance-token',
   'X-Maintenance-Token',
   'x-performer-role',
   'X-Performer-Role',
-  // App context
   'x-cardbey-context',
   'x-user-key',
   'X-User-Key',
   'x-guest-session',
   'X-Guest-Session',
-  // Locale (apiFetch; stripped on prod cross-origin when possible)
   'x-locale',
   'X-Locale',
   'x-local',
   'X-Local',
-  // SSE / streaming
   'Last-Event-ID',
-  // Assistant / legacy auth helpers
   'x-assistant-token',
   'X-Assistant-Token',
   'x-request-id',

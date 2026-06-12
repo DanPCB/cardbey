@@ -145,8 +145,7 @@
     "tsx": "^4.21.0",
     "unsplash-js": "^7.0.20",
     "ws": "^8.18.3",
-    "zod": "^3.23.8",
-    "@cardbey/cors-headers": "workspace:*"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
