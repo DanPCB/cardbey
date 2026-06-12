@@ -40,6 +40,8 @@ jobs:
       - run: pnpm install --frozen-lockfile || pnpm install
       - name: Scan for leaked secrets
         run: node scripts/scan-secrets.mjs
+      - name: Render deploy readiness (CORS, imports, workspace deps)
+        run: node scripts/deploy-render-readiness.mjs
 
   core-contracts:
     name: Core route contracts
