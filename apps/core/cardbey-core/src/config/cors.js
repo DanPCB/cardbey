@@ -1,3 +1,8 @@
+import {
+  DASHBOARD_CORS_REQUEST_HEADERS,
+  DASHBOARD_CORS_REQUEST_HEADERS_VALUE,
+} from '@cardbey/cors-headers';
+
 // Explicit base whitelist for production and development
 const BASE_WHITELIST = [
   // Production domains
@@ -86,31 +91,44 @@ export function isOriginAllowed(origin) {
  * In production: Uses whitelist
  */
 /** Shared allowlist for JSON API preflight (used by cors middleware and server.js fallbacks). */
-export const CORS_API_ALLOWED_HEADERS = [
-  'Content-Type',
-  'Authorization',
-  'Pragma', // Required - browser sends this header
-  'Cache-Control',
-  'X-Requested-With',
-  'x-cardbey-context',
-  'x-user-key', // Performer app uses this header
-  'X-User-Key', // Also support uppercase variant
-  'Last-Event-ID',
-  // Locale (dashboard apiFetch / intake)
-  'x-locale',
-  'X-Locale',
-  // Dev routing marker (legacy clients; harmless when absent)
-  'x-local',
-  'X-Local',
-  // File upload headers
-  'Content-Length',
-  'Accept',
-  'Origin',
-  'x-guest-session',
-  'X-Guest-Session',
-];
+export const CORS_API_ALLOWED_HEADERS = DASHBOARD_CORS_REQUEST_HEADERS;
 
-export const CORS_API_ALLOWED_HEADERS_VALUE = CORS_API_ALLOWED_HEADERS.join(', ');
+export const CORS_API_ALLOWED_HEADERS_VALUE = DASHBOARD_CORS_REQUEST_HEADERS_VALUE;
+
+const CORS_ALLOWED_HEADER_LOOKUP = new Set(
+  CORS_API_ALLOWED_HEADERS.map((h) => h.toLowerCase()),
+);
+
+/** CORS-safelisted request headers (no explicit Allow-Headers entry required). */
+const CORS_SAFE_REQUEST_HEADERS = new Set([
+  'accept',
+  'accept-language',
+  'content-language',
+  'content-type',
+  'range',
+]);
+
+/**
+ * When the browser sends Access-Control-Request-Headers, echo it back if every
+ * requested name is allowed — avoids "CORS Missing Allow Header" drift.
+ */
+export function resolvePreflightAllowHeaders(requestedHeaderList) {
+  if (!requestedHeaderList || typeof requestedHeaderList !== 'string') {
+    return CORS_API_ALLOWED_HEADERS_VALUE;
+  }
+  const requested = requestedHeaderList
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean);
+  if (requested.length === 0) {
+    return CORS_API_ALLOWED_HEADERS_VALUE;
+  }
+  const allAllowed = requested.every((h) => {
+    const lower = h.toLowerCase();
+    return CORS_SAFE_REQUEST_HEADERS.has(lower) || CORS_ALLOWED_HEADER_LOOKUP.has(lower);
+  });
+  return allAllowed ? requestedHeaderList : CORS_API_ALLOWED_HEADERS_VALUE;
+}
 
 export const corsOptions = {
   origin(origin, callback) {
