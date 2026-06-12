@@ -175,6 +175,10 @@ services:
         value: "true"
       - key: VITE_ENV
         value: production
+      - key: VITE_CORE_BASE_URL
+        value: https://cardbey-core.onrender.com
+      - key: VITE_CORE_ORIGIN
+        value: https://cardbey-core.onrender.com
       - key: VITE_PERFORMER_EXECUTION_INTENTS
         value: "1"
       - key: VITE_PERFORMER_EXECUTION_PLANNER
