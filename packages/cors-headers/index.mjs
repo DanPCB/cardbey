@@ -2,7 +2,8 @@
  * Single source of truth for custom request headers the dashboard may send cross-origin.
  * Core CORS must allow every header listed here or browser preflight will fail.
  *
- * When adding a new x-* header on the dashboard, add it here first.
+ * When adding a new x-* header on the dashboard, add it here AND in
+ * apps/dashboard/cardbey-marketing-dashboard/src/lib/corsHeadersAllowlist.ts
  */
 
 export const DASHBOARD_CORS_REQUEST_HEADERS = [
