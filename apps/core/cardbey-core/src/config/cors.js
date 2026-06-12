@@ -1,7 +1,7 @@
 import {
   DASHBOARD_CORS_REQUEST_HEADERS,
   DASHBOARD_CORS_REQUEST_HEADERS_VALUE,
-} from '@cardbey/cors-headers';
+} from './dashboardCorsHeaders.mjs';
 
 // Explicit base whitelist for production and development
 const BASE_WHITELIST = [
