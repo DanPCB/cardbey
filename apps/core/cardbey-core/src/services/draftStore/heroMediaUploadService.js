@@ -12,7 +12,7 @@ import {
   updateHeroForStore,
 } from './heroUpdateService.js';
 import { uploadBufferToS3 } from '../../lib/s3Client.js';
-import { ensureWebCompatibleVideoBuffer } from '../../lib/videoCompat.js';
+import { ensureWebCompatibleVideoBuffer, videoUploadMaxTranscodeBytes, videoUploadSkipTranscodeEnabled } from '../../lib/videoCompat.js';
 import {
   buildStorageUploadResponse,
   resolveClientHeroMediaUrl,
@@ -199,25 +199,36 @@ export async function executeStoreHeroMediaUpload(input) {
   }
 
   if (isVideo) {
-    try {
-      const processed = await ensureWebCompatibleVideoBuffer(
-        buffer,
-        file.originalname || 'hero.mp4',
-        { context: 'stores.upload.hero' },
-      );
-      buffer = processed.buffer;
-      mime = processed.mime;
-      if (processed.transcoded) {
-        console.log('[Stores] upload/hero: video transcoded for browser/TV compatibility', {
-          originalName: file.originalname,
-          sizeBytes: buffer.length,
-        });
+    const skipVideoCompat =
+      videoUploadSkipTranscodeEnabled() || buffer.length > videoUploadMaxTranscodeBytes();
+    if (skipVideoCompat) {
+      console.log('[Stores] upload/hero: skipping video compat/ffmpeg (policy or size cap)', {
+        originalName: file.originalname,
+        sizeBytes: buffer.length,
+        skipTranscodeEnv: videoUploadSkipTranscodeEnabled(),
+        maxTranscodeBytes: videoUploadMaxTranscodeBytes(),
+      });
+    } else {
+      try {
+        const processed = await ensureWebCompatibleVideoBuffer(
+          buffer,
+          file.originalname || 'hero.mp4',
+          { context: 'stores.upload.hero' },
+        );
+        buffer = processed.buffer;
+        mime = processed.mime;
+        if (processed.transcoded) {
+          console.log('[Stores] upload/hero: video transcoded for browser/TV compatibility', {
+            originalName: file.originalname,
+            sizeBytes: buffer.length,
+          });
+        }
+      } catch (videoErr) {
+        console.warn(
+          '[Stores] upload/hero: video compat processing failed (non-fatal):',
+          videoErr?.message || videoErr,
+        );
       }
-    } catch (videoErr) {
-      console.warn(
-        '[Stores] upload/hero: video compat processing failed (non-fatal):',
-        videoErr?.message || videoErr,
-      );
     }
   }
 

@@ -258,6 +258,7 @@ export async function updateHeroForStore({
   storeId = null,
   draftId = null,
   generationRunId = null,
+  missionId = null,
   previewPatch,
   source = 'upload',
 }) {

@@ -19,6 +19,8 @@ vi.mock('../../lib/videoCompat.js', () => ({
     transcoded: false,
     compatible: true,
   })),
+  videoUploadSkipTranscodeEnabled: vi.fn(() => false),
+  videoUploadMaxTranscodeBytes: vi.fn(() => 25 * 1024 * 1024),
 }));
 
 vi.mock('../../lib/s3Client.js', () => ({
@@ -48,7 +50,7 @@ vi.mock('../../lib/prisma.js', () => ({
   prisma: {},
 }));
 
-import { ensureWebCompatibleVideoBuffer } from '../../lib/videoCompat.js';
+import { ensureWebCompatibleVideoBuffer, videoUploadSkipTranscodeEnabled } from '../../lib/videoCompat.js';
 import { executeStoreHeroMediaUpload } from './heroMediaUploadService.js';
 
 describe('executeStoreHeroMediaUpload video', () => {
@@ -98,5 +100,25 @@ describe('executeStoreHeroMediaUpload video', () => {
     ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_video_file' });
 
     expect(ensureWebCompatibleVideoBuffer).not.toHaveBeenCalled();
+  });
+
+  it('skips ffmpeg compat when VIDEO_UPLOAD_SKIP_TRANSCODE is enabled', async () => {
+    vi.mocked(videoUploadSkipTranscodeEnabled).mockReturnValue(true);
+    const buffer = padMp4Buffer();
+
+    const result = await executeStoreHeroMediaUpload({
+      userId: 'user-1',
+      storeId: 'store-1',
+      draft: { id: 'draft-1', preview: {}, committedStoreId: 'store-1' },
+      file: {
+        buffer,
+        mimetype: 'video/mp4',
+        originalname: 'hero.mp4',
+      },
+    });
+
+    expect(ensureWebCompatibleVideoBuffer).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.isVideo).toBe(true);
   });
 });
