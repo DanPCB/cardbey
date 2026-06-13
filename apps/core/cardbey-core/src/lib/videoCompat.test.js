@@ -50,4 +50,12 @@ describe('video upload transcode policy', () => {
     if (prevSkip !== undefined) process.env.VIDEO_UPLOAD_SKIP_TRANSCODE = prevSkip;
     if (prevMax !== undefined) process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB = prevMax;
   });
+
+  it('honors VIDEO_UPLOAD_MAX_TRANSCODE_MB env', () => {
+    const prevMax = process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB;
+    process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB = '20';
+    expect(videoUploadMaxTranscodeBytes()).toBe(20 * 1024 * 1024);
+    if (prevMax !== undefined) process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB = prevMax;
+    else delete process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB;
+  });
 });

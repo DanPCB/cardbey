@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { selectPexelsVideoFile } from '../utils/pexelsVideoSelect.js';
-import { isAllowedVideoFetchUrl } from '../utils/videoFetchAllowlist.js';
+import { isAllowedVideoFetchUrl, videoFetchMaxProxyBytes } from '../utils/videoFetchAllowlist.js';
 import { validateVideoBinary } from '../utils/videoBinaryValidation.js';
 
 const router = Router();
@@ -412,13 +412,38 @@ router.post('/fetch-video', async (req, res) => {
   }
 
   try {
+    const maxBytes = videoFetchMaxProxyBytes();
     const upstream = await fetch(url, {
       method: 'GET',
       redirect: 'follow',
       headers: { Accept: 'video/*,*/*;q=0.8' },
     });
+    const contentLength = Number(upstream.headers.get('content-length') || 0);
+    if (contentLength > maxBytes) {
+      return res.status(413).json({
+        ok: false,
+        error: 'video_too_large',
+        message: `Video exceeds proxy limit (${Math.round(maxBytes / (1024 * 1024))}MB)`,
+      });
+    }
+
+    const chunks = [];
+    let total = 0;
+    if (upstream.body) {
+      for await (const chunk of upstream.body) {
+        total += chunk.length;
+        if (total > maxBytes) {
+          return res.status(413).json({
+            ok: false,
+            error: 'video_too_large',
+            message: `Video exceeds proxy limit (${Math.round(maxBytes / (1024 * 1024))}MB)`,
+          });
+        }
+        chunks.push(Buffer.from(chunk));
+      }
+    }
+    const buffer = Buffer.concat(chunks);
     const contentType = upstream.headers.get('content-type') || '';
-    const buffer = Buffer.from(await upstream.arrayBuffer());
     const validation = validateVideoBinary(buffer, contentType);
 
     if (process.env.NODE_ENV !== 'production') {

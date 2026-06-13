@@ -32,6 +32,13 @@ export const PROVIDER_VIDEO_HOSTS = {
   mixkit: MIXKIT_VIDEO_HOSTS,
 };
 
+/** @returns {number} */
+export function videoFetchMaxProxyBytes() {
+  const mb = Number(process.env.VIDEO_FETCH_MAX_MB ?? '50');
+  if (Number.isFinite(mb) && mb > 0) return Math.round(mb * 1024 * 1024);
+  return 50 * 1024 * 1024;
+}
+
 /**
  * @param {string} url
  * @param {string} [provider]
