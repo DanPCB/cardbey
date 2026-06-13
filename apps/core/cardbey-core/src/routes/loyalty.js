@@ -12,6 +12,12 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 
 import { prisma } from '../lib/prisma.js';
+import { getDbCapabilities } from '../lib/persistence/dbCapabilityRegistry.js';
+
+/** Postgres schema uses `programStamps`; SQLite uses `stamps`. */
+function loyaltyProgramStampCountField() {
+  return getDbCapabilities().isPostgres ? 'programStamps' : 'stamps';
+}
 
 const router = express.Router();
 // Validation schemas
@@ -92,7 +98,7 @@ router.get('/programs/:storeId', requireAuth, async (req, res, next) => {
       },
       include: {
         _count: {
-          select: { stamps: true },
+          select: { [loyaltyProgramStampCountField()]: true },
         },
       },
       orderBy: { createdAt: 'desc' },

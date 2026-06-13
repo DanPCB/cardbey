@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { checkVideoCompatibility } from './videoCompat.js';
+import {
+  checkVideoCompatibility,
+  videoUploadMaxTranscodeBytes,
+  videoUploadSkipTranscodeEnabled,
+} from './videoCompat.js';
 
 describe('checkVideoCompatibility', () => {
   it('accepts H.264 yuv420p AAC faststart', () => {
@@ -32,5 +36,18 @@ describe('checkVideoCompatibility', () => {
     });
     expect(r.compatible).toBe(false);
     expect(r.reasons).toContain('moov_atom_not_at_start');
+  });
+});
+
+describe('video upload transcode policy', () => {
+  it('defaults skip transcode off and 25MB cap', () => {
+    const prevSkip = process.env.VIDEO_UPLOAD_SKIP_TRANSCODE;
+    const prevMax = process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB;
+    delete process.env.VIDEO_UPLOAD_SKIP_TRANSCODE;
+    delete process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB;
+    expect(videoUploadSkipTranscodeEnabled()).toBe(false);
+    expect(videoUploadMaxTranscodeBytes()).toBe(25 * 1024 * 1024);
+    if (prevSkip !== undefined) process.env.VIDEO_UPLOAD_SKIP_TRANSCODE = prevSkip;
+    if (prevMax !== undefined) process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB = prevMax;
   });
 });

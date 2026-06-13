@@ -11,6 +11,39 @@ let ffmpeg = null;
 let ffmpegInitialized = false;
 let ffmpegInitPromise = null;
 
+const FASTSTART_SCAN_BYTES = 8 * 1024 * 1024;
+
+/** @returns {boolean} */
+export function videoUploadSkipTranscodeEnabled() {
+  const v = String(process.env.VIDEO_UPLOAD_SKIP_TRANSCODE ?? '').trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes';
+}
+
+/** @returns {number} */
+export function videoUploadMaxTranscodeBytes() {
+  const mb = Number(process.env.VIDEO_UPLOAD_MAX_TRANSCODE_MB ?? '25');
+  if (Number.isFinite(mb) && mb > 0) return Math.round(mb * 1024 * 1024);
+  return 25 * 1024 * 1024;
+}
+
+/**
+ * Read only the first N bytes of a file (faststart moov/mdat scan without loading full upload).
+ * @param {string} filePath
+ * @param {number} [maxBytes]
+ */
+function readFileHeadBytes(filePath, maxBytes = FASTSTART_SCAN_BYTES) {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const stat = fs.fstatSync(fd);
+    const toRead = Math.min(stat.size, maxBytes);
+    const buf = Buffer.alloc(toRead);
+    fs.readSync(fd, buf, 0, toRead, 0);
+    return buf;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 export async function initializeVideoFfmpeg() {
   if (ffmpegInitialized) return ffmpeg;
   if (ffmpegInitPromise) return ffmpegInitPromise;
@@ -63,8 +96,7 @@ function parseFfprobeData(data, filePath) {
   const format = data.format || {};
   let fastStart = false;
   try {
-    const buf = fs.readFileSync(filePath);
-    const scan = buf.subarray(0, Math.min(buf.length, 8 * 1024 * 1024));
+    const scan = readFileHeadBytes(filePath);
     const moov = scan.indexOf(Buffer.from('moov'));
     const mdat = scan.indexOf(Buffer.from('mdat'));
     if (moov !== -1 && mdat !== -1) fastStart = moov < mdat;
@@ -259,6 +291,30 @@ export async function ensureWebCompatibleVideoBuffer(inputBuffer, originalName =
     const check = checkVideoCompatibility(probe);
     logCompatCheck(probe, check, { context: ctx, originalName });
 
+    const skipTranscode =
+      videoUploadSkipTranscodeEnabled() || inputBuffer.length > videoUploadMaxTranscodeBytes();
+
+    if (!check.compatible && skipTranscode) {
+      console.warn('[VIDEO_COMPAT] skipping transcode (policy or size cap)', {
+        context: ctx,
+        originalName,
+        sizeBytes: inputBuffer.length,
+        reasons: check.reasons,
+        skipTranscodeEnv: videoUploadSkipTranscodeEnabled(),
+        maxTranscodeBytes: videoUploadMaxTranscodeBytes(),
+      });
+      return {
+        buffer: inputBuffer,
+        mime: ext.toLowerCase() === '.webm' ? 'video/webm' : 'video/mp4',
+        width: probe.video?.width ?? null,
+        height: probe.video?.height ?? null,
+        durationS: probe.duration ? Math.round(probe.duration) : null,
+        transcoded: false,
+        compatible: false,
+        compatReport: { probe, check, transcodeSkipped: true },
+      };
+    }
+
     let finalPath = inputPath;
     let transcoded = false;
 
@@ -294,7 +350,8 @@ export async function ensureWebCompatibleVideoBuffer(inputBuffer, originalName =
       }
     }
 
-    const outBuffer = await fs.promises.readFile(finalPath);
+    const outBuffer =
+      finalPath === inputPath && !transcoded ? inputBuffer : await fs.promises.readFile(finalPath);
     return {
       buffer: outBuffer,
       mime: 'video/mp4',
