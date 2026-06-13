@@ -19,6 +19,72 @@ import { canTransitionMissionPipeline } from '../missionPipelineTransitions.js';
 import { guestDraftOptsForActor } from './guestDraftOpts.js';
 
 /**
+ * Structured checkpoint pipeline must reach awaiting_input (or keep executing) before intake reports success.
+ * @param {{ ok?: boolean, status?: string, runState?: string, stepsRun?: number, stoppedReason?: string }} orch
+ * @param {{ status?: string, runState?: string } | null} missionRow
+ * @returns {{ ok: true } | { ok: false, statusCode: number, error: string, message: string }}
+ */
+export function evaluateStructuredCheckpointRunResult(orch, missionRow) {
+  const finalStatus = String(missionRow?.status ?? orch?.status ?? '')
+    .trim()
+    .toLowerCase();
+  const runState = String(missionRow?.runState ?? orch?.runState ?? '')
+    .trim()
+    .toLowerCase();
+  const stoppedReason = String(orch?.stoppedReason ?? '').trim();
+  const stepsRun = typeof orch?.stepsRun === 'number' && orch.stepsRun >= 0 ? orch.stepsRun : 0;
+
+  const checkpointReached =
+    finalStatus === 'awaiting_input' ||
+    runState === 'blocked_on_checkpoint' ||
+    stoppedReason === 'awaiting_checkpoint';
+
+  if (checkpointReached) {
+    return { ok: true };
+  }
+
+  if (finalStatus === 'executing' && stepsRun > 0) {
+    return { ok: true };
+  }
+
+  if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'cancelled') {
+    return { ok: true };
+  }
+
+  if (!orch?.ok || stoppedReason === 'invalid_state') {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: 'pipeline_run_failed',
+      message: `Store pipeline did not reach a checkpoint (reason: ${stoppedReason || 'invalid_state'}, status: ${finalStatus || 'unknown'}).`,
+    };
+  }
+
+  if (
+    stoppedReason === 'no_pending_steps' &&
+    (finalStatus === 'queued' || finalStatus === 'awaiting_confirmation' || finalStatus === 'idle' || !finalStatus)
+  ) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: 'pipeline_not_started',
+      message: 'Store pipeline did not start — no steps advanced from queued state.',
+    };
+  }
+
+  if (finalStatus === 'queued' || finalStatus === 'awaiting_confirmation' || finalStatus === 'idle') {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: 'pipeline_run_incomplete',
+      message: `Store pipeline did not reach checkpoint (status: ${finalStatus || 'unknown'}, reason: ${stoppedReason || 'none'}).`,
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Store POST /run expects the pipeline in `queued`. `approveMissionPipeline` only advances
  * `awaiting_confirmation` → `queued`. Missions can still be `requested` if creation did not
  * finish transitions — advance requested → planned → (awaiting_confirmation | queued) first.
@@ -118,6 +184,27 @@ async function executeStoreMissionPipelineRunCore({
     };
   }
 
+  // Idempotent re-run: intake may reuse a mission already paused at a checkpoint.
+  if (mission.status === 'awaiting_input') {
+    const hasStructuredStoreBuild = await prisma.missionPipelineStep.count({
+      where: { missionId, toolName: 'structured_store_build' },
+    });
+    if (hasStructuredStoreBuild > 0) {
+      const out =
+        mission.outputsJson && typeof mission.outputsJson === 'object' ? mission.outputsJson : {};
+      return {
+        ok: true,
+        missionId,
+        jobId: typeof out.jobId === 'string' ? out.jobId : '',
+        generationRunId: typeof out.generationRunId === 'string' ? out.generationRunId : '',
+        draftId: typeof out.draftId === 'string' ? out.draftId : '',
+        status: 'awaiting_input',
+        mode: 'checkpoint_pipeline',
+        orchestration: { stepsRun: 0, stoppedReason: 'awaiting_checkpoint' },
+      };
+    }
+  }
+
   const RUNNABLE_STATUSES = ['awaiting_confirmation', 'queued', 'requested', 'executing'];
 
   if (!RUNNABLE_STATUSES.includes(mission.status)) {
@@ -176,6 +263,19 @@ async function executeStoreMissionPipelineRunCore({
         select: { status: true, runState: true, outputsJson: true },
       });
       const out = mAfter?.outputsJson && typeof mAfter.outputsJson === 'object' ? mAfter.outputsJson : {};
+      const orchestration = { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason };
+      const runEval = evaluateStructuredCheckpointRunResult(orch, mAfter);
+      if (!runEval.ok) {
+        return {
+          ok: false,
+          statusCode: runEval.statusCode,
+          error: runEval.error,
+          message: runEval.message,
+          missionId,
+          pipelineStatus: mAfter?.status ?? orch.status,
+          orchestration,
+        };
+      }
       return {
         ok: true,
         missionId,
@@ -184,7 +284,7 @@ async function executeStoreMissionPipelineRunCore({
         draftId: typeof out.draftId === 'string' ? out.draftId : '',
         status: mAfter?.status || orch.status || 'awaiting_input',
         mode: 'checkpoint_pipeline',
-        orchestration: { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason },
+        orchestration,
       };
     }
     const mDone = await prisma.missionPipeline.findUnique({
@@ -192,6 +292,18 @@ async function executeStoreMissionPipelineRunCore({
       select: { status: true, runState: true, outputsJson: true },
     });
     const outDone = mDone?.outputsJson && typeof mDone.outputsJson === 'object' ? mDone.outputsJson : {};
+    const doneStatus = String(mDone?.status ?? '').trim().toLowerCase();
+    if (doneStatus === 'queued' || doneStatus === 'awaiting_confirmation' || doneStatus === 'idle') {
+      return {
+        ok: false,
+        statusCode: 409,
+        error: 'pipeline_not_started',
+        message: 'Store pipeline has no pending steps but mission never left queued state.',
+        missionId,
+        pipelineStatus: mDone?.status,
+        orchestration: { stepsRun: 0, stoppedReason: 'no_pending_steps' },
+      };
+    }
     return {
       ok: true,
       missionId,

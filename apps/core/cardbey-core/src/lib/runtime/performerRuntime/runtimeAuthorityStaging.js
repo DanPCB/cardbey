@@ -53,6 +53,8 @@ const metrics = {
   authorityProbes: 0,
   directFacadeExecutions: 0,
   executionFailures: 0,
+  runtimeAuthorityPathUsed: 0,
+  runtimeAuthorityBypass: 0,
 };
 
 /**

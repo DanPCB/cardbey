@@ -878,66 +878,18 @@ router.post('/', requireAuth, async (req, res, next) => {
       });
     }
 
-    if (isRuntimeStepExecutionEnabled()) {
-      const kernelResult = await executeMissionStep({
-        user: req.user,
-        missionId,
-        stepNumber,
-        requestedTool: recommendedTool,
-        source: 'performer_proactive_step',
-        body,
-        parameters: body.parameters && typeof body.parameters === 'object' ? body.parameters : {},
-        proactivePlanTotal,
-        forceRetry: body.forceRetry === true || body.regenerate === true,
-      });
-      return res.status(kernelResult.httpStatus ?? (kernelResult.ok ? 200 : 500)).json(kernelResult);
-    }
-
-    const { guardPhaseFProactiveStepLegacy } = await import('../lib/broker/phaseFBypassGuards.js');
-    const legacyGuard = guardPhaseFProactiveStepLegacy();
-    if (legacyGuard.blocked) {
-      return res.status(503).json({
-        ok: false,
-        code: legacyGuard.code,
-        message: legacyGuard.message,
-      });
-    }
-
-    if (!ALLOWED_TOOLS.has(recommendedTool)) {
-      return res.status(400).json({ ok: false, message: 'recommendedTool not allowed for proactive step' });
-    }
-
-    const access = await assertProactivePipelineOrMissionAccess(req.user, missionId);
-    if (!access.ok) {
-      return res.status(403).json({ ok: false, message: 'Mission pipeline not found or access denied' });
-    }
-
-    const legacyResult = await executeProactiveRunwayStep({
+    const kernelResult = await executeMissionStep({
       user: req.user,
       missionId,
       stepNumber,
-      recommendedTool,
-      proactivePlanTotal,
-      parameters: body.parameters && typeof body.parameters === 'object' ? body.parameters : {},
-      body,
+      requestedTool: recommendedTool,
       source: 'performer_proactive_step',
-      allowGeneralChat: true,
+      body,
+      parameters: body.parameters && typeof body.parameters === 'object' ? body.parameters : {},
+      proactivePlanTotal,
+      forceRetry: body.forceRetry === true || body.regenerate === true,
     });
-
-    if (!legacyResult.ok) {
-      return res.status(legacyResult.httpStatus ?? 500).json({
-        ok: false,
-        message: legacyResult.message,
-        code: legacyResult.code,
-        output: legacyResult.output,
-      });
-    }
-
-    return res.json({
-      ok: true,
-      output: legacyResult.output,
-      stepNumber: legacyResult.stepNumber,
-    });
+    return res.status(kernelResult.httpStatus ?? (kernelResult.ok ? 200 : 500)).json(kernelResult);
   } catch (err) {
     next(err);
   }

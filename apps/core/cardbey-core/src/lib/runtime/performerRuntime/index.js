@@ -78,3 +78,31 @@ export {
   detectExecutionDuplication,
   isPerformerRuntimeDuplicationDetectEnabled,
 } from './runtimeAuthorityStaging.js';
+
+export {
+  assertRuntimeAuthorityContext,
+  hasRuntimeAuthorityContext,
+  recordRuntimeAuthorityPathUsed,
+  recordRuntimeAuthorityBypass,
+} from './runtimeAuthorityGuard.js';
+
+export { routeOrchestraStartViaPerformerRuntime } from './orchestraRuntimeAdapter.js';
+
+export {
+  hasUiRuntimeAuthorityContext,
+  assertUiWriteAuthority,
+  markUiRuntimeInternalBypass,
+  isStorageOnlyUploadPath,
+  isStateChangingUploadPath,
+  UI_RUNTIME_AUTHORITY_HEADER,
+} from './uiWriteAuthorityGuard.js';
+
+export { executeUiRuntimeAction } from './uiRuntimeActionService.js';
+
+export {
+  runFactoryExecution,
+  getFactory,
+  listFactories,
+  handleFactoryApprovalDecision,
+  FACTORY_STATUS_AWAITING_APPROVAL,
+} from '../../factoryRuntime/index.js';

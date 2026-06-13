@@ -152,7 +152,6 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
         actionType: 'run_pipeline_step',
         missionId: id,
         source: 'run_mission_until_blocked',
-        skipDirectGuard: true,
       });
     } else {
       fr = await executeMissionAction({

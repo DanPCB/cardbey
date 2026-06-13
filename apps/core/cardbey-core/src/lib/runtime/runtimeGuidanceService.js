@@ -265,7 +265,12 @@ export function resolveRuntimeGuidanceForSession(input) {
     return out;
   }
 
-  if (input?.requiresStoreSelection && Array.isArray(input.storeCandidates) && input.storeCandidates.length > 1) {
+  if (
+    missionId &&
+    input?.requiresStoreSelection &&
+    Array.isArray(input.storeCandidates) &&
+    input.storeCandidates.length > 1
+  ) {
     out.push(buildStoreSelectionGuidance({ storeCandidates: input.storeCandidates, missionId }));
     return out;
   }
@@ -291,10 +296,13 @@ export function resolveRuntimeGuidanceForSession(input) {
     const skipIdleInformational =
       !missionId &&
       (state === STORE_READINESS.ACTIVE || state === STORE_READINESS.PUBLISHED);
+    // Draft publish nudges require an active mission — idle Performer stays quiet.
+    const skipIdleDraftNudge = !missionId && isDraftBlocking;
     const skipActiveScaling = state === STORE_READINESS.ACTIVE;
     if (
       !skipActiveScaling &&
       !skipIdleInformational &&
+      !skipIdleDraftNudge &&
       (hasBlocking || isDraftBlocking || missionId)
     ) {
       const g = buildReadinessGuidance({

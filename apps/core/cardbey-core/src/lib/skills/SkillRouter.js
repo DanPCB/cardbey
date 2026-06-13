@@ -1,5 +1,6 @@
 /**
  * Routes classified intents to registered skills or falls through to tool dispatch.
+ * Skill execution always enters through Performer Runtime (Sprint 1).
  */
 
 /** @typedef {import('./types.js').SkillRouterResult} SkillRouterResult */
@@ -45,7 +46,46 @@ export class SkillRouter {
     }
 
     try {
-      const execution = await this.skillExecutor.execute(skillDef, ctx);
+      const { executeRuntimeAction } = await import(
+        '../runtime/performerRuntime/executeRuntimeAction.js'
+      );
+      const { recordRuntimeAuthorityPathUsed } = await import(
+        '../runtime/performerRuntime/runtimeAuthorityGuard.js'
+      );
+
+      recordRuntimeAuthorityPathUsed({
+        route: 'skill_router',
+        toolName: skillDef.name,
+        userId: ctx?.userId ?? null,
+        missionId: ctx?.missionId ?? null,
+        source: 'skill_router',
+        intentLabel: label,
+      });
+
+      const runtimeResult = await executeRuntimeAction({
+        actionType: 'run_skill',
+        missionId: ctx?.missionId ?? null,
+        userId: ctx?.userId ?? null,
+        storeId: ctx?.storeId ?? null,
+        tenantId: ctx?.tenantId ?? null,
+        source: 'skill_router',
+        payload: {
+          skillName: skillDef.name,
+          intentLabel: label,
+          context: {
+            ...ctx,
+            runtimeOwned: true,
+            performerRuntimeOwned: true,
+            source: 'skill_router',
+          },
+        },
+      });
+
+      const execution = runtimeResult.output?.skillExecution;
+      if (!execution) {
+        throw new Error(runtimeResult.error?.message ?? 'Skill runtime execution returned no result');
+      }
+
       return {
         matched: true,
         skillName: skillDef.name,

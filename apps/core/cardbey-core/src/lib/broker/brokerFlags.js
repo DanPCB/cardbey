@@ -22,9 +22,13 @@ export function isBrokerDirectViaFacadeEnabled() {
   return envTruthy('BROKER_DIRECT_VIA_FACADE', false);
 }
 
-/** Reject Performer direct_action tool dispatch (use IntentRequest / pipeline). */
+/** Reject Performer direct_action tool dispatch (use IntentRequest / pipeline). Default: block. */
 export function isBrokerBlockDirectActionEnabled() {
-  return envTruthy('BROKER_BLOCK_DIRECT_ACTION', false);
+  const raw = process.env.BROKER_BLOCK_DIRECT_ACTION;
+  if (raw !== undefined && raw !== null && String(raw).trim().toLowerCase() === 'false') {
+    return false;
+  }
+  return true;
 }
 
 /** Reject POST /api/mi/orchestra/start when request body includes missionId. */

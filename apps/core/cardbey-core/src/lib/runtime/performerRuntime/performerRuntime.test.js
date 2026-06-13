@@ -102,9 +102,8 @@ describe('executeRuntimeAction', () => {
     const result = await executeRuntimeAction({
       actionType: 'dispatch_tool',
       missionId: 'm-3',
-      source: 'test_runtime',
+      source: 'skill_router',
       payload: { toolName: 'market_research', input: {}, context: {} },
-      skipDirectGuard: true,
     });
     expect(result.status).toBe('ok');
     expect(result.metadata?.runtimeId).toBeTruthy();

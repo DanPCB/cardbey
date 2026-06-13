@@ -5,6 +5,7 @@
 
 import { executeMissionAction } from '../../execution/executeMissionAction.js';
 import { guardBrokerDirectAction } from '../../broker/brokerRunwayGuard.js';
+import { assertKernelAuthorizedExecution } from '../kernelMandatory.js';
 import { actionIdForTool, recordExecutionTelemetry } from '../../broker/executionTelemetry.js';
 import { getBrokerActionForTool } from '../../broker/actionRegistry.js';
 import { routeToolToAction } from '../../broker/capabilityRouter.js';
@@ -14,9 +15,10 @@ import { emitRuntimeStreamEvent } from './unifiedRuntimeStream.js';
 import { markRuntimeOwnedContext } from './runtimeOwnership.js';
 import { recordRuntimeExecutionNode } from './runtimeStateGraph.js';
 import { detectExecutionDuplication } from './runtimeAuthorityStaging.js';
+import { recordRuntimeAuthorityPathUsed } from './runtimeAuthorityGuard.js';
 
 /**
- * @typedef {'dispatch_tool' | 'run_pipeline_step' | 'execute_action'} RuntimeActionType
+ * @typedef {'dispatch_tool' | 'run_pipeline_step' | 'run_skill' | 'run_factory' | 'orchestra_start' | 'execute_action'} RuntimeActionType
  */
 
 /**
@@ -32,7 +34,6 @@ import { detectExecutionDuplication } from './runtimeAuthorityStaging.js';
  * @property {string|null} [capabilityId]
  * @property {string} source
  * @property {object} [payload]
- * @property {boolean} [skipDirectGuard]
  */
 
 /**
@@ -62,8 +63,29 @@ export async function executeRuntimeAction(request) {
     userId: req.userId ?? null,
   });
 
-  if (!req.skipDirectGuard) {
-    const directGuard = guardBrokerDirectAction();
+  const kernelAuth = assertKernelAuthorizedExecution({
+    source,
+    actionType: req.actionType,
+    userId: req.userId ?? ctx.userId ?? null,
+  });
+  if (!kernelAuth.ok) {
+    return {
+      status: 'blocked',
+      blocker: { code: kernelAuth.code, message: kernelAuth.message },
+      metadata: { runtimeId: ctx.runtimeId, source },
+    };
+  }
+
+  const actionTypeEarly =
+    typeof req.actionType === 'string' && req.actionType.trim() ? req.actionType.trim() : '';
+  // Pipeline step advancement and UI runtime / hybrid assist are not Performer direct_action tool dispatch.
+  const skipBrokerDirectGuard =
+    actionTypeEarly === 'run_pipeline_step' ||
+    actionTypeEarly === 'execute_action' ||
+    actionTypeEarly === 'assist_hybrid_operation';
+
+  if (!skipBrokerDirectGuard) {
+    const directGuard = guardBrokerDirectAction({ source });
     if (directGuard.blocked) {
       return {
         status: 'blocked',
@@ -74,11 +96,8 @@ export async function executeRuntimeAction(request) {
   }
 
   const actionType =
-    typeof req.actionType === 'string' && req.actionType.trim()
-      ? req.actionType.trim()
-      : req.actionId
-        ? 'execute_action'
-        : 'dispatch_tool';
+    actionTypeEarly ||
+    (req.actionId ? 'execute_action' : 'dispatch_tool');
 
   let actionId = typeof req.actionId === 'string' ? req.actionId.trim() : '';
   const payload = req.payload && typeof req.payload === 'object' ? req.payload : {};
@@ -98,6 +117,31 @@ export async function executeRuntimeAction(request) {
   if (actionType === 'run_pipeline_step') {
     actionId = 'pipeline:run_next_step';
   }
+  if (actionType === 'run_skill') {
+    const skillName =
+      typeof payload.skillName === 'string' && payload.skillName.trim()
+        ? payload.skillName.trim()
+        : '';
+    if (skillName) actionId = `skill:${skillName}`;
+  }
+  if (actionType === 'orchestra_start') {
+    actionId = 'orchestra:start';
+  }
+  if (actionType === 'run_factory') {
+    const fid =
+      typeof payload.factoryId === 'string' && payload.factoryId.trim()
+        ? payload.factoryId.trim()
+        : '';
+    if (fid) actionId = `factory:${fid}`;
+  }
+
+  recordRuntimeAuthorityPathUsed({
+    route: source,
+    toolName: toolName || actionId || actionType,
+    userId: req.userId ?? ctx.userId ?? null,
+    missionId: ctx.missionId ?? req.missionId ?? null,
+    source,
+  });
 
   const routePlan = toolName ? routeToolToAction(toolName) : null;
   const capabilityId = req.capabilityId ?? routePlan?.capabilityFamily ?? null;
@@ -110,7 +154,7 @@ export async function executeRuntimeAction(request) {
 
   // Duplication detection is for user-triggered tool dispatch. Pipeline facade can legitimately
   // call multiple sequential steps quickly; do not flag those as duplicates.
-  if (actionType !== 'run_pipeline_step') {
+  if (actionType !== 'run_pipeline_step' && actionType !== 'orchestra_start') {
     detectExecutionDuplication({
       missionId: ctx.missionId,
       toolName: toolName || null,
@@ -167,6 +211,113 @@ export async function executeRuntimeAction(request) {
       source,
       payload: innerPayload,
     });
+  } else if (actionType === 'run_skill') {
+    const { skillRegistry, skillExecutor } = await import('../../skills/index.js');
+    const skillName =
+      typeof innerPayload.skillName === 'string' && innerPayload.skillName.trim()
+        ? innerPayload.skillName.trim()
+        : '';
+    const intentLabel =
+      typeof innerPayload.intentLabel === 'string' && innerPayload.intentLabel.trim()
+        ? innerPayload.intentLabel.trim()
+        : '';
+    const skillDef =
+      (skillName ? skillRegistry.get(skillName) : null) || skillRegistry.findByTrigger(intentLabel);
+    if (!skillDef) {
+      facadeResult = {
+        status: 'failed',
+        error: {
+          code: 'SKILL_NOT_FOUND',
+          message: `Skill not found: ${skillName || intentLabel || '(empty)'}`,
+        },
+      };
+    } else {
+      const rawSkillCtx =
+        innerPayload.context && typeof innerPayload.context === 'object' && !Array.isArray(innerPayload.context)
+          ? innerPayload.context
+          : {};
+      const skillCtx = markRuntimeOwnedContext(rawSkillCtx, ctx.runtimeId);
+      const execution = await skillExecutor.execute(skillDef, skillCtx);
+      const okStatus =
+        execution?.status === 'completed' ||
+        execution?.status === 'awaiting_plan_approval' ||
+        execution?.status === 'running';
+      facadeResult = {
+        status: okStatus ? 'ok' : 'failed',
+        output: { skillExecution: execution },
+        ...(okStatus
+          ? {}
+          : {
+              error: {
+                code: 'SKILL_FAILED',
+                message: execution?.failedReason ?? `Skill ended in status ${execution?.status}`,
+              },
+            }),
+      };
+    }
+  } else if (actionType === 'orchestra_start') {
+    facadeResult = {
+      status: 'ok',
+      output: {
+        orchestraEnvelope: true,
+        goal:
+          typeof innerPayload.goal === 'string' && innerPayload.goal.trim()
+            ? innerPayload.goal.trim()
+            : null,
+      },
+    };
+  } else if (actionType === 'run_factory') {
+    const { runFactoryExecution } = await import('../../factoryRuntime/factoryRuntimeExecutor.js');
+    const factoryId =
+      typeof innerPayload.factoryId === 'string' ? innerPayload.factoryId.trim() : '';
+    const intent =
+      typeof innerPayload.intent === 'string'
+        ? innerPayload.intent.trim()
+        : typeof innerPayload.goal === 'string'
+          ? innerPayload.goal.trim()
+          : '';
+    const factoryContext =
+      innerPayload.context && typeof innerPayload.context === 'object'
+        ? innerPayload.context
+        : {};
+    const factoryResult = await runFactoryExecution({
+      factoryId,
+      missionId: ctx.missionId ?? req.missionId ?? null,
+      userId: req.userId ?? ctx.userId ?? null,
+      intent,
+      context: {
+        ...factoryContext,
+        storeId: factoryContext.storeId ?? req.storeId ?? ctx.storeId ?? null,
+      },
+      resumeState: innerPayload.resumeState ?? null,
+    });
+    const okStatus =
+      factoryResult.status === 'completed' || factoryResult.status === 'awaiting_factory_approval';
+    facadeResult = {
+      status: okStatus ? 'ok' : 'failed',
+      output: { factoryExecution: factoryResult },
+      ...(okStatus
+        ? {}
+        : {
+            error: factoryResult.error ?? {
+              code: 'FACTORY_FAILED',
+              message: `Factory ended in status ${factoryResult.status}`,
+            },
+          }),
+    };
+  } else if (actionType === 'execute_action') {
+    // UI runtime gateway (uiRuntimeActionService) runs adapters after this envelope completes.
+    facadeResult = { status: 'ok', output: { uiActionEnvelope: true, actionId } };
+  } else if (actionType === 'assist_hybrid_operation') {
+    facadeResult = {
+      status: 'ok',
+      output: {
+        hybridAssistEnvelope: true,
+        operation: innerPayload.operation ?? null,
+        message: 'Hybrid operation reviewed via runtime assist envelope.',
+        suggestions: Array.isArray(innerPayload.suggestions) ? innerPayload.suggestions : [],
+      },
+    };
   } else {
     facadeResult = await executeMissionAction({
       actionType: 'dispatch_tool',

@@ -17,13 +17,34 @@ import runtimeCapabilitiesRoutes from '../src/routes/runtimeCapabilitiesRoutes.j
 describe('runtimeCapabilitiesService', () => {
   beforeEach(() => {
     resetRuntimeCapabilitiesForTests();
+    delete process.env.DISABLE_RUNTIME_STEP_EXECUTION;
+    delete process.env.DISABLE_RUNTIME_KERNEL;
+    delete process.env.DISABLE_SHARED_RUNTIME_TOOL_REGISTRY;
   });
 
   afterEach(() => {
     resetRuntimeCapabilitiesForTests();
   });
 
-  it('computes capabilities once at boot', () => {
+  it('kernel capabilities default to enabled when env unset', () => {
+    delete process.env.ENABLE_RUNTIME_STEP_EXECUTION;
+    delete process.env.DISABLE_RUNTIME_STEP_EXECUTION;
+    delete process.env.DISABLE_RUNTIME_KERNEL;
+    resetRuntimeCapabilitiesForTests();
+    const caps = initRuntimeCapabilities();
+    expect(caps.runtimeStepExecution).toBe(true);
+    expect(caps.runtimeKernel).toBe(true);
+    expect(caps.sharedRuntimeToolRegistry).toBe(true);
+  });
+
+  it('DISABLE_RUNTIME_STEP_EXECUTION turns off step execution', () => {
+    process.env.DISABLE_RUNTIME_STEP_EXECUTION = 'true';
+    resetRuntimeCapabilitiesForTests();
+    const caps = initRuntimeCapabilities();
+    expect(caps.runtimeStepExecution).toBe(false);
+  });
+
+  it('computes capabilities once at boot when explicitly enabled', () => {
     process.env.ENABLE_RUNTIME_STEP_EXECUTION = 'true';
     const a = initRuntimeCapabilities();
     const b = getRuntimeCapabilities();
@@ -31,17 +52,19 @@ describe('runtimeCapabilitiesService', () => {
     expect(b.runtimeStepExecution).toBe(true);
   });
 
-  it('missing ENABLE_RUNTIME_STEP_EXECUTION logs runtime.capability.missing internally', () => {
-    delete process.env.ENABLE_RUNTIME_STEP_EXECUTION;
+  it('legacy missing-env warning only when capability default is false', () => {
+    delete process.env.ENABLE_RUNTIME_MISSION_ORCHESTRATOR;
+    resetRuntimeCapabilitiesForTests();
     initRuntimeCapabilities();
     const events = getRuntimeCapabilityEventsForTests();
-    expect(events.some((e) => e.type === 'runtime.capability.missing' && e.capability === 'runtimeStepExecution')).toBe(
+    expect(events.some((e) => e.type === 'runtime.capability.missing' && e.capability === 'runtimeMissionOrchestrator')).toBe(
       true,
     );
   });
 
   it('requireRuntimeCapability returns user-safe message without env names', () => {
-    delete process.env.ENABLE_RUNTIME_STEP_EXECUTION;
+    process.env.DISABLE_RUNTIME_STEP_EXECUTION = 'true';
+    resetRuntimeCapabilitiesForTests();
     initRuntimeCapabilities();
     const gate = requireRuntimeCapability('runtimeStepExecution', { source: 'test' });
     expect(gate.ok).toBe(false);
@@ -61,7 +84,7 @@ describe('runtimeCapabilitiesService', () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(typeof res.body.runtimeStepExecution).toBe('boolean');
-    expect(JSON.stringify(res.body)).not.toMatch(/ENABLE_/);
+    expect(res.body.runtimeStepExecution).toBe(true);
   });
 
   it('existing runtime execution capability works when enabled', () => {

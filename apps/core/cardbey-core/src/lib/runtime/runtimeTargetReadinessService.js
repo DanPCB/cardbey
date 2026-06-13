@@ -241,7 +241,7 @@ export async function resolveStoreReadiness(input) {
 
   const [productCount, promoCount, deviceCount] = await Promise.all([
     prisma.product.count({ where: { businessId: storeId, deletedAt: null } }).catch(() => 0),
-    prisma.storePromo.count({ where: { businessId: storeId } }).catch(() => 0),
+    prisma.storePromo.count({ where: { storeId } }).catch(() => 0),
     prisma.device.count({ where: { storeId } }).catch(() => 0),
   ]);
 

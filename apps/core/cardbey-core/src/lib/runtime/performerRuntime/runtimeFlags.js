@@ -1,7 +1,13 @@
 /**
  * Performer Runtime — feature flags (Phase 1.5).
- * All blocking flags default OFF; warn/stream defaults ON.
+ * Kernel authority flags delegate to kernelMandatory.js (default ON).
  */
+
+import {
+  isRuntimeStepExecutionEnabled as kernelStepEnabled,
+  isPerformerRuntimeKernelEnabled as kernelEnabled,
+  isSharedRuntimeToolRegistryEnabled as kernelRegistryEnabled,
+} from '../kernelMandatory.js';
 
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
@@ -49,15 +55,15 @@ export function isPerformerExecutionRecordsPersistEnabled() {
 
 /** Route proactive mission steps through performerRuntimeKernel.executeMissionStep. */
 export function isRuntimeStepExecutionEnabled() {
-  return envTruthy('ENABLE_RUNTIME_STEP_EXECUTION', false);
+  return kernelStepEnabled();
 }
 
 /** Use shared runtimeToolRegistry for tool validation. */
 export function isSharedRuntimeToolRegistryEnabled() {
-  return envTruthy('ENABLE_SHARED_RUNTIME_TOOL_REGISTRY', false);
+  return kernelRegistryEnabled();
 }
 
 /** Master switch for Runtime Kernel step authority layer. */
 export function isPerformerRuntimeKernelEnabled() {
-  return envTruthy('ENABLE_PERFORMER_RUNTIME_KERNEL', false);
+  return kernelEnabled();
 }

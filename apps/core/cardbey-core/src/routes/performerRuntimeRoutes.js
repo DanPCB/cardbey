@@ -3,7 +3,25 @@
  */
 
 import { Router } from 'express';
-import { optionalAuth } from '../middleware/auth.js';
+import { optionalAuth, requireAuth } from '../middleware/auth.js';
+import { executeUiRuntimeAction } from '../lib/runtime/performerRuntime/uiRuntimeActionService.js';
+import { executeRuntimeAction } from '../lib/runtime/performerRuntime/executeRuntimeAction.js';
+import { recordRuntimeAuthorityPathUsed } from '../lib/runtime/performerRuntime/runtimeAuthorityGuard.js';
+import {
+  executeStoreHeroMediaUpload,
+  heroMediaUploadSingle,
+  resolveDraftForHeroUpload,
+} from '../services/draftStore/heroMediaUploadService.js';
+import {
+  executeStoreLogoOrAvatarUpload,
+} from '../services/draftStore/storeAssetUploadService.js';
+import { UPLOAD_ACTIONS } from '../lib/runtime/runtimeActionTypes.js';
+import { buildRuntimeUploadEnvelope } from '../lib/runtime/runtimeUploadEnvelope.js';
+import {
+  exploreVideoUploadFields,
+  executeExploreVideoUpload,
+} from '../services/explore/exploreVideoUploadService.js';
+import { handleFactoryApprovalDecision } from '../lib/factoryRuntime/factoryApprovalService.js';
 import {
   getRuntimeByMissionId,
   getRuntimeById,
@@ -22,6 +40,398 @@ import {
 import { getSkillContract, SKILL_CONTRACTS } from '../lib/runtime/performerRuntime/skillContracts.js';
 
 const router = Router();
+
+/**
+ * POST /api/performer/runtime/ui-action — Sprint 2 UI write authority gateway.
+ * Body: { action, missionId?, storeId?, payload?, source? }
+ */
+router.post('/ui-action', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const action = typeof body.action === 'string' ? body.action.trim() : '';
+  if (!action) {
+    return res.status(400).json({ ok: false, error: 'action_required' });
+  }
+  try {
+    const payloadRaw = body.payload && typeof body.payload === 'object' ? body.payload : {};
+    const mergedPayload = {
+      ...payloadRaw,
+      ...(body._preferAgent !== undefined ? { _preferAgent: body._preferAgent } : {}),
+      ...(body.confirmed !== undefined ? { confirmed: body.confirmed } : {}),
+      ...(body._executeAfterReview !== undefined ? { _executeAfterReview: body._executeAfterReview } : {}),
+    };
+    const result = await executeUiRuntimeAction({
+      action,
+      missionId: body.missionId ?? null,
+      storeId: body.storeId ?? null,
+      tenantId: req.user?.tenantId ?? req.userId ?? null,
+      userId: req.userId ?? req.user?.id ?? null,
+      source: typeof body.source === 'string' ? body.source.trim() : 'ui_publish',
+      payload: mergedPayload,
+    });
+    const httpStatus =
+      result.status === 'blocked' ? 409 : result.ok ? 200 : result.error?.code === 'draft_not_found' ? 404 : 400;
+    return res.status(httpStatus).json(result);
+  } catch (err) {
+    console.error('[performer/runtime/ui-action]', err);
+    return res.status(500).json({
+      ok: false,
+      error: err?.code ?? 'ui_action_failed',
+      message: err?.message ?? 'UI action failed',
+    });
+  }
+});
+
+/**
+ * POST /api/performer/runtime/ui-action/upload-hero — multipart hero upload via runtime authority.
+ * Query: storeId (required unless draftId resolves store), draftId?, generationRunId?
+ * Form: file, missionId?, generationRunId?, type=hero
+ */
+router.post('/ui-action/upload-hero', requireAuth, heroMediaUploadSingle, async (req, res) => {
+  const userId = req.userId ?? req.user?.id ?? null;
+  const storeId =
+    (typeof req.query.storeId === 'string' ? req.query.storeId.trim() : null) ||
+    (typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : null) ||
+    req.params?.storeId ||
+    '';
+  const draftId =
+    (typeof req.query.draftId === 'string' ? req.query.draftId.trim() : null) ||
+    (typeof req.body?.draftId === 'string' ? req.body.draftId.trim() : null) ||
+    null;
+  const generationRunId =
+    (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+    (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null) ||
+    null;
+  const missionId =
+    (typeof req.query.missionId === 'string' ? req.query.missionId.trim() : null) ||
+    (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null) ||
+    null;
+  const source =
+    (typeof req.body?.source === 'string' ? req.body.source.trim() : null) || 'ui_hero_upload';
+
+  recordRuntimeAuthorityPathUsed({
+    route: '/api/performer/runtime/ui-action/upload-hero',
+    toolName: 'upload_hero_media',
+    userId,
+    missionId,
+    source,
+  });
+
+  try {
+    const resolved = await resolveDraftForHeroUpload({
+      storeId: storeId || 'temp',
+      draftId,
+      generationRunId,
+      userId,
+      userRole: req.user?.role ?? null,
+    });
+    if (resolved.errorResponse) {
+      return res.status(resolved.errorResponse.status).json(resolved.errorResponse.body);
+    }
+    const output = await executeStoreHeroMediaUpload({
+      userId,
+      storeId: resolved.storeId,
+      draft: resolved.draft,
+      file: req.file,
+      generationRunId,
+      missionId,
+      req,
+    });
+    return res.status(200).json(
+      buildRuntimeUploadEnvelope(UPLOAD_ACTIONS.UPLOAD_HERO_MEDIA, output, { missionId, source }),
+    );
+  } catch (err) {
+    if (err?.statusCode === 400) {
+      return res.status(400).json({
+        ok: false,
+        error: err.code ?? 'invalid_file',
+        message: err.message ?? 'Invalid upload',
+      });
+    }
+    if (err?.code === 'draft_already_committed' || String(err?.message || '').includes('already been committed')) {
+      return res.status(409).json({
+        ok: false,
+        error: 'draft_already_committed',
+        message:
+          'This draft is locked for full edits. Use Preview changes to update the hero, then Republish.',
+      });
+    }
+    console.error('[performer/runtime/ui-action/upload-hero]', err);
+    return res.status(500).json({
+      ok: false,
+      error: err?.code ?? 'upload_hero_failed',
+      message: err?.message ?? 'Hero upload failed',
+    });
+  }
+});
+
+async function handleRuntimeStoreAssetUpload(req, res, kind) {
+  const userId = req.userId ?? req.user?.id ?? null;
+  const storeId =
+    (typeof req.query.storeId === 'string' ? req.query.storeId.trim() : null) ||
+    (typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : null) ||
+    '';
+  const draftId =
+    (typeof req.query.draftId === 'string' ? req.query.draftId.trim() : null) ||
+    (typeof req.body?.draftId === 'string' ? req.body.draftId.trim() : null) ||
+    null;
+  const generationRunId =
+    (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
+    (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null) ||
+    null;
+  const missionId =
+    (typeof req.query.missionId === 'string' ? req.query.missionId.trim() : null) ||
+    (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null) ||
+    null;
+  const action = kind === 'logo' ? UPLOAD_ACTIONS.UPLOAD_LOGO : UPLOAD_ACTIONS.UPLOAD_AVATAR;
+  const source =
+    (typeof req.body?.source === 'string' ? req.body.source.trim() : null) ||
+    (kind === 'logo' ? 'ui_logo_upload' : 'ui_avatar_upload');
+
+  recordRuntimeAuthorityPathUsed({
+    route: `/api/performer/runtime/ui-action/upload-${kind}`,
+    toolName: action,
+    userId,
+    missionId,
+    source,
+  });
+
+  try {
+    const resolved = await resolveDraftForHeroUpload({
+      storeId: storeId || 'temp',
+      draftId,
+      generationRunId,
+      userId,
+      userRole: req.user?.role ?? null,
+    });
+    if (resolved.errorResponse) {
+      return res.status(resolved.errorResponse.status).json(resolved.errorResponse.body);
+    }
+    const output = await executeStoreLogoOrAvatarUpload({
+      userId,
+      storeId: resolved.storeId,
+      draft: resolved.draft,
+      file: req.file,
+      generationRunId,
+      kind,
+      req,
+    });
+    return res.status(200).json(buildRuntimeUploadEnvelope(action, output, { missionId, source }));
+  } catch (err) {
+    if (err?.statusCode === 400) {
+      return res.status(400).json({
+        ok: false,
+        error: err.code ?? 'invalid_file',
+        message: err.message ?? 'Invalid upload',
+      });
+    }
+    console.error(`[performer/runtime/ui-action/upload-${kind}]`, err);
+    return res.status(500).json({
+      ok: false,
+      error: err?.code ?? `upload_${kind}_failed`,
+      message: err?.message ?? `${kind} upload failed`,
+    });
+  }
+}
+
+router.post('/ui-action/upload-logo', requireAuth, heroMediaUploadSingle, (req, res) =>
+  handleRuntimeStoreAssetUpload(req, res, 'logo'),
+);
+
+router.post('/ui-action/upload-avatar', requireAuth, heroMediaUploadSingle, (req, res) =>
+  handleRuntimeStoreAssetUpload(req, res, 'avatar'),
+);
+
+router.post(
+  '/ui-action/upload-explore-video',
+  requireAuth,
+  exploreVideoUploadFields(),
+  async (req, res) => {
+    const userId = req.userId ?? req.user?.id ?? null;
+    const missionId =
+      (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null) || null;
+    recordRuntimeAuthorityPathUsed({
+      route: '/api/performer/runtime/ui-action/upload-explore-video',
+      toolName: UPLOAD_ACTIONS.UPLOAD_EXPLORE_VIDEO,
+      userId,
+      missionId,
+      source: 'ui_explore_upload',
+    });
+    try {
+      const result = await executeExploreVideoUpload(req);
+      if (result.status >= 400) {
+        return res.status(result.status).json(result.body);
+      }
+      return res
+        .status(result.status)
+        .json(
+          buildRuntimeUploadEnvelope(UPLOAD_ACTIONS.UPLOAD_EXPLORE_VIDEO, result.body, {
+            missionId,
+            source: 'ui_explore_upload',
+          }),
+        );
+    } catch (err) {
+      if (err?.message === 'title_and_video_required') {
+        return res.status(400).json({
+          ok: false,
+          error: 'validation_error',
+          message: 'Title and video are required',
+        });
+      }
+      console.error('[performer/runtime/ui-action/upload-explore-video]', err);
+      return res.status(500).json({
+        ok: false,
+        error: 'upload_failed',
+        message: err?.message || 'Video upload failed',
+      });
+    }
+  },
+);
+
+/**
+ * POST /api/performer/runtime/run-factory — Factory Runtime V1 (no direct UI; API gateway only).
+ * Body: { factoryId, missionId, intent, context?, resumeState? }
+ */
+router.post('/run-factory', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const factoryId = typeof body.factoryId === 'string' ? body.factoryId.trim() : '';
+  const missionId = typeof body.missionId === 'string' ? body.missionId.trim() : '';
+  if (!factoryId || !missionId) {
+    return res.status(400).json({ ok: false, error: 'factory_id_and_mission_id_required' });
+  }
+  try {
+    const result = await executeRuntimeAction({
+      actionType: 'run_factory',
+      actionId: `factory:${factoryId}`,
+      missionId,
+      userId: req.userId ?? req.user?.id ?? null,
+      tenantId: req.user?.tenantId ?? null,
+      storeId: body.storeId ?? body.context?.storeId ?? null,
+      source: typeof body.source === 'string' ? body.source : 'factory_runtime_api',
+      payload: {
+        factoryId,
+        intent: body.intent ?? body.goal ?? '',
+        context: body.context ?? {},
+        resumeState: body.resumeState ?? null,
+      },
+    });
+    const factoryExecution = result?.output?.factoryExecution ?? result?.output ?? result;
+    const httpStatus =
+      result.status === 'blocked' ? 409 : factoryExecution?.status === 'failed' ? 500 : 200;
+    return res.status(httpStatus).json({
+      ok: result.status !== 'failed' && result.status !== 'blocked',
+      ...factoryExecution,
+      metadata: result.metadata,
+    });
+  } catch (err) {
+    console.error('[performer/runtime/run-factory]', err);
+    return res.status(500).json({
+      ok: false,
+      error: err?.code ?? 'run_factory_failed',
+      message: err?.message ?? 'Factory execution failed',
+    });
+  }
+});
+
+/**
+ * POST /api/performer/runtime/factory-approval — resume factory after approval checkpoint.
+ * Body: { missionId, decision: 'approve'|'cancel', editedPlan? }
+ */
+router.post('/factory-approval', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const missionId = typeof body.missionId === 'string' ? body.missionId.trim() : '';
+  const decision =
+    body.decision === 'cancel'
+      ? 'cancel'
+      : body.decision === 'regenerate'
+        ? 'regenerate'
+        : body.decision === 'regenerate_scene'
+          ? 'regenerate_scene'
+          : body.decision === 'regenerate_plan'
+            ? 'regenerate_plan'
+            : 'approve';
+  if (!missionId) {
+    return res.status(400).json({ ok: false, error: 'mission_id_required' });
+  }
+  try {
+    const result = await handleFactoryApprovalDecision({
+      missionId,
+      userId: req.userId ?? req.user?.id ?? null,
+      decision,
+      editedPlan: body.editedPlan ?? null,
+      sceneId: body.sceneId ?? null,
+    });
+    const httpStatus = result.ok !== false && result.status !== 'failed' ? 200 : result.error === 'not_found' ? 404 : 400;
+    const { loadFactoryExecutionFromMission } = await import('../lib/factoryRuntime/factoryIntentRouter.js');
+    const factoryExecution = await loadFactoryExecutionFromMission(missionId);
+    let generatedArtifacts = [];
+    try {
+      const { getPrismaClient } = await import('../lib/prisma.js');
+      const prisma = getPrismaClient();
+      const mission = await prisma.mission.findUnique({
+        where: { id: missionId },
+        select: { context: true },
+      });
+      const ctx = mission?.context;
+      if (ctx && typeof ctx === 'object' && !Array.isArray(ctx) && Array.isArray(ctx.generatedArtifacts)) {
+        generatedArtifacts = ctx.generatedArtifacts;
+      }
+    } catch {
+      /* non-fatal */
+    }
+    return res.status(httpStatus).json({
+      ok: result.ok !== false && result.status !== 'failed',
+      status: result.status ?? factoryExecution?.status ?? null,
+      factoryExecution: factoryExecution ?? result,
+      artifact: result.artifact ?? factoryExecution?.stageOutputs?.artifact_finalize ?? null,
+      generatedArtifacts,
+      ...result,
+    });
+  } catch (err) {
+    console.error('[performer/runtime/factory-approval]', err);
+    return res.status(500).json({
+      ok: false,
+      error: 'factory_approval_failed',
+      message: err?.message ?? 'Factory approval failed',
+    });
+  }
+});
+
+/**
+ * POST /api/performer/runtime/factory-publish — governed publish handoff (after final approval).
+ * Body: { missionId, target, storeId? }
+ */
+router.post('/factory-publish', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const missionId = typeof body.missionId === 'string' ? body.missionId.trim() : '';
+  const target = typeof body.target === 'string' ? body.target.trim() : '';
+  if (!missionId || !target) {
+    return res.status(400).json({ ok: false, error: 'mission_id_and_target_required' });
+  }
+  try {
+    const { loadFactoryExecutionFromMission } = await import('../lib/factoryRuntime/factoryIntentRouter.js');
+    const { executeGovernedFactoryPublish } = await import('../lib/factoryRuntime/creativeFactoryV4Stages.js');
+    const factoryExecution = await loadFactoryExecutionFromMission(missionId);
+    if (!factoryExecution) {
+      return res.status(404).json({ ok: false, error: 'factory_execution_not_found' });
+    }
+    const result = await executeGovernedFactoryPublish({
+      missionId,
+      userId: req.userId ?? req.user?.id ?? null,
+      target,
+      storeId: body.storeId ?? null,
+      factoryExecution,
+    });
+    const httpStatus = result.ok ? 200 : result.error === 'final_approval_required' ? 403 : 400;
+    return res.status(httpStatus).json(result);
+  } catch (err) {
+    console.error('[performer/runtime/factory-publish]', err);
+    return res.status(500).json({
+      ok: false,
+      error: 'factory_publish_failed',
+      message: err?.message ?? 'Factory publish failed',
+    });
+  }
+});
 
 /**
  * POST /api/performer/runtime/dry-run — validate plan against broker registry (no execution).

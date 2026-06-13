@@ -48,6 +48,17 @@ import {
   resolvePersistedHeroMediaUrl,
 } from '../lib/storage/uploadResponse.js';
 import { normalizeMediaUrlField } from '../services/draftStore/normalizeHeroMediaUrlsForStorage.js';
+import {
+  executeStoreHeroMediaUpload,
+  heroMediaUploadSingle,
+  resolveDraftForHeroUpload,
+} from '../services/draftStore/heroMediaUploadService.js';
+import { assertUiWriteAuthority } from '../lib/runtime/performerRuntime/uiWriteAuthorityGuard.js';
+import { assertLegacyUploadAuthority } from '../lib/runtime/performerRuntime/runtimeUploadAuthority.js';
+import {
+  executeStoreLogoOrAvatarUpload,
+} from '../services/draftStore/storeAssetUploadService.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
 import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
@@ -56,6 +67,10 @@ import {
   updateBrandKitForStoreId,
   validateBrandKitPatch,
 } from '../services/store/brandKitService.js';
+import {
+  updateCommerceForStoreId,
+  validateCommercePatch,
+} from '../services/store/storeCommerceService.js';
 
 import { prisma } from '../lib/prisma.js';
 import { resolveAccessibleMission } from '../lib/missionAccess.js';
@@ -1705,11 +1720,67 @@ router.patch('/:storeId/brandkit', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * PATCH /api/store/:storeId/commerce
+ * Update commerce mode + CTA for draft or published store.
+ */
+router.patch('/:storeId/commerce', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = String(req.params.storeId ?? '').trim();
+    if (!storeId) {
+      return res.status(400).json({ ok: false, error: 'store_id_required', message: 'storeId is required' });
+    }
+
+    const validated = validateCommercePatch(req.body ?? {});
+    if (!validated.ok) {
+      return res.status(400).json({ ok: false, error: validated.code, message: validated.message });
+    }
+
+    const target = await resolveBrandKitTarget(prisma, storeId);
+    if (!target) {
+      return res.status(404).json({ ok: false, error: 'store_not_found', message: 'Store or draft not found' });
+    }
+
+    if (target.kind === 'business') {
+      if (target.record.userId !== req.userId) {
+        return res.status(403).json({ ok: false, error: 'forbidden', message: 'You do not own this store.' });
+      }
+    } else {
+      const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
+      const allowed = await canAccessDraftStore(target.record, {
+        userId: req.userId,
+        tenantKey: req.userId,
+        isSuperAdmin: req.user?.role === 'super_admin',
+      });
+      if (!allowed) {
+        return res.status(403).json({ ok: false, error: 'forbidden', message: 'You do not have access to this draft.' });
+      }
+    }
+
+    const result = await updateCommerceForStoreId(prisma, storeId, validated.data);
+    if (!result.ok) {
+      return res.status(404).json({ ok: false, error: result.code, message: result.message });
+    }
+
+    return res.status(200).json({ ok: true, commerce: result.commerce });
+  } catch (err) {
+    console.error('[Stores:PATCH /:storeId/commerce]', err?.message || err);
+    next(err);
+  }
+});
+
+/**
  * PATCH /api/stores/:storeId/draft/hero
  * Persist hero (and optionally avatar) URLs to draft preview + business profile. Auth required.
  */
 router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'hero_patch',
+      route: 'PATCH /api/stores/:storeId/draft/hero',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_hero_patch',
+    });
     const result = await resolveDraftForStoreAsset(req);
     if (result.errorResponse) {
       return res.status(result.errorResponse.status).json(result.errorResponse.body);
@@ -1795,6 +1866,13 @@ router.patch('/:storeId/draft/hero', requireAuth, async (req, res, next) => {
  */
 router.patch('/:storeId/draft/avatar', requireAuth, async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'avatar_patch',
+      route: 'PATCH /api/stores/:storeId/draft/avatar',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_avatar_patch',
+    });
     const result = await resolveDraftForStoreAsset(req);
     if (result.errorResponse) {
       return res.status(result.errorResponse.status).json(result.errorResponse.body);
@@ -2423,176 +2501,49 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
   }
 });
 
-router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
+router.post('/:storeId/upload/hero', requireAuth, heroMediaUploadSingle, async (req, res, next) => {
   try {
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ ok: false, error: 'no_file', message: 'No file uploaded; use multipart field "file".' });
-    }
-    const result = await resolveDraftForStoreAsset(req);
-    if (result.errorResponse) {
-      return res.status(result.errorResponse.status).json(result.errorResponse.body);
-    }
-    const draft = result.draft;
-    let buffer = req.file.buffer;
-    let mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
-    const isVideo = mime.startsWith('video/');
-    if (isVideo) {
-      const { assertValidHeroVideoUpload } = await import('../utils/videoBinaryValidation.js');
-      const videoCheck = assertValidHeroVideoUpload(buffer, mime);
-      console.log('[HERO_VIDEO_VALIDATE]', {
-        stage: 'server_binary',
-        ok: videoCheck.ok,
-        mimeType: mime,
-        sizeBytes: buffer.length,
-        reason: videoCheck.ok ? null : videoCheck.error,
-      });
-      if (!videoCheck.ok) {
-        return res.status(400).json({
-          ok: false,
-          error: videoCheck.error,
-          message: videoCheck.message,
-        });
-      }
-    }
-    const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
-    if (buffer.length > maxBytes) {
-      return res.status(400).json({
-        ok: false,
-        error: 'file_too_large',
-        message: isVideo ? 'Video must be 75MB or smaller.' : 'Image must be 20MB or smaller.',
-      });
-    }
-    if (isVideo) {
-      try {
-        const processed = await ensureWebCompatibleVideoBuffer(
-          buffer,
-          req.file.originalname || 'hero.mp4',
-          { context: 'stores.upload.hero' },
-        );
-        buffer = processed.buffer;
-        mime = processed.mime;
-        if (processed.transcoded) {
-          console.log('[Stores] upload/hero: video transcoded for browser/TV compatibility', {
-            originalName: req.file.originalname,
-            sizeBytes: buffer.length,
-          });
-        }
-      } catch (videoErr) {
-        console.warn(
-          '[Stores] upload/hero: video compat processing failed (non-fatal):',
-          videoErr?.message || videoErr,
-        );
-      }
-    }
-    const defaultName = isVideo ? 'hero.mp4' : 'hero.jpg';
-    const heroCategory = isVideo ? 'videos' : 'stores';
-    const { key, url: storageUrl } = await uploadBufferToS3(
-      buffer,
-      req.file.originalname || defaultName,
-      mime,
-      heroCategory,
-    );
-    const uploadPayload = buildStorageUploadResponse({
-      storageUrl,
-      key,
-      mime,
-      mediaType: isVideo ? 'video' : 'image',
-      req,
+    assertLegacyUploadAuthority(req, {
+      mutationType: 'hero_upload',
+      route: 'POST /api/stores/:storeId/upload/hero',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? req.query?.missionId ?? null,
+      source: 'ui_hero_upload',
+      deprecatedHint:
+        'Direct hero upload — use POST /api/performer/runtime/ui-action/upload-hero',
     });
-    const persistedHeroUrl = resolvePersistedHeroMediaUrl(uploadPayload);
-    try {
-      await prisma.media.create({
-        data: {
-          url: persistedHeroUrl,
-          storageKey: key,
-          kind: isVideo ? 'VIDEO' : 'IMAGE',
-          mime,
-          sizeBytes: buffer.length,
-        },
-      });
-    } catch (mediaErr) {
-      console.warn('[Stores] upload/hero: Media create failed (non-fatal), draft preview will still be updated:', mediaErr?.message);
-    }
-    const heroImageUrl = persistedHeroUrl;
-    const existingPreview = draft
-      ? (typeof draft.preview === 'string' ? (() => { try { return JSON.parse(draft.preview); } catch { return {}; } })() : (draft.preview || {}))
-      : {};
-    const previewPatch = buildHeroPreviewPatchFromUrls({
-      imageUrl: isVideo ? null : heroImageUrl,
-      videoUrl: isVideo ? heroImageUrl : null,
-      source: 'upload',
-      existingPreview,
-    });
-    const storeIdParam =
-      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
-    const heroResult = await updateHeroForStore({
-      prisma,
+    const resolved = await resolveDraftForHeroUpload({
+      storeId: req.params.storeId,
+      draftId: req.query?.draftId ?? req.body?.draftId ?? null,
+      generationRunId: req.query?.generationRunId ?? req.body?.generationRunId ?? null,
       userId: req.userId,
-      storeId: storeIdParam,
-      draftId: draft?.id ?? null,
+      userRole: req.user?.role ?? null,
+    });
+    if (resolved.errorResponse) {
+      return res.status(resolved.errorResponse.status).json(resolved.errorResponse.body);
+    }
+    const payload = await executeStoreHeroMediaUpload({
+      userId: req.userId,
+      storeId: resolved.storeId,
+      draft: resolved.draft,
+      file: req.file,
       generationRunId:
         (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
         (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
       missionId:
         (typeof req.query.missionId === 'string' ? req.query.missionId.trim() : null) ||
         (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null),
-      previewPatch,
-      source: 'upload',
+      req,
     });
-    let hasUnpublishedHeroChanges = false;
-    if (heroResult.storeId && heroResult.draftUpdated) {
-      try {
-        const { buildDraftPublishState } = await import('../services/draftStore/buildDraftPublishState.js');
-        const freshDraft = heroResult.draftId ? await getDraft(heroResult.draftId) : draft;
-        if (freshDraft) {
-          const pubState = await buildDraftPublishState(prisma, freshDraft);
-          hasUnpublishedHeroChanges = Boolean(pubState.hasUnpublishedChanges);
-        }
-      } catch {
-        /* non-fatal */
-      }
-    }
-
-    const publicUrl = uploadPayload.publicUrl;
-    const clientVideoUrl = isVideo
-      ? resolveClientHeroMediaUrl(heroResult.heroVideoUrl, publicUrl, req)
-      : null;
-    const clientImageUrl = !isVideo
-      ? resolveClientHeroMediaUrl(heroResult.heroImageUrl, publicUrl, req)
-      : (heroResult.heroImageUrl ?? null);
-
-    console.log('[HERO_VIDEO_APPLY]', {
-      mediaType: isVideo ? 'video' : 'image',
-      mimeType: mime,
-      storageDriver: uploadPayload.storageDriver,
-      publicUrl,
-      persistedHeroUrl,
-      heroVideoUrl: clientVideoUrl,
-      heroImageUrl: clientImageUrl,
-      draftUpdated: heroResult.draftUpdated,
-      businessUpdated: heroResult.businessUpdated,
-    });
-
-    return res.status(200).json({
-      ok: true,
-      url: isVideo ? clientVideoUrl : clientImageUrl,
-      publicUrl,
-      mediaType: isVideo ? 'video' : 'image',
-      mimeType: mime,
-      size: buffer.length,
-      heroImageUrl: clientImageUrl,
-      heroVideoUrl: clientVideoUrl,
-      heroMediaType: isVideo ? 'video' : heroResult.heroMediaType ?? 'image',
-      videoUrl: clientVideoUrl,
-      isVideo,
-      key,
-      storageKey: key,
-      storageDriver: uploadPayload.storageDriver,
-      draftUpdated: heroResult.draftUpdated,
-      businessUpdated: heroResult.businessUpdated,
-      hasUnpublishedHeroChanges,
-    });
+    return res.status(200).json(payload);
   } catch (err) {
+    if (err?.statusCode === 400) {
+      return res.status(400).json({
+        ok: false,
+        error: err.code ?? 'invalid_file',
+        message: err.message ?? 'Invalid upload',
+      });
+    }
     if (err?.code === 'draft_already_committed' || String(err?.message || '').includes('already been committed')) {
       return res.status(409).json({
         ok: false,
@@ -2611,78 +2562,47 @@ router.post('/:storeId/upload/hero', requireAuth, storeAssetUploadSingle, async 
  * Multipart field: "file". Query: draftId?, generationRunId? (required when storeId is "temp").
  * Returns: { ok: true, logoUrl, avatarImageUrl, url, draftUpdated, businessUpdated }.
  */
-router.post('/:storeId/upload/logo', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
+router.post('/:storeId/upload/logo', requireAuth, heroMediaUploadSingle, async (req, res, next) => {
   try {
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ ok: false, error: 'no_file', message: 'No file uploaded; use multipart field "file".' });
-    }
-    const mime = (req.file.mimetype || 'image/jpeg').toLowerCase();
-    if (!mime.startsWith('image/')) {
-      return res.status(400).json({ ok: false, error: 'invalid_type', message: 'Logo must be an image file.' });
-    }
-    const result = await resolveDraftForStoreAsset(req);
-    if (result.errorResponse) {
-      return res.status(result.errorResponse.status).json(result.errorResponse.body);
-    }
-    const draft = result.draft;
-    const buffer = req.file.buffer;
-    const maxBytes = 20 * 1024 * 1024;
-    if (buffer.length > maxBytes) {
-      return res.status(400).json({ ok: false, error: 'file_too_large', message: 'Image must be 20MB or smaller.' });
-    }
-    const { key, url: storageUrl } = await uploadBufferToS3(
-      buffer,
-      req.file.originalname || 'logo.jpg',
-      mime,
-      'logos',
-    );
-    const uploadPayload = buildStorageUploadResponse({
-      storageUrl,
-      key,
-      mime,
-      mediaType: 'image',
-      req,
+    assertLegacyUploadAuthority(req, {
+      mutationType: 'logo_upload',
+      route: 'POST /api/stores/:storeId/upload/logo',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? req.query?.missionId ?? null,
+      source: 'ui_logo_upload',
+      deprecatedHint:
+        'Direct logo upload — use POST /api/performer/runtime/ui-action/upload-logo',
     });
-    const normalizedUrl = uploadPayload.normalizedUrl;
-    try {
-      await prisma.media.create({
-        data: {
-          url: normalizedUrl,
-          storageKey: key,
-          kind: 'IMAGE',
-          mime,
-          sizeBytes: buffer.length,
-        },
-      });
-    } catch (mediaErr) {
-      console.warn('[Stores] upload/logo: Media create failed (non-fatal):', mediaErr?.message);
-    }
-    const storeIdParam =
-      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
-    const logoResult = await updateLogoForStore({
-      prisma,
+    const resolved = await resolveDraftForHeroUpload({
+      storeId: req.params.storeId,
+      draftId: req.query?.draftId ?? req.body?.draftId ?? null,
+      generationRunId: req.query?.generationRunId ?? req.body?.generationRunId ?? null,
       userId: req.userId,
-      storeId: storeIdParam,
-      draftId: draft?.id ?? null,
+      userRole: req.user?.role ?? null,
+    });
+    if (resolved.errorResponse) {
+      return res.status(resolved.errorResponse.status).json(resolved.errorResponse.body);
+    }
+    const payload = await executeStoreLogoOrAvatarUpload({
+      userId: req.userId,
+      storeId: resolved.storeId,
+      draft: resolved.draft,
+      file: req.file,
       generationRunId:
         (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
         (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
-      logoUrl: normalizedUrl,
+      kind: 'logo',
+      req,
     });
-    return res.status(200).json({
-      ok: true,
-      url: uploadPayload.publicUrl,
-      publicUrl: uploadPayload.publicUrl,
-      logoUrl: logoResult.logoUrl,
-      avatarImageUrl: logoResult.avatarImageUrl,
-      key: uploadPayload.key,
-      mimeType: uploadPayload.mimeType,
-      mediaType: uploadPayload.mediaType,
-      storageDriver: uploadPayload.storageDriver,
-      draftUpdated: logoResult.draftUpdated,
-      businessUpdated: logoResult.businessUpdated,
-    });
+    return res.status(200).json(payload);
   } catch (err) {
+    if (err?.statusCode === 400) {
+      return res.status(400).json({
+        ok: false,
+        error: err.code ?? 'invalid_file',
+        message: err.message ?? 'Invalid upload',
+      });
+    }
     next(err);
   }
 });
@@ -2691,71 +2611,47 @@ router.post('/:storeId/upload/logo', requireAuth, storeAssetUploadSingle, async 
  * POST /api/stores/:storeId/upload/avatar
  * Legacy alias for logo upload — same persistence as /upload/logo.
  */
-router.post('/:storeId/upload/avatar', requireAuth, storeAssetUploadSingle, async (req, res, next) => {
+router.post('/:storeId/upload/avatar', requireAuth, heroMediaUploadSingle, async (req, res, next) => {
   try {
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ ok: false, error: 'no_file', message: 'No file uploaded; use multipart field "file".' });
-    }
-    const result = await resolveDraftForStoreAsset(req);
-    if (result.errorResponse) {
-      return res.status(result.errorResponse.status).json(result.errorResponse.body);
-    }
-    const draft = result.draft;
-    const buffer = req.file.buffer;
-    const mime = req.file.mimetype || 'image/jpeg';
-    const { key, url: storageUrl } = await uploadBufferToS3(
-      buffer,
-      req.file.originalname || 'avatar.jpg',
-      mime,
-      'avatars',
-    );
-    const uploadPayload = buildStorageUploadResponse({
-      storageUrl,
-      key,
-      mime,
-      mediaType: 'image',
-      req,
+    assertLegacyUploadAuthority(req, {
+      mutationType: 'avatar_upload',
+      route: 'POST /api/stores/:storeId/upload/avatar',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? req.query?.missionId ?? null,
+      source: 'ui_avatar_upload',
+      deprecatedHint:
+        'Direct avatar upload — use POST /api/performer/runtime/ui-action/upload-avatar',
     });
-    const normalizedUrl = uploadPayload.normalizedUrl;
-    try {
-      await prisma.media.create({
-        data: {
-          url: normalizedUrl,
-          storageKey: key,
-          kind: 'IMAGE',
-          mime,
-          sizeBytes: buffer.length,
-        },
-      });
-    } catch (mediaErr) {
-      console.warn('[Stores] upload/avatar: Media create failed (non-fatal):', mediaErr?.message);
-    }
-    const storeIdParam =
-      req.params.storeId !== 'temp' ? req.params.storeId : draft?.committedStoreId;
-    const logoResult = await updateLogoForStore({
-      prisma,
+    const resolved = await resolveDraftForHeroUpload({
+      storeId: req.params.storeId,
+      draftId: req.query?.draftId ?? req.body?.draftId ?? null,
+      generationRunId: req.query?.generationRunId ?? req.body?.generationRunId ?? null,
       userId: req.userId,
-      storeId: storeIdParam,
-      draftId: draft?.id ?? null,
+      userRole: req.user?.role ?? null,
+    });
+    if (resolved.errorResponse) {
+      return res.status(resolved.errorResponse.status).json(resolved.errorResponse.body);
+    }
+    const payload = await executeStoreLogoOrAvatarUpload({
+      userId: req.userId,
+      storeId: resolved.storeId,
+      draft: resolved.draft,
+      file: req.file,
       generationRunId:
         (typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : null) ||
         (typeof req.body?.generationRunId === 'string' ? req.body.generationRunId.trim() : null),
-      logoUrl: normalizedUrl,
+      kind: 'avatar',
+      req,
     });
-    return res.status(200).json({
-      ok: true,
-      url: uploadPayload.publicUrl,
-      publicUrl: uploadPayload.publicUrl,
-      logoUrl: logoResult.logoUrl,
-      avatarImageUrl: logoResult.avatarImageUrl,
-      key: uploadPayload.key,
-      mimeType: uploadPayload.mimeType,
-      mediaType: uploadPayload.mediaType,
-      storageDriver: uploadPayload.storageDriver,
-      draftUpdated: logoResult.draftUpdated,
-      businessUpdated: logoResult.businessUpdated,
-    });
+    return res.status(200).json(payload);
   } catch (err) {
+    if (err?.statusCode === 400) {
+      return res.status(400).json({
+        ok: false,
+        error: err.code ?? 'invalid_file',
+        message: err.message ?? 'Invalid upload',
+      });
+    }
     next(err);
   }
 });
@@ -3411,6 +3307,7 @@ const StoreUpdateSchema = z.object({
   tradingHours: z.any().optional(), // JSON object, validate structure if needed
   address: z.string().trim().nullable().optional(),
   suburb: z.string().trim().nullable().optional(),
+  state: z.string().trim().nullable().optional(),
   postcode: z.string().trim().nullable().optional(),
   country: z.string().trim().nullable().optional(),
   phone: z.string().trim().nullable().optional(),
@@ -3548,6 +3445,9 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
     }
     if (updateData.suburb !== undefined) {
       prismaUpdateData.suburb = updateData.suburb === '' ? null : updateData.suburb;
+    }
+    if (updateData.state !== undefined) {
+      prismaUpdateData.state = updateData.state === '' ? null : updateData.state;
     }
     if (updateData.postcode !== undefined) {
       prismaUpdateData.postcode = updateData.postcode === '' ? null : updateData.postcode;
@@ -3953,8 +3853,15 @@ router.post('/:id/identity', requireAuth, requireOwner, async (req, res, next) =
  * Retry publish for a generated draft (generation succeeded, commit failed).
  * Body: { draftId: string }
  */
-router.post('/publish-draft', requireAuth, async (req, res, next) => {
+router.post('/publish-draft', requireAuth, wrapHybridRoute(async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'publish_store',
+      route: 'POST /api/stores/publish-draft',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_publish',
+    });
     const draftId = typeof req.body?.draftId === 'string' ? req.body.draftId.trim() : '';
     if (!draftId) {
       return res.status(400).json({
@@ -3995,10 +3902,17 @@ router.post('/publish-draft', requireAuth, async (req, res, next) => {
     console.error('[StorePublishDraft] Error:', error);
     return next(error);
   }
-});
+}, { operation: 'publish_store_draft' }));
 
-router.post('/publish', requireAuth, async (req, res, next) => {
+router.post('/publish', requireAuth, wrapHybridRoute(async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'publish_store',
+      route: 'POST /api/stores/publish',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_publish',
+    });
     const { storeId: rawStoreId, generationRunId, draftId } = req.body ?? {};
     const storeId = rawStoreId && typeof rawStoreId === 'string' ? rawStoreId : null;
 
@@ -4132,7 +4046,7 @@ router.post('/publish', requireAuth, async (req, res, next) => {
     }
     next(error);
   }
-});
+}, { operation: 'publish_store' }));
 
 /**
  * GET /api/stores/:storeId/artifacts
@@ -4164,7 +4078,7 @@ router.get('/:storeId/artifacts', requireAuth, requireOwner, async (req, res, ne
  * - Some store-scoped tables are not relationally linked (Promotion*, SmartObject, IntentSignal/Opportunity),
  *   so we explicitly delete them to avoid orphaned data.
  */
-router.delete('/:storeId', requireAuth, requireOwner, async (req, res, next) => {
+router.delete('/:storeId', requireAuth, requireOwner, wrapHybridRoute(async (req, res, next) => {
   try {
     const storeId = typeof req.params?.storeId === 'string' ? req.params.storeId.trim() : '';
     if (!storeId) {
@@ -4202,7 +4116,7 @@ router.delete('/:storeId', requireAuth, requireOwner, async (req, res, next) => 
   } catch (err) {
     next(err);
   }
-});
+}, { operation: 'delete_store', requireConfirmation: true }));
 
 export default router;
 

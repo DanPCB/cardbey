@@ -6,6 +6,7 @@ import {
   isBrokerBlockDirectActionEnabled,
   isBrokerBlockOrchestraWithMissionEnabled,
 } from './brokerFlags.js';
+import { isEmergencyBypassEnabled } from '../runtime/emergencyBypass.js';
 
 /**
  * @param {object} [body]
@@ -29,15 +30,23 @@ export function extractMissionIdFromRequestBody(body) {
 /**
  * @returns {{ blocked: boolean, code?: string, message?: string }}
  */
-export function guardBrokerDirectAction() {
+export function guardBrokerDirectAction(context = {}) {
+  if (isEmergencyBypassEnabled()) {
+    return { blocked: false, emergencyBypass: true };
+  }
   if (!isBrokerBlockDirectActionEnabled()) {
     return { blocked: false };
+  }
+  const source = typeof context.source === 'string' ? context.source.trim() : '';
+  if (source) {
+    // eslint-disable-next-line no-console
+    console.warn(`[BrokerGuard] blocked direct execution source=${source}`);
   }
   return {
     blocked: true,
     code: 'BROKER_DIRECT_ACTION_BLOCKED',
     message:
-      'Direct tool execution is disabled. Queue an IntentRequest or run via Mission Execution.',
+      'Direct tool execution is disabled. Execution must go through the Runtime Kernel and mission planning.',
   };
 }
 

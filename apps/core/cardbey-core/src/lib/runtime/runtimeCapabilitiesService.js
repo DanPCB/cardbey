@@ -39,14 +39,26 @@ function envTruthy(name, defaultValue = false) {
  * }} RuntimeCapabilities
  */
 
-/** @type {Record<RuntimeCapabilityKey, { env: string, defaultValue: boolean }>} */
+/** @type {Record<RuntimeCapabilityKey, { env: string, disableEnv?: string, defaultValue: boolean }>} */
 const CAPABILITY_SPECS = {
-  runtimeKernel: { env: 'ENABLE_PERFORMER_RUNTIME_KERNEL', defaultValue: false },
-  runtimeStepExecution: { env: 'ENABLE_RUNTIME_STEP_EXECUTION', defaultValue: false },
+  runtimeKernel: {
+    env: 'ENABLE_PERFORMER_RUNTIME_KERNEL',
+    disableEnv: 'DISABLE_RUNTIME_KERNEL',
+    defaultValue: true,
+  },
+  runtimeStepExecution: {
+    env: 'ENABLE_RUNTIME_STEP_EXECUTION',
+    disableEnv: 'DISABLE_RUNTIME_STEP_EXECUTION',
+    defaultValue: true,
+  },
   runtimeSessionRehydration: { env: 'ENABLE_RUNTIME_SESSION_REHYDRATION', defaultValue: false },
   runtimeMissionResume: { env: 'ENABLE_RUNTIME_MISSION_RESUME', defaultValue: false },
   missionHandoff: { env: 'ENABLE_MISSION_HANDOFF', defaultValue: false },
-  sharedRuntimeToolRegistry: { env: 'ENABLE_SHARED_RUNTIME_TOOL_REGISTRY', defaultValue: false },
+  sharedRuntimeToolRegistry: {
+    env: 'ENABLE_SHARED_RUNTIME_TOOL_REGISTRY',
+    disableEnv: 'DISABLE_SHARED_RUNTIME_TOOL_REGISTRY',
+    defaultValue: true,
+  },
   proactiveExecution: { env: 'ENABLE_PROACTIVE_CAMPAIGN_RUNWAY', defaultValue: false },
   runtimePrerequisiteResolution: { env: 'ENABLE_RUNTIME_PREREQUISITE_RESOLUTION', defaultValue: false },
   runtimeTargetReadiness: { env: 'ENABLE_RUNTIME_TARGET_READINESS', defaultValue: false },
@@ -99,6 +111,13 @@ export function initRuntimeCapabilities() {
   /** @type {Record<string, boolean>} */
   const caps = {};
   for (const [key, spec] of Object.entries(CAPABILITY_SPECS)) {
+    if (spec.disableEnv && envTruthy(spec.disableEnv, false)) {
+      caps[key] = false;
+      logRuntimeCapabilityEvent('disabled', /** @type {RuntimeCapabilityKey} */ (key), {
+        detail: spec.disableEnv,
+      });
+      continue;
+    }
     const raw = process.env[spec.env];
     const unset = raw === undefined || raw === null || String(raw).trim() === '';
     if (unset && !spec.defaultValue) {

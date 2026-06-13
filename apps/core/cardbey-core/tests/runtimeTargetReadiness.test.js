@@ -117,6 +117,30 @@ describe.skipIf(!dbAvailable)('runtime target readiness', () => {
     expect(r.recommendedActions).toContain('review_store_performance');
   });
 
+  it('published store with promo counts toward ACTIVE readiness (storeId, not businessId)', async () => {
+    const store = await prisma.business.create({
+      data: {
+        userId,
+        name: 'Promo Cafe',
+        type: 'retail',
+        slug: `promo-${Date.now()}`,
+        publishedAt: new Date(),
+      },
+    });
+    await prisma.storePromo.create({
+      data: {
+        storeId: store.id,
+        title: 'Grand opening',
+        targetUrl: '/p/grand-opening',
+        slug: `promo-slug-${Date.now()}`,
+        isActive: true,
+      },
+    });
+    const r = await resolveStoreReadiness({ userId, storeId: store.id });
+    expect(r.readinessState).toBe(STORE_READINESS.ACTIVE);
+    expect(r.recommendedActions).toContain('review_store_performance');
+  });
+
   it('session: after store mission completes, needsStoreFirst is false with draft_ready guidance', async () => {
     const store = await prisma.business.create({
       data: {

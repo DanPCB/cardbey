@@ -19,12 +19,22 @@ import {
   blockCreateStoreOnCompletedMission,
 } from '../lib/intake/intakeSystemShortcuts.js';
 import {
+  formatDuplicateStoreIntakeResponse,
+  formatValidationErrorResponse,
+} from '../lib/intake/intakeErrorTypes.js';
+import {
   classifyStoreWebsiteCreateIntent,
   isGuestAllowedStoreWebsiteIntent,
   messageLooksLikeWebsiteCreate,
   messageLooksLikeStoreCreate,
 } from '../lib/intake/storeWebsiteRunwayClassifier.js';
+import {
+  resolveCreateStoreShortcut,
+  shouldBlockServiceRequestForStoreCreate,
+  shouldPreserveCreateStoreShortcutWhenKernelMandatory,
+} from '../lib/intake/storeCreateIntentFastPath.js';
 import { resolveIntakeLocale } from '../lib/localePrompt.js';
+import { areIntakeShortcutsAllowed, normalizeClassificationForKernel } from '../lib/runtime/kernelMandatory.js';
 import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
@@ -693,26 +703,95 @@ async function maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams) 
   }
 }
 
-async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req, hydratedContext = null }) {
-  const { isBrokerDirectViaFacadeEnabled } = await import('../lib/broker/brokerFlags.js');
-  const { isPerformerRuntimeEnabled } = await import('../lib/runtime/performerRuntime/runtimeFlags.js');
-  // Stage D: Block only legacy direct_action bypass. Runtime-owned and facade-owned paths remain allowed.
-  if (!isPerformerRuntimeEnabled() && !isBrokerDirectViaFacadeEnabled()) {
-    const { guardBrokerDirectAction } = await import('../lib/broker/brokerRunwayGuard.js');
-    const directGuard = guardBrokerDirectAction();
-    if (directGuard.blocked) {
-      return {
-        toolResult: {
-          status: 'blocked',
-          blocker: {
-            code: directGuard.code,
-            message: directGuard.message,
-          },
+function resolveIntakeUserMessageFromReq(req) {
+  const text = String(
+    req?.body?.text ?? req?.body?.goal ?? req?.body?.message ?? req?.body?.userMessage ?? '',
+  ).trim();
+  return text || null;
+}
+
+function directToolResultFromFactoryRoute(factoryRoute, payload, dispatchMissionId) {
+  if (factoryRoute.checkpoint === 'store_selection') {
+    const response =
+      factoryRoute.response ??
+      factoryRoute.error?.message ??
+      'Please select a store first so I can create the promotional video for it.';
+    return {
+      intakeOverride: {
+        success: true,
+        action: 'clarify',
+        clarifyType: factoryRoute.clarifyType ?? 'store_picker',
+        response,
+        options: factoryRoute.options ?? [],
+        pendingIntent: factoryRoute.pendingIntent ?? null,
+        missionId: dispatchMissionId ?? null,
+        parameters: payload,
+      },
+      toolResult: {
+        status: 'checkpoint',
+        checkpoint: 'store_selection',
+        blocker: {
+          code: factoryRoute.error?.code ?? 'STORE_SELECTION_REQUIRED',
+          message: response,
         },
-        payload: { ...cleanedParams, missionId: missionId ?? null },
-      };
-    }
+      },
+      payload,
+    };
   }
+  if (factoryRoute.blocked) {
+    return {
+      toolResult: {
+        status: 'blocked',
+        blocker: {
+          code: factoryRoute.error?.code ?? 'MISSING_CONTEXT',
+          message: factoryRoute.error?.message ?? 'Factory routing blocked',
+        },
+      },
+      payload,
+    };
+  }
+  const awaitingFactory = factoryRoute.status === 'awaiting_factory_approval';
+  const ok =
+    factoryRoute.ok ||
+    awaitingFactory ||
+    factoryRoute.status === 'running' ||
+    factoryRoute.status === 'completed';
+  return {
+    toolResult: {
+      status: ok ? 'ok' : 'failed',
+      output: {
+        dispatchedVia: 'factory_runtime',
+        actionType: 'run_factory',
+        factoryId: factoryRoute.factoryId,
+        factoryExecution: factoryRoute.factoryExecution,
+        generatedArtifacts: factoryRoute.generatedArtifacts ?? [],
+        duplicate: Boolean(factoryRoute.duplicate),
+        plan: factoryRoute.plan ?? null,
+        ...(awaitingFactory ? { awaitingFactoryApproval: true } : {}),
+      },
+      ...(ok
+        ? {}
+        : {
+            error: {
+              code: 'FACTORY_FAILED',
+              message: factoryRoute.error?.message ?? 'Factory execution failed',
+            },
+          }),
+    },
+    payload: {
+      ...payload,
+      missionId: factoryRoute.missionId ?? dispatchMissionId ?? payload.missionId ?? null,
+      dispatchedVia: 'factory_runtime',
+      actionType: 'run_factory',
+      factoryId: factoryRoute.factoryId,
+      factoryExecution: factoryRoute.factoryExecution,
+      generatedArtifacts: factoryRoute.generatedArtifacts ?? [],
+      duplicate: Boolean(factoryRoute.duplicate),
+    },
+  };
+}
+
+async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req, hydratedContext = null }) {
   const dispatchMissionId =
     (typeof missionId === 'string' && missionId.trim()) ||
     (typeof cleanedParams?.missionId === 'string' && cleanedParams.missionId.trim()) ||
@@ -725,21 +804,11 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   const payload = { ...cleanedParams };
   if (dispatchMissionId) payload.missionId = dispatchMissionId;
   if (storeId && !payload.storeId) payload.storeId = storeId;
-  // DANH: skill-round6-document — pass attached image to document ingestion skill
   const intakeImageRef = resolveIntakeImageRefForOcr(req?.body);
   if (intakeImageRef && !payload.imageUrl && !payload.imageDataUrl) {
     payload.imageUrl = intakeImageRef;
     payload.imageDataUrl = intakeImageRef;
   }
-  const performeeContextRaw =
-    req?.body?.intentSourceContext &&
-    typeof req.body.intentSourceContext === 'object' &&
-    req.body.intentSourceContext.performeeContext &&
-    typeof req.body.intentSourceContext.performeeContext === 'object'
-      ? req.body.intentSourceContext.performeeContext
-      : null;
-  const entry = String(performeeContextRaw?.entry ?? '').trim().toLowerCase();
-  const source = entry === 'performee' ? 'performee' : 'performer';
   const intakeLocale = String(req.body?.locale ?? 'en').trim().toLowerCase().split('-')[0] || 'en';
   const toolCtx = {
     missionId: dispatchMissionId,
@@ -750,10 +819,58 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
     storeId: storeId ?? undefined,
     locale: intakeLocale,
     missionType: resolveMissionType(req, null),
-    source: isBrokerDirectViaFacadeEnabled() ? 'performer_intake_facade' : source,
+    source: 'intake_v2',
   };
 
   const intentLabel = typeof tool === 'string' ? tool.trim() : '';
+  const intakeUserMessage = resolveIntakeUserMessageFromReq(req);
+
+  // Runtime-owned factory path — before Stage D direct-action broker guard.
+  try {
+    const { tryRouteCreativeFactoryIntent } = await import('../lib/factoryRuntime/factoryIntentRouter.js');
+    const factoryRoute = await tryRouteCreativeFactoryIntent({
+      intentLabel,
+      userMessage: intakeUserMessage,
+      missionId: dispatchMissionId,
+      userId: toolCtx.userId,
+      storeId: storeId ?? toolCtx.storeId ?? null,
+      tenantId: getTenantId(req.user),
+      context: {
+        ...(hydratedContext && typeof hydratedContext === 'object' ? hydratedContext : {}),
+        locale: intakeLocale,
+        toolInput: payload,
+      },
+    });
+    if (factoryRoute) {
+      const resolvedMissionId = factoryRoute.missionId ?? dispatchMissionId;
+      if (resolvedMissionId) {
+        payload.missionId = resolvedMissionId;
+        toolCtx.missionId = resolvedMissionId;
+        toolCtx.activeMissionId = resolvedMissionId;
+      }
+      return directToolResultFromFactoryRoute(factoryRoute, payload, resolvedMissionId ?? dispatchMissionId);
+    }
+  } catch (factoryRouteErr) {
+    console.warn(
+      '[IntakeV2] factory intent route failed (falling through):',
+      factoryRouteErr?.message ?? factoryRouteErr,
+    );
+  }
+
+  const { guardBrokerDirectAction } = await import('../lib/broker/brokerRunwayGuard.js');
+  const directGuard = guardBrokerDirectAction();
+  if (directGuard.blocked) {
+    return {
+      toolResult: {
+        status: 'blocked',
+        blocker: {
+          code: directGuard.code,
+          message: directGuard.message,
+        },
+      },
+      payload: { ...cleanedParams, missionId: missionId ?? null },
+    };
+  }
 
   // DANH: skill-runtime-phase4
   // Cooperative gate: the runtime only intercepts when the legacy keyword router
@@ -769,14 +886,6 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
   //   (see SkillRouter.route), so this lookup is the exact, side-effect-free
   //   equivalent of the legacy match decision. The single legacy route() call
   //   below remains the only execution point (no double-call).
-  //
-  // DANH: skill-runtime-phase7
-  // userMessage is not a parameter of this function — derive from req.body using
-  // the same field order as the main intake handler (text / goal / message).
-  const intakeUserMessage =
-    String(
-      req?.body?.text ?? req?.body?.goal ?? req?.body?.message ?? req?.body?.userMessage ?? '',
-    ).trim() || null;
 
   const legacyWouldMatch = Boolean(skillRegistry.findByTrigger(intentLabel));
   if (!legacyWouldMatch) {
@@ -877,7 +986,8 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
       }
 
       const execution = skillRouterResult.result;
-      const ok = execution?.status === 'completed';
+      const awaitingPlan = execution?.status === 'awaiting_plan_approval';
+      const ok = execution?.status === 'completed' || awaitingPlan;
       return {
         toolResult: {
           status: ok ? 'ok' : 'failed',
@@ -886,6 +996,9 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
             dispatchedVia: 'skill',
             skillName: skillRouterResult.skillName,
             executionId: skillRouterResult.executionId,
+            ...(awaitingPlan && execution?.planArtifact
+              ? { planArtifact: execution.planArtifact, awaitingPlanApproval: true }
+              : {}),
           },
           ...(ok
             ? {}
@@ -903,62 +1016,39 @@ async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, stor
     console.warn('[SkillRouter] route failed (falling through to tool):', skillRouteErr?.message ?? skillRouteErr);
   }
 
-  let toolResult;
-  if (isPerformerRuntimeEnabled()) {
-    const { performerRuntime } = await import('../lib/runtime/performerRuntime/performerRuntime.js');
-    const runtimeResult = await performerRuntime.execute({
-      actionType: 'dispatch_tool',
-      missionId: dispatchMissionId,
-      userId: req.user?.id ?? null,
-      tenantId: getTenantId(req.user),
-      storeId: storeId ?? undefined,
-      source: 'performer_intake_v2_runtime',
-      payload: { toolName: tool, input: payload, context: toolCtx },
-      skipDirectGuard: true,
-    });
-    toolResult = {
-      status: runtimeResult.status,
-      ...(runtimeResult.output !== undefined && { output: runtimeResult.output }),
-      ...(runtimeResult.error !== undefined && { error: runtimeResult.error }),
-      ...(runtimeResult.blocker !== undefined && { blocker: runtimeResult.blocker }),
-    };
-  } else if (isBrokerDirectViaFacadeEnabled()) {
-    const { incrementRuntimeAuthorityMetric } = await import(
-      '../lib/runtime/performerRuntime/runtimeAuthorityStaging.js'
-    );
-    incrementRuntimeAuthorityMetric('directFacadeExecutions');
-    const { executeMissionAction } = await import('../lib/execution/executeMissionAction.js');
-    const facade = await executeMissionAction({
-      actionType: 'dispatch_tool',
-      missionId: dispatchMissionId,
-      userId: req.user?.id ?? null,
-      tenantId: getTenantId(req.user),
-      storeId: storeId ?? undefined,
-      source: 'performer_intake_facade',
-      payload: { toolName: tool, input: payload, context: toolCtx },
-    });
-    toolResult = {
-      status: facade.status,
-      ...(facade.output !== undefined && { output: facade.output }),
-      ...(facade.error !== undefined && { error: facade.error }),
-      ...(facade.blocker !== undefined && { blocker: facade.blocker }),
-    };
-    if (toolResult.status === 'failed' || toolResult.status === 'blocked') {
-      incrementRuntimeAuthorityMetric('executionFailures');
-    }
-  } else {
-    const { dispatchTool } = await import('../lib/toolDispatcher.js');
-    const { recordRuntimeBypass } = await import(
-      '../lib/runtime/performerRuntime/runtimeAuthorityStaging.js'
-    );
-    recordRuntimeBypass('legacy_intake', {
-      tool,
-      missionId: dispatchMissionId,
-      source: toolCtx.source,
-      path: 'performer_intake_v2_direct_dispatch',
-    });
-    toolResult = await dispatchTool(tool, payload, toolCtx);
-  }
+  const { performerRuntime } = await import('../lib/runtime/performerRuntime/performerRuntime.js');
+  const { recordRuntimeAuthorityPathUsed } = await import(
+    '../lib/runtime/performerRuntime/runtimeAuthorityGuard.js'
+  );
+
+  recordRuntimeAuthorityPathUsed({
+    route: 'performer_intake_v2',
+    toolName: tool,
+    userId: toolCtx.userId,
+    missionId: dispatchMissionId,
+    source: 'intake_v2',
+  });
+
+  const runtimeResult = await performerRuntime.execute({
+    actionType: 'dispatch_tool',
+    missionId: dispatchMissionId,
+    userId: req.user?.id ?? toolCtx.userId ?? null,
+    tenantId: getTenantId(req.user),
+    storeId: storeId ?? undefined,
+    source: 'intake_v2',
+    payload: {
+      toolName: tool,
+      input: payload,
+      context: { ...toolCtx, source: 'intake_v2' },
+    },
+  });
+
+  const toolResult = {
+    status: runtimeResult.status,
+    ...(runtimeResult.output !== undefined && { output: runtimeResult.output }),
+    ...(runtimeResult.error !== undefined && { error: runtimeResult.error }),
+    ...(runtimeResult.blocker !== undefined && { blocker: runtimeResult.blocker }),
+  };
   return { toolResult, payload };
 }
 
@@ -982,6 +1072,17 @@ function buildDirectToolIntakeResponse(tool, toolResult, payload, locale, extras
     },
     telemetryResult: ok ? 'success' : 'error',
   };
+}
+
+function buildDirectToolDispatchResponse(tool, dispatchResult, locale, extras = {}) {
+  if (dispatchResult?.intakeOverride) {
+    return {
+      body: dispatchResult.intakeOverride,
+      telemetryResult:
+        dispatchResult.intakeOverride.action === 'clarify' ? 'clarify_store' : 'error',
+    };
+  }
+  return buildDirectToolIntakeResponse(tool, dispatchResult.toolResult, dispatchResult.payload, locale, extras);
 }
 
 /**
@@ -1856,9 +1957,36 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           : undefined,
     });
 
-    // Guest / free-text pre-classifier: VI + EN store/website phrases → create_store shortcut
+    const storeCreateFormPayload =
+      body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
+        ? body.storeCreateForm
+        : undefined;
+
+    if (!shortcut?.type) {
+      shortcut = resolveCreateStoreShortcut({
+        userMessage,
+        storeCreateForm: storeCreateFormPayload,
+        primaryMode: body.primaryMode,
+        intentSource: body.intentSource,
+        forceIntent: body.forceIntent ?? body.intentSourceContext?.forceIntent,
+        currentFlow: body.intentSourceContext?.currentFlow,
+      });
+    }
+
+    if (!areIntakeShortcutsAllowed()) {
+      if (
+        !shouldPreserveCreateStoreShortcutWhenKernelMandatory(shortcut, {
+          userMessage,
+          storeCreateForm: storeCreateFormPayload,
+        })
+      ) {
+        shortcut = null;
+      }
+    }
+
+    // Guest / free-text pre-classifier:
     // (without requiring frontscreen primaryMode handoff).
-    if (!shortcut?.type && userMessage && isGuestAllowedStoreWebsiteIntent(userMessage)) {
+    if (!shortcut?.type && areIntakeShortcutsAllowed() && userMessage && isGuestAllowedStoreWebsiteIntent(userMessage)) {
       const runway = classifyStoreWebsiteCreateIntent(userMessage);
       if (!runway.ambiguous && runway.intentMode) {
         shortcut = {
@@ -1993,6 +2121,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         { emitContextUpdate, userId: req.user.id, tenantId },
       );
 
+      const {
+        completeMissionWhenNoSteps,
+        failMissionWhenInlineRunFailed,
+      } = await import('../lib/missionPipelineService.js');
+
+      if (result?.error || result?.failedStep) {
+        await failMissionWhenInlineRunFailed(pipeline.id, result.error ?? 'smart_document_failed');
+        await appendMissionBlackboardEvent(pipeline.id, 'mission_failed', {
+          tool: 'build_smart_document',
+          error: result.error ?? 'smart_document_failed',
+          failedStep: result.failedStep ?? 5,
+        }).catch(() => {});
+        return safeJson(
+          {
+            success: false,
+            action: 'smart_document_failed',
+            missionId: pipeline.id,
+            error: result.error ?? 'smart_document_failed',
+            failedStep: result.failedStep ?? 5,
+            response: intakeMessage('smartDocumentStarted', locale, {
+              docType: String(sdSubtype ?? sdType ?? 'document'),
+            }),
+          },
+          {
+            classification: { executionPath: 'direct_action', tool: 'create_smart_document', confidence: 1, parameters: { docType: sdType, docSubtype: sdSubtype } },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.STATE_CHANGE,
+            result: 'failed',
+          },
+        );
+      }
+
+      await completeMissionWhenNoSteps(pipeline.id);
+
       return safeJson(
         {
           success: true,
@@ -2107,6 +2271,41 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         },
         { emitContextUpdate, userId: req.user.id, tenantId, preferUserProfile },
       );
+
+      const {
+        completeMissionWhenNoSteps,
+        failMissionWhenInlineRunFailed,
+      } = await import('../lib/missionPipelineService.js');
+
+      if (result?.error || !result?.cardId) {
+        const errMsg = result?.error ?? 'card_create_failed';
+        await failMissionWhenInlineRunFailed(pipeline.id, errMsg);
+        await appendMissionBlackboardEvent(pipeline.id, 'mission_failed', {
+          tool: 'build_card',
+          error: errMsg,
+          failedStep: result?.failedStep ?? 6,
+        }).catch(() => {});
+        return safeJson(
+          {
+            success: false,
+            action: 'card_mission_failed',
+            missionId: pipeline.id,
+            error: errMsg,
+            failedStep: result?.failedStep ?? 6,
+            response: intakeMessage('cardMissionStarted', locale),
+          },
+          {
+            classification: { executionPath: 'direct_action', tool: 'create_card', confidence: 1, parameters: { type: resolvedType } },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.STATE_CHANGE,
+            result: 'failed',
+          },
+        );
+      }
+
+      await completeMissionWhenNoSteps(pipeline.id);
 
       return safeJson(
         {
@@ -2267,11 +2466,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           category: rawForm.category ?? rawForm.storeType ?? rawForm.businessType,
         });
         if (validationErrors.length > 0) {
-          return res.status(400).json({
-            success: false,
-            action: 'validation_error',
-            errors: validationErrors,
-          });
+          return res.status(400).json(formatValidationErrorResponse(validationErrors));
         }
         businessName = stripIntentWrappingQuotes(String(rawForm.storeName ?? '').trim()) || '';
         businessType =
@@ -2284,16 +2479,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         locationTrim = stripIntentWrappingQuotes(location != null ? String(location).trim() : '') || '';
 
         if (businessName && locationTrim && locationTrim.length < 2) {
-          return res.status(400).json({
-            success: false,
-            action: 'validation_error',
-            errors: [
+          return res.status(400).json(
+            formatValidationErrorResponse([
               {
                 field: 'location',
                 message: 'Please enter a full city or suburb name (e.g. Melbourne)',
+                code: 'MISSING_LOCATION',
+                suggestion: 'Enter your city or region (e.g., "Melbourne")',
+                errorAction: 'FOCUS_LOCATION_FIELD',
               },
-            ],
-          });
+            ]),
+          );
         }
       }
 
@@ -2338,21 +2534,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       const prismaShortcut = getPrismaClient();
       const dupShortcut = await findDuplicateBusinessNameForUser(prismaShortcut, userLike.id, businessName);
       if (dupShortcut) {
-        return safeJson(
-          {
-            success: true,
-            action: 'duplicate_store',
-            message: `You already have a store called "${businessName}". Use a different name.`,
-          },
-          {
-            classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
-            validated: true,
-            downgraded: false,
-            validationErrors: [],
-            riskLevel: RISK.STATE_CHANGE,
-            result: 'duplicate_store',
-          },
-        );
+        return safeJson(formatDuplicateStoreIntakeResponse(businessName), {
+          classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
+          validated: true,
+          downgraded: false,
+          validationErrors: [],
+          riskLevel: RISK.STATE_CHANGE,
+          result: 'duplicate_store',
+        });
       }
 
       const tenantId = getTenantId(req.user) ?? actorId;
@@ -2433,10 +2622,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             generationRunId: runResult.generationRunId,
             draftId: runResult.draftId,
             intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+            ...(runResult.mode ? { mode: runResult.mode } : {}),
             storeMissionSummary: {
               businessName,
               businessType,
               location: locationTrim,
+              ...(runResult.mode ? { mode: runResult.mode } : {}),
             },
           },
           {
@@ -2612,6 +2803,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         pendingIntent: pendingIntentFromBody,
         isSelectionConfirm,
         intakeV2Selection: selection,
+        storeCreateForm: storeCreateFormPayload,
+        forceIntent: body.forceIntent ?? body.intentSourceContext?.forceIntent,
+        currentFlow: body.intentSourceContext?.currentFlow,
+        source: body.intentSource ?? body.intentSourceContext?.source,
+        intentSource: body.intentSource,
+        intentSourceContext: body.intentSourceContext,
       });
     } catch (e) {
       if (isDev) console.error('[IntakeV2] classifyIntent threw', e);
@@ -2683,7 +2880,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       });
     }
 
-    if (!forcedTool && signalsServiceRequest(userMessage)) {
+    const blockServiceRequestOverride = shouldBlockServiceRequestForStoreCreate(userMessage, {
+      storeCreateForm: storeCreateFormPayload,
+      forceIntent: body.forceIntent ?? body.intentSourceContext?.forceIntent,
+      currentFlow: body.intentSourceContext?.currentFlow,
+      source: body.intentSource ?? body.intentSourceContext?.source,
+      activeStoreId: storeId,
+    });
+
+    if (!forcedTool && signalsServiceRequest(userMessage) && !blockServiceRequestOverride) {
       classification = {
         executionPath: 'service_request',
         tool: 'service_request',
@@ -3708,6 +3913,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     );
   }
 
+  classification = normalizeClassificationForKernel(classification);
+
   // ── proactive_plan ─────────────────────────────────────────────────────────
   if (classification.executionPath === 'proactive_plan') {
     const rawPlan = Array.isArray(classification.plan) ? classification.plan : [];
@@ -3855,8 +4062,28 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     );
   }
 
-  // ── direct_action ───────────────────────────────────────────────────────────
+  // ── direct_action (disabled under kernel mandatory) ───────────────────────
   if (classification.executionPath === 'direct_action' && classification.tool) {
+    return safeJson(
+      {
+        success: false,
+        action: 'error',
+        code: 'KERNEL_EXECUTION_REQUIRED',
+        response: 'Direct tool execution is disabled. Execution must go through mission planning and the Runtime Kernel.',
+      },
+      {
+        classification: { ...classification, parameters: cleanedParams },
+        validated: true,
+        downgraded: false,
+        downgradeReason: null,
+        validationErrors: [],
+        riskLevel,
+        result: 'kernel_required',
+      },
+    );
+  }
+
+  if (false && classification.executionPath === 'direct_action' && classification.tool) {
     const tool = classification.tool;
 
     if (tool === 'code_fix') {
@@ -4094,43 +4321,33 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           storeCreateForm: body.storeCreateForm,
         });
         if (preSubmitErrs.length > 0) {
-          return res.status(400).json({
-            success: false,
-            action: 'validation_error',
-            errors: preSubmitErrs,
-          });
+          return res.status(400).json(formatValidationErrorResponse(preSubmitErrs));
         }
       } else if (locationTrim && locationTrim.length < 2) {
-        return res.status(400).json({
-          success: false,
-          action: 'validation_error',
-          errors: [
+        return res.status(400).json(
+          formatValidationErrorResponse([
             {
               field: 'location',
               message: 'Please enter a full city or suburb name (e.g. Melbourne)',
+              code: 'MISSING_LOCATION',
+              suggestion: 'Enter your city or region (e.g., "Melbourne")',
+              errorAction: 'FOCUS_LOCATION_FIELD',
             },
-          ],
-        });
+          ]),
+        );
       }
 
       const dupAuto = await findDuplicateBusinessNameForUser(prisma, userLike.id, businessName);
       if (dupAuto) {
-        return safeJson(
-          {
-            success: true,
-            action: 'duplicate_store',
-            message: `You already have a store called "${businessName}". Use a different name.`,
-          },
-          {
-            classification: { ...classification, parameters: cleanedParams },
-            validated: true,
-            downgraded: false,
-            downgradeReason: null,
-            validationErrors: [],
-            riskLevel,
-            result: 'duplicate_store',
-          },
-        );
+        return safeJson(formatDuplicateStoreIntakeResponse(businessName), {
+          classification: { ...classification, parameters: cleanedParams },
+          validated: true,
+          downgraded: false,
+          downgradeReason: null,
+          validationErrors: [],
+          riskLevel,
+          result: 'duplicate_store',
+        });
       }
 
       const tenantId = getTenantId(req.user) ?? actorId;
@@ -4297,10 +4514,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           jobId: runResult.jobId,
           generationRunId: runResult.generationRunId,
           draftId: runResult.draftId,
+          ...(runResult.mode ? { mode: runResult.mode } : {}),
           storeMissionSummary: {
             businessName,
             businessType,
             location: locationTrim,
+            ...(runResult.mode ? { mode: runResult.mode } : {}),
           },
         },
         {
@@ -4411,14 +4630,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     try {
-      const { toolResult, payload } = await dispatchIntakeV2DirectTool(tool, cleanedParams, {
+      const dispatchResult = await dispatchIntakeV2DirectTool(tool, cleanedParams, {
         missionId: directToolMissionId,
         storeId: dispatchStoreId ?? effectiveStoreId ?? storeId,
         req,
         hydratedContext: intakeHydratedContext,
       });
 
-      const { body: intakeBody, telemetryResult } = buildDirectToolIntakeResponse(tool, toolResult, payload, locale, {
+      const { body: intakeBody, telemetryResult } = buildDirectToolDispatchResponse(tool, dispatchResult, locale, {
         riskLevel,
         reasoning: classification._reasoning,
       });

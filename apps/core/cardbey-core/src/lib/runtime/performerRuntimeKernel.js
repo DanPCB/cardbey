@@ -20,28 +20,27 @@ import {
 import { recordPrerequisiteBlock } from './runtimePrerequisiteService.js';
 import { readRuntimePrerequisites, RUNTIME_PREREQ_STATUS } from './runtimePrerequisiteState.js';
 import { buildPrerequisiteGuidance } from './runtimeGuidanceService.js';
-
-function envTruthy(name, defaultValue = false) {
-  const raw = process.env[name];
-  if (raw === undefined || raw === null || String(raw).trim() === '') return defaultValue;
-  const v = String(raw).trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
-}
+import {
+  isPerformerRuntimeKernelEnabled as kernelMandatoryKernelEnabled,
+  isRuntimeStepExecutionEnabled as kernelMandatoryStepEnabled,
+  isSharedRuntimeToolRegistryEnabled as kernelMandatoryRegistryEnabled,
+} from './kernelMandatory.js';
+import { recordKernelExecution } from './kernelAudit.js';
 
 function str(v) {
   return typeof v === 'string' ? v.trim() : '';
 }
 
 export function isPerformerRuntimeKernelEnabled() {
-  return envTruthy('ENABLE_PERFORMER_RUNTIME_KERNEL', false);
+  return kernelMandatoryKernelEnabled();
 }
 
 export function isRuntimeStepExecutionEnabled() {
-  return envTruthy('ENABLE_RUNTIME_STEP_EXECUTION', false);
+  return kernelMandatoryStepEnabled();
 }
 
 export function isSharedRuntimeToolRegistryEnabled() {
-  return envTruthy('ENABLE_SHARED_RUNTIME_TOOL_REGISTRY', false);
+  return kernelMandatoryRegistryEnabled();
 }
 
 async function emitStepLifecycleEvent(missionId, eventType, payload, traceId) {
@@ -328,6 +327,15 @@ export async function executeMissionStep(input) {
     },
     traceId,
   );
+
+  await recordKernelExecution({
+    missionId,
+    toolName: toolAssert.canonicalTool,
+    source,
+    userId: req.user?.id ?? null,
+    success: true,
+    capability: toolAssert.canonicalTool,
+  });
 
   return {
     ok: true,

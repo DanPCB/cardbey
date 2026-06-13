@@ -17,6 +17,8 @@ import {
   readPendingSkillContext,
   resumeDocumentIngestionClassification,
 } from './pendingSkillResume.js';
+import { normalizeClassificationForKernel } from '../runtime/kernelMandatory.js';
+import { tryStoreCreateFastPath } from './storeCreateIntentFastPath.js';
 
 function asTrimmedString(v) {
   return typeof v === 'string' && v.trim() ? v.trim() : '';
@@ -292,6 +294,12 @@ export async function classifyIntent(opts) {
     originSurface,
     missionId: missionIdOpt,
     hydratedContext: hydratedContextOpt,
+    storeCreateForm,
+    forceIntent,
+    currentFlow,
+    source,
+    intentSource,
+    intentSourceContext,
   } = opts;
 
   const msg = String(userMessage ?? '').trim();
@@ -374,6 +382,17 @@ export async function classifyIntent(opts) {
       parameters: {},
       _fastPath: 'campaign_orchestration',
     };
+  }
+
+  const storeCreateFastPath = tryStoreCreateFastPath(msg, {
+    storeCreateForm: opts.storeCreateForm,
+    forceIntent: opts.forceIntent ?? opts.intentSourceContext?.forceIntent,
+    currentFlow: opts.currentFlow ?? opts.intentSourceContext?.currentFlow,
+    source: opts.source ?? opts.intentSource ?? opts.intentSourceContext?.source,
+    activeStoreId: resolvedStoreId || null,
+  });
+  if (storeCreateFastPath) {
+    return normalizeClassificationForKernel(storeCreateFastPath);
   }
 
   const ctxMid = storeContext?.missionId != null ? String(storeContext.missionId).trim() : '';
@@ -564,5 +583,5 @@ export async function classifyIntent(opts) {
     inputLength: userMessage?.length ?? 0,
   });
 
-  return result;
+  return normalizeClassificationForKernel(result);
 }

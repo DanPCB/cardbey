@@ -33,6 +33,8 @@ function isSuperAdmin(req) {
 import { resolveDraftForStore } from '../lib/draftResolver.js';
 import { slugify } from '../utils/slug.js';
 import { publishDraft, PublishDraftError } from '../services/draftStore/publishDraftService.js';
+import { assertUiWriteAuthority } from '../lib/runtime/performerRuntime/uiWriteAuthorityGuard.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 import {
   ensurePublishSnapshot,
   getPublishSnapshot,
@@ -780,8 +782,15 @@ router.patch('/:draftId/publish-snapshot', requireAuth, async (req, res, next) =
 /**
  * POST /api/draft-store/:draftId/publish — publish ONLY from stored publish snapshot.
  */
-router.post('/:draftId/publish', requireAuth, async (req, res, next) => {
+router.post('/:draftId/publish', requireAuth, wrapHybridRoute(async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'publish_store',
+      route: 'POST /api/draft-store/:draftId/publish',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_publish',
+    });
     const {
       guardPhaseFDraftStoreRunway,
       extractMissionIdFromDraftRequest,
@@ -949,7 +958,7 @@ router.post('/:draftId/publish', requireAuth, async (req, res, next) => {
     }
     next(err);
   }
-});
+}, { operation: 'publish_draft' }));
 
 /**
  * POST /api/draft-store/:draftId/upload/hero
@@ -957,6 +966,13 @@ router.post('/:draftId/publish', requireAuth, async (req, res, next) => {
  */
 router.post('/:draftId/upload/hero', requireAuth, heroAssetUploadSingle, async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'hero_upload',
+      route: 'POST /api/draft-store/:draftId/upload/hero',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? req.query?.missionId ?? null,
+      source: 'ui_hero_upload',
+    });
     const draftId = String(req.params.draftId ?? '').trim();
     const generationRunId =
       typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : '';
@@ -992,6 +1008,16 @@ const PatchDraftSchema = z.object({
 });
 router.patch('/:draftId', requireAuth, async (req, res, next) => {
   try {
+    const { assertLegacyUploadAuthority } = await import('../lib/runtime/performerRuntime/runtimeUploadAuthority.js');
+    assertLegacyUploadAuthority(req, {
+      mutationType: 'draft_preview_patch',
+      route: 'PATCH /api/draft-store/:draftId',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_draft_save',
+      deprecatedHint:
+        'Direct draft PATCH — use POST /api/performer/runtime/ui-action with action=save_draft_preview',
+    });
     const { draftId } = req.params;
     const parsed = PatchDraftSchema.safeParse(req.body || {});
     if (!parsed.success) {
