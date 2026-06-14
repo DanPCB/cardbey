@@ -9,6 +9,7 @@ import { resolveHeroForProjection } from './resolveHeroForProjection.js';
 import { publicWebBase } from '../../utils/publicWebBase.js';
 import { parseSocialLinks } from '../../lib/socialLinks.js';
 import { coerceServiceCtaLabel, resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
+import { buildStoreLocationFields } from '../../lib/formatStoreLocation.js';
 
 export const PUBLISHED_ARTIFACT_VERSION = 'v1';
 const GENERIC_CARD_FALLBACK = 'browse our menu and order online';
@@ -145,6 +146,7 @@ export function buildPublishedBusinessArtifact({
   }
 
   const storefront = parseJsonBlob(business?.storefrontSettings) ?? {};
+  const locationFields = buildStoreLocationFields(business);
 
   return {
     artifactType: 'business',
@@ -157,6 +159,18 @@ export function buildPublishedBusinessArtifact({
     category: trim(business?.type) ?? null,
     status: business?.isActive === true ? 'published' : 'inactive',
     publishedAt: business?.publishedAt?.toISOString?.() ?? new Date().toISOString(),
+
+    location: {
+      address: locationFields.address,
+      suburb: locationFields.suburb,
+      city: locationFields.city,
+      state: locationFields.state,
+      postcode: locationFields.postcode,
+      country: locationFields.country,
+      lat: locationFields.lat,
+      lng: locationFields.lng,
+      displayLabel: locationFields.locationLabel,
+    },
 
     content: {
       tagline,

@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getPrismaClient } from '../lib/prisma.js';
 import { processCardMessage } from '../lib/cards/cardAgent.js';
 import { getCardHtmlForEmbed } from '../lib/cards/cardRenderer.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 
 const router = Router();
 
@@ -204,7 +205,7 @@ router.get('/:cardId/qr', async (req, res) => {
   return res.status(200).json({ ok: true, qrCodeUrl: qr });
 });
 
-router.delete('/:cardId', requireAuth, async (req, res) => {
+router.delete('/:cardId', requireAuth, wrapHybridRoute(async (req, res) => {
   const prisma = getPrismaClient();
   const userId = req.user?.id;
   const cardId = String(req.params.cardId ?? '').trim();
@@ -215,8 +216,8 @@ router.delete('/:cardId', requireAuth, async (req, res) => {
   if (!card) return res.status(404).json({ ok: false, error: 'not_found' });
   if (card.userId !== userId) return res.status(403).json({ ok: false, error: 'forbidden' });
   await prisma.card.update({ where: { id: cardId }, data: { status: 'archived' } });
-  return res.status(200).json({ ok: true });
-});
+  return res.status(200).json({ ok: true, deleted: true });
+}, { requireConfirmation: true, operation: 'delete_card' }));
 
 export default router;
 

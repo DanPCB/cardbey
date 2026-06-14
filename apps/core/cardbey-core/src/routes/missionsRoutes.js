@@ -1508,6 +1508,73 @@ router.patch('/:missionId/context', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * POST /api/missions/:missionId/plan-decision
+ * Owner decision on skill plan preview (approve / regenerate / cancel).
+ * Idempotent per mission+executionId for approve.
+ */
+router.post('/:missionId/plan-decision', optionalAuth, async (req, res, next) => {
+  try {
+    const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    const decision = String(req.body?.decision ?? '').trim().toLowerCase();
+    const editedPlan =
+      req.body?.editedPlan && typeof req.body.editedPlan === 'object' && !Array.isArray(req.body.editedPlan)
+        ? req.body.editedPlan
+        : undefined;
+    const feedback = typeof req.body?.feedback === 'string' ? req.body.feedback.trim() : '';
+    const executionId = typeof req.body?.executionId === 'string' ? req.body.executionId.trim() : '';
+
+    if (!missionIdTrimmed || !['approve', 'regenerate', 'cancel'].includes(decision)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'validation',
+        message: 'missionId and decision (approve|regenerate|cancel) are required',
+      });
+    }
+
+    const access = await resolveAccessibleMission(req.user ?? {}, missionIdTrimmed);
+    if (!access.ok) {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Mission not found or access denied' });
+    }
+
+    const userId =
+      String(req.user?.id ?? req.user?.userId ?? req.guestId ?? req.guest?.id ?? '').trim() || null;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    const { skillExecutor, skillRegistry } = await import('../lib/skills/index.js');
+    const { handlePlanDecision } = await import('../lib/skills/planApprovalService.js');
+
+    const result = await handlePlanDecision({
+      missionId: missionIdTrimmed,
+      userId,
+      decision,
+      editedPlan,
+      feedback,
+      executionId,
+      skillExecutor,
+      skillRegistry,
+    });
+
+    if (!result.ok) {
+      const status = result.error === 'validation' ? 400 : result.error === 'not_found' ? 404 : 409;
+      return res.status(status).json(result);
+    }
+
+    return res.status(200).json({
+      ok: true,
+      duplicate: result.duplicate === true,
+      status: result.status,
+      executionId: result.execution?.id ?? executionId ?? null,
+      plan: result.plan ?? null,
+      stepResults: result.execution?.stepResults ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/missions/:missionId/respond
  * Owner response for a checkpoint step (Phase 3). Resumes runMissionUntilBlocked only.
  */

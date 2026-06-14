@@ -6,6 +6,7 @@ import { writeStepOutput } from '../missionContextBus.js';
 import { getCardSize } from './cardSizeStandards.js';
 import { renderCard } from './cardRenderer.js';
 import { resolveContent } from '../contentResolution/contentResolver.js';
+import { appendEvent } from '../missionBlackboard.js';
 
 function asObject(v) {
   return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
@@ -333,27 +334,44 @@ export async function buildCard(missionId, input, options) {
 
     await emitReasoning(emitContextUpdate, '💾 Saving to Suitcase...');
 
-    const created = await prisma.card.create({
-      data: {
-        id: cardId,
-        userId,
-        type,
-        title: resolvedTitle,
-        status: 'active',
-        designJson,
-        agentPersonality,
-        knowledgeBase,
-        capabilities: JSON.stringify(capabilities),
-        autoApprove: true,
-        liveUrl,
-        qrCodeUrl,
-        sizeW: resolvedSize.w,
-        sizeH: resolvedSize.h,
-        sizeUnit: resolvedSize.unit,
-        sizeDpi: resolvedSize.dpi,
-      },
-      select: { id: true, liveUrl: true, qrCodeUrl: true, designJson: true, title: true, sizeW: true, sizeH: true, sizeUnit: true },
-    });
+    let created;
+    try {
+      created = await prisma.card.create({
+        data: {
+          id: cardId,
+          userId,
+          type,
+          title: resolvedTitle,
+          status: 'active',
+          designJson,
+          agentPersonality,
+          knowledgeBase,
+          capabilities: JSON.stringify(capabilities),
+          autoApprove: true,
+          liveUrl,
+          qrCodeUrl,
+          sizeW: resolvedSize.w,
+          sizeH: resolvedSize.h,
+          sizeUnit: resolvedSize.unit,
+          sizeDpi: resolvedSize.dpi,
+        },
+        select: { id: true, liveUrl: true, qrCodeUrl: true, designJson: true, title: true, sizeW: true, sizeH: true, sizeUnit: true },
+      });
+    } catch (persistErr) {
+      const errMsg = persistErr?.message ?? String(persistErr);
+      writeStep(6, 'Save to Suitcase', { status: 'failed', error: errMsg.slice(0, 500) });
+      const mid = typeof missionId === 'string' ? missionId.trim() : '';
+      if (mid) {
+        await appendEvent(mid, 'mission_step_failed', {
+          stepIndex: 6,
+          tool: BUILD_CARD_TOOL,
+          stepTitle: 'Save to Suitcase',
+          error: errMsg.slice(0, 500),
+        }).catch(() => {});
+      }
+      await emitReasoning(emitContextUpdate, `❌ Save failed: ${errMsg.slice(0, 120)}`);
+      return { ...safeFallback, error: errMsg, failedStep: 6 };
+    }
 
     writeStep(6, 'Save to Suitcase', { status: 'done', cardId: created.id, liveUrl: created.liveUrl });
 
@@ -393,9 +411,10 @@ export async function buildCard(missionId, input, options) {
       title: created.title,
     };
   } catch (e) {
+    const errMsg = e?.message ?? String(e);
     // eslint-disable-next-line no-console
-    console.warn('[buildCard] error:', e?.message ?? e);
-    return safeFallback;
+    console.warn('[buildCard] error:', errMsg);
+    return { ...safeFallback, error: errMsg };
   }
 }
 

@@ -168,7 +168,45 @@ describe('POST /api/auth/verify/request', () => {
 });
 
 describe('GET /api/auth/verify/confirm', () => {
-  it('should set verified for valid token', async () => {
+  const savedWebBaseEnv = {};
+
+  beforeEach(() => {
+    for (const k of ['PUBLIC_APP_URL', 'DASHBOARD_URL']) {
+      savedWebBaseEnv[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of ['PUBLIC_APP_URL', 'DASHBOARD_URL']) {
+      if (savedWebBaseEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedWebBaseEnv[k];
+    }
+  });
+
+  it('redirects browser GET invalid token to dashboard failure URL when configured', async () => {
+    process.env.DASHBOARD_URL = 'https://cardbey.com';
+    const response = await testRequest
+      .get('/api/auth/verify/confirm?token=not-a-real-token&redirect_uri=%2Fapp%3Fverified%3D1')
+      .expect(302);
+    expect(response.headers.location).toBe(
+      'https://cardbey.com/app?verified=0&reason=token_invalid',
+    );
+  });
+
+  it('accepts base64url token with encoding-safe characters', async () => {
+    const requestRes = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const rawToken = requestRes.body.token;
+    expect(rawToken).toMatch(/^[A-Za-z0-9_-]+$/);
+
+    await testRequest
+      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
+      .expect(200);
+  });
+  it('GET landing does not consume token; POST confirms', async () => {
     const requestRes = await testRequest
       .post('/api/auth/request-verification')
       .set('Authorization', `Bearer ${testToken}`)
@@ -176,28 +214,71 @@ describe('GET /api/auth/verify/confirm', () => {
     const rawToken = requestRes.body.token;
     expect(rawToken).toBeTruthy();
 
-    const confirmRes = await testRequest
+    const landingRes = await testRequest
       .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
+      .expect(200);
+    expect(landingRes.headers['content-type']).toMatch(/text\/html/);
+    expect(landingRes.text).toContain('Verify email');
+    expect(landingRes.text).toContain('method="POST"');
+
+    let user = await prisma.user.findUnique({ where: { id: testUser.id } });
+    expect(user.emailVerified).toBe(false);
+
+    const confirmRes = await testRequest
+      .post('/api/auth/verify/confirm')
+      .set('Accept', 'application/json')
+      .send({ token: rawToken })
       .expect(200);
     expect(confirmRes.body.ok).toBe(true);
     expect(confirmRes.body.verified).toBe(true);
 
-    const user = await prisma.user.findUnique({ where: { id: testUser.id } });
+    user = await prisma.user.findUnique({ where: { id: testUser.id } });
     expect(user.emailVerified).toBe(true);
-    // Hash is retained for idempotent repeat clicks; raw+expiry are cleared.
     expect(user.verificationToken).toBeTruthy();
+    expect(user.verificationTokenRaw).toBeNull();
     expect(user.verificationExpires).toBeNull();
   });
 
-  it('should return 400 for invalid token', async () => {
-    const response = await testRequest
-      .get('/api/auth/verify/confirm?token=invalid-token-12345')
-      .expect(400);
-    expect(response.body.ok).toBe(false);
-    expect(response.body.error).toMatch(/Invalid token/i);
+  it('prefetch GET does not consume; later POST still works', async () => {
+    const requestRes = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const rawToken = requestRes.body.token;
+
+    await testRequest
+      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
+      .expect(200);
+
+    const userBeforePost = await prisma.user.findUnique({ where: { id: testUser.id } });
+    expect(userBeforePost.emailVerified).toBe(false);
+
+    await testRequest
+      .post('/api/auth/verify/confirm')
+      .set('Accept', 'application/json')
+      .send({ token: rawToken })
+      .expect(200);
+
+    const userAfter = await prisma.user.findUnique({ where: { id: testUser.id } });
+    expect(userAfter.emailVerified).toBe(true);
   });
 
-  it('should return 400 for expired token', async () => {
+  it('should return HTML failure page for invalid token when no web base is configured', async () => {
+    const savedNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const response = await testRequest
+        .get('/api/auth/verify/confirm?token=invalid-token-12345')
+        .expect(400);
+      expect(response.headers['content-type']).toMatch(/text\/html/);
+      expect(response.text).toMatch(/invalid/i);
+      expect(response.text).toContain('Resend verification email');
+    } finally {
+      process.env.NODE_ENV = savedNodeEnv;
+    }
+  });
+
+  it('should return HTML failure page for expired token when no web base is configured', async () => {
     const rawToken = 'expired-raw-' + Date.now();
     const crypto = await import('crypto');
     const hashed = crypto.createHash('sha256').update(rawToken, 'utf8').digest('hex');
@@ -209,11 +290,18 @@ describe('GET /api/auth/verify/confirm', () => {
         verificationExpires: expiredDate
       }
     });
-    const response = await testRequest
-      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
-      .expect(400);
-    expect(response.body.ok).toBe(false);
-    expect(response.body.error).toMatch(/Token expired/i);
+    const savedNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const response = await testRequest
+        .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
+        .expect(400);
+      expect(response.headers['content-type']).toMatch(/text\/html/);
+      expect(response.text).toMatch(/expired/i);
+      expect(response.text).toContain('Resend verification email');
+    } finally {
+      process.env.NODE_ENV = savedNodeEnv;
+    }
   });
 });
 
@@ -235,7 +323,7 @@ describe('post-verify dashboard redirect (via verify/confirm)', () => {
     }
   });
 
-  it('redirects relative redirect_uri to DASHBOARD_URL origin', async () => {
+  it('redirects relative redirect_uri to DASHBOARD_URL origin on POST confirm', async () => {
     const requestRes = await testRequest
       .post('/api/auth/request-verification')
       .set('Authorization', `Bearer ${testToken}`)
@@ -243,9 +331,11 @@ describe('post-verify dashboard redirect (via verify/confirm)', () => {
     const rawToken = requestRes.body.token;
 
     const confirmRes = await testRequest
-      .get(
-        `/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}&redirect_uri=${encodeURIComponent('/app?verified=1')}`,
-      )
+      .post('/api/auth/verify/confirm')
+      .send({
+        token: rawToken,
+        redirect_uri: '/app?verified=1',
+      })
       .expect(302);
 
     expect(confirmRes.headers.location).toBe(
@@ -253,7 +343,7 @@ describe('post-verify dashboard redirect (via verify/confirm)', () => {
     );
   });
 
-  it('returns JSON instead of redirect when redirect_uri is an absolute URL', async () => {
+  it('uses default redirect when redirect_uri is an absolute URL (open redirect blocked)', async () => {
     const requestRes = await testRequest
       .post('/api/auth/request-verification')
       .set('Authorization', `Bearer ${testToken}`)
@@ -261,9 +351,12 @@ describe('post-verify dashboard redirect (via verify/confirm)', () => {
     const rawToken = requestRes.body.token;
 
     const confirmRes = await testRequest
-      .get(
-        `/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}&redirect_uri=${encodeURIComponent('http://192.168.1.11:3001/onboarding/business?verified=1')}`,
-      )
+      .post('/api/auth/verify/confirm')
+      .set('Accept', 'application/json')
+      .send({
+        token: rawToken,
+        redirect_uri: 'http://evil.example/phish',
+      })
       .expect(200);
 
     expect(confirmRes.body.ok).toBe(true);
@@ -273,7 +366,7 @@ describe('post-verify dashboard redirect (via verify/confirm)', () => {
 });
 
 describe('GET /api/auth/verify', () => {
-  it('should verify email with valid token (using token from request response)', async () => {
+  it('requires POST /verify/confirm to consume a pending token', async () => {
     const requestRes = await testRequest
       .post('/api/auth/request-verification')
       .set('Authorization', `Bearer ${testToken}`)
@@ -283,14 +376,19 @@ describe('GET /api/auth/verify', () => {
 
     const verifyResponse = await testRequest
       .get(`/api/auth/verify?token=${encodeURIComponent(rawToken)}`)
+      .expect(400);
+    expect(verifyResponse.body.code).toBe('CONFIRMATION_REQUIRED');
+
+    await testRequest
+      .post('/api/auth/verify/confirm')
+      .set('Accept', 'application/json')
+      .send({ token: rawToken })
       .expect(200);
-    expect(verifyResponse.body.ok).toBe(true);
-    expect(verifyResponse.body.message).toContain('verified successfully');
 
     const user = await prisma.user.findUnique({ where: { id: testUser.id } });
     expect(user.emailVerified).toBe(true);
-    // Hash is retained for idempotent repeat clicks; raw+expiry are cleared.
     expect(user.verificationToken).toBeTruthy();
+    expect(user.verificationTokenRaw).toBeNull();
     expect(user.verificationExpires).toBeNull();
   });
 
@@ -355,22 +453,97 @@ describe('GET /api/auth/verify', () => {
     expect(response.body.ok).toBe(true);
   });
 
-  it('should be one-time use (token cleared after verification)', async () => {
-    const requestRes = await testRequest
-      .post('/api/auth/request-verification')
-      .set('Authorization', `Bearer ${testToken}`)
-      .expect(200);
-    const rawToken = requestRes.body.token;
-    expect(rawToken).toBeTruthy();
+  it('second GET after POST is idempotent (redirect or success)', async () => {
+    const savedPublic = process.env.PUBLIC_APP_URL;
+    const savedDash = process.env.DASHBOARD_URL;
+    process.env.PUBLIC_APP_URL = 'https://app.test';
+    delete process.env.DASHBOARD_URL;
+    try {
+      const requestRes = await testRequest
+        .post('/api/auth/request-verification')
+        .set('Authorization', `Bearer ${testToken}`)
+        .expect(200);
+      const rawToken = requestRes.body.token;
+      expect(rawToken).toBeTruthy();
 
-    await testRequest
-      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
-      .expect(200);
+      await testRequest
+        .post('/api/auth/verify/confirm')
+        .set('Accept', 'application/json')
+        .send({ token: rawToken })
+        .expect(200);
 
+      const secondGet = await testRequest
+        .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
+        .expect(302);
+      expect(secondGet.headers.location).toBe('https://app.test/app?verified=1');
+    } finally {
+      if (savedPublic === undefined) delete process.env.PUBLIC_APP_URL;
+      else process.env.PUBLIC_APP_URL = savedPublic;
+      if (savedDash === undefined) delete process.env.DASHBOARD_URL;
+      else process.env.DASHBOARD_URL = savedDash;
+    }
+  });
+});
+
+describe('POST /api/auth/verify/resend', () => {
+  it('resend after expiry mints new token and allows verification', async () => {
+    const expiredRaw = 'expired-resend-' + Date.now();
+    const crypto = await import('crypto');
+    const hashed = crypto.createHash('sha256').update(expiredRaw, 'utf8').digest('hex');
+    await prisma.user.update({
+      where: { id: testUser.id },
+      data: {
+        verificationToken: hashed,
+        verificationExpires: new Date(Date.now() - 60000),
+      },
+    });
+
+    const prevEnv = process.env.ENABLE_EMAIL_VERIFICATION;
+    const prevHost = process.env.MAIL_HOST;
+    process.env.ENABLE_EMAIL_VERIFICATION = 'true';
+    process.env.MAIL_HOST = 'smtp.test';
+    try {
+      vi.mocked(sendMail).mockClear();
+      const resendRes = await testRequest
+        .post('/api/auth/verify/resend')
+        .set('Accept', 'application/json')
+        .send({ email: testUser.email })
+        .expect(200);
+      expect(resendRes.body.ok).toBe(true);
+      expect(resendRes.body.message).toMatch(/If an account exists/i);
+      expect(sendMail).toHaveBeenCalledTimes(1);
+
+      const user = await prisma.user.findUnique({ where: { id: testUser.id } });
+      expect(user.verificationToken).not.toBe(hashed);
+      expect(new Date(user.verificationExpires) > new Date()).toBe(true);
+
+      const mailHtml = vi.mocked(sendMail).mock.calls[0][0].html;
+      const tokenMatch = mailHtml.match(/token=([^&"']+)/);
+      expect(tokenMatch).toBeTruthy();
+      const newRaw = decodeURIComponent(tokenMatch[1]);
+
+      await testRequest
+        .post('/api/auth/verify/confirm')
+        .set('Accept', 'application/json')
+        .send({ token: newRaw })
+        .expect(200);
+
+      const verified = await prisma.user.findUnique({ where: { id: testUser.id } });
+      expect(verified.emailVerified).toBe(true);
+    } finally {
+      process.env.ENABLE_EMAIL_VERIFICATION = prevEnv;
+      process.env.MAIL_HOST = prevHost;
+    }
+  });
+
+  it('returns generic message for unknown email (no enumeration)', async () => {
     const response = await testRequest
-      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
+      .post('/api/auth/verify/resend')
+      .set('Accept', 'application/json')
+      .send({ email: 'nobody-here@example.com' })
       .expect(200);
     expect(response.body.ok).toBe(true);
+    expect(response.body.message).toMatch(/If an account exists/i);
   });
 });
 
@@ -384,17 +557,51 @@ describe('Token generation', () => {
     expect(user.verificationToken.length).toBe(64);
   });
 
-  it('should rotate token on every request', async () => {
-    const hashes = new Set();
-    for (let i = 0; i < 5; i++) {
-      await testRequest
-        .post('/api/auth/request-verification')
-        .set('Authorization', `Bearer ${testToken}`)
-        .expect(200);
-      const user = await prisma.user.findUnique({ where: { id: testUser.id } });
-      hashes.add(user.verificationToken);
-    }
-    expect(hashes.size).toBe(5);
+  it('reuses valid token on repeat verify/request (does not invalidate signup email)', async () => {
+    const first = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const user1 = await prisma.user.findUnique({ where: { id: testUser.id } });
+    const hash1 = user1.verificationToken;
+    const raw1 = first.body.token;
+
+    const second = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const user2 = await prisma.user.findUnique({ where: { id: testUser.id } });
+    expect(user2.verificationToken).toBe(hash1);
+    expect(second.body.reusedToken).toBe(true);
+    expect(second.body.token).toBe(raw1);
+
+    await testRequest
+      .post('/api/auth/verify/confirm')
+      .set('Accept', 'application/json')
+      .send({ token: raw1 })
+      .expect(200);
+  });
+
+  it('rotates token after expiry on verify/request', async () => {
+    const first = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const hash1 = (await prisma.user.findUnique({ where: { id: testUser.id } })).verificationToken;
+
+    await prisma.user.update({
+      where: { id: testUser.id },
+      data: { verificationExpires: new Date(Date.now() - 60_000) },
+    });
+
+    const second = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const hash2 = (await prisma.user.findUnique({ where: { id: testUser.id } })).verificationToken;
+    expect(hash2).not.toBe(hash1);
+    expect(second.body.reusedToken).toBe(false);
+    expect(second.body.token).not.toBe(first.body.token);
   });
 
   it('GET /api/auth/me includes emailVerified after verification', async () => {
@@ -403,7 +610,9 @@ describe('Token generation', () => {
       .set('Authorization', `Bearer ${testToken}`)
       .expect(200);
     await testRequest
-      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(requestRes.body.token)}`)
+      .post('/api/auth/verify/confirm')
+      .set('Accept', 'application/json')
+      .send({ token: requestRes.body.token })
       .expect(200);
     const meRes = await testRequest
       .get('/api/auth/me')

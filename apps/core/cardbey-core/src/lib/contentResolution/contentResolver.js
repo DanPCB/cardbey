@@ -105,11 +105,12 @@ export async function resolveContent(missionId, contentRequest, options = {}) {
         process.env.LLM_DEFAULT_PROVIDER.trim()
           ? process.env.LLM_DEFAULT_PROVIDER.trim()
           : undefined;
+      const { resolveAnthropicModel } = await import('../llm/anthropicModelConfig.js');
       const model =
         typeof process.env.LLM_DEFAULT_MODEL === 'string' &&
         process.env.LLM_DEFAULT_MODEL.trim()
-          ? process.env.LLM_DEFAULT_MODEL.trim()
-          : undefined;
+          ? resolveAnthropicModel(process.env.LLM_DEFAULT_MODEL.trim())
+          : resolveAnthropicModel();
       const maxChars = typeof maxLength === 'number' && maxLength > 0 ? maxLength : 120;
       const prompt =
         `Generate ${type} for ${businessName}, a ${businessType} business. ` +

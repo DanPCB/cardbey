@@ -1,7 +1,10 @@
+import { resolveCommerceMode, resolveItemKind } from '../../lib/storeTransactionMode.js';
+import { isPlaceholderCategoryName } from '../../lib/draftCategoryUtils.js';
+
 /**
  * Build CatalogBuildResult-shaped object from preflight rows (Mission.context.preloadedCatalogItems).
- * @param {Array<{ name?: string; price?: number; category?: string }>} rawItems
- * @param {{ businessName?: string|null; verticalSlug?: string|null; currencyCode?: string|null }} opts
+ * @param {Array<{ name?: string; price?: number; category?: string; kind?: string }>} rawItems
+ * @param {{ businessName?: string|null; verticalSlug?: string|null; currencyCode?: string|null; businessType?: string|null; commerceMode?: string|null }} opts
  */
 export function buildCatalogFromPreloadedItems(rawItems, opts = {}) {
   const businessName = opts.businessName != null ? String(opts.businessName) : '';
@@ -11,10 +14,15 @@ export function buildCatalogFromPreloadedItems(rawItems, opts = {}) {
       ? String(opts.currencyCode).trim().toUpperCase()
       : 'AUD';
   const list = Array.isArray(rawItems) ? rawItems : [];
+  const storeCommerceMode = resolveCommerceMode(opts.businessType ?? opts.verticalSlug, {
+    commerceMode: opts.commerceMode,
+  });
+  const defaultCategory = storeCommerceMode === 'order' ? 'Products' : 'Services';
   const categoriesMap = new Map();
   let idx = 0;
   for (const it of list) {
-    const cn = String(it?.category || 'Services').trim() || 'Services';
+    const rawCat = String(it?.category || '').trim();
+    const cn = rawCat && !isPlaceholderCategoryName(rawCat) ? rawCat : defaultCategory;
     if (!categoriesMap.has(cn)) {
       categoriesMap.set(cn, { id: `pre_cat_${idx++}`, name: cn });
     }
@@ -24,7 +32,8 @@ export function buildCatalogFromPreloadedItems(rawItems, opts = {}) {
   }
   const categories = [...categoriesMap.values()];
   const products = list.map((it, i) => {
-    const cname = String(it?.category || 'Services').trim() || 'Services';
+    const rawCat = String(it?.category || '').trim();
+    const cname = rawCat && !isPlaceholderCategoryName(rawCat) ? rawCat : defaultCategory;
     const cat = categoriesMap.get(cname) || categories[0];
     const priceRaw = it?.price;
     const price =
@@ -52,6 +61,9 @@ export function buildCatalogFromPreloadedItems(rawItems, opts = {}) {
       price,
       currency: currencyCode,
       categoryId: cat.id,
+      category: cname,
+      categoryName: cname,
+      kind: resolveItemKind(it, storeCommerceMode),
       ...(imageUrl ? { imageUrl, imageSource: imageSource || 'imported' } : {}),
     };
   });

@@ -2,19 +2,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SkillRegistry } from '../SkillRegistry.js';
 import { SkillRouter } from '../SkillRouter.js';
 
+const executeRuntimeAction = vi.fn();
+
+vi.mock('../../runtime/performerRuntime/executeRuntimeAction.js', () => ({
+  executeRuntimeAction: (...args) => executeRuntimeAction(...args),
+}));
+
+vi.mock('../../runtime/performerRuntime/runtimeAuthorityGuard.js', () => ({
+  recordRuntimeAuthorityPathUsed: vi.fn(),
+}));
+
 describe('SkillRouter', () => {
   /** @type {SkillRegistry} */
   let registry;
   /** @type {SkillRouter} */
   let router;
-  const execute = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     registry = new SkillRegistry();
     router = new SkillRouter({
       skillRegistry: registry,
-      skillExecutor: { execute },
+      skillExecutor: { execute: vi.fn() },
     });
   });
 
@@ -33,18 +42,23 @@ describe('SkillRouter', () => {
     expect(result.dispatchedVia).toBe('tool');
   });
 
-  it('returns matched:true and executes skill when trigger found', async () => {
+  it('returns matched:true and executes skill via runtime when trigger found', async () => {
     registry.register(skill);
-    execute.mockResolvedValue({
-      id: 'exec-1',
-      skillName: 'router_skill',
-      missionId: 'm-1',
-      status: 'completed',
-      currentStep: 1,
-      stepResults: {},
-      ctx: {},
-      startedAt: new Date().toISOString(),
-      canResume: false,
+    executeRuntimeAction.mockResolvedValue({
+      status: 'ok',
+      output: {
+        skillExecution: {
+          id: 'exec-1',
+          skillName: 'router_skill',
+          missionId: 'm-1',
+          status: 'completed',
+          currentStep: 1,
+          stepResults: {},
+          ctx: {},
+          startedAt: new Date().toISOString(),
+          canResume: false,
+        },
+      },
     });
 
     const result = await router.route('launch_store', {
@@ -58,7 +72,8 @@ describe('SkillRouter', () => {
     expect(result.skillName).toBe('router_skill');
     expect(result.executionId).toBe('exec-1');
     expect(result.dispatchedVia).toBe('skill');
-    expect(execute).toHaveBeenCalledOnce();
+    expect(executeRuntimeAction).toHaveBeenCalledOnce();
+    expect(executeRuntimeAction.mock.calls[0][0].actionType).toBe('run_skill');
   });
 
   it('returns MISSING_CONTEXT when requiredContext absent', async () => {
@@ -67,12 +82,12 @@ describe('SkillRouter', () => {
     expect(result.matched).toBe(true);
     expect(result.result?.reason).toBe('MISSING_CONTEXT');
     expect(result.result?.missing).toContain('storeId');
-    expect(execute).not.toHaveBeenCalled();
+    expect(executeRuntimeAction).not.toHaveBeenCalled();
   });
 
-  it('falls through gracefully on executor error', async () => {
+  it('falls through gracefully on runtime error', async () => {
     registry.register(skill);
-    execute.mockRejectedValue(new Error('executor boom'));
+    executeRuntimeAction.mockRejectedValue(new Error('executor boom'));
 
     const result = await router.route('launch_store', {
       missionId: 'm-1',

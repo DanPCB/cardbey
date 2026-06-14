@@ -1922,13 +1922,65 @@ router.post('/', requireUserOrGuest, async (req, res, next) => {
 
       const storeCtxForTools = buildStoreContextFromCurrentContext(currentContext);
       const actorId = performerIntakeActorId(req);
-      const toolResult = await dispatchTool(tool, payload, {
+      const { guardPhaseFIntakeV1Dispatch } = await import('../lib/broker/phaseFBypassGuards.js');
+      const intakeGuard = guardPhaseFIntakeV1Dispatch({
         missionId: missionKey,
-        userId: actorId || undefined,
-        createdBy: actorId || undefined,
-        tenantId: getTenantId(req.user) ?? (req.isGuest && actorId ? actorId : null),
-        storeId: storeCtxForTools?.storeId || undefined,
+        userId: actorId || null,
+        toolName: tool,
       });
+      if (intakeGuard.blocked) {
+        return res.status(403).json({
+          success: false,
+          error: intakeGuard.code,
+          message: intakeGuard.message,
+        });
+      }
+
+      let toolResult;
+      if (intakeGuard.useFacade) {
+        const { executeMissionAction } = await import('../lib/execution/executeMissionAction.js');
+        const { markRuntimeOwnedContext } = await import(
+          '../lib/runtime/performerRuntime/runtimeOwnership.js'
+        );
+        const ownedCtx = markRuntimeOwnedContext(
+          {
+            missionId: missionKey,
+            userId: actorId || undefined,
+            createdBy: actorId || undefined,
+            tenantId: getTenantId(req.user) ?? (req.isGuest && actorId ? actorId : null),
+            storeId: storeCtxForTools?.storeId || undefined,
+            source: 'intake_v1_facade',
+            runtimeOwned: true,
+            performerRuntimeOwned: true,
+          },
+          `intake-v1:${missionKey || actorId || 'anon'}`,
+        );
+        const facade = await executeMissionAction({
+          actionType: 'dispatch_tool',
+          missionId: missionKey,
+          userId: actorId || null,
+          storeId: storeCtxForTools?.storeId || null,
+          source: 'intake_v1_facade',
+          payload: { toolName: tool, input: payload, context: ownedCtx },
+        });
+        toolResult = {
+          status: facade.status === 'ok' ? 'ok' : facade.status,
+          output: facade.output,
+          error: facade.error,
+          blocker: facade.blocker,
+        };
+      } else {
+        toolResult = await dispatchTool(tool, payload, {
+          missionId: missionKey,
+          userId: actorId || undefined,
+          createdBy: actorId || undefined,
+          tenantId: getTenantId(req.user) ?? (req.isGuest && actorId ? actorId : null),
+          storeId: storeCtxForTools?.storeId || undefined,
+          runtimeOwned: true,
+          performerRuntimeOwned: true,
+          source: 'intake_v1_adapter',
+        });
+      }
       return res.json({
         success: true,
         action: 'tool_call',

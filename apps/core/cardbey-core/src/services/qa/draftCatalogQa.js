@@ -6,37 +6,7 @@
 import { FASHION_KEYWORDS } from './draftQaAgent.js';
 import { GENERIC_NAME_REGEX, effectiveVertical } from '../draftStore/draftGuards.js';
 import { buildSeedCatalog } from '../store/seeds/seedCatalogBuilder.js';
-
-function recomputeDraftCategoriesFromItems(items) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return { categories: [], items: [] };
-  }
-  const byKey = new Map();
-  items.forEach((p, idx) => {
-    const key =
-      (p.categoryName || p.category || (p.categoryId && String(p.categoryId)) || '')
-        .toString()
-        .trim() || '_uncategorized';
-    if (!byKey.has(key)) {
-      byKey.set(key, { name: key === '_uncategorized' ? 'Uncategorized' : key, productIds: [] });
-    }
-    byKey.get(key).productIds.push(p.id || `item_${idx}`);
-  });
-  const keyToId = new Map();
-  const categories = Array.from(byKey.entries()).map(([key], i) => {
-    const id = key === '_uncategorized' ? 'uncategorized' : `cat_${i}`;
-    keyToId.set(key, id);
-    return { id, name: key === '_uncategorized' ? 'Uncategorized' : key };
-  });
-  const itemsWithCategoryId = items.map((p, idx) => {
-    const key =
-      (p.categoryName || p.category || (p.categoryId && String(p.categoryId)) || '')
-        .toString()
-        .trim() || '_uncategorized';
-    return { ...p, id: p.id || `item_${idx}`, categoryId: keyToId.get(key) || 'uncategorized' };
-  });
-  return { categories, items: itemsWithCategoryId };
-}
+import { recomputeDraftCategoriesFromItems } from '../../lib/draftCategoryUtils.js';
 
 const MIN_DESCRIPTION_LEN = 12;
 const MIN_TAGLINE_LEN = 8;

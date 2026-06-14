@@ -22,9 +22,9 @@ export function isPhaseFBlockMcpDirectDispatchEnabled() {
   return envTruthy('PHASE_F_BLOCK_MCP_DIRECT_DISPATCH', false);
 }
 
-/** Route MCP tool calls through executeMissionAction facade. Default: false */
+/** Route MCP tool calls through executeMissionAction facade. Default: true (Sprint 3) */
 export function isPhaseFRouteMcpViaFacadeEnabled() {
-  return envTruthy('PHASE_F_ROUTE_MCP_VIA_FACADE', false);
+  return envTruthy('PHASE_F_ROUTE_MCP_VIA_FACADE', true);
 }
 
 /** Block proactive-step legacy fallback (requires ENABLE_RUNTIME_STEP_EXECUTION). Default: false */
@@ -35,4 +35,14 @@ export function isPhaseFBlockProactiveStepLegacyEnabled() {
 /** Block draft-store runway mutations without mission context (future). Default: false */
 export function isPhaseFBlockDraftStoreRunwayEnabled() {
   return envTruthy('PHASE_F_BLOCK_DRAFT_STORE_RUNWAY', false);
+}
+
+/** Route Intake V1 tool calls through executeMissionAction facade. Default: true (Sprint 3) */
+export function isPhaseFRouteIntakeV1ViaFacadeEnabled() {
+  return envTruthy('PHASE_F_ROUTE_INTAKE_V1_VIA_FACADE', true);
+}
+
+/** Block Intake V1 direct dispatchTool. Default: true (Sprint 3) */
+export function isPhaseFBlockIntakeV1DirectDispatchEnabled() {
+  return envTruthy('PHASE_F_BLOCK_INTAKE_V1_DIRECT_DISPATCH', true);
 }

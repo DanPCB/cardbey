@@ -7,8 +7,10 @@
 import { getTranslatedField } from '../services/i18n/translationUtils.js';
 import { resolveHeroMediaFromBusiness } from './heroMediaResolve.js';
 import { parseSocialLinks } from '../lib/socialLinks.js';
-import { coerceServiceCtaLabel } from '../lib/storeTransactionMode.js';
+import { enrichPublicCatalogItem } from '../lib/catalog/catalogItemClassification.js';
+import { publicCommerceFields } from '../lib/dbCapabilities.js';
 import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
+import { buildStoreLocationFields } from '../lib/formatStoreLocation.js';
 
 /**
  * @param {object | null | undefined} business
@@ -65,9 +67,8 @@ export function toPublicStore(business, options = {}) {
     }
   }
 
-  // Parse region for city/country if available
-  // For now, region is just a string, but we can extend this later
-  const region = business.region || null;
+  const locationFields = buildStoreLocationFields(business);
+  const locationLabel = locationFields.locationLabel;
 
   // Use translation utilities to get translated fields, falling back to originals
   const name = getTranslatedField(business, 'name', lang) || business.name;
@@ -128,6 +129,7 @@ export function toPublicStore(business, options = {}) {
 
   // Base store mapping (heroUrl + bannerUrl for compat; avatarUrl from first-class or logo)
   // type included for Explore/frontscreen services mode filtering (client-side)
+  const commerce = publicCommerceFields(business);
   const base = {
     id: business.id,
     name,
@@ -135,13 +137,9 @@ export function toPublicStore(business, options = {}) {
     description,
     tagline: business.tagline ?? null,
     type: business.type ?? null,
-    transactionMode: business.transactionMode ?? 'order',
-    catalogLabel: business.catalogLabel ?? 'Products',
-    ctaLabel: coerceServiceCtaLabel({
-      businessType: business.type,
-      transactionMode: business.transactionMode,
-      ctaLabel: business.ctaLabel,
-    }),
+    transactionMode: commerce.transactionMode,
+    catalogLabel: commerce.catalogLabel,
+    ctaLabel: commerce.ctaLabel,
     avatarUrl: resolvedAvatarUrl,
     bannerUrl: resolvedBannerUrl,
     heroUrl: resolvedBannerUrl,
@@ -149,8 +147,15 @@ export function toPublicStore(business, options = {}) {
     heroVideoUrl: heroVideo ?? null,
     heroMediaType: heroVideo ? 'video' : resolvedHeroImage || resolvedHeroUrl ? 'image' : null,
     heroImage: resolvedHeroImage ?? (resolvedHeroUrl && !heroVideo ? resolvedHeroUrl : null),
-    city: null, // Can be extracted from region if needed
-    country: null, // Can be extracted from region if needed
+    city: locationLabel,
+    country: locationFields.country,
+    locationLabel,
+    address: locationFields.address,
+    suburb: locationFields.suburb,
+    state: locationFields.state,
+    postcode: locationFields.postcode,
+    lat: locationFields.lat,
+    lng: locationFields.lng,
     website,
     showOwnerProfile: business.showOwnerProfile ?? false,
     ownerProfileSlug: business.user?.personalPresenceStore?.slug ?? null,
@@ -168,15 +173,24 @@ export function toPublicStore(business, options = {}) {
         const productDescription = getTranslatedField(p, 'description', lang) ?? p.description ?? null;
         const productCategory = getTranslatedField(p, 'category', lang) ?? p.category ?? null;
         
-        return {
-          id: p.id,
-          name: productName,
-          description: productDescription,
-          category: productCategory,
-          price: p.price ?? null,      // Price as number (could be in cents or dollars, depending on usage)
-          currency: p.currency ?? null,
-          imageUrl: p.imageUrl ?? null,
-        };
+        return enrichPublicCatalogItem(
+          {
+            id: p.id,
+            name: productName,
+            description: productDescription,
+            category: productCategory,
+            price: p.price ?? null,
+            currency: p.currency ?? null,
+            imageUrl: p.imageUrl ?? null,
+            itemType: p.itemType ?? null,
+            bookingEnabled: p.bookingEnabled ?? null,
+            purchaseEnabled: p.purchaseEnabled ?? null,
+            primaryAction: p.primaryAction ?? null,
+            kind: p.kind ?? null,
+            itemKind: p.itemKind ?? null,
+          },
+          { businessType: business.type, businessName: business.name },
+        );
       })
     : [];
 

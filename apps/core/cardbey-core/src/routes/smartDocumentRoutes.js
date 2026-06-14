@@ -33,6 +33,7 @@ import { processDocMessage } from '../lib/smartDocument/documentAgent.js';
 import { scheduleMessage } from '../lib/smartDocument/messageScheduler.js';
 import { resolvePhase } from '../lib/smartDocument/phaseEngine.js';
 import { emitHealthProbe } from '../lib/telemetry/healthProbes.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 
 const router = Router();
 
@@ -597,7 +598,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // ── Authenticated: archive document ───────────────────────────────────────
 
-router.delete('/:id', requireAuth, async (req, res) => {
+router.delete('/:id', requireAuth, wrapHybridRoute(async (req, res) => {
   const prisma = getPrismaClient();
   const userId = req.user?.id;
   const id = String(req.params.id ?? '').trim();
@@ -626,7 +627,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
   } catch (e) {
     return res.status(500).json({ ok: false, error: 'internal_error', message: e?.message });
   }
-});
+}, { requireConfirmation: true, operation: 'delete_document' }));
 
 // ── Authenticated: scheduled messages ─────────────────────────────────────
 

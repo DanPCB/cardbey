@@ -5,6 +5,7 @@
 
 import { commitDraft } from '../../services/draftStore/draftStoreService.js';
 import { canAccessDraftStore } from '../draftOwnership.js';
+import { validateCategoriesForPublish } from '../draftCategoryUtils.js';
 
 /** Draft statuses that may still be published (enum locked — no publish_failed status). */
 const PUBLISHABLE_STATUSES = new Set(['ready', 'generating', 'draft']);
@@ -90,6 +91,26 @@ export async function safePublishGeneratedDraft({
     return {
       ok: false,
       error: `Draft is not ready to publish (status: ${draft.status}, no preview)`,
+      retryable: true,
+      draftId: id,
+    };
+  }
+
+  let preview = draft.preview;
+  if (typeof preview === 'string') {
+    try {
+      preview = JSON.parse(preview);
+    } catch {
+      preview = null;
+    }
+  }
+  const categories = preview && typeof preview === 'object' ? preview.categories : null;
+  const categoryCheck = validateCategoriesForPublish(categories);
+  if (!categoryCheck.ok) {
+    const names = categoryCheck.invalidNames?.join(', ') || 'placeholder categories';
+    return {
+      ok: false,
+      error: `Draft has invalid category labels (${names}). Regenerate or recategorize before publish.`,
       retryable: true,
       draftId: id,
     };

@@ -107,6 +107,9 @@ import { reportI18nProgress }   from './i18n/reportI18nProgress.js'
 import * as analyze_video_brief from './video/analyze_video_brief.js'; // DANH: skill-round5-video
 import * as generate_video_script from './video/generate_video_script.js'; // DANH: skill-round5-video
 import * as queue_video_generation from './video/queue_video_generation.js'; // DANH: skill-round5-video
+import * as video_plan from './video/video_plan.js';
+import * as video_execute from './video/video_execute.js';
+import * as video_audio from './video/video_audio.js';
 import * as check_scan_capability from './scan/check_scan_capability.js'; // DANH: skill-round5-cardscan
 import * as extract_card_data from './scan/extract_card_data.js'; // DANH: skill-round5-cardscan
 import * as create_product_from_card from './scan/create_product_from_card.js'; // DANH: skill-round5-cardscan
@@ -120,6 +123,11 @@ import * as suggest_campaign_plan from './document/suggest_campaign_plan.js'; //
 import * as generate_execution_summary from './document/generate_execution_summary.js'; // DANH: skill-round6-document
 import * as generate_living_document from './document/generate_living_document.js'; // DANH: living-document-platform
 import * as activate_campaigns from './campaign/activate_campaigns.js'; // DANH: living-document-platform
+import * as resolve_vision_location from './vision/resolve_vision_location.js';
+import * as classify_vision_event from './vision/classify_vision_event.js';
+import * as route_vision_event from './vision/route_vision_event.js';
+import * as create_ghost_store from './ghost/create_ghost_store.js';
+import * as enrich_ghost_store from './ghost/enrich_ghost_store.js';
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
 function honestBlocker(toolName, message) {
@@ -259,6 +267,9 @@ export const executors = {
   analyze_video_brief, // DANH: skill-round5-video
   generate_video_script, // DANH: skill-round5-video
   queue_video_generation, // DANH: skill-round5-video
+  video_plan,
+  video_execute,
+  video_audio,
   check_scan_capability, // DANH: skill-round5-cardscan
   extract_card_data, // DANH: skill-round5-cardscan
   create_product_from_card, // DANH: skill-round5-cardscan
@@ -272,6 +283,11 @@ export const executors = {
   generate_execution_summary, // DANH: skill-round6-document
   generate_living_document, // DANH: living-document-platform
   activate_campaigns, // DANH: living-document-platform
+  resolve_vision_location,
+  classify_vision_event,
+  route_vision_event,
+  create_ghost_store,
+  enrich_ghost_store,
   generate_promotion_asset: honestBlocker(
     'generate_promotion_asset',
     'Promotion asset generation is not implemented yet.',

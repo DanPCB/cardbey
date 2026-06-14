@@ -23,20 +23,29 @@ export async function createVideoTask({
   aspectRatio = DEFAULT_ASPECT,
   model = MODEL,
   negativePrompt = '',
+  enableNativeAudio = false,
 }) {
   const validDuration = Number(duration) >= 10 ? '10' : '5';
+
+  const body = {
+    model_name: model,
+    prompt,
+    negative_prompt: negativePrompt,
+    duration: validDuration,
+    aspect_ratio: aspectRatio,
+    // V3 Omni: cfg_scale and mode not supported
+  };
+
+  // Opt-in native audio / SFX when Kling API supports it (verify with ffprobe after download).
+  if (enableNativeAudio) {
+    body.sound = 'on';
+    body.enable_audio = true;
+  }
 
   const res = await fetch(`${BASE_URL}/v1/videos/text2video`, {
     method: 'POST',
     headers: getKlingHeaders(),
-    body: JSON.stringify({
-      model_name: model,
-      prompt,
-      negative_prompt: negativePrompt,
-      duration: validDuration,
-      aspect_ratio: aspectRatio,
-      // V3 Omni: cfg_scale and mode not supported
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {

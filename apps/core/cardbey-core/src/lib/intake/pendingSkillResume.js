@@ -5,6 +5,8 @@
 
 export const PENDING_SKILL_DOCUMENT_INGESTION = 'document_ingestion';
 
+export const PENDING_SKILL_PLAN_APPROVAL = 'planApproval';
+
 const DOCUMENT_PENDING_KEYS = [
   'documentUrl',
   'documentBase64',
@@ -12,6 +14,8 @@ const DOCUMENT_PENDING_KEYS = [
   'imageUrl',
   'imageDataUrl',
 ];
+
+const PLAN_APPROVAL_PENDING_KEYS = ['executionId', 'plan', 'planSchema', 'skillName'];
 
 /**
  * @param {Record<string, unknown> | null | undefined} inputs
@@ -22,6 +26,21 @@ export function pickDocumentPendingInputs(inputs) {
   /** @type {Record<string, unknown>} */
   const out = {};
   for (const key of DOCUMENT_PENDING_KEYS) {
+    const v = src[key];
+    if (v != null && v !== '') out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} inputs
+ * @returns {Record<string, unknown>}
+ */
+export function pickPlanApprovalPendingInputs(inputs) {
+  const src = inputs && typeof inputs === 'object' && !Array.isArray(inputs) ? inputs : {};
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const key of PLAN_APPROVAL_PENDING_KEYS) {
     const v = src[key];
     if (v != null && v !== '') out[key] = v;
   }

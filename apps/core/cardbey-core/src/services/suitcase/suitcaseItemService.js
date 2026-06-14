@@ -3,6 +3,7 @@
  */
 import cuid from 'cuid';
 import { getPrismaClient } from '../../lib/prisma.js';
+import { INVALIDATION_TRIGGERS } from '../memory/memoryCache.js';
 
 export const SUITCASE_SOURCE_TYPES = new Set([
   'upload',
@@ -211,6 +212,10 @@ export async function createSuitcaseItem(input, prisma = getPrismaClient()) {
       updatedAt: now,
     },
   });
+
+  if (row.storeId) {
+    INVALIDATION_TRIGGERS.SUITCASE_SAVE(row.storeId);
+  }
 
   return { item: mapRow(row), created: true, skipped: false };
 }

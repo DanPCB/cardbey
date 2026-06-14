@@ -3,6 +3,7 @@
  */
 
 import { emitMissionArtifact } from '../artifacts/artifactSse.js';
+import { registerGeneratedArtifactFromOperational } from '../artifacts/generatedArtifactAuthority.js';
 import {
   SLIDESHOW_UNAVAILABLE_MESSAGE,
   generateSlideshowViaProvider,
@@ -86,6 +87,18 @@ export async function execute(input = {}, context = {}) {
       sourceTool: 'generate_slideshow',
     };
     emit(artifact, missionId);
+    const ownerUserId =
+      (typeof context?.userId === 'string' && context.userId.trim()) ||
+      (typeof context?.ownerUserId === 'string' && context.ownerUserId.trim()) ||
+      '';
+    if (ownerUserId) {
+      await registerGeneratedArtifactFromOperational(artifact, {
+        ownerUserId,
+        source: 'generate_slideshow',
+      }).catch((persistErr) => {
+        console.warn('[SLIDESHOW] generated artifact persist failed (non-fatal):', persistErr?.message);
+      });
+    }
     return {
       status: 'ok',
       output: {

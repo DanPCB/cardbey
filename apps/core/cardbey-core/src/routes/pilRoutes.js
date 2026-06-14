@@ -45,7 +45,10 @@ router.post('/events', guestSessionId, optionalAuth, async (req, res, next) => {
       userId: resolveUserId(req, input.userId),
       sessionId: input.sessionId ?? (req.guestSessionId ? `guest_${req.guestSessionId}` : undefined),
     });
-    res.status(201).json({ ok: true, id: row.id });
+    if (row.persisted === false) {
+      return res.status(200).json({ ok: true, persisted: false, reason: row.reason ?? 'PIL_EVENT_TABLE_MISSING' });
+    }
+    res.status(201).json({ ok: true, id: row.id, persisted: true });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ ok: false, error: 'Validation error', details: error.errors });
@@ -65,7 +68,10 @@ router.post('/events/batch', guestSessionId, optionalAuth, async (req, res, next
       sessionId: e.sessionId ?? sessionFallback,
     }));
     const result = await recordPilEventBatch(normalized);
-    res.status(201).json({ ok: true, ...result });
+    if (result.persisted === false) {
+      return res.status(200).json({ ok: true, persisted: false, reason: result.reason ?? 'PIL_EVENT_TABLE_MISSING', count: 0 });
+    }
+    res.status(201).json({ ok: true, ...result, persisted: true });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ ok: false, error: 'Validation error', details: error.errors });

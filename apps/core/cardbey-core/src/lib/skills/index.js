@@ -30,6 +30,8 @@ import './definitions/VideoGenerationSkill.js'; // DANH: skill-round5-video
 import './definitions/CardScanSkill.js'; // DANH: skill-round5-cardscan
 import './definitions/DeployCNetSkill.js'; // DANH: skill-round5-cnet
 import './definitions/DocumentIngestionSkill.js'; // DANH: skill-round6-document
+import './definitions/VisionIntakeSkill.js';
+import './definitions/GhostStoreSkill.js';
 
 const skillExecutor = new SkillExecutor({
   toolDispatcher: dispatchTool,
@@ -42,6 +44,7 @@ export const skillRouter = new SkillRouter({
   skillExecutor,
 });
 
+export { skillExecutor };
 export { skillRegistry } from './SkillRegistry.js';
 export { SkillExecutor } from './SkillExecutor.js';
 export { SkillRouter } from './SkillRouter.js';

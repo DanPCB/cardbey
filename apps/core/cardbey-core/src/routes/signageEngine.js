@@ -15,6 +15,7 @@ import {
   queryDevicePlaylist,
 } from '../engines/signage/index.js';
 import { prisma } from '../lib/prisma.js';
+import { assertUiWriteAuthority } from '../lib/runtime/performerRuntime/uiWriteAuthorityGuard.js';
 import {
   CreatePlaylistInput,
   AddAssetsToPlaylistInput,
@@ -177,6 +178,13 @@ router.post('/apply-schedule', requireAuth, async (req, res) => {
  */
 router.post('/publish', requireAuth, async (req, res) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'publish_signage',
+      route: 'POST /api/signage/engine/publish',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_publish',
+    });
     const parsed = PublishToDevicesInput.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({

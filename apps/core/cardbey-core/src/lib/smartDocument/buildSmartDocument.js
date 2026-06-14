@@ -46,6 +46,10 @@ import { getPreset } from './presets/index.js';
 import { buildPhaseConfig } from './phaseEngine.js';
 import { serializeCapabilities } from './capabilityRegistry.js';
 import { resolveContent } from '../contentResolution/contentResolver.js';
+import { appendEvent } from '../missionBlackboard.js';
+import {
+  serializeSmartDocumentJsonField,
+} from './smartDocumentJson.js';
 
 const BUILD_SMART_DOCUMENT_TOOL = 'build_smart_document';
 
@@ -56,21 +60,22 @@ const BUILD_SMART_DOCUMENT_TOOL = 'build_smart_document';
  * @param {string} stepTitle
  * @param {Record<string, unknown>} output
  */
-function writeStep(missionId, stepIndex, stepTitle, output) {
+async function writeStep(missionId, stepIndex, stepTitle, output) {
   const mid = typeof missionId === 'string' ? missionId.trim() : '';
   if (!mid || stepIndex < 1) return;
-  writeStepOutput(mid, { stepIndex, toolName: BUILD_SMART_DOCUMENT_TOOL, stepTitle }, output)
-    .then((r) => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[missionContextBus] writeStepOutput', {
-          missionId: mid,
-          stepIndex,
-          toolName: BUILD_SMART_DOCUMENT_TOOL,
-          ok: r?.ok !== false,
-        });
-      }
-    })
-    .catch(() => {});
+  try {
+    const r = await writeStepOutput(mid, { stepIndex, toolName: BUILD_SMART_DOCUMENT_TOOL, stepTitle }, output);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[missionContextBus] writeStepOutput', {
+        missionId: mid,
+        stepIndex,
+        toolName: BUILD_SMART_DOCUMENT_TOOL,
+        ok: r?.ok !== false,
+      });
+    }
+  } catch {
+    // non-fatal
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -235,7 +240,7 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
         title,
         status: 'active',
         phase: 'active',
-        designJson,
+        designJson: serializeSmartDocumentJsonField(designJson),
         sizeW,
         sizeH,
         sizeUnit,
@@ -244,7 +249,10 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
         knowledgeBase: null,
         capabilities: serializeCapabilities(capabilities),
         autoApprove: preset.autoApprove ?? true,
-        phaseConfig: Object.keys(phaseConfig).length > 0 ? phaseConfig : null,
+        phaseConfig:
+          Object.keys(phaseConfig).length > 0
+            ? serializeSmartDocumentJsonField(phaseConfig)
+            : null,
         liveUrl,
       },
     });
@@ -260,14 +268,32 @@ export async function buildSmartDocument(missionId, docData, options = {}) {
       subtype,
     });
   } catch (stepErr) {
-    console.error('[buildSmartDocument] Step 5 persist failed:', stepErr?.message ?? stepErr);
+    const errMsg = stepErr?.message ?? String(stepErr);
+    console.error('[buildSmartDocument] Step 5 persist failed:', errMsg);
+    await writeStep(missionId, 5, 'Save document', {
+      phase: 'persist',
+      status: 'failed',
+      error: errMsg.slice(0, 500),
+      docType,
+      subtype,
+    });
+    const mid = typeof missionId === 'string' ? missionId.trim() : '';
+    if (mid) {
+      await appendEvent(mid, 'mission_step_failed', {
+        stepIndex: 5,
+        tool: BUILD_SMART_DOCUMENT_TOOL,
+        stepTitle: 'Save document',
+        error: errMsg.slice(0, 500),
+      }).catch(() => {});
+    }
+    await emitLine(emitContextUpdate, `❌ Save failed: ${errMsg.slice(0, 120)}`);
     emitHealthProbe('smart_document_created', {
       missionId: missionId ?? undefined,
       docType,
       subtype,
       ok: false,
     });
-    return { error: stepErr?.message ?? String(stepErr), partial: true };
+    return { error: errMsg, partial: true, failedStep: 5 };
   }
 
   // ── STEP 6 — QR code ───────────────────────────────────────────────────

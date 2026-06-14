@@ -75,6 +75,8 @@ function resolveQuery(payload) {
   return '';
 }
 
+let dispatchLogPersistWarned = false;
+
 async function persistSkillDispatchLog(payload) {
   try {
     const prisma = getPrismaClient();
@@ -123,7 +125,16 @@ async function persistSkillDispatchLog(payload) {
     });
     return row.id;
   } catch (error) {
-    console.error('[IntakeTelemetry] Failed to persist dispatch log:', error?.message ?? error);
+    if (!dispatchLogPersistWarned) {
+      dispatchLogPersistWarned = true;
+      const msg = error?.message ?? String(error);
+      const hint = /column.*query.*does not exist/i.test(msg)
+        ? ' Run: node scripts/ensure-skill-dispatch-log-columns.mjs'
+        : '';
+      console.warn(
+        `[IntakeTelemetry] Failed to persist dispatch log (subsequent failures suppressed): ${msg}${hint}`,
+      );
+    }
     return null;
   }
 }

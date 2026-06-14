@@ -17,7 +17,14 @@ export async function execute(input = {}) {
     autoPrompt = '',
     duration = 5,
     aspectRatio = '16:9',
+    approvedPlan = null,
   } = input;
+
+  const audioPrefs =
+    approvedPlan?.audio && typeof approvedPlan.audio === 'object' ? approvedPlan.audio : {};
+  const tryNativeAudio =
+    audioPrefs.voiceoverEnabled !== false &&
+    String(process.env.KLING_ENABLE_NATIVE_AUDIO ?? '').trim().toLowerCase() === 'true';
 
   if (!resolveVideoProvider()) {
     return {
@@ -51,6 +58,7 @@ export async function execute(input = {}) {
       prompt,
       duration,
       aspectRatio,
+      enableNativeAudio: tryNativeAudio,
     });
 
     return {
@@ -60,6 +68,7 @@ export async function execute(input = {}) {
         completed: true,
         taskId: result.taskId,
         videoUrl: result.videoUrl,
+        silentVideoUrl: result.videoUrl,
         heroVideoUrl: result.heroVideoUrl,
         heroVideoUrlOriginal: result.videoUrl,
         heroVideoUrlIosSafe: result.heroVideoUrlIosSafe,
@@ -69,6 +78,7 @@ export async function execute(input = {}) {
         prompt,
         storeName,
         sourceType: 'video_generation',
+        klingNativeAudioRequested: tryNativeAudio,
       },
     };
   } catch (err) {

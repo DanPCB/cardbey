@@ -1,5 +1,6 @@
 import { appendEvent, ensureMissionRowForBlackboard } from '../missionBlackboard.js';
 import { broadcastMissionReasoningLine } from '../../realtime/simpleSse.js';
+import { enqueueMissionContextMerge } from '../missionContextMergeQueue.js';
 
 /**
  * Foundation 2 — Agent context bus (shared working memory).
@@ -112,25 +113,13 @@ export function createEmitContextUpdate(missionId, agent, options = {}) {
           ? patch.reasoning_line.timestamp
           : Date.now();
       const mission = await loadMissionRow();
-      if (!mission) return;
-      const ctx = mission.context && typeof mission.context === 'object' ? mission.context : {};
-      const prev = Array.isArray(ctx.reasoning_log) ? [...ctx.reasoning_log] : [];
-      await mergeMissionContext(missionId, { reasoning_log: [...prev.map(String), line] }, { prisma }).catch(() => {});
-      await prisma.missionEvent.create({
-        data: {
-          missionId,
-          agent,
-          type: 'context_update',
-          payload: {
-            agent,
-            keys: ['reasoning_line'],
-            reasoning_line: { line, timestamp: ts },
-            lastUpdatedAt: new Date().toISOString(),
-          },
-        },
-      }).catch(() => {});
+      if (mission) {
+        const ctx = mission.context && typeof mission.context === 'object' ? mission.context : {};
+        const prev = Array.isArray(ctx.reasoning_log) ? [...ctx.reasoning_log] : [];
+        // Debounce Mission.context writes — blackboard + SSE are the live feed.
+        enqueueMissionContextMerge(missionId, { reasoning_log: [...prev.map(String), line] });
+      }
       // Performer BlackboardFeed polls GET /api/missions/:id/blackboard (MissionBlackboard rows).
-      // Store/orchestra paths only wrote reasoning_log + MissionEvent — mirror lines here so the left panel is not empty.
       await appendEvent(
         missionId,
         'reasoning_line',

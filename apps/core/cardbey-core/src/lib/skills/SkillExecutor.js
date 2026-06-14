@@ -3,6 +3,16 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import {
+  SKILL_STATUS_AWAITING_PLAN_APPROVAL,
+} from './planApprovalConstants.js';
+import {
+  shouldPlanFirst,
+  buildPlanArtifactFromExecution,
+  isPlanPhaseComplete,
+  hasExecuteStepRemaining,
+  persistPlanApprovalPending,
+} from './planApprovalService.js';
 
 /** @typedef {import('./types.js').SkillDefinition} SkillDefinition */
 /** @typedef {import('./types.js').SkillExecution} SkillExecution */
@@ -88,11 +98,82 @@ export class SkillExecutor {
     if (!skillDef) {
       throw new Error(`Skill definition missing for execution: ${id}`);
     }
-    execution.status = 'running';
-    execution.canResume = false;
-    execution.ctx = { ...execution.ctx, ...ctx };
+
+    if (ctx?.regeneratePlan) {
+      const planStepIndex = this._resolvePlanStepIndex(skillDef);
+      execution.stepResults = { ...execution.stepResults };
+      const planStepId = skillDef.planning?.planStepId ?? skillDef.steps?.[planStepIndex]?.id;
+      if (planStepId) delete execution.stepResults[planStepId];
+      execution.currentStep = planStepIndex;
+      execution.planArtifact = undefined;
+      execution.status = 'running';
+      execution.canResume = false;
+    } else {
+      execution.status = 'running';
+      execution.canResume = false;
+    }
+
+    execution.ctx = { ...execution.ctx, ...ctx, skillDef };
     executionStore.set(id, execution);
     return this._runFromStep(skillDef, execution, execution.currentStep);
+  }
+
+  /**
+   * @param {SkillDefinition} skillDef
+   * @returns {number}
+   */
+  _resolvePlanStepIndex(skillDef) {
+    const planStepId = skillDef?.planning?.planStepId;
+    const steps = skillDef.steps ?? [];
+    if (planStepId) {
+      const idx = steps.findIndex((s) => s.id === planStepId);
+      if (idx >= 0) return idx;
+    }
+    const planExecutor = skillDef?.planning?.planExecutor;
+    if (planExecutor) {
+      const idx = steps.findIndex((s) => s.tool === planExecutor);
+      if (idx >= 0) return idx;
+    }
+    return 0;
+  }
+
+  /**
+   * @param {SkillDefinition} skillDef
+   * @param {SkillExecution} execution
+   * @param {number} completedStepIndex
+   * @returns {Promise<SkillExecution | null>}
+   */
+  async _maybePauseForPlanApproval(skillDef, execution, completedStepIndex) {
+    if (!shouldPlanFirst(skillDef, execution.ctx)) return null;
+    if (!isPlanPhaseComplete(skillDef, completedStepIndex)) return null;
+    if (!hasExecuteStepRemaining(skillDef, completedStepIndex)) return null;
+
+    const planArtifact = buildPlanArtifactFromExecution(skillDef, execution);
+    if (!planArtifact) return null;
+
+    execution.status = SKILL_STATUS_AWAITING_PLAN_APPROVAL;
+    execution.canResume = true;
+    execution.currentStep = completedStepIndex + 1;
+    execution.planArtifact = planArtifact;
+    execution.completedAt = undefined;
+    executionStore.set(execution.id, execution);
+
+    await persistPlanApprovalPending({
+      missionId: execution.missionId,
+      execution,
+      skillDef,
+      planArtifact,
+    });
+
+    this._emitStepEvent(
+      execution,
+      { id: skillDef.planning?.planStepId ?? 'plan', name: 'Plan ready' },
+      'completed',
+      { plan: planArtifact },
+      'skill:plan_ready',
+    );
+    this._persistExecutionSnapshot(execution);
+    return execution;
   }
 
   /**
@@ -134,7 +215,7 @@ export class SkillExecutor {
         let shouldRun = true;
         try {
           shouldRun = Boolean(step.condition(ctx, execution.stepResults));
-        } catch (condErr) {
+        } catch {
           shouldRun = false;
         }
         if (!shouldRun) {
@@ -144,6 +225,24 @@ export class SkillExecutor {
           }
           continue;
         }
+      }
+
+      // Execute step requires approved plan when skill uses plan-first flow.
+      const executeStepId = skillDef?.planning?.executeStepId;
+      if (
+        executeStepId &&
+        step.id === executeStepId &&
+        shouldPlanFirst(skillDef, ctx) &&
+        !ctx?.approvedPlan
+      ) {
+        const paused = await this._maybePauseForPlanApproval(skillDef, execution, i - 1);
+        if (paused) return paused;
+        execution.status = SKILL_STATUS_AWAITING_PLAN_APPROVAL;
+        execution.canResume = true;
+        execution.currentStep = i;
+        executionStore.set(execution.id, execution);
+        this._persistExecutionSnapshot(execution);
+        return execution;
       }
 
       if (!step.tool) {
@@ -205,6 +304,10 @@ export class SkillExecutor {
         if (skillDef.observable !== false) {
           this._emitStepEvent(execution, step, 'completed', stepResult);
         }
+
+        const paused = await this._maybePauseForPlanApproval(skillDef, execution, i);
+        if (paused) return paused;
+
         continue;
       }
 
@@ -294,6 +397,8 @@ export class SkillExecutor {
           stepResults: execution.stepResults,
           failedReason: execution.failedReason ?? null,
           canResume: execution.canResume,
+          planArtifact: execution.planArtifact ?? null,
+          skillDef: execution.ctx?.skillDef ?? null,
         }).catch(() => {});
       }
     } catch {
@@ -334,10 +439,11 @@ export class SkillExecutor {
             status: payload.status ?? 'paused',
             currentStep: Number(payload.currentStep) || 0,
             stepResults: payload.stepResults ?? {},
-            ctx: {},
+            ctx: { skillDef: payload.skillDef ?? null },
             startedAt: row.createdAt?.toISOString?.() ?? new Date().toISOString(),
             canResume: payload.canResume === true,
             failedReason: payload.failedReason ?? undefined,
+            planArtifact: payload.planArtifact ?? undefined,
           };
         }
       }

@@ -4,6 +4,7 @@
  */
 
 import cuid from 'cuid';
+import { normalizeCatalogItem } from '../../lib/catalog/catalogItemClassification.js';
 import { batchInsertProducts } from '../../lib/persistence/catalogPersistence.js';
 import { normalizeCatalogProductName } from '../../lib/persistence/catalogDedupe.js';
 import {
@@ -100,7 +101,10 @@ export function chunkArray(arr, size) {
  *   skippedCount: number,
  * }}
  */
-export function prepareCatalogProductRows(commitItems, { categoryMap, otherCategoryName, defaultCurrency }) {
+export function prepareCatalogProductRows(
+  commitItems,
+  { categoryMap, otherCategoryName, defaultCurrency, businessType, businessName },
+) {
   const rows = [];
   /** @type {(string|undefined)[]} */
   const publishedIdsByDraftIndex = Array.isArray(commitItems) ? new Array(commitItems.length) : [];
@@ -136,6 +140,7 @@ export function prepareCatalogProductRows(commitItems, { categoryMap, otherCateg
         ? String(item.currency).trim().toUpperCase()
         : defaultCurrency;
 
+    const classified = normalizeCatalogItem(item, { businessType, businessName });
     rows.push({
       id,
       name: nameTrim,
@@ -147,6 +152,10 @@ export function prepareCatalogProductRows(commitItems, { categoryMap, otherCateg
       isPublished: true,
       viewCount: 0,
       likeCount: 0,
+      itemType: classified.itemType,
+      bookingEnabled: classified.bookingEnabled,
+      purchaseEnabled: classified.purchaseEnabled,
+      primaryAction: classified.primaryAction,
     });
     publishedIdsByDraftIndex[i] = id;
     preparedCount += 1;

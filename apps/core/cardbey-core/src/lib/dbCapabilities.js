@@ -3,7 +3,8 @@
  * Capability detection is centralized in lib/persistence/dbCapabilityRegistry.js.
  */
 
-import { coerceServiceCtaLabel, isServiceVertical } from './storeTransactionMode.js';
+import { isServiceBusinessContext } from './catalog/catalogItemClassification.js';
+import { coerceServiceCtaLabel, isServiceVertical, inferCatalogSectionLabel } from './storeTransactionMode.js';
 import { hasBusinessColumn } from './businessColumnCapabilities.js';
 import { getDbCapabilities, resolveDbProvider } from './persistence/dbCapabilityRegistry.js';
 
@@ -109,6 +110,11 @@ export function businessPublicReadSelect(extra = {}) {
       'country',
       'mapUrl',
       'region',
+      'provenance',
+      'claimStatus',
+      'captureCount',
+      'lat',
+      'lng',
     ),
     ...extra,
   };
@@ -128,13 +134,20 @@ export function businessPublicReadSelect(extra = {}) {
 /** Commerce labels for public DTO — from Business columns (Postgres) or projection/public store defaults. */
 export function publicCommerceFields(business, pub = {}) {
   const type = business?.type ?? pub.type ?? null;
+  const name = business?.name ?? pub.name ?? null;
   const transactionMode = business?.transactionMode ?? pub.transactionMode ?? 'order';
-  const isService = transactionMode === 'booking' || isServiceVertical(type);
+  const isService =
+    transactionMode === 'booking' ||
+    (transactionMode !== 'order' && isServiceVertical(type)) ||
+    isServiceBusinessContext({ type, name });
   const rawCta = business?.ctaLabel ?? pub.ctaLabel ?? null;
+  const commerceMode = isService ? 'booking' : transactionMode === 'order' ? 'order' : 'inquiry';
   return {
     transactionMode: isService ? 'booking' : transactionMode,
     catalogLabel:
-      business?.catalogLabel ?? pub.catalogLabel ?? (isService ? 'Services' : 'Products'),
+      business?.catalogLabel ??
+      pub.catalogLabel ??
+      inferCatalogSectionLabel(type, commerceMode, name),
     ctaLabel: coerceServiceCtaLabel({
       businessType: type,
       transactionMode: isService ? 'booking' : transactionMode,

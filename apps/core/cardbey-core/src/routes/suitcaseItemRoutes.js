@@ -14,6 +14,7 @@ import {
   SUITCASE_SOURCE_TYPES,
   SUITCASE_CONTENT_TYPES,
 } from '../services/suitcase/suitcaseItemService.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 
 const router = Router();
 
@@ -139,14 +140,14 @@ router.patch('/items/:id', requireAuth, async (req, res, next) => {
   }
 });
 
-router.delete('/items/:id', requireAuth, async (req, res, next) => {
+router.delete('/items/:id', requireAuth, wrapHybridRoute(async (req, res, next) => {
   try {
     const result = await deleteSuitcaseItem({ ownerId: req.userId, itemId: req.params.id });
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, deleted: true, ...result });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ ok: false, error: error.message });
     next(error);
   }
-});
+}, { requireConfirmation: true, operation: 'delete_suitcase_item' }));
 
 export default router;

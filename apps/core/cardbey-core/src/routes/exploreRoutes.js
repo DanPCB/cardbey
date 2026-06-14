@@ -6,25 +6,24 @@
  * DELETE /api/explore/videos/:id
  */
 import { Router } from 'express';
-import multer from 'multer';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
-import { uploadBufferToS3 } from '../lib/s3Client.js';
-import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
+import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import {
   canManageExploreVideos,
-  createExploreVideo,
   deleteExploreVideo,
-  getExploreVideoMaxBytes,
+  getExploreVideoById,
   listExploreVideos,
   updateExploreVideo,
-  validateVideoMime,
 } from '../services/explore/exploreVideoService.js';
+import { validateExploreVideoPublishUrl } from '../services/explore/exploreVideoUrlValidation.js';
+import { assertUiWriteAuthority } from '../lib/runtime/performerRuntime/uiWriteAuthorityGuard.js';
+import { assertLegacyUploadAuthority } from '../lib/runtime/performerRuntime/runtimeUploadAuthority.js';
+import {
+  exploreVideoUploadFields,
+  handleExploreVideoUploadRequest,
+} from '../services/explore/exploreVideoUploadService.js';
 
 const router = Router();
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: getExploreVideoMaxBytes() },
-});
 
 async function requireExploreVideoManager(req, res, next) {
   try {
@@ -68,121 +67,55 @@ router.post(
   '/videos/upload',
   requireAuth,
   requireExploreVideoManager,
-  upload.fields([
-    { name: 'video', maxCount: 1 },
-    { name: 'thumbnail', maxCount: 1 },
-  ]),
-  async (req, res, next) => {
-    try {
-      const videoFile = req.files?.video?.[0];
-      const thumbFile = req.files?.thumbnail?.[0];
-
-      if (!videoFile) {
-        return res.status(400).json({
-          ok: false,
-          error: 'missing_video',
-          message: 'Video file is required',
-        });
-      }
-
-      if (!validateVideoMime(videoFile.mimetype)) {
-        return res.status(400).json({
-          ok: false,
-          error: 'invalid_video_type',
-          message: 'Supported video types: mp4, webm, mov',
-        });
-      }
-
-      if (videoFile.size > getExploreVideoMaxBytes()) {
-        return res.status(400).json({
-          ok: false,
-          error: 'file_too_large',
-          message: `Video exceeds max size of ${getExploreVideoMaxBytes()} bytes`,
-        });
-      }
-
-      let videoBuffer = videoFile.buffer;
-      let videoMime = videoFile.mimetype;
-      let detectedDuration = null;
-      try {
-        const processed = await ensureWebCompatibleVideoBuffer(
-          videoBuffer,
-          videoFile.originalname || 'explore-video.mp4',
-          { context: 'explore.videos.upload' },
-        );
-        videoBuffer = processed.buffer;
-        videoMime = processed.mime || videoMime;
-        if (processed.durationS != null) detectedDuration = processed.durationS;
-      } catch (videoErr) {
-        console.warn('[explore] video compat processing failed (non-fatal):', videoErr?.message || videoErr);
-      }
-
-      const videoUpload = await uploadBufferToS3(
-        videoBuffer,
-        videoFile.originalname || 'explore-video.mp4',
-        videoMime,
-        'videos',
-      );
-
-      let thumbnailUrl = null;
-      if (thumbFile) {
-        if (!String(thumbFile.mimetype || '').startsWith('image/')) {
-          return res.status(400).json({
-            ok: false,
-            error: 'invalid_thumbnail_type',
-            message: 'Thumbnail must be an image',
-          });
-        }
-        const thumbUpload = await uploadBufferToS3(
-          thumbFile.buffer,
-          thumbFile.originalname || 'explore-thumb.jpg',
-          thumbFile.mimetype,
-          'stores',
-        );
-        thumbnailUrl = thumbUpload.url;
-      }
-
-      const durationRaw = req.body?.duration;
-      const duration =
-        durationRaw != null && durationRaw !== '' && Number.isFinite(Number(durationRaw))
-          ? Math.round(Number(durationRaw))
-          : detectedDuration;
-
-      const created = await createExploreVideo({
-        title: req.body?.title,
-        description: req.body?.description,
-        category: req.body?.category,
-        videoUrl: videoUpload.url,
-        thumbnailUrl,
-        duration,
-        ctaIntent: req.body?.ctaIntent || null,
-        status: req.body?.status === 'draft' ? 'draft' : 'published',
-        createdBy: req.user?.id || null,
-      });
-
-      res.status(201).json({ ok: true, video: created });
-    } catch (err) {
-      if (err.message === 'title_and_video_required') {
-        return res.status(400).json({
-          ok: false,
-          error: 'validation_error',
-          message: 'Title and video are required',
-        });
-      }
-      console.error('[explore] video upload failed:', err?.message || err);
-      return res.status(500).json({
-        ok: false,
-        error: 'upload_failed',
-        message: err?.message || 'Video upload failed',
-      });
-    }
+  exploreVideoUploadFields(),
+  async (req, res) => {
+    assertLegacyUploadAuthority(req, {
+      mutationType: req.body?.status === 'draft' ? 'explore_upload_draft' : 'publish_explore',
+      route: 'POST /api/explore/videos/upload',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_explore',
+      deprecatedHint:
+        'Direct explore upload — use POST /api/performer/runtime/ui-action/upload-explore-video',
+    });
+    return handleExploreVideoUploadRequest(req, res);
   },
 );
 
 router.patch('/videos/:id', requireAuth, requireExploreVideoManager, async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: req.body?.status === 'published' ? 'publish_explore' : 'explore_patch',
+      route: 'PATCH /api/explore/videos/:id',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_explore',
+    });
     const isAdmin = req.user?.role === 'admin' || req.user?.isDevAdmin;
-    const updated = await updateExploreVideo(req.params.id, req.body || {}, req.user?.id, isAdmin);
+    const patch = { ...(req.body || {}) };
+    if (patch.videoUrl != null) {
+      patch.videoUrl = normalizeMediaUrlForStorage(String(patch.videoUrl), req);
+    }
+    if (patch.thumbnailUrl != null) {
+      patch.thumbnailUrl = normalizeMediaUrlForStorage(String(patch.thumbnailUrl), req);
+    }
+
+    const existing = await getExploreVideoById(req.params.id);
+    const targetStatus = patch.status ?? existing?.status ?? 'published';
+    const targetUrl = patch.videoUrl ?? existing?.videoUrl;
+
+    if (targetStatus === 'published' && targetUrl) {
+      const validation = await validateExploreVideoPublishUrl(targetUrl, { req });
+      if (!validation.ok) {
+        return res.status(400).json({
+          ok: false,
+          error: validation.code || 'video_not_playable',
+          message: validation.message || 'Video URL is not playable',
+        });
+      }
+    }
+
+    const updated = await updateExploreVideo(req.params.id, patch, req.user?.id, isAdmin);
     if (!updated) {
       return res.status(404).json({ ok: false, error: 'not_found', message: 'Video not found' });
     }
@@ -197,6 +130,13 @@ router.patch('/videos/:id', requireAuth, requireExploreVideoManager, async (req,
 
 router.delete('/videos/:id', requireAuth, requireExploreVideoManager, async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'explore_delete',
+      route: 'DELETE /api/explore/videos/:id',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.query?.missionId ?? req.body?.missionId ?? null,
+      source: 'ui_explore',
+    });
     const isAdmin = req.user?.role === 'admin' || req.user?.isDevAdmin;
     const ok = await deleteExploreVideo(req.params.id, req.user?.id, isAdmin);
     if (!ok) {

@@ -3,6 +3,7 @@
  */
 
 import { emitMissionArtifact } from '../artifacts/artifactSse.js';
+import { registerGeneratedArtifactFromOperational } from '../artifacts/generatedArtifactAuthority.js';
 import {
   VIDEO_ARTIFACT_UNAVAILABLE_MESSAGE,
   artifactFailed,
@@ -85,6 +86,18 @@ export async function execute(input = {}, context = {}) {
       sourceTool: 'video_generate_multimodal',
     });
     emitMissionArtifact(missionId, artifact);
+    const ownerUserId =
+      (typeof context?.userId === 'string' && context.userId.trim()) ||
+      (typeof context?.ownerUserId === 'string' && context.ownerUserId.trim()) ||
+      '';
+    if (ownerUserId) {
+      await registerGeneratedArtifactFromOperational(artifact, {
+        ownerUserId,
+        source: 'video_generate_multimodal',
+      }).catch((persistErr) => {
+        console.warn('[VIDEO] generated artifact persist failed (non-fatal):', persistErr?.message);
+      });
+    }
 
     return {
       status: 'ok',

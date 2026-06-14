@@ -13,6 +13,9 @@ export function buildMaintenanceContext(req, overrides = {}) {
     storeId: req.body?.storeId ?? null,
     userId: req.user?.id ?? req.userId ?? null,
     errorType: req.body?.errorType ?? 'unknown',
+    runtimeOwned: true,
+    performerRuntimeOwned: true,
+    source: 'maintenance',
     ...overrides,
   };
 }

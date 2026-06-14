@@ -122,7 +122,7 @@ router.get('/metrics', foundationMetricsGate, (_req, res) => {
 router.post('/memory', guestSessionId, optionalAuth, async (req, res) => {
   const started = Date.now();
   try {
-    const { actor, storeId, sessionId, sessionHints } = req.body ?? {};
+    const { actor, storeId, sessionId, sessionHints, missionId } = req.body ?? {};
     if (!actor?.type) {
       return res.status(400).json({ ok: false, error: 'actor.type is required', code: 'invalid_input' });
     }
@@ -137,6 +137,7 @@ router.post('/memory', guestSessionId, optionalAuth, async (req, res) => {
       storeId: storeId ?? null,
       sessionId: sessionId ?? (req.guestSessionId ? `guest_${req.guestSessionId}` : null),
       sessionHints: sessionHints ?? {},
+      missionId: missionId ?? null,
       ownerId,
     });
 

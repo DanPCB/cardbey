@@ -21,7 +21,7 @@ import { listStoreProducts, parseProductPagination } from '../lib/listStoreProdu
 import { parseDocumentIngestionContext } from '../lib/documentIngestion/documentAwareConcierge.js';
 
 import { prisma } from '../lib/prisma.js';
-import { isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
+import { isGhostStoreRemoved, isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 
 const router = Router();
 /**
@@ -536,6 +536,15 @@ router.get('/stores/:slug', async (req, res, next) => {
         ok: false,
         error: 'Store not found',
         message: 'Store not found'
+      });
+    }
+
+    if (isGhostStoreRemoved(store)) {
+      return res.status(410).json({
+        ok: false,
+        error: 'store_removed',
+        message: 'This page is no longer available.',
+        removed: true,
       });
     }
 

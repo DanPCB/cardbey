@@ -22,6 +22,8 @@ import {
 } from '../services/draftStore/publishSnapshotService.js';
 import { computeStylePreferencesUpdate } from '../lib/miniWebsiteSectionMerge.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
+import { assertUiWriteAuthority } from '../lib/runtime/performerRuntime/uiWriteAuthorityGuard.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 
 const prisma = getPrismaClient();
 const router = Router();
@@ -34,8 +36,15 @@ function isSuperAdmin(req) {
  * POST /api/mini-website/publish/cardbey
  * Body: { draftStoreId: string }
  */
-router.post('/publish/cardbey', requireAuth, async (req, res, next) => {
+router.post('/publish/cardbey', requireAuth, wrapHybridRoute(async (req, res, next) => {
   try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'publish_store',
+      route: 'POST /api/mini-website/publish/cardbey',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'ui_publish',
+    });
     const draftStoreId =
       typeof req.body?.draftStoreId === 'string' ? req.body.draftStoreId.trim() : '';
     if (!draftStoreId) {
@@ -187,13 +196,20 @@ router.post('/publish/cardbey', requireAuth, async (req, res, next) => {
     console.error('[MiniWebsite] publish/cardbey error:', error);
     next(error);
   }
-});
+}, { operation: 'publish_mini_website' }));
 
 /**
  * POST /api/mini-website/publish/custom-domain
  * Not implemented — explicit response so the dashboard gets JSON instead of 404.
  */
 router.post('/publish/custom-domain', requireAuth, async (req, res) => {
+  assertUiWriteAuthority(req, {
+    mutationType: 'publish_store',
+    route: 'POST /api/mini-website/publish/custom-domain',
+    userId: req.userId ?? req.user?.id ?? null,
+    missionId: req.body?.missionId ?? null,
+    source: 'ui_publish',
+  });
   res.status(501).json({
     ok: false,
     error: 'not_implemented',

@@ -8,6 +8,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 import { prisma } from '../../lib/prisma.js';
 import { runCriticalSqliteWriteWithP1008Retry } from '../../lib/sqliteCriticalWrite.js';
+import { safeDraftStoreCreate } from '../../lib/safeDraftStoreCreate.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
@@ -23,6 +24,12 @@ import {
   normalizeHeroFieldsInPreview,
   normalizeHeroPreviewPatchForStorage,
 } from './normalizeHeroMediaUrlsForStorage.js';
+import {
+  recomputeDraftCategoriesFromItems as recomputeCategoriesFromItemsImpl,
+  sanitizeDraftCategoryList,
+  validateCategoriesForPublish,
+} from '../../lib/draftCategoryUtils.js';
+import { resolveStoreCommerce, normalizeCatalogItem } from '../../lib/storeTransactionMode.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -77,7 +84,14 @@ export function normalizePreviewCategories(preview) {
     }
   });
 
-  preview.categories = categories;
+  const categoryValidation = validateCategoriesForPublish(categories);
+  if (!categoryValidation.ok && items.length > 0) {
+    const recomputed = recomputeCategoriesFromItemsImpl(items);
+    preview.categories = sanitizeDraftCategoryList(recomputed.categories);
+    preview.items = recomputed.items;
+  } else {
+    preview.categories = sanitizeDraftCategoryList(categories);
+  }
   if (reassignedCount > 0 && (process.env.NODE_ENV === 'development' || process.env.LOG_DRAFT_CATEGORIES === '1')) {
     console.log('[DraftStore] normalizePreviewCategories: reassigned items to other', { count: reassignedCount });
   }
@@ -170,23 +184,56 @@ export function normalizeDraftProductPrice(item) {
  * @returns {{ label: string, action: string }}
  */
 export function resolveGeneratedCTA(context) {
-  const raw = String(context?.storeType ?? context?.businessType ?? '').toLowerCase().trim();
-  if (raw === 'service' || raw === 'services') {
-    return { label: 'Book now', action: 'booking' };
+  const commerce = resolveStoreCommerce({
+    storeType: context?.storeType,
+    businessType: context?.businessType,
+    items: context?.items,
+  });
+  return { label: commerce.ctaLabel, action: commerce.ctaAction };
+}
+
+/**
+ * Apply commerceMode, transactionMode, item kinds, and default CTA from business type + items.
+ * @param {object} preview
+ * @returns {object}
+ */
+export function applyCommerceFieldsToPreview(preview) {
+  if (!preview || typeof preview !== 'object') return preview;
+  const commerce = resolveStoreCommerce({
+    storeType: preview.storeType,
+    businessType: preview.meta?.storeType,
+    commerceMode: preview.commerceMode,
+    transactionMode: preview.transactionMode,
+    items: preview.items,
+    ctaLabel: preview.ctaLabel,
+    catalogLabel: preview.catalogLabel,
+    ctaAction: preview.storefront?.cta?.action,
+  });
+  preview.commerceMode = commerce.commerceMode;
+  preview.transactionMode = commerce.transactionMode;
+  preview.catalogLabel = commerce.catalogLabel;
+  preview.ctaLabel = commerce.ctaLabel;
+  if (Array.isArray(preview.items)) {
+    const businessType = preview.storeType ?? preview.meta?.storeType ?? null;
+    const businessName = preview.storeName ?? preview.name ?? null;
+    preview.items = preview.items.map((it) => {
+      if (!it || typeof it !== 'object') return it;
+      const normalized = normalizeCatalogItem(it, {
+        businessType,
+        businessName,
+        commerceMode: commerce.commerceMode,
+      });
+      return { ...it, ...normalized };
+    });
   }
-  if (raw === 'product' || raw === 'products') {
-    return { label: 'Buy now', action: 'checkout' };
+  const sf = preview.storefront && typeof preview.storefront === 'object' ? { ...preview.storefront } : {};
+  if (!hasMeaningfulCta(sf.cta)) {
+    preview.storefront = {
+      ...sf,
+      cta: { label: commerce.ctaLabel, action: commerce.ctaAction },
+    };
   }
-  if (raw === 'food') {
-    return { label: 'Order now', action: 'order' };
-  }
-  const foodish = /\b(restaurant|cafe|coffee|bakery|baker|food|dining|kitchen|bar|bistro|eatery|pizza)\b/.test(raw);
-  const productish = /\b(retail|shop|store|product|merchandise|boutique|florist|market|gallery)\b/.test(raw);
-  const serviceish = /\b(service|services|salon|spa|clinic|beauty|wellness|cleaning|office|barber|hair)\b/.test(raw);
-  if (serviceish && !foodish) return { label: 'Book now', action: 'booking' };
-  if (productish && !foodish) return { label: 'Buy now', action: 'checkout' };
-  if (foodish) return { label: 'Order now', action: 'order' };
-  return { label: 'Visit store', action: 'visit' };
+  return preview;
 }
 
 function hasMeaningfulCta(cta) {
@@ -535,13 +582,20 @@ export async function createDraftStoreForUser(prismaClient, { user, userId, tena
     });
   }
 
-  const draft = await prismaClient.draftStore.create({
+  const traceMissionId =
+    (typeof rest?.missionId === 'string' && rest.missionId.trim()) ||
+    (inputWithTenant && typeof inputWithTenant.missionId === 'string' ? inputWithTenant.missionId.trim() : '') ||
+    null;
+
+  const draft = await safeDraftStoreCreate(prismaClient, {
     data: {
       ...rest,
       ownerUserId,
       input: inputWithTenant,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
+    missionId: traceMissionId,
+    operation: 'createDraftStoreForUser',
   });
 
   if (process.env.NODE_ENV !== 'production') {
@@ -580,7 +634,7 @@ export async function createDraft({ mode, input, meta = {} }) {
   const inputObj = input || {};
   const generationRunId = inputObj.generationRunId || meta.generationRunId || null;
 
-  const draft = await prisma.draftStore.create({
+  const draft = await safeDraftStoreCreate(prisma, {
     data: {
       mode,
       status: 'generating',
@@ -592,6 +646,8 @@ export async function createDraft({ mode, input, meta = {} }) {
       ownerUserId: meta.ownerUserId || null,
       ...(generationRunId ? { generationRunId } : {}),
     },
+    missionId: typeof inputObj.missionId === 'string' ? inputObj.missionId.trim() : null,
+    operation: 'createDraft',
   });
 
   console.log(`[DraftStore] Created draft ${draft.id} with mode: ${mode}`);
@@ -627,7 +683,11 @@ async function saveDraftBase(draftId, catalog, params) {
     prevPreview.storefront && typeof prevPreview.storefront === 'object' ? { ...prevPreview.storefront } : {};
   const cta = hasMeaningfulCta(prevStorefront.cta)
     ? prevStorefront.cta
-    : resolveGeneratedCTA({ storeType: profile.type, businessType: params.businessType });
+    : resolveGeneratedCTA({
+        storeType: profile.type,
+        businessType: params.businessType,
+        items: products,
+      });
   const preview = {
     storeName: profile.name,
     storeType: profile.type,
@@ -666,6 +726,8 @@ async function saveDraftBase(draftId, catalog, params) {
     const effectiveVerticalType = effectiveVertical(profile.type, params.businessType);
     applyNameGuards(preview.items, effectiveVerticalType, preview.categories);
   }
+  normalizePreviewCategories(preview);
+  applyCommerceFieldsToPreview(preview);
   await prisma.draftStore.update({
     where: { id: draftId },
     data: { preview, updatedAt: new Date() },
@@ -992,20 +1054,7 @@ async function finalizeDraft(draftId, {
   mergeWebsiteIntoPreview(preview, draft.input || {});
 
   normalizePreviewCategories(preview);
-  {
-    const sf = preview.storefront && typeof preview.storefront === 'object' ? { ...preview.storefront } : {};
-    if (!hasMeaningfulCta(sf.cta)) {
-      preview.storefront = {
-        ...sf,
-        cta: resolveGeneratedCTA({
-          storeType: preview.storeType,
-          businessType: preview.meta?.storeType,
-        }),
-      };
-    } else {
-      preview.storefront = sf;
-    }
-  }
+  applyCommerceFieldsToPreview(preview);
   const schemaMod = await loadDraftPreviewSchema();
   if (schemaMod) {
     const parseDraftPreview = schemaMod.parseDraftPreview ?? schemaMod.default?.parseDraftPreview;
@@ -2462,6 +2511,7 @@ export async function generateDraft(draftId, options = {}) {
     mergeWebsiteIntoPreview(preview, input);
 
     normalizePreviewCategories(preview);
+    applyCommerceFieldsToPreview(preview);
 
     // Soft validation: log only; do not change behavior
     const schemaMod2 = await loadDraftPreviewSchema();
@@ -3226,31 +3276,7 @@ export async function detectStoreImageMismatch(prisma, storeId, generationRunId 
  * Used by auto-categorize endpoint; does not persist — caller must patchDraftPreview.
  */
 export function recomputeDraftCategoriesFromItems(items) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return { categories: [], items: [] };
-  }
-  const byKey = new Map();
-  items.forEach((p, idx) => {
-    const key = (p.categoryName || p.category || (p.categoryId && String(p.categoryId)) || '').toString().trim() || '_uncategorized';
-    if (!byKey.has(key)) {
-      const name = key === '_uncategorized' ? 'Uncategorized' : key;
-      byKey.set(key, { name, productIds: [] });
-    }
-    const cat = byKey.get(key);
-    const productId = p.id || `item_${idx}`;
-    cat.productIds.push(productId);
-  });
-  const keyToId = new Map();
-  const categories = Array.from(byKey.entries()).map(([key], i) => {
-    const id = key === '_uncategorized' ? 'uncategorized' : `cat_${i}`;
-    keyToId.set(key, id);
-    return { id, name: key === '_uncategorized' ? 'Uncategorized' : key };
-  });
-  const itemsWithCategoryId = items.map((p, idx) => {
-    const key = (p.categoryName || p.category || (p.categoryId && String(p.categoryId)) || '').toString().trim() || '_uncategorized';
-    return { ...p, id: p.id || `item_${idx}`, categoryId: keyToId.get(key) || 'uncategorized' };
-  });
-  return { categories, items: itemsWithCategoryId };
+  return recomputeCategoriesFromItemsImpl(items);
 }
 
 /**
@@ -3434,6 +3460,8 @@ export async function commitDraft(draftId, { userId: existingUserId, email, pass
     categoryMap: commitCategoryMap,
     otherCategoryName,
     defaultCurrency: commitProductCurrency,
+    businessType: preview.storeType ?? preview.meta?.storeType ?? null,
+    businessName: preview.storeName ?? preview.name ?? null,
   });
   stageTimer.log('phase_a_prepare_catalog', {
     itemCount: preparedCount,

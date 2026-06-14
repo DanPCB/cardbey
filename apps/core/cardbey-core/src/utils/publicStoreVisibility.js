@@ -23,10 +23,15 @@ export function isAbandonedGuestOwnedBusiness(business) {
 /**
  * @param {{ userId?: string | null, isGuestDraft?: boolean | null, expiresAt?: Date | string | null, isActive?: boolean | null, publishedAt?: Date | string | null } | null | undefined} business
  */
+export function isGhostStoreRemoved(business) {
+  return String(business?.claimStatus ?? '').toLowerCase() === 'removed';
+}
+
 export function isPublicFeedEligibleBusiness(business) {
   if (!business) return false;
   if (isRetiredLiveTestStore(business)) return false;
   if (isAbandonedGuestOwnedBusiness(business)) return false;
+  if (isGhostStoreRemoved(business)) return false;
   return business.isActive === true || business.publishedAt != null;
 }
 

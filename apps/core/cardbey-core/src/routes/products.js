@@ -8,6 +8,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { requireAuth, requireOwner } from '../middleware/auth.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 
 import { prisma } from '../lib/prisma.js';
 
@@ -239,7 +240,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
  *   - 403: Product does not belong to user's business
  *   - 404: Product not found
  */
-router.delete('/:id', requireAuth, requireOwner, async (req, res, next) => {
+router.delete('/:id', requireAuth, requireOwner, wrapHybridRoute(async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -299,13 +300,14 @@ router.delete('/:id', requireAuth, requireOwner, async (req, res, next) => {
 
     res.json({
       ok: true,
+      deleted: true,
       product: deletedProduct
     });
   } catch (error) {
     console.error('[Products] Delete error:', error);
     next(error);
   }
-});
+}, { requireConfirmation: true, operation: 'delete_product' }));
 
 export default router;
 

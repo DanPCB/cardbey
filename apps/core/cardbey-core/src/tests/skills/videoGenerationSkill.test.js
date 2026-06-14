@@ -33,9 +33,9 @@ describe('VideoGenerationSkill', () => {
 
   it('step list is non-empty and ordered', () => {
     expect(VideoGenerationSkill.steps.map((s) => s.tool)).toEqual([
-      'analyze_video_brief',
-      'generate_video_script',
-      'queue_video_generation',
+      'video_plan',
+      'video_execute',
+      'video_audio',
     ]);
   });
 

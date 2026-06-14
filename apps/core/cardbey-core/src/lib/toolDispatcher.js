@@ -21,6 +21,7 @@ import {
   detectExecutionDuplication,
   incrementRuntimeAuthorityMetric,
 } from './runtime/performerRuntime/runtimeAuthorityStaging.js';
+import { assertRuntimeAuthorityContext } from './runtime/performerRuntime/runtimeAuthorityGuard.js';
 import { writeEpisodicEventAsync } from './memory/episodicWriter.js';
 import { enrichMediaSearchInput } from '../services/media/mediaQueryEnrichment.js';
 
@@ -55,6 +56,14 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
     context && typeof context === 'object' && !Array.isArray(context) ? context : {};
   const frame = await buildExecutionFrame(baseCtx);
   const ctx = { ...baseCtx, locale: frame.locale, executionFrame: frame };
+
+  assertRuntimeAuthorityContext(ctx, {
+    caller: ctx.source ?? 'tool_dispatcher',
+    toolName: name,
+    route: ctx.route ?? null,
+    userId: ctx.userId ?? null,
+    missionId: ctx.missionId ?? ctx.activeMissionId ?? null,
+  });
 
   const ownership = await import('./runtime/performerRuntime/runtimeOwnership.js');
   const ownershipCheck = ownership.assertRuntimeOwnership(ctx, ctx.source ?? 'tool_dispatcher');

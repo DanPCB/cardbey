@@ -424,6 +424,43 @@ export function broadcastMissionCheckpoint(missionId, checkpoint) {
 }
 
 /**
+ * Broadcast plan preview awaiting owner approval (skill runtime pause).
+ * @param {string} missionId
+ * @param {object} payload
+ */
+export function broadcastMissionPlanApproval(missionId, payload = {}) {
+  if (!missionId || typeof missionId !== 'string') return;
+  const data = { missionId, ...payload };
+  const line = `event: mission.plan_approval\ndata: ${JSON.stringify(data)}\n\n`;
+
+  let sent = 0;
+  const toDelete = [];
+
+  for (const client of clients.values()) {
+    if (client.missionId !== missionId) continue;
+    if (client.res.writableEnded || client.res.destroyed) {
+      toDelete.push(client.id);
+      continue;
+    }
+    try {
+      client.res.write(line);
+      sent++;
+    } catch (err) {
+      console.error('[SSE] broadcastMissionPlanApproval error', { id: client.id, missionId, err: String(err) });
+      toDelete.push(client.id);
+    }
+  }
+
+  for (const id of toDelete) {
+    clients.delete(id);
+  }
+
+  if (sent > 0) {
+    console.log(`[SSE] Broadcast mission.plan_approval to ${sent} client(s) for missionId=${missionId}`);
+  }
+}
+
+/**
  * Broadcast an async mission artifact (e.g. video URL) to clients subscribed to this missionId.
  * Parallel to checkpoints/pipeline output; payload is `{ missionId, subtype, payload, timestamp }`.
  *

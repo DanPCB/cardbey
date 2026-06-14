@@ -1,15 +1,17 @@
-// DANH: skill-round5-video
+// DANH: skill-round5-video + plan-first approval + audio post-process
 /**
- * Video generation — brief, script, queue (honest stub for video API).
+ * Video generation — plan preview, Kling execute, then voiceover + music mux.
  */
 
 import { skillRegistry } from '../SkillRegistry.js';
+import { VIDEO_PLAN_SCHEMA } from '../planApprovalConstants.js';
 
 /** @type {import('../types.js').SkillDefinition} */
 export const VideoGenerationSkill = {
   name: 'video_generation',
-  version: '1.0',
-  description: 'Analyze video brief, generate script, and queue video generation when API is configured.',
+  version: '2.1',
+  description:
+    'Plan video, pause for approval, generate via Kling, then add voiceover and music.',
   triggers: [
     'create_video',
     'generate_video',
@@ -22,49 +24,65 @@ export const VideoGenerationSkill = {
   ],
   requiredContext: ['storeId', 'userId'],
   observable: true,
+  displayResultType: 'video_generation',
+  planning: {
+    planFirst: true,
+    planExecutor: 'video_plan',
+    planStepId: 'video_plan',
+    executeStepId: 'video_execute',
+    planSchema: VIDEO_PLAN_SCHEMA,
+    expensive: true,
+  },
   steps: [
     {
-      id: 'analyze_video_brief',
-      name: 'Analyze video brief',
-      tool: 'analyze_video_brief',
+      id: 'video_plan',
+      name: 'Plan video',
+      tool: 'video_plan',
       required: true,
       buildInput: (ctx) => ({
         storeId: ctx.storeId,
         userMessage: ctx.toolInput?.userMessage ?? ctx.intent ?? '',
+        brandTone: ctx.hydratedContext?.brandKit?.tone ?? 'friendly',
       }),
     },
     {
-      id: 'generate_video_script',
-      name: 'Generate video script',
-      tool: 'generate_video_script',
+      id: 'video_execute',
+      name: 'Generate video',
+      tool: 'video_execute',
       required: true,
       buildInput: (ctx, stepResults) => {
-        const brief = stepResults.analyze_video_brief?.output ?? {};
+        const plan =
+          ctx.approvedPlan ??
+          stepResults.video_plan?.output?.plan ??
+          stepResults.video_plan?.output ??
+          {};
         return {
-          style: brief.style,
-          duration: brief.duration,
-          mood: brief.mood,
-          storeName: brief.storeName,
-          brandTone: ctx.hydratedContext?.brandKit?.tone ?? 'friendly',
+          approvedPlan: plan,
+          plan,
+          storeId: ctx.storeId ?? plan.storeId ?? null,
+          storeName: plan.storeName ?? ctx.hydratedContext?.entities?.store?.name ?? '',
+          userMessage: ctx.toolInput?.userMessage ?? plan.autoPrompt ?? ctx.intent ?? '',
         };
       },
     },
     {
-      id: 'queue_video_generation',
-      name: 'Queue video generation',
-      tool: 'queue_video_generation',
-      required: true,
+      id: 'video_audio',
+      name: 'Add voiceover and music',
+      tool: 'video_audio',
+      required: false,
       buildInput: (ctx, stepResults) => {
-        const scriptOut = stepResults.generate_video_script?.output ?? {};
-        const brief = stepResults.analyze_video_brief?.output ?? {};
+        const plan =
+          ctx.approvedPlan ??
+          stepResults.video_plan?.output?.plan ??
+          stepResults.video_plan?.output ??
+          {};
+        const executeOut = stepResults.video_execute?.output ?? {};
         return {
-          script: scriptOut.script,
-          style: brief.style,
-          storeId: ctx.storeId ?? null,
-          storeName: brief.storeName ?? ctx.hydratedContext?.entities?.store?.name ?? '',
-          userMessage: ctx.toolInput?.userMessage ?? ctx.intent ?? '',
-          autoPrompt: brief.autoPrompt ?? null,
-          duration: brief.duration ?? 5,
+          approvedPlan: plan,
+          plan,
+          videoOutput: executeOut,
+          videoExecuteOutput: executeOut,
+          missionId: ctx.missionId ?? null,
         };
       },
     },
@@ -73,7 +91,9 @@ export const VideoGenerationSkill = {
     maxAttempts: 2,
     backoffMs: 1500,
     shouldRetry: (error) =>
-      error?.code !== 'VALIDATION_ERROR' && error?.code !== 'PERMISSION_DENIED',
+      error?.code !== 'VALIDATION_ERROR' &&
+      error?.code !== 'PERMISSION_DENIED' &&
+      error?.code !== 'PLAN_NOT_APPROVED',
   },
 };
 

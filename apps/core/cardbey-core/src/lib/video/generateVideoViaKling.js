@@ -9,6 +9,7 @@ import { createVideoTask, waitForVideo } from './klingClient.js';
  *   prompt: string;
  *   duration?: number | string;
  *   aspectRatio?: string;
+ *   enableNativeAudio?: boolean;
  *   onPoll?: (info: { taskId: string; status: string }) => void | Promise<void>;
  * }} opts
  */
@@ -24,10 +25,15 @@ export async function generateVideoViaKling(opts) {
       ? opts.aspectRatio.trim()
       : process.env.KLING_DEFAULT_ASPECT_RATIO ?? '16:9';
 
+  const enableNativeAudio =
+    opts.enableNativeAudio === true ||
+    String(process.env.KLING_ENABLE_NATIVE_AUDIO ?? '').trim().toLowerCase() === 'true';
+
   const { taskId } = await createVideoTask({
     prompt,
     duration,
     aspectRatio,
+    enableNativeAudio,
   });
 
   if (typeof opts.onPoll === 'function') {

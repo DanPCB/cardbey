@@ -1,4 +1,5 @@
 import { buildServiceRequestCaptureResponse } from './serviceRequestDraft.js';
+import { shouldBlockServiceRequestForStoreCreate } from '../intake/storeCreateIntentFastPath.js';
 
 /**
  * Phase 1 — Capability Resolution Layer for Performer / Intake.
@@ -87,6 +88,7 @@ const CLARIFY = {
  */
 export function signalsServiceRequest(blob) {
   const b = String(blob ?? '').toLowerCase();
+  if (shouldBlockServiceRequestForStoreCreate(blob)) return false;
   if (/\b(add to cart|checkout|buy this product|order from my store|gift card from)\b/.test(b)) return false;
 
   const localProf =

@@ -9,7 +9,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma.js';
-import { generateToken, generateGuestToken, requireAuth } from '../middleware/auth.js';
+import { generateToken, generateGuestToken, requireAuth, optionalAuth } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { sendMail } from '../services/email/mailer.js';
 import { getVerifyEmailContent } from '../services/email/templates/verifyEmail.js';
@@ -18,12 +18,18 @@ import { registerWithEmailPassword, loginWithEmailPassword } from '../services/a
 import { getPersonalPresenceLinkFields } from '../services/personalPresence/personalPresenceQr.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
 import { filterOwnerVisibleStores } from '../utils/publicStoreVisibility.js';
+import { INVALIDATION_TRIGGERS } from '../services/memory/memoryCache.js';
 import {
   getVerificationLinkBaseUrl,
   VERIFICATION_CONFIRM_PATH,
   verificationTokenLogFields,
   logVerificationEmailDispatch,
 } from '../utils/verificationLinkBase.js';
+import {
+  normalizeVerificationToken,
+  hashVerificationToken,
+  verificationConfirmLogFields,
+} from '../utils/verificationToken.js';
 
 /** Post-verify SPA path — must exist in dashboard (Performer /app). */
 const DEFAULT_VERIFY_REDIRECT_URI = '/app?verified=1';
@@ -79,6 +85,21 @@ const verificationRequestLimiterIP = (req, res, next) => {
     code: 'RATE_LIMITED',
   })(req, res, next);
 };
+
+/** Unauthenticated resend from verify failure page — IP rate limit only. */
+const verificationResendLimiter = (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
+  return rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => `verify-resend-ip:${req.ip || 'unknown'}`,
+    message: 'Too many resend requests. Try again later.',
+    code: 'RATE_LIMITED',
+  })(req, res, next);
+};
+
+const GENERIC_VERIFY_RESEND_MESSAGE =
+  'If an account exists for that email, we sent a verification link.';
 
 /** 60s cooldown per user between successful sends (in-memory; resets on restart) */
 const verificationSendCooldownMs = 60 * 1000;
@@ -503,13 +524,15 @@ router.post('/register', async (req, res, next) => {
         where: { id: user.id },
         data: { verificationToken: hashedToken, verificationTokenRaw: rawToken, verificationExpires: expiresAt },
       });
-      sendVerificationEmail({
-        to: user.email,
-        rawToken,
-        displayName: user.displayName || user.fullName || undefined,
-      }).catch((err) => {
+      try {
+        await sendVerificationEmail({
+          to: user.email,
+          rawToken,
+          displayName: user.displayName || user.fullName || undefined,
+        });
+      } catch (err) {
         console.error('[Auth] Register verification email send failed', { userId: user.id, error: err?.message });
-      });
+      }
     }
 
     res.status(201).json({ ok: true, token, user });
@@ -593,7 +616,12 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', optionalAuth, (req, res) => {
+  const userId = req.user?.id ? String(req.user.id) : null;
+  if (userId) {
+    INVALIDATION_TRIGGERS.LOGOUT(userId);
+  }
+
   res.clearCookie('accessToken', {
     httpOnly: true,
     sameSite: 'lax',
@@ -956,17 +984,11 @@ function generateVerificationRawToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-/** Hash a token for storage (compare with stored hash on confirm) */
-function hashVerificationToken(token) {
-  return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
-}
-
 function resolveVerificationExpiryMs() {
   const raw = String(process.env.VERIFICATION_EXPIRY_MS || '').trim();
   const parsed = raw ? Number.parseInt(raw, 10) : NaN;
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  // Dev-friendly default: longer window for testing; production remains short.
-  return process.env.NODE_ENV === 'production' ? 30 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  return 24 * 60 * 60 * 1000;
 }
 
 const VERIFICATION_EXPIRY_MS = resolveVerificationExpiryMs();
@@ -980,24 +1002,30 @@ function resolvePublicWebBaseForBrowserRedirect() {
   return publicWebBase({ emptyInProductionIfUnset: true });
 }
 
-/** Shared success response after email is verified (redirect to SPA or JSON). */
-function respondAfterEmailVerified(res, redirect_uri) {
-  const safeRedirect = redirect_uri && typeof redirect_uri === 'string' && redirect_uri.startsWith('/') && !redirect_uri.startsWith('//');
-  if (safeRedirect) {
-    const webBase = resolvePublicWebBaseForBrowserRedirect();
-    if (webBase) {
-      return res.redirect(302, `${webBase}${redirect_uri}`);
-    }
+/** Shared success response after email is verified (redirect to SPA, HTML, or JSON). */
+function respondAfterEmailVerified(res, redirect_uri, req = null) {
+  const safeRedirect = safeVerifyRedirectUri(redirect_uri);
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
+  if (webBase && !(req && wantsVerifyJsonOnly(req))) {
+    return res.redirect(302, `${webBase}${safeRedirect}`);
+  }
+  if (req && wantsVerifyBrowserResponse(req)) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[Auth] verify: set PUBLIC_APP_URL or DASHBOARD_URL for post-verify browser redirect');
     }
-    return res.json({
-      ok: true,
-      verified: true,
-      message: 'Email verified. Open the app in your browser to continue.',
-    });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(
+      renderVerifyResultPage({
+        title: 'Email verified',
+        message: 'Your email has been verified. You can return to the app.',
+      }),
+    );
   }
-  return res.json({ ok: true, verified: true });
+  return res.json({
+    ok: true,
+    verified: true,
+    message: 'Email verified. Open the app in your browser to continue.',
+  });
 }
 
 function prefersHtml(req) {
@@ -1010,17 +1038,48 @@ function verifyDebugEnabled() {
   return String(process.env.DEBUG_VERIFY_EMAIL || '').trim() === '1';
 }
 
-function renderVerifyResultPage({ title, message, retryUrl, debugLines = [] }) {
-  const safeTitle = String(title || 'Email verification');
-  const safeMessage = String(message || '');
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function safeVerifyRedirectUri(redirectUri) {
+  if (typeof redirectUri !== 'string') return DEFAULT_VERIFY_REDIRECT_URI;
+  const trimmed = redirectUri.trim();
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return DEFAULT_VERIFY_REDIRECT_URI;
+  return trimmed;
+}
+
+function wantsVerifyJsonOnly(req) {
+  const accept = String(req.headers?.accept || '*/*');
+  return accept.includes('application/json') && !accept.includes('text/html');
+}
+
+/** Email link GET /verify/confirm always returns HTML; POST from form may redirect. */
+function wantsVerifyBrowserResponse(req) {
+  const path = String(req.path || '');
+  if (req.method === 'GET' && path.endsWith('/verify/confirm')) return true;
+  if (wantsVerifyJsonOnly(req)) return false;
+  if (req.method === 'POST' && (path.endsWith('/verify/confirm') || path.endsWith('/verify/resend'))) {
+    return true;
+  }
+  return prefersHtml(req);
+}
+
+function renderVerifyResultPage({ title, message, retryUrl, debugLines = [], extraHtml = '' }) {
+  const safeTitle = escapeHtml(title || 'Email verification');
+  const safeMessage = escapeHtml(message || '');
   const debugHtml =
     Array.isArray(debugLines) && debugLines.length
       ? `<details style="margin-top:16px"><summary style="cursor:pointer">Debug</summary><pre style="white-space:pre-wrap;word-break:break-word;margin-top:8px">${debugLines
-          .map((l) => String(l))
+          .map((l) => escapeHtml(l))
           .join('\n')}</pre></details>`
       : '';
   const retryBtn = retryUrl
-    ? `<p style="margin-top:18px"><a href="${retryUrl}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#111;color:#fff;text-decoration:none">Open app</a></p>`
+    ? `<p style="margin-top:18px"><a href="${escapeHtml(retryUrl)}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#111;color:#fff;text-decoration:none">Open app</a></p>`
     : '';
   return `<!doctype html>
 <html>
@@ -1033,6 +1092,8 @@ function renderVerifyResultPage({ title, message, retryUrl, debugLines = [] }) {
     .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px 18px; }
     h1 { font-size: 18px; margin: 0 0 8px; }
     p { margin: 0; color: #374151; line-height: 1.45; }
+    button { padding: 10px 14px; border-radius: 10px; background: #111; color: #fff; border: 0; cursor: pointer; font-size: 14px; }
+    input[type="email"] { display: block; margin: 8px 0 12px; padding: 8px; width: 100%; max-width: 320px; box-sizing: border-box; }
   </style>
 </head>
 <body>
@@ -1040,16 +1101,107 @@ function renderVerifyResultPage({ title, message, retryUrl, debugLines = [] }) {
     <h1>${safeTitle}</h1>
     <p>${safeMessage}</p>
     ${retryBtn}
+    ${extraHtml}
     ${debugHtml}
   </div>
 </body>
 </html>`;
 }
 
-function respondVerifyError(req, res, { code, error, message }) {
-  if (process.env.NODE_ENV !== 'production' && prefersHtml(req)) {
-    const webBase = resolvePublicWebBaseForBrowserRedirect();
-    const retryUrl = webBase ? `${webBase}/onboarding/business?verify=1` : null;
+function renderVerifyFailurePage({ title, message, emailPrefill = '', debugLines = [] }) {
+  const email = escapeHtml(emailPrefill);
+  const resendForm = `<form method="POST" action="/api/auth/verify/resend" style="margin-top:18px">
+    <label for="verify-resend-email">Email</label>
+    <input id="verify-resend-email" type="email" name="email" value="${email}" required autocomplete="email" />
+    <button type="submit">Resend verification email</button>
+  </form>`;
+  return renderVerifyResultPage({
+    title,
+    message,
+    debugLines,
+    extraHtml: resendForm,
+  });
+}
+
+function renderVerifyConfirmInterstitialPage({ token, redirectUri }) {
+  const safeToken = escapeHtml(token);
+  const safeRedirect = escapeHtml(safeVerifyRedirectUri(redirectUri));
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Confirm your email</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px 18px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { margin: 0 0 16px; color: #374151; line-height: 1.45; }
+    button { padding: 10px 14px; border-radius: 10px; background: #111; color: #fff; border: 0; cursor: pointer; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Confirm your email</h1>
+    <p>Click the button below to verify your Cardbey account. This step protects your account from automated link scanners.</p>
+    <form method="POST" action="${escapeHtml(VERIFICATION_CONFIRM_PATH)}">
+      <input type="hidden" name="token" value="${safeToken}" />
+      <input type="hidden" name="redirect_uri" value="${safeRedirect}" />
+      <button type="submit">Verify email</button>
+    </form>
+  </div>
+</body>
+</html>`;
+}
+
+function verifyFailureReasonParam(code) {
+  if (code === 'TOKEN_EXPIRED') return 'token_expired';
+  if (code === 'TOKEN_ALREADY_USED') return 'token_used';
+  return 'token_invalid';
+}
+
+function buildVerifyFailureRedirectUrl(code, redirectUri) {
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
+  if (!webBase) return null;
+  const safeRedirect = safeVerifyRedirectUri(redirectUri);
+  const basePath = safeRedirect.split('?')[0] || '/app';
+  const reason = verifyFailureReasonParam(code);
+  const params = new URLSearchParams({ verified: '0', reason });
+  return `${webBase}${basePath}?${params.toString()}`;
+}
+
+function logVerifyConfirmAttempt(req, { token, redirect_uri, state }) {
+  const fields = verificationConfirmLogFields(token);
+  const recordFound = Boolean(state?.user);
+  const expired = state?.status === 'EXPIRED';
+  const alreadyVerified = state?.status === 'ALREADY_VERIFIED';
+  const pending = state?.status === 'PENDING';
+  console.log('[Auth] verify/confirm attempt', {
+    method: req.method,
+    ...fields,
+    recordFound,
+    expired,
+    consumed: alreadyVerified,
+    alreadyVerified,
+    pending,
+    invalid: state?.status === 'INVALID' || state?.status === 'MISSING',
+    userId: state?.user?.id ?? null,
+    email: state?.user?.email ? `${String(state.user.email).slice(0, 3)}***` : null,
+    redirect_uri: safeVerifyRedirectUri(redirect_uri),
+  });
+}
+
+function respondVerifyError(req, res, { code, error, message, emailPrefill = '', redirect_uri }) {
+  if (wantsVerifyJsonOnly(req)) {
+    return res.status(400).json({ ok: false, code, error, message });
+  }
+
+  const failureRedirect = buildVerifyFailureRedirectUrl(code, redirect_uri);
+  if (failureRedirect) {
+    return res.redirect(302, failureRedirect);
+  }
+
+  if (wantsVerifyBrowserResponse(req)) {
     const debugLines = verifyDebugEnabled()
       ? [
           `env=${process.env.NODE_ENV}`,
@@ -1060,10 +1212,10 @@ function respondVerifyError(req, res, { code, error, message }) {
       : [];
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(400).send(
-      renderVerifyResultPage({
+      renderVerifyFailurePage({
         title: code === 'TOKEN_EXPIRED' ? 'Verification link expired' : 'Verification link invalid',
         message,
-        retryUrl,
+        emailPrefill,
         debugLines,
       }),
     );
@@ -1239,28 +1391,42 @@ async function handleRequestVerification(req, res, next) {
     const hasValidToken = dbUser?.verificationToken != null &&
       dbUser?.verificationExpires != null &&
       new Date(dbUser.verificationExpires) > new Date();
+    const canReuseRaw =
+      hasValidToken &&
+      typeof dbUser?.verificationTokenRaw === 'string' &&
+      dbUser.verificationTokenRaw.length > 0;
 
-    const rawToken = generateVerificationRawToken();
-    const hashedToken = hashVerificationToken(rawToken);
-    const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
+    let rawToken;
+    let rotated = false;
+    let expiresAt;
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        verificationToken: hashedToken,
-        verificationTokenRaw: rawToken,
-        verificationExpires: expiresAt
-      }
-    });
+    if (canReuseRaw) {
+      rawToken = dbUser.verificationTokenRaw;
+      expiresAt = new Date(dbUser.verificationExpires);
+    } else {
+      rawToken = generateVerificationRawToken();
+      const hashedToken = hashVerificationToken(rawToken);
+      expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
+      rotated = true;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          verificationToken: hashedToken,
+          verificationTokenRaw: rawToken,
+          verificationExpires: expiresAt,
+        },
+      });
+    }
 
     console.log('[Auth] verify/request token created', {
       userId: user.id,
-      rotated: !!hasValidToken,
+      rotated,
+      reusedToken: !rotated,
       expiresAt: expiresAt.toISOString(),
       ...(verifyDebugEnabled()
         ? {
             tokenLen: String(rawToken).length,
-            hashPrefix: String(hashedToken).slice(0, 10),
+            hashPrefix: hashVerificationToken(rawToken).slice(0, 10),
             apiBase: getVerificationLinkBaseUrl().base,
           }
         : {}),
@@ -1286,7 +1452,10 @@ async function handleRequestVerification(req, res, next) {
 
     res.json({
       ok: true,
-      ...(process.env.NODE_ENV !== 'production' && { token: rawToken })
+      reusedToken: !rotated,
+      alreadySent: !rotated,
+      resent: true,
+      ...(process.env.NODE_ENV !== 'production' && { token: rawToken }),
     });
   } catch (error) {
     console.error('[Auth] Request verification error:', error?.message ?? error);
@@ -1336,134 +1505,257 @@ async function findUserByVerificationToken(token) {
 }
 
 /**
- * GET /api/auth/verify/confirm?token=...
- * Validate token, atomically consume (set emailVerified, clear token), then redirect or return JSON.
- * Stable codes: TOKEN_INVALID, TOKEN_EXPIRED, TOKEN_ALREADY_USED.
+ * Resolve verification token state without consuming (GET landing / pre-check).
+ * @returns {Promise<{ status: string, user?: object, hashed?: string, token?: string }>}
  */
-router.get('/verify/confirm', async (req, res, next) => {
-  try {
-    const { token, redirect_uri } = req.query;
+async function resolveVerificationFromToken(token) {
+  const trimmed = normalizeVerificationToken(token);
+  if (!trimmed) return { status: 'MISSING' };
 
-    if (!token || typeof token !== 'string') {
+  const hashed = hashVerificationToken(trimmed);
+  let user = await findUserByVerificationTokenHash(hashed);
+  if (!user && process.env.NODE_ENV !== 'production') {
+    user = await prisma.user.findFirst({ where: { verificationToken: trimmed } });
+    if (user && verifyDebugEnabled()) {
+      console.warn('[Auth] verify non-prod accepted stored token from link', {
+        userId: user.id,
+        tokenLen: trimmed.length,
+      });
+    }
+  }
+  if (!user) return { status: 'INVALID', hashed };
+
+  if (user.emailVerified) return { status: 'ALREADY_VERIFIED', user, hashed, token: trimmed };
+
+  const now = new Date();
+  if (user.verificationExpires == null || new Date(user.verificationExpires) <= now) {
+    return { status: 'EXPIRED', user, hashed, token: trimmed };
+  }
+
+  return { status: 'PENDING', user, hashed, token: trimmed };
+}
+
+function parseVerifyRequestFields(req) {
+  const rawToken = req.body?.token ?? req.query?.token;
+  const redirect_uri = req.body?.redirect_uri ?? req.query?.redirect_uri;
+  const token = normalizeVerificationToken(rawToken);
+  return {
+    token,
+    redirect_uri: typeof redirect_uri === 'string' ? redirect_uri : undefined,
+  };
+}
+
+/**
+ * Atomically consume a pending verification token (POST only).
+ */
+async function consumeEmailVerification({ user, hashed, now = new Date() }) {
+  const result = await prisma.user.updateMany({
+    where: {
+      id: user.id,
+      verificationToken: hashed,
+      verificationExpires: { gt: now },
+      emailVerified: false,
+    },
+    data: {
+      emailVerified: true,
+      verificationTokenRaw: null,
+      verificationExpires: null,
+    },
+  });
+
+  if (result.count > 0) return { ok: true, consumed: true };
+
+  const fresh = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { emailVerified: true },
+  });
+  if (fresh?.emailVerified) return { ok: true, consumed: false, alreadyVerified: true };
+
+  return { ok: false, code: 'TOKEN_ALREADY_USED' };
+}
+
+/**
+ * POST /api/auth/verify/confirm — single-use consumption (form POST from email landing page).
+ */
+async function handleVerifyConfirmPost(req, res, next) {
+  try {
+    const { token, redirect_uri } = parseVerifyRequestFields(req);
+    const safeRedirect = safeVerifyRedirectUri(redirect_uri);
+
+    if (!token) {
       return respondVerifyError(req, res, {
         code: 'TOKEN_INVALID',
         error: 'Token required',
         message: 'Verification token is required',
+        redirect_uri,
       });
     }
 
-    const hashed = hashVerificationToken(token);
-    const now = new Date();
-    if (verifyDebugEnabled()) {
-      console.log('[Auth] verify/confirm received', {
-        env: process.env.NODE_ENV,
-        host: req.get?.('host') || null,
-        tokenLen: String(token).length,
-        hashPrefix: String(hashed).slice(0, 10),
-        now: now.toISOString(),
-        apiBase: getVerificationLinkBaseUrl().base,
-      });
-    }
-    let user = await findUserByVerificationTokenHash(hashed);
-    // Non-production fallback: if an upstream sender mistakenly used the stored hash in the link,
-    // accept it by matching token directly against verificationToken.
-    if (!user && process.env.NODE_ENV !== 'production') {
-      user = await prisma.user.findFirst({ where: { verificationToken: String(token) } });
-      if (user && verifyDebugEnabled()) {
-        console.warn('[Auth] verify/confirm non-prod accepted hashed token from link', {
-          userId: user.id,
-          tokenLen: String(token).length,
-          tokenLooksSha256Hex: /^[a-f0-9]{64}$/i.test(String(token)),
-        });
-      }
-    }
-    if (!user) {
-      console.log('[Auth] verify/confirm invalid', {
-        reason: 'no_user_for_hash',
-        ...(verifyDebugEnabled()
-          ? {
-              tokenLen: String(token).length,
-              hashPrefix: String(hashed).slice(0, 10),
-              host: req.get?.('host') || null,
-              apiBase: getVerificationLinkBaseUrl().base,
-            }
-          : {}),
-      });
+    const state = await resolveVerificationFromToken(token);
+    logVerifyConfirmAttempt(req, { token, redirect_uri, state });
+    if (state.status === 'INVALID') {
       return respondVerifyError(req, res, {
         code: 'TOKEN_INVALID',
         error: 'Invalid token',
         message: 'This verification token is invalid. Please request a new one.',
+        redirect_uri,
       });
     }
-    // Same link again after success (hash kept for idempotency). Avoid TOKEN_INVALID when token was cleared in older deployments.
-    if (user.emailVerified) {
-      console.log('[Auth] verify/confirm idempotent (already verified)', { userId: user.id });
-      return respondAfterEmailVerified(res, redirect_uri);
-    }
-    if (user.verificationExpires == null || new Date(user.verificationExpires) <= now) {
-      console.log('[Auth] verify/confirm expired', { userId: user.id });
+    if (state.status === 'EXPIRED') {
       return respondVerifyError(req, res, {
         code: 'TOKEN_EXPIRED',
         error: 'Token expired',
         message: 'This verification token has expired. Please request a new one.',
+        emailPrefill: state.user?.email || '',
+        redirect_uri,
       });
     }
+    if (state.status === 'ALREADY_VERIFIED') {
+      return respondAfterEmailVerified(res, safeRedirect, req);
+    }
 
-    const result = await prisma.user.updateMany({
-      where: {
-        id: user.id,
-        verificationToken: hashed,
-        verificationExpires: { gt: now },
-        emailVerified: false,
-      },
-      data: {
-        emailVerified: true,
-        // Keep hash so repeat clicks / scanners do not yield TOKEN_INVALID; raw + expiry cleared.
-        verificationTokenRaw: null,
-        verificationExpires: null,
-      },
+    const consume = await consumeEmailVerification({
+      user: state.user,
+      hashed: state.hashed,
     });
 
-    if (result.count === 0) {
-      const fresh = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { emailVerified: true },
-      });
-      if (fresh?.emailVerified) {
-        console.log('[Auth] verify/confirm idempotent (already verified, e.g. race)', { userId: user.id });
-        return respondAfterEmailVerified(res, redirect_uri);
-      }
-      console.log('[Auth] verify/confirm already used (race)', { userId: user.id });
-      return res.status(400).json({
-        ok: false,
-        code: 'TOKEN_ALREADY_USED',
+    if (consume.ok && consume.alreadyVerified) {
+      return respondAfterEmailVerified(res, safeRedirect, req);
+    }
+    if (!consume.ok) {
+      return respondVerifyError(req, res, {
+        code: consume.code || 'TOKEN_ALREADY_USED',
         error: 'Email already verified',
-        message: 'This email is already verified.'
+        message: 'This email is already verified.',
+        emailPrefill: state.user?.email || '',
+        redirect_uri,
       });
     }
 
-    const webBase = resolvePublicWebBaseForBrowserRedirect();
-    console.log('[Auth] verify/confirm success', {
-      userId: user.id,
-      email: user.email ? `${String(user.email).slice(0, 3)}***` : null,
-      redirect_uri: typeof redirect_uri === 'string' ? redirect_uri : null,
-      postVerifyRedirect:
-        webBase && typeof redirect_uri === 'string' && redirect_uri.startsWith('/')
-          ? `${webBase}${redirect_uri}`
-          : null,
-      ...verificationTokenLogFields(token),
-    });
+    try {
+      const { completePendingGhostClaimsForUser } = await import('../lib/ghostStore/ghostStoreService.js');
+      await completePendingGhostClaimsForUser(state.user.id);
+    } catch (ghostErr) {
+      console.warn('[Auth] ghost claim transfer after verify (non-fatal):', ghostErr?.message ?? ghostErr);
+    }
 
-    return respondAfterEmailVerified(res, redirect_uri);
+    return respondAfterEmailVerified(res, safeRedirect, req);
   } catch (error) {
-    console.error('[Auth] Verify confirm error:', error?.message ?? error);
+    console.error('[Auth] Verify confirm POST error:', error?.message ?? error);
+    next(error);
+  }
+}
+
+/**
+ * GET /api/auth/verify/confirm?token=...
+ * Scanner-safe landing page — does NOT consume the token. User confirms via POST.
+ */
+router.get('/verify/confirm', async (req, res, next) => {
+  try {
+    const { token, redirect_uri } = parseVerifyRequestFields(req);
+    const safeRedirect = safeVerifyRedirectUri(redirect_uri);
+
+    if (!token) {
+      return respondVerifyError(req, res, {
+        code: 'TOKEN_INVALID',
+        error: 'Token required',
+        message: 'Verification token is required',
+        redirect_uri,
+      });
+    }
+
+    const state = await resolveVerificationFromToken(token);
+    logVerifyConfirmAttempt(req, { token, redirect_uri, state });
+    if (state.status === 'INVALID') {
+      return respondVerifyError(req, res, {
+        code: 'TOKEN_INVALID',
+        error: 'Invalid token',
+        message: 'This verification token is invalid. Please request a new one.',
+        redirect_uri,
+      });
+    }
+    if (state.status === 'ALREADY_VERIFIED') {
+      return respondAfterEmailVerified(res, safeRedirect, req);
+    }
+    if (state.status === 'EXPIRED') {
+      return respondVerifyError(req, res, {
+        code: 'TOKEN_EXPIRED',
+        error: 'Token expired',
+        message: 'This verification token has expired. Please request a new one.',
+        emailPrefill: state.user?.email || '',
+        redirect_uri,
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(
+      renderVerifyConfirmInterstitialPage({ token, redirectUri: safeRedirect }),
+    );
+  } catch (error) {
+    console.error('[Auth] Verify confirm GET error:', error?.message ?? error);
+    next(error);
+  }
+});
+
+router.post('/verify/confirm', handleVerifyConfirmPost);
+
+/**
+ * POST /api/auth/verify/resend — rate-limited, invalidates prior token, generic response (no enumeration).
+ */
+router.post('/verify/resend', verificationResendLimiter, async (req, res, next) => {
+  try {
+    const emailRaw = req.body?.email;
+    const normalizedEmail =
+      typeof emailRaw === 'string' && emailRaw.trim() ? normalizeIdentifier(emailRaw) : null;
+
+    let user = null;
+    if (req.user?.id && req.user?.role !== 'guest') {
+      user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    } else if (normalizedEmail) {
+      user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    }
+
+    if (user && !user.emailVerified && isVerificationEmailConfigured()) {
+      const rawToken = generateVerificationRawToken();
+      const hashedToken = hashVerificationToken(rawToken);
+      const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          verificationToken: hashedToken,
+          verificationTokenRaw: rawToken,
+          verificationExpires: expiresAt,
+        },
+      });
+      const sendResult = await sendVerificationEmail({
+        to: user.email,
+        rawToken,
+        displayName: user.displayName || user.fullName || undefined,
+      });
+      if (sendResult.sent) {
+        lastVerificationSendByUser.set(user.id, Date.now());
+      }
+    }
+
+    if (wantsVerifyBrowserResponse(req)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(
+        renderVerifyResultPage({
+          title: 'Check your email',
+          message: GENERIC_VERIFY_RESEND_MESSAGE,
+        }),
+      );
+    }
+    return res.json({ ok: true, message: GENERIC_VERIFY_RESEND_MESSAGE });
+  } catch (error) {
+    console.error('[Auth] Verify resend error:', error?.message ?? error);
     next(error);
   }
 });
 
 /**
  * GET /api/auth/verify?token=...
- * Verify email with token (same validation as /verify/confirm; JSON only). Stable codes: TOKEN_INVALID, TOKEN_EXPIRED, TOKEN_ALREADY_USED.
+ * JSON API — delegates consumption to POST /verify/confirm.
  */
 router.get('/verify', async (req, res, next) => {
   try {
@@ -1474,67 +1766,37 @@ router.get('/verify', async (req, res, next) => {
         ok: false,
         code: 'TOKEN_INVALID',
         error: 'Token required',
-        message: 'Verification token is required'
+        message: 'Verification token is required',
       });
     }
 
-    const hashed = hashVerificationToken(token);
-    const now = new Date();
-    const user = await findUserByVerificationTokenHash(hashed);
-    if (!user) {
+    const state = await resolveVerificationFromToken(token);
+    if (state.status === 'INVALID') {
       return res.status(400).json({
         ok: false,
         code: 'TOKEN_INVALID',
         error: 'Invalid token',
-        message: 'This verification token is invalid. Please request a new one.'
+        message: 'This verification token is invalid. Please request a new one.',
       });
     }
-    if (user.emailVerified) {
-      console.log('[Auth] verify idempotent (already verified)', { userId: user.id, email: user.email });
+    if (state.status === 'ALREADY_VERIFIED') {
       return res.json({ ok: true, message: 'Email verified successfully' });
     }
-    if (user.verificationExpires == null || new Date(user.verificationExpires) <= now) {
+    if (state.status === 'EXPIRED') {
       return res.status(400).json({
         ok: false,
         code: 'TOKEN_EXPIRED',
         error: 'Token expired',
-        message: 'This verification token has expired. Please request a new one.'
+        message: 'This verification token has expired. Please request a new one.',
       });
     }
 
-    const result = await prisma.user.updateMany({
-      where: {
-        id: user.id,
-        verificationToken: hashed,
-        verificationExpires: { gt: now },
-        emailVerified: false,
-      },
-      data: {
-        emailVerified: true,
-        verificationTokenRaw: null,
-        verificationExpires: null,
-      },
+    return res.status(400).json({
+      ok: false,
+      code: 'CONFIRMATION_REQUIRED',
+      error: 'Confirmation required',
+      message: 'POST /api/auth/verify/confirm to complete email verification.',
     });
-    if (result.count === 0) {
-      const fresh = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { emailVerified: true },
-      });
-      if (fresh?.emailVerified) {
-        console.log('[Auth] Email verified (idempotent, e.g. race)', { userId: user.id, email: user.email });
-        return res.json({ ok: true, message: 'Email verified successfully' });
-      }
-      return res.status(400).json({
-        ok: false,
-        code: 'TOKEN_ALREADY_USED',
-        error: 'Email already verified',
-        message: 'This email is already verified.'
-      });
-    }
-
-    console.log('[Auth] Email verified', { userId: user.id, email: user.email });
-
-    res.json({ ok: true, message: 'Email verified successfully' });
   } catch (error) {
     console.error('[Auth] Verify error:', error);
     next(error);

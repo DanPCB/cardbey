@@ -1,18 +1,20 @@
 /**
  * Phase 2.3-F — FIFO authority write lane (SQLite critical writes).
- *
- * Serializes critical Prisma writes when PERFORMER_SQLITE_RUNTIME_WRITE_SERIALIZATION
- * (or SQLITE_RUNTIME_WRITE_SERIALIZATION_ENABLED) is ON. Non-critical fire-and-forget
- * writes should use sqliteWriteQueue.js instead.
  */
 
 import { isPerformerSqliteRuntimeWriteSerializationEnabled } from './broker/brokerFlags.js';
+import {
+  emitSqliteCriticalWriteCompleted,
+  emitSqliteCriticalWriteStarted,
+  emitSqliteWriteWait,
+} from './sqliteWriteObservability.js';
 
 /** @type {Promise<void>} */
 let tail = Promise.resolve();
 
-/** True while any authority-lane write is in flight (defers best-effort queue drain). */
 let authorityInFlight = false;
+/** Writes waiting on tail (includes the one about to run). */
+let queuedDepth = 0;
 
 /** @returns {boolean} */
 export function isSqliteAuthorityWriteInFlight() {
@@ -21,25 +23,48 @@ export function isSqliteAuthorityWriteInFlight() {
 
 /**
  * @param {() => Promise<T>} fn
- * @param {string} [_label]
+ * @param {string} [label]
+ * @param {{ missionId?: string | null }} [trace]
  * @returns {Promise<T>}
  * @template T
  */
-export function runSqliteAuthorityWrite(fn, _label = 'authority') {
+export function runSqliteAuthorityWrite(fn, label = 'authority', trace = {}) {
   if (!isPerformerSqliteRuntimeWriteSerializationEnabled()) {
     return fn();
   }
-  // Nested authority write (e.g. mission create → safePipelineUpdate): run inline to avoid
-  // FIFO deadlock where the outer task waits on tail while tail waits on the outer task.
   if (authorityInFlight) {
+    emitSqliteWriteWait({
+      operation: label,
+      missionId: trace.missionId ?? null,
+      reason: 'nested_inline',
+    });
     return fn();
   }
+
+  queuedDepth += 1;
+  if (queuedDepth > 1) {
+    emitSqliteWriteWait({
+      operation: label,
+      missionId: trace.missionId ?? null,
+      reason: 'queued',
+      queueDepth: queuedDepth,
+    });
+  }
+
   const run = tail.then(async () => {
+    queuedDepth = Math.max(0, queuedDepth - 1);
+    const startedAt = Date.now();
+    emitSqliteCriticalWriteStarted({ operation: label, missionId: trace.missionId ?? null });
     authorityInFlight = true;
     try {
       return await fn();
     } finally {
       authorityInFlight = false;
+      emitSqliteCriticalWriteCompleted({
+        operation: label,
+        missionId: trace.missionId ?? null,
+        ms: Date.now() - startedAt,
+      });
     }
   });
   tail = run.then(
@@ -53,4 +78,5 @@ export function runSqliteAuthorityWrite(fn, _label = 'authority') {
 export function resetSqliteWriteLaneForTests() {
   tail = Promise.resolve();
   authorityInFlight = false;
+  queuedDepth = 0;
 }

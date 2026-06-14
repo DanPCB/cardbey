@@ -4,8 +4,10 @@
 
 import {
   isPhaseFBlockDraftStoreRunwayEnabled,
+  isPhaseFBlockIntakeV1DirectDispatchEnabled,
   isPhaseFBlockMcpDirectDispatchEnabled,
   isPhaseFBlockProactiveStepLegacyEnabled,
+  isPhaseFRouteIntakeV1ViaFacadeEnabled,
   isPhaseFRouteMcpViaFacadeEnabled,
 } from './phaseFBypassFlags.js';
 import { guardBrokerOrchestraStart } from './brokerRunwayGuard.js';
@@ -95,6 +97,38 @@ export function guardPhaseFProactiveStepLegacy() {
     message:
       'Legacy proactive-step execution is disabled. Enable ENABLE_RUNTIME_STEP_EXECUTION or unset PHASE_F_BLOCK_PROACTIVE_STEP_LEGACY.',
   };
+}
+
+/**
+ * Intake V1 legacy tool dispatch — route via facade or block direct dispatchTool.
+ * @param {{ missionId?: string|null; userId?: string|null; toolName?: string|null }} input
+ */
+export function guardPhaseFIntakeV1Dispatch(input) {
+  const missionId =
+    typeof input?.missionId === 'string' && input.missionId.trim() ? input.missionId.trim() : null;
+
+  recordPhaseFBypass('intake_v1_dispatch', {
+    missionId,
+    toolName: input?.toolName ?? null,
+    userId: input?.userId ?? null,
+  });
+
+  if (isPhaseFRouteIntakeV1ViaFacadeEnabled()) {
+    return { blocked: false, useFacade: true, missionId };
+  }
+
+  if (isPhaseFBlockIntakeV1DirectDispatchEnabled()) {
+    recordPhaseFBypass('intake_v1_dispatch_blocked', { missionId });
+    return {
+      blocked: true,
+      useFacade: false,
+      code: 'PHASE_F_INTAKE_V1_DIRECT_DISPATCH_BLOCKED',
+      message:
+        'Intake V1 direct tool dispatch is disabled. Use Intake V2 or enable PHASE_F_ROUTE_INTAKE_V1_VIA_FACADE.',
+    };
+  }
+
+  return { blocked: false, useFacade: false, missionId };
 }
 
 /**

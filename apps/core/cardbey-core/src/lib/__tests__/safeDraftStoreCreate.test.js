@@ -29,6 +29,20 @@ describe('safeDraftStoreCreate', () => {
     }
   });
 
+  it('retries SQLITE_BUSY up to 3 attempts then succeeds', async () => {
+    const busy = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(busy)
+      .mockResolvedValueOnce({ id: 'draft-busy', ownerUserId: null, input: {} });
+
+    const prismaClient = { draftStore: { create } };
+    const draft = await safeDraftStoreCreate(prismaClient, { data: { mode: 'ai' } });
+
+    expect(draft.id).toBe('draft-busy');
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
   it('retries P1008 up to 3 attempts then succeeds', async () => {
     const p1008 = Object.assign(new Error('Socket timeout'), { code: 'P1008' });
     const create = vi

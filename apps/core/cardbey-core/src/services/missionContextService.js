@@ -8,6 +8,7 @@ import { buildHypothesis } from './hypothesisEngine.js';
 import { scoreAlignment } from './snapshotAlignmentScorer.js';
 import { analyzeMissionOutcome } from './outcomeAnalyzer.js';
 import { writeFeedbackVectors } from './ragFeedbackWriter.js';
+import { INVALIDATION_TRIGGERS } from './memory/memoryCache.js';
 
 function parseContextJson(str) {
   try {
@@ -107,6 +108,8 @@ export async function closeMissionContext(missionId, outcome) {
     where: { missionId },
     data: { outcomeJson: JSON.stringify(o) },
   });
+
+  INVALIDATION_TRIGGERS.MISSION_COMPLETE(missionId);
 
   // Fire-and-forget RAG feedback write
   analyzeMissionOutcome(missionId)

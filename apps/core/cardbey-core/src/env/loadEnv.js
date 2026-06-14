@@ -64,6 +64,15 @@ try {
     }
     process.env.PRISMA_CLIENT_ENGINE_TYPE = 'binary';
     delete process.env.PRISMA_GENERATE_DATAPROXY;
+    if (
+      !isVitestRun() &&
+      process.env.NODE_ENV !== 'production' &&
+      process.env.PERFORMER_SQLITE_RUNTIME_WRITE_SERIALIZATION == null &&
+      process.env.SQLITE_RUNTIME_WRITE_SERIALIZATION_ENABLED == null
+    ) {
+      process.env.PERFORMER_SQLITE_RUNTIME_WRITE_SERIALIZATION = 'true';
+      console.log('[env] enabled PERFORMER_SQLITE_RUNTIME_WRITE_SERIALIZATION for local SQLite dev');
+    }
   }
 } catch {
   console.log('[env] dotenv not installed, skipping .env load');

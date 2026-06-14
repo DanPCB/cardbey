@@ -132,6 +132,7 @@ import insightsRoutes from './routes/insights.js';
 import insightsFeedRoutes from './routes/insights.js';
 import journeysRoutes from './routes/journeys.routes.js';
 import { runwayLegacyGuard } from './middleware/runwayLegacyGuard.js';
+import { intentRoutingStack } from './middleware/intentRoutingMiddleware.js';
 import authRoutes, { patchCurrentUserProfile } from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
@@ -149,6 +150,7 @@ import passiveGenerationRoutes from './routes/passiveGenerationRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
+import publicContentInteractionRoutes from './routes/publicContentInteractionRoutes.js';
 import publicStoreRoutes from './routes/publicStoreRoutes.js';
 import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
@@ -171,7 +173,9 @@ import watcherRoutes from './routes/watcher.js';
 import pilRoutes from './routes/pilRoutes.js';
 import businessMemoryRoutes from './routes/businessMemoryRoutes.js';
 import intelligenceRoutes from './routes/intelligenceRoutes.js';
+import memoryRoutes from './routes/memoryRoutes.js';
 import userMemoryRoutes from './routes/userMemoryRoutes.js';
+import betaRoutes from './routes/betaRoutes.js';
 import promoEngineRoutes from './routes/promoEngine.js';
 import signageEngineRoutes from './routes/signageEngine.js';
 import signageRoutes from './routes/signageRoutes.js';
@@ -219,6 +223,11 @@ import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
+import visionIntakeRoutes from './routes/visionIntake.js';
+import ghostStoreRoutes, {
+  ghostClaimRouter,
+  adminGhostRouter,
+} from './routes/ghostStoreRoutes.js';
 import performerProactiveStepRoutes from './routes/performerProactiveStepRoutes.js';
 import runtimeMissionStepRoutes from './routes/runtimeMissionStepRoutes.js';
 import runtimeMissionOrchestratorRoutes from './routes/runtimeMissionOrchestratorRoutes.js';
@@ -622,6 +631,9 @@ app.use((req, res, next) => {
 // Legacy runway usage warnings (non-blocking). See docs/RUNWAY_OWNERSHIP.md
 app.use(runwayLegacyGuard);
 
+// Intent routing classification (metadata only — does not intercept route handlers)
+app.use(intentRoutingStack);
+
 // Example: Broadcast log message (can be called from anywhere in the app)
 // This demonstrates how to use the WebSocket broadcast functionality
 // Example usage:
@@ -636,26 +648,58 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 // OPTIONS for /uploads is handled in the global CORS middleware (before app.options('*')) so Range is allowed
 
 // Explicit video route (narrow) BEFORE express.static to ensure correct Range semantics in all browsers.
-app.all(['/uploads/media/:filename', '/uploads/media/:filename/*'], (req, res) => {
+app.all(['/uploads/media/:filename', '/uploads/media/:filename/*'], (req, res, next) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return res.status(405).end();
   }
   try {
-    const filenameRaw = String(req.params.filename || '');
-    const filename = path.basename(filenameRaw);
     const mediaDir = path.join(uploadsDir, 'media');
-    const filePath = path.join(mediaDir, filename);
-
-    const exists = fs.existsSync(filePath);
-    let size = null;
-    try {
-      if (exists) size = fs.statSync(filePath).size;
-    } catch {
-      size = null;
+    const relative = String(req.path || '')
+      .replace(/^\/uploads\/media\/?/, '')
+      .split('?')[0];
+    const segments = relative
+      .split('/')
+      .filter(Boolean)
+      .map((segment) => path.basename(segment));
+    if (!segments.length) {
+      return next();
+    }
+    const filePath = path.join(mediaDir, ...segments);
+    const normalizedMediaDir = path.normalize(mediaDir + path.sep);
+    const normalizedFilePath = path.normalize(filePath);
+    if (
+      normalizedFilePath !== path.normalize(mediaDir) &&
+      !normalizedFilePath.startsWith(normalizedMediaDir)
+    ) {
+      return res.status(403).end();
     }
 
+    const exists = fs.existsSync(filePath);
+    let stat = null;
+    try {
+      if (exists) stat = fs.statSync(filePath);
+    } catch {
+      stat = null;
+    }
+    const size = stat?.isFile() ? stat.size : null;
+
     const range = req.headers.range ? String(req.headers.range) : null;
-    console.log('[media-video] request', { file: filename, exists, size, range });
+    console.log('[media-video] request', {
+      file: segments.join('/'),
+      exists,
+      size,
+      range,
+    });
+
+    if (!exists || !stat?.isFile() || !size) {
+      console.log('[media-video] response', {
+        status: 404,
+        contentType: 'video/mp4',
+        contentRange: null,
+        contentLength: null,
+      });
+      return next();
+    }
 
     // Always set the required CORS + Range headers for <video>.
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -663,18 +707,8 @@ app.all(['/uploads/media/:filename', '/uploads/media/:filename/*'], (req, res) =
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     res.setHeader('Accept-Ranges', 'bytes');
 
-    const contentTypeInfo = resolveUploadContentType(filePath, `/uploads/media/${filename}`);
+    const contentTypeInfo = resolveUploadContentType(filePath, req.path);
     res.setHeader('Content-Type', contentTypeInfo?.type || 'video/mp4');
-
-    if (!exists || !size) {
-      console.log('[media-video] response', {
-        status: 404,
-        contentType: res.getHeader('Content-Type') ?? null,
-        contentRange: null,
-        contentLength: null,
-      });
-      return res.status(404).end();
-    }
 
     if (req.method === 'HEAD') {
       res.setHeader('Content-Length', String(size));
@@ -723,7 +757,7 @@ app.all(['/uploads/media/:filename', '/uploads/media/:filename/*'], (req, res) =
     return fs.createReadStream(filePath).pipe(res);
   } catch (e) {
     console.warn('[media-video] handler failed', e?.message || e);
-    return res.status(500).end();
+    return next();
   }
 });
 
@@ -846,7 +880,11 @@ app.use('/api/tools', toolsRoutes);
 app.use('/api/missions', missionsRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
 app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
+app.use('/api/vision', visionIntakeRoutes);
+app.use('/api/ghost-stores', ghostStoreRoutes);
+app.use('/api/stores', ghostClaimRouter);
 app.use('/api', userMemoryRoutes);
+app.use('/api', betaRoutes);
 app.use('/api/performer/proactive-step', performerProactiveStepRoutes);
 app.use('/api/runtime/missions', runtimeMissionStepRoutes);
 app.use('/api/runtime/missions', runtimeMissionOrchestratorRoutes);
@@ -888,6 +926,9 @@ app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/e
 app.use('/api/pil', pilRoutes); // PIL intelligence events: POST /api/pil/events, /api/pil/events/batch
 app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observation → outcome memory
 app.use('/api/intelligence', intelligenceRoutes); // Foundation: /health, /memory, /express, /metrics (requires jsonParser above)
+if (process.env.USE_UNIFIED_MEMORY !== 'false') {
+  app.use('/api/memory', memoryRoutes); // Unified memory facade: /bundle, /invalidate
+}
 app.use('/api/conversations', conversationRoutes); // Phase 0 — continuous Performer conversation sessions
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
@@ -915,6 +956,7 @@ app.use('/api/menu', menuRoutes); // Menu engine routes: /api/menu/configure-fro
 app.use('/api/catalog', catalogRoutes); // Catalog SAM-3 processing routes: /api/catalog/process, /api/catalog/reprocess-all
 app.use('/api/public/store', publicStoreRoutes); // Draft alias: GET /api/public/store/:storeId/draft (before /api/public)
 app.use('/api/public/stores', intentFeedRoutes); // Intent feed: GET /api/public/stores/:storeId/intent-feed (no auth)
+app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
@@ -1006,6 +1048,7 @@ console.log('[CORE] Assistant routes mounted at /api/assistant');
 
 // Admin routes (requireAuth + requireAdmin applied in admin.js)
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin', adminGhostRouter);
 app.use('/api/admin', adminMetricsRoutes);
 app.use('/api/admin', adminPipelineRoutes);
 app.use('/api/admin', adminEventsRoutes);

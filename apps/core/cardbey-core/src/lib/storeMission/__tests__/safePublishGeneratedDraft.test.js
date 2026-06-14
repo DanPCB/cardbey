@@ -63,6 +63,30 @@ describe('safePublishGeneratedDraft', () => {
     });
   });
 
+  it('rejects publish when categories contain placeholder cat_N labels', async () => {
+    prisma.draftStore.findUnique.mockResolvedValue({
+      id: 'draft-cat',
+      status: 'ready',
+      preview: {
+        storeName: 'Nails',
+        categories: [{ id: 'cat_0', name: 'cat_0' }],
+        items: [{ id: '1', name: 'Mani' }],
+      },
+      ownerUserId: 'user-1',
+    });
+
+    const result = await safePublishGeneratedDraft({
+      prisma,
+      draftId: 'draft-cat',
+      userId: 'user-1',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.retryable).toBe(true);
+    expect(result.error).toMatch(/invalid category labels/i);
+    expect(commitDraftMock).not.toHaveBeenCalled();
+  });
+
   it('returns ok:false retryable:true when commitDraft throws and keeps draftId', async () => {
     prisma.draftStore.findUnique.mockResolvedValue({
       id: 'draft-2',

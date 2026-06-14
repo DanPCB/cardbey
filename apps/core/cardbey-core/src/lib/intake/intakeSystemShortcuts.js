@@ -8,6 +8,7 @@
  */
 
 import { classifyStoreWebsiteCreateIntent } from './storeWebsiteRunwayClassifier.js';
+import { validateStoreCreationFields } from './intakeErrorTypes.js';
 
 const STORE_CREATE_PRIMARY_MODES = new Set(['create', 'website', 'store_setup']);
 
@@ -29,41 +30,13 @@ function resolvePrimaryMode(input) {
  * @returns {Array<{ field: string; message: string }>}
  */
 export function validateCreateStorePayload(payload = {}) {
-  const errors = [];
-  const envelope = payload?.storeCreateForm;
-  let name =
-    envelope && typeof envelope === 'object' && !Array.isArray(envelope)
-      ? /** @type {Record<string, unknown>} */ (envelope).storeName ??
-        /** @type {Record<string, unknown>} */ (envelope).businessName
-      : payload?.storeName ?? payload?.businessName;
-  name = name != null ? String(name).trim() : '';
-  let location =
-    envelope && typeof envelope === 'object' && !Array.isArray(envelope)
-      ? /** @type {Record<string, unknown>} */ (envelope).location
-      : payload?.location;
-  location = location != null ? String(location).trim() : '';
-  const categoryRaw =
-    envelope && typeof envelope === 'object' && !Array.isArray(envelope)
-      ? /** @type {Record<string, unknown>} */ (envelope).category ??
-        /** @type {Record<string, unknown>} */ (envelope).storeType ??
-        /** @type {Record<string, unknown>} */ (envelope).businessType
-      : payload?.category ?? payload?.storeType ?? payload?.businessType;
-  const category = categoryRaw != null ? String(categoryRaw).trim() : '';
-
-  if (!name || name.length < 2) {
-    errors.push({ field: 'storeName', message: 'Store name is required' });
-  }
-  if (!location || location.length < 2) {
-    errors.push({
-      field: 'location',
-      message: 'Please enter a full city or suburb name (e.g. Melbourne)',
-    });
-  }
-  if (!category) {
-    errors.push({ field: 'category', message: 'Please select a category' });
-  }
-
-  return errors;
+  return validateStoreCreationFields(payload).map(({ field, message, code, suggestion, errorAction }) => ({
+    field,
+    message,
+    ...(code ? { code } : {}),
+    ...(suggestion ? { suggestion } : {}),
+    ...(errorAction ? { errorAction } : {}),
+  }));
 }
 
 function storeCreateFormShortcut(form) {

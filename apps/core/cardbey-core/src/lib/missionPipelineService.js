@@ -589,6 +589,39 @@ export async function resumeMissionPipeline(missionId) {
  * @param {string} missionId
  * @returns {Promise<boolean>} true if transition was applied
  */
+/**
+ * Mark inline AUTO_RUN missions failed (create_card / smart_document shortcuts with no pipeline steps).
+ * @param {string} missionId
+ * @param {string} [errorMessage]
+ * @returns {Promise<boolean>}
+ */
+export async function failMissionWhenInlineRunFailed(missionId, errorMessage = '') {
+  const prisma = getPrismaClient();
+  const m = await prisma.missionPipeline.findUnique({
+    where: { id: missionId },
+    select: { status: true, metadataJson: true },
+  });
+  if (!m) return false;
+  let from = String(m.status ?? '');
+  if (from === 'queued') {
+    const moved = await transitionMission(missionId, 'queued', 'executing');
+    if (moved) from = 'executing';
+  }
+  if (from !== 'executing') return false;
+  const updated = await transitionMission(missionId, 'executing', 'failed', { runState: 'done' });
+  if (updated && errorMessage) {
+    const meta =
+      m.metadataJson && typeof m.metadataJson === 'object' && !Array.isArray(m.metadataJson)
+        ? { ...m.metadataJson }
+        : {};
+    meta.lastError = String(errorMessage).slice(0, 500);
+    await prisma.missionPipeline
+      .update({ where: { id: missionId }, data: { metadataJson: meta } })
+      .catch(() => {});
+  }
+  return updated;
+}
+
 export async function completeMissionWhenNoSteps(missionId) {
   const prisma = getPrismaClient();
   const m = await prisma.missionPipeline.findUnique({ where: { id: missionId }, select: { status: true } });

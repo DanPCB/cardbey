@@ -134,6 +134,10 @@ model Business {
   brandTone        String? // e.g. luxury, friendly, minimal, bold
   brandStyle       String? // e.g. modern, vintage, playful
   brandColors      String? // JSON array string e.g. '["pink","gold"]'
+  provenance       String?  @default("owner")
+  claimStatus      String?
+  captureCount     Int      @default(1)
+  capturedByUserId String?
   isGuestDraft  Boolean   @default(false)
   expiresAt     DateTime?
   createdAt    DateTime @default(now())
@@ -297,6 +301,10 @@ model Product {
   cutoutPath    String? // Path to SAM-3 cutout image (e.g., /public/catalog-cutouts/product-id.png)
   isFeatured    Boolean   @default(false) // DANH: schema-gap-product-featured
   featuredAt    DateTime? // DANH: schema-gap-product-featured
+  itemType       String?  // service | product | ticket | event | venue | package
+  bookingEnabled Boolean?
+  purchaseEnabled Boolean?
+  primaryAction  String?  // book | add_to_cart | enquire
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -2485,6 +2493,46 @@ model IntentSignal {
   @@index([type, createdAt])
 }
 
+// Public storefront / feed interaction aggregates (views, loves, claps, etc.).
+model ContentInteractionMetrics {
+  id            String   @id @default(cuid())
+  contentType   String
+  contentId     String
+  storeId       String?
+  artifactId    String?
+  viewsCount    Int      @default(0)
+  lovesCount    Int      @default(0)
+  clapsCount    Int      @default(0)
+  commentsCount Int      @default(0)
+  sharesCount   Int      @default(0)
+  bookingsCount Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  viewerStates ContentInteractionViewerState[]
+
+  @@unique([contentType, contentId])
+  @@index([storeId])
+  @@index([artifactId])
+}
+
+model ContentInteractionViewerState {
+  id        String   @id @default(cuid())
+  metricsId String
+  viewerKey String
+  loved     Boolean  @default(false)
+  clapAdds  Int      @default(0)
+  shared    Boolean  @default(false)
+  viewed    Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  metrics ContentInteractionMetrics @relation(fields: [metricsId], references: [id], onDelete: Cascade)
+
+  @@unique([metricsId, viewerKey])
+  @@index([viewerKey])
+}
+
 // IntentOpportunity v0: derived from IntentSignal; accepted -> IntentRequest (single runway).
 model IntentOpportunity {
   id                    String   @id @default(cuid())
@@ -3394,4 +3442,46 @@ model ConversationPendingAction {
 
   @@index([sessionId, status])
   @@map("conversation_pending_actions")
+}
+
+model GhostStoreClaim {
+  id            String    @id @default(uuid())
+  storeId       String
+  claimantName  String
+  claimantEmail String
+  claimantPhone String?
+  claimantRole  String?
+  message       String?
+  status        String    @default("pending")
+  reviewerNote  String?
+  createdAt     DateTime  @default(now())
+  reviewedAt    DateTime?
+
+  @@index([storeId])
+  @@index([status])
+  @@index([claimantEmail])
+}
+
+model GhostStoreReport {
+  id        String   @id @default(uuid())
+  storeId   String
+  reason    String
+  detail    String?
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+
+  @@index([storeId])
+  @@index([status])
+}
+
+model EnrichedFieldProvenance {
+  id         String   @id @default(uuid())
+  storeId    String
+  fieldPath  String
+  sourceUrl  String
+  confidence Float
+  fetchedAt  DateTime @default(now())
+
+  @@index([storeId])
+  @@index([fieldPath])
 }

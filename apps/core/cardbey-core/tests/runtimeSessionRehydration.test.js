@@ -142,6 +142,36 @@ describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
     expect(session.storeCandidates.length).toBeGreaterThanOrEqual(2);
     expect(session.activeStoreId).toBeNull();
     expect(session.needsStoreFirst).toBe(false);
+    expect(session.runtimeGuidance?.some((g) => g.subtype === 'store_selection')).not.toBe(true);
+    expect(session.runtimeGuidance?.some((g) => g.subtype === 'readiness')).not.toBe(true);
+  });
+
+  it('returns store_selection runtimeGuidance only when an active mission needs a store', async () => {
+    const stores = await prisma.business.createMany({
+      data: [
+        { userId, name: 'Alpha', type: 'retail', slug: `alpha-mission-${Date.now()}`, isActive: true },
+        { userId, name: 'Beta', type: 'retail', slug: `beta-mission-${Date.now()}`, isActive: true },
+      ],
+    });
+    void stores;
+    const mission = await prisma.missionPipeline.create({
+      data: {
+        type: 'launch_campaign',
+        title: 'Pick a store',
+        status: 'executing',
+        runState: 'running',
+        targetType: 'generic',
+        executionMode: 'GUIDED_RUN',
+        createdBy: userId,
+      },
+    });
+    const session = await resolveActiveRuntimeSession({
+      userId,
+      requestedMissionId: mission.id,
+      source: 'test',
+    });
+    expect(session.requiresStoreSelection).toBe(true);
+    expect(session.runtimeGuidance?.some((g) => g.subtype === 'store_selection')).toBe(true);
   });
 
   it('hydrates completed analyze_store step after refresh scenario', async () => {

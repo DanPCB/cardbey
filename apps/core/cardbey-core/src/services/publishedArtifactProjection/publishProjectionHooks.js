@@ -7,6 +7,7 @@ import {
   normalizeMediaUrlField,
   normalizeProjectionHeroForStorage,
 } from '../draftStore/normalizeHeroMediaUrlsForStorage.js';
+import { ensureProjectionHeroPoster } from '../explore/exploreVideoPosterService.js';
 
 /**
  * Build, validate, persist projection and sync indexed Business columns.
@@ -45,6 +46,11 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
     publishRunId,
     source,
   });
+  try {
+    projection = await ensureProjectionHeroPoster(projection);
+  } catch (posterErr) {
+    console.warn('[PUBLISH_PROJECTION_POSTER] generation failed (non-fatal):', posterErr?.message || posterErr);
+  }
   projection = normalizeProjectionHeroForStorage(projection);
 
   const validation = validatePublishedBusinessArtifact(projection);

@@ -4,6 +4,7 @@
  */
 
 import { CATALOG_ITEM_LIMIT, API_PRODUCTS_DEFAULT_LIMIT, API_PRODUCTS_MAX_LIMIT } from '../config/catalogLimits.js';
+import { enrichPublicCatalogItem } from './catalog/catalogItemClassification.js';
 import { getTranslatedField } from '../services/i18n/translationUtils.js';
 import { slugify } from '../utils/slug.js';
 
@@ -74,23 +75,30 @@ export async function buildCategoryWhere(prisma, businessId, categoryId, baseWhe
 
 /**
  * @param {object} product - Prisma product row
- * @param {{ lang?: string }} [options]
+ * @param {{ lang?: string, businessType?: string | null, businessName?: string | null }} [options]
  */
 export function mapProductToListDto(product, options = {}) {
-  const { lang } = options;
+  const { lang, businessType, businessName } = options;
   const category =
     getTranslatedField(product, 'category', lang) ?? product.category ?? null;
-  return {
-    id: product.id,
-    name: getTranslatedField(product, 'name', lang) || product.name,
-    description: getTranslatedField(product, 'description', lang) ?? product.description ?? null,
-    category,
-    categoryId: categoryNameToId(category),
-    price: product.price ?? null,
-    currency: product.currency ?? null,
-    imageUrl: product.imageUrl ?? null,
-    isPublished: product.isPublished === true,
-  };
+  return enrichPublicCatalogItem(
+    {
+      id: product.id,
+      name: getTranslatedField(product, 'name', lang) || product.name,
+      description: getTranslatedField(product, 'description', lang) ?? product.description ?? null,
+      category,
+      categoryId: categoryNameToId(category),
+      price: product.price ?? null,
+      currency: product.currency ?? null,
+      imageUrl: product.imageUrl ?? null,
+      isPublished: product.isPublished === true,
+      itemType: product.itemType ?? null,
+      bookingEnabled: product.bookingEnabled ?? null,
+      purchaseEnabled: product.purchaseEnabled ?? null,
+      primaryAction: product.primaryAction ?? null,
+    },
+    { businessType, businessName },
+  );
 }
 
 /**

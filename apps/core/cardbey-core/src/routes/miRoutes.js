@@ -874,6 +874,13 @@ router.post('/classify-business', optionalAuth, async (req, res) => {
  *   - entryPoint?: string
  */
 async function handleOrchestraStart(req, res) {
+  const { routeOrchestraStartViaPerformerRuntime } = await import(
+    '../lib/runtime/performerRuntime/orchestraRuntimeAdapter.js'
+  );
+  return routeOrchestraStartViaPerformerRuntime(req, res, performOrchestraStartInternal);
+}
+
+async function performOrchestraStartInternal(req, res) {
   const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
   res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
   const traceId = newTraceId();

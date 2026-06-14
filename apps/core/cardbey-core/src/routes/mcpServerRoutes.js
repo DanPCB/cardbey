@@ -15,7 +15,6 @@ import {
   revokeMcpToken,
 } from '../lib/mcp/mcpTokenService.js';
 import { MCP_SERVER_INFO, MCP_TOOL_MANIFEST, EXTERNAL_TO_INTERNAL_TOOL } from '../lib/mcp/mcpToolManifest.js';
-import { dispatchTool } from '../lib/toolDispatcher.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -146,30 +145,28 @@ router.post('/message', requireMcpBearer, async (req, res) => {
         return replyError(-32603, mcpGuard.message || 'MCP dispatch blocked');
       }
 
-      let dr;
-      if (mcpGuard.useFacade) {
-        const { executeMissionAction } = await import('../lib/execution/executeMissionAction.js');
-        const { markRuntimeOwnedContext } = await import(
-          '../lib/runtime/performerRuntime/runtimeOwnership.js'
-        );
-        const ownedCtx = markRuntimeOwnedContext(ctx, `mcp:${storeId}`);
-        const facade = await executeMissionAction({
-          actionType: 'dispatch_tool',
-          missionId: null,
-          userId,
-          storeId,
-          source: 'mcp_facade',
-          payload: { toolName: internalTool, input: toolInput, context: ownedCtx },
-        });
-        dr = {
-          status: facade.status === 'ok' ? 'ok' : facade.status === 'blocked' ? 'blocked' : 'failed',
-          ...(facade.output !== undefined && { output: facade.output }),
-          ...(facade.error !== undefined && { error: facade.error }),
-          ...(facade.blocker !== undefined && { blocker: facade.blocker }),
-        };
-      } else {
-        dr = await dispatchTool(internalTool, toolInput, ctx);
-      }
+      const { executeMissionAction } = await import('../lib/execution/executeMissionAction.js');
+      const { markRuntimeOwnedContext } = await import(
+        '../lib/runtime/performerRuntime/runtimeOwnership.js'
+      );
+      const ownedCtx = markRuntimeOwnedContext(
+        { ...ctx, runtimeOwned: true, performerRuntimeOwned: true, source: 'mcp_facade' },
+        `mcp:${storeId}`,
+      );
+      const facade = await executeMissionAction({
+        actionType: 'dispatch_tool',
+        missionId: ctx.missionId ?? null,
+        userId,
+        storeId,
+        source: 'mcp_facade',
+        payload: { toolName: internalTool, input: toolInput, context: ownedCtx },
+      });
+      const dr = {
+        status: facade.status === 'ok' ? 'ok' : facade.status === 'blocked' ? 'blocked' : 'failed',
+        ...(facade.output !== undefined && { output: facade.output }),
+        ...(facade.error !== undefined && { error: facade.error }),
+        ...(facade.blocker !== undefined && { blocker: facade.blocker }),
+      };
 
       if (dr.status !== 'ok') {
         const msg =

@@ -1,6 +1,6 @@
 -- AlterTable
-ALTER TABLE "DraftStore" ADD COLUMN IF NOT EXISTS "unclaimedStoreId" TEXT;
-ALTER TABLE "DraftStore" ADD COLUMN IF NOT EXISTS "transferredAt" TIMESTAMP(3);
+ALTER TABLE "DraftStore" ADD COLUMN "unclaimedStoreId" TEXT;
+ALTER TABLE "DraftStore" ADD COLUMN "transferredAt" DATETIME;
 
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "DraftStore_unclaimedStoreId_idx" ON "DraftStore"("unclaimedStoreId");
@@ -26,10 +26,10 @@ CREATE TABLE IF NOT EXISTS "UnclaimedStore" (
     "claimAuthority" TEXT,
     "status" TEXT NOT NULL DEFAULT 'unclaimed',
     "claimedBy" TEXT,
-    "claimedAt" TIMESTAMP(3),
+    "claimedAt" DATETIME,
     "preBuiltStoreId" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "expiresAt" TIMESTAMP(3),
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" DATETIME,
 
     CONSTRAINT "UnclaimedStore_pkey" PRIMARY KEY ("id")
 );
@@ -43,9 +43,9 @@ CREATE TABLE IF NOT EXISTS "DiscoverySeedSource" (
     "location" TEXT,
     "category" TEXT,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
-    "lastRunAt" TIMESTAMP(3),
+    "lastRunAt" DATETIME,
     "runCount" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "DiscoverySeedSource_pkey" PRIMARY KEY ("id")
 );
@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS "DiscoverySeedSource" (
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "DiscoveryBatchRun" (
     "id" TEXT NOT NULL,
-    "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "completedAt" TIMESTAMP(3),
+    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" DATETIME,
     "status" TEXT NOT NULL DEFAULT 'running',
     "seedSourceId" TEXT,
     "seedType" TEXT,

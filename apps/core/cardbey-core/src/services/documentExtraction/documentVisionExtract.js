@@ -11,12 +11,17 @@ import { generateText } from '../../lib/llm/anthropicProvider.js';
 import { runOcr } from '../../modules/vision/runOcr.js';
 import { parseIntakePreprocessVisionOutput } from '../../lib/ocr/intakeImagePreprocess.js';
 
+import { resolveCommerceMode, resolveItemKind } from '../../lib/storeTransactionMode.js';
+import { isPlaceholderCategoryName } from '../../lib/draftCategoryUtils.js';
+
 export const DOCUMENT_BUSINESS_EXTRACTION_PROMPT = `You are DocumentIngestionSkill for Cardbey. Extract ALL structured business data from this document.
 
 Return ONLY valid JSON with this schema:
 {
   "documentType": "flyer|brochure|menu|promo|event|price_list|other",
   "business": { "name": "", "type": "" },
+  "businessType": "",
+  "commerceMode": "booking|order|inquiry",
   "businessName": "",
   "contacts": [{ "phone": "", "email": "", "website": "", "address": "", "role": "" }],
   "campaign": { "name": "", "copy": "", "channel": "", "urgency": "" },
@@ -33,7 +38,8 @@ Return ONLY valid JSON with this schema:
       "deadline": "",
       "price": null,
       "priceDisplay": "",
-      "category": ""
+      "category": "",
+      "kind": "service|product"
     }
   ],
   "campaigns": [
@@ -72,6 +78,11 @@ Rules:
 - Use ISO dates (YYYY-MM-DD) when a date is visible; otherwise empty string.
 - price is numeric only (no currency symbol); priceDisplay is as printed.
 - businessName should mirror business.name when present.
+- businessType mirrors business.type; commerceMode: booking for salons/spas/travel/tours/golf/classes/clinics/repairs/photography; order for retail/food; inquiry for custom/quote-only.
+- Each product kind: service for bookable offerings (appointments, tours, treatments); product for physical goods or menu items to order.
+- category must be a human-readable section name (e.g. Manicures, Golf Tours) — never cat_0 or placeholder ids.
+- contacts[].address: only when a street or venue address is explicitly visible on the document. Use empty string if absent — NEVER guess or invent a city, suburb, or country.
+- products[].location and venue fields: only when printed on the document; empty string if not present.
 - Empty arrays when nothing found. No markdown fences.`;
 
 /**
@@ -131,23 +142,30 @@ export function normalizeDocumentExtraction(data) {
   const raw = data && typeof data === 'object' ? data : {};
   const businessName =
     String(raw.businessName ?? raw.business?.name ?? '').trim();
+  const businessType = String(raw.businessType ?? raw.business?.type ?? '').trim();
   const business = {
     name: String(raw.business?.name ?? businessName).trim(),
-    type: String(raw.business?.type ?? '').trim(),
+    type: businessType,
   };
+  const commerceMode = resolveCommerceMode(businessType || businessName, {
+    commerceMode: raw.commerceMode,
+  });
 
   const contacts = (Array.isArray(raw.contacts)
     ? raw.contacts
     : raw.contacts && typeof raw.contacts === 'object'
       ? [raw.contacts]
       : []
-  ).map((c) => ({
-    phone: String(c?.phone ?? '').trim(),
-    email: String(c?.email ?? '').trim(),
-    website: String(c?.website ?? '').trim(),
-    address: String(c?.address ?? '').trim(),
-    role: String(c?.role ?? '').trim(),
-  }));
+  ).map((c) => {
+    const address = String(c?.address ?? '').trim();
+    return {
+      phone: String(c?.phone ?? '').trim(),
+      email: String(c?.email ?? '').trim(),
+      website: String(c?.website ?? '').trim(),
+      address: address || null,
+      role: String(c?.role ?? '').trim(),
+    };
+  });
 
   const products = (Array.isArray(raw.products) ? raw.products : []).map((p, idx) => {
     const item = p && typeof p === 'object' ? p : {};
@@ -171,7 +189,16 @@ export function normalizeDocumentExtraction(data) {
       deadline: item.deadline != null && String(item.deadline).trim() ? String(item.deadline).trim() : null,
       price: item.price != null && !Number.isNaN(Number(item.price)) ? Number(item.price) : null,
       priceDisplay: String(item.priceDisplay ?? '').trim(),
-      category: String(item.category ?? '').trim() || 'General',
+      category: (() => {
+        const cat = String(item.category ?? '').trim();
+        if (cat && !isPlaceholderCategoryName(cat)) return cat;
+        return '';
+      })(),
+      kind: (() => {
+        const k = String(item.kind ?? '').toLowerCase().trim();
+        if (k === 'service' || k === 'product') return k;
+        return resolveItemKind(item, commerceMode);
+      })(),
     };
   });
 
@@ -224,6 +251,8 @@ export function normalizeDocumentExtraction(data) {
   return {
     documentType: String(raw.documentType ?? 'other').trim() || 'other',
     businessName,
+    businessType,
+    commerceMode,
     business,
     contacts,
     campaign,

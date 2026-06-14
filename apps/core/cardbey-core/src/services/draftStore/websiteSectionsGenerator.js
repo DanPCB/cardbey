@@ -1,6 +1,6 @@
 /**
  * Builds mini-website section payloads for draft preview (WebsitePreviewPage).
- * Shapes must match dashboard `WebsiteSection` types: hero, usp_bar, about, featured, social_proof, contact.
+ * Shapes must match dashboard `WebsiteSection` types: hero, usp_bar, show, about, social_proof, contact.
  */
 
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
@@ -102,11 +102,10 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
       },
     },
     {
-      type: 'featured',
+      type: 'show',
       content: {
-        heading: 'Featured picks',
+        heading: 'Shows',
         productIds: featuredIds,
-        layout: 'hero_left',
       },
     },
     {

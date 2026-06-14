@@ -66,6 +66,88 @@ function formatTitleDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function unwrapStepOutput(step) {
+  if (!step || typeof step !== 'object' || Array.isArray(step)) return null;
+  const o = step;
+  if (o.output && typeof o.output === 'object' && !Array.isArray(o.output)) {
+    const inner = o.output;
+    if (inner.output && typeof inner.output === 'object' && !Array.isArray(inner.output)) {
+      return inner.output;
+    }
+    return inner;
+  }
+  return o;
+}
+
+function getStep(stepResults, ...keys) {
+  for (const k of keys) {
+    if (stepResults?.[k] != null) return stepResults[k];
+  }
+  return null;
+}
+
+/** Persist canonical media fields on skill_report designJson for Suitcase previews. */
+function extractSkillArtifactMedia(skillName, stepResults, { executionId, storeId } = {}) {
+  const key = String(skillName ?? '').trim().toLowerCase();
+  const base = {
+    artifactId: executionId ?? null,
+    sourceMissionId: executionId ?? null,
+    storeId: storeId ?? null,
+    mediaUrl: null,
+    posterUrl: null,
+    thumbnailUrl: null,
+    summary: null,
+  };
+
+  if (key.includes('video') || stepResults?.video_execute || stepResults?.queue_video_generation) {
+    const audioStep = unwrapStepOutput(getStep(stepResults, 'video_audio'));
+    const queueStep =
+      unwrapStepOutput(getStep(stepResults, 'video_execute')) ??
+      unwrapStepOutput(getStep(stepResults, 'queue_video_generation'));
+    const videoUrl =
+      (typeof audioStep?.videoUrl === 'string' && audioStep.videoUrl.trim()) ||
+      (typeof queueStep?.videoUrl === 'string' && queueStep.videoUrl.trim()) ||
+      null;
+    const posterUrl =
+      (typeof queueStep?.thumbnailUrl === 'string' && queueStep.thumbnailUrl.trim()) ||
+      (typeof audioStep?.thumbnailUrl === 'string' && audioStep.thumbnailUrl.trim()) ||
+      null;
+    return {
+      ...base,
+      mediaUrl: videoUrl,
+      posterUrl,
+      thumbnailUrl: posterUrl,
+    };
+  }
+
+  if (
+    key.includes('document') ||
+    key.includes('ingest') ||
+    stepResults?.generate_execution_summary
+  ) {
+    const summaryOut = unwrapStepOutput(getStep(stepResults, 'generate_execution_summary'));
+    const display = summaryOut?.display;
+    const products = Array.isArray(display?.products) ? display.products : [];
+    const ingestOut = unwrapStepOutput(getStep(stepResults, 'ingest_document', 'document_ingest'));
+    const sourceUrl =
+      (typeof ingestOut?.sourceUrl === 'string' && ingestOut.sourceUrl.trim()) ||
+      (typeof ingestOut?.fileUrl === 'string' && ingestOut.fileUrl.trim()) ||
+      null;
+    return {
+      ...base,
+      mediaUrl: sourceUrl,
+      summary:
+        typeof summaryOut?.summary === 'string'
+          ? summaryOut.summary
+          : products.length
+            ? `${products.length} products extracted`
+            : null,
+    };
+  }
+
+  return base;
+}
+
 function buildSkillOutputTitle(skillName, storeName, timestamp) {
   const prefix = SKILL_TITLE_PREFIX[String(skillName ?? '').trim().toLowerCase()] ?? humanizeSkillName(skillName);
   const datePart = formatTitleDate(timestamp);
@@ -158,13 +240,15 @@ router.post('/skill-output', requireAuth, async (req, res) => {
 
   const { docType, subtype } = mapSkillDocType(skillName);
   const title = buildSkillOutputTitle(skillName, storeName, timestamp);
+  const mediaFields = extractSkillArtifactMedia(skillName, stepResults, { executionId, storeId });
   const designPayload = {
     skillName,
     stepResults,
-    summary,
+    summary: summary || mediaFields.summary || '',
     executionId,
     generatedAt: timestamp,
     template: 'skill_report',
+    ...mediaFields,
   };
 
   const docId = cuid();

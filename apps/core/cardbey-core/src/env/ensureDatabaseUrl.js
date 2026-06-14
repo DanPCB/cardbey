@@ -74,6 +74,10 @@ function appendSqliteConnectionParams(url) {
   if (!/[?&]synchronous=/i.test(out)) {
     out += '&synchronous=NORMAL';
   }
+  if (!/[?&]connection_limit=/i.test(out)) {
+    const sep = out.includes('?') ? '&' : '?';
+    out = `${out}${sep}connection_limit=1`;
+  }
   return out;
 }
 

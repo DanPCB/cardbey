@@ -3,27 +3,32 @@
 # Close API server and any test runs before running.
 $schema = "prisma/sqlite/schema.prisma"
 $clientGen = "node_modules/.prisma/client-gen"
-$dllName = "query_engine-windows.dll.node"
 
 if (-not (Test-Path $clientGen)) {
   New-Item -ItemType Directory -Force -Path $clientGen | Out-Null
 }
 
-# Remove existing DLL and any .tmp copies so Prisma can write fresh (avoids rename EPERM)
-$dllPath = Join-Path $clientGen $dllName
-$tmpPattern = Join-Path $clientGen "$dllName.tmp*"
+# Remove existing engine binaries and any .tmp copies so Prisma can write fresh (avoids rename EPERM)
+$engineNames = @(
+  "query_engine-windows.dll.node",
+  "query-engine-windows.exe"
+)
 $removed = $false
-if (Test-Path $dllPath) {
-  try {
-    Remove-Item -LiteralPath $dllPath -Force -ErrorAction Stop
-    $removed = $true
-    Write-Host "[prisma-generate] Removed existing $dllName so Prisma can create a new one."
-  } catch {
-    Write-Warning "Could not remove $dllPath - it is likely in use. Close API server, tests, and Cursor/VS Code, then run this script again from a new PowerShell window."
-    exit 1
+foreach ($engineName in $engineNames) {
+  $enginePath = Join-Path $clientGen $engineName
+  $tmpPattern = Join-Path $clientGen "$engineName.tmp*"
+  if (Test-Path $enginePath) {
+    try {
+      Remove-Item -LiteralPath $enginePath -Force -ErrorAction Stop
+      $removed = $true
+      Write-Host "[prisma-generate] Removed existing $engineName so Prisma can create a new one."
+    } catch {
+      Write-Warning "Could not remove $enginePath - it is likely in use. Close API server, tests, and Cursor/VS Code, then run this script again from a new PowerShell window."
+      exit 1
+    }
   }
+  Get-ChildItem -Path $tmpPattern -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
-Get-ChildItem -Path $tmpPattern -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 Write-Host "[prisma-generate] Running prisma generate --schema $schema ..."
 & npx prisma generate --schema $schema

@@ -11,6 +11,8 @@ import { registerOrUpdateEntity } from '../services/miService.js';
 import { buildCreativeAssetMIBrain } from '../mi/miCreativeHelpers.js';
 
 import { prisma } from '../lib/prisma.js';
+import { assertUiWriteAuthority } from '../lib/runtime/performerRuntime/uiWriteAuthorityGuard.js';
+import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 
 const router = express.Router();
 /**
@@ -532,7 +534,7 @@ router.put('/:id', optionalAuth, guestSessionId, async (req, res, next) => {
  * DELETE /api/contents/:id
  * Delete a content
  */
-router.delete('/:id', requireAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, wrapHybridRoute(async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -564,6 +566,63 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
     });
   } catch (error) {
     console.error('[Contents] Delete error:', error);
+    next(error);
+  }
+}, { operation: 'delete_content', requireConfirmation: true }));
+
+/**
+ * POST /api/contents/video/render
+ * State-changing server render — requires runtime authority (Sprint 3).
+ * Prefer POST /api/performer/runtime/ui-action { action: render_creative_asset } from UI.
+ */
+router.post('/video/render', requireAuth, async (req, res, next) => {
+  try {
+    assertUiWriteAuthority(req, {
+      mutationType: 'render_creative_asset',
+      route: 'POST /api/contents/video/render',
+      userId: req.userId ?? req.user?.id ?? null,
+      missionId: req.body?.missionId ?? null,
+      source: 'content_studio_render',
+    });
+
+    const { executeUiRuntimeAction } = await import(
+      '../lib/runtime/performerRuntime/uiRuntimeActionService.js'
+    );
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const result = await executeUiRuntimeAction({
+      action: 'render_creative_asset',
+      missionId: body.missionId ?? null,
+      userId: req.userId ?? req.user?.id ?? null,
+      source: 'content_studio_render',
+      payload: {
+        renderSlide: body.renderSlide ?? null,
+        settings: body.settings ?? {},
+        attach: body.attach === true,
+        source: 'content_studio_render',
+      },
+    });
+
+    if (!result.ok) {
+      return res.status(result.error?.code === 'mission_id_required' ? 400 : 500).json({
+        ok: false,
+        error: result.error?.code ?? 'render_failed',
+        message: result.error?.message ?? 'Render failed',
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      ...result.output,
+    });
+  } catch (error) {
+    if (error?.code === 'RUNTIME_AUTHORITY_BYPASS') {
+      return res.status(403).json({
+        ok: false,
+        error: 'RUNTIME_AUTHORITY_BYPASS',
+        message: error.message,
+      });
+    }
+    console.error('[Contents] video/render error:', error);
     next(error);
   }
 });

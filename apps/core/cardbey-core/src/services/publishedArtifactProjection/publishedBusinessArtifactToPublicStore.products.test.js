@@ -16,9 +16,9 @@ const BASE_PROJECTION = {
   website: {
     sections: [
       {
-        type: 'featured',
+        type: 'show',
         content: {
-          heading: 'Featured picks',
+          heading: 'Shows',
           productIds: ['item_draft_0', 'item_draft_1'],
         },
       },

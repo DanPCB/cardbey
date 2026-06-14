@@ -7,11 +7,17 @@
  */
 
 import https from 'https';
+import {
+  logAnthropicModelOnce,
+  resolveAnthropicModel,
+  warnAnthropicModelNotFoundOnce,
+} from './anthropicModelConfig.js';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const ANTHROPIC_MODEL =
-  process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514';
+const ANTHROPIC_MODEL = resolveAnthropicModel();
 const ANTHROPIC_DISABLED = process.env.ANTHROPIC_DISABLED === '1';
+
+logAnthropicModelOnce();
 
 /**
  * Normalized generateText interface.
@@ -44,7 +50,7 @@ export async function generateText(promptOrOptions, maybeOptions) {
       maxTokens = maybeOptions.maxTokens;
     }
     if (maybeOptions && typeof maybeOptions.model === 'string' && maybeOptions.model) {
-      model = maybeOptions.model;
+      model = resolveAnthropicModel(maybeOptions.model);
     }
   } else {
     const opts = promptOrOptions || {};
@@ -58,9 +64,11 @@ export async function generateText(promptOrOptions, maybeOptions) {
       maxTokens = opts.maxTokens;
     }
     if (typeof opts.model === 'string' && opts.model) {
-      model = opts.model;
+      model = resolveAnthropicModel(opts.model);
     }
   }
+
+  model = resolveAnthropicModel(model);
 
   if (!prompt || ANTHROPIC_DISABLED || !ANTHROPIC_API_KEY) {
     return {
@@ -100,6 +108,7 @@ export async function generateText(promptOrOptions, maybeOptions) {
           try {
             const parsed = JSON.parse(data || '{}');
             if (parsed.error) {
+              warnAnthropicModelNotFoundOnce(model, parsed.error);
               console.error('[AnthropicProvider]', parsed.error);
               resolve({
                 text: null,

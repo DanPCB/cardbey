@@ -12,7 +12,7 @@ import { generateUniqueStoreSlug, slugify } from '../../utils/slug.js';
 import { extendedBusinessFieldsFromCommerce } from '../../lib/dbCapabilities.js';
 import { hasBusinessColumn } from '../../lib/businessColumnCapabilities.js';
 import { resolveContactFieldsForPublish } from './storeContactIntake.js';
-import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
+import { resolveStoreCommerce } from '../../lib/storeTransactionMode.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
 import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
 import {
@@ -146,8 +146,8 @@ function buildVerifiedStorefrontUrl(slug, storeId) {
 }
 
 /**
- * Draft mini-website featured sections use stable keys (idx_0, draft temp ids) from mergeWebsiteIntoPreview.
- * Published products get new Prisma ids — remap featured content.productIds so the public /s/:slug renderer
+ * Draft mini-website show sections use stable keys (idx_0, draft temp ids) from mergeWebsiteIntoPreview.
+ * Published products get new Prisma ids — remap show content.productIds so the public /s/:slug renderer
  * can resolve picks (same keys as toPublicStore().products[].id).
  *
  * @param {object} miniWebsite - stylePreferences.miniWebsite snapshot from draft
@@ -177,7 +177,7 @@ export function remapMiniWebsiteFeaturedProductIds(miniWebsite, draftProducts, p
   }
 
   const newSections = sections.map((section) => {
-    if (!section || section.type !== 'featured') return section;
+    if (!section || (section.type !== 'show' && section.type !== 'featured')) return section;
     const content = section.content && typeof section.content === 'object' ? { ...section.content } : {};
     const rawIds = content.productIds;
     if (!Array.isArray(rawIds) || rawIds.length === 0) return section;
@@ -657,9 +657,19 @@ export async function publishDraft(prisma, {
     ...existingStorefrontSettings,
     ...draftStorefront,
   };
-  const commerce = resolveTransactionCommerce(storeType);
+  const commerce = resolveStoreCommerce({
+    storeType,
+    businessType: rawPreview.meta?.storeType ?? storeType,
+    commerceMode: rawPreview.commerceMode,
+    transactionMode: rawPreview.transactionMode,
+    items: rawPreview.items,
+    ctaLabel: rawPreview.ctaLabel ?? mergedStorefront.cta?.label,
+    ctaAction: mergedStorefront.cta?.action,
+    catalogLabel: rawPreview.catalogLabel,
+  });
   const storefrontSettings = {
     ...mergedStorefront,
+    commerceMode: commerce.commerceMode,
     defaultView: (mergedStorefront.defaultView === 'list' || mergedStorefront.defaultView === 'grid')
       ? mergedStorefront.defaultView
       : 'grid',
@@ -744,6 +754,8 @@ export async function publishDraft(prisma, {
       categoryMap: draftCatIdToName,
       otherCategoryName,
       defaultCurrency: 'USD',
+      businessType: storeType,
+      businessName: storeName,
     },
   );
   stageTimer.log('phase_a_prepare_catalog', {

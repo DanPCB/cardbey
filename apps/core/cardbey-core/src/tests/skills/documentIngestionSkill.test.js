@@ -111,6 +111,12 @@ describe('DocumentIngestionSkill', () => {
     expect(malformed.gaps).toEqual([]);
   });
 
+  it('normalizeDocumentExtraction infers booking commerce for AA Travel flyer', () => {
+    const data = normalizeDocumentExtraction(AA_TRAVEL_FLYER);
+    expect(data.commerceMode).toBe('booking');
+    expect(data.products[0].kind).toBe('service');
+  });
+
   it('normalizeDocumentExtraction fills defaults for partial product rows', () => {
     const data = normalizeDocumentExtraction({
       products: [{ highlights: ['Scenic'] }, {}],

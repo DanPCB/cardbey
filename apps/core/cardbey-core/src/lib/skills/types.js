@@ -33,6 +33,17 @@
  * @property {boolean} [observable]
  * @property {string[]} [composes]
  * @property {string} [displayResultType]
+ * @property {SkillPlanning} [planning]
+ */
+
+/**
+ * @typedef {Object} SkillPlanning
+ * @property {boolean} [planFirst] — pause for owner approval before execute step
+ * @property {string} [planExecutor] — tool name for plan phase (e.g. video_plan)
+ * @property {string} [planStepId] — step id that completes planning
+ * @property {string} [executeStepId] — step id for expensive generation
+ * @property {string} [planSchema] — validation schema id
+ * @property {boolean} [expensive] — when true, preview cannot be skipped via prompt
  */
 
 /**
@@ -40,7 +51,7 @@
  * @property {string} id
  * @property {string} skillName
  * @property {string} missionId
- * @property {'pending'|'running'|'paused'|'completed'|'failed'|'skipped'} status
+ * @property {'pending'|'running'|'paused'|'awaiting_plan_approval'|'completed'|'failed'|'skipped'} status
  * @property {number} currentStep
  * @property {Object.<string, *>} stepResults
  * @property {Object} ctx
@@ -48,6 +59,7 @@
  * @property {string} [completedAt]
  * @property {boolean} canResume
  * @property {string} [failedReason]
+ * @property {object} [planArtifact]
  */
 
 /**

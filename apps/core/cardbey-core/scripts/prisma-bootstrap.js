@@ -471,6 +471,40 @@ if (!isPostgresForRestore) {
       e?.message?.slice(0, 200),
     );
   }
+
+  try {
+    runPrisma(
+      "ensure product catalog columns",
+      `node ${path.join(rootDir, "scripts", "ensure-product-catalog-columns.mjs")}`,
+    );
+    runPrisma(
+      "record product catalog migration",
+      `node ${path.join(rootDir, "scripts", "record-sqlite-migration.mjs")} 20260611120000_product_catalog_item_type`,
+    );
+    console.log("[prisma] Product catalog columns ensured");
+  } catch (e) {
+    console.warn(
+      "[prisma] Could not ensure Product catalog columns (non-fatal):",
+      e?.message?.slice(0, 200),
+    );
+  }
+
+  try {
+    runPrisma(
+      "ensure content interaction tables",
+      `node ${path.join(rootDir, "scripts", "ensure-content-interaction-tables.mjs")}`,
+    );
+    runPrisma(
+      "record content interaction migration",
+      `node ${path.join(rootDir, "scripts", "record-sqlite-migration.mjs")} 20260612200000_add_content_interaction_metrics`,
+    );
+    console.log("[prisma] Content interaction tables ensured");
+  } catch (e) {
+    console.warn(
+      "[prisma] Could not ensure ContentInteraction tables (non-fatal):",
+      e?.message?.slice(0, 200),
+    );
+  }
 }
 
 (async () => {
