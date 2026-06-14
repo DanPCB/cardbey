@@ -164,6 +164,11 @@ services:
         value: "false"
       - key: INSIGHT_JOB_ENABLED
         value: "false"
+      # Hero video upload: skip ffmpeg on Render (OOM → instance exit 1)
+      - key: VIDEO_UPLOAD_SKIP_TRANSCODE
+        value: "true"
+      - key: VIDEO_UPLOAD_MAX_TRANSCODE_MB
+        value: "20"
 
   # Dashboard (production) — static site build (Vite)
   # Reconcile with existing Render service before blueprint sync if cardbey-dashboard already exists.
