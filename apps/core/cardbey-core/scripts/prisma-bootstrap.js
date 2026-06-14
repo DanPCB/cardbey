@@ -302,7 +302,8 @@ function dropSqliteMissionBlackboardIfNeeded(schemaPath) {
 /** Before db push: refuse if operational data exists (prevents destructive drift resolution). */
 async function getDeviceCountSafely() {
   try {
-    const { PrismaClient } = await import("@prisma/client");
+    const clientGenUrl = new URL("../node_modules/.prisma/client-gen/index.js", import.meta.url);
+    const { PrismaClient } = await import(clientGenUrl.href);
     const p = new PrismaClient();
     try {
       return await p.device.count();

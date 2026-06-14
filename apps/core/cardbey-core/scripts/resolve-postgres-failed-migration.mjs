@@ -39,8 +39,15 @@ function prismaEnv() {
   return { ...process.env, DATABASE_URL: dbUrl, CI: process.env.CI || 'true' };
 }
 
+/** Runtime + deploy scripts use client-gen (see src/lib/prismaClient.js), not @prisma/client default. */
+async function loadPrismaClient() {
+  const clientGenUrl = new URL('../node_modules/.prisma/client-gen/index.js', import.meta.url);
+  const mod = await import(clientGenUrl.href);
+  return mod.PrismaClient;
+}
+
 async function listFailedMigrationNames() {
-  const { PrismaClient } = await import('@prisma/client');
+  const PrismaClient = await loadPrismaClient();
   const prisma = new PrismaClient();
   try {
     const rows = await prisma.$queryRawUnsafe(
