@@ -378,40 +378,60 @@ dropSqliteMissionBlackboardIfNeeded(schemaPath);
 
 const isPostgresForRestore = schemaIsPostgres;
 
+/** Postgres: auto-resolve known-safe failed migrations (P3009) before deploy. */
+function resolvePostgresFailedMigrationsBeforeDeploy() {
+  if (!schemaIsPostgres) return;
+  try {
+    const script = path.join(rootDir, "scripts", "resolve-postgres-failed-migration.mjs");
+    execSync(`node ${script}`, { stdio: "inherit", env: prismaChildEnv(), shell: true });
+  } catch (e) {
+    const msg = String(e?.message || e);
+    if (msg.includes("not auto-resolving")) throw e;
+    console.warn("[prisma] resolve-postgres-failed-migration warning:", msg.slice(0, 500));
+  }
+}
+
 // SQLite + migrations: migrate deploy MUST run before db push. A prior db push syncs the full
 // schema without writing _prisma_migrations, so migrate deploy then hits P3005 ("schema is not empty").
 if (hasMigrations) {
+  if (schemaIsPostgres) {
+    resolvePostgresFailedMigrationsBeforeDeploy();
+  }
   console.log("[prisma] migrate deploy");
   try {
     runMigrateDeploy(schemaPath);
   } catch (e) {
     const msg = String(e?.message || e);
     if (msg.includes("P3009")) {
-      console.error(
-        "[prisma] P3009 - a migration is recorded as failed. Do not ignore; fix history then redeploy.",
-      );
-      const schemaFlag = schemaPath.replace(/\\/g, "/");
       if (schemaIsPostgres) {
-        console.error("[prisma] Postgres (Render Shell on cardbey-core-staging):");
-        console.error(
-          "  npx prisma migrate resolve --applied <failed_migration_name> --schema prisma/postgres/schema.prisma",
-        );
-        console.error("  Example (if 20260309234049_init failed):");
-        console.error(
-          "  npx prisma migrate resolve --applied 20260309234049_init --schema prisma/postgres/schema.prisma",
-        );
-        console.error("  Then: npx prisma migrate deploy --schema prisma/postgres/schema.prisma");
+        console.warn("[prisma] P3009 — attempting auto-resolve for allowlisted migrations, then retry deploy");
+        try {
+          resolvePostgresFailedMigrationsBeforeDeploy();
+          runMigrateDeploy(schemaPath);
+          console.log("[prisma] migrate deploy succeeded after auto-resolve");
+        } catch (retryErr) {
+          console.error("[prisma] P3009 persists after auto-resolve. Manual Render Shell:");
+          console.error(
+            "  node scripts/resolve-postgres-failed-migration.mjs --name=20260613120000_add_ghost_store_models",
+          );
+          console.error("  npx prisma migrate deploy --schema prisma/postgres/schema.prisma");
+          throw retryErr;
+        }
       } else {
+        console.error(
+          "[prisma] P3009 - a migration is recorded as failed. Do not ignore; fix history then redeploy.",
+        );
+        const schemaFlag = schemaPath.replace(/\\/g, "/");
         console.error(
           "[prisma] SQLite (local dev): if the migration SQL already applied (e.g. after db push):",
         );
         console.error(
           `  npx prisma migrate resolve --applied <failed_migration_name> --schema=${schemaFlag}`,
         );
+        console.error(
+          "[prisma] If it truly failed mid-way (preserve DB): prisma migrate resolve --rolled-back <name> --schema=... then migrate deploy (verify schema first).",
+        );
       }
-      console.error(
-        "[prisma] If it truly failed mid-way (preserve DB): prisma migrate resolve --rolled-back <name> --schema=... then migrate deploy (verify schema first).",
-      );
     } else if (
       msg.includes("P3005") ||
       msg.includes("database schema is not empty")

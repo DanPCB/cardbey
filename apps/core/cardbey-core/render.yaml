@@ -24,9 +24,9 @@ services:
   - type: web
     name: cardbey-core
     env: node
-    buildCommand: npm install && npx prisma migrate deploy --schema=prisma/postgres/schema.prisma && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    buildCommand: npm install && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
     # Runs with DATABASE_URL set (unlike build). Resolves prisma/postgres vs sqlite from env; generate + migrate deploy.
-    preDeployCommand: node scripts/prisma-bootstrap.js
+    preDeployCommand: node scripts/resolve-postgres-failed-migration.mjs && node scripts/prisma-bootstrap.js
     # prestart also runs prisma-bootstrap (idempotent migrate deploy) then the server.
     startCommand: npm start
     envVars:

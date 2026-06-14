@@ -4,9 +4,15 @@
 
 **Root cause:** Postgres migration copied SQLite `DATETIME` syntax. Fixed to `TIMESTAMP(3)` in commit after this report.
 
-## After fix is pushed
+## After fix is pushed (automatic)
 
-In **Render Shell** on `cardbey-core-staging`:
+Render `preDeployCommand` runs `node scripts/resolve-postgres-failed-migration.mjs` before bootstrap. It marks allowlisted failed migrations (including `20260613120000_add_ghost_store_models`) as **rolled back**, then `migrate deploy` retries with the fixed SQL.
+
+Trigger a **Manual Deploy** on `cardbey-core-staging` after push — no Shell required for the allowlisted ghost-store failure.
+
+## Manual recovery (Render Shell)
+
+If auto-resolve does not run or a different migration failed:
 
 ```bash
 cd apps/core/cardbey-core
