@@ -2,6 +2,9 @@
 /**
  * Clear Postgres P3009 failed migration rows so migrate deploy can retry.
  *
+ * Uses Prisma CLI only (no PrismaClient import) so pre-deploy never loads
+ * @prisma/client or a stale SQLite client-gen by mistake.
+ *
  * Usage:
  *   node scripts/resolve-postgres-failed-migration.mjs
  *   node scripts/resolve-postgres-failed-migration.mjs --name=20260613120000_add_ghost_store_models
@@ -39,27 +42,67 @@ function prismaEnv() {
   return { ...process.env, DATABASE_URL: dbUrl, CI: process.env.CI || 'true' };
 }
 
-/** Runtime + deploy scripts use client-gen (see src/lib/prismaClient.js), not @prisma/client default. */
-async function loadPrismaClient() {
-  const clientGenUrl = new URL('../node_modules/.prisma/client-gen/index.js', import.meta.url);
-  const mod = await import(clientGenUrl.href);
-  return mod.PrismaClient;
+function runPrismaCli(subcommand) {
+  const cmd = `npx prisma ${subcommand} --schema=${schemaPath}`;
+  console.log('[resolve-postgres-failed]', cmd);
+  const r = spawnSync(cmd, {
+    encoding: 'utf8',
+    env: prismaEnv(),
+    shell: true,
+    stdio: ['inherit', 'pipe', 'pipe'],
+  });
+  const combined = `${r.stderr || ''}${r.stdout || ''}`;
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  return { status: r.status ?? 1, combined };
 }
 
-async function listFailedMigrationNames() {
-  const PrismaClient = await loadPrismaClient();
-  const prisma = new PrismaClient();
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT migration_name AS name
-       FROM _prisma_migrations
-       WHERE finished_at IS NULL AND rolled_back_at IS NULL
-       ORDER BY started_at`,
-    );
-    return (Array.isArray(rows) ? rows : []).map((r) => String(r.name ?? r.migration_name ?? '')).filter(Boolean);
-  } finally {
-    await prisma.$disconnect();
+/** Parse migration names from migrate status / deploy P3009 output. */
+function parseFailedMigrationNames(text) {
+  const names = new Set();
+  const blob = String(text || '');
+  for (const m of blob.matchAll(/The `([^`]+)` migration/g)) {
+    names.add(m[1].trim());
   }
+  for (const m of blob.matchAll(/^\s*(\d{14}_[\w]+)\s*$/gm)) {
+    const line = m[1].trim();
+    if (blob.toLowerCase().includes('failed') && line.includes('_')) {
+      names.add(line);
+    }
+  }
+  return [...names];
+}
+
+function listFailedMigrationNames() {
+  const status = runPrismaCli('migrate status');
+  let failed = parseFailedMigrationNames(status.combined);
+  if (failed.length > 0) return failed;
+
+  const mentionsFailed =
+    status.combined.includes('P3009') ||
+    /failed migrations?/i.test(status.combined) ||
+    /migration.*failed/i.test(status.combined);
+
+  if (!mentionsFailed) return [];
+
+  const deploy = runPrismaCli('migrate deploy');
+  failed = parseFailedMigrationNames(deploy.combined);
+  if (failed.length > 0) return failed;
+
+  if (deploy.status === 0) {
+    console.log('[resolve-postgres-failed] migrate deploy succeeded — no failed migrations to resolve');
+    return [];
+  }
+
+  if (deploy.combined.includes('P3009')) {
+    throw new Error(
+      `[resolve-postgres-failed] P3009 but could not parse migration name:\n${deploy.combined.slice(0, 2000)}`,
+    );
+  }
+
+  throw new Error(
+    `[resolve-postgres-failed] migrate deploy failed (non-P3009):\n${deploy.combined.slice(0, 2000)}`,
+  );
 }
 
 function resolveRolledBack(migrationName) {
@@ -78,19 +121,14 @@ function resolveRolledBack(migrationName) {
   }
 }
 
-async function main() {
-  // Client query needs generated client — best-effort generate if missing
-  try {
-    execSync(`npx prisma generate --schema=${schemaPath}`, {
-      stdio: 'inherit',
-      env: prismaEnv(),
-      shell: true,
-    });
-  } catch (e) {
-    console.warn('[resolve-postgres-failed] generate warning (continuing):', e?.message || e);
-  }
+function main() {
+  execSync(`npx prisma generate --schema=${schemaPath}`, {
+    stdio: 'inherit',
+    env: prismaEnv(),
+    shell: true,
+  });
 
-  const failed = await listFailedMigrationNames();
+  const failed = listFailedMigrationNames();
   if (failed.length === 0) {
     console.log('[resolve-postgres-failed] no failed migrations');
     return;
@@ -122,7 +160,9 @@ async function main() {
   console.log('[resolve-postgres-failed] done — migrate deploy can retry:', targets.join(', '));
 }
 
-main().catch((err) => {
+try {
+  main();
+} catch (err) {
   console.error('[resolve-postgres-failed] fatal:', err?.message || err);
   process.exit(1);
-});
+}
