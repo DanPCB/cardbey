@@ -2,8 +2,7 @@
 /**
  * Clear Postgres P3009 failed migration rows so migrate deploy can retry.
  *
- * Uses Prisma CLI only (no PrismaClient import) so pre-deploy never loads
- * @prisma/client or a stale SQLite client-gen by mistake.
+ * Uses Prisma CLI only (no PrismaClient import).
  *
  * Usage:
  *   node scripts/resolve-postgres-failed-migration.mjs
@@ -57,52 +56,31 @@ function runPrismaCli(subcommand) {
   return { status: r.status ?? 1, combined };
 }
 
-/** Parse migration names from migrate status / deploy P3009 output. */
+/** Parse only explicit failed-migration signals — never every migration name in status output. */
 function parseFailedMigrationNames(text) {
   const names = new Set();
   const blob = String(text || '');
+
   for (const m of blob.matchAll(/The `([^`]+)` migration/g)) {
     names.add(m[1].trim());
   }
-  for (const m of blob.matchAll(/^\s*(\d{14}_[\w]+)\s*$/gm)) {
-    const line = m[1].trim();
-    if (blob.toLowerCase().includes('failed') && line.includes('_')) {
-      names.add(line);
+
+  const failedSection = blob.match(
+    /following migrations? have failed:?\s*([\s\S]*?)(?:\n\n|\nTo |\nDatasource|\nEnvironment|$)/i,
+  );
+  if (failedSection) {
+    for (const line of failedSection[1].split('\n')) {
+      const hit = line.trim().match(/^(\d{14}_[\w]+)/);
+      if (hit) names.add(hit[1]);
     }
   }
+
   return [...names];
 }
 
 function listFailedMigrationNames() {
   const status = runPrismaCli('migrate status');
-  let failed = parseFailedMigrationNames(status.combined);
-  if (failed.length > 0) return failed;
-
-  const mentionsFailed =
-    status.combined.includes('P3009') ||
-    /failed migrations?/i.test(status.combined) ||
-    /migration.*failed/i.test(status.combined);
-
-  if (!mentionsFailed) return [];
-
-  const deploy = runPrismaCli('migrate deploy');
-  failed = parseFailedMigrationNames(deploy.combined);
-  if (failed.length > 0) return failed;
-
-  if (deploy.status === 0) {
-    console.log('[resolve-postgres-failed] migrate deploy succeeded — no failed migrations to resolve');
-    return [];
-  }
-
-  if (deploy.combined.includes('P3009')) {
-    throw new Error(
-      `[resolve-postgres-failed] P3009 but could not parse migration name:\n${deploy.combined.slice(0, 2000)}`,
-    );
-  }
-
-  throw new Error(
-    `[resolve-postgres-failed] migrate deploy failed (non-P3009):\n${deploy.combined.slice(0, 2000)}`,
-  );
+  return parseFailedMigrationNames(status.combined);
 }
 
 function resolveRolledBack(migrationName) {
@@ -149,7 +127,8 @@ function main() {
   }
 
   if (targets.length === 0) {
-    if (skipped.length > 0) process.exit(1);
+    // Let prisma-bootstrap surface P3009 with full migrate deploy output.
+    console.warn('[resolve-postgres-failed] no allowlisted targets resolved — continuing to bootstrap');
     return;
   }
 

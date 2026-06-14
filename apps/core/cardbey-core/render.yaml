@@ -26,7 +26,7 @@ services:
     env: node
     buildCommand: node scripts/render-build.mjs
     # Runs with DATABASE_URL set (unlike build). Resolves prisma/postgres vs sqlite from env; generate + migrate deploy.
-    preDeployCommand: node scripts/resolve-postgres-failed-migration.mjs && node scripts/prisma-bootstrap.js
+    preDeployCommand: node scripts/render-predeploy.mjs
     # prestart also runs prisma-bootstrap (idempotent migrate deploy) then the server.
     startCommand: npm start
     envVars:
