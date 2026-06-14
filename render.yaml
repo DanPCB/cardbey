@@ -8,7 +8,7 @@ services:
     rootDir: apps/core/cardbey-core
     # DATABASE_URL must be Postgres; applies prisma/postgres/migrations before generate (belt + suspenders with preDeploy/prestart bootstrap).
     # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
-    buildCommand: npm ci && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    buildCommand: node scripts/render-build.mjs
     # DATABASE_URL must be postgresql://... (not file:). Bootstrap picks prisma/postgres/schema.prisma + migrate deploy.
     preDeployCommand: node scripts/resolve-postgres-failed-migration.mjs && node scripts/prisma-bootstrap.js
     startCommand: npm start
@@ -119,7 +119,7 @@ services:
     branch: main
     rootDir: apps/core/cardbey-core
     # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
-    buildCommand: npm ci && npm run build && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    buildCommand: node scripts/render-build.mjs
     preDeployCommand: node scripts/resolve-postgres-failed-migration.mjs && node scripts/prisma-bootstrap.js
     startCommand: npm start
     healthCheckPath: /api/performer/intake/v2
