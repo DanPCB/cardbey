@@ -26,8 +26,9 @@ services:
     env: node
     buildCommand: node scripts/render-build.mjs
     # Runs with DATABASE_URL set (unlike build). Resolves prisma/postgres vs sqlite from env; generate + migrate deploy.
-    preDeployCommand: node scripts/render-predeploy.mjs
-    # prestart also runs prisma-bootstrap (idempotent migrate deploy) then the server.
+    # Pre-deploy on Render often fails with no log output. DB bootstrap runs at container start (npm prestart → Logs tab).
+    preDeployCommand: 'echo "[render] bootstrap deferred to npm prestart — see Logs tab"'
+    # prestart also runs render-predeploy (idempotent migrate deploy) then the server.
     startCommand: npm start
     envVars:
       - key: NODE_ENV

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Render pre-deploy entrypoint — single script with explicit logging.
- * Deploy/build logs live under Events → failed deploy → log output (not runtime Logs tab).
+ * Render DB bootstrap — runs at container start (npm prestart), not pre-deploy.
+ * Pre-deploy on Render often fails with no visible logs; start-time output appears in Logs tab.
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -12,34 +12,47 @@ import {
 } from './prismaSchemaPath.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const startedAt = new Date().toISOString();
 
 function log(msg) {
-  process.stdout.write(`${msg}\n`);
+  console.log(msg);
 }
 
 function fail(msg, code = 1) {
-  process.stderr.write(`${msg}\n`);
+  console.error(msg);
   process.exit(code);
 }
 
-log(`[render-predeploy] start ${startedAt}`);
-log(`[render-predeploy] cwd=${process.cwd()}`);
-log(`[render-predeploy] node=${process.version}`);
+async function main() {
+  const startedAt = new Date().toISOString();
+  log(`[render-predeploy] start ${startedAt}`);
+  log(`[render-predeploy] cwd=${process.cwd()}`);
+  log(`[render-predeploy] node=${process.version}`);
 
-// Load env normalization (logs [env] DB resolution)
-await import('../src/env/ensureDatabaseUrl.js');
+  await import('../src/env/ensureDatabaseUrl.js');
 
-const dbUrl = pickDatabaseUrlForPrisma();
-const scheme = dbUrl ? dbUrl.split(':')[0] : '(unset)';
-log(`[render-predeploy] DATABASE_URL scheme=${scheme}`);
+  const dbUrl = pickDatabaseUrlForPrisma();
+  const scheme = dbUrl ? dbUrl.split(':')[0] : '(unset)';
+  log(`[render-predeploy] DATABASE_URL scheme=${scheme}`);
 
-if (!isPostgresDatabaseUrl(dbUrl)) {
-  fail(
-    '[render-predeploy] FATAL: Render Core requires postgresql:// DATABASE_URL (or POSTGRES_DATABASE_URL).\n' +
-      '  Dashboard → cardbey-core(-staging) → Environment → link Postgres Internal URL to DATABASE_URL.\n' +
-      `  Current scheme: ${scheme}`,
-  );
+  const onRender = !!(process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
+  if (onRender && !isPostgresDatabaseUrl(dbUrl)) {
+    fail(
+      '[render-predeploy] FATAL: Render Core requires postgresql:// DATABASE_URL (or POSTGRES_DATABASE_URL).\n' +
+        '  Dashboard → cardbey-core(-staging) → Environment → link Postgres Internal URL to DATABASE_URL.\n' +
+        `  Current scheme: ${scheme}`,
+    );
+  }
+
+  if (!isPostgresDatabaseUrl(dbUrl)) {
+    log('[render-predeploy] not postgres — running bootstrap only');
+    runStep('prisma-bootstrap', 'prisma-bootstrap.js');
+    log(`[render-predeploy] done ${new Date().toISOString()}`);
+    return;
+  }
+
+  runStep('resolve-postgres-failed', 'resolve-postgres-failed-migration.mjs');
+  runStep('prisma-bootstrap', 'prisma-bootstrap.js');
+  log(`[render-predeploy] done ${new Date().toISOString()}`);
 }
 
 function runStep(label, scriptName) {
@@ -47,7 +60,7 @@ function runStep(label, scriptName) {
   log(`[render-predeploy] step=${label} script=${scriptName}`);
   const r = spawnSync(process.execPath, [scriptPath], {
     cwd: root,
-    env: { ...process.env, DATABASE_URL: dbUrl, CI: process.env.CI || 'true' },
+    env: process.env,
     stdio: 'inherit',
   });
   if (r.status !== 0) {
@@ -56,7 +69,7 @@ function runStep(label, scriptName) {
   log(`[render-predeploy] step=${label} ok`);
 }
 
-runStep('resolve-postgres-failed', 'resolve-postgres-failed-migration.mjs');
-runStep('prisma-bootstrap', 'prisma-bootstrap.js');
-
-log(`[render-predeploy] done ${new Date().toISOString()}`);
+main().catch((err) => {
+  console.error('[render-predeploy] fatal:', err?.message || err);
+  process.exit(1);
+});

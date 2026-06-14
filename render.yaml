@@ -10,7 +10,8 @@ services:
     # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
     buildCommand: node scripts/render-build.mjs
     # DATABASE_URL must be postgresql://... (not file:). Bootstrap picks prisma/postgres/schema.prisma + migrate deploy.
-    preDeployCommand: node scripts/render-predeploy.mjs
+    # Pre-deploy on Render often fails with no log output. DB bootstrap runs at container start (npm prestart → Logs tab).
+    preDeployCommand: 'echo "[render] bootstrap deferred to npm prestart — see Logs tab"'
     startCommand: npm start
     # GET /api/performer/intake/v2 → JSON { status, version, env } (not dashboard SPA HTML)
     healthCheckPath: /api/performer/intake/v2
@@ -120,7 +121,8 @@ services:
     rootDir: apps/core/cardbey-core
     # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
     buildCommand: node scripts/render-build.mjs
-    preDeployCommand: node scripts/render-predeploy.mjs
+    # Pre-deploy on Render often fails with no log output. DB bootstrap runs at container start (npm prestart → Logs tab).
+    preDeployCommand: 'echo "[render] bootstrap deferred to npm prestart — see Logs tab"'
     startCommand: npm start
     healthCheckPath: /api/performer/intake/v2
     envVars:
