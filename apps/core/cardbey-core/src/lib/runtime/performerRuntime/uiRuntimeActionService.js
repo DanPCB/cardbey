@@ -27,7 +27,7 @@ import {
 } from '../../routing/uiHybridPublishBridge.js';
 
 /**
- * @typedef {'update_hero_artifact'|'update_avatar_artifact'|'save_draft_preview'|'upload_hero_media'|'upload_logo'|'upload_avatar'|'publish_store'|'publish_cardbey'|'publish_custom_domain'|'publish_campaign'|'publish_explore'|'publish_signage'|'publish_social'|'render_creative_asset'} UiRuntimeActionType
+ * @typedef {'update_hero_artifact'|'update_avatar_artifact'|'save_draft_preview'|'upload_hero_media'|'upload_logo'|'upload_avatar'|'publish_store'|'publish_cardbey'|'publish_custom_domain'|'publish_campaign'|'publish_explore'|'publish_signage'|'publish_social'|'render_creative_asset'|'activate_business_space'|'accept_enrichment_suggestion'} UiRuntimeActionType
  */
 
 /**
@@ -277,6 +277,12 @@ async function runUiActionAdapter(action, ctx) {
       }
       return result.output ?? result;
     }
+
+    case 'activate_business_space':
+      return handleActivateBusinessSpace({ payload, userId, missionId });
+
+    case 'accept_enrichment_suggestion':
+      return handleAcceptEnrichmentSuggestion({ payload, userId, missionId });
 
     default: {
       const err = new Error(`Unknown UI runtime action: ${action}`);
@@ -681,4 +687,62 @@ async function handlePublishStoreFromSnapshot(
   });
 
   return { ...result, missionId: missionId || snapshot.missionId || null };
+}
+
+async function handleActivateBusinessSpace({ payload, userId, missionId }) {
+  const seedId = typeof payload.seedId === 'string' ? payload.seedId.trim() : '';
+  if (!seedId) {
+    const err = new Error('seedId is required');
+    err.code = 'seed_id_required';
+    throw err;
+  }
+  if (!userId) {
+    const err = new Error('Authentication required');
+    err.code = 'auth_required';
+    throw err;
+  }
+  const { executeActivateBusinessSpaceCapability } = await import('./executeActivateBusinessSpaceCapability.js');
+  const result = await executeActivateBusinessSpaceCapability({
+    missionId: missionId || null,
+    seedId,
+    userId,
+    confirmed: payload.confirmed === true,
+  });
+  if (!result.ok) {
+    const err = new Error(result.message ?? 'Activation failed');
+    err.code = result.code ?? 'activate_business_space_failed';
+    throw err;
+  }
+  return result;
+}
+
+async function handleAcceptEnrichmentSuggestion({ payload, userId, missionId }) {
+  const seedId = typeof payload.seedId === 'string' ? payload.seedId.trim() : '';
+  if (!seedId) {
+    const err = new Error('seedId is required');
+    err.code = 'seed_id_required';
+    throw err;
+  }
+  if (!userId) {
+    const err = new Error('Authentication required');
+    err.code = 'auth_required';
+    throw err;
+  }
+  const candidateIds = Array.isArray(payload.candidateIds)
+    ? payload.candidateIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+    : [];
+  const { executeAcceptEnrichmentCapability } = await import('./executeAcceptEnrichmentCapability.js');
+  const result = await executeAcceptEnrichmentCapability({
+    missionId: missionId || null,
+    seedId,
+    userId,
+    candidateIds,
+    confirmed: payload.confirmed === true,
+  });
+  if (!result.ok) {
+    const err = new Error(result.message ?? 'Accept enrichment failed');
+    err.code = result.code ?? 'accept_enrichment_failed';
+    throw err;
+  }
+  return result;
 }

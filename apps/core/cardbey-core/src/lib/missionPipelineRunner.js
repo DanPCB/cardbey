@@ -884,6 +884,20 @@ async function runNextMissionPipelineStepBody(prisma, id) {
         intentMode: metaDbg.intentMode,
       });
     }
+    const storeIdForActivity =
+      (mission.targetType === 'store' || mission.targetType === 'draft_store') && mission.targetId
+        ? String(mission.targetId).trim()
+        : '';
+    if (storeIdForActivity) {
+      void import('./storeActivity/storeActivityHooks.js').then(({ emitStoreActivityFromMission }) =>
+        emitStoreActivityFromMission({
+          storeId: storeIdForActivity,
+          missionId: id,
+          missionType: mission.type,
+          phase: 'completed',
+        }),
+      );
+    }
     void runPostMissionCompletionSummary({
       missionId: id,
       missionType: mission.type ?? null,

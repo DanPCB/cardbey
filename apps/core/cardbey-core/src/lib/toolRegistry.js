@@ -4,7 +4,7 @@
  */
 
 const TOOLS = [
-  { toolName: 'analyze_store', label: 'Analyze store', description: 'Analyze store data and structure', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['analyze'] },
+  { toolName: 'analyze_store', label: 'Analyze store', description: 'Analyze store data and structure', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: true, aliases: ['analyze'] },
   { toolName: 'generate_tags', label: 'Generate tags', description: 'Generate product or category tags', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['tags'] },
   { toolName: 'rewrite_descriptions', label: 'Rewrite descriptions', description: 'Rewrite product or store descriptions', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['rewrite'] },
   { toolName: 'improve_hero', label: 'Improve hero', description: 'Improve store hero image or section', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['hero'] },
@@ -51,8 +51,8 @@ const TOOLS = [
   },
   { toolName: 'market_research', label: 'Market research', description: 'Run researcher agent for market report (AU focus)', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['campaign_research'] },
   { toolName: 'consensus', label: 'Consensus', description: 'Run three voter agents on market report and resolve approve/revise/hold', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false },
-  { toolName: 'create_promotion', label: 'Create promotion', description: 'Create a promotion', category: 'promotion', targetTypes: ['promotion'], requiresConfirmation: false, aliases: ['generate_mini_website', 'mini_website'] },
-  { toolName: 'launch_campaign', label: 'Launch campaign', description: 'Deploy promotion to channels (landing page, WhatsApp, social)', category: 'promotion', targetTypes: ['promotion'], requiresConfirmation: false },
+  { toolName: 'create_promotion', label: 'Create promotion', description: 'Create a promotion', category: 'promotion', targetTypes: ['promotion'], requiresConfirmation: true, aliases: ['generate_mini_website', 'mini_website'] },
+  { toolName: 'launch_campaign', label: 'Launch campaign', description: 'Deploy promotion to channels (landing page, WhatsApp, social)', category: 'promotion', targetTypes: ['promotion'], requiresConfirmation: true },
   { toolName: 'publish_to_social', label: 'Share campaign', description: 'Share or post a campaign to social platforms (share links or connected Facebook Page)', category: 'promotion', targetTypes: ['promotion', 'store'], requiresConfirmation: true },
   { toolName: 'connect_social_account', label: 'Connect social account', description: 'Link Facebook Page via OAuth for automatic posting', category: 'promotion', targetTypes: ['store', 'promotion'], requiresConfirmation: false },
   { toolName: 'edit_artifact', label: 'Edit artifact copy', description: 'LLM-assisted edits to promotion, business profile, storefront hero, or mini-website draft preview', category: 'content', targetTypes: ['store', 'draft_store', 'promotion'], requiresConfirmation: false },
@@ -64,7 +64,7 @@ const TOOLS = [
     description: 'Activate promotion',
     category: 'promotion',
     targetTypes: ['promotion'],
-    requiresConfirmation: false,
+    requiresConfirmation: true,
     aliases: ['show_promotion', 'display_promotion', 'publish_promotion', 'show_promo'],
   },
   { toolName: 'content_creator', label: 'Content creator', description: 'Generate campaign content (social, email, promo copy)', category: 'content', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['content'] },
@@ -75,7 +75,7 @@ const TOOLS = [
   { toolName: 'activate_screen_content', label: 'Activate screen content', description: 'Activate screen content', category: 'content', targetTypes: ['device_group'], requiresConfirmation: false },
   { toolName: 'generate_social_posts', label: 'Generate social posts', description: 'Generate social media posts for your store', category: 'content', targetTypes: ['store', 'draft_store'], requiresConfirmation: false, aliases: ['social_posts'] },
   { toolName: 'smart_visual', label: 'Smart visual', description: 'Generate images or moodboards from a text prompt (intake / campaigns)', category: 'content', targetTypes: ['store', 'draft_store', 'promotion'], requiresConfirmation: false },
-  { toolName: 'create_offer', label: 'Create offer', description: 'Create an offer and optional promotion', category: 'promotion', targetTypes: ['promotion'], requiresConfirmation: false },
+  { toolName: 'create_offer', label: 'Create offer', description: 'Create an offer and optional promotion', category: 'promotion', targetTypes: ['promotion'], requiresConfirmation: true },
   { toolName: 'create_offer_draft', label: 'Create offer draft', description: 'Build a read-only first-offer draft artifact (no publish)', category: 'promotion', targetTypes: ['store', 'draft_store'], requiresConfirmation: true },
   { toolName: 'revise_offer_draft', label: 'Revise offer draft', description: 'Create a new offer draft version from revision notes (no publish)', category: 'promotion', targetTypes: ['store', 'draft_store'], requiresConfirmation: true },
   { toolName: 'mini_website_get_sections', label: 'Load mini website sections', description: 'Read published mini website sections and theme for a store', category: 'store', targetTypes: ['store', 'draft_store'], requiresConfirmation: false },
@@ -104,7 +104,7 @@ const TOOLS = [
   { toolName: 'get_draft_by_run', label: 'Get draft by run', description: 'Resolve draft id by generationRunId (AI operator)', category: 'operator', targetTypes: ['generic'], requiresConfirmation: false },
   { toolName: 'get_draft_summary', label: 'Get draft summary', description: 'Draft status and catalog counts (AI operator)', category: 'operator', targetTypes: ['generic'], requiresConfirmation: false },
   { toolName: 'poll_orchestra_job', label: 'Poll orchestra job', description: 'Read orchestrator task status and result (AI operator)', category: 'operator', targetTypes: ['generic'], requiresConfirmation: false },
-  { toolName: 'publish_store', label: 'Publish store from draft', description: 'Commit draft to published store (AI operator)', category: 'operator', targetTypes: ['generic'], requiresConfirmation: false },
+  { toolName: 'publish_store', label: 'Publish store from draft', description: 'Commit draft to published store (AI operator)', category: 'operator', targetTypes: ['generic'], requiresConfirmation: true },
   { toolName: 'log_event', label: 'Log event', description: 'Append operator log line (AI operator)', category: 'operator', targetTypes: ['generic'], requiresConfirmation: false },
   { toolName: 'run_pipeline', label: 'Run pipeline', description: 'Run full build_store pipeline in one tool (AI operator)', category: 'operator', targetTypes: ['generic'], requiresConfirmation: false },
   {

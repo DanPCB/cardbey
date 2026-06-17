@@ -32,6 +32,8 @@ import { dryRunExecutionPlan } from '../lib/runtime/performerRuntime/dryRunExecu
 import { executeAnalyzeStoreCapability } from '../lib/runtime/performerRuntime/executeAnalyzeStoreCapability.js';
 import { executeCreateOfferDraftCapability } from '../lib/runtime/performerRuntime/executeCreateOfferDraftCapability.js';
 import { executeReviseOfferDraftCapability } from '../lib/runtime/performerRuntime/executeReviseOfferDraftCapability.js';
+import { executeActivateBusinessSpaceCapability } from '../lib/runtime/performerRuntime/executeActivateBusinessSpaceCapability.js';
+import { executeAcceptEnrichmentCapability } from '../lib/runtime/performerRuntime/executeAcceptEnrichmentCapability.js';
 import {
   listMissionExecutionRecords,
   persistMissionExecutionRecord,
@@ -525,6 +527,95 @@ router.post('/capabilities/create-offer-draft', optionalAuth, async (req, res) =
   } catch (err) {
     console.error('[performer/runtime/create-offer-draft]', err);
     return res.status(500).json({ ok: false, error: 'create_offer_draft_failed' });
+  }
+});
+
+/**
+ * POST /api/performer/runtime/capabilities/activate-business-space
+ * Business Activation Runway V2 — governed Business Space creation.
+ */
+router.post('/capabilities/activate-business-space', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const seedId = typeof body.seedId === 'string' ? body.seedId.trim() : '';
+  if (!seedId) {
+    return res.status(400).json({ ok: false, error: 'seed_id_required', status: 'blocked' });
+  }
+  const userId = req.userId ?? req.user?.id ?? null;
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: 'auth_required', status: 'blocked' });
+  }
+  try {
+    const result = await executeActivateBusinessSpaceCapability({
+      missionId: body.missionId ?? null,
+      seedId,
+      userId,
+      confirmed: body.confirmed === true,
+      tenantId: req.user?.tenantId ?? null,
+    });
+    const httpStatus =
+      result.status === 'blocked' ? 409 : result.ok ? 200 : result.error?.code === 'not_found' ? 404 : 400;
+    return res.status(httpStatus).json({
+      ok: result.ok,
+      status: result.status,
+      output: result.output,
+      error: result.error,
+      code: result.code,
+      message: result.message,
+      missionId: result.missionId,
+      storeId: result.storeId,
+    });
+  } catch (err) {
+    console.error('[performer/runtime/activate-business-space]', err);
+    return res.status(500).json({ ok: false, error: 'activate_business_space_failed' });
+  }
+});
+
+/**
+ * POST /api/performer/runtime/capabilities/accept-enrichment-suggestion
+ * Business Enrichment V2.2 — accepts suggestions via runtime authority only.
+ * Never writes seed/store/profile/media fields directly.
+ */
+router.post('/capabilities/accept-enrichment-suggestion', requireAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const seedId = typeof body.seedId === 'string' ? body.seedId.trim() : '';
+  if (!seedId) {
+    return res.status(400).json({ ok: false, error: 'seed_id_required', status: 'blocked' });
+  }
+  const userId = req.userId ?? req.user?.id ?? null;
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: 'auth_required', status: 'blocked' });
+  }
+  try {
+    const candidateIds = Array.isArray(body.candidateIds)
+      ? body.candidateIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+      : [];
+    const result = await executeAcceptEnrichmentCapability({
+      missionId: body.missionId ?? null,
+      seedId,
+      userId,
+      candidateIds,
+      confirmed: body.confirmed === true,
+    });
+    const httpStatus =
+      result.status === 'blocked'
+        ? 409
+        : result.ok
+          ? 200
+          : result.error?.code === 'not_found'
+            ? 404
+            : 400;
+    return res.status(httpStatus).json({
+      ok: result.ok,
+      status: result.status,
+      output: result.output,
+      error: result.error,
+      code: result.code,
+      message: result.message,
+      missionId: result.missionId,
+    });
+  } catch (err) {
+    console.error('[performer/runtime/accept-enrichment-suggestion]', err);
+    return res.status(500).json({ ok: false, error: 'accept_enrichment_failed' });
   }
 });
 

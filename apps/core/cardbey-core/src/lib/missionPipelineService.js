@@ -232,6 +232,23 @@ export async function createMissionPipelineCore(prisma, params, prepared) {
     if (stepsCreated > 0) console.log(`[MissionSteps] built default steps: ${stepsCreated} for type=${mission.type}`);
   }
 
+  const storeIdForActivity =
+    (targetType === 'store' || targetType === 'draft_store') && targetId
+      ? String(targetId).trim()
+      : metadataJson?.storeId != null
+        ? String(metadataJson.storeId).trim()
+        : '';
+  if (storeIdForActivity) {
+    void import('./storeActivity/storeActivityHooks.js').then(({ emitStoreActivityFromMission }) =>
+      emitStoreActivityFromMission({
+        storeId: storeIdForActivity,
+        missionId: mission.id,
+        missionType: mission.type,
+        phase: 'created',
+      }),
+    );
+  }
+
   return {
     id: mission.id,
     status: nextStatus,
@@ -383,10 +400,39 @@ async function transitionMission(missionId, fromStatus, toStatus, extra = {}) {
     where: { id: missionId },
     data,
   });
+  if (toStatus === 'failed') {
+    void emitMissionFailedPlatformActivity(prisma, missionId).catch(() => {});
+  }
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[Mission] transition: ${fromStatus} -> ${toStatus} mission=${missionId}`);
   }
   return true;
+}
+
+/**
+ * @param {import('../lib/prismaClient.js').PrismaClient} prisma
+ * @param {string} missionId
+ */
+async function emitMissionFailedPlatformActivity(prisma, missionId) {
+  const m = await prisma.missionPipeline.findUnique({
+    where: { id: missionId },
+    select: { id: true, missionType: true, status: true, storeId: true },
+  });
+  if (!m) return;
+  const { emitPlatformActivity } = await import('./platformActivity/platformActivityEmitter.js');
+  const missionLabel = m.missionType ? String(m.missionType).replace(/_/g, ' ') : 'Mission';
+  emitPlatformActivity({
+    type: 'mission_failed',
+    severity: 'warning',
+    actorType: 'performer',
+    actorId: null,
+    entityType: 'mission',
+    entityId: missionId,
+    title: 'Mission failed',
+    message: `${missionLabel} failed during execution.`,
+    route: '/marketing#runtime',
+    metadata: { missionType: m.missionType, storeId: m.storeId },
+  });
 }
 
 /**

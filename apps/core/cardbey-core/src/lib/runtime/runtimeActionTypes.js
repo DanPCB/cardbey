@@ -22,10 +22,20 @@ export const DISPATCH_ACTIONS = {
   PUBLISH_STORE: 'publish_store',
   REPUBLISH_WEBSITE: 'republish_website',
   DELETE_STORE: 'delete_store',
+  DELETE_CONTENT: 'delete_content',
+  DELETE_PRODUCT: 'delete_product',
+  DELETE_DRAFT: 'delete_draft',
   PUBLISH_CARDBEY: 'publish_cardbey',
   PUBLISH_CUSTOM_DOMAIN: 'publish_custom_domain',
   PUBLISH_CAMPAIGN: 'publish_campaign',
   CREATE_OFFER_DRAFT: 'create_offer_draft',
+  ACTIVATE_BUSINESS_SPACE: 'activate_business_space',
+  ACCEPT_ENRICHMENT_SUGGESTION: 'accept_enrichment_suggestion',
+  SAVE_DRAFT_PREVIEW: 'save_draft_preview',
+  ANALYZE_STORE: 'analyze_store',
+  DIAGNOSE_STORE: 'diagnose_store',
+  GENERATE_CONTENT: 'generate_content',
+  CREATE_CAMPAIGN: 'create_campaign',
 };
 
 /** @type {Record<string, { requireConfirmation: boolean, risk: 'low'|'medium'|'high' }>} */
@@ -44,10 +54,20 @@ export const UPLOAD_CONFIG = {
   [DISPATCH_ACTIONS.PUBLISH_STORE]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.REPUBLISH_WEBSITE]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.DELETE_STORE]: { requireConfirmation: true, risk: 'high' },
+  [DISPATCH_ACTIONS.DELETE_CONTENT]: { requireConfirmation: true, risk: 'high' },
+  [DISPATCH_ACTIONS.DELETE_PRODUCT]: { requireConfirmation: true, risk: 'high' },
+  [DISPATCH_ACTIONS.DELETE_DRAFT]: { requireConfirmation: true, risk: 'medium' },
+  [DISPATCH_ACTIONS.SAVE_DRAFT_PREVIEW]: { requireConfirmation: false, risk: 'low' },
   [DISPATCH_ACTIONS.PUBLISH_CARDBEY]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.PUBLISH_CUSTOM_DOMAIN]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.PUBLISH_CAMPAIGN]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.CREATE_OFFER_DRAFT]: { requireConfirmation: true, risk: 'medium' },
+  [DISPATCH_ACTIONS.ACTIVATE_BUSINESS_SPACE]: { requireConfirmation: true, risk: 'high' },
+  [DISPATCH_ACTIONS.ACCEPT_ENRICHMENT_SUGGESTION]: { requireConfirmation: true, risk: 'medium' },
+  [DISPATCH_ACTIONS.ANALYZE_STORE]: { requireConfirmation: false, risk: 'low' },
+  [DISPATCH_ACTIONS.DIAGNOSE_STORE]: { requireConfirmation: false, risk: 'low' },
+  [DISPATCH_ACTIONS.GENERATE_CONTENT]: { requireConfirmation: false, risk: 'low' },
+  [DISPATCH_ACTIONS.CREATE_CAMPAIGN]: { requireConfirmation: true, risk: 'high' },
 };
 
 const UPLOAD_ACTION_VALUES = new Set(Object.values(UPLOAD_ACTIONS));

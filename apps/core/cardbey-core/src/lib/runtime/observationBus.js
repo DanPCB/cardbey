@@ -1,0 +1,232 @@
+/**
+ * Observation Bus — mandatory structured event emission for runtime executions.
+ * Every kernel execution records an observation for learning and copilot pattern detection.
+ */
+
+import { getPrismaClient } from '../prisma.js';
+
+/** @type {Array<object>} */
+const observationRing = [];
+const MAX_RING = 500;
+const MAX_STORED_LATENCY_MS = 120_000;
+const SLO_WARN_LATENCY_MS = 5_000;
+
+/** Action types excluded from latency SLO (long-running orchestration, not per-request API). */
+export const SLO_EXCLUDED_ACTION_TYPES = new Set([
+  'run_pipeline_step',
+  'orchestra_start',
+  'mission_pipeline',
+]);
+
+const SLO_EXCLUDED_ACTION_PREFIXES = ['pipeline:', 'mission_pipeline'];
+
+/**
+ * Whether an observation should count toward API latency SLO.
+ * @param {{ actionType?: string; intentType?: string; contextSnapshot?: unknown; latency?: number|null }} row
+ */
+export function isObservationSloEligible(row) {
+  const snap =
+    row?.contextSnapshot && typeof row.contextSnapshot === 'object' ? row.contextSnapshot : {};
+  if (snap.sloEligible === false) return false;
+
+  const action = String(row?.actionType ?? '').trim();
+  const intent = String(row?.intentType ?? '').trim();
+
+  if (SLO_EXCLUDED_ACTION_TYPES.has(action) || SLO_EXCLUDED_ACTION_TYPES.has(intent)) {
+    return false;
+  }
+
+  for (const prefix of SLO_EXCLUDED_ACTION_PREFIXES) {
+    if (action.startsWith(prefix) || intent.startsWith(prefix)) return false;
+  }
+
+  if (snap.source === 'mission_pipeline' || snap.source === 'orchestra_start') {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Normalize per-request latency in milliseconds (never cumulative skill duration).
+ * @param {Record<string, unknown>} [metadata]
+ * @returns {number|null}
+ */
+export function normalizeObservationLatencyMs(metadata) {
+  const meta = metadata && typeof metadata === 'object' ? metadata : {};
+  const raw =
+    typeof meta.latency === 'number'
+      ? meta.latency
+      : typeof meta.latencyMs === 'number'
+        ? meta.latencyMs
+        : typeof meta.durationMs === 'number'
+          ? meta.durationMs
+          : null;
+
+  if (raw == null || !Number.isFinite(raw) || raw < 0) return null;
+
+  const ms = Math.round(raw);
+  if (ms > SLO_WARN_LATENCY_MS) {
+    console.warn(`[ObservationBus] Slow execution: ${ms}ms`);
+  }
+  return Math.min(ms, MAX_STORED_LATENCY_MS);
+}
+
+/** @type {Map<string, { success: number; failure: number }>} */
+const learningWeights = new Map();
+
+function weightKey(intentType, actionType) {
+  return `${String(intentType ?? 'unknown')}:${String(actionType ?? 'unknown')}`;
+}
+
+/**
+ * @param {object} execution
+ * @param {string|null} [execution.missionId]
+ * @param {{ type?: string }} [execution.intent]
+ * @param {string} [execution.action]
+ * @param {{ success?: boolean; error?: string|null }} [execution.result]
+ * @param {Record<string, unknown>} [execution.metadata]
+ */
+export class ObservationBus {
+  async emit(execution) {
+    const intentType = String(execution?.intent?.type ?? 'unknown').trim() || 'unknown';
+    const actionType = String(execution?.action ?? intentType).trim() || intentType;
+    const success = execution?.result?.success !== false;
+    const outcome = success ? 'success' : 'failure';
+    const metadata = execution?.metadata && typeof execution.metadata === 'object' ? execution.metadata : {};
+    const latency = normalizeObservationLatencyMs(metadata);
+
+    const row = {
+      id: `obs_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      missionId: execution?.missionId ? String(execution.missionId) : null,
+      intentType,
+      actionType,
+      outcome,
+      error: execution?.result?.error ? String(execution.result.error) : null,
+      latency,
+      tokensUsed: typeof metadata.tokens === 'number' ? metadata.tokens : null,
+      cost: typeof metadata.cost === 'number' ? metadata.cost : null,
+      confidence: typeof metadata.confidence === 'number' ? metadata.confidence : null,
+      contextSnapshot: {
+        signals: Array.isArray(metadata.activeSignals) ? metadata.activeSignals : [],
+        storeId: metadata.storeId ?? null,
+        userId: metadata.userId ?? null,
+        userType: metadata.actorType ?? null,
+        source: metadata.source ?? null,
+        sloEligible: isObservationSloEligible({
+          actionType,
+          intentType,
+          contextSnapshot: null,
+          latency,
+        }) && metadata.sloEligible !== false,
+      },
+      createdAt: new Date().toISOString(),
+    };
+
+    observationRing.push(row);
+    if (observationRing.length > MAX_RING) observationRing.shift();
+
+    await this.updateLearningWeights(row);
+
+    try {
+      const prisma = getPrismaClient();
+      if (prisma?.observation?.create) {
+        const created = await prisma.observation.create({
+          data: {
+            missionId: row.missionId,
+            intentType: row.intentType,
+            actionType: row.actionType,
+            outcome: row.outcome,
+            error: row.error,
+            latency: row.latency,
+            tokensUsed: row.tokensUsed,
+            cost: row.cost,
+            confidence: row.confidence,
+            contextSnapshot: row.contextSnapshot,
+          },
+        });
+        row.id = created.id;
+        return created;
+      }
+    } catch (error) {
+      console.error('[ObservationBus] Failed to persist observation:', error?.message || error);
+      console.warn('[ObservationBus] CRITICAL: Learning data may be lost (in-memory ring retained)');
+    }
+
+    return row;
+  }
+
+  /**
+   * @param {object} observation
+   */
+  async updateLearningWeights(observation) {
+    const key = weightKey(observation.intentType, observation.actionType);
+    const current = learningWeights.get(key) ?? { success: 0, failure: 0 };
+    if (observation.outcome === 'success') current.success += 1;
+    else current.failure += 1;
+    learningWeights.set(key, current);
+
+    try {
+      const prisma = getPrismaClient();
+      if (!prisma?.patternWeight?.upsert) return;
+
+      const patternId = `obs:${key}`;
+      const total = current.success + current.failure;
+      const weight = total > 0 ? current.success / total : 1;
+
+      await prisma.patternWeight.upsert({
+        where: { patternId },
+        create: {
+          patternId,
+          intent: observation.intentType,
+          matchedSkill: observation.actionType,
+          weight,
+          adjustmentHistory: [
+            {
+              at: new Date().toISOString(),
+              outcome: observation.outcome,
+              weight,
+            },
+          ],
+        },
+        update: {
+          weight,
+          lastAdjusted: new Date(),
+        },
+      });
+    } catch {
+      /* non-fatal — in-memory weights still updated */
+    }
+  }
+
+  async getLatest(limit = 20) {
+    try {
+      const prisma = getPrismaClient();
+      if (prisma?.observation?.findMany) {
+        return prisma.observation.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+        });
+      }
+    } catch {
+      /* fall through */
+    }
+    return [...observationRing].slice(-limit).reverse();
+  }
+
+  getLearningWeightsForTests() {
+    return new Map(learningWeights);
+  }
+
+  resetForTests() {
+    observationRing.length = 0;
+    learningWeights.clear();
+  }
+}
+
+const observationBus = new ObservationBus();
+export default observationBus;
+
+export function getObservationRingForTests() {
+  return [...observationRing];
+}

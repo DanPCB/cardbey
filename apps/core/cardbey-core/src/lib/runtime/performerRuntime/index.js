@@ -39,6 +39,7 @@ export {
   recordRuntimeViolation,
   assertRuntimeOwnership,
   markRuntimeOwnedContext,
+  ensureRuntimeAuthorizedContext,
 } from './runtimeOwnership.js';
 
 export {

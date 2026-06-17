@@ -2,6 +2,7 @@
  * Performer Runtime — execution ownership checks (Phase 1.5-F).
  */
 
+import { randomUUID } from 'crypto';
 import { emitHealthProbe } from '../../telemetry/healthProbes.js';
 import {
   isPerformerRuntimeOwnershipWarnEnabled,
@@ -75,4 +76,36 @@ export function markRuntimeOwnedContext(context, runtimeId) {
   ctx.runtimeId = runtimeId;
   ctx.executionSource = 'performer_runtime';
   return ctx;
+}
+
+/**
+ * Ensure context carries runtime authority before dispatchTool / skill steps.
+ * Idempotent when context is already runtime-owned.
+ *
+ * @param {object} [context]
+ * @param {string|null} [runtimeId]
+ * @param {string} [source]
+ */
+export function ensureRuntimeAuthorizedContext(context, runtimeId = null, source = 'performer_runtime') {
+  const ctx = context && typeof context === 'object' ? { ...context } : {};
+  if (ctx.runtimeOwned === true || ctx.performerRuntimeOwned === true) {
+    return {
+      ...ctx,
+      source: ctx.source ?? source,
+      skipNestedBrokerTelemetry: ctx.skipNestedBrokerTelemetry ?? true,
+    };
+  }
+
+  const resolvedRuntimeId =
+    runtimeId ?? (typeof ctx.runtimeId === 'string' && ctx.runtimeId.trim() ? ctx.runtimeId.trim() : null) ??
+    `rt-skill:${randomUUID()}`;
+
+  return markRuntimeOwnedContext(
+    {
+      ...ctx,
+      source,
+      skipNestedBrokerTelemetry: ctx.skipNestedBrokerTelemetry ?? true,
+    },
+    resolvedRuntimeId,
+  );
 }
