@@ -1,0 +1,137 @@
+/**
+ * Public business identity profile — canonical /business/:slug page data.
+ * Never exposes ingestion internals in API responses.
+ */
+
+import { formatStoreLocation } from '../formatStoreLocation.js';
+import { getPrismaClient } from '../prisma.js';
+import { listSeedRecords } from './IngestionRepository.js';
+import { buildPublicBusinessSlug, findSeedByPublicSlug } from './businessPublicSlug.js';
+import { resolveDiscoveryCardHero } from './DiscoveryCardHeroResolver.js';
+import {
+  DISCOVERED_BUSINESS_BADGE,
+  translateSeedToPublicLifecycle,
+  type PublicBusinessLifecycle,
+} from './publicLifecycle.js';
+import type { IngestedSeedRecord, SeedVerificationStatus } from './types.js';
+
+export type PublicLifecycleStage = 'discovered' | 'claimed' | 'verified' | 'active';
+
+export interface PublicBusinessProfile {
+  slug: string;
+  businessName: string;
+  category: string | null;
+  categoryLabel: string | null;
+  locationLabel: string | null;
+  city: string | null;
+  description: string | null;
+  heroImageUrl: string;
+  heroVideoUrl: string | null;
+  badge: string;
+  publicLifecycle: PublicBusinessLifecycle;
+  lifecycleLabel: string;
+  lifecycleStage: PublicLifecycleStage;
+  claimUrl: string;
+  /** When published, public storefront URL — page may redirect here in future. */
+  activeStoreUrl: string | null;
+}
+
+function profileLifecycleLabel(lifecycle: PublicBusinessLifecycle): string {
+  switch (lifecycle) {
+    case 'discovered_business':
+      return 'Discovered';
+    case 'verified_owner':
+      return 'Verified Owner';
+    case 'business_space':
+      return 'Active Business Space';
+    default:
+      return 'Discovered';
+  }
+}
+
+function lifecycleStageFromStatus(status: SeedVerificationStatus): PublicLifecycleStage {
+  switch (status) {
+    case 'seeded_claimable':
+      return 'discovered';
+    case 'verified_owner':
+      return 'verified';
+    case 'active':
+      return 'active';
+    default:
+      return 'discovered';
+  }
+}
+
+function buildProfileDescription(seed: IngestedSeedRecord, locationLabel: string | null): string {
+  const name = seed.normalized.businessName ?? 'This business';
+  const category = seed.normalized.category;
+  if (category && locationLabel) {
+    return `${name} — a local ${category} in ${locationLabel}. Activate your Cardbey Business Space to manage your profile and grow online.`;
+  }
+  if (locationLabel) {
+    return `${name} in ${locationLabel}. Activate your Cardbey Business Space to manage your profile.`;
+  }
+  return `${name}. Activate your Cardbey Business Space on Cardbey.`;
+}
+
+async function resolveActiveStoreUrl(seed: IngestedSeedRecord): Promise<string | null> {
+  if (seed.verificationStatus !== 'active' || !seed.storeId) return null;
+  try {
+    const prisma = getPrismaClient();
+    const biz = await prisma.business.findUnique({
+      where: { id: seed.storeId },
+      select: { slug: true },
+    });
+    return biz?.slug ? `/s/${encodeURIComponent(biz.slug)}` : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function buildPublicBusinessProfile(
+  seed: IngestedSeedRecord,
+): Promise<PublicBusinessProfile | null> {
+  const publicLifecycle = translateSeedToPublicLifecycle(seed.verificationStatus);
+  if (!publicLifecycle) return null;
+
+  const n = seed.normalized;
+  if (!n.businessName) return null;
+
+  const locationLabel = formatStoreLocation({
+    city: n.city,
+    state: n.state,
+    country: n.country,
+    address: n.address,
+  });
+
+  const hero = resolveDiscoveryCardHero(seed);
+  const slug = buildPublicBusinessSlug(seed);
+  const activeStoreUrl = await resolveActiveStoreUrl(seed);
+
+  return {
+    slug,
+    businessName: n.businessName,
+    category: n.category,
+    categoryLabel: n.category,
+    locationLabel,
+    city: n.city,
+    description: buildProfileDescription(seed, locationLabel),
+    heroImageUrl: hero.heroImageUrl,
+    heroVideoUrl: null,
+    badge: DISCOVERED_BUSINESS_BADGE,
+    publicLifecycle,
+    lifecycleLabel: profileLifecycleLabel(publicLifecycle),
+    lifecycleStage: lifecycleStageFromStatus(seed.verificationStatus),
+    claimUrl: `/activate-business/${seed.id}`,
+    activeStoreUrl,
+  };
+}
+
+export async function getPublicBusinessProfileBySlug(
+  slug: string,
+): Promise<PublicBusinessProfile | null> {
+  const seeds = await listSeedRecords();
+  const seed = findSeedByPublicSlug(seeds, slug);
+  if (!seed) return null;
+  return buildPublicBusinessProfile(seed);
+}
