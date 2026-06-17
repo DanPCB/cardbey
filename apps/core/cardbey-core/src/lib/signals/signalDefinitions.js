@@ -380,12 +380,33 @@ export function normalizePreferencesRow(row) {
   if (!row) {
     return { enabledSignals: [], disabledSignals: [], customThresholds: {} };
   }
+  const parseJsonArray = (value) => {
+    if (Array.isArray(value)) return value.map(String);
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.map(String) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+  const parseJsonObject = (value) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  };
   return {
-    enabledSignals: Array.isArray(row.enabledSignals) ? row.enabledSignals.map(String) : [],
-    disabledSignals: Array.isArray(row.disabledSignals) ? row.disabledSignals.map(String) : [],
-    customThresholds:
-      row.customThresholds && typeof row.customThresholds === 'object' && !Array.isArray(row.customThresholds)
-        ? row.customThresholds
-        : {},
+    enabledSignals: parseJsonArray(row.enabledSignals),
+    disabledSignals: parseJsonArray(row.disabledSignals),
+    customThresholds: parseJsonObject(row.customThresholds),
   };
 }

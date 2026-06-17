@@ -3206,7 +3206,7 @@ model PatternWeight {
   intent            String
   matchedSkill      String
   weight            Float    @default(1.0)
-  adjustmentHistory Json     @default("[]")
+  adjustmentHistory Json
   lastAdjusted      DateTime @default(now())
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -3264,9 +3264,9 @@ model UserMemory {
   lastAction     String?
   lastActionAt   DateTime?
   visitCount     Int       @default(1)
-  actionHistory  Json      @default("[]")
-  abandonedTasks Json      @default("[]")
-  completedTasks Json      @default("[]")
+  actionHistory  Json
+  abandonedTasks Json
+  completedTasks Json
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -3278,7 +3278,7 @@ model OnboardingProgress {
   userId         String    @unique
   step           Int       @default(0)
   total          Int       @default(5)
-  completedSteps Json      @default("[]")
+  completedSteps Json
   lastStepAt     DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -3289,9 +3289,9 @@ model OnboardingProgress {
 model UserSignalPreferences {
   id               String   @id @default(cuid())
   userId           String   @unique
-  enabledSignals   Json     @default("[]")
-  disabledSignals  Json     @default("[]")
-  customThresholds Json     @default("{}")
+  enabledSignals   Json
+  disabledSignals  Json
+  customThresholds Json
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -3453,7 +3453,7 @@ model ConversationSession {
   messageCount    Int      @default(0) @map("message_count")
   lastMessageAt   DateTime @default(now()) @map("last_message_at")
   activeMissionId String?  @map("active_mission_id")
-  metadata        Json     @default("{}")
+  metadata        Json?
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 

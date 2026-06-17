@@ -2,9 +2,9 @@
 CREATE TABLE "user_signal_preferences" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
-    "enabledSignals" JSONB NOT NULL DEFAULT '[]',
-    "disabledSignals" JSONB NOT NULL DEFAULT '[]',
-    "customThresholds" JSONB NOT NULL DEFAULT '{}',
+    "enabledSignals" TEXT,
+    "disabledSignals" TEXT,
+    "customThresholds" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
