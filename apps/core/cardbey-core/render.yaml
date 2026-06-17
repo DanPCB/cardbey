@@ -44,6 +44,28 @@ services:
       - key: CREWAI_ENABLED
         value: "false"
 
+  - type: web
+    name: cardbey-core-staging
+    env: node
+    plan: standard
+    branch: staging
+    buildCommand: node scripts/render-build.mjs
+    preDeployCommand: npm ci && node scripts/resolve-postgres-failed-migration.mjs && node scripts/prisma-bootstrap.js
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_LLM_TASK_PLANNER
+        value: "true"
+      - key: ENABLE_OPENCLAW_AGENT_RUNTIME
+        value: "true"
+      - key: OPENCLAW_MISSION_STEPS
+        value: "true"
+      - key: LANGCHAIN_ENABLED
+        value: "true"
+      - key: CREWAI_ENABLED
+        value: "false"
+
   # Prevent 15-minute spin-down cold starts (CORS null on first request after idle).
   - type: cron
     name: cardbey-core-keepalive

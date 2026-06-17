@@ -5,7 +5,6 @@
  * - Production (Render or NODE_ENV=production): requires explicit DATABASE_URL or
  *   PERSISTENT_DISK_PATH; never falls back to /tmp; fail-fast if resolved path is ephemeral.
  */
-import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -30,14 +29,33 @@ function isVitestRun() {
 
 const envPath = path.join(PACKAGE_ROOT, '.env');
 const envLocalPath = path.join(PACKAGE_ROOT, '.env.local');
-if (!isVitestRun()) {
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath, override: false });
-  }
-  if (fs.existsSync(envLocalPath)) {
-    dotenv.config({ path: envLocalPath, override: true });
+
+async function loadDotenvFiles() {
+  if (isVitestRun()) return;
+  const hasEnvFile = fs.existsSync(envPath) || fs.existsSync(envLocalPath);
+  if (!hasEnvFile) return;
+  try {
+    const { default: dotenv } = await import('dotenv');
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath, override: false });
+    }
+    if (fs.existsSync(envLocalPath)) {
+      dotenv.config({ path: envLocalPath, override: true });
+    }
+  } catch (err) {
+    const onRender = !!(process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
+    if (onRender || process.env.DATABASE_URL) {
+      console.warn(
+        '[env] dotenv unavailable; using platform env vars only:',
+        err?.message || err,
+      );
+      return;
+    }
+    throw err;
   }
 }
+
+await loadDotenvFiles();
 
 /** Paths wiped on Render/container restart — must not be used in production. */
 const EPHEMERAL_PREFIXES = ['/tmp', '/var/run'];
