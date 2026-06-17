@@ -95,3 +95,9 @@ export {
   findExistingSeed,
   mergeIncomingSeed,
 } from './seedIdempotency.js';
+export {
+  buildPilotBatchMetrics,
+  buildAllPilotBatchMetrics,
+  filterSeedsByBatch,
+  MELBOURNE_BATCH0_ID,
+} from './buildPilotBatchMetrics.js';

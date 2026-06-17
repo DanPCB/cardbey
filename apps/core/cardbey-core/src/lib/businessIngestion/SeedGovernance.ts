@@ -54,6 +54,8 @@ export function buildIngestedSeedRecord(params: {
   matchEvidence: MatchEvidence[];
   qualityScore: number;
   qualityTier: QualityTier;
+  batchId?: string | null;
+  campaignId?: string | null;
 }): IngestedSeedRecord {
   const now = new Date().toISOString();
   const verificationStatus = initialVerificationStatus(params.qualityTier, params.resolution);
@@ -73,6 +75,8 @@ export function buildIngestedSeedRecord(params: {
     draftId: null,
     createdAt: now,
     updatedAt: now,
+    batchId: params.batchId ?? null,
+    campaignId: params.campaignId ?? null,
   };
 }
 

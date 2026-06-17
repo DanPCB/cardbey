@@ -10,6 +10,8 @@ export type OpenDataFormat = 'json' | 'csv' | 'auto';
 export interface OpenDataUrlAdapterConfig {
   url: string;
   format?: OpenDataFormat;
+  /** Override provenance label (defaults to url). */
+  sourceReference?: string;
   /** Dot-path to array in JSON payload, e.g. "results" or "data.records". */
   recordsPath?: string;
   fieldMap?: Record<string, string>;
@@ -42,7 +44,7 @@ export class OpenDataUrlAdapter implements BusinessFeedAdapter {
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly config: OpenDataUrlAdapterConfig) {
-    this.sourceReference = config.url;
+    this.sourceReference = config.sourceReference ?? config.url;
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 

@@ -27,6 +27,9 @@ export interface IngestionPipelineOptions {
   persistStores?: boolean;
   /** Skip records classified as duplicate (default true). */
   skipDuplicates?: boolean;
+  /** Pilot / campaign batch tag stamped on each seed. */
+  batchId?: string | null;
+  campaignId?: string | null;
 }
 
 export interface IngestionPipelineResult {
@@ -78,6 +81,8 @@ export class IngestionPipeline {
         matchEvidence: item.matchEvidence,
         qualityScore: quality.qualityScore,
         qualityTier: quality.tier,
+        batchId: options.batchId ?? null,
+        campaignId: options.campaignId ?? null,
       });
 
       const draft = seedStoreBuilder.buildFromSeed(seed);

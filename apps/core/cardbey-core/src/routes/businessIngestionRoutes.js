@@ -85,6 +85,8 @@ router.get('/metrics', requireAuth, requireSuperAdmin, async (req, res, next) =>
       '../lib/businessIngestion/businessEvolutionService.js'
     );
     const discoveryIntelligence = await buildDiscoveryIntelligenceMetrics().catch(() => null);
+    const { buildAllPilotBatchMetrics } = await import('../lib/businessIngestion/buildPilotBatchMetrics.js');
+    const pilotBatches = await buildAllPilotBatchMetrics().catch(() => []);
     const controlCenter = buildControlCenterIngestionSnapshot({
       totalSeeds: metrics.totalSeeds,
       byVerificationStatus: metrics.byVerificationStatus,
@@ -115,6 +117,7 @@ router.get('/metrics', requireAuth, requireSuperAdmin, async (req, res, next) =>
         enrichment,
         discoveryIntelligence,
         controlCenter,
+        pilotBatches,
       },
     });
   } catch (error) {

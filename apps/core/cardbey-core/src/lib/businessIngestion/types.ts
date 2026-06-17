@@ -60,6 +60,8 @@ export interface QaQueueFilters {
   category?: string;
   city?: string;
   autoApprovalSuggested?: boolean;
+  batchId?: string;
+  campaignId?: string;
 }
 
 /** Common adapter output — raw facts as received from the source. */
@@ -158,6 +160,25 @@ export interface IngestedSeedRecord {
   verificationDurationMs?: number | null;
   /** verifiedAt → activatedAt */
   activationDurationMs?: number | null;
+  /** Pilot / campaign batch identifier (e.g. MELBOURNE_BATCH0_20260617). */
+  batchId?: string | null;
+  /** Discovery campaign identifier for funnel attribution. */
+  campaignId?: string | null;
+}
+
+/** Batch-scoped pilot funnel metrics for Control Center. */
+export interface PilotBatchMetrics {
+  batchId: string;
+  campaignId: string;
+  discovered: number;
+  pendingQa: number;
+  claimable: number;
+  reportViewed: number;
+  verified: number;
+  activated: number;
+  operating: number;
+  biSnapshots: number;
+  seedSuitcases: number;
 }
 
 export interface QaQueueItem extends IngestedSeedRecord {

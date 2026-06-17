@@ -96,6 +96,8 @@ export function mergeIncomingSeed(
     matchEvidence: incoming.matchEvidence,
     qualityScore: incoming.qualityScore,
     qualityTier: incoming.qualityTier,
+    batchId: incoming.batchId ?? existing.batchId ?? null,
+    campaignId: incoming.campaignId ?? existing.campaignId ?? null,
     updatedAt: new Date().toISOString(),
   };
 }
