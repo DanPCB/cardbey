@@ -51,6 +51,9 @@ router.get('/:storeSlug/offers/:offerSlug', async (req, res, next) => {
     await prisma.intentSignal.create({
       data: { type: 'offer_view', storeId: store.id, offerId: offer.id, userAgent: req.get('user-agent') || null, referrer: req.get('referer') || null },
     });
+    void import('../lib/storeActivity/storeActivityHooks.js').then(({ emitStoreActivityFromIntentSignal }) =>
+      emitStoreActivityFromIntentSignal({ storeId: store.id, type: 'offer_view', offerId: offer.id }),
+    );
 
     const jsonLd = { '@context': 'https://schema.org', '@graph': [
       { '@type': 'Offer', name: title, description: desc || undefined, price: priceText || undefined, url: canonical },

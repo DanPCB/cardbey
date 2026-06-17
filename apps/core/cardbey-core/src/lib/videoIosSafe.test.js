@@ -7,6 +7,7 @@ import {
   enrichStoreHeroVideoUrls,
   iosSafeSiblingExists,
   normalizeHeroVideoToPublicPath,
+  preferTvSafeVideoPublicPath,
 } from './videoIosSafe.js';
 
 describe('videoIosSafe', () => {
@@ -60,5 +61,19 @@ describe('videoIosSafe', () => {
       heroVideoUrlIosSafe: '/uploads/media/hero.ios.mp4',
     });
     expect(enriched.heroVideoUrlIosSafe).toBe('/uploads/media/hero.ios.mp4');
+  });
+
+  it('preferTvSafeVideoPublicPath swaps to sibling when present', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cardbey-tv-safe-'));
+    fs.writeFileSync(path.join(tmp, 'clip.ios.mp4'), 'x');
+    expect(preferTvSafeVideoPublicPath('/uploads/media/clip.mp4', tmp)).toBe(
+      '/uploads/media/clip.ios.mp4',
+    );
+    expect(
+      preferTvSafeVideoPublicPath('http://192.168.1.5:3001/uploads/media/clip.mp4', tmp),
+    ).toBe('http://192.168.1.5:3001/uploads/media/clip.ios.mp4');
+    expect(preferTvSafeVideoPublicPath('/uploads/media/missing.mp4', tmp)).toBe(
+      '/uploads/media/missing.mp4',
+    );
   });
 });

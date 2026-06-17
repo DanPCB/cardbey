@@ -85,6 +85,22 @@ export function resolvePlaylistItemMediaUrl(storedUrlOrPath, mediaBase, logCtx =
     try {
       const u = new URL(raw);
       pathPart = `${u.pathname}${u.search}${u.hash}`;
+      const storedHost = u.hostname;
+      try {
+        const baseHost = new URL(mediaBase).hostname;
+        if (storedHost && baseHost && storedHost !== baseHost) {
+          const isLan = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(storedHost);
+          console.warn('[PLAYLIST_HOST_MISMATCH]', {
+            ...logCtx,
+            storedHost,
+            baseHost,
+            stored: raw,
+            staleLanIpSuspected: isLan,
+          });
+        }
+      } catch {
+        /* ignore base parse */
+      }
     } catch {
       return null;
     }

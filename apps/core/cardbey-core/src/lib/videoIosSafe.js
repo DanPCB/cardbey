@@ -159,6 +159,39 @@ export function resolveIosSafeVideoPublicPathIfExists(publicPath, uploadsDir) {
 }
 
 /**
+ * Prefer H.264/AAC `.ios.mp4` sibling for Android TV / ExoPlayer when it exists on disk.
+ * @param {string | null | undefined} storedUrlOrPath
+ * @param {string} [uploadsDir]
+ * @returns {string | null | undefined}
+ */
+export function preferTvSafeVideoPublicPath(storedUrlOrPath, uploadsDir) {
+  if (!storedUrlOrPath || typeof storedUrlOrPath !== 'string') return storedUrlOrPath;
+  const trimmed = storedUrlOrPath.trim();
+  if (!trimmed) return storedUrlOrPath;
+
+  let pathPart = trimmed;
+  let absolute = false;
+  let origin = '';
+  let suffix = '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      const u = new URL(trimmed);
+      pathPart = u.pathname;
+      absolute = true;
+      origin = `${u.protocol}//${u.host}`;
+      suffix = `${u.search}${u.hash}`;
+    } catch {
+      return storedUrlOrPath;
+    }
+  }
+
+  const iosSafe = resolveIosSafeVideoPublicPathIfExists(pathPart, uploadsDir);
+  if (!iosSafe) return storedUrlOrPath;
+  if (absolute) return `${origin}${iosSafe}${suffix}`;
+  return iosSafe;
+}
+
+/**
  * @param {{ source: string, output: string, status: string, error?: string | null }} entry
  */
 export function logIosVideoBackfill(entry) {

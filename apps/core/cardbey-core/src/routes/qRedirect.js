@@ -82,6 +82,13 @@ router.get('/:code', async (req, res, next) => {
         referrer: req.get('referer') || null,
       },
     });
+    void import('../lib/storeActivity/storeActivityHooks.js').then(({ emitStoreActivityFromIntentSignal }) =>
+      emitStoreActivityFromIntentSignal({
+        storeId: row.storeId,
+        type: 'qr_scan',
+        offerId: offerId || null,
+      }),
+    );
 
     let redirectUrl = row.targetPath || '';
     if (redirectUrl && !redirectUrl.startsWith('http')) {

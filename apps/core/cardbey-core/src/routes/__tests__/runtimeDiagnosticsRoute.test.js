@@ -8,9 +8,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => {
     req.userId = 'admin-user';
+    req.user = { id: 'admin-user', role: 'super_admin' };
     next();
   },
-  requireAdmin: (_req, _res, next) => next(),
   optionalAuth: (req, _res, next) => {
     req.userId = null;
     next();

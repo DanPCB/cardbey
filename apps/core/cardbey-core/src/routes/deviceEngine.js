@@ -63,6 +63,7 @@ import {
   upsertDeviceMetadata,
   buildProjectedDeviceFields,
 } from '../lib/deviceProjection.js';
+import { preferTvSafeVideoPublicPath } from '../lib/videoIosSafe.js';
 // Also import from new mediaUrlNormalizer for additional normalization
 import { getTranslatedField } from '../services/i18n/translationUtils.js';
 import {
@@ -1407,6 +1408,23 @@ router.post('/heartbeat', async (req, res) => {
               tenantId: device.tenantId,
               storeId: device.storeId,
             });
+            try {
+              const { emitPlatformActivity } = await import('../lib/platformActivity/platformActivityEmitter.js');
+              emitPlatformActivity({
+                type: 'device_paired',
+                severity: 'success',
+                actorType: 'device',
+                actorId: device.id,
+                entityType: 'device',
+                entityId: device.id,
+                title: 'Device paired',
+                message: `${device.name || 'Display'} connected to C-Net.`,
+                route: '/marketing#device-network',
+                metadata: { platform: device.platform, tenantId: device.tenantId, storeId: device.storeId },
+              });
+            } catch {
+              /* non-fatal */
+            }
           }
         }
         
@@ -3213,7 +3231,19 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
 
           const asset = item.asset;
           const itemType = asset.type || 'image';
-          const itemUrl = asset.url;
+          let itemUrl = asset.url;
+          if (itemType === 'video' && itemUrl) {
+            const tvSafe = preferTvSafeVideoPublicPath(itemUrl);
+            if (tvSafe && tvSafe !== itemUrl) {
+              console.log(`[Device Engine] [${requestId}] Using TV-safe video derivative`, {
+                itemId: item.id,
+                assetId: asset.id,
+                original: itemUrl,
+                tvSafe,
+              });
+              itemUrl = tvSafe;
+            }
+          }
           const durationS = item.durationS || asset.durationS || 8;
 
           if (!itemUrl || itemUrl.trim() === '') {
@@ -3263,8 +3293,21 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
           const itemType = kind === 'video' ? 'video' : 'image';
 
           let itemUrl = media.url || '';
+          const originalUrl = media.url || '';
           if (kind === 'video' && media.optimizedUrl && media.isOptimized === true) {
             itemUrl = media.optimizedUrl;
+          }
+          if (kind === 'video') {
+            const tvSafe = preferTvSafeVideoPublicPath(originalUrl || itemUrl);
+            if (tvSafe && tvSafe !== itemUrl) {
+              console.log(`[Device Engine] [${requestId}] Using TV-safe video derivative`, {
+                itemId: item.id,
+                mediaId: media.id,
+                original: itemUrl,
+                tvSafe,
+              });
+              itemUrl = tvSafe;
+            }
           }
 
           const durationS = item.durationS ?? media.durationS ?? 8;
@@ -3304,6 +3347,9 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
             url: resolvedUrl,
             durationMs,
             order: item.orderIndex ?? 0,
+            ...(kind === 'video' && originalUrl && originalUrl !== itemUrl
+              ? { fallbackUrl: resolveItemUrl(originalUrl, { itemId: item.id, mediaId: media.id, role: 'fallback' }) }
+              : {}),
             _playlistItem: item,
             _asset: assetShim,
           };
@@ -3655,7 +3701,8 @@ router.post('/pair-alert', async (req, res) => {
       });
     }
 
-    const { deviceId, deviceType, ip, reason } = parsed.data;
+    const { deviceId, deviceType, ip, reason: rawReason, code, sessionId, expiresAt } = parsed.data;
+    const reason = rawReason === 'pairing_code_ready' ? 'pair_request' : rawReason;
 
     const device = await prisma.device.findUnique({
       where: { id: deviceId },
@@ -3668,6 +3715,7 @@ router.post('/pair-alert', async (req, res) => {
         tenantId: true,
         storeId: true,
         appVersion: true,
+        pairingCode: true,
       },
     });
 
@@ -3690,7 +3738,13 @@ router.post('/pair-alert', async (req, res) => {
       },
     });
 
-    if (binding && binding.status && !['pending', 'ready'].includes(binding.status)) {
+    const isPairingSignal = reason === 'pair_request';
+    if (
+      !isPairingSignal &&
+      binding &&
+      binding.status &&
+      !['pending', 'ready'].includes(binding.status)
+    ) {
       return res.status(409).json({
         ok: false,
         error: 'binding_inactive',
@@ -3721,6 +3775,8 @@ router.post('/pair-alert', async (req, res) => {
     });
 
     const timestamp = alert.createdAt.toISOString();
+    const resolvedCode = code || device.pairingCode || null;
+    const resolvedSessionId = sessionId || device.id;
     const eventPayload = {
       alertId: alert.id,
       deviceId: alert.deviceId,
@@ -3732,6 +3788,9 @@ router.post('/pair-alert', async (req, res) => {
       tenantId: device.tenantId,
       storeId: device.storeId,
       timestamp,
+      sessionId: resolvedSessionId,
+      code: resolvedCode,
+      expiresAt: expiresAt || null,
       bindingId: binding?.id || null,
       bindingStatus: binding?.status || null,
       ip: alert.ip,
@@ -4787,6 +4846,23 @@ router.post('/pair/complete', async (req, res) => {
         tenantId: pairing.tenantId,
         storeId: pairing.storeId,
       });
+      try {
+        const { emitPlatformActivity } = await import('../lib/platformActivity/platformActivityEmitter.js');
+        emitPlatformActivity({
+          type: 'device_paired',
+          severity: 'success',
+          actorType: 'device',
+          actorId: device.id,
+          entityType: 'device',
+          entityId: device.id,
+          title: 'Device paired',
+          message: `${device.name || 'Display'} connected to C-Net.`,
+          route: '/marketing#device-network',
+          metadata: { platform: device.platform, tenantId: pairing.tenantId, storeId: pairing.storeId },
+        });
+      } catch {
+        /* non-fatal */
+      }
       console.log(`[Device Engine] [${requestId}] Broadcasted SSE device:paired event`);
     } catch (sseError) {
       console.warn(`[Device Engine] [${requestId}] Failed to broadcast SSE (non-fatal):`, sseError.message);

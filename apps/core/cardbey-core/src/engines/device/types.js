@@ -222,5 +222,8 @@ export const PairAlertInput = z.object({
   deviceId: z.string().min(1, 'deviceId is required'),
   deviceType: z.string().optional(),
   ip: z.string().optional(),
-  reason: z.enum(['connection_lost', 'pair_request']).default('connection_lost'),
+  reason: z.enum(['connection_lost', 'pair_request', 'pairing_code_ready']).default('connection_lost'),
+  code: z.string().optional(),
+  sessionId: z.string().optional(),
+  expiresAt: z.string().optional(),
 });

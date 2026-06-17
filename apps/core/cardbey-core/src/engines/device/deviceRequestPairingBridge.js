@@ -25,6 +25,12 @@ function normalizeIncomingBody(raw = {}) {
   if (body.deviceType && !body.deviceModel) {
     body.deviceModel = body.deviceType;
   }
+  if (body.hardwareModel && !body.deviceModel) {
+    body.deviceModel = body.hardwareModel;
+  }
+  if (body.model && !body.deviceModel) {
+    body.deviceModel = body.model;
+  }
   if (body.label && !body.platform) {
     body.platform = body.label;
   }

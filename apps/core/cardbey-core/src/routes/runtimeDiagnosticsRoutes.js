@@ -9,7 +9,8 @@ import express from 'express';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { optionalAuth, requireAuth, requireAdmin } from '../middleware/auth.js';
+import { optionalAuth, requireAuth } from '../middleware/auth.js';
+import { requireSuperAdmin } from '../lib/authorization.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import {
   ingestRuntimeDiagnostic,
@@ -121,7 +122,7 @@ router.post(
 router.get(
   '/diagnostics/recent',
   requireAuth,
-  requireAdmin,
+  requireSuperAdmin,
   (req, res) => {
     const rows = listRecentRuntimeDiagnostics({
       storeId: typeof req.query.storeId === 'string' ? req.query.storeId.trim() : undefined,

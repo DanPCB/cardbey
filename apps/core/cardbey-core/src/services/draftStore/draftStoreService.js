@@ -3165,7 +3165,7 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
 
   const newStatus = draft.status === 'generating' ? draft.status : 'ready';
   if (newStatus === 'ready') {
-    await transitionDraftStoreStatus({
+    const transition = await transitionDraftStoreStatus({
       prisma,
       draftId,
       toStatus: 'ready',
@@ -3174,17 +3174,30 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
       reason: 'PATCH_PREVIEW',
       extraData: { preview: merged },
     });
-    // Ensure preview is persisted even when the status transition path is used.
-    // (The transition logs/audit are important, but the draft.preview column must reflect the patch.)
-    await prisma.draftStore.update({
-      where: { id: draftId },
-      data: { preview: merged, updatedAt: new Date() },
-    });
+    // When the transition is applied (e.g. draft/generating -> ready) it already persists
+    // `preview: merged` via extraData. A second update here would write the (large) preview
+    // blob again back-to-back, which trips SQLite's single-writer socket timeout (P1008).
+    // Only persist separately when the transition was a no-op (e.g. ready->ready is not an
+    // allowed transition) so the draft.preview column still reflects the patch.
+    if (!transition?.ok) {
+      await runCriticalSqliteWriteWithP1008Retry(
+        () =>
+          prisma.draftStore.update({
+            where: { id: draftId },
+            data: { preview: merged, updatedAt: new Date() },
+          }),
+        { label: 'draftStore.patchPreviewFallback' },
+      );
+    }
   } else {
-    await prisma.draftStore.update({
-      where: { id: draftId },
-      data: { preview: merged, updatedAt: new Date() },
-    });
+    await runCriticalSqliteWriteWithP1008Retry(
+      () =>
+        prisma.draftStore.update({
+          where: { id: draftId },
+          data: { preview: merged, updatedAt: new Date() },
+        }),
+      { label: 'draftStore.patchPreviewGenerating' },
+    );
   }
 
   try {

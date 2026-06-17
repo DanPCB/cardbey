@@ -195,6 +195,8 @@ async function handleFileUpload(req, res) {
     let width;
     let height;
     let durationS;
+    /** @type {{ compatible: boolean, needsAndroidTranscode: boolean, message: string, reasons: string[], transcodeSkipped?: boolean } | null} */
+    let videoCompatMeta = null;
     const kind = mime.startsWith('video') ? 'VIDEO' : 'IMAGE';
 
     // Extract metadata from buffer (for images, we can do this directly)
@@ -229,6 +231,20 @@ async function handleFileUpload(req, res) {
           info('UPLOAD', 'Video transcoded for web/TV compatibility', {
             originalName: req.file.originalname,
             requestId: req.requestId,
+          });
+        }
+        if (processed.compatible === false) {
+          videoCompatMeta = {
+            compatible: false,
+            needsAndroidTranscode: true,
+            message: 'Asset needs Android trans-code.',
+            reasons: processed.compatReport?.check?.reasons ?? [],
+            transcodeSkipped: processed.compatReport?.transcodeSkipped === true,
+          };
+          console.warn('[UPLOAD] Video stored without Android/TV-compatible transcode', {
+            originalName: req.file.originalname,
+            requestId: req.requestId,
+            ...videoCompatMeta,
           });
         }
       } catch (videoErr) {
@@ -341,6 +357,7 @@ async function handleFileUpload(req, res) {
         durationS: media.durationS,
         kind: media.kind,
         sizeBytes: media.sizeBytes,
+        ...(videoCompatMeta ? { videoCompat: videoCompatMeta } : {}),
       },
     });
   } catch (e) {
