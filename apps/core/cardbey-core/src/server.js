@@ -15,6 +15,14 @@ import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentit
 import { logStorageBoot } from './lib/storage/index.js';
 import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
 import './lib/skills/index.js';
+import './services/skills/builtinSkills.js';
+import './services/hooks/builtinHooks.js';
+import './services/agents/builtinAgents.js';
+import './services/reliability/builtinHeals.js';
+import './services/reliability/rateLimitConfig.js';
+import './services/reliability/bulkheadConfig.js';
+import './services/reliability/sloConfig.js';
+import { initReliabilityLayer } from './services/reliability/reliabilityInit.js';
 
 assertDatabaseIdentityAtStartup();
 assertSchemaFingerprintAtStartup();
@@ -107,6 +115,9 @@ import adminMetricsRoutes from './routes/adminMetrics.js';
 import adminPipelineRoutes from './routes/admin/pipeline.js';
 import adminEventsRoutes from './routes/admin/events.js';
 import adminCaiRoutes from './routes/admin/cai.js';
+import adminPlatformRoutes from './routes/admin/platformOverview.js';
+import adminPlatformActivityRoutes from './routes/admin/platformActivityRoutes.js';
+import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
   applyUploadsMediaHeaders,
@@ -145,11 +156,15 @@ import notificationsRoutes from './routes/notifications.js';
 import businessRoutes from './routes/business.js';
 import businessBrandRoutes from './routes/businessBrandRoutes.js';
 import discoveryRoutes from './routes/discoveryRoutes.js';
+import businessIngestionRoutes from './routes/businessIngestionRoutes.js';
+import claimBusinessPublicRoutes from './routes/claimBusinessPublicRoutes.js';
+import activateBusinessPublicRoutes from './routes/activateBusinessPublicRoutes.js';
 import exploreRoutes from './routes/exploreRoutes.js';
 import passiveGenerationRoutes from './routes/passiveGenerationRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
+import publicDiscoveryRoutes from './routes/publicDiscoveryRoutes.js';
 import publicContentInteractionRoutes from './routes/publicContentInteractionRoutes.js';
 import publicStoreRoutes from './routes/publicStoreRoutes.js';
 import intentFeedRoutes from './routes/intentFeedRoutes.js';
@@ -174,6 +189,14 @@ import pilRoutes from './routes/pilRoutes.js';
 import businessMemoryRoutes from './routes/businessMemoryRoutes.js';
 import intelligenceRoutes from './routes/intelligenceRoutes.js';
 import memoryRoutes from './routes/memoryRoutes.js';
+import observationRoutes from './routes/observationRoutes.js';
+import copilotRoutes from './routes/copilotRoutes.js';
+import skillRoutes from './routes/skillRoutes.js';
+import hookRoutes from './routes/hookRoutes.js';
+import agentRoutes from './routes/agentRoutes.js';
+import reliabilityRoutes from './routes/reliabilityRoutes.js';
+import suggestionEngine from './services/copilot/suggestionEngine.js';
+import signalRoutes from './routes/signalRoutes.js';
 import userMemoryRoutes from './routes/userMemoryRoutes.js';
 import betaRoutes from './routes/betaRoutes.js';
 import promoEngineRoutes from './routes/promoEngine.js';
@@ -913,6 +936,11 @@ app.use('/api/promotions', promotionsRoutes); // Public: GET /public/:publicId; 
 app.use('/api/business', businessRoutes); // Business Builder routes: /api/business/create
 app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
 app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
+app.use('/api/business-ingestion', businessIngestionRoutes); // Bulk factual business ingestion pipeline
+app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
+app.use('/api/claim-business', claimBusinessPublicRoutes); // Dev proxy alias (/api → core)
+app.use('/activate-business', activateBusinessPublicRoutes);
+app.use('/api/activate-business', activateBusinessPublicRoutes);
 app.use('/api/explore', exploreRoutes); // Featured explore videos: GET/POST/PATCH/DELETE /api/explore/videos
 app.use('/api/passive-generation', passiveGenerationRoutes); // Passive intent-to-artifact pipeline (foundation)
 app.use('/api/automation', automationRoutes); // Headless automation: /api/automation/store-from-input
@@ -928,7 +956,14 @@ app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observati
 app.use('/api/intelligence', intelligenceRoutes); // Foundation: /health, /memory, /express, /metrics (requires jsonParser above)
 if (process.env.USE_UNIFIED_MEMORY !== 'false') {
   app.use('/api/memory', memoryRoutes); // Unified memory facade: /bundle, /invalidate
+  app.use('/api/observations', observationRoutes); // Runtime observation bus read API
+  app.use('/api/signals', signalRoutes); // Signal configuration: /status, /preferences
 }
+app.use('/api/copilot', copilotRoutes); // Proactive copilot suggestions (governed handoff)
+app.use('/api/skills', skillRoutes); // Composable skills registry + execution
+app.use('/api/hooks', hookRoutes); // Lifecycle hooks registry + test
+app.use('/api/agents', agentRoutes); // Sub-agent registry, orchestration, message bus
+app.use('/api/reliability', reliabilityRoutes); // P6: auto-heal, rate limits, bulkhead, SLO, alerts
 app.use('/api/conversations', conversationRoutes); // Phase 0 — continuous Performer conversation sessions
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
@@ -957,6 +992,7 @@ app.use('/api/catalog', catalogRoutes); // Catalog SAM-3 processing routes: /api
 app.use('/api/public/store', publicStoreRoutes); // Draft alias: GET /api/public/store/:storeId/draft (before /api/public)
 app.use('/api/public/stores', intentFeedRoutes); // Intent feed: GET /api/public/stores/:storeId/intent-feed (no auth)
 app.use('/api/public/content-interactions', publicContentInteractionRoutes);
+app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
@@ -1053,6 +1089,9 @@ app.use('/api/admin', adminMetricsRoutes);
 app.use('/api/admin', adminPipelineRoutes);
 app.use('/api/admin', adminEventsRoutes);
 app.use('/api/admin', adminCaiRoutes);
+app.use('/api/admin', adminPlatformRoutes);
+app.use('/api/admin', adminPlatformActivityRoutes);
+app.use('/api/admin', adminPlatformSearchRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
 
@@ -1168,6 +1207,7 @@ const isTestEnv = (process.env.NODE_ENV || '').toLowerCase() === 'test' || Boole
     // NOTE: Keep this pre-listen (lightweight) but ensure heavier workers start after port bind (see listen callback).
     if (process.env.ROLE !== 'worker' && process.env.VITEST !== 'true') {
       startHeartbeat(30000); // 30s interval
+      initReliabilityLayer();
     }
   } catch (error) {
     console.error('[Server] Failed to initialize:', error);
@@ -1283,6 +1323,12 @@ if (process.env.ROLE === 'api') {
         } catch (e) {
           console.error('[CORE] initReportScheduler failed (non-fatal):', e?.message || e);
         }
+      }
+
+      try {
+        suggestionEngine.start();
+      } catch (e) {
+        console.error('[CORE] suggestionEngine.start failed (non-fatal):', e?.message || e);
       }
 
       // Content acquisition meta-scheduler (DB config drives enabled/cron)

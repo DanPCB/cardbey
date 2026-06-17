@@ -6,7 +6,7 @@
  */
 
 import '../src/env/ensureDatabaseUrl.js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../src/lib/prismaClient.js';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();

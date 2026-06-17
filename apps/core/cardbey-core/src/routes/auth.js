@@ -535,6 +535,23 @@ router.post('/register', async (req, res, next) => {
       }
     }
 
+    try {
+      const { emitPlatformActivity } = await import('../lib/platformActivity/platformActivityEmitter.js');
+      emitPlatformActivity({
+        type: 'user_registered',
+        severity: 'success',
+        actorType: 'user',
+        actorId: user?.id ?? null,
+        entityType: 'user',
+        entityId: user?.id ?? null,
+        title: 'New user registered',
+        message: 'A new account joined the platform.',
+        route: '/admin/accounts',
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     res.status(201).json({ ok: true, token, user });
   } catch (error) {
     if (error.code === 'EMAIL_EXISTS') {

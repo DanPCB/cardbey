@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import prisma from '../lib/prisma.js';
 import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
 import { normalizeLocale } from '../lib/localePrompt.js';
+import { isPlatformAdmin } from '../lib/authorization.js';
 const JWT_SECRET = requireJwtSecret();
 
 
@@ -98,16 +99,15 @@ export async function requireAuth(req, res, next) {
 
     // DEV ONLY SUPERUSER TOKEN: Handle dev-admin-token (for development/testing only)
     if (token === 'dev-admin-token' && process.env.NODE_ENV !== 'production') {
-      // DEV ONLY SUPERUSER TOKEN: Create a safe dev user object without database queries
       const devUser = {
-        id: 'dev-user-id',
+        id: 'dev-admin',
         email: 'dev@cardbey.local',
-        displayName: 'Dev User',
-        roles: '["admin"]',
-        role: 'admin',
+        displayName: 'Dev Admin',
+        roles: '["super_admin"]',
+        role: 'super_admin',
         emailVerified: true,
-        isDevAdmin: true, // Flag for dev-admin bypass in store access checks
-        // Add any other fields that routes might expect
+        isDevAdmin: true,
+        isSuperAdmin: true,
         business: null,
       };
 
@@ -247,9 +247,18 @@ export function requireAdmin(req, res, next) {
   if (!req.user) {
     return res.status(401).json({ ok: false, error: 'Not authenticated', message: 'Authentication required' });
   }
-  if (req.user.role !== 'admin') {
-    console.warn('[Auth] Admin required, request blocked (403)', { path: req.path, method: req.method, userId: req.user?.id });
-    return res.status(403).json({ ok: false, error: 'Admin access required', message: 'Platform admin access required' });
+  if (!isPlatformAdmin(req.user)) {
+    console.warn('[Auth] Platform admin required, request blocked (403)', {
+      path: req.path,
+      method: req.method,
+      userId: req.user?.id,
+      role: req.user?.role,
+    });
+    return res.status(403).json({
+      ok: false,
+      error: 'forbidden',
+      message: 'Platform admin access required',
+    });
   }
   next();
 }
@@ -266,13 +275,14 @@ export async function optionalAuth(req, res, next) {
       // can still derive an authenticated tenant context in local development.
       if (token === 'dev-admin-token' && process.env.NODE_ENV !== 'production') {
         const devUser = {
-          id: 'dev-user-id',
+          id: 'dev-admin',
           email: 'dev@cardbey.local',
-          displayName: 'Dev User',
-          roles: '["admin"]',
-          role: 'admin',
+          displayName: 'Dev Admin',
+          roles: '["super_admin"]',
+          role: 'super_admin',
           emailVerified: true,
           isDevAdmin: true,
+          isSuperAdmin: true,
           business: null,
         };
         req.user = devUser;

@@ -3208,6 +3208,48 @@ model PatternWeight {
   @@index([matchedSkill])
 }
 
+model Observation {
+  id              String   @id @default(cuid())
+  missionId       String?
+  intentType      String
+  actionType      String
+  outcome         String
+  error           String?
+  latency         Int?
+  tokensUsed      Int?
+  cost            Float?
+  confidence      Float?
+  contextSnapshot Json
+  createdAt       DateTime @default(now())
+
+  @@index([missionId])
+  @@index([intentType, outcome])
+  @@index([createdAt])
+  @@map("observations")
+}
+
+model CopilotSuggestion {
+  id         String    @id @default(cuid())
+  userId     String?
+  storeId    String?
+  type       String
+  title      String
+  message    String
+  action     String
+  urgency    String    @default("medium")
+  priority   Int       @default(5)
+  status     String    @default("pending")
+  metadata   Json
+  executedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([status, priority])
+  @@index([createdAt])
+  @@map("copilot_suggestions")
+}
+
 // Universal PIL Assistant — user memory and onboarding progress.
 model UserMemory {
   id             String    @id @default(cuid())
@@ -3234,6 +3276,19 @@ model OnboardingProgress {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  @@index([userId])
+}
+
+model UserSignalPreferences {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  enabledSignals   Json     @default("[]")
+  disabledSignals  Json     @default("[]")
+  customThresholds Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("user_signal_preferences")
   @@index([userId])
 }
 
@@ -3484,4 +3539,20 @@ model EnrichedFieldProvenance {
 
   @@index([storeId])
   @@index([fieldPath])
+}
+model TeacherTrace {
+  id           String   @id @default(cuid())
+  category     String   // store_analysis, campaign_creation, etc.
+  goal         String   // Original user goal
+  reasoning    String   @db.Text // Teacher model's reasoning
+  plan         Json     // The plan generated
+  action       String   // Action taken
+  outcome      String   // success, partial, failure
+  successRate  Float    @default(0)
+  embedding    Unsupported("vector(1536)")? // Vector for similarity search
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category, successRate])
+  @@map("teacher_traces")
 }

@@ -2955,6 +2955,72 @@ router.get('/:id/signals-summary', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * GET /api/stores/:id/activity
+ * Recent store-scoped activity for Live Performance polling fallback. Owner/admin only.
+ */
+router.get('/:id/activity', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = req.params.id?.trim();
+    const { assertStoreActivityAccess } = await import('../lib/storeActivity/storeActivityAccess.js');
+    const access = await assertStoreActivityAccess(req, storeId);
+    if (!access.ok) {
+      return res.status(access.status).json({ ok: false, error: access.error });
+    }
+    const { listStoreActivityEvents } = await import('../lib/storeActivity/storeActivityStore.js');
+    const { sanitizeStoreActivityEvent } = await import('../lib/storeActivity/storeActivitySanitizer.js');
+    const limit = req.query.limit;
+    const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+    const events = listStoreActivityEvents(access.store.id, { limit, since }).map(sanitizeStoreActivityEvent);
+    return res.json({ ok: true, events });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/stores/:id/activity/stream
+ * Store-scoped SSE for Live Performance. Owner/admin only; no cross-store leakage.
+ */
+router.get('/:id/activity/stream', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = req.params.id?.trim();
+    const { assertStoreActivityAccess } = await import('../lib/storeActivity/storeActivityAccess.js');
+    const access = await assertStoreActivityAccess(req, storeId);
+    if (!access.ok) {
+      return res.status(access.status).json({ ok: false, error: access.error });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    const { addStoreActivityStreamClient } = await import('../lib/storeActivity/storeActivityStore.js');
+    addStoreActivityStreamClient(access.store.id, res);
+    res.write(': connected\n\n');
+
+    const heartbeat = setInterval(() => {
+      if (res.writableEnded || res.destroyed) {
+        clearInterval(heartbeat);
+        return;
+      }
+      try {
+        res.write(': heartbeat\n\n');
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 25_000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * Resolve store by id or slug (public read helpers).
  */
 async function resolveStoreByIdOrSlug(idOrSlug) {
@@ -3103,6 +3169,37 @@ router.get('/:id/offers/:offerId/signals', requireAuth, async (req, res, next) =
     return res.json({ ok: true, ...summary });
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * GET /api/stores/:storeId/business-evolution
+ * Phase V4 — read-only before/after evolution vs migrated BI Snapshot baseline.
+ */
+router.get('/:storeId/business-evolution', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = req.params.storeId?.trim();
+    if (!storeId) {
+      return res.status(400).json({ ok: false, error: 'storeId required' });
+    }
+    const store = await prisma.business.findUnique({
+      where: { id: storeId },
+      select: { id: true, userId: true },
+    });
+    if (!store || store.userId !== req.userId) {
+      return res.status(404).json({ ok: false, error: 'Store not found' });
+    }
+    const { buildBusinessEvolutionSnapshot } = await import(
+      '../lib/businessIngestion/businessEvolutionService.js'
+    );
+    const evolution = await buildBusinessEvolutionSnapshot(storeId);
+    if (!evolution) {
+      return res.status(404).json({ ok: false, error: 'Evolution data unavailable' });
+    }
+    return res.json({ ok: true, evolution });
+  } catch (error) {
+    console.error('[stores] business-evolution error:', error);
+    next(error);
   }
 });
 

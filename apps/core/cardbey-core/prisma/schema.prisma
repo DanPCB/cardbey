@@ -3208,6 +3208,50 @@ model PatternWeight {
   @@index([matchedSkill])
 }
 
+// Runtime observation bus — structured execution telemetry for learning + copilot.
+model Observation {
+  id              String   @id @default(cuid())
+  missionId       String?
+  intentType      String
+  actionType      String
+  outcome         String
+  error           String?
+  latency         Int?
+  tokensUsed      Int?
+  cost            Float?
+  confidence      Float?
+  contextSnapshot Json
+  createdAt       DateTime @default(now())
+
+  @@index([missionId])
+  @@index([intentType, outcome])
+  @@index([createdAt])
+  @@map("observations")
+}
+
+// Proactive copilot suggestions queue (governed client handoff; no auto-execute).
+model CopilotSuggestion {
+  id         String    @id @default(cuid())
+  userId     String?
+  storeId    String?
+  type       String
+  title      String
+  message    String
+  action     String
+  urgency    String    @default("medium")
+  priority   Int       @default(5)
+  status     String    @default("pending")
+  metadata   Json
+  executedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([status, priority])
+  @@index([createdAt])
+  @@map("copilot_suggestions")
+}
+
 // Universal PIL Assistant — user memory and onboarding progress.
 model UserMemory {
   id             String    @id @default(cuid())
