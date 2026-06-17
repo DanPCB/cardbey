@@ -42,6 +42,10 @@
     "truth:audit": "node scripts/truth-enforcer/audit-repo.mjs",
     "truth:fix": "node scripts/truth-enforcer/index.mjs --fix",
     "truth:strict": "node scripts/truth-enforcer/index.mjs --strict",
+    "audit:discovery": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-discovery-data.ts",
+    "audit:discovery:readiness": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-discovery-data.ts -- --readiness",
+    "cleanup:discovery:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-discovery-dry-run.ts",
+    "cleanup:discovery": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-discovery-data.ts",
     "prepare": "husky"
   },
   "devDependencies": {
