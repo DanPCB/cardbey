@@ -5,6 +5,16 @@
 import agentRegistry from './agentRegistry.js';
 import messageBus from './messageBus.js';
 
+const DEFAULT_AGENT_IDS = [
+  'analytics_agent',
+  'creative_agent',
+  'optimizer_agent',
+  'concierge_agent',
+];
+
+/** @type {ReturnType<typeof setInterval>|null} */
+let heartbeatTimer = null;
+
 export class AgentLifecycle {
   /**
    * @param {{ registry?: typeof agentRegistry; bus?: typeof messageBus }} [deps]
@@ -113,4 +123,63 @@ export class AgentLifecycle {
 }
 
 const agentLifecycle = new AgentLifecycle();
+
+/**
+ * Ensure built-in agents are active and healthy (idempotent).
+ *
+ * @param {string[]} [agentIds]
+ */
+export function initializeAgents(agentIds = DEFAULT_AGENT_IDS) {
+  for (const agentId of agentIds) {
+    try {
+      const agent = agentRegistry.get(agentId);
+      if (!agent) continue;
+      if (agent.status !== 'active') {
+        agentLifecycle.start(agentId);
+        console.log(`[AgentLifecycle] Auto-started ${agentId}`);
+      } else {
+        agentLifecycle.heartbeat(agentId);
+      }
+    } catch (error) {
+      console.warn(`[AgentLifecycle] Failed to auto-start ${agentId}:`, error?.message || error);
+    }
+  }
+}
+
+/**
+ * Keep active agents healthy — registry marks stale heartbeats as unhealthy after 60s.
+ *
+ * @param {number} [intervalMs]
+ */
+export function startAgentHeartbeatLoop(intervalMs = 30_000) {
+  if (heartbeatTimer || process.env.VITEST === 'true') return;
+
+  heartbeatTimer = setInterval(() => {
+    for (const agent of agentRegistry.list()) {
+      if (agent.status !== 'active') continue;
+      try {
+        agentLifecycle.heartbeat(agent.id);
+      } catch (error) {
+        console.warn(
+          `[AgentLifecycle] Heartbeat failed for ${agent.id}:`,
+          error?.message || error,
+        );
+      }
+    }
+  }, intervalMs);
+
+  if (typeof heartbeatTimer?.unref === 'function') {
+    heartbeatTimer.unref();
+  }
+
+  console.log(`[AgentLifecycle] Heartbeat loop started (${intervalMs}ms)`);
+}
+
+export function stopAgentHeartbeatLoop() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
 export default agentLifecycle;

@@ -102,15 +102,30 @@ export class SLOTracker {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     try {
-      const total = await prisma.observation.count({
+      const observations = await prisma.observation.findMany({
         where: { createdAt: { gte: since } },
+        select: {
+          outcome: true,
+          actionType: true,
+          intentType: true,
+          contextSnapshot: true,
+        },
+        take: 5000,
+        orderBy: { createdAt: 'desc' },
       });
-      if (total === 0) return 100;
 
-      const success = await prisma.observation.count({
-        where: { outcome: 'success', createdAt: { gte: since } },
-      });
-      return (success / total) * 100;
+      const eligible = observations.filter((row) =>
+        isObservationSloEligible({
+          actionType: row.actionType,
+          intentType: row.intentType,
+          contextSnapshot: row.contextSnapshot,
+        }),
+      );
+
+      if (eligible.length === 0) return 100;
+
+      const success = eligible.filter((row) => row.outcome === 'success').length;
+      return (success / eligible.length) * 100;
     } catch {
       return 100;
     }

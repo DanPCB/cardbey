@@ -12,6 +12,10 @@ import {
   stashRollbackSnapshot,
 } from './hookMetrics.js';
 import { getPrismaClient } from '../../lib/prisma.js';
+import {
+  shouldBypassPermissionValidation,
+  syntheticBypassStore,
+} from './permissionBypass.js';
 
 hookRegistry.register({
   id: 'validate_permissions',
@@ -24,6 +28,10 @@ hookRegistry.register({
     const storeId = String(context?.storeId ?? '').trim();
     if (!userId) throw new Error('User ID required');
     if (!storeId) throw new Error('Store ID required');
+
+    if (shouldBypassPermissionValidation({ userId, storeId, source: context?.source })) {
+      return { validated: true, bypass: true, store: syntheticBypassStore(storeId, userId) };
+    }
 
     const prisma = getPrismaClient();
     if (prisma?.business?.findFirst) {
@@ -65,6 +73,11 @@ hookRegistry.register({
   handler: async (context) => {
     const storeId = String(context?.storeId ?? '').trim();
     if (!storeId) return { skipped: true, reason: 'no_store_id' };
+
+    const userId = String(context?.userId ?? '').trim();
+    if (shouldBypassPermissionValidation({ userId, storeId, source: context?.source })) {
+      return { storeData: syntheticBypassStore(storeId, userId) };
+    }
 
     const prisma = getPrismaClient();
     if (!prisma?.business?.findUnique) {

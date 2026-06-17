@@ -7,6 +7,11 @@ import sloTracker from './sloTracker.js';
 import alerting from './alerting.js';
 import { ConsoleChannel } from './channels/console.js';
 import { WebhookChannel } from './channels/webhook.js';
+import {
+  initializeAgents,
+  startAgentHeartbeatLoop,
+  stopAgentHeartbeatLoop,
+} from '../agents/agentLifecycle.js';
 
 /** @type {ReturnType<typeof setInterval>|null} */
 let sloInterval = null;
@@ -25,6 +30,13 @@ export function initReliabilityLayer() {
 
   if (process.env.VITEST !== 'true' && process.env.RELIABILITY_AUTO_HEAL !== 'false') {
     autoHeal.start();
+  }
+
+  if (process.env.VITEST !== 'true' && process.env.AGENT_AUTO_START !== 'false') {
+    initializeAgents();
+    startAgentHeartbeatLoop(
+      parseInt(process.env.AGENT_HEARTBEAT_INTERVAL_MS, 10) || 30_000,
+    );
   }
 
   if (process.env.VITEST !== 'true' && process.env.RELIABILITY_SLO_LOOP !== 'false') {
@@ -58,6 +70,7 @@ export function initReliabilityLayer() {
 
 export function shutdownReliabilityLayer() {
   autoHeal.stop();
+  stopAgentHeartbeatLoop();
   if (sloInterval) {
     clearInterval(sloInterval);
     sloInterval = null;

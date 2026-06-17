@@ -5,6 +5,7 @@
 import { ensureRuntimeAuthorizedContext } from '../../lib/runtime/performerRuntime/runtimeOwnership.js';
 import composableSkillRegistry from './skillRegistry.js';
 import bulkhead from '../reliability/bulkhead.js';
+import circuitBreaker from '../reliability/circuitBreaker.js';
 import observationBus from '../../lib/runtime/observationBus.js';
 
 function sleep(ms) {
@@ -85,7 +86,9 @@ export class CompositionEngine {
    * @param {object} context
    */
   async executeSkill(skillDef, context) {
-    return bulkhead.execute('skill_execution', () => this._executeSkillInner(skillDef, context));
+    return circuitBreaker.execute('skill_execution', () =>
+      bulkhead.execute('skill_execution', () => this._executeSkillInner(skillDef, context)),
+    );
   }
 
   /**

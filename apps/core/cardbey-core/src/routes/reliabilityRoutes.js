@@ -7,6 +7,7 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import autoHeal from '../services/reliability/autoHeal.js';
 import rateLimiter from '../services/reliability/rateLimiter.js';
 import bulkhead from '../services/reliability/bulkhead.js';
+import circuitBreaker from '../services/reliability/circuitBreaker.js';
 import sloTracker from '../services/reliability/sloTracker.js';
 import alerting from '../services/reliability/alerting.js';
 import {
@@ -54,6 +55,16 @@ router.get('/bulkhead/status', requireAuth, requireAdmin, (req, res) => {
   } catch (error) {
     console.error('[reliability/bulkhead/status]', error);
     res.status(500).json({ ok: false, error: 'bulkhead_status_failed' });
+  }
+});
+
+router.get('/circuit-breaker/status', requireAuth, requireAdmin, (req, res) => {
+  try {
+    const statuses = circuitBreaker.getAllStatuses();
+    res.json({ ok: true, statuses });
+  } catch (error) {
+    console.error('[reliability/circuit-breaker/status]', error);
+    res.status(500).json({ ok: false, error: 'circuit_breaker_status_failed' });
   }
 });
 

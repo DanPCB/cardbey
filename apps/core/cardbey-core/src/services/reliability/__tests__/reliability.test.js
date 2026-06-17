@@ -224,4 +224,11 @@ describe('reliabilityRoutes', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.alert?.title).toBe('Test Alert');
   });
+
+  it('GET /api/reliability/circuit-breaker/status returns statuses', async () => {
+    const res = await request(app).get('/api/reliability/circuit-breaker/status');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.statuses).toBeDefined();
+  });
 });

@@ -5,7 +5,12 @@
 import agentRegistry, { AgentRegistry } from './agentRegistry.js';
 import messageBus, { MessageBus } from './messageBus.js';
 import agentSharedMemory, { AgentSharedMemory } from './agentSharedMemory.js';
-import agentLifecycle, { AgentLifecycle } from './agentLifecycle.js';
+import agentLifecycle, {
+  AgentLifecycle,
+  initializeAgents,
+  startAgentHeartbeatLoop,
+  stopAgentHeartbeatLoop,
+} from './agentLifecycle.js';
 import orchestrator, { SubAgentOrchestrator } from './orchestrator.js';
 
 export {
@@ -14,6 +19,9 @@ export {
   AgentSharedMemory,
   AgentLifecycle,
   SubAgentOrchestrator,
+  initializeAgents,
+  startAgentHeartbeatLoop,
+  stopAgentHeartbeatLoop,
 };
 
 export {
