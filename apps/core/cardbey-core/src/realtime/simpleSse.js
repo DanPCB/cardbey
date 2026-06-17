@@ -21,6 +21,7 @@
 
 import { randomUUID } from 'crypto';
 import { isBotSseRequest } from '../lib/sseBotGuard.js';
+import { resolveSseStreamAuth } from './sseStreamAuth.js';
 
 /**
  * SSE client connection
@@ -65,10 +66,30 @@ export function handleSse(req, res) {
     return;
   }
 
-  const key = String(req.query?.key || 'admin');
-  const streamKind = classifySseStream(req);
+  const auth = resolveSseStreamAuth(req);
+  if (!auth.ok) {
+    const streamKind = auth.error === 'legacy_admin_key_disabled' ? 'legacy-admin-rejected' : 'stream-auth-rejected';
+    console.log('[sseRoutePolicy] blocked SSE connection:', {
+      streamKind,
+      error: auth.error,
+      ip: req.headers['cf-connecting-ip'] ?? req.ip,
+      origin: req.headers.origin ?? 'none',
+    });
+    res.status(403).json({
+      ok: false,
+      error: auth.error,
+      message:
+        auth.error === 'legacy_admin_key_disabled'
+          ? 'Use ?token=<JWT> for device streams, agent-chat with streamToken for missions, or configure SSE_STREAM_KEY'
+          : 'Valid stream token or SSE_STREAM_KEY required',
+    });
+    return;
+  }
 
-  if (key === 'admin' && process.env.NODE_ENV !== 'production') {
+  const key = auth.clientKey;
+  const streamKind = classifySseStream({ ...req, query: { ...req.query, key } });
+
+  if (auth.authMode === 'dev' && key === 'admin') {
     console.warn('[runway-legacy]', {
       code: 'LEGACY_SSE_ADMIN_KEY',
       streamKind,
@@ -77,21 +98,11 @@ export function handleSse(req, res) {
     });
   }
 
-  if (process.env.NODE_ENV === 'production' && key === 'admin') {
-    const envKey = process.env.SSE_STREAM_KEY || process.env.TV_STREAM_KEY;
-    if (!envKey || key !== envKey) {
-      console.log('[sseRoutePolicy] blocked legacy admin key in production:', {
-        streamKind: 'legacy-admin-rejected',
-        ip: req.headers['cf-connecting-ip'] ?? req.ip,
-        origin: req.headers.origin ?? 'none',
-      });
-      res.status(403).json({
-        ok: false,
-        error: 'legacy_admin_key_disabled',
-        message: 'Use agent-chat stream with streamToken for mission console; configure SSE_STREAM_KEY for device routes',
-      });
-      return;
-    }
+  if (auth.authMode === 'jwt') {
+    console.log('[SSE] JWT-authenticated device stream', {
+      userId: auth.userId,
+      streamKind: 'jwt-admin',
+    });
   }
 
   const missionId = typeof req.query?.missionId === 'string' && req.query.missionId.trim() ? req.query.missionId.trim() : null;
