@@ -61,6 +61,8 @@ services:
         value: "15000"
       - key: CIRCUIT_BREAKER_THRESHOLD
         value: "12"
+      - key: SLO_MIN_SAMPLE_SIZE
+        value: "50"
       - key: USE_LLM_TASK_PLANNER
         value: "true"
       - key: ENABLE_OPENCLAW_AGENT_RUNTIME

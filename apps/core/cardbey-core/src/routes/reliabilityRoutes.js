@@ -71,10 +71,12 @@ router.get('/circuit-breaker/status', requireAuth, requireAdmin, (req, res) => {
 router.get('/slo/status', requireAuth, requireAdmin, async (req, res) => {
   try {
     const breaches = await sloTracker.evaluate();
+    const successRateStats = await sloTracker.getSuccessRateStats();
     const failurePatterns = await sloTracker.getFailurePatterns(10);
     res.json({
       ok: true,
       objectives: sloTracker.getObjectives(),
+      successRateStats,
       recentBreaches: sloTracker.getBreachHistory(20),
       breachesThisEvaluation: breaches,
       failurePatterns,

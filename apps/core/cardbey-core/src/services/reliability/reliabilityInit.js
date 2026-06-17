@@ -46,6 +46,7 @@ export function initReliabilityLayer() {
         .evaluate()
         .then(async (breaches) => {
           for (const breach of breaches) {
+            if (breach.isNewBreach === false) continue;
             await alerting.sendAlert({
               title: `SLO Breach: ${breach.name}`,
               message: `${breach.metric}=${breach.value} (target ${breach.target.operator} ${breach.target.value})`,

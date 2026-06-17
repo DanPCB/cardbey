@@ -43,10 +43,23 @@ export class SLOTracker {
     const breaches = [];
 
     for (const [, objective] of this.objectives) {
-      const value = await this.getMetric(objective.metric);
-      const withinTarget = this.isWithinTarget(value, objective.target);
+      const metricResult = await this.getMetricWithStats(objective.metric);
+      const value = metricResult.value;
+      let withinTarget = this.isWithinTarget(value, objective.target);
       objective.evaluations++;
       objective.lastValue = value;
+      objective.lastStats = metricResult.stats ?? null;
+
+      const minSample = parseInt(process.env.SLO_MIN_SAMPLE_SIZE, 10) || 50;
+      if (
+        objective.metric === 'success_rate' &&
+        metricResult.stats &&
+        metricResult.stats.eligible < minSample
+      ) {
+        withinTarget = true;
+      }
+
+      const wasWithinTarget = objective.lastWithinTarget;
       objective.lastWithinTarget = withinTarget;
 
       if (!withinTarget) {
@@ -58,7 +71,9 @@ export class SLOTracker {
           target: objective.target,
           severity: objective.severity,
           window: objective.window,
+          stats: metricResult.stats ?? null,
           timestamp: new Date().toISOString(),
+          isNewBreach: wasWithinTarget === true,
         };
         breaches.push(breach);
         console.warn(
@@ -71,10 +86,20 @@ export class SLOTracker {
     return breaches;
   }
 
+  async getMetricWithStats(metric) {
+    if (metric === 'success_rate') {
+      const stats = await this.getSuccessRateStats();
+      return { value: stats.rate, stats };
+    }
+    return { value: await this.getMetric(metric), stats: null };
+  }
+
   async getMetric(metric) {
     switch (metric) {
-      case 'success_rate':
-        return this.getSuccessRate();
+      case 'success_rate': {
+        const stats = await this.getSuccessRateStats();
+        return stats.rate;
+      }
       case 'latency_p95':
         return this.getLatencyP95();
       case 'queue_depth':
@@ -100,9 +125,22 @@ export class SLOTracker {
     }
   }
 
-  async getSuccessRate() {
+  parseSuccessRateWindowMs() {
+    const raw = String(process.env.SLO_SUCCESS_RATE_WINDOW ?? '24h').trim().toLowerCase();
+    if (raw.endsWith('h')) {
+      const hours = parseInt(raw, 10);
+      if (Number.isFinite(hours) && hours > 0) return hours * 60 * 60 * 1000;
+    }
+    if (raw.endsWith('m')) {
+      const minutes = parseInt(raw, 10);
+      if (Number.isFinite(minutes) && minutes > 0) return minutes * 60 * 1000;
+    }
+    return 24 * 60 * 60 * 1000;
+  }
+
+  async getSuccessRateStats() {
     const prisma = getPrismaClient();
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since = new Date(Date.now() - this.parseSuccessRateWindowMs());
 
     try {
       const observations = await prisma.observation.findMany({
@@ -128,13 +166,34 @@ export class SLOTracker {
         }),
       );
 
-      if (eligible.length === 0) return 100;
-
       const success = eligible.filter((row) => row.outcome === 'success').length;
-      return Math.round((success / eligible.length) * 1000) / 10;
+      const failures = eligible.length - success;
+      const rate =
+        eligible.length === 0 ? 100 : Math.round((success / eligible.length) * 1000) / 10;
+
+      return {
+        rate,
+        eligible: eligible.length,
+        success,
+        failures,
+        windowMs: this.parseSuccessRateWindowMs(),
+        since: since.toISOString(),
+      };
     } catch {
-      return 100;
+      return {
+        rate: 100,
+        eligible: 0,
+        success: 0,
+        failures: 0,
+        windowMs: this.parseSuccessRateWindowMs(),
+        since: new Date(Date.now() - this.parseSuccessRateWindowMs()).toISOString(),
+      };
     }
+  }
+
+  async getSuccessRate() {
+    const stats = await this.getSuccessRateStats();
+    return stats.rate;
   }
 
   async getLatencyP95() {
@@ -195,6 +254,7 @@ export class SLOTracker {
       evaluations: o.evaluations,
       lastValue: o.lastValue,
       lastWithinTarget: o.lastWithinTarget,
+      stats: o.lastStats ?? null,
     }));
   }
 

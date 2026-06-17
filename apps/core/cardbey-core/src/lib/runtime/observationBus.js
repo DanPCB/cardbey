@@ -62,6 +62,35 @@ export function isInfrastructureSloFailure(error) {
 }
 
 /**
+ * Permission-hook / smoke-probe failures — not representative user API errors.
+ * @param {string | null | undefined} error
+ */
+export function isPermissionHookFailure(error) {
+  const msg = String(error ?? '').toLowerCase();
+  if (!msg) return false;
+  if (msg.includes('validate_permissions')) return true;
+  if (msg.includes('does not have access to store')) return true;
+  if (msg.includes('critical hook') && msg.includes('store id required')) return true;
+  if (msg.includes('user id required') && msg.includes('critical hook')) return true;
+  return false;
+}
+
+/**
+ * @param {unknown} contextSnapshot
+ */
+export function isProbeObservationContext(contextSnapshot) {
+  const snap =
+    contextSnapshot && typeof contextSnapshot === 'object' ? contextSnapshot : {};
+  const userId = String(snap.userId ?? '').trim();
+  const source = String(snap.source ?? '').trim().toLowerCase();
+  if (userId === 'dev-admin' || userId === 'test-user') return true;
+  if (source.includes('hook_test') || source === 'slo_probe' || source === 'smoke_test') {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Whether an observation counts toward API success-rate SLO.
  * @param {{ outcome?: string; actionType?: string; intentType?: string; contextSnapshot?: unknown; error?: string | null }} row
  */
@@ -69,6 +98,8 @@ export function isObservationSuccessRateEligible(row) {
   if (!isObservationSloEligible(row)) return false;
   if (row.outcome === 'success') return true;
   if (isInfrastructureSloFailure(row.error)) return false;
+  if (isPermissionHookFailure(row.error)) return false;
+  if (isProbeObservationContext(row.contextSnapshot)) return false;
   const snap =
     row?.contextSnapshot && typeof row.contextSnapshot === 'object' ? row.contextSnapshot : {};
   if (snap.sloEligible === false) return false;

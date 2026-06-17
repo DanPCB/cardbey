@@ -19,6 +19,7 @@ import observationBus, {
   isObservationSloEligible,
   isObservationSuccessRateEligible,
   isInfrastructureSloFailure,
+  isPermissionHookFailure,
   SLO_EXCLUDED_ACTION_TYPES,
 } from './observationBus.js';
 import { getPrismaClient } from '../prisma.js';
@@ -153,5 +154,17 @@ describe('observationBus', () => {
         intentType: 'run_skill',
       }),
     ).toBe(true);
+  });
+
+  it('excludes permission hook probe failures from success-rate SLO', () => {
+    expect(
+      isObservationSuccessRateEligible({
+        outcome: 'failure',
+        error: 'Critical hook validate_permissions failed: User dev-admin does not have access to store test',
+        actionType: 'skill:analyze_store',
+        intentType: 'run_skill',
+        contextSnapshot: { userId: 'dev-admin', storeId: 'test', source: 'skill_route_execute' },
+      }),
+    ).toBe(false);
   });
 });
