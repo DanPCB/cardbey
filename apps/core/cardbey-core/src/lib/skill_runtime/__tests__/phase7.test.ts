@@ -39,11 +39,11 @@ describe('buildSkillContext — query priority (phase 7)', () => {
 });
 
 describe('intake tool registry — get_store_analytics', () => {
-  it('is registered with direct_action execution path', () => {
+  it('is registered with proactive_plan execution path', () => {
     expect(isRegisteredTool('get_store_analytics')).toBe(true);
     const entry = getToolEntry('get_store_analytics');
     expect(entry).not.toBeNull();
-    expect(entry?.executionPath).toBe('direct_action');
+    expect(entry?.executionPath).toBe('proactive_plan');
     expect(entry?.requiresStore).toBe(true);
     expect(entry?.riskLevel).toBe('safe_read');
   });

@@ -68,7 +68,7 @@ describe('mergeIntentResolutionIntoClassification', () => {
     });
     const merged = mergeIntentResolutionIntoClassification(base, r);
     expect(merged.tool).toBe('orders_report');
-    expect(merged.executionPath).toBe('direct_action');
+    expect(merged.executionPath).toBe('proactive_plan');
   });
 });
 

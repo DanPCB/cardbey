@@ -182,6 +182,8 @@ describe('POST /api/stores/publish', () => {
         input: { generationRunId: runId },
         preview: {
           storeName: 'Store With Hero',
+          heroImageUrl: heroUrl,
+          avatarImageUrl: avatarUrl,
           meta: {
             storeName: 'Store With Hero',
             storeType: 'General',

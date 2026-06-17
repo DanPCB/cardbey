@@ -46,7 +46,7 @@ describe('validateIntakeClassification', () => {
 
   it('rejects missing store when required', () => {
     const v = validateIntakeClassification(
-      { executionPath: 'direct_action', tool: 'orders_report', parameters: {} },
+      { executionPath: 'proactive_plan', tool: 'orders_report', parameters: {} },
       null,
     );
     expect(v.ok).toBe(false);
@@ -56,7 +56,7 @@ describe('validateIntakeClassification', () => {
   it('accepts create_store when classifier used alias "name" (maps to storeName)', () => {
     const v = validateIntakeClassification(
       {
-        executionPath: 'direct_action',
+        executionPath: 'proactive_plan',
         tool: 'create_store',
         parameters: {
           name: 'ABC Fashion',
@@ -75,7 +75,7 @@ describe('validateIntakeClassification', () => {
   it('rejects create_store strict unknown keys after normalization', () => {
     const v = validateIntakeClassification(
       {
-        executionPath: 'direct_action',
+        executionPath: 'proactive_plan',
         tool: 'create_store',
         parameters: { storeName: 'X', extraClassifierKey: 'nope' },
       },
@@ -103,7 +103,7 @@ describe('create_store parameter normalization', () => {
       { storeName: 'Form Name', storeType: 'Retail', location: 'Sydney' },
     );
     const v = validateIntakeClassification(
-      { executionPath: 'direct_action', tool: 'create_store', parameters: m },
+      { executionPath: 'proactive_plan', tool: 'create_store', parameters: m },
       null,
     );
     expect(v.ok).toBe(true);

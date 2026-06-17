@@ -85,6 +85,7 @@ describe('Runtime Kernel E2E Flows', () => {
   });
 
   it('blocks broker direct dispatch from intake_v2', () => {
+    process.env.BROKER_BLOCK_DIRECT_ACTION = 'true';
     const guard = guardBrokerDirectAction({ source: 'intake_v2' });
     expect(guard.blocked).toBe(true);
   });

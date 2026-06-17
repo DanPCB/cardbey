@@ -63,7 +63,7 @@ describe('hero auto-generate (generation-ready heuristics)', () => {
     });
     expect(built).not.toBeNull();
     expect(built.classification.tool).toBe('edit_artifact');
-    expect(built.classification.executionPath).toBe('direct_action');
+    expect(built.classification.executionPath).toBe('proactive_plan');
     expect(String(built.classification.parameters.instruction)).toContain('fashion');
     expect(String(built.classification.parameters.artifactType)).toBe('hero');
     expect(built.telemetry.heroAutoGenerateTriggered).toBe(true);

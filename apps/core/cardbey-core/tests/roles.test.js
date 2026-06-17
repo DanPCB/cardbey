@@ -130,6 +130,7 @@ describe('DELETE /api/products/:id - Owner access', () => {
     const response = await testRequest
       .delete(`/api/products/${testProduct.id}`)
       .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ confirmed: true })
       .expect(200);
 
     expect(response.body.ok).toBe(true);

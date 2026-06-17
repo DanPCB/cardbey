@@ -44,6 +44,11 @@ if (!process.env.DATABASE_URL.includes('test.db')) {
   );
 }
 
+// Test harness baseline: blocking flags default ON in production; tests opt in per case.
+if (process.env.BROKER_BLOCK_DIRECT_ACTION === undefined) {
+  process.env.BROKER_BLOCK_DIRECT_ACTION = 'false';
+}
+
 // Print test environment (bulletproof regression prevention)
 console.log(`[TestEnv] DATABASE_URL=${process.env.DATABASE_URL} NODE_ENV=${process.env.NODE_ENV} JWT_SECRET=${process.env.JWT_SECRET ? 'set' : 'missing'}`);
 

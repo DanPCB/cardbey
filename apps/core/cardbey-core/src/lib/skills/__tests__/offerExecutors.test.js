@@ -71,13 +71,14 @@ describe('offer executors', () => {
       confirmed: false,
     });
 
-    expect(result.status).toBe('ok');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('requires_user_input');
     expect(result.output?.applied).toBe(false);
     expect(result.output?.requiresConfirmation).toBe(true);
     expect(result.output?.suggestion).toEqual(suggestion);
   });
 
-  it('apply_offer_optimization applied true when confirmed true', async () => {
+  it('apply_offer_optimization blocked when confirmed but persistence not wired', async () => {
     const suggestion = {
       id: 'sug-1',
       type: 'copy',
@@ -91,13 +92,13 @@ describe('offer executors', () => {
       confirmed: true,
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.applied).toBe(true);
-    expect(result.output?.requiresConfirmation).toBe(false);
-    expect(result.output?.appliedAt).toBeTruthy();
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('not_persisted');
+    expect(result.output?.partial?.applied).toBe(false);
+    expect(result.output?.partial?.requiresConfirmation).toBe(false);
   });
 
-  it('track_offer_outcome returns trackingId and nextReviewAt', async () => {
+  it('track_offer_outcome blocked until persistence is wired', async () => {
     const result = await trackOfferOutcome({
       storeId: 'store-1',
       offerId: 'offer-1',
@@ -106,10 +107,10 @@ describe('offer executors', () => {
       suggestion: { id: 'opt-1', type: 'copy' },
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.tracked).toBe(true);
-    expect(result.output?.trackingId).toBeTruthy();
-    expect(result.output?.nextReviewAt).toBeTruthy();
-    expect(new Date(result.output.nextReviewAt).getTime()).toBeGreaterThan(Date.now());
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('not_persisted');
+    expect(result.output?.partial?.trackingId).toBeTruthy();
+    expect(result.output?.partial?.nextReviewAt).toBeTruthy();
+    expect(new Date(result.output.partial.nextReviewAt).getTime()).toBeGreaterThan(Date.now());
   });
 });

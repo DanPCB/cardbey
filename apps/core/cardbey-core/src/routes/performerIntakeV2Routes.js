@@ -1922,6 +1922,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     );
   }
 
+  const storeCreateFormPayload =
+    body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
+      ? body.storeCreateForm
+      : undefined;
+
   // ── 1) System shortcuts ────────────────────────────────────────────────────
   if (!forcedTool) {
     const deviceIntent = detectDeviceIntent(userMessage);
@@ -1956,11 +1961,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           ? body.storeCreateForm
           : undefined,
     });
-
-    const storeCreateFormPayload =
-      body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
-        ? body.storeCreateForm
-        : undefined;
 
     if (!shortcut?.type) {
       shortcut = resolveCreateStoreShortcut({
@@ -2957,7 +2957,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         classification = {
           ...classification,
           tool: 'update_store_hero',
-          executionPath: 'direct_action',
+          executionPath: 'proactive_plan',
           /** Skip low-confidence intent recovery — it would revert to improve_hero + extra params and fail validation. */
           confidence: CONFIDENCE_HIGH,
           parameters: {
@@ -4941,13 +4941,16 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
   const storeContextFree =
     STORE_CONTEXT_FREE_TOOLS.has(tool) || isContextFreeTool(tool);
 
+  const toolEntry = getToolEntry(tool);
+  const confirmExecutionPath = toolEntry?.executionPath ?? 'proactive_plan';
+
   // No `if (!storeId || !activeStore)` guard here — confirm fails via validateIntakeClassification.
   // Context-free tools (e.g. device.sendInput) must not inject storeId into strict schemas.
   if (effectiveStore && !merged.storeId && !storeContextFree) merged.storeId = effectiveStore;
 
   const validation = validateIntakeClassification(
     {
-      executionPath: 'direct_action',
+      executionPath: confirmExecutionPath,
       tool,
       parameters: merged,
     },

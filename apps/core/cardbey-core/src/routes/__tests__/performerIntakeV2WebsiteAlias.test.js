@@ -12,11 +12,12 @@ vi.mock('../../middleware/guestAuth.js', () => ({
 
 vi.mock('../../lib/intake/intakeClassifier.js', () => ({
   classifyIntent: vi.fn(async () => ({
-    executionPath: 'direct_action',
+    executionPath: 'proactive_plan',
     tool: 'create_store',
     confidence: 0.95,
     parameters: { _autoSubmit: true },
   })),
+  isCampaignOrchestrationIntent: vi.fn(() => false),
   CONFIDENCE: { HIGH: 0.8, MEDIUM: 0.55, LOW: 0 },
   FALLBACK_CLARIFY: { clarifyOptions: [] },
 }));

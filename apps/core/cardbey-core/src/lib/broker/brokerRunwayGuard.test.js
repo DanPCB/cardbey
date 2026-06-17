@@ -22,6 +22,7 @@ describe('brokerRunwayGuard', () => {
   beforeEach(() => {
     delete process.env.BROKER_BLOCK_DIRECT_ACTION;
     delete process.env.BROKER_BLOCK_ORCHESTRA_WITH_MISSION;
+    process.env.BROKER_BLOCK_DIRECT_ACTION = 'false';
   });
 
   it('extracts missionId from nested body', () => {

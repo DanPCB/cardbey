@@ -273,7 +273,7 @@ export function buildHeroAutoVisualDirectClassification({ userMessage, missionId
     : `Change hero image — ${prompt.slice(0, 400)}`;
 
   return {
-    executionPath: 'direct_action',
+    executionPath: 'proactive_plan',
     tool: 'edit_artifact',
     confidence: 0.9,
     parameters: {

@@ -20,6 +20,7 @@ describe('runtimeAuthorityStaging', () => {
     delete process.env.PERFORMER_RUNTIME_PIPELINE_FACADE;
     delete process.env.BROKER_BLOCK_DIRECT_ACTION;
     delete process.env.PERFORMER_RUNTIME_OWNERSHIP_BLOCK;
+    process.env.BROKER_BLOCK_DIRECT_ACTION = 'false';
   });
 
   afterEach(() => {

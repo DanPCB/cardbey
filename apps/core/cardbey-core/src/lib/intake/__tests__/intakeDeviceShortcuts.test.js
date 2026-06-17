@@ -28,7 +28,7 @@ describe('device.sendInput confirm validation', () => {
   it('passes revalidation when runtime injects storeId (active store context)', () => {
     const v = validateIntakeClassification(
       {
-        executionPath: 'direct_action',
+        executionPath: 'proactive_plan',
         tool: 'device.sendInput',
         parameters: { task: 'open Notepad and type hello', storeId: 'store-abc' },
       },

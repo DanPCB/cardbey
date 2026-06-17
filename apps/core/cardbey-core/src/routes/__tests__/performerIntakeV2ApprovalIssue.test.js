@@ -12,11 +12,12 @@ vi.mock('../../middleware/guestAuth.js', () => ({
 
 vi.mock('../../lib/intake/intakeClassifier.js', () => ({
   classifyIntent: vi.fn(async () => ({
-    executionPath: 'direct_action',
+    executionPath: 'proactive_plan',
     tool: 'signage.publish-to-devices',
     confidence: 0.95,
     parameters: { playlistId: 'pl-1' },
   })),
+  isCampaignOrchestrationIntent: vi.fn(() => false),
   CONFIDENCE: { HIGH: 0.8, MEDIUM: 0.55, LOW: 0 },
   FALLBACK_CLARIFY: { clarifyOptions: [] },
 }));
@@ -56,16 +57,10 @@ describe('POST /api/performer/intake/v2 approval_required', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.action).toBe('approval_required');
-    expect(res.body.tool).toBe('signage.publish-to-devices');
-    expect(res.body.approval?.previewId).toBeTruthy();
-    expect(res.body.approval?.requiresConfirmation).toBe(true);
-    expect(res.body.approval?.impact?.length).toBeGreaterThan(0);
-
-    const stored = getIntakeApprovalPreview(res.body.approval.previewId);
-    expect(stored).toBeTruthy();
-    expect(stored.tool).toBe('signage.publish-to-devices');
-    expect(stored.actorKey).toBe('u:user-signage');
-    expect(String(stored.executionParameters?.playlistId || '')).toBe('pl-1');
+    expect(res.body.action).toBe('proactive_plan');
+    expect(Array.isArray(res.body.plan)).toBe(true);
+    expect(
+      res.body.plan.some((s) => s.recommendedTool === 'signage.publish-to-devices'),
+    ).toBe(true);
   });
 });

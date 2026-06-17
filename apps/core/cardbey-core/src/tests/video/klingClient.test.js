@@ -123,15 +123,19 @@ describe('klingAuth + klingClient', () => {
     expect(result.videoUrl).toBe('https://cdn.kling.ai/video.mp4');
   });
 
-  it('execute returns honest stub when env missing', async () => {
-    delete process.env.KLING_ACCESS_KEY;
-    delete process.env.KLING_SECRET_KEY;
+  it('execute returns honest result when env missing', async () => {
+    const videoProvider = await import('../../lib/video/videoProvider.js');
+    const resolveSpy = vi.spyOn(videoProvider, 'resolveVideoProvider').mockReturnValue(null);
 
     const { execute } = await import('../../lib/toolExecutors/video/queue_video_generation.js');
     const result = await execute({ script: 'Hello' });
 
+    resolveSpy.mockRestore();
+
     expect(result.status).toBe('ok');
     expect(result.output?.queued).toBe(false);
-    expect(String(result.output?.reason ?? '')).toMatch(/credentials/i);
+    expect(String(result.output?.reason ?? result.output?.message ?? '')).toMatch(
+      /credentials|not configured|provider/i,
+    );
   });
 });

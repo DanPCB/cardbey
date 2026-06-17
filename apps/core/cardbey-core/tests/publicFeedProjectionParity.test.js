@@ -77,6 +77,10 @@ function mockPrismaWithProjection(projection) {
       findFirst: async () => null,
       findUnique: async () => null,
     },
+    storeOffer: { findMany: async () => [] },
+    storePromo: { findMany: async () => [] },
+    campaignV2: { findMany: async () => [] },
+    loyaltyProgram: { findMany: async () => [] },
   };
 }
 

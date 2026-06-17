@@ -77,7 +77,7 @@ describe('growth executors', () => {
     expect(action?.effort).toBe('medium');
   });
 
-  it('monitor_growth_baseline returns baseline and nextAuditAt in 30 days', async () => {
+  it('monitor_growth_baseline blocked until persistence is wired', async () => {
     const audit = {
       scores: { profileCompleteness: 70 },
       overallScore: 68,
@@ -90,12 +90,13 @@ describe('growth executors', () => {
       actionTaken: null,
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.baseline?.trackingId).toBeTruthy();
-    expect(result.output?.baseline?.overallScore).toBe(68);
-    expect(result.output?.baseline?.planId).toBe('plan-2024');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('not_persisted');
+    expect(result.output?.partial?.baseline?.trackingId).toBeTruthy();
+    expect(result.output?.partial?.baseline?.overallScore).toBe(68);
+    expect(result.output?.partial?.baseline?.planId).toBe('plan-2024');
 
-    const nextAudit = new Date(result.output.baseline.nextAuditAt).getTime();
+    const nextAudit = new Date(result.output.partial.baseline.nextAuditAt).getTime();
     const expectedMin = Date.now() + 29 * 24 * 60 * 60 * 1000;
     expect(nextAudit).toBeGreaterThan(expectedMin);
   });

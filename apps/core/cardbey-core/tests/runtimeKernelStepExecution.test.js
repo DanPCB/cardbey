@@ -58,6 +58,7 @@ function makeApp(user) {
 describe.skipIf(!dbAvailable)('runtime kernel step execution', () => {
   let prisma;
   let testUser;
+  let testStore;
   let testToken;
 
   beforeAll(async () => {
@@ -76,6 +77,15 @@ describe.skipIf(!dbAvailable)('runtime kernel step execution', () => {
         roles: '["viewer"]',
       },
     });
+    testStore = await prisma.business.create({
+      data: {
+        userId: testUser.id,
+        name: 'Runtime Kernel Store',
+        type: 'retail',
+        slug: 'runtime-kernel-store',
+        isActive: true,
+      },
+    });
     testToken = jwt.sign({ userId: testUser.id }, JWT_SECRET);
   });
 
@@ -91,10 +101,10 @@ describe.skipIf(!dbAvailable)('runtime kernel step execution', () => {
         status: 'executing',
         runState: 'idle',
         targetType: 'store',
-        targetId: 'store-runtime-kernel',
+        targetId: testStore.id,
         executionMode: 'GUIDED_RUN',
         requiresConfirmation: false,
-        metadataJson: { storeId: 'store-runtime-kernel' },
+        metadataJson: { storeId: testStore.id },
         createdBy: testUser.id,
       },
     });
@@ -106,7 +116,7 @@ describe.skipIf(!dbAvailable)('runtime kernel step execution', () => {
       .send({
         requestedTool: 'analyze_store',
         proactivePlanTotal: 1,
-        parameters: { storeId: 'store-runtime-kernel' },
+        parameters: { storeId: testStore.id },
         proactivePlanStep: { step: 1, title: 'Analyze Store' },
       });
 
@@ -132,11 +142,11 @@ describe.skipIf(!dbAvailable)('runtime kernel step execution', () => {
         status: 'executing',
         runState: 'idle',
         targetType: 'store',
-        targetId: 'store-runtime-kernel-2',
+        targetId: testStore.id,
         executionMode: 'GUIDED_RUN',
         requiresConfirmation: false,
         metadataJson: {
-          storeId: 'store-runtime-kernel-2',
+          storeId: testStore.id,
           proactiveStepStatus: {
             '1': {
               status: 'completed',

@@ -7,12 +7,19 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dispatchToolMock } = vi.hoisted(() => ({
-  dispatchToolMock: vi.fn(async () => ({
+const { dispatchToolMock, performerExecuteMock } = vi.hoisted(() => {
+  const dispatchToolMock = vi.fn(async () => ({
     status: 'ok',
     output: { message: 'Policy approval path OK.' },
-  })),
-}));
+  }));
+  const performerExecuteMock = vi.fn(async (req) => {
+    const toolName = req?.payload?.toolName ?? '';
+    const input = req?.payload?.input ?? {};
+    await dispatchToolMock(toolName, input);
+    return { status: 'ok', output: { message: 'Policy approval path OK.' } };
+  });
+  return { dispatchToolMock, performerExecuteMock };
+});
 
 vi.mock('../../middleware/guestAuth.js', () => ({
   requireUserOrGuest: (_req, _res, next) => next(),
@@ -20,17 +27,24 @@ vi.mock('../../middleware/guestAuth.js', () => ({
 
 vi.mock('../../lib/intake/intakeClassifier.js', () => ({
   classifyIntent: vi.fn(async () => ({
-    executionPath: 'direct_action',
+    executionPath: 'proactive_plan',
     tool: 'orders_report',
     confidence: 0.95,
     parameters: { groupBy: 'day' },
   })),
+  isCampaignOrchestrationIntent: vi.fn(() => false),
   CONFIDENCE: { HIGH: 0.8, MEDIUM: 0.55, LOW: 0 },
   FALLBACK_CLARIFY: { clarifyOptions: [] },
 }));
 
 vi.mock('../../lib/toolDispatcher.js', () => ({
   dispatchTool: (...args) => dispatchToolMock(...args),
+}));
+
+vi.mock('../../lib/runtime/performerRuntime/performerRuntime.js', () => ({
+  performerRuntime: {
+    execute: (...args) => performerExecuteMock(...args),
+  },
 }));
 
 vi.mock('../../lib/intake/intakeToolRegistry.js', async (importOriginal) => {

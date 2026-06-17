@@ -116,15 +116,15 @@ describe('MI Tool Contract v1', () => {
     expect(res.body.data.items[0].price.amount).toBe(1050); // minor units
   });
 
-  it('POST /mi/v1/booking/confirm returns 501 with envelope', async () => {
+  it('POST /mi/v1/booking/confirm returns 400 when bookingId is missing', async () => {
     const res = await testRequest
       .post('/mi/v1/booking/confirm')
       .send(miBody({}, 'booking-req'))
-      .expect(501);
+      .expect(400);
     expect(res.body.ok).toBe(false);
     expect(res.body.requestId).toBe('booking-req');
     expect(res.body.error).toBeDefined();
-    expect(res.body.error.code).toBe('TEMPORARY_UNAVAILABLE');
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('GET /mi/openapi.yaml returns YAML spec', async () => {

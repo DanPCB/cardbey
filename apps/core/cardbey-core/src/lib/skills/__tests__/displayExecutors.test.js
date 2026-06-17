@@ -5,23 +5,17 @@ import { execute as pushToDisplayDevice } from '../../toolExecutors/display/push
 import { execute as verifyDisplayOutput } from '../../toolExecutors/display/verify_display_output.js';
 
 describe('display executors', () => {
-  it('select_display_content returns content object with assets', async () => {
+  it('select_display_content blocks placeholder assets until real media is wired', async () => {
     const result = await selectDisplayContent({
       storeId: 'store-1',
       contentType: 'campaign',
       artifactId: 'artifact-1',
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.ok).toBe(true);
-    expect(result.output?.content).toMatchObject({
-      id: 'artifact-1',
-      type: 'campaign',
-      storeId: 'store-1',
-      aspectRatio: '16:9',
-    });
-    expect(result.output?.content?.assets).toHaveLength(1);
-    expect(result.output?.content?.assets[0]?.id).toBe('artifact-1-asset-1');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('placeholder_content');
+    expect(result.output?.partial?.content?.id).toBe('artifact-1');
+    expect(result.output?.partial?.content?.assets?.[0]?.placeholder).toBe(true);
   });
 
   it('format_for_display applies default profile when none given', async () => {
@@ -56,42 +50,42 @@ describe('display executors', () => {
     });
   });
 
-  it('push_to_display_device returns status queued', async () => {
+  it('push_to_display_device is blocked until device transport is wired', async () => {
     const result = await pushToDisplayDevice({
       deviceId: 'device-1',
       storeId: 'store-1',
       formatted: { id: 'c1', readyForDevice: true },
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.ok).toBe(true);
-    expect(result.output?.status).toBe('queued');
-    expect(result.output?.pushId).toBeTruthy();
-    expect(result.output?.queuedAt).toBeTruthy();
-    expect(result.output?.deviceId).toBe('device-1');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('display_push_not_wired');
+    expect(result.output?.partial?.status).toBe('queued');
+    expect(result.output?.partial?.deviceId).toBe('device-1');
   });
 
-  it('verify_display_output verified true when pushResult.ok', async () => {
+  it('verify_display_output blocks when push result is a stub', async () => {
     const result = await verifyDisplayOutput({
       deviceId: 'device-1',
       contentId: 'content-1',
       pushResult: { ok: true, status: 'queued' },
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.verified).toBe(true);
-    expect(result.output?.deviceStatus).toBe('playing');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('playback_not_verified');
+    expect(result.output?.partial?.verified).toBe(false);
+    expect(result.output?.partial?.deviceStatus).toBe('error');
   });
 
-  it('verify_display_output verified false when pushResult fails', async () => {
+  it('verify_display_output blocks when pushResult fails', async () => {
     const result = await verifyDisplayOutput({
       deviceId: 'device-1',
       contentId: 'content-1',
-      pushResult: { ok: false, error: 'push failed' },
+      pushResult: { ok: false, status: 'failed' },
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.verified).toBe(false);
-    expect(result.output?.deviceStatus).toBe('error');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('playback_not_verified');
+    expect(result.output?.partial?.verified).toBe(false);
+    expect(result.output?.partial?.deviceStatus).toBe('error');
   });
 });

@@ -41,6 +41,7 @@ describe('guardPhaseFOrchestraStart', () => {
 
 describe('guardPhaseFMcpDispatch', () => {
   it('blocks orphan MCP dispatch when flag on', () => {
+    process.env.PHASE_F_ROUTE_MCP_VIA_FACADE = 'false';
     process.env.PHASE_F_BLOCK_MCP_DIRECT_DISPATCH = 'true';
     const g = guardPhaseFMcpDispatch({ executionSource: 'external_mcp_client' });
     expect(g.blocked).toBe(true);
@@ -64,6 +65,7 @@ describe('guardPhaseFMcpDispatch', () => {
 
 describe('guardPhaseFProactiveStepLegacy', () => {
   it('blocks legacy path when flags require kernel', () => {
+    process.env.DISABLE_RUNTIME_STEP_EXECUTION = 'true';
     process.env.PHASE_F_BLOCK_PROACTIVE_STEP_LEGACY = 'true';
     const g = guardPhaseFProactiveStepLegacy();
     expect(g.blocked).toBe(true);

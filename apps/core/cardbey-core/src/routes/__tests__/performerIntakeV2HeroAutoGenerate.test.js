@@ -23,6 +23,7 @@ vi.mock('../../lib/intake/intakeClassifier.js', () => ({
     confidence: 0.35,
     parameters: {},
   })),
+  isCampaignOrchestrationIntent: vi.fn(() => false),
   CONFIDENCE: { HIGH: 0.8, MEDIUM: 0.55, LOW: 0 },
   FALLBACK_CLARIFY: { clarifyOptions: [] },
 }));
@@ -55,6 +56,18 @@ vi.mock('../../lib/toolDispatcher.js', () => ({
   }),
 }));
 
+vi.mock('../../lib/runtime/performerRuntime/performerRuntime.js', () => ({
+  performerRuntime: {
+    execute: vi.fn(async (req) => {
+      const toolName = req?.payload?.toolName ?? '';
+      const input = req?.payload?.input ?? {};
+      const { dispatchTool } = await import('../../lib/toolDispatcher.js');
+      const out = await dispatchTool(toolName, input);
+      return { status: out.status === 'ok' ? 'ok' : 'failed', output: out.output, error: out.error };
+    }),
+  },
+}));
+
 import performerIntakeV2Routes from '../performerIntakeV2Routes.js';
 
 function makeApp() {
@@ -69,7 +82,7 @@ function makeApp() {
 }
 
 describe('POST /api/performer/intake/v2 hero auto-generate', () => {
-  it('routes descriptive hero request to edit_artifact tool_call', async () => {
+  it('routes descriptive hero request through proactive_plan for edit_artifact', async () => {
     const app = makeApp();
     const res = await request(app)
       .post('/api/performer/intake/v2')
@@ -81,14 +94,12 @@ describe('POST /api/performer/intake/v2 hero auto-generate', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.action).toBe('tool_call');
-    expect(res.body.tool).toBe('edit_artifact');
-    expect(String(res.body.parameters?.instruction ?? '')).toMatch(/fashion/i);
-    expect(Array.isArray(res.body.result?.images)).toBe(true);
-    expect(res.body.result?.images?.length).toBeGreaterThan(0);
+    expect(res.body.action).toBe('proactive_plan');
+    expect(Array.isArray(res.body.plan)).toBe(true);
+    expect(res.body.plan.some((s) => s.recommendedTool === 'edit_artifact')).toBe(true);
   });
 
-  it('bare hero change returns update_store_hero tool_call and opens hero customizer (no clarify)', async () => {
+  it('bare hero change returns proactive_plan for update_store_hero', async () => {
     const app = makeApp();
     const res = await request(app)
       .post('/api/performer/intake/v2')
@@ -100,10 +111,8 @@ describe('POST /api/performer/intake/v2 hero auto-generate', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.action).toBe('tool_call');
-    expect(res.body.tool).toBe('update_store_hero');
-    expect(res.body.result?.action).toBe('open_ui');
-    expect(res.body.result?.ui).toBe('hero_customizer');
-    expect(res.body.result?.storeId).toBe('store-hero-2');
+    expect(res.body.action).toBe('proactive_plan');
+    expect(Array.isArray(res.body.plan)).toBe(true);
+    expect(res.body.plan.some((s) => s.recommendedTool === 'update_store_hero')).toBe(true);
   });
 });

@@ -80,14 +80,15 @@ describe('campaign executors', () => {
       copy: { headline: '', cta: 'Shop now' },
     });
 
-    expect(result.status).toBe('ok');
-    expect(result.output?.passed).toBe(false);
-    expect(result.output?.issues).toContain('copy.headline is empty');
+    expect(result.status).toBe('blocked');
+    expect(result.reason).toBe('qa_failed');
+    expect(result.output?.partial?.passed).toBe(false);
+    expect(result.output?.partial?.issues).toContain('copy.headline is empty');
   });
 
   it('package_campaign_artifact bundles all inputs into artifact', async () => {
     const brief = { id: 'b1', objective: 'Sale' };
-    const graphics = [{ id: 'g1' }];
+    const graphics = [{ id: 'g1', url: 'https://cdn.example.com/g1.jpg' }];
     const copy = { headline: 'Sale on now', cta: 'Buy' };
 
     const result = await packageCampaignArtifact({

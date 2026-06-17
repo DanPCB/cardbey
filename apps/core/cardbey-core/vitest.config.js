@@ -22,6 +22,12 @@ function jsToTsResolver() {
 
 export default defineConfig({
   plugins: [jsToTsResolver()],
+  resolve: {
+    alias: {
+      // Tests and scripts import @prisma/client; SQLite schema generates to client-gen.
+      '@prisma/client': path.resolve(__dirname, 'node_modules/.prisma/client-gen/index.js'),
+    },
+  },
   test: {
     environment: 'node',
     env: {

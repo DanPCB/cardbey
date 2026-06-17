@@ -171,6 +171,7 @@ describe('Product routes - Phase 1 fields', () => {
     const res = await testRequest
       .delete(`/api/products/${testProduct.id}`)
       .set('Authorization', `Bearer ${token}`)
+      .send({ confirmed: true })
       .expect(200);
 
     expect(res.body.ok).toBe(true);
@@ -199,12 +200,14 @@ describe('Product routes - Phase 1 fields', () => {
     await testRequest
       .delete(`/api/products/${testProduct.id}`)
       .set('Authorization', `Bearer ${token}`)
+      .send({ confirmed: true })
       .expect(200);
 
     // Try to delete again
     const res = await testRequest
       .delete(`/api/products/${testProduct.id}`)
       .set('Authorization', `Bearer ${token}`)
+      .send({ confirmed: true })
       .expect(404);
 
     expect(res.body.ok).toBe(false);
