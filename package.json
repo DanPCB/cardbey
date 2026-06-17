@@ -46,6 +46,9 @@
     "audit:discovery:readiness": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-discovery-data.ts -- --readiness",
     "cleanup:discovery:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-discovery-dry-run.ts",
     "cleanup:discovery": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-discovery-data.ts",
+    "cleanup:fixture-seeds:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-fixture-seeds-dry-run.ts",
+    "cleanup:fixture-seeds": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-fixture-seeds.ts",
+    "test:fixture-seed-cleanup": "pnpm exec vitest run --root scripts/lib fixture-seed-cleanup.test.ts",
     "import:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/import-melbourne-batch0.ts",
     "prepare": "husky"
   },

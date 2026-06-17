@@ -44,4 +44,9 @@ Operating (_)
 | **1** | `pnpm audit:discovery:readiness` + `pnpm cleanup:discovery:dry-run` |
 | **2** | Human approval, then `DISCOVERY_CLEANUP_CONFIRM=1 pnpm cleanup:discovery -- --apply` |
 
+| Step | Action |
+|------|--------|
+| **1** | `pnpm cleanup:fixture-seeds:dry-run` (review `docs/reports/FIXTURE_SEED_CLEANUP_DRY_RUN_*.md`) |
+| **2** | Human approval, then `FIXTURE_SEED_CLEANUP_CONFIRM=1 pnpm cleanup:fixture-seeds -- --apply` |
+
 **Never run `--apply` without reviewing audit + dry-run reports.**

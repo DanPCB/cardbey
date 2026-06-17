@@ -55,6 +55,8 @@ export interface IngestedSeedRecord {
   isTestData?: boolean;
   testBatchId?: string | null;
   createdBySource?: CreatedBySource;
+  batchId?: string | null;
+  campaignId?: string | null;
 }
 
 export interface EnrichmentCandidate {
