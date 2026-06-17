@@ -1,0 +1,13 @@
+[
+  {
+    "id": "528a43ca-4a8d-47d3-8faf-543127558c54",
+    "seedId": "reject-me",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "rejected",
+    "action": "reject",
+    "reviewerId": "admin-2",
+    "timestamp": "2026-06-17T14:18:56.964Z",
+    "reason": "Bad data",
+    "canonicalSeedId": null
+  }
+]

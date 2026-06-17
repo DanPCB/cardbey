@@ -1,0 +1,28 @@
+[
+  {
+    "runId": "82504c1c-e826-4eb2-ae54-74d2e9fa1afb",
+    "sourceType": "open_data_url",
+    "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T04:00:10.645Z",
+    "completedAt": "2026-06-16T04:00:10.712Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "seedsCreated": 90,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 0,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  }
+]

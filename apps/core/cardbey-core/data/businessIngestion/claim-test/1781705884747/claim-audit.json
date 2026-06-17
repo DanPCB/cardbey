@@ -1,0 +1,72 @@
+[
+  {
+    "id": "78ded9e9-4457-42ee-ad4d-230dabc2c26c",
+    "seedId": "verify-1",
+    "claimRequestId": "037c3882-ef4d-4376-a7a3-e37f3da635b7",
+    "action": "claim_started",
+    "actorId": "user-verify-1",
+    "previousStatus": "seeded_claimable",
+    "nextStatus": "pending",
+    "reason": null,
+    "timestamp": "2026-06-17T14:18:04.782Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "9fa3690d-fa41-41bd-bbac-88a91b3492a1",
+    "seedId": "verify-1",
+    "claimRequestId": "037c3882-ef4d-4376-a7a3-e37f3da635b7",
+    "action": "proof_submitted",
+    "actorId": "user-verify-1",
+    "previousStatus": "pending",
+    "nextStatus": "proof_submitted",
+    "reason": null,
+    "timestamp": "2026-06-17T14:18:04.783Z",
+    "metadata": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    },
+    "details": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    }
+  },
+  {
+    "id": "f3424340-12fe-46fe-bddf-772d2b990a6f",
+    "seedId": "verify-1",
+    "claimRequestId": "037c3882-ef4d-4376-a7a3-e37f3da635b7",
+    "action": "otp_sent",
+    "actorId": "user-verify-1",
+    "previousStatus": "proof_submitted",
+    "nextStatus": "otp_sent",
+    "reason": null,
+    "timestamp": "2026-06-17T14:18:04.798Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "78a7dc4b-bea9-415c-a7b9-102e08b0b585",
+    "seedId": "verify-1",
+    "claimRequestId": "037c3882-ef4d-4376-a7a3-e37f3da635b7",
+    "action": "proof_verified",
+    "actorId": "user-verify-1",
+    "previousStatus": "otp_sent",
+    "nextStatus": "verified",
+    "reason": null,
+    "timestamp": "2026-06-17T14:18:04.816Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  }
+]

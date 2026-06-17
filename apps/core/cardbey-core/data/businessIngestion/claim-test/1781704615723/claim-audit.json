@@ -1,0 +1,71 @@
+[
+  {
+    "id": "98d449bf-7a4f-495c-aa7f-640aed2aabfc",
+    "seedId": "dup-block-1",
+    "claimRequestId": "6b210642-5334-44ba-b702-979b7cfb857d",
+    "action": "claim_started",
+    "actorId": "user-dup-1",
+    "previousStatus": "seeded_claimable",
+    "nextStatus": "pending",
+    "reason": null,
+    "timestamp": "2026-06-17T13:56:55.757Z",
+    "metadata": {
+      "proofType": "registration"
+    },
+    "details": {
+      "proofType": "registration"
+    }
+  },
+  {
+    "id": "5fcd05d8-c0af-49b0-893f-2043c830d6f1",
+    "seedId": "dup-block-1",
+    "claimRequestId": "6b210642-5334-44ba-b702-979b7cfb857d",
+    "action": "proof_submitted",
+    "actorId": "user-dup-1",
+    "previousStatus": "pending",
+    "nextStatus": "proof_submitted",
+    "reason": null,
+    "timestamp": "2026-06-17T13:56:55.759Z",
+    "metadata": {
+      "proofType": "registration",
+      "proofStatus": "pending"
+    },
+    "details": {
+      "proofType": "registration",
+      "proofStatus": "pending"
+    }
+  },
+  {
+    "id": "310849b4-b306-4f71-b03d-6bb47ba6e6cd",
+    "seedId": "dup-block-1",
+    "claimRequestId": "6b210642-5334-44ba-b702-979b7cfb857d",
+    "action": "duplicate_blocked",
+    "actorId": "user-dup-1",
+    "previousStatus": "proof_submitted",
+    "nextStatus": "duplicate_blocked",
+    "reason": "Live store duplicate detected.",
+    "timestamp": "2026-06-17T13:56:55.798Z",
+    "metadata": {
+      "matchedBusinessId": "live-biz-99",
+      "evidence": [
+        {
+          "field": "phone",
+          "signal": "exact",
+          "score": 0.65
+        }
+      ],
+      "phase": "verify"
+    },
+    "details": {
+      "matchedBusinessId": "live-biz-99",
+      "evidence": [
+        {
+          "field": "phone",
+          "signal": "exact",
+          "score": 0.65
+        }
+      ],
+      "phase": "verify"
+    }
+  }
+]

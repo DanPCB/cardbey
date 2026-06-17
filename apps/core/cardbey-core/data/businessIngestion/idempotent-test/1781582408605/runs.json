@@ -1,0 +1,54 @@
+[
+  {
+    "runId": "0af5ec40-c150-46c8-966b-70268087cdd2",
+    "sourceType": "open_data_url",
+    "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T04:00:08.611Z",
+    "completedAt": "2026-06-16T04:00:08.679Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "seedsCreated": 90,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 0,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  },
+  {
+    "runId": "95500cd5-a885-405c-b369-6bc9e7891aed",
+    "sourceType": "open_data_url",
+    "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T04:00:08.718Z",
+    "completedAt": "2026-06-16T04:00:08.796Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "seedsCreated": 0,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 90,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  }
+]

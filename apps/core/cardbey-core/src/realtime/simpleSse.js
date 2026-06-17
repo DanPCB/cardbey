@@ -21,7 +21,7 @@
 
 import { randomUUID } from 'crypto';
 import { isBotSseRequest } from '../lib/sseBotGuard.js';
-import { resolveSseStreamAuth } from './sseStreamAuth.js';
+import { resolveSseStreamAuth, sseStreamAuthHint } from './sseStreamAuth.js';
 
 /**
  * SSE client connection
@@ -78,10 +78,7 @@ export function handleSse(req, res) {
     res.status(403).json({
       ok: false,
       error: auth.error,
-      message:
-        auth.error === 'legacy_admin_key_disabled'
-          ? 'Use ?token=<JWT> for device streams, agent-chat with streamToken for missions, or configure SSE_STREAM_KEY'
-          : 'Valid stream token or SSE_STREAM_KEY required',
+      message: sseStreamAuthHint(auth.error),
     });
     return;
   }

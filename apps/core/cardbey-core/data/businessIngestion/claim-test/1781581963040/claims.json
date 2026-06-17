@@ -1,0 +1,16 @@
+[
+  {
+    "id": "30a22cf0-0af0-4d74-a107-c3b9795881ae",
+    "seedId": "start-1",
+    "claimantUserId": "user-owner-1",
+    "proofType": "email",
+    "proofContact": "owner@claimable.example.com",
+    "proofStatus": "pending",
+    "claimStatus": "pending",
+    "createdAt": "2026-06-16T03:52:43.075Z",
+    "updatedAt": "2026-06-16T03:52:43.075Z",
+    "verifiedAt": null,
+    "rejectionReason": null,
+    "duplicateBlockedStoreId": null
+  }
+]

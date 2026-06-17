@@ -1,0 +1,19 @@
+[
+  {
+    "id": "7844da2c-d0aa-4a5f-b5b1-a1d6821bc1d1",
+    "seedId": "start-1",
+    "claimantUserId": "user-owner-1",
+    "proofType": "email",
+    "proofContact": "owner@claimable.example.com",
+    "proofStatus": "pending",
+    "claimStatus": "otp_sent",
+    "createdAt": "2026-06-16T13:50:38.294Z",
+    "updatedAt": "2026-06-16T13:50:38.319Z",
+    "expiresAt": "2026-06-23T13:50:38.294Z",
+    "attempts": 0,
+    "verifiedAt": null,
+    "rejectionReason": null,
+    "duplicateBlockedStoreId": null,
+    "claimStartedAt": "2026-06-16T13:50:38.294Z"
+  }
+]

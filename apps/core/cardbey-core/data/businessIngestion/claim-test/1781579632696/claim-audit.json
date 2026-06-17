@@ -1,0 +1,43 @@
+[
+  {
+    "id": "823f0730-e986-4a12-b5c9-1f5d3d2131b1",
+    "seedId": "dup-block-1",
+    "claimRequestId": "a0a83e16-c0cd-43ca-a1cd-909c4c0b0a2a",
+    "action": "claim_started",
+    "actorId": "user-dup-1",
+    "timestamp": "2026-06-16T03:13:52.731Z",
+    "details": {
+      "proofType": "registration"
+    }
+  },
+  {
+    "id": "8810ba5b-4d16-46f4-b9f4-f898cecf3940",
+    "seedId": "dup-block-1",
+    "claimRequestId": "a0a83e16-c0cd-43ca-a1cd-909c4c0b0a2a",
+    "action": "proof_submitted",
+    "actorId": "user-dup-1",
+    "timestamp": "2026-06-16T03:13:52.732Z",
+    "details": {
+      "proofType": "registration",
+      "proofStatus": "pending"
+    }
+  },
+  {
+    "id": "43fe0c1b-afc6-4ced-a913-5c7054a07a49",
+    "seedId": "dup-block-1",
+    "claimRequestId": "a0a83e16-c0cd-43ca-a1cd-909c4c0b0a2a",
+    "action": "duplicate_blocked",
+    "actorId": "user-dup-1",
+    "timestamp": "2026-06-16T03:13:52.755Z",
+    "details": {
+      "matchedBusinessId": "live-biz-99",
+      "evidence": [
+        {
+          "field": "phone",
+          "signal": "exact",
+          "score": 0.65
+        }
+      ]
+    }
+  }
+]

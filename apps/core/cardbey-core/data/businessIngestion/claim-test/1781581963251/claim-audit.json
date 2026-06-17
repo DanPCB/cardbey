@@ -1,0 +1,13 @@
+[
+  {
+    "id": "a336e576-e37d-4d73-ab1b-e770fe404f67",
+    "seedId": "activate-1",
+    "claimRequestId": null,
+    "action": "seed_activated",
+    "actorId": "user-act-1",
+    "timestamp": "2026-06-16T03:52:43.300Z",
+    "details": {
+      "storeId": "store-act-1"
+    }
+  }
+]

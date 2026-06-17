@@ -1,0 +1,126 @@
+[
+  {
+    "runId": "b88db1a0-c331-4625-bc15-866ffae40006",
+    "sourceType": "open_data_url",
+    "sourceReference": "file://C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\data\\businessIngestion\\fixtures\\sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T02:37:32.139Z",
+    "completedAt": "2026-06-16T02:37:32.200Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "storesCreated": 90,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  },
+  {
+    "runId": "6b3f3e0f-41eb-4914-b5db-b2f473257a47",
+    "sourceType": "open_data_url",
+    "sourceReference": "file://C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\data\\businessIngestion\\fixtures\\sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T03:11:50.163Z",
+    "completedAt": "2026-06-16T03:11:50.225Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "storesCreated": 90,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  },
+  {
+    "runId": "e28a776b-b313-4686-a720-96d1789fab70",
+    "sourceType": "open_data_url",
+    "sourceReference": "file://C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\data\\businessIngestion\\fixtures\\sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T04:02:12.893Z",
+    "completedAt": "2026-06-16T04:02:12.964Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "seedsCreated": 0,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 90,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  },
+  {
+    "runId": "e824762e-4000-407b-baf4-f52f5889d7e8",
+    "sourceType": "open_data_url",
+    "sourceReference": "file://C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\data\\businessIngestion\\fixtures\\sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T04:10:09.386Z",
+    "completedAt": "2026-06-16T04:10:09.462Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "seedsCreated": 0,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 90,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  },
+  {
+    "runId": "b1a43635-0beb-4a01-b77d-3758eb3cdf73",
+    "sourceType": "open_data_url",
+    "sourceReference": "file://C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\data\\businessIngestion\\fixtures\\sample-opendata-businesses.json",
+    "startedAt": "2026-06-16T05:13:40.338Z",
+    "completedAt": "2026-06-16T05:13:40.459Z",
+    "recordsFetched": 100,
+    "recordsNormalized": 100,
+    "duplicatesRemoved": 10,
+    "possibleDuplicates": 81,
+    "uniqueRecords": 90,
+    "seedsCreated": 0,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 90,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 90,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "open_data_url": 100
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  }
+]

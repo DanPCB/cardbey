@@ -40,12 +40,29 @@ function extractLanguageFromHeader(acceptLanguage) {
 }
 
 // Configure multer for file uploads (memory storage for S3 uploads)
-const upload = multer({
+const signageAssetUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 500 * 1024 * 1024, // 500MB max file size
+    fileSize: 100 * 1024 * 1024, // 100MB — matches playlist hub; avoids Render OOM with memoryStorage
   },
 });
+
+/** Multer middleware for signage asset uploads — returns 400/413 instead of opaque 500s */
+function signageAssetUploadSingle(req, res, next) {
+  signageAssetUpload.single('file')(req, res, (err) => {
+    if (err) {
+      const isLimit = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(isLimit ? 413 : 400).json({
+        ok: false,
+        error: isLimit ? 'file_too_large' : 'invalid_file',
+        message: isLimit
+          ? 'File must be 100MB or smaller.'
+          : err.message || 'Invalid or missing file',
+      });
+    }
+    next();
+  });
+}
 
 // Lazy load sharp for image metadata
 let sharp = null;
@@ -452,7 +469,7 @@ router.get('/signage-assets', requireAuth, async (req, res) => {
  * Content-Type: multipart/form-data
  *   - file: File (required)
  */
-router.post('/signage-assets/upload', requireAuth, upload.single('file'), async (req, res) => {
+router.post('/signage-assets/upload', requireAuth, signageAssetUploadSingle, async (req, res) => {
   try {
     const { tenantId, storeId } = requireTenantStoreContext(req);
 
@@ -464,8 +481,8 @@ router.post('/signage-assets/upload', requireAuth, upload.single('file'), async 
       });
     }
 
-    const buffer = req.file.buffer;
-    const mime = req.file.mimetype || mimeLookup(req.file.originalname) || 'application/octet-stream';
+    let buffer = req.file.buffer;
+    let mime = req.file.mimetype || mimeLookup(req.file.originalname) || 'application/octet-stream';
     const filename = req.file.originalname || 'upload';
 
     // Determine asset type
@@ -493,24 +510,42 @@ router.post('/signage-assets/upload', requireAuth, upload.single('file'), async 
         }
       }
     } else if (assetType === 'video') {
-      try {
-        const { ensureWebCompatibleVideoBuffer } = await import('../lib/videoCompat.js');
-        const processed = await ensureWebCompatibleVideoBuffer(buffer, filename, {
-          context: 'signage-assets.upload',
+      const {
+        ensureWebCompatibleVideoBuffer,
+        videoUploadMaxTranscodeBytes,
+        videoUploadSkipTranscodeEnabled,
+      } = await import('../lib/videoCompat.js');
+      const skipVideoCompat =
+        videoUploadSkipTranscodeEnabled() || buffer.length > videoUploadMaxTranscodeBytes();
+      if (skipVideoCompat) {
+        info('SIGNAGE_UPLOAD', 'Skipping video compat/ffmpeg (policy or size cap)', {
+          filename,
+          tenantId,
+          storeId,
+          sizeBytes: buffer.length,
+          skipTranscodeEnv: videoUploadSkipTranscodeEnabled(),
+          maxTranscodeBytes: videoUploadMaxTranscodeBytes(),
         });
-        buffer = processed.buffer;
-        width = processed.width;
-        height = processed.height;
-        durationS = processed.durationS ?? durationS;
-        if (processed.transcoded) {
-          info('SIGNAGE_UPLOAD', 'Signage video transcoded for web/TV compatibility', {
-            filename,
-            tenantId,
-            storeId,
+      } else {
+        try {
+          const processed = await ensureWebCompatibleVideoBuffer(buffer, filename, {
+            context: 'signage-assets.upload',
           });
+          buffer = processed.buffer;
+          mime = processed.mime || mime;
+          width = processed.width;
+          height = processed.height;
+          durationS = processed.durationS ?? durationS;
+          if (processed.transcoded) {
+            info('SIGNAGE_UPLOAD', 'Signage video transcoded for web/TV compatibility', {
+              filename,
+              tenantId,
+              storeId,
+            });
+          }
+        } catch (videoErr) {
+          console.warn('[SignageRoutes] Video compat processing failed (non-fatal):', videoErr.message);
         }
-      } catch (videoErr) {
-        console.warn('[SignageRoutes] Video compat processing failed (non-fatal):', videoErr.message);
       }
     }
 
@@ -614,9 +649,12 @@ router.post('/signage-assets/upload', requireAuth, upload.single('file'), async 
     });
   } catch (err) {
     console.error('[SignageRoutes] Upload asset error:', err);
-    res.status(500).json({
+    const missingContext =
+      typeof err?.message === 'string' &&
+      err.message.includes('tenantId and storeId are required');
+    res.status(missingContext ? 400 : 500).json({
       ok: false,
-      error: 'internal_error',
+      error: missingContext ? 'missing_store_context' : 'internal_error',
       message: err.message || 'Failed to upload asset',
     });
   }

@@ -1,0 +1,4133 @@
+[
+  {
+    "id": "b1f3c657-27c5-4b40-9955-f2534c3e079c",
+    "normalized": {
+      "id": "b1f3c657-27c5-4b40-9955-f2534c3e079c",
+      "businessName": "Sample Business 1",
+      "legalName": "Sample Business 1 PtyLtd",
+      "address": "1 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000001",
+      "website": "https://business1.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000001",
+      "email": "contact1@business1.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "1",
+      "ingestedAt": "2026-06-16T03:57:57.851Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.928Z",
+    "updatedAt": "2026-06-16T03:57:57.928Z"
+  },
+  {
+    "id": "339e2a20-f603-431e-8dcc-ee9486cb2e96",
+    "normalized": {
+      "id": "339e2a20-f603-431e-8dcc-ee9486cb2e96",
+      "businessName": "Sample Business 2",
+      "legalName": "Sample Business 2 PtyLtd",
+      "address": "2 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000002",
+      "website": "https://business2.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000002",
+      "email": "contact2@business2.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "2",
+      "ingestedAt": "2026-06-16T03:57:57.851Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "38b4811c-306d-49f1-b019-650ee0b27e5d",
+    "normalized": {
+      "id": "38b4811c-306d-49f1-b019-650ee0b27e5d",
+      "businessName": "Sample Business 3",
+      "legalName": "Sample Business 3 PtyLtd",
+      "address": "3 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000003",
+      "website": "https://business3.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000003",
+      "email": "contact3@business3.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "3",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "20998232-11d4-4894-a1e5-71fc5cd20495",
+    "normalized": {
+      "id": "20998232-11d4-4894-a1e5-71fc5cd20495",
+      "businessName": "Sample Business 4",
+      "legalName": "Sample Business 4 PtyLtd",
+      "address": "4 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000004",
+      "website": "https://business4.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000004",
+      "email": "contact4@business4.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "4",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "228254e6-9201-4d1a-b619-e26e68a58319",
+    "normalized": {
+      "id": "228254e6-9201-4d1a-b619-e26e68a58319",
+      "businessName": "Sample Business 5",
+      "legalName": "Sample Business 5 PtyLtd",
+      "address": "5 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000005",
+      "website": "https://business5.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000005",
+      "email": "contact5@business5.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "5",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "2288a594-781a-4980-8c29-0bc9b522d9e6",
+    "normalized": {
+      "id": "2288a594-781a-4980-8c29-0bc9b522d9e6",
+      "businessName": "Sample Business 6",
+      "legalName": "Sample Business 6 PtyLtd",
+      "address": "6 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000006",
+      "website": "https://business6.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000006",
+      "email": "contact6@business6.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "6",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "e5f52c4e-8bc2-4308-ab9f-3d9d06e04437",
+    "normalized": {
+      "id": "e5f52c4e-8bc2-4308-ab9f-3d9d06e04437",
+      "businessName": "Sample Business 7",
+      "legalName": "Sample Business 7 PtyLtd",
+      "address": "7 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000007",
+      "website": "https://business7.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000007",
+      "email": "contact7@business7.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "7",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "c7293ba2-03de-4032-ac62-95a995962bc4",
+    "normalized": {
+      "id": "c7293ba2-03de-4032-ac62-95a995962bc4",
+      "businessName": "Sample Business 8",
+      "legalName": "Sample Business 8 PtyLtd",
+      "address": "8 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000008",
+      "website": "https://business8.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000008",
+      "email": "contact8@business8.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "8",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "7b477763-17b8-454e-8ad0-6554753008b0",
+    "normalized": {
+      "id": "7b477763-17b8-454e-8ad0-6554753008b0",
+      "businessName": "Sample Business 9",
+      "legalName": "Sample Business 9 PtyLtd",
+      "address": "9 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000009",
+      "website": "https://business9.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000009",
+      "email": "contact9@business9.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "9",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 100,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "9420bc28-d3ef-4b72-aab7-66a07bedfd73",
+    "normalized": {
+      "id": "9420bc28-d3ef-4b72-aab7-66a07bedfd73",
+      "businessName": "Sample Business 10",
+      "legalName": "Sample Business 10 PtyLtd",
+      "address": "10 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000010",
+      "website": "https://business10.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000010",
+      "email": "contact10@business10.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "10",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "b49c92df-c14b-4537-bc8f-31b35a276544",
+    "normalized": {
+      "id": "b49c92df-c14b-4537-bc8f-31b35a276544",
+      "businessName": "Sample Business 11",
+      "legalName": "Sample Business 11 PtyLtd",
+      "address": "11 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000011",
+      "website": "https://business11.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000011",
+      "email": "contact11@business11.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "11",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "35ba1cf3-346c-454e-9391-d8b656fd1dce",
+    "normalized": {
+      "id": "35ba1cf3-346c-454e-9391-d8b656fd1dce",
+      "businessName": "Sample Business 12",
+      "legalName": "Sample Business 12 PtyLtd",
+      "address": "12 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000012",
+      "website": "https://business12.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000012",
+      "email": "contact12@business12.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "12",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "5de3d417-1146-491f-a97c-2c6963c6d679",
+    "normalized": {
+      "id": "5de3d417-1146-491f-a97c-2c6963c6d679",
+      "businessName": "Sample Business 13",
+      "legalName": "Sample Business 13 PtyLtd",
+      "address": "13 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000013",
+      "website": "https://business13.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000013",
+      "email": "contact13@business13.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "13",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "8d876ce4-b414-4958-836f-c7e0f585c7c2",
+    "normalized": {
+      "id": "8d876ce4-b414-4958-836f-c7e0f585c7c2",
+      "businessName": "Sample Business 14",
+      "legalName": "Sample Business 14 PtyLtd",
+      "address": "14 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000014",
+      "website": "https://business14.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000014",
+      "email": "contact14@business14.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "14",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "fcf7da40-1488-426d-89b2-6e2d10ea5f31",
+    "normalized": {
+      "id": "fcf7da40-1488-426d-89b2-6e2d10ea5f31",
+      "businessName": "Sample Business 15",
+      "legalName": "Sample Business 15 PtyLtd",
+      "address": "15 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000015",
+      "website": "https://business15.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000015",
+      "email": "contact15@business15.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "15",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "33abdd60-7f2f-42bd-8199-3f171fbda7a7",
+    "normalized": {
+      "id": "33abdd60-7f2f-42bd-8199-3f171fbda7a7",
+      "businessName": "Sample Business 16",
+      "legalName": "Sample Business 16 PtyLtd",
+      "address": "16 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000016",
+      "website": "https://business16.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000016",
+      "email": "contact16@business16.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "16",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "0f8c36d5-7ed8-4428-bbbf-82456f0f00db",
+    "normalized": {
+      "id": "0f8c36d5-7ed8-4428-bbbf-82456f0f00db",
+      "businessName": "Sample Business 17",
+      "legalName": "Sample Business 17 PtyLtd",
+      "address": "17 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000017",
+      "website": "https://business17.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000017",
+      "email": "contact17@business17.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "17",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "e3ab541b-b5cc-46f3-8330-038fe8c0caa7",
+    "normalized": {
+      "id": "e3ab541b-b5cc-46f3-8330-038fe8c0caa7",
+      "businessName": "Sample Business 18",
+      "legalName": "Sample Business 18 PtyLtd",
+      "address": "18 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000018",
+      "website": "https://business18.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000018",
+      "email": "contact18@business18.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "18",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "911c1a61-a6d7-4270-86c5-51380d8a0d2f",
+    "normalized": {
+      "id": "911c1a61-a6d7-4270-86c5-51380d8a0d2f",
+      "businessName": "Sample Business 19",
+      "legalName": "Sample Business 19 PtyLtd",
+      "address": "19 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000019",
+      "website": "https://business19.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000019",
+      "email": "contact19@business19.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "19",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "1998e47a-38a4-449b-8844-3b6a6f965d32",
+    "normalized": {
+      "id": "1998e47a-38a4-449b-8844-3b6a6f965d32",
+      "businessName": "Sample Business 20",
+      "legalName": "Sample Business 20 PtyLtd",
+      "address": "20 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000020",
+      "website": "https://business20.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000020",
+      "email": "contact20@business20.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "20",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "b06944c3-a060-47e0-8518-31fbfd0ed7af",
+    "normalized": {
+      "id": "b06944c3-a060-47e0-8518-31fbfd0ed7af",
+      "businessName": "Sample Business 21",
+      "legalName": "Sample Business 21 PtyLtd",
+      "address": "21 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000021",
+      "website": "https://business21.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000021",
+      "email": "contact21@business21.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "21",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "d52086a2-41cd-48ac-9162-a17eaef95835",
+    "normalized": {
+      "id": "d52086a2-41cd-48ac-9162-a17eaef95835",
+      "businessName": "Sample Business 22",
+      "legalName": "Sample Business 22 PtyLtd",
+      "address": "22 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000022",
+      "website": "https://business22.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000022",
+      "email": "contact22@business22.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "22",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "9bf1cbe2-0f41-4139-af8a-5142ee229ee5",
+    "normalized": {
+      "id": "9bf1cbe2-0f41-4139-af8a-5142ee229ee5",
+      "businessName": "Sample Business 23",
+      "legalName": "Sample Business 23 PtyLtd",
+      "address": "23 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000023",
+      "website": "https://business23.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000023",
+      "email": "contact23@business23.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "23",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "fcdce138-be3a-46c7-92be-56dcdcb60713",
+    "normalized": {
+      "id": "fcdce138-be3a-46c7-92be-56dcdcb60713",
+      "businessName": "Sample Business 24",
+      "legalName": "Sample Business 24 PtyLtd",
+      "address": "24 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000024",
+      "website": "https://business24.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000024",
+      "email": "contact24@business24.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "24",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "d0396b93-fce8-413c-b6df-e765bf165f51",
+    "normalized": {
+      "id": "d0396b93-fce8-413c-b6df-e765bf165f51",
+      "businessName": "Sample Business 25",
+      "legalName": "Sample Business 25 PtyLtd",
+      "address": "25 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000025",
+      "website": "https://business25.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000025",
+      "email": "contact25@business25.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "25",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "11c3fd1f-1fbd-4892-85b9-d2a6faf25eb7",
+    "normalized": {
+      "id": "11c3fd1f-1fbd-4892-85b9-d2a6faf25eb7",
+      "businessName": "Sample Business 26",
+      "legalName": "Sample Business 26 PtyLtd",
+      "address": "26 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000026",
+      "website": "https://business26.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000026",
+      "email": "contact26@business26.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "26",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "bb1e8d89-62a4-403d-8a8d-28f73d5683ab",
+    "normalized": {
+      "id": "bb1e8d89-62a4-403d-8a8d-28f73d5683ab",
+      "businessName": "Sample Business 27",
+      "legalName": "Sample Business 27 PtyLtd",
+      "address": "27 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000027",
+      "website": "https://business27.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000027",
+      "email": "contact27@business27.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "27",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "a06a92ec-601a-4f5a-8ea4-6964d20964d6",
+    "normalized": {
+      "id": "a06a92ec-601a-4f5a-8ea4-6964d20964d6",
+      "businessName": "Sample Business 28",
+      "legalName": "Sample Business 28 PtyLtd",
+      "address": "28 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000028",
+      "website": "https://business28.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000028",
+      "email": "contact28@business28.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "28",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "ebb2e23c-59ad-4e60-8e2c-33ad484ccad5",
+    "normalized": {
+      "id": "ebb2e23c-59ad-4e60-8e2c-33ad484ccad5",
+      "businessName": "Sample Business 29",
+      "legalName": "Sample Business 29 PtyLtd",
+      "address": "29 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000029",
+      "website": "https://business29.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000029",
+      "email": "contact29@business29.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "29",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "d5b15e65-b71d-4965-bc74-ca4c5227a6b6",
+    "normalized": {
+      "id": "d5b15e65-b71d-4965-bc74-ca4c5227a6b6",
+      "businessName": "Sample Business 30",
+      "legalName": "Sample Business 30 PtyLtd",
+      "address": "30 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000030",
+      "website": "https://business30.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000030",
+      "email": "contact30@business30.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "30",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "72aa7967-f709-4fd7-8e3e-ce896dfd5b8d",
+    "normalized": {
+      "id": "72aa7967-f709-4fd7-8e3e-ce896dfd5b8d",
+      "businessName": "Sample Business 31",
+      "legalName": "Sample Business 31 PtyLtd",
+      "address": "31 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000031",
+      "website": "https://business31.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000031",
+      "email": "contact31@business31.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "31",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "9f035078-6308-46d5-8fc0-44f747ba5a1d",
+    "normalized": {
+      "id": "9f035078-6308-46d5-8fc0-44f747ba5a1d",
+      "businessName": "Sample Business 32",
+      "legalName": "Sample Business 32 PtyLtd",
+      "address": "32 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000032",
+      "website": "https://business32.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000032",
+      "email": "contact32@business32.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "32",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "0e7a7fc0-2ed9-435d-81cb-a278009148cf",
+    "normalized": {
+      "id": "0e7a7fc0-2ed9-435d-81cb-a278009148cf",
+      "businessName": "Sample Business 33",
+      "legalName": "Sample Business 33 PtyLtd",
+      "address": "33 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000033",
+      "website": "https://business33.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000033",
+      "email": "contact33@business33.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "33",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "736090b0-7bce-40b0-b9f6-1d800ace3a02",
+    "normalized": {
+      "id": "736090b0-7bce-40b0-b9f6-1d800ace3a02",
+      "businessName": "Sample Business 34",
+      "legalName": "Sample Business 34 PtyLtd",
+      "address": "34 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000034",
+      "website": "https://business34.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000034",
+      "email": "contact34@business34.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "34",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "d22dfb53-8f7d-4a37-b795-e34ccc962c3f",
+    "normalized": {
+      "id": "d22dfb53-8f7d-4a37-b795-e34ccc962c3f",
+      "businessName": "Sample Business 35",
+      "legalName": "Sample Business 35 PtyLtd",
+      "address": "35 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000035",
+      "website": "https://business35.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000035",
+      "email": "contact35@business35.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "35",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "70cc6452-2485-488c-9b08-e086ce1c7a7f",
+    "normalized": {
+      "id": "70cc6452-2485-488c-9b08-e086ce1c7a7f",
+      "businessName": "Sample Business 36",
+      "legalName": "Sample Business 36 PtyLtd",
+      "address": "36 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000036",
+      "website": "https://business36.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000036",
+      "email": "contact36@business36.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "36",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "03f05cdf-78b8-43e9-a7cc-7132eb49c951",
+    "normalized": {
+      "id": "03f05cdf-78b8-43e9-a7cc-7132eb49c951",
+      "businessName": "Sample Business 37",
+      "legalName": "Sample Business 37 PtyLtd",
+      "address": "37 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000037",
+      "website": "https://business37.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000037",
+      "email": "contact37@business37.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "37",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "53fc150c-b8ba-4b3e-a857-abae07d9363d",
+    "normalized": {
+      "id": "53fc150c-b8ba-4b3e-a857-abae07d9363d",
+      "businessName": "Sample Business 38",
+      "legalName": "Sample Business 38 PtyLtd",
+      "address": "38 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000038",
+      "website": "https://business38.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000038",
+      "email": "contact38@business38.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "38",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "3022c865-636f-45e3-9b46-f91265c12991",
+    "normalized": {
+      "id": "3022c865-636f-45e3-9b46-f91265c12991",
+      "businessName": "Sample Business 39",
+      "legalName": "Sample Business 39 PtyLtd",
+      "address": "39 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000039",
+      "website": "https://business39.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000039",
+      "email": "contact39@business39.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "39",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "2ae7d0ea-9661-436e-b084-64cf5ebbc8cc",
+    "normalized": {
+      "id": "2ae7d0ea-9661-436e-b084-64cf5ebbc8cc",
+      "businessName": "Sample Business 40",
+      "legalName": "Sample Business 40 PtyLtd",
+      "address": "40 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000040",
+      "website": "https://business40.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000040",
+      "email": "contact40@business40.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "40",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "aae8b530-8b5f-4f96-bb9b-eec263dbb484",
+    "normalized": {
+      "id": "aae8b530-8b5f-4f96-bb9b-eec263dbb484",
+      "businessName": "Sample Business 41",
+      "legalName": "Sample Business 41 PtyLtd",
+      "address": "41 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000041",
+      "website": "https://business41.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000041",
+      "email": "contact41@business41.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "41",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "8cf6dbfb-3ffd-4775-8409-f785481392b2",
+    "normalized": {
+      "id": "8cf6dbfb-3ffd-4775-8409-f785481392b2",
+      "businessName": "Sample Business 42",
+      "legalName": "Sample Business 42 PtyLtd",
+      "address": "42 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000042",
+      "website": "https://business42.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000042",
+      "email": "contact42@business42.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "42",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "d83c9278-6dfc-4182-9aa0-bb67ba484e81",
+    "normalized": {
+      "id": "d83c9278-6dfc-4182-9aa0-bb67ba484e81",
+      "businessName": "Sample Business 43",
+      "legalName": "Sample Business 43 PtyLtd",
+      "address": "43 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000043",
+      "website": "https://business43.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000043",
+      "email": "contact43@business43.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "43",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "637bd21c-9be1-4654-a681-ea2cbd608c9c",
+    "normalized": {
+      "id": "637bd21c-9be1-4654-a681-ea2cbd608c9c",
+      "businessName": "Sample Business 44",
+      "legalName": "Sample Business 44 PtyLtd",
+      "address": "44 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000044",
+      "website": "https://business44.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000044",
+      "email": "contact44@business44.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "44",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "6a9ff58b-759f-4d5d-94ae-f9c293681f65",
+    "normalized": {
+      "id": "6a9ff58b-759f-4d5d-94ae-f9c293681f65",
+      "businessName": "Sample Business 45",
+      "legalName": "Sample Business 45 PtyLtd",
+      "address": "45 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000045",
+      "website": "https://business45.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000045",
+      "email": "contact45@business45.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "45",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "fdcf978c-7f48-4784-b678-a611258b6077",
+    "normalized": {
+      "id": "fdcf978c-7f48-4784-b678-a611258b6077",
+      "businessName": "Sample Business 46",
+      "legalName": "Sample Business 46 PtyLtd",
+      "address": "46 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000046",
+      "website": "https://business46.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000046",
+      "email": "contact46@business46.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "46",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "81c36c25-2caa-4393-b661-faff5652abfb",
+    "normalized": {
+      "id": "81c36c25-2caa-4393-b661-faff5652abfb",
+      "businessName": "Sample Business 47",
+      "legalName": "Sample Business 47 PtyLtd",
+      "address": "47 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000047",
+      "website": "https://business47.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000047",
+      "email": "contact47@business47.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "47",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "29ed7b85-ee33-444a-9a64-8f63d90ba20e",
+    "normalized": {
+      "id": "29ed7b85-ee33-444a-9a64-8f63d90ba20e",
+      "businessName": "Sample Business 48",
+      "legalName": "Sample Business 48 PtyLtd",
+      "address": "48 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000048",
+      "website": "https://business48.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000048",
+      "email": "contact48@business48.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "48",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "09df94d5-45ac-4b67-9ef7-77ddfec53993",
+    "normalized": {
+      "id": "09df94d5-45ac-4b67-9ef7-77ddfec53993",
+      "businessName": "Sample Business 49",
+      "legalName": "Sample Business 49 PtyLtd",
+      "address": "49 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000049",
+      "website": "https://business49.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000049",
+      "email": "contact49@business49.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "49",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.929Z",
+    "updatedAt": "2026-06-16T03:57:57.929Z"
+  },
+  {
+    "id": "6117106b-b635-42d2-8f62-efcd7bffa3ca",
+    "normalized": {
+      "id": "6117106b-b635-42d2-8f62-efcd7bffa3ca",
+      "businessName": "Sample Business 50",
+      "legalName": "Sample Business 50 PtyLtd",
+      "address": "50 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000050",
+      "website": "https://business50.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000050",
+      "email": "contact50@business50.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "50",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "121ce35a-3b0c-4ba7-bb7a-6eb009805d31",
+    "normalized": {
+      "id": "121ce35a-3b0c-4ba7-bb7a-6eb009805d31",
+      "businessName": "Sample Business 51",
+      "legalName": "Sample Business 51 PtyLtd",
+      "address": "51 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000051",
+      "website": "https://business51.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000051",
+      "email": "contact51@business51.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "51",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "1c172a39-14d6-4d8a-9e2a-5f3af03ad55f",
+    "normalized": {
+      "id": "1c172a39-14d6-4d8a-9e2a-5f3af03ad55f",
+      "businessName": "Sample Business 52",
+      "legalName": "Sample Business 52 PtyLtd",
+      "address": "52 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000052",
+      "website": "https://business52.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000052",
+      "email": "contact52@business52.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "52",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "8dd27974-dffb-4550-8648-0716ab855e66",
+    "normalized": {
+      "id": "8dd27974-dffb-4550-8648-0716ab855e66",
+      "businessName": "Sample Business 53",
+      "legalName": "Sample Business 53 PtyLtd",
+      "address": "53 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000053",
+      "website": "https://business53.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000053",
+      "email": "contact53@business53.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "53",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "1882db53-8894-47df-bc5b-cb4ce23d6949",
+    "normalized": {
+      "id": "1882db53-8894-47df-bc5b-cb4ce23d6949",
+      "businessName": "Sample Business 54",
+      "legalName": "Sample Business 54 PtyLtd",
+      "address": "54 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000054",
+      "website": "https://business54.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000054",
+      "email": "contact54@business54.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "54",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "c023dbe8-2a49-47cd-a1a0-39a520497484",
+    "normalized": {
+      "id": "c023dbe8-2a49-47cd-a1a0-39a520497484",
+      "businessName": "Sample Business 55",
+      "legalName": "Sample Business 55 PtyLtd",
+      "address": "55 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000055",
+      "website": "https://business55.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000055",
+      "email": "contact55@business55.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "55",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "f2fdc634-343e-480d-92d9-830de01e6301",
+    "normalized": {
+      "id": "f2fdc634-343e-480d-92d9-830de01e6301",
+      "businessName": "Sample Business 56",
+      "legalName": "Sample Business 56 PtyLtd",
+      "address": "56 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000056",
+      "website": "https://business56.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000056",
+      "email": "contact56@business56.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "56",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "0eae59b3-a0a4-4698-9303-ebd78483a168",
+    "normalized": {
+      "id": "0eae59b3-a0a4-4698-9303-ebd78483a168",
+      "businessName": "Sample Business 57",
+      "legalName": "Sample Business 57 PtyLtd",
+      "address": "57 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000057",
+      "website": "https://business57.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000057",
+      "email": "contact57@business57.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "57",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "49e257e0-40ef-4b15-b9f4-adcc829a1908",
+    "normalized": {
+      "id": "49e257e0-40ef-4b15-b9f4-adcc829a1908",
+      "businessName": "Sample Business 58",
+      "legalName": "Sample Business 58 PtyLtd",
+      "address": "58 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000058",
+      "website": "https://business58.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000058",
+      "email": "contact58@business58.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "58",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "8fe93f94-dcad-4e4b-a4ef-4127cf199d5f",
+    "normalized": {
+      "id": "8fe93f94-dcad-4e4b-a4ef-4127cf199d5f",
+      "businessName": "Sample Business 59",
+      "legalName": "Sample Business 59 PtyLtd",
+      "address": "59 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000059",
+      "website": "https://business59.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000059",
+      "email": "contact59@business59.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "59",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "6e52bc11-0e68-4dfd-90a4-5e62491f6435",
+    "normalized": {
+      "id": "6e52bc11-0e68-4dfd-90a4-5e62491f6435",
+      "businessName": "Sample Business 60",
+      "legalName": "Sample Business 60 PtyLtd",
+      "address": "60 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000060",
+      "website": "https://business60.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000060",
+      "email": "contact60@business60.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "60",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "7d78a2ea-83c5-4f21-ac1d-58c9934faf1d",
+    "normalized": {
+      "id": "7d78a2ea-83c5-4f21-ac1d-58c9934faf1d",
+      "businessName": "Sample Business 61",
+      "legalName": "Sample Business 61 PtyLtd",
+      "address": "61 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000061",
+      "website": "https://business61.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000061",
+      "email": "contact61@business61.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "61",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "2cc68cac-66e2-4af8-ba1d-872d5d2b7232",
+    "normalized": {
+      "id": "2cc68cac-66e2-4af8-ba1d-872d5d2b7232",
+      "businessName": "Sample Business 62",
+      "legalName": "Sample Business 62 PtyLtd",
+      "address": "62 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000062",
+      "website": "https://business62.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000062",
+      "email": "contact62@business62.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "62",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "087c3355-d281-4b40-b835-a4165118efc5",
+    "normalized": {
+      "id": "087c3355-d281-4b40-b835-a4165118efc5",
+      "businessName": "Sample Business 63",
+      "legalName": "Sample Business 63 PtyLtd",
+      "address": "63 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000063",
+      "website": "https://business63.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000063",
+      "email": "contact63@business63.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "63",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "ff37464d-699b-4206-85b6-b6dfdc7834f9",
+    "normalized": {
+      "id": "ff37464d-699b-4206-85b6-b6dfdc7834f9",
+      "businessName": "Sample Business 64",
+      "legalName": "Sample Business 64 PtyLtd",
+      "address": "64 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000064",
+      "website": "https://business64.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000064",
+      "email": "contact64@business64.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "64",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "adea1b85-7c0b-46f1-8ea0-1f51c74f15e9",
+    "normalized": {
+      "id": "adea1b85-7c0b-46f1-8ea0-1f51c74f15e9",
+      "businessName": "Sample Business 65",
+      "legalName": "Sample Business 65 PtyLtd",
+      "address": "65 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000065",
+      "website": "https://business65.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000065",
+      "email": "contact65@business65.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "65",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "ac41a6a3-1560-4008-8f3e-25a98d29669c",
+    "normalized": {
+      "id": "ac41a6a3-1560-4008-8f3e-25a98d29669c",
+      "businessName": "Sample Business 66",
+      "legalName": "Sample Business 66 PtyLtd",
+      "address": "66 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000066",
+      "website": "https://business66.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000066",
+      "email": "contact66@business66.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "66",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "83f17c2f-15ba-4609-a92f-5d0c11c60fef",
+    "normalized": {
+      "id": "83f17c2f-15ba-4609-a92f-5d0c11c60fef",
+      "businessName": "Sample Business 67",
+      "legalName": "Sample Business 67 PtyLtd",
+      "address": "67 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000067",
+      "website": "https://business67.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000067",
+      "email": "contact67@business67.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "67",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "41589812-b5cc-49b7-9f05-92885546b649",
+    "normalized": {
+      "id": "41589812-b5cc-49b7-9f05-92885546b649",
+      "businessName": "Sample Business 68",
+      "legalName": "Sample Business 68 PtyLtd",
+      "address": "68 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000068",
+      "website": "https://business68.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000068",
+      "email": "contact68@business68.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "68",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "507dbb6d-d48f-4fa0-811d-029b745be9b2",
+    "normalized": {
+      "id": "507dbb6d-d48f-4fa0-811d-029b745be9b2",
+      "businessName": "Sample Business 69",
+      "legalName": "Sample Business 69 PtyLtd",
+      "address": "69 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000069",
+      "website": "https://business69.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000069",
+      "email": "contact69@business69.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "69",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "6ea5e895-cc39-481e-af0a-0fd6ac4587af",
+    "normalized": {
+      "id": "6ea5e895-cc39-481e-af0a-0fd6ac4587af",
+      "businessName": "Sample Business 70",
+      "legalName": "Sample Business 70 PtyLtd",
+      "address": "70 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000070",
+      "website": "https://business70.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000070",
+      "email": "contact70@business70.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "70",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "5ce00a61-4597-4efc-86b0-c312d75d1ef1",
+    "normalized": {
+      "id": "5ce00a61-4597-4efc-86b0-c312d75d1ef1",
+      "businessName": "Sample Business 71",
+      "legalName": "Sample Business 71 PtyLtd",
+      "address": "71 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000071",
+      "website": "https://business71.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000071",
+      "email": "contact71@business71.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "71",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "edf800ff-a669-4868-88d8-4977e3b1bd71",
+    "normalized": {
+      "id": "edf800ff-a669-4868-88d8-4977e3b1bd71",
+      "businessName": "Sample Business 72",
+      "legalName": "Sample Business 72 PtyLtd",
+      "address": "72 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000072",
+      "website": "https://business72.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000072",
+      "email": "contact72@business72.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "72",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "3a9cc868-c5ce-412f-a1cb-036ec0643b52",
+    "normalized": {
+      "id": "3a9cc868-c5ce-412f-a1cb-036ec0643b52",
+      "businessName": "Sample Business 73",
+      "legalName": "Sample Business 73 PtyLtd",
+      "address": "73 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000073",
+      "website": "https://business73.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000073",
+      "email": "contact73@business73.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "73",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "4933039f-0951-4b12-8a3a-b1f45f6749d2",
+    "normalized": {
+      "id": "4933039f-0951-4b12-8a3a-b1f45f6749d2",
+      "businessName": "Sample Business 74",
+      "legalName": "Sample Business 74 PtyLtd",
+      "address": "74 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000074",
+      "website": "https://business74.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000074",
+      "email": "contact74@business74.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "74",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "6214b134-a70a-4154-b2c7-3a6f833fd040",
+    "normalized": {
+      "id": "6214b134-a70a-4154-b2c7-3a6f833fd040",
+      "businessName": "Sample Business 75",
+      "legalName": "Sample Business 75 PtyLtd",
+      "address": "75 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000075",
+      "website": "https://business75.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000075",
+      "email": "contact75@business75.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "75",
+      "ingestedAt": "2026-06-16T03:57:57.852Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "5be0e6d4-bbda-4ed7-a75e-468db3368a78",
+    "normalized": {
+      "id": "5be0e6d4-bbda-4ed7-a75e-468db3368a78",
+      "businessName": "Sample Business 76",
+      "legalName": "Sample Business 76 PtyLtd",
+      "address": "76 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000076",
+      "website": "https://business76.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000076",
+      "email": "contact76@business76.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "76",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "6d88702c-1826-4d31-804e-0de86c565e3c",
+    "normalized": {
+      "id": "6d88702c-1826-4d31-804e-0de86c565e3c",
+      "businessName": "Sample Business 77",
+      "legalName": "Sample Business 77 PtyLtd",
+      "address": "77 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000077",
+      "website": "https://business77.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000077",
+      "email": "contact77@business77.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "77",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "2a6110d2-6356-4b28-becb-334003855200",
+    "normalized": {
+      "id": "2a6110d2-6356-4b28-becb-334003855200",
+      "businessName": "Sample Business 78",
+      "legalName": "Sample Business 78 PtyLtd",
+      "address": "78 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000078",
+      "website": "https://business78.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000078",
+      "email": "contact78@business78.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "78",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "d0c971bc-ca32-460b-a6fa-c607e2f84ef6",
+    "normalized": {
+      "id": "d0c971bc-ca32-460b-a6fa-c607e2f84ef6",
+      "businessName": "Sample Business 79",
+      "legalName": "Sample Business 79 PtyLtd",
+      "address": "79 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000079",
+      "website": "https://business79.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000079",
+      "email": "contact79@business79.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "79",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "d53cf5da-c246-428e-bdf6-39accbc1f4aa",
+    "normalized": {
+      "id": "d53cf5da-c246-428e-bdf6-39accbc1f4aa",
+      "businessName": "Sample Business 80",
+      "legalName": "Sample Business 80 PtyLtd",
+      "address": "80 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000080",
+      "website": "https://business80.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000080",
+      "email": "contact80@business80.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "80",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "a1b1c859-aece-4fa9-ab1b-edb6cc94faae",
+    "normalized": {
+      "id": "a1b1c859-aece-4fa9-ab1b-edb6cc94faae",
+      "businessName": "Sample Business 81",
+      "legalName": "Sample Business 81 PtyLtd",
+      "address": "81 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000081",
+      "website": "https://business81.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000081",
+      "email": "contact81@business81.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "81",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "28eb51be-ed07-48e3-8571-8f67a6c4bdd9",
+    "normalized": {
+      "id": "28eb51be-ed07-48e3-8571-8f67a6c4bdd9",
+      "businessName": "Sample Business 82",
+      "legalName": "Sample Business 82 PtyLtd",
+      "address": "82 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000082",
+      "website": "https://business82.example.com",
+      "category": "beauty",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000082",
+      "email": "contact82@business82.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "82",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "f9d6b071-ad24-4ac2-bd31-50593dca769b",
+    "normalized": {
+      "id": "f9d6b071-ad24-4ac2-bd31-50593dca769b",
+      "businessName": "Sample Business 83",
+      "legalName": "Sample Business 83 PtyLtd",
+      "address": "83 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000083",
+      "website": "https://business83.example.com",
+      "category": "retail",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000083",
+      "email": "contact83@business83.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "83",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "b4791d37-94b3-4de4-a22d-eac6a3919ba4",
+    "normalized": {
+      "id": "b4791d37-94b3-4de4-a22d-eac6a3919ba4",
+      "businessName": "Sample Business 84",
+      "legalName": "Sample Business 84 PtyLtd",
+      "address": "84 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000084",
+      "website": "https://business84.example.com",
+      "category": "health",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000084",
+      "email": "contact84@business84.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "84",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "c83dc531-edf9-457d-8659-a879898ee8cf",
+    "normalized": {
+      "id": "c83dc531-edf9-457d-8659-a879898ee8cf",
+      "businessName": "Sample Business 85",
+      "legalName": "Sample Business 85 PtyLtd",
+      "address": "85 Main Street, Sydney, VIC, Australia",
+      "phone": "+61410000085",
+      "website": "https://business85.example.com",
+      "category": "fitness",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000085",
+      "email": "contact85@business85.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Sydney",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "85",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "df8ae4db-0e5d-4444-a393-4f42b357b82a",
+    "normalized": {
+      "id": "df8ae4db-0e5d-4444-a393-4f42b357b82a",
+      "businessName": "Sample Business 86",
+      "legalName": "Sample Business 86 PtyLtd",
+      "address": "86 Main Street, Brisbane, VIC, Australia",
+      "phone": "+61410000086",
+      "website": "https://business86.example.com",
+      "category": "hospitality",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000086",
+      "email": "contact86@business86.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Brisbane",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "86",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.35
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "7ee6b69e-a7c6-4618-9b8c-015923a2c0a5",
+    "normalized": {
+      "id": "7ee6b69e-a7c6-4618-9b8c-015923a2c0a5",
+      "businessName": "Sample Business 87",
+      "legalName": "Sample Business 87 PtyLtd",
+      "address": "87 Main Street, Ho Chi Minh City, VIC, Australia",
+      "phone": "+61410000087",
+      "website": "https://business87.example.com",
+      "category": "services",
+      "categoryConfidence": 0.75,
+      "registrationNumber": "ABN10000000087",
+      "email": "contact87@business87.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Ho Chi Minh City",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "87",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 91,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "095fdecc-1e8e-42d8-88e1-073554dd5162",
+    "normalized": {
+      "id": "095fdecc-1e8e-42d8-88e1-073554dd5162",
+      "businessName": "Sample Business 88",
+      "legalName": "Sample Business 88 PtyLtd",
+      "address": "88 Main Street, Hanoi, VIC, Australia",
+      "phone": "+61410000088",
+      "website": "https://business88.example.com",
+      "category": "automotive",
+      "categoryConfidence": 0.8,
+      "registrationNumber": "ABN10000000088",
+      "email": "contact88@business88.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Hanoi",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "88",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 92,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "c3b70909-5997-4f0a-8028-286cfb5cd85a",
+    "normalized": {
+      "id": "c3b70909-5997-4f0a-8028-286cfb5cd85a",
+      "businessName": "Sample Business 89",
+      "legalName": "Sample Business 89 PtyLtd",
+      "address": "89 Main Street, Da Nang, VIC, Australia",
+      "phone": "+61410000089",
+      "website": "https://business89.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000089",
+      "email": "contact89@business89.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Da Nang",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "89",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.27999999999999997
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  },
+  {
+    "id": "15507863-b58a-4fcf-b3d1-e665b98c9f4e",
+    "normalized": {
+      "id": "15507863-b58a-4fcf-b3d1-e665b98c9f4e",
+      "businessName": "Sample Business 90",
+      "legalName": "Sample Business 90 PtyLtd",
+      "address": "90 Main Street, Melbourne, VIC, Australia",
+      "phone": "+61410000090",
+      "website": "https://business90.example.com",
+      "category": "food",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN10000000090",
+      "email": "contact90@business90.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 1,
+      "sourceType": "open_data_url",
+      "sourceReference": "https://example.com/fixtures/sample-opendata-businesses.json",
+      "sourceRowId": "90",
+      "ingestedAt": "2026-06-16T03:57:57.853Z"
+    },
+    "resolution": "possible_duplicate",
+    "matchEvidence": [
+      {
+        "field": "businessName",
+        "signal": "partial",
+        "score": 0.30000000000000004
+      },
+      {
+        "field": "address",
+        "signal": "token-overlap",
+        "score": 0.19999999999999998
+      }
+    ],
+    "qualityScore": 93,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T03:57:57.930Z",
+    "updatedAt": "2026-06-16T03:57:57.930Z"
+  }
+]

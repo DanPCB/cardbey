@@ -55,6 +55,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: CARDEY_DEPLOY_ENV
+        value: staging
       - key: USE_LLM_TASK_PLANNER
         value: "true"
       - key: ENABLE_OPENCLAW_AGENT_RUNTIME
@@ -65,6 +67,9 @@ services:
         value: "true"
       - key: CREWAI_ENABLED
         value: "false"
+      # Optional stream key for dashboard SSE (?key=). JWT (?token=) works without this.
+      - key: SSE_STREAM_KEY
+        sync: false
 
   # Prevent 15-minute spin-down cold starts (CORS null on first request after idle).
   - type: cron

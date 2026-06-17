@@ -1,0 +1,19 @@
+[
+  {
+    "id": "b00768e9-b485-4ef2-8655-a5ae0b614a4a",
+    "seedId": "activate-1",
+    "claimRequestId": null,
+    "action": "seed_activated",
+    "actorId": "owner-1",
+    "previousStatus": "verified_owner",
+    "nextStatus": "active",
+    "reason": null,
+    "timestamp": "2026-06-16T10:03:51.232Z",
+    "metadata": {
+      "storeId": "store-runway-1"
+    },
+    "details": {
+      "storeId": "store-runway-1"
+    }
+  }
+]

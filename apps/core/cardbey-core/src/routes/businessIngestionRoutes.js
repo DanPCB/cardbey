@@ -3,8 +3,8 @@
  */
 
 import express from 'express';
-import { requireAuth } from '../middleware/auth.js';
-import { requireSuperAdmin, hasRole } from '../lib/authorization.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { isPlatformAdmin } from '../lib/authorization.js';
 import {
   buildIngestionDashboardMetrics,
   getSeedRecordById,
@@ -74,7 +74,7 @@ function parseQueueFilters(query) {
 }
 
 /** GET /api/business-ingestion/metrics */
-router.get('/metrics', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/metrics', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const metrics = await buildIngestionDashboardMetrics();
     const qaPending = await listQaQueue({ status: 'seeded_pending_qa' });
@@ -127,7 +127,7 @@ router.get('/metrics', requireAuth, requireSuperAdmin, async (req, res, next) =>
 });
 
 /** GET /api/business-ingestion/claims */
-router.get('/claims', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/claims', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const status = typeof req.query.status === 'string' ? req.query.status.trim() : null;
     const claims = await listClaimsByStatus(status || undefined);
@@ -140,7 +140,7 @@ router.get('/claims', requireAuth, requireSuperAdmin, async (req, res, next) => 
 });
 
 /** GET /api/business-ingestion/seeds */
-router.get('/seeds', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/seeds', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const view = typeof req.query.view === 'string' ? req.query.view : 'qa';
 
@@ -159,7 +159,7 @@ router.get('/seeds', requireAuth, requireSuperAdmin, async (req, res, next) => {
 });
 
 /** GET /api/business-ingestion/seeds/:id */
-router.get('/seeds/:id', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/seeds/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const record = await getSeedRecordById(req.params.id);
     if (!record) {
@@ -189,7 +189,7 @@ router.get('/seeds/:id', requireAuth, requireSuperAdmin, async (req, res, next) 
 });
 
 /** GET /api/business-ingestion/runs */
-router.get('/runs', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/runs', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
     const runs = await listIngestionRuns(limit);
@@ -201,7 +201,7 @@ router.get('/runs', requireAuth, requireSuperAdmin, async (req, res, next) => {
 });
 
 /** POST /api/business-ingestion/run */
-router.post('/run', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/run', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const body = req.body ?? {};
     const adapterType = String(body.adapter ?? 'open_data_url');
@@ -248,7 +248,7 @@ router.post('/run', requireAuth, requireSuperAdmin, async (req, res, next) => {
 });
 
 /** POST /api/business-ingestion/seeds/:id/approve */
-router.post('/seeds/:id/approve', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/seeds/:id/approve', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : null;
     const result = await approveSeed(req.params.id, req.userId, reason);
@@ -260,7 +260,7 @@ router.post('/seeds/:id/approve', requireAuth, requireSuperAdmin, async (req, re
 });
 
 /** POST /api/business-ingestion/seeds/:id/reject */
-router.post('/seeds/:id/reject', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/seeds/:id/reject', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : null;
     const result = await rejectSeed(req.params.id, req.userId, reason);
@@ -272,7 +272,7 @@ router.post('/seeds/:id/reject', requireAuth, requireSuperAdmin, async (req, res
 });
 
 /** POST /api/business-ingestion/seeds/:id/mark-duplicate */
-router.post('/seeds/:id/mark-duplicate', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/seeds/:id/mark-duplicate', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const canonicalSeedId = typeof req.body?.canonicalSeedId === 'string' ? req.body.canonicalSeedId.trim() : '';
     if (!canonicalSeedId) {
@@ -288,7 +288,7 @@ router.post('/seeds/:id/mark-duplicate', requireAuth, requireSuperAdmin, async (
 });
 
 /** POST /api/business-ingestion/seeds/:id/merge */
-router.post('/seeds/:id/merge', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/seeds/:id/merge', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const canonicalSeedId = typeof req.body?.canonicalSeedId === 'string' ? req.body.canonicalSeedId.trim() : '';
     if (!canonicalSeedId) {
@@ -304,7 +304,7 @@ router.post('/seeds/:id/merge', requireAuth, requireSuperAdmin, async (req, res,
 });
 
 /** POST /api/business-ingestion/seeds/:id/send-back-to-review */
-router.post('/seeds/:id/send-back-to-review', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/seeds/:id/send-back-to-review', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : null;
     const result = await sendSeedBackToReview(req.params.id, req.userId, reason);
@@ -360,9 +360,7 @@ router.post('/seeds/:id/claim/verify', requireAuth, async (req, res, next) => {
 /** POST /api/business-ingestion/seeds/:id/activate — owner confirms profile */
 router.post('/seeds/:id/activate', requireAuth, async (req, res, next) => {
   try {
-    const actorIsPlatformAdmin =
-      hasRole(req.user, 'super_admin') ||
-      (process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true);
+    const actorIsPlatformAdmin = isPlatformAdmin(req.user);
     const result = await activateSeedAfterOwnerConfirmation({
       seedId: req.params.id,
       ownerUserId: req.userId,
@@ -380,7 +378,7 @@ router.post('/seeds/:id/activate', requireAuth, async (req, res, next) => {
 });
 
 /** POST /api/business-ingestion/claims/:claimId/reject — admin reject claim */
-router.post('/claims/:claimId/reject', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/claims/:claimId/reject', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const seedId = typeof req.body?.seedId === 'string' ? req.body.seedId.trim() : '';
     if (!seedId) {

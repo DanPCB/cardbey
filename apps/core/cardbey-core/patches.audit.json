@@ -277,5 +277,59 @@
     "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
     "appliedBy": "operator",
     "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-17T13:05:09.038Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-17T13:30:39.179Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-17T13:49:05.952Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-17T14:00:18.033Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-17T14:12:35.963Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
+  },
+  {
+    "timestamp": "2026-06-17T14:21:14.327Z",
+    "file": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\src\\__apply_patch_test_fixture__.ts",
+    "errorType": "react_loop",
+    "hunksApplied": 1,
+    "patch": "// Line 1 — test hunk\n- const value = 1;\n+ const value = 42;",
+    "appliedBy": "operator",
+    "missionId": "m-test"
   }
 ]

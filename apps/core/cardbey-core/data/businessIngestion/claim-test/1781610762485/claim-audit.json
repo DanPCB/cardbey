@@ -1,0 +1,91 @@
+[
+  {
+    "id": "c13a298c-32fe-428c-8dc8-9d9d3d0f8844",
+    "seedId": "activate-1",
+    "claimRequestId": "d74362a7-00fe-45d2-b81d-52334f07ad61",
+    "action": "claim_started",
+    "actorId": "user-act-1",
+    "previousStatus": "seeded_claimable",
+    "nextStatus": "pending",
+    "reason": null,
+    "timestamp": "2026-06-16T11:52:42.517Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "015f3b63-3d02-41eb-8da8-d2080ab171ac",
+    "seedId": "activate-1",
+    "claimRequestId": "d74362a7-00fe-45d2-b81d-52334f07ad61",
+    "action": "proof_submitted",
+    "actorId": "user-act-1",
+    "previousStatus": "pending",
+    "nextStatus": "proof_submitted",
+    "reason": null,
+    "timestamp": "2026-06-16T11:52:42.519Z",
+    "metadata": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    },
+    "details": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    }
+  },
+  {
+    "id": "505fe605-5ff7-4149-9bdd-fa452b873cca",
+    "seedId": "activate-1",
+    "claimRequestId": "d74362a7-00fe-45d2-b81d-52334f07ad61",
+    "action": "otp_sent",
+    "actorId": "user-act-1",
+    "previousStatus": "proof_submitted",
+    "nextStatus": "otp_sent",
+    "reason": null,
+    "timestamp": "2026-06-16T11:52:42.541Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "a8e8a932-7aa3-4b86-ba86-e355f80e28ed",
+    "seedId": "activate-1",
+    "claimRequestId": "d74362a7-00fe-45d2-b81d-52334f07ad61",
+    "action": "proof_verified",
+    "actorId": "user-act-1",
+    "previousStatus": "otp_sent",
+    "nextStatus": "verified",
+    "reason": null,
+    "timestamp": "2026-06-16T11:52:42.572Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "07a1257d-4594-4720-a751-12cad6cbc32f",
+    "seedId": "activate-1",
+    "claimRequestId": "d74362a7-00fe-45d2-b81d-52334f07ad61",
+    "action": "seed_activated",
+    "actorId": "user-act-1",
+    "previousStatus": "verified_owner",
+    "nextStatus": "active",
+    "reason": null,
+    "timestamp": "2026-06-16T11:52:42.608Z",
+    "metadata": {
+      "storeId": "store-linked-1",
+      "activatedAt": "2026-06-16T11:52:42.596Z"
+    },
+    "details": {
+      "storeId": "store-linked-1",
+      "activatedAt": "2026-06-16T11:52:42.596Z"
+    }
+  }
+]

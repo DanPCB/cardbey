@@ -1,0 +1,13 @@
+[
+  {
+    "id": "63fa567c-d698-4421-aa36-580749f8f367",
+    "seedId": "other-2",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "duplicate",
+    "action": "mark_duplicate",
+    "reviewerId": "admin-1",
+    "timestamp": "2026-06-16T03:57:51.798Z",
+    "reason": "Same business",
+    "canonicalSeedId": "canon-2"
+  }
+]

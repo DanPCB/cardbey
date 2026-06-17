@@ -23,6 +23,32 @@ function verifySseJwt(token) {
   }
 }
 
+function isStagingDeploy() {
+  return (
+    process.env.CARDEY_DEPLOY_ENV === 'staging' ||
+    String(process.env.RENDER_SERVICE_NAME || '').toLowerCase().includes('staging')
+  );
+}
+
+/** User-facing hint for 403 SSE responses (no secrets). */
+export function sseStreamAuthHint(error) {
+  const staging = isStagingDeploy();
+  if (error === 'legacy_admin_key_disabled') {
+    return staging
+      ? 'Legacy key=admin is disabled on staging. Sign in to the dashboard (JWT ?token=) or set SSE_STREAM_KEY on Core and VITE_SSE_STREAM_KEY on the dashboard build.'
+      : 'Legacy key=admin is disabled in production. Sign in (JWT ?token=) or configure SSE_STREAM_KEY.';
+  }
+  if (error === 'unauthorized_stream') {
+    return staging
+      ? 'Invalid stream key. Sign in for JWT auth, or use ?key= matching SSE_STREAM_KEY.'
+      : 'Invalid stream key. Sign in for JWT auth or configure SSE_STREAM_KEY.';
+  }
+  if (error === 'invalid_jwt') {
+    return 'Session expired or invalid. Sign in again to reconnect live device events.';
+  }
+  return 'Valid stream token or SSE_STREAM_KEY required.';
+}
+
 /**
  * Resolve whether an SSE connection may proceed and which broadcast key to use.
  * Device/admin broadcasts use clientKey `admin` after JWT auth.
@@ -49,6 +75,9 @@ export function resolveSseStreamAuth(req) {
         authMode: 'jwt',
         userId: verified.userId,
       };
+    }
+    if (tokenParam) {
+      return { ok: false, error: 'invalid_jwt' };
     }
   }
 

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "4d640ac6-8389-4bb7-8ed8-7fa52d39ca4e",
+    "seedId": "claimable-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-1",
+    "timestamp": "2026-06-17T13:57:52.408Z",
+    "reason": null,
+    "canonicalSeedId": null
+  },
+  {
+    "id": "cfcd53df-6b2a-48ac-9a2e-8a8f65874b80",
+    "seedId": "bad-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "rejected",
+    "action": "reject",
+    "reviewerId": "admin-1",
+    "timestamp": "2026-06-17T13:57:52.429Z",
+    "reason": null,
+    "canonicalSeedId": null
+  }
+]

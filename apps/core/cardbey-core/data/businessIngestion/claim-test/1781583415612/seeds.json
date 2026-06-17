@@ -1,0 +1,38 @@
+[
+  {
+    "id": "verify-1",
+    "normalized": {
+      "id": "verify-1",
+      "businessName": "Claimable Cafe",
+      "legalName": null,
+      "address": "10 Main St, Melbourne, VIC, Australia",
+      "phone": "+61400111222",
+      "website": "https://claimable.example.com",
+      "category": "cafe",
+      "categoryConfidence": 0.85,
+      "registrationNumber": "ABN12345678901",
+      "email": "owner@claimable.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 0.8,
+      "sourceType": "open_data_url",
+      "sourceReference": "fixture",
+      "sourceRowId": "1",
+      "ingestedAt": "2026-06-16T04:16:55.618Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 88,
+    "qualityTier": "high_quality",
+    "verificationStatus": "verified_owner",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": "user-verify-1",
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-16T04:16:55.618Z",
+    "updatedAt": "2026-06-16T04:16:55.714Z"
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "7212c1e9-334a-4d88-b639-b7c260a74819",
+    "seedId": "verify-1",
+    "claimantUserId": "user-verify-1",
+    "proofType": "email",
+    "proofContact": "owner@claimable.example.com",
+    "proofStatus": "verified",
+    "claimStatus": "verified",
+    "createdAt": "2026-06-16T03:57:51.034Z",
+    "updatedAt": "2026-06-16T03:57:51.058Z",
+    "verifiedAt": "2026-06-16T03:57:51.058Z",
+    "rejectionReason": null,
+    "duplicateBlockedStoreId": null
+  }
+]
