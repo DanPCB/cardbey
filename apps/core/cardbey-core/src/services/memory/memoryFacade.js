@@ -139,6 +139,14 @@ export class MemoryFacade {
       user: results.user?.status === 'fulfilled' ? results.user.value : null,
       session,
       mission: results.mission?.status === 'fulfilled' ? results.mission.value : null,
+      activeSummary:
+        results.mission?.status === 'fulfilled'
+          ? results.mission.value?.activeSummary ?? null
+          : null,
+      keyFacts:
+        results.mission?.status === 'fulfilled'
+          ? results.mission.value?.keyFacts ?? []
+          : [],
       meta: {
         fetchedAt: new Date().toISOString(),
         sources: this.getSuccessfulSources(results, session),

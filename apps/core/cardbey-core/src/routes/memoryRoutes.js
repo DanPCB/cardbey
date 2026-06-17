@@ -9,6 +9,7 @@ import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { guestSessionId } from '../middleware/guestSession.js';
 import memoryFacade, { normalizeMemoryContext } from '../services/memory/memoryFacade.js';
 import { recordRouteLatency } from '../lib/metrics/foundationMetrics.js';
+import bulkhead from '../services/reliability/bulkhead.js';
 
 const router = Router();
 
@@ -49,7 +50,7 @@ router.post('/bundle', guestSessionId, optionalAuth, async (req, res) => {
       ownerId: userId,
     });
 
-    const bundle = await memoryFacade.getBundle(normalized);
+    const bundle = await bulkhead.execute('memory_operations', () => memoryFacade.getBundle(normalized));
     const ms = Date.now() - started;
     recordRouteLatency('memory_bundle', ms);
     res.json({ ok: true, bundle });

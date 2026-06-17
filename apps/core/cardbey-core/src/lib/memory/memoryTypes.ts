@@ -76,6 +76,8 @@ export interface MissionContextMemory {
     status: string;
   }>;
   blackboard: Record<string, unknown>;
+  activeSummary?: string | null;
+  keyFacts?: string[];
 }
 
 export interface UnifiedMemoryBundle {
@@ -85,6 +87,8 @@ export interface UnifiedMemoryBundle {
   user: UserMemory | null;
   session: SessionMemory | null;
   mission: MissionContextMemory | null;
+  activeSummary?: string | null;
+  keyFacts?: string[];
   meta: {
     fetchedAt: string;
     sources: string[];

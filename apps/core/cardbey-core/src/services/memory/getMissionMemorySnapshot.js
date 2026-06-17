@@ -5,6 +5,18 @@
 import { prisma } from '../../lib/prisma.js';
 import { getLatestSnapshot } from '../../lib/missionBlackboard.js';
 
+function readSummaryFromMeta(meta) {
+  if (!meta || typeof meta !== 'object') {
+    return { activeSummary: null, keyFacts: [] };
+  }
+  const activeSummary =
+    typeof meta.activeSummary === 'string' && meta.activeSummary.trim()
+      ? meta.activeSummary.trim()
+      : null;
+  const keyFacts = Array.isArray(meta.keyFacts) ? meta.keyFacts.map(String) : [];
+  return { activeSummary, keyFacts };
+}
+
 /**
  * @param {string} missionId
  * @param {import('@prisma/client').PrismaClient} [db]
@@ -15,6 +27,39 @@ export async function getMissionMemorySnapshot(missionId, db = prisma) {
   if (!id) return null;
 
   try {
+    if (db.missionPipeline?.findUnique) {
+      const pipeline = await db.missionPipeline.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          type: true,
+          metadataJson: true,
+          steps: {
+            select: { id: true, label: true, status: true, orderIndex: true },
+            orderBy: { orderIndex: 'asc' },
+            take: 12,
+          },
+        },
+      });
+      if (pipeline) {
+        const { activeSummary, keyFacts } = readSummaryFromMeta(pipeline.metadataJson);
+        return {
+          missionId: pipeline.id,
+          status: pipeline.status ?? 'unknown',
+          type: pipeline.type ?? 'unknown',
+          steps: (pipeline.steps ?? []).map((step) => ({
+            id: step.id,
+            name: step.label ?? step.id,
+            status: step.status ?? 'pending',
+          })),
+          blackboard: {},
+          activeSummary,
+          keyFacts,
+        };
+      }
+    }
+
     const mission = await db.mission.findUnique({
       where: { id },
       select: { id: true, status: true, context: true },
@@ -53,6 +98,7 @@ export async function getMissionMemorySnapshot(missionId, db = prisma) {
 
     const type =
       String(contextPayload.type ?? missionContext.type ?? 'unknown').trim() || 'unknown';
+    const { activeSummary, keyFacts } = readSummaryFromMeta(contextPayload);
 
     return {
       missionId: id,
@@ -60,6 +106,8 @@ export async function getMissionMemorySnapshot(missionId, db = prisma) {
       type,
       steps: [],
       blackboard,
+      activeSummary,
+      keyFacts,
     };
   } catch {
     return null;
