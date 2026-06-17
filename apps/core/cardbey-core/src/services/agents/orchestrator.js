@@ -9,7 +9,7 @@ import agentSharedMemory from './agentSharedMemory.js';
 import agentLifecycle from './agentLifecycle.js';
 import { ensureRuntimeAuthorizedContext } from '../../lib/runtime/performerRuntime/runtimeOwnership.js';
 import bulkhead from '../reliability/bulkhead.js';
-import observationBus from '../../lib/runtime/observationBus.js';
+import observationBus, { isInfrastructureSloFailure } from '../../lib/runtime/observationBus.js';
 
 export class SubAgentOrchestrator {
   /**
@@ -170,11 +170,33 @@ export class SubAgentOrchestrator {
     }
 
     if (!this.registry.isHealthy(agentId)) {
-      if (options.allowFailover !== false) {
-        const failoverResult = await this.failover(agentId, authorizedContext);
-        if (failoverResult) return failoverResult;
+      const health = this.registry.getHealth(agentId);
+      const healthStatus = String(health?.status ?? '').toLowerCase();
+      const explicitlyUnhealthy =
+        healthStatus === 'unhealthy' || healthStatus === 'degraded' || healthStatus === 'failed';
+
+      if (!explicitlyUnhealthy) {
+        try {
+          if (registered.status !== 'active') {
+            this.lifecycle.start(agentId);
+          } else {
+            this.lifecycle.heartbeat(agentId);
+          }
+        } catch (healError) {
+          console.warn(
+            `[Orchestrator] Agent self-heal failed for ${agentId}:`,
+            healError?.message || healError,
+          );
+        }
       }
-      throw new Error(`Agent ${agentId} is not healthy`);
+
+      if (!this.registry.isHealthy(agentId)) {
+        if (options.allowFailover !== false) {
+          const failoverResult = await this.failover(agentId, authorizedContext);
+          if (failoverResult) return failoverResult;
+        }
+        throw new Error(`Agent ${agentId} is not healthy`);
+      }
     }
 
     const requiredCapability = authorizedContext.requiredCapability
@@ -234,6 +256,7 @@ export class SubAgentOrchestrator {
 
       return result;
     } catch (error) {
+      const infraFailure = isInfrastructureSloFailure(error?.message || error);
       void observationBus
         .emit({
           missionId: authorizedContext.missionId ?? null,
@@ -245,6 +268,7 @@ export class SubAgentOrchestrator {
             storeId: authorizedContext.storeId ?? null,
             userId: authorizedContext.userId ?? null,
             source: authorizedContext.source ?? 'sub_agent_orchestrator',
+            sloEligible: !infraFailure,
           },
         })
         .catch(() => {});

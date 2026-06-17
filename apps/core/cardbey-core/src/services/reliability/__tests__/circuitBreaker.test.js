@@ -17,6 +17,7 @@ describe('CircuitBreaker', () => {
   });
 
   it('opens after threshold failures', async () => {
+    breaker.defaults.threshold = 3;
     const failing = () => breaker.execute('skill_execution', async () => {
       throw new Error('boom');
     });
@@ -30,6 +31,7 @@ describe('CircuitBreaker', () => {
   });
 
   it('resets on success after half-open', async () => {
+    breaker.defaults.threshold = 3;
     for (let i = 0; i < 3; i += 1) {
       await breaker.execute('recover', async () => {
         throw new Error('fail');

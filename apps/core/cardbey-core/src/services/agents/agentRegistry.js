@@ -166,10 +166,18 @@ export class AgentRegistry {
     const health = this.health.get(id);
     if (!health) return agent.status === 'active';
 
-    const heartbeatAge = Date.now() - new Date(health.updatedAt || 0).getTime();
-    if (heartbeatAge > 60_000) return false;
+    const status = String(health.status ?? '').toLowerCase();
+    if (status === 'unhealthy' || status === 'degraded' || status === 'failed') {
+      return false;
+    }
 
-    return health.status === 'healthy';
+    const intervalMs = parseInt(process.env.AGENT_HEARTBEAT_INTERVAL_MS, 10) || 30_000;
+    const staleMs =
+      parseInt(process.env.AGENT_HEARTBEAT_STALE_MS, 10) || Math.max(120_000, intervalMs * 4);
+    const heartbeatAge = Date.now() - new Date(health.updatedAt || 0).getTime();
+    if (heartbeatAge > staleMs) return false;
+
+    return agent.status === 'active';
   }
 
   /**

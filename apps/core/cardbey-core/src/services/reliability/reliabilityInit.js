@@ -5,6 +5,7 @@
 import autoHeal from './autoHeal.js';
 import sloTracker from './sloTracker.js';
 import alerting from './alerting.js';
+import circuitBreaker from './circuitBreaker.js';
 import { ConsoleChannel } from './channels/console.js';
 import { WebhookChannel } from './channels/webhook.js';
 import {
@@ -34,9 +35,8 @@ export function initReliabilityLayer() {
 
   if (process.env.VITEST !== 'true' && process.env.AGENT_AUTO_START !== 'false') {
     initializeAgents();
-    startAgentHeartbeatLoop(
-      parseInt(process.env.AGENT_HEARTBEAT_INTERVAL_MS, 10) || 30_000,
-    );
+    startAgentHeartbeatLoop();
+    circuitBreaker.reset('skill_execution');
   }
 
   if (process.env.VITEST !== 'true' && process.env.RELIABILITY_SLO_LOOP !== 'false') {

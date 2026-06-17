@@ -7,9 +7,9 @@ export class CircuitBreaker {
     /** @type {Map<string, object>} */
     this.circuits = new Map();
     this.defaults = {
-      threshold: 5,
+      threshold: parseInt(process.env.CIRCUIT_BREAKER_THRESHOLD, 10) || 8,
       timeout: 30_000,
-      halfOpenTimeout: 10_000,
+      halfOpenTimeout: parseInt(process.env.CIRCUIT_BREAKER_HALF_OPEN_MS, 10) || 15_000,
     };
   }
 
@@ -27,7 +27,9 @@ export class CircuitBreaker {
         circuit.state = 'half-open';
         console.log(`[CircuitBreaker] ${name} half-open — testing`);
       } else {
-        throw new Error(`Circuit ${name} is open`);
+        const err = new Error(`Circuit ${name} is open`);
+        err.code = 'CIRCUIT_OPEN';
+        throw err;
       }
     }
 
@@ -36,7 +38,9 @@ export class CircuitBreaker {
       this.onSuccess(name);
       return result;
     } catch (error) {
-      this.onFailure(name);
+      if (error?.code !== 'CIRCUIT_OPEN') {
+        this.onFailure(name);
+      }
       throw error;
     }
   }
@@ -100,6 +104,17 @@ export class CircuitBreaker {
       statuses[name] = this.getStatus(name);
     }
     return statuses;
+  }
+
+  /**
+   * @param {string} [name]
+   */
+  reset(name) {
+    if (name) {
+      this.circuits.delete(name);
+      return;
+    }
+    this.circuits.clear();
   }
 
   resetForTests() {

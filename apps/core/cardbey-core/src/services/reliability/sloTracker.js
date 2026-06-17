@@ -3,7 +3,10 @@
  */
 
 import { getPrismaClient } from '../../lib/prisma.js';
-import { isObservationSloEligible } from '../../lib/runtime/observationBus.js';
+import {
+  isObservationSloEligible,
+  isObservationSuccessRateEligible,
+} from '../../lib/runtime/observationBus.js';
 
 export class SLOTracker {
   constructor() {
@@ -106,16 +109,19 @@ export class SLOTracker {
         where: { createdAt: { gte: since } },
         select: {
           outcome: true,
+          error: true,
           actionType: true,
           intentType: true,
           contextSnapshot: true,
         },
-        take: 5000,
+        take: 10_000,
         orderBy: { createdAt: 'desc' },
       });
 
       const eligible = observations.filter((row) =>
-        isObservationSloEligible({
+        isObservationSuccessRateEligible({
+          outcome: row.outcome,
+          error: row.error,
           actionType: row.actionType,
           intentType: row.intentType,
           contextSnapshot: row.contextSnapshot,
@@ -125,7 +131,7 @@ export class SLOTracker {
       if (eligible.length === 0) return 100;
 
       const success = eligible.filter((row) => row.outcome === 'success').length;
-      return (success / eligible.length) * 100;
+      return Math.round((success / eligible.length) * 1000) / 10;
     } catch {
       return 100;
     }
@@ -194,6 +200,60 @@ export class SLOTracker {
 
   getBreachHistory(limit = 50) {
     return this.breachHistory.slice(-limit);
+  }
+
+  /**
+   * Top failure patterns in the SLO window (for diagnostics).
+   */
+  async getFailurePatterns(limit = 10) {
+    const prisma = getPrismaClient();
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    try {
+      const rows = await prisma.observation.findMany({
+        where: { outcome: 'failure', createdAt: { gte: since } },
+        select: {
+          actionType: true,
+          intentType: true,
+          error: true,
+          contextSnapshot: true,
+        },
+        take: 2000,
+        orderBy: { createdAt: 'desc' },
+      });
+
+      /** @type {Map<string, { count: number; errors: string[]; sloEligible: number }>} */
+      const map = new Map();
+      for (const row of rows) {
+        const sloCounted = isObservationSuccessRateEligible({
+          outcome: 'failure',
+          error: row.error,
+          actionType: row.actionType,
+          intentType: row.intentType,
+          contextSnapshot: row.contextSnapshot,
+        });
+        const action = String(row.actionType || 'unknown');
+        const current = map.get(action) ?? { count: 0, errors: [], sloEligible: 0 };
+        current.count += 1;
+        if (sloCounted) current.sloEligible += 1;
+        if (row.error && current.errors.length < 3) {
+          current.errors.push(String(row.error));
+        }
+        map.set(action, current);
+      }
+
+      return [...map.entries()]
+        .map(([action, data]) => ({
+          action,
+          count: data.count,
+          sloEligibleFailures: data.sloEligible,
+          errors: data.errors,
+        }))
+        .sort((a, b) => b.sloEligibleFailures - a.sloEligibleFailures || b.count - a.count)
+        .slice(0, limit);
+    } catch {
+      return [];
+    }
   }
 
   resetForTests() {

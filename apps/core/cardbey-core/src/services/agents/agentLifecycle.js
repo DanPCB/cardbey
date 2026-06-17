@@ -151,10 +151,16 @@ export function initializeAgents(agentIds = DEFAULT_AGENT_IDS) {
  *
  * @param {number} [intervalMs]
  */
-export function startAgentHeartbeatLoop(intervalMs = 30_000) {
+export function startAgentHeartbeatLoop(intervalMs) {
   if (heartbeatTimer || process.env.VITEST === 'true') return;
 
-  heartbeatTimer = setInterval(() => {
+  const resolvedInterval =
+    intervalMs ??
+    (parseInt(process.env.AGENT_HEARTBEAT_INTERVAL_MS, 10) ||
+      (process.env.CARDEY_DEPLOY_ENV === 'staging' ? 15_000 : 30_000));
+
+  const tick = () => {
+    initializeAgents();
     for (const agent of agentRegistry.list()) {
       if (agent.status !== 'active') continue;
       try {
@@ -166,13 +172,16 @@ export function startAgentHeartbeatLoop(intervalMs = 30_000) {
         );
       }
     }
-  }, intervalMs);
+  };
+
+  tick();
+  heartbeatTimer = setInterval(tick, resolvedInterval);
 
   if (typeof heartbeatTimer?.unref === 'function') {
     heartbeatTimer.unref();
   }
 
-  console.log(`[AgentLifecycle] Heartbeat loop started (${intervalMs}ms)`);
+  console.log(`[AgentLifecycle] Heartbeat loop started (${resolvedInterval}ms)`);
 }
 
 export function stopAgentHeartbeatLoop() {

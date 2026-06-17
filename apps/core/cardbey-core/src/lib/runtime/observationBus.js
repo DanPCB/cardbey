@@ -48,6 +48,34 @@ export function isObservationSloEligible(row) {
 }
 
 /**
+ * Failures from circuit breaker / agent health / bulkhead saturation — not user API errors.
+ * @param {string | null | undefined} error
+ */
+export function isInfrastructureSloFailure(error) {
+  const msg = String(error ?? '').toLowerCase();
+  if (!msg) return false;
+  if (msg.includes('circuit ') && msg.includes('is open')) return true;
+  if (msg.includes('is not healthy')) return true;
+  if (msg.includes('bulkhead ') && msg.includes('queue full')) return true;
+  if (msg.includes('bulkhead ') && msg.includes('timeout')) return true;
+  return false;
+}
+
+/**
+ * Whether an observation counts toward API success-rate SLO.
+ * @param {{ outcome?: string; actionType?: string; intentType?: string; contextSnapshot?: unknown; error?: string | null }} row
+ */
+export function isObservationSuccessRateEligible(row) {
+  if (!isObservationSloEligible(row)) return false;
+  if (row.outcome === 'success') return true;
+  if (isInfrastructureSloFailure(row.error)) return false;
+  const snap =
+    row?.contextSnapshot && typeof row.contextSnapshot === 'object' ? row.contextSnapshot : {};
+  if (snap.sloEligible === false) return false;
+  return true;
+}
+
+/**
  * Normalize per-request latency in milliseconds (never cumulative skill duration).
  * @param {Record<string, unknown>} [metadata]
  * @returns {number|null}

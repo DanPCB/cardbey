@@ -78,4 +78,18 @@ autoHeal.register({
   },
 });
 
+autoHeal.register({
+  id: 'reset_circuit_breakers',
+  name: 'Reset Circuit Breakers',
+  priority: 65,
+  condition: (issue) =>
+    issue.type === 'low_slo_success_rate' || issue.type === 'unhealthy_agents',
+  heal: async () => {
+    const { default: circuitBreaker } = await import('./circuitBreaker.js');
+    circuitBreaker.reset('skill_execution');
+    circuitBreaker.reset('agent_execution');
+    console.log('[AutoHeal] Reset skill_execution and agent_execution circuit breakers');
+  },
+});
+
 console.log('[BuiltinHeals] Registered built-in healing actions');

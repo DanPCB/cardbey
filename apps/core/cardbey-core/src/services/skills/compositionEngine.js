@@ -6,7 +6,7 @@ import { ensureRuntimeAuthorizedContext } from '../../lib/runtime/performerRunti
 import composableSkillRegistry from './skillRegistry.js';
 import bulkhead from '../reliability/bulkhead.js';
 import circuitBreaker from '../reliability/circuitBreaker.js';
-import observationBus from '../../lib/runtime/observationBus.js';
+import observationBus, { isInfrastructureSloFailure } from '../../lib/runtime/observationBus.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -162,6 +162,7 @@ export class CompositionEngine {
 
       return result;
     } catch (error) {
+      const infraFailure = isInfrastructureSloFailure(error?.message || error);
       void observationBus
         .emit({
           missionId: authorizedContext.missionId ?? null,
@@ -174,6 +175,7 @@ export class CompositionEngine {
             storeId: authorizedContext.storeId ?? null,
             userId: authorizedContext.userId ?? null,
             source: authorizedContext.source ?? 'composable_skill',
+            sloEligible: !infraFailure,
           },
         })
         .catch(() => {});

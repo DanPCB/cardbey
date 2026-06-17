@@ -177,8 +177,21 @@ router.post('/:id/health', requireAuth, requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id ?? '').trim();
     const status = String(req.body?.status ?? 'healthy');
-    agentRegistry.updateHealth(id, { status });
-    res.json({ ok: true, health: agentRegistry.getHealth(id) });
+    const agent = agentRegistry.get(id);
+    if (!agent) {
+      return res.status(404).json({ ok: false, error: 'agent_not_found' });
+    }
+    if (agent.status !== 'active') {
+      agentLifecycle.start(id);
+    } else {
+      agentLifecycle.heartbeat(id, { status });
+    }
+    res.json({
+      ok: true,
+      health: agentRegistry.getHealth(id),
+      healthy: agentRegistry.isHealthy(id),
+      status: agentRegistry.get(id)?.status,
+    });
   } catch (error) {
     console.error('[agents/health/post]', error);
     res.status(500).json({ ok: false, error: 'agent_health_update_failed' });

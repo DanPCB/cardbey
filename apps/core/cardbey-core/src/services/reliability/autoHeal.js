@@ -109,9 +109,27 @@ export class AutoHealService {
           type: 'unhealthy_agents',
           severity: 'medium',
           description: `${unhealthyAgents.length} agents unhealthy: ${unhealthyAgents.join(', ')}`,
-          actions: ['restart_agents'],
+          actions: ['restart_agents', 'reset_circuit_breakers'],
           agentIds: unhealthyAgents,
         });
+      }
+    }
+
+    if (!this.isCooldownActive('low_slo_success_rate')) {
+      try {
+        const { default: sloTracker } = await import('./sloTracker.js');
+        const successRate = await sloTracker.getSuccessRate();
+        if (successRate < 95) {
+          issues.push({
+            type: 'low_slo_success_rate',
+            severity: successRate < 90 ? 'critical' : 'high',
+            description: `API success rate ${successRate}% (target 95%)`,
+            actions: ['restart_agents', 'reset_circuit_breakers'],
+            successRate,
+          });
+        }
+      } catch (error) {
+        console.warn('[AutoHeal] SLO check skipped:', error?.message || error);
       }
     }
 

@@ -17,6 +17,8 @@ import observationBus, {
   getObservationRingForTests,
   normalizeObservationLatencyMs,
   isObservationSloEligible,
+  isObservationSuccessRateEligible,
+  isInfrastructureSloFailure,
   SLO_EXCLUDED_ACTION_TYPES,
 } from './observationBus.js';
 import { getPrismaClient } from '../prisma.js';
@@ -129,6 +131,26 @@ describe('observationBus', () => {
         actionType: 'publish_store',
         intentType: 'dispatch_tool',
         latency: 120,
+      }),
+    ).toBe(true);
+  });
+
+  it('excludes infrastructure failures from success-rate SLO', () => {
+    expect(isInfrastructureSloFailure('Circuit skill_execution is open')).toBe(true);
+    expect(isInfrastructureSloFailure('Agent analytics_agent is not healthy')).toBe(true);
+    expect(
+      isObservationSuccessRateEligible({
+        outcome: 'failure',
+        error: 'Circuit skill_execution is open',
+        actionType: 'skill:analyze_store',
+        intentType: 'run_skill',
+      }),
+    ).toBe(false);
+    expect(
+      isObservationSuccessRateEligible({
+        outcome: 'success',
+        actionType: 'skill:analyze_store',
+        intentType: 'run_skill',
       }),
     ).toBe(true);
   });

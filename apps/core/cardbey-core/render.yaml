@@ -57,6 +57,10 @@ services:
         value: production
       - key: CARDEY_DEPLOY_ENV
         value: staging
+      - key: AGENT_HEARTBEAT_INTERVAL_MS
+        value: "15000"
+      - key: CIRCUIT_BREAKER_THRESHOLD
+        value: "12"
       - key: USE_LLM_TASK_PLANNER
         value: "true"
       - key: ENABLE_OPENCLAW_AGENT_RUNTIME
