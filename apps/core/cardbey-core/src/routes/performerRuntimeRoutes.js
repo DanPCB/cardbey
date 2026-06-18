@@ -631,6 +631,13 @@ router.post('/capabilities/generate-full-store-from-seed', optionalAuth, async (
     return res.status(400).json({ ok: false, error: 'seed_id_required', status: 'blocked' });
   }
   const userId = req.userId ?? req.user?.id ?? null;
+  console.log('[STORE_BUILD_RUNTIME_CALL]', {
+    seedId,
+    userId,
+    batchId: body.batchId ?? null,
+    source: body.source ?? 'activation_page',
+    at: new Date().toISOString(),
+  });
   try {
     const result = await executeGenerateFullStoreFromSeedCapability({
       missionId: body.missionId ?? null,
@@ -643,9 +650,11 @@ router.post('/capabilities/generate-full-store-from-seed', optionalAuth, async (
       ? 200
       : result.error?.code === 'not_found'
         ? 404
-        : result.status === 'blocked'
-          ? 409
-          : 400;
+        : result.error?.code === 'AUTH_REQUIRED_FOR_AI'
+          ? 401
+          : result.status === 'blocked'
+            ? 409
+            : 400;
     return res.status(httpStatus).json({
       ok: result.ok,
       status: result.status,
@@ -653,13 +662,20 @@ router.post('/capabilities/generate-full-store-from-seed', optionalAuth, async (
       error: result.error,
       code: result.code,
       message: result.message,
+      failureStage: result.failureStage ?? result.error?.stage ?? null,
       missionId: result.missionId,
       draftStoreId: result.draftStoreId,
       nextRoute: result.nextRoute,
+      completenessScore: result.completenessScore ?? result.output?.completenessScore ?? null,
     });
   } catch (err) {
-    console.error('[performer/runtime/generate-full-store-from-seed]', err);
-    return res.status(500).json({ ok: false, error: 'performer_store_generation_failed' });
+    console.error('[STORE_BUILD_FAILED]', { seedId, userId, stage: 'runtime_exception', err });
+    return res.status(500).json({
+      ok: false,
+      error: 'performer_store_generation_failed',
+      failureStage: 'draft_generation_failed',
+      message: 'Store generation failed.',
+    });
   }
 });
 

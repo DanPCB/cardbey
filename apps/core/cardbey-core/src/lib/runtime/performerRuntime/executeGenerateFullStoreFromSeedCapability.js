@@ -7,6 +7,7 @@ import { executeGenerateFullStoreFromSeedRunway } from '../../businessIngestion/
 import { getRuntimeByMissionId } from './runtimeState.js';
 import { markRuntimeOwnedContext } from './runtimeOwnership.js';
 import { recordRuntimeAuthorityPathUsed } from './runtimeAuthorityGuard.js';
+import { logStoreBuild } from '../../businessIngestion/storeBuildTrace.js';
 
 /**
  * @param {{
@@ -43,6 +44,13 @@ export async function executeGenerateFullStoreFromSeedCapability(params) {
     runtimeId,
   );
 
+  logStoreBuild('STORE_BUILD_CAPABILITY', {
+    seedId,
+    missionId: missionId || null,
+    userId: userId || null,
+    source: params.source ?? 'activation_page',
+  });
+
   const result = await executeGenerateFullStoreFromSeedRunway({
     seedId,
     userId: userId || null,
@@ -63,8 +71,10 @@ export async function executeGenerateFullStoreFromSeedCapability(params) {
     error: result.error ?? (result.ok ? null : { message: result.message }),
     code: result.error?.code ?? null,
     message: result.message,
+    failureStage: result.failureStage ?? result.error?.stage ?? null,
     missionId: result.output?.missionId ?? (missionId || null),
     nextRoute: result.output?.nextRoute ?? null,
     draftStoreId: result.output?.draftStoreId ?? null,
+    completenessScore: result.output?.completenessScore ?? null,
   };
 }

@@ -15,7 +15,26 @@ const createMissionPipelineMock = vi.fn(async () => ({ id: 'mission-gen-1' }));
 const createDraftStoreForUserMock = vi.fn(async () => ({ id: 'draft-gen-1', status: 'draft' }));
 const createDraftMock = vi.fn(async () => ({ id: 'draft-guest-1', status: 'draft' }));
 const generateDraftMock = vi.fn(async () => undefined);
-const getDraftMock = vi.fn(async (id: string) => ({ id, status: 'ready' }));
+const getDraftMock = vi.fn(async (id: string) => ({
+  id,
+  status: 'ready',
+  preview: {
+    storeName: 'Brunetti Carlton',
+    storeType: 'cafe',
+    heroImageUrl: 'https://example.com/hero.jpg',
+    tagline: 'Italian cafe',
+    phone: '+61393495200',
+    categories: [{ id: '1', name: 'Pastries' }],
+    items: [{ id: 'o1', name: 'Welcome offer' }],
+    website: {
+      sections: [
+        { type: 'hero', content: { headline: 'Brunetti Carlton' } },
+        { type: 'about', content: { body: 'Since 1985' } },
+        { type: 'contact', content: { phone: '+61393495200' } },
+      ],
+    },
+  },
+}));
 const prismaUpdateMock = vi.fn(async () => ({}));
 
 vi.mock('../../missionPipelineService.js', () => ({
@@ -99,6 +118,23 @@ describe('generateFullStoreFromSeedService', () => {
     expect(result.error?.code).toBe('not_found');
   });
 
+  it('requires auth before mission or draft creation', async () => {
+    const seed = makeSeed({ id: 'gen-seed-auth' });
+    await upsertSeedRecords([seed]);
+
+    const { executeGenerateFullStoreFromSeedRunway } = await import(
+      '../generateFullStoreFromSeedService.js'
+    );
+    const result = await executeGenerateFullStoreFromSeedRunway({
+      seedId: seed.id,
+      userId: null,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failureStage).toBe('auth_required');
+    expect(createMissionPipelineMock).not.toHaveBeenCalled();
+    expect(createDraftStoreForUserMock).not.toHaveBeenCalled();
+  });
+
   it('creates governed mission and draft without publish', async () => {
     const seed = makeSeed({ id: 'gen-seed-1' });
     await upsertSeedRecords([seed]);
@@ -117,6 +153,7 @@ describe('generateFullStoreFromSeedService', () => {
     expect(result.output?.missionId).toBe('mission-gen-1');
     expect(result.output?.draftStoreId).toBe('draft-gen-1');
     expect(result.output?.nextRoute).toContain('/app/store/draft/review');
+    expect(result.output?.completenessScore).toBeGreaterThanOrEqual(50);
     expect(createMissionPipelineMock).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'store',
@@ -125,7 +162,10 @@ describe('generateFullStoreFromSeedService', () => {
       }),
     );
     expect(createDraftStoreForUserMock).toHaveBeenCalled();
-    expect(generateDraftMock).toHaveBeenCalledWith('draft-gen-1', expect.any(Object));
+    expect(generateDraftMock).toHaveBeenCalledWith(
+      'draft-gen-1',
+      expect.objectContaining({ userId: 'owner-1', reactMissionId: 'mission-gen-1' }),
+    );
   });
 
   it('writes suitcase handoff metadata', async () => {
