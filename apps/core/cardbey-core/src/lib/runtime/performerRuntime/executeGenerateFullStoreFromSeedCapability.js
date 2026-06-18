@@ -63,7 +63,7 @@ export async function executeGenerateFullStoreFromSeedCapability(params) {
     error: result.error ?? (result.ok ? null : { message: result.message }),
     code: result.error?.code ?? null,
     message: result.message,
-    missionId: result.output?.missionId ?? missionId || null,
+    missionId: result.output?.missionId ?? (missionId || null),
     nextRoute: result.output?.nextRoute ?? null,
     draftStoreId: result.output?.draftStoreId ?? null,
   };
