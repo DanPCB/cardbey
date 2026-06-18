@@ -155,6 +155,41 @@ export async function recordActivationReportView(seedId: string): Promise<{ ok: 
   return { ok: true, viewCount: updated.reportViewCount };
 }
 
+export async function appendPerformerHandoffToSeedSuitcase(
+  seedId: string,
+  handoff: import('./types.js').SeedPerformerHandoff,
+): Promise<void> {
+  const existing = await getSeedSuitcase(seedId);
+  const now = new Date().toISOString();
+  const base = existing ?? {
+    seedId,
+    createdAt: now,
+    updatedAt: now,
+    discoveryEvidence: {
+      sourceType: 'csv' as const,
+      sourceReference: seedId,
+      ingestedAt: now,
+      matchEvidenceCount: 0,
+    },
+    enrichmentCandidateIds: [],
+    biSnapshot: null,
+    opportunityAnalysis: [],
+    activationNarrative: null,
+    reportViewedAt: null,
+    reportViewCount: 0,
+    migratedToStoreId: null,
+    migratedAt: null,
+    performerHandoffs: [],
+  };
+
+  const performerHandoffs = [...(base.performerHandoffs ?? []), handoff];
+  await saveSeedSuitcase({
+    ...base,
+    updatedAt: now,
+    performerHandoffs,
+  });
+}
+
 export async function migrateSeedSuitcaseToBusinessSpace(params: {
   seedId: string;
   storeId: string;

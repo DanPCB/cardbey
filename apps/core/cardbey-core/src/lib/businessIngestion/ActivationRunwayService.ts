@@ -24,8 +24,13 @@ import { createSuitcaseItem } from '../../services/suitcase/suitcaseItemService.
 import { emitSeedActivationActivity } from './activationActivityEmitter.js';
 import type { PublicPreparedSuggestion } from './types.js';
 import { getPublicPreparedSuggestionsForSeed } from './enrichmentPublic.js';
-import { getPublicBusinessSnapshotForSeed } from './seedSuitcaseService.js';
+import {
+  getPublicBusinessSnapshotForSeed,
+  toPublicBusinessSnapshot,
+} from './seedSuitcaseService.js';
 import type { PublicBusinessSnapshot } from './types.js';
+import { listEnrichmentCandidates } from './EnrichmentCandidateStore.js';
+import { generateBusinessIntelligenceSnapshot } from './generateBusinessIntelligenceSnapshot.js';
 
 export type ActivationRunwayStage =
   | 'discovered'
@@ -133,17 +138,22 @@ export async function getPublicActivationPreviewBySeedId(
   if (!preview) return { ok: false, preview: null, message: 'Activation preview unavailable.' };
   try {
     const suggestions = await getPublicPreparedSuggestionsForSeed(seedId);
-    const businessSnapshot = await getPublicBusinessSnapshotForSeed(seedId);
-    const previewExtras: Partial<PublicActivationPreview> = {};
-    if (Array.isArray(suggestions) && suggestions.length > 0) {
-      previewExtras.preparedSuggestions = suggestions;
+    let businessSnapshot = await getPublicBusinessSnapshotForSeed(seedId);
+    if (!businessSnapshot) {
+      const candidates = await listEnrichmentCandidates(seedId);
+      const generated = generateBusinessIntelligenceSnapshot(seed, candidates);
+      businessSnapshot = toPublicBusinessSnapshot(generated, seedId);
     }
-    if (businessSnapshot) {
-      previewExtras.businessSnapshot = businessSnapshot;
-    }
-    if (Object.keys(previewExtras).length > 0) {
-      return { ok: true, preview: { ...preview, ...previewExtras } };
-    }
+    return {
+      ok: true,
+      preview: {
+        ...preview,
+        ...(Array.isArray(suggestions) && suggestions.length > 0
+          ? { preparedSuggestions: suggestions }
+          : {}),
+        businessSnapshot,
+      },
+    };
   } catch {
     // Optional enrichment / BI view — never blocks activation preview.
   }

@@ -27,7 +27,7 @@ import {
 } from '../../routing/uiHybridPublishBridge.js';
 
 /**
- * @typedef {'update_hero_artifact'|'update_avatar_artifact'|'save_draft_preview'|'upload_hero_media'|'upload_logo'|'upload_avatar'|'publish_store'|'publish_cardbey'|'publish_custom_domain'|'publish_campaign'|'publish_explore'|'publish_signage'|'publish_social'|'render_creative_asset'|'activate_business_space'|'accept_enrichment_suggestion'} UiRuntimeActionType
+ * @typedef {'update_hero_artifact'|'update_avatar_artifact'|'save_draft_preview'|'upload_hero_media'|'upload_logo'|'upload_avatar'|'publish_store'|'publish_cardbey'|'publish_custom_domain'|'publish_campaign'|'publish_explore'|'publish_signage'|'publish_social'|'render_creative_asset'|'activate_business_space'|'accept_enrichment_suggestion'|'generate_full_store_from_seed'} UiRuntimeActionType
  */
 
 /**
@@ -283,6 +283,9 @@ async function runUiActionAdapter(action, ctx) {
 
     case 'accept_enrichment_suggestion':
       return handleAcceptEnrichmentSuggestion({ payload, userId, missionId });
+
+    case 'generate_full_store_from_seed':
+      return handleGenerateFullStoreFromSeed({ payload, userId, missionId, source });
 
     default: {
       const err = new Error(`Unknown UI runtime action: ${action}`);
@@ -742,6 +745,34 @@ async function handleAcceptEnrichmentSuggestion({ payload, userId, missionId }) 
   if (!result.ok) {
     const err = new Error(result.message ?? 'Accept enrichment failed');
     err.code = result.code ?? 'accept_enrichment_failed';
+    throw err;
+  }
+  return result;
+}
+
+async function handleGenerateFullStoreFromSeed({ payload, userId, missionId, source }) {
+  const seedId = typeof payload.seedId === 'string' ? payload.seedId.trim() : '';
+  if (!seedId) {
+    const err = new Error('seedId is required');
+    err.code = 'seed_id_required';
+    throw err;
+  }
+  const batchId = typeof payload.batchId === 'string' ? payload.batchId.trim() : '';
+  const actionSource =
+    typeof payload.source === 'string' && payload.source.trim() ? payload.source.trim() : source;
+  const { executeGenerateFullStoreFromSeedCapability } = await import(
+    './executeGenerateFullStoreFromSeedCapability.js'
+  );
+  const result = await executeGenerateFullStoreFromSeedCapability({
+    missionId: missionId || null,
+    seedId,
+    userId: userId || null,
+    batchId: batchId || null,
+    source: actionSource,
+  });
+  if (!result.ok) {
+    const err = new Error(result.message ?? 'Store generation failed');
+    err.code = result.code ?? 'performer_store_generation_failed';
     throw err;
   }
   return result;

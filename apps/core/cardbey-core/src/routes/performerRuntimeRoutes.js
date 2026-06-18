@@ -34,6 +34,7 @@ import { executeCreateOfferDraftCapability } from '../lib/runtime/performerRunti
 import { executeReviseOfferDraftCapability } from '../lib/runtime/performerRuntime/executeReviseOfferDraftCapability.js';
 import { executeActivateBusinessSpaceCapability } from '../lib/runtime/performerRuntime/executeActivateBusinessSpaceCapability.js';
 import { executeAcceptEnrichmentCapability } from '../lib/runtime/performerRuntime/executeAcceptEnrichmentCapability.js';
+import { executeGenerateFullStoreFromSeedCapability } from '../lib/runtime/performerRuntime/executeGenerateFullStoreFromSeedCapability.js';
 import {
   listMissionExecutionRecords,
   persistMissionExecutionRecord,
@@ -616,6 +617,49 @@ router.post('/capabilities/accept-enrichment-suggestion', requireAuth, async (re
   } catch (err) {
     console.error('[performer/runtime/accept-enrichment-suggestion]', err);
     return res.status(500).json({ ok: false, error: 'accept_enrichment_failed' });
+  }
+});
+
+/**
+ * POST /api/performer/runtime/capabilities/generate-full-store-from-seed
+ * Activation page — governed draft store generation (no publish / activate / claim).
+ */
+router.post('/capabilities/generate-full-store-from-seed', optionalAuth, async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const seedId = typeof body.seedId === 'string' ? body.seedId.trim() : '';
+  if (!seedId) {
+    return res.status(400).json({ ok: false, error: 'seed_id_required', status: 'blocked' });
+  }
+  const userId = req.userId ?? req.user?.id ?? null;
+  try {
+    const result = await executeGenerateFullStoreFromSeedCapability({
+      missionId: body.missionId ?? null,
+      seedId,
+      userId,
+      batchId: body.batchId ?? null,
+      source: body.source ?? 'activation_page',
+    });
+    const httpStatus = result.ok
+      ? 200
+      : result.error?.code === 'not_found'
+        ? 404
+        : result.status === 'blocked'
+          ? 409
+          : 400;
+    return res.status(httpStatus).json({
+      ok: result.ok,
+      status: result.status,
+      output: result.output,
+      error: result.error,
+      code: result.code,
+      message: result.message,
+      missionId: result.missionId,
+      draftStoreId: result.draftStoreId,
+      nextRoute: result.nextRoute,
+    });
+  } catch (err) {
+    console.error('[performer/runtime/generate-full-store-from-seed]', err);
+    return res.status(500).json({ ok: false, error: 'performer_store_generation_failed' });
   }
 });
 

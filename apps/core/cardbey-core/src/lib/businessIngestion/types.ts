@@ -454,6 +454,19 @@ export interface SeedSuitcase {
   migratedAt: string | null;
   /** Cached on last business-evolution read (V4). */
   lastEvolution?: SeedSuitcaseEvolutionCache | null;
+  /** Performer activation handoffs (store generation, enrichment, etc.). */
+  performerHandoffs?: SeedPerformerHandoff[];
+}
+
+export interface SeedPerformerHandoff {
+  type:
+    | 'performer_store_generation_started'
+    | 'performer_store_draft_created'
+    | string;
+  seedId: string;
+  missionId?: string | null;
+  draftStoreId?: string | null;
+  createdAt: string;
 }
 
 /** Post-activation Performer briefing migrated from seed suitcase. */
