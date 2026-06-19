@@ -30,7 +30,11 @@ if (!isPostgresDatabaseUrl(dbUrl)) {
 
 const nameArg = process.argv.find((a) => a.startsWith('--name='));
 const envList = String(process.env.PRISMA_AUTO_RESOLVE_ROLLED_BACK ?? '').trim();
-const defaultAllowlist = ['20260613120000_add_ghost_store_models'];
+const defaultAllowlist = [
+  '20260613120000_add_ghost_store_models',
+  '20260619140000_add_executive_growth_models',
+  '20260619150000_add_business_lead_models',
+];
 const allowlist = nameArg
   ? [nameArg.split('=')[1]]
   : envList

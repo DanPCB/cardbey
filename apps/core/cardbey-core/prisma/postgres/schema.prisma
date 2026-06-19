@@ -3556,3 +3556,173 @@ model TeacherTrace {
   @@index([category, successRate])
   @@map("teacher_traces")
 }
+
+// ── Store Business Growth Center (owner-scoped CRM) ──
+
+model BusinessLead {
+  id              String    @id @default(cuid())
+  ownerId         String
+  storeId         String
+  spaceId         String?
+  name            String
+  email           String?
+  phone           String?
+  source          String?
+  status          String    @default("new")
+  tags            Json?
+  lastContactedAt DateTime?
+  consentStatus   String    @default("unknown")
+  notes           String?
+  visitCount      Int       @default(0)
+  interestedAt    DateTime?
+  followUpDueAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  activities StoreLeadActivity[]
+
+  @@index([ownerId])
+  @@index([storeId])
+  @@index([email])
+  @@index([status])
+  @@unique([storeId, email])
+}
+
+model StoreOutreachCampaign {
+  id            String    @id @default(cuid())
+  ownerId       String
+  storeId       String
+  name          String
+  templateId    String
+  templateBody  String?
+  targetLeadIds Json?
+  status        String    @default("draft")
+  sentCount     Int       @default(0)
+  failedCount   Int       @default(0)
+  openCount     Int       @default(0)
+  clickCount    Int       @default(0)
+  replyCount    Int       @default(0)
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  @@index([storeId])
+  @@index([ownerId])
+  @@index([status])
+}
+
+model StoreLeadActivity {
+  id        String       @id @default(cuid())
+  leadId    String
+  lead      BusinessLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  storeId   String
+  ownerId   String
+  type      String
+  message   String?
+  metadata  Json?
+  createdBy String?
+  createdAt DateTime     @default(now())
+
+  @@index([leadId])
+  @@index([storeId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model ExecutiveLead {
+  id               String   @id @default(cuid())
+  businessName     String
+  ownerName        String?
+  email            String?
+  phone            String?
+  website          String?
+  category         String?
+  address          String?
+  addressLine2     String?
+  suburb           String?
+  city             String?
+  state            String?
+  postcode         String?
+  country          String?
+  lat              Float?
+  lng              Float?
+  source           String?
+  notes            String?
+  consentStatus    String   @default("unknown")
+  leadStatus       String   @default("new")
+  dataQualityScore Int      @default(0)
+  draftStoreId     String?
+  storeId          String?
+  lastContactedAt  DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  activities LeadActivity[]
+
+  @@index([email])
+  @@index([leadStatus])
+  @@index([city])
+  @@index([category])
+  @@index([source])
+}
+
+model GrowthBatch {
+  id                String    @id @default(cuid())
+  name              String
+  missionType       String    @default("growth_acquisition_batch")
+  source            String    @default("executive_overview")
+  mode              String    @default("governed_batch")
+  region            String?
+  category          String?
+  quantityRequested Int
+  quantityCreated   Int       @default(0)
+  autoCreateMode    String    @default("draft_only")
+  requireReview     Boolean   @default(true)
+  status            String    @default("pending")
+  requestedBy       String?
+  sourceLeadIds     Json?
+  createdStoreIds   Json?
+  reviewQueueIds    Json?
+  auditSummary      Json?
+  errorSummary      Json?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  @@index([status])
+  @@index([requestedBy])
+  @@index([createdAt])
+}
+
+model OutreachCampaign {
+  id             String    @id @default(cuid())
+  name           String
+  templateId     String
+  templateBody   String?
+  targetLeadIds  Json?
+  status         String    @default("draft")
+  sentCount      Int       @default(0)
+  failedCount    Int       @default(0)
+  openCount      Int       @default(0)
+  clickCount     Int       @default(0)
+  replyCount     Int       @default(0)
+  requestedBy    String?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model LeadActivity {
+  id        String        @id @default(cuid())
+  leadId    String
+  lead      ExecutiveLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type      String
+  message   String?
+  metadata  Json?
+  createdBy String?
+  createdAt DateTime      @default(now())
+
+  @@index([leadId])
+  @@index([type])
+  @@index([createdAt])
+}
