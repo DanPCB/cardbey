@@ -15,6 +15,26 @@ describe('attemptIntentRecovery', () => {
     expect(r.parameters?.campaignContext).toMatch(/10%/);
   });
 
+  it('maps fix issues phrasing to audit_store_completeness', () => {
+    const r = attemptIntentRecovery({
+      userMessage: 'Fix issues with my store',
+      classification: { tool: 'general_chat', confidence: 0.2, parameters: {}, executionPath: 'chat' },
+      storeId: 's1',
+    });
+    expect(r.recovered).toBe(true);
+    expect(r.tool).toBe('audit_store_completeness');
+  });
+
+  it('maps generate social content to generate_social_posts', () => {
+    const r = attemptIntentRecovery({
+      userMessage: 'Generate social content for my store',
+      classification: { tool: 'general_chat', confidence: 0.2, parameters: {}, executionPath: 'chat' },
+      storeId: 's1',
+    });
+    expect(r.recovered).toBe(true);
+    expect(r.tool).toBe('generate_social_posts');
+  });
+
   it('maps headline / text fix phrasing to code_fix', () => {
     const r = attemptIntentRecovery({
       userMessage: 'fix the headline on my homepage',

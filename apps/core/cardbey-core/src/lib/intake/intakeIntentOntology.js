@@ -65,7 +65,23 @@ export const INTENT_SUBTYPES = [
       /\bfix\s+(my\s+)?store\b/i,
     ],
   },
-  // DANH: review-routing-fix
+  {
+    family: 'store_improvement',
+    subtype: 'fix_store_issues',
+    description: 'Find and fix store profile, catalog, or checkout gaps.',
+    candidateTools: ['audit_store_completeness', 'generate_health_report', 'code_fix', 'analyze_store'],
+    defaultTool: 'audit_store_completeness',
+    requiredContext: ['store'],
+    clarifyStrategy: 'improvement_menu',
+    matchPatterns: [
+      /\bfix\s+issues?\b/i,
+      /\bfind\s+and\s+fix\s+issues?\b/i,
+      /\bdiagnose\s+store\b/i,
+      /\bfix\s+issues?\s+with\s+my\s+store\b/i,
+      /\bcompleteness\s+audit\b/i,
+      /\bwhat(?:'s|\s+is)\s+missing\b/i,
+    ],
+  },
   {
     family: 'store_improvement',
     subtype: 'review_management',
@@ -96,6 +112,22 @@ export const INTENT_SUBTYPES = [
       /\bfix\s+(the\s+)?(headline|title|text)\b/i,
       /\bchange\s+(the\s+)?(headline|title|text)\b/i,
       /\brewrite\s+(the\s+)?(headline|title)\b/i,
+    ],
+  },
+  {
+    family: 'content_edit',
+    subtype: 'generate_social_content',
+    description: 'Generate social media posts, captions, or hashtags for the store.',
+    candidateTools: ['generate_social_posts', 'content_creator'],
+    defaultTool: 'generate_social_posts',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /\bgenerate\s+social\s+content\b/i,
+      /\bsocial\s+media\s+posts?\b/i,
+      /\bcreate\s+social\s+posts?\b/i,
+      /\bwrite\s+(instagram|facebook|social)\s+captions?\b/i,
+      /\bsocial\s+content\s+(for|plan)\b/i,
     ],
   },
   // DANH: fix-video-routing

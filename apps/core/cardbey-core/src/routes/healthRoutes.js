@@ -14,6 +14,7 @@ import { getStatus as getSchedulerStatus } from '../scheduler/heartbeat.js';
 import { isSseHealthy } from '../realtime/sse.js';
 import { getOAuthStatus } from '../auth/providers.js';
 import { getStorageStatus } from '../lib/storage/index.js';
+import { isVideoGenerationProviderAvailable, resolveVideoProvider } from '../lib/video/videoProvider.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -377,6 +378,41 @@ router.get('/env', (req, res) => {
 router.get('/media/health', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ ok: true });
+});
+
+/**
+ * GET /api/status/features
+ * Feature availability for Performer missions (no secrets).
+ */
+router.get('/status/features', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+
+  const videoProvider = resolveVideoProvider();
+  const videoAvailable = isVideoGenerationProviderAvailable();
+  const cnetConfigured =
+    Boolean(process.env.CNET_API_KEY?.trim()) && Boolean(process.env.CNET_ENDPOINT?.trim());
+
+  const features = {
+    video: {
+      available: videoAvailable,
+      provider: videoProvider ?? 'none',
+      message: videoAvailable ? null : 'Requires video provider setup (OPENAI_API_KEY, Kling, or VIDEO_ARTIFACT_MOCK_URL)',
+    },
+    cnet: {
+      available: cnetConfigured,
+      message: cnetConfigured ? null : 'Requires CNET_API_KEY and CNET_ENDPOINT setup',
+    },
+    ocr: {
+      available: false,
+      message: 'OCR / scan card integration coming soon',
+    },
+    social: {
+      available: true,
+      message: null,
+    },
+  };
+
+  res.json({ ok: true, features });
 });
 
 export default router;

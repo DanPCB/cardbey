@@ -266,6 +266,40 @@ function legacyHeuristicResolution(userMessage, extractedParams, extractorsUsed)
     };
   }
 
+  const fixIssuesHints =
+    /\b(fix\s+issues?|find\s+and\s+fix|diagnose\s+store|completeness\s+audit)\b/i.test(userMessage);
+  if (fixIssuesHints && isRegisteredTool('audit_store_completeness')) {
+    return {
+      family: 'store_improvement',
+      subtype: 'fix_store_issues',
+      candidateTools: ['audit_store_completeness', 'generate_health_report', 'code_fix', 'analyze_store'],
+      chosenTool: 'audit_store_completeness',
+      extractedParameters: { ...extractedParams, description: userMessage },
+      missingContext: [],
+      confidence: 0.86,
+      recovered: true,
+      extractorsUsed,
+      resolverReason: 'legacy_fix_issues_heuristic',
+    };
+  }
+
+  const socialHints =
+    /\b(generate\s+social|social\s+content|social\s+media\s+posts?|instagram\s+captions?)\b/i.test(userMessage);
+  if (socialHints && isRegisteredTool('generate_social_posts')) {
+    return {
+      family: 'content_edit',
+      subtype: 'generate_social_content',
+      candidateTools: ['generate_social_posts', 'content_creator'],
+      chosenTool: 'generate_social_posts',
+      extractedParameters: { ...extractedParams, context: userMessage },
+      missingContext: [],
+      confidence: 0.86,
+      recovered: true,
+      extractorsUsed,
+      resolverReason: 'legacy_social_heuristic',
+    };
+  }
+
   const reportHints =
     /\b(report|reports|sales|revenue|orders|analytics|how\s+(many|much)|kpi|metric)\b/i.test(userMessage);
   if (reportHints && isRegisteredTool('orders_report')) {

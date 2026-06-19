@@ -73,6 +73,7 @@ import * as change_hero_headline from './store/change_hero_headline.js';
 import * as propose_website_patch from '../../toolExecutors/store/propose_website_patch.js';
 import * as consensus from './store/consensus.js';
 import * as content_creator from './content/content_creator.js';
+import * as generate_social_posts from './content/generate_social_posts.js';
 import * as crm from './crm/crm.js';
 import * as signage_list_devices from './signage/signage_list_devices.js';
 import * as signage_publish_to_devices from './signage/signage_publish_to_devices.js';
@@ -180,6 +181,7 @@ export const executors = {
   propose_website_patch,
   consensus,
   content_creator,
+  generate_social_posts,
   crm,
   generate_tags,
   rewrite_descriptions,
@@ -331,10 +333,6 @@ export const executors = {
   activate_screen_content: honestBlocker(
     'activate_screen_content',
     'Screen content activation is not implemented yet.',
-  ),
-  generate_social_posts: honestBlocker(
-    'generate_social_posts',
-    'Social post generation is not implemented yet. Use content_creator or publish_to_social.',
   ),
   create_offer: honestBlocker('create_offer', 'Offer creation is not implemented yet. Use create_offer_draft.'),
   smart_visual: honestBlocker(
