@@ -3,8 +3,76 @@
  * Never invents a city; returns null when no address signal exists on the record.
  */
 
+export const LOCATION_NOT_CONFIRMED_LABEL = 'Location not confirmed';
+export const LOCATION_UNAVAILABLE_LABEL = 'Location unavailable';
+
+const RELIABLE_CONFIDENCE = new Set(['high', 'medium', 'street_level', 'confirmed', 'city_level']);
+
 function trim(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function hasCoordinates(store) {
+  return Number.isFinite(store?.lat) && Number.isFinite(store?.lng);
+}
+
+/**
+ * Whether the store has coordinates suitable for map display.
+ * @param {object | null | undefined} store
+ */
+export function hasConfirmedStoreCoordinates(store) {
+  if (!hasCoordinates(store)) return false;
+  const confidence = trim(store?.locationConfidence)?.toLowerCase();
+  if (!confidence) return true;
+  if (confidence === 'low' || confidence === 'unconfirmed') return false;
+  return true;
+}
+
+/**
+ * Whether feed/public cards can show suburb/city text confidently.
+ * @param {object | null | undefined} store
+ */
+export function hasReliableStoreLocationLabel(store) {
+  if (hasConfirmedStoreCoordinates(store)) return true;
+  const confidence = trim(store?.locationConfidence)?.toLowerCase();
+  if (confidence && RELIABLE_CONFIDENCE.has(confidence)) {
+    return hasCanonicalStoreAddress(store);
+  }
+  if (hasCoordinates(store)) return true;
+  if (confidence === 'city_level' && (trim(store?.city) || trim(store?.suburb))) return true;
+  return false;
+}
+
+/**
+ * Feed/card location line with confidence-aware fallback text.
+ * @param {object | null | undefined} store
+ * @returns {string | null}
+ */
+export function formatFeedStoreLocationLabel(store) {
+  if (!store || typeof store !== 'object') return null;
+
+  const compact = formatStoreLocation(store);
+  if (compact && hasReliableStoreLocationLabel(store)) return compact;
+
+  if (hasCanonicalStoreAddress(store) && !hasConfirmedStoreCoordinates(store)) {
+    return LOCATION_NOT_CONFIRMED_LABEL;
+  }
+
+  if (!hasCanonicalStoreAddress(store)) {
+    return null;
+  }
+
+  return LOCATION_NOT_CONFIRMED_LABEL;
+}
+
+/**
+ * Public display address — prefers formattedAddress when present.
+ * @param {object | null | undefined} store
+ */
+export function formatStoreFormattedAddress(store) {
+  const formatted = trim(store?.formattedAddress);
+  if (formatted) return formatted;
+  return formatStoreLocationLong(store);
 }
 
 /**
@@ -97,33 +165,69 @@ export function formatStoreLocationLong(store) {
  * @param {object | null | undefined} business
  */
 export function buildStoreLocationFields(business) {
-  const address = trim(business?.address ?? business?.addressLine);
-  const suburb = trim(business?.suburb);
-  const city = trim(business?.city);
-  const state = trim(business?.state);
-  const postcode = trim(business?.postcode);
-  const country = trim(business?.country);
-  const lat = Number.isFinite(business?.lat) ? business.lat : null;
-  const lng = Number.isFinite(business?.lng) ? business.lng : null;
+  let styleLocationMeta = {};
+  if (business?.stylePreferences) {
+    try {
+      const prefs =
+        typeof business.stylePreferences === 'string'
+          ? JSON.parse(business.stylePreferences)
+          : business.stylePreferences;
+      if (prefs?.locationMeta && typeof prefs.locationMeta === 'object') {
+        styleLocationMeta = prefs.locationMeta;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
-  return {
+  const merged = { ...styleLocationMeta, ...(business ?? {}) };
+  const address = trim(merged.address ?? merged.addressLine);
+  const addressLine2 = trim(merged.addressLine2);
+  const suburb = trim(merged.suburb);
+  const city = trim(merged.city);
+  const state = trim(merged.state);
+  const postcode = trim(merged.postcode);
+  const country = trim(merged.country);
+  const formattedAddress = trim(merged.formattedAddress);
+  const locationSource = trim(merged.locationSource);
+  const locationConfidence = trim(merged.locationConfidence);
+  const osmPlaceId = trim(merged.osmPlaceId);
+  const lat = Number.isFinite(merged.lat) ? merged.lat : null;
+  const lng = Number.isFinite(merged.lng) ? merged.lng : null;
+
+  const storeShape = {
     address,
+    addressLine2,
     suburb,
     city,
     state,
     postcode,
     country,
+    formattedAddress,
+    locationSource,
+    locationConfidence,
+    osmPlaceId,
     lat,
     lng,
-    locationLabel: formatStoreLocation({
-      address,
-      suburb,
-      city,
-      state,
-      postcode,
-      country,
-      lat,
-      lng,
-    }),
+  };
+
+  return {
+    address,
+    addressLine2,
+    suburb,
+    city,
+    state,
+    postcode,
+    country,
+    formattedAddress,
+    locationSource,
+    locationConfidence,
+    osmPlaceId,
+    lat,
+    lng,
+    locationLabel: formatFeedStoreLocationLabel(storeShape),
+    formattedAddressDisplay: formatStoreFormattedAddress(storeShape),
+    hasConfirmedCoordinates: hasConfirmedStoreCoordinates(storeShape),
+    hasReliableLocation: hasReliableStoreLocationLabel(storeShape),
   };
 }

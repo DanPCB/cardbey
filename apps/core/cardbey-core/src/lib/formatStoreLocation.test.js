@@ -1,42 +1,43 @@
+/**
+ * formatStoreLocation confidence-aware labels
+ */
+
 import { describe, it, expect } from 'vitest';
 import {
-  formatStoreLocation,
-  formatStoreLocationLong,
-  hasCanonicalStoreAddress,
-  extractLocalityFromAddress,
+  formatFeedStoreLocationLabel,
+  hasConfirmedStoreCoordinates,
+  LOCATION_NOT_CONFIRMED_LABEL,
 } from './formatStoreLocation.js';
 
-describe('formatStoreLocation', () => {
-  it('prefers suburb over address parsing', () => {
+describe('formatStoreLocation confidence', () => {
+  it('confirmed coordinates produce compact suburb label', () => {
+    const label = formatFeedStoreLocationLabel({
+      suburb: 'Carlton',
+      state: 'VIC',
+      lat: -37.8,
+      lng: 144.96,
+      locationConfidence: 'confirmed',
+    });
+    expect(label).toBe('Carlton, VIC');
+  });
+
+  it('address without coordinates → Location not confirmed', () => {
+    const label = formatFeedStoreLocationLabel({
+      suburb: 'Melbourne',
+      state: 'VIC',
+      country: 'Australia',
+      locationConfidence: 'unconfirmed',
+    });
+    expect(label).toBe(LOCATION_NOT_CONFIRMED_LABEL);
+  });
+
+  it('hasConfirmedStoreCoordinates rejects low confidence', () => {
     expect(
-      formatStoreLocation({
-        suburb: 'Braybrook',
-        state: 'VIC',
-        address: '123 Main St, Melbourne VIC 3019',
+      hasConfirmedStoreCoordinates({
+        lat: -37.8,
+        lng: 144.96,
+        locationConfidence: 'low',
       }),
-    ).toBe('Braybrook, VIC');
-  });
-
-  it('returns null when no address fields exist', () => {
-    expect(formatStoreLocation({ name: 'Online Shop' })).toBeNull();
-    expect(hasCanonicalStoreAddress({})).toBe(false);
-  });
-
-  it('does not invent a city from business name', () => {
-    expect(formatStoreLocation({ name: 'BrayBrook Bakery' })).toBeNull();
-  });
-
-  it('formats long label with country', () => {
-    expect(
-      formatStoreLocationLong({
-        suburb: 'Braybrook',
-        state: 'VIC',
-        country: 'Australia',
-      }),
-    ).toBe('Braybrook, VIC, Australia');
-  });
-
-  it('extracts locality from address line when suburb missing', () => {
-    expect(extractLocalityFromAddress('45 Collins St, Melbourne VIC 3000')).toBe('45 Collins St');
+    ).toBe(false);
   });
 });

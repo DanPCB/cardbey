@@ -38,3 +38,17 @@ rateLimiter.configure({
   maxRequests: 10,
   perUser: false,
 });
+
+rateLimiter.configure({
+  endpoint: '/api/location/geocode',
+  windowMs: 60_000,
+  maxRequests: 30,
+  perUser: false,
+});
+
+rateLimiter.configure({
+  endpoint: '/api/location/reverse-geocode',
+  windowMs: 60_000,
+  maxRequests: 30,
+  perUser: false,
+});

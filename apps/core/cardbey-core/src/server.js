@@ -241,6 +241,7 @@ import qrRoutes from './routes/qr.js';
 import miVideoTemplatesRoutes from './routes/miVideoTemplates.js';
 import miMusicTracksRoutes from './routes/miMusicTracks.js';
 import musicPixabayRoutes from './routes/musicPixabayRoutes.js';
+import locationRoutes from './routes/locationRoutes.js';
 import rewardRoutes from './routes/reward.js';
 import performerRoutes from './routes/performer.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
@@ -978,6 +979,7 @@ app.use('/api/admin', adminLlmRoutes); // Admin: GET /api/admin/llm/health (requ
 app.use('/api/mi/video-templates', miVideoTemplatesRoutes); // MI video template routes: /api/mi/video-templates
 app.use('/api/mi/music-tracks', miMusicTracksRoutes); // MI music track routes: /api/mi/music-tracks
 app.use('/api/music', musicPixabayRoutes); // Pixabay music: /api/music/pixabay/search|select
+app.use('/api/location', locationRoutes); // OSM geocode: /api/location/geocode, /api/location/reverse-geocode
 app.use('/api/device', deviceEngineRoutes); // Device engine routes: /api/device/list, /api/device/request-pairing, etc.
 if (process.env.NODE_ENV !== 'test') {
   console.log(

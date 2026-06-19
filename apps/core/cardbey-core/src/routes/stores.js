@@ -40,6 +40,7 @@ import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
+import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
 import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import {
@@ -3433,10 +3434,16 @@ const StoreUpdateSchema = z.object({
   tagline: z.string().trim().nullable().optional(),
   tradingHours: z.any().optional(), // JSON object, validate structure if needed
   address: z.string().trim().nullable().optional(),
+  addressLine2: z.string().trim().nullable().optional(),
   suburb: z.string().trim().nullable().optional(),
+  city: z.string().trim().nullable().optional(),
   state: z.string().trim().nullable().optional(),
   postcode: z.string().trim().nullable().optional(),
   country: z.string().trim().nullable().optional(),
+  formattedAddress: z.string().trim().nullable().optional(),
+  locationSource: z.enum(['user_pin', 'geocode', 'reverse_geocode', 'import', 'manual']).optional(),
+  locationConfidence: z.enum(['confirmed', 'street_level', 'city_level', 'medium', 'high', 'low', 'unconfirmed']).optional(),
+  osmPlaceId: z.string().trim().nullable().optional(),
   phone: z.string().trim().nullable().optional(),
   contactEmail: z.preprocess(
     (val) => (val === '' ? null : val),
@@ -3570,8 +3577,14 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
     if (updateData.address !== undefined) {
       prismaUpdateData.address = updateData.address === '' ? null : updateData.address;
     }
+    if (updateData.addressLine2 !== undefined && hasBusinessColumn('addressLine2')) {
+      prismaUpdateData.addressLine2 = updateData.addressLine2 === '' ? null : updateData.addressLine2;
+    }
     if (updateData.suburb !== undefined) {
       prismaUpdateData.suburb = updateData.suburb === '' ? null : updateData.suburb;
+    }
+    if (updateData.city !== undefined && hasBusinessColumn('city')) {
+      prismaUpdateData.city = updateData.city === '' ? null : updateData.city;
     }
     if (updateData.state !== undefined) {
       prismaUpdateData.state = updateData.state === '' ? null : updateData.state;
@@ -3581,6 +3594,54 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
     }
     if (updateData.country !== undefined) {
       prismaUpdateData.country = updateData.country === '' ? null : updateData.country;
+    }
+    if (updateData.formattedAddress !== undefined && hasBusinessColumn('formattedAddress')) {
+      prismaUpdateData.formattedAddress = updateData.formattedAddress === '' ? null : updateData.formattedAddress;
+    }
+    if (updateData.locationSource !== undefined && hasBusinessColumn('locationSource')) {
+      prismaUpdateData.locationSource = updateData.locationSource;
+    }
+    if (updateData.locationConfidence !== undefined && hasBusinessColumn('locationConfidence')) {
+      prismaUpdateData.locationConfidence = updateData.locationConfidence;
+    }
+    if (updateData.osmPlaceId !== undefined && hasBusinessColumn('osmPlaceId')) {
+      prismaUpdateData.osmPlaceId = updateData.osmPlaceId === '' ? null : updateData.osmPlaceId;
+    }
+
+    const locationMetaKeys = [
+      'addressLine2',
+      'city',
+      'formattedAddress',
+      'locationSource',
+      'locationConfidence',
+      'osmPlaceId',
+    ];
+    const locationMetaPatch = {};
+    for (const key of locationMetaKeys) {
+      if (updateData[key] !== undefined && !hasBusinessColumn(key)) {
+        locationMetaPatch[key] = updateData[key] === '' ? null : updateData[key];
+      }
+    }
+    if (Object.keys(locationMetaPatch).length > 0) {
+      let existingMeta = {};
+      if (store.stylePreferences && typeof store.stylePreferences === 'object') {
+        existingMeta = store.stylePreferences;
+      } else if (typeof store.stylePreferences === 'string') {
+        try {
+          existingMeta = JSON.parse(store.stylePreferences);
+        } catch {
+          existingMeta = {};
+        }
+      }
+      const priorLocationMeta =
+        existingMeta.locationMeta && typeof existingMeta.locationMeta === 'object'
+          ? existingMeta.locationMeta
+          : {};
+      prismaUpdateData.stylePreferences = {
+        ...existingMeta,
+        locationMeta: { ...priorLocationMeta, ...locationMetaPatch },
+        profileUpdatedAt: new Date().toISOString(),
+      };
     }
     if (updateData.phone !== undefined) {
       prismaUpdateData.phone = updateData.phone === '' ? null : updateData.phone;
