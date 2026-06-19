@@ -1,5 +1,5 @@
 /**
- * Language Agent — Phase 1 preview-only orchestrator (no writes, no auto-apply).
+ * Language Agent — scan, preview, and governed apply (Phase 2).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,8 @@ import {
   validateVietnameseStrings,
 } from './languageValidator.js';
 import { listAllKeys, loadI18nCatalog } from './languageI18nReader.js';
+import languageApply from './languageApply.js';
+import { appendLanguageAudit } from './languageExecutionAudit.js';
 
 const DEFAULT_THRESHOLD = Number(process.env.LANG_AUTO_FIX_THRESHOLD || 0.9);
 const AUTO_FIX_ENABLED = String(process.env.LANG_AUTO_FIX || 'false').toLowerCase() === 'true';
@@ -190,6 +192,7 @@ Current Vietnamese: ${viValue}`;
       explanation: result.explanation,
       source: result.source,
       approved: false,
+      rejected: false,
       applied: false,
     };
 
@@ -204,14 +207,98 @@ Current Vietnamese: ${viValue}`;
       lastScan: this.scanResults?.timestamp ?? null,
       totalIssues: this.scanResults?.summary?.totalIssues ?? 0,
       previews: this.previewResults.length,
+      pendingApproval: this.previewResults.filter((p) => !p.approved && !p.rejected).length,
+      approved: this.previewResults.filter((p) => p.approved && !p.applied).length,
       autoFixEnabled: AUTO_FIX_ENABLED,
       threshold: DEFAULT_THRESHOLD,
-      phase: 1,
+      phase: 2,
       guarantees: {
         sourceMutation: false,
         autoApply: false,
+        governedApply: true,
+        requiresApproval: true,
+        requiresConfirmation: true,
       },
     };
+  }
+
+  approveFix(fixId, approvedBy) {
+    const fix = this.previewResults.find((f) => f.id === fixId);
+    if (!fix) throw new Error(`Fix not found: ${fixId}`);
+    if (fix.rejected) throw new Error('Cannot approve a rejected fix');
+    if (fix.applied) throw new Error('Fix already applied');
+
+    fix.approved = true;
+    fix.approvedBy = approvedBy;
+    fix.approvedAt = new Date().toISOString();
+
+    appendLanguageAudit({
+      sourceIntent: `Approve language fix for ${fix.key ?? fixId}`,
+      proposedAction: 'approve_language_fix',
+      confirmationState: 'confirmed',
+      executedBy: approvedBy,
+      fixId,
+      key: fix.key,
+      success: true,
+    });
+
+    return fix;
+  }
+
+  rejectFix(fixId, rejectedBy, reason = '') {
+    const fix = this.previewResults.find((f) => f.id === fixId);
+    if (!fix) throw new Error(`Fix not found: ${fixId}`);
+    if (fix.applied) throw new Error('Cannot reject an applied fix');
+
+    fix.approved = false;
+    fix.rejected = true;
+    fix.rejectedBy = rejectedBy;
+    fix.rejectedAt = new Date().toISOString();
+    fix.rejectionReason = reason || 'Rejected by reviewer';
+
+    appendLanguageAudit({
+      sourceIntent: `Reject language fix for ${fix.key ?? fixId}`,
+      proposedAction: 'reject_language_fix',
+      confirmationState: 'confirmed',
+      executedBy: rejectedBy,
+      fixId,
+      key: fix.key,
+      success: true,
+      reason: fix.rejectionReason,
+    });
+
+    return fix;
+  }
+
+  /**
+   * Apply an approved fix (governed — caller must verify confirmation).
+   */
+  async applyFix(fixId, approvedBy, opts = {}) {
+    const fix = this.previewResults.find((f) => f.id === fixId);
+    if (!fix) throw new Error(`Fix not found: ${fixId}`);
+    if (!fix.approved) throw new Error('Fix must be approved before applying');
+    if (fix.rejected) throw new Error('Fix was rejected');
+    if (fix.applied) throw new Error('Fix already applied');
+
+    const result = await languageApply.applyFix(fix, approvedBy, opts);
+
+    if (result.success) {
+      fix.applied = true;
+      fix.appliedAt = new Date().toISOString();
+      fix.appliedBy = approvedBy;
+      fix.backupPath = result.backupPath ?? null;
+      fix.auditId = result.auditId ?? null;
+    }
+
+    return result;
+  }
+
+  getApplyHistory(limit = 50) {
+    return languageApply.getHistory(limit);
+  }
+
+  async rollbackToBackup(backupPath, executedBy, opts = {}) {
+    return languageApply.rollbackTo(backupPath, executedBy, opts);
   }
 
   getPreviews() {
