@@ -36,6 +36,22 @@ export type StoreBuildFailureStage =
   | 'draft_retrieval_failed'
   | 'draft_quality_failed';
 
+function resolveDraftGenerationRunId(draft: {
+  generationRunId?: string | null;
+  input?: unknown;
+}): string {
+  const column =
+    typeof draft.generationRunId === 'string' ? draft.generationRunId.trim() : '';
+  if (column) return column;
+  const input =
+    draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input)
+      ? (draft.input as Record<string, unknown>)
+      : {};
+  const fromInput =
+    typeof input.generationRunId === 'string' ? input.generationRunId.trim() : '';
+  return fromInput;
+}
+
 export type GenerateFullStoreFromSeedResult = {
   ok: boolean;
   status: 'completed' | 'blocked' | 'failed';
@@ -44,6 +60,9 @@ export type GenerateFullStoreFromSeedResult = {
   output?: {
     missionId: string;
     draftStoreId: string;
+    draftId: string;
+    generationRunId: string;
+    seedId: string;
     performerId: string;
     status: string;
     nextRoute: string;
@@ -68,11 +87,17 @@ function buildGenerationPrompt(seed: IngestedSeedRecord, snapshotSummary: string
   return parts.join('. ');
 }
 
-function buildNextRoute(missionId: string, seedId: string, draftStoreId: string): string {
+function buildNextRoute(args: {
+  missionId: string;
+  seedId: string;
+  draftStoreId: string;
+  generationRunId: string;
+}): string {
   const qs = new URLSearchParams({
-    draftId: draftStoreId,
-    missionId,
-    seedId,
+    draftId: args.draftStoreId,
+    generationRunId: args.generationRunId,
+    missionId: args.missionId,
+    seedId: args.seedId,
   });
   return `/app/store/draft/review?${qs.toString()}`;
 }
@@ -235,6 +260,8 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
   const seedDraft = buildSeedStoreDraft(seed);
   const baselinePreview = seedDraft ? buildSeedStorePreview(seedDraft) : null;
 
+  const generationRunId = missionId;
+
   const input = {
     businessName: seed.normalized.businessName,
     businessType: seed.normalized.category ?? 'general',
@@ -250,6 +277,8 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     website: seed.normalized.website ?? null,
     phone: seed.normalized.phone ?? null,
     email: seed.normalized.email ?? null,
+    generationRunId,
+    storeId: 'temp',
   };
 
   const prisma = getPrismaClient();
@@ -265,6 +294,7 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
       expiresAt,
       mode: 'ai',
       status: 'draft',
+      generationRunId,
     });
     draftId = draft.id;
 
@@ -349,6 +379,16 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     });
   }
 
+  const resolvedGenerationRunId = resolveDraftGenerationRunId(refreshed);
+  if (!resolvedGenerationRunId) {
+    return failResult(
+      'draft_retrieval_failed',
+      'Draft was created but review metadata is incomplete.',
+      'generation_run_id_missing',
+      { seedId, missionId, draftId, userId, source },
+    );
+  }
+
   const completeness = scoreDraftPackageCompleteness(refreshed.preview);
   if (completeness.score < MIN_DRAFT_COMPLETENESS) {
     const message = 'Draft created but requires additional generation.';
@@ -375,9 +415,17 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
       output: {
         missionId,
         draftStoreId: draftId,
+        draftId,
+        generationRunId: resolvedGenerationRunId,
+        seedId,
         performerId: runtimeCtx.runtimeId,
         status: refreshed.status ?? 'ready',
-        nextRoute: buildNextRoute(missionId, seedId, draftId),
+        nextRoute: buildNextRoute({
+          missionId,
+          seedId,
+          draftStoreId: draftId,
+          generationRunId: resolvedGenerationRunId,
+        }),
         completenessScore: completeness.score,
       },
     };
@@ -401,7 +449,12 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     metadata: { missionId, draftStoreId: draftId, batchId: resolvedBatchId, completenessScore: completeness.score },
   });
 
-  const nextRoute = buildNextRoute(missionId, seedId, draftId);
+  const nextRoute = buildNextRoute({
+    missionId,
+    seedId,
+    draftStoreId: draftId,
+    generationRunId: resolvedGenerationRunId,
+  });
   logStoreBuild('STORE_BUILD_REDIRECT', {
     seedId,
     missionId,
@@ -419,6 +472,9 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     output: {
       missionId,
       draftStoreId: draftId,
+      draftId,
+      generationRunId: resolvedGenerationRunId,
+      seedId,
       performerId: runtimeCtx.runtimeId,
       status: refreshed.status ?? 'ready',
       nextRoute,

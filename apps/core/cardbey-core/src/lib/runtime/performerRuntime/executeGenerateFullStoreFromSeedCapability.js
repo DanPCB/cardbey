@@ -75,6 +75,9 @@ export async function executeGenerateFullStoreFromSeedCapability(params) {
     missionId: result.output?.missionId ?? (missionId || null),
     nextRoute: result.output?.nextRoute ?? null,
     draftStoreId: result.output?.draftStoreId ?? null,
+    draftId: result.output?.draftId ?? result.output?.draftStoreId ?? null,
+    generationRunId: result.output?.generationRunId ?? null,
+    seedId: result.output?.seedId ?? seedId,
     completenessScore: result.output?.completenessScore ?? null,
   };
 }

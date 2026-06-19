@@ -665,6 +665,9 @@ router.post('/capabilities/generate-full-store-from-seed', optionalAuth, async (
       failureStage: result.failureStage ?? result.error?.stage ?? null,
       missionId: result.missionId,
       draftStoreId: result.draftStoreId,
+      draftId: result.draftId,
+      generationRunId: result.generationRunId,
+      seedId: result.seedId,
       nextRoute: result.nextRoute,
       completenessScore: result.completenessScore ?? result.output?.completenessScore ?? null,
     });

@@ -12,12 +12,18 @@ import { approveSeed } from '../QaPromotionService.js';
 import type { IngestedSeedRecord, NormalizedBusinessRecord } from '../types.js';
 
 const createMissionPipelineMock = vi.fn(async () => ({ id: 'mission-gen-1' }));
-const createDraftStoreForUserMock = vi.fn(async () => ({ id: 'draft-gen-1', status: 'draft' }));
+const createDraftStoreForUserMock = vi.fn(async () => ({
+  id: 'draft-gen-1',
+  status: 'draft',
+  generationRunId: 'mission-gen-1',
+}));
 const createDraftMock = vi.fn(async () => ({ id: 'draft-guest-1', status: 'draft' }));
 const generateDraftMock = vi.fn(async () => undefined);
 const getDraftMock = vi.fn(async (id: string) => ({
   id,
   status: 'ready',
+  generationRunId: 'mission-gen-1',
+  input: { generationRunId: 'mission-gen-1' },
   preview: {
     storeName: 'Brunetti Carlton',
     storeType: 'cafe',
@@ -152,7 +158,9 @@ describe('generateFullStoreFromSeedService', () => {
     expect(result.ok).toBe(true);
     expect(result.output?.missionId).toBe('mission-gen-1');
     expect(result.output?.draftStoreId).toBe('draft-gen-1');
+    expect(result.output?.generationRunId).toBe('mission-gen-1');
     expect(result.output?.nextRoute).toContain('/app/store/draft/review');
+    expect(result.output?.nextRoute).toContain('generationRunId=mission-gen-1');
     expect(result.output?.completenessScore).toBeGreaterThanOrEqual(50);
     expect(createMissionPipelineMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -161,11 +169,53 @@ describe('generateFullStoreFromSeedService', () => {
         metadata: expect.objectContaining({ seedId: seed.id }),
       }),
     );
-    expect(createDraftStoreForUserMock).toHaveBeenCalled();
+    expect(createDraftStoreForUserMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        generationRunId: 'mission-gen-1',
+        input: expect.objectContaining({ generationRunId: 'mission-gen-1', storeId: 'temp' }),
+      }),
+    );
     expect(generateDraftMock).toHaveBeenCalledWith(
       'draft-gen-1',
       expect.objectContaining({ userId: 'owner-1', reactMissionId: 'mission-gen-1' }),
     );
+  });
+
+  it('fails when draft has no generationRunId after generation', async () => {
+    const seed = makeSeed({ id: 'gen-seed-no-run' });
+    await upsertSeedRecords([seed]);
+    await approveSeed(seed.id, { actorId: 'qa-1' });
+    getDraftMock.mockResolvedValueOnce({
+      id: 'draft-gen-1',
+      status: 'ready',
+      generationRunId: null,
+      input: {},
+      preview: {
+        storeName: 'Brunetti Carlton',
+        storeType: 'cafe',
+        heroImageUrl: 'https://example.com/hero.jpg',
+        items: [{ id: 'o1', name: 'Offer' }],
+        website: {
+          sections: [
+            { type: 'hero', content: { headline: 'Brunetti Carlton' } },
+            { type: 'about', content: { body: 'Since 1985' } },
+          ],
+        },
+      },
+    });
+
+    const { executeGenerateFullStoreFromSeedRunway } = await import(
+      '../generateFullStoreFromSeedService.js'
+    );
+    const result = await executeGenerateFullStoreFromSeedRunway({
+      seedId: seed.id,
+      userId: 'owner-1',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failureStage).toBe('draft_retrieval_failed');
+    expect(result.error?.code).toBe('generation_run_id_missing');
   });
 
   it('writes suitcase handoff metadata', async () => {

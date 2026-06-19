@@ -1428,7 +1428,37 @@ router.get('/:storeId/draft', requireAuth, async (req, res, next) => {
     }
 
     if (storeId === 'temp') {
-      const runId = generationRunId && typeof generationRunId === 'string' ? generationRunId.trim() : null;
+      let runId = generationRunId && typeof generationRunId === 'string' ? generationRunId.trim() : null;
+      const draftIdQuery =
+        typeof req.query.draftId === 'string' ? req.query.draftId.trim() : null;
+
+      if (!runId && draftIdQuery) {
+        let draftById = null;
+        try {
+          draftById = await getDraft(draftIdQuery);
+        } catch (_) {
+          draftById = null;
+        }
+        if (draftById) {
+          const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
+          const allowed = await canAccessDraftStore(draftById, {
+            userId: req.userId ?? null,
+            tenantKey: getTenantId(req.user) ?? req.userId ?? null,
+            isSuperAdmin: req.user?.role === 'super_admin',
+          });
+          if (allowed) {
+            const inputParsed =
+              typeof draftById.input === 'string'
+                ? JSON.parse(draftById.input)
+                : draftById.input || {};
+            runId =
+              (draftById.generationRunId && String(draftById.generationRunId).trim()) ||
+              (inputParsed.generationRunId && String(inputParsed.generationRunId).trim()) ||
+              null;
+          }
+        }
+      }
+
       if (!runId) {
         // Draft alias endpoint contract: never 404. When temp draft run id is unknown, return 200 not_found.
         return res.status(200).json({
