@@ -118,6 +118,7 @@ import adminCaiRoutes from './routes/admin/cai.js';
 import adminPlatformRoutes from './routes/admin/platformOverview.js';
 import adminPlatformActivityRoutes from './routes/admin/platformActivityRoutes.js';
 import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
+import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
   applyUploadsMediaHeaders,
@@ -1096,6 +1097,7 @@ app.use('/api/admin', adminCaiRoutes);
 app.use('/api/admin', adminPlatformRoutes);
 app.use('/api/admin', adminPlatformActivityRoutes);
 app.use('/api/admin', adminPlatformSearchRoutes);
+app.use('/api/language', languageRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
 
