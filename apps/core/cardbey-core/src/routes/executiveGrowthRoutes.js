@@ -65,7 +65,7 @@ router.get('/summary', async (_req, res, next) => {
 /** GET /api/executive/growth/leads */
 router.get('/leads', async (req, res, next) => {
   try {
-    const leads = await listExecutiveLeads(req.query as Record<string, string>);
+    const leads = await listExecutiveLeads(req.query);
     return res.json({ ok: true, leads });
   } catch (err) {
     next(err);
@@ -96,7 +96,7 @@ router.post('/import-leads', async (req, res, next) => {
 
     const parsed = leads.map((l) => LeadSchema.safeParse(l)).filter((r) => r.success);
     const result = await importExecutiveLeads(
-      parsed.map((r) => r.data!),
+      parsed.map((r) => r.data),
       { source: body.source, createdBy: req.userId ?? null, skipDuplicates: body.skipDuplicates !== false },
     );
     return res.json({ ok: true, ...result });

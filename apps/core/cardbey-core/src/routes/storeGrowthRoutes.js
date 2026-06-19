@@ -149,7 +149,7 @@ router.patch('/leads/:leadId', async (req, res, next) => {
     );
     return res.json({ ok: true, lead });
   } catch (err) {
-    if ((err as Error).message === 'Lead not found') {
+    if (err instanceof Error && err.message === 'Lead not found') {
       return res.status(404).json({ ok: false, error: 'not_found' });
     }
     next(err);
