@@ -737,6 +737,64 @@ async function saveDraftBase(draftId, catalog, params) {
 /**
  * Only place for images/hero/avatar/readiness. Fills missing product images, generates hero, sets avatar, then marks ready.
  */
+/** Apply canonical location to draft preview + columns; never let LLM/demo fallbacks win. */
+async function persistCanonicalLocationForDraft(draftId, trace = {}) {
+  if (!draftId) return null;
+  const row = await prisma.draftStore
+    .findUnique({
+      where: { id: draftId },
+      select: { id: true, input: true, preview: true, generationRunId: true },
+    })
+    .catch(() => null);
+  if (!row) return null;
+
+  const draftInput = row.input && typeof row.input === 'object' ? row.input : {};
+  const rawPreview =
+    row.preview && typeof row.preview === 'object'
+      ? { ...row.preview }
+      : (() => {
+          try {
+            return row.preview ? JSON.parse(String(row.preview)) : {};
+          } catch {
+            return {};
+          }
+        })();
+
+  const { resolveAndApplyCanonicalLocationForDraft } = await import(
+    '../../lib/location/applyCanonicalLocation.ts'
+  );
+  const applied = resolveAndApplyCanonicalLocationForDraft({
+    draftInput,
+    preview: rawPreview,
+    trace: {
+      draftId,
+      missionId: trace.missionId ?? draftInput.missionId ?? null,
+      seedId: trace.seedId ?? draftInput.seedId ?? null,
+      storeId: trace.storeId ?? draftInput.storeId ?? null,
+      generationRunId: row.generationRunId ?? null,
+      ...trace,
+    },
+  });
+
+  const mergedInput = {
+    ...draftInput,
+    ...applied.inputPatch,
+  };
+
+  await prisma.draftStore
+    .update({
+      where: { id: draftId },
+      data: {
+        input: mergedInput,
+        preview: applied.preview,
+        ...applied.columnPatch,
+      },
+    })
+    .catch(() => {});
+
+  return applied.canonical;
+}
+
 async function finalizeDraft(draftId, {
   includeImages,
   generationProfile,
@@ -1089,6 +1147,11 @@ async function finalizeDraft(draftId, {
   const qaReport = runDraftQa({ preview, input: draft.input }, { logger: console.log.bind(console) });
   preview.meta = { ...(preview.meta || {}), qaReport };
 
+  await persistCanonicalLocationForDraft(draftId, { missionId: pipelineMissionId ?? null });
+  const refreshed = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
+  const previewForReady =
+    refreshed?.preview && typeof refreshed.preview === 'object' ? refreshed.preview : preview;
+
   await transitionDraftStoreStatus({
     prisma,
     draftId,
@@ -1097,7 +1160,7 @@ async function finalizeDraft(draftId, {
     actorType: 'automation',
     correlationId: null,
     reason: 'GENERATE_DRAFT_SUCCESS',
-    extraData: { preview, error: null },
+    extraData: { preview: previewForReady, error: null },
   });
   return true;
 }
@@ -1525,6 +1588,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
           }
         }
 
+        await persistCanonicalLocationForDraft(draftId, { missionId: missionId ?? null });
         const updated = await prisma.draftStore.findUnique({ where: { id: draftId } });
         const preview = parseDraftJsonField(updated?.preview);
         await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate, {
@@ -1788,6 +1852,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
     }
   }
 
+  await persistCanonicalLocationForDraft(draftId, { missionId: missionId ?? null });
   const updated = await prisma.draftStore.findUnique({ where: { id: draftId } });
   const preview = parseDraftJsonField(updated?.preview);
   await maybeValidateDraftOutput(draftId, missionId, params, input, options.emitContextUpdate, {
@@ -1857,6 +1922,45 @@ export async function generateDraft(draftId, options = {}) {
 
     // Persisted input: includeImages, businessType/storeType, prompt, etc. (from generate route or orchestra start)
     const input = draft.input || {};
+    const pipelineMissionId =
+      (typeof options.reactMissionId === 'string' && options.reactMissionId.trim()) ||
+      (typeof input.missionId === 'string' && input.missionId.trim()) ||
+      null;
+    if (pipelineMissionId) {
+      try {
+        const { lockCanonicalLocationForMission } = await import(
+          '../../lib/location/lockCanonicalLocationForMission.ts'
+        );
+        const { buildResolveInputFromDraftInput } = await import(
+          '../../lib/location/applyCanonicalLocation.ts'
+        );
+        const canonical = await lockCanonicalLocationForMission(
+          pipelineMissionId,
+          buildResolveInputFromDraftInput(input),
+          {
+            draftId,
+            seedId: input.seedId ?? null,
+            inputLocation: input.location ?? input.prompt ?? null,
+          },
+        );
+        if (canonical && (!input.canonicalLocation || input.location !== canonical.displayLocation)) {
+          await prisma.draftStore
+            .update({
+              where: { id: draftId },
+              data: {
+                input: {
+                  ...input,
+                  canonicalLocation: canonical,
+                  location: canonical.displayLocation,
+                },
+              },
+            })
+            .catch(() => {});
+        }
+      } catch (lockErr) {
+        console.warn('[generateDraft] canonical location lock skipped:', lockErr?.message || lockErr);
+      }
+    }
 
     if (USE_QUICK_START_TWO_MODES) {
       const result = await generateDraftTwoModes(draftId, draft, input, {
@@ -2522,6 +2626,15 @@ export async function generateDraft(draftId, options = {}) {
       }
     }
 
+    await persistCanonicalLocationForDraft(draftId, { missionId: pipelineMissionId ?? null });
+    const refreshedLegacy = await prisma.draftStore
+      .findUnique({ where: { id: draftId }, select: { preview: true } })
+      .catch(() => null);
+    const previewForReady =
+      refreshedLegacy?.preview && typeof refreshedLegacy.preview === 'object'
+        ? refreshedLegacy.preview
+        : preview;
+
     // Update draft with preview and always set status to 'ready' on success
     await transitionDraftStoreStatus({
       prisma,
@@ -2531,11 +2644,11 @@ export async function generateDraft(draftId, options = {}) {
       actorType: 'automation',
       correlationId: draft.generationRunId,
       reason: 'GENERATE_DRAFT_SUCCESS',
-      extraData: { preview, error: null },
+      extraData: { preview: previewForReady, error: null },
     });
     statusUpdateDone = true;
 
-    console.log('[generateDraft] done', { draftId, status: 'ready', items: preview.items?.length ?? 0 });
+    console.log('[generateDraft] done', { draftId, status: 'ready', items: previewForReady.items?.length ?? 0 });
     return { draft, preview };
   } catch (error) {
     console.error(`[DraftStore] Generation failed for draft ${draftId}:`, error);

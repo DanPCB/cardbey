@@ -58,6 +58,9 @@
     "repair:seed-store-links:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-seed-store-links.ts",
     "repair:seed-store-links": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-seed-store-links.ts -- --apply",
     "test:seed-store-link-repair": "pnpm exec vitest run --root scripts/lib seed-store-link-repair.test.ts",
+    "audit:location-accuracy": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-location-accuracy.ts",
+    "repair:location-accuracy:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-location-accuracy.ts",
+    "repair:location-accuracy": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-location-accuracy.ts -- --apply",
     "prepare": "husky"
   },
   "devDependencies": {

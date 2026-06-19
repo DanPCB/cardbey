@@ -273,7 +273,36 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     state: seed.normalized.state,
     country: seed.normalized.country,
     address: seed.normalized.address,
+    suburb: seed.normalized.city,
   });
+
+  const { lockCanonicalLocationForMission } = await import('../location/lockCanonicalLocationForMission.ts');
+  const canonicalLocation = await lockCanonicalLocationForMission(
+    missionId,
+    {
+      userPrompt: buildGenerationPrompt(seed, businessSnapshot.summary),
+      locationText: locationLabel,
+      address: seed.normalized.address,
+      suburb: seed.normalized.city,
+      city: seed.normalized.city,
+      state: seed.normalized.state,
+      country: seed.normalized.country,
+      operatingRegion: seed.normalized.operatingRegion,
+      seed: {
+        address: seed.normalized.address,
+        city: seed.normalized.city,
+        state: seed.normalized.state,
+        country: seed.normalized.country,
+        operatingRegion: seed.normalized.operatingRegion,
+      },
+    },
+    {
+      missionId,
+      seedId,
+      inputLocation: locationLabel ?? seed.normalized.address ?? null,
+    },
+  );
+
   const seedDraft = buildSeedStoreDraft(seed);
   const baselinePreview = seedDraft ? buildSeedStorePreview(seedDraft) : null;
   const classification = classifyBusinessVertical({
@@ -289,7 +318,8 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     businessType: seed.normalized.category ?? 'general',
     businessVertical: classification.businessVertical,
     commerceVerticalMode: classification.commerceMode,
-    location: locationLabel,
+    location: canonicalLocation.displayLocation,
+    canonicalLocation,
     prompt: buildGenerationPrompt(seed, businessSnapshot.summary),
     missionId,
     seedId,
@@ -331,12 +361,22 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     });
 
     if (baselinePreview) {
+      const { applyCanonicalLocationToPreview } = await import('../location/applyCanonicalLocation.ts');
+      const lockedPreview = applyCanonicalLocationToPreview(
+        baselinePreview as Record<string, unknown>,
+        canonicalLocation,
+        { missionId, seedId, draftId: draft.id },
+      );
       await prisma.draftStore.update({
         where: { id: draft.id },
         data: {
-          preview: baselinePreview,
-          publishSnapshot: baselinePreview,
+          preview: lockedPreview,
+          publishSnapshot: lockedPreview,
           publishSnapshotVersion: 1,
+          address: canonicalLocation.addressLine,
+          suburb: canonicalLocation.suburb,
+          state: canonicalLocation.region,
+          country: canonicalLocation.country,
         },
       });
     }

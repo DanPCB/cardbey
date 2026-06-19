@@ -635,6 +635,8 @@ export async function createBuildStoreJob(
 
   if (needDraft) {
     const { createDraftStoreForUser, createDraft } = await import('./draftStoreService.js');
+    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.ts');
+    const { lockCanonicalLocationForMission } = await import('../../lib/location/lockCanonicalLocationForMission.ts');
     const resolvedDraftMode = draftMode ?? 'ai';
     const useGuestDraft =
       guestDraft &&
@@ -661,6 +663,23 @@ export async function createBuildStoreJob(
       ...(websiteUrl != null && String(websiteUrl).trim() ? { websiteUrl: String(websiteUrl).trim() } : {}),
       ...(trace ? { cardbeyTraceId: trace } : {}),
     };
+
+    const missionIdForLock =
+      (requestExtras && typeof requestExtras.missionId === 'string' && requestExtras.missionId.trim()) ||
+      resolvedRunId;
+    const canonicalLocation = await lockCanonicalLocationForMission(
+      missionIdForLock,
+      {
+        userPrompt: rawInput ?? null,
+        locationText: locStr,
+      },
+      { inputLocation: locStr ?? null, draftId: null },
+    ).catch(() => resolveCanonicalBusinessLocation({ userPrompt: rawInput ?? null, locationText: locStr }));
+    if (canonicalLocation) {
+      baseInput.canonicalLocation = canonicalLocation;
+      baseInput.location = canonicalLocation.displayLocation;
+    }
+
     const input =
       draftInput && typeof draftInput === 'object' && !Array.isArray(draftInput)
         ? mergeDraftInputAfterBase(baseInput, draftInput)

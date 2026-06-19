@@ -659,6 +659,34 @@ export async function publishDraft(prisma, {
 
   const contactFieldsForPublish = resolveContactFieldsForPublish(store, targetDraft, rawPreview);
 
+  const draftInput =
+    targetDraft?.input && typeof targetDraft.input === 'object' ? targetDraft.input : {};
+  const previewMeta =
+    rawPreview?.meta && typeof rawPreview.meta === 'object' ? rawPreview.meta : {};
+  let canonicalForPublish =
+    draftInput.canonicalLocation ??
+    previewMeta.canonicalLocation ??
+    null;
+  if (!canonicalForPublish) {
+    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.ts');
+    const { buildResolveInputFromDraftInput, mergeCanonicalContactForPublish } = await import(
+      '../../lib/location/applyCanonicalLocation.ts'
+    );
+    canonicalForPublish = resolveCanonicalBusinessLocation(buildResolveInputFromDraftInput(draftInput));
+    if (typeof mergeCanonicalContactForPublish === 'function') {
+      Object.assign(
+        contactFieldsForPublish,
+        mergeCanonicalContactForPublish(contactFieldsForPublish, canonicalForPublish),
+      );
+    }
+  } else {
+    const { mergeCanonicalContactForPublish } = await import('../../lib/location/applyCanonicalLocation.ts');
+    Object.assign(
+      contactFieldsForPublish,
+      mergeCanonicalContactForPublish(contactFieldsForPublish, canonicalForPublish),
+    );
+  }
+
   const BUSINESS_UPDATE_KEYS = [
     'name', 'type', 'slug', 'description', 'tagline', 'logo', 'isActive',
     'heroImageUrl', 'avatarImageUrl', 'publishedAt', 'stylePreferences', 'storefrontSettings', 'updatedAt',
