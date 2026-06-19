@@ -158,6 +158,7 @@ import businessRoutes from './routes/business.js';
 import businessBrandRoutes from './routes/businessBrandRoutes.js';
 import discoveryRoutes from './routes/discoveryRoutes.js';
 import businessIngestionRoutes from './routes/businessIngestionRoutes.js';
+import discoveryEngineRoutes from './routes/discoveryEngineRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import claimBusinessPublicRoutes from './routes/claimBusinessPublicRoutes.js';
@@ -252,6 +253,7 @@ import toolsRoutes from './routes/toolsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import visionIntakeRoutes from './routes/visionIntake.js';
+import visionDiscoveryRoutes from './routes/visionDiscoveryRoutes.js';
 import ghostStoreRoutes, {
   ghostClaimRouter,
   adminGhostRouter,
@@ -909,6 +911,7 @@ app.use('/api/missions', missionsRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
 app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
 app.use('/api/vision', visionIntakeRoutes);
+app.use('/api/vision', visionDiscoveryRoutes);
 app.use('/api/ghost-stores', ghostStoreRoutes);
 app.use('/api/stores', ghostClaimRouter);
 app.use('/api', userMemoryRoutes);
@@ -942,6 +945,7 @@ app.use('/api/business', businessRoutes); // Business Builder routes: /api/busin
 app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
 app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
 app.use('/api/business-ingestion', businessIngestionRoutes); // Bulk factual business ingestion pipeline
+app.use('/api/discovery-engine', discoveryEngineRoutes); // Discovery Engine V1 — candidates → seeds
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
