@@ -78,6 +78,7 @@ function buildDescription(seed: IngestedSeedRecord, locationLabel: string | null
 }
 
 export function buildPublicDiscoveryCard(seed: IngestedSeedRecord): PublicDiscoveryCard | null {
+  if (!seed.claimable || seed.storeId) return null;
   const publicLifecycle = translateSeedToPublicLifecycle(seed.verificationStatus);
   if (publicLifecycle !== 'discovered_business') return null;
 

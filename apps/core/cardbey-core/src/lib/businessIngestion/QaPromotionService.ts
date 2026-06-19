@@ -24,6 +24,7 @@ export function isClaimableSeed(seed: IngestedSeedRecord): boolean {
   return (
     CLAIMABLE_STATUSES.includes(seed.verificationStatus) &&
     seed.claimable === true &&
+    !seed.storeId &&
     seed.verificationStatus !== 'rejected' &&
     seed.verificationStatus !== 'duplicate'
   );

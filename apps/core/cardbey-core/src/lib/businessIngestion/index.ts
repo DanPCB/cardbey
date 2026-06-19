@@ -21,6 +21,7 @@ export {
   buildSeedStorePreview,
 } from './SeedStoreBuilder.js';
 export { submitSeedClaim, activateVerifiedSeed } from './ClaimFlow.js';
+export { linkSeedAfterPublish, parseDraftInputForSeedLink } from './linkSeedAfterPublish.js';
 export {
   suggestAutoApproval,
   canPromoteToClaimable,

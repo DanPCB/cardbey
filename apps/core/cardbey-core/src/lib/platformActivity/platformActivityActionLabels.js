@@ -13,6 +13,8 @@ export const EVENT_TYPE_ACTION_LABEL = {
   draft_store_created: 'Open Store Network',
   draft_store_reviewed: 'Open Store Network',
   store_published: 'Open Store Network',
+  business_space_published: 'Open Store Network',
+  discovery_seed_converted_to_store: 'Open Discovery',
   store_activation_failed: 'Open Store Network',
   performer_session_started: 'Open Runtime',
   mission_started: 'Open Runtime',

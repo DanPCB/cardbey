@@ -50,6 +50,8 @@
     "cleanup:fixture-seeds": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-fixture-seeds.ts",
     "test:fixture-seed-cleanup": "pnpm exec vitest run --root scripts/lib fixture-seed-cleanup.test.ts",
     "import:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/import-melbourne-batch0.ts",
+    "restore:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/restore-melbourne-batch0.ts",
+    "test:melbourne-batch0-restore": "pnpm exec vitest run --root scripts/lib melbourne-batch0-restore.test.ts",
     "prepare": "husky"
   },
   "devDependencies": {

@@ -13,6 +13,8 @@ export const EVENT_TYPE_DEFAULT_ROUTE = {
   draft_store_created: '/marketing#store-network',
   draft_store_reviewed: '/marketing#store-network',
   store_published: '/marketing#store-network',
+  business_space_published: '/marketing#store-network',
+  discovery_seed_converted_to_store: '/admin/discovery',
   store_activation_failed: '/marketing#store-network',
   performer_session_started: '/marketing#runtime',
   mission_started: '/marketing#runtime',

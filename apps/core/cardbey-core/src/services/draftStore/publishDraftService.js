@@ -403,10 +403,24 @@ export async function publishDraft(prisma, {
         source: entrypoint ?? 'publishDraft_republish',
       });
     }
+    const republishStorefrontUrl = buildVerifiedStorefrontUrl(slug, existingStoreId);
+    try {
+      const { linkSeedAfterPublish } = await import('../../lib/businessIngestion/linkSeedAfterPublish.js');
+      await linkSeedAfterPublish({
+        draftInput: targetDraftRow.input,
+        draftId: targetDraftRow.id,
+        storeId: existingStoreId,
+        publisherUserId: userId,
+        storefrontUrl: republishStorefrontUrl,
+        businessName: storeName,
+      });
+    } catch (seedLinkErr) {
+      console.warn('[publishDraft] linkSeedAfterPublish failed (non-fatal):', seedLinkErr?.message || seedLinkErr);
+    }
     return {
       storeId: existingStoreId,
       slug: slug ?? undefined,
-      storefrontUrl: buildVerifiedStorefrontUrl(slug, existingStoreId),
+      storefrontUrl: republishStorefrontUrl,
     };
   }
 
@@ -1076,6 +1090,21 @@ export async function publishDraft(prisma, {
   refreshPersonalPresenceQrForBusiness(prisma, effectiveStoreId).catch((e) => {
     console.warn('[PublishDraft] refreshPersonalPresenceQrForBusiness failed (non-fatal):', e?.message || e);
   });
+
+  try {
+    const { linkSeedAfterPublish } = await import('../../lib/businessIngestion/linkSeedAfterPublish.js');
+    await linkSeedAfterPublish({
+      draftInput: targetDraft.input,
+      draftId: targetDraft.id,
+      storeId: effectiveStoreId,
+      publisherUserId: userId,
+      storefrontUrl,
+      businessName: storeName,
+    });
+  } catch (seedLinkErr) {
+    console.warn('[publishDraft] linkSeedAfterPublish failed (non-fatal):', seedLinkErr?.message || seedLinkErr);
+  }
+
   return {
     storeId: effectiveStoreId,
     slug: publicSlug,
