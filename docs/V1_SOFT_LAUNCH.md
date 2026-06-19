@@ -14,7 +14,7 @@
 
 - Video generation requires video provider setup (OpenAI, Kling, or mock URL)
 - C-Net deployment requires `CNET_API_KEY` and device pairing
-- Scan card / OCR feature coming soon
+- Scan card / OCR feature requires `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
 
 ### Supported flows
 
@@ -28,6 +28,7 @@
 | Ingest business document | ✅ |
 | Fix issues (store audit) | ✅ |
 | Generate social content | ✅ |
+| Scan card to create product | ✅ (with vision API keys) |
 
 ---
 

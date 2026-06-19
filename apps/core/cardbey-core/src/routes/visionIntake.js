@@ -8,6 +8,8 @@ import { requireUserOrGuest } from '../middleware/guestAuth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { runVisionIntake } from '../lib/vision/visionIntakeService.js';
 import { parseJsonFormField } from '../lib/vision/visionIntakeValidation.js';
+import { runCardScanPipeline } from '../lib/vision/cardScanPipeline.js';
+import { createFromScan } from '../services/vision/productCreator.js';
 
 const router = express.Router();
 
@@ -86,5 +88,111 @@ router.post(
     }
   },
 );
+
+/**
+ * POST /api/vision/scan — OCR + entity extraction preview (confirmation required before create).
+ */
+router.post(
+  '/scan',
+  requireUserOrGuest,
+  visionIntakeRateLimit,
+  upload.single('image'),
+  async (req, res) => {
+    try {
+      const storeId = typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : '';
+      const scanType = typeof req.body?.scanType === 'string' ? req.body.scanType.trim() : 'business_card';
+      const file = req.file;
+
+      if (!file?.buffer) {
+        return res.status(400).json({
+          ok: false,
+          error: 'NO_IMAGE',
+          message: 'Please provide an image to scan.',
+        });
+      }
+
+      const result = await runCardScanPipeline({
+        buffer: file.buffer,
+        mimeType: file.mimetype || 'image/jpeg',
+        scanType,
+        tenantKey: storeId || req.user?.id || req.guestId || 'default',
+      });
+
+      if (!result.ok) {
+        const err = result.error ?? {};
+        const status = err.code === 'LOW_CONFIDENCE' ? 400 : 400;
+        return res.status(status).json({
+          ok: false,
+          error: err.code ?? 'SCAN_FAILED',
+          message: err.message ?? 'Failed to process image.',
+          confidence: result.confidence,
+          ocrText: result.ocrText,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        storeId: storeId || null,
+        ocrText: result.ocrText,
+        confidence: result.confidence,
+        provider: result.provider,
+        extractedData: result.extractedData,
+        preview: result.preview,
+      });
+    } catch (err) {
+      console.error('[vision/scan]', err?.message ?? err);
+      return res.status(500).json({
+        ok: false,
+        error: 'SCAN_FAILED',
+        message: err?.message ?? 'Failed to process image.',
+      });
+    }
+  },
+);
+
+/**
+ * POST /api/vision/scan/confirm — create product after user confirmation.
+ */
+router.post('/scan/confirm', requireUserOrGuest, async (req, res) => {
+  try {
+    const storeId = typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : '';
+    const extractedData = req.body?.extractedData;
+    const confirmed = req.body?.confirmed === true;
+
+    if (!confirmed) {
+      return res.status(400).json({
+        ok: false,
+        error: 'CONFIRMATION_REQUIRED',
+        message: 'Please confirm the extracted data before creating.',
+      });
+    }
+
+    if (!storeId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'STORE_REQUIRED',
+        message: 'Store is required.',
+      });
+    }
+
+    const userId = req.user?.id ?? null;
+    const result = await createFromScan(storeId, extractedData, userId);
+
+    if (!result.ok) {
+      const status =
+        result.error === 'STORE_NOT_FOUND' || result.error === 'AUTH_REQUIRED' ? 403 : 400;
+      return res.status(status).json(result);
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error('[vision/scan/confirm]', err?.message ?? err);
+    return res.status(500).json({
+      ok: false,
+      error: 'CONFIRM_FAILED',
+      message: err?.message ?? 'Failed to create product.',
+    });
+  }
+});
 
 export default router;

@@ -84,6 +84,21 @@ export const INTENT_SUBTYPES = [
   },
   {
     family: 'store_improvement',
+    subtype: 'scan_card_to_product',
+    description: 'Scan a business card or product tag to create a catalog item.',
+    candidateTools: ['extract_card_data', 'create_product_from_card'],
+    defaultTool: 'extract_card_data',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /\bscan\s+card\b/i,
+      /\bscan\s+card\s+to\s+create\b/i,
+      /\bbusiness\s+card\s+scan\b/i,
+      /\bscan\s+this\s+card\b/i,
+    ],
+  },
+  {
+    family: 'store_improvement',
     subtype: 'review_management',
     description: 'Customer reviews, ratings, feedback, or drafting replies.',
     candidateTools: ['get_review_summary', 'draft_review_response'],

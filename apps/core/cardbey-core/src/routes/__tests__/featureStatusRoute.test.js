@@ -18,7 +18,7 @@ describe('GET /api/status/features', () => {
     expect(res.body.features).toBeDefined();
     expect(typeof res.body.features.video.available).toBe('boolean');
     expect(typeof res.body.features.cnet.available).toBe('boolean');
-    expect(res.body.features.ocr.available).toBe(false);
+    expect(typeof res.body.features.ocr.available).toBe('boolean');
     expect(res.body.features.social.available).toBe(true);
   });
 });

@@ -403,8 +403,13 @@ router.get('/status/features', (req, res) => {
       message: cnetConfigured ? null : 'Requires CNET_API_KEY and CNET_ENDPOINT setup',
     },
     ocr: {
-      available: false,
-      message: 'OCR / scan card integration coming soon',
+      available:
+        Boolean(process.env.OPENAI_API_KEY?.trim()) ||
+        Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+      message:
+        process.env.OPENAI_API_KEY?.trim() || process.env.ANTHROPIC_API_KEY?.trim()
+          ? null
+          : 'OCR requires OPENAI_API_KEY or ANTHROPIC_API_KEY',
     },
     social: {
       available: true,

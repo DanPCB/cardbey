@@ -1,39 +1,28 @@
 // DANH: skill-round5-cardscan
 /**
- * check_scan_capability — probe SuperCopilot bridge health (read-only).
+ * check_scan_capability — OCR provider availability (OpenAI / Anthropic vision).
  */
 
-const BRIDGE_URL = 'http://localhost:7799/health';
-const TIMEOUT_MS = 2000;
+function ocrProviderAvailable() {
+  return (
+    Boolean(process.env.OPENAI_API_KEY?.trim()) ||
+    Boolean(process.env.ANTHROPIC_API_KEY?.trim())
+  );
+}
 
 export async function execute(input = {}) {
+  // @pure-transform: read-only env inspection; no DB/API side effects by design.
   const userId = typeof input?.userId === 'string' ? input.userId : null;
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    const res = await fetch(BRIDGE_URL, { signal: controller.signal });
-    clearTimeout(timer);
-    if (res.ok) {
-      return {
-        status: 'ok',
-        output: {
-          available: true,
-          bridgeUrl: 'http://localhost:7799',
-          userId,
-        },
-      };
-    }
-  } catch {
-    /* bridge unreachable */
-  }
+  const available = ocrProviderAvailable();
 
   return {
     status: 'ok',
     output: {
-      available: false,
-      bridgeUrl: null,
-      reason: 'SuperCopilot bridge not reachable at port 7799',
+      available,
+      provider: available ? 'openai_vision' : null,
+      reason: available
+        ? null
+        : 'OCR requires OPENAI_API_KEY or ANTHROPIC_API_KEY',
       userId,
     },
   };
