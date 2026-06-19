@@ -7,6 +7,7 @@ import { formatStoreLocation } from '../formatStoreLocation.js';
 import { getPrismaClient } from '../prisma.js';
 import { listSeedRecords } from './IngestionRepository.js';
 import { buildPublicBusinessSlug, findSeedByPublicSlug } from './businessPublicSlug.js';
+import { findPublishedStoreForSeed, type PublishedStoreIdentity } from './publishedStoreSeedMatch.js';
 import { resolveDiscoveryCardHero } from './DiscoveryCardHeroResolver.js';
 import {
   DISCOVERED_BUSINESS_BADGE,
@@ -74,22 +75,43 @@ function buildProfileDescription(seed: IngestedSeedRecord, locationLabel: string
   return `${name}. Activate your Cardbey Business Space on Cardbey.`;
 }
 
-async function resolveActiveStoreUrl(seed: IngestedSeedRecord): Promise<string | null> {
-  if (seed.verificationStatus !== 'active' || !seed.storeId) return null;
+async function loadPublishedStoresForProfileMatch(): Promise<PublishedStoreIdentity[]> {
   try {
     const prisma = getPrismaClient();
-    const biz = await prisma.business.findUnique({
-      where: { id: seed.storeId },
-      select: { slug: true },
+    return await prisma.business.findMany({
+      where: { isActive: true, publishedAt: { not: null } },
+      select: { id: true, name: true, slug: true, publishedAt: true },
     });
-    return biz?.slug ? `/s/${encodeURIComponent(biz.slug)}` : null;
   } catch {
-    return null;
+    return [];
   }
+}
+
+async function resolveActiveStoreUrl(
+  seed: IngestedSeedRecord,
+  publishedStores?: PublishedStoreIdentity[],
+): Promise<string | null> {
+  if (seed.storeId) {
+    try {
+      const prisma = getPrismaClient();
+      const biz = await prisma.business.findUnique({
+        where: { id: seed.storeId },
+        select: { slug: true },
+      });
+      return biz?.slug ? `/s/${encodeURIComponent(biz.slug)}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const stores = publishedStores ?? (await loadPublishedStoresForProfileMatch());
+  const match = findPublishedStoreForSeed(seed, stores);
+  return match?.slug ? `/s/${encodeURIComponent(match.slug)}` : null;
 }
 
 export async function buildPublicBusinessProfile(
   seed: IngestedSeedRecord,
+  publishedStores?: PublishedStoreIdentity[],
 ): Promise<PublicBusinessProfile | null> {
   const publicLifecycle = translateSeedToPublicLifecycle(seed.verificationStatus);
   if (!publicLifecycle) return null;
@@ -106,7 +128,7 @@ export async function buildPublicBusinessProfile(
 
   const hero = resolveDiscoveryCardHero(seed);
   const slug = buildPublicBusinessSlug(seed);
-  const activeStoreUrl = await resolveActiveStoreUrl(seed);
+  const activeStoreUrl = await resolveActiveStoreUrl(seed, publishedStores);
 
   return {
     slug,
@@ -133,5 +155,6 @@ export async function getPublicBusinessProfileBySlug(
   const seeds = await listSeedRecords();
   const seed = findSeedByPublicSlug(seeds, slug);
   if (!seed) return null;
-  return buildPublicBusinessProfile(seed);
+  const publishedStores = await loadPublishedStoresForProfileMatch();
+  return buildPublicBusinessProfile(seed, publishedStores);
 }

@@ -55,6 +55,9 @@
     "audit:business-classification": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-business-classification.ts",
     "repair:business-classification:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-business-classification.ts",
     "repair:business-classification": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-business-classification.ts -- --apply",
+    "repair:seed-store-links:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-seed-store-links.ts",
+    "repair:seed-store-links": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-seed-store-links.ts -- --apply",
+    "test:seed-store-link-repair": "pnpm exec vitest run --root scripts/lib seed-store-link-repair.test.ts",
     "prepare": "husky"
   },
   "devDependencies": {

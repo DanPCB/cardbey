@@ -4,6 +4,13 @@
 
 import { formatStoreLocation } from '../formatStoreLocation.js';
 import { listClaimableSeeds } from './QaPromotionService.js';
+import { getPrismaClient } from '../prisma.js';
+import {
+  buildPublishedStoreNameKeySet,
+  findPublishedStoreForSeed,
+  normalizeBusinessIdentityName,
+  type PublishedStoreIdentity,
+} from './publishedStoreSeedMatch.js';
 import { buildPublicBusinessSlug } from './businessPublicSlug.js';
 import { resolveDiscoveryCardHero } from './DiscoveryCardHeroResolver.js';
 import {
@@ -95,15 +102,34 @@ export function buildPublicDiscoveryCard(seed: IngestedSeedRecord): PublicDiscov
   };
 }
 
+async function loadPublishedStoreIdentities(): Promise<PublishedStoreIdentity[]> {
+  try {
+    const prisma = getPrismaClient();
+    return await prisma.business.findMany({
+      where: { isActive: true, publishedAt: { not: null } },
+      select: { id: true, name: true, slug: true, publishedAt: true },
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function listPublicDiscoveryCards(opts: {
   limit?: number;
   feedCategory?: PublicFeedCategory;
 } = {}): Promise<PublicDiscoveryCard[]> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
-  const seeds = await listClaimableSeeds();
+  const [seeds, publishedStores] = await Promise.all([
+    listClaimableSeeds(),
+    loadPublishedStoreIdentities(),
+  ]);
+  const publishedNameKeys = buildPublishedStoreNameKeySet(publishedStores);
   let cards = seeds
     .map(buildPublicDiscoveryCard)
-    .filter((c): c is PublicDiscoveryCard => c != null);
+    .filter((c): c is PublicDiscoveryCard => c != null)
+    .filter(
+      (c) => !publishedNameKeys.has(normalizeBusinessIdentityName(c.businessName)),
+    );
 
   if (opts.feedCategory) {
     cards = cards.filter((c) => c.feedCategory === opts.feedCategory);
