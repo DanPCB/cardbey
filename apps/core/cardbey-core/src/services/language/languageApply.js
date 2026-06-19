@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { getDashboardPackageRoot } from '../../lib/intake/i18nMaintenanceTools.js';
 import { appendLanguageAudit, getLanguageAuditHistory } from './languageExecutionAudit.js';
 import { loadI18nCatalog, mergeNamespaces } from './languageI18nReader.js';
+import { hasMixedLanguage, isValidVietnamese } from './languageValidator.js';
 
 function escapeI18nString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -224,6 +225,24 @@ export class LanguageApply {
     const catalogBefore = loadI18nCatalog({ i18nPath });
     const viBefore = mergeNamespaces(catalogBefore, 'vi');
     const previousValue = viBefore[fix.key] ?? fix.current ?? null;
+    const enReference = fix.english ?? mergeNamespaces(catalogBefore, 'en')[fix.key] ?? '';
+
+    if (!isValidVietnamese(fix.fixed, enReference)) {
+      return {
+        success: false,
+        reason: 'validation_failed',
+        errors: ['Fixed value fails Vietnamese quality check (untranslated or invalid).'],
+        rolledBack: false,
+      };
+    }
+    if (hasMixedLanguage(fix.fixed)) {
+      return {
+        success: false,
+        reason: 'validation_failed',
+        errors: ['Fixed value contains mixed English/Vietnamese.'],
+        rolledBack: false,
+      };
+    }
 
     const backupPath = await this.createBackup(opts);
 

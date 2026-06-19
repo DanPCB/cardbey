@@ -12,6 +12,7 @@ import {
 import { listAllKeys, loadI18nCatalog } from './languageI18nReader.js';
 import languageApply from './languageApply.js';
 import { appendLanguageAudit } from './languageExecutionAudit.js';
+import { lookupCuratedFix } from './languageCuratedFixes.js';
 
 const DEFAULT_THRESHOLD = Number(process.env.LANG_AUTO_FIX_THRESHOLD || 0.9);
 const AUTO_FIX_ENABLED = String(process.env.LANG_AUTO_FIX || 'false').toLowerCase() === 'true';
@@ -138,18 +139,26 @@ export class LanguageAgent {
 
     console.log('[LanguageAgent] Preview for', key ?? issue.file ?? 'unknown');
 
+    const curated = key ? lookupCuratedFix(key) : null;
     const glossary = loadGlossary();
     const glossaryFix = enValue ? glossarySuggest(enValue, glossary) : null;
 
     /** @type {{ fixed: string, confidence: number, explanation: string, source: string }} */
-    let result = {
-      fixed: glossaryFix ?? viValue,
-      confidence: glossaryFix ? 0.75 : 0.4,
-      explanation: glossaryFix
-        ? 'Glossary-based suggestion (read-only preview).'
-        : 'No glossary match; manual review recommended.',
-      source: glossaryFix ? 'glossary' : 'rule',
-    };
+    let result = curated
+      ? {
+          fixed: curated.fixed,
+          confidence: curated.confidence,
+          explanation: curated.explanation,
+          source: 'curated',
+        }
+      : {
+          fixed: glossaryFix ?? viValue,
+          confidence: glossaryFix ? 0.75 : 0.4,
+          explanation: glossaryFix
+            ? 'Glossary-based suggestion (read-only preview).'
+            : 'No glossary match; manual review recommended.',
+          source: glossaryFix ? 'glossary' : 'rule',
+        };
 
     if (process.env.GROQ_API_KEY) {
       try {

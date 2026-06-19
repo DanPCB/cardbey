@@ -32,6 +32,9 @@ const BRAND_OR_PRODUCT = new Set([
   'Campaign Engine',
   'Smart Displays',
   'Intent Graph',
+  'Video Studio',
+  'Chat Canvas',
+  'Studio Video',
 ]);
 
 /**
@@ -73,8 +76,8 @@ export function hasMixedLanguage(text) {
   if (!englishWords || englishWords.length === 0) return false;
 
   const nonBrand = englishWords.filter((w) => !BRAND_OR_PRODUCT.has(w));
-  if (nonBrand.length >= 1 && englishWords.length >= 2) return true;
   if (nonBrand.length >= 2) return true;
+  if (nonBrand.length >= 1 && englishWords.length >= 2) return true;
 
   return false;
 }
