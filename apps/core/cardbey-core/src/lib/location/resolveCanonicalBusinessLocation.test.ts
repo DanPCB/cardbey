@@ -7,7 +7,10 @@ import {
 import {
   applyCanonicalLocationToPreview,
   resolveAndApplyCanonicalLocationForDraft,
+  mergeCanonicalContactForPublish,
+  businessColumnPatchFromCanonical,
 } from './applyCanonicalLocation.js';
+import { buildStoreLocationFields } from '../formatStoreLocation.js';
 
 describe('resolveCanonicalBusinessLocation', () => {
   it('manual: Create a bakery in Melbourne → city Melbourne, country Australia', () => {
@@ -77,6 +80,20 @@ describe('resolveCanonicalBusinessLocation', () => {
     expect(loc.displayLocation).not.toMatch(/austin/i);
     expect(DEMO_FALLBACK_LOCATION_NAMES.has('austin')).toBe(true);
   });
+
+  it('does not assign Singapore without user or seed source', () => {
+    const loc = resolveCanonicalBusinessLocation({});
+    expect(loc.displayLocation).not.toMatch(/singapore/i);
+    expect(loc.country).not.toBe('Singapore');
+  });
+
+  it('allows Singapore when user explicitly entered it', () => {
+    const loc = resolveCanonicalBusinessLocation({
+      userPrompt: 'Hair salon in Singapore',
+      locationText: 'Singapore',
+    });
+    expect(loc.country).toBe('Singapore');
+  });
 });
 
 describe('applyCanonicalLocation guardrails', () => {
@@ -125,5 +142,35 @@ describe('applyCanonicalLocation guardrails', () => {
     });
     expect(b.displayLocation).toBe(a.displayLocation);
     expect(b.country).toBe(a.country);
+  });
+
+  it('publish enforces canonical location over LLM-generated contact fields', () => {
+    const canonical = resolveCanonicalBusinessLocation({
+      locationText: 'Melbourne',
+      userPrompt: 'Create a bakery in Melbourne',
+    });
+    const merged = mergeCanonicalContactForPublish(
+      {
+        address: '123 Fake St',
+        suburb: 'Austin',
+        state: 'TX',
+        country: 'United States',
+      },
+      canonical,
+    );
+    expect(merged.state).toBe('VIC');
+    expect(merged.country).toBe('Australia');
+    expect(String(merged.suburb ?? '')).not.toMatch(/austin/i);
+  });
+
+  it('feed location equals storefront location from same canonical fields', () => {
+    const canonical = resolveCanonicalBusinessLocation({
+      locationText: 'Carlton',
+      userPrompt: 'Create a cafe in Carlton',
+    });
+    const businessFields = businessColumnPatchFromCanonical(canonical);
+    const feedLabel = buildStoreLocationFields(businessFields).locationLabel;
+    expect(feedLabel).toBe(canonical.displayLocation);
+    expect(feedLabel).toBe('Carlton, VIC');
   });
 });

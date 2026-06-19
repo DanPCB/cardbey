@@ -2,7 +2,7 @@
  * Public Discovery Card model — marketplace-facing representation of claimable businesses.
  */
 
-import { formatStoreLocation } from '../formatStoreLocation.js';
+import { resolveCanonicalLocationFromSeedNormalized } from '../location/resolveCanonicalBusinessLocation.js';
 import { listClaimableSeeds } from './QaPromotionService.js';
 import { getPrismaClient } from '../prisma.js';
 import {
@@ -72,12 +72,9 @@ export function buildPublicDiscoveryCard(seed: IngestedSeedRecord): PublicDiscov
   const n = seed.normalized;
   if (!n.businessName) return null;
 
-  const locationLabel = formatStoreLocation({
-    city: n.city,
-    state: n.state,
-    country: n.country,
-    address: n.address,
-  });
+  const canonical = resolveCanonicalLocationFromSeedNormalized(n);
+  const locationLabel =
+    canonical.source === 'unavailable' ? null : canonical.displayLocation;
 
   const hero = resolveDiscoveryCardHero(seed);
   const feedCategory = inferFeedCategory(seed);

@@ -350,6 +350,23 @@ async function executeStoreMissionPipelineRunCore({
     return { ok: false, statusCode: 401, error: 'unauthorized', message: 'Not authenticated' };
   }
 
+  try {
+    const { lockCanonicalLocationForMission } = await import('../location/lockCanonicalLocationForMission.ts');
+    await lockCanonicalLocationForMission(
+      missionId,
+      {
+        userPrompt: rawUserTextFromBody || null,
+        locationText: effectiveLocation || null,
+      },
+      {
+        missionId,
+        inputLocation: effectiveLocation || null,
+      },
+    );
+  } catch (lockErr) {
+    console.warn('[executeStoreMissionPipelineRun] canonical location lock skipped:', lockErr?.message || lockErr);
+  }
+
   const { createBuildStoreJob, runBuildStoreJob, newTraceId } =
     await import('../../services/draftStore/orchestraBuildStore.js');
   const { inferCurrencyFromLocationText } = await import('../../services/draftStore/currencyInfer.js');

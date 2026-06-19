@@ -3,7 +3,7 @@
  * Never exposes ingestion internals in API responses.
  */
 
-import { formatStoreLocation } from '../formatStoreLocation.js';
+import { resolveCanonicalLocationFromSeedNormalized } from '../location/resolveCanonicalBusinessLocation.js';
 import { getPrismaClient } from '../prisma.js';
 import { listSeedRecords } from './IngestionRepository.js';
 import { buildPublicBusinessSlug, findSeedByPublicSlug } from './businessPublicSlug.js';
@@ -119,12 +119,9 @@ export async function buildPublicBusinessProfile(
   const n = seed.normalized;
   if (!n.businessName) return null;
 
-  const locationLabel = formatStoreLocation({
-    city: n.city,
-    state: n.state,
-    country: n.country,
-    address: n.address,
-  });
+  const canonical = resolveCanonicalLocationFromSeedNormalized(n);
+  const locationLabel =
+    canonical.source === 'unavailable' ? null : canonical.displayLocation;
 
   const hero = resolveDiscoveryCardHero(seed);
   const slug = buildPublicBusinessSlug(seed);
@@ -136,7 +133,7 @@ export async function buildPublicBusinessProfile(
     category: n.category,
     categoryLabel: n.category,
     locationLabel,
-    city: n.city,
+    city: canonical.suburb ?? canonical.city,
     description: buildProfileDescription(seed, locationLabel),
     heroImageUrl: hero.heroImageUrl,
     heroVideoUrl: null,

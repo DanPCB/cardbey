@@ -243,9 +243,9 @@ export function mergeCanonicalContactForPublish(
   return {
     ...contactFields,
     address: contactFields.address ?? canonical.addressLine,
-    suburb: contactFields.suburb ?? canonical.suburb,
-    state: contactFields.state ?? canonical.region,
-    country: contactFields.country ?? canonical.country,
+    suburb: canonical.suburb ?? canonical.city ?? contactFields.suburb ?? null,
+    state: canonical.region ?? contactFields.state ?? null,
+    country: canonical.country ?? contactFields.country ?? null,
     lat: contactFields.lat ?? canonical.latitude,
     lng: contactFields.lng ?? canonical.longitude,
   };

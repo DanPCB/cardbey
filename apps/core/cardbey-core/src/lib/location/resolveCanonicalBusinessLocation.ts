@@ -460,6 +460,30 @@ export function resolveCanonicalBusinessLocation(
   return unavailable();
 }
 
+/** Canonical location from ingested seed normalized record (discovery, profile, activation). */
+export function resolveCanonicalLocationFromSeedNormalized(n: {
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  operatingRegion?: string | null;
+}): CanonicalBusinessLocation {
+  return resolveCanonicalBusinessLocation({
+    seed: {
+      address: n.address ?? null,
+      city: n.city ?? null,
+      state: n.state ?? null,
+      country: n.country ?? null,
+      operatingRegion: n.operatingRegion ?? null,
+    },
+    address: n.address ?? null,
+    city: n.city ?? null,
+    state: n.state ?? null,
+    country: n.country ?? null,
+    operatingRegion: n.operatingRegion ?? null,
+  });
+}
+
 export function logLocationCanonicalized(payload: Record<string, unknown>): void {
   console.log('[LOCATION_CANONICALIZED]', JSON.stringify(payload));
 }
