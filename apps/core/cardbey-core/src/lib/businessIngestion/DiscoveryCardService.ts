@@ -13,6 +13,7 @@ import {
   type PublicBusinessLifecycle,
 } from './publicLifecycle.js';
 import type { IngestedSeedRecord } from './types.js';
+import { classifyBusinessVertical } from '../classifyBusinessVertical.js';
 
 export type PublicFeedCategory = 'food' | 'products' | 'services' | 'other';
 
@@ -35,34 +36,13 @@ export interface PublicDiscoveryCard {
 }
 
 function inferFeedCategory(seed: IngestedSeedRecord): PublicFeedCategory {
-  const cat = `${seed.normalized.category ?? ''} ${seed.normalized.businessName ?? ''}`.toLowerCase();
-  if (
-    cat.includes('food') ||
-    cat.includes('restaurant') ||
-    cat.includes('cafe') ||
-    cat.includes('bakery') ||
-    cat.includes('bar')
-  ) {
-    return 'food';
-  }
-  if (
-    cat.includes('product') ||
-    cat.includes('shop') ||
-    cat.includes('retail') ||
-    cat.includes('store')
-  ) {
-    return 'products';
-  }
-  if (
-    cat.includes('service') ||
-    cat.includes('salon') ||
-    cat.includes('clean') ||
-    cat.includes('wellness') ||
-    cat.includes('gym')
-  ) {
-    return 'services';
-  }
-  return 'other';
+  const classification = classifyBusinessVertical({
+    category: seed.normalized.category,
+    businessType: seed.normalized.category,
+    businessName: seed.normalized.businessName,
+  });
+  if (classification.feedCategory === 'others') return 'other';
+  return classification.feedCategory;
 }
 
 function buildDescription(seed: IngestedSeedRecord, locationLabel: string | null): string {

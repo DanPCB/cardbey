@@ -4,6 +4,7 @@
  */
 
 import { isServiceBusinessContext } from './catalog/catalogItemClassification.js';
+import { classifyBusinessVertical } from './classifyBusinessVertical.js';
 import { coerceServiceCtaLabel, isServiceVertical, inferCatalogSectionLabel } from './storeTransactionMode.js';
 import { hasBusinessColumn } from './businessColumnCapabilities.js';
 import { getDbCapabilities, resolveDbProvider } from './persistence/dbCapabilityRegistry.js';
@@ -135,11 +136,32 @@ export function businessPublicReadSelect(extra = {}) {
 export function publicCommerceFields(business, pub = {}) {
   const type = business?.type ?? pub.type ?? null;
   const name = business?.name ?? pub.name ?? null;
-  const transactionMode = business?.transactionMode ?? pub.transactionMode ?? 'order';
+  const settings =
+    business?.storefrontSettings && typeof business.storefrontSettings === 'object'
+      ? business.storefrontSettings
+      : pub.storefrontSettings && typeof pub.storefrontSettings === 'object'
+        ? pub.storefrontSettings
+        : {};
+  const classification = classifyBusinessVertical({
+    category: settings.category ?? pub.category ?? null,
+    businessType: type,
+    businessName: name,
+    businessVertical: settings.businessVertical ?? pub.businessVertical ?? null,
+    commerceMode: settings.commerceVerticalMode ?? pub.commerceVerticalMode ?? null,
+  });
+  let transactionMode = business?.transactionMode ?? pub.transactionMode ?? classification.transactionMode;
+  if (
+    (classification.businessVertical === 'food' || classification.businessVertical === 'retail') &&
+    transactionMode === 'booking'
+  ) {
+    transactionMode = 'order';
+  }
   const isService =
-    transactionMode === 'booking' ||
-    (transactionMode !== 'order' && isServiceVertical(type)) ||
-    isServiceBusinessContext({ type, name });
+    classification.businessVertical !== 'food' &&
+    classification.businessVertical !== 'retail' &&
+    (transactionMode === 'booking' ||
+      (transactionMode !== 'order' && isServiceVertical(type)) ||
+      isServiceBusinessContext({ type, name }));
   const rawCta = business?.ctaLabel ?? pub.ctaLabel ?? null;
   const commerceMode = isService ? 'booking' : transactionMode === 'order' ? 'order' : 'inquiry';
   return {
@@ -147,11 +169,16 @@ export function publicCommerceFields(business, pub = {}) {
     catalogLabel:
       business?.catalogLabel ??
       pub.catalogLabel ??
+      classification.catalogLabel ??
       inferCatalogSectionLabel(type, commerceMode, name),
     ctaLabel: coerceServiceCtaLabel({
       businessType: type,
       transactionMode: isService ? 'booking' : transactionMode,
       ctaLabel: rawCta,
+      businessName: name,
     }),
+    businessVertical: classification.businessVertical,
+    commerceVerticalMode: classification.commerceMode,
+    feedCategory: classification.feedCategory,
   };
 }

@@ -5,6 +5,7 @@
  */
 
 import type { IngestedSeedRecord, SeedStoreDraft } from './types.js';
+import { classifyBusinessVertical } from '../classifyBusinessVertical.js';
 
 export function buildSeedStoreDraft(seed: IngestedSeedRecord): SeedStoreDraft | null {
   const n = seed.normalized;
@@ -42,15 +43,26 @@ export function buildSeedStoreDraft(seed: IngestedSeedRecord): SeedStoreDraft | 
  * Does not include reviews, ratings, or competitor content.
  */
 export function buildSeedStorePreview(draft: SeedStoreDraft) {
+  const classification = classifyBusinessVertical({
+    category: draft.businessType,
+    businessType: draft.businessType,
+    businessName: draft.businessName,
+  });
   return {
     storeName: draft.businessName,
     storeType: draft.businessType,
+    businessVertical: classification.businessVertical,
+    commerceVerticalMode: classification.commerceMode,
+    commerceMode: classification.legacyCommerceMode,
+    transactionMode: classification.transactionMode,
+    catalogLabel: classification.catalogLabel,
+    ctaLabel: classification.ctaLabel,
     tagline: '',
     heroText: '',
     heroImageUrl: null,
     brandColors: { primary: '#6C4CF1', secondary: '#1e293b' },
     items: [],
-    categories: [{ id: 'default', name: 'Featured' }],
+    categories: [{ id: 'default', name: classification.catalogLabel }],
     website: {
       sections: [
         {
@@ -58,7 +70,7 @@ export function buildSeedStorePreview(draft: SeedStoreDraft) {
           content: {
             headline: draft.businessName,
             subheadline: `Welcome to ${draft.businessName}`,
-            ctaLabel: 'Contact',
+            ctaLabel: classification.ctaLabel,
           },
         },
         {

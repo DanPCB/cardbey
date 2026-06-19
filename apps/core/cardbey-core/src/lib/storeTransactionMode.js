@@ -10,6 +10,7 @@ import {
   normalizeCatalogItem,
   resolveItemCommerceModeFromClassification,
 } from './catalog/catalogItemClassification.js';
+import { classifyBusinessVertical } from './classifyBusinessVertical.js';
 
 export const COMMERCE_MODES = ['booking', 'order', 'inquiry'];
 
@@ -95,13 +96,14 @@ export function resolveCommerceMode(businessType, options = {}) {
   const explicit = String(options.commerceMode ?? '').trim().toLowerCase();
   if (COMMERCE_MODES.includes(explicit)) return explicit;
 
-  const normalized = String(businessType || '').toLowerCase().trim();
-  if (!normalized) return 'inquiry';
-
-  if (isServiceVertical(businessType)) return 'booking';
-  if (FOODISH_RE.test(normalized) || PRODUCTISH_RE.test(normalized)) return 'order';
-  if (INQUIRY_HINTS.test(normalized)) return 'inquiry';
-  return 'order';
+  const classification = classifyBusinessVertical({
+    businessType,
+    businessName: options.businessName ?? options.storeName ?? null,
+    category: options.category ?? null,
+    commerceMode: options.commerceVerticalMode ?? null,
+    businessVertical: options.businessVertical ?? null,
+  });
+  return classification.legacyCommerceMode;
 }
 
 /**
@@ -121,34 +123,45 @@ export function resolveCommerceFromMode(commerceMode, businessType, overrides = 
   const trimmedCta = String(overrides.ctaLabel ?? '').trim();
   const trimmedAction = String(overrides.ctaAction ?? '').trim();
   const trimmedCatalog = String(overrides.catalogLabel ?? '').trim();
+  const classification = classifyBusinessVertical({
+    businessType,
+    businessName: overrides.businessName ?? overrides.storeName ?? null,
+    category: overrides.category ?? null,
+  });
 
   if (commerceMode === 'booking') {
     return {
       commerceMode: 'booking',
       transactionMode: 'booking',
       catalogLabel: trimmedCatalog || inferCatalogSectionLabel(businessType, 'booking'),
-      ctaLabel: trimmedCta || 'Book now',
+      ctaLabel: trimmedCta || classification.ctaLabel || 'Book now',
       ctaAction: trimmedAction || 'booking',
+      businessVertical: classification.businessVertical,
+      commerceVerticalMode: classification.commerceMode,
     };
   }
   if (commerceMode === 'inquiry') {
     return {
       commerceMode: 'inquiry',
       transactionMode: 'order',
-      catalogLabel: trimmedCatalog || 'Services',
-      ctaLabel: trimmedCta || 'Enquire',
+      catalogLabel: trimmedCatalog || classification.catalogLabel || 'Services',
+      ctaLabel: trimmedCta || classification.ctaLabel || 'Enquire now',
       ctaAction: trimmedAction || 'inquiry',
+      businessVertical: classification.businessVertical,
+      commerceVerticalMode: classification.commerceMode,
     };
   }
 
-  const normalized = String(businessType || '').toLowerCase();
-  const foodish = FOODISH_RE.test(normalized);
+  const isProducts = classification.commerceMode === 'products';
+  const foodish = classification.businessVertical === 'food' || FOODISH_RE.test(String(businessType || ''));
   return {
     commerceMode: 'order',
     transactionMode: 'order',
-    catalogLabel: trimmedCatalog || (foodish ? 'Menu' : 'Products'),
-    ctaLabel: trimmedCta || (foodish ? 'Order now' : 'Add to cart'),
+    catalogLabel: trimmedCatalog || (foodish ? 'Menu' : isProducts ? 'Products' : 'Products'),
+    ctaLabel: trimmedCta || classification.ctaLabel || (foodish ? 'Order now' : isProducts ? 'Shop now' : 'Add to cart'),
     ctaAction: trimmedAction || 'order',
+    businessVertical: classification.businessVertical,
+    commerceVerticalMode: classification.commerceMode,
   };
 }
 
@@ -182,14 +195,30 @@ export function resolveItemCommerceMode(item, storeCommerceMode, ctx = {}) {
 export function resolveStoreCommerce(input = {}) {
   const businessType = input.businessType ?? input.storeType ?? null;
   const businessName = input.businessName ?? input.storeName ?? null;
-  let commerceMode = resolveCommerceMode(businessType, { commerceMode: input.commerceMode });
+  const classification = classifyBusinessVertical({
+    category: input.category ?? null,
+    businessType,
+    businessName,
+    commerceMode: input.commerceVerticalMode ?? null,
+    businessVertical: input.businessVertical ?? null,
+  });
+
+  let commerceMode = resolveCommerceMode(businessType, {
+    commerceMode: input.commerceMode,
+    businessName,
+    category: input.category ?? null,
+    businessVertical: classification.businessVertical,
+    commerceVerticalMode: classification.commerceMode,
+  });
 
   if (input.transactionMode === 'booking') commerceMode = 'booking';
   else if (input.transactionMode === 'order' && !input.commerceMode) {
-    if (isServiceBusinessContext({ type: businessType, name: businessName })) {
+    if (classification.businessVertical === 'food' || classification.businessVertical === 'retail') {
+      commerceMode = 'order';
+    } else if (isServiceBusinessContext({ type: businessType, name: businessName })) {
       commerceMode = 'booking';
     } else {
-      commerceMode = resolveCommerceMode(businessType, { commerceMode: 'order' });
+      commerceMode = resolveCommerceMode(businessType, { commerceMode: 'order', businessName });
     }
   }
 
@@ -207,6 +236,8 @@ export function resolveStoreCommerce(input = {}) {
     ctaLabel: input.ctaLabel,
     ctaAction: input.ctaAction,
     catalogLabel: input.catalogLabel,
+    businessName,
+    category: input.category ?? null,
   });
   if (!input.catalogLabel?.trim()) {
     resolved.catalogLabel = inferCatalogSectionLabel(businessType, commerceMode, businessName);
@@ -221,16 +252,41 @@ export { normalizeCatalogItem, inferDefaultItemType, inferCatalogSectionLabel, i
  * @param {{ businessType?: string | null, transactionMode?: string | null, ctaLabel?: string | null }} input
  * @returns {string}
  */
-export function coerceServiceCtaLabel({ businessType, transactionMode, ctaLabel } = {}) {
+export function coerceServiceCtaLabel({ businessType, transactionMode, ctaLabel, businessName } = {}) {
   const trimmed = String(ctaLabel ?? '').trim();
-  const isService =
-    transactionMode === 'booking' ||
-    (transactionMode !== 'order' && isServiceVertical(businessType));
-  if (isService) {
-    if (!trimmed || /^order\s+now$/i.test(trimmed) || /^add\s+to\s+cart$/i.test(trimmed)) return 'Book now';
+  const classification = classifyBusinessVertical({
+    businessType,
+    businessName: businessName ?? null,
+  });
+  if (transactionMode === 'booking') {
+    if (!trimmed || /^order\s+now$/i.test(trimmed) || /^add\s+to\s+cart$/i.test(trimmed) || /^shop\s+now$/i.test(trimmed)) {
+      return classification.ctaLabel === 'Contact business' ? 'Book now' : classification.ctaLabel || 'Book now';
+    }
     return trimmed;
   }
-  if (!trimmed || /^book(\s+now|\s+appointment)?$/i.test(trimmed)) return 'Order now';
+  if (transactionMode === 'order') {
+    if (!trimmed || /^book(\s+now|\s+appointment)?$/i.test(trimmed)) {
+      if (classification.businessVertical === 'retail') return 'Shop now';
+      if (classification.businessVertical === 'food') return 'Order now';
+      return 'Order now';
+    }
+    return trimmed;
+  }
+  const isFoodOrRetail =
+    classification.businessVertical === 'food' || classification.businessVertical === 'retail';
+  const isService =
+    !isFoodOrRetail &&
+    (transactionMode === 'booking' ||
+      (transactionMode !== 'order' && isServiceVertical(businessType)));
+  if (isService) {
+    if (!trimmed || /^order\s+now$/i.test(trimmed) || /^add\s+to\s+cart$/i.test(trimmed) || /^shop\s+now$/i.test(trimmed)) {
+      return classification.ctaLabel || 'Book now';
+    }
+    return trimmed;
+  }
+  if (!trimmed || /^book(\s+now|\s+appointment)?$/i.test(trimmed)) {
+    return classification.ctaLabel || 'Order now';
+  }
   return trimmed;
 }
 

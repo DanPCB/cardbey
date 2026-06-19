@@ -52,6 +52,9 @@
     "import:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/import-melbourne-batch0.ts",
     "restore:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/restore-melbourne-batch0.ts",
     "test:melbourne-batch0-restore": "pnpm exec vitest run --root scripts/lib melbourne-batch0-restore.test.ts",
+    "audit:business-classification": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-business-classification.ts",
+    "repair:business-classification:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-business-classification.ts",
+    "repair:business-classification": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-business-classification.ts -- --apply",
     "prepare": "husky"
   },
   "devDependencies": {

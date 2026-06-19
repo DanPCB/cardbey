@@ -4,6 +4,7 @@
  */
 
 import { formatStoreLocation } from '../formatStoreLocation.js';
+import { classifyBusinessVertical } from '../classifyBusinessVertical.js';
 import { getPrismaClient } from '../prisma.js';
 import { createMissionPipeline } from '../missionPipelineService.js';
 import { createPerformerRuntimeContext } from '../runtime/performerRuntime/runtimeContext.js';
@@ -75,14 +76,30 @@ const MIN_DRAFT_COMPLETENESS = 50;
 
 function buildGenerationPrompt(seed: IngestedSeedRecord, snapshotSummary: string): string {
   const n = seed.normalized;
+  const classification = classifyBusinessVertical({
+    category: n.category,
+    businessType: n.category ?? 'general',
+    businessName: n.businessName,
+  });
+  const modeHint =
+    classification.commerceMode === 'menu'
+      ? 'Generate a food menu with categories, dishes, and an Order now CTA. Do not generate appointment booking flows.'
+      : classification.commerceMode === 'products'
+        ? 'Generate a product catalog with Shop now CTA. Do not generate food menus or appointment booking flows.'
+        : classification.commerceMode === 'bookings' || classification.commerceMode === 'services'
+          ? 'Generate a services list with pricing/packages and Book now CTA. Do not generate food menus or retail product catalogs.'
+          : 'Generate enquiry-focused service sections with Enquire now CTA.';
   const parts = [
     n.businessName,
     n.category ? `Category: ${n.category}` : null,
+    `Business vertical: ${classification.businessVertical}`,
+    `Commerce mode: ${classification.commerceMode}`,
     n.address ? `Address: ${n.address}` : null,
     n.website ? `Website: ${n.website}` : null,
     n.phone ? `Phone: ${n.phone}` : null,
     snapshotSummary,
-    'Generate a complete draft store/website with hero, about, services/menu placeholders, contact section, first offer idea, and promotion suggestion. Draft only — owner will review before publishing.',
+    modeHint,
+    'Generate a complete draft store/website with hero, about, relevant catalog sections, contact section, first offer idea, and promotion suggestion. Draft only — owner will review before publishing.',
   ].filter(Boolean);
   return parts.join('. ');
 }
@@ -259,12 +276,19 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
   });
   const seedDraft = buildSeedStoreDraft(seed);
   const baselinePreview = seedDraft ? buildSeedStorePreview(seedDraft) : null;
+  const classification = classifyBusinessVertical({
+    category: seed.normalized.category,
+    businessType: seed.normalized.category ?? 'general',
+    businessName: seed.normalized.businessName,
+  });
 
   const generationRunId = missionId;
 
   const input = {
     businessName: seed.normalized.businessName,
     businessType: seed.normalized.category ?? 'general',
+    businessVertical: classification.businessVertical,
+    commerceVerticalMode: classification.commerceMode,
     location: locationLabel,
     prompt: buildGenerationPrompt(seed, businessSnapshot.summary),
     missionId,
