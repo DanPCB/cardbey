@@ -240,6 +240,7 @@ import smartObjectsRoutes from './routes/smartObjects.js';
 import qrRoutes from './routes/qr.js';
 import miVideoTemplatesRoutes from './routes/miVideoTemplates.js';
 import miMusicTracksRoutes from './routes/miMusicTracks.js';
+import musicPixabayRoutes from './routes/musicPixabayRoutes.js';
 import rewardRoutes from './routes/reward.js';
 import performerRoutes from './routes/performer.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
@@ -976,6 +977,7 @@ app.use('/api/social', socialRoutes); // Placeholder: POST /api/social/connect/:
 app.use('/api/admin', adminLlmRoutes); // Admin: GET /api/admin/llm/health (requireAuth + requireAdmin)
 app.use('/api/mi/video-templates', miVideoTemplatesRoutes); // MI video template routes: /api/mi/video-templates
 app.use('/api/mi/music-tracks', miMusicTracksRoutes); // MI music track routes: /api/mi/music-tracks
+app.use('/api/music', musicPixabayRoutes); // Pixabay music: /api/music/pixabay/search|select
 app.use('/api/device', deviceEngineRoutes); // Device engine routes: /api/device/list, /api/device/request-pairing, etc.
 if (process.env.NODE_ENV !== 'test') {
   console.log(

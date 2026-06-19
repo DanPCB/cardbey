@@ -147,6 +147,40 @@ const TOOLS = [
     },
   },
   {
+    toolName: 'search_music_for_business',
+    label: 'Search background music',
+    description:
+      'Search Pixabay Music for licensed background tracks matched to business vertical, mood, or campaign objective. Returns preview URLs and license metadata — does not auto-select.',
+    category: 'content',
+    targetTypes: ['store', 'draft_store', 'campaign', 'generic'],
+    requiresConfirmation: false,
+    parameters: {
+      storeId: { type: 'string', required: false },
+      campaignId: { type: 'string', required: false },
+      businessVertical: { type: 'string', required: false },
+      mood: { type: 'string', required: false },
+      objective: { type: 'string', required: false },
+      query: { type: 'string', required: false },
+      duration: { type: 'number', required: false },
+    },
+  },
+  {
+    toolName: 'select_music_track',
+    label: 'Select music track',
+    description:
+      'Store a selected Pixabay music track with license metadata for playlist, video, or campaign use. Does not publish.',
+    category: 'content',
+    targetTypes: ['store', 'draft_store', 'campaign', 'generic'],
+    requiresConfirmation: false,
+    parameters: {
+      providerTrackId: { type: 'string', required: true },
+      storeId: { type: 'string', required: false },
+      campaignId: { type: 'string', required: false },
+      missionId: { type: 'string', required: false },
+      selectedFor: { type: 'string', required: false },
+    },
+  },
+  {
     toolName: 'create_campaign_brief',
     label: 'Create campaign brief',
     description: 'Define structured campaign intent, target audience, offer, and tone',

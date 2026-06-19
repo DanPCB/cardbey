@@ -69,6 +69,10 @@ services:
         value: "true"
       - key: VIDEO_UPLOAD_MAX_TRANSCODE_MB
         value: "20"
+      - key: ENABLE_PIXABAY_MUSIC
+        value: "true"
+      - key: PIXABAY_API_KEY
+        sync: false
 
   # Dashboard (staging) — static site build (Vite)
   # rootDir MUST be monorepo root: Render runs "Installing dependencies with pnpm" before buildCommand

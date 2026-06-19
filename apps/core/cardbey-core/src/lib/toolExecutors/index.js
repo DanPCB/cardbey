@@ -16,6 +16,8 @@ import * as update_store_hero from './store/update_store_hero.js';
 import * as setBusinessSocialLinks from './store/setBusinessSocialLinks.js';
 import * as update_brand_kit from './store/update_brand_kit.js';
 import * as search_hero_media from './media/search_hero_media.js';
+import * as search_music_for_business from './music/search_music_for_business.js';
+import * as select_music_track from './music/select_music_track.js';
 import * as create_campaign_brief from './campaign/create_campaign_brief.js';
 import * as generate_campaign_graphics from './campaign/generate_campaign_graphics.js';
 import * as generate_campaign_copy from './campaign/generate_campaign_copy.js';
@@ -188,6 +190,8 @@ export const executors = {
   setBusinessSocialLinks,
   update_brand_kit,
   search_hero_media,
+  search_music_for_business,
+  select_music_track,
   create_campaign_brief,
   generate_campaign_graphics,
   generate_campaign_copy,

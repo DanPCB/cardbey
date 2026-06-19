@@ -982,6 +982,18 @@ router.put('/signage-playlists/:playlistId', requireAuth, async (req, res) => {
     if (req.body.description !== undefined) {
       updateData.description = req.body.description ? String(req.body.description).trim() : null;
     }
+    if (req.body.backgroundAudio !== undefined) {
+      const existingTranslations =
+        playlist.translations && typeof playlist.translations === 'object' && !Array.isArray(playlist.translations)
+          ? { ...playlist.translations }
+          : {};
+      const cardbeyMeta =
+        existingTranslations._cardbey && typeof existingTranslations._cardbey === 'object'
+          ? { ...existingTranslations._cardbey }
+          : {};
+      cardbeyMeta.backgroundAudio = req.body.backgroundAudio ?? null;
+      updateData.translations = { ...existingTranslations, _cardbey: cardbeyMeta };
+    }
 
     const updated = await prisma.playlist.update({
       where: { id: playlistId },

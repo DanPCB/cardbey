@@ -6,6 +6,8 @@ import { randomUUID } from 'crypto';
 import { getPrismaClient } from '../prisma.js';
 import { registerGeneratedArtifactV1 } from '../artifacts/generatedArtifactAuthority.js';
 import { fetchMusicBedIfConfigured } from '../video/audio/musicBed.js';
+import { isPixabayMusicEnabled } from '../music/musicLicensePolicy.js';
+import { buildMusicSearchQuery, searchPixabayMusic } from '../music/pixabayMusicClient.js';
 import {
   buildSubtitleLines,
   estimateVideoDurationSec,
@@ -129,7 +131,10 @@ export async function runMusicSelectionStage(state, ownedCtx) {
   const mood =
     String(researchBrief.recommendedTone ?? videoPlan.style ?? 'neutral').trim().toLowerCase() || 'neutral';
 
-  let musicSelection = await selectMusicFromCatalog(mood);
+  let musicSelection = await selectMusicFromPixabay(state, mood);
+  if (!musicSelection?.trackUrl) {
+    musicSelection = await selectMusicFromCatalog(mood);
+  }
   if (!musicSelection.trackUrl) {
     const bed = await fetchMusicBedIfConfigured();
     if (bed.ok && bed.path) {
@@ -197,6 +202,58 @@ export async function runMusicSelectionStage(state, ownedCtx) {
     output,
     artifactRef: musicRecord?.artifactId ?? null,
   };
+}
+
+/**
+ * @param {object} state
+ * @param {string} mood
+ */
+async function selectMusicFromPixabay(state, mood) {
+  if (!isPixabayMusicEnabled()) {
+    return { mood, source: 'pixabay_disabled', moodMatchReason: 'ENABLE_PIXABAY_MUSIC or PIXABAY_API_KEY not set' };
+  }
+  try {
+    const query = buildMusicSearchQuery({
+      businessVertical: state.context?.businessVertical ?? state.context?.storeType ?? null,
+      mood,
+      objective: state.context?.objective ?? null,
+    });
+    const { tracks } = await searchPixabayMusic(query, { perPage: 6 });
+    if (!tracks.length) {
+      return { mood, source: 'pixabay_empty', moodMatchReason: `No Pixabay tracks for "${query}"` };
+    }
+    const suggestions = tracks.slice(0, 3).map((track) => ({
+      provider: track.provider,
+      providerTrackId: track.providerTrackId,
+      title: track.title,
+      previewUrl: track.previewUrl,
+      downloadUrl: track.downloadUrl,
+      license: track.license,
+      attribution: track.attribution,
+      duration: track.duration,
+    }));
+    const primary = tracks[0];
+    return {
+      selectionId: `music-${randomUUID()}`,
+      trackId: primary.providerTrackId,
+      trackName: primary.title,
+      trackUrl: primary.downloadUrl || primary.previewUrl,
+      previewUrl: primary.previewUrl,
+      source: 'pixabay',
+      usageRights: primary.license,
+      attribution: primary.attribution,
+      mood,
+      moodMatchReason: `Pixabay suggestions for "${query}"`,
+      autoSelect: false,
+      suggestions,
+    };
+  } catch (err) {
+    return {
+      mood,
+      source: 'pixabay_error',
+      moodMatchReason: err?.message ?? 'Pixabay search failed',
+    };
+  }
 }
 
 /**
