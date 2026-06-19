@@ -448,6 +448,28 @@ if (hasMigrations) {
       process.exit(1);
     } else if (
       !schemaIsPostgres &&
+      (msg.includes("P3018") || msg.includes("already exists")) &&
+      schemaPath.replace(/\\/g, "/").includes("prisma/schema.prisma")
+    ) {
+      console.warn(
+        "[prisma] P3018 — legacy migration collides with db-push baseline; batch-resolving",
+      );
+      try {
+        const script = path.join(rootDir, "scripts", "resolve-legacy-baseline.mjs");
+        const schemaFlag = schemaPath.replace(/\\/g, "/");
+        execSync(`node ${script} --apply --schema=${schemaFlag} --deploy`, {
+          stdio: "inherit",
+          env: prismaChildEnv(),
+          shell: true,
+        });
+        console.log("[prisma] migrate deploy succeeded after legacy baseline resolve");
+      } catch (retryErr) {
+        console.error("[prisma] legacy baseline resolve failed. Manual fix:");
+        console.error("  node scripts/resolve-legacy-baseline.mjs --apply --deploy");
+        throw retryErr;
+      }
+    } else if (
+      !schemaIsPostgres &&
       isSqliteLockOutput(msg) &&
       tryContinueSqliteMigrateDeployDespiteLock(schemaPath, msg)
     ) {

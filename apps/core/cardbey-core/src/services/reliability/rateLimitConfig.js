@@ -52,3 +52,10 @@ rateLimiter.configure({
   maxRequests: 30,
   perUser: false,
 });
+
+rateLimiter.configure({
+  endpoint: '/api/executive/growth',
+  windowMs: 60_000,
+  maxRequests: 40,
+  perUser: true,
+});

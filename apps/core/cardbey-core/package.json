@@ -51,6 +51,8 @@
     "db:ensure-projection-table": "node scripts/ensure-published-artifact-projection-table.mjs",
     "db:ensure-product-catalog-columns": "node scripts/ensure-product-catalog-columns.mjs",
     "db:resolve-product-catalog-migration": "node scripts/record-sqlite-migration.mjs 20260611120000_product_catalog_item_type",
+    "db:resolve-legacy-init": "node scripts/resolve-legacy-baseline.mjs --apply --deploy",
+    "db:resolve-legacy-baseline": "node scripts/resolve-legacy-baseline.mjs --apply --deploy",
     "rebuild:projections": "node scripts/rebuild-published-projections.mjs",
     "rebuild:projections:dry": "node scripts/rebuild-published-projections.mjs --dry-run",
     "db:push:test": "cross-env DATABASE_URL=file:../test.db npx prisma db push --schema prisma/sqlite/schema.prisma --accept-data-loss",

@@ -158,6 +158,8 @@ import businessRoutes from './routes/business.js';
 import businessBrandRoutes from './routes/businessBrandRoutes.js';
 import discoveryRoutes from './routes/discoveryRoutes.js';
 import businessIngestionRoutes from './routes/businessIngestionRoutes.js';
+import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
+import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import claimBusinessPublicRoutes from './routes/claimBusinessPublicRoutes.js';
 import activateBusinessPublicRoutes from './routes/activateBusinessPublicRoutes.js';
 import exploreRoutes from './routes/exploreRoutes.js';
@@ -940,6 +942,8 @@ app.use('/api/business', businessRoutes); // Business Builder routes: /api/busin
 app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
 app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
 app.use('/api/business-ingestion', businessIngestionRoutes); // Bulk factual business ingestion pipeline
+app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
+app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
 app.use('/api/claim-business', claimBusinessPublicRoutes); // Dev proxy alias (/api → core)
 app.use('/activate-business', activateBusinessPublicRoutes);

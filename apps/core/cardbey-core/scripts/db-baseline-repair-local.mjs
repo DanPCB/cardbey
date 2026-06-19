@@ -20,6 +20,10 @@ import {
   verifyOptionABaseline,
   writeBaselineAcceptance,
 } from '../src/lib/schemaFingerprint.js';
+import {
+  markMigrationsApplied,
+  migrationSqlReflectsSchema,
+} from '../src/lib/migrationBaselineRepair.js';
 import { CANONICAL_DEV_DB, PACKAGE_ROOT, resolveSqliteDatabasePath } from '../src/lib/sqliteDbPath.js';
 
 const require = createRequire(import.meta.url);
@@ -56,37 +60,11 @@ function tableHasColumn(table, column) {
   return cols.some((c) => c.name === column);
 }
 
-function migrationSqlReflectsSchema(migrationName) {
+function migrationSqlReflectsSchemaLocal(migrationName) {
   const sqlPath = path.join(MIGRATIONS_DIR, migrationName, 'migration.sql');
   if (!fs.existsSync(sqlPath)) return { safe: false, reason: 'no migration.sql' };
   const sql = fs.readFileSync(sqlPath, 'utf8');
-
-  const createTables = [...sql.matchAll(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?"?(\w+)"?/gi)];
-  for (const [, table] of createTables) {
-    if (!tableExists(table)) {
-      return { safe: false, reason: `table ${table} missing` };
-    }
-  }
-
-  const alterTables = [...sql.matchAll(/ALTER TABLE\s+"?(\w+)"?/gi)];
-  const addCols = [...sql.matchAll(/ADD COLUMN\s+"?(\w+)"?/gi)];
-  for (let i = 0; i < addCols.length; i++) {
-    const col = addCols[i][1];
-    const table = alterTables[i]?.[1] || alterTables[0]?.[1];
-    if (table && !tableHasColumn(table, col)) {
-      return { safe: false, reason: `column ${table}.${col} not in DB` };
-    }
-  }
-
-  if (/CREATE INDEX/i.test(sql)) {
-    return { safe: true, reason: 'indexes assumed present when schema matches' };
-  }
-
-  if (!createTables.length && !addCols.length && sql.trim()) {
-    return { safe: true, reason: 'non-destructive or already-applied SQL' };
-  }
-
-  return { safe: true, reason: 'schema appears to include migration changes' };
+  return migrationSqlReflectsSchema(db, sql);
 }
 
 function getAppliedSet() {
@@ -100,7 +78,7 @@ const missingNotApplied = drift.missingApplied.filter((name) => !appliedSet.has(
 
 const candidates = [];
 for (const name of missingNotApplied) {
-  const check = migrationSqlReflectsSchema(name);
+  const check = migrationSqlReflectsSchemaLocal(name);
   if (check.safe) candidates.push({ name, ...check });
 }
 
@@ -137,30 +115,18 @@ if (dryRunOnly) {
 
 let inserted = 0;
 if (!acceptOnly && apply) {
-  const now = new Date().toISOString();
-  const insert = db.prepare(
-    `INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count)
-     VALUES (?, ?, ?, ?, NULL, NULL, ?, 1)`,
+  db.close();
+  inserted = markMigrationsApplied(
+    dbPath,
+    candidates.map((c) => c.name),
+    MIGRATIONS_DIR,
   );
-
   for (const c of candidates) {
-    if (appliedSet.has(c.name)) continue;
-    const sqlPath = path.join(MIGRATIONS_DIR, c.name, 'migration.sql');
-    const sql = fs.readFileSync(sqlPath, 'utf8');
-    const checksum = require('node:crypto').createHash('sha256').update(sql).digest('hex');
-    const id = require('node:crypto').randomUUID();
-    try {
-      insert.run(id, checksum, now, c.name, now);
-      appliedSet.add(c.name);
-      inserted++;
-      console.log('[db:baseline:repair-local] marked applied:', c.name);
-    } catch (e) {
-      console.warn('[db:baseline:repair-local] skip', c.name, e?.message);
-    }
+    console.log('[db:baseline:repair-local] marked applied:', c.name);
   }
+} else {
+  db.close();
 }
-
-db.close();
 
 const fp = buildSchemaFingerprint();
 if (!verifyOptionABaseline(fp)) {
