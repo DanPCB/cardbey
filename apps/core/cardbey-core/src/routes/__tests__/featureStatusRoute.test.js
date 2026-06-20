@@ -20,5 +20,11 @@ describe('GET /api/status/features', () => {
     expect(typeof res.body.features.cnet.available).toBe('boolean');
     expect(typeof res.body.features.ocr.available).toBe('boolean');
     expect(res.body.features.social.available).toBe(true);
+    expect(typeof res.body.features.llm.available).toBe('boolean');
+    expect(typeof res.body.features.media.available).toBe('boolean');
+    expect(typeof res.body.features.storage.available).toBe('boolean');
+    expect(typeof res.body.features.translation.available).toBe('boolean');
+    expect(Array.isArray(res.body.capabilities)).toBe(true);
+    expect(res.body.capabilities.length).toBeGreaterThanOrEqual(8);
   });
 });

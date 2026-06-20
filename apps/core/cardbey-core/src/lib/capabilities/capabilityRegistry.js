@@ -41,8 +41,8 @@ export const CAPABILITY_REGISTRY = {
   },
   promo_image: {
     capability: 'promo_image',
-    primaryTools: ['smart_visual'],
-    fallbackTools: ['generate_poster'],
+    primaryTools: ['generate_poster'],
+    fallbackTools: [],
     requiredContext: ['storeId'],
     artifactTypes: ['image'],
     providerEnv: [],
@@ -118,12 +118,6 @@ export const FALLBACK_TOOL_META = {
     artifactType: 'image',
     description: 'design a static promotional poster from your store branding',
   },
-  smart_visual: {
-    label: 'Generate promo image',
-    prompt: 'Create a promotional image for my store',
-    artifactType: 'image',
-    description: 'generate a still promotional image',
-  },
   content_creator: {
     label: 'Draft campaign copy',
     prompt: 'Write promotional copy and social captions for my store',
@@ -162,11 +156,20 @@ export function isToolProviderAvailable(toolName, env = process.env) {
   if (t === 'generate_poster') {
     return { available: true };
   }
-  if (t === 'smart_visual' || t === 'generate_promotion_asset' || t === 'generate_social_posts' || t === 'create_offer') {
+  if (t === 'smart_visual') {
+    return {
+      available: false,
+      reason: 'AI image generation (smart_visual) is not connected yet — use generate_poster instead.',
+    };
+  }
+  if (t === 'generate_promotion_asset' || t === 'create_offer') {
     return {
       available: false,
       reason: 'This capability is not fully connected yet.',
     };
+  }
+  if (t === 'generate_social_posts') {
+    return { available: true };
   }
   if (t === 'content_creator') {
     return {
@@ -225,7 +228,7 @@ export function resolveRequestedCapability(message, candidateTools = [], context
   if (tools.includes('generate_social_posts') || RE_SOCIAL.test(String(message ?? ''))) {
     return 'social_posts';
   }
-  if (tools.includes('smart_visual')) return 'promo_image';
+  if (tools.includes('smart_visual')) return 'promo_poster';
   if (tools.includes('create_offer')) return 'offer';
   if (tools.includes('generate_promotion_asset')) return 'qr_campaign';
   if (tools.includes('structured_store_build') || tools.includes('create_store')) return 'store_website';

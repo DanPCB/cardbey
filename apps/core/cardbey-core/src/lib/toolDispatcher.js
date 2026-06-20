@@ -24,6 +24,7 @@ import {
 import { assertRuntimeAuthorityContext } from './runtime/performerRuntime/runtimeAuthorityGuard.js';
 import { writeEpisodicEventAsync } from './memory/episodicWriter.js';
 import { enrichMediaSearchInput } from '../services/media/mediaQueryEnrichment.js';
+import { runWithOptionalRetry } from './external/toolDispatchRetry.js';
 
 /**
  * @typedef {import('./toolRegistry.js').ToolDefinition} ToolDefinition
@@ -197,7 +198,7 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
     let result;
     if (skipNestedTelemetry) {
       incrementRuntimeAuthorityMetric('telemetrySkippedNested');
-      const raw = await runExecutor();
+      const raw = await runWithOptionalRetry(name, runExecutor);
       const innerStatus =
         raw?.status === 'blocked' ? 'blocked' : raw?.status === 'failed' ? 'failed' : 'ok';
       result = {
@@ -213,7 +214,7 @@ if (PROACTIVE_ONLY_TOOLS.has(name)) {
         source: telemetrySource,
         missionId,
         intentId,
-        run: runExecutor,
+        run: () => runWithOptionalRetry(name, runExecutor),
         mapResult: (r) => {
           const status =
             r?.status === 'blocked' ? 'blocked' : r?.status === 'failed' ? 'failed' : 'completed';

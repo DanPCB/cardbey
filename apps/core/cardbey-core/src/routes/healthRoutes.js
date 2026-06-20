@@ -14,7 +14,10 @@ import { getStatus as getSchedulerStatus } from '../scheduler/heartbeat.js';
 import { isSseHealthy } from '../realtime/sse.js';
 import { getOAuthStatus } from '../auth/providers.js';
 import { getStorageStatus } from '../lib/storage/index.js';
-import { isVideoGenerationProviderAvailable, resolveVideoProvider } from '../lib/video/videoProvider.js';
+import {
+  buildExternalCapabilityStatus,
+  buildLegacyFeatureStatus,
+} from '../lib/external/externalCapabilityRegistry.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -387,37 +390,10 @@ router.get('/media/health', (req, res) => {
 router.get('/status/features', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
 
-  const videoProvider = resolveVideoProvider();
-  const videoAvailable = isVideoGenerationProviderAvailable();
-  const cnetConfigured =
-    Boolean(process.env.CNET_API_KEY?.trim()) && Boolean(process.env.CNET_ENDPOINT?.trim());
+  const features = buildLegacyFeatureStatus(process.env);
+  const capabilities = buildExternalCapabilityStatus(process.env);
 
-  const features = {
-    video: {
-      available: videoAvailable,
-      provider: videoProvider ?? 'none',
-      message: videoAvailable ? null : 'Requires video provider setup (OPENAI_API_KEY, Kling, or VIDEO_ARTIFACT_MOCK_URL)',
-    },
-    cnet: {
-      available: cnetConfigured,
-      message: cnetConfigured ? null : 'Requires CNET_API_KEY and CNET_ENDPOINT setup',
-    },
-    ocr: {
-      available:
-        Boolean(process.env.OPENAI_API_KEY?.trim()) ||
-        Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
-      message:
-        process.env.OPENAI_API_KEY?.trim() || process.env.ANTHROPIC_API_KEY?.trim()
-          ? null
-          : 'OCR requires OPENAI_API_KEY or ANTHROPIC_API_KEY',
-    },
-    social: {
-      available: true,
-      message: null,
-    },
-  };
-
-  res.json({ ok: true, features });
+  res.json({ ok: true, features, capabilities });
 });
 
 export default router;
