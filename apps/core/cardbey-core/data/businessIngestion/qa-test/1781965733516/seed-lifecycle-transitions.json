@@ -1,0 +1,18 @@
+[
+  {
+    "id": "efbcb8f2-66d2-43a9-9b2c-f88a3ea32d06",
+    "seedId": "other-2",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "duplicate",
+    "lifecycleStage": "duplicate",
+    "action": "qa_mark_duplicate",
+    "actorId": "admin-1",
+    "actorType": "admin",
+    "reason": "Same business",
+    "claimRequestId": null,
+    "metadata": {
+      "canonicalSeedId": "canon-2"
+    },
+    "createdAt": "2026-06-20T14:28:53.538Z"
+  }
+]

@@ -55,10 +55,10 @@ describe('classifyBusinessVertical', () => {
       name: 'AA Travel & Golf Tour',
       input: { category: 'travel', businessName: 'AA Travel & Golf Tour' },
       vertical: 'experience',
-      commerceMode: 'enquiry',
-      cta: 'Enquire now',
+      commerceMode: 'bookings',
+      cta: 'Book now',
       feed: 'services',
-      transactionMode: 'order',
+      transactionMode: 'booking',
     },
     {
       name: 'My Fashion',

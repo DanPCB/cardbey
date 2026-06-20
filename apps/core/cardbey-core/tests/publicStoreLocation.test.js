@@ -43,7 +43,14 @@ describe('public store location', () => {
   });
 
   it('store without address has no locationLabel', () => {
-    const bare = { ...BUSINESS_WITH_ADDRESS, address: null, suburb: null, state: null, country: null };
+    const bare = {
+      ...BUSINESS_WITH_ADDRESS,
+      address: null,
+      suburb: null,
+      state: null,
+      country: null,
+      postcode: null,
+    };
     const pub = toPublicStore(bare);
     expect(pub.locationLabel).toBeNull();
     expect(pub.city).toBeNull();

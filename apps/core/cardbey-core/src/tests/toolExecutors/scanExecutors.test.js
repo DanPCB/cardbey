@@ -14,7 +14,7 @@ vi.mock('../../lib/vision/cardScanPipeline.js', () => ({
   })),
 }));
 
-vi.mock('../../../services/vision/productCreator.js', () => ({
+vi.mock('../../services/vision/productCreator.js', () => ({
   createFromScan: vi.fn(async () => ({
     ok: true,
     product: { id: 'p1', name: 'Acme' },

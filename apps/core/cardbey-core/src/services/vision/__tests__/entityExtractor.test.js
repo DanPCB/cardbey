@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackExtract } from '../../services/vision/entityExtractor.js';
+import { fallbackExtract } from '../entityExtractor.js';
 
 describe('entityExtractor fallbackExtract', () => {
   it('extracts name, email, and phone from business card text', () => {

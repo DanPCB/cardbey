@@ -24,8 +24,8 @@ describe('proactiveRunwayToolAllowlist vs toolRegistry', () => {
   });
 
   it('PROACTIVE_RUNWAY_TOOL_SET size is stable (Phase 3-1 contract)', () => {
-    // DANH: toolregistry-gap-fix + skill-round5 — +15 registry tools (6 gaps + 9 round5)
-    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(155);
+    // DANH: toolregistry-gap-fix + skill-round5 + governance promotion tools (+2)
+    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(157);
   });
 });
 

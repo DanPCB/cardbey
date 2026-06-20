@@ -3733,6 +3733,7 @@ model ExecutiveLead {
   leadStatus       String   @default("new")
   dataQualityScore Int      @default(0)
   draftStoreId     String?
+  businessSeedId   String?
   storeId          String?
   lastContactedAt  DateTime?
   createdAt        DateTime @default(now())

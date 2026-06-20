@@ -1,0 +1,41 @@
+[
+  {
+    "id": "preview-1",
+    "normalized": {
+      "id": "preview-1",
+      "businessName": "Runway Roasters",
+      "legalName": null,
+      "address": "22 Queen St, Melbourne, VIC, Australia",
+      "phone": "+61400111222",
+      "website": "https://runway.example.com",
+      "category": "cafe",
+      "categoryConfidence": 0.85,
+      "registrationNumber": null,
+      "email": "hello@runway.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 0.82,
+      "sourceType": "open_data_url",
+      "sourceReference": "fixture",
+      "sourceRowId": "1",
+      "ingestedAt": "2026-06-20T10:01:29.517Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 88,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_claimable",
+    "claimable": true,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-20T10:01:29.518Z",
+    "updatedAt": "2026-06-20T10:01:29.536Z",
+    "batchId": null,
+    "campaignId": null,
+    "firstSeenAt": "2026-06-20T10:01:29.536Z"
+  }
+]

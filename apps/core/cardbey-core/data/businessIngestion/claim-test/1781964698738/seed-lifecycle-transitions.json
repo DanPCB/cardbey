@@ -1,0 +1,32 @@
+[
+  {
+    "id": "fee6fc7e-4a4a-466b-a3bd-dd2c36e00ef1",
+    "seedId": "dup-block-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:11:38.758Z"
+  },
+  {
+    "id": "0c30392e-07b4-4079-89a8-c40985243f35",
+    "seedId": "dup-block-1",
+    "fromStatus": "seeded_claimable",
+    "toStatus": "claim_pending",
+    "lifecycleStage": "claim_pending",
+    "action": "claim_start",
+    "actorId": "user-dup-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "5e629a2c-c278-4170-99ed-119eb29138cf",
+    "metadata": {
+      "proofType": "registration"
+    },
+    "createdAt": "2026-06-20T14:11:38.771Z"
+  }
+]

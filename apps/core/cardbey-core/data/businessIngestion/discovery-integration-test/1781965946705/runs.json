@@ -1,0 +1,28 @@
+[
+  {
+    "runId": "f7ae27cd-cd7d-4275-af7f-1b713c2b1775",
+    "sourceType": "csv",
+    "sourceReference": "discovery-engine:csv",
+    "startedAt": "2026-06-20T14:32:26.728Z",
+    "completedAt": "2026-06-20T14:32:26.730Z",
+    "recordsFetched": 2,
+    "recordsNormalized": 2,
+    "duplicatesRemoved": 0,
+    "possibleDuplicates": 0,
+    "uniqueRecords": 2,
+    "seedsCreated": 2,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 0,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 2,
+      "medium_quality": 0,
+      "low_quality": 0
+    },
+    "sourceBreakdown": {
+      "csv": 2
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  }
+]

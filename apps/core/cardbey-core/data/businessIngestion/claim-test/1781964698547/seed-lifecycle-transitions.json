@@ -1,0 +1,84 @@
+[
+  {
+    "id": "b2b3db99-4790-417a-b2a4-2ef954a42746",
+    "seedId": "activate-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:11:38.568Z"
+  },
+  {
+    "id": "60511718-aa15-4256-9e49-88a5e2946a3d",
+    "seedId": "activate-1",
+    "fromStatus": "seeded_claimable",
+    "toStatus": "claim_pending",
+    "lifecycleStage": "claim_pending",
+    "action": "claim_start",
+    "actorId": "user-act-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "75f4c5a4-893a-49ba-a4b1-2d3f06e1ef95",
+    "metadata": {
+      "proofType": "email"
+    },
+    "createdAt": "2026-06-20T14:11:38.584Z"
+  },
+  {
+    "id": "e050a91b-8c34-4abe-bc3d-b9341cdd2770",
+    "seedId": "activate-1",
+    "fromStatus": "claim_pending",
+    "toStatus": "verified_owner",
+    "lifecycleStage": "claimed",
+    "action": "claim_verify",
+    "actorId": "user-act-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "75f4c5a4-893a-49ba-a4b1-2d3f06e1ef95",
+    "metadata": {
+      "proofType": "email",
+      "phase": "ownership_verified"
+    },
+    "createdAt": "2026-06-20T14:11:38.657Z"
+  },
+  {
+    "id": "e6bb3104-394e-4ff5-af45-e92e479d7ba0",
+    "seedId": "activate-1",
+    "fromStatus": "verified_owner",
+    "toStatus": "verified_owner",
+    "lifecycleStage": "activation_ready",
+    "action": "claim_verify",
+    "actorId": "user-act-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "75f4c5a4-893a-49ba-a4b1-2d3f06e1ef95",
+    "metadata": {
+      "proofType": "email",
+      "phase": "activation_ready"
+    },
+    "createdAt": "2026-06-20T14:11:38.665Z"
+  },
+  {
+    "id": "5cf47076-3c58-4603-8841-e63c30dff236",
+    "seedId": "activate-1",
+    "fromStatus": "verified_owner",
+    "toStatus": "active",
+    "lifecycleStage": "activated_store",
+    "action": "activation_confirmed",
+    "actorId": "user-act-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "75f4c5a4-893a-49ba-a4b1-2d3f06e1ef95",
+    "metadata": {
+      "storeId": "store-linked-1",
+      "draftId": "draft-1",
+      "runtimeAuthority": true
+    },
+    "createdAt": "2026-06-20T14:11:38.696Z"
+  }
+]

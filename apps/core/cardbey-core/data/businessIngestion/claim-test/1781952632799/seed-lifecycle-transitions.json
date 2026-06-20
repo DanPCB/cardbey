@@ -1,0 +1,33 @@
+[
+  {
+    "id": "c00b43ce-aa82-48f8-8ba2-0b0359dcd56d",
+    "seedId": "dup-act-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T10:50:32.825Z"
+  },
+  {
+    "id": "1b7c1d2d-cb83-41e6-b5ab-9011808df9ca",
+    "seedId": "dup-act-1",
+    "fromStatus": "verified_owner",
+    "toStatus": "verified_owner",
+    "lifecycleStage": "activation_ready",
+    "action": "activation_blocked_duplicate",
+    "actorId": "user-dup-act",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {
+      "matchedBusinessId": "live-biz-88",
+      "phase": "activation"
+    },
+    "createdAt": "2026-06-20T10:50:32.846Z"
+  }
+]

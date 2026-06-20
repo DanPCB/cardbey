@@ -1,0 +1,13 @@
+[
+  {
+    "id": "9cd3da87-df1d-4b37-bd41-06d6f0c0871c",
+    "seedId": "dup-act-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-qa",
+    "timestamp": "2026-06-20T14:27:55.609Z",
+    "reason": null,
+    "canonicalSeedId": null
+  }
+]

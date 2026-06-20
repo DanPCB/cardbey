@@ -18,6 +18,11 @@ import {
   sendGrowthOutreach,
   updateExecutiveLead,
 } from '../lib/executiveGrowth/growthCommandCenterService.js';
+import {
+  promoteLeadToSeed,
+  runPromoteLeadsToDiscovery,
+} from '../lib/executiveGrowth/promoteLeadToSeed.js';
+import { isLegacyGrowthStoreCreationEnabled } from '../lib/executiveGrowth/growthGovernanceConfig.js';
 
 const router = Router();
 
@@ -119,9 +124,68 @@ router.patch('/leads/:id', async (req, res, next) => {
   }
 });
 
-/** POST /api/executive/growth/create-store-batch */
+/** POST /api/executive/growth/promote-leads-to-discovery */
+router.post('/promote-leads-to-discovery', async (req, res, next) => {
+  try {
+    const schema = z.object({
+      name: z.string().trim().min(1),
+      region: z.string().trim().nullable().optional(),
+      category: z.string().trim().nullable().optional(),
+      quantity: z.number().int().min(1).max(100),
+      confirmed: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: 'validation_error', message: parsed.error.message });
+    }
+    const result = await runPromoteLeadsToDiscovery({
+      ...parsed.data,
+      requestedBy: req.userId ?? null,
+    });
+    if (result.requiresConfirmation) {
+      return res.status(400).json({ ok: false, ...result });
+    }
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/promote-lead/:id */
+router.post('/promote-lead/:id', async (req, res, next) => {
+  try {
+    const result = await promoteLeadToSeed({
+      leadId: req.params.id,
+      requestedBy: req.userId ?? null,
+      batchName: typeof req.body?.batchName === 'string' ? req.body.batchName : null,
+    });
+    if (!result.ok) {
+      const status = result.error === 'not_found' ? 404 : result.duplicate ? 409 : 400;
+      return res.status(status).json(result);
+    }
+    return res.json({
+      ok: true,
+      message: result.message,
+      seedId: result.seedId,
+      status: result.status,
+      discoveryJobId: result.discoveryJobId,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/create-store-batch — legacy; gated by ENABLE_LEGACY_GROWTH_STORE_CREATION */
 router.post('/create-store-batch', async (req, res, next) => {
   try {
+    if (!isLegacyGrowthStoreCreationEnabled()) {
+      return res.status(403).json({
+        ok: false,
+        error: 'legacy_disabled',
+        message:
+          'Store Auto-Creation Disabled — Discovery Engine V1 is now the canonical onboarding system. Use Discovery promotion instead.',
+      });
+    }
     const schema = z.object({
       name: z.string().trim().min(1),
       region: z.string().trim().nullable().optional(),

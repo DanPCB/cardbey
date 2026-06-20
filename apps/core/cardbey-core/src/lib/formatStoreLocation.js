@@ -35,11 +35,24 @@ export function hasConfirmedStoreCoordinates(store) {
 export function hasReliableStoreLocationLabel(store) {
   if (hasConfirmedStoreCoordinates(store)) return true;
   const confidence = trim(store?.locationConfidence)?.toLowerCase();
+
+  const suburb = trim(store?.suburb);
+  const city = trim(store?.city);
+  const state = trim(store?.state);
+  const hasLocality = Boolean(suburb || city);
+
+  // Canonical publish fields (suburb/city + state) are display-ready without geocoding.
+  if (hasLocality && state) {
+    if (!confidence || RELIABLE_CONFIDENCE.has(confidence)) return true;
+    if (confidence === 'unconfirmed' || confidence === 'low') return false;
+    return true;
+  }
+
   if (confidence && RELIABLE_CONFIDENCE.has(confidence)) {
     return hasCanonicalStoreAddress(store);
   }
   if (hasCoordinates(store)) return true;
-  if (confidence === 'city_level' && (trim(store?.city) || trim(store?.suburb))) return true;
+  if (confidence === 'city_level' && hasLocality) return true;
   return false;
 }
 
@@ -94,15 +107,12 @@ export function extractLocalityFromAddress(address) {
  */
 export function hasCanonicalStoreAddress(store) {
   if (!store || typeof store !== 'object') return false;
-  return Boolean(
-    trim(store.address ?? store.addressLine) ||
-      trim(store.suburb) ||
-      trim(store.city) ||
-      trim(store.state) ||
-      trim(store.postcode) ||
-      trim(store.country) ||
-      (Number.isFinite(store.lat) && Number.isFinite(store.lng)),
+  const hasLocality = Boolean(
+    trim(store.address ?? store.addressLine) || trim(store.suburb) || trim(store.city),
   );
+  if (hasLocality) return true;
+  if (hasCoordinates(store)) return true;
+  return Boolean(trim(store.state) || trim(store.country));
 }
 
 /**

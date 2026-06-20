@@ -36,6 +36,7 @@ import visionRoutes from '../visionIntake.js';
 
 function buildApp() {
   const app = express();
+  app.use(express.json());
   app.use('/api/vision', visionRoutes);
   return app;
 }

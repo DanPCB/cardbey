@@ -1,0 +1,16 @@
+[
+  {
+    "id": "64f451cc-c7d6-4da2-8b32-c4e71e86049d",
+    "seedId": "reject-me",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "rejected",
+    "lifecycleStage": "qa_rejected",
+    "action": "qa_reject",
+    "actorId": "admin-2",
+    "actorType": "admin",
+    "reason": "Bad data",
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:00:22.602Z"
+  }
+]

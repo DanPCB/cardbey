@@ -1,0 +1,19 @@
+[
+  {
+    "id": "dfd3aef3-7f2b-44f9-8e23-3d7ac6c60fcb",
+    "seedId": "dup-block-1",
+    "claimantUserId": "user-dup-1",
+    "proofType": "registration",
+    "proofContact": "ABN12345678901",
+    "proofStatus": "rejected",
+    "claimStatus": "duplicate_blocked",
+    "createdAt": "2026-06-20T14:27:55.519Z",
+    "updatedAt": "2026-06-20T14:27:55.566Z",
+    "expiresAt": "2026-06-27T14:27:55.519Z",
+    "attempts": 0,
+    "verifiedAt": null,
+    "rejectionReason": "Live store duplicate detected.",
+    "duplicateBlockedStoreId": "live-biz-99",
+    "claimStartedAt": "2026-06-20T14:27:55.519Z"
+  }
+]

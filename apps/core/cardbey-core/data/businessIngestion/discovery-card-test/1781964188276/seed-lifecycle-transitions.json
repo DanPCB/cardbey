@@ -1,0 +1,16 @@
+[
+  {
+    "id": "d91a8e6f-6959-4cea-b28a-46a69603bca0",
+    "seedId": "card-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:03:08.296Z"
+  }
+]

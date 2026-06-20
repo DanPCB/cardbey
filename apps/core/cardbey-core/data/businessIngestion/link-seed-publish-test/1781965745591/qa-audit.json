@@ -1,0 +1,13 @@
+[
+  {
+    "id": "443345d3-259b-4c36-97b6-fb103d4d368f",
+    "seedId": "gen-store-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-qa",
+    "timestamp": "2026-06-20T14:29:05.612Z",
+    "reason": null,
+    "canonicalSeedId": null
+  }
+]

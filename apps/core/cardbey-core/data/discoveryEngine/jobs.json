@@ -1,0 +1,300 @@
+[
+  {
+    "id": "1f72c748-1d68-4054-a551-e95cf6c27686",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:32:26.762Z",
+    "completedAt": "2026-06-20T14:32:26.777Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781965946762",
+      "website": "https://staging-1781965946762.example.com"
+    }
+  },
+  {
+    "id": "9a580c92-e29b-4167-aad3-44270d07a454",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:32:26.706Z",
+    "completedAt": "2026-06-20T14:32:26.732Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "de34aa19-c898-4e08-95b5-ecf6e7476078",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:24:37.149Z",
+    "completedAt": "2026-06-20T14:24:37.162Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781965477149",
+      "website": "https://staging-1781965477149.example.com"
+    }
+  },
+  {
+    "id": "903ab68b-1911-440c-8c3f-6341ee866674",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:24:37.107Z",
+    "completedAt": "2026-06-20T14:24:37.125Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "9b387c06-ce2e-48db-a3f3-2d15cec6177c",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:16:12.417Z",
+    "completedAt": "2026-06-20T14:16:12.438Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781964972417",
+      "website": "https://staging-1781964972417.example.com"
+    }
+  },
+  {
+    "id": "88290163-91f7-4b32-89ee-a673044edc03",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:16:12.355Z",
+    "completedAt": "2026-06-20T14:16:12.379Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "34795000-ff21-439e-9198-757e06c7afce",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:04:23.587Z",
+    "completedAt": "2026-06-20T14:04:23.601Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781964263587",
+      "website": "https://staging-1781964263587.example.com"
+    }
+  },
+  {
+    "id": "04c96079-7cf3-44ee-9c77-18e43c21c65b",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T14:04:23.531Z",
+    "completedAt": "2026-06-20T14:04:23.552Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "fad00163-b3f0-4912-97f0-efc6c248f81c",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:50:38.822Z",
+    "completedAt": "2026-06-20T10:50:38.840Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781952638822",
+      "website": "https://staging-1781952638822.example.com"
+    }
+  },
+  {
+    "id": "e1ecd682-6e3c-447c-9a62-1e977e0990e8",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:50:38.767Z",
+    "completedAt": "2026-06-20T10:50:38.789Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "2975266e-ba9b-4ac4-adb8-322ffaaa81d2",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:27:34.055Z",
+    "completedAt": "2026-06-20T10:27:34.077Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781951254055",
+      "website": "https://staging-1781951254055.example.com"
+    }
+  },
+  {
+    "id": "ca6fe584-33ba-4201-ac1e-cd05051e18e7",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:27:34.003Z",
+    "completedAt": "2026-06-20T10:27:34.032Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "f567e334-689f-4e7d-8e48-d8285c2116d4",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:26:54.603Z",
+    "completedAt": "2026-06-20T10:26:54.619Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781951214603",
+      "website": "https://staging-1781951214603.example.com"
+    }
+  },
+  {
+    "id": "8aa8d0f8-3307-4651-881d-dd2a23be94dc",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:26:54.537Z",
+    "completedAt": "2026-06-20T10:26:54.567Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "da86ea33-09d7-4b2e-83ae-303b8f812c78",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:02:13.526Z",
+    "completedAt": "2026-06-20T10:02:13.555Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781949733526",
+      "website": "https://staging-1781949733526.example.com"
+    }
+  },
+  {
+    "id": "0d4fab5e-2d62-4c26-8403-e23b06673273",
+    "provider": "csv",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 2,
+    "recordsAccepted": 2,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:02:13.450Z",
+    "completedAt": "2026-06-20T10:02:13.486Z",
+    "error": null,
+    "params": {
+      "provider": "csv",
+      "csvContent": "business_name,category,address,city,phone,website,email\r\nStaging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com\r\nAnother Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com\r\n"
+    }
+  },
+  {
+    "id": "55c6e4f1-0120-42ee-9909-8154ed12639c",
+    "provider": "referral",
+    "region": null,
+    "category": null,
+    "status": "completed",
+    "recordsFound": 1,
+    "recordsAccepted": 1,
+    "recordsRejected": 0,
+    "startedAt": "2026-06-20T10:00:14.402Z",
+    "completedAt": "2026-06-20T10:00:14.446Z",
+    "error": null,
+    "params": {
+      "provider": "referral",
+      "businessName": "Staging Referral 1781949614402",
+      "website": "https://staging-1781949614402.example.com"
+    }
+  }
+]

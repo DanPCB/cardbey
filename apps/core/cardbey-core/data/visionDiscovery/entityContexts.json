@@ -1,0 +1,138 @@
+[
+  {
+    "id": "872360af-0e48-416b-9990-4dfbc5ca0329",
+    "sourceType": "qr",
+    "rawPayload": "https://www.liverwell.org.au/liverline",
+    "imageAssetUrl": null,
+    "detectedText": null,
+    "detectedUrl": "https://www.liverwell.org.au/liverline",
+    "resolvedUrl": "https://www.liverwell.org.au/liverline",
+    "entityName": "LiverWell Australia",
+    "entityType": "service_organisation",
+    "category": "Health support service",
+    "address": null,
+    "phone": null,
+    "email": null,
+    "website": "https://www.liverwell.org.au/liverline",
+    "socialProfiles": [],
+    "coordinates": null,
+    "confidence": 0.9500000000000001,
+    "evidence": [
+      "domain:liverwell.org.au",
+      "scan_status:scanned"
+    ],
+    "cardbeyMatch": null,
+    "businessSeedMatch": null,
+    "discoveryCandidateMatch": {
+      "scanEventId": "scan-1"
+    },
+    "privacyRisk": "none",
+    "safetyFlags": [],
+    "scanEventId": "scan-1",
+    "userId": null,
+    "sessionId": null,
+    "createdAt": "2026-06-20T14:31:42.795Z"
+  },
+  {
+    "id": "834843ab-8c06-4641-bae7-f581be2bb49e",
+    "sourceType": "qr",
+    "rawPayload": "https://www.liverwell.org.au/liverline",
+    "imageAssetUrl": null,
+    "detectedText": null,
+    "detectedUrl": "https://www.liverwell.org.au/liverline",
+    "resolvedUrl": "https://www.liverwell.org.au/liverline",
+    "entityName": "LiverWell Australia",
+    "entityType": "service_organisation",
+    "category": "Health support service",
+    "address": null,
+    "phone": null,
+    "email": null,
+    "website": "https://www.liverwell.org.au/liverline",
+    "socialProfiles": [],
+    "coordinates": null,
+    "confidence": 0.9500000000000001,
+    "evidence": [
+      "domain:liverwell.org.au",
+      "scan_status:scanned"
+    ],
+    "cardbeyMatch": null,
+    "businessSeedMatch": null,
+    "discoveryCandidateMatch": {
+      "scanEventId": "scan-1"
+    },
+    "privacyRisk": "none",
+    "safetyFlags": [],
+    "scanEventId": "scan-1",
+    "userId": null,
+    "sessionId": null,
+    "createdAt": "2026-06-20T14:23:55.225Z"
+  },
+  {
+    "id": "7bdbbfe3-d3e9-48b9-ab6a-72312bc93163",
+    "sourceType": "qr",
+    "rawPayload": "https://www.liverwell.org.au/liverline",
+    "imageAssetUrl": null,
+    "detectedText": null,
+    "detectedUrl": "https://www.liverwell.org.au/liverline",
+    "resolvedUrl": "https://www.liverwell.org.au/liverline",
+    "entityName": "LiverWell Australia",
+    "entityType": "service_organisation",
+    "category": "Health support service",
+    "address": null,
+    "phone": null,
+    "email": null,
+    "website": "https://www.liverwell.org.au/liverline",
+    "socialProfiles": [],
+    "coordinates": null,
+    "confidence": 0.9500000000000001,
+    "evidence": [
+      "domain:liverwell.org.au",
+      "scan_status:scanned"
+    ],
+    "cardbeyMatch": null,
+    "businessSeedMatch": null,
+    "discoveryCandidateMatch": {
+      "scanEventId": "scan-1"
+    },
+    "privacyRisk": "none",
+    "safetyFlags": [],
+    "scanEventId": "scan-1",
+    "userId": null,
+    "sessionId": null,
+    "createdAt": "2026-06-20T14:15:26.603Z"
+  },
+  {
+    "id": "3e3b4a39-87f4-42d6-8adf-33d629a51389",
+    "sourceType": "qr",
+    "rawPayload": "https://www.liverwell.org.au/liverline",
+    "imageAssetUrl": null,
+    "detectedText": null,
+    "detectedUrl": "https://www.liverwell.org.au/liverline",
+    "resolvedUrl": "https://www.liverwell.org.au/liverline",
+    "entityName": "LiverWell Australia",
+    "entityType": "service_organisation",
+    "category": "Health support service",
+    "address": null,
+    "phone": null,
+    "email": null,
+    "website": "https://www.liverwell.org.au/liverline",
+    "socialProfiles": [],
+    "coordinates": null,
+    "confidence": 0.9500000000000001,
+    "evidence": [
+      "domain:liverwell.org.au",
+      "scan_status:scanned"
+    ],
+    "cardbeyMatch": null,
+    "businessSeedMatch": null,
+    "discoveryCandidateMatch": {
+      "scanEventId": "scan-1"
+    },
+    "privacyRisk": "none",
+    "safetyFlags": [],
+    "scanEventId": "scan-1",
+    "userId": null,
+    "sessionId": null,
+    "createdAt": "2026-06-20T14:03:31.335Z"
+  }
+]
