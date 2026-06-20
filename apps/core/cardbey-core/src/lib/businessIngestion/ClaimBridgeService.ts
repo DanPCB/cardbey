@@ -52,6 +52,13 @@ import { applySeedStatusTransition } from './SeedGovernance.js';
 
 import { transferSeedStoreToOwner } from './SeedOwnershipTransfer.js';
 
+import { recordSeedLifecycleTransition } from './BusinessSeedStatusTransitionRepository.js';
+
+import {
+  claimedLifecycleStage,
+  toGovernedLifecycleStage,
+} from './seedLifecycleGovernance.js';
+
 import type {
 
   ClaimProofType,
@@ -326,23 +333,51 @@ export async function startSeedClaim(params: {
 
   const claimStartedAt = claim.claimStartedAt ?? claim.createdAt;
 
-  if (!seed.claimStartedAt) {
+  const transition = applySeedStatusTransition(seed, 'claim_pending');
 
-    await upsertSeedRecords([
+  if (!transition.ok) {
 
-      {
-
-        ...seed,
-
-        claimStartedAt,
-
-        updatedAt: claimStartedAt,
-
-      },
-
-    ]);
+    return { ok: false, claim: null, requiresOtp: false, message: transition.message };
 
   }
+
+  await upsertSeedRecords([
+
+    {
+
+      ...transition.record,
+
+      claimStartedAt: seed.claimStartedAt ?? claimStartedAt,
+
+      claimable: false,
+
+      updatedAt: claimStartedAt,
+
+    },
+
+  ]);
+
+  await recordSeedLifecycleTransition({
+
+    seedId: params.seedId,
+
+    fromStatus: seed.verificationStatus,
+
+    toStatus: 'claim_pending',
+
+    lifecycleStage: 'claim_pending',
+
+    action: 'claim_start',
+
+    actorId: params.claimantUserId,
+
+    actorType: 'user',
+
+    claimRequestId: claim.id,
+
+    metadata: { proofType: params.proofType },
+
+  });
 
 
 
@@ -596,7 +631,7 @@ export async function verifySeedClaimProof(params: {
 
 
 
-  if (seed.verificationStatus !== 'seeded_claimable') {
+  if (seed.verificationStatus !== 'claim_pending') {
 
     return {
 
@@ -606,7 +641,7 @@ export async function verifySeedClaimProof(params: {
 
       seed,
 
-      message: `Claim verification requires seeded_claimable (current: ${seed.verificationStatus}).`,
+      message: `Claim verification requires claim_pending (current: ${seed.verificationStatus}).`,
 
     };
 
@@ -822,6 +857,50 @@ export async function verifySeedClaimProof(params: {
 
   await upsertSeedRecords([updatedSeed]);
 
+  await recordSeedLifecycleTransition({
+
+    seedId: params.seedId,
+
+    fromStatus: 'claim_pending',
+
+    toStatus: 'verified_owner',
+
+    lifecycleStage: claimedLifecycleStage(),
+
+    action: 'claim_verify',
+
+    actorId: params.claimantUserId,
+
+    actorType: 'user',
+
+    claimRequestId: claim.id,
+
+    metadata: { proofType: claim.proofType, phase: 'ownership_verified' },
+
+  });
+
+  await recordSeedLifecycleTransition({
+
+    seedId: params.seedId,
+
+    fromStatus: 'verified_owner',
+
+    toStatus: 'verified_owner',
+
+    lifecycleStage: toGovernedLifecycleStage('verified_owner'),
+
+    action: 'claim_verify',
+
+    actorId: params.claimantUserId,
+
+    actorType: 'user',
+
+    claimRequestId: claim.id,
+
+    metadata: { proofType: claim.proofType, phase: 'activation_ready' },
+
+  });
+
   emitSeedActivationActivity({
 
     type: 'ownership_verified',
@@ -992,6 +1071,28 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
     });
 
+    await recordSeedLifecycleTransition({
+
+      seedId: params.seedId,
+
+      fromStatus: seed.verificationStatus,
+
+      toStatus: seed.verificationStatus,
+
+      lifecycleStage: toGovernedLifecycleStage(seed.verificationStatus),
+
+      action: 'activation_blocked_duplicate',
+
+      actorId: params.ownerUserId,
+
+      actorType: 'user',
+
+      claimRequestId: activeClaim?.id ?? null,
+
+      metadata: { matchedBusinessId: dup.matchedBusinessId, phase: 'activation' },
+
+    });
+
     return {
 
       ok: false,
@@ -1058,9 +1159,37 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
   await upsertSeedRecords([activatedSeed]);
 
-
-
   const verifiedClaim = await getVerifiedClaimForSeed(params.seedId, ownerId);
+
+  await recordSeedLifecycleTransition({
+
+    seedId: params.seedId,
+
+    fromStatus: seed.verificationStatus,
+
+    toStatus: 'active',
+
+    lifecycleStage: toGovernedLifecycleStage('active'),
+
+    action: 'activation_confirmed',
+
+    actorId: params.ownerUserId,
+
+    actorType: params.actorIsPlatformAdmin ? 'admin' : 'user',
+
+    claimRequestId: verifiedClaim?.id ?? null,
+
+    metadata: {
+
+      storeId: activatedSeed.storeId,
+
+      draftId: activatedSeed.draftId,
+
+      runtimeAuthority: true,
+
+    },
+
+  });
 
   if (verifiedClaim) {
 
@@ -1216,7 +1345,41 @@ export async function rejectSeedClaim(params: {
 
   });
 
+  const seed = await getSeedRecordById(params.seedId);
 
+  if (seed?.verificationStatus === 'claim_pending') {
+
+    const revert = applySeedStatusTransition(seed, 'seeded_claimable');
+
+    if (revert.ok) {
+
+      await upsertSeedRecords([{ ...revert.record, claimable: true }]);
+
+      await recordSeedLifecycleTransition({
+
+        seedId: params.seedId,
+
+        fromStatus: 'claim_pending',
+
+        toStatus: 'seeded_claimable',
+
+        lifecycleStage: 'qa_approved',
+
+        action: 'claim_reject',
+
+        actorId: params.reviewerId,
+
+        actorType: 'admin',
+
+        claimRequestId: claim.id,
+
+        reason: updated.rejectionReason,
+
+      });
+
+    }
+
+  }
 
   return { ok: true, claim: updated, message: 'Claim rejected.' };
 
@@ -1251,6 +1414,8 @@ export async function buildClaimQueueMetrics(): Promise<ClaimQueueMetrics> {
   const [all, seeds] = await Promise.all([listClaimRequests(), listSeedRecords()]);
 
   const claimable = seeds.filter((s) => s.verificationStatus === 'seeded_claimable').length;
+
+  const claimPending = seeds.filter((s) => s.verificationStatus === 'claim_pending').length;
 
   const verifiedOwner = seeds.filter((s) => s.verificationStatus === 'verified_owner').length;
 

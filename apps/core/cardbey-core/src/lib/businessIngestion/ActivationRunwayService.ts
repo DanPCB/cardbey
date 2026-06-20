@@ -89,6 +89,8 @@ function runwayStageFromSeed(seed: IngestedSeedRecord): ActivationRunwayStage {
       return seed.storeId ? 'operating' : 'activated';
     case 'verified_owner':
       return 'verified';
+    case 'claim_pending':
+      return 'claimed';
     case 'seeded_claimable':
       return 'discovered';
     default:

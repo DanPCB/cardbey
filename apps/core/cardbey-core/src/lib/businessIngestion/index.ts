@@ -52,6 +52,22 @@ export {
   resetIngestionStoreForTests,
   resetIngestionDataForTests,
 } from './IngestionRepository.js';
+export {
+  createRun as createIngestionRun,
+  getRun as getIngestionRun,
+  listRuns as listIngestionRunRecords,
+  summarizeRun as summarizeIngestionRun,
+} from './BusinessIngestionRunRepository.js';
+export {
+  recordSeedLifecycleTransition,
+  listSeedLifecycleTransitions,
+} from './BusinessSeedStatusTransitionRepository.js';
+export {
+  toGovernedLifecycleStage,
+  buildSeedLifecycleFunnel,
+  lifecycleStageLabel,
+  GOVERNED_NON_STORE_ACTIONS,
+} from './seedLifecycleGovernance.js';
 export { IngestionPipeline, ingestionPipeline, runIngestion } from './IngestionPipeline.js';
 export { persistSeedStoreDraft, attachStoreToSeed } from './seedStorePersistence.js';
 export { transferSeedStoreToOwner, ensureSeedStoreExists } from './SeedOwnershipTransfer.js';

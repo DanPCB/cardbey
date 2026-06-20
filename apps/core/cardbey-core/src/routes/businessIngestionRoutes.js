@@ -25,6 +25,7 @@ import {
   sendSeedBackToReview,
 } from '../lib/businessIngestion/QaPromotionService.js';
 import { listQaAuditEntries } from '../lib/businessIngestion/QaAuditLog.js';
+import { listSeedLifecycleTransitions } from '../lib/businessIngestion/BusinessSeedStatusTransitionRepository.js';
 import {
   startSeedClaim,
   verifySeedClaimProof,
@@ -165,15 +166,17 @@ router.get('/seeds/:id', requireAuth, requireAdmin, async (req, res, next) => {
     if (!record) {
       return res.status(404).json({ ok: false, error: 'not_found' });
     }
-    const [audit, claimAudit] = await Promise.all([
+    const [audit, claimAudit, lifecycleTransitions] = await Promise.all([
       listQaAuditEntries({ seedId: record.id, limit: 50 }),
       listClaimAuditEntries({ seedId: record.id, limit: 50 }),
+      listSeedLifecycleTransitions({ seedId: record.id, limit: 50 }),
     ]);
     return res.status(200).json({
       ok: true,
       seed: enrichQueueItem(record),
       audit,
       claimAudit,
+      lifecycleTransitions,
       provenance: {
         sourceType: record.normalized.sourceType,
         sourceReference: record.normalized.sourceReference,
@@ -184,6 +187,21 @@ router.get('/seeds/:id', requireAuth, requireAdmin, async (req, res, next) => {
     });
   } catch (error) {
     console.error('[business-ingestion] get seed error:', error);
+    next(error);
+  }
+});
+
+/** GET /api/business-ingestion/seeds/:id/lifecycle-transitions */
+router.get('/seeds/:id/lifecycle-transitions', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const transitions = await listSeedLifecycleTransitions({
+      seedId: req.params.id,
+      limit,
+    });
+    return res.status(200).json({ ok: true, transitions, total: transitions.length });
+  } catch (error) {
+    console.error('[business-ingestion] lifecycle transitions error:', error);
     next(error);
   }
 });

@@ -17,14 +17,56 @@ export type IngestionSourceType =
   | 'places_discovery'
   | 'website_discovery';
 
-/** Seed lifecycle states (Phase 5 + V1.1 QA). */
+/** Seed lifecycle states (Phase 5 + V1.1 QA + V1.3 claim governance). */
 export type SeedVerificationStatus =
   | 'seeded_pending_qa'
   | 'seeded_claimable'
+  | 'claim_pending'
   | 'verified_owner'
   | 'active'
   | 'rejected'
   | 'duplicate';
+
+/** Governed lifecycle stage labels (Discovery Center / audit contract). */
+export type GovernedSeedLifecycleStage =
+  | 'seeded_pending_qa'
+  | 'qa_approved'
+  | 'qa_rejected'
+  | 'claim_pending'
+  | 'claimed'
+  | 'activation_ready'
+  | 'activated_store'
+  | 'duplicate';
+
+/** Unified lifecycle transition actions. */
+export type SeedLifecycleAction =
+  | 'discovery_ingested'
+  | 'qa_approve'
+  | 'qa_reject'
+  | 'qa_mark_duplicate'
+  | 'qa_merge'
+  | 'qa_send_back'
+  | 'claim_start'
+  | 'claim_verify'
+  | 'claim_reject'
+  | 'claim_expire'
+  | 'activation_confirmed'
+  | 'activation_blocked_duplicate';
+
+export interface SeedLifecycleTransitionRecord {
+  id: string;
+  seedId: string;
+  fromStatus: SeedVerificationStatus;
+  toStatus: SeedVerificationStatus;
+  lifecycleStage: GovernedSeedLifecycleStage;
+  action: SeedLifecycleAction;
+  actorId: string;
+  actorType: 'admin' | 'user' | 'system';
+  reason: string | null;
+  claimRequestId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
 
 /** Admin QA actions (V1.1). */
 export type QaPromotionAction =
