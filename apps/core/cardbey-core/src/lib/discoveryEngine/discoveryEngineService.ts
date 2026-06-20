@@ -5,7 +5,15 @@
 import { listSeedRecords } from '../businessIngestion/IngestionRepository.js';
 import { buildControlCenterIngestionSnapshot } from '../businessIngestion/buildControlCenterIngestionSnapshot.js';
 import { listQaQueue } from '../businessIngestion/QaPromotionService.js';
-import { listIngestionRuns } from '../businessIngestion/IngestionRepository.js';
+import {
+  buildSeedLifecycleFunnel,
+} from '../businessIngestion/seedLifecycleGovernance.js';
+import { listSeedLifecycleTransitions } from '../businessIngestion/BusinessSeedStatusTransitionRepository.js';
+import {
+  listRuns,
+  recordDiscoveryIngestionRun,
+  summarizeRun,
+} from '../businessIngestion/BusinessIngestionRunRepository.js';
 import { discoveryPromotionPipeline } from './pipelines/DiscoveryPromotionPipeline.js';
 import {
   appendDiscoveryJob,
@@ -52,6 +60,7 @@ export async function runDiscoveryEngine(
 
   await appendDiscoveryJob(job);
   await updateDiscoveryJob(job.id, { status: 'running' });
+  const startedAt = job.startedAt;
 
   try {
     if (params.provider === 'referral') {
@@ -66,10 +75,27 @@ export async function runDiscoveryEngine(
     assertDiscoverySeedsGoverned(promotion.seeds);
 
     const completedAt = new Date().toISOString();
+    const seedsCreated = promotion.seedsCreated;
+    const seedsUpdated = promotion.seedsUpdated;
+
+    if (seedsCreated + seedsUpdated === 0) {
+      await recordDiscoveryIngestionRun({
+        discoveryJobId: job.id,
+        provider: params.provider,
+        startedAt,
+        completedAt,
+        candidatesFound: rawCandidates.length,
+        seedsCreated,
+        seedsUpdated,
+        duplicatesRejected: promotion.rejectedDuplicates.length,
+        status: rawCandidates.length === 0 ? 'empty' : 'completed',
+      });
+    }
+
     const updatedJob = await updateDiscoveryJob(job.id, {
       status: 'completed',
       recordsFound: rawCandidates.length,
-      recordsAccepted: promotion.seedsCreated + promotion.seedsUpdated,
+      recordsAccepted: seedsCreated + seedsUpdated,
       recordsRejected:
         promotion.rejectedDuplicates.length +
         (rawCandidates.length - promotion.accepted.length - promotion.rejectedDuplicates.length),
@@ -79,17 +105,30 @@ export async function runDiscoveryEngine(
     return {
       job: updatedJob ?? { ...job, status: 'completed', completedAt },
       candidatesFound: rawCandidates.length,
-      seedsCreated: promotion.seedsCreated,
-      seedsUpdated: promotion.seedsUpdated,
+      seedsCreated,
+      seedsUpdated,
       duplicatesRejected: promotion.rejectedDuplicates.length,
       reviewRequired: promotion.reviewRequired.length,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    const completedAt = new Date().toISOString();
     await updateDiscoveryJob(job.id, {
       status: 'failed',
       error: message,
-      completedAt: new Date().toISOString(),
+      completedAt,
+    });
+    await recordDiscoveryIngestionRun({
+      discoveryJobId: job.id,
+      provider: params.provider,
+      startedAt,
+      completedAt,
+      candidatesFound: 0,
+      seedsCreated: 0,
+      seedsUpdated: 0,
+      duplicatesRejected: 0,
+      status: 'failed',
+      error: message,
     });
     throw err;
   }
@@ -100,6 +139,7 @@ export async function buildDiscoveryCenterMetrics(): Promise<DiscoveryCenterMetr
   const qaPending = await listQaQueue({ status: 'seeded_pending_qa' });
   const recentJobs = await listDiscoveryJobs(20);
   const recentRuns = await listIngestionRuns(10);
+  const recentIngestionRuns = (await listRuns(10)).map(summarizeRun);
 
   const byStatus: Record<string, number> = {};
   const regionBreakdown: Record<string, number> = {};
@@ -127,6 +167,20 @@ export async function buildDiscoveryCenterMetrics(): Promise<DiscoveryCenterMetr
   });
 
   const candidatesFound = recentJobs.reduce((sum, j) => sum + j.recordsFound, 0);
+  const seedLifecycleFunnel = buildSeedLifecycleFunnel(byStatus);
+  const recentLifecycleTransitions = (await listSeedLifecycleTransitions({ limit: 15 })).map(
+    (t) => ({
+      id: t.id,
+      seedId: t.seedId,
+      fromStatus: t.fromStatus,
+      toStatus: t.toStatus,
+      lifecycleStage: t.lifecycleStage,
+      action: t.action,
+      actorId: t.actorId,
+      actorType: t.actorType,
+      createdAt: t.createdAt,
+    }),
+  );
 
   return {
     candidatesFound,
@@ -146,6 +200,9 @@ export async function buildDiscoveryCenterMetrics(): Promise<DiscoveryCenterMetr
     regionBreakdown,
     categoryBreakdown,
     recentJobs,
+    recentIngestionRuns,
+    seedLifecycleFunnel,
+    recentLifecycleTransitions,
   };
 }
 

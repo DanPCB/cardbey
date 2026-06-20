@@ -1,12 +1,28 @@
 /**
  * Persistence for ingested seed records.
- * Separate from Prisma Business — external seed data is never owner-confirmed.
+ * Postgres on Render/live; JSON file fallback for local dev / isolated tests.
  */
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IngestedSeedRecord, IngestionRunMetrics } from './types.js';
+import { resolveBusinessSeedBackend, resetBusinessSeedBackendCacheForTests } from './businessSeedBackend.js';
+import {
+  appendIngestionRunMetrics,
+  listIngestionRunMetrics,
+  resetIngestionRunsForTests,
+} from './BusinessIngestionRunRepository.js';
+import { resetIngestionRunBackendCacheForTests } from './businessIngestionRunBackend.js';
+import {
+  dbGetSeedRecordById,
+  dbListSeedRecords,
+  dbResetSeedRecordsForTests,
+  dbSaveSeedRecords,
+  dbUpsertSeedRecords,
+} from './businessSeedDbRepository.js';
+
+export { resetBusinessSeedBackendCacheForTests };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -48,22 +64,41 @@ async function writeJsonFile(file: string, data: unknown): Promise<void> {
   await fs.rename(tmp, file);
 }
 
-export async function listSeedRecords(): Promise<IngestedSeedRecord[]> {
+async function fileListSeedRecords(): Promise<IngestedSeedRecord[]> {
   return readJsonFile<IngestedSeedRecord[]>(seedsFile(), []);
 }
 
+export async function listSeedRecords(): Promise<IngestedSeedRecord[]> {
+  const backend = await resolveBusinessSeedBackend();
+  if (backend === 'db') return dbListSeedRecords();
+  return fileListSeedRecords();
+}
+
 export async function getSeedRecordById(id: string): Promise<IngestedSeedRecord | null> {
-  const all = await listSeedRecords();
+  const backend = await resolveBusinessSeedBackend();
+  if (backend === 'db') return dbGetSeedRecordById(id);
+  const all = await fileListSeedRecords();
   return all.find((s) => s.id === id) ?? null;
 }
 
 export async function saveSeedRecords(records: IngestedSeedRecord[]): Promise<void> {
+  const backend = await resolveBusinessSeedBackend();
+  if (backend === 'db') {
+    await dbSaveSeedRecords(records);
+    return;
+  }
+
   const op = writeChain.then(() => writeJsonFile(seedsFile(), records));
   writeChain = op.catch(() => undefined);
   await op;
 }
 
 export async function upsertSeedRecords(incoming: IngestedSeedRecord[]): Promise<IngestedSeedRecord[]> {
+  const backend = await resolveBusinessSeedBackend();
+  if (backend === 'db') {
+    return dbUpsertSeedRecords(incoming);
+  }
+
   const op = writeChain.then(async () => {
     const existing = await readJsonFile<IngestedSeedRecord[]>(seedsFile(), []);
     const byId = new Map(existing.map((r) => [r.id, r]));
@@ -79,28 +114,32 @@ export async function upsertSeedRecords(incoming: IngestedSeedRecord[]): Promise
 }
 
 export async function appendIngestionRun(metrics: IngestionRunMetrics): Promise<void> {
-  const op = writeChain.then(async () => {
-    const runs = await readJsonFile<IngestionRunMetrics[]>(runsFile(), []);
-    runs.push(metrics);
-    await writeJsonFile(runsFile(), runs.slice(-200));
-  });
-  writeChain = op.catch(() => undefined);
-  await op;
+  await appendIngestionRunMetrics(metrics);
 }
 
 export async function listIngestionRuns(limit = 50): Promise<IngestionRunMetrics[]> {
-  const runs = await readJsonFile<IngestionRunMetrics[]>(runsFile(), []);
-  return runs.slice(-limit).reverse();
+  return listIngestionRunMetrics(limit);
 }
 
 /** Test helper */
 export async function resetIngestionStoreForTests(): Promise<void> {
+  resetBusinessSeedBackendCacheForTests();
+  resetIngestionRunBackendCacheForTests();
+  const backend = await resolveBusinessSeedBackend();
+
+  if (backend === 'db') {
+    await dbResetSeedRecordsForTests();
+    await resetIngestionRunsForTests();
+    return;
+  }
+
   const op = writeChain.then(async () => {
     await writeJsonFile(seedsFile(), []);
     await writeJsonFile(runsFile(), []);
   });
   writeChain = op.catch(() => undefined);
   await op;
+  await resetIngestionRunsForTests();
 }
 
 export async function resetIngestionDataForTests(): Promise<void> {
@@ -113,6 +152,10 @@ export async function resetIngestionDataForTests(): Promise<void> {
   await resetClaimAuditForTests();
   const { resetSeedSuitcasesForTests } = await import('./seedSuitcaseStore.js');
   await resetSeedSuitcasesForTests();
+  const { resetSeedLifecycleTransitionsForTests } = await import(
+    './BusinessSeedStatusTransitionRepository.js'
+  );
+  await resetSeedLifecycleTransitionsForTests();
 }
 
 export async function buildIngestionDashboardMetrics(): Promise<{

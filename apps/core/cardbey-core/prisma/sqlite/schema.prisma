@@ -3409,6 +3409,97 @@ model DiscoveryConfig {
   @@map("discovery_config")
 }
 
+/// Discovery Engine V1 — governed acquisition job audit trail
+model DiscoveryEngineJob {
+  id              String    @id
+  provider        String
+  region          String?
+  category        String?
+  status          String    @default("pending")
+  recordsFound    Int       @default(0)
+  recordsAccepted Int       @default(0)
+  recordsRejected Int       @default(0)
+  startedAt       DateTime
+  completedAt     DateTime?
+  error           String?
+  paramsJson      String    @default("{}")
+  createdAt       DateTime  @default(now())
+
+  @@index([provider])
+  @@index([status])
+  @@index([startedAt])
+  @@map("discovery_engine_job")
+}
+
+/// Business ingestion / discovery seeds — production-durable on Postgres
+model BusinessSeed {
+  id         String   @id
+  source     String
+  status     String   @default("seeded_pending_qa")
+  name       String?
+  website    String?
+  phone      String?
+  email      String?
+  address    String?
+  city       String?
+  state      String?
+  country    String?
+  rawPayload String   @default("{}")
+  dedupeKey  String   @unique
+  storeId    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([status])
+  @@index([source])
+  @@index([storeId])
+  @@map("business_seed")
+}
+
+/// Business ingestion pipeline run history — production-durable on Postgres
+model BusinessIngestionRun {
+  id             String    @id
+  source         String
+  status         String    @default("completed")
+  startedAt      DateTime
+  completedAt    DateTime?
+  candidateCount Int       @default(0)
+  seedCount      Int       @default(0)
+  duplicateCount Int       @default(0)
+  rejectedCount  Int       @default(0)
+  errorCount     Int       @default(0)
+  errorsJson     String    @default("[]")
+  metadataJson   String    @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([source])
+  @@index([status])
+  @@index([startedAt])
+  @@map("business_ingestion_run")
+}
+
+/// Governed seed lifecycle transition audit — QA, claim, activation
+model BusinessSeedStatusTransition {
+  id             String   @id @default(cuid())
+  seedId         String
+  fromStatus     String
+  toStatus       String
+  lifecycleStage String
+  action         String
+  actorId        String
+  actorType      String   @default("system")
+  reason         String?
+  claimRequestId String?
+  metadataJson   String   @default("{}")
+  createdAt      DateTime @default(now())
+
+  @@index([seedId])
+  @@index([lifecycleStage])
+  @@index([createdAt])
+  @@map("business_seed_status_transition")
+}
+
 // Phase 10 — Account knowledge vault (briefings, mission outputs, uploads, artifacts)
 model SuitcaseItem {
   id              String   @id @default(cuid())

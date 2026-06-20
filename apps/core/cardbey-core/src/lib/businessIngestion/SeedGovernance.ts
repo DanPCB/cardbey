@@ -15,6 +15,7 @@ import type { MatchEvidence } from './types.js';
 export const SEED_VERIFICATION_STATUSES: SeedVerificationStatus[] = [
   'seeded_pending_qa',
   'seeded_claimable',
+  'claim_pending',
   'verified_owner',
   'active',
   'rejected',
@@ -23,7 +24,8 @@ export const SEED_VERIFICATION_STATUSES: SeedVerificationStatus[] = [
 
 const ALLOWED_TRANSITIONS: Record<SeedVerificationStatus, SeedVerificationStatus[]> = {
   seeded_pending_qa: ['seeded_claimable', 'rejected', 'duplicate'],
-  seeded_claimable: ['verified_owner', 'seeded_pending_qa', 'rejected'],
+  seeded_claimable: ['claim_pending', 'seeded_pending_qa', 'rejected'],
+  claim_pending: ['verified_owner', 'seeded_claimable'],
   verified_owner: ['active'],
   active: [],
   rejected: ['seeded_pending_qa'],

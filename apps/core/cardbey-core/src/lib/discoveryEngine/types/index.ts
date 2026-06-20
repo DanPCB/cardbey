@@ -118,4 +118,39 @@ export interface DiscoveryCenterMetrics {
   regionBreakdown: Record<string, number>;
   categoryBreakdown: Record<string, number>;
   recentJobs: DiscoveryJob[];
+  recentIngestionRuns: Array<{
+    id: string;
+    source: string;
+    status: string;
+    startedAt: string;
+    completedAt: string | null;
+    candidateCount: number;
+    seedCount: number;
+    duplicateCount: number;
+    rejectedCount: number;
+    errorCount: number;
+    durationMs: number | null;
+  }>;
+  seedLifecycleFunnel: Record<
+    | 'seeded_pending_qa'
+    | 'qa_approved'
+    | 'qa_rejected'
+    | 'claim_pending'
+    | 'claimed'
+    | 'activation_ready'
+    | 'activated_store'
+    | 'duplicate',
+    number
+  >;
+  recentLifecycleTransitions: Array<{
+    id: string;
+    seedId: string;
+    fromStatus: string;
+    toStatus: string;
+    lifecycleStage: string;
+    action: string;
+    actorId: string;
+    actorType: string;
+    createdAt: string;
+  }>;
 }

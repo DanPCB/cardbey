@@ -10,6 +10,12 @@ import type {
   SeedVerificationStatus,
 } from './types.js';
 import { appendQaAuditEntry } from './QaAuditLog.js';
+import { recordSeedLifecycleTransition } from './BusinessSeedStatusTransitionRepository.js';
+import {
+  assertSeedHasNoStoreBeforeActivation,
+  mapQaActionToGovernedStage,
+  qaActionToLifecycleAction,
+} from './seedLifecycleGovernance.js';
 import { canPromoteToClaimable, suggestAutoApproval } from './QaQualityGates.js';
 import {
   getSeedRecordById,
@@ -95,6 +101,7 @@ async function persistWithAudit(
   reason: string | null,
   canonicalSeedId?: string | null,
 ): Promise<{ ok: boolean; seed: IngestedSeedRecord; message: string }> {
+  assertSeedHasNoStoreBeforeActivation(updated);
   await upsertSeedRecords([updated]);
   await appendQaAuditEntry({
     seedId: seed.id,
@@ -104,6 +111,17 @@ async function persistWithAudit(
     reviewerId,
     reason,
     canonicalSeedId,
+  });
+  await recordSeedLifecycleTransition({
+    seedId: seed.id,
+    fromStatus: seed.verificationStatus,
+    toStatus: updated.verificationStatus,
+    lifecycleStage: mapQaActionToGovernedStage(action, updated.verificationStatus),
+    action: qaActionToLifecycleAction(action),
+    actorId: reviewerId,
+    actorType: 'admin',
+    reason,
+    metadata: canonicalSeedId ? { canonicalSeedId } : undefined,
   });
 
   if (action === 'approve') {

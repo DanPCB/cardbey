@@ -14,7 +14,7 @@ import { buildIngestedSeedRecord } from '../SeedGovernance.js';
 
 import { approveSeed } from '../QaPromotionService.js';
 
-import { upsertSeedRecords, resetIngestionDataForTests } from '../IngestionRepository.js';
+import { upsertSeedRecords, resetIngestionDataForTests, getSeedRecordById } from '../IngestionRepository.js';
 
 import { listClaimAuditEntries } from '../ClaimAuditLog.js';
 
@@ -260,7 +260,8 @@ describe('Claim Bridge V1.2', () => {
 
     expect(result.requiresOtp).toBe(true);
 
-
+    const afterStart = await getSeedRecordById(seed.id);
+    expect(afterStart?.verificationStatus).toBe('claim_pending');
 
     const audit = await listClaimAuditEntries({ seedId: seed.id });
 

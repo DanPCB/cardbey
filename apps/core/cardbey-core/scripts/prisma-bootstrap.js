@@ -548,6 +548,23 @@ if (!isPostgresForRestore) {
       e?.message?.slice(0, 200),
     );
   }
+
+  try {
+    runPrisma(
+      "ensure business seed table",
+      `node ${path.join(rootDir, "scripts", "ensure-business-seed-table.mjs")}`,
+    );
+    runPrisma(
+      "record business seed migration",
+      `node ${path.join(rootDir, "scripts", "record-sqlite-migration.mjs")} 20260619120000_add_business_seed_table`,
+    );
+    console.log("[prisma] Business seed table ensured");
+  } catch (e) {
+    console.warn(
+      "[prisma] Could not ensure business_seed table (non-fatal):",
+      e?.message?.slice(0, 200),
+    );
+  }
 }
 
 (async () => {

@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defineConfig, configDefaults } from 'vitest/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TSX_LOADER = pathToFileURL(
+  path.resolve(__dirname, '../../../node_modules/tsx/dist/loader.mjs'),
+).href;
 
 /** Vitest/Vite: resolve `import './foo.js'` to `foo.ts` when only the TS source exists (tsx runtime parity). */
 function jsToTsResolver() {
@@ -39,7 +42,7 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: {
       forks: {
-        execArgv: ['--import', 'tsx/esm'],
+        execArgv: ['--import', TSX_LOADER],
       },
     },
     // Keep scope narrow; Core has many heavy integration paths.

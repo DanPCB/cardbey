@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { runDiscoveryEngine } from '../discoveryEngineService.js';
 import { listDiscoveryJobs, resetDiscoveryJobBackendCacheForTests } from '../jobs/DiscoveryJobRepository.js';
 import { listSeedRecords } from '../../businessIngestion/IngestionRepository.js';
+import { resetBusinessSeedBackendCacheForTests } from '../../businessIngestion/businessSeedBackend.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(__dirname, '../../../../data/discoveryEngine/fixtures/sample-businesses.csv');
@@ -12,11 +13,24 @@ const FIXTURE = path.resolve(__dirname, '../../../../data/discoveryEngine/fixtur
 describe('Discovery Engine CLI parity (runDiscoveryEngine)', () => {
   beforeEach(() => {
     process.env.DISCOVERY_JOBS_BACKEND = 'file';
+    process.env.BUSINESS_SEEDS_BACKEND = 'file';
+    process.env.BUSINESS_INGESTION_DIR = path.join(
+      process.cwd(),
+      'data',
+      'businessIngestion',
+      'discovery-integration-test',
+      String(Date.now()),
+    );
     resetDiscoveryJobBackendCacheForTests();
+    resetBusinessSeedBackendCacheForTests();
   });
 
   afterEach(() => {
     delete process.env.DISCOVERY_JOBS_BACKEND;
+    delete process.env.BUSINESS_SEEDS_BACKEND;
+    delete process.env.BUSINESS_INGESTION_DIR;
+    resetDiscoveryJobBackendCacheForTests();
+    resetBusinessSeedBackendCacheForTests();
   });
 
   it('CSV import creates governed seeds only', async () => {
