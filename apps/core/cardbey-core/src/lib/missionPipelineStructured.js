@@ -154,8 +154,8 @@ export function getStructuredMissionSteps(missionType, locale = 'en') {
         label: pickStepLabel(labels, 'logoPath', locale) ?? labels.logoPath.en,
         configJson: {
           condition: 'logoChoice === "Upload now"',
-          ifTrueTool: 'mission_pipeline_stub',
-          ifFalseTool: 'mission_pipeline_stub',
+          ifTrueTool: 'mission_conditional_branch',
+          ifFalseTool: 'mission_conditional_branch',
           ifTrueInput: { branch: 'upload', label: 'await_logo_upload' },
           ifFalseInput: { branch: 'default', label: 'assign_default_logo' },
         },
@@ -226,8 +226,8 @@ export function getStructuredMissionSteps(missionType, locale = 'en') {
         label: pickStepLabel(labels, 'launchOrSave', locale) ?? labels.launchOrSave.en,
         configJson: {
           condition: 'launchDecision === "Launch now"',
-          ifTrueTool: 'mission_pipeline_stub',
-          ifFalseTool: 'mission_pipeline_stub',
+          ifTrueTool: 'mission_conditional_branch',
+          ifFalseTool: 'mission_conditional_branch',
           ifTrueInput: { branch: 'launch', label: 'campaign_publish' },
           ifFalseInput: { branch: 'draft', label: 'campaign_save_draft' },
         },
