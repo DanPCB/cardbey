@@ -4,7 +4,7 @@
  * Uses Pexels -> DALL·E via generateImageUrlForDraftItem.
  */
 
-import { generateImageUrlForDraftItem } from '../menuVisualAgent/menuVisualAgent';
+import { generateImageUrlForDraftItem } from '../menuVisualAgent/menuVisualAgent.js';
 import {
   businessNameOverridesHeroCategory,
   resolveHeroSearchSubject,

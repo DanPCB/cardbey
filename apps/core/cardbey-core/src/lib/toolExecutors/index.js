@@ -137,6 +137,7 @@ import * as route_vision_event from './vision/route_vision_event.js';
 import * as mission_conditional_branch from './mission/mission_conditional_branch.js';
 import * as create_ghost_store from './ghost/create_ghost_store.js';
 import * as enrich_ghost_store from './ghost/enrich_ghost_store.js';
+import * as create_store from './store/create_store.js';
 import * as create_mini_website from './website/create_mini_website.js';
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
@@ -313,6 +314,7 @@ export const executors = {
   route_vision_event,
   create_ghost_store,
   enrich_ghost_store,
+  create_store,
   create_mini_website,
   generate_promotion_asset: honestBlocker(
     'generate_promotion_asset',

@@ -1156,6 +1156,22 @@ const TOOLS = [
     },
   },
   {
+    toolName: 'create_store',
+    label: 'Create store',
+    description: 'Start structured store build for a new business (proactive runway + intake)',
+    category: 'store',
+    targetTypes: ['store', 'draft_store', 'generic'],
+    requiresConfirmation: false,
+    parameters: {
+      storeName: { type: 'string', required: false },
+      businessName: { type: 'string', required: false },
+      location: { type: 'string', required: false },
+      storeType: { type: 'string', required: false },
+      intentMode: { type: 'string', required: false },
+      _autoSubmit: { type: 'boolean', required: false },
+    },
+  },
+  {
     toolName: 'create_mini_website',
     label: 'Create mini website',
     description: 'Website-mode structured store build (alias for create_store website runway)',

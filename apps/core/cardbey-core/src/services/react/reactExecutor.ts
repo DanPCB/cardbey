@@ -137,7 +137,7 @@ export async function executeWithReAct(
 
       case 'skip':
         await Promise.resolve(reporter.emit(`⏭ Skipped: ${reflection.reasoning}`));
-        stepIndex += 2;
+        stepIndex += 1;
         break;
 
       case 'replan':

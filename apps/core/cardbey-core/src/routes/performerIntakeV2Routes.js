@@ -3991,7 +3991,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       try {
         const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
         const pipeline = await createMissionPipeline({
-          type: classification.tool ?? 'launch_campaign',
+          type: classification.tool === 'create_store' ? 'store' : (classification.tool ?? 'launch_campaign'),
           title: userMessage.slice(0, 200),
           targetType: storeId ? 'store' : 'generic',
           targetId: storeId,

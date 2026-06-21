@@ -551,6 +551,23 @@ if (!isPostgresForRestore) {
 
   try {
     runPrisma(
+      "ensure user signal preferences table",
+      `node ${path.join(rootDir, "scripts", "ensure-user-signal-preferences-table.mjs")}`,
+    );
+    runPrisma(
+      "record user signal preferences migration",
+      `node ${path.join(rootDir, "scripts", "record-sqlite-migration.mjs")} 20260612100000_add_user_signal_preferences`,
+    );
+    console.log("[prisma] user_signal_preferences table ensured");
+  } catch (e) {
+    console.warn(
+      "[prisma] Could not ensure user_signal_preferences table (non-fatal):",
+      e?.message?.slice(0, 200),
+    );
+  }
+
+  try {
+    runPrisma(
       "ensure business seed table",
       `node ${path.join(rootDir, "scripts", "ensure-business-seed-table.mjs")}`,
     );

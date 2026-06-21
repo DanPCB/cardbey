@@ -344,6 +344,79 @@ export async function execute(_input = {}, context = {}) {
     console.warn('[structured_store_build] store QA auto-fix skipped:', qaErr?.message ?? qaErr);
   }
 
+  try {
+    const draftAfterQa = await prisma.draftStore.findUnique({
+      where: { id: draftIdForRun },
+      select: { preview: true, input: true },
+    });
+    const previewAfterQa =
+      draftAfterQa?.preview && typeof draftAfterQa.preview === 'object' && !Array.isArray(draftAfterQa.preview)
+        ? draftAfterQa.preview
+        : {};
+    const itemsAfterQa = Array.isArray(previewAfterQa.items) ? previewAfterQa.items.map((x) => ({ ...x })) : [];
+    const missingImages =
+      itemsAfterQa.length > 0 &&
+      itemsAfterQa.some((p) => !p?.imageUrl || !String(p.imageUrl).trim());
+    if (missingImages) {
+      const { fillMissingDraftItemImages } = await import('../../../services/draftStore/fillMissingDraftItemImages.js');
+      const { patched } = await fillMissingDraftItemImages({
+        items: itemsAfterQa,
+        categories: Array.isArray(previewAfterQa.categories) ? previewAfterQa.categories : [],
+        storeName: previewAfterQa.storeName || businessName,
+        storeType: previewAfterQa.storeType || businessType,
+        location: previewAfterQa.location ?? location ?? null,
+        generationProfile:
+          previewAfterQa.meta?.generationProfile ??
+          draftAfterQa?.input?.generationProfile ??
+          draftAfterQa?.input?.classificationProfile ??
+          null,
+      });
+      if (patched > 0) {
+        const { patchDraftPreview } = await import('../../../services/draftStore/draftStoreService.js');
+        await patchDraftPreview(draftIdForRun, { items: itemsAfterQa });
+        console.log('[structured_store_build] post-QA image backfill patched', {
+          missionId,
+          draftId: draftIdForRun,
+          patched,
+        });
+      }
+    }
+    const heroMissing = !previewAfterQa.heroImageUrl && !previewAfterQa.hero?.imageUrl;
+    if (heroMissing) {
+      try {
+        const heroMod = await import('../../../services/mi/heroGenerationService.ts');
+        const generateHeroForDraft = heroMod.generateHeroForDraft ?? heroMod.default?.generateHeroForDraft;
+        if (typeof generateHeroForDraft === 'function') {
+          const { hero } = await generateHeroForDraft({
+            storeName: previewAfterQa.storeName || businessName,
+            businessType: previewAfterQa.storeType || businessType,
+            storeType: previewAfterQa.storeType || businessType,
+            verticalSlug: previewAfterQa.meta?.verticalSlug ?? null,
+            verticalGroup: previewAfterQa.meta?.verticalGroup ?? null,
+          });
+          const heroUrl = hero?.imageUrl ?? null;
+          if (heroUrl) {
+            const { patchDraftPreview } = await import('../../../services/draftStore/draftStoreService.js');
+            const { applyPipelineGeneratedHeroImage } = await import(
+              '../../../services/draftStore/draftPreviewHeroSync.js'
+            );
+            const heroPreview = { ...previewAfterQa };
+            if (applyPipelineGeneratedHeroImage(heroPreview, heroUrl, { writer: 'structured_store_build', draftId: draftIdForRun })) {
+              await patchDraftPreview(draftIdForRun, {
+                heroImageUrl: heroPreview.heroImageUrl,
+                hero: heroPreview.hero,
+              });
+            }
+          }
+        }
+      } catch (heroBackfillErr) {
+        console.warn('[structured_store_build] post-QA hero backfill skipped:', heroBackfillErr?.message ?? heroBackfillErr);
+      }
+    }
+  } catch (imageBackfillErr) {
+    console.warn('[structured_store_build] post-QA image backfill skipped:', imageBackfillErr?.message ?? imageBackfillErr);
+  }
+
   if (checkpointLogoUrl) {
     try {
       const { applyCheckpointLogoToDraft } = await import('../../../services/draftStore/logoUpdateService.js');

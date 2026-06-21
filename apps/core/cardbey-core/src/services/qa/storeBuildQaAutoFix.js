@@ -181,7 +181,7 @@ export function inferVerticalFromBusinessName(businessName, businessType) {
  * @param {string} storeType
  * @returns {Promise<string[]>}
  */
-async function fixMissingProductImages(items, verticalSlug, storeType) {
+async function fixMissingProductImages(items, verticalSlug, storeType, opts = {}) {
   const fixed = [];
   const vertical =
     (verticalSlug && verticalSlug.split('.')[0]) ||
@@ -205,12 +205,11 @@ async function fixMissingProductImages(items, verticalSlug, storeType) {
       (item.category && String(item.category).trim()) ||
       storeType ||
       null;
-    const stableId = item.id ?? item.productId ?? `item_${i}`;
     const resolved = await getSeedImageForCategory({
       vertical,
       categoryKey,
       orientation: 'landscape',
-      stableId,
+      businessName: opts.storeName ?? null,
     });
 
     if (debugImages) {
@@ -229,7 +228,32 @@ async function fixMissingProductImages(items, verticalSlug, storeType) {
       fixed.push(`products[${i}].imageUrl`);
     }
   }
-  return fixed;
+
+  const stillMissing = items.some((item) => item && !resolveUsableDraftItemImageUrl(item));
+  if (stillMissing) {
+    const { fillMissingDraftItemImages } = await import('../draftStore/fillMissingDraftItemImages.js');
+    const { patched } = await fillMissingDraftItemImages({
+      items,
+      categories: Array.isArray(opts.categories) ? opts.categories : [],
+      storeName: opts.storeName ?? null,
+      storeType,
+      location: opts.location ?? null,
+      generationProfile: opts.generationProfile ?? null,
+      maxItems: 30,
+    });
+    if (patched > 0) {
+      for (let i = 0; i < items.length; i++) {
+        if (resolveUsableDraftItemImageUrl(items[i])) {
+          fixed.push(`products[${i}].imageUrl`);
+        }
+      }
+      if (debugImages) {
+        console.log('[imagefix-debug] pexels fallback patched', { patched });
+      }
+    }
+  }
+
+  return [...new Set(fixed)];
 }
 
 /**
@@ -769,6 +793,12 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
       items,
       verticalSlug,
       preview.storeType || businessType,
+      {
+        storeName: preview.storeName || businessName,
+        location: preview.location ?? input?.location ?? metadata?.location ?? null,
+        categories: Array.isArray(preview.categories) ? preview.categories : [],
+        generationProfile: preview.meta?.generationProfile ?? input?.generationProfile ?? input?.classificationProfile ?? null,
+      },
     );
     autoFixed.push(...imgFixed);
     preview.items = items;
@@ -782,12 +812,30 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
       effectiveVertical(preview.storeType, preview.meta?.storeType) ||
       (verticalSlug && verticalSlug.split('.')[0]) ||
       null;
-    const heroUrl = await getSeedImageForCategory({
+    let heroUrl = await getSeedImageForCategory({
       vertical,
       categoryKey: preview.storeType || businessType,
       businessName: preview.storeName || businessName,
       orientation: 'landscape',
     });
+    if (!heroUrl) {
+      try {
+        const heroMod = await import('../mi/heroGenerationService.ts');
+        const generateHeroForDraft = heroMod.generateHeroForDraft ?? heroMod.default?.generateHeroForDraft;
+        if (typeof generateHeroForDraft === 'function') {
+          const { hero } = await generateHeroForDraft({
+            storeName: preview.storeName || businessName,
+            businessType: preview.storeType || businessType,
+            storeType: preview.storeType || businessType,
+            verticalSlug: preview.meta?.verticalSlug ?? verticalSlug ?? null,
+            verticalGroup: preview.meta?.verticalGroup ?? (verticalSlug || '').split('.')[0] ?? null,
+          });
+          heroUrl = hero?.imageUrl ?? null;
+        }
+      } catch (heroErr) {
+        console.warn('[storeBuildQaAutoFix] hero pexels fallback failed:', heroErr?.message || heroErr);
+      }
+    }
     if (heroUrl) {
       const { applyPipelineGeneratedHeroImage } = await import('../draftStore/draftPreviewHeroSync.js');
       if (applyPipelineGeneratedHeroImage(preview, heroUrl, { writer: 'storeBuildQaAutoFix', draftId })) {

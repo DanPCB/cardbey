@@ -27,7 +27,7 @@ describe('proactiveRunwayToolAllowlist vs toolRegistry', () => {
     // DANH: toolregistry-gap-fix + skill-round5 + governance promotion tools (+2)
     // Phase 4 mixed lanes: create_video, generate_video, scan_card (+3)
     // Phase 8: create_mini_website (+1)
-    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(162);
+    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(163);
   });
 });
 

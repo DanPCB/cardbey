@@ -8,6 +8,17 @@ import {
 import { hydrateCompletedStepNumbers, mergeProactiveStepStatus } from '../runtimeStepState.js';
 
 describe('runtimeToolRegistry', () => {
+  it('create_store is accepted by runtime registry', () => {
+    expect(isProactiveRunwayTool('create_store')).toBe(true);
+    expect(isRuntimeTool('create_store')).toBe(true);
+    const result = assertExecutableTool('create_store');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.canonicalTool).toBe('create_store');
+      expect(result.dispatchTool).toBe('create_store');
+    }
+  });
+
   it('analyze_store is accepted by runtime registry', () => {
     expect(isProactiveRunwayTool('analyze_store')).toBe(true);
     expect(isRuntimeTool('analyze_store')).toBe(true);
