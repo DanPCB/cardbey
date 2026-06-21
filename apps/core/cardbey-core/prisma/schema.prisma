@@ -3262,6 +3262,30 @@ model Observation {
   @@map("observations")
 }
 
+/// Batched frontend errors for self-diagnosis correlation with backend observations.
+model FrontendError {
+  id           String   @id @default(cuid())
+  userId       String?
+  sessionId    String
+  type         String
+  message      String
+  filename     String?
+  lineNumber   Int?
+  columnNumber Int?
+  stack        String?
+  url          String?
+  status       Int?
+  metadata     Json     @default("{}")
+  timestamp    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([type])
+  @@index([timestamp])
+  @@map("frontend_errors")
+}
+
 // Proactive copilot suggestions queue (governed client handoff; no auto-execute).
 model CopilotSuggestion {
   id         String    @id @default(cuid())

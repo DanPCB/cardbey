@@ -268,6 +268,7 @@ import runtimeTargetReadinessRoutes from './routes/runtimeTargetReadinessRoutes.
 import runtimeSessionRoutes from './routes/runtimeSessionRoutes.js';
 import runtimeCapabilitiesRoutes from './routes/runtimeCapabilitiesRoutes.js';
 import runtimeDiagnosticsRoutes from './routes/runtimeDiagnosticsRoutes.js';
+import diagnosticsRoutes from './routes/diagnosticsRoutes.js';
 import { initRuntimeCapabilities } from './lib/runtime/runtimeCapabilitiesService.js';
 import performerMissionsRoutes from './routes/performerMissionsRoutes.js';
 import performerDesignRoutes from './routes/performerDesignRoutes.js';
@@ -926,6 +927,7 @@ app.use('/api/runtime/target', runtimeTargetReadinessRoutes);
 app.use('/api/runtime/session', runtimeSessionRoutes);
 app.use('/api/runtime/capabilities', runtimeCapabilitiesRoutes);
 app.use('/api/runtime', runtimeDiagnosticsRoutes);
+app.use('/api/diagnostics', diagnosticsRoutes);
 initRuntimeCapabilities();
 app.use('/api/performer/missions', performerMissionsRoutes);
 app.use('/api/performer/design', performerDesignRoutes);

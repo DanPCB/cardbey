@@ -107,10 +107,16 @@ model Business {
   isActive     Boolean  @default(true)
   tradingHours Json? // JSON object for trading hours
   address      String?
+  addressLine2 String?
   suburb       String?
+  city         String?
   state        String?
   postcode     String?
   country      String?
+  formattedAddress String?
+  locationSource String?
+  locationConfidence String?
+  osmPlaceId   String?
   phone        String?
   email        String?
   websiteUrl   String?
@@ -2308,10 +2314,16 @@ model DraftStore {
   email           String?
   websiteUrl      String?
   address         String?
+  addressLine2    String?
   suburb          String?
+  city            String?
   state           String?
   postcode        String?
   country         String?
+  formattedAddress String?
+  locationSource  String?
+  locationConfidence String?
+  osmPlaceId      String?
   mapUrl          String?
   lat             Float?
   lng             Float?
@@ -3265,6 +3277,30 @@ model Observation {
   @@index([isRealExecution])
   @@index([createdAt])
   @@map("observations")
+}
+
+/// Batched frontend errors for self-diagnosis correlation with backend observations.
+model FrontendError {
+  id           String   @id @default(cuid())
+  userId       String?
+  sessionId    String
+  type         String
+  message      String
+  filename     String?
+  lineNumber   Int?
+  columnNumber Int?
+  stack        String?
+  url          String?
+  status       Int?
+  metadata     Json     @default("{}")
+  timestamp    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([type])
+  @@index([timestamp])
+  @@map("frontend_errors")
 }
 
 model CopilotSuggestion {
