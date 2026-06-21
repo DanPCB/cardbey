@@ -362,26 +362,27 @@ export async function classifyIntent(opts) {
       /launch.*campaign/i.test(msg) ||
       /go.*live.*campaign/i.test(msg))
   ) {
-    return {
-      executionPath: 'direct_action',
+    return normalizeClassificationForKernel({
+      executionPath: 'proactive_plan',
       tool: 'activate_campaigns',
       confidence: CONFIDENCE.HIGH,
       parameters: { storeId: resolvedStoreId },
       _fastPath: 'activate_campaigns',
-    };
+    });
   }
 
   if (isCampaignOrchestrationIntent(msg)) {
-    return {
-      intentType: 'campaign_orchestration',
-      missionType: 'campaign_orchestration',
-      executionPath: 'campaign_orchestration',
-      tool: null,
+    return normalizeClassificationForKernel({
+      executionPath: 'proactive_plan',
+      tool: 'launch_campaign',
       confidence: 0.85,
-      skipPlan: true,
-      parameters: {},
+      parameters: {
+        campaignContext: msg,
+        hint: msg,
+        ...(resolvedStoreId ? { storeId: resolvedStoreId } : {}),
+      },
       _fastPath: 'campaign_orchestration',
-    };
+    });
   }
 
   const storeCreateFastPath = tryStoreCreateFastPath(msg, {

@@ -1,0 +1,28 @@
+[
+  {
+    "runId": "2a24d324-d361-41d2-a705-e8fc8fa798de",
+    "sourceType": "owner_submission",
+    "sourceReference": "discovery-engine:referral",
+    "startedAt": "2026-06-20T10:27:34.074Z",
+    "completedAt": "2026-06-20T10:27:34.076Z",
+    "recordsFetched": 1,
+    "recordsNormalized": 1,
+    "duplicatesRemoved": 0,
+    "possibleDuplicates": 0,
+    "uniqueRecords": 1,
+    "seedsCreated": 1,
+    "seedsUpdated": 0,
+    "seedsSkippedExisting": 0,
+    "businessStoresPersisted": 0,
+    "qualityBreakdown": {
+      "high_quality": 0,
+      "medium_quality": 0,
+      "low_quality": 1
+    },
+    "sourceBreakdown": {
+      "owner_submission": 1
+    },
+    "claimRate": 0,
+    "verificationRate": 0
+  }
+]

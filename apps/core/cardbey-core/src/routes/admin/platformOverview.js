@@ -9,6 +9,11 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import { getPrismaClient } from '../../lib/prisma.js';
+import {
+  EXECUTION_STATES,
+  isRealExecution,
+  isSloSuccessState,
+} from '../../lib/telemetry/executionStates.js';
 import { listSeedRecords } from '../../lib/businessIngestion/IngestionRepository.js';
 import { buildEcosystemGraph } from '../../lib/platformEcosystem/buildEcosystemGraph.js';
 import checkCnetConfig from '../../lib/toolExecutors/cnet/check_cnet_config.js';
@@ -182,7 +187,7 @@ router.get('/platform/runtime-metrics', async (req, res) => {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const since7d = startOfDayOffset(7);
 
-    const [activeMissions, queuedMissions, failedMissions, obsTotal24h, obsSuccess24h] =
+    const [activeMissions, queuedMissions, failedMissions, obsTotal24h, obsRows24h] =
       await Promise.all([
         prisma.missionPipeline.count({
           where: { status: { in: ['running', 'queued', 'awaiting_input'] } },
@@ -190,35 +195,84 @@ router.get('/platform/runtime-metrics', async (req, res) => {
         prisma.missionPipeline.count({ where: { status: 'queued' } }),
         prisma.missionPipeline.count({ where: { status: 'failed' } }),
         prisma.observation.count({ where: { createdAt: { gte: since24h } } }),
-        prisma.observation.count({
-          where: { createdAt: { gte: since24h }, outcome: 'success' },
+        prisma.observation.findMany({
+          where: { createdAt: { gte: since24h } },
+          select: {
+            outcome: true,
+            executionState: true,
+            isRealExecution: true,
+            actionType: true,
+            error: true,
+          },
+          take: 5000,
+          orderBy: { createdAt: 'desc' },
         }),
       ]);
 
-    const successRatePct =
-      obsTotal24h > 0 ? Math.round((obsSuccess24h / obsTotal24h) * 100) : 0;
+    const realRows = obsRows24h.filter(
+      (row) => row.isRealExecution !== false && isRealExecution(row.executionState),
+    );
+    const stubRows = obsRows24h.filter((row) => row.executionState === EXECUTION_STATES.STUBBED);
+    const realSuccess24h = realRows.filter(
+      (row) => row.outcome === 'success' && isSloSuccessState(row.executionState),
+    ).length;
+    const stubSuccess24h = stubRows.filter((row) => row.outcome === 'success').length;
+
+    const realSuccessRatePct =
+      realRows.length > 0 ? Math.round((realSuccess24h / realRows.length) * 100) : 100;
+    const stubSuccessRatePct =
+      stubRows.length > 0 ? Math.round((stubSuccess24h / stubRows.length) * 100) : 0;
+    const successRatePct = realSuccessRatePct;
 
     const failureRows = await prisma.observation.findMany({
       where: { outcome: 'failure', createdAt: { gte: since7d } },
       orderBy: { createdAt: 'desc' },
       take: 500,
-      select: { actionType: true, error: true },
+      select: {
+        actionType: true,
+        error: true,
+        executionState: true,
+        isRealExecution: true,
+      },
     });
 
     /** @type {Map<string, { count: number; errors: string[] }>} */
-    const map = new Map();
+    const realFailureMap = new Map();
+    /** @type {Map<string, { count: number; errors: string[] }>} */
+    const stubFailureMap = new Map();
     for (const row of failureRows) {
       const action = String(row.actionType || 'unknown');
+      const isStub =
+        row.executionState === EXECUTION_STATES.STUBBED ||
+        row.isRealExecution === false ||
+        !isRealExecution(row.executionState);
+      const map = isStub ? stubFailureMap : realFailureMap;
       const current = map.get(action) ?? { count: 0, errors: [] };
       current.count += 1;
       if (row.error && current.errors.length < 5) current.errors.push(String(row.error));
       map.set(action, current);
     }
 
-    const failurePatterns = [...map.entries()]
-      .map(([action, data]) => ({ action, count: data.count, errors: data.errors }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+    const mapToPatterns = (map) =>
+      [...map.entries()]
+        .map(([action, data]) => ({ action, count: data.count, errors: data.errors }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+    const failurePatterns = mapToPatterns(realFailureMap);
+    const stubFailurePatterns = mapToPatterns(stubFailureMap);
+    const realFailures = failureRows.filter(
+      (row) =>
+        row.isRealExecution !== false &&
+        isRealExecution(row.executionState) &&
+        row.outcome === 'failure',
+    ).length;
+    const stubFailures = failureRows.filter(
+      (row) =>
+        row.executionState === EXECUTION_STATES.STUBBED ||
+        row.isRealExecution === false ||
+        !isRealExecution(row.executionState),
+    ).length;
 
     res.json({
       ok: true,
@@ -226,8 +280,15 @@ router.get('/platform/runtime-metrics', async (req, res) => {
       queuedMissions,
       failedMissions,
       successRatePct,
+      realSuccessRatePct,
+      stubSuccessRatePct,
+      realFailures,
+      stubFailures,
       observationCount24h: obsTotal24h,
+      realExecutions24h: realRows.length,
+      stubExecutions24h: stubRows.length,
       failurePatterns,
+      stubFailurePatterns,
       window: { since24h: since24h.toISOString(), since7d: since7d.toISOString() },
     });
   } catch (e) {

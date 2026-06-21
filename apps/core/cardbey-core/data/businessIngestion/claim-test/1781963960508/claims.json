@@ -1,0 +1,19 @@
+[
+  {
+    "id": "c5b28559-78ee-4b1c-a5f0-83894e526c82",
+    "seedId": "reject-1",
+    "claimantUserId": "user-rej-1",
+    "proofType": "email",
+    "proofContact": "owner@claimable.example.com",
+    "proofStatus": "rejected",
+    "claimStatus": "rejected",
+    "createdAt": "2026-06-20T13:59:20.548Z",
+    "updatedAt": "2026-06-20T13:59:20.603Z",
+    "expiresAt": "2026-06-27T13:59:20.548Z",
+    "attempts": 0,
+    "verifiedAt": null,
+    "rejectionReason": "Suspicious contact",
+    "duplicateBlockedStoreId": null,
+    "claimStartedAt": "2026-06-20T13:59:20.548Z"
+  }
+]

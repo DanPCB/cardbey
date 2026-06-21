@@ -48,6 +48,9 @@ describe('Runtime Kernel Mandatory', () => {
   it('allows kernel-authorized sources', () => {
     expect(assertKernelAuthorizedExecution({ source: 'performer_proactive_step' }).ok).toBe(true);
     expect(assertKernelAuthorizedExecution({ source: 'factory_runtime_api' }).ok).toBe(true);
+    expect(assertKernelAuthorizedExecution({ source: 'intake_v2_unified' }).ok).toBe(true);
+    expect(assertKernelAuthorizedExecution({ source: 'intake_v2_confirm' }).ok).toBe(true);
+    expect(assertKernelAuthorizedExecution({ source: 'agent_orchestration' }).ok).toBe(true);
   });
 
   it('normalizes direct_action to proactive_plan under kernel mandatory', () => {

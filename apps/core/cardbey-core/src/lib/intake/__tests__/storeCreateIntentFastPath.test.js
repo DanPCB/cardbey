@@ -18,7 +18,7 @@ describe('storeCreateIntentFastPath', () => {
   it('fast-path classifies create a store for my business', () => {
     const result = tryStoreCreateFastPath('Create a store for my business', {});
     expect(result?.tool).toBe('create_store');
-    expect(result?.executionPath).toBe('direct_action');
+    expect(result?.executionPath).toBe('proactive_plan');
     expect(result?.parameters?._autoSubmit).toBe(true);
   });
 

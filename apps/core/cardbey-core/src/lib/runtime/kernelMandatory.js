@@ -68,12 +68,15 @@ export const KERNEL_AUTHORIZED_RUNTIME_SOURCES = new Set([
   'factory_runtime',
   'factory_intent_router',
   'intake_v2_factory_intent',
+  'intake_v2_unified',
+  'intake_v2_confirm',
   'run_mission_until_blocked',
   'skill_router',
   'orchestra_start',
   'factory_runtime_api',
   'performer_runtime',
   'intent_hybrid_router',
+  'agent_orchestration',
 ]);
 
 /**

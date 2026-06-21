@@ -72,14 +72,15 @@ const EXTERNAL_CAPABILITIES = [
     category: 'network',
     label: 'C-Net integration',
     envKeys: ['CNET_API_KEY', 'CNET_ENDPOINT'],
-    executorTools: [],
+    executorTools: ['deploy_to_cnet'],
     featureKey: 'cnet',
     costUnit: 'request',
     resolve(env = process.env) {
-      const available =
-        Boolean(env.CNET_API_KEY?.trim()) && Boolean(env.CNET_ENDPOINT?.trim());
+      const endpoint = (env.CNET_ENDPOINT || env.CNET_BASE_URL || '').trim();
+      const available = Boolean(env.CNET_API_KEY?.trim()) && Boolean(endpoint);
       return {
         available,
+        provider: available ? 'cnet' : 'none',
         message: available ? null : 'Requires CNET_API_KEY and CNET_ENDPOINT setup',
       };
     },

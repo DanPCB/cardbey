@@ -1,0 +1,13 @@
+[
+  {
+    "id": "742fd9d2-3c7b-4964-84a9-2b72e9765db1",
+    "seedId": "verify-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-qa",
+    "timestamp": "2026-06-20T13:59:20.020Z",
+    "reason": null,
+    "canonicalSeedId": null
+  }
+]

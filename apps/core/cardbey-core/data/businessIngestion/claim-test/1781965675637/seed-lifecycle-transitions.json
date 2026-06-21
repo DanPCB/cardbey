@@ -1,0 +1,46 @@
+[
+  {
+    "id": "05194361-5dad-4e2e-a37e-cca19d8a4198",
+    "seedId": "reject-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:27:55.657Z"
+  },
+  {
+    "id": "aedcba68-c59d-490f-ae3e-c315168b7464",
+    "seedId": "reject-1",
+    "fromStatus": "seeded_claimable",
+    "toStatus": "claim_pending",
+    "lifecycleStage": "claim_pending",
+    "action": "claim_start",
+    "actorId": "user-rej-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "ca739c63-05a7-423d-b6b1-fc579606f17c",
+    "metadata": {
+      "proofType": "email"
+    },
+    "createdAt": "2026-06-20T14:27:55.671Z"
+  },
+  {
+    "id": "00c0a100-51d8-4804-8090-e8e95caaeccc",
+    "seedId": "reject-1",
+    "fromStatus": "claim_pending",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "claim_reject",
+    "actorId": "admin-1",
+    "actorType": "admin",
+    "reason": "Suspicious contact",
+    "claimRequestId": "ca739c63-05a7-423d-b6b1-fc579606f17c",
+    "metadata": {},
+    "createdAt": "2026-06-20T14:27:55.741Z"
+  }
+]

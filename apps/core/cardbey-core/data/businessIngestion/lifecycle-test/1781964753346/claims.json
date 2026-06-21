@@ -1,0 +1,19 @@
+[
+  {
+    "id": "3e518708-b055-46a7-8ae7-b2f369285a2a",
+    "seedId": "claim-flow-1",
+    "claimantUserId": "owner-user",
+    "proofType": "email",
+    "proofContact": "owner@lifecycle.example.com",
+    "proofStatus": "verified",
+    "claimStatus": "verified",
+    "createdAt": "2026-06-20T14:12:33.377Z",
+    "updatedAt": "2026-06-20T14:12:33.509Z",
+    "expiresAt": "2026-06-27T14:12:33.377Z",
+    "attempts": 0,
+    "verifiedAt": "2026-06-20T14:12:33.509Z",
+    "rejectionReason": null,
+    "duplicateBlockedStoreId": null,
+    "claimStartedAt": "2026-06-20T14:12:33.377Z"
+  }
+]

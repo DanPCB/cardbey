@@ -62,6 +62,7 @@ import * as apply_homepage_feature from './homepage/apply_homepage_feature.js';
 import * as assign_promotion_slot from './promotion/assign_promotion_slot.js';
 import * as activate_promotion from './promotion/activate_promotion.js';
 import * as create_promotion from './promotion/create_promotion.js';
+import * as create_offer from './promotion/create_offer.js';
 import * as create_offer_draft from './promotion/create_offer_draft.js';
 import * as revise_offer_draft from './promotion/revise_offer_draft.js';
 import * as launch_campaign from './promotion/launch_campaign.js';
@@ -98,7 +99,7 @@ import * as apply_patch from './maintenance/apply_patch.js';
 import * as query_control_tower from './maintenance/query_control_tower.js';
 import * as detect_i18n_gaps from './maintenance/detect_i18n_gaps.js';
 import * as apply_i18n_translations from './maintenance/apply_i18n_translations.js';
-import { getPrismaClient } from '../prisma.js';
+import { EXECUTION_STATES } from '../telemetry/executionStates.js';
 import { scanHardcodedStrings } from './i18n/scanHardcodedStrings.js'
 import { checkI18nKey }         from './i18n/checkI18nKey.js'
 import { addI18nKey }           from './i18n/addI18nKey.js'
@@ -129,6 +130,7 @@ import * as activate_campaigns from './campaign/activate_campaigns.js'; // DANH:
 import * as resolve_vision_location from './vision/resolve_vision_location.js';
 import * as classify_vision_event from './vision/classify_vision_event.js';
 import * as route_vision_event from './vision/route_vision_event.js';
+import * as mission_conditional_branch from './mission/mission_conditional_branch.js';
 import * as create_ghost_store from './ghost/create_ghost_store.js';
 import * as enrich_ghost_store from './ghost/enrich_ghost_store.js';
 
@@ -139,7 +141,12 @@ function honestBlocker(toolName, message) {
       return {
         status: 'blocked',
         reason: 'not_implemented',
-        output: { toolName, message },
+        output: {
+          toolName,
+          message,
+          executionState: EXECUTION_STATES.BLOCKED,
+          blocked: true,
+        },
       };
     },
   };
@@ -238,6 +245,7 @@ export const executors = {
   assign_promotion_slot,
   activate_promotion,
   create_promotion,
+  create_offer,
   create_offer_draft,
   revise_offer_draft,
   launch_campaign,
@@ -298,26 +306,8 @@ export const executors = {
     'generate_promotion_asset',
     'Promotion asset generation is not implemented yet.',
   ),
-  mission_pipeline_stub: {
-    async execute(input = {}, context = {}) {
-      const stepId = typeof context?.stepId === 'string' ? context.stepId.trim() : '';
-      if (stepId) {
-        try {
-          const prisma = getPrismaClient();
-          await prisma.missionPipelineStep.update({
-            where: { id: stepId },
-            data: { status: 'completed', outputsJson: { passed: true }, completedAt: new Date() },
-          });
-        } catch {
-          // Best-effort: runner also persists completion; never block stub execution.
-        }
-      }
-      return {
-        status: 'ok',
-        output: { ok: true, output: { passed: true } },
-      };
-    },
-  },
+  mission_conditional_branch,
+  mission_pipeline_stub: mission_conditional_branch,
   resolve_target_screens: honestBlocker(
     'resolve_target_screens',
     'Target screen resolution is not implemented yet.',
@@ -334,7 +324,6 @@ export const executors = {
     'activate_screen_content',
     'Screen content activation is not implemented yet.',
   ),
-  create_offer: honestBlocker('create_offer', 'Offer creation is not implemented yet. Use create_offer_draft.'),
   smart_visual: honestBlocker(
     'smart_visual',
     'Smart visual generation is coming soon. Use search_hero_media or edit_artifact meanwhile.',

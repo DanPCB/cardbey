@@ -64,8 +64,9 @@ function createHttpClient(baseUrl, apiKey) {
  * @returns {CNetClient}
  */
 export function makeCNetClient() {
-  if (process.env.CNET_BASE_URL) {
-    return createHttpClient(process.env.CNET_BASE_URL, process.env.CNET_API_KEY);
+  const baseUrl = (process.env.CNET_BASE_URL || process.env.CNET_ENDPOINT || '').trim();
+  if (baseUrl) {
+    return createHttpClient(baseUrl, process.env.CNET_API_KEY);
   }
   return createMockClient();
 }

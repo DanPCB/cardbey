@@ -24,8 +24,8 @@ describe('proactiveRunwayToolAllowlist vs toolRegistry', () => {
   });
 
   it('PROACTIVE_RUNWAY_TOOL_SET size is stable (Phase 3-1 contract)', () => {
-    // DANH: toolregistry-gap-fix + skill-round5 — +15 registry tools (6 gaps + 9 round5)
-    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(155);
+    // DANH: toolregistry-gap-fix + skill-round5 + governance promotion tools (+2)
+    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(158);
   });
 });
 
@@ -79,6 +79,8 @@ describe('SYNONYM_TOOL_NAMES', () => {
       'general_chat',
       'code_fix',
       'generate_slideshow',
+      'create_video',
+      'video_generate_multimodal',
       'start_build_store',
       'get_draft_by_run',
       'get_draft_summary',

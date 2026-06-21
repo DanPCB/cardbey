@@ -1,0 +1,91 @@
+[
+  {
+    "id": "9910f812-a937-45ea-aaae-28296b10ca58",
+    "seedId": "activate-1",
+    "claimRequestId": "507d2911-a7a8-4c39-9533-f0a7c168884d",
+    "action": "claim_started",
+    "actorId": "user-act-1",
+    "previousStatus": "seeded_claimable",
+    "nextStatus": "pending",
+    "reason": null,
+    "timestamp": "2026-06-20T14:27:55.360Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "55346a95-0770-4540-9d77-1f6627d1d5c8",
+    "seedId": "activate-1",
+    "claimRequestId": "507d2911-a7a8-4c39-9533-f0a7c168884d",
+    "action": "proof_submitted",
+    "actorId": "user-act-1",
+    "previousStatus": "pending",
+    "nextStatus": "proof_submitted",
+    "reason": null,
+    "timestamp": "2026-06-20T14:27:55.361Z",
+    "metadata": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    },
+    "details": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    }
+  },
+  {
+    "id": "3ed46e16-5d26-4297-9551-9faeae16f092",
+    "seedId": "activate-1",
+    "claimRequestId": "507d2911-a7a8-4c39-9533-f0a7c168884d",
+    "action": "otp_sent",
+    "actorId": "user-act-1",
+    "previousStatus": "proof_submitted",
+    "nextStatus": "otp_sent",
+    "reason": null,
+    "timestamp": "2026-06-20T14:27:55.380Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "38538461-bc38-48ea-a138-bad3923cb6ec",
+    "seedId": "activate-1",
+    "claimRequestId": "507d2911-a7a8-4c39-9533-f0a7c168884d",
+    "action": "proof_verified",
+    "actorId": "user-act-1",
+    "previousStatus": "otp_sent",
+    "nextStatus": "verified",
+    "reason": null,
+    "timestamp": "2026-06-20T14:27:55.403Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "acfb00bd-43cb-4b9e-8d79-6fb83b09539b",
+    "seedId": "activate-1",
+    "claimRequestId": "507d2911-a7a8-4c39-9533-f0a7c168884d",
+    "action": "seed_activated",
+    "actorId": "user-act-1",
+    "previousStatus": "verified_owner",
+    "nextStatus": "active",
+    "reason": null,
+    "timestamp": "2026-06-20T14:27:55.458Z",
+    "metadata": {
+      "storeId": "store-linked-1",
+      "activatedAt": "2026-06-20T14:27:55.441Z"
+    },
+    "details": {
+      "storeId": "store-linked-1",
+      "activatedAt": "2026-06-20T14:27:55.441Z"
+    }
+  }
+]

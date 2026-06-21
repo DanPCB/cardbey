@@ -1,0 +1,16 @@
+[
+  {
+    "id": "77a2415b-c2e1-4ab9-a295-ccde54275245",
+    "seedId": "seed-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-1",
+    "actorType": "admin",
+    "reason": "Looks good",
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:00:22.509Z"
+  }
+]

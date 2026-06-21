@@ -4,6 +4,11 @@
  */
 
 import { getPrismaClient } from '../prisma.js';
+import {
+  isRealExecution,
+  isSloSuccessState,
+  resolveExecutionState,
+} from '../telemetry/executionStates.js';
 
 /** @type {Array<object>} */
 const observationRing = [];
@@ -92,11 +97,18 @@ export function isProbeObservationContext(contextSnapshot) {
 
 /**
  * Whether an observation counts toward API success-rate SLO.
- * @param {{ outcome?: string; actionType?: string; intentType?: string; contextSnapshot?: unknown; error?: string | null }} row
+ * @param {{ outcome?: string; actionType?: string; intentType?: string; contextSnapshot?: unknown; error?: string | null; executionState?: string; isRealExecution?: boolean }} row
  */
 export function isObservationSuccessRateEligible(row) {
   if (!isObservationSloEligible(row)) return false;
-  if (row.outcome === 'success') return true;
+
+  const executionState = String(row.executionState ?? '').trim();
+  if (row.isRealExecution === false) return false;
+  if (executionState && !isRealExecution(executionState)) return false;
+
+  if (row.outcome === 'success') {
+    return executionState ? isSloSuccessState(executionState) : true;
+  }
   if (isInfrastructureSloFailure(row.error)) return false;
   if (isPermissionHookFailure(row.error)) return false;
   if (isProbeObservationContext(row.contextSnapshot)) return false;
@@ -154,12 +166,20 @@ export class ObservationBus {
     const outcome = success ? 'success' : 'failure';
     const metadata = execution?.metadata && typeof execution.metadata === 'object' ? execution.metadata : {};
     const latency = normalizeObservationLatencyMs(metadata);
+    const executionState = resolveExecutionState({
+      metadata,
+      result: execution?.result,
+      actionType,
+    });
+    const realExecution = isRealExecution(executionState);
 
     const row = {
       id: `obs_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       missionId: execution?.missionId ? String(execution.missionId) : null,
       intentType,
       actionType,
+      executionState,
+      isRealExecution: realExecution,
       outcome,
       error: execution?.result?.error ? String(execution.result.error) : null,
       latency,
@@ -172,11 +192,15 @@ export class ObservationBus {
         userId: metadata.userId ?? null,
         userType: metadata.actorType ?? null,
         source: metadata.source ?? null,
+        executionState,
+        isRealExecution: realExecution,
         sloEligible: isObservationSloEligible({
           actionType,
           intentType,
           contextSnapshot: null,
           latency,
+          executionState,
+          isRealExecution: realExecution,
         }) && metadata.sloEligible !== false,
       },
       createdAt: new Date().toISOString(),
@@ -195,6 +219,8 @@ export class ObservationBus {
             missionId: row.missionId,
             intentType: row.intentType,
             actionType: row.actionType,
+            executionState: row.executionState,
+            isRealExecution: row.isRealExecution,
             outcome: row.outcome,
             error: row.error,
             latency: row.latency,
@@ -219,6 +245,7 @@ export class ObservationBus {
    * @param {object} observation
    */
   async updateLearningWeights(observation) {
+    if (observation.isRealExecution === false) return;
     const key = weightKey(observation.intentType, observation.actionType);
     const current = learningWeights.get(key) ?? { success: 0, failure: 0 };
     if (observation.outcome === 'success') current.success += 1;

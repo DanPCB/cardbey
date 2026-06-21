@@ -1,18 +1,24 @@
 /**
- * Growth Command Center service — governed CRM, batch creation, audit, outreach.
- * Reuses ingestion/seed builders; never publishes without explicit review approval.
+ * Growth Command Center service — CRM, lead import, Discovery promotion, outreach.
+ * Store creation is governed by Discovery Engine V1 only (see growthGovernanceConfig).
  */
 
 import { getPrismaClient } from '../prisma.js';
 import { buildSeedStorePreview } from '../businessIngestion/SeedStoreBuilder.js';
 import { buildIngestionDashboardMetrics, listQaQueue } from '../businessIngestion/index.js';
+import { listSeedRecords } from '../businessIngestion/IngestionRepository.js';
 import { sendMail } from '../../services/email/mailer.js';
+import {
+  isLegacyGrowthStoreCreationEnabled,
+  LEGACY_STORE_CREATION_DISABLED_MESSAGE,
+} from './growthGovernanceConfig.js';
 
 export const LEAD_STATUSES = [
   'new',
   'enriched',
   'qualified',
   'queued_for_creation',
+  'promoted_to_discovery',
   'draft_created',
   'review_required',
   'contacted',
@@ -184,40 +190,82 @@ export async function buildGrowthSummaryMetrics() {
   const [
     totalLeads,
     qualifiedLeads,
-    queuedForCreation,
-    draftCreated,
-    reviewRequired,
-    contacted,
-    interested,
+    promotedToDiscovery,
     onboarded,
     batches,
     campaigns,
+    promotedLeadRows,
   ] = await Promise.all([
     prisma.executiveLead.count(),
     prisma.executiveLead.count({ where: { leadStatus: { in: ['qualified', 'enriched'] } } }),
-    prisma.executiveLead.count({ where: { leadStatus: 'queued_for_creation' } }),
-    prisma.executiveLead.count({ where: { leadStatus: 'draft_created' } }),
-    prisma.executiveLead.count({ where: { leadStatus: 'review_required' } }),
-    prisma.executiveLead.count({ where: { leadStatus: 'contacted' } }),
-    prisma.executiveLead.count({ where: { leadStatus: 'interested' } }),
+    prisma.executiveLead.count({
+      where: {
+        OR: [{ businessSeedId: { not: null } }, { leadStatus: 'promoted_to_discovery' }],
+      },
+    }),
     prisma.executiveLead.count({ where: { leadStatus: 'onboarded' } }),
     prisma.growthBatch.findMany({ orderBy: { createdAt: 'desc' }, take: 10 }),
     prisma.outreachCampaign.aggregate({ _sum: { sentCount: true, replyCount: true } }),
+    prisma.executiveLead.findMany({
+      where: { businessSeedId: { not: null } },
+      select: { businessSeedId: true },
+    }),
   ]);
+
+  const seedIds = promotedLeadRows
+    .map((row) => row.businessSeedId)
+    .filter((id): id is string => Boolean(id));
+
+  let leadsPendingQa = 0;
+  let leadsClaimed = 0;
+  if (seedIds.length) {
+    const seeds = await listSeedRecords();
+    const byId = new Map(seeds.map((s) => [s.id, s]));
+    for (const seedId of seedIds) {
+      const seed = byId.get(seedId);
+      if (!seed) continue;
+      if (seed.verificationStatus === 'seeded_pending_qa') leadsPendingQa++;
+      if (
+        seed.verificationStatus === 'claim_pending' ||
+        seed.verificationStatus === 'verified_owner' ||
+        seed.verificationStatus === 'active'
+      ) {
+        leadsClaimed++;
+      }
+      if (seed.verificationStatus === 'active') {
+        // counted in converted via onboarded + active seeds below
+      }
+    }
+  }
+
+  const activeSeedConversions = seedIds.length
+    ? (await listSeedRecords()).filter(
+        (s) => seedIds.includes(s.id) && s.verificationStatus === 'active',
+      ).length
+    : 0;
 
   const ingestion = await buildIngestionDashboardMetrics().catch(() => null);
 
   return {
     totalLeads,
     qualifiedLeads,
-    storeAutoCreationQueue: queuedForCreation,
-    createdDraftStores: draftCreated,
-    readyForReview: reviewRequired + draftCreated,
+    promotedToDiscovery,
+    leadsPendingQa,
+    leadsClaimed,
+    convertedBusinesses: onboarded + activeSeedConversions,
     marketingEmailsSent: campaigns._sum.sentCount ?? 0,
-    repliesInterested: (campaigns._sum.replyCount ?? 0) + interested,
-    convertedBusinesses: onboarded,
+    repliesInterested: campaigns._sum.replyCount ?? 0,
+    leadsPendingQa,
+    leadsClaimed,
     ingestionSeedsPendingQa: ingestion?.byVerificationStatus?.seeded_pending_qa ?? null,
     recentBatches: batches,
+    legacyStoreCreationEnabled: isLegacyGrowthStoreCreationEnabled(),
+    /** @deprecated Use promotedToDiscovery */
+    storeAutoCreationQueue: 0,
+    /** @deprecated Legacy draft-store batch metric */
+    createdDraftStores: await prisma.executiveLead.count({ where: { leadStatus: 'draft_created' } }),
+    /** @deprecated */
+    readyForReview: leadsPendingQa,
   };
 }
 
@@ -317,7 +365,8 @@ export async function listExecutiveLeads(filters: Record<string, string | undefi
     where.leadStatus = { in: ['qualified', 'enriched'] };
   }
   if (filters.readyForOutreach === 'true') {
-    where.leadStatus = { in: ['draft_created', 'review_required', 'contacted'] };
+    where.businessSeedId = { not: null };
+    where.leadStatus = { in: ['promoted_to_discovery', 'contacted'] };
     where.consentStatus = { not: 'denied' };
     where.NOT = { leadStatus: 'unsubscribed' };
   }
@@ -369,6 +418,13 @@ export async function runGrowthStoreBatch(input: {
   requestedBy: string | null;
   confirmed?: boolean;
 }) {
+  if (!isLegacyGrowthStoreCreationEnabled()) {
+    return {
+      ok: false,
+      error: 'legacy_disabled',
+      message: LEGACY_STORE_CREATION_DISABLED_MESSAGE,
+    };
+  }
   if (input.quantity > 10 && !input.confirmed) {
     return {
       ok: false,
@@ -485,79 +541,43 @@ export async function runGrowthStoreBatch(input: {
 
 export async function runGrowthReadinessAudit() {
   const prisma = getPrismaClient();
-  const [businesses, drafts, qaPending] = await Promise.all([
-    prisma.business.findMany({
-      select: {
-        id: true,
-        name: true,
-        address: true,
-        suburb: true,
-        city: true,
-        lat: true,
-        lng: true,
-        heroImageUrl: true,
-        type: true,
-        claimStatus: true,
-      },
-      take: 500,
-      orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.draftStore.findMany({
-      select: { id: true, status: true, address: true, city: true, lat: true, preview: true },
-      take: 200,
-      orderBy: { updatedAt: 'desc' },
-    }),
+  const [qaPending, ingestion, promotedCount] = await Promise.all([
     listQaQueue({ status: 'seeded_pending_qa' }).catch(() => []),
+    buildIngestionDashboardMetrics().catch(() => null),
+    prisma.executiveLead.count({ where: { businessSeedId: { not: null } } }),
   ]);
 
-  let missingLocation = 0;
-  let missingHero = 0;
-  let missingCategory = 0;
-  let readyForOutreach = 0;
-  let blocked = 0;
-
-  for (const b of businesses) {
-    const hasLoc = Boolean(b.lat && b.lng) || Boolean(b.address || b.suburb || b.city);
-    const hasHero = Boolean(b.heroImageUrl);
-    const hasCat = Boolean(b.type);
-    if (!hasLoc) missingLocation++;
-    if (!hasHero) missingHero++;
-    if (!hasCat) missingCategory++;
-    if (hasLoc && hasCat) readyForOutreach++;
-    else blocked++;
-  }
-
-  for (const d of drafts) {
-    if (!d.lat && !d.address && !d.city) missingLocation++;
-  }
-
-  const ingestion = await buildIngestionDashboardMetrics().catch(() => null);
+  const seedsPendingQa = ingestion?.byVerificationStatus?.seeded_pending_qa ?? qaPending.length;
+  const seedsClaimable = ingestion?.byVerificationStatus?.seeded_claimable ?? 0;
+  const seedsActive = ingestion?.byVerificationStatus?.active ?? 0;
 
   const recommendedNextAction =
-    qaPending.length > 0
-      ? `Review ${qaPending.length} seeds in QA queue`
-      : missingLocation > 0
-        ? `Fix location on ${missingLocation} stores/drafts`
-        : readyForOutreach > 0
-          ? `Prepare outreach for ${readyForOutreach} ready stores`
-          : 'Import and qualify new leads';
+    seedsPendingQa > 0
+      ? `Review ${seedsPendingQa} seeds in QA queue (Discovery Center)`
+      : promotedCount === 0
+        ? 'Import and qualify leads, then promote to Discovery'
+        : seedsClaimable > 0
+          ? `Monitor ${seedsClaimable} claimable seeds in Claims queue`
+          : 'Send outreach to promoted leads with governed claim links';
 
   return {
-    totalDiscoveredStores: businesses.length + drafts.length + (ingestion?.totalSeeds ?? 0),
-    storesWithMissingLocation: missingLocation,
-    storesWithMissingHero: missingHero,
-    storesWithMissingCategory: missingCategory,
-    storesReadyForOutreach: readyForOutreach,
-    storesBlocked: blocked,
-    qaPendingCount: qaPending.length,
+    totalDiscoveredStores: ingestion?.totalSeeds ?? 0,
+    storesWithMissingLocation: 0,
+    storesWithMissingHero: 0,
+    storesWithMissingCategory: 0,
+    storesReadyForOutreach: promotedCount,
+    storesBlocked: 0,
+    qaPendingCount: seedsPendingQa,
     recommendedNextAction,
     statuses: {
-      ready: readyForOutreach,
-      needsLocation: missingLocation,
-      needsMedia: missingHero,
-      needsReview: qaPending.length + drafts.filter((d) => d.status === 'ready').length,
-      blocked,
+      ready: promotedCount,
+      needsLocation: 0,
+      needsMedia: 0,
+      needsReview: seedsPendingQa,
+      blocked: 0,
     },
+    promotedLeads: promotedCount,
+    activeSeeds: seedsActive,
   };
 }
 
@@ -624,7 +644,16 @@ export async function sendGrowthOutreach(input: {
   let failedCount = 0;
 
   const leads = input.testEmail
-    ? [{ id: 'test', email: input.testEmail, businessName: 'Test Business', ownerName: 'Test', city: 'Melbourne', category: 'Food', draftStoreId: null }]
+    ? [{
+        id: 'test',
+        email: input.testEmail,
+        businessName: 'Test Business',
+        ownerName: 'Test',
+        city: 'Melbourne',
+        category: 'Food',
+        draftStoreId: null,
+        businessSeedId: 'test-seed-id',
+      }]
     : await prisma.executiveLead.findMany({ where: { id: { in: input.targetLeadIds } } });
 
   for (const lead of leads) {
@@ -638,16 +667,21 @@ export async function sendGrowthOutreach(input: {
         failedCount++;
         continue;
       }
+      if (!lead.businessSeedId) {
+        failedCount++;
+        continue;
+      }
     }
 
     const email = input.testEmail ?? normalizeEmail(lead.email)!;
+    const seedId = lead.businessSeedId ?? 'test-seed-id';
     const vars = {
       businessName: lead.businessName ?? 'your business',
       ownerName: lead.ownerName ?? 'there',
-      storePreviewUrl: lead.draftStoreId ? `https://cardbey.com/preview/${lead.draftStoreId}` : 'https://cardbey.com',
+      storePreviewUrl: `https://cardbey.com/activate-business/${seedId}`,
       category: lead.category ?? 'business',
       city: lead.city ?? 'your area',
-      claimStoreUrl: `https://cardbey.com/claim-business/${lead.id}`,
+      claimStoreUrl: `https://cardbey.com/activate-business/${seedId}`,
       unsubscribeUrl: `https://cardbey.com/unsubscribe?lead=${lead.id}`,
     };
 

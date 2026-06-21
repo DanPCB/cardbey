@@ -18,7 +18,7 @@ vi.mock('../../services/vision/entityExtractor.js', () => ({
   })),
 }));
 
-import { runCardScanPipeline } from '../cardScanPipeline.js';
+import { runCardScanPipeline } from './cardScanPipeline.js';
 
 describe('runCardScanPipeline', () => {
   beforeEach(() => {

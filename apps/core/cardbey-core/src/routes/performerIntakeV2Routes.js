@@ -19,6 +19,10 @@ import {
   blockCreateStoreOnCompletedMission,
 } from '../lib/intake/intakeSystemShortcuts.js';
 import {
+  guardClassificationForActiveMission,
+  shouldSkipAgentLoopForActiveMission,
+} from '../lib/intake/activeMissionIntakeGuard.js';
+import {
   formatDuplicateStoreIntakeResponse,
   formatValidationErrorResponse,
 } from '../lib/intake/intakeErrorTypes.js';
@@ -31,10 +35,10 @@ import {
 import {
   resolveCreateStoreShortcut,
   shouldBlockServiceRequestForStoreCreate,
-  shouldPreserveCreateStoreShortcutWhenKernelMandatory,
 } from '../lib/intake/storeCreateIntentFastPath.js';
+import { unifiedDispatch, mapUnifiedDispatchToIntakeResponse } from '../lib/intake/unifiedDispatch.js';
 import { resolveIntakeLocale } from '../lib/localePrompt.js';
-import { areIntakeShortcutsAllowed, normalizeClassificationForKernel } from '../lib/runtime/kernelMandatory.js';
+import { areIntakeShortcutsAllowed, isKernelMandatoryEnabled, normalizeClassificationForKernel } from '../lib/runtime/kernelMandatory.js';
 import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
@@ -271,59 +275,24 @@ async function dispatchCampaignOrchestrationFromIntake(
   res,
   { body, currentContext, userMessage, locale, cardbeyTraceId, storeContext = null },
 ) {
-  const goal =
-    String(body.message ?? body.goal ?? body.brief ?? userMessage ?? 'Campaign orchestration').trim() ||
-    'Campaign orchestration';
   const actorId = performerIntakeV2ActorId(req);
-  const tenantId = getTenantId(req.user) ?? actorId;
-  const storeId =
-    String(currentContext.storeId ?? currentContext.activeStoreId ?? body.storeId ?? storeContext?.storeId ?? '')
-      .trim() || null;
-  const resolvedStoreContext = storeContext ?? {
-    businessName: body.businessName ?? null,
-    category: body.category ?? null,
-    location: body.location ?? null,
-    storeId,
-  };
-
-  console.log('[intake/v2] campaign_orchestration_dispatched', {
-    goal: goal.slice(0, 80),
-    storeId,
-  });
-
-  const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-  const pipeline = await createMissionPipeline({
-    type: 'campaign_orchestration',
-    title: `Campaign: ${goal.slice(0, 60)}`,
-    targetType: storeId ? 'store' : 'generic',
-    targetId: storeId ?? undefined,
-    targetLabel: undefined,
-    metadata: {
-      goal,
-      brief: goal,
-      intentType: 'campaign_orchestration',
-      storeContext: resolvedStoreContext,
-      source: 'performer_intake',
-      locale,
-      cardbeyTraceId,
+  const result = await unifiedDispatch(
+    {
+      type: 'campaign_orchestration',
+      payload: {
+        body,
+        currentContext,
+        userMessage,
+        locale,
+        cardbeyTraceId,
+        storeContext,
+        actorId,
+        user: req.user,
+      },
     },
-    requiresConfirmation: false,
-    executionMode: 'AUTO_RUN',
-    tenantId,
-    createdBy: actorId || null,
-  });
-
-  const { runMissionUntilBlocked } = await import('../lib/missionPipelineOrchestrator.js');
-  runMissionUntilBlocked(pipeline.id).catch((err) =>
-    console.error('[intake/v2] campaign_orchestration pipeline error:', err?.message ?? err),
+    { requireConfirmation: false, source: 'agent_orchestration' },
   );
-
-  return res.json({
-    success: true,
-    missionId: pipeline.id,
-    action: 'campaign_orchestration_dispatched',
-    reasoning: 'Running multi-agent campaign orchestration via AgentCoordinator.',
-  });
+  return res.json(mapUnifiedDispatchToIntakeResponse(result));
 }
 
 /** Block only exact duplicate display names for same owner — multiple stores per user are allowed. */
@@ -792,6 +761,20 @@ function directToolResultFromFactoryRoute(factoryRoute, payload, dispatchMission
 }
 
 async function dispatchIntakeV2DirectTool(tool, cleanedParams, { missionId, storeId, req, hydratedContext = null }) {
+  if (isKernelMandatoryEnabled()) {
+    return {
+      toolResult: {
+        status: 'blocked',
+        blocker: {
+          code: 'KERNEL_EXECUTION_REQUIRED',
+          message:
+            'Direct tool execution is disabled. Execution must go through mission planning and the Runtime Kernel.',
+        },
+      },
+      payload: { ...cleanedParams, missionId: missionId ?? null },
+    };
+  }
+
   const dispatchMissionId =
     (typeof missionId === 'string' && missionId.trim()) ||
     (typeof cleanedParams?.missionId === 'string' && cleanedParams.missionId.trim()) ||
@@ -1188,50 +1171,33 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       ? body.intentSourceContext
       : null;
 
-  // Dev escape hatch — bypass planner for explicit mission type dispatch
+  // Multi-agent / campaign orchestration — unified dispatch (no escape hatch)
   if (body.missionType === 'multi_agent') {
-    const prisma = getPrismaClient();
     const actorId = performerIntakeV2ActorId(req);
-    const tenantId = getTenantId(req.user) ?? actorId;
-    const storeId =
-      String(currentContext.storeId ?? currentContext.activeStoreId ?? body.storeId ?? '').trim() || null;
-    const metaIn =
-      body.metadataJson && typeof body.metadataJson === 'object' && !Array.isArray(body.metadataJson)
-        ? body.metadataJson
-        : {};
-    const goalFromMeta = typeof metaIn.goal === 'string' && metaIn.goal.trim() ? metaIn.goal.trim() : '';
-    const title = String(body.message ?? goalFromMeta ?? 'Multi-agent mission').trim() || 'Multi-agent mission';
-    const metadata = {
-      ...metaIn,
-      ...(goalFromMeta ? { goal: goalFromMeta } : {}),
-      locale,
-      source: 'intake_v2_escape_hatch',
-      cardbeyTraceId,
-    };
-
-    const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-    const pipeline = await createMissionPipeline({
-      type: 'multi_agent',
-      title: title.slice(0, 180),
-      targetType: storeId ? 'store' : 'generic',
-      targetId: storeId ?? undefined,
-      targetLabel: undefined,
-      metadata,
-      requiresConfirmation: false,
-      executionMode: 'AUTO_RUN',
-      tenantId,
-      createdBy: actorId || null,
-    });
-
-    const { runMissionUntilBlocked } = await import('../lib/missionPipelineOrchestrator.js');
-    runMissionUntilBlocked(pipeline.id).catch((err) =>
-      console.error('[intake/v2] multi_agent pipeline error:', err),
+    const result = await unifiedDispatch(
+      {
+        type: 'multi_agent',
+        payload: {
+          body,
+          currentContext,
+          userMessage,
+          locale,
+          cardbeyTraceId,
+          actorId,
+          user: req.user,
+          goal:
+            typeof body.metadataJson?.goal === 'string' && body.metadataJson.goal.trim()
+              ? body.metadataJson.goal.trim()
+              : userMessage,
+          metadata: body.metadataJson,
+        },
+      },
+      { requireConfirmation: false, source: 'agent_orchestration' },
     );
-
-    return res.json({ success: true, missionId: pipeline.id, action: 'multi_agent_dispatched' });
+    return res.json(mapUnifiedDispatchToIntakeResponse(result));
   }
 
-  // ── Campaign orchestration via AgentCoordinator ──
+  // ── Campaign orchestration via unified dispatch ──
   if (body.missionType === 'campaign_orchestration' || isCampaignOrchestrationIntent(userMessage)) {
     return dispatchCampaignOrchestrationFromIntake(req, res, {
       body,
@@ -1321,55 +1287,27 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   if (maintenanceDecision?.kind === 'execute' && maintenanceDecision?.toolName === 'multi_agent_orchestration') {
-    const prisma = getPrismaClient();
     const actorId = performerIntakeV2ActorId(req);
-    const tenantId = getTenantId(req.user) ?? actorId;
-    const storeId =
-      String(currentContext.storeId ?? currentContext.activeStoreId ?? body.storeId ?? '').trim() || null;
     const goal = String(maintenanceDecision.parameters?.goal ?? userMessage).trim();
-    const metaIn =
-      body.metadataJson && typeof body.metadataJson === 'object' && !Array.isArray(body.metadataJson)
-        ? body.metadataJson
-        : {};
-    const metadata = {
-      ...metaIn,
-      goal,
-      context: maintenanceDecision.parameters?.context ?? '',
-      locale,
-      source: 'intake_v2_nlp',
-      cardbeyTraceId,
-    };
-
-    const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-    const pipeline = await createMissionPipeline({
-      type: 'multi_agent',
-      title: goal.slice(0, 180),
-      targetType: storeId ? 'store' : 'generic',
-      targetId: storeId ?? undefined,
-      targetLabel: undefined,
-      metadata,
-      requiresConfirmation: false,
-      executionMode: 'AUTO_RUN',
-      tenantId,
-      createdBy: actorId || null,
-    });
-
-    const { runMissionUntilBlocked } = await import('../lib/missionPipelineOrchestrator.js');
-    runMissionUntilBlocked(pipeline.id).catch((err) =>
-      console.error('[intake/v2] multi_agent nlp pipeline error:', err),
+    const result = await unifiedDispatch(
+      {
+        type: 'multi_agent',
+        payload: {
+          body,
+          currentContext,
+          userMessage,
+          locale,
+          cardbeyTraceId,
+          actorId,
+          user: req.user,
+          goal,
+          context: maintenanceDecision.parameters?.context ?? '',
+          metadata: body.metadataJson,
+        },
+      },
+      { requireConfirmation: false, source: 'agent_orchestration' },
     );
-
-    return res.json({
-      success: true,
-      missionId: pipeline.id,
-      action: 'multi_agent_dispatched',
-      reasoning: 'Detected complex multi-step goal — running multi-agent orchestration.',
-      plan: [
-        { step: 1, agent: 'research', description: 'Research and analyze the topic' },
-        { step: 2, agent: 'build', description: 'Build the deliverable' },
-        { step: 3, agent: 'qa', description: 'Review and validate' },
-      ],
-    });
+    return res.json(mapUnifiedDispatchToIntakeResponse(result));
   }
 
   const isServiceRequestProviderSelect =
@@ -1974,14 +1912,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     if (!areIntakeShortcutsAllowed()) {
-      if (
-        !shouldPreserveCreateStoreShortcutWhenKernelMandatory(shortcut, {
-          userMessage,
-          storeCreateForm: storeCreateFormPayload,
-        })
-      ) {
-        shortcut = null;
-      }
+      shortcut = null;
     }
 
     // Guest / free-text pre-classifier:
@@ -2029,6 +1960,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       );
     }
 
+    if (areIntakeShortcutsAllowed()) {
     // ── SmartDocument intent (CC-4) — AUTO_RUN, requires auth ──────────────
     const { sdType, sdSubtype } = detectSmartDocumentIntent(userMessage);
     if (sdType) {
@@ -2663,6 +2595,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         error: typeof runResult.error === 'string' ? runResult.error : 'pipeline_run_failed',
       });
     }
+    } // areIntakeShortcutsAllowed
   }
 
   let classifierDowngraded = false;
@@ -2696,7 +2629,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         msgLower.includes('export') && msgLower.includes('slideshow'));
     if (performeeWantsSlideshow) {
       classification = {
-        executionPath: 'direct_action',
+        executionPath: 'proactive_plan',
         tool: 'generate_slideshow',
         confidence: 0.95,
         parameters: {
@@ -2705,11 +2638,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       };
     } else {
     try {
+      const skipAgentLoopForActiveMission = shouldSkipAgentLoopForActiveMission(
+        existingMission?.status,
+        userMessage,
+        body,
+      );
       if (
         process.env.PERFORMER_CHAT_AGENT_LOOP === 'true' &&
         body.agentLoop !== false &&
         !isSelectionConfirm &&
-        !isServiceRequestProviderSelect
+        !isServiceRequestProviderSelect &&
+        !skipAgentLoopForActiveMission
       ) {
         const { runPerformerPreIntakeAgentLoop } = await import('../lib/performer/performerChatAgentLoop.js');
         const loopOut = await runPerformerPreIntakeAgentLoop({
@@ -3025,6 +2964,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   classification = await guardClassificationAgainstCompletedCreateStore(classification, missionId);
+  classification = guardClassificationForActiveMission(classification, {
+    missionStatus: existingMission?.status,
+    missionId,
+    userMessage,
+    body,
+  });
 
   if (classification?.tool === 'create_store') {
     const topLevelForm =
@@ -3072,27 +3017,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if (
-    body.missionType === 'campaign_orchestration' ||
-    classification?.missionType === 'campaign_orchestration' ||
-    classification?.intentType === 'campaign_orchestration' ||
-    classification?.executionPath === 'campaign_orchestration'
-  ) {
-    return dispatchCampaignOrchestrationFromIntake(req, res, {
-      body,
-      currentContext,
-      userMessage,
-      locale,
-      cardbeyTraceId,
-      storeContext: {
-        storeId: storeId ?? null,
-        businessName: body.businessName ?? null,
-        category: body.category ?? null,
-        location: body.location ?? null,
-      },
-    });
-  }
+  classification = normalizeClassificationForKernel(classification);
 
+  // Campaign orchestration intents are classified as proactive_plan — no post-classifier bypass.
   let cleanedParams = {};
   /** @type {{ decision: string, reason?: string }} */
   let policy = { decision: 'execute' };
@@ -3525,6 +3452,35 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       classification,
       riskLevel,
     });
+  }
+
+  if (classification.executionPath === 'resume_active_mission') {
+    const params =
+      classification.parameters && typeof classification.parameters === 'object' && !Array.isArray(classification.parameters)
+        ? classification.parameters
+        : {};
+    return safeJson(
+      {
+        success: true,
+        action: 'resume_active_mission',
+        missionId: String(params.missionId ?? missionId ?? existingMission?.id ?? '').trim() || undefined,
+        command: String(params.command ?? 'continue').trim() || 'continue',
+        stepId: params.stepId ?? null,
+        response:
+          typeof classification.message === 'string' && classification.message.trim()
+            ? classification.message.trim()
+            : 'Continuing your active mission.',
+      },
+      {
+        classification,
+        validated: true,
+        downgraded: false,
+        downgradeReason: null,
+        validationErrors: [],
+        riskLevel: RISK.SAFE_READ,
+        result: 'resume_active_mission',
+      },
+    );
   }
 
   if (classification.executionPath === 'chat' || classification.executionPath === 'service_request') {
@@ -4083,593 +4039,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     );
   }
 
-  if (false && classification.executionPath === 'direct_action' && classification.tool) {
-    const tool = classification.tool;
-
-    if (tool === 'code_fix') {
-      const description = String(cleanedParams.description ?? userMessage).trim();
-      return safeJson(
-        {
-          success: true,
-          action: 'tool_call',
-          tool: 'code_fix',
-          parameters: { ...cleanedParams, description },
-          reasoning: classification._reasoning,
-          requiresConfirmation: true,
-          response: 'Analysing and preparing a fix proposal.',
-        },
-        {
-          classification: { ...classification, parameters: { ...cleanedParams, description } },
-          validated: true,
-          downgraded: classifierDowngraded,
-          downgradeReason: classifierReason,
-          validationErrors: [],
-          riskLevel,
-          result: 'success',
-        },
-      );
-    }
-
-    const postBuildHandler = POST_BUILD_CHIP_HANDLERS[tool];
-    if (postBuildHandler) {
-      const blackboardContextRaw = body.blackboardContext;
-      const blackboardContext =
-        blackboardContextRaw && typeof blackboardContextRaw === 'object' && !Array.isArray(blackboardContextRaw)
-          ? /** @type {Record<string, unknown>} */ (blackboardContextRaw)
-          : null;
-      const storeContext = {
-        storeId: effectiveStoreId ?? storeId ?? null,
-        draftId,
-        missionId,
-      };
-      const chipResult = await postBuildHandler({
-        blackboardContext,
-        storeContext,
-        missionId,
-        userId: req.user?.id ?? req.userId ?? null,
-      });
-      if (chipResult?.action === 'message') {
-        return safeJson(
-          {
-            success: true,
-            action: 'chat',
-            response: String(chipResult.message ?? '').trim() || 'OK.',
-          },
-          {
-            classification: { ...classification, parameters: cleanedParams },
-            validated: true,
-            downgraded: classifierDowngraded,
-            downgradeReason: classifierReason,
-            validationErrors: [],
-            riskLevel,
-            result: 'fallback',
-          },
-        );
-      }
-      if (chipResult?.action === 'open_ui') {
-        await maybeAppendOpenUiCompletedAction(missionId, tool, cleanedParams);
-      }
-      if (chipResult?.action === 'published' && missionId) {
-        try {
-          await appendMissionBlackboardEvent(missionId, 'completed_action', {
-            tool: 'publish_store',
-            family: 'publishing',
-            liveUrl: chipResult.liveUrl ?? null,
-            storeId: chipResult.storeId ?? null,
-            completedAt: new Date().toISOString(),
-          });
-        } catch {
-          /* non-fatal */
-        }
-      }
-      return safeJson(
-        {
-          success: true,
-          action: 'tool_call',
-          tool,
-          parameters: cleanedParams,
-          missionId,
-          response: String(chipResult?.message ?? '').trim() || 'OK.',
-          result: {
-            action: chipResult.action,
-            ui: chipResult.ui ?? null,
-            storeId: chipResult.storeId ?? null,
-            generationRunId: chipResult.generationRunId ?? null,
-            draftId: chipResult.draftId ?? null,
-            message: chipResult.message ?? null,
-            liveUrl: chipResult.liveUrl ?? null,
-            slug: chipResult.slug ?? null,
-          },
-          reasoning: classification._reasoning,
-        },
-        {
-          classification: { ...classification, parameters: cleanedParams },
-          validated: true,
-          downgraded: classifierDowngraded,
-          downgradeReason: classifierReason,
-          validationErrors: [],
-          riskLevel,
-          result: 'success',
-        },
-      );
-    }
-
-    if (tool === 'create_store' && cleanedParams._autoSubmit === true) {
-      const pillLine = parsePillMessage(userMessage);
-      if (pillLine?.storeName) {
-        const psn = String(pillLine.storeName).trim();
-        if (psn) {
-          cleanedParams = {
-            ...cleanedParams,
-            storeName: String(cleanedParams.storeName ?? '').trim() || psn,
-            businessName: String(cleanedParams.businessName ?? '').trim() || psn,
-            ...(pillLine.location && !String(cleanedParams.location ?? '').trim()
-              ? { location: pillLine.location }
-              : {}),
-            ...(pillLine.category && !String(cleanedParams.storeType ?? '').trim()
-              ? { storeType: pillLine.category }
-              : {}),
-            ...(pillLine.intentMode === 'website' ? { intentMode: 'website' } : {}),
-          };
-        }
-      }
-
-      const fromPill = pillLine?.storeName && String(pillLine.storeName).trim();
-      const { storeName: nlStoreName, location: nlLocation, storeType: nlStoreType } = fromPill
-        ? {
-            storeName: stripIntentWrappingQuotes(String(pillLine.storeName).trim()),
-            location: pillLine.location != null ? String(pillLine.location).trim() : null,
-            storeType:
-              (pillLine.category && String(pillLine.category).trim()) ||
-              inferStoreTypeFromText(pillLine.storeName, pillLine.location),
-          }
-        : parseStoreCreationFromUserMessage(userMessage);
-      const paramStoreType = String(cleanedParams.storeType ?? '').trim();
-      const storeType =
-        paramStoreType && paramStoreType.toLowerCase() !== 'other'
-          ? paramStoreType
-          : nlStoreType || 'Other';
-      const cleanedParamsStoreName = stripIntentWrappingQuotes(String(cleanedParams.storeName ?? '').trim());
-      const cleanedParamsBusinessName = stripIntentWrappingQuotes(String(cleanedParams.businessName ?? '').trim());
-      const fromNlStoreName =
-        nlStoreName != null ? stripIntentWrappingQuotes(String(nlStoreName).trim()) : '';
-      /** Log / NL fallback only — resolved name must NOT use currentContext (previous mission / surface store). */
-      const storeNameFromParams = cleanedParamsStoreName || fromNlStoreName || '';
-      const location =
-        cleanedParams.location != null && String(cleanedParams.location).trim()
-          ? String(cleanedParams.location).trim()
-          : nlLocation != null
-            ? nlLocation
-            : '';
-
-      const actorId = performerIntakeV2ActorId(req);
-      const userLike = performerIntakeV2UserLike(req);
-      if (!actorId || !userLike) {
-        return safeJson(
-          {
-            success: true,
-            action: 'chat',
-            response: intakeMessage('signInAutomatedStore', locale),
-          },
-          {
-            classification: { ...classification, parameters: cleanedParams },
-            validated: true,
-            downgraded: false,
-            downgradeReason: null,
-            validationErrors: [],
-            riskLevel,
-            result: 'fallback',
-          },
-        );
-      }
-
-      const prisma = getPrismaClient();
-      const ctxIntentMode =
-        cleanedParams.intentMode != null ? String(cleanedParams.intentMode).trim().toLowerCase() : 'store';
-      const locationTrim = stripIntentWrappingQuotes(String(location ?? '').trim()) || '';
-
-      /** New-store name: classifier + NL parse only — never currentContext / Business row name (stale prior store). */
-      let businessName =
-        cleanedParamsStoreName || cleanedParamsBusinessName || fromNlStoreName || '';
-      let businessType = String(storeType ?? 'Other').trim() || 'Other';
-
-      if (ctxIntentMode === 'website' && currentContext && typeof currentContext === 'object') {
-        const sid = resolveStoreId(currentContext);
-        let storeRow = null;
-        if (sid) {
-          storeRow = await prisma.business
-            .findFirst({
-              where: { id: sid, userId: userLike.id },
-              select: { type: true },
-            })
-            .catch(() => null);
-        }
-        if (
-          storeRow?.type &&
-          (!String(storeType ?? '').trim() || String(storeType ?? '').trim().toLowerCase() === 'other')
-        ) {
-          businessType = String(storeRow.type).trim() || businessType;
-        }
-      }
-
-      if (!businessName) {
-        return safeJson(
-          {
-            success: true,
-            action: 'create_store',
-            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          },
-          {
-            classification: { ...classification, parameters: cleanedParams },
-            validated: true,
-            downgraded: true,
-            downgradeReason: 'missing_name',
-            validationErrors: [],
-            riskLevel,
-            result: 'fallback',
-          },
-        );
-      }
-
-      const hasStructuredStoreForm =
-        body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm);
-      if (hasStructuredStoreForm) {
-        const preSubmitErrs = validateCreateStorePayload({
-          storeName: businessName,
-          location: locationTrim,
-          category: businessType,
-          storeCreateForm: body.storeCreateForm,
-        });
-        if (preSubmitErrs.length > 0) {
-          return res.status(400).json(formatValidationErrorResponse(preSubmitErrs));
-        }
-      } else if (locationTrim && locationTrim.length < 2) {
-        return res.status(400).json(
-          formatValidationErrorResponse([
-            {
-              field: 'location',
-              message: 'Please enter a full city or suburb name (e.g. Melbourne)',
-              code: 'MISSING_LOCATION',
-              suggestion: 'Enter your city or region (e.g., "Melbourne")',
-              errorAction: 'FOCUS_LOCATION_FIELD',
-            },
-          ]),
-        );
-      }
-
-      const dupAuto = await findDuplicateBusinessNameForUser(prisma, userLike.id, businessName);
-      if (dupAuto) {
-        return safeJson(formatDuplicateStoreIntakeResponse(businessName), {
-          classification: { ...classification, parameters: cleanedParams },
-          validated: true,
-          downgraded: false,
-          downgradeReason: null,
-          validationErrors: [],
-          riskLevel,
-          result: 'duplicate_store',
-        });
-      }
-
-      const tenantId = getTenantId(req.user) ?? actorId;
-      const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
-      const pipelineTitle = `${titlePrefix}: ${businessName.slice(0, 120)}`;
-
-      if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.log('[PerformerIntakeV2] create_store autosubmit name trace', {
-          missionIdFromBody: missionId,
-          storeNameFromParams,
-          cleanedParamsStoreName,
-          cleanedParamsBusinessName,
-          businessNameResolved: businessName,
-          ctxIntentMode,
-        });
-      }
-
-      const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-
-      const patchableStatuses = new Set([
-        'requested',
-        'planned',
-        'awaiting_confirmation',
-        'queued',
-        'executing',
-        'awaiting_input',
-      ]);
-      const existingMissionId = typeof missionId === 'string' ? missionId.trim() : '';
-      const forceNewStoreMission =
-        body.freshStoreMission === true ||
-        body.freshStore === true ||
-        body.newStore === true;
-      let pipeline = null;
-      if (existingMissionId && !forceNewStoreMission) {
-        const access = await resolveAccessibleMission(userLike, existingMissionId);
-        if (access.ok && access.kind === 'mission_pipeline') {
-          const existing = await prisma.missionPipeline.findUnique({
-            where: { id: existingMissionId },
-            select: { id: true, type: true, status: true, metadataJson: true },
-          });
-          if (
-            existing &&
-            String(existing.type || '').toLowerCase() === 'store' &&
-            patchableStatuses.has(String(existing.status || '').trim())
-          ) {
-            const prevMeta =
-              existing.metadataJson && typeof existing.metadataJson === 'object' && !Array.isArray(existing.metadataJson)
-                ? existing.metadataJson
-                : {};
-            const mergedMeta = {
-              ...prevMeta,
-              businessName,
-              businessType,
-              location: locationTrim,
-              websiteMode: ctxIntentMode === 'website',
-              generateWebsite: ctxIntentMode === 'website',
-              intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-              cardbeyTraceId: cardbeyTraceId ?? prevMeta.cardbeyTraceId,
-            };
-            await prisma.missionPipeline.update({
-              where: { id: existingMissionId },
-              data: {
-                title: pipelineTitle,
-                metadataJson: mergedMeta,
-              },
-            });
-            pipeline = { id: existingMissionId };
-            if (process.env.NODE_ENV !== 'production') {
-              // eslint-disable-next-line no-console
-              console.log('[PerformerIntakeV2] patched existing store pipeline title/metadata', {
-                missionId: existingMissionId,
-                title: pipelineTitle,
-              });
-            }
-          }
-        }
-      }
-
-      if (!pipeline) {
-        const createResult = await createMissionPipelineForIntakeRoute(res, createMissionPipeline, {
-          type: 'store',
-          title: pipelineTitle,
-          targetType: 'store',
-          targetId: undefined,
-          targetLabel: undefined,
-          metadata: withPipelineLocale(
-            {
-              businessName,
-              businessType,
-              location: locationTrim,
-              websiteMode: ctxIntentMode === 'website',
-              generateWebsite: ctxIntentMode === 'website',
-              intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-              source: 'intake_v2_autosubmit',
-              cardbeyTraceId,
-            },
-            locale,
-          ),
-          requiresConfirmation: true,
-          executionMode: 'AUTO_RUN',
-          tenantId,
-          createdBy: actorId,
-        });
-        if (createResult.handled) return;
-        pipeline = createResult.pipeline;
-      }
-
-      await ensureStructuredStoreCheckpointSteps(prisma, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
-
-      const currencyCode =
-        inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
-      const runResult = await executeStoreMissionPipelineRun({
-        prisma,
-        user: userLike,
-        missionId: pipeline.id,
-        body: {
-          businessName,
-          businessType,
-          location: locationTrim,
-          currencyCode,
-          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          rawUserText: userMessage,
-          cardbeyTraceId,
-        },
-        auditSource: 'intake_v2_autosubmit_contract',
-      });
-
-      if (!runResult.ok) {
-        console.error('[PerformerIntakeV2] autosubmit create_store pipeline failed:', JSON.stringify(runResult));
-        return res.status(Math.min(Math.max(Number(runResult.statusCode) || 500, 400), 599)).json({
-          success: false,
-          action: 'create_store_failed',
-          message:
-            typeof runResult.message === 'string' && runResult.message.trim()
-              ? runResult.message
-              : 'Store setup could not be started.',
-          error: typeof runResult.error === 'string' ? runResult.error : 'pipeline_run_failed',
-        });
-      }
-
-      if (runResult.mode === 'checkpoint_pipeline' && process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.log(
-          '[PerformerIntakeV2] autosubmit create_store → Phase 3 checkpoint pipeline (paused for owner; no orchestra build yet)',
-          { missionId: runResult.missionId, orchestration: runResult.orchestration },
-        );
-      }
-      const responseText =
-        runResult.mode === 'checkpoint_pipeline'
-          ? ctxIntentMode === 'website'
-            ? intakeMessage('storeCheckpointWebsite', locale, { businessName })
-            : intakeMessage('storeCheckpointStore', locale, { businessName })
-          : ctxIntentMode === 'website'
-            ? intakeMessage('storeBuildingWebsite', locale, { businessName })
-            : intakeMessage('storeBuildingStore', locale, { businessName });
-      return safeJson(
-        {
-          success: true,
-          action: 'store_mission_started',
-          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          response: responseText,
-          missionId: runResult.missionId,
-          jobId: runResult.jobId,
-          generationRunId: runResult.generationRunId,
-          draftId: runResult.draftId,
-          ...(runResult.mode ? { mode: runResult.mode } : {}),
-          storeMissionSummary: {
-            businessName,
-            businessType,
-            location: locationTrim,
-            ...(runResult.mode ? { mode: runResult.mode } : {}),
-          },
-        },
-        {
-          classification: { ...classification, parameters: cleanedParams },
-          validated: true,
-          downgraded: classifierDowngraded,
-          downgradeReason: classifierReason,
-          validationErrors: [],
-          riskLevel,
-          result: 'success',
-        },
-      );
-    }
-
-    if (tool === 'create_store') {
-      const outIntent =
-        cleanedParams.intentMode != null && String(cleanedParams.intentMode).trim().toLowerCase() === 'website'
-          ? 'website'
-          : 'store';
-      return safeJson(
-        {
-          success: true,
-          action: 'create_store',
-          intentMode: outIntent,
-        },
-        {
-          classification: { ...classification, parameters: cleanedParams },
-          validated: true,
-          downgraded: classifierDowngraded,
-          downgradeReason: classifierReason,
-          validationErrors: [],
-          riskLevel,
-          result: 'success',
-        },
-      );
-    }
-
-    const editArtifactHeroImageQuick =
-      tool === 'edit_artifact' &&
-      String(cleanedParams.artifactType ?? '').toLowerCase() === 'hero' &&
-      /image|photo|picture|banner|visual|stock|pexels|professional\s+photo/i.test(
-        String(cleanedParams.instruction ?? cleanedParams.description ?? userMessage ?? ''),
-      );
-
-    if (toolEntry?.approvalRequired && tool !== 'code_fix' && !isSelectionConfirm && !editArtifactHeroImageQuick) {
-      return issueApprovalRequired({
-        req,
-        safeJson,
-        tool,
-        cleanedParams,
-        storeId,
-        userMessage,
-        locale,
-        classification,
-        riskLevel,
-      });
-    }
-
-    // Hero edit_artifact Turn 2 uses POST /api/performer/proactive-step, which requires a real MissionPipeline row.
-    let directToolMissionId = missionId;
-    if (
-      !directToolMissionId &&
-      req.user?.id &&
-      tool === 'edit_artifact' &&
-      String(cleanedParams.artifactType ?? '').toLowerCase() === 'hero'
-    ) {
-      try {
-        const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-        const pipeline = await createMissionPipeline({
-          type: 'edit_artifact',
-          title: userMessage.slice(0, 200) || 'Hero image',
-          targetType: storeId ? 'store' : 'generic',
-          targetId: storeId,
-          targetLabel: null,
-          metadata: { source: 'intake_v2', tool: 'edit_artifact', artifactType: 'hero' },
-          requiresConfirmation: true,
-          executionMode: 'GUIDED_RUN',
-          tenantId: getTenantId(req.user),
-          createdBy: req.user.id,
-        });
-        directToolMissionId = pipeline.id;
-      } catch (e) {
-        if (isDev) console.warn('[IntakeV2] mission pipeline for edit_artifact hero failed:', e?.message);
-      }
-    }
-
-    const capabilityResolvedBody = buildCapabilityResolvedDirectToolBody(tool, cleanedParams, {
-      userMessage,
-      locale,
-      missionId: directToolMissionId,
-      storeId,
-      currentContext,
-      classification,
-      riskLevel,
-      persistedIntent: loadedPersistedIntent ?? null,
-    });
-
-    if (capabilityResolvedBody) {
-      return safeJson(capabilityResolvedBody, {
-        classification: { ...classification, parameters: cleanedParams },
-        validated: true,
-        downgraded: classifierDowngraded,
-        downgradeReason: classifierReason,
-        validationErrors: [],
-        riskLevel,
-        result: capabilityResolvedBody.success ? 'success' : 'deferred',
-      });
-    }
-
-    try {
-      const dispatchResult = await dispatchIntakeV2DirectTool(tool, cleanedParams, {
-        missionId: directToolMissionId,
-        storeId: dispatchStoreId ?? effectiveStoreId ?? storeId,
-        req,
-        hydratedContext: intakeHydratedContext,
-      });
-
-      const { body: intakeBody, telemetryResult } = buildDirectToolDispatchResponse(tool, dispatchResult, locale, {
-        riskLevel,
-        reasoning: classification._reasoning,
-      });
-
-      return safeJson(intakeBody, {
-        classification: { ...classification, parameters: cleanedParams },
-        validated: true,
-        downgraded: classifierDowngraded,
-        downgradeReason: classifierReason,
-        validationErrors: [],
-        riskLevel,
-        result: telemetryResult,
-      });
-    } catch (e) {
-      return safeJson(
-        {
-          success: true,
-          action: 'chat',
-          response: intakeMessage('dispatchActionFailed', locale),
-        },
-        {
-          classification,
-          validated: true,
-          downgraded: true,
-          downgradeReason: 'dispatch_error',
-          validationErrors: [],
-          riskLevel,
-          result: 'error',
-        },
-      );
-    }
-  }
 
   return safeJson(
     {
@@ -4890,7 +4259,7 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
       traceId: cardbeyTraceId,
       missionId,
       storeId: storeIdNow,
-      executionPath: 'direct_action',
+      executionPath: 'proactive_plan',
       tool: extra.tool ?? null,
       confidence: null,
       validated: extra.validated ?? null,
@@ -4983,28 +4352,49 @@ router.post('/confirm', requireUserOrGuest, async (req, res) => {
   const cleaned = validation.cleanedParameters ?? {};
 
   try {
-    const { toolResult, payload } = await dispatchIntakeV2DirectTool(tool, cleaned, {
-      missionId,
-      storeId: storeContextFree ? undefined : effectiveStore,
-      req,
-    });
+    const actorId = performerIntakeV2ActorId(req);
+    const dispatchResult = await unifiedDispatch(
+      {
+        type: tool,
+        payload: {
+          toolName: tool,
+          input: cleaned,
+          parameters: cleaned,
+          missionId,
+          storeId: storeContextFree ? undefined : effectiveStore,
+          userId: actorId || req.user?.id || null,
+          tenantId: getTenantId(req.user),
+          locale,
+        },
+      },
+      { confirmed: true, requireConfirmation: false, source: 'intake_v2_confirm' },
+    );
     deleteIntakeApprovalPreview(previewId);
 
-    const toolResponse =
-      toolResult?.output?.message ||
-      toolResult?.blocker?.message ||
-      toolResult?.error?.message ||
-      intakeMessage('actionCompleted', locale);
+    if (!dispatchResult.ok || dispatchResult.status === 'blocked') {
+      emitConfirm({
+        tool,
+        validated: true,
+        result: 'error',
+        downgradeReason: dispatchResult.code ?? 'kernel_required',
+      });
+      return res.json({
+        success: false,
+        action: 'error',
+        code: dispatchResult.code ?? 'KERNEL_EXECUTION_REQUIRED',
+        response:
+          dispatchResult.message ??
+          'Direct tool execution is disabled. Execution must go through the Runtime Kernel.',
+      });
+    }
+
+    const mapped = mapUnifiedDispatchToIntakeResponse(dispatchResult, { tool, locale });
+    const toolResponse = mapped.response ?? intakeMessage('actionCompleted', locale);
 
     emitConfirm({ tool, validated: true, result: 'success', riskLevel: getToolEntry(tool)?.riskLevel });
     return res.json({
-      success: true,
-      action: 'tool_call',
-      tool,
-      parameters: payload,
+      ...mapped,
       response: toolResponse,
-      result: toolResult?.output ?? null,
-      artifacts: toolResult?.output?.artifacts ?? [],
       riskLevel: getToolEntry(tool)?.riskLevel,
     });
   } catch (e) {

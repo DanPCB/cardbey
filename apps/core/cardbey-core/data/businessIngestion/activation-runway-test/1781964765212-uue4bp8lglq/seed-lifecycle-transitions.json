@@ -1,0 +1,16 @@
+[
+  {
+    "id": "04a494d7-e03c-4005-b35a-72b1c15b9dc4",
+    "seedId": "gate-2",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:12:45.231Z"
+  }
+]

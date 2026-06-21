@@ -7,6 +7,11 @@ import {
   isObservationSloEligible,
   isObservationSuccessRateEligible,
 } from '../../lib/runtime/observationBus.js';
+import {
+  EXECUTION_STATES,
+  isRealExecution,
+  isSloSuccessState,
+} from '../../lib/telemetry/executionStates.js';
 
 export class SLOTracker {
   constructor() {
@@ -151,6 +156,8 @@ export class SLOTracker {
           actionType: true,
           intentType: true,
           contextSnapshot: true,
+          executionState: true,
+          isRealExecution: true,
         },
         take: 10_000,
         orderBy: { createdAt: 'desc' },
@@ -163,10 +170,16 @@ export class SLOTracker {
           actionType: row.actionType,
           intentType: row.intentType,
           contextSnapshot: row.contextSnapshot,
+          executionState: row.executionState,
+          isRealExecution: row.isRealExecution,
         }),
       );
 
-      const success = eligible.filter((row) => row.outcome === 'success').length;
+      const success = eligible.filter(
+        (row) =>
+          row.outcome === 'success' &&
+          (row.executionState ? isSloSuccessState(row.executionState) : true),
+      ).length;
       const failures = eligible.length - success;
       const rate =
         eligible.length === 0 ? 100 : Math.round((success / eligible.length) * 1000) / 10;
@@ -277,42 +290,136 @@ export class SLOTracker {
           intentType: true,
           error: true,
           contextSnapshot: true,
+          executionState: true,
+          isRealExecution: true,
         },
         take: 2000,
         orderBy: { createdAt: 'desc' },
       });
 
       /** @type {Map<string, { count: number; errors: string[]; sloEligible: number }>} */
-      const map = new Map();
+      const realMap = new Map();
+      /** @type {Map<string, { count: number; errors: string[] }>} */
+      const stubMap = new Map();
+
       for (const row of rows) {
+        const action = String(row.actionType || 'unknown');
         const sloCounted = isObservationSuccessRateEligible({
           outcome: 'failure',
           error: row.error,
           actionType: row.actionType,
           intentType: row.intentType,
           contextSnapshot: row.contextSnapshot,
+          executionState: row.executionState,
+          isRealExecution: row.isRealExecution,
         });
-        const action = String(row.actionType || 'unknown');
-        const current = map.get(action) ?? { count: 0, errors: [], sloEligible: 0 };
+        const isStub =
+          row.executionState === EXECUTION_STATES.STUBBED ||
+          row.isRealExecution === false ||
+          !isRealExecution(row.executionState);
+
+        const targetMap = isStub ? stubMap : realMap;
+        const current = targetMap.get(action) ?? { count: 0, errors: [], sloEligible: 0 };
         current.count += 1;
         if (sloCounted) current.sloEligible += 1;
         if (row.error && current.errors.length < 3) {
           current.errors.push(String(row.error));
         }
-        map.set(action, current);
+        targetMap.set(action, current);
       }
 
-      return [...map.entries()]
+      const realFailures = [...realMap.entries()]
         .map(([action, data]) => ({
           action,
           count: data.count,
           sloEligibleFailures: data.sloEligible,
           errors: data.errors,
+          kind: 'real',
         }))
         .sort((a, b) => b.sloEligibleFailures - a.sloEligibleFailures || b.count - a.count)
         .slice(0, limit);
+
+      const stubFailures = [...stubMap.entries()]
+        .map(([action, data]) => ({
+          action,
+          count: data.count,
+          sloEligibleFailures: 0,
+          errors: data.errors,
+          kind: 'stub',
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+
+      return {
+        realFailures,
+        stubFailures,
+        totalRealFailures: realFailures.reduce((sum, row) => sum + row.count, 0),
+        totalStubFailures: stubFailures.reduce((sum, row) => sum + row.count, 0),
+        patterns: realFailures,
+      };
     } catch {
-      return [];
+      return {
+        realFailures: [],
+        stubFailures: [],
+        totalRealFailures: 0,
+        totalStubFailures: 0,
+        patterns: [],
+      };
+    }
+  }
+
+  async getExecutionStateStats(windowMs = 24 * 60 * 60 * 1000) {
+    const prisma = getPrismaClient();
+    const since = new Date(Date.now() - windowMs);
+
+    try {
+      const rows = await prisma.observation.findMany({
+        where: { createdAt: { gte: since } },
+        select: {
+          outcome: true,
+          executionState: true,
+          isRealExecution: true,
+        },
+        take: 10_000,
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const realRows = rows.filter((row) => row.isRealExecution !== false && isRealExecution(row.executionState));
+      const stubRows = rows.filter((row) => row.executionState === EXECUTION_STATES.STUBBED);
+      const plannedRows = rows.filter((row) => row.executionState === EXECUTION_STATES.PLANNED);
+
+      const realSuccess = realRows.filter(
+        (row) => row.outcome === 'success' && isSloSuccessState(row.executionState),
+      ).length;
+      const realFailures = realRows.filter((row) => row.outcome === 'failure').length;
+      const stubSuccess = stubRows.filter((row) => row.outcome === 'success').length;
+      const stubFailures = stubRows.filter((row) => row.outcome === 'failure').length;
+
+      return {
+        realSuccessRate:
+          realRows.length > 0 ? Math.round((realSuccess / realRows.length) * 1000) / 10 : 100,
+        stubSuccessRate:
+          stubRows.length > 0 ? Math.round((stubSuccess / stubRows.length) * 1000) / 10 : 0,
+        realFailures,
+        stubFailures,
+        plannedCount: plannedRows.length,
+        realExecutions: realRows.length,
+        stubExecutions: stubRows.length,
+        windowMs,
+        since: since.toISOString(),
+      };
+    } catch {
+      return {
+        realSuccessRate: 100,
+        stubSuccessRate: 0,
+        realFailures: 0,
+        stubFailures: 0,
+        plannedCount: 0,
+        realExecutions: 0,
+        stubExecutions: 0,
+        windowMs,
+        since: since.toISOString(),
+      };
     }
   }
 

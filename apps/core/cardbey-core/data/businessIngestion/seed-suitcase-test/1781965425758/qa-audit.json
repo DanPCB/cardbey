@@ -1,0 +1,13 @@
+[
+  {
+    "id": "6673b42c-4f11-4205-a0c7-f56f0e1d7a44",
+    "seedId": "suitcase-seed-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-1",
+    "timestamp": "2026-06-20T14:23:45.788Z",
+    "reason": null,
+    "canonicalSeedId": null
+  }
+]

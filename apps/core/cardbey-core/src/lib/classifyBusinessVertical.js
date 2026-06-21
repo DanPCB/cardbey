@@ -79,6 +79,9 @@ export function commerceModeForVertical(vertical, corpus = '') {
     case 'health':
       return 'bookings';
     case 'experience':
+      if (/\b(travel|tour|golf|itinerary|tourism|agency|escape|package)\b/i.test(corpus)) {
+        return 'bookings';
+      }
       return /\b(book|booking|appointment|reserve)\b/i.test(corpus) ? 'bookings' : 'enquiry';
     case 'service':
       return /\b(book|booking|appointment)\b/i.test(corpus) ? 'bookings' : 'services';
