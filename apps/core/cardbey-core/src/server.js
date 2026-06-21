@@ -106,6 +106,8 @@ import { isSseHealthy } from './realtime/sse.js';
 import { getOAuthStatus } from './auth/providers.js';
 import oauthRoutes from './routes/oauth.js';
 import oauthSocialConnectRoutes from './routes/oauthSocialConnectRoutes.js';
+import platformRoutes from './routes/platformRoutes.js';
+import oauthExtendedPlatformRoutes from './routes/oauthExtendedPlatformRoutes.js';
 import oauthGoogleRoutes from './routes/oauthGoogleRoutes.js';
 import mcpRoutes from './routes/mcpRoutes.js';
 import mcpServerRoutes from './routes/mcpServerRoutes.js';
@@ -1083,6 +1085,8 @@ app.use('/api', eventsRouter); // AI Orchestration event intake
 // app.use('/api/pair', pairRouter); // Commented out - use /api/screens/pair/* instead
 app.use('/api/oauth', oauthRoutes); // OAuth provider status and configuration
 app.use('/api/oauth', oauthSocialConnectRoutes); // Facebook Page connect callback (Method B)
+app.use('/api/oauth', oauthExtendedPlatformRoutes); // Twitter, LinkedIn, Reddit, Mastodon, Pinterest stubs
+app.use('/api/platforms', platformRoutes); // Social + LLM platform connection dashboard
 app.use('/api/oauth', oauthGoogleRoutes); // Google OAuth (Calendar / future Gmail)
 // MCP server — external AI tool integration (read-only, token-scoped)
 app.use('/mcp', mcpRoutes);

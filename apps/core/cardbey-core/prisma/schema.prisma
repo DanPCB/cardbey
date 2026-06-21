@@ -2910,6 +2910,23 @@ model OAuthConnection {
   @@index([userId, platform])
 }
 
+// User-scoped API keys, bot tokens, and webhooks for extended social + LLM platforms.
+model PlatformConnection {
+  id             String    @id @default(cuid())
+  userId         String
+  platformId     String
+  credentialsEnc String
+  status         String    @default("active") // active | inactive
+  expiresAt      DateTime?
+  disconnectedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, platformId])
+  @@index([userId, platformId])
+  @@index([userId, status])
+}
+
 // ============================================
 // Digital cards (Suitcase) — created by buildCard / create card missions
 // ============================================
