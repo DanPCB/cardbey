@@ -186,6 +186,8 @@ export const executors = {
   analyze_store,
   structured_store_build,
   market_research,
+  analyze_competitors: market_research,
+  trend_analysis: market_research,
   mini_website_get_sections,
   generate_section_patches,
   mini_website_patch_sections,

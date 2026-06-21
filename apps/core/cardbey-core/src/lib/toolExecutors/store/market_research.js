@@ -7,6 +7,12 @@
 
 import { getPrismaClient } from '../../../lib/prisma.js';
 import { llmGateway } from '../../../lib/llm/llmGateway.ts';
+import {
+  enrichMarketReport,
+  findPublishedCompetitors,
+  formatCompetitorBlock,
+  EXTENDED_RESEARCH_JSON_SCHEMA,
+} from '../../../services/market/marketResearchService.js';
 
 const SYSTEM_PROMPT =
   'You are a marketing strategist. Return raw JSON only. No markdown, no preamble, no explanation.';
@@ -31,67 +37,8 @@ function formatProductLine(p) {
   return `- ${p.name} | ${cat} | ${priceLabel}`;
 }
 
-/**
- * Normalize LLM JSON into the contract returned inside output.marketReport.
- * @param {object} parsed
- * @param {{ storeId: string, storeName: string, productCount: number }} meta
- */
-function buildMarketReport(parsed, meta) {
-  const { storeId, storeName, productCount } = meta;
-  const top = Array.isArray(parsed?.topProductsToPromote) ? parsed.topProductsToPromote : [];
-  const topProductsToPromote = top
-    .slice(0, 3)
-    .map((row) => {
-      if (!row || typeof row !== 'object') return null;
-      const productId = String(row.productId ?? '').trim();
-      const productName = String(row.productName ?? '').trim();
-      const category = row.category != null ? String(row.category) : '';
-      const price = typeof row.price === 'number' && Number.isFinite(row.price) ? row.price : null;
-      const reason = String(row.reason ?? '').trim() || 'Strong fit to promote now';
-      if (!productId && !productName) return null;
-      return { productId, productName, category, price, reason };
-    })
-    .filter(Boolean);
-
-  const ap = parsed?.audienceProfile && typeof parsed.audienceProfile === 'object' ? parsed.audienceProfile : {};
-  const audienceProfile = {
-    primarySegment: String(ap.primarySegment ?? '').trim() || 'General local shoppers',
-    interests: Array.isArray(ap.interests)
-      ? ap.interests.map((x) => String(x)).filter(Boolean).slice(0, 8)
-      : [],
-    buyingMotivation: String(ap.buyingMotivation ?? '').trim() || '',
-    pricePoint: ['budget', 'mid-range', 'premium'].includes(String(ap.pricePoint).toLowerCase().trim())
-      ? String(ap.pricePoint).toLowerCase().trim()
-      : 'mid-range',
-  };
-
-  const mc = parsed?.marketContext && typeof parsed.marketContext === 'object' ? parsed.marketContext : {};
-  const marketContext = {
-    categoryTrend: String(mc.categoryTrend ?? '').trim(),
-    seasonalOpportunity: String(mc.seasonalOpportunity ?? '').trim(),
-    competitorLandscape: String(mc.competitorLandscape ?? '').trim(),
-    recommendedCampaignAngle: String(mc.recommendedCampaignAngle ?? '').trim(),
-  };
-
-  const targetAudience = String(parsed?.targetAudience ?? audienceProfile.primarySegment).trim();
-  const recommendations = Array.isArray(parsed?.recommendations)
-    ? parsed.recommendations.map((x) => String(x)).filter(Boolean).slice(0, 8)
-    : [];
-
-  return {
-    storeId,
-    storeName,
-    productCount,
-    topProductsToPromote,
-    audienceProfile,
-    marketContext,
-    targetAudience,
-    recommendations,
-    generatedAt: new Date().toISOString(),
-    /** Consensus voter prompt branch (store-grounded report). */
-    reportVersion: 2,
-  };
-}
+const EXTENDED_FIELDS_BLOCK = `,
+${EXTENDED_RESEARCH_JSON_SCHEMA.trim()}`;
 
 /**
  * @param {object} input
@@ -165,6 +112,7 @@ export async function execute(input = {}, context = {}) {
 
     // ── Build prompt based on mode ──
     let userPrompt;
+    let directCompetitors = [];
 
     if (intentOverrideMode) {
       // INTENT OVERRIDE MODE: uploaded / intent campaign text is the primary source
@@ -204,13 +152,16 @@ Return JSON with exactly these fields:
     "recommendation 1 based on campaign content",
     "recommendation 2 based on campaign content",
     "recommendation 3 based on campaign content"
-  ]
+  ]${EXTENDED_FIELDS_BLOCK}
 }
 
 CRITICAL: topProductsToPromote must be [] since this is based on uploaded campaign content, not store products.
 Base ALL fields on the campaign content provided above. Do not default to generic retail or fashion insights.`.trim();
     } else {
-      // STORE GROUNDED MODE: existing behavior
+      // STORE GROUNDED MODE: catalog + published competitor index
+      directCompetitors = store ? await findPublishedCompetitors(prisma, store) : [];
+      const competitorBlock = formatCompetitorBlock(directCompetitors);
+
       const productBlock =
         products.length > 0
           ? products.map((p) => formatProductLine(p)).join('\n')
@@ -230,6 +181,9 @@ Location: ${location}
 
 Products (${products.length}):
 ${productBlock}
+
+Published competitors in the same category/area (${directCompetitors.length}):
+${competitorBlock}
 
 Return JSON with exactly these fields:
 {
@@ -255,14 +209,17 @@ Return JSON with exactly these fields:
     "recommendedCampaignAngle": "string"
   },
   "targetAudience": "string",
-  "recommendations": ["string", "string", "string"]
+  "recommendations": ["string", "string", "string"]${EXTENDED_FIELDS_BLOCK}
 }
 
-Use up to 3 items in topProductsToPromote (best first). If there are no products, use [].`.trim();
+Use up to 3 items in topProductsToPromote (best first). If there are no products, use [].
+Ground competitorAnalysis and trends in the competitor list and store catalog above.`.trim();
 
       if (priorStepsContext) {
         userPrompt += `\n\nEarlier mission steps (continuity):\n${priorStepsContext.slice(0, 2000)}`;
       }
+
+      // competitors attached after LLM via directCompetitors
     }
 
     const llmResult = await llmGateway.generate({
@@ -271,7 +228,7 @@ Use up to 3 items in topProductsToPromote (best first). If there are no products
       model: process.env.AGENT_LLM_MODEL ?? undefined,
       provider: process.env.AGENT_LLM_PROVIDER ?? undefined,
       tenantKey,
-      maxTokens: 1800,
+      maxTokens: 2400,
       temperature: 0.35,
       responseFormat: 'json',
     });
@@ -289,11 +246,15 @@ Use up to 3 items in topProductsToPromote (best first). If there are no products
       throw new Error('market_research: LLM returned invalid JSON');
     }
 
-    const marketReport = buildMarketReport(parsed, {
-      storeId: storeId || 'intent_override',
-      storeName,
-      productCount: products.length,
-    });
+    const marketReport = enrichMarketReport(
+      parsed,
+      {
+        storeId: storeId || 'intent_override',
+        storeName,
+        productCount: products.length,
+      },
+      directCompetitors,
+    );
 
     // Attach campaignContext flag for downstream tools
     if (intentOverrideMode) {

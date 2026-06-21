@@ -53,6 +53,7 @@ export const PROVIDERS = Object.freeze({
     publishChannelKey: 'instagram',
     capabilities: [
       { direction: 'push', capability: EXTERNAL_CAPABILITY.OAUTH_CONNECT },
+      { direction: 'push', capability: EXTERNAL_CAPABILITY.PUBLISH_CAMPAIGN },
       { direction: 'push', capability: EXTERNAL_CAPABILITY.SHARE_LINK },
       { direction: 'pull', capability: EXTERNAL_CAPABILITY.IMPORT_BUSINESS_PROFILE },
       { direction: 'pull', capability: EXTERNAL_CAPABILITY.FETCH_EXTERNAL_PREVIEW },
@@ -73,9 +74,13 @@ export const PROVIDERS = Object.freeze({
   zalo: {
     id: 'zalo',
     label: 'Zalo',
-    connectionKind: CONNECTION_KIND.MANUAL,
+    connectionKind: CONNECTION_KIND.OAUTH_TOKEN,
+    prismaOAuthPlatform: 'zalo',
+    connectAliases: ['zalo'],
     publishChannelKey: 'zalo',
     capabilities: [
+      { direction: 'push', capability: EXTERNAL_CAPABILITY.OAUTH_CONNECT },
+      { direction: 'push', capability: EXTERNAL_CAPABILITY.PUBLISH_CAMPAIGN },
       { direction: 'push', capability: EXTERNAL_CAPABILITY.SHARE_LINK },
     ],
   },

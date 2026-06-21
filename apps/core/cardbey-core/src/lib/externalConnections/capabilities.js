@@ -64,7 +64,6 @@ export function supportsOAuthConnectForAlias(platform) {
   return PROVIDER_LIST.some(
     (d) =>
       d.connectionKind === CONNECTION_KIND.OAUTH_TOKEN &&
-      d.oauthFamily === 'meta' &&
       Array.isArray(d.connectAliases) &&
       d.connectAliases.includes(p) &&
       providerHasCapability(d, EXTERNAL_CAPABILITY.OAUTH_CONNECT, 'push'),

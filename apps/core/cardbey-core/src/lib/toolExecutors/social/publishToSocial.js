@@ -112,6 +112,77 @@ async function postToFacebookPage({ connection, caption, campaignUrl }) {
   };
 }
 
+async function postToInstagram({ connection, caption, campaignUrl }) {
+  const token = decryptToken(connection.accessToken);
+  const igUserId = connection.pageId;
+  if (!igUserId) throw new Error('Missing Instagram business account id on connection');
+
+  const imageUrl = campaignUrl;
+  if (!imageUrl) {
+    throw new Error('Instagram auto-post requires a campaign image URL (campaignUrl)');
+  }
+
+  const createRes = await fetch(`https://graph.facebook.com/v19.0/${igUserId}/media`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      image_url: imageUrl,
+      caption,
+      access_token: token,
+    }),
+  });
+  const createData = await createRes.json();
+  if (!createRes.ok || createData.error) {
+    throw new Error(createData.error?.message ?? `Instagram media create failed ${createRes.status}`);
+  }
+
+  const publishRes = await fetch(`https://graph.facebook.com/v19.0/${igUserId}/media_publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      creation_id: createData.id,
+      access_token: token,
+    }),
+  });
+  const publishData = await publishRes.json();
+  if (!publishRes.ok || publishData.error) {
+    throw new Error(publishData.error?.message ?? `Instagram publish failed ${publishRes.status}`);
+  }
+
+  const username = connection.pageName ? String(connection.pageName).replace(/^@/, '') : null;
+  return {
+    postId: publishData.id,
+    postUrl: username ? `https://www.instagram.com/${username}/` : null,
+  };
+}
+
+async function postToZalo({ connection, caption, campaignUrl }) {
+  const token = decryptToken(connection.accessToken);
+  const oaId = connection.pageId;
+  if (!oaId) throw new Error('Missing Zalo OA id on connection');
+
+  const messageText = campaignUrl ? `${caption}\n\n${campaignUrl}` : caption;
+  const body = {
+    recipient: { user_id: 'broadcast' },
+    message: { text: messageText },
+  };
+
+  const res = await fetch(`https://openapi.zalo.me/v3.0/oa/message?access_token=${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error !== 0) {
+    throw new Error(data.message ?? `Zalo API error ${res.status}`);
+  }
+
+  return {
+    postId: data.data?.message_id ?? data.message_id ?? 'zalo_post',
+    postUrl: null,
+  };
+}
+
 /**
  * @param {object} input
  * @param {object} [context]
@@ -171,23 +242,65 @@ export async function execute(input = {}, context = {}) {
       const connection = connectionMap[platform];
       const hasConnection = !!connection;
 
-      if (hasConnection && postMode === 'auto' && platform === 'facebook') {
-        try {
-          const postResult = await postToFacebookPage({
-            connection,
-            caption: fullCaption,
-            campaignUrl: resolvedCampaignUrl,
-          });
-          return {
-            platform,
-            method: 'auto_post',
-            ok: true,
-            postUrl: postResult.postUrl,
-            caption: fullCaption,
-            message: `Posted to Facebook Page "${connection.pageName ?? 'Page'}"`,
-          };
-        } catch (err) {
-          console.warn('[publishToSocial] Facebook API failed, falling back to share link:', err?.message ?? err);
+      if (hasConnection && postMode === 'auto') {
+        if (platform === 'facebook') {
+          try {
+            const postResult = await postToFacebookPage({
+              connection,
+              caption: fullCaption,
+              campaignUrl: resolvedCampaignUrl,
+            });
+            return {
+              platform,
+              method: 'auto_post',
+              ok: true,
+              postUrl: postResult.postUrl,
+              caption: fullCaption,
+              message: `Posted to Facebook Page "${connection.pageName ?? 'Page'}"`,
+            };
+          } catch (err) {
+            console.warn('[publishToSocial] Facebook API failed, falling back to share link:', err?.message ?? err);
+          }
+        }
+
+        if (platform === 'instagram') {
+          try {
+            const postResult = await postToInstagram({
+              connection,
+              caption: fullCaption,
+              campaignUrl: resolvedCampaignUrl,
+            });
+            return {
+              platform,
+              method: 'auto_post',
+              ok: true,
+              postUrl: postResult.postUrl,
+              caption: fullCaption,
+              message: `Posted to Instagram "${connection.pageName ?? 'account'}"`,
+            };
+          } catch (err) {
+            console.warn('[publishToSocial] Instagram API failed, falling back to copy:', err?.message ?? err);
+          }
+        }
+
+        if (platform === 'zalo') {
+          try {
+            const postResult = await postToZalo({
+              connection,
+              caption: fullCaption,
+              campaignUrl: resolvedCampaignUrl,
+            });
+            return {
+              platform,
+              method: 'auto_post',
+              ok: true,
+              postUrl: postResult.postUrl,
+              caption: fullCaption,
+              message: `Posted to Zalo OA "${connection.pageName ?? 'account'}"`,
+            };
+          } catch (err) {
+            console.warn('[publishToSocial] Zalo API failed, falling back to share link:', err?.message ?? err);
+          }
         }
       }
 
@@ -208,7 +321,7 @@ export async function execute(input = {}, context = {}) {
         caption: fullCaption,
         hashtags,
         connected: hasConnection,
-        copyOnly: platform === 'instagram',
+        copyOnly: platform === 'instagram' && !hasConnection,
         message: shareUrl
           ? `Share link ready for ${platform}`
           : `Copy your campaign link and share on ${platform}`,
