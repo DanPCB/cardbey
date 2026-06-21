@@ -302,22 +302,25 @@ router.post('/run-factory', requireAuth, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'factory_id_and_mission_id_required' });
   }
   try {
-    const result = await executeRuntimeAction({
-      actionType: 'run_factory',
-      actionId: `factory:${factoryId}`,
-      missionId,
-      userId: req.userId ?? req.user?.id ?? null,
-      tenantId: req.user?.tenantId ?? null,
-      storeId: body.storeId ?? body.context?.storeId ?? null,
-      source: typeof body.source === 'string' ? body.source : 'factory_runtime_api',
-      payload: {
-        factoryId,
-        intent: body.intent ?? body.goal ?? '',
-        context: body.context ?? {},
-        resumeState: body.resumeState ?? null,
+    const { unifiedDispatch } = await import('../lib/intake/unifiedDispatch.js');
+    const dispatchResult = await unifiedDispatch(
+      {
+        type: 'run_factory',
+        payload: {
+          factoryId,
+          intent: body.intent ?? body.goal ?? '',
+          missionId,
+          userId: req.userId ?? req.user?.id ?? null,
+          storeId: body.storeId ?? body.context?.storeId ?? null,
+          context: body.context ?? {},
+          resumeState: body.resumeState ?? null,
+        },
       },
-    });
-    const factoryExecution = result?.output?.factoryExecution ?? result?.output ?? result;
+      { source: 'intake_v2_unified' },
+    );
+    const result = dispatchResult?.toolResult ?? dispatchResult;
+    const factoryExecution =
+      dispatchResult?.factoryExecution ?? result?.output?.factoryExecution ?? result?.output ?? result;
     const httpStatus =
       result.status === 'blocked' ? 409 : factoryExecution?.status === 'failed' ? 500 : 200;
     return res.status(httpStatus).json({

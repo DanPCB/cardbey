@@ -11,6 +11,9 @@ export const TEST_STORE_ALLOWLIST = new Set([
   'cmqi1y4ss002fmzf1piirwrjd',
 ]);
 
+/** Stores allowed for analyze_store permission bypass (staging smoke / test probes). */
+export const ANALYSIS_ALLOWLIST = TEST_STORE_ALLOWLIST;
+
 function parseExtraAllowlist() {
   const raw = String(process.env.SLO_TEST_STORE_IDS ?? '').trim();
   if (!raw) return [];
@@ -83,6 +86,27 @@ export function shouldBypassPermissionValidation(ctx = {}) {
   }
 
   return false;
+}
+
+/**
+ * Bypass permission validation for analyze_store on allowlisted test stores.
+ *
+ * @param {{ userId?: string | null; storeId?: string | null; source?: string | null; toolName?: string | null; skillId?: string | null; action?: string | null }} [ctx]
+ */
+export function shouldBypassAnalyzeStorePermissions(ctx = {}) {
+  const storeId = String(ctx.storeId ?? '').trim();
+  const toolOrSkill =
+    ctx.toolName === 'analyze_store' ||
+    ctx.skillId === 'analyze_store' ||
+    ctx.action === 'analyze_store';
+
+  if (!toolOrSkill || !storeId) return false;
+
+  if (ANALYSIS_ALLOWLIST.has(storeId) || isTestStoreId(storeId)) {
+    return true;
+  }
+
+  return shouldBypassPermissionValidation(ctx);
 }
 
 /**

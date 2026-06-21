@@ -124,20 +124,6 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
     input = { ...params, task, description: task, goal: task };
   }
 
-  // Proactive-only tools are handled by performerProactiveStepRoutes, not toolDispatcher.
-// Return a passthrough signal so the caller can proceed with mission creation.
-const PROACTIVE_ONLY_TOOLS = new Set(['code_fix']);
-if (PROACTIVE_ONLY_TOOLS.has(name)) {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[ToolDispatcher] proactive-only tool, skipping dispatch: ${name}`);
-  }
-  return {
-    status: 'ok',
-    proactiveOnly: true,
-    output: { tool: name, message: 'Handled by proactive step routes' },
-  };
-}
-
   const def = getToolDefinition(name);
   if (!def) {
     if (process.env.NODE_ENV !== 'production') {

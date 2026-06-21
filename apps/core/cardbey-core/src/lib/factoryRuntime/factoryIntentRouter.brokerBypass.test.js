@@ -86,11 +86,12 @@ describe('factoryIntentRouter broker bypass', () => {
     expect(executeRuntimeActionMock).toHaveBeenCalledTimes(1);
     const call = executeRuntimeActionMock.mock.calls[0][0];
     expect(call.actionType).toBe('run_factory');
-    expect(call.source).toBe('intake_v2_factory_intent');
+    expect(call.source).toBe('intake_v2_unified');
     expect(call.payload.factoryId).toBe('creative_asset_factory_v4');
     expect(result?.factoryId).toBe('creative_asset_factory_v4');
     expect(result?.status).toBe('awaiting_factory_approval');
     expect(result?.actionType).toBe('run_factory');
+    expect(result?.dispatchedVia).toBe('unified_dispatch');
     expect(emitFactoryRouteAttemptedMock).toHaveBeenCalled();
     expect(emitFactoryRouteAcceptedMock).toHaveBeenCalledWith(
       expect.objectContaining({

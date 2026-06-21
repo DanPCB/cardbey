@@ -2,7 +2,7 @@
  * Factory intent routing — resolves intents via factoryIntentRegistry.
  */
 
-import { executeRuntimeAction } from '../runtime/performerRuntime/executeRuntimeAction.js';
+import { unifiedDispatch } from '../intake/unifiedDispatch.js';
 import { appendEvent } from '../missionBlackboard.js';
 import { getPrismaClient } from '../prisma.js';
 import {
@@ -202,28 +202,31 @@ export async function tryRouteFactoryIntent(args) {
     intentRegistryId: resolved.intentId,
   });
 
-  const runtimeResult = await executeRuntimeAction({
-    actionType: 'run_factory',
-    actionId: `factory:${factoryId}`,
-    missionId,
-    userId,
-    storeId: storeId ?? args.storeId ?? null,
-    source: 'intake_v2_factory_intent',
-    payload: {
-      factoryId,
-      intent,
-      context: {
-        ...(args.context ?? {}),
-        storeId: storeId ?? args.storeId ?? args.context?.storeId ?? null,
-        userMessage: intent,
+  const dispatchResult = await unifiedDispatch(
+    {
+      type: 'run_factory',
+      payload: {
+        factoryId,
+        intent,
         missionId,
-        runtimeOwned: true,
-        performerRuntimeOwned: true,
+        userId,
+        storeId: storeId ?? args.storeId ?? null,
+        context: {
+          ...(args.context ?? {}),
+          storeId: storeId ?? args.storeId ?? args.context?.storeId ?? null,
+          userMessage: intent,
+          missionId,
+          runtimeOwned: true,
+          performerRuntimeOwned: true,
+        },
       },
     },
-  });
+    { source: 'intake_v2_unified' },
+  );
 
-  if (runtimeResult?.status === 'blocked') {
+  const runtimeResult = dispatchResult?.toolResult ?? dispatchResult;
+
+  if (dispatchResult?.status === 'blocked' || runtimeResult?.status === 'blocked') {
     emitFactoryRouteRejected({
       reason: 'runtime_blocked',
       factoryId,
@@ -231,20 +234,26 @@ export async function tryRouteFactoryIntent(args) {
       intent,
       missionId,
       userId,
-      code: runtimeResult.blocker?.code ?? 'RUNTIME_BLOCKED',
+      code: dispatchResult?.code ?? runtimeResult?.blocker?.code ?? 'RUNTIME_BLOCKED',
     });
   }
 
-  const factoryExecution = runtimeResult?.output?.factoryExecution ?? runtimeResult?.output ?? null;
+  const factoryExecution =
+    dispatchResult?.factoryExecution ??
+    runtimeResult?.output?.factoryExecution ??
+    runtimeResult?.output ??
+    null;
   const generatedArtifacts = await loadGeneratedArtifactsFromMission(missionId);
 
   return buildFactoryRouteResult({
     factoryExecution,
-    runtimeResult,
+    runtimeResult: dispatchResult,
     generatedArtifacts,
     factoryId,
     intent,
     missionId,
+    dispatchedVia: 'unified_dispatch',
+    executionState: dispatchResult?.executionState ?? null,
   });
 }
 
@@ -283,8 +292,10 @@ function buildFactoryRouteResult(fields) {
     ok,
     duplicate: Boolean(fields.duplicate),
     missionId: fields.missionId ?? factoryExecution?.missionId ?? null,
-    dispatchedVia: 'factory_runtime',
+    dispatchedVia: fields.dispatchedVia ?? 'unified_dispatch',
     actionType: 'run_factory',
+    executionState: fields.executionState ?? null,
+    source: 'intake_v2_unified',
     factoryId: fields.factoryId ?? factoryExecution?.factoryId ?? CREATIVE_ASSET_FACTORY_V1_ID,
     factoryExecution,
     generatedArtifacts: fields.generatedArtifacts ?? [],

@@ -114,9 +114,13 @@ import * as queue_video_generation from './video/queue_video_generation.js'; // 
 import * as video_plan from './video/video_plan.js';
 import * as video_execute from './video/video_execute.js';
 import * as video_audio from './video/video_audio.js';
+import * as create_video from './video/videoRouter.js';
+import * as generate_video from './video/videoRouter.js';
 import * as check_scan_capability from './scan/check_scan_capability.js'; // DANH: skill-round5-cardscan
 import * as extract_card_data from './scan/extract_card_data.js'; // DANH: skill-round5-cardscan
 import * as create_product_from_card from './scan/create_product_from_card.js'; // DANH: skill-round5-cardscan
+import * as scan_card from './scan/scan_card.js';
+import * as code_fix from './code/code_fix.js';
 import * as check_cnet_config from './cnet/check_cnet_config.js'; // DANH: skill-round5-cnet
 import * as prepare_cnet_payload from './cnet/prepare_cnet_payload.js'; // DANH: skill-round5-cnet
 import * as deploy_to_cnet from './cnet/deploy_to_cnet.js'; // DANH: skill-round5-cnet
@@ -133,6 +137,7 @@ import * as route_vision_event from './vision/route_vision_event.js';
 import * as mission_conditional_branch from './mission/mission_conditional_branch.js';
 import * as create_ghost_store from './ghost/create_ghost_store.js';
 import * as enrich_ghost_store from './ghost/enrich_ghost_store.js';
+import * as create_mini_website from './website/create_mini_website.js';
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
 function honestBlocker(toolName, message) {
@@ -284,9 +289,13 @@ export const executors = {
   video_plan,
   video_execute,
   video_audio,
+  create_video,
+  generate_video,
   check_scan_capability, // DANH: skill-round5-cardscan
   extract_card_data, // DANH: skill-round5-cardscan
   create_product_from_card, // DANH: skill-round5-cardscan
+  scan_card,
+  code_fix,
   check_cnet_config, // DANH: skill-round5-cnet
   prepare_cnet_payload, // DANH: skill-round5-cnet
   deploy_to_cnet, // DANH: skill-round5-cnet
@@ -302,6 +311,7 @@ export const executors = {
   route_vision_event,
   create_ghost_store,
   enrich_ghost_store,
+  create_mini_website,
   generate_promotion_asset: honestBlocker(
     'generate_promotion_asset',
     'Promotion asset generation is not implemented yet.',

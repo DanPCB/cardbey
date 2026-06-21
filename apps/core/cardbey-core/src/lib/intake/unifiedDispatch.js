@@ -7,17 +7,23 @@ import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
 import { executeRuntimeAction } from '../runtime/performerRuntime/executeRuntimeAction.js';
 import { getTenantId } from '../missionAccess.js';
 import { isRegisteredTool } from './intakeToolRegistry.js';
+import {
+  deriveExecutionStateFromRuntime,
+  EXECUTION_STATES,
+} from '../telemetry/executionStates.js';
 
 const ORCHESTRATION_TYPES = new Set(['multi_agent', 'campaign_orchestration']);
+const FACTORY_ACTION_TYPE = 'run_factory';
 
 /**
  * @param {object} runtimeResult
  * @param {string} toolName
  * @param {object} payload
  */
-function normalizeToolRuntimeResult(runtimeResult, toolName, payload) {
+function normalizeToolRuntimeResult(runtimeResult, toolName, payload, actionType = 'dispatch_tool') {
   const blocked = runtimeResult?.status === 'blocked';
   const ok = runtimeResult?.status === 'ok' || runtimeResult?.status === 'completed';
+  const executionState = deriveExecutionStateFromRuntime(runtimeResult, { actionType });
   return {
     ok,
     status: blocked ? 'blocked' : ok ? 'ok' : 'failed',
@@ -28,9 +34,98 @@ function normalizeToolRuntimeResult(runtimeResult, toolName, payload) {
       runtimeResult?.output?.message ??
       null,
     executionPath: 'proactive_plan',
+    executionState,
+    source: 'intake_v2_unified',
     tool: toolName,
     toolResult: runtimeResult,
     payload,
+  };
+}
+
+/**
+ * Factory execution via unified dispatch (replaces direct executeRuntimeAction in factory router).
+ *
+ * @param {{ payload: object, source: string }} input
+ */
+async function dispatchRunFactoryViaKernel({ payload, source }) {
+  const factoryId =
+    typeof payload.factoryId === 'string' ? payload.factoryId.trim() : '';
+  const missionId = payload.missionId ?? null;
+  const userId = payload.userId ?? null;
+  const storeId = payload.storeId ?? null;
+  const intent =
+    typeof payload.intent === 'string'
+      ? payload.intent.trim()
+      : typeof payload.userMessage === 'string'
+        ? payload.userMessage.trim()
+        : '';
+  const factoryContext =
+    payload.context && typeof payload.context === 'object' && !Array.isArray(payload.context)
+      ? payload.context
+      : {};
+
+  if (!factoryId || !missionId || !userId) {
+    return {
+      ok: false,
+      status: 'error',
+      code: 'FACTORY_CONTEXT_REQUIRED',
+      message: 'run_factory requires factoryId, missionId, and userId',
+      executionPath: 'proactive_plan',
+      executionState: EXECUTION_STATES.BLOCKED,
+      source: 'intake_v2_unified',
+    };
+  }
+
+  const runtimeResult = await executeRuntimeAction({
+    actionType: FACTORY_ACTION_TYPE,
+    actionId: `factory:${factoryId}`,
+    missionId,
+    userId,
+    storeId,
+    source,
+    payload: {
+      factoryId,
+      intent,
+      context: {
+        ...factoryContext,
+        storeId: storeId ?? factoryContext.storeId ?? null,
+        userMessage: intent,
+        missionId,
+        runtimeOwned: true,
+        performerRuntimeOwned: true,
+      },
+      resumeState: payload.resumeState ?? null,
+    },
+  });
+
+  const blocked = runtimeResult?.status === 'blocked';
+  const ok = runtimeResult?.status === 'ok' || runtimeResult?.status === 'completed';
+  const factoryExecution = runtimeResult?.output?.factoryExecution ?? runtimeResult?.output ?? null;
+  const executionState = deriveExecutionStateFromRuntime(runtimeResult, {
+    actionType: FACTORY_ACTION_TYPE,
+  });
+
+  return {
+    ok,
+    status: blocked ? 'blocked' : ok ? 'ok' : 'failed',
+    code: runtimeResult?.blocker?.code ?? runtimeResult?.error?.code ?? null,
+    message:
+      runtimeResult?.blocker?.message ??
+      runtimeResult?.error?.message ??
+      factoryExecution?.error?.message ??
+      null,
+    executionPath: 'proactive_plan',
+    executionState,
+    source: 'intake_v2_unified',
+    actionType: FACTORY_ACTION_TYPE,
+    factoryId,
+    factoryExecution,
+    toolResult: runtimeResult,
+    payload: {
+      ...payload,
+      missionId,
+      dispatchedVia: 'unified_dispatch',
+    },
   };
 }
 
@@ -191,6 +286,10 @@ export async function unifiedDispatch(action, options = {}) {
     return dispatchOrchestrationViaKernel({ type, payload, source });
   }
 
+  if (type === FACTORY_ACTION_TYPE) {
+    return dispatchRunFactoryViaKernel({ payload, source });
+  }
+
   const toolName =
     typeof payload.toolName === 'string' && payload.toolName.trim()
       ? payload.toolName.trim()
@@ -230,11 +329,40 @@ export async function unifiedDispatch(action, options = {}) {
     },
   });
 
-  return normalizeToolRuntimeResult(runtimeResult, toolName, {
-    ...payload,
-    missionId: payload.missionId ?? null,
-    dispatchedVia: 'unified_dispatch',
-  });
+  return normalizeToolRuntimeResult(
+    runtimeResult,
+    toolName,
+    {
+      ...payload,
+      missionId: payload.missionId ?? null,
+      dispatchedVia: 'unified_dispatch',
+    },
+    'dispatch_tool',
+  );
+}
+
+/** @deprecated alias — use unifiedDispatch({ type: 'run_factory', payload }) */
+export async function routeFactoryIntentViaUnifiedDispatch(intent, context = {}, options = {}) {
+  const ctx = context && typeof context === 'object' ? context : {};
+  return unifiedDispatch(
+    {
+      type: FACTORY_ACTION_TYPE,
+      payload: {
+        factoryId: ctx.factoryId ?? intent?.factoryId ?? null,
+        intent: ctx.intent ?? intent?.userMessage ?? intent?.intent ?? '',
+        missionId: ctx.missionId ?? intent?.missionId ?? null,
+        userId: ctx.userId ?? intent?.userId ?? null,
+        storeId: ctx.storeId ?? intent?.storeId ?? null,
+        context: ctx.context ?? intent?.context ?? {},
+        resumeState: ctx.resumeState ?? null,
+      },
+    },
+    {
+      source: options.source ?? 'intake_v2_unified',
+      requireConfirmation: options.requireConfirmation === true,
+      confirmed: options.confirmed === true,
+    },
+  );
 }
 
 /**

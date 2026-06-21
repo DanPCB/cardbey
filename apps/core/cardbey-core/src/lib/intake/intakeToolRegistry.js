@@ -448,6 +448,34 @@ export const INTAKE_TOOL_REGISTRY = [
   },
   // DANH: skill-round6-document
   {
+    toolName: 'scan_card',
+    executionPath: 'proactive_plan',
+    label: 'Scan Business Card',
+    riskLevel: RISK.STATE_CHANGE,
+    requiresStore: true,
+    approvalRequired: true,
+    planRole: PLAN_ROLE.STANDALONE,
+    prerequisiteTools: [],
+    parameterSchema: {
+      properties: {
+        storeId: { type: 'string' },
+        imageData: { type: 'string' },
+        imageDataUrl: { type: 'string' },
+        imageUrl: { type: 'string' },
+        confirmed: { type: 'boolean' },
+      },
+    },
+    requiredParams: [],
+    optionalParams: ['storeId', 'imageData', 'imageDataUrl', 'imageUrl', 'confirmed'],
+    semanticDescription:
+      'Scan a business card or product tag image, extract data via OCR, and optionally create a catalog product.',
+    examples: [
+      'scan this business card',
+      'scan card to create product',
+      'import product from card photo',
+    ],
+  },
+  {
     toolName: 'ingest_document',
     executionPath: 'proactive_plan',
     label: 'Ingest Business Document',
@@ -1241,7 +1269,7 @@ or share their website with customers.`,
     label: 'Activate Campaigns',
     riskLevel: RISK.STATE_CHANGE,
     requiresStore: true,
-    approvalRequired: false,
+    approvalRequired: true,
     planRole: PLAN_ROLE.STANDALONE,
     prerequisiteTools: [],
     parameterSchema: {

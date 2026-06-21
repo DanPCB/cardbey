@@ -387,6 +387,7 @@ export class SLOTracker {
       const realRows = rows.filter((row) => row.isRealExecution !== false && isRealExecution(row.executionState));
       const stubRows = rows.filter((row) => row.executionState === EXECUTION_STATES.STUBBED);
       const plannedRows = rows.filter((row) => row.executionState === EXECUTION_STATES.PLANNED);
+      const blockedRows = rows.filter((row) => row.executionState === EXECUTION_STATES.BLOCKED);
 
       const realSuccess = realRows.filter(
         (row) => row.outcome === 'success' && isSloSuccessState(row.executionState),
@@ -403,6 +404,9 @@ export class SLOTracker {
         realFailures,
         stubFailures,
         plannedCount: plannedRows.length,
+        blockedCount: blockedRows.length,
+        realCount: realRows.length,
+        stubCount: stubRows.length,
         realExecutions: realRows.length,
         stubExecutions: stubRows.length,
         windowMs,
@@ -415,6 +419,9 @@ export class SLOTracker {
         realFailures: 0,
         stubFailures: 0,
         plannedCount: 0,
+        blockedCount: 0,
+        realCount: 0,
+        stubCount: 0,
         realExecutions: 0,
         stubExecutions: 0,
         windowMs,

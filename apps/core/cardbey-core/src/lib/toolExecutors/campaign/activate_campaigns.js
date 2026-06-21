@@ -5,6 +5,7 @@
 
 import { getPrismaClient } from '../../prisma.js';
 import { runCriticalSqliteWriteWithP1008Retry } from '../../sqliteCriticalWrite.js';
+import { EXECUTION_STATES } from '../../telemetry/executionStates.js';
 
 /**
  * @param {object} [input]
@@ -18,8 +19,9 @@ export async function execute(input = {}, context = {}) {
 
   if (!storeId) {
     return {
-      status: 'failed',
-      error: { code: 'VALIDATION_ERROR', message: 'storeId is required' },
+      status: 'blocked',
+      blocker: { code: 'VALIDATION_ERROR', message: 'storeId is required' },
+      output: { executionState: EXECUTION_STATES.BLOCKED },
     };
   }
 
@@ -37,6 +39,7 @@ export async function execute(input = {}, context = {}) {
         activated: 0,
         promos: [],
         message: 'No draft promotions to activate',
+        executionState: EXECUTION_STATES.EXECUTED,
       },
     };
   }
@@ -67,6 +70,7 @@ export async function execute(input = {}, context = {}) {
       activated: activatedIds.length,
       promos: activatedIds,
       message: `Activated ${activatedIds.length} promotion(s)`,
+      executionState: EXECUTION_STATES.EXECUTED,
     },
   };
 }

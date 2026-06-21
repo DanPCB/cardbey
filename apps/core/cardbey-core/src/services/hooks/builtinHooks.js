@@ -14,6 +14,7 @@ import {
 import { getPrismaClient } from '../../lib/prisma.js';
 import {
   shouldBypassPermissionValidation,
+  shouldBypassAnalyzeStorePermissions,
   syntheticBypassStore,
   isStagingDeploy,
 } from './permissionBypass.js';
@@ -40,7 +41,19 @@ hookRegistry.register({
     const userId = String(context?.userId ?? '').trim();
     const storeId = String(context?.storeId ?? '').trim();
 
-    if (shouldBypassPermissionValidation({ userId, storeId, source: context?.source })) {
+    const bypassCtx = {
+      userId,
+      storeId,
+      source: context?.source,
+      toolName: context?.toolName,
+      skillId: context?.skillId,
+      action: context?.action,
+    };
+
+    if (
+      shouldBypassAnalyzeStorePermissions(bypassCtx) ||
+      shouldBypassPermissionValidation(bypassCtx)
+    ) {
       return {
         validated: true,
         bypass: true,

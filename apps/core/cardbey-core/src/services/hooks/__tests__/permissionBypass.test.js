@@ -4,6 +4,7 @@ import {
   isTestStoreId,
   isTestUserId,
   shouldBypassPermissionValidation,
+  shouldBypassAnalyzeStorePermissions,
   isStagingDeploy,
 } from '../permissionBypass.js';
 
@@ -57,5 +58,27 @@ describe('permissionBypass', () => {
     expect(
       shouldBypassPermissionValidation({ userId: 'test-user', storeId: 'any-store' }),
     ).toBe(true);
+  });
+
+  it('bypasses analyze_store for allowlisted staging store', () => {
+    expect(
+      shouldBypassAnalyzeStorePermissions({
+        toolName: 'analyze_store',
+        storeId: 'cmqi1y4ss002fmzf1piirwrjd',
+        userId: 'dev-admin',
+      }),
+    ).toBe(true);
+  });
+
+  it('does not bypass analyze_store for unknown store in production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('CARDEY_DEPLOY_ENV', 'production');
+    expect(
+      shouldBypassAnalyzeStorePermissions({
+        toolName: 'analyze_store',
+        storeId: 'real-store-id',
+        userId: 'dev-admin',
+      }),
+    ).toBe(false);
   });
 });

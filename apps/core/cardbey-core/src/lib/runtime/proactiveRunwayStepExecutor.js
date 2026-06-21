@@ -11,7 +11,6 @@ import { dispatchTaskWithAgentHint } from '../agentPlanning/agentOrchestrator.js
 import { resolveRunwayDispatchToolName } from '../missionPlan/proactiveRunwayToolAllowlist.js';
 import {
   resolveCodeFixProposedPatchForApply,
-  buildCanonicalCodeFixErrorOutput,
 } from '../../services/codeFixCanonicalOutput.js';
 import { buildStepContext, writeStepOutput, shouldPersistStepOutputToBus } from '../missionContextBus.js';
 import { mergeProactiveStepStatus } from './runtimeStepState.js';
@@ -286,47 +285,22 @@ export async function executeProactiveRunwayStep(input) {
   let toolResult;
 
   if (recommendedTool === 'code_fix') {
-    const description =
+    payload.description =
       String(body.description ?? '').trim() ||
       String(parameters.description ?? '').trim() ||
       String(parameters.prompt ?? '').trim() ||
+      String(payload.description ?? '').trim() ||
       '';
     const filePathsFromBody = Array.isArray(body.filePaths) ? body.filePaths : null;
     const filePathsFromParams = Array.isArray(parameters.filePaths) ? parameters.filePaths : null;
-    const filePaths = filePathsFromBody || filePathsFromParams || [];
-    const repoContext = String(body.repoContext ?? parameters.repoContext ?? '').trim() || undefined;
-    const hasSourceFilePaths = filePaths.some((p) =>
-      /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cs|rb|php)$/i.test(String(p ?? '').trim()),
-    );
-    const { runCodeFixAnalysis, tryBuildStoreContentFixOutputFromIntakePatch } = await import(
-      '../../services/codeFixPerformerService.js'
-    );
-    const intakePatch = parameters.storeContentPatch ?? body.storeContentPatch;
-    const fromIntake = tryBuildStoreContentFixOutputFromIntakePatch({ storeContentPatch: intakePatch, description });
-    if (fromIntake && !hasSourceFilePaths) {
-      toolResult = { status: 'ok', output: fromIntake.output };
-    } else {
-      const analysis = await runCodeFixAnalysis({ description, filePaths, repoContext });
-      if (!analysis.ok) {
-        await advanceProactivePipelineStep(prisma, {
-          missionId,
-          executionMode: pipeline.executionMode,
-          data: { status: 'failed', runState: 'error', metadataJson: patchMeta('failed', { error: analysis.message }) },
-          source,
-          correlationId: missionId,
-        });
-        return {
-          ok: false,
-          httpStatus: 200,
-          code: 'STEP_FAILED',
-          message: analysis.message,
-          output: buildCanonicalCodeFixErrorOutput(analysis.message),
-          stepStatus: 'failed',
-        };
-      }
-      toolResult = { status: 'ok', output: analysis.output };
-    }
-  } else if (recommendedTool === 'generate_slideshow') {
+    if (filePathsFromBody) payload.filePaths = filePathsFromBody;
+    else if (filePathsFromParams) payload.filePaths = filePathsFromParams;
+    payload.repoContext =
+      String(body.repoContext ?? parameters.repoContext ?? '').trim() || undefined;
+    payload.storeContentPatch = parameters.storeContentPatch ?? body.storeContentPatch;
+  }
+
+  if (recommendedTool === 'generate_slideshow') {
     toolResult = {
       status: 'ok',
       output: {

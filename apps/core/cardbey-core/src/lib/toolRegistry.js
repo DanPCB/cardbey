@@ -140,6 +140,29 @@ const TOOLS = [
     requiresConfirmation: false,
   },
   {
+    toolName: 'create_video',
+    label: 'Create store video',
+    description: 'Generate a promotional video for the store via unified video router',
+    category: 'content',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: false,
+    aliases: ['generate_video'],
+    parameters: {
+      storeId: { type: 'string', required: true },
+      prompt: { type: 'string', required: false },
+      style: { type: 'string', required: false },
+      duration: { type: 'number', required: false },
+    },
+  },
+  {
+    toolName: 'generate_video',
+    label: 'Generate video',
+    description: 'Alias for create_video — unified video generation router',
+    category: 'content',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: false,
+  },
+  {
     toolName: 'search_hero_media',
     label: 'Search hero media',
     description:
@@ -575,6 +598,21 @@ const TOOLS = [
     requiresConfirmation: false,
   },
   {
+    toolName: 'code_fix',
+    label: 'Fix content / text',
+    description: 'Propose a targeted content or source-code fix with approval before applying',
+    category: 'maintenance',
+    targetTypes: ['store', 'draft_store', 'generic'],
+    requiresConfirmation: true,
+    riskLevel: 'state_change',
+    parameters: {
+      description: { type: 'string', required: true },
+      filePaths: { type: 'array', required: false },
+      repoContext: { type: 'string', required: false },
+      storeContentPatch: { type: 'object', required: false },
+    },
+  },
+  {
     toolName: 'audit_codebase',
     label: 'Audit codebase',
     description: 'Traces a runtime error to a source file and line.',
@@ -955,6 +993,22 @@ const TOOLS = [
       cardData: { type: 'object', required: false },
     },
   },
+  {
+    toolName: 'scan_card',
+    label: 'Scan business card',
+    description: 'Unified OCR scan and optional product creation from card image',
+    category: 'scan',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: true,
+    riskLevel: 'state_change',
+    parameters: {
+      storeId: { type: 'string', required: true },
+      imageData: { type: 'string', required: false },
+      imageDataUrl: { type: 'string', required: false },
+      imageUrl: { type: 'string', required: false },
+      confirmed: { type: 'boolean', required: false },
+    },
+  },
   // DANH: skill-round5-cnet
   {
     toolName: 'check_cnet_config',
@@ -1095,10 +1149,22 @@ const TOOLS = [
     description: 'Activate draft store promotions created from document ingestion',
     category: 'campaign',
     targetTypes: ['store'],
-    requiresConfirmation: false,
+    requiresConfirmation: true,
     riskLevel: 'state_change',
     parameters: {
       storeId: { type: 'string', required: true },
+    },
+  },
+  {
+    toolName: 'create_mini_website',
+    label: 'Create mini website',
+    description: 'Website-mode structured store build (alias for create_store website runway)',
+    category: 'store',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: false,
+    parameters: {
+      missionId: { type: 'string', required: false },
+      storeId: { type: 'string', required: false },
     },
   },
   {

@@ -213,6 +213,8 @@ router.get('/platform/runtime-metrics', async (req, res) => {
       (row) => row.isRealExecution !== false && isRealExecution(row.executionState),
     );
     const stubRows = obsRows24h.filter((row) => row.executionState === EXECUTION_STATES.STUBBED);
+    const blockedRows24h = obsRows24h.filter((row) => row.executionState === EXECUTION_STATES.BLOCKED);
+    const plannedRows24h = obsRows24h.filter((row) => row.executionState === EXECUTION_STATES.PLANNED);
     const realSuccess24h = realRows.filter(
       (row) => row.outcome === 'success' && isSloSuccessState(row.executionState),
     ).length;
@@ -287,6 +289,8 @@ router.get('/platform/runtime-metrics', async (req, res) => {
       observationCount24h: obsTotal24h,
       realExecutions24h: realRows.length,
       stubExecutions24h: stubRows.length,
+      blockedExecutions24h: blockedRows24h.length,
+      plannedExecutions24h: plannedRows24h.length,
       failurePatterns,
       stubFailurePatterns,
       window: { since24h: since24h.toISOString(), since7d: since7d.toISOString() },
