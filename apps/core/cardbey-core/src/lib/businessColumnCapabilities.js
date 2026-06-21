@@ -11,7 +11,62 @@ const require = createRequire(import.meta.url);
 /** @type {Set<string> | null} */
 let cachedColumns = null;
 
-const POSTGRES_ALL_COLUMNS = new Set(['*']);
+/** Postgres Business columns — must match prisma/postgres/schema.prisma model Business */
+const POSTGRES_BUSINESS_COLUMNS = new Set([
+  'id',
+  'userId',
+  'name',
+  'type',
+  'slug',
+  'description',
+  'showOwnerProfile',
+  'translations',
+  'logo',
+  'region',
+  'isActive',
+  'tradingHours',
+  'address',
+  'addressLine2',
+  'suburb',
+  'city',
+  'state',
+  'postcode',
+  'country',
+  'formattedAddress',
+  'locationSource',
+  'locationConfidence',
+  'osmPlaceId',
+  'phone',
+  'email',
+  'websiteUrl',
+  'mapUrl',
+  'lat',
+  'lng',
+  'primaryColor',
+  'secondaryColor',
+  'tagline',
+  'heroText',
+  'heroImageUrl',
+  'avatarImageUrl',
+  'publishedAt',
+  'transactionMode',
+  'catalogLabel',
+  'ctaLabel',
+  'stylePreferences',
+  'storefrontSettings',
+  'socialLinks',
+  'brandTone',
+  'brandStyle',
+  'brandColors',
+  'provenance',
+  'claimStatus',
+  'captureCount',
+  'capturedByUserId',
+  'isGuestDraft',
+  'expiresAt',
+  'createdAt',
+  'updatedAt',
+]);
 
 function openReadonlySqlite(absolutePath) {
   const { DatabaseSync } = require('node:sqlite');
@@ -26,7 +81,7 @@ export function getBusinessTableColumns() {
 
   const { isSqlite } = getDbCapabilities();
   if (!isSqlite) {
-    cachedColumns = POSTGRES_ALL_COLUMNS;
+    cachedColumns = POSTGRES_BUSINESS_COLUMNS;
     return cachedColumns;
   }
 
@@ -68,7 +123,6 @@ export function getBusinessTableColumns() {
 /** @param {string} columnName */
 export function hasBusinessColumn(columnName) {
   const columns = getBusinessTableColumns();
-  if (columns === POSTGRES_ALL_COLUMNS) return true;
   return columns.has(columnName);
 }
 
