@@ -8,8 +8,8 @@ import {
   generateVideoViaProvider,
   isVideoGenerationProviderAvailable,
   resolveVideoProvider,
-  videoProviderUnavailableReason,
 } from '../../video/videoArtifactContract.js';
+import { videoProviderUnavailableReason } from '../../video/videoProvider.js';
 
 /**
  * @param {object} input
