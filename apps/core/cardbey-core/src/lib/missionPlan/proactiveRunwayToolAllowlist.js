@@ -39,6 +39,8 @@ export const SYNONYM_TOOL_NAMES = [
   'general_chat',
   'code_fix',
   'generate_slideshow',
+  'create_video',
+  'video_generate_multimodal',
   'start_build_store',
   'get_draft_by_run',
   'get_draft_summary',

@@ -260,7 +260,7 @@ function buildCreateStoreClassification(input) {
   if (input.intentLabel) parameters.intentLabel = input.intentLabel;
 
   return {
-    executionPath: 'direct_action',
+    executionPath: 'proactive_plan',
     tool: 'create_store',
     confidence: input.confidence ?? 1,
     parameters,
@@ -270,16 +270,16 @@ function buildCreateStoreClassification(input) {
 }
 
 /**
- * When kernel mandatory disables shortcuts, preserve structured create_store only.
+ * When kernel mandatory disables shortcuts, structured create_store shortcuts are not preserved.
  *
+ * @deprecated Always returns false under kernel mandatory unified dispatch.
  * @param {{ type?: string } | null | undefined} shortcut
  * @param {{ userMessage?: string, storeCreateForm?: object }} ctx
  */
 export function shouldPreserveCreateStoreShortcutWhenKernelMandatory(shortcut, ctx = {}) {
-  if (shortcut?.type !== 'create_store') return false;
-  return shouldBlockServiceRequestForStoreCreate(ctx.userMessage ?? '', {
-    storeCreateForm: ctx.storeCreateForm,
-  });
+  void shortcut;
+  void ctx;
+  return false;
 }
 
 /**

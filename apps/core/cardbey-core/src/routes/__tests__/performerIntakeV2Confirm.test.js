@@ -6,18 +6,15 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { dispatchToolMock, performerExecuteMock } = vi.hoisted(() => {
-  const dispatchToolMock = vi.fn(async () => ({
+const { unifiedDispatchMock } = vi.hoisted(() => {
+  const unifiedDispatchMock = vi.fn(async (action) => ({
+    ok: true,
     status: 'ok',
-    output: { message: 'Tool finished.' },
+    tool: action?.type ?? 'orders_report',
+    toolResult: { status: 'ok', output: { message: 'Tool finished.' } },
+    payload: { ...(action?.payload?.input ?? {}), missionId: action?.payload?.missionId ?? null },
   }));
-  const performerExecuteMock = vi.fn(async (req) => {
-    const toolName = req?.payload?.toolName ?? '';
-    const input = req?.payload?.input ?? {};
-    await dispatchToolMock(toolName, input);
-    return { status: 'ok', output: { message: 'Tool finished.' } };
-  });
-  return { dispatchToolMock, performerExecuteMock };
+  return { unifiedDispatchMock };
 });
 
 vi.mock('../../middleware/guestAuth.js', () => ({
@@ -37,14 +34,19 @@ vi.mock('../../lib/intake/intakeClassifier.js', () => ({
   FALLBACK_CLARIFY: { clarifyOptions: [] },
 }));
 
-vi.mock('../../lib/toolDispatcher.js', () => ({
-  dispatchTool: (...args) => dispatchToolMock(...args),
-}));
-
-vi.mock('../../lib/runtime/performerRuntime/performerRuntime.js', () => ({
-  performerRuntime: {
-    execute: (...args) => performerExecuteMock(...args),
-  },
+vi.mock('../../lib/intake/unifiedDispatch.js', () => ({
+  unifiedDispatch: (...args) => unifiedDispatchMock(...args),
+  mapUnifiedDispatchToIntakeResponse: (result, ctx = {}) => ({
+    success: result.ok !== false,
+    action: 'tool_call',
+    tool: result.tool ?? ctx.tool ?? null,
+    parameters: result.payload ?? {},
+    response: result.toolResult?.output?.message ?? 'Tool finished.',
+    result: result.toolResult?.output ?? null,
+    artifacts: result.toolResult?.output?.artifacts ?? [],
+    executionPath: 'proactive_plan',
+    missionId: result.payload?.missionId ?? null,
+  }),
 }));
 
 import performerIntakeV2Routes from '../performerIntakeV2Routes.js';
@@ -67,7 +69,7 @@ function makeApp(user) {
 describe('POST /api/performer/intake/v2/confirm', () => {
   beforeEach(() => {
     clearIntakeApprovalPreviewStoreForTests();
-    dispatchToolMock.mockClear();
+    unifiedDispatchMock.mockClear();
   });
 
   afterEach(() => {
@@ -97,10 +99,12 @@ describe('POST /api/performer/intake/v2/confirm', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.action).toBe('tool_call');
     expect(res.body.tool).toBe('orders_report');
-    expect(dispatchToolMock).toHaveBeenCalled();
-    const [name, payload] = dispatchToolMock.mock.calls[0];
-    expect(name).toBe('orders_report');
-    expect(payload.storeId).toBe('store-1');
+    expect(unifiedDispatchMock).toHaveBeenCalled();
+    const [action, options] = unifiedDispatchMock.mock.calls[0];
+    expect(action.type).toBe('orders_report');
+    expect(action.payload.input.storeId).toBe('store-1');
+    expect(options.confirmed).toBe(true);
+    expect(options.source).toBe('intake_v2_confirm');
   });
 
   it('rejects expired preview', async () => {
@@ -123,7 +127,7 @@ describe('POST /api/performer/intake/v2/confirm', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(false);
     expect(res.body.error).toBe('expired_or_missing');
-    expect(dispatchToolMock).not.toHaveBeenCalled();
+    expect(unifiedDispatchMock).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 
@@ -144,7 +148,7 @@ describe('POST /api/performer/intake/v2/confirm', () => {
 
     expect(res.status).toBe(403);
     expect(res.body.success).toBe(false);
-    expect(dispatchToolMock).not.toHaveBeenCalled();
+    expect(unifiedDispatchMock).not.toHaveBeenCalled();
   });
 
   it('confirms device.sendInput without active store context', async () => {
@@ -171,11 +175,11 @@ describe('POST /api/performer/intake/v2/confirm', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.action).toBe('tool_call');
     expect(res.body.tool).toBe('device.sendInput');
-    expect(dispatchToolMock).toHaveBeenCalled();
-    const [name, payload] = dispatchToolMock.mock.calls[0];
-    expect(name).toBe('device.sendInput');
-    expect(payload.task).toMatch(/Notepad/i);
-    expect(payload.storeId).toBeUndefined();
+    expect(unifiedDispatchMock).toHaveBeenCalled();
+    const [action] = unifiedDispatchMock.mock.calls[0];
+    expect(action.type).toBe('device.sendInput');
+    expect(action.payload.input.task).toMatch(/Notepad/i);
+    expect(action.payload.input.storeId).toBeUndefined();
   });
 
   it('blocks confirm when re-validation fails (missing store)', async () => {
@@ -196,7 +200,7 @@ describe('POST /api/performer/intake/v2/confirm', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(false);
     expect(res.body.action).toBe('clarify');
-    expect(dispatchToolMock).not.toHaveBeenCalled();
+    expect(unifiedDispatchMock).not.toHaveBeenCalled();
   });
 
   it('echoes X-Cardbey-Trace-Id when client sends a valid value', async () => {

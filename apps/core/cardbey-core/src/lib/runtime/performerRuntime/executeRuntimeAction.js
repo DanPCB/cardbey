@@ -17,6 +17,10 @@ import { recordRuntimeExecutionNode } from './runtimeStateGraph.js';
 import { detectExecutionDuplication } from './runtimeAuthorityStaging.js';
 import { recordRuntimeAuthorityPathUsed } from './runtimeAuthorityGuard.js';
 import observationBus from '../observationBus.js';
+import {
+  deriveExecutionStateFromRuntime,
+  EXECUTION_STATES,
+} from '../../telemetry/executionStates.js';
 import activeSummary from '../../../services/memory/activeSummary.js';
 import hookExecutor from '../../../services/hooks/hookExecutor.js';
 
@@ -598,6 +602,7 @@ export async function executeRuntimeAction(request) {
 
   const observationAction = toolName || actionId || actionType;
   const observationSuccess = status === 'completed';
+  const executionState = deriveExecutionStateFromRuntime(facadeResult, { actionType });
   const sloExcludedIntent =
     actionType === 'run_pipeline_step' ||
     actionType === 'orchestra_start' ||
@@ -613,6 +618,10 @@ export async function executeRuntimeAction(request) {
           facadeResult.error?.message ??
           facadeResult.blocker?.message ??
           null,
+        executionState,
+        stubbed: executionState === EXECUTION_STATES.STUBBED,
+        blocked: executionState === EXECUTION_STATES.BLOCKED,
+        partial: executionState === EXECUTION_STATES.PARTIAL,
       },
       metadata: {
         latency: latencyMs,
@@ -623,6 +632,11 @@ export async function executeRuntimeAction(request) {
         confidence: routePlan?.confidence ?? null,
         cost: facadeResult.metadata?.cost ?? null,
         tokens: facadeResult.metadata?.tokens ?? null,
+        executionState,
+        stubbed: executionState === EXECUTION_STATES.STUBBED,
+        blocked: executionState === EXECUTION_STATES.BLOCKED,
+        planned: executionState === EXECUTION_STATES.PLANNED,
+        partial: executionState === EXECUTION_STATES.PARTIAL,
       },
     });
   } catch (obsErr) {
