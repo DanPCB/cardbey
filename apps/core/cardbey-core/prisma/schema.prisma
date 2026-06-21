@@ -3021,7 +3021,7 @@ model DocConversation {
   docId     String
   visitorId String
   channel   String    @default("web") // web|sms|email
-  messages  Json      @default("[]")
+  messages  String    @default("[]")
   outcome   String?   // lead_captured|redeemed|rsvp|booked|abandoned
   intent    String?
   sentiment String?
@@ -3211,7 +3211,7 @@ model PatternWeight {
   intent            String
   matchedSkill      String
   weight            Float    @default(1.0)
-  adjustmentHistory Json     @default("[]")
+  adjustmentHistory Json
   lastAdjusted      DateTime @default(now())
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -3226,6 +3226,8 @@ model Observation {
   missionId       String?
   intentType      String
   actionType      String
+  executionState  String   @default("executed")
+  isRealExecution Boolean  @default(true)
   outcome         String
   error           String?
   latency         Int?
@@ -3237,6 +3239,8 @@ model Observation {
 
   @@index([missionId])
   @@index([intentType, outcome])
+  @@index([executionState])
+  @@index([isRealExecution])
   @@index([createdAt])
   @@map("observations")
 }
@@ -3271,9 +3275,9 @@ model UserMemory {
   lastAction     String?
   lastActionAt   DateTime?
   visitCount     Int       @default(1)
-  actionHistory  Json      @default("[]")
-  abandonedTasks Json      @default("[]")
-  completedTasks Json      @default("[]")
+  actionHistory  Json
+  abandonedTasks Json
+  completedTasks Json
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -3285,7 +3289,7 @@ model OnboardingProgress {
   userId         String    @unique
   step           Int       @default(0)
   total          Int       @default(5)
-  completedSteps Json      @default("[]")
+  completedSteps Json
   lastStepAt     DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -3438,7 +3442,7 @@ model ConversationSession {
   messageCount    Int      @default(0) @map("message_count")
   lastMessageAt   DateTime @default(now()) @map("last_message_at")
   activeMissionId String?  @map("active_mission_id")
-  metadata        Json     @default("{}")
+  metadata        Json?
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 

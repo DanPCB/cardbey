@@ -3220,6 +3220,8 @@ model Observation {
   missionId       String?
   intentType      String
   actionType      String
+  executionState  String   @default("executed")
+  isRealExecution Boolean  @default(true)
   outcome         String
   error           String?
   latency         Int?
@@ -3231,6 +3233,8 @@ model Observation {
 
   @@index([missionId])
   @@index([intentType, outcome])
+  @@index([executionState])
+  @@index([isRealExecution])
   @@index([createdAt])
   @@map("observations")
 }

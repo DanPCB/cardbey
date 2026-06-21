@@ -32,6 +32,29 @@ describe('observationBus', () => {
     prismaMock.patternWeight.upsert.mockResolvedValue({});
   });
 
+  it('emits stubbed observation with execution state', async () => {
+    await observationBus.emit({
+      missionId: 'm-stub',
+      intent: { type: 'deploy_to_cnet' },
+      action: 'deploy_to_cnet',
+      result: { success: true, stubbed: true, executionState: 'stubbed' },
+      metadata: { stubbed: true, executionState: 'stubbed', latency: 12 },
+    });
+
+    const ring = getObservationRingForTests();
+    expect(ring[0].executionState).toBe('stubbed');
+    expect(ring[0].isRealExecution).toBe(false);
+    expect(prismaMock.observation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          executionState: 'stubbed',
+          isRealExecution: false,
+        }),
+      }),
+    );
+    expect(isObservationSuccessRateEligible(ring[0])).toBe(false);
+  });
+
   it('emits success observation to ring and prisma', async () => {
     const created = await observationBus.emit({
       missionId: 'm1',
