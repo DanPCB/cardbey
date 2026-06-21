@@ -26,6 +26,9 @@ import {
   isSharedRuntimeToolRegistryEnabled as kernelMandatoryRegistryEnabled,
 } from './kernelMandatory.js';
 import { recordKernelExecution } from './kernelAudit.js';
+import {
+  isMissionPipelineCancelledRow,
+} from './missionCancellationGuard.js';
 
 function str(v) {
   return typeof v === 'string' ? v.trim() : '';
@@ -142,6 +145,25 @@ export async function executeMissionStep(input) {
       metadataJson: true,
     },
   });
+
+  if (!pipeline) {
+    return {
+      ok: false,
+      httpStatus: 404,
+      code: 'NOT_FOUND',
+      message: 'Mission pipeline not found',
+    };
+  }
+
+  if (isMissionPipelineCancelledRow(pipeline)) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      code: 'MISSION_CANCELLED',
+      message: 'Mission was cancelled',
+      executionState: 'cancelled',
+    };
+  }
 
   const meta = pipeline?.metadataJson ?? {};
   if (!forceRetry && isProactiveStepCompleted(meta, stepNumber)) {

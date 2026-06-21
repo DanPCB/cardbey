@@ -509,6 +509,8 @@ async function emitMissionCancelledSideEffects(prisma, missionId, userId) {
  */
 export async function cancelMissionPipeline(missionId, options = {}) {
   const userId = options?.userId != null ? String(options.userId).trim() || null : null;
+  const cancellationReason =
+    options?.reason != null && String(options.reason).trim() ? String(options.reason).trim() : null;
   const prisma = getPrismaClient();
   const { buildEndedByUserMetadata } = await import('./runtime/missionRuntimeEnd.js');
   const m = await prisma.missionPipeline.findUnique({
@@ -517,12 +519,16 @@ export async function cancelMissionPipeline(missionId, options = {}) {
   });
   if (!m) return { ok: false, error: 'not_found' };
 
-  const cancelRuntimeData = (metadataJson) => ({
-    metadataJson: buildEndedByUserMetadata(metadataJson),
-    runState: 'done',
-    currentStepId: null,
-    cancelledAt: new Date(),
-  });
+  const cancelRuntimeData = (metadataJson) => {
+    const nextMeta = buildEndedByUserMetadata(metadataJson);
+    if (cancellationReason) nextMeta.cancellationReason = cancellationReason;
+    return {
+      metadataJson: nextMeta,
+      runState: 'done',
+      currentStepId: null,
+      cancelledAt: new Date(),
+    };
+  };
 
   if (TERMINAL_STATUSES.includes(m.status)) {
     const st = String(m.status ?? '').toLowerCase();

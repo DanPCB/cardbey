@@ -600,9 +600,11 @@ router.post('/:missionId/cancel', requireAuth, async (req, res, next) => {
     }
 
     const userId = req.user?.id ?? null;
+    const reason =
+      typeof req.body?.reason === 'string' && req.body.reason.trim() ? req.body.reason.trim() : null;
 
     if (access.kind === 'mission_pipeline') {
-      const result = await cancelMissionPipeline(missionId, { userId });
+      const result = await cancelMissionPipeline(missionId, { userId, reason });
       if (!result.ok) {
         const code = result.error === 'already_terminal' ? 409 : 404;
         return res.status(code).json({ ok: false, error: result.error, status: result.status });
@@ -611,7 +613,7 @@ router.post('/:missionId/cancel', requireAuth, async (req, res, next) => {
     }
 
     if (access.kind === 'mission') {
-      const pipelineCancel = await cancelMissionPipeline(missionId, { userId });
+      const pipelineCancel = await cancelMissionPipeline(missionId, { userId, reason });
       if (pipelineCancel.ok) {
         return res.json({ ok: true, status: pipelineCancel.status ?? 'cancelled', runState: 'done' });
       }

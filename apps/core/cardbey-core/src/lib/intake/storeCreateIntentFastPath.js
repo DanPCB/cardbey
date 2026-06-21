@@ -270,16 +270,21 @@ function buildCreateStoreClassification(input) {
 }
 
 /**
- * When kernel mandatory disables shortcuts, structured create_store shortcuts are not preserved.
+ * Store / mini-website creation shortcuts stay on the canonical runway under kernel mandatory.
  *
- * @deprecated Always returns false under kernel mandatory unified dispatch.
  * @param {{ type?: string } | null | undefined} shortcut
- * @param {{ userMessage?: string, storeCreateForm?: object }} ctx
+ * @param {{ userMessage?: string, storeCreateForm?: object, primaryMode?: string, intentSource?: string }} [ctx]
  */
 export function shouldPreserveCreateStoreShortcutWhenKernelMandatory(shortcut, ctx = {}) {
-  void shortcut;
-  void ctx;
-  return false;
+  if (shortcut?.type === 'create_store') return true;
+
+  const recovered = resolveCreateStoreShortcut({
+    userMessage: ctx.userMessage,
+    storeCreateForm: ctx.storeCreateForm,
+    primaryMode: ctx.primaryMode,
+    intentSource: ctx.intentSource,
+  });
+  return recovered?.type === 'create_store';
 }
 
 /**

@@ -17,6 +17,7 @@ import { mirrorOrchestraStatusToPipeline } from '../orchestraMirror.js';
 import { resolveAccessibleMission, getTenantId } from '../missionAccess.js';
 import { canTransitionMissionPipeline } from '../missionPipelineTransitions.js';
 import { guestDraftOptsForActor } from './guestDraftOpts.js';
+import { isMissionPipelineCancelledRow } from '../runtime/missionCancellationGuard.js';
 
 /**
  * Structured checkpoint pipeline must reach awaiting_input (or keep executing) before intake reports success.
@@ -173,6 +174,15 @@ async function executeStoreMissionPipelineRunCore({
   });
   if (!mission) {
     return { ok: false, statusCode: 404, error: 'not_found', message: 'Mission pipeline not found' };
+  }
+
+  if (isMissionPipelineCancelledRow(mission)) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: 'mission_cancelled',
+      message: 'Mission was cancelled',
+    };
   }
 
   if (mission.type !== 'store') {

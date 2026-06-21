@@ -8,6 +8,7 @@ import { getPrismaClient } from '../lib/prisma.js';
 import { executeMissionAction } from './execution/executeMissionAction.js';
 import { isPerformerRuntimePipelineFacadeEnabled } from './runtime/performerRuntime/runtimeFlags.js';
 import { executeRuntimeAction } from './runtime/performerRuntime/executeRuntimeAction.js';
+import { maybeCancelMissionForTimeout } from './runtime/missionCancellationGuard.js';
 
 const DEFAULT_MAX_STEPS = 20;
 
@@ -127,6 +128,21 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
     }
     const loopStatus = String(mission.status ?? '').toLowerCase();
     const loopRunState = String(mission.runState ?? '').toLowerCase();
+
+    const timeoutCancel = await maybeCancelMissionForTimeout(prisma, id);
+    if (timeoutCancel.cancelled) {
+      mission = await loadMission();
+      logMemoryUsage('mission_end', { missionId: id, stoppedReason: 'cancelled', stepsRun, reason: 'timeout' });
+      return {
+        ok: true,
+        missionId: id,
+        status: mission?.status ?? 'cancelled',
+        runState: mission?.runState ?? 'done',
+        stepsRun,
+        stoppedReason: 'cancelled',
+      };
+    }
+
     if (
       loopStatus === 'cancelled' ||
       loopStatus === 'canceled' ||

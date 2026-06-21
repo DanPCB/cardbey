@@ -35,6 +35,7 @@ import {
 import {
   resolveCreateStoreShortcut,
   shouldBlockServiceRequestForStoreCreate,
+  shouldPreserveCreateStoreShortcutWhenKernelMandatory,
 } from '../lib/intake/storeCreateIntentFastPath.js';
 import { unifiedDispatch, mapUnifiedDispatchToIntakeResponse } from '../lib/intake/unifiedDispatch.js';
 import { resolveIntakeLocale } from '../lib/localePrompt.js';
@@ -1912,12 +1913,39 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     if (!areIntakeShortcutsAllowed()) {
-      shortcut = null;
+      const preserveStoreShortcut = shouldPreserveCreateStoreShortcutWhenKernelMandatory(shortcut, {
+        userMessage,
+        storeCreateForm: storeCreateFormPayload,
+        primaryMode: body.primaryMode,
+        intentSource: body.intentSource,
+      });
+      if (!preserveStoreShortcut) {
+        shortcut = null;
+      }
+    }
+
+    if (
+      !shortcut?.type &&
+      shouldPreserveCreateStoreShortcutWhenKernelMandatory(null, {
+        userMessage,
+        storeCreateForm: storeCreateFormPayload,
+        primaryMode: body.primaryMode,
+        intentSource: body.intentSource,
+      })
+    ) {
+      shortcut = resolveCreateStoreShortcut({
+        userMessage,
+        storeCreateForm: storeCreateFormPayload,
+        primaryMode: body.primaryMode,
+        intentSource: body.intentSource,
+        forceIntent: body.forceIntent ?? body.intentSourceContext?.forceIntent,
+        currentFlow: body.intentSourceContext?.currentFlow,
+      });
     }
 
     // Guest / free-text pre-classifier:
     // (without requiring frontscreen primaryMode handoff).
-    if (!shortcut?.type && areIntakeShortcutsAllowed() && userMessage && isGuestAllowedStoreWebsiteIntent(userMessage)) {
+    if (!shortcut?.type && userMessage && isGuestAllowedStoreWebsiteIntent(userMessage)) {
       const runway = classifyStoreWebsiteCreateIntent(userMessage);
       if (!runway.ambiguous && runway.intentMode) {
         shortcut = {
@@ -1958,6 +1986,238 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           result: 'clarify',
         },
       );
+    }
+
+    if (shortcut?.type === 'create_store') {
+      const midForGuard = typeof missionId === 'string' ? missionId.trim() : '';
+      if (midForGuard) {
+        const prismaGuard = getPrismaClient();
+        const missionRow = await prismaGuard.missionPipeline.findUnique({
+          where: { id: midForGuard },
+          select: { status: true },
+        });
+        if (blockCreateStoreOnCompletedMission(missionRow?.status, 'create_store')) {
+          shortcut = null;
+        }
+      }
+    }
+
+    if (shortcut?.type === 'create_store') {
+      const rawForm =
+        body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
+          ? body.storeCreateForm
+          : null;
+
+      const ctxIntentMode = shortcut.intentMode === 'website' ? 'website' : 'store';
+
+      let businessName = '';
+      let businessType = 'Other';
+      let locationTrim = '';
+
+      if (rawForm) {
+        const validationErrors = validateCreateStorePayload({
+          storeCreateForm: rawForm,
+          storeName: rawForm.storeName,
+          location: rawForm.location,
+          category: rawForm.category ?? rawForm.storeType ?? rawForm.businessType,
+        });
+        if (validationErrors.length > 0) {
+          return res.status(400).json(formatValidationErrorResponse(validationErrors));
+        }
+        businessName = stripIntentWrappingQuotes(String(rawForm.storeName ?? '').trim()) || '';
+        businessType =
+          String(rawForm.storeType ?? rawForm.category ?? rawForm.businessType ?? 'Other').trim() || 'Other';
+        locationTrim = stripIntentWrappingQuotes(String(rawForm.location ?? '').trim()) || '';
+      } else {
+        const { storeName: parsedStoreName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
+        businessName = stripIntentWrappingQuotes(String(parsedStoreName ?? '').trim()) || '';
+        businessType = String(storeType ?? 'Other').trim() || 'Other';
+        locationTrim = stripIntentWrappingQuotes(location != null ? String(location).trim() : '') || '';
+
+        if (businessName && locationTrim && locationTrim.length < 2) {
+          return res.status(400).json(
+            formatValidationErrorResponse([
+              {
+                field: 'location',
+                message: 'Please enter a full city or suburb name (e.g. Melbourne)',
+                code: 'MISSING_LOCATION',
+                suggestion: 'Enter your city or region (e.g., "Melbourne")',
+                errorAction: 'FOCUS_LOCATION_FIELD',
+              },
+            ]),
+          );
+        }
+      }
+
+      if (!businessName) {
+        return safeJson(
+          {
+            success: true,
+            action: 'create_store',
+            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+          },
+          {
+            classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.SAFE_READ,
+            result: 'success',
+          },
+        );
+      }
+
+      const actorId = performerIntakeV2ActorId(req);
+      const userLike = performerIntakeV2UserLike(req);
+      if (!actorId || !userLike) {
+        return safeJson(
+          {
+            success: true,
+            action: 'chat',
+            response: intakeMessage('signInAutomatedStore', locale),
+          },
+          {
+            classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.SAFE_READ,
+            result: 'auth_required',
+          },
+        );
+      }
+
+      const prismaShortcut = getPrismaClient();
+      const dupShortcut = await findDuplicateBusinessNameForUser(prismaShortcut, userLike.id, businessName);
+      if (dupShortcut) {
+        return safeJson(formatDuplicateStoreIntakeResponse(businessName), {
+          classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
+          validated: true,
+          downgraded: false,
+          validationErrors: [],
+          riskLevel: RISK.STATE_CHANGE,
+          result: 'duplicate_store',
+        });
+      }
+
+      const tenantId = getTenantId(req.user) ?? actorId;
+      const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
+      const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+      const createResult = await createMissionPipelineForIntakeRoute(res, createMissionPipeline, {
+        type: 'store',
+        title: `${titlePrefix}: ${businessName.slice(0, 120)}`,
+        targetType: 'store',
+        targetId: undefined,
+        targetLabel: undefined,
+        metadata: {
+          businessName,
+          businessType,
+          location: locationTrim,
+          websiteMode: ctxIntentMode === 'website',
+          generateWebsite: ctxIntentMode === 'website',
+          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+          source: 'intake_v2_shortcut',
+          cardbeyTraceId,
+        },
+        requiresConfirmation: true,
+        executionMode: 'AUTO_RUN',
+        tenantId,
+        createdBy: actorId,
+      });
+      if (createResult.handled) return;
+      const pipeline = createResult.pipeline;
+
+      await ensureStructuredStoreCheckpointSteps(prismaShortcut, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
+
+      const currencyCode =
+        inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
+      const normalizedStoreName =
+        classification?.parameters?.storeName ??
+        classification?.parameters?.businessName ??
+        businessName ??
+        null;
+      const runResult = await executeStoreMissionPipelineRun({
+        prisma: prismaShortcut,
+        user: userLike,
+        missionId: pipeline.id,
+        body: {
+          businessName: normalizedStoreName,
+          businessType,
+          location: locationTrim,
+          currencyCode,
+          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+          rawUserText: userMessage,
+          cardbeyTraceId,
+        },
+        auditSource: 'intake_v2_shortcut_contract',
+      });
+
+      if (runResult.ok) {
+        if (runResult.mode === 'checkpoint_pipeline' && process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log(
+            '[PerformerIntakeV2] shortcut create_store → Phase 3 checkpoint pipeline (paused for owner; no orchestra build yet)',
+            { missionId: runResult.missionId, orchestration: runResult.orchestration },
+          );
+        }
+        const responseText =
+          runResult.mode === 'checkpoint_pipeline'
+            ? ctxIntentMode === 'website'
+              ? intakeMessage('storeCheckpointWebsite', locale, { businessName })
+              : intakeMessage('storeCheckpointStore', locale, { businessName })
+            : ctxIntentMode === 'website'
+              ? intakeMessage('storeBuildingWebsite', locale, { businessName })
+              : intakeMessage('storeBuildingStore', locale, { businessName });
+        return safeJson(
+          {
+            success: true,
+            action: 'store_mission_started',
+            response: responseText,
+            missionId: runResult.missionId,
+            jobId: runResult.jobId,
+            generationRunId: runResult.generationRunId,
+            draftId: runResult.draftId,
+            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+            ...(runResult.mode ? { mode: runResult.mode } : {}),
+            storeMissionSummary: {
+              businessName,
+              businessType,
+              location: locationTrim,
+              ...(runResult.mode ? { mode: runResult.mode } : {}),
+            },
+          },
+          {
+            classification: {
+              executionPath: 'direct_action',
+              tool: 'create_store',
+              confidence: 1,
+              parameters: {
+                storeName: businessName,
+                location: locationTrim || null,
+                storeType: businessType,
+                intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
+                _autoSubmit: true,
+              },
+            },
+            validated: true,
+            downgraded: false,
+            validationErrors: [],
+            riskLevel: RISK.STATE_CHANGE,
+            result: 'success',
+          },
+        );
+      }
+
+      console.error('[PerformerIntakeV2] shortcut create_store pipeline failed:', JSON.stringify(runResult));
+      return res.status(Math.min(Math.max(Number(runResult.statusCode) || 500, 400), 599)).json({
+        success: false,
+        action: 'create_store_failed',
+        message:
+          typeof runResult.message === 'string' && runResult.message.trim()
+            ? runResult.message
+            : 'Store setup could not be started.',
+        error: typeof runResult.error === 'string' ? runResult.error : 'pipeline_run_failed',
+      });
     }
 
     if (areIntakeShortcutsAllowed()) {
@@ -2364,237 +2624,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
     }
 
-    if (shortcut?.type === 'create_store') {
-      const midForGuard = typeof missionId === 'string' ? missionId.trim() : '';
-      if (midForGuard) {
-        const prismaGuard = getPrismaClient();
-        const missionRow = await prismaGuard.missionPipeline.findUnique({
-          where: { id: midForGuard },
-          select: { status: true },
-        });
-        if (blockCreateStoreOnCompletedMission(missionRow?.status, 'create_store')) {
-          shortcut = null;
-        }
-      }
-    }
-
-    if (shortcut?.type === 'create_store') {
-      const rawForm =
-        body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
-          ? body.storeCreateForm
-          : null;
-
-      const ctxIntentMode = shortcut.intentMode === 'website' ? 'website' : 'store';
-
-      let businessName = '';
-      let businessType = 'Other';
-      let locationTrim = '';
-
-      if (rawForm) {
-        const validationErrors = validateCreateStorePayload({
-          storeCreateForm: rawForm,
-          storeName: rawForm.storeName,
-          location: rawForm.location,
-          category: rawForm.category ?? rawForm.storeType ?? rawForm.businessType,
-        });
-        if (validationErrors.length > 0) {
-          return res.status(400).json(formatValidationErrorResponse(validationErrors));
-        }
-        businessName = stripIntentWrappingQuotes(String(rawForm.storeName ?? '').trim()) || '';
-        businessType =
-          String(rawForm.storeType ?? rawForm.category ?? rawForm.businessType ?? 'Other').trim() || 'Other';
-        locationTrim = stripIntentWrappingQuotes(String(rawForm.location ?? '').trim()) || '';
-      } else {
-        const { storeName: parsedStoreName, location, storeType } = parseStoreCreationFromUserMessage(userMessage);
-        businessName = stripIntentWrappingQuotes(String(parsedStoreName ?? '').trim()) || '';
-        businessType = String(storeType ?? 'Other').trim() || 'Other';
-        locationTrim = stripIntentWrappingQuotes(location != null ? String(location).trim() : '') || '';
-
-        if (businessName && locationTrim && locationTrim.length < 2) {
-          return res.status(400).json(
-            formatValidationErrorResponse([
-              {
-                field: 'location',
-                message: 'Please enter a full city or suburb name (e.g. Melbourne)',
-                code: 'MISSING_LOCATION',
-                suggestion: 'Enter your city or region (e.g., "Melbourne")',
-                errorAction: 'FOCUS_LOCATION_FIELD',
-              },
-            ]),
-          );
-        }
-      }
-
-      if (!businessName) {
-        return safeJson(
-          {
-            success: true,
-            action: 'create_store',
-            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          },
-          {
-            classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
-            validated: true,
-            downgraded: false,
-            validationErrors: [],
-            riskLevel: RISK.SAFE_READ,
-            result: 'success',
-          },
-        );
-      }
-
-      const actorId = performerIntakeV2ActorId(req);
-      const userLike = performerIntakeV2UserLike(req);
-      if (!actorId || !userLike) {
-        return safeJson(
-          {
-            success: true,
-            action: 'chat',
-            response: intakeMessage('signInAutomatedStore', locale),
-          },
-          {
-            classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
-            validated: true,
-            downgraded: false,
-            validationErrors: [],
-            riskLevel: RISK.SAFE_READ,
-            result: 'auth_required',
-          },
-        );
-      }
-
-      const prismaShortcut = getPrismaClient();
-      const dupShortcut = await findDuplicateBusinessNameForUser(prismaShortcut, userLike.id, businessName);
-      if (dupShortcut) {
-        return safeJson(formatDuplicateStoreIntakeResponse(businessName), {
-          classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
-          validated: true,
-          downgraded: false,
-          validationErrors: [],
-          riskLevel: RISK.STATE_CHANGE,
-          result: 'duplicate_store',
-        });
-      }
-
-      const tenantId = getTenantId(req.user) ?? actorId;
-      const titlePrefix = ctxIntentMode === 'website' ? 'Create mini website' : 'Create store';
-      const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
-      const createResult = await createMissionPipelineForIntakeRoute(res, createMissionPipeline, {
-        type: 'store',
-        title: `${titlePrefix}: ${businessName.slice(0, 120)}`,
-        targetType: 'store',
-        targetId: undefined,
-        targetLabel: undefined,
-        metadata: {
-          businessName,
-          businessType,
-          location: locationTrim,
-          websiteMode: ctxIntentMode === 'website',
-          generateWebsite: ctxIntentMode === 'website',
-          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          source: 'intake_v2_shortcut',
-          cardbeyTraceId,
-        },
-        requiresConfirmation: true,
-        executionMode: 'AUTO_RUN',
-        tenantId,
-        createdBy: actorId,
-      });
-      if (createResult.handled) return;
-      const pipeline = createResult.pipeline;
-
-      await ensureStructuredStoreCheckpointSteps(prismaShortcut, pipeline.id, { logPrefix: '[PerformerIntakeV2]' });
-
-      const currencyCode =
-        inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';
-      const normalizedStoreName =
-        classification.parameters?.storeName ??
-        classification.parameters?.businessName ??
-        businessName ??
-        null;
-      const runResult = await executeStoreMissionPipelineRun({
-        prisma: prismaShortcut,
-        user: userLike,
-        missionId: pipeline.id,
-        body: {
-          businessName: normalizedStoreName,
-          businessType,
-          location: locationTrim,
-          currencyCode,
-          intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-          rawUserText: userMessage,
-          cardbeyTraceId,
-        },
-        auditSource: 'intake_v2_shortcut_contract',
-      });
-
-      if (runResult.ok) {
-        if (runResult.mode === 'checkpoint_pipeline' && process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.log(
-            '[PerformerIntakeV2] shortcut create_store → Phase 3 checkpoint pipeline (paused for owner; no orchestra build yet)',
-            { missionId: runResult.missionId, orchestration: runResult.orchestration },
-          );
-        }
-        const responseText =
-          runResult.mode === 'checkpoint_pipeline'
-            ? ctxIntentMode === 'website'
-              ? intakeMessage('storeCheckpointWebsite', locale, { businessName })
-              : intakeMessage('storeCheckpointStore', locale, { businessName })
-            : ctxIntentMode === 'website'
-              ? intakeMessage('storeBuildingWebsite', locale, { businessName })
-              : intakeMessage('storeBuildingStore', locale, { businessName });
-        return safeJson(
-          {
-            success: true,
-            action: 'store_mission_started',
-            response: responseText,
-            missionId: runResult.missionId,
-            jobId: runResult.jobId,
-            generationRunId: runResult.generationRunId,
-            draftId: runResult.draftId,
-            intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-            ...(runResult.mode ? { mode: runResult.mode } : {}),
-            storeMissionSummary: {
-              businessName,
-              businessType,
-              location: locationTrim,
-              ...(runResult.mode ? { mode: runResult.mode } : {}),
-            },
-          },
-          {
-            classification: {
-              executionPath: 'direct_action',
-              tool: 'create_store',
-              confidence: 1,
-              parameters: {
-                storeName: businessName,
-                location: locationTrim || null,
-                storeType: businessType,
-                intentMode: ctxIntentMode === 'website' ? 'website' : 'store',
-                _autoSubmit: true,
-              },
-            },
-            validated: true,
-            downgraded: false,
-            validationErrors: [],
-            riskLevel: RISK.STATE_CHANGE,
-            result: 'success',
-          },
-        );
-      }
-
-      console.error('[PerformerIntakeV2] shortcut create_store pipeline failed:', JSON.stringify(runResult));
-      return res.status(Math.min(Math.max(Number(runResult.statusCode) || 500, 400), 599)).json({
-        success: false,
-        action: 'create_store_failed',
-        message:
-          typeof runResult.message === 'string' && runResult.message.trim()
-            ? runResult.message
-            : 'Store setup could not be started.',
-        error: typeof runResult.error === 'string' ? runResult.error : 'pipeline_run_failed',
-      });
-    }
     } // areIntakeShortcutsAllowed
   }
 
