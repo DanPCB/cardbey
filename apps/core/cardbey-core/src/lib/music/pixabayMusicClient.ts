@@ -125,7 +125,7 @@ async function fetchPixabayAudio(
   return { hits, total: Number(data?.totalHits ?? data?.total ?? hits.length) };
 }
 
-export async function searchPixabayMusic(
+export async function searchPixabayMusicFromApi(
   query: string,
   options: PixabayMusicSearchOptions = {},
 ): Promise<{ tracks: NormalizedMusicTrack[]; total: number }> {
@@ -167,7 +167,27 @@ export async function searchPixabayMusic(
   return { tracks, total };
 }
 
+/** Search with Openverse fallback when Pixabay audio API is unavailable. */
+export async function searchPixabayMusic(
+  query: string,
+  options: PixabayMusicSearchOptions = {},
+): Promise<{ tracks: NormalizedMusicTrack[]; total: number; catalog?: string; catalogNote?: string }> {
+  const { searchMusicLibrary } = await import('./musicSearchService.js');
+  const result = await searchMusicLibrary(query, options);
+  return {
+    tracks: result.tracks,
+    total: result.total,
+    catalog: result.catalog,
+    catalogNote: result.catalogNote,
+  };
+}
+
 export async function getPixabayTrackById(trackId: string): Promise<NormalizedMusicTrack | null> {
+  const { getMusicTrackById } = await import('./musicSearchService.js');
+  return getMusicTrackById(trackId);
+}
+
+export async function getPixabayTrackByIdFromApi(trackId: string): Promise<NormalizedMusicTrack | null> {
   const apiKey = process.env.PIXABAY_API_KEY?.trim();
   if (!apiKey) throw new Error('PIXABAY_API_KEY is not configured');
 

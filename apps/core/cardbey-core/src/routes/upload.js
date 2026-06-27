@@ -13,6 +13,11 @@ import { publishVideoOptimizeJob } from '../lib/sqsClient.js';
 import { createTempPath, safeUnlink } from '../lib/tempFiles.js';
 import { prisma } from '../lib/prisma.js';
 import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
+import { requireAuth } from '../middleware/auth.js';
+import {
+  audioFetchMaxImportBytes,
+  isAllowedAudioImportUrl,
+} from '../utils/audioFetchAllowlist.js';
 
 // Lazy load sharp to avoid startup crashes if platform binaries aren't available
 let sharp = null;
@@ -850,6 +855,85 @@ router.get('/mine', async (req, res) => {
     res.status(500).json({
       error: 'failed_to_list_uploads',
       message: error.message || 'Failed to list uploads',
+    });
+  }
+});
+
+/**
+ * POST /api/uploads/import-audio
+ * Server-side fetch of licensed remote audio → persist to Cardbey storage for Show mix playback.
+ * Body: { url: string, category?: string }
+ */
+router.post('/import-audio', requireAuth, async (req, res) => {
+  try {
+    const rawUrl = String(req.body?.url ?? '').trim();
+    if (!rawUrl) {
+      return res.status(400).json({ ok: false, message: 'url is required' });
+    }
+    if (!isAllowedAudioImportUrl(rawUrl)) {
+      return res.status(400).json({
+        ok: false,
+        message: 'Audio host is not allowed for import',
+      });
+    }
+
+    const response = await fetch(rawUrl, { method: 'GET', redirect: 'follow' });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch audio (${response.status})`);
+    }
+
+    let buffer = Buffer.from(await response.arrayBuffer());
+    const maxBytes = audioFetchMaxImportBytes();
+    if (buffer.length > maxBytes) {
+      return res.status(413).json({ ok: false, message: 'Audio file too large' });
+    }
+    if (buffer.length < 1024) {
+      return res.status(400).json({
+        ok: false,
+        message: 'Audio file too small or blocked by the source host',
+      });
+    }
+
+    const contentType = response.headers.get('content-type') || 'audio/mpeg';
+    const mime = contentType.split(';')[0].trim() || 'audio/mpeg';
+    const originalName = `show-audio-${Date.now()}.mp3`;
+
+    const uploadCategory = resolveUploadCategory(req, mime);
+    const { key, url: storageUrl } = await uploadBufferToS3(buffer, originalName, mime, uploadCategory);
+
+    const uploadPayload = buildStorageUploadResponse({
+      storageUrl,
+      key,
+      mime,
+      mediaType: 'audio',
+      req,
+    });
+
+    info('UPLOAD', 'Imported remote audio for Show mix', {
+      storageKey: key,
+      sourceUrl: rawUrl,
+      requestId: req.requestId,
+    });
+
+    return res.status(201).json({
+      ok: true,
+      data: {
+        url: uploadPayload.publicUrl,
+        publicUrl: uploadPayload.publicUrl,
+        absoluteUrl: uploadPayload.publicUrl,
+        mimeType: uploadPayload.mimeType,
+        mediaType: 'audio',
+        storageKey: uploadPayload.storageKey,
+      },
+    });
+  } catch (err) {
+    error('UPLOAD', 'import-audio failed', {
+      errorMessage: err?.message || String(err),
+      requestId: req.requestId,
+    });
+    return res.status(502).json({
+      ok: false,
+      message: err?.message || 'Audio import failed',
     });
   }
 });

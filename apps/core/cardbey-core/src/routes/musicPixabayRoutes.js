@@ -11,9 +11,8 @@ import {
 } from '../lib/music/musicLicensePolicy.js';
 import {
   buildMusicSearchQuery,
-  getPixabayTrackById,
-  searchPixabayMusic,
 } from '../lib/music/pixabayMusicClient.js';
+import { searchMusicLibrary, getMusicTrackById } from '../lib/music/musicSearchService.js';
 import { storeSelectedMusicTrack } from '../lib/music/selectedMusicAssetService.js';
 import { emitPlatformActivity } from '../lib/platformActivity/platformActivityEmitter.js';
 
@@ -32,9 +31,6 @@ function disabledResponse(res) {
 
 /** GET /api/music/pixabay/search */
 router.get('/pixabay/search', requireAuth, async (req, res) => {
-  const gate = assertPixabayMusicConfigured();
-  if (!gate.ok) return disabledResponse(res);
-
   const q =
     String(req.query.q ?? '').trim() ||
     buildMusicSearchQuery({
@@ -45,7 +41,7 @@ router.get('/pixabay/search', requireAuth, async (req, res) => {
     });
 
   try {
-    const { tracks, total } = await searchPixabayMusic(q, {
+    const { tracks, total, catalog, catalogNote } = await searchMusicLibrary(q, {
       category: typeof req.query.category === 'string' ? req.query.category : undefined,
       mood: typeof req.query.mood === 'string' ? req.query.mood : undefined,
       duration: req.query.duration != null ? Number(req.query.duration) : undefined,
@@ -67,7 +63,7 @@ router.get('/pixabay/search', requireAuth, async (req, res) => {
       }),
     ).catch(() => {});
 
-    return res.json({ ok: true, enabled: true, query: q, total, tracks });
+    return res.json({ ok: true, enabled: true, query: q, total, tracks, catalog, catalogNote });
   } catch (err) {
     console.error('[music/pixabay/search]', err?.message || err);
     return res.status(502).json({
@@ -75,7 +71,10 @@ router.get('/pixabay/search', requireAuth, async (req, res) => {
       enabled: true,
       query: q,
       tracks: [],
-      error: { code: 'PIXABAY_SEARCH_FAILED', message: err?.message || 'Search failed' },
+      message:
+        err?.message ||
+        'Music search failed. Pixabay does not expose music via its public API; Openverse fallback also failed.',
+      error: { code: 'MUSIC_SEARCH_FAILED', message: err?.message || 'Search failed' },
     });
   }
 });
@@ -86,7 +85,7 @@ router.get('/pixabay/:trackId', requireAuth, async (req, res) => {
   if (!gate.ok) return disabledResponse(res);
 
   try {
-    const track = await getPixabayTrackById(req.params.trackId);
+    const track = await getMusicTrackById(req.params.trackId);
     if (!track || !isAllowedMusicTrack(track)) {
       return res.status(404).json({ ok: false, message: 'Track not found or not licensed for use.' });
     }
@@ -101,16 +100,13 @@ router.get('/pixabay/:trackId', requireAuth, async (req, res) => {
 
 /** POST /api/music/pixabay/select — stores metadata only; does not publish */
 router.post('/pixabay/select', requireAuth, async (req, res) => {
-  const gate = assertPixabayMusicConfigured();
-  if (!gate.ok) return disabledResponse(res);
-
   const trackId = String(req.body?.providerTrackId ?? req.body?.trackId ?? '').trim();
   if (!trackId) {
     return res.status(400).json({ ok: false, message: 'providerTrackId is required.' });
   }
 
   try {
-    const track = await getPixabayTrackById(trackId);
+    const track = await getMusicTrackById(trackId);
     if (!track || !isAllowedMusicTrack(track)) {
       return res.status(400).json({ ok: false, message: 'Track missing license or audio URL.' });
     }

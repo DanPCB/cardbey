@@ -2284,6 +2284,33 @@ model MiMusicTrack {
   @@index([key])
 }
 
+// Cardbey Audio Library — indexed licensed audio (local + imported from open sources)
+model AudioLibrary {
+  id          String   @id @default(cuid())
+  externalId  String   @unique
+  source      String
+  title       String
+  description String?
+  duration    Int?
+  remoteUrl   String?
+  storageUrl  String?
+  storageKey  String?
+  license     String
+  attribution String?
+  tags        Json?
+  metadata    Json?
+  storeId     String?
+  uploadedBy  String?
+  isSeeded    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([source])
+  @@index([title])
+  @@index([storeId])
+  @@index([uploadedBy])
+}
+
 // Password reset token (hashed); one-time use, short-lived
 model PasswordResetToken {
   id        String    @id @default(cuid())

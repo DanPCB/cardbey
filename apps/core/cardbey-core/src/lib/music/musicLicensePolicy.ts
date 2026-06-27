@@ -5,7 +5,7 @@
 export const PIXABAY_MUSIC_LICENSE = 'Pixabay Content License';
 
 export type NormalizedMusicTrack = {
-  provider: 'pixabay';
+  provider: 'pixabay' | 'openverse';
   providerTrackId: string;
   title: string;
   duration: number | null;
@@ -49,7 +49,7 @@ export function assertPixabayMusicConfigured(): { ok: true } | { ok: false; code
 
 export function isAllowedMusicTrack(track: Partial<NormalizedMusicTrack> | null | undefined): boolean {
   if (!track) return false;
-  if (track.provider !== 'pixabay') return false;
+  if (track.provider !== 'pixabay' && track.provider !== 'openverse') return false;
   if (!track.providerTrackId?.trim()) return false;
   if (!track.license?.trim()) return false;
   if (!track.previewUrl?.trim() && !track.downloadUrl?.trim()) return false;
@@ -64,10 +64,17 @@ export function filterAllowedMusicTracks(
 }
 
 export function attachMusicAttestation(track: NormalizedMusicTrack): NormalizedMusicTrack {
+  const defaultAttribution =
+    track.provider === 'openverse'
+      ? `Audio from Openverse — ${track.title}`
+      : `Music from Pixabay — ${track.title}`;
+  const defaultLicense =
+    track.provider === 'openverse' ? track.license || 'Creative Commons' : PIXABAY_MUSIC_LICENSE;
+
   return {
     ...track,
-    license: track.license || PIXABAY_MUSIC_LICENSE,
-    attribution: track.attribution || `Music from Pixabay — ${track.title}`,
+    license: track.license || defaultLicense,
+    attribution: track.attribution || defaultAttribution,
     metadata: {
       ...track.metadata,
       cardbeyMusicPolicy: {

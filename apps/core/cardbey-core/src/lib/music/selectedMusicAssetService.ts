@@ -18,7 +18,7 @@ export type SelectedMusicContext = {
 export type SelectedMusicAssetRecord = {
   id: string;
   type: 'audio';
-  provider: 'pixabay';
+  provider: 'pixabay' | 'openverse';
   providerTrackId: string;
   title: string;
   previewUrl: string;
@@ -41,7 +41,7 @@ export function buildSelectedMusicAssetPayload(
   ctx: SelectedMusicContext,
 ): SelectedMusicAssetRecord {
   return {
-    id: `pixabay:${track.providerTrackId}`,
+    id: `${track.provider}:${track.providerTrackId}`,
     type: 'audio',
     provider: track.provider,
     providerTrackId: track.providerTrackId,
@@ -93,7 +93,7 @@ export async function storeSelectedMusicTrack(
       },
       payload,
       visibility: 'private',
-      idempotencyKey: `pixabay-music:${ctx.ownerUserId}:${track.providerTrackId}:${ctx.selectedFor ?? 'general'}`,
+      idempotencyKey: `${track.provider}-music:${ctx.ownerUserId}:${track.providerTrackId}:${ctx.selectedFor ?? 'general'}`,
     });
     suitcaseItemId = item?.id ?? null;
   } catch (err) {

@@ -104,6 +104,7 @@
     "verify:feature-flag": "tsx scripts/verify-feature-flag.js",
     "seed:mi-video-templates": "node scripts/seedMiVideoTemplates.js",
     "seed:discovery": "node scripts/seed-discovery-sources.js",
+    "seed:audio": "node --import tsx scripts/seed-audio-library.js",
     "seed:ingest": "node scripts/seed-ingest.js",
     "fix:media-base-url": "node scripts/fixMediaBaseUrl.js",
     "fix-media-urls": "node scripts/fix-media-urls.js",

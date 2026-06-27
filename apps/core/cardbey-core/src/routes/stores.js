@@ -1977,6 +1977,89 @@ router.patch('/:storeId/owner-profile-visibility', requireAuth, async (req, res,
   }
 });
 
+function readStylePreferencesObject(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * PUT /api/stores/:storeId/show-video-mixes/:workId
+ * Persist Show advanced-editor audio mix on the store (stylePreferences.showVideoMixes).
+ */
+router.put('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, async (req, res, next) => {
+  try {
+    const { storeId, workId } = req.params;
+    const mix = req.body;
+    if (!mix || typeof mix !== 'object' || !String(mix.trackUrl ?? '').trim()) {
+      return res.status(400).json({
+        ok: false,
+        message: 'trackUrl is required in mix payload',
+      });
+    }
+
+    const store = await prisma.business.findUnique({
+      where: { id: storeId },
+      select: { id: true, stylePreferences: true },
+    });
+    if (!store) {
+      return res.status(404).json({ ok: false, message: 'Store not found' });
+    }
+
+    const prefs = readStylePreferencesObject(store.stylePreferences);
+    const existing =
+      prefs.showVideoMixes && typeof prefs.showVideoMixes === 'object' && !Array.isArray(prefs.showVideoMixes)
+        ? { ...prefs.showVideoMixes }
+        : {};
+    existing[String(workId).trim()] = {
+      ...mix,
+      updatedAt: new Date().toISOString(),
+    };
+    prefs.showVideoMixes = existing;
+
+    await prisma.business.update({
+      where: { id: storeId },
+      data: { stylePreferences: prefs },
+    });
+
+    return res.json({ ok: true, mix: existing[String(workId).trim()] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/stores/:storeId/show-video-mixes/:workId
+ */
+router.get('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, async (req, res, next) => {
+  try {
+    const { storeId, workId } = req.params;
+    const store = await prisma.business.findUnique({
+      where: { id: storeId },
+      select: { stylePreferences: true },
+    });
+    if (!store) {
+      return res.status(404).json({ ok: false, message: 'Store not found' });
+    }
+    const prefs = readStylePreferencesObject(store.stylePreferences);
+    const mixes =
+      prefs.showVideoMixes && typeof prefs.showVideoMixes === 'object' && !Array.isArray(prefs.showVideoMixes)
+        ? prefs.showVideoMixes
+        : {};
+    const mix = mixes[String(workId).trim()] ?? null;
+    return res.json({ ok: true, mix });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * POST /api/stores/:storeId/upload/hero
  * Upload hero image and persist URL to draft preview. Auth required; draft ownership enforced.

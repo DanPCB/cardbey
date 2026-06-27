@@ -82,7 +82,7 @@ if (cmd === 'dev-api') {
     quoteWin(process.execPath),
     '--max-old-space-size=8192',
     '--import',
-    'tsx',
+    'tsx/esm',
     quoteWin(devEntry),
   ].join(' ');
   const nodemonConfig = path.join(root, 'nodemon.json');

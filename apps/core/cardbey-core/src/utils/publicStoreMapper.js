@@ -170,6 +170,11 @@ export function toPublicStore(business, options = {}) {
     contact: buildPublicStoreContact(business),
     ...(business.phone ? { phone: business.phone } : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
+    ...(stylePrefs?.showVideoMixes &&
+    typeof stylePrefs.showVideoMixes === 'object' &&
+    !Array.isArray(stylePrefs.showVideoMixes)
+      ? { showVideoMixes: stylePrefs.showVideoMixes }
+      : {}),
   };
 
   // Map products to public shape if they exist
