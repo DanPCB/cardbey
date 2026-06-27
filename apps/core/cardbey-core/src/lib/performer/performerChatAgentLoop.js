@@ -1,4 +1,9 @@
 import { llmGateway } from '../llm/llmGateway.ts';
+import {
+  fastPathGreetingResponse,
+  isSimpleGreetingText,
+  normalizeIntakeMessageText,
+} from '../intent/intentFastPath.js';
 
 function clean(x) {
   return typeof x === 'string' ? x.trim() : '';
@@ -36,6 +41,22 @@ export async function runPerformerPreIntakeAgentLoop({
     const msg = clean(userMessage);
     if (!msg) {
       return { mode: 'pass_through', response: null, reasoning: null, trace: [] };
+    }
+
+    const normalized = normalizeIntakeMessageText(msg);
+    if (
+      isSimpleGreetingText(normalized) &&
+      !clean(missionId) &&
+      !clean(draftId) &&
+      String(process.env.DISABLE_LLM_REASONER_FAST_PATH ?? '').trim().toLowerCase() !== 'true'
+    ) {
+      const response = fastPathGreetingResponse(locale === 'vi' ? 'vi' : 'en');
+      return {
+        mode: 'direct_chat',
+        response,
+        reasoning: 'fast_path_greeting',
+        trace: [{ step: 1, action: 'fast_path_greeting', tool: 'none' }],
+      };
     }
 
     const hist = Array.isArray(conversationHistory) ? conversationHistory : [];

@@ -8,6 +8,8 @@ import {
   EXECUTION_PATHS,
   validateToolParameters,
 } from './intakeToolRegistry.js';
+import { stripCreateStoreIntakeMetadataFromParameters } from './createStoreIntakeMetadata.js';
+import { normalizePlannerToolName } from '../planner/plannerToolNormalization.js';
 
 /** Tools that may run without an active store/mission surface (confirm + dispatch). */
 export const CONTEXT_FREE_TOOLS = new Set([
@@ -16,6 +18,7 @@ export const CONTEXT_FREE_TOOLS = new Set([
   'device.sendInput',
   'service_request',
   'code_fix',
+  'ingest_asset_for_intent_detection',
 ]);
 
 /** Params merged by intake confirm/dispatch; not part of tool JSON schema for context-free tools. */
@@ -77,15 +80,7 @@ export function normalizeCreateStoreToolParameters(parameters) {
   if (locSrc != null && String(locSrc).trim()) {
     p.location = String(locSrc).trim();
   }
-  delete p.name;
-  delete p.businessName;
-  delete p.category;
-  delete p.businessType;
-  delete p.type;
-  delete p.city;
-  delete p.address;
-  delete p.region;
-  return p;
+  return stripCreateStoreIntakeMetadataFromParameters(p);
 }
 
 /**
@@ -120,7 +115,9 @@ export function mergeStoreCreateFormIntoParameters(parameters, form) {
  * @param {Record<string, unknown>} classification.parameters
  * @param {Array<{ tool: string, parameters?: object }>} [classification.plan]
  * @param {string | null} storeId
- * @param {{ missionId?: string | null }} [opts] — when set, allows mission-scoped post-build tools without active surface storeId.
+ * @param {{ missionId?: string | null, draftId?: string | null }} [opts]
+ *   — missionId: mission-scoped post-build tools without active surface storeId.
+ *   — draftId: draft-scoped catalog/asset tools when only a draft store exists.
  * @returns {{ ok: boolean, cleanedParameters?: Record<string, unknown>, errors?: Array<{ field: string, reason: string }>, downgradedTo?: 'chat'|'clarify' }}
  */
 export function validateIntakeClassification(classification, storeId, opts = {}) {
@@ -190,9 +187,15 @@ export function validateIntakeClassification(classification, storeId, opts = {})
     'update_store_hero',
     'publish_store',
   ]);
+  const draftScopedStoreTools = new Set(['upload_store_asset', 'replace_store_catalog', 'update_store_hero']);
   const scopeMissionId =
     opts && typeof opts.missionId === 'string' && opts.missionId.trim() ? opts.missionId.trim() : '';
-  if (entry.requiresStore && !storeId && !(missionScopedStoreTools.has(tool) && scopeMissionId)) {
+  const scopeDraftId =
+    opts && typeof opts.draftId === 'string' && opts.draftId.trim() ? opts.draftId.trim() : '';
+  const hasScopedStoreContext =
+    (missionScopedStoreTools.has(tool) && scopeMissionId) ||
+    (draftScopedStoreTools.has(tool) && scopeDraftId);
+  if (entry.requiresStore && !storeId && !hasScopedStoreContext) {
     return {
       ok: false,
       errors: [{ field: 'storeId', reason: 'requires_store' }],
@@ -210,10 +213,12 @@ export function validateIntakeClassification(classification, storeId, opts = {})
     };
   }
 
-  if (path === 'proactive_plan' && Array.isArray(classification.plan)) {
+  if (path === 'proactive_plan' && Array.isArray(classification.plan) && tool !== 'create_store') {
     for (let i = 0; i < classification.plan.length; i++) {
       const step = classification.plan[i];
-      const st = step && typeof step === 'object' ? String(step.tool || step.recommendedTool || '') : '';
+      const rawSt =
+        step && typeof step === 'object' ? String(step.tool || step.recommendedTool || '').trim() : '';
+      const st = normalizePlannerToolName(rawSt) || rawSt;
       if (!st || !isRegisteredTool(st)) {
         return {
           ok: false,

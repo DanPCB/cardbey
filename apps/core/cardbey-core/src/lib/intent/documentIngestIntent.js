@@ -5,6 +5,11 @@
  */
 
 import { recoverStoreId } from '../runwayContext.js';
+import {
+  detectExplicitAssetIntent,
+  shouldRouteToAssetIntentDetection,
+} from '../intake/assetUploadGuard.js';
+import { isGraphicOrPromotionIntent } from '../intake/intentDetectors.js';
 
 const DOCUMENT_URL_PATTERN = /https?:\/\/\S+\.(jpg|jpeg|png|pdf|webp)/i;
 
@@ -69,15 +74,19 @@ export function detectDocumentIngestionIntent(message, context = {}) {
     return null;
   }
 
+  if (isGraphicOrPromotionIntent(msg)) {
+    return null;
+  }
+
+  if (shouldRouteToAssetIntentDetection(msg, context)) {
+    return null;
+  }
+
   if (DOCUMENT_URL_PATTERN.test(msg)) {
     return 'ingest_document';
   }
 
-  if (Array.isArray(context?.attachments) && context.attachments.length > 0) {
-    return 'ingest_document';
-  }
-
-  if (context?.imageDataUrl || context?.imageUrl) {
+  if (detectExplicitAssetIntent(msg) === 'ingest_document') {
     return 'ingest_document';
   }
 

@@ -1,221 +1,78 @@
 /**
- * Loyalty From Card Service
- * Business service that uses AI engines to process loyalty cards
- * Calls VisionEngine and TextEngine via abstraction layer
+ * Loyalty From Card Service — vision extraction only (no LoyaltyProgram writes).
+ * Scanner convergence: dashboard calls setup_loyalty_program via Performer runtime.
  */
 
-import { getVisionEngine, getTextEngine } from '../../ai/engines/index.js';
-import { callTool } from '../runtime/toolExecutor.js';
 import { logger } from './logger.js';
-import { getEventEmitter } from '../../engines/loyalty/events.js';
+import { extractLoyaltyCardFromImage } from '../../lib/toolExecutors/loyalty/loyaltyCardVisionExtract.js';
+import { getTextEngine } from '../../ai/engines/index.js';
 
 /**
- * Process loyalty card image and create program
- * 
- * @param {Object} input - Service input
- * @param {string} input.tenantId
- * @param {string} input.storeId
- * @param {string} input.imageUrl
- * @param {string} [input.themePreference]
- * @param {Object} [ctx] - Execution context
- * @returns {Promise<Object>} LoyaltyFromCardResult format
+ * Extract loyalty card rules from image — does NOT create LoyaltyProgram.
+ *
+ * @param {Object} input
+ * @param {string} [input.imageUrl]
+ * @param {string} [input.storeId]
+ * @param {string} [input.storeName]
+ * @param {Object} [ctx]
  */
 export async function runLoyaltyFromCard(input, ctx) {
-  const { tenantId, storeId, imageUrl, themePreference } = input;
+  const { imageUrl, storeName } = input;
 
-  logger.info('[LoyaltyFromCardService] Starting', {
-    tenantId,
-    storeId,
+  logger.info('[LoyaltyFromCardService] extract-only', {
     imageUrl: imageUrl ? 'provided' : 'missing',
+    storeId: input?.storeId ?? null,
   });
 
+  const extracted = await extractLoyaltyCardFromImage({ imageUrl, storeName });
+  if (!extracted.ok) {
+    throw new Error(extracted.error?.message || 'Loyalty card extraction failed');
+  }
+
+  let ideas = [];
   try {
-    // 1. Use VisionEngine to analyze image
-    const vision = getVisionEngine();
-    const visionResult = await vision.analyzeImage({
-      imageUrl,
-      task: 'loyalty_card',
-    });
-
-    const ocrText = visionResult.text || '';
-    logger.info('[LoyaltyFromCardService] Vision analysis complete', {
-      textLength: ocrText.length,
-    });
-
-    // 2. Use TextEngine to interpret OCR text into rules
     const text = getTextEngine();
-    
-    const rulesPrompt = `You are analyzing a loyalty card. Extract the following information from this OCR text:
-
-${ocrText}
-
-Return a JSON object with:
-- stampsRequired: number (how many stamps/holes needed)
-- rewardDescription: string (what the reward is)
-- expiryPolicy: string (optional, if mentioned)
-- notes: string (optional, any other relevant info)
-
-Return ONLY valid JSON, no markdown.`;
-
-    const rulesResult = await text.generateText({
-      systemPrompt: 'You are a loyalty program analyzer. Always return valid JSON only.',
-      userPrompt: rulesPrompt,
-      temperature: 0.2,
-    });
-
-    let rules;
-    try {
-      rules = JSON.parse(rulesResult.text);
-    } catch (parseError) {
-      logger.warn('[LoyaltyFromCardService] Failed to parse rules JSON, using defaults', {
-        error: parseError.message,
-      });
-      rules = {
-        stampsRequired: 10,
-        rewardDescription: 'Free drink',
-        expiryPolicy: undefined,
-        notes: undefined,
-      };
-    }
-
-    logger.info('[LoyaltyFromCardService] Rules extracted', {
-      stampsRequired: rules.stampsRequired,
-      reward: rules.rewardDescription,
-    });
-
-    // 3. Use TextEngine to suggest ideas
-    const ideasPrompt = `Based on this loyalty card program (${rules.stampsRequired} stamps for ${rules.rewardDescription}), suggest 3 creative ideas for:
-- Promotion ideas
-- Upsell opportunities
-- Retention strategies
-
-Return a JSON array of ideas, each with:
-- id: string
-- title: string
-- description: string
-- category: "promotion" | "upsell" | "retention" | "other"
-
-Return ONLY valid JSON array, no markdown.`;
-
+    const preseeded = extracted.preseededDraft;
+    const ideasPrompt = `Based on this loyalty card program (${preseeded.requiredStamps ?? '?'} stamps for ${preseeded.reward ?? 'reward'}), suggest 3 creative ideas.
+Return JSON array with objects: id, title, description, category ("promotion"|"upsell"|"retention"|"other"). JSON only.`;
     const ideasResult = await text.generateText({
-      systemPrompt: 'You are a creative marketing assistant. Always return valid JSON arrays only.',
+      systemPrompt: 'Return valid JSON arrays only.',
       userPrompt: ideasPrompt,
       temperature: 0.7,
     });
-
-    let ideas;
-    try {
-      ideas = JSON.parse(ideasResult.text);
-      if (!Array.isArray(ideas)) {
-        ideas = [];
-      }
-    } catch (parseError) {
-      logger.warn('[LoyaltyFromCardService] Failed to parse ideas JSON', {
-        error: parseError.message,
-      });
-      ideas = [];
-    }
-
-    logger.info('[LoyaltyFromCardService] Ideas generated', {
-      ideaCount: ideas.length,
-    });
-
-    // 4. Configure loyalty program using engine tool
-    const programRes = await callTool(
-      'loyalty.configure-program',
-      {
-        tenantId,
-        storeId,
-        programId: null,
-        name: 'Stamp Rewards',
-        stampsRequired: rules.stampsRequired,
-        reward: rules.rewardDescription,
-        expiresAt: null,
-      },
-      ctx
-    );
-
-    if (!programRes.ok || !programRes.data) {
-      throw new Error(programRes.error || 'Failed to configure loyalty program');
-    }
-
-    const programId = programRes.data.programId;
-
-    // 5. Generate assets
-    const assets = await callTool(
-      'loyalty.generate-assets',
-      {
-        tenantId,
-        storeId,
-        programId,
-        theme: themePreference || 'default',
-        format: ['qr', 'card', 'pdf'],
-      },
-      ctx
-    );
-
-    if (!assets.ok || !assets.data) {
-      throw new Error(assets.error || 'Failed to generate assets');
-    }
-
-    // 6. Build standardized result
-    const result = {
-      version: 'v1',
-      type: 'loyalty',
-      confidence: 0.9,
-      payload: {
-        rules: {
-          stampsRequired: rules.stampsRequired,
-          rewardDescription: rules.rewardDescription,
-          expiryPolicy: rules.expiryPolicy,
-          notes: rules.notes,
-        },
-        ideas: ideas.map((idea, index) => ({
-          id: idea.id || `idea-${index}`,
-          title: idea.title || 'Untitled Idea',
-          description: idea.description || '',
-          category: idea.category || 'other',
-        })),
-      },
-      raw: {
-        vision: visionResult.raw,
-        text: {
-          rules: rulesResult.raw,
-          ideas: ideasResult.raw,
-        },
-        programId,
-        assets: assets.data,
-      },
-    };
-
-    // 7. Emit event
-    try {
-      const events = ctx?.services?.events || getEventEmitter();
-      await events.emit('loyalty.flow_completed', {
-        tenantId,
-        storeId,
-        programId,
-      });
-    } catch (eventError) {
-      logger.warn('[LoyaltyFromCardService] Failed to emit event', {
-        error: eventError.message,
-      });
-    }
-
-    logger.info('[LoyaltyFromCardService] Complete', {
-      programId,
-      ideaCount: ideas.length,
-    });
-
-    return result;
-  } catch (error) {
-    logger.error('[LoyaltyFromCardService] Error', {
-      error: error.message,
-      stack: error.stack,
-      input: { tenantId, storeId, imageUrl: imageUrl ? 'provided' : 'missing' },
-    });
-
-    throw error;
+    const parsed = JSON.parse(ideasResult.text);
+    if (Array.isArray(parsed)) ideas = parsed;
+  } catch {
+    ideas = [];
   }
-}
 
+  return {
+    version: 'v2',
+    type: 'loyalty_extraction',
+    confidence: extracted.preseededDraft?.confidence ?? 0.5,
+    preseededDraft: extracted.preseededDraft,
+    payload: {
+      rules: {
+        stampsRequired: extracted.preseededDraft?.requiredStamps ?? null,
+        rewardDescription: extracted.preseededDraft?.reward ?? null,
+        expiryPolicy: extracted.preseededDraft?.expiry ?? null,
+        terms: extracted.preseededDraft?.terms ?? null,
+      },
+      ideas: ideas.map((idea, index) => ({
+        id: idea.id || `idea-${index}`,
+        title: idea.title || 'Untitled Idea',
+        description: idea.description || '',
+        category: idea.category || 'other',
+      })),
+    },
+    raw: {
+      vision: extracted.visionRaw,
+      ocrText: extracted.ocrText,
+    },
+    handoff: {
+      action: 'setup_loyalty_program',
+      source: 'dashboard_loyalty_card_scan',
+      requiresOwnerReview: true,
+    },
+  };
+}

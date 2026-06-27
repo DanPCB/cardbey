@@ -17,6 +17,7 @@ import {
 import { listSeedRecords } from '../../lib/businessIngestion/IngestionRepository.js';
 import { buildEcosystemGraph } from '../../lib/platformEcosystem/buildEcosystemGraph.js';
 import checkCnetConfig from '../../lib/toolExecutors/cnet/check_cnet_config.js';
+import { getCachedAdminData } from '../../lib/admin/adminCache.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -60,50 +61,53 @@ export function normalizeRegion(country) {
 
 router.get('/platform/store-network', async (req, res) => {
   try {
-    const prisma = getPrismaClient();
-    const today = startOfToday();
+    const payload = await getCachedAdminData('admin:platform:store-network', async () => {
+      const prisma = getPrismaClient();
+      const today = startOfToday();
 
-    const draftStatuses = ['draft', 'generating', 'ready', 'failed'];
-    const [
-      totalDraftStores,
-      publishedStores,
-      activeStores,
-      archivedStores,
-      createdTodayDrafts,
-      createdTodayBusinesses,
-      publishedToday,
-      awaitingReview,
-      committedDrafts,
-      readyOrCommitted,
-    ] = await Promise.all([
-      prisma.draftStore.count({
-        where: { status: { in: draftStatuses } },
-      }),
-      prisma.business.count({ where: { publishedAt: { not: null } } }),
-      prisma.business.count({ where: { isActive: true, publishedAt: { not: null } } }),
-      prisma.business.count({ where: { isActive: false } }),
-      prisma.draftStore.count({ where: { createdAt: { gte: today } } }),
-      prisma.business.count({ where: { createdAt: { gte: today } } }),
-      prisma.business.count({ where: { publishedAt: { gte: today } } }),
-      prisma.draftStore.count({ where: { status: 'ready' } }),
-      prisma.draftStore.count({ where: { status: 'committed' } }),
-      prisma.draftStore.count({ where: { status: { in: ['ready', 'committed'] } } }),
-    ]);
+      const draftStatuses = ['draft', 'generating', 'ready', 'failed'];
+      const [
+        totalDraftStores,
+        publishedStores,
+        activeStores,
+        archivedStores,
+        createdTodayDrafts,
+        createdTodayBusinesses,
+        publishedToday,
+        awaitingReview,
+        committedDrafts,
+        readyOrCommitted,
+      ] = await Promise.all([
+        prisma.draftStore.count({
+          where: { status: { in: draftStatuses } },
+        }),
+        prisma.business.count({ where: { publishedAt: { not: null } } }),
+        prisma.business.count({ where: { isActive: true, publishedAt: { not: null } } }),
+        prisma.business.count({ where: { isActive: false } }),
+        prisma.draftStore.count({ where: { createdAt: { gte: today } } }),
+        prisma.business.count({ where: { createdAt: { gte: today } } }),
+        prisma.business.count({ where: { publishedAt: { gte: today } } }),
+        prisma.draftStore.count({ where: { status: 'ready' } }),
+        prisma.draftStore.count({ where: { status: 'committed' } }),
+        prisma.draftStore.count({ where: { status: { in: ['ready', 'committed'] } } }),
+      ]);
 
-    const createdToday = createdTodayDrafts + createdTodayBusinesses;
-    const publishConversionRate = pctRate(committedDrafts, readyOrCommitted);
+      const createdToday = createdTodayDrafts + createdTodayBusinesses;
+      const publishConversionRate = pctRate(committedDrafts, readyOrCommitted);
 
-    res.json({
-      ok: true,
-      totalDraftStores,
-      publishedStores,
-      activeStores,
-      archivedStores,
-      createdToday,
-      publishedToday,
-      awaitingReview,
-      publishConversionRate,
+      return {
+        ok: true,
+        totalDraftStores,
+        publishedStores,
+        activeStores,
+        archivedStores,
+        createdToday,
+        publishedToday,
+        awaitingReview,
+        publishConversionRate,
+      };
     });
+    res.json(payload);
   } catch (e) {
     console.error('[admin/platform/store-network]', e);
     res.status(500).json({ ok: false, error: e?.message ?? 'store_network_failed' });
@@ -112,69 +116,72 @@ router.get('/platform/store-network', async (req, res) => {
 
 router.get('/platform/device-network', async (req, res) => {
   try {
-    const prisma = getPrismaClient();
-    const weekAgo = startOfWeek();
+    const payload = await getCachedAdminData('admin:platform:device-network', async () => {
+      const prisma = getPrismaClient();
+      const weekAgo = startOfWeek();
 
-    const [pairRequests, playlistFailures, heartbeatErrors, lastHeartbeatRow, devices, cnet] =
-      await Promise.all([
-        prisma.devicePairing.count({ where: { status: 'pending' } }),
-        prisma.devicePlaylistBinding.count({ where: { status: 'failed' } }),
-        prisma.deviceAlert.count({
-          where: {
-            type: { in: ['connection_lost', 'heartbeat_error', 'heartbeat_timeout'] },
-            createdAt: { gte: weekAgo },
-          },
-        }),
-        prisma.device.findFirst({
-          where: { lastSeenAt: { not: null } },
-          orderBy: { lastSeenAt: 'desc' },
-          select: { lastSeenAt: true },
-        }),
-        prisma.device.findMany({
-          select: { status: true, location: true, type: true, platform: true },
-        }),
-        checkCnetConfig().catch(() => null),
-      ]);
+      const [pairRequests, playlistFailures, heartbeatErrors, lastHeartbeatRow, devices, cnet] =
+        await Promise.all([
+          prisma.devicePairing.count({ where: { status: 'pending' } }),
+          prisma.devicePlaylistBinding.count({ where: { status: 'failed' } }),
+          prisma.deviceAlert.count({
+            where: {
+              type: { in: ['connection_lost', 'heartbeat_error', 'heartbeat_timeout'] },
+              createdAt: { gte: weekAgo },
+            },
+          }),
+          prisma.device.findFirst({
+            where: { lastSeenAt: { not: null } },
+            orderBy: { lastSeenAt: 'desc' },
+            select: { lastSeenAt: true },
+          }),
+          prisma.device.findMany({
+            select: { status: true, location: true, type: true, platform: true },
+          }),
+          checkCnetConfig().catch(() => null),
+        ]);
 
-    let tvDevices = 0;
-    let mobileDevices = 0;
-    let onlineDevices = 0;
-    let offlineDevices = 0;
-    const regionMap = new Map();
+      let tvDevices = 0;
+      let mobileDevices = 0;
+      let onlineDevices = 0;
+      let offlineDevices = 0;
+      const regionMap = new Map();
 
-    for (const d of devices) {
-      const p = String(d.platform ?? '').toLowerCase();
-      const t = String(d.type ?? '').toLowerCase();
-      if (t === 'screen' || p.includes('tv') || p.includes('android_tv')) tvDevices += 1;
-      if (p.includes('pwa') || p.includes('mobile') || p.includes('browser')) mobileDevices += 1;
-      if (d.status === 'online') onlineDevices += 1;
-      if (d.status === 'offline') offlineDevices += 1;
+      for (const d of devices) {
+        const p = String(d.platform ?? '').toLowerCase();
+        const t = String(d.type ?? '').toLowerCase();
+        if (t === 'screen' || p.includes('tv') || p.includes('android_tv')) tvDevices += 1;
+        if (p.includes('pwa') || p.includes('mobile') || p.includes('browser')) mobileDevices += 1;
+        if (d.status === 'online') onlineDevices += 1;
+        if (d.status === 'offline') offlineDevices += 1;
 
-      const region = normalizeRegion(d.location);
-      const row = regionMap.get(region) ?? { region, total: 0, online: 0 };
-      row.total += 1;
-      if (d.status === 'online') row.online += 1;
-      regionMap.set(region, row);
-    }
+        const region = normalizeRegion(d.location);
+        const row = regionMap.get(region) ?? { region, total: 0, online: 0 };
+        row.total += 1;
+        if (d.status === 'online') row.online += 1;
+        regionMap.set(region, row);
+      }
 
-    const totalDevices = devices.length;
-    const byRegion = [...regionMap.values()].sort((a, b) => b.total - a.total);
-    const cnetStatus = cnet?.output?.configured === true ? 'healthy' : 'degraded';
+      const totalDevices = devices.length;
+      const byRegion = [...regionMap.values()].sort((a, b) => b.total - a.total);
+      const cnetStatus = cnet?.output?.configured === true ? 'healthy' : 'degraded';
 
-    res.json({
-      ok: true,
-      totalDevices,
-      onlineDevices,
-      offlineDevices,
-      tvDevices,
-      mobileDevices,
-      pairRequests,
-      playlistFailures,
-      heartbeatErrors,
-      lastHeartbeatAt: lastHeartbeatRow?.lastSeenAt?.toISOString?.() ?? null,
-      byRegion,
-      cnetStatus,
+      return {
+        ok: true,
+        totalDevices,
+        onlineDevices,
+        offlineDevices,
+        tvDevices,
+        mobileDevices,
+        pairRequests,
+        playlistFailures,
+        heartbeatErrors,
+        lastHeartbeatAt: lastHeartbeatRow?.lastSeenAt?.toISOString?.() ?? null,
+        byRegion,
+        cnetStatus,
+      };
     });
+    res.json(payload);
   } catch (e) {
     console.error('[admin/platform/device-network]', e);
     res.status(500).json({ ok: false, error: e?.message ?? 'device_network_failed' });
@@ -183,9 +190,10 @@ router.get('/platform/device-network', async (req, res) => {
 
 router.get('/platform/runtime-metrics', async (req, res) => {
   try {
-    const prisma = getPrismaClient();
-    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const since7d = startOfDayOffset(7);
+    const payload = await getCachedAdminData('admin:platform:runtime-metrics', async () => {
+      const prisma = getPrismaClient();
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const since7d = startOfDayOffset(7);
 
     const [activeMissions, queuedMissions, failedMissions, obsTotal24h, obsRows24h] =
       await Promise.all([
@@ -276,25 +284,27 @@ router.get('/platform/runtime-metrics', async (req, res) => {
         !isRealExecution(row.executionState),
     ).length;
 
-    res.json({
-      ok: true,
-      activeMissions,
-      queuedMissions,
-      failedMissions,
-      successRatePct,
-      realSuccessRatePct,
-      stubSuccessRatePct,
-      realFailures,
-      stubFailures,
-      observationCount24h: obsTotal24h,
-      realExecutions24h: realRows.length,
-      stubExecutions24h: stubRows.length,
-      blockedExecutions24h: blockedRows24h.length,
-      plannedExecutions24h: plannedRows24h.length,
-      failurePatterns,
-      stubFailurePatterns,
-      window: { since24h: since24h.toISOString(), since7d: since7d.toISOString() },
+      return {
+        ok: true,
+        activeMissions,
+        queuedMissions,
+        failedMissions,
+        successRatePct,
+        realSuccessRatePct,
+        stubSuccessRatePct,
+        realFailures,
+        stubFailures,
+        observationCount24h: obsTotal24h,
+        realExecutions24h: realRows.length,
+        stubExecutions24h: stubRows.length,
+        blockedExecutions24h: blockedRows24h.length,
+        plannedExecutions24h: plannedRows24h.length,
+        failurePatterns,
+        stubFailurePatterns,
+        window: { since24h: since24h.toISOString(), since7d: since7d.toISOString() },
+      };
     });
+    res.json(payload);
   } catch (e) {
     console.error('[admin/platform/runtime-metrics]', e);
     res.status(500).json({ ok: false, error: e?.message ?? 'runtime_metrics_failed' });
@@ -303,32 +313,35 @@ router.get('/platform/runtime-metrics', async (req, res) => {
 
 router.get('/platform/learning-metrics', async (req, res) => {
   try {
-    const prisma = getPrismaClient();
-    const weights = await prisma.patternWeight.findMany({
-      where: { patternId: { startsWith: 'obs:' } },
-      orderBy: { weight: 'desc' },
-      take: 50,
-      select: {
-        patternId: true,
-        intent: true,
-        matchedSkill: true,
-        weight: true,
-        lastAdjusted: true,
-      },
-    });
+    const payload = await getCachedAdminData('admin:platform:learning-metrics', async () => {
+      const prisma = getPrismaClient();
+      const weights = await prisma.patternWeight.findMany({
+        where: { patternId: { startsWith: 'obs:' } },
+        orderBy: { weight: 'desc' },
+        take: 50,
+        select: {
+          patternId: true,
+          intent: true,
+          matchedSkill: true,
+          weight: true,
+          lastAdjusted: true,
+        },
+      });
 
-    const capabilitySuccessRates = weights.map((w) => ({
-      capability: w.matchedSkill,
-      intent: w.intent,
-      successRatePct: Math.round((Number(w.weight) || 0) * 1000) / 10,
-      lastAdjustedAt: w.lastAdjusted?.toISOString?.() ?? null,
-    }));
+      const capabilitySuccessRates = weights.map((w) => ({
+        capability: w.matchedSkill,
+        intent: w.intent,
+        successRatePct: Math.round((Number(w.weight) || 0) * 1000) / 10,
+        lastAdjustedAt: w.lastAdjusted?.toISOString?.() ?? null,
+      }));
 
-    res.json({
-      ok: true,
-      totalPatterns: weights.length,
-      capabilitySuccessRates,
+      return {
+        ok: true,
+        totalPatterns: weights.length,
+        capabilitySuccessRates,
+      };
     });
+    res.json(payload);
   } catch (e) {
     console.error('[admin/platform/learning-metrics]', e);
     res.status(500).json({ ok: false, error: e?.message ?? 'learning_metrics_failed' });

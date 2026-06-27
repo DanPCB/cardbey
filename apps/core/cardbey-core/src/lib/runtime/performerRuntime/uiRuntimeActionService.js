@@ -281,6 +281,34 @@ async function runUiActionAdapter(action, ctx) {
     case 'activate_business_space':
       return handleActivateBusinessSpace({ payload, userId, missionId });
 
+    case 'setup_loyalty_program':
+    case 'apply_loyalty_program': {
+      const { executeSetupLoyaltyProgramRuntimeTool } = await import('./setupLoyaltyProgramRuntimeTool.js');
+      const draft =
+        payload.draft && typeof payload.draft === 'object'
+          ? payload.draft
+          : payload.loyaltyProgramDraft && typeof payload.loyaltyProgramDraft === 'object'
+            ? payload.loyaltyProgramDraft
+            : null;
+      const preseededDraft =
+        payload.preseededDraft && typeof payload.preseededDraft === 'object'
+          ? payload.preseededDraft
+          : null;
+      return executeSetupLoyaltyProgramRuntimeTool({
+        missionId,
+        storeId: storeId ?? payload.storeId ?? null,
+        userId,
+        tenantId: ctx.tenantId ?? null,
+        source: typeof payload.source === 'string' ? payload.source : 'performer_quick_action',
+        requirements: typeof payload.requirements === 'string' ? payload.requirements : null,
+        confirmed: action === 'apply_loyalty_program' || payload.confirmed === true || payload.apply === true,
+        draft,
+        loyaltyProgramDraft: draft,
+        preseededDraft,
+        payload,
+      });
+    }
+
     case 'accept_enrichment_suggestion':
       return handleAcceptEnrichmentSuggestion({ payload, userId, missionId });
 

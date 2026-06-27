@@ -15,6 +15,9 @@
  * | RATE_LIMITED      | Too many attempts                    | Please wait a moment before trying again        | WAIT_AND_RETRY         |
  */
 
+import { FactBuilder } from '../response/factBuilder.js';
+import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
+
 export const StoreCreationError = {
   DUPLICATE_STORE: {
     code: 'DUPLICATE_STORE',
@@ -144,20 +147,57 @@ export function formatErrorResponse(error, context = {}) {
 
 /**
  * Build intake-compatible duplicate_store payload (success:true keeps routing).
+ * Returns structured facts only — call `explainDuplicateStoreIntakeResponse` for natural language.
  *
  * @param {string} storeName
+ * @param {{ id?: string | null; name?: string | null } | null} [existingStore]
  */
-export function formatDuplicateStoreIntakeResponse(storeName) {
-  const formatted = formatErrorResponse('DUPLICATE_STORE', { storeName });
-  return {
+export function formatDuplicateStoreIntakeResponse(storeName, existingStore = null) {
+  const displayName =
+    String(existingStore?.name ?? storeName ?? '').trim() || 'This store';
+  const storeId =
+    existingStore?.id != null && String(existingStore.id).trim()
+      ? String(existingStore.id).trim()
+      : null;
+  const fact = FactBuilder.duplicateStore(storeId, displayName);
+  return buildIntakePayloadFromFact(fact, { explanation: null }, {
     success: true,
     action: 'duplicate_store',
-    error: formatted.error,
-    message: formatted.message,
-    suggestion: formatted.suggestion,
-    errorAction: formatted.errorAction,
-    field: formatted.field,
-  };
+    businessName: displayName,
+    storeId,
+    existingStoreId: storeId,
+    existingStoreName: displayName,
+    error: StoreCreationError.DUPLICATE_STORE.code,
+    errorAction: 'OPEN_EXISTING_STORE',
+    field: StoreCreationError.DUPLICATE_STORE.field,
+  });
+}
+
+/**
+ * @param {string} storeName
+ * @param {{ id?: string | null; name?: string | null } | null} [existingStore]
+ * @param {Record<string, unknown>} [context]
+ */
+export async function explainDuplicateStoreIntakeResponse(storeName, existingStore = null, context = {}) {
+  const displayName =
+    String(existingStore?.name ?? storeName ?? '').trim() || 'This store';
+  const storeId =
+    existingStore?.id != null && String(existingStore.id).trim()
+      ? String(existingStore.id).trim()
+      : null;
+  const fact = FactBuilder.duplicateStore(storeId, displayName);
+  const { explainFactForIntake } = await import('../response/intakeFactResponse.js');
+  return explainFactForIntake(fact, context, {
+    success: true,
+    action: 'duplicate_store',
+    businessName: displayName,
+    storeId,
+    existingStoreId: storeId,
+    existingStoreName: displayName,
+    error: StoreCreationError.DUPLICATE_STORE.code,
+    errorAction: 'OPEN_EXISTING_STORE',
+    field: StoreCreationError.DUPLICATE_STORE.field,
+  });
 }
 
 /**
@@ -245,14 +285,14 @@ export function validateStoreCreationFields(payload = {}) {
  * @param {Array<{ field: string; message: string; code?: string; suggestion?: string; errorAction?: string }>} fieldErrors
  */
 export function formatValidationErrorResponse(fieldErrors) {
+  const fact = FactBuilder.validationError(fieldErrors);
   const primary = fieldErrors[0];
-  return {
+  return buildIntakePayloadFromFact(fact, { explanation: null }, {
     success: false,
     action: 'validation_error',
     error: primary?.code ?? 'VALIDATION_ERROR',
-    message: primary?.message ?? 'Please fix the highlighted fields',
-    suggestion: primary?.suggestion,
     errorAction: primary?.errorAction,
+    field: primary?.field,
     errors: fieldErrors.map(({ field, message, code, suggestion, errorAction }) => ({
       field,
       message,
@@ -260,5 +300,29 @@ export function formatValidationErrorResponse(fieldErrors) {
       ...(suggestion ? { suggestion } : {}),
       ...(errorAction ? { errorAction } : {}),
     })),
-  };
+  });
+}
+
+/**
+ * @param {Array<{ field: string; message: string; code?: string; suggestion?: string; errorAction?: string }>} fieldErrors
+ * @param {Record<string, unknown>} [context]
+ */
+export async function explainValidationErrorResponse(fieldErrors, context = {}) {
+  const fact = FactBuilder.validationError(fieldErrors);
+  const primary = fieldErrors[0];
+  const { explainFactForIntake } = await import('../response/intakeFactResponse.js');
+  return explainFactForIntake(fact, context, {
+    success: false,
+    action: 'validation_error',
+    error: primary?.code ?? 'VALIDATION_ERROR',
+    errorAction: primary?.errorAction,
+    field: primary?.field,
+    errors: fieldErrors.map(({ field, message, code, suggestion, errorAction }) => ({
+      field,
+      message,
+      ...(code ? { code } : {}),
+      ...(suggestion ? { suggestion } : {}),
+      ...(errorAction ? { errorAction } : {}),
+    })),
+  });
 }

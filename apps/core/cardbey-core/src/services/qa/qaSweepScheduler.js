@@ -13,6 +13,10 @@ let isRunning = false;
  * @param {{ prisma: import('../../lib/prismaClient.js').PrismaClient, logger?: (msg: string, data?: object) => void }} opts
  */
 export function startQaSweepScheduler({ prisma, logger = console.log.bind(console) }) {
+  if (intervalId) {
+    logger('[QaSweep] Scheduler already started — skipping duplicate');
+    return;
+  }
   if (!getQaSweepEnabled()) {
     logger('[QaSweep] Scheduler disabled (QA_SWEEP_ENABLED not true)');
     return;

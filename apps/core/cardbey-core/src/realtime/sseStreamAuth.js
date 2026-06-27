@@ -66,6 +66,18 @@ export function resolveSseStreamAuth(req) {
     return { ok: true, clientKey: rawKey, authMode: 'env' };
   }
 
+  // Public engagement channels — no auth (aggregate counts only, no PII).
+  if (rawKey === 'public-feed' || rawKey.startsWith('store:')) {
+    return { ok: true, clientKey: rawKey, authMode: 'public-engagement' };
+  }
+
+  if (rawKey.startsWith('owner-store:') && jwtToken) {
+    const verified = verifySseJwt(jwtToken);
+    if (verified.ok) {
+      return { ok: true, clientKey: rawKey, authMode: 'owner-engagement', userId: verified.userId };
+    }
+  }
+
   if (jwtToken) {
     const verified = verifySseJwt(jwtToken);
     if (verified.ok) {

@@ -54,6 +54,13 @@ router.get('/:storeSlug/offers/:offerSlug', async (req, res, next) => {
     void import('../lib/storeActivity/storeActivityHooks.js').then(({ emitStoreActivityFromIntentSignal }) =>
       emitStoreActivityFromIntentSignal({ storeId: store.id, type: 'offer_view', offerId: offer.id }),
     );
+    void import('../services/storeEngagement/storeEngagementBridge.js').then(({ bridgeOfferViewToStoreEngagement }) =>
+      bridgeOfferViewToStoreEngagement(prisma, {
+        storeId: store.id,
+        offerId: offer.id,
+        source: 'offer_page',
+      }),
+    );
 
     const jsonLd = { '@context': 'https://schema.org', '@graph': [
       { '@type': 'Offer', name: title, description: desc || undefined, price: priceText || undefined, url: canonical },

@@ -8,6 +8,7 @@ import { getEvents } from '../missionBlackboard.js';
 import { extractEntities } from './entityExtractor.js';
 import { resolveEntities } from './entityResolver.js';
 import { readEpisodicEvents, foldEpisodicContext } from './episodicWriter.js';
+import { shouldResolveMessageEntitiesAfterClassification } from './entityResolutionPolicy.js';
 
 /**
  * @typedef {import('./entityResolver.js').ResolutionError} ResolutionError
@@ -160,20 +161,19 @@ async function readWorkingState(userId, missionId) {
  *   activeStoreId?: string | null;
  *   sessionContext?: Record<string, unknown> | null;
  * }} input
+ * @param {{ resolveMessageEntities?: boolean }} [options]
  * @returns {Promise<HydratedContext>}
  */
-export async function hydrateContext(input) {
+export async function hydrateContext(input, options = {}) {
   const message = String(input?.message ?? '').trim();
   const userId = input?.userId != null ? String(input.userId).trim() : '';
   const missionId = input?.missionId != null ? String(input.missionId).trim() : '';
   const activeStoreId = input?.activeStoreId != null ? String(input.activeStoreId).trim() : '';
+  const resolveMessageEntities = options.resolveMessageEntities === true;
 
   const hydrated = createEmptyHydratedContext(message, { userId: userId || null, missionId: missionId || null });
 
   try {
-    const entityRefs = extractEntities(message);
-    hydrated.meta.entityRefCount = entityRefs.length;
-
     let episodic = { recentEvents: [] };
     try {
       const { events } = await readEpisodicEvents({ userId, missionId, limit: 10 });
@@ -183,18 +183,23 @@ export async function hydrateContext(input) {
     }
     hydrated.episodic = episodic;
 
-    try {
-      const resolution = await resolveEntities(entityRefs, userId, episodic, {
-        missionId: missionId || null,
-        activeStoreId: activeStoreId || null,
-      });
-      hydrated.entities = resolution.resolved;
-      hydrated.resolution = {
-        errors: resolution.errors,
-        confidence: resolution.confidence,
-      };
-    } catch (err) {
-      console.error('[MemoryHydrator] entity resolve failed:', err?.message ?? err);
+    if (resolveMessageEntities) {
+      const entityRefs = extractEntities(message);
+      hydrated.meta.entityRefCount = entityRefs.length;
+
+      try {
+        const resolution = await resolveEntities(entityRefs, userId, episodic, {
+          missionId: missionId || null,
+          activeStoreId: activeStoreId || null,
+        });
+        hydrated.entities = resolution.resolved;
+        hydrated.resolution = {
+          errors: resolution.errors,
+          confidence: resolution.confidence,
+        };
+      } catch (err) {
+        console.error('[MemoryHydrator] entity resolve failed:', err?.message ?? err);
+      }
     }
 
     if (!hydrated.entities.store && activeStoreId) {
@@ -223,6 +228,60 @@ export async function hydrateContext(input) {
 
   hydrated.meta.hydratedAt = new Date();
   return hydrated;
+}
+
+/**
+ * Post-classification entity enrichment — DB lookups only when the classified tool needs them.
+ *
+ * @param {HydratedContext} hydrated
+ * @param {{
+ *   message: string;
+ *   classification: { tool?: string; executionPath?: string } | null;
+ *   userId?: string | null;
+ *   missionId?: string | null;
+ *   activeStoreId?: string | null;
+ *   sessionContext?: Record<string, unknown> | null;
+ * }} input
+ * @returns {Promise<HydratedContext>}
+ */
+export async function enrichHydratedContextWithIntentEntities(hydrated, input) {
+  const base = hydrated && typeof hydrated === 'object' ? hydrated : createEmptyHydratedContext();
+  const classification = input?.classification ?? null;
+  const sessionContext = input?.sessionContext ?? base.meta?.sessionContext ?? null;
+
+  if (!shouldResolveMessageEntitiesAfterClassification(classification, sessionContext)) {
+    return base;
+  }
+
+  const message = String(input?.message ?? base.message ?? '').trim();
+  const userId = input?.userId != null ? String(input.userId).trim() : '';
+  const missionId = input?.missionId != null ? String(input.missionId).trim() : '';
+  const activeStoreId = input?.activeStoreId != null ? String(input.activeStoreId).trim() : '';
+  const episodic = base.episodic ?? { recentEvents: [] };
+
+  const entityRefs = extractEntities(message);
+  if (!entityRefs.length) {
+    return base;
+  }
+
+  try {
+    const resolution = await resolveEntities(entityRefs, userId, episodic, {
+      missionId: missionId || null,
+      activeStoreId: activeStoreId || null,
+    });
+    return {
+      ...base,
+      meta: { ...base.meta, entityRefCount: entityRefs.length },
+      entities: { ...base.entities, ...resolution.resolved },
+      resolution: {
+        errors: resolution.errors,
+        confidence: resolution.confidence,
+      },
+    };
+  } catch (err) {
+    console.error('[MemoryHydrator] intent entity enrich failed:', err?.message ?? err);
+    return base;
+  }
 }
 
 /**

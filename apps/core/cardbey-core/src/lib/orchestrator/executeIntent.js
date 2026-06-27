@@ -1,5 +1,8 @@
 /**
  * Phase 0: canonical planning entry. Default shadow=true — no pipeline creation in production paths.
+ *
+ * @deprecated Prefer IntentReasoner for Performer NL.
+ * Shadow diagnostics: set EXECUTE_INTENT_SHADOW=true and use scheduleExecuteIntentShadow().
  */
 
 import { planMissionFromIntent } from '../agentPlanner.js';

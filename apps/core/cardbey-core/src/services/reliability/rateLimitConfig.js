@@ -5,7 +5,15 @@
 import rateLimiter from './rateLimiter.js';
 
 rateLimiter.configure({
+  /** Deprecated shim — still rate-limited for external callers during grace period. */
   endpoint: '/api/performer/intake',
+  windowMs: 60_000,
+  maxRequests: 30,
+  perUser: true,
+});
+
+rateLimiter.configure({
+  endpoint: '/api/performer/intake/v2',
   windowMs: 60_000,
   maxRequests: 30,
   perUser: true,
@@ -58,4 +66,18 @@ rateLimiter.configure({
   windowMs: 60_000,
   maxRequests: 40,
   perUser: true,
+});
+
+rateLimiter.configure({
+  endpoint: '/api/runtime/diagnostics',
+  windowMs: 60_000,
+  maxRequests: 100,
+  perUser: true,
+});
+
+rateLimiter.configure({
+  endpoint: '/api/diagnostics',
+  windowMs: 60_000,
+  maxRequests: 50,
+  perUser: false,
 });

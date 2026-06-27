@@ -1,13 +1,15 @@
 /**
  * Performer Runtime — feature flags (Phase 1.5).
- * Kernel authority flags delegate to kernelMandatory.js (default ON).
+ * Execution authority flags delegate to executionMode.js (Phase 9).
  */
 
 import {
-  isRuntimeStepExecutionEnabled as kernelStepEnabled,
-  isPerformerRuntimeKernelEnabled as kernelEnabled,
-  isSharedRuntimeToolRegistryEnabled as kernelRegistryEnabled,
-} from '../kernelMandatory.js';
+  isRuntimeStepExecutionEnabled,
+  isPerformerRuntimeKernelEnabled,
+  isSharedRuntimeToolRegistryEnabled,
+  isPerformerRuntimeEnabled as executionModePerformerRuntimeEnabled,
+  isPerformerRuntimePipelineFacadeEnabled as executionModePipelineFacadeEnabled,
+} from '../executionMode.js';
 
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
@@ -20,12 +22,12 @@ function envTruthy(name, defaultValue = false) {
 
 /** Route Performer execution through performerRuntime.execute(). */
 export function isPerformerRuntimeEnabled() {
-  return envTruthy('PERFORMER_RUNTIME_ENABLED', false);
+  return executionModePerformerRuntimeEnabled();
 }
 
-/** Route mission pipeline steps through runtime facade. */
+/** Route mission pipeline steps through runtime facade (orchestrator always uses kernel since Phase F). */
 export function isPerformerRuntimePipelineFacadeEnabled() {
-  return envTruthy('PERFORMER_RUNTIME_PIPELINE_FACADE', false);
+  return executionModePipelineFacadeEnabled();
 }
 
 /** Emit runtime.* stream events to blackboard + SSE. */
@@ -54,16 +56,10 @@ export function isPerformerExecutionRecordsPersistEnabled() {
 }
 
 /** Route proactive mission steps through performerRuntimeKernel.executeMissionStep. */
-export function isRuntimeStepExecutionEnabled() {
-  return kernelStepEnabled();
-}
+export { isRuntimeStepExecutionEnabled };
 
 /** Use shared runtimeToolRegistry for tool validation. */
-export function isSharedRuntimeToolRegistryEnabled() {
-  return kernelRegistryEnabled();
-}
+export { isSharedRuntimeToolRegistryEnabled };
 
 /** Master switch for Runtime Kernel step authority layer. */
-export function isPerformerRuntimeKernelEnabled() {
-  return kernelEnabled();
-}
+export { isPerformerRuntimeKernelEnabled };

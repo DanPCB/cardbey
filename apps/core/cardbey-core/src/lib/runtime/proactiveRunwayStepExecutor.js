@@ -184,6 +184,7 @@ export async function executeProactiveRunwayStep(input) {
       metadataJson: true,
       targetId: true,
       executionMode: true,
+      title: true,
     },
   });
 
@@ -244,6 +245,19 @@ export async function executeProactiveRunwayStep(input) {
     }
   }
 
+  if (
+    recommendedTool === 'create_promotion_graphic' ||
+    recommendedTool === 'smart_visual' ||
+    recommendedTool === 'generate_promo_image' ||
+    recommendedTool === 'generate_promotion_asset'
+  ) {
+    const rawImg = parameters.imageDataUrl ?? parameters.userImageUrl ?? body.imageDataUrl;
+    if (typeof rawImg === 'string' && rawImg.trim()) {
+      payload.imageDataUrl = String(rawImg).trim();
+    }
+    if (parameters.skipImage === true) payload.skipImage = true;
+  }
+
   if (!payload.storeId && typeof meta.storeId === 'string' && meta.storeId.trim()) {
     payload.storeId = meta.storeId.trim();
   }
@@ -266,6 +280,28 @@ export async function executeProactiveRunwayStep(input) {
   }
 
   if (!payload.userId && user?.id) payload.userId = user.id;
+
+  const promoGraphicTools = new Set(['create_promotion_graphic', 'smart_visual', 'generate_promo_image', 'generate_promotion_asset']);
+  if (promoGraphicTools.has(recommendedTool)) {
+    const planParams = asObject(meta.planParameters);
+    if (!payload.prompt && typeof planParams.prompt === 'string' && planParams.prompt.trim()) {
+      payload.prompt = planParams.prompt.trim();
+    }
+    if (!payload.description && typeof planParams.description === 'string' && planParams.description.trim()) {
+      payload.description = planParams.description.trim();
+    }
+    if (!payload.prompt && typeof parameters.prompt === 'string' && parameters.prompt.trim()) {
+      payload.prompt = parameters.prompt.trim();
+    }
+    if (!payload.description && typeof parameters.description === 'string' && parameters.description.trim()) {
+      payload.description = parameters.description.trim();
+    }
+    const missionTitle = typeof pipeline.title === 'string' ? pipeline.title.trim() : '';
+    if (!payload.prompt && missionTitle) {
+      payload.prompt = missionTitle;
+      payload.description = payload.description || missionTitle;
+    }
+  }
 
   const stepTitleForBus = proactivePlanStepTitle(body);
 
@@ -379,7 +415,10 @@ export async function executeProactiveRunwayStep(input) {
     (recommendedTool === 'create_promotion' && stepOut.phase === 'awaiting_product_selection') ||
     (recommendedTool === 'launch_campaign' && stepOut.phase === 'awaiting_channel_selection') ||
     (recommendedTool === 'code_fix' && stepOut.phase === 'awaiting_approval') ||
-    (recommendedTool === 'edit_artifact' && stepOut.phase === 'image_search_results');
+    (recommendedTool === 'setup_loyalty_program' && stepOut.phase === 'awaiting_owner_review') ||
+    (recommendedTool === 'edit_artifact' && stepOut.phase === 'image_search_results') ||
+    ((recommendedTool === 'create_promotion_graphic' || recommendedTool === 'smart_visual') &&
+      stepOut.phase === 'awaiting_promo_image');
   const pipelineComplete = isLastStep && !blocksTerminalComplete;
 
   if (recommendedTool === 'launch_campaign' && stepOut.phase !== 'awaiting_channel_selection') {

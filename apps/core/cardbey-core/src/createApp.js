@@ -158,7 +158,7 @@ export async function createCardbeyApp() {
 
   // Before any `app.use('/api', …)` router — ensures POST /api/performer/intake is not lost to a generic /api stack.
   app.use('/api/performer/intake', performerIntakeRoutes);
-  console.log('[cardbey-core/createApp] mounted /api/performer/intake (performerIntakeRoutes)');
+  console.log('[cardbey-core/createApp] mounted /api/performer/intake (v1 shim → v2)');
   app.use('/api/performer/intake/v2', performerIntakeV2Routes);
   console.log('[cardbey-core/createApp] mounted /api/performer/intake/v2 (performerIntakeV2Routes)');
   app.use('/api', userMemoryRoutes);

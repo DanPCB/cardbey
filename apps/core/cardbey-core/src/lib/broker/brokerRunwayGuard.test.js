@@ -4,6 +4,7 @@ import {
   guardBrokerOrchestraStart,
   extractMissionIdFromRequestBody,
 } from './brokerRunwayGuard.js';
+import { resetExecutionModeForTests } from '../runtime/executionMode.js';
 
 describe('brokerRunwayGuard', () => {
   const flags = {
@@ -20,9 +21,11 @@ describe('brokerRunwayGuard', () => {
   });
 
   beforeEach(() => {
+    resetExecutionModeForTests();
+    delete process.env.EXECUTION_MODE;
     delete process.env.BROKER_BLOCK_DIRECT_ACTION;
     delete process.env.BROKER_BLOCK_ORCHESTRA_WITH_MISSION;
-    process.env.BROKER_BLOCK_DIRECT_ACTION = 'false';
+    process.env.EXECUTION_MODE = 'hybrid';
   });
 
   it('extracts missionId from nested body', () => {
@@ -35,7 +38,8 @@ describe('brokerRunwayGuard', () => {
   });
 
   it('blocks direct action when flag on', () => {
-    process.env.BROKER_BLOCK_DIRECT_ACTION = 'true';
+    process.env.EXECUTION_MODE = 'kernel';
+    resetExecutionModeForTests();
     expect(guardBrokerDirectAction().blocked).toBe(true);
   });
 

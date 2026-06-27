@@ -8,13 +8,19 @@ import {
 } from '../intakeErrorTypes.js';
 
 describe('intakeErrorTypes', () => {
-  it('formats duplicate store with suggestion', () => {
-    const body = formatDuplicateStoreIntakeResponse('Joe Coffee');
+  it('formats duplicate store with structured fact and open-existing actions', () => {
+    const body = formatDuplicateStoreIntakeResponse('ABC Bakery', {
+      id: 'store-abc',
+      name: 'ABC Bakery',
+    });
     expect(body.action).toBe('duplicate_store');
     expect(body.error).toBe('DUPLICATE_STORE');
-    expect(body.message).toContain('Joe Coffee');
-    expect(body.suggestion).toMatch(/Melbourne/i);
-    expect(body.errorAction).toBe('CHOOSE_DIFFERENT_NAME');
+    expect(body.fact?.event).toBe('entity_conflict');
+    expect(body.fact?.reason).toBe('duplicate_name');
+    expect(body.existingStoreId).toBe('store-abc');
+    expect(body.ctaButtons).toContain('Open existing store');
+    expect(body.errorAction).toBe('OPEN_EXISTING_STORE');
+    expect(body.response).toBeUndefined();
   });
 
   it('formatErrorResponse resolves MISSING_NAME', () => {
@@ -33,7 +39,7 @@ describe('intakeErrorTypes', () => {
     expect(errors.some((e) => e.code === 'MISSING_CATEGORY')).toBe(true);
   });
 
-  it('formatValidationErrorResponse wraps field errors', () => {
+  it('formatValidationErrorResponse wraps field errors with structured fact', () => {
     const errors = validateStoreCreationFields({
       storeCreateForm: { storeName: 'A', location: 'Melbourne', storeType: 'Other' },
     });
@@ -41,5 +47,7 @@ describe('intakeErrorTypes', () => {
     expect(body.action).toBe('validation_error');
     expect(body.errors?.length).toBeGreaterThan(0);
     expect(body.error).toBe('MISSING_NAME');
+    expect(body.fact?.event).toBe('validation_error');
+    expect(body.actions).toContain('edit_details');
   });
 });

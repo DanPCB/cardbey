@@ -1,7 +1,12 @@
 /**
  * Agent Execution Broker — feature flags (Phase 1).
- * Blocking flags default OFF; telemetry defaults ON (additive).
+ * Execution authority flags delegate to executionMode.js (Phase 9).
  */
+
+import {
+  isBrokerDirectViaFacadeEnabled as executionModeDirectViaFacade,
+  isBrokerBlockDirectActionEnabled as executionModeBlockDirectAction,
+} from '../runtime/executionMode.js';
 
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
@@ -19,16 +24,12 @@ export function isBrokerExecutionTelemetryEnabled() {
 
 /** Route Performer direct_action through executeMissionAction facade. */
 export function isBrokerDirectViaFacadeEnabled() {
-  return envTruthy('BROKER_DIRECT_VIA_FACADE', false);
+  return executionModeDirectViaFacade();
 }
 
-/** Reject Performer direct_action tool dispatch (use IntentRequest / pipeline). Default: block. */
+/** Reject Performer direct_action tool dispatch (use IntentRequest / pipeline). */
 export function isBrokerBlockDirectActionEnabled() {
-  const raw = process.env.BROKER_BLOCK_DIRECT_ACTION;
-  if (raw !== undefined && raw !== null && String(raw).trim().toLowerCase() === 'false') {
-    return false;
-  }
-  return true;
+  return executionModeBlockDirectAction();
 }
 
 /** Reject POST /api/mi/orchestra/start when request body includes missionId. */

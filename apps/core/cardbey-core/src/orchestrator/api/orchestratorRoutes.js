@@ -111,23 +111,42 @@ router.post('/loyalty-from-card', requireAuth, async (req, res, next) => {
     const { tenantId, storeId, imageUrl, themePreference } = req.body;
     const resolvedTenantId = tenantId || req.user?.tenantId;
     const resolvedStoreId = storeId || req.user?.business?.id;
+    const userId = req.userId ?? req.user?.id ?? null;
 
-    if (!resolvedTenantId || !resolvedStoreId || !imageUrl) {
+    if (!resolvedStoreId || !imageUrl) {
       return res.status(400).json({
         ok: false,
         error: 'Missing required fields',
-        message: 'tenantId, storeId, and imageUrl are required',
+        message: 'storeId and imageUrl are required',
       });
     }
+
+    const { getPrismaClient } = await import('../../lib/prisma.js');
+    const prisma = getPrismaClient();
+    const store = await prisma.business
+      .findFirst({
+        where: { id: resolvedStoreId, ...(userId ? { userId } : {}) },
+        select: { id: true, name: true },
+      })
+      .catch(() => null);
 
     const result = await runUnifiedOrchestrator('loyalty_from_card', {
       tenantId: resolvedTenantId,
       storeId: resolvedStoreId,
       imageUrl,
       themePreference,
+      storeName: store?.name ?? null,
     });
 
-    res.json({ ok: true, result });
+    res.json({
+      ok: true,
+      result,
+      preseededDraft: result?.preseededDraft ?? result?.payload?.preseededDraft ?? null,
+      handoff: {
+        action: 'setup_loyalty_program',
+        source: 'dashboard_loyalty_card_scan',
+      },
+    });
   } catch (error) {
     console.error('[Orchestrator] loyalty-from-card error:', error);
     next(error);

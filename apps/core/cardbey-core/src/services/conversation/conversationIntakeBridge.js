@@ -5,16 +5,29 @@ import conversationService, {
   isPerformerConversationEnabled,
 } from './conversationService.js';
 
-const MAX_HISTORY_TURNS = 10;
+const DEFAULT_MAX_HISTORY_TURNS = 10;
 
 export { isPerformerConversationEnabled };
 
+function resolveMaxHistoryTurns() {
+  if (String(process.env.ENABLE_LLM_REASONER ?? '').trim().toLowerCase() === 'true') {
+    const configured = parseInt(process.env.LLM_REASONER_MAX_HISTORY_TURNS || '50', 10);
+    return Number.isFinite(configured) && configured > 0 ? configured : 50;
+  }
+  return DEFAULT_MAX_HISTORY_TURNS;
+}
+
+export function getIntakeConversationHistoryLimit() {
+  return resolveMaxHistoryTurns();
+}
+
 export function mergeConversationHistory(serverHistory, clientHistory) {
+  const maxTurns = resolveMaxHistoryTurns();
   const server = Array.isArray(serverHistory) ? serverHistory : [];
   if (server.length > 0) {
-    return server.slice(-MAX_HISTORY_TURNS);
+    return server.slice(-maxTurns);
   }
-  return Array.isArray(clientHistory) ? clientHistory.slice(-MAX_HISTORY_TURNS) : [];
+  return Array.isArray(clientHistory) ? clientHistory.slice(-maxTurns) : [];
 }
 
 export function extractAssistantTextFromIntakePayload(payload) {
@@ -79,7 +92,9 @@ export async function bootstrapConversationForIntake({
       missionId,
     });
 
-    const context = await conversationService.buildConversationContext(session.id);
+    const context = await conversationService.buildConversationContext(session.id, {
+      maxMessages: resolveMaxHistoryTurns(),
+    });
     const history = mergeConversationHistory(context.conversationHistory, clientHistory);
 
     return { session, context, history };
@@ -181,7 +196,9 @@ export function attachConversationToMissionMetadata(metadata, conversationContex
     ...base,
     ...(conversationSessionId ? { conversationSessionId } : {}),
     conversationContext: {
-      conversationHistory: (conversationContext?.conversationHistory ?? []).slice(-MAX_HISTORY_TURNS),
+      conversationHistory: (conversationContext?.conversationHistory ?? []).slice(
+        -resolveMaxHistoryTurns(),
+      ),
       pendingActions: conversationContext?.pendingActions ?? [],
       messageCount: conversationContext?.messageCount ?? 0,
     },

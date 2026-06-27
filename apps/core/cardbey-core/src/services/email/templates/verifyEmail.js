@@ -1,6 +1,6 @@
 /**
  * Verification email template – subject + HTML.
- * Link format: API base + /api/auth/verify/confirm?token=<raw>&redirect_uri=/onboarding/business?verified=1
+ * Link format: Core API + /api/auth/verify-email?token=<raw>
  */
 
 const SUBJECT = 'Confirm your Cardbey account';

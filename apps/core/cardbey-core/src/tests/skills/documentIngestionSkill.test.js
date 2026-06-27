@@ -15,7 +15,7 @@ import {
 import {
   detectDocumentIngestionIntent,
   extractIngestionInputs,
-} from '../../lib/intake/documentIngestionIntent.js';
+} from '../../lib/intent/documentIngestIntent.js';
 import { skillRouter } from '../../lib/skills/index.js';
 
 function matchesTrigger(intent) {

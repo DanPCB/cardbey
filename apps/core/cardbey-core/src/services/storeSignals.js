@@ -1,25 +1,30 @@
 /**
- * Store-level signal summary — reusable reader for store entities.
- * Uses IntentSignal; supports store_view (page_view/offer_view), qr_scan, cta_click, publish (future).
+ * Store-level signal summary — canonical StoreActivityEvent reader with IntentSignal fallback.
  */
 
-const VIEW_TYPES = ['offer_view', 'page_view'];
+const VIEW_EVENT_TYPES = ['STORE_VIEWED', 'OFFER_VIEWED'];
+const LEGACY_VIEW_TYPES = ['offer_view', 'page_view'];
 
 /**
- * Normalized store signal summary for a store over a time window.
  * @param {object} prisma - PrismaClient
- * @param {string} storeId - Store (Business) id
- * @param {number} [windowDays=7] - Days to look back
- * @returns {Promise<{ storeViews: number, offerViews: number, qrScans: number, ctaClicks: number, publishes: number, windowDays: number }>}
+ * @param {string} storeId
+ * @param {number} [windowDays=7]
  */
 export async function getStoreSignalSummary(prisma, storeId, windowDays = 7) {
   const since = new Date();
   since.setDate(since.getDate() - windowDays);
 
-  const signals = await prisma.intentSignal.findMany({
-    where: { storeId, createdAt: { gte: since } },
-    select: { type: true, offerId: true },
-  });
+  const [events, legacySignals, snapshot] = await Promise.all([
+    prisma.storeActivityEvent.findMany({
+      where: { storeId, createdAt: { gte: since } },
+      select: { eventType: true, metadataJson: true },
+    }),
+    prisma.intentSignal.findMany({
+      where: { storeId, createdAt: { gte: since } },
+      select: { type: true, offerId: true },
+    }),
+    prisma.storeEngagementSnapshot.findUnique({ where: { storeId } }),
+  ]);
 
   let storeViews = 0;
   let offerViews = 0;
@@ -27,22 +32,37 @@ export async function getStoreSignalSummary(prisma, storeId, windowDays = 7) {
   let ctaClicks = 0;
   let publishes = 0;
 
-  for (const s of signals) {
-    if (VIEW_TYPES.includes(s.type)) {
-      storeViews++;
-      if (s.offerId) offerViews++;
+  if (events.length > 0) {
+    for (const e of events) {
+      if (VIEW_EVENT_TYPES.includes(e.eventType)) {
+        storeViews++;
+        if (e.eventType === 'OFFER_VIEWED' || e.metadataJson?.offerId) offerViews++;
+      }
+      if (e.eventType === 'QR_SCANNED') qrScans++;
+      if (['ORDER_CLICKED', 'CALL_CLICKED', 'MESSAGE_CLICKED', 'WEBSITE_CLICKED', 'MAP_CLICKED'].includes(e.eventType)) {
+        ctaClicks++;
+      }
+      if (e.eventType === 'CAMPAIGN_OPENED') publishes++;
     }
-    if (s.type === 'qr_scan') qrScans++;
-    if (s.type === 'cta_click') ctaClicks++;
-    if (s.type === 'publish') publishes++;
+  } else {
+    for (const s of legacySignals) {
+      if (LEGACY_VIEW_TYPES.includes(s.type)) {
+        storeViews++;
+        if (s.offerId) offerViews++;
+      }
+      if (s.type === 'qr_scan') qrScans++;
+      if (s.type === 'cta_click') ctaClicks++;
+      if (s.type === 'publish') publishes++;
+    }
   }
 
   return {
-    storeViews,
-    offerViews,
-    qrScans,
-    ctaClicks,
+    storeViews: snapshot?.views7d ?? storeViews,
+    offerViews: snapshot?.offerClaimsCount ?? offerViews,
+    qrScans: snapshot?.qrScansCount ?? qrScans,
+    ctaClicks: snapshot?.orderClicksCount ?? ctaClicks,
     publishes,
+    engagementScore: snapshot?.engagementScore ?? 0,
     windowDays,
   };
 }

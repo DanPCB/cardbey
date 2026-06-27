@@ -5,7 +5,7 @@
 
 import { executeMissionAction } from '../../execution/executeMissionAction.js';
 import { guardBrokerDirectAction } from '../../broker/brokerRunwayGuard.js';
-import { assertKernelAuthorizedExecution } from '../kernelMandatory.js';
+import { assertKernelAuthorizedExecution, isKernelAuthorizedRuntimeSource } from '../kernelMandatory.js';
 import { actionIdForTool, recordExecutionTelemetry } from '../../broker/executionTelemetry.js';
 import { getBrokerActionForTool } from '../../broker/actionRegistry.js';
 import { routeToolToAction } from '../../broker/capabilityRouter.js';
@@ -85,11 +85,9 @@ export async function executeRuntimeAction(request) {
 
   const actionTypeEarly =
     typeof req.actionType === 'string' && req.actionType.trim() ? req.actionType.trim() : '';
-  // Pipeline step advancement and UI runtime / hybrid assist are not Performer direct_action tool dispatch.
-  const skipBrokerDirectGuard =
-    actionTypeEarly === 'run_pipeline_step' ||
-    actionTypeEarly === 'execute_action' ||
-    actionTypeEarly === 'assist_hybrid_operation';
+  // Pipeline step advancement, UI runtime, and kernel-authorized intake/mission sources
+  // are not legacy Performer direct_action bypasses.
+  const skipBrokerDirectGuard = isKernelAuthorizedRuntimeSource(source, actionTypeEarly);
 
   if (!skipBrokerDirectGuard) {
     const directGuard = guardBrokerDirectAction({ source });

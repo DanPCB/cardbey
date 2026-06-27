@@ -11,9 +11,10 @@ import {
   isKernelMandatoryEnabled,
   normalizeClassificationForKernel,
 } from '../../lib/runtime/kernelMandatory.js';
+import { resetExecutionModeForTests } from '../../lib/runtime/executionMode.js';
 import { normalizeRoutingBodyFlags } from '../../lib/routing/compatibilityLayer.js';
-import { isCampaignOrchestrationIntent, classifyIntent } from '../../lib/intake/intakeClassifier.js';
-import { shouldPreserveCreateStoreShortcutWhenKernelMandatory } from '../../lib/intake/storeCreateIntentFastPath.js';
+import { isCampaignOrchestrationIntent } from '../../lib/intent/campaignOrchestrationIntent.js';
+import { shouldPreserveCreateStoreShortcutWhenKernelMandatory } from '../../lib/intake/intakeShortcutPolicy.js';
 import { unifiedDispatch } from '../../lib/intake/unifiedDispatch.js';
 
 const executeRuntimeActionMock = vi.hoisted(() => vi.fn());
@@ -56,12 +57,15 @@ describe('Bypass Removal', () => {
 
   beforeEach(() => {
     executeRuntimeActionMock.mockReset();
+    resetExecutionModeForTests();
+    delete process.env.EXECUTION_MODE;
     delete process.env.EMERGENCY_BYPASS_KERNEL;
     delete process.env.DISABLE_KERNEL_MANDATORY;
   });
 
   afterEach(() => {
     process.env = { ...envSnapshot };
+    resetExecutionModeForTests();
   });
 
   it('blocks intake_v2 direct source without unified contract', () => {
@@ -78,12 +82,9 @@ describe('Bypass Removal', () => {
     expect(assertKernelAuthorizedExecution({ source: 'agent_orchestration' }).ok).toBe(true);
   });
 
-  it('routes classifier campaign orchestration through proactive_plan', async () => {
+  it('detects campaign orchestration intent for route shortcut', () => {
     const msg = 'Run a multi-agent campaign orchestration for my store launch';
     expect(isCampaignOrchestrationIntent(msg)).toBe(true);
-    const result = await classifyIntent({ userMessage: msg, storeContext: { storeId: 'store-1' } });
-    expect(result.executionPath).toBe('proactive_plan');
-    expect(result.tool).toBe('launch_campaign');
   });
 
   it('normalizes legacy direct_action classifications to proactive_plan', () => {
@@ -96,13 +97,13 @@ describe('Bypass Removal', () => {
     expect(normalized.executionPath).toBe('proactive_plan');
   });
 
-  it('does not preserve create_store shortcuts under kernel mandatory', () => {
+  it('preserves create_store shortcuts under kernel mandatory (canonical runway)', () => {
     expect(
       shouldPreserveCreateStoreShortcutWhenKernelMandatory(
         { type: 'create_store' },
         { storeCreateForm: { storeName: 'Acme' } },
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('strips skipDirectGuard from routing bodies', () => {

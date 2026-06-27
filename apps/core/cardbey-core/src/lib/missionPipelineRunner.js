@@ -22,6 +22,7 @@ import { enrichStepInputFromPriorOutputs } from './agentPlanning/artifactInputEn
 import { buildRunnerDualWriteMetadataJson } from './orchestrator/pipelineCanonicalResults.js';
 import { runPostMissionCompletionSummary } from './missionCompletion/postMissionSummary.js';
 import { appendEvent as appendBlackboardEvent } from './missionBlackboard.js';
+import { emitExecutionNotification, EXECUTION_EVENT_TYPES } from './execution/executionNotificationEmitter.js';
 import { AgentCoordinator } from './orchestration/agentCoordinator.js';
 import { getMissionParentMissionId } from './mission/missionParentLineage.js';
 import { createOrchestrationBlackboard } from './orchestration/blackboardWriteBuffer.js';
@@ -515,6 +516,39 @@ async function runNextMissionPipelineStepBody(prisma, id) {
       outputKey: cfg.outputKey ?? null,
     });
 
+    void emitExecutionNotification(
+      EXECUTION_EVENT_TYPES.CHECKPOINT_AWAITING,
+      {
+        stepId: nextStep.id,
+        stepKind: 'checkpoint',
+        prompt: cfg.prompt,
+        options: cfg.options ?? null,
+        outputKey: cfg.outputKey ?? null,
+        checkpoint: {
+          stepId: nextStep.id,
+          prompt: cfg.prompt,
+          options: cfg.options ?? null,
+          ...(optionItems ? { optionItems } : {}),
+          ...(resolvedOptions ? { displayOptions: resolvedOptions } : {}),
+          outputKey: cfg.outputKey ?? null,
+        },
+      },
+      { missionId: id, source: 'mission_pipeline_runner', executionPath: 'kernel_dispatch' },
+    );
+
+    void import('./context/contextMissionHooks.js')
+      .then(({ onMissionCheckpoint }) =>
+        onMissionCheckpoint(prisma, id, {
+          id: nextStep.id,
+          checkpointType: cfg.checkpointType ?? cfg.type ?? 'input',
+          prompt: typeof cfg.prompt === 'string' ? cfg.prompt : '',
+          options: cfg.options ?? null,
+        }),
+      )
+      .catch((err) => {
+        console.warn('[context] onMissionCheckpoint failed:', err?.message ?? err);
+      });
+
     return {
       ok: true,
       stepRun: true,
@@ -651,6 +685,18 @@ async function runNextMissionPipelineStepBody(prisma, id) {
   if (mission.targetId && (mission.targetType === 'store' || mission.targetType === 'draft_store')) {
     context.storeId = mission.targetId;
   }
+
+  void emitExecutionNotification(
+    EXECUTION_EVENT_TYPES.STEP_STARTED,
+    {
+      stepId: nextStep.id,
+      toolName: dispatchToolName,
+      stepKind,
+      label: nextStep.label ?? null,
+    },
+    { missionId: id, source: 'mission_pipeline_runner', executionPath: 'kernel_dispatch' },
+  );
+
   const result = await dispatchTaskWithAgentHint(dispatchToolName, input, context);
 
   if (process.env.NODE_ENV !== 'production') {
@@ -683,7 +729,20 @@ async function runNextMissionPipelineStepBody(prisma, id) {
     { missionId: id },
   );
 
-  // Persist accumulated stepOutputs so consensus engine (Step 4) can read prior run's MarketReport without re-calling researcher.
+  if (stepUpdate.status === 'completed') {
+    void emitExecutionNotification(
+      EXECUTION_EVENT_TYPES.STEP_COMPLETED,
+      {
+        stepId: nextStep.id,
+        toolName: dispatchToolName,
+        stepKind,
+        output: stepOutputPayload,
+      },
+      { missionId: id, source: 'mission_pipeline_runner', executionPath: 'kernel_dispatch' },
+    );
+  }
+
+  // Persist accumulated stepOutputs
   // Merge prior mission.outputsJson first so owner checkpoint fields (logoChoice, heroImageChoice) survive tools that share toolName keys in stepOutputs.
   // Flatten structured store build ids for /state parity with POST /missions/:id/run (draftId, jobId, generationRunId at top level).
   // On failure, also persist _failed so debugging can see the failed step's error and any partial output without loading the step record.
@@ -784,6 +843,15 @@ async function runNextMissionPipelineStepBody(prisma, id) {
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[MissionRunner] mission updated: failed runState=error`);
     }
+    void emitExecutionNotification(
+      EXECUTION_EVENT_TYPES.FAILED,
+      {
+        stepId: nextStep.id,
+        toolName: dispatchToolName,
+        error: result.error ?? null,
+      },
+      { missionId: id, source: 'mission_pipeline_runner', executionPath: 'kernel_dispatch' },
+    );
     return { ok: true, stepRun: true, toolName, status: 'failed', runState: 'error' };
   }
 
@@ -865,6 +933,21 @@ async function runNextMissionPipelineStepBody(prisma, id) {
         ...(dualMetaComplete != null ? { metadataJson: dualMetaComplete } : {}),
       },
     });
+    void emitExecutionNotification(
+      EXECUTION_EVENT_TYPES.COMPLETED,
+      {
+        missionType: mission.type ?? null,
+        outputs: outputsToPersist,
+        completedSteps: completedCount,
+        totalSteps,
+      },
+      { missionId: id, source: 'mission_pipeline_runner', executionPath: 'kernel_dispatch' },
+    );
+    void import('./context/contextMissionHooks.js')
+      .then(({ onMissionCompleted }) => onMissionCompleted(prisma, id, outputsToPersist))
+      .catch((err) => {
+        console.warn('[context] onMissionCompleted failed:', err?.message ?? err);
+      });
     if (process.env.NODE_ENV !== 'production') {
       console.log('[MissionRunner] all steps done → marking completed', {
         missionId: id,

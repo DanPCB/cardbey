@@ -21,6 +21,8 @@
     "dev:health:poll": "node scripts/poll-health.js",
     "db:ping": "node scripts/db-ping.js",
     "db:doctor": "node scripts/db-doctor.mjs",
+    "schema:doctor": "node scripts/schema-doctor.mjs",
+    "repair-schema": "node scripts/repair-schema.mjs",
     "db:audit": "node scripts/audit-databases.mjs",
     "db:verify": "node scripts/db-verify.mjs",
     "db:fingerprint": "node scripts/schema-fingerprint.mjs",

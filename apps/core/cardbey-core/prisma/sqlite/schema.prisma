@@ -195,6 +195,9 @@ model Business {
   heroImageUrl    String? // Storefront hero image URL (from draft publish)
   avatarImageUrl  String? // Store avatar/logo image URL (from draft publish)
   publishedAt     DateTime? // When the store was last published (from draft)
+  transactionMode String   @default("order") // "booking" | "order"
+  catalogLabel    String   @default("Products")
+  ctaLabel        String   @default("Order now")
   stylePreferences Json? // Style preferences: { style: "modern", mood: "warm", etc. }
   storefrontSettings Json? // { defaultView: "list"|"grid", allowUserToggle: boolean }; default grid, true
   socialLinks      Json? // { instagram?, facebook?, tiktok?, x?, youtube?, linkedin?, whatsapp? }
@@ -205,12 +208,34 @@ model Business {
   claimStatus      String?
   captureCount     Int      @default(1)
   capturedByUserId String?
+  isGuestDraft  Boolean   @default(false)
+  expiresAt     DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   // Relations
   products    Product[]
   bookings    Booking[]
+  productVariants ProductVariant[]
+  warehouses  Warehouse[]
+  inventoryItems InventoryItem[]
+  inventoryMovements InventoryMovement[]
+  suppliers   Supplier[]
+  purchaseOrders PurchaseOrder[]
+  posOrders   PosOrder[]
+  payments    Payment[]
+  receipts    Receipt[]
+  commerceCustomers CommerceCustomer[]
+  commerceStaff CommerceStaff[]
+  commerceShifts CommerceShift[]
+  cashDrawers CashDrawer[]
+  commerceTables CommerceTable[]
+  reservations Reservation[]
+  commercePromotions CommercePromotion[]
+  loyaltyAccounts LoyaltyAccount[]
+  taxProfiles TaxProfile[]
+  commerceBusinessSettings CommerceBusinessSettings?
+  businessEvents BusinessEvent[]
   storePromos StorePromo[]
   storeOffers StoreOffer[]
   personalPresenceOwner User? @relation("PersonalPresenceStore")
@@ -218,6 +243,13 @@ model Business {
   merchantDesigns MerchantDesign[]
   contentLibraryAssets ContentLibraryAsset[]
   publishedArtifactProjection PublishedArtifactProjection?
+  storeEngagementSnapshot StoreEngagementSnapshot?
+  storeActivityEvents     StoreActivityEvent[]
+  storeFollows            StoreFollow[]
+  storeReactions          StoreReaction[]
+  storeSaves              StoreSave[]
+  storeShares             StoreShare[]
+  offerClaims             OfferClaim[]
 
   @@index([userId])
   @@index([slug])
@@ -372,6 +404,9 @@ model Product {
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  variants      ProductVariant[]
+  inventoryItems InventoryItem[]
+  posOrderItems PosOrderItem[]
 
   @@index([businessId])
   @@index([businessId, isPublished])
@@ -2583,6 +2618,116 @@ model ContentInteractionViewerState {
   @@index([viewerKey])
 }
 
+// Canonical store engagement — every interaction writes StoreActivityEvent; snapshots are derived.
+model StoreActivityEvent {
+  id           String   @id @default(cuid())
+  storeId      String
+  actorUserId  String?
+  sessionId    String?
+  eventType    String
+  source       String
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, eventType])
+  @@index([storeId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([storeId, sessionId, eventType, createdAt])
+}
+
+model StoreEngagementSnapshot {
+  storeId          String   @id
+  followersCount   Int      @default(0)
+  likesCount       Int      @default(0)
+  savesCount       Int      @default(0)
+  sharesCount      Int      @default(0)
+  viewsCount       Int      @default(0)
+  views24h         Int      @default(0)
+  views7d          Int      @default(0)
+  qrScansCount     Int      @default(0)
+  orderClicksCount Int      @default(0)
+  callClicksCount  Int      @default(0)
+  offerClaimsCount Int      @default(0)
+  engagementScore  Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model StoreFollow {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, actorKey])
+  @@index([storeId])
+  @@index([userId])
+}
+
+model StoreReaction {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, actorKey])
+  @@index([storeId])
+}
+
+model StoreSave {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, actorKey])
+  @@index([storeId])
+}
+
+model StoreShare {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  source    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, createdAt])
+}
+
+model OfferClaim {
+  id        String   @id @default(cuid())
+  storeId   String
+  offerId   String
+  actorKey  String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([offerId])
+  @@index([storeId, offerId])
+}
+
 // IntentOpportunity v0: derived from IntentSignal; accepted -> IntentRequest (single runway).
 model IntentOpportunity {
   id                    String   @id @default(cuid())
@@ -3264,7 +3409,7 @@ model FrontendError {
   stack        String?
   url          String?
   status       Int?
-  metadata     Json     @default("{}")
+  metadata     String   @default("{}")
   timestamp    DateTime @default(now())
   createdAt    DateTime @default(now())
 
@@ -3637,6 +3782,70 @@ model ConversationPendingAction {
   @@map("conversation_pending_actions")
 }
 
+// Performer Context Engine — durable session memory (Phase A)
+model PerformerSessionContext {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  sessionId   String    @map("session_id")
+  active      Boolean   @default(true)
+  contextJson String    @default("{}") @map("context_json")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  endedAt     DateTime? @map("ended_at")
+
+  @@unique([userId, sessionId])
+  @@index([userId, sessionId, active])
+  @@map("performer_session_contexts")
+}
+
+// Phase D — Learning Layer (Reasoning-Native Architecture)
+model UserProfile {
+  userId                String   @id @map("user_id")
+  preferredWorkflows    Json     @default("[]") @map("preferred_workflows")
+  skippedSteps          Json     @default("[]") @map("skipped_steps")
+  frequentlyUsedTools   Json     @default("[]") @map("frequently_used_tools")
+  defaultAction         String?  @map("default_action")
+  confidenceCalibration Json?    @map("confidence_calibration")
+  learningEnabled       Boolean  @default(true) @map("learning_enabled")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("learning_user_profiles")
+}
+
+model UserFeedback {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  sessionId  String   @map("session_id")
+  type       String
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  value      Int?
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId, sessionId])
+  @@index([userId, type])
+  @@index([targetType, targetId])
+  @@map("learning_user_feedback")
+}
+
+model BehaviorPattern {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  pattern      String
+  frequency    Int      @default(1)
+  confidence   Float    @default(0.3)
+  lastObserved DateTime @default(now()) @map("last_observed")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, pattern])
+  @@index([userId])
+  @@map("learning_behavior_patterns")
+}
+
 model GhostStoreClaim {
   id            String    @id @default(uuid())
   storeId       String
@@ -3848,4 +4057,454 @@ model LeadActivity {
   @@index([leadId])
   @@index([type])
   @@index([createdAt])
+}
+
+// ─── Business Operations Platform (Phase 1) — commerce domain ───
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  storeId   String
+  productId String
+  sku       String?
+  name      String?
+  price     Float?
+  currency  String?  @default("AUD")
+  metadata  Json?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business       Business        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryItems InventoryItem[]
+  posOrderItems  PosOrderItem[]
+
+  @@index([storeId])
+  @@index([productId])
+  @@index([storeId, sku])
+}
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  code      String?
+  isDefault Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business       Business        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inventoryItems InventoryItem[]
+
+  @@index([storeId])
+  @@unique([storeId, code])
+}
+
+model InventoryItem {
+  id          String   @id @default(cuid())
+  storeId     String
+  productId   String?
+  variantId   String?
+  warehouseId String?
+  sku         String?
+  name        String
+  unit        String?  @default("each")
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business   Business            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product    Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant    ProductVariant?     @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  warehouse  Warehouse?          @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  movements  InventoryMovement[]
+
+  @@index([storeId])
+  @@index([storeId, sku])
+  @@index([warehouseId])
+}
+
+model InventoryMovement {
+  id                  String   @id @default(cuid())
+  storeId             String
+  inventoryItemId     String
+  movementType        String
+  quantityDelta       Float
+  reason              String?
+  sourceType          String?
+  sourceId            String?
+  destinationType     String?
+  destinationId       String?
+  referenceEntityType String?
+  referenceEntityId   String?
+  runtimeExecutionId  String?
+  missionId           String?
+  actorUserId         String?
+  metadata            Json?
+  createdAt           DateTime @default(now())
+
+  business      Business      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, createdAt])
+  @@index([inventoryItemId, createdAt])
+  @@index([referenceEntityType, referenceEntityId])
+  @@index([movementType])
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  email     String?
+  phone     String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business       Business        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  purchaseOrders PurchaseOrder[]
+
+  @@index([storeId])
+}
+
+model PurchaseOrder {
+  id                 String    @id @default(cuid())
+  storeId            String
+  supplierId         String?
+  status             String    @default("draft")
+  reference          String?
+  expectedAt         DateTime?
+  receivedAt         DateTime?
+  runtimeExecutionId String?
+  missionId          String?
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business Business            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  supplier Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  items    PurchaseOrderItem[]
+
+  @@index([storeId, status])
+}
+
+model PurchaseOrderItem {
+  id               String  @id @default(cuid())
+  purchaseOrderId  String
+  productId        String?
+  variantId        String?
+  sku              String?
+  name             String
+  quantityOrdered  Float
+  quantityReceived Float   @default(0)
+  unitCost         Float?
+  metadata         Json?
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseOrderId])
+}
+
+model PosOrder {
+  id                 String    @id @default(cuid())
+  storeId            String
+  orderNumber        String?
+  status             String    @default("draft")
+  channel            String    @default("pos")
+  deliveryMethod     String?
+  tableId            String?
+  customerId         String?
+  staffId            String?
+  shiftId            String?
+  subtotalAmount     Float     @default(0)
+  taxAmount          Float     @default(0)
+  discountAmount     Float     @default(0)
+  totalAmount        Float     @default(0)
+  currency           String    @default("AUD")
+  notes              String?
+  runtimeExecutionId String?
+  missionId          String?
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  completedAt        DateTime?
+
+  business Business          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  table    CommerceTable?    @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customer CommerceCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  staff    CommerceStaff?    @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  shift    CommerceShift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  items    PosOrderItem[]
+  payments Payment[]
+  receipts Receipt[]
+
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+  @@index([orderNumber])
+}
+
+model PosOrderItem {
+  id             String  @id @default(cuid())
+  posOrderId     String
+  productId      String?
+  variantId      String?
+  name           String
+  quantity       Float   @default(1)
+  unitPrice      Float   @default(0)
+  taxAmount      Float   @default(0)
+  discountAmount Float   @default(0)
+  lineTotal      Float   @default(0)
+  optionInfo     Json?
+  metadata       Json?
+
+  posOrder PosOrder        @relation(fields: [posOrderId], references: [id], onDelete: Cascade)
+  product  Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant  ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([posOrderId])
+}
+
+model Payment {
+  id                 String   @id @default(cuid())
+  storeId            String
+  posOrderId         String?
+  method             String
+  status             String   @default("pending")
+  amount             Float
+  currency           String   @default("AUD")
+  externalRef        String?
+  runtimeExecutionId String?
+  missionId          String?
+  metadata           Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  posOrder PosOrder? @relation(fields: [posOrderId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, createdAt])
+  @@index([posOrderId])
+}
+
+model Receipt {
+  id                 String    @id @default(cuid())
+  storeId            String
+  posOrderId         String
+  receiptNumber      String?
+  printedAt          DateTime?
+  payload            Json?
+  runtimeExecutionId String?
+  createdAt          DateTime  @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  posOrder PosOrder @relation(fields: [posOrderId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, createdAt])
+  @@index([posOrderId])
+}
+
+model CommerceCustomer {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String?
+  email     String?
+  phone     String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business  Business        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  posOrders PosOrder[]
+  loyalty   LoyaltyAccount?
+
+  @@index([storeId])
+  @@index([storeId, email])
+}
+
+model CommerceStaff {
+  id        String   @id @default(cuid())
+  storeId   String
+  userId    String?
+  name      String
+  email     String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business  Business        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  roles     StaffRole[]
+  shifts    CommerceShift[]
+  posOrders PosOrder[]
+
+  @@index([storeId])
+  @@index([userId])
+}
+
+model StaffRole {
+  id      String @id @default(cuid())
+  staffId String
+  role    String
+
+  staff CommerceStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId])
+}
+
+model CommerceShift {
+  id       String    @id @default(cuid())
+  storeId  String
+  staffId  String?
+  status   String    @default("open")
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
+  metadata Json?
+
+  business   Business       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  staff      CommerceStaff? @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  cashDrawer CashDrawer?
+  posOrders  PosOrder[]
+
+  @@index([storeId, status])
+}
+
+model CashDrawer {
+  id             String   @id @default(cuid())
+  storeId        String
+  shiftId        String?  @unique
+  openingFloat   Float    @default(0)
+  closingBalance Float?
+  status         String   @default("closed")
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business Business       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  shift    CommerceShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+}
+
+model CommerceTable {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  capacity  Int?
+  zone      String?
+  status    String   @default("available")
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business     Business      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  posOrders    PosOrder[]
+  reservations Reservation[]
+
+  @@index([storeId])
+  @@unique([storeId, name])
+}
+
+model Reservation {
+  id         String    @id @default(cuid())
+  storeId    String
+  tableId    String?
+  customerId String?
+  partySize  Int?
+  startsAt   DateTime
+  endsAt     DateTime?
+  status     String    @default("pending")
+  notes      String?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  business Business       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  table    CommerceTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, startsAt])
+}
+
+model CommercePromotion {
+  id        String    @id @default(cuid())
+  storeId   String
+  name      String
+  code      String?
+  type      String    @default("discount")
+  value     Float?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  isActive  Boolean   @default(true)
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, isActive])
+}
+
+model LoyaltyAccount {
+  id         String   @id @default(cuid())
+  storeId    String
+  customerId String   @unique
+  points     Int      @default(0)
+  tier       String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer CommerceCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+model TaxProfile {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  rate      Float    @default(0)
+  isDefault Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+model CommerceBusinessSettings {
+  id           String   @id @default(cuid())
+  storeId      String   @unique
+  currency     String   @default("AUD")
+  timezone     String?
+  taxInclusive Boolean  @default(false)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model BusinessEvent {
+  id                 String   @id @default(cuid())
+  storeId            String
+  eventType          String
+  aggregateType      String?
+  aggregateId        String?
+  payload            Json
+  actorUserId        String?
+  runtimeExecutionId String?
+  missionId          String?
+  createdAt          DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, eventType])
+  @@index([storeId, createdAt])
+  @@index([aggregateType, aggregateId])
 }

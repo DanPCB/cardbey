@@ -1,5 +1,5 @@
 import { buildServiceRequestCaptureResponse } from './serviceRequestDraft.js';
-import { shouldBlockServiceRequestForStoreCreate } from '../intake/storeCreateIntentFastPath.js';
+import { shouldBlockServiceRequestForStoreCreate } from '../intent/storeCreateFastPath.js';
 
 /**
  * Phase 1 — Capability Resolution Layer for Performer / Intake.

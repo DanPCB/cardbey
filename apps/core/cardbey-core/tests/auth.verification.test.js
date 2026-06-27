@@ -157,9 +157,8 @@ describe('POST /api/auth/verify/request', () => {
       const call = vi.mocked(sendMail).mock.calls[0][0];
       expect(call.to).toBe(testUser.email);
       expect(call.subject).toContain('Confirm');
-      expect(call.html).toContain('/api/auth/verify/confirm');
-      expect(call.html).toMatch(/redirect_uri|onboarding%2Fbusiness|onboarding\/business/);
-      expect(call.html).toMatch(/verified=1|verified%3D1/);
+      expect(call.html).toContain('/api/auth/verify-email');
+      expect(call.html).not.toContain('/api/auth/verify/confirm');
     } finally {
       process.env.ENABLE_EMAIL_VERIFICATION = prevEnv;
       process.env.MAIL_HOST = prevHost;
@@ -184,17 +183,27 @@ describe('GET /api/auth/verify/confirm', () => {
     }
   });
 
-  it('redirects browser GET invalid token to dashboard failure URL when configured', async () => {
+  it('redirects browser GET invalid token to email-verified invalid URL when configured', async () => {
     process.env.DASHBOARD_URL = 'https://cardbey.com';
     const response = await testRequest
-      .get('/api/auth/verify/confirm?token=not-a-real-token&redirect_uri=%2Fapp%3Fverified%3D1')
+      .get('/api/auth/verify-email?token=not-a-real-token')
       .expect(302);
     expect(response.headers.location).toBe(
-      'https://cardbey.com/app?verified=0&reason=token_invalid',
+      'https://cardbey.com/email-verified?status=invalid',
+    );
+  });
+
+  it('legacy GET /verify/confirm redirects to verify-email', async () => {
+    const response = await testRequest
+      .get('/api/auth/verify/confirm?token=legacy-token')
+      .expect(302);
+    expect(response.headers.location).toBe(
+      '/api/auth/verify-email?token=legacy-token',
     );
   });
 
   it('accepts base64url token with encoding-safe characters', async () => {
+    process.env.DASHBOARD_URL = 'https://cardbey.com';
     const requestRes = await testRequest
       .post('/api/auth/request-verification')
       .set('Authorization', `Bearer ${testToken}`)
@@ -202,11 +211,17 @@ describe('GET /api/auth/verify/confirm', () => {
     const rawToken = requestRes.body.token;
     expect(rawToken).toMatch(/^[A-Za-z0-9_-]+$/);
 
-    await testRequest
-      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
-      .expect(200);
+    const verifyRes = await testRequest
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(rawToken)}`)
+      .expect(302);
+    expect(verifyRes.headers.location).toBe('https://cardbey.com/email-verified?status=success');
+
+    const user = await prisma.user.findUnique({ where: { id: testUser.id } });
+    expect(user.emailVerified).toBe(true);
   });
-  it('GET landing does not consume token; POST confirms', async () => {
+
+  it('GET verify-email consumes token and redirects success', async () => {
+    process.env.DASHBOARD_URL = 'https://cardbey.com';
     const requestRes = await testRequest
       .post('/api/auth/request-verification')
       .set('Authorization', `Bearer ${testToken}`)
@@ -214,15 +229,24 @@ describe('GET /api/auth/verify/confirm', () => {
     const rawToken = requestRes.body.token;
     expect(rawToken).toBeTruthy();
 
-    const landingRes = await testRequest
-      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
-      .expect(200);
-    expect(landingRes.headers['content-type']).toMatch(/text\/html/);
-    expect(landingRes.text).toContain('Verify email');
-    expect(landingRes.text).toContain('method="POST"');
+    const verifyRes = await testRequest
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(rawToken)}`)
+      .expect(302);
+    expect(verifyRes.headers.location).toBe('https://cardbey.com/email-verified?status=success');
 
-    let user = await prisma.user.findUnique({ where: { id: testUser.id } });
-    expect(user.emailVerified).toBe(false);
+    const user = await prisma.user.findUnique({ where: { id: testUser.id } });
+    expect(user.emailVerified).toBe(true);
+    expect(user.verificationToken).toBeTruthy();
+    expect(user.verificationTokenRaw).toBeNull();
+    expect(user.verificationExpires).toBeNull();
+  });
+
+  it('POST /verify/confirm still works for programmatic clients', async () => {
+    const requestRes = await testRequest
+      .post('/api/auth/request-verification')
+      .set('Authorization', `Bearer ${testToken}`)
+      .expect(200);
+    const rawToken = requestRes.body.token;
 
     const confirmRes = await testRequest
       .post('/api/auth/verify/confirm')
@@ -232,53 +256,26 @@ describe('GET /api/auth/verify/confirm', () => {
     expect(confirmRes.body.ok).toBe(true);
     expect(confirmRes.body.verified).toBe(true);
 
-    user = await prisma.user.findUnique({ where: { id: testUser.id } });
+    const user = await prisma.user.findUnique({ where: { id: testUser.id } });
     expect(user.emailVerified).toBe(true);
-    expect(user.verificationToken).toBeTruthy();
-    expect(user.verificationTokenRaw).toBeNull();
-    expect(user.verificationExpires).toBeNull();
   });
 
-  it('prefetch GET does not consume; later POST still works', async () => {
-    const requestRes = await testRequest
-      .post('/api/auth/request-verification')
-      .set('Authorization', `Bearer ${testToken}`)
-      .expect(200);
-    const rawToken = requestRes.body.token;
-
-    await testRequest
-      .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
-      .expect(200);
-
-    const userBeforePost = await prisma.user.findUnique({ where: { id: testUser.id } });
-    expect(userBeforePost.emailVerified).toBe(false);
-
-    await testRequest
-      .post('/api/auth/verify/confirm')
-      .set('Accept', 'application/json')
-      .send({ token: rawToken })
-      .expect(200);
-
-    const userAfter = await prisma.user.findUnique({ where: { id: testUser.id } });
-    expect(userAfter.emailVerified).toBe(true);
-  });
-
-  it('should return HTML failure page for invalid token when no web base is configured', async () => {
+  it('returns JSON when verify-email has no web base configured', async () => {
     const savedNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
       const response = await testRequest
-        .get('/api/auth/verify/confirm?token=invalid-token-12345')
+        .get('/api/auth/verify-email?token=invalid-token-12345')
         .expect(400);
-      expect(response.headers['content-type']).toMatch(/text\/html/);
-      expect(response.text).toMatch(/invalid/i);
-      expect(response.text).toContain('Resend verification email');
+      expect(response.body.ok).toBe(false);
+      expect(response.body.code).toBe('TOKEN_INVALID');
     } finally {
       process.env.NODE_ENV = savedNodeEnv;
     }
   });
 
-  it('should return HTML failure page for expired token when no web base is configured', async () => {
+  it('redirects expired verify-email token to email-verified expired status', async () => {
+    process.env.DASHBOARD_URL = 'https://cardbey.com';
     const rawToken = 'expired-raw-' + Date.now();
     const crypto = await import('crypto');
     const hashed = crypto.createHash('sha256').update(rawToken, 'utf8').digest('hex');
@@ -287,21 +284,13 @@ describe('GET /api/auth/verify/confirm', () => {
       where: { id: testUser.id },
       data: {
         verificationToken: hashed,
-        verificationExpires: expiredDate
-      }
+        verificationExpires: expiredDate,
+      },
     });
-    const savedNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      const response = await testRequest
-        .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
-        .expect(400);
-      expect(response.headers['content-type']).toMatch(/text\/html/);
-      expect(response.text).toMatch(/expired/i);
-      expect(response.text).toContain('Resend verification email');
-    } finally {
-      process.env.NODE_ENV = savedNodeEnv;
-    }
+    const response = await testRequest
+      .get(`/api/auth/verify-email?token=${encodeURIComponent(rawToken)}`)
+      .expect(302);
+    expect(response.headers.location).toBe('https://cardbey.com/email-verified?status=expired');
   });
 });
 
@@ -453,7 +442,7 @@ describe('GET /api/auth/verify', () => {
     expect(response.body.ok).toBe(true);
   });
 
-  it('second GET after POST is idempotent (redirect or success)', async () => {
+  it('second GET after verify is idempotent (redirect success)', async () => {
     const savedPublic = process.env.PUBLIC_APP_URL;
     const savedDash = process.env.DASHBOARD_URL;
     process.env.PUBLIC_APP_URL = 'https://app.test';
@@ -467,15 +456,13 @@ describe('GET /api/auth/verify', () => {
       expect(rawToken).toBeTruthy();
 
       await testRequest
-        .post('/api/auth/verify/confirm')
-        .set('Accept', 'application/json')
-        .send({ token: rawToken })
-        .expect(200);
+        .get(`/api/auth/verify-email?token=${encodeURIComponent(rawToken)}`)
+        .expect(302);
 
       const secondGet = await testRequest
-        .get(`/api/auth/verify/confirm?token=${encodeURIComponent(rawToken)}`)
+        .get(`/api/auth/verify-email?token=${encodeURIComponent(rawToken)}`)
         .expect(302);
-      expect(secondGet.headers.location).toBe('https://app.test/app?verified=1');
+      expect(secondGet.headers.location).toBe('https://app.test/email-verified?status=success');
     } finally {
       if (savedPublic === undefined) delete process.env.PUBLIC_APP_URL;
       else process.env.PUBLIC_APP_URL = savedPublic;
@@ -541,6 +528,16 @@ describe('POST /api/auth/verify/resend', () => {
       .post('/api/auth/verify/resend')
       .set('Accept', 'application/json')
       .send({ email: 'nobody-here@example.com' })
+      .expect(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.message).toMatch(/If an account exists/i);
+  });
+
+  it('POST /api/auth/resend-verification is an alias for verify/resend', async () => {
+    const response = await testRequest
+      .post('/api/auth/resend-verification')
+      .set('Accept', 'application/json')
+      .send({ email: testUser.email })
       .expect(200);
     expect(response.body.ok).toBe(true);
     expect(response.body.message).toMatch(/If an account exists/i);

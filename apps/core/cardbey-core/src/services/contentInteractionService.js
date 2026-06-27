@@ -134,6 +134,18 @@ export async function recordContentView(prisma, input) {
       data: { viewed: true },
     }),
   ]);
+
+  void import('./storeEngagement/storeEngagementBridge.js').then(({ bridgeContentInteractionToStoreEngagement }) =>
+    bridgeContentInteractionToStoreEngagement(prisma, {
+      contentType,
+      contentId,
+      storeId: input.storeId ?? metrics.storeId,
+      viewerKey,
+      action: 'view',
+      source: input.source ?? 'content_interaction',
+    }),
+  );
+
   return toSummary(nextMetrics, nextViewer);
 }
 

@@ -26,6 +26,7 @@ import { ORCHESTRATION_STATUS, resolveMissionOrchestrationStatus } from './runti
 import {
   ensureProactivePlanInMetadata,
   mergeOrchestrationState,
+  mergeProactivePlanBundleIntoMetadata,
   readOrchestrationState,
   readProactivePlanSteps,
 } from './runtimeOrchestrationState.js';
@@ -76,7 +77,7 @@ function selectNextExecutableStep(missionRow, planSteps, opts = {}) {
     if (!forced) return null;
     const st = getProactiveStepStatus(meta, forceStep);
     if (st === 'completed' && !opts.forceRetry) return null;
-    if (st === 'running') return { ...forced, alreadyRunning: true };
+    if (st === 'running' && !opts.forceRetry) return { ...forced, alreadyRunning: true };
     return forced;
   }
 
@@ -149,6 +150,10 @@ function buildOrchestratorBaseInput(input) {
     traceId: typeof req.traceId === 'string' ? req.traceId.trim() : null,
     requestId: typeof req.requestId === 'string' ? req.requestId.trim() : randomUUID(),
     planSteps: Array.isArray(req.planSteps) ? req.planSteps : null,
+    planParameters:
+      req.planParameters && typeof req.planParameters === 'object' && !Array.isArray(req.planParameters)
+        ? req.planParameters
+        : null,
     stepNumber: Number.isFinite(Number(req.stepNumber)) ? Math.floor(Number(req.stepNumber)) : null,
     forceRetry: req.forceRetry === true,
     stopOnBlock: req.stopOnBlock !== false,
@@ -195,8 +200,11 @@ async function loadMissionForOrchestration(ctx) {
   }
 
   let meta = row.metadataJson && typeof row.metadataJson === 'object' ? { ...row.metadataJson } : {};
-  if (ctx.planSteps?.length) {
-    meta = ensureProactivePlanInMetadata(meta, ctx.planSteps);
+  if (ctx.planSteps?.length || ctx.planParameters) {
+    meta = mergeProactivePlanBundleIntoMetadata(meta, {
+      ...(ctx.planSteps?.length ? { planSteps: ctx.planSteps } : {}),
+      ...(ctx.planParameters ? { planParameters: ctx.planParameters } : {}),
+    });
     if (meta !== row.metadataJson) {
       await persistMissionMetadata(prisma, ctx.missionId, meta);
       row.metadataJson = meta;
@@ -418,7 +426,9 @@ async function executeSelectedStep(args) {
   const awaitingDecision =
     (tool === 'create_promotion' && output.phase === 'awaiting_product_selection') ||
     (tool === 'launch_campaign' && output.phase === 'awaiting_channel_selection') ||
-    (tool === 'code_fix' && output.phase === 'awaiting_approval');
+    (tool === 'code_fix' && output.phase === 'awaiting_approval') ||
+    ((tool === 'create_promotion_graphic' || tool === 'smart_visual') &&
+      output.phase === 'awaiting_promo_image');
 
   if (awaitingDecision) {
     const waitMeta = mergeOrchestrationState(freshMeta, {
@@ -477,6 +487,7 @@ async function executeSelectedStep(args) {
       ok: false,
       httpStatus: stepResult.httpStatus ?? 500,
       code: stepResult.code ?? 'STEP_FAILED',
+      message: stepResult.message ?? stepResult.lastBlockedReason ?? 'Proactive step failed',
       orchestrationStatus: ORCHESTRATION_STATUS.FAILED,
       stepNumber,
       lastBlockedReason: failMeta.orchestrationState?.lastBlockedReason ?? null,

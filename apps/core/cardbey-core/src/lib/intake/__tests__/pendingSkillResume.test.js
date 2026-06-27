@@ -1,6 +1,5 @@
 // DANH: skill-round6-document
 import { describe, expect, it } from 'vitest';
-import { classifyIntent } from '../intakeClassifier.js';
 import { reactPlanner } from '../reactPlanner.js';
 import {
   PENDING_SKILL_DOCUMENT_INGESTION,
@@ -46,25 +45,5 @@ describe('reactPlanner document ingestion store ask', () => {
     expect(out.pendingSkill).toBe(PENDING_SKILL_DOCUMENT_INGESTION);
     expect(out.pendingInputs?.documentBase64).toBe('YmFzZTY0');
     expect(out.missionContext?.pendingSkill).toBe(PENDING_SKILL_DOCUMENT_INGESTION);
-  });
-});
-
-describe('classifyIntent pending skill resume', () => {
-  it('short-circuits LLM on store clarification with pending document ingestion', async () => {
-    const out = await classifyIntent({
-      userMessage: 'My Bakery',
-      storeContext: { storeId: 'store-bakery' },
-      isSelectionConfirm: true,
-      currentContext: {
-        pendingSkill: PENDING_SKILL_DOCUMENT_INGESTION,
-        pendingInputs: {
-          documentUrl: 'https://cdn.example.com/flyer.jpg',
-        },
-      },
-    });
-    expect(out.tool).toBe('ingest_document');
-    expect(out._pendingSkillResume).toBe(true);
-    expect(out.parameters.storeId).toBe('store-bakery');
-    expect(out.parameters.documentUrl).toBe('https://cdn.example.com/flyer.jpg');
   });
 });

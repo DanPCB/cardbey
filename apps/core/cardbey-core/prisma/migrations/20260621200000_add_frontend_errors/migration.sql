@@ -11,7 +11,7 @@ CREATE TABLE "frontend_errors" (
     "stack" TEXT,
     "url" TEXT,
     "status" INTEGER,
-    "metadata" JSONB NOT NULL DEFAULT '{}',
+    "metadata" TEXT NOT NULL DEFAULT '{}',
     "timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

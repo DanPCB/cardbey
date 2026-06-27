@@ -2,6 +2,9 @@
  * Lightweight intent routing for agent messages (minimum viable).
  * Used to: skip OCR for MARKETING/FIX_IMAGE_MISMATCH; route FIX_IMAGE_MISMATCH to ops flow.
  * BUSINESS_CARD_OCR and UNKNOWN keep current behavior (OCR when image present).
+ *
+ * Performer NL uses IntentReasoner via intentIntegration (Phase 4).
+ * Set USE_LEGACY_INTENT_ROUTERS=true only for transitional agent paths.
  */
 
 export const INTENT_MARKETING = 'MARKETING';
@@ -20,6 +23,12 @@ const BUSINESS_CARD_PHRASES = ['business card', 'extract', 'phone', 'address', '
  * @returns {string} INTENT_*
  */
 export function classifyIntent(text) {
+  if (process.env.USE_LEGACY_INTENT_ROUTERS !== 'true') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[DEPRECATED] agentIntentRouter.classifyIntent is agent-chat only. Performer NL uses IntentReasoner.',
+    );
+  }
   const t = (typeof text === 'string' ? text : '').trim().toLowerCase();
   if (!t) return INTENT_UNKNOWN;
   if (FIX_IMAGE_PHRASES.some((p) => t.includes(p))) return INTENT_FIX_IMAGE_MISMATCH;

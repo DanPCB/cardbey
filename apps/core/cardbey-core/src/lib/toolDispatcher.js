@@ -25,6 +25,7 @@ import { assertRuntimeAuthorityContext } from './runtime/performerRuntime/runtim
 import { writeEpisodicEventAsync } from './memory/episodicWriter.js';
 import { enrichMediaSearchInput } from '../services/media/mediaQueryEnrichment.js';
 import { runWithOptionalRetry } from './external/toolDispatchRetry.js';
+import { appendEvent as appendBlackboardEvent } from './missionBlackboard.js';
 
 /**
  * @typedef {import('./toolRegistry.js').ToolDefinition} ToolDefinition
@@ -178,7 +179,15 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
     });
   }
 
+  const startTs = Date.now();
+  let dispatchSuccess = false;
   try {
+    if (missionId) {
+      await appendBlackboardEvent(missionId, 'tool.dispatch.started', {
+        tool: name,
+        ts: startTs,
+      }).catch(() => {});
+    }
     const enrichedInput = await enrichMediaSearchInput(name, input, ctx);
     const runExecutor = () => executor.execute(enrichedInput, ctx);
     let result;
@@ -213,6 +222,7 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
       incrementRuntimeAuthorityMetric('telemetryEmitted');
     }
     const status = result?.status === 'blocked' ? 'blocked' : result?.status === 'failed' ? 'failed' : 'ok';
+    dispatchSuccess = status === 'ok';
     if (episodicUserId) {
       const outStoreId =
         (result?.output && typeof result.output === 'object' && result.output.storeId) ||
@@ -260,5 +270,13 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
       status: 'failed',
       error: { code: 'EXECUTION_ERROR', message },
     };
+  } finally {
+    if (missionId) {
+      await appendBlackboardEvent(missionId, 'tool.dispatch.completed', {
+        tool: name,
+        success: typeof dispatchSuccess === 'boolean' ? dispatchSuccess : false,
+        durationMs: Date.now() - startTs,
+      }).catch(() => {});
+    }
   }
 }

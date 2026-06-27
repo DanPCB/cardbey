@@ -3,9 +3,14 @@ import request from 'supertest';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import performerRuntimeRoutes from '../performerRuntimeRoutes.js';
 import { executeCreateOfferDraftCapability } from '../../lib/runtime/performerRuntime/executeCreateOfferDraftCapability.js';
+import { ensureQuickActionMission } from '../../lib/mission/quickActionMission.js';
 
 vi.mock('../../lib/runtime/performerRuntime/executeCreateOfferDraftCapability.js', () => ({
   executeCreateOfferDraftCapability: vi.fn(),
+}));
+
+vi.mock('../../lib/mission/quickActionMission.js', () => ({
+  ensureQuickActionMission: vi.fn(),
 }));
 
 vi.mock('../../lib/telemetry/healthProbes.js', () => ({
@@ -22,13 +27,77 @@ function appWithRuntime() {
 describe('POST /api/performer/runtime/capabilities/create-offer-draft', () => {
   beforeEach(() => {
     vi.mocked(executeCreateOfferDraftCapability).mockReset();
+    vi.mocked(ensureQuickActionMission).mockReset();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it('requires missionId and storeId', async () => {
+  it('requires missionId when auto-create is unavailable', async () => {
+    vi.mocked(ensureQuickActionMission).mockResolvedValue({
+      missionId: null,
+      pipelineId: null,
+      created: false,
+    });
+
+    const res = await request(appWithRuntime())
+      .post('/api/performer/runtime/capabilities/create-offer-draft')
+      .send({ storeId: 'store-1' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('mission_id_required');
+    expect(executeCreateOfferDraftCapability).not.toHaveBeenCalled();
+  });
+
+  it('auto-creates mission when missionId is omitted', async () => {
+    vi.mocked(ensureQuickActionMission).mockResolvedValue({
+      missionId: 'mission-auto-1',
+      pipelineId: 'mission-auto-1',
+      created: true,
+    });
+    vi.mocked(executeCreateOfferDraftCapability).mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      output: {
+        offerDraft: {
+          artifactId: 'offer-draft:mission-auto-1:abc',
+          type: 'offer_draft',
+          title: 'First offer — 10% off',
+          status: 'draft',
+          publishBlocked: true,
+        },
+        published: false,
+        activated: false,
+      },
+    });
+
+    const res = await request(appWithRuntime())
+      .post('/api/performer/runtime/capabilities/create-offer-draft')
+      .send({
+        storeId: 'store-1',
+        actionType: 'create_offer_draft',
+        source: 'quick_action_pill',
+        label: 'Create promotion graphic',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.missionId).toBe('mission-auto-1');
+    expect(res.body.missionAutoCreated).toBe(true);
+    expect(ensureQuickActionMission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 'store-1',
+        actionType: 'create_offer_draft',
+        source: 'quick_action_pill',
+      }),
+    );
+    expect(executeCreateOfferDraftCapability).toHaveBeenCalledWith(
+      expect.objectContaining({ missionId: 'mission-auto-1', storeId: 'store-1' }),
+    );
+  });
+
+  it('requires storeId when missionId is present', async () => {
     const res = await request(appWithRuntime())
       .post('/api/performer/runtime/capabilities/create-offer-draft')
       .send({ missionId: 'm1' });

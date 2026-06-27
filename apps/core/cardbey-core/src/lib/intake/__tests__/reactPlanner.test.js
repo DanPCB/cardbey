@@ -294,5 +294,36 @@ describe('reactPlanner (Phase 1 decision module)', () => {
     expect(out.kind).toBe('execute');
     expect(out.toolName).toBe('orders_report');
   });
+
+  it('create_store: ignores product resolution errors when planner runs directly', async () => {
+    const toolRegistry = [
+      {
+        toolName: 'create_store',
+        approvalRequired: false,
+        riskLevel: 'state_change',
+        parameterSchema: { required: [], properties: { storeName: { type: 'string' } } },
+      },
+    ];
+    const out = await reactPlanner({
+      userMessage: 'My Beauty · Beauty · Melbourne',
+      classification: {
+        tool: 'create_store',
+        parameters: { storeName: 'My Beauty', storeType: 'Beauty', location: 'Melbourne' },
+      },
+      context: { storeId: 'store_existing' },
+      hydratedContext: {
+        message: 'My Beauty · Beauty · Melbourne',
+        entities: {},
+        episodic: {},
+        working: {},
+        resolution: {
+          errors: [{ entityType: 'product', ref: 'My Beauty', reason: 'NOT_FOUND' }],
+        },
+      },
+      toolRegistry,
+    });
+    expect(out.kind).not.toBe('ask');
+    expect(out.prompt?.toLowerCase() ?? '').not.toContain('product matching');
+  });
 });
 

@@ -7,7 +7,6 @@ import { execute as generateLivingDocument } from '../../toolExecutors/document/
 import { execute as generateExecutionSummary } from '../../toolExecutors/document/generate_execution_summary.js';
 import { execute as activateCampaigns } from '../../toolExecutors/campaign/activate_campaigns.js';
 import { createMiJobFromIngestion } from '../../../services/mi/miJobFromIngestion.js';
-import { classifyIntent } from '../../intake/intakeClassifier.js';
 import { execute as suggestCampaignPlan } from '../../toolExecutors/document/suggest_campaign_plan.js';
 
 const AA_TRAVEL = {
@@ -202,15 +201,6 @@ describe('living document platform', () => {
     expect(result.output.activated).toBe(3);
     expect(result.output.promos).toHaveLength(3);
     expect(mockPrisma.storePromo.update).toHaveBeenCalledTimes(3);
-  });
-
-  it('intakeClassifier fast-paths activate campaigns', async () => {
-    const result = await classifyIntent({
-      userMessage: 'activate campaigns',
-      storeContext: { storeId: 'store-aa' },
-    });
-    expect(result.tool).toBe('activate_campaigns');
-    expect(result._fastPath).toBe('activate_campaigns');
   });
 
   it('suggest_campaign_plan queues display publish when signage playlists exist', async () => {

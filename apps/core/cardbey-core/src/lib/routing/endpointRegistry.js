@@ -14,8 +14,8 @@ import {
  */
 export const MOUNT_PREFIX_RULES = [
   // Agent OS pipeline
-  { prefix: '/api/performer/intake/v2', category: 'AGENT_WORKFLOW', note: 'Factory intake v2' },
-  { prefix: '/api/performer/intake', category: 'AGENT_WORKFLOW', note: 'Legacy performer intake' },
+  { prefix: '/api/performer/intake/v2', category: 'AGENT_WORKFLOW', note: 'Canonical performer intake' },
+  { prefix: '/api/performer/intake', category: 'AGENT_WORKFLOW', note: 'Deprecated v1 shim (forwards to v2)' },
   { prefix: '/api/performer/proactive-step', category: 'AGENT_WORKFLOW', note: 'Proactive mission steps' },
   { prefix: '/api/performer/runtime', category: 'AGENT_WORKFLOW', note: 'Runtime kernel actions' },
   { prefix: '/api/performer/missions', category: 'AGENT_WORKFLOW' },
@@ -93,6 +93,9 @@ export const MOUNT_PREFIX_RULES = [
   { prefix: '/api/telemetry', category: 'OBSERVE' },
 
   // Read-only public
+  { prefix: '/api/public-feed', category: 'READ_ONLY' },
+  { prefix: '/api/public/store-engagement', category: 'SOCIAL' },
+  { prefix: '/api/public/content-interactions', category: 'SOCIAL' },
   { prefix: '/api/public', category: 'READ_ONLY' },
   { prefix: '/api/storefront', category: 'READ_ONLY' },
   { prefix: '/api/health', category: 'READ_ONLY' },

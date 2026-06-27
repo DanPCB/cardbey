@@ -89,6 +89,14 @@ router.get('/:code', async (req, res, next) => {
         offerId: offerId || null,
       }),
     );
+    void import('../services/storeEngagement/storeEngagementBridge.js').then(({ bridgeQrScanToStoreEngagement }) =>
+      bridgeQrScanToStoreEngagement(prisma, {
+        storeId: row.storeId,
+        offerId: offerId || null,
+        code: row.code,
+        source: 'qr',
+      }),
+    );
 
     let redirectUrl = row.targetPath || '';
     if (redirectUrl && !redirectUrl.startsWith('http')) {

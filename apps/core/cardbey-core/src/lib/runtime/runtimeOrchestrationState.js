@@ -110,3 +110,38 @@ export function ensureProactivePlanInMetadata(metadataJson, planSteps) {
     },
   };
 }
+
+/**
+ * Persist proactive plan steps and plan-level parameters on mission metadata.
+ * @param {object} metadataJson
+ * @param {{ planSteps?: unknown[]; planParameters?: Record<string, unknown> }} bundle
+ */
+export function mergeProactivePlanBundleIntoMetadata(metadataJson, bundle = {}) {
+  let meta = asObject(metadataJson);
+  if (Array.isArray(bundle.planSteps) && bundle.planSteps.length > 0) {
+    const normalized = normalizePlanSteps(bundle.planSteps);
+    if (normalized.length > 0) {
+      meta = {
+        ...meta,
+        proactivePlanSteps: normalized,
+        proactivePlan: {
+          version: 1,
+          plan: normalized,
+          persistedAt: new Date().toISOString(),
+        },
+      };
+    }
+  }
+  const params =
+    bundle.planParameters && typeof bundle.planParameters === 'object' && !Array.isArray(bundle.planParameters)
+      ? bundle.planParameters
+      : null;
+  if (params && Object.keys(params).length > 0) {
+    const prev =
+      meta.planParameters && typeof meta.planParameters === 'object' && !Array.isArray(meta.planParameters)
+        ? meta.planParameters
+        : {};
+    meta = { ...meta, planParameters: { ...prev, ...params } };
+  }
+  return meta;
+}

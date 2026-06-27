@@ -6,20 +6,39 @@ import express from 'express';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 
+const { mockProcessIntake } = vi.hoisted(() => ({
+  mockProcessIntake: vi.fn(async ({ input }) => {
+    const text = String(input?.text ?? '').toLowerCase();
+    if (text.includes('construct corp')) {
+      return {
+        executionPath: 'proactive_plan',
+        tool: 'create_store',
+        confidence: 1,
+        parameters: { storeName: 'Construct Corp', intentMode: 'store', _autoSubmit: true },
+        _classificationSource: 'intent_reasoner',
+      };
+    }
+    return {
+      executionPath: 'direct_action',
+      tool: 'create_store',
+      confidence: 1,
+      parameters: { intentMode: 'website' },
+      _classificationSource: 'intent_reasoner',
+    };
+  }),
+}));
+
 vi.mock('../../middleware/guestAuth.js', () => ({
   requireUserOrGuest: (_req, _res, next) => next(),
 }));
 
-vi.mock('../../lib/intake/intakeClassifier.js', () => ({
-  classifyIntent: vi.fn(async () => ({
-    executionPath: 'proactive_plan',
-    tool: 'create_store',
-    confidence: 0.95,
-    parameters: { _autoSubmit: true },
-  })),
+vi.mock('../../lib/intent/campaignOrchestrationIntent.js', () => ({
   isCampaignOrchestrationIntent: vi.fn(() => false),
-  CONFIDENCE: { HIGH: 0.8, MEDIUM: 0.55, LOW: 0 },
-  FALLBACK_CLARIFY: { clarifyOptions: [] },
+}));
+
+vi.mock('../../lib/intent/intentIntegration.js', () => ({
+  getIntentIntegration: vi.fn(() => ({ processIntake: mockProcessIntake })),
+  resetIntentIntegrationForTests: vi.fn(),
 }));
 
 vi.mock('../../lib/missionAccess.js', () => ({

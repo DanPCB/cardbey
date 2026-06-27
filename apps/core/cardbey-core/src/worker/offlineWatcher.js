@@ -186,7 +186,15 @@ async function checkOfflineDevices() {
 /**
  * Start the offline watcher
  */
+let offlineWatcherInterval = null;
+let offlineWatcherStarted = false;
+
 export function startOfflineWatcher() {
+  if (offlineWatcherStarted) {
+    console.log('[OfflineWatcher] Already started — skipping duplicate');
+    return;
+  }
+  offlineWatcherStarted = true;
   console.log(`✅ Starting offline watcher (checking every ${CHECK_INTERVAL_MS / 1000}s, threshold: ${OFFLINE_THRESHOLD_MS / 1000}s)...`);
 
   // Initial check after a short delay
@@ -196,9 +204,17 @@ export function startOfflineWatcher() {
   }, 5000);
 
   // Periodic checks
-  setInterval(() => {
+  offlineWatcherInterval = setInterval(() => {
     checkOfflineScreens();
     checkOfflineDevices();
   }, CHECK_INTERVAL_MS);
+}
+
+export function stopOfflineWatcher() {
+  offlineWatcherStarted = false;
+  if (offlineWatcherInterval) {
+    clearInterval(offlineWatcherInterval);
+    offlineWatcherInterval = null;
+  }
 }
 

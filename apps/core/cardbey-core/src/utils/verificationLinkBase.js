@@ -9,6 +9,8 @@ const INVALID_BASE_PATH_PATTERNS = ['/q/', '/go/'];
 const DEV_LOCALHOST_FALLBACK = 'http://localhost:3001';
 
 export const VERIFICATION_CONFIRM_PATH = '/api/auth/verify/confirm';
+/** One-tap mobile-friendly verification (GET consumes token, redirects to SPA). */
+export const VERIFICATION_EMAIL_PATH = '/api/auth/verify-email';
 
 function normalizeOrigin(raw) {
   return String(raw || '').trim().replace(/\/+$/, '');
@@ -140,6 +142,7 @@ export function verificationTokenLogFields(rawToken) {
 
 export function logVerificationEmailDispatch(fields = {}) {
   if (process.env.NODE_ENV === 'test') return;
+  console.log('[EMAIL_VERIFY_LINK_GENERATED]', fields);
   console.log('[Auth] verify/email dispatch', fields);
 }
 
@@ -154,7 +157,8 @@ export function logVerificationEmailBaseOnStartup() {
 
   console.log('[Auth] Email verification link base (origin only)', {
     origin,
-    confirmPath: VERIFICATION_CONFIRM_PATH,
+    confirmPath: VERIFICATION_EMAIL_PATH,
+    legacyConfirmPath: VERIFICATION_CONFIRM_PATH,
     source,
     isFallback,
   });

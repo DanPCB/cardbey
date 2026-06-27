@@ -582,6 +582,36 @@ if (!isPostgresForRestore) {
       e?.message?.slice(0, 200),
     );
   }
+
+  try {
+    runPrisma(
+      "ensure performer session context table",
+      `node ${path.join(rootDir, "scripts", "ensure-performer-session-context-table.mjs")}`,
+    );
+    runPrisma(
+      "record performer session context migration",
+      `node ${path.join(rootDir, "scripts", "record-sqlite-migration.mjs")} 20260625140000_add_performer_session_context`,
+    );
+    console.log("[prisma] Performer session context table ensured");
+  } catch (e) {
+    console.warn(
+      "[prisma] Could not ensure performer_session_contexts table (non-fatal):",
+      e?.message?.slice(0, 200),
+    );
+  }
+
+  try {
+    runPrisma(
+      "ensure business commerce columns",
+      `node ${path.join(rootDir, "scripts", "ensure-business-commerce-columns.mjs")}`,
+    );
+    console.log("[prisma] Business commerce columns ensured");
+  } catch (e) {
+    console.warn(
+      "[prisma] Could not ensure Business commerce columns (non-fatal):",
+      e?.message?.slice(0, 200),
+    );
+  }
 }
 
 (async () => {

@@ -151,9 +151,9 @@ services:
       - key: EMAIL_VERIFICATION_BASE_URL
         value: https://cardbey-core.onrender.com
       - key: PUBLIC_APP_URL
-        value: https://cardbey-dashboard.onrender.com
+        value: https://cardbey.com
       - key: DASHBOARD_URL
-        value: https://cardbey-dashboard.onrender.com
+        value: https://cardbey.com
       - key: DISCOVERY_ENABLED
         value: "false"
       - key: DISCOVERY_CRON

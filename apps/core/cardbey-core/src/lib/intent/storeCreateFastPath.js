@@ -7,7 +7,7 @@ import {
   classifyStoreWebsiteCreateIntent,
   messageLooksLikeStoreCreate,
   messageLooksLikeWebsiteCreate,
-} from './storeWebsiteRunwayClassifier.js';
+} from '../intake/storeWebsiteRunwayClassifier.js';
 
 /** @typedef {'store'|'website'} CreateRunwayMode */
 

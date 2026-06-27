@@ -18,6 +18,11 @@ export type LLMGatewayOptions = {
   tenantKey: string;
   responseFormat?: 'text' | 'json';
   temperature?: number;
+  /** Split prompt: system block (Anthropic `system` field) when set. */
+  systemPrompt?: string;
+  /** Anthropic extended thinking (requires anthropic provider). */
+  thinking?: boolean;
+  thinkingBudget?: number;
 };
 
 export type LLMResult = {
@@ -25,6 +30,8 @@ export type LLMResult = {
   inputTokens: number;
   outputTokens: number;
   cached: boolean;
+  /** Anthropic thinking trace when extended thinking is enabled. */
+  thinkingText?: string;
 };
 
 const OPENAI_PROVIDER = 'openai';
@@ -128,6 +135,9 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
     tenantKey,
     responseFormat = 'text',
     temperature = DEFAULT_TEMPERATURE,
+    systemPrompt,
+    thinking = false,
+    thinkingBudget,
   } = options;
   const providerName = provider ?? DEFAULT_PROVIDER;
   const model = resolveModel(providerName, modelOption);
@@ -137,7 +147,7 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
   }
 
   const prisma = getPrismaClient();
-  const promptHash = hashPrompt(prompt);
+  const promptHash = hashPrompt(`${systemPrompt ?? ''}\n${prompt}`);
   const day = getTodayUtc();
 
   const dailyCap =
@@ -151,18 +161,22 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
     throw new Error('LLM daily cap reached');
   }
 
-  const cacheRecord = await prisma.llmCache.findUnique({
-    where: {
-      LlmCache_key: {
-        tenantKey,
-        purpose,
-        promptHash,
-        provider: providerName,
-        model,
-      },
-    },
-    select: { response: true, expiresAt: true },
-  });
+  const skipCache = thinking === true;
+
+  const cacheRecord = skipCache
+    ? null
+    : await prisma.llmCache.findUnique({
+        where: {
+          LlmCache_key: {
+            tenantKey,
+            purpose,
+            promptHash,
+            provider: providerName,
+            model,
+          },
+        },
+        select: { response: true, expiresAt: true },
+      });
 
   if (cacheRecord && cacheRecord.expiresAt > new Date()) {
     await prisma.llmCache.update({
@@ -191,11 +205,37 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
   let text = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  let thinkingText: string | undefined;
 
-  if (providerName === 'anthropic') {
+  if (providerName === 'anthropic' && thinking) {
+    const thinkingModel =
+      modelOption?.trim() ||
+      process.env.LLM_THINKING_MODEL?.trim() ||
+      model;
+    const budget = Math.max(
+      1024,
+      thinkingBudget ??
+        (parseInt(process.env.LLM_THINKING_BUDGET || '4096', 10) || 4096),
+    );
+    const anthropicResult = await anthropicProvider.generateTextWithThinking({
+      prompt,
+      systemPrompt: systemPrompt || undefined,
+      maxTokens: Math.max(maxTokens, budget + 512),
+      model: thinkingModel,
+      thinkingBudget: budget,
+    });
+    if (anthropicResult.error) {
+      throw new Error(anthropicResult.error);
+    }
+    text = anthropicResult.text ?? '';
+    thinkingText = anthropicResult.thinkingText;
+    inputTokens = anthropicResult.tokensIn ?? 0;
+    outputTokens = anthropicResult.tokensOut ?? 0;
+  } else if (providerName === 'anthropic') {
     const result = await anthropicProvider.generateText(prompt, {
       maxTokens,
       model,
+      systemPrompt: systemPrompt || undefined,
     });
     text = result.text ?? '';
     inputTokens = result.tokensIn ?? 0;
@@ -247,7 +287,9 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + CACHE_TTL_DAYS);
 
-  const cacheUpsert = prisma.llmCache.upsert({
+  const cacheUpsert = skipCache
+    ? Promise.resolve()
+    : prisma.llmCache.upsert({
     where: {
       LlmCache_key: {
         tenantKey,
@@ -324,6 +366,7 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
     inputTokens,
     outputTokens,
     cached: false,
+    ...(thinkingText ? { thinkingText } : {}),
   };
 }
 

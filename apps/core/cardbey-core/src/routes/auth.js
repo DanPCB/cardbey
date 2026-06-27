@@ -22,6 +22,7 @@ import { INVALIDATION_TRIGGERS } from '../services/memory/memoryCache.js';
 import {
   getVerificationLinkBaseUrl,
   VERIFICATION_CONFIRM_PATH,
+  VERIFICATION_EMAIL_PATH,
   verificationTokenLogFields,
   logVerificationEmailDispatch,
 } from '../utils/verificationLinkBase.js';
@@ -31,7 +32,9 @@ import {
   verificationConfirmLogFields,
 } from '../utils/verificationToken.js';
 
-/** Post-verify SPA path — must exist in dashboard (Performer /app). */
+/** Post-verify SPA path — landing page after one-tap email verification. */
+const EMAIL_VERIFIED_PATH = '/email-verified';
+/** Legacy post-verify path (still used by POST /verify/confirm). */
 const DEFAULT_VERIFY_REDIRECT_URI = '/app?verified=1';
 import { normalizeSocialLinks, parseSocialLinks } from '../lib/socialLinks.js';
 import { resolvePersistableMediaUrl, normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
@@ -1019,6 +1022,30 @@ function resolvePublicWebBaseForBrowserRedirect() {
   return publicWebBase({ emptyInProductionIfUnset: true });
 }
 
+function buildEmailVerifiedRedirectUrl(status) {
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
+  if (!webBase) return null;
+  const normalized = ['success', 'invalid', 'expired'].includes(status) ? status : 'invalid';
+  const params = new URLSearchParams({ status: normalized });
+  return `${webBase}${EMAIL_VERIFIED_PATH}?${params.toString()}`;
+}
+
+function redirectEmailVerifiedOrJson(res, status, jsonBody = null) {
+  const location = buildEmailVerifiedRedirectUrl(status);
+  if (location) {
+    return res.redirect(302, location);
+  }
+  if (jsonBody) {
+    return res.status(jsonBody.statusCode || 200).json(jsonBody.body);
+  }
+  return res.status(400).json({
+    ok: false,
+    code: 'VERIFY_REDIRECT_UNCONFIGURED',
+    error: 'Verification redirect URL not configured',
+    message: 'Set PUBLIC_APP_URL or DASHBOARD_URL for post-verify redirect.',
+  });
+}
+
 /** Shared success response after email is verified (redirect to SPA, HTML, or JSON). */
 function respondAfterEmailVerified(res, redirect_uri, req = null) {
   const safeRedirect = safeVerifyRedirectUri(redirect_uri);
@@ -1260,15 +1287,8 @@ function isVerificationEmailConfigured() {
  */
 async function sendVerificationEmail({ to, rawToken, displayName, redirectUri = DEFAULT_VERIFY_REDIRECT_URI }) {
   const { base: apiBase, isFallback, source } = getVerificationLinkBaseUrl();
-  const safeRedirect =
-    typeof redirectUri === 'string' && redirectUri.startsWith('/') && !redirectUri.startsWith('//')
-      ? redirectUri
-      : DEFAULT_VERIFY_REDIRECT_URI;
-  const query = new URLSearchParams({
-    token: rawToken,
-    redirect_uri: safeRedirect,
-  });
-  const fullLink = `${apiBase}${VERIFICATION_CONFIRM_PATH}?${query.toString()}`;
+  const query = new URLSearchParams({ token: rawToken });
+  const fullLink = `${apiBase}${VERIFICATION_EMAIL_PATH}?${query.toString()}`;
   const storedHash = hashVerificationToken(rawToken);
   const webBase = resolvePublicWebBaseForBrowserRedirect();
 
@@ -1277,9 +1297,10 @@ async function sendVerificationEmail({ to, rawToken, displayName, redirectUri = 
     apiBase,
     linkSource: source,
     isFallback,
-    confirmPath: VERIFICATION_CONFIRM_PATH,
-    redirectUri: safeRedirect,
-    postVerifyRedirect: webBase ? `${webBase}${safeRedirect}` : null,
+    confirmPath: VERIFICATION_EMAIL_PATH,
+    legacyConfirmPath: VERIFICATION_CONFIRM_PATH,
+    redirectUri,
+    postVerifyRedirect: webBase ? buildEmailVerifiedRedirectUrl('success') : null,
     ...verificationTokenLogFields(rawToken),
     storedHashPrefix: String(storedHash).slice(0, 10),
   });
@@ -1330,6 +1351,7 @@ async function sendVerificationEmail({ to, rawToken, displayName, redirectUri = 
 async function handleRequestVerification(req, res, next) {
   try {
     res.setHeader('X-Verify-Handler', 'honest-status');
+    console.log('[EMAIL_VERIFY_REQUEST]', { userId: req.user?.id ?? null, path: req.path });
     console.log('[Auth] verify/request received', { userId: req.user?.id ?? null });
 
     if (req.user?.role === 'guest') {
@@ -1592,6 +1614,129 @@ async function consumeEmailVerification({ user, hashed, now = new Date() }) {
 }
 
 /**
+ * GET /api/auth/verify-email?token=...
+ * One-tap verification for mobile email clients: validate, consume token, redirect to SPA.
+ */
+async function handleVerifyEmailGet(req, res, next) {
+  try {
+    const { token } = parseVerifyRequestFields(req);
+    const fields = verificationConfirmLogFields(token);
+    console.log('[EMAIL_VERIFY_REQUEST]', {
+      method: 'GET',
+      path: '/verify-email',
+      ...fields,
+    });
+
+    if (!token) {
+      console.log('[EMAIL_VERIFY_FAILED]', { reason: 'missing_token' });
+      return redirectEmailVerifiedOrJson(res, 'invalid', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: 'TOKEN_INVALID',
+          error: 'Token required',
+          message: 'Verification token is required',
+        },
+      });
+    }
+
+    const state = await resolveVerificationFromToken(token);
+
+    if (state.status === 'INVALID') {
+      console.log('[EMAIL_VERIFY_FAILED]', { reason: 'invalid_token', ...fields });
+      return redirectEmailVerifiedOrJson(res, 'invalid', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: 'TOKEN_INVALID',
+          error: 'Invalid token',
+          message: 'This verification token is invalid. Please request a new one.',
+        },
+      });
+    }
+
+    if (state.status === 'EXPIRED') {
+      console.log('[EMAIL_VERIFY_FAILED]', {
+        reason: 'expired_token',
+        userId: state.user?.id ?? null,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'expired', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: 'TOKEN_EXPIRED',
+          error: 'Token expired',
+          message: 'This verification token has expired. Please request a new one.',
+        },
+      });
+    }
+
+    if (state.status === 'ALREADY_VERIFIED') {
+      console.log('[EMAIL_VERIFY_SUCCESS]', {
+        userId: state.user?.id ?? null,
+        alreadyVerified: true,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'success', {
+        statusCode: 200,
+        body: { ok: true, verified: true, message: 'Email already verified' },
+      });
+    }
+
+    const consume = await consumeEmailVerification({
+      user: state.user,
+      hashed: state.hashed,
+    });
+
+    if (consume.ok && consume.alreadyVerified) {
+      console.log('[EMAIL_VERIFY_SUCCESS]', {
+        userId: state.user?.id ?? null,
+        alreadyVerified: true,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'success', {
+        statusCode: 200,
+        body: { ok: true, verified: true, message: 'Email already verified' },
+      });
+    }
+
+    if (!consume.ok) {
+      console.log('[EMAIL_VERIFY_FAILED]', {
+        reason: consume.code || 'token_already_used',
+        userId: state.user?.id ?? null,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'invalid', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: consume.code || 'TOKEN_ALREADY_USED',
+          error: 'Email already verified',
+          message: 'This email is already verified.',
+        },
+      });
+    }
+
+    try {
+      const { completePendingGhostClaimsForUser } = await import('../lib/ghostStore/ghostStoreService.js');
+      await completePendingGhostClaimsForUser(state.user.id);
+    } catch (ghostErr) {
+      console.warn('[Auth] ghost claim transfer after verify (non-fatal):', ghostErr?.message ?? ghostErr);
+    }
+
+    console.log('[EMAIL_VERIFY_SUCCESS]', { userId: state.user?.id ?? null, ...fields });
+    return redirectEmailVerifiedOrJson(res, 'success', {
+      statusCode: 200,
+      body: { ok: true, verified: true, message: 'Email verified successfully' },
+    });
+  } catch (error) {
+    console.error('[EMAIL_VERIFY_FAILED]', { reason: 'server_error', error: error?.message ?? error });
+    next(error);
+  }
+}
+
+/**
  * POST /api/auth/verify/confirm — single-use consumption (form POST from email landing page).
  */
 async function handleVerifyConfirmPost(req, res, next) {
@@ -1665,61 +1810,35 @@ async function handleVerifyConfirmPost(req, res, next) {
 
 /**
  * GET /api/auth/verify/confirm?token=...
- * Scanner-safe landing page — does NOT consume the token. User confirms via POST.
+ * Legacy email links — redirect to one-tap verify-email handler.
  */
 router.get('/verify/confirm', async (req, res, next) => {
   try {
-    const { token, redirect_uri } = parseVerifyRequestFields(req);
-    const safeRedirect = safeVerifyRedirectUri(redirect_uri);
-
-    if (!token) {
-      return respondVerifyError(req, res, {
-        code: 'TOKEN_INVALID',
-        error: 'Token required',
-        message: 'Verification token is required',
-        redirect_uri,
-      });
+    const { token } = parseVerifyRequestFields(req);
+    if (token) {
+      const q = new URLSearchParams({ token });
+      return res.redirect(302, `${VERIFICATION_EMAIL_PATH}?${q.toString()}`);
     }
-
-    const state = await resolveVerificationFromToken(token);
-    logVerifyConfirmAttempt(req, { token, redirect_uri, state });
-    if (state.status === 'INVALID') {
-      return respondVerifyError(req, res, {
-        code: 'TOKEN_INVALID',
-        error: 'Invalid token',
-        message: 'This verification token is invalid. Please request a new one.',
-        redirect_uri,
-      });
-    }
-    if (state.status === 'ALREADY_VERIFIED') {
-      return respondAfterEmailVerified(res, safeRedirect, req);
-    }
-    if (state.status === 'EXPIRED') {
-      return respondVerifyError(req, res, {
-        code: 'TOKEN_EXPIRED',
-        error: 'Token expired',
-        message: 'This verification token has expired. Please request a new one.',
-        emailPrefill: state.user?.email || '',
-        redirect_uri,
-      });
-    }
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.status(200).send(
-      renderVerifyConfirmInterstitialPage({ token, redirectUri: safeRedirect }),
-    );
+    return respondVerifyError(req, res, {
+      code: 'TOKEN_INVALID',
+      error: 'Token required',
+      message: 'Verification token is required',
+      redirect_uri: req.query?.redirect_uri,
+    });
   } catch (error) {
-    console.error('[Auth] Verify confirm GET error:', error?.message ?? error);
+    console.error('[Auth] Verify confirm GET redirect error:', error?.message ?? error);
     next(error);
   }
 });
+
+router.get('/verify-email', handleVerifyEmailGet);
 
 router.post('/verify/confirm', handleVerifyConfirmPost);
 
 /**
  * POST /api/auth/verify/resend — rate-limited, invalidates prior token, generic response (no enumeration).
  */
-router.post('/verify/resend', verificationResendLimiter, async (req, res, next) => {
+async function handleResendVerification(req, res, next) {
   try {
     const emailRaw = req.body?.email;
     const normalizedEmail =
@@ -1768,7 +1887,10 @@ router.post('/verify/resend', verificationResendLimiter, async (req, res, next) 
     console.error('[Auth] Verify resend error:', error?.message ?? error);
     next(error);
   }
-});
+}
+
+router.post('/verify/resend', verificationResendLimiter, handleResendVerification);
+router.post('/resend-verification', verificationResendLimiter, handleResendVerification);
 
 /**
  * GET /api/auth/verify?token=...

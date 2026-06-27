@@ -11,6 +11,22 @@ const MESSAGES = {
     en: 'Please sign in to continue.',
     vi: 'Cần đăng nhập để tiếp tục.',
   },
+  signInToAddProducts: {
+    en: 'Sign in to add products to your draft store. Your draft is saved — signing in links it to your account.',
+    vi: 'Đăng nhập để thêm sản phẩm vào cửa hàng nháp. Bản nháp đã được lưu — đăng nhập sẽ liên kết với tài khoản của bạn.',
+  },
+  guestDraftAddProductClarify: {
+    en: 'Could you please provide more details about the product you want to add? This will help me assist you better.',
+    vi: 'Bạn có thể cho mình thêm chi tiết về sản phẩm muốn thêm không? Điều đó giúp mình hỗ trợ bạn tốt hơn.',
+  },
+  guestDraftAddProductCatalogOption: {
+    en: 'Add a product to my catalog',
+    vi: 'Thêm sản phẩm vào danh mục',
+  },
+  guestDraftAddProductSomethingElse: {
+    en: 'I meant something else',
+    vi: 'Ý tôi là việc khác',
+  },
   approvalReviewConfirm: {
     en: 'Review the preview below, then confirm to run.',
     vi: 'Xem lại bên dưới và xác nhận trước khi chạy.',
@@ -110,6 +126,18 @@ const MESSAGES = {
   storeBuildingStore: {
     en: 'Started building your store for "{{businessName}}"…',
     vi: 'Đang tạo cửa hàng cho "{{businessName}}"…',
+  },
+  campaignCheckpointStarted: {
+    en: 'A few quick choices before we build your campaign…',
+    vi: 'Một vài lựa chọn nhanh trước khi tạo chiến dịch của bạn…',
+  },
+  campaignBuilding: {
+    en: 'Started building your campaign…',
+    vi: 'Đang tạo chiến dịch của bạn…',
+  },
+  campaignRequiresStore: {
+    en: 'Select a store first — then I can launch your campaign.',
+    vi: 'Chọn cửa hàng trước, rồi mình có thể chạy chiến dịch cho bạn.',
   },
   pickAnOption: {
     en: "I'm not sure — pick an option:",

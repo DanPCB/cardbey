@@ -6,6 +6,22 @@ import express from 'express';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 
+const { mockProcessIntake } = vi.hoisted(() => ({
+  mockProcessIntake: vi.fn(async ({ input, classifyOpts }) => {
+    const text = String(input?.text ?? '').toLowerCase();
+    const storeId = classifyOpts?.storeContext?.storeId ?? 'store-hero-1';
+    const tool = text.includes('fashion') ? 'improve_hero' : 'update_store_hero';
+    return {
+      executionPath: 'proactive_plan',
+      tool,
+      confidence: 0.9,
+      parameters: { storeId },
+      _classificationSource: 'intent_reasoner',
+      _reasoning: { intent: tool, confidence: 0.9, action: 'execute_tool' },
+    };
+  }),
+}));
+
 vi.mock('../../middleware/guestAuth.js', () => ({
   requireUserOrGuest: (_req, _res, next) => next(),
 }));
@@ -16,16 +32,13 @@ vi.mock('../../lib/prisma.js', () => ({
   })),
 }));
 
-vi.mock('../../lib/intake/intakeClassifier.js', () => ({
-  classifyIntent: vi.fn(async () => ({
-    executionPath: 'chat',
-    tool: 'general_chat',
-    confidence: 0.35,
-    parameters: {},
-  })),
+vi.mock('../../lib/intent/campaignOrchestrationIntent.js', () => ({
   isCampaignOrchestrationIntent: vi.fn(() => false),
-  CONFIDENCE: { HIGH: 0.8, MEDIUM: 0.55, LOW: 0 },
-  FALLBACK_CLARIFY: { clarifyOptions: [] },
+}));
+
+vi.mock('../../lib/intent/intentIntegration.js', () => ({
+  getIntentIntegration: vi.fn(() => ({ processIntake: mockProcessIntake })),
+  resetIntentIntegrationForTests: vi.fn(),
 }));
 
 vi.mock('../../lib/toolDispatcher.js', () => ({

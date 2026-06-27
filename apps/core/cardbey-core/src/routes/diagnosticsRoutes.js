@@ -4,6 +4,8 @@
 
 import express from 'express';
 import diagnosticsService from '../services/diagnostics/diagnosticsService.js';
+import { cleanupOldDiagnostics } from '../lib/diagnostics/diagnosticsCleanup.js';
+import { getCachedAdminData } from '../lib/admin/adminCache.js';
 import { optionalAuth, requireAuth, requireAdmin } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 
@@ -35,7 +37,11 @@ router.post('/frontend-errors', ingestRateLimit, optionalAuth, async (req, res) 
 
 router.get('/health-report', requireAuth, requireAdmin, async (_req, res) => {
   try {
-    const report = await diagnosticsService.generateHealthReport();
+    const report = await getCachedAdminData(
+      'diagnostics:health-report',
+      () => diagnosticsService.generateHealthReport(),
+      30_000,
+    );
     return res.json({ ok: true, report });
   } catch (err) {
     console.error('[diagnostics/health-report]', err);
@@ -70,6 +76,27 @@ router.get('/health-score', requireAuth, requireAdmin, async (_req, res) => {
   } catch (err) {
     console.error('[diagnostics/health-score]', err);
     return res.status(500).json({ ok: false, error: 'health_score_failed' });
+  }
+});
+
+/**
+ * POST /api/diagnostics/cleanup
+ * Manual purge of stale frontend error rows (admin).
+ */
+router.post('/cleanup', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const hours = Number(req.body?.hours ?? req.body?.retentionHours ?? 1);
+    const retentionHours = Number.isFinite(hours) && hours > 0 ? hours : 1;
+    const result = await cleanupOldDiagnostics({ retentionHours });
+    return res.json({
+      success: true,
+      deleted: result.deleted,
+      cutoff: result.cutoff,
+      retentionHours: result.retentionHours,
+    });
+  } catch (error) {
+    console.error('[diagnostics/cleanup]', error);
+    return res.status(500).json({ success: false, error: error?.message ?? 'cleanup_failed' });
   }
 });
 

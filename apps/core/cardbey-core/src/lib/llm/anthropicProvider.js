@@ -246,6 +246,79 @@ export async function health() {
   };
 }
 
-export const anthropicProvider = { generateText, postAnthropicMessages, health };
+/**
+ * Anthropic Messages API with extended thinking enabled.
+ * @param {{ prompt: string, systemPrompt?: string, maxTokens?: number, model?: string, thinkingBudget?: number }} opts
+ * @returns {Promise<{ text: string | null, thinkingText?: string, error?: string, tokensIn: number, tokensOut: number }>}
+ */
+export async function generateTextWithThinking(opts = {}) {
+  const prompt = typeof opts.prompt === 'string' ? opts.prompt : '';
+  const systemPrompt = typeof opts.systemPrompt === 'string' ? opts.systemPrompt : '';
+  const model = resolveAnthropicModel(opts.model || process.env.LLM_THINKING_MODEL || ANTHROPIC_MODEL);
+  const thinkingBudget = Math.max(
+    1024,
+    Number.isFinite(Number(opts.thinkingBudget)) ? Number(opts.thinkingBudget) : 4096,
+  );
+  const maxTokens = Math.max(
+    Number.isFinite(Number(opts.maxTokens)) ? Number(opts.maxTokens) : 2000,
+    thinkingBudget + 512,
+  );
+
+  if (!prompt || ANTHROPIC_DISABLED || !ANTHROPIC_API_KEY) {
+    return {
+      text: null,
+      error: !ANTHROPIC_API_KEY ? 'NO_API_KEY' : 'ANTHROPIC_DISABLED',
+      tokensIn: 0,
+      tokensOut: 0,
+    };
+  }
+
+  const payload = {
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt || undefined,
+    messages: [{ role: 'user', content: prompt }],
+    thinking: {
+      type: 'enabled',
+      budget_tokens: thinkingBudget,
+    },
+  };
+
+  const raw = await postAnthropicMessages(payload);
+  if (raw?.error) {
+    return {
+      text: null,
+      error: raw.error,
+      tokensIn: 0,
+      tokensOut: 0,
+    };
+  }
+
+  const blocks = Array.isArray(raw.content) ? raw.content : [];
+  const thinkingText = blocks
+    .filter((b) => b?.type === 'thinking' && typeof b.thinking === 'string')
+    .map((b) => b.thinking)
+    .join('\n')
+    .trim();
+  const text = blocks
+    .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+  return {
+    text: text || null,
+    ...(thinkingText ? { thinkingText } : {}),
+    tokensIn: raw.usage?.input_tokens ?? 0,
+    tokensOut: raw.usage?.output_tokens ?? 0,
+  };
+}
+
+export const anthropicProvider = {
+  generateText,
+  generateTextWithThinking,
+  postAnthropicMessages,
+  health,
+};
 export default anthropicProvider;
 

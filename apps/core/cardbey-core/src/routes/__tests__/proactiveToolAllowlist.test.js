@@ -27,7 +27,8 @@ describe('proactiveRunwayToolAllowlist vs toolRegistry', () => {
     // DANH: toolregistry-gap-fix + skill-round5 + governance promotion tools (+2)
     // Phase 4 mixed lanes: create_video, generate_video, scan_card (+3)
     // Phase 8: create_mini_website (+1)
-    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(163);
+    // Promotion graphic V1: create_promotion_graphic + smart_visual / create_promotion_graphic aliases (+4)
+    expect(PROACTIVE_RUNWAY_TOOL_SET.size).toBe(174);
   });
 });
 
@@ -50,9 +51,14 @@ describe('resolveRunwayDispatchToolName (data-driven from toolRegistry aliases)'
 
   it('passthrough for canonical names and unknowns', () => {
     expect(resolveRunwayDispatchToolName('smart_visual')).toBe('smart_visual');
+    expect(resolveRunwayDispatchToolName('create_promotion_graphic')).toBe('create_promotion_graphic');
+    expect(resolveRunwayDispatchToolName('promo_graphic')).toBe('create_promotion_graphic');
     expect(resolveRunwayDispatchToolName('Smart_Visual')).toBe('smart_visual');
     expect(resolveRunwayDispatchToolName('start_build_store')).toBe('start_build_store');
     expect(resolveRunwayDispatchToolName('publish_store')).toBe('publish_store');
+    expect(resolveRunwayDispatchToolName('setup_loyalty')).toBe('setup_loyalty_program');
+    expect(resolveRunwayDispatchToolName('setup_loyalty_campaign')).toBe('setup_loyalty_program');
+    expect(resolveRunwayDispatchToolName('loyalty_campaign')).toBe('setup_loyalty_program');
     expect(resolveRunwayDispatchToolName('unknown_tool')).toBe('unknown_tool');
   });
 });

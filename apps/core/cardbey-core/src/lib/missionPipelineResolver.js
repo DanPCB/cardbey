@@ -7,6 +7,7 @@
 import { getPrismaClient } from '../lib/prisma.js';
 import { getPipelineForIntent } from './missionPlan/intentPipelineRegistry.js';
 import { getSummaryText } from './missionPlan/missionSummaries.js';
+import { buildMissionBlueprintView } from './execution/missionBlueprintView.js';
 
 function parseJsonArray(val) {
   if (val == null) return [];
@@ -139,8 +140,14 @@ export async function resolveMissionState(missionId) {
   const nextActions = getNextActions(mission.status, mission.runState, { disableRunnerActions });
 
   const pipeline = getPipelineForIntent(mission.type);
+  const blueprintView = buildMissionBlueprintView(mission);
   const pipelineConfig = {
-    checkpoints: Array.isArray(pipeline.checkpoints) ? pipeline.checkpoints : [],
+    version: blueprintView.version,
+    name: blueprintView.name,
+    steps: blueprintView.steps,
+    checkpoints: blueprintView.checkpoints,
+    dependencies: blueprintView.dependencies,
+    checkpointsRegistry: Array.isArray(pipeline.checkpoints) ? pipeline.checkpoints : [],
   };
   const summaryText = getSummaryText(pipeline.summaryKey);
 

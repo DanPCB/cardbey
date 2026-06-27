@@ -5,14 +5,21 @@
  */
 import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../../middleware/auth.js';
-import { listPlatformActivityEvents, addPlatformActivityStreamClient } from '../../lib/platformActivity/platformActivityStore.js';
+import { listPlatformActivityEvents, addPlatformActivityStreamClient, removePlatformActivityStreamClient } from '../../lib/platformActivity/platformActivityStore.js';
 import { sanitizePlatformActivityEvent } from '../../lib/platformActivity/platformActivitySanitizer.js';
 
 const router = Router();
-router.use(requireAuth);
-router.use(requireAdmin);
 
-router.get('/platform/activity', (req, res) => {
+const HEARTBEAT_MS = 20_000;
+
+function writePlatformActivitySseHeaders(res) {
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+}
+
+router.get('/platform/activity', requireAuth, requireAdmin, (req, res) => {
   try {
     const limit = req.query.limit;
     const category = typeof req.query.category === 'string' ? req.query.category : undefined;
@@ -26,12 +33,15 @@ router.get('/platform/activity', (req, res) => {
   }
 });
 
-router.get('/platform/activity/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
+router.get('/platform/activity/stream', requireAuth, requireAdmin, (req, res) => {
+  writePlatformActivitySseHeaders(res);
   if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  req.socket?.setTimeout?.(0);
+  req.socket?.setNoDelay?.(true);
+  if (typeof req.socket?.setKeepAlive === 'function') {
+    req.socket.setKeepAlive(true, HEARTBEAT_MS);
+  }
 
   addPlatformActivityStreamClient(res);
   res.write(': connected\n\n');
@@ -46,10 +56,11 @@ router.get('/platform/activity/stream', (req, res) => {
     } catch {
       clearInterval(heartbeat);
     }
-  }, 25_000);
+  }, HEARTBEAT_MS);
 
   req.on('close', () => {
     clearInterval(heartbeat);
+    removePlatformActivityStreamClient(res);
   });
 });
 

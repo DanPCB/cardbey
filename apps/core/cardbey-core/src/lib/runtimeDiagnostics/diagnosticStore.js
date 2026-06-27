@@ -44,6 +44,32 @@ function appendJsonl(record) {
   }
 }
 
+/** @type {Map<string, number>} */
+const recentIngestSignatures = new Map();
+const INGEST_SIGNATURE_TTL_MS = 60_000;
+
+function buildIngestSignature(sanitized, ctx) {
+  const evidence =
+    sanitized.evidence && typeof sanitized.evidence === 'object' ? sanitized.evidence : {};
+  const endpoint = typeof evidence.endpoint === 'string' ? evidence.endpoint.split('?')[0] : '';
+  const status = evidence.status != null ? String(evidence.status) : '';
+  const ip = ctx.ip ? String(ctx.ip) : '';
+  return [sanitized.eventName, sanitized.category, endpoint, status, ip].join('|');
+}
+
+function shouldSkipDuplicateIngest(signature) {
+  const now = Date.now();
+  const prev = recentIngestSignatures.get(signature);
+  if (prev && now - prev < INGEST_SIGNATURE_TTL_MS) return true;
+  recentIngestSignatures.set(signature, now);
+  if (recentIngestSignatures.size > 500) {
+    for (const [key, ts] of recentIngestSignatures) {
+      if (now - ts > INGEST_SIGNATURE_TTL_MS) recentIngestSignatures.delete(key);
+    }
+  }
+  return false;
+}
+
 /**
  * @param {Record<string, unknown>} payload
  * @param {{ userId?: string|null, ip?: string|null }} ctx
@@ -61,6 +87,11 @@ export function ingestRuntimeDiagnostic(payload, ctx = {}) {
     },
     { authenticated },
   );
+
+  const signature = buildIngestSignature(sanitized, ctx);
+  if (shouldSkipDuplicateIngest(signature)) {
+    return { ok: true, deduped: true };
+  }
 
   const id = randomUUID();
   const createdAt = new Date().toISOString();

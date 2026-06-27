@@ -11,6 +11,8 @@
  */
 
 import { readEflFeedback } from '../../services/eflRagReader.js';
+import { isCreateStoreIntakeMetadataParamKey } from './createStoreIntakeMetadata.js';
+import { isPromotionGraphicIntent } from './intakeSystemShortcuts.js';
 
 /**
  * @param {string} intent
@@ -99,6 +101,10 @@ export async function detectCapabilityGap({
     return { isGap: false };
   }
 
+  if (isPromotionGraphicIntent(msg)) {
+    return { isGap: false, reason: 'promotion_graphic_registered_tool' };
+  }
+
   if (
     msg.length < 32 &&
     !CAPABILITY_KEYWORDS.test(msg) &&
@@ -113,6 +119,10 @@ export async function detectCapabilityGap({
 
   if (tool === 'code_fix') {
     return { isGap: false };
+  }
+
+  if (tool === 'create_store' || intent === 'create_store') {
+    return { isGap: false, reason: 'create_store_registered_tool' };
   }
 
   // Plain headline/tagline wording fixes → code_fix, not gap
@@ -163,7 +173,13 @@ export async function detectCapabilityGap({
   }
 
   const hasUnknownField =
-    Array.isArray(validationErrors) && validationErrors.some((e) => e && e.reason === 'unknown_field');
+    Array.isArray(validationErrors) &&
+    validationErrors.some(
+      (e) =>
+        e &&
+        e.reason === 'unknown_field' &&
+        !isCreateStoreIntakeMetadataParamKey(String(e.field ?? '')),
+    );
   if (hasUnknownField && msg.length >= 48 && /\b(add|create|new|custom|extend)\b/i.test(msg)) {
     return applyEflSuccessSuppression(
       intent,

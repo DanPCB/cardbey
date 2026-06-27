@@ -75,6 +75,27 @@ export const STORE_HEALTH_INTENT = 'store_health';
 export const ANALYTICS_REPORT_INTENT = 'analytics_report';
 // DANH: fix-video-routing
 export const VIDEO_GENERATION_INTENT = 'video_generation';
+export const BUSINESS_OPERATIONS_INTENT = 'business_operations';
+
+export const businessOperationsPattern: IntentPattern = {
+  intent: BUSINESS_OPERATIONS_INTENT,
+  priority: 3,
+  requiredConfidence: 0.65,
+  matches: async (context: SkillContext): Promise<number> => {
+    const q = context.query.toLowerCase();
+    let score = 0;
+    if (
+      /sell|checkout|pos|inventory|stock|receive.*delivery|refund|receipt|register|purchase order|supplier|low stock|adjust stock|move stock|warehouse/.test(
+        q,
+      )
+    ) {
+      score += 0.75;
+    }
+    if (/book|appointment|booking/.test(q)) score -= 0.4;
+    if (/campaign|loyalty|promotion/.test(q)) score -= 0.3;
+    return Math.min(score, 1.0);
+  },
+};
 
 export const catalogManagementPattern: IntentPattern = {
   intent: CATALOG_MANAGEMENT_INTENT,
@@ -196,6 +217,7 @@ export const CARDBEY_INTENT_PATTERNS: IntentPattern[] = [
   catalogManagementPattern,
   menuSyncPattern,
   bookingManagementPattern,
+  businessOperationsPattern,
   storeHealthPattern,
   // DANH: skill-runtime-phase6
   analyticsReportPattern,

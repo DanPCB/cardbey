@@ -34,11 +34,30 @@ function quoteWin(p) {
   return `"${String(p).replace(/"/g, '\\"')}"`;
 }
 
+function mergeNodeOptions(extra) {
+  const current = String(process.env.NODE_OPTIONS ?? '').trim();
+  const parts = new Set([
+    ...current.split(/\s+/).filter(Boolean),
+    ...String(extra ?? '')
+      .split(/\s+/)
+      .filter(Boolean),
+  ]);
+  return [...parts].join(' ');
+}
+
+function devApiEnv(role) {
+  return {
+    ...process.env,
+    ROLE: role,
+    NODE_OPTIONS: mergeNodeOptions('--max-old-space-size=8192 --trace-warnings'),
+  };
+}
+
 function run(role, command, args, opts = {}) {
   const child = spawn(command, args, {
     cwd: root,
     stdio: 'inherit',
-    env: { ...process.env, ROLE: role },
+    env: devApiEnv(role),
     ...opts,
   });
   child.on('exit', (code, signal) => {
@@ -61,16 +80,16 @@ if (cmd === 'dev-api') {
   const devEntry = path.join(root, 'scripts', 'dev-api-entry.mjs');
   const execStr = [
     quoteWin(process.execPath),
+    '--max-old-space-size=8192',
     '--import',
     'tsx',
     quoteWin(devEntry),
   ].join(' ');
+  const nodemonConfig = path.join(root, 'nodemon.json');
   run('api', process.execPath, [
     nodemon,
-    '--watch',
-    'src',
-    '--ext',
-    'js,mjs,cjs,json,ts',
+    '--config',
+    nodemonConfig,
     '--exec',
     execStr,
   ]);
@@ -80,9 +99,17 @@ if (cmd === 'dev-api') {
     console.error('[with-role] nodemon not found. Run: pnpm install');
     process.exit(1);
   }
-  run('worker', process.execPath, [nodemon, '--watch', 'src', '--ext', 'js,mjs,cjs,json', 'src/worker.js']);
+  run('worker', process.execPath, [
+    nodemon,
+    '--watch',
+    'src',
+    '--ext',
+    'js,mjs,cjs,json',
+    '--exec',
+    `${quoteWin(process.execPath)} --max-old-space-size=8192 src/worker.js`,
+  ]);
 } else if (cmd === 'start-api') {
-  run('api', process.execPath, ['--import', 'tsx', 'src/server.js']);
+  run('api', process.execPath, ['--max-old-space-size=8192', '--import', 'tsx', 'src/server.js']);
 } else if (cmd === 'start-worker') {
   run('worker', process.execPath, ['src/worker.js']);
 } else {

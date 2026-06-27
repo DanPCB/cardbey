@@ -30,9 +30,13 @@ import { runMissionUntilBlocked } from '../lib/missionPipelineOrchestrator.js';
 import { planMissionFromIntent } from '../lib/agentPlanner.js';
 import { resolveAccessibleMission, getTenantId } from '../lib/missionAccess.js';
 import { ensureMissionRowForBlackboard } from '../lib/missionBlackboard.js';
-import { canTransitionMissionPipeline } from '../lib/missionPipelineTransitions.js';
-import { buildRunnerDualWriteMetadataJson } from '../lib/orchestrator/pipelineCanonicalResults.js';
-import { executeStoreMissionPipelineRun } from '../lib/storeMission/executeStoreMissionPipelineRun.js';
+import {
+  applyDeprecatedCheckpointHeaders,
+  handleExecutionCheckpoint,
+  parseExecutionCheckpointBody,
+  toExecutionCheckpointHttpResponse,
+} from '../lib/execution/handleExecutionCheckpoint.js';
+import { executeMission } from '../lib/execution/missionExecutionEngine.js';
 import { getOrCreateCardbeyTraceId, CARDBEY_TRACE_HEADER } from '../lib/trace/cardbeyTraceId.js';
 import { shouldOfferLlmTaskGraph } from '../lib/missionPlan/intentPipelineRegistry.js';
 import { getEvents } from '../lib/missionBlackboard.js';
@@ -40,8 +44,6 @@ import { handleAgentsV1MissionSpawn } from './agentsV1Routes.js';
 import { extractTextWithFallback } from '../lib/ocr/ocrFallback.js';
 import { parseBusinessCardOCR } from '../lib/businessCardParser.js';
 import { businessCardLooksLikeOcrText, isRefusalResponse } from '../modules/vision/runOcr.js';
-import { runPostMissionCompletionSummary } from '../lib/missionCompletion/postMissionSummary.js';
-import { isArtifactCheckpointDeferredRespond } from '../lib/artifactCheckpointAuthority.js';
 
 const router = Router();
 
@@ -228,22 +230,14 @@ router.post('/plan', optionalAuth, async (req, res, next) => {
     }
 
     if (process.env.EXECUTE_INTENT_SHADOW === 'true') {
+      const { scheduleExecuteIntentShadow } = await import('../lib/intake/intakeConsolidationFlags.js');
       const intentForShadow = intent;
       const ctxForShadow = { ...context };
-      setImmediate(() => {
-        import('../lib/orchestrator/executeIntent.js')
-          .then(({ executeIntent }) =>
-            executeIntent(
-              {
-                source: 'api',
-                rawInput: intentForShadow,
-                context: ctxForShadow,
-                correlationId: null,
-              },
-              { shadow: true },
-            ),
-          )
-          .catch(() => {});
+      scheduleExecuteIntentShadow({
+        source: 'api',
+        rawInput: intentForShadow,
+        context: ctxForShadow,
+        correlationId: null,
       });
     }
 
@@ -529,12 +523,14 @@ router.post('/:missionId/run', requireAuth, async (req, res, next) => {
     res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
 
     const prisma = getPrismaClient();
-    const runResult = await executeStoreMissionPipelineRun({
+    const runResult = await executeMission({
+      mode: 'checkpoint_pipeline',
       prisma,
       user: req.user,
       missionId,
       body: { ...(req.body ?? {}), cardbeyTraceId },
       auditSource: 'missions_store_run',
+      source: 'missions_store_run',
     });
 
     if (!runResult.ok) {
@@ -1578,226 +1574,26 @@ router.post('/:missionId/plan-decision', optionalAuth, async (req, res, next) =>
 
 /**
  * POST /api/missions/:missionId/respond
+ * @deprecated Use POST /api/execution/:executionId/checkpoint
  * Owner response for a checkpoint step (Phase 3). Resumes runMissionUntilBlocked only.
  */
 router.post('/:missionId/respond', optionalAuth, async (req, res, next) => {
   try {
+    applyDeprecatedCheckpointHeaders(res, 'missionsRespond');
     const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
-    const stepId = typeof req.body?.stepId === 'string' ? req.body.stepId.trim() : '';
-    const response = req.body?.response;
-    const data = req.body?.data && typeof req.body.data === 'object' && !Array.isArray(req.body.data) ? req.body.data : {};
-    if (!missionIdTrimmed || !stepId) {
-      return res.status(400).json({
-        ok: false,
-        error: 'validation',
-        message: 'missionId and stepId are required',
-      });
-    }
-    const access = await resolveAccessibleMission(req.user ?? {}, missionIdTrimmed);
-    if (!access.ok || access.kind !== 'mission_pipeline') {
-      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Mission pipeline not found or access denied' });
-    }
-    const prisma = getPrismaClient();
-    const pipeline = await prisma.missionPipeline.findUnique({
-      where: { id: missionIdTrimmed },
-      include: { steps: { orderBy: { orderIndex: 'asc' } } },
-    });
-    if (!pipeline) {
-      return res.status(404).json({ ok: false, error: 'not_found' });
-    }
-    if (pipeline.status !== 'awaiting_input') {
-      return res.status(409).json({ ok: false, error: 'invalid_state', message: 'Mission is not awaiting checkpoint input' });
-    }
-    const step = pipeline.steps.find((s) => s.id === stepId);
-    if (!step || step.status !== 'awaiting_input') {
-      return res.status(409).json({ ok: false, error: 'step_not_awaiting', message: 'Step is not awaiting input' });
-    }
-    const cfg = step.configJson && typeof step.configJson === 'object' ? step.configJson : {};
-    const outputKey = typeof cfg.outputKey === 'string' ? cfg.outputKey : 'ownerResponse';
-    if (isArtifactCheckpointDeferredRespond(outputKey, response, data)) {
-      // eslint-disable-next-line no-console
-      console.log('[artifact-checkpoint:respond-not-sent-yet]', {
-        missionId: missionIdTrimmed,
-        stepId,
-        outputKey,
-        response: typeof response === 'string' ? response.trim() : response,
-        reason: 'artifact_required_before_resume',
-      });
-      return res.status(409).json({
-        ok: false,
-        error: 'artifact_required',
-        message: 'Checkpoint requires a successful upload or library selection before continuing.',
-      });
-    }
-    const outPayload = {
-      ownerResponse: response,
-      [outputKey]: response,
-      ...data,
-    };
-    const prevOutputs = pipeline.outputsJson && typeof pipeline.outputsJson === 'object' ? { ...pipeline.outputsJson } : {};
-    const mergedOutputs = { ...prevOutputs, [outputKey]: response, ...data };
-    const checkpointLogoUrl =
-      typeof data.logoUrl === 'string' && data.logoUrl.trim() ? data.logoUrl.trim() : '';
-    if (checkpointLogoUrl) {
-      // eslint-disable-next-line no-console
-      console.log('[logo-checkpoint:core-output]', {
-        missionId: missionIdTrimmed,
-        stepId,
-        logoUrl: checkpointLogoUrl,
-        logoUploadStatus: data.logoUploadStatus ?? null,
-      });
-    }
-    const newCompleted = (pipeline.progressCompletedSteps ?? 0) + 1;
+    const { stepId, response, data } = parseExecutionCheckpointBody(req.body ?? {});
 
-    if (!canTransitionMissionPipeline('awaiting_input', 'executing')) {
-      return res.status(409).json({ ok: false, error: 'transition_denied' });
-    }
-
-    const dualMeta = await buildRunnerDualWriteMetadataJson(
-      prisma,
-      missionIdTrimmed,
-      pipeline.metadataJson,
-      mergedOutputs,
-    );
-
-    await prisma.$transaction(async (tx) => {
-      await tx.missionPipelineStep.update({
-        where: { id: stepId },
-        data: {
-          status: 'completed',
-          completedAt: new Date(),
-          outputJson: outPayload,
-        },
-      });
-
-      await tx.missionPipeline.update({
-        where: { id: missionIdTrimmed },
-        data: {
-          status: 'executing',
-          runState: 'running',
-          currentStepId: null,
-          progressCompletedSteps: newCompleted,
-          outputsJson: mergedOutputs,
-          ...(dualMeta != null ? { metadataJson: dualMeta } : {}),
-        },
-      });
+    const checkpointResult = await handleExecutionCheckpoint({
+      user: req.user ?? {},
+      executionId: missionIdTrimmed,
+      stepId,
+      response,
+      data,
+      source: 'missions_respond_deprecated',
     });
 
-    const newStoreName =
-      typeof mergedOutputs.storeName === 'string'
-        ? mergedOutputs.storeName.trim()
-        : typeof mergedOutputs.businessName === 'string'
-          ? mergedOutputs.businessName.trim()
-          : '';
-    if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
-      console.log('[missions/respond] store title probe', {
-        missionId: missionIdTrimmed,
-        stepId,
-        storeName: mergedOutputs.storeName,
-        businessName: mergedOutputs.businessName,
-        intentMode: mergedOutputs.intentMode ?? mergedOutputs.intentType,
-        newStoreName: newStoreName || null,
-      });
-    }
-    if (newStoreName && pipeline.type === 'store') {
-      const metaAfter =
-        dualMeta && typeof dualMeta === 'object' && !Array.isArray(dualMeta)
-          ? dualMeta
-          : pipeline.metadataJson && typeof pipeline.metadataJson === 'object' && !Array.isArray(pipeline.metadataJson)
-            ? pipeline.metadataJson
-            : {};
-      const intentModeRaw =
-        mergedOutputs.intentMode ??
-        mergedOutputs.intentType ??
-        metaAfter.intentMode ??
-        metaAfter.intentType ??
-        null;
-      const intentStr = typeof intentModeRaw === 'string' ? intentModeRaw.trim().toLowerCase() : '';
-      const metaWebsite =
-        metaAfter.websiteMode === true ||
-        metaAfter.generateWebsite === true ||
-        (typeof metaAfter.intentMode === 'string' && metaAfter.intentMode.trim().toLowerCase() === 'website');
-      const prefix =
-        intentStr === 'website' || metaWebsite ? 'Create mini website' : 'Create store';
-      await prisma.missionPipeline.update({
-        where: { id: missionIdTrimmed },
-        data: { title: `${prefix}: ${newStoreName.slice(0, 120)}` },
-      });
-    }
-
-    const orchestration = await runMissionUntilBlocked(missionIdTrimmed, { forceExecuting: true });
-
-    const mAfter = await prisma.missionPipeline.findUnique({
-      where: { id: missionIdTrimmed },
-      include: { steps: true },
-    });
-
-    const allStepsDone =
-      mAfter &&
-      Array.isArray(mAfter.steps) &&
-      mAfter.steps.length > 0 &&
-      mAfter.steps.every((s) => {
-        const st = String(s.status ?? '').toLowerCase();
-        return st === 'completed' || st === 'skipped' || st === 'failed';
-      });
-    const runStateDone = String(mAfter?.runState ?? '').toLowerCase() === 'done';
-    const pipelineAlreadyCompleted = mAfter?.status === 'completed' || runStateDone;
-
-    if (allStepsDone && mAfter && (mAfter.status === 'executing' || pipelineAlreadyCompleted)) {
-      if (mAfter.status === 'executing') {
-        await prisma.missionPipeline.update({
-          where: { id: missionIdTrimmed },
-          data: { status: 'completed', runState: 'done', completedAt: new Date(), currentStepId: null },
-        });
-      }
-
-      const fresh = await prisma.missionPipeline.findUnique({
-        where: { id: missionIdTrimmed },
-        select: { id: true, type: true, status: true, runState: true, outputsJson: true, metadataJson: true },
-      });
-      const outputsForSummary =
-        fresh?.outputsJson && typeof fresh.outputsJson === 'object' && !Array.isArray(fresh.outputsJson)
-          ? fresh.outputsJson
-          : {};
-      // eslint-disable-next-line no-console
-      console.log('[respond-route] firing postMissionSummary', {
-        missionId: fresh?.id,
-        type: fresh?.type,
-        status: fresh?.status,
-        runState: fresh?.runState,
-        priorStatusWasExecuting: mAfter.status === 'executing',
-        orchestrationStoppedReason: orchestration?.stoppedReason,
-      });
-      void runPostMissionCompletionSummary({
-        missionId: missionIdTrimmed,
-        missionType: fresh?.type ?? null,
-        metadataJson: fresh?.metadataJson ?? null,
-        outputsJson: outputsForSummary,
-      }).catch((e) => {
-        // eslint-disable-next-line no-console
-        console.warn('[postMissionSummary] failed:', e?.message || e);
-      });
-    } else if (mAfter) {
-      // eslint-disable-next-line no-console
-      console.log('[respond-route] skip postMissionSummary', {
-        missionId: missionIdTrimmed,
-        status: mAfter.status,
-        runState: mAfter.runState,
-        allStepsDone,
-        stepStatuses: Array.isArray(mAfter.steps) ? mAfter.steps.map((s) => ({ id: s.id, st: s.status })) : [],
-      });
-    }
-
-    return res.json({
-      ok: true,
-      resumed: true,
-      orchestration: {
-        stepsRun: orchestration.stepsRun,
-        stoppedReason: orchestration.stoppedReason,
-        status: orchestration.status,
-      },
-    });
+    const http = toExecutionCheckpointHttpResponse(checkpointResult, missionIdTrimmed);
+    return res.status(http.statusCode).json(http.body);
   } catch (err) {
     next(err);
   }

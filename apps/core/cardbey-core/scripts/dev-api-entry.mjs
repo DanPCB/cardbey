@@ -3,6 +3,7 @@
  * Nodemon keeps the same process as parent; restarts spawn a new child with the same ppid,
  * so we detect restarts via a small cache keyed by process.ppid (the nodemon PID).
  */
+import '../src/lib/forceV8MemoryLimit.js';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

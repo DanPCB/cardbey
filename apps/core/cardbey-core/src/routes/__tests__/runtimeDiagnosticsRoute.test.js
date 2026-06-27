@@ -80,7 +80,8 @@ describe('runtime diagnostics routes', () => {
   it('rate limits anonymous ingest', async () => {
     const app = makeApp();
     let lastStatus = 201;
-    for (let i = 0; i < 65; i += 1) {
+    let saw429 = false;
+    for (let i = 0; i < 105; i += 1) {
       const res = await request(app)
         .post('/api/runtime/diagnostics')
         .send({
@@ -91,8 +92,12 @@ describe('runtime diagnostics routes', () => {
           message: 'spam',
         });
       lastStatus = res.status;
-      if (lastStatus === 429) break;
+      if (lastStatus === 429) {
+        saw429 = true;
+        break;
+      }
     }
+    expect(saw429).toBe(true);
     expect(lastStatus).toBe(429);
   });
 

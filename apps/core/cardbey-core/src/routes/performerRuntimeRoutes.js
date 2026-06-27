@@ -31,6 +31,9 @@ import {
 import { dryRunExecutionPlan } from '../lib/runtime/performerRuntime/dryRunExecutionPlan.js';
 import { executeAnalyzeStoreCapability } from '../lib/runtime/performerRuntime/executeAnalyzeStoreCapability.js';
 import { executeCreateOfferDraftCapability } from '../lib/runtime/performerRuntime/executeCreateOfferDraftCapability.js';
+import { ensureQuickActionMission } from '../lib/mission/quickActionMission.js';
+import { checkRuntimeAuthority } from '../lib/mode/checkRuntimeAuthority.js';
+import { resolvePerformerMode } from '../lib/mode/modeTypes.js';
 import { executeReviseOfferDraftCapability } from '../lib/runtime/performerRuntime/executeReviseOfferDraftCapability.js';
 import { executeActivateBusinessSpaceCapability } from '../lib/runtime/performerRuntime/executeActivateBusinessSpaceCapability.js';
 import { executeAcceptEnrichmentCapability } from '../lib/runtime/performerRuntime/executeAcceptEnrichmentCapability.js';
@@ -500,15 +503,70 @@ router.post('/capabilities/analyze-store', optionalAuth, async (req, res) => {
  */
 router.post('/capabilities/create-offer-draft', optionalAuth, async (req, res) => {
   const body = req.body && typeof req.body === 'object' ? req.body : {};
-  const missionId = typeof body.missionId === 'string' ? body.missionId.trim() : '';
+  let missionId = typeof body.missionId === 'string' ? body.missionId.trim() : '';
   const storeId = typeof body.storeId === 'string' ? body.storeId.trim() : '';
-  if (!missionId) {
-    return res.status(400).json({ ok: false, error: 'mission_id_required' });
-  }
   if (!storeId) {
     return res.status(400).json({ ok: false, error: 'store_id_required', status: 'blocked' });
   }
+
+  const performerMode = resolvePerformerMode(req, body);
+  const authority = await checkRuntimeAuthority({
+    action: {
+      tool: 'create_offer',
+      parameters: { storeId, missionId: missionId || undefined },
+    },
+    userId: req.user?.id ?? null,
+    isGuest: !req.user?.id,
+    context: { activeStoreId: storeId },
+    mode: performerMode,
+    source: performerMode === 'manual' ? 'manual' : 'automation',
+  });
+  if (!authority.allowed) {
+    return res.status(403).json({
+      ok: false,
+      error: 'authorization_denied',
+      reason: authority.reason,
+      status: 'blocked',
+    });
+  }
+
+  let missionAutoCreated = false;
   try {
+    if (!missionId) {
+      const sessionId =
+        (typeof req.headers['x-session-id'] === 'string' && req.headers['x-session-id'].trim()) ||
+        (typeof body.sessionId === 'string' && body.sessionId.trim()) ||
+        null;
+
+      const ensured = await ensureQuickActionMission({
+        storeId,
+        actionType:
+          (typeof body.actionType === 'string' && body.actionType.trim()) ||
+          'create_offer_draft',
+        source:
+          (typeof body.source === 'string' && body.source.trim()) || 'quick_action_pill',
+        intentText: typeof body.intentText === 'string' ? body.intentText : undefined,
+        label: typeof body.label === 'string' ? body.label : undefined,
+        userId: req.user?.id ?? null,
+        sessionId,
+        tenantId: req.user?.tenantId ?? null,
+      });
+
+      if (ensured.missionId) {
+        missionId = ensured.missionId;
+        missionAutoCreated = ensured.created === true;
+        if (missionAutoCreated) {
+          console.log(
+            `[create-offer-draft] Auto-created mission ${missionId} for quick action`,
+          );
+        }
+      }
+    }
+
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required' });
+    }
+
     const result = await executeCreateOfferDraftCapability({
       missionId,
       storeId,
@@ -527,6 +585,7 @@ router.post('/capabilities/create-offer-draft', optionalAuth, async (req, res) =
       code: result.code,
       missionId,
       storeId,
+      ...(missionAutoCreated ? { missionAutoCreated: true } : {}),
     });
   } catch (err) {
     console.error('[performer/runtime/create-offer-draft]', err);

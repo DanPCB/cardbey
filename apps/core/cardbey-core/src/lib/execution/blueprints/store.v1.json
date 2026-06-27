@@ -1,0 +1,69 @@
+{
+  "id": "store",
+  "name": "Store creation workflow",
+  "version": "1.0.0",
+  "missionType": "store",
+  "metadata": {
+    "description": "Structured store build: logo checkpoint → conditional branch → draft generation → review"
+  },
+  "steps": [
+    {
+      "id": "logo",
+      "orderIndex": 0,
+      "stepKind": "checkpoint",
+      "toolName": "mission.checkpoint",
+      "labels": { "en": "Logo", "vi": "Logo" },
+      "config": {
+        "type": "checkpoint",
+        "outputKey": "logoChoice",
+        "prompts": {
+          "en": "Would you like to upload a logo for your store?",
+          "vi": "Bạn có muốn tải lên logo cho cửa hàng không?"
+        },
+        "optionItems": [
+          {
+            "value": "Upload now",
+            "displayLabel": { "en": "Upload now", "vi": "Tải lên ngay" }
+          },
+          {
+            "value": "Skip",
+            "displayLabel": { "en": "Skip", "vi": "Bỏ qua" }
+          },
+          {
+            "value": "Choose from library",
+            "displayLabel": { "en": "Choose from library", "vi": "Chọn từ thư viện" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "logo_path",
+      "orderIndex": 1,
+      "stepKind": "conditional",
+      "toolName": "mission.conditional",
+      "labels": { "en": "Logo path", "vi": "Nhánh logo" },
+      "config": {
+        "type": "conditional",
+        "condition": "logoChoice === \"Upload now\"",
+        "ifTrueTool": "mission_conditional_branch",
+        "ifFalseTool": "mission_conditional_branch",
+        "ifTrueInput": { "branch": "upload", "label": "await_logo_upload" },
+        "ifFalseInput": { "branch": "default", "label": "assign_default_logo" }
+      }
+    },
+    {
+      "id": "generate_store_draft",
+      "orderIndex": 2,
+      "stepKind": "action",
+      "toolName": "structured_store_build",
+      "labels": { "en": "Generate store draft", "vi": "Tạo bản nháp cửa hàng" }
+    },
+    {
+      "id": "review_store",
+      "orderIndex": 3,
+      "stepKind": "action",
+      "toolName": "analyze_store",
+      "labels": { "en": "Review store", "vi": "Xem lại cửa hàng" }
+    }
+  ]
+}

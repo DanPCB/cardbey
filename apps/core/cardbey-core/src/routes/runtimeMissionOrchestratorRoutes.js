@@ -28,6 +28,10 @@ function orchestratorContext(req) {
     traceId,
     requestId: typeof body.requestId === 'string' ? body.requestId.trim() : null,
     planSteps: Array.isArray(body.plan) ? body.plan : Array.isArray(body.planSteps) ? body.planSteps : null,
+    planParameters:
+      body.planParameters && typeof body.planParameters === 'object' && !Array.isArray(body.planParameters)
+        ? body.planParameters
+        : null,
     stepNumber: body.stepNumber != null ? Math.floor(Number(body.stepNumber)) : null,
     forceRetry: body.forceRetry === true || body.retry === true,
   };

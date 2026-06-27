@@ -7,6 +7,7 @@ import {
   normalizeClassificationForKernel,
   isRuntimeStepExecutionEnabled,
   isKernelMandatoryEnabled,
+  isKernelAuthorizedRuntimeSource,
 } from '../../src/lib/runtime/kernelMandatory.js';
 import { resetKernelAuditForTests } from '../../src/lib/runtime/kernelAudit.js';
 import { guardBrokerDirectAction } from '../../src/lib/broker/brokerRunwayGuard.js';
@@ -64,9 +65,40 @@ describe('Runtime Kernel Mandatory', () => {
     expect(normalized._kernelNormalizedFrom).toBe('direct_action');
   });
 
+  it('preserves direct_action for ingest_asset_for_intent_detection under kernel mandatory', () => {
+    const normalized = normalizeClassificationForKernel({
+      executionPath: 'direct_action',
+      tool: 'ingest_asset_for_intent_detection',
+      confidence: 0.92,
+      parameters: { userPrompt: '(Image attached)' },
+      _fastPath: 'asset_intent_detection',
+    });
+    expect(normalized.executionPath).toBe('direct_action');
+    expect(normalized.tool).toBe('ingest_asset_for_intent_detection');
+    expect(normalized._kernelNormalizedFrom).toBeUndefined();
+  });
+
   it('blocks direct tool dispatch via broker guard by default', () => {
     const guard = guardBrokerDirectAction({ source: 'intake_v2' });
     expect(guard.blocked).toBe(true);
+  });
+
+  it('treats kernel-authorized intake sources as facade paths (not direct bypass)', () => {
+    expect(isKernelAuthorizedRuntimeSource('intake_v2_unified', 'dispatch_tool')).toBe(true);
+    expect(isKernelAuthorizedRuntimeSource('intake_v2_shortcut_contract', 'dispatch_tool')).toBe(true);
+    expect(isKernelAuthorizedRuntimeSource('intake_v2_classified_checkpoint', 'dispatch_tool')).toBe(true);
+    expect(isKernelAuthorizedRuntimeSource('intake_v2', 'dispatch_tool')).toBe(false);
+  });
+
+  it('allows dispatch_tool from kernel-authorized intake source without broker block', async () => {
+    const result = await executeRuntimeAction({
+      actionType: 'dispatch_tool',
+      source: 'intake_v2_unified',
+      missionId: 'm-kernel-auth-1',
+      userId: 'user-test',
+      payload: { toolName: 'create_store', input: { businessName: 'Test' } },
+    });
+    expect(result.blocker?.code).not.toBe('BROKER_DIRECT_ACTION_BLOCKED');
   });
 
   it('blocks executeRuntimeAction from intake_v2 source', async () => {

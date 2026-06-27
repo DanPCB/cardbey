@@ -3,6 +3,8 @@
  * Missing env vars → internal warnings only; never expose raw env names to user APIs.
  */
 
+import { getExecutionModeProfile, resetExecutionModeForTests } from './executionMode.js';
+
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
   if (raw === undefined || raw === null || String(raw).trim() === '') {
@@ -111,6 +113,23 @@ export function initRuntimeCapabilities() {
   /** @type {Record<string, boolean>} */
   const caps = {};
   for (const [key, spec] of Object.entries(CAPABILITY_SPECS)) {
+    if (key === 'runtimeKernel' || key === 'runtimeStepExecution' || key === 'sharedRuntimeToolRegistry') {
+      const modeProfile = getExecutionModeProfile();
+      const modeValue =
+        key === 'runtimeKernel'
+          ? modeProfile.runtimeKernel
+          : key === 'runtimeStepExecution'
+            ? modeProfile.runtimeStepExecution
+            : modeProfile.sharedRuntimeToolRegistry;
+      caps[key] = modeValue;
+      if (!modeValue) {
+        logRuntimeCapabilityEvent('disabled', /** @type {RuntimeCapabilityKey} */ (key), {
+          detail: `EXECUTION_MODE=${modeProfile.mode}`,
+        });
+      }
+      continue;
+    }
+
     if (spec.disableEnv && envTruthy(spec.disableEnv, false)) {
       caps[key] = false;
       logRuntimeCapabilityEvent('disabled', /** @type {RuntimeCapabilityKey} */ (key), {
@@ -249,6 +268,7 @@ export function userMessageForCapability(capability) {
 export function resetRuntimeCapabilitiesForTests() {
   cachedCapabilities = null;
   capabilityEvents.length = 0;
+  resetExecutionModeForTests();
 }
 
 export function getRuntimeCapabilityEventsForTests() {

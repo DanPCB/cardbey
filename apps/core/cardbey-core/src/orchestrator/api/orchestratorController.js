@@ -12,7 +12,7 @@
  */
 function deriveIntentFromEntryPoint(entryPoint) {
   const goalMap = {
-    loyalty_from_card: 'create_loyalty_program',
+    loyalty_from_card: 'setup_loyalty_program',
     shopfront_signage: 'preview_shopfront_sign',
     menu_from_photo: 'create_menu_from_image',
     campaign_setup: 'setup_campaign',

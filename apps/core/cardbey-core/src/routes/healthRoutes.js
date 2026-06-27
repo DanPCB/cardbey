@@ -23,6 +23,11 @@ const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/** Cached full health payload — expensive DB fingerprint + scheduler checks. */
+let fullHealthCache = null;
+let fullHealthCacheAt = 0;
+const FULL_HEALTH_CACHE_MS = 30_000;
+
 // Read version from package.json
 let version = '0.0.0';
 try {
@@ -63,9 +68,8 @@ router.get('/storage/status', (req, res) => {
  * Otherwise returns simple format: { ok: true, env: "...", timestamp: "..." }
  */
 router.get('/health', async (req, res) => {
-  // Simple health check for device players (default)
+  // Simple health check for device players (default) — no DB, no logging spam
   if (req.query.full !== 'true') {
-    console.log(`[Health] GET /api/health (simple) from ${req.ip}`);
     res.setHeader('Cache-Control', 'no-store');
     return res.json({
       ok: true,
@@ -74,10 +78,14 @@ router.get('/health', async (req, res) => {
     });
   }
 
-  // Comprehensive health check for dashboard (?full=true)
-  console.log(`[Health] GET /api/health (full) from ${req.ip}`);
-  // Set cache headers
-  res.setHeader('Cache-Control', 'no-store');
+  // Comprehensive health check for dashboard (?full=true) — cached to avoid heap/CPU spikes
+  const now = Date.now();
+  if (fullHealthCache && now - fullHealthCacheAt < FULL_HEALTH_CACHE_MS) {
+    res.setHeader('Cache-Control', 'private, max-age=30');
+    return res.json(fullHealthCache);
+  }
+
+  res.setHeader('Cache-Control', 'private, max-age=30');
   
   try {
     const uptimeSec = Math.floor(process.uptime());
@@ -124,6 +132,8 @@ router.get('/health', async (req, res) => {
       storage,
     };
     
+    fullHealthCache = healthData;
+    fullHealthCacheAt = Date.now();
     res.json(healthData);
   } catch (error) {
     console.error('[Health] Error generating health status:', error);

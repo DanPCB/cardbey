@@ -1,5 +1,9 @@
 /**
  * Rule-based entity reference extraction from user messages (no DB, no LLM).
+ *
+ * Does NOT treat arbitrary capitalized phrases as product names — that caused store-setup
+ * pill submits ("My Beauty · Beauty · Melbourne") to hit product catalog search before
+ * intent classification. Product refs require explicit product/menu/item phrasing or quotes.
  */
 
 export const ENTITY_TYPES = ['store', 'product', 'campaign', 'image', 'service'];
@@ -40,11 +44,12 @@ const IMAGE_PATTERNS = [
 
 const SERVICE_PATTERNS = [/\bthe\s+service\b/i, /\bbook\s+(?:a|an)\s+/i];
 
-/** @type {RegExp} */
-const QUOTED_RE = /["“]([^"”]{2,120})["”]|'([^']{2,120})'/g;
+/** Explicit product/menu CRUD or lookup phrasing — required before quoted names → product. */
+const PRODUCT_INTENT_RE =
+  /\b(product|products|menu\s+item|menu\s+items|item|items|sku|catalog|price|pricing|stock|inventory)\b/i;
 
 /** @type {RegExp} */
-const CAPITALIZED_PHRASE_RE = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,4})\b/g;
+const QUOTED_RE = /[""]([^""]{2,120})[""]|'([^']{2,120})'/g;
 
 /**
  * @typedef {{
@@ -120,27 +125,20 @@ export function extractEntities(message) {
     if (m) pushUnique(out, makeRef(text, m.index, m[0], 'service'));
   }
 
+  const productIntent = PRODUCT_INTENT_RE.test(text);
+
   let qm;
   QUOTED_RE.lastIndex = 0;
   while ((qm = QUOTED_RE.exec(text)) !== null) {
     const quoted = (qm[1] ?? qm[2] ?? '').trim();
     if (quoted.length >= 2) {
-      pushUnique(out, makeRef(text, qm.index, quoted, 'product'));
+      pushUnique(out, makeRef(text, qm.index, quoted, productIntent ? 'product' : 'store'));
     }
   }
 
   const pronounOnly = text.match(/\b(it|that|this one|this)\b/i);
   if (pronounOnly) {
     pushUnique(out, makeRef(text, text.indexOf(pronounOnly[0]), pronounOnly[0], 'store'));
-  }
-
-  const capMatches = text.matchAll(CAPITALIZED_PHRASE_RE);
-  for (const m of capMatches) {
-    const phrase = (m[1] ?? '').trim();
-    if (phrase.length < 3) continue;
-    if (/^(I|We|The|My|A|An|And|Or|But|For|With|From|To|In|On|At|By)$/i.test(phrase)) continue;
-    if (out.some((r) => r.ref.toLowerCase() === phrase.toLowerCase())) continue;
-    pushUnique(out, makeRef(text, m.index ?? 0, phrase, 'product'));
   }
 
   out.sort((a, b) => a.position - b.position);

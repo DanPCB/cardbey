@@ -37,6 +37,9 @@ import scheduleLoyaltyCampaign from '../toolExecutors/loyalty/schedule_loyalty_c
 import analyzeVideoBrief from '../toolExecutors/video/analyze_video_brief.js';
 import generateVideoScript from '../toolExecutors/video/generate_video_script.js';
 import queueVideoGeneration from '../toolExecutors/video/queue_video_generation.js';
+import createOrder from '../toolExecutors/business/create_order.js';
+import checkoutOrder from '../toolExecutors/business/checkout_order.js';
+import receiveInventory from '../toolExecutors/business/receive_inventory.js';
 
 type Executor = (input: Record<string, unknown>) => Promise<unknown> | unknown;
 
@@ -263,4 +266,13 @@ export function videoGenerationSteps(): Step[] {
         }),
     },
   ]);
+}
+
+/** business_operations — governed commercial ops (Phase 1). */
+export function businessOperationsSteps(): Step[] {
+  return [
+    wrapExecutor('create_order', 'Create POS order', (input) => asExecutor(createOrder)(input)),
+    wrapExecutor('checkout_order', 'Checkout order', (input) => asExecutor(checkoutOrder)(input)),
+    wrapExecutor('receive_inventory', 'Receive inventory', (input) => asExecutor(receiveInventory)(input)),
+  ];
 }

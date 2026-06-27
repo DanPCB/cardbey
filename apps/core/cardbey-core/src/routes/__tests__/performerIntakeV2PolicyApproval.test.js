@@ -25,16 +25,8 @@ vi.mock('../../middleware/guestAuth.js', () => ({
   requireUserOrGuest: (_req, _res, next) => next(),
 }));
 
-vi.mock('../../lib/intake/intakeClassifier.js', () => ({
-  classifyIntent: vi.fn(async () => ({
-    executionPath: 'proactive_plan',
-    tool: 'orders_report',
-    confidence: 0.95,
-    parameters: { groupBy: 'day' },
-  })),
+vi.mock('../../lib/intent/campaignOrchestrationIntent.js', () => ({
   isCampaignOrchestrationIntent: vi.fn(() => false),
-  CONFIDENCE: { HIGH: 0.8, MEDIUM: 0.55, LOW: 0 },
-  FALLBACK_CLARIFY: { clarifyOptions: [] },
 }));
 
 vi.mock('../../lib/toolDispatcher.js', () => ({

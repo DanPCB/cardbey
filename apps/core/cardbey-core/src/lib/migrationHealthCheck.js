@@ -59,9 +59,9 @@ export async function checkMigrationHealth() {
 
     const diskMigrations = new Set();
     try {
-      for (const dir of ['prisma/sqlite/migrations', 'prisma/migrations']) {
-        const migrationsDir = path.join(coreRoot, dir);
-        if (!fs.existsSync(migrationsDir)) continue;
+      // SQLite dev DB uses prisma/sqlite/migrations only (not legacy prisma/migrations).
+      const migrationsDir = path.join(coreRoot, 'prisma', 'sqlite', 'migrations');
+      if (fs.existsSync(migrationsDir)) {
         for (const name of fs.readdirSync(migrationsDir)) {
           if (fs.statSync(path.join(migrationsDir, name)).isDirectory()) {
             diskMigrations.add(name);

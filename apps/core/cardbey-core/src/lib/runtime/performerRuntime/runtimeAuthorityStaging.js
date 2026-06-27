@@ -10,6 +10,7 @@ import {
   isBrokerExecutionTelemetryEnabled,
   isBrokerTelemetryRequired,
 } from '../../broker/brokerFlags.js';
+import { getExecutionMode, getExecutionModeProfile } from '../executionMode.js';
 import {
   isPerformerRuntimeEnabled,
   isPerformerRuntimeOwnershipBlockEnabled,
@@ -117,10 +118,14 @@ export function emitRuntimeAuthorityProbe(snapshot) {
  */
 export function getRuntimeAuthoritySnapshot() {
   const stage = getRuntimeAuthorityRolloutStage();
+  const execution = getExecutionModeProfile();
   return {
     ok: true,
     rolloutStage: stage,
+    executionMode: getExecutionMode(),
+    executionModeSource: execution.source,
     rawEnv: {
+      EXECUTION_MODE: process.env.EXECUTION_MODE ?? null,
       BROKER_DIRECT_VIA_FACADE: process.env.BROKER_DIRECT_VIA_FACADE ?? null,
       BROKER_EXECUTION_TELEMETRY: process.env.BROKER_EXECUTION_TELEMETRY ?? null,
       BROKER_BLOCK_DIRECT_ACTION: process.env.BROKER_BLOCK_DIRECT_ACTION ?? null,

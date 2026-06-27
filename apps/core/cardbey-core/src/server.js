@@ -6,8 +6,13 @@
  * Run with: tsx src/server.js (or use npm run dev which uses nodemon)
  */
 
+// Memory limit must be established before any other application code runs.
+import './lib/forceV8MemoryLimit.js';
+import { verifyMemoryLimit } from './lib/memoryVerification.js';
+
 // Load environment variables first so DATABASE_URL/engine flags are present.
 import './env/loadEnv.js';
+import './lib/processGuards.js';
 
 // MUST run before any PrismaClient: normalize DATABASE_URL for SQLite (file:)
 import './env/ensureDatabaseUrl.js';
@@ -28,6 +33,9 @@ assertDatabaseIdentityAtStartup();
 assertSchemaFingerprintAtStartup();
 logCoreEnvBoot();
 logStorageBoot();
+
+const memoryVerified = verifyMemoryLimit();
+console.log(`[MEM] Memory limit verified: ${memoryVerified ? 'yes' : 'no'}`);
 
 // Register tsx loader for TypeScript imports (if available)
 try {
@@ -64,6 +72,7 @@ import { printRoutes, requestTap } from './utils/routeInspector.js';
 import bodyParser from 'body-parser';
 import aiRouter from './routes/ai.js';
 import aiImagesRouter from './routes/aiImages.js';
+import aiPromoRouter from './routes/aiPromoRoutes.js';
 import studioRouter from './routes/studio.js';
 import assetsRouter from './routes/assets.js';
 import mediaVideoRouter from './routes/mediaVideo.js';
@@ -101,7 +110,6 @@ import { flushWriteQueue } from './lib/sqliteWriteQueue.js';
 import { bootstrapSuperAdmin } from './lib/bootstrapSuperAdmin.js';
 import { warnIfMigrationHistoryDirty } from './lib/migrationHealthCheck.js';
 import { startHeartbeat, getStatus as getSchedulerStatus } from './scheduler/heartbeat.js';
-import { startQaSweepScheduler } from './services/qa/qaSweepScheduler.js';
 import { isSseHealthy } from './realtime/sse.js';
 import { getOAuthStatus } from './auth/providers.js';
 import oauthRoutes from './routes/oauth.js';
@@ -127,11 +135,10 @@ import {
   logMediaStaticResponse,
   resolveUploadContentType,
 } from './lib/uploadsStatic.js';
-import { startOfflineWatcher } from './worker/offlineWatcher.js';
-import { startSessionCleanup } from './worker/sessionCleanup.js';
-import { startDeviceCleanupWorker } from './worker/deviceCleanup.js';
-import { cleanupRateLimitStore } from './middleware/rateLimit.js';
-import { reconcileStaleOrchestraMirrors } from './lib/orchestraMirror.js';
+import { startBackgroundWorkers, stopBackgroundWorkers } from './lib/backgroundWorkers.js';
+import { startMemoryMonitor } from './lib/memoryMonitor.js';
+import { getSseClientCount } from './realtime/simpleSse.js';
+import { getPlatformActivityStreamClientCount } from './lib/platformActivity/platformActivityStore.js';
 import debugRoutes from './routes/debug.js';
 import { createDebugRoutesLite } from './routes/debugRoutesLite.js';
 import assistantRouter from './routes/assistant.js';
@@ -171,7 +178,9 @@ import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
 import publicDiscoveryRoutes from './routes/publicDiscoveryRoutes.js';
+import publicFeedRoutes from './routes/publicFeedRoutes.js';
 import publicContentInteractionRoutes from './routes/publicContentInteractionRoutes.js';
+import storeEngagementRoutes from './routes/storeEngagementRoutes.js';
 import publicStoreRoutes from './routes/publicStoreRoutes.js';
 import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
@@ -201,7 +210,6 @@ import skillRoutes from './routes/skillRoutes.js';
 import hookRoutes from './routes/hookRoutes.js';
 import agentRoutes from './routes/agentRoutes.js';
 import reliabilityRoutes from './routes/reliabilityRoutes.js';
-import suggestionEngine from './services/copilot/suggestionEngine.js';
 import signalRoutes from './routes/signalRoutes.js';
 import userMemoryRoutes from './routes/userMemoryRoutes.js';
 import betaRoutes from './routes/betaRoutes.js';
@@ -232,6 +240,7 @@ import threadsRoutes from './routes/threadsRoutes.js';
 import contactsSyncRoutes from './routes/contactsSyncRoutes.js';
 import aiOperatorRoutes from './routes/aiOperatorRoutes.js';
 import missionsRoutes from './routes/missionsRoutes.js';
+import executionRoutes from './routes/executionRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
@@ -239,6 +248,7 @@ import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
 import agentsV1Routes from './routes/agentsV1Routes.js';
 import researcherRoutes from './routes/researcherRoutes.js';
 import campaignRoutes from './routes/campaignRoutes.js';
+import campaignsCompatRoutes from './routes/campaignsCompatRoutes.js';
 import devContentIngestRoutes from './routes/devContentIngest.js';
 import devCreditsRoutes from './routes/devCredits.js';
 import truthEnforcerRoutes from './routes/truthEnforcerRoutes.js';
@@ -252,7 +262,9 @@ import rewardRoutes from './routes/reward.js';
 import performerRoutes from './routes/performer.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
+import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
+import learningRoutes from './lib/learning/learningRoutes.js';
 import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import visionIntakeRoutes from './routes/visionIntake.js';
 import visionDiscoveryRoutes from './routes/visionDiscoveryRoutes.js';
@@ -276,9 +288,6 @@ import devApplyPatchRoutes from './routes/devApplyPatchRoutes.js';
 import devSystemMissionsRoutes from './routes/devSystemMissions.js';
 import devBrokerRuntimeProofRoutes from './routes/devBrokerRuntimeProofRoutes.js';
 import { initializeToolsRegistry } from './orchestrator/toolsRegistry.js';
-import { startInsightGenerationJob } from './scheduler/systemWatcherJob.js';
-import { initReportScheduler } from './scheduler/reportScheduler.js';
-import { initDiscoveryScheduler } from './lib/discovery/DiscoveryScheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -336,11 +345,21 @@ function sseHeaders(req, res) {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 }
+
+/** Long-lived SSE endpoints must skip compression and body parsers. */
+function isLongLivedSseRequest(req) {
+  const path = String(req.originalUrl || req.url || '').split('?')[0];
+  if (path.startsWith('/api/stream') || path.startsWith('/api/ai/stream')) return true;
+  if (path === '/api/admin/platform/activity/stream') return true;
+  if (/^\/api\/stores\/[^/]+\/activity\/stream$/.test(path)) return true;
+  if (path.startsWith('/api/public/store-engagement/stream')) return true;
+  return false;
+}
 // Global CORS middleware for all routes EXCEPT SSE routes
 // SSE routes handle CORS manually to ensure proper headers for long-lived connections
 app.use((req, res, next) => {
   // Skip CORS middleware for SSE routes - they handle CORS manually
-  if (req.originalUrl.startsWith('/api/stream') || req.originalUrl.startsWith('/api/ai/stream')) {
+  if (isLongLivedSseRequest(req)) {
     return next(); // Skip CORS middleware, let SSE handler set headers manually
   }
 
@@ -472,9 +491,8 @@ app.options('*', (req, res) => {
   // Return 204 No Content for preflight (CORS spec)
   res.status(204).end();
 });
-// Skip compression for SSE routes
 app.use((req, res, next) => {
-  if (req.path === '/api/stream' || req.path === '/api/ai/stream') {
+  if (isLongLivedSseRequest(req)) {
     res.locals = res.locals || {};
     res.locals.skipCompression = true;
   }
@@ -485,7 +503,7 @@ app.use((req, res, next) => {
 app.use(compression({
   filter: (req, res) => (
     req.originalUrl.startsWith('/uploads')
-      || req.originalUrl.startsWith('/api/stream') || req.originalUrl.startsWith('/api/ai/stream') || res?.locals?.skipCompression
+      || isLongLivedSseRequest(req) || res?.locals?.skipCompression
       ? false
       : compression.filter(req, res)
   ),
@@ -545,10 +563,10 @@ app.get('/__whoami', (_req, res) => {
     }
   });
 });
-// Simple health check (legacy, redirects to /api/health)
+// Simple health check (legacy) — prefer GET /api/health?full=true
 app.get('/health', (_req, res) => {
-  console.log('[HEALTH] Health check request received');
-  res.status(200).send('ok');
+  console.warn('[DEPRECATED] GET /health — use GET /api/health?full=true');
+  res.status(200).json({ ok: true, deprecated: true, use: '/api/health?full=true' });
 });
 
 app.get('/robots.txt', (_req, res) => {
@@ -603,7 +621,7 @@ app.use((req, res, next) => {
       console.log('[MIDDLEWARE] Before jsonParser:', req.method, req.path, req.url);
     }
     // Skip body parsing for SSE routes - use originalUrl to catch routes mounted at /api
-    if (req.originalUrl.startsWith('/api/stream') || req.originalUrl.startsWith('/api/ai/stream')) {
+    if (isLongLivedSseRequest(req)) {
       return next(); // Skip body parsing for SSE
     }
     jsonParser(req, res, (err) => {
@@ -629,7 +647,7 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   try {
     // Skip body parsing for SSE routes - use originalUrl to catch routes mounted at /api
-    if (req.originalUrl.startsWith('/api/stream') || req.originalUrl.startsWith('/api/ai/stream')) {
+    if (isLongLivedSseRequest(req)) {
       return next(); // Skip body parsing for SSE
     }
     urlencodedParser(req, res, (err) => {
@@ -909,9 +927,13 @@ app.patch('/api/users/me/profile', requireAuth, patchCurrentUserProfile);
 app.use('/api/performer/intake', performerIntakeRoutes);
 app.use('/api/performer/runtime', performerRuntimeRoutes); // Phase 1.5: stream + state
 app.use('/api/tools', toolsRoutes);
+app.use('/api/business-operations', businessOperationsRoutes);
 // Mount before broad /api routers and /api/assistant so POST /api/missions/* (e.g. extract-card) hits this stack first.
+// Mount before /api/missions so unified execution checkpoint API is registered first.
+app.use('/api/execution', executionRoutes);
 app.use('/api/missions', missionsRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
+app.use('/api/learning', learningRoutes);
 app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
 app.use('/api/vision', visionIntakeRoutes);
 app.use('/api/vision', visionDiscoveryRoutes);
@@ -1009,6 +1031,8 @@ app.use('/api/catalog', catalogRoutes); // Catalog SAM-3 processing routes: /api
 app.use('/api/public/store', publicStoreRoutes); // Draft alias: GET /api/public/store/:storeId/draft (before /api/public)
 app.use('/api/public/stores', intentFeedRoutes); // Intent feed: GET /api/public/stores/:storeId/intent-feed (no auth)
 app.use('/api/public/content-interactions', publicContentInteractionRoutes);
+app.use('/api/public/store-engagement', storeEngagementRoutes);
+app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
 
@@ -1027,6 +1051,7 @@ app.use('/api', menuPhotoAssignRoutes); // Menu photo assignment routes: /api/me
 app.use('/api/system', systemRoutes); // System routes: /api/system/metrics, /api/system/diagnose, /api/system/events/recent, /api/system/repair/*
 console.log('[CORE] Routes: /health, /healthz, /readyz, /api/ping, /api/health, /api/stream, /api/screens/*, /api/playlists/*');
 app.use('/api/ai', aiRouter);
+app.use('/api/ai', aiPromoRouter);
 app.use('/api/ai/images', aiImagesRouter);
 app.use('/api/studio', studioRouter);
 // Production-critical: store mission Phase 0 create/summary/generate. Same DB for create and read (single DATABASE_URL).
@@ -1094,6 +1119,7 @@ app.use('/api/oauth', oauthGoogleRoutes); // Google OAuth (Calendar / future Gma
 app.use('/mcp', mcpRoutes);
 app.use('/mcp', mcpServerRoutes);
 console.log('[CORE] MCP server mounted at /mcp (SSE: /mcp/sse, Messages: /mcp/message, Info: /mcp/info)');
+app.use('/api/campaigns', campaignsCompatRoutes); // Legacy dashboard list: GET /api/campaigns?limit=
 app.use(workflowsRouter);
 app.use('/api/assistant', assistantRouter); // Assistant chatbot endpoints
 app.use('/api/rag', ragRoutes); // RAG (Retrieval-Augmented Generation) endpoints
@@ -1229,13 +1255,18 @@ const isTestEnv = (process.env.NODE_ENV || '').toLowerCase() === 'test' || Boole
       startHeartbeat(30000); // 30s interval
       initReliabilityLayer();
     }
+    if (process.env.ROLE === 'api') {
+      startApiHttpServer();
+    }
   } catch (error) {
     console.error('[Server] Failed to initialize:', error);
-    // Fail fast if Prisma client is missing campaign models (wrong/old schema generate)
-    if (error?.message && error.message.includes('Prisma client is missing campaign models')) {
-      throw error;
+    const msg = error?.message || '';
+    if (
+      msg.includes('Prisma client is missing campaign models') ||
+      msg.includes('[schemaDoctor]')
+    ) {
+      process.exit(1);
     }
-    // Don't crash - continue startup for other errors
   }
 })();
 
@@ -1244,9 +1275,8 @@ function logMemoryUsage(scope, extra = {}) {
   console.log('[MEM]', heapUsedMb, 'MB', scope, extra);
 }
 
-// Start server when running as API (ROLE=api). Skip for worker or when ROLE unset (e.g. test runner loading app).
-// Allow listen with NODE_ENV=test so E2E can run the API against the test DB (e.g. dev-admin-token).
-if (process.env.ROLE === 'api') {
+// Start server when running as API (ROLE=api). Deferred until DB + schema verification complete.
+function startApiHttpServer() {
   console.log("[SERVER] SSE routes mounted at /api/stream");
   printRoutes(app, "SERVER");
 
@@ -1299,85 +1329,11 @@ if (process.env.ROLE === 'api') {
 
     // Start background workers AFTER the port is bound so Render health checks succeed even if workers fail.
     if (process.env.ROLE !== 'worker') {
-      try {
-        startOfflineWatcher(); // Mark screens/devices offline after HEARTBEAT_TIMEOUT without heartbeat
-      } catch (e) {
-        console.error('[CORE] startOfflineWatcher failed (non-fatal):', e?.message || e);
-      }
-      try {
-        startSessionCleanup(); // Remove old sessions
-      } catch (e) {
-        console.error('[CORE] startSessionCleanup failed (non-fatal):', e?.message || e);
-      }
-      try {
-        startDeviceCleanupWorker(); // Soft-archive stale devices (10m interval)
-      } catch (e) {
-        console.error('[CORE] startDeviceCleanupWorker failed (non-fatal):', e?.message || e);
-      }
+      startBackgroundWorkers({ prisma: getPrismaClient() });
+    }
 
-      // Clean up rate limit store every 5 minutes
-      setInterval(() => {
-        try {
-          cleanupRateLimitStore();
-        } catch (e) {
-          console.warn('[CORE] cleanupRateLimitStore failed (non-fatal):', e?.message || e);
-        }
-      }, 5 * 60 * 1000);
-
-      // OrchestratorTask → MissionPipeline reconciliation (stale mirrors)
-      if (process.env.NODE_ENV !== 'test') {
-        reconcileStaleOrchestraMirrors().catch((e) =>
-          console.error('[CORE] reconcileStaleOrchestraMirrors (startup):', e?.message || e),
-        );
-        setInterval(() => {
-          reconcileStaleOrchestraMirrors().catch((e) =>
-            console.error('[CORE] reconcileStaleOrchestraMirrors:', e?.message || e),
-          );
-        }, 5 * 60 * 1000);
-      }
-
-      // Start report scheduler (controlled by REPORT_SCHEDULER_ENABLED env var)
-      if (process.env.NODE_ENV !== 'test') {
-        try {
-          initReportScheduler();
-        } catch (e) {
-          console.error('[CORE] initReportScheduler failed (non-fatal):', e?.message || e);
-        }
-      }
-
-      try {
-        suggestionEngine.start();
-      } catch (e) {
-        console.error('[CORE] suggestionEngine.start failed (non-fatal):', e?.message || e);
-      }
-
-      // Content acquisition meta-scheduler (DB config drives enabled/cron)
-      if (process.env.NODE_ENV !== 'test') {
-        try {
-          initDiscoveryScheduler();
-        } catch (e) {
-          console.error('[CORE] initDiscoveryScheduler failed (non-fatal):', e?.message || e);
-        }
-      }
-
-      // System watcher insight generation (INSIGHT_JOB_ENABLED, disabled by default)
-      if (process.env.NODE_ENV !== 'test' && process.env.INSIGHT_JOB_ENABLED === 'true') {
-        try {
-          startInsightGenerationJob();
-          console.log('[Startup] Insight generation job started');
-        } catch (e) {
-          console.error('[CORE] startInsightGenerationJob failed (non-fatal):', e?.message || e);
-        }
-      }
-
-      // QA sweep scheduler (QA_SWEEP_ENABLED, disabled by default in prod)
-      if (process.env.NODE_ENV !== 'test') {
-        try {
-          startQaSweepScheduler({ prisma: getPrismaClient() });
-        } catch (e) {
-          console.error('[CORE] startQaSweepScheduler failed (non-fatal):', e?.message || e);
-        }
-      }
+    if (process.env.NODE_ENV !== 'production' && process.env.VITEST !== 'true') {
+      startMemoryMonitor(30_000);
     }
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
@@ -1407,6 +1363,7 @@ if (process.env.ROLE === 'api') {
   process.on('SIGTERM', () => {
     console.log('[CORE] SIGTERM received, shutting down gracefully...');
     signalShutdown();
+    stopBackgroundWorkers();
     const forceTimer = setTimeout(() => {
       console.warn('[CORE] Shutdown timeout — forcing exit');
       process.exit(1);
@@ -1426,6 +1383,7 @@ if (process.env.ROLE === 'api') {
   process.on('SIGINT', () => {
     console.log('[CORE] SIGINT received, shutting down gracefully...');
     signalShutdown();
+    stopBackgroundWorkers();
     const forceTimer = setTimeout(() => {
       console.warn('[CORE] Shutdown timeout — forcing exit');
       process.exit(1);
@@ -1441,6 +1399,8 @@ if (process.env.ROLE === 'api') {
       process.exit(0);
     });
   });
-} else {
+}
+
+if (process.env.ROLE !== 'api') {
   console.log('⚠️  Skipping app.listen() (ROLE is not "api"; set ROLE=api to start the HTTP server)');
 }

@@ -1,61 +1,26 @@
 /**
  * Runtime Kernel mandatory mode — single execution authority.
- * Default ON; opt-out via DISABLE_KERNEL_MANDATORY or EMERGENCY_BYPASS_KERNEL.
+ * Authority booleans delegate to executionMode.js (Phase 9).
  */
 
 import { isEmergencyBypassEnabled } from './emergencyBypass.js';
+import { normalizeCampaignClassificationForKernel } from '../intake/campaignKernelRouting.js';
+import {
+  isKernelMandatoryEnabled,
+  isRuntimeStepExecutionEnabled,
+  isPerformerRuntimeKernelEnabled,
+  isSharedRuntimeToolRegistryEnabled,
+} from './executionMode.js';
 
-function envTruthy(name, defaultValue = false) {
-  const raw = process.env[name];
-  if (raw === undefined || raw === null || String(raw).trim() === '') {
-    return defaultValue;
-  }
-  const v = String(raw).trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
-}
+/** Tools that must stay on direct_action under kernel mandatory (sync read → user choice). */
+const KERNEL_PRESERVE_DIRECT_ACTION_TOOLS = new Set(['ingest_asset_for_intent_detection']);
 
-function envDisabled(disableEnv, enableEnv, defaultEnabled = true) {
-  if (envTruthy(disableEnv, false)) return false;
-  const raw = process.env[enableEnv];
-  if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
-    return envTruthy(enableEnv, false);
-  }
-  return defaultEnabled;
-}
-
-/** Kernel mandatory mode (blocks legacy bypass paths). */
-export function isKernelMandatoryEnabled() {
-  if (isEmergencyBypassEnabled()) return false;
-  return !envTruthy('DISABLE_KERNEL_MANDATORY', false);
-}
-
-/** Runtime step execution via kernel — default ON unless explicitly disabled. */
-export function isRuntimeStepExecutionEnabled() {
-  if (isEmergencyBypassEnabled()) {
-    return envTruthy('ENABLE_RUNTIME_STEP_EXECUTION', true);
-  }
-  return envDisabled('DISABLE_RUNTIME_STEP_EXECUTION', 'ENABLE_RUNTIME_STEP_EXECUTION', true);
-}
-
-/** Runtime kernel master switch — default ON unless explicitly disabled. */
-export function isPerformerRuntimeKernelEnabled() {
-  if (isEmergencyBypassEnabled()) {
-    return envTruthy('ENABLE_PERFORMER_RUNTIME_KERNEL', false);
-  }
-  return envDisabled('DISABLE_RUNTIME_KERNEL', 'ENABLE_PERFORMER_RUNTIME_KERNEL', true);
-}
-
-/** Shared tool registry — default ON with kernel mandatory. */
-export function isSharedRuntimeToolRegistryEnabled() {
-  if (isEmergencyBypassEnabled()) {
-    return envTruthy('ENABLE_SHARED_RUNTIME_TOOL_REGISTRY', false);
-  }
-  return envDisabled(
-    'DISABLE_SHARED_RUNTIME_TOOL_REGISTRY',
-    'ENABLE_SHARED_RUNTIME_TOOL_REGISTRY',
-    true,
-  );
-}
+export {
+  isKernelMandatoryEnabled,
+  isRuntimeStepExecutionEnabled,
+  isPerformerRuntimeKernelEnabled,
+  isSharedRuntimeToolRegistryEnabled,
+};
 
 /** Sources allowed to invoke executeRuntimeAction when kernel mandatory. */
 export const KERNEL_AUTHORIZED_RUNTIME_SOURCES = new Set([
@@ -69,7 +34,12 @@ export const KERNEL_AUTHORIZED_RUNTIME_SOURCES = new Set([
   'factory_intent_router',
   'intake_v2_factory_intent',
   'intake_v2_unified',
+  'intake_v2_manual_mode',
   'intake_v2_confirm',
+  'intake_v2_shortcut_contract',
+  'intake_v2_classified_checkpoint',
+  'mission_execution_engine',
+  'mission_checkpoint_respond',
   'run_mission_until_blocked',
   'skill_router',
   'orchestra_start',
@@ -78,6 +48,26 @@ export const KERNEL_AUTHORIZED_RUNTIME_SOURCES = new Set([
   'intent_hybrid_router',
   'agent_orchestration',
 ]);
+
+/**
+ * Runtime sources that invoke executeRuntimeAction as the authorized kernel facade
+ * (not legacy Performer direct_action bypass). Broker direct-action block applies outside this set.
+ *
+ * @param {string} [source]
+ * @param {string} [actionType]
+ * @returns {boolean}
+ */
+export function isKernelAuthorizedRuntimeSource(source = '', actionType = '') {
+  const src = typeof source === 'string' ? source.trim() : '';
+  const at = typeof actionType === 'string' ? actionType.trim() : '';
+  if (at === 'execute_action' || at === 'assist_hybrid_operation' || at === 'run_pipeline_step') {
+    return true;
+  }
+  if (!src) return false;
+  if (KERNEL_AUTHORIZED_RUNTIME_SOURCES.has(src)) return true;
+  if (src.startsWith('ui_') || src === 'ui_runtime' || src === 'ui_runtime_action') return true;
+  return false;
+}
 
 /**
  * @param {{ source?: string, actionType?: string, userId?: string|null }} input
@@ -94,7 +84,6 @@ export function assertKernelAuthorizedExecution(input = {}) {
   const source = typeof input.source === 'string' ? input.source.trim() : '';
   const actionType = typeof input.actionType === 'string' ? input.actionType.trim() : '';
 
-  // UI runtime gateway and hybrid assist envelopes are kernel-authorized by construction.
   if (actionType === 'execute_action' || actionType === 'assist_hybrid_operation') {
     return { ok: true };
   }
@@ -121,6 +110,15 @@ export function assertKernelAuthorizedExecution(input = {}) {
 export function normalizeClassificationForKernel(classification) {
   if (!classification || typeof classification !== 'object') return classification;
   if (!isKernelMandatoryEnabled()) return classification;
+
+  const campaignNormalized = normalizeCampaignClassificationForKernel(classification);
+  if (campaignNormalized !== classification) return campaignNormalized;
+
+  const tool = String(classification.tool ?? '').trim();
+  if (KERNEL_PRESERVE_DIRECT_ACTION_TOOLS.has(tool)) {
+    return classification;
+  }
+
   if (classification.executionPath !== 'direct_action') return classification;
   return {
     ...classification,

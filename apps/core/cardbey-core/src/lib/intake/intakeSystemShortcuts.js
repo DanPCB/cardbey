@@ -2,13 +2,13 @@
  * Deterministic system shortcuts only.
  *
  * Phase 5B removed store-setup regex fast-paths from Intake V2 classification.
- * Phase 5B/5C: first-hop store creation detection is owned by `intakeClassifier.js` (LLM + routing rules),
- * so this shortcuts layer must not duplicate store/mini-website phrase matching except when
+ * Store creation detection is owned by IntentReasoner + storeCreateFastPath.
  * `primaryMode` / frontscreen handoff forces a create-store shortcut (then message wins for runway).
  */
 
 import { classifyStoreWebsiteCreateIntent } from './storeWebsiteRunwayClassifier.js';
 import { validateStoreCreationFields } from './intakeErrorTypes.js';
+import { findUnknownStoreCreateFormFields } from './createStoreIntakeMetadata.js';
 
 const STORE_CREATE_PRIMARY_MODES = new Set(['create', 'website', 'store_setup']);
 
@@ -30,13 +30,30 @@ function resolvePrimaryMode(input) {
  * @returns {Array<{ field: string; message: string }>}
  */
 export function validateCreateStorePayload(payload = {}) {
-  return validateStoreCreationFields(payload).map(({ field, message, code, suggestion, errorAction }) => ({
-    field,
-    message,
-    ...(code ? { code } : {}),
-    ...(suggestion ? { suggestion } : {}),
-    ...(errorAction ? { errorAction } : {}),
-  }));
+  const errors = [];
+  const envelope =
+    payload?.storeCreateForm && typeof payload.storeCreateForm === 'object' && !Array.isArray(payload.storeCreateForm)
+      ? payload.storeCreateForm
+      : null;
+  if (envelope) {
+    for (const field of findUnknownStoreCreateFormFields(envelope)) {
+      errors.push({
+        field: `storeCreateForm.${field}`,
+        message: `Unknown store field: ${field}`,
+        code: 'UNKNOWN_STORE_FIELD',
+      });
+    }
+  }
+  return [
+    ...errors,
+    ...validateStoreCreationFields(payload).map(({ field, message, code, suggestion, errorAction }) => ({
+      field,
+      message,
+      ...(code ? { code } : {}),
+      ...(suggestion ? { suggestion } : {}),
+      ...(errorAction ? { errorAction } : {}),
+    })),
+  ];
 }
 
 function storeCreateFormShortcut(form) {
@@ -137,6 +154,45 @@ const POSTER_TRIGGERS = [
   'instagram.*post',
   'marketing.*material',
 ];
+
+/** Promotion graphic / promo image — routes to create_promotion_graphic (not campaign runway). */
+export const PROMOTION_GRAPHIC_INTENT_RE =
+  /\b(create|make|generate|design)\b[\s\S]{0,48}\b(promotion|promo)\b[\s\S]{0,24}\b(graphic|image|visual|banner|artwork)\b|\b(promotion|promo)\b[\s\S]{0,24}\b(graphic|image|visual)\b|\bcreate\s+a\s+promotion\s+graphic\b/i;
+
+/**
+ * @param {string | null | undefined} userMessage
+ * @returns {boolean}
+ */
+export function isPromotionGraphicIntent(userMessage) {
+  const text = String(userMessage ?? '').trim();
+  if (!text || !PROMOTION_GRAPHIC_INTENT_RE.test(text)) return false;
+  if (/\blaunch\s+(a\s+)?campaign\b/i.test(text)) return false;
+  return true;
+}
+
+/**
+ * Detect AI promotion graphic intent — one-shot image + copy + Content Studio canvas.
+ *
+ * @param {string} userMessage
+ * @param {string | null | undefined} activeStoreId
+ * @returns {{ tool: 'create_promotion_graphic', executionPath: 'proactive_plan', confidence: number, params: { storeId: string, prompt: string, description: string } } | null}
+ */
+export function detectPromotionGraphicIntent(userMessage, activeStoreId) {
+  const text = String(userMessage ?? '').trim();
+  const storeId = typeof activeStoreId === 'string' ? activeStoreId.trim() : '';
+  if (!text || !storeId || !isPromotionGraphicIntent(text)) return null;
+
+  return {
+    tool: 'create_promotion_graphic',
+    executionPath: 'proactive_plan',
+    confidence: 0.95,
+    params: {
+      storeId,
+      prompt: text,
+      description: text,
+    },
+  };
+}
 
 /** Desktop / SuperCopilot control — not C-Net signage device listing. */
 const DEVICE_TRIGGERS = [

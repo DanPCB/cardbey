@@ -31,6 +31,7 @@ import {
   createPromotionSteps,
   loyaltyCampaignSteps,
   videoGenerationSteps,
+  businessOperationsSteps,
 } from './executorFactories.js';
 import {
   setupLoyaltyProgramPattern,
@@ -38,6 +39,7 @@ import {
   catalogManagementPattern,
   menuSyncPattern,
   bookingManagementPattern,
+  businessOperationsPattern,
   storeHealthPattern,
   analyticsReportPattern,
   videoGenerationPattern,
@@ -46,6 +48,7 @@ import {
   CATALOG_MANAGEMENT_INTENT,
   MENU_SYNC_INTENT,
   BOOKING_MANAGEMENT_INTENT,
+  BUSINESS_OPERATIONS_INTENT,
   STORE_HEALTH_INTENT,
   ANALYTICS_REPORT_INTENT,
   VIDEO_GENERATION_INTENT,
@@ -108,6 +111,18 @@ runtimeRegistry.register({
       BOOKING_MANAGEMENT_INTENT,
       BOOKING_MANAGEMENT_INTENT,
       bookingManagementSteps(),
+      context
+    ),
+});
+
+runtimeRegistry.register({
+  intent: BUSINESS_OPERATIONS_INTENT,
+  patterns: [businessOperationsPattern],
+  factory: (context) =>
+    new SkillRuntime(
+      BUSINESS_OPERATIONS_INTENT,
+      BUSINESS_OPERATIONS_INTENT,
+      businessOperationsSteps(),
       context
     ),
 });

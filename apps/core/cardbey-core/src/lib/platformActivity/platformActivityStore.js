@@ -82,6 +82,11 @@ export function addPlatformActivityStreamClient(res) {
   res.on('close', () => streamClients.delete(res));
 }
 
+/** @param {import('express').Response} res */
+export function removePlatformActivityStreamClient(res) {
+  streamClients.delete(res);
+}
+
 /**
  * @param {import('./platformActivityTypes.js').PlatformActivityEvent} event
  */

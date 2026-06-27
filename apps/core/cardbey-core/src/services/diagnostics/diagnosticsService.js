@@ -47,7 +47,7 @@ export class DiagnosticsService {
       stack: error.stack ? String(error.stack).slice(0, 8000) : null,
       url: error.url ? String(error.url).slice(0, 1024) : null,
       status: Number.isFinite(error.status) ? error.status : null,
-      metadata: error && typeof error === 'object' ? error : {},
+      metadata: JSON.stringify(error && typeof error === 'object' ? error : {}),
       timestamp: new Date(error.timestamp || timestamp || Date.now()),
     }));
 

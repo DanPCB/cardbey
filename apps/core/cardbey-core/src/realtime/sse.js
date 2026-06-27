@@ -189,7 +189,8 @@ function attachClient(req, res, { label, skipInitialWrite } = {}) {
   }, 15000);
 
   clients.set(id, ctx);
-  console.log('[SSE] Client connected', { 
+  ensureLegacySseHeartbeat();
+  console.log('[SSE] Client connected', {
     id, 
     label, 
     key: key || 'none',
@@ -204,6 +205,7 @@ function attachClient(req, res, { label, skipInitialWrite } = {}) {
       ctx.heartbeat = null;
     }
     clients.delete(id);
+    stopLegacySseHeartbeatIfIdle();
   };
 
   // Log when connection closes and end the response
@@ -315,39 +317,33 @@ async function validateApiKey(key) {
   }
 }
 
-// Heartbeat interval - updates lastSseBroadcastAt
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, { res }] of clients.entries()) {
-    try {
-      res.write(`: hb ${now}\n\n`);
-      lastSseBroadcastAt = now; // Update on each heartbeat
-    } catch {
-      clients.delete(id);
-    }
-  }
-  
-  // If no clients, still emit a system ping to keep health check alive
-  if (clients.size === 0) {
-    // No-op, but we could log if needed
-  }
-}, 15_000);
+// Single heartbeat loop — only runs while clients are connected (avoids idle timer churn).
+let legacySseHeartbeatTimer = null;
 
-// Periodic system ping every 30s (for health checks and keep-alive)
-setInterval(() => {
-  const now = Date.now();
-  lastSseBroadcastAt = now;
-  
-  // Emit sys:ping event to all connected clients
-  const payload = `event: sys:ping\n` + `data: ${JSON.stringify({ timestamp: now })}\n\n`;
-  for (const [id, { res }] of clients.entries()) {
-    try {
-      res.write(payload);
-    } catch {
-      clients.delete(id);
+function ensureLegacySseHeartbeat() {
+  if (legacySseHeartbeatTimer) return;
+  legacySseHeartbeatTimer = setInterval(() => {
+    if (clients.size === 0) return;
+    const now = Date.now();
+    for (const [id, { res }] of clients.entries()) {
+      try {
+        res.write(`: hb ${now}\n\n`);
+        lastSseBroadcastAt = now;
+      } catch {
+        clients.delete(id);
+      }
     }
-  }
-}, 30_000);
+  }, 15_000);
+}
+
+function stopLegacySseHeartbeatIfIdle() {
+  if (clients.size > 0 || !legacySseHeartbeatTimer) return;
+  clearInterval(legacySseHeartbeatTimer);
+  legacySseHeartbeatTimer = null;
+}
+
+// Heartbeat interval - updates lastSseBroadcastAt only when clients exist
+// (replaces duplicate 15s + 30s global loops that kept firing with zero clients)
 
 // OPTIONS handler for CORS preflight
 // Handles both /api/stream and /api/stream?key=admin

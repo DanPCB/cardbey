@@ -197,6 +197,36 @@ describe.skipIf(!dbAvailable)('runtimeMissionOrchestrator', () => {
     expect(result.stepsExecuted?.length ?? 1).toBeLessThanOrEqual(1);
   });
 
+  it('run-next with forceRetry resumes a running checkpoint step', async () => {
+    const promoPlan = [
+      {
+        step: 1,
+        title: 'Create Promotion Graphic',
+        recommendedTool: 'create_promotion_graphic',
+        parameters: { storeId: 's1', skipImage: true },
+      },
+    ];
+    const mission = await createGuidedMission({
+      proactivePlanSteps: promoPlan,
+      proactiveStepStatus: {
+        '1': { status: 'running', tool: 'create_promotion_graphic', stepNumber: 1 },
+      },
+    });
+
+    const result = await runNextStep({
+      user,
+      missionId: mission.id,
+      source: 'test',
+      stepNumber: 1,
+      forceRetry: true,
+      planSteps: promoPlan,
+    });
+
+    expect(result.code).not.toBe('ALREADY_RUNNING');
+    expect(executeMissionStepMock).toHaveBeenCalledTimes(1);
+    expect(executeMissionStepMock.mock.calls[0][0].parameters?.skipImage).toBe(true);
+  });
+
   it('persists orchestrationState and completed steps after refresh', async () => {
     const mission = await createGuidedMission();
     await runNextStep({ user, missionId: mission.id, source: 'test' });

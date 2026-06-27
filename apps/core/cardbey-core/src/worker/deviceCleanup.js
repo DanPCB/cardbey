@@ -20,10 +20,26 @@ async function runDeviceCleanup() {
   }
 }
 
+let deviceCleanupInterval = null;
+let deviceCleanupStarted = false;
+
 export function startDeviceCleanupWorker(intervalMs = 10 * 60 * 1000) {
+  if (deviceCleanupStarted) {
+    console.log('[DEVICE_CLEANUP] Already started — skipping duplicate');
+    return;
+  }
+  deviceCleanupStarted = true;
   console.log('[DEVICE_CLEANUP] starting worker (interval 10 min)');
   runDeviceCleanup();
-  setInterval(runDeviceCleanup, intervalMs);
+  deviceCleanupInterval = setInterval(runDeviceCleanup, intervalMs);
+}
+
+export function stopDeviceCleanupWorker() {
+  deviceCleanupStarted = false;
+  if (deviceCleanupInterval) {
+    clearInterval(deviceCleanupInterval);
+    deviceCleanupInterval = null;
+  }
 }
 
 export { runDeviceCleanup };

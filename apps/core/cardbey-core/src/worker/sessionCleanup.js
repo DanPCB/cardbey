@@ -32,7 +32,15 @@ function cleanupSessions() {
 /**
  * Start the session cleanup worker
  */
+let sessionCleanupInterval = null;
+let sessionCleanupStarted = false;
+
 export function startSessionCleanup() {
+  if (sessionCleanupStarted) {
+    console.log('[SessionCleanup] Already started — skipping duplicate');
+    return;
+  }
+  sessionCleanupStarted = true;
   console.log(`✅ Starting session cleanup worker (interval: ${CLEANUP_INTERVAL_MS / 1000}s)...`);
 
   // Initial cleanup after a short delay
@@ -41,8 +49,16 @@ export function startSessionCleanup() {
   }, 10000); // 10 seconds
 
   // Periodic cleanup
-  setInterval(() => {
+  sessionCleanupInterval = setInterval(() => {
     cleanupSessions();
   }, CLEANUP_INTERVAL_MS);
+}
+
+export function stopSessionCleanup() {
+  sessionCleanupStarted = false;
+  if (sessionCleanupInterval) {
+    clearInterval(sessionCleanupInterval);
+    sessionCleanupInterval = null;
+  }
 }
 

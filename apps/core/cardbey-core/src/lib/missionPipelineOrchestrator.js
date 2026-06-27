@@ -5,10 +5,8 @@
  */
 
 import { getPrismaClient } from '../lib/prisma.js';
-import { executeMissionAction } from './execution/executeMissionAction.js';
-import { isPerformerRuntimePipelineFacadeEnabled } from './runtime/performerRuntime/runtimeFlags.js';
-import { executeRuntimeAction } from './runtime/performerRuntime/executeRuntimeAction.js';
 import { maybeCancelMissionForTimeout } from './runtime/missionCancellationGuard.js';
+import { onMissionStarted } from './context/contextMissionHooks.js';
 
 const DEFAULT_MAX_STEPS = 20;
 
@@ -55,6 +53,9 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
     console.log(`[MissionOrchestrator] starting mission=${id}`);
   }
   logMemoryUsage('mission_start', { missionId: id });
+  void onMissionStarted(prisma, id).catch((err) => {
+    console.warn('[context] onMissionStarted failed:', err?.message ?? err);
+  });
 
   const loadMission = async () => {
     const m = await prisma.missionPipeline.findUnique({
@@ -162,24 +163,10 @@ export async function runMissionUntilBlocked(missionId, options = {}) {
       };
     }
 
-    let fr;
-    if (isPerformerRuntimePipelineFacadeEnabled()) {
-      fr = await executeRuntimeAction({
-        actionType: 'run_pipeline_step',
-        missionId: id,
-        source: 'run_mission_until_blocked',
-      });
-    } else {
-      fr = await executeMissionAction({
-        actionType: 'run_pipeline_step',
-        missionId: id,
-        source: 'run_mission_until_blocked',
-      });
-    }
-    const runResult =
-      fr.output && typeof fr.output === 'object'
-        ? fr.output
-        : { ok: false, error: fr.error?.code || 'facade_failed' };
+    const { runPipelineStepViaKernel } = await import('./execution/kernelPipelineDispatch.js');
+    const stepViaKernel = await runPipelineStepViaKernel(id, { source: 'run_mission_until_blocked' });
+    const fr = stepViaKernel.runtimeResult ?? { status: 'failed', output: stepViaKernel.runResult };
+    const runResult = stepViaKernel.runResult ?? { ok: false, error: 'facade_failed' };
     console.log('[BLOCKED_DEBUG] step result:', runResult);
 
     if (!runResult.ok) {

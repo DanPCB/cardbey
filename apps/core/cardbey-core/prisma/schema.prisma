@@ -193,6 +193,9 @@ model Business {
   heroImageUrl    String? // Storefront hero image URL (from draft publish)
   avatarImageUrl  String? // Store avatar/logo image URL (from draft publish)
   publishedAt     DateTime? // When the store was last published (from draft)
+  transactionMode String   @default("order") // "booking" | "order"
+  catalogLabel    String   @default("Products")
+  ctaLabel        String   @default("Order now")
   stylePreferences Json? // Style preferences: { style: "modern", mood: "warm", etc. }
   storefrontSettings Json? // { defaultView: "list"|"grid", allowUserToggle: boolean }; default grid, true
   socialLinks      Json? // { instagram?, facebook?, tiktok?, x?, youtube?, linkedin?, whatsapp? }
@@ -203,6 +206,8 @@ model Business {
   claimStatus      String?  // unclaimed | claim_pending | claimed | removed (null for owner-created)
   captureCount     Int      @default(1)
   capturedByUserId String?
+  isGuestDraft  Boolean   @default(false)
+  expiresAt     DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -215,6 +220,13 @@ model Business {
   merchantDesigns MerchantDesign[]
   contentLibraryAssets ContentLibraryAsset[]
   publishedArtifactProjection PublishedArtifactProjection?
+  storeEngagementSnapshot StoreEngagementSnapshot?
+  storeActivityEvents     StoreActivityEvent[]
+  storeFollows            StoreFollow[]
+  storeReactions          StoreReaction[]
+  storeSaves              StoreSave[]
+  storeShares             StoreShare[]
+  offerClaims             OfferClaim[]
 
   @@index([userId])
   @@index([slug])
@@ -2550,6 +2562,116 @@ model ContentInteractionViewerState {
   @@index([viewerKey])
 }
 
+// Canonical store engagement — every interaction writes StoreActivityEvent; snapshots are derived.
+model StoreActivityEvent {
+  id           String   @id @default(cuid())
+  storeId      String
+  actorUserId  String?
+  sessionId    String?
+  eventType    String
+  source       String
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, eventType])
+  @@index([storeId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([storeId, sessionId, eventType, createdAt])
+}
+
+model StoreEngagementSnapshot {
+  storeId          String   @id
+  followersCount   Int      @default(0)
+  likesCount       Int      @default(0)
+  savesCount       Int      @default(0)
+  sharesCount      Int      @default(0)
+  viewsCount       Int      @default(0)
+  views24h         Int      @default(0)
+  views7d          Int      @default(0)
+  qrScansCount     Int      @default(0)
+  orderClicksCount Int      @default(0)
+  callClicksCount  Int      @default(0)
+  offerClaimsCount Int      @default(0)
+  engagementScore  Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model StoreFollow {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, actorKey])
+  @@index([storeId])
+  @@index([userId])
+}
+
+model StoreReaction {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, actorKey])
+  @@index([storeId])
+}
+
+model StoreSave {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, actorKey])
+  @@index([storeId])
+}
+
+model StoreShare {
+  id        String   @id @default(cuid())
+  storeId   String
+  actorKey  String
+  userId    String?
+  source    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, createdAt])
+}
+
+model OfferClaim {
+  id        String   @id @default(cuid())
+  storeId   String
+  offerId   String
+  actorKey  String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([offerId])
+  @@index([storeId, offerId])
+}
+
 // IntentOpportunity v0: derived from IntentSignal; accepted -> IntentRequest (single runway).
 model IntentOpportunity {
   id                    String   @id @default(cuid())
@@ -3275,7 +3397,7 @@ model FrontendError {
   stack        String?
   url          String?
   status       Int?
-  metadata     Json     @default("{}")
+  metadata     String   @default("{}")
   timestamp    DateTime @default(now())
   createdAt    DateTime @default(now())
 
@@ -3534,6 +3656,70 @@ model ConversationPendingAction {
 
   @@index([sessionId, status])
   @@map("conversation_pending_actions")
+}
+
+// Performer Context Engine — durable session memory (Phase A)
+model PerformerSessionContext {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  sessionId   String    @map("session_id")
+  active      Boolean   @default(true)
+  contextJson String    @default("{}") @map("context_json")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  endedAt     DateTime? @map("ended_at")
+
+  @@unique([userId, sessionId])
+  @@index([userId, sessionId, active])
+  @@map("performer_session_contexts")
+}
+
+// Phase D — Learning Layer (Reasoning-Native Architecture)
+model UserProfile {
+  userId                String   @id @map("user_id")
+  preferredWorkflows    Json     @default("[]") @map("preferred_workflows")
+  skippedSteps          Json     @default("[]") @map("skipped_steps")
+  frequentlyUsedTools   Json     @default("[]") @map("frequently_used_tools")
+  defaultAction         String?  @map("default_action")
+  confidenceCalibration Json?    @map("confidence_calibration")
+  learningEnabled       Boolean  @default(true) @map("learning_enabled")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("learning_user_profiles")
+}
+
+model UserFeedback {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  sessionId  String   @map("session_id")
+  type       String
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  value      Int?
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId, sessionId])
+  @@index([userId, type])
+  @@index([targetType, targetId])
+  @@map("learning_user_feedback")
+}
+
+model BehaviorPattern {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  pattern      String
+  frequency    Int      @default(1)
+  confidence   Float    @default(0.3)
+  lastObserved DateTime @default(now()) @map("last_observed")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, pattern])
+  @@index([userId])
+  @@map("learning_behavior_patterns")
 }
 
 model GhostStoreClaim {

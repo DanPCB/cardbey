@@ -23,7 +23,7 @@ function normalizeIntent(raw) {
 
 /** Fuzzy/keyword matching for natural language intents. First match wins (order matters for overlap). */
 // First-hop store creation phrases removed in Phase 5C.
-// intakeClassifier.js owns first-hop classification.
+// IntentReasoner owns first-hop NL classification (Phase 4).
 // agentPlanner owns multi-step planning only.
 const INTENT_KEYWORDS = {
   // NOTE: Order matters. Keep create_store ahead of launch_campaign to avoid overlap.

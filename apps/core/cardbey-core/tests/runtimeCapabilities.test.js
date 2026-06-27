@@ -17,6 +17,7 @@ import runtimeCapabilitiesRoutes from '../src/routes/runtimeCapabilitiesRoutes.j
 describe('runtimeCapabilitiesService', () => {
   beforeEach(() => {
     resetRuntimeCapabilitiesForTests();
+    delete process.env.EXECUTION_MODE;
     delete process.env.DISABLE_RUNTIME_STEP_EXECUTION;
     delete process.env.DISABLE_RUNTIME_KERNEL;
     delete process.env.DISABLE_SHARED_RUNTIME_TOOL_REGISTRY;

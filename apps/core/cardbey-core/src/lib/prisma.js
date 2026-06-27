@@ -194,6 +194,12 @@ export async function checkSchemaSync() {
       throw new Error('Business.primaryColor column not found');
     });
 
+    await client.$queryRaw`
+      SELECT "id" FROM "StorePromo" LIMIT 1
+    `.catch(() => {
+      throw new Error('StorePromo table not found');
+    });
+
     return { ok: true, message: 'Schema is in sync' };
   } catch (error) {
     return {
@@ -248,11 +254,9 @@ export async function initializeDatabase() {
       }
     }
 
-    if (process.env.NODE_ENV !== 'test') {
-      const schemaCheck = await checkSchemaSync();
-      if (!schemaCheck.ok) {
-        console.warn(`[DB] ⚠️ ${schemaCheck.message}`);
-      }
+    if (process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true') {
+      const { verifyDatabaseSchemaAtStartup } = await import('./schemaDoctor.js');
+      await verifyDatabaseSchemaAtStartup();
     }
   } else {
     console.error(`[DB] ❌ Connection failed: ${result.reason || result.error}`);

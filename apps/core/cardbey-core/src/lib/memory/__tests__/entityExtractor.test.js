@@ -21,4 +21,13 @@ describe('entityExtractor', () => {
   it('returns empty array for unrelated text', () => {
     expect(extractEntities('hello there')).toEqual([]);
   });
+
+  it('does not treat structured store-create pill submit as product refs', () => {
+    expect(extractEntities('My Beauty · Beauty · Melbourne')).toEqual([]);
+    expect(extractEntities('Create store: Test Store · Fashion · Melbourne')).toEqual([]);
+  });
+
+  it('does not treat capitalized business names as products without product intent', () => {
+    expect(extractEntities('Update pricing for Test Store')).toEqual([]);
+  });
 });

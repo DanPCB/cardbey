@@ -11,9 +11,20 @@ import {
   deriveExecutionStateFromRuntime,
   EXECUTION_STATES,
 } from '../telemetry/executionStates.js';
+import { UNIFIED_ACTION_TYPES } from '../execution/executionTypes.js';
+import { executeMission } from '../execution/missionExecutionEngine.js';
+import { dispatchCreateStoreCheckpointPipeline } from './createStoreCheckpointDispatch.js';
+import { dispatchCreateCampaignCheckpointPipeline } from './createCampaignCheckpointDispatch.js';
 
 const ORCHESTRATION_TYPES = new Set(['multi_agent', 'campaign_orchestration']);
 const FACTORY_ACTION_TYPE = 'run_factory';
+const PIPELINE_ACTION_TYPES = new Set([
+  UNIFIED_ACTION_TYPES.CREATE_STORE_CHECKPOINT,
+  UNIFIED_ACTION_TYPES.CREATE_CAMPAIGN_CHECKPOINT,
+  UNIFIED_ACTION_TYPES.RUN_PIPELINE,
+  UNIFIED_ACTION_TYPES.RUN_PROACTIVE_STEP,
+  UNIFIED_ACTION_TYPES.RESPOND_CHECKPOINT,
+]);
 
 /**
  * @param {object} runtimeResult
@@ -217,7 +228,7 @@ async function dispatchOrchestrationViaKernel({ type, payload, source }) {
   return {
     ok: true,
     status: 'ok',
-    executionPath: 'proactive_plan',
+    executionPath: 'run_pipeline',
     missionId: pipeline.id,
     action:
       missionType === 'multi_agent' ? 'multi_agent_dispatched' : 'campaign_orchestration_dispatched',
@@ -234,6 +245,88 @@ async function dispatchOrchestrationViaKernel({ type, payload, source }) {
           ],
         }
       : {}),
+  };
+}
+
+/**
+ * Map create_store checkpoint dispatch result to unified dispatch shape.
+ *
+ * @param {Awaited<ReturnType<typeof dispatchCreateStoreCheckpointPipeline>>} dispatchResult
+ */
+function mapCreateStoreDispatchResult(dispatchResult) {
+  if (!dispatchResult || typeof dispatchResult !== 'object') {
+    return {
+      ok: false,
+      status: 'error',
+      code: 'DISPATCH_FAILED',
+      message: 'Create store dispatch returned no result',
+      executionPath: 'kernel_dispatch',
+    };
+  }
+
+  if (dispatchResult.kind === 'started') {
+    return {
+      ok: true,
+      status: 'ok',
+      executionPath: 'kernel_dispatch',
+      action: 'store_mission_started',
+      dispatchKind: dispatchResult.kind,
+      responseBody: dispatchResult.responseBody,
+      telemetry: dispatchResult.telemetry,
+      missionId: dispatchResult.responseBody?.missionId ?? null,
+    };
+  }
+
+  return {
+    ok: false,
+    status: dispatchResult.kind === 'failed' ? 'failed' : 'blocked',
+    executionPath: 'checkpoint_pipeline',
+    dispatchKind: dispatchResult.kind,
+    statusCode: dispatchResult.statusCode,
+    responseBody: dispatchResult.responseBody,
+    ...(dispatchResult.kind === 'duplicate'
+      ? {
+          businessName: dispatchResult.businessName,
+          existingStoreId: dispatchResult.existingStoreId ?? null,
+          existingStoreName: dispatchResult.existingStoreName ?? dispatchResult.businessName,
+        }
+      : {}),
+    ...(dispatchResult.kind === 'needs_form' ? { intentMode: dispatchResult.intentMode } : {}),
+  };
+}
+
+function mapCreateCampaignDispatchResult(dispatchResult) {
+  if (!dispatchResult || typeof dispatchResult !== 'object') {
+    return {
+      ok: false,
+      status: 'error',
+      code: 'DISPATCH_FAILED',
+      message: 'Create campaign dispatch returned no result',
+      executionPath: 'kernel_dispatch',
+    };
+  }
+
+  if (dispatchResult.kind === 'started') {
+    return {
+      ok: true,
+      status: 'ok',
+      executionPath: 'kernel_dispatch',
+      action: 'campaign_mission_started',
+      dispatchKind: dispatchResult.kind,
+      responseBody: dispatchResult.responseBody,
+      telemetry: dispatchResult.telemetry,
+      missionId: dispatchResult.responseBody?.missionId ?? null,
+    };
+  }
+
+  return {
+    ok: false,
+    status: dispatchResult.kind === 'failed' ? 'failed' : 'blocked',
+    executionPath: 'checkpoint_pipeline',
+    dispatchKind: dispatchResult.kind,
+    statusCode: dispatchResult.statusCode,
+    responseBody: dispatchResult.responseBody,
+    ...(dispatchResult.kind === 'store_required' ? { storeRequired: true } : {}),
   };
 }
 
@@ -268,9 +361,9 @@ export async function unifiedDispatch(action, options = {}) {
   }
 
   const kernelAuth = assertKernelAuthorizedExecution({
-    source,
+    source: PIPELINE_ACTION_TYPES.has(type) ? 'intake_v2_unified' : source,
     actionType: confirmed ? 'execute_action' : undefined,
-    userId: payload.userId ?? null,
+    userId: payload.userId ?? payload.actorId ?? null,
   });
   if (!kernelAuth.ok) {
     return {
@@ -279,6 +372,92 @@ export async function unifiedDispatch(action, options = {}) {
       code: kernelAuth.code,
       message: kernelAuth.message,
       executionPath: 'proactive_plan',
+    };
+  }
+
+  if (type === UNIFIED_ACTION_TYPES.CREATE_STORE_CHECKPOINT) {
+    const dispatchResult = await dispatchCreateStoreCheckpointPipeline(payload);
+    return mapCreateStoreDispatchResult(dispatchResult);
+  }
+
+  if (type === UNIFIED_ACTION_TYPES.CREATE_CAMPAIGN_CHECKPOINT) {
+    const dispatchResult = await dispatchCreateCampaignCheckpointPipeline(payload);
+    return mapCreateCampaignDispatchResult(dispatchResult);
+  }
+
+  if (type === UNIFIED_ACTION_TYPES.RUN_PIPELINE) {
+    const missionId = String(payload.missionId ?? '').trim();
+    if (!missionId) {
+      return {
+        ok: false,
+        status: 'error',
+        code: 'MISSION_REQUIRED',
+        message: 'run_pipeline requires payload.missionId',
+        executionPath: 'run_pipeline',
+      };
+    }
+    const engineResult = await executeMission({
+      mode: 'run_pipeline',
+      missionId,
+      body: payload,
+      source,
+    });
+    return {
+      ok: engineResult.ok !== false,
+      status: engineResult.ok !== false ? 'ok' : 'failed',
+      executionPath: 'run_pipeline',
+      missionId,
+      orchestration: engineResult.orchestration ?? null,
+    };
+  }
+
+  if (type === UNIFIED_ACTION_TYPES.RESPOND_CHECKPOINT) {
+    const prisma = payload.prisma;
+    const missionId = String(payload.missionId ?? '').trim();
+    const stepId = String(payload.stepId ?? '').trim();
+    if (!prisma || !missionId || !stepId) {
+      return {
+        ok: false,
+        status: 'error',
+        code: 'CHECKPOINT_CONTEXT_REQUIRED',
+        message: 'respond_checkpoint requires prisma, missionId, and stepId',
+        executionPath: 'kernel_dispatch',
+      };
+    }
+    const engineResult = await executeMission({
+      mode: 'respond_checkpoint',
+      prisma,
+      missionId,
+      stepId,
+      response: payload.response,
+      data: payload.data ?? {},
+      source,
+    });
+    return {
+      ok: engineResult.ok === true,
+      status: engineResult.ok === true ? 'ok' : 'failed',
+      executionPath: 'kernel_dispatch',
+      missionId,
+      stepId,
+      orchestration: engineResult.orchestration ?? null,
+      missionStatus: engineResult.missionStatus ?? null,
+      code: engineResult.error ?? null,
+      message: engineResult.message ?? null,
+      statusCode: engineResult.statusCode,
+    };
+  }
+
+  if (type === UNIFIED_ACTION_TYPES.RUN_PROACTIVE_STEP) {
+    const engineResult = await executeMission({
+      mode: 'proactive_step',
+      proactiveBody: payload.body ?? payload,
+      source,
+    });
+    return {
+      ok: engineResult.ok !== false,
+      status: engineResult.ok !== false ? 'ok' : 'failed',
+      executionPath: 'proactive_step',
+      stepResult: engineResult,
     };
   }
 
@@ -401,13 +580,54 @@ export function mapUnifiedDispatchToIntakeResponse(result, ctx = {}) {
     };
   }
 
+  if (result.action === 'store_mission_started' && result.responseBody) {
+    return {
+      success: true,
+      ...result.responseBody,
+      executionPath: 'kernel_dispatch',
+    };
+  }
+
+  if (result.action === 'campaign_mission_started' && result.responseBody) {
+    return {
+      success: true,
+      ...result.responseBody,
+      executionPath: 'kernel_dispatch',
+    };
+  }
+
+  if (result.dispatchKind && result.dispatchKind !== 'started') {
+    if (result.dispatchKind === 'needs_form') {
+      return {
+        success: true,
+        action: 'create_store',
+        intentMode: result.intentMode ?? 'store',
+        executionPath: 'kernel_dispatch',
+      };
+    }
+    if (result.dispatchKind === 'auth_required') {
+      return {
+        success: true,
+        action: 'chat',
+        executionPath: 'kernel_dispatch',
+      };
+    }
+    if (result.dispatchKind === 'failed') {
+      return {
+        success: false,
+        ...(result.responseBody ?? {}),
+        executionPath: 'kernel_dispatch',
+      };
+    }
+  }
+
   if (result.action === 'multi_agent_dispatched' || result.action === 'campaign_orchestration_dispatched') {
     return {
       success: true,
       missionId: result.missionId,
       action: result.action,
       reasoning: result.reasoning,
-      executionPath: 'proactive_plan',
+      executionPath: result.executionPath ?? 'run_pipeline',
       ...(Array.isArray(result.plan) ? { plan: result.plan } : {}),
     };
   }

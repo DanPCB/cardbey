@@ -317,11 +317,19 @@ export function isRunwayContextSufficient(ctx, requiredFields = ['activeStoreId'
   return required.every((field) => Boolean(ctx && ctx[field]));
 }
 
-export function formatContextGapMessage(ctx, locale) {
+export function formatContextGapMessage(ctx, locale, opts = {}) {
   const loc = str(locale) || DEFAULT_LOCALE;
   const isVI = loc.toLowerCase().startsWith('vi');
   const hasMission = Boolean(str(ctx?.missionId));
   const hasStore = Boolean(str(ctx?.activeStoreId));
+  const hasDraft = Boolean(str(ctx?.activeDraftId));
+  const isGuest = Boolean(opts?.isGuest);
+
+  if (isGuest && hasDraft && !hasStore) {
+    return isVI
+      ? 'Đăng nhập để thêm sản phẩm vào cửa hàng nháp. Bản nháp đã được lưu — đăng nhập sẽ liên kết với tài khoản của bạn.'
+      : 'Sign in to add products to your draft store. Your draft is saved — signing in links it to your account.';
+  }
 
   if (hasMission && !hasStore) {
     return isVI
@@ -334,8 +342,15 @@ export function formatContextGapMessage(ctx, locale) {
     : "Please select the store you'd like to edit.";
 }
 
-export function formatSuggestedActionsForContextGap(ctx) {
+export function formatSuggestedActionsForContextGap(ctx, opts = {}) {
   const hasMission = Boolean(str(ctx?.missionId));
+  const hasDraft = Boolean(str(ctx?.activeDraftId));
+  const hasStore = Boolean(str(ctx?.activeStoreId));
+  const isGuest = Boolean(opts?.isGuest);
+
+  if (isGuest && hasDraft && !hasStore) {
+    return ['sign_in_to_add_products', 'continue_guest_readonly'];
+  }
   if (hasMission) {
     return ['use_mission_store', 'select_different_store'];
   }

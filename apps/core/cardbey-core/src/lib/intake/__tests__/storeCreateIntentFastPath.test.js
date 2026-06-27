@@ -5,7 +5,7 @@ import {
   parseStructuredStoreCreatePillMessage,
   shouldBlockServiceRequestForStoreCreate,
   tryStoreCreateFastPath,
-} from '../storeCreateIntentFastPath.js';
+} from '../../intent/storeCreateFastPath.js';
 import { signalsServiceRequest } from '../../capabilityResolver/resolveCapability.js';
 
 describe('storeCreateIntentFastPath', () => {

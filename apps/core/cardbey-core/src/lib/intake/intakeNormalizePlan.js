@@ -106,3 +106,34 @@ export function normalizePlan(destinationTool, llmPlan, opts = {}) {
 
   return { normalizedPlan, injectedTools, droppedTools };
 }
+
+/**
+ * Merge intake-level plan parameters (prompt, storeId, etc.) into normalized steps so
+ * proactive runway / orchestrator execution receives tool inputs without a separate metadata hop.
+ *
+ * @param {Array<{ step: number, title: string, description: string, recommendedTool: string, parameters?: object }>} normalizedPlan
+ * @param {Record<string, unknown>} planParameters
+ * @param {string} [destinationTool]
+ */
+export function mergePlanLevelParametersIntoSteps(normalizedPlan, planParameters, destinationTool = '') {
+  const plan = Array.isArray(normalizedPlan) ? normalizedPlan : [];
+  const params =
+    planParameters && typeof planParameters === 'object' && !Array.isArray(planParameters) ? planParameters : {};
+  if (plan.length === 0 || Object.keys(params).length === 0) return plan;
+
+  const dest = String(destinationTool ?? '').trim().toLowerCase();
+  return plan.map((step) => {
+    const tool = String(step?.recommendedTool ?? '').trim().toLowerCase();
+    const entry = tool ? getToolEntry(tool) : null;
+    const isDestination = dest && tool === dest;
+    const isStandalone = entry?.planRole === PLAN_ROLE.STANDALONE;
+    if (!isDestination && !isStandalone) return step;
+
+    const stepParams =
+      step.parameters && typeof step.parameters === 'object' && !Array.isArray(step.parameters)
+        ? step.parameters
+        : {};
+    const merged = { ...params, ...stepParams };
+    return { ...step, parameters: stepParametersWithoutCampaignContext(merged) };
+  });
+}

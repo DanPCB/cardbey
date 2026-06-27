@@ -10,14 +10,30 @@ import { generateUniqueShortSlug } from '../utils/shortSlug.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
+function resolveRequestUserId(req) {
+  return req.user?.id ?? req.userId ?? null;
+}
+
+function isMissingStorePromoTable(error) {
+  const code = error?.code;
+  const message = String(error?.message ?? '').toLowerCase();
+  return (
+    code === 'P2021'
+    || (code === 'P2010' && message.includes('storepromo'))
+    || message.includes('no such table: storepromo')
+    || message.includes('relation "storepromo" does not exist')
+  );
+}
+
 async function ensureStoreOwner(req, res, storeId) {
   const business = await prisma.business.findUnique({ where: { id: storeId } });
   if (!business) {
     res.status(404).json({ ok: false, error: 'Store not found', message: 'Store not found' });
     return [null, res];
   }
+  const requestUserId = resolveRequestUserId(req);
   const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
-  if (!isDevAdmin && business.userId !== req.userId) {
+  if (!isDevAdmin && business.userId !== requestUserId) {
     res.status(403).json({ ok: false, error: 'Forbidden', message: 'You do not have permission to access this store' });
     return [null, res];
   }
@@ -87,6 +103,14 @@ router.get('/', requireAuth, async (req, res, next) => {
     });
     res.json({ ok: true, promos });
   } catch (error) {
+    if (isMissingStorePromoTable(error)) {
+      console.error('[Promos] List error: StorePromo table missing — run prisma migrate deploy');
+      return res.status(503).json({
+        ok: false,
+        error: 'store_promo_schema_missing',
+        message: 'Promo storage is not initialized. Run database migrations (prisma migrate deploy).',
+      });
+    }
     console.error('[Promos] List error:', error);
     next(error);
   }
@@ -103,8 +127,9 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     if (!promo || !promo.business) {
       return res.status(404).json({ ok: false, error: 'Not found', message: 'Promo not found' });
     }
+    const requestUserId = resolveRequestUserId(req);
     const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
-    if (!isDevAdmin && promo.business.userId !== req.userId) {
+    if (!isDevAdmin && promo.business.userId !== requestUserId) {
       return res.status(403).json({ ok: false, error: 'Forbidden', message: 'You do not have permission to update this promo' });
     }
     const { title, subtitle, heroImageUrl, ctaLabel, targetUrl, couponCode, startsAt, endsAt, isActive } = req.body ?? {};

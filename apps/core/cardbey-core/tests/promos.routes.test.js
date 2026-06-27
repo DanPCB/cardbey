@@ -100,6 +100,17 @@ describe('Promo routes (Smart Promo + QR)', () => {
     await prisma.$disconnect();
   });
 
+  it('GET /api/promos?storeId= lists promos for store owner', async () => {
+    const res = await testRequest
+      .get(`/api/promos?storeId=${encodeURIComponent(testStore.id)}`)
+      .set('Authorization', `Bearer ${jwt}`);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(Array.isArray(res.body.promos)).toBe(true);
+    expect(res.body.promos.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.promos[0].title).toBe('10% Off');
+  });
+
   it('POST /api/promos requires auth (401 without token)', async () => {
     const res = await testRequest
       .post('/api/promos')

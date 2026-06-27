@@ -96,16 +96,30 @@ import {
   getI18nSyncMode,
 } from './maintenanceIntent.js';
 import { buildResolutionAskFromErrors } from '../memory/plannerResolutionPrompt.js';
+import {
+  entityTypesRequiredForTool,
+  filterResolutionErrorsForEntityTypes,
+} from '../memory/entityResolutionPolicy.js';
 import { createEmptyHydratedContext } from '../memory/memoryHydrator.js';
 import {
   detectDocumentIngestionIntent,
   extractIngestionInputs,
-} from './documentIngestionIntent.js';
+} from '../intent/documentIngestIntent.js';
+import { isGraphicOrPromotionIntent } from './intentDetectors.js';
 import {
   buildPendingSkillMissionContext,
   PENDING_SKILL_DOCUMENT_INGESTION,
   pickDocumentPendingInputs,
 } from './pendingSkillResume.js';
+
+function resolutionAskForTool(hydratedContext, toolName, toolDef, missingParams = []) {
+  const allowed = entityTypesRequiredForTool(toolName, toolDef, missingParams);
+  const filtered = filterResolutionErrorsForEntityTypes(
+    hydratedContext?.resolution?.errors ?? [],
+    allowed,
+  );
+  return buildResolutionAskFromErrors(filtered);
+}
 
 function asTrimmedString(v) {
   return typeof v === 'string' && v.trim() ? v.trim() : '';
@@ -219,7 +233,8 @@ export async function reactPlanner(input) {
     imageDataUrl: context?.imageDataUrl ?? null,
     imageUrl: context?.imageUrl ?? null,
   };
-  const fastIntent = detectDocumentIngestionIntent(userMessage, missionContext);
+  const fastIntent =
+    !isGraphicOrPromotionIntent(userMessage) && detectDocumentIngestionIntent(userMessage, missionContext);
   if (fastIntent) {
     const inputs = extractIngestionInputs(userMessage, missionContext);
     const resolvedStoreId = asTrimmedString(inputs.storeId) || storeId;
@@ -289,15 +304,6 @@ export async function reactPlanner(input) {
     };
   }
 
-  const resolutionAsk = buildResolutionAskFromErrors(hydratedContext?.resolution?.errors ?? []);
-  if (resolutionAsk) {
-    return {
-      kind: 'ask',
-      prompt: resolutionAsk.prompt,
-      missing: resolutionAsk.missing,
-    };
-  }
-
   const msgLower = String(userMessage || '').toLowerCase();
   const looksDelete = /\bdelete\b|\bremove\b/.test(msgLower) && (msgLower.includes('menu') || msgLower.includes('item'));
   if (looksDelete) {
@@ -350,14 +356,17 @@ export async function reactPlanner(input) {
     if (v === null || v === undefined || v === '') missing.push(key);
   }
 
-  if (missing.length > 0) {
-    if (missing.includes('storeId') && hydratedContext?.resolution?.errors?.length) {
-      const retryAsk = buildResolutionAskFromErrors(hydratedContext.resolution.errors);
-      if (retryAsk) {
-        return { kind: 'ask', prompt: retryAsk.prompt, missing: retryAsk.missing, ...(toolName ? { toolName } : {}) };
-      }
-    }
+  const resolutionAsk = resolutionAskForTool(hydratedContext, toolName, toolDef, missing);
+  if (resolutionAsk) {
+    return {
+      kind: 'ask',
+      prompt: resolutionAsk.prompt,
+      missing: resolutionAsk.missing,
+      ...(toolName ? { toolName } : {}),
+    };
+  }
 
+  if (missing.length > 0) {
     const prompt = looksDelete
       ? 'Which 3 items should I delete? Please name them (or share their item IDs).'
       : missing.includes('storeId')

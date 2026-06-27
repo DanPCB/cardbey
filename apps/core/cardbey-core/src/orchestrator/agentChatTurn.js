@@ -26,22 +26,12 @@ import { getPrismaClient } from '../lib/prisma.js';
 export async function handleUserTurn({ missionId, tenantId, userMessage, threadId, triggerMessageId }) {
   const text = typeof userMessage === 'string' ? userMessage : '';
   if (process.env.EXECUTE_INTENT_SHADOW === 'true' && text.trim()) {
-    const shadowText = text;
-    const shadowMissionId = missionId;
-    setImmediate(() => {
-      import('../lib/orchestrator/executeIntent.js')
-        .then(({ executeIntent }) =>
-          executeIntent(
-            {
-              source: 'chat',
-              rawInput: shadowText,
-              context: { missionId: shadowMissionId },
-              correlationId: shadowMissionId,
-            },
-            { shadow: true },
-          ),
-        )
-        .catch(() => {});
+    const { scheduleExecuteIntentShadow } = await import('../lib/intake/intakeConsolidationFlags.js');
+    scheduleExecuteIntentShadow({
+      source: 'chat',
+      rawInput: text,
+      context: { missionId },
+      correlationId: missionId,
     });
   }
   const intent = classifyIntent(text);

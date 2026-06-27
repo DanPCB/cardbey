@@ -16,6 +16,8 @@
 import { runtimeRegistry } from './runtimeRegistry.js';
 import { buildSkillContext, type IntakePayload, type PrismaLike } from './skillContextBuilder.js';
 import type { Checkpoint } from './types.js';
+import { isSkillRuntimeDispatchAllowed } from '../intake/intakeConsolidationFlags.js';
+import { logSkillRuntimeDispatch } from '../intake/skillRuntimeTelemetry.js';
 
 export interface RuntimeDispatchResult {
   matched: true;
@@ -29,6 +31,18 @@ export async function dispatchWithRuntime(
   intakePayload: IntakePayload,
   prisma: PrismaLike
 ): Promise<RuntimeDispatchResult | null> {
+  const userMessage = String(intakePayload.userMessage ?? '').trim();
+  const telemetryBase = {
+    userMessage,
+    storeId: intakePayload.storeId ?? null,
+    userId: intakePayload.userId ?? null,
+  };
+
+  if (!isSkillRuntimeDispatchAllowed(userMessage)) {
+    logSkillRuntimeDispatch({ ...telemetryBase, result: 'domain_blocked' });
+    return null;
+  }
+
   try {
     const ctx = await buildSkillContext(intakePayload, prisma);
     // DANH: fix-runtime-ownership
@@ -42,6 +56,12 @@ export async function dispatchWithRuntime(
     if (skill) {
       await skill.start();
       const checkpoint = skill.getCheckpoint();
+      logSkillRuntimeDispatch({
+        ...telemetryBase,
+        result: 'matched',
+        skillId: checkpoint.skillId,
+        state: skill.getState(),
+      });
       return {
         matched: true,
         dispatchedVia: 'skill_runtime',
@@ -50,10 +70,12 @@ export async function dispatchWithRuntime(
         result: checkpoint,
       };
     }
+    logSkillRuntimeDispatch({ ...telemetryBase, result: 'no_match' });
   } catch (err) {
     // Non-fatal — fall through to legacy router.
     const message = err instanceof Error ? err.message : String(err);
     console.warn('[SkillRuntime] dispatch error, falling through:', message);
+    logSkillRuntimeDispatch({ ...telemetryBase, result: 'error', error: message });
   }
   return null; // signals: use legacy SkillRouter
 }

@@ -19,6 +19,7 @@ import * as search_hero_media from './media/search_hero_media.js';
 import * as search_music_for_business from './music/search_music_for_business.js';
 import * as select_music_track from './music/select_music_track.js';
 import * as create_campaign_brief from './campaign/create_campaign_brief.js';
+import * as create_campaign from './campaign/create_campaign.js';
 import * as generate_campaign_graphics from './campaign/generate_campaign_graphics.js';
 import * as generate_campaign_copy from './campaign/generate_campaign_copy.js';
 import * as qa_campaign_package from './campaign/qa_campaign_package.js';
@@ -41,6 +42,13 @@ import * as schedule_booking_reminder from './booking/schedule_booking_reminder.
 import * as handle_booking_outcome from './booking/handle_booking_outcome.js';
 import * as get_booking_summary from './booking/get_booking_summary.js';
 import * as manage_product_catalog from './catalog/manage_product_catalog.js';
+import * as validate_store_context from './catalog/validate_store_context.js';
+import * as prepare_catalog from './catalog/prepare_catalog.js';
+import * as finalize_catalog from './catalog/finalize_catalog.js';
+import * as validate_products from './catalog/validate_products.js';
+import * as select_products from './catalog/select_products.js';
+import * as specify_purpose from './catalog/specify_purpose.js';
+import * as planner_checkpoint_delegate from './mission/planner_checkpoint_delegate.js';
 import * as manage_menu_sync from './menu/manage_menu_sync.js';
 import * as get_store_analytics from './get_store_analytics.js';
 import * as generate_report_summary from './generate_report_summary.js';
@@ -52,6 +60,7 @@ import * as segment_loyal_customers from './loyalty/segment_loyal_customers.js';
 import * as define_loyalty_tiers from './loyalty/define_loyalty_tiers.js';
 import * as create_loyalty_offer from './loyalty/create_loyalty_offer.js';
 import * as schedule_loyalty_campaign from './loyalty/schedule_loyalty_campaign.js';
+import * as setup_loyalty_program from './loyalty/setup_loyalty_program.js';
 import * as fetch_store_content from './content/fetch_store_content.js';
 import * as rewrite_content_copy from './content/rewrite_content_copy.js';
 import * as generate_seo_tags from './content/generate_seo_tags.js';
@@ -124,7 +133,8 @@ import * as code_fix from './code/code_fix.js';
 import * as check_cnet_config from './cnet/check_cnet_config.js'; // DANH: skill-round5-cnet
 import * as prepare_cnet_payload from './cnet/prepare_cnet_payload.js'; // DANH: skill-round5-cnet
 import * as deploy_to_cnet from './cnet/deploy_to_cnet.js'; // DANH: skill-round5-cnet
-import * as extract_document_data from './document/extract_document_data.js'; // DANH: skill-round6-document
+import * as extract_document_data from './document/extract_document_data.js';
+import * as ingest_asset_for_intent_detection from './intake/ingest_asset_for_intent_detection.js'; // DANH: skill-round6-document
 import * as create_products_from_document from './document/create_products_from_document.js'; // DANH: skill-round6-document
 import * as create_promotions_from_document from './document/create_promotions_from_document.js'; // DANH: skill-round6-document
 import * as suggest_campaign_plan from './document/suggest_campaign_plan.js'; // DANH: skill-round6-document
@@ -139,6 +149,15 @@ import * as create_ghost_store from './ghost/create_ghost_store.js';
 import * as enrich_ghost_store from './ghost/enrich_ghost_store.js';
 import * as create_store from './store/create_store.js';
 import * as create_mini_website from './website/create_mini_website.js';
+import * as smart_visual from './design/smart_visual.js';
+import * as create_order from './business/create_order.js';
+import * as checkout_order from './business/checkout_order.js';
+import * as cancel_order from './business/cancel_order.js';
+import * as receive_inventory from './business/receive_inventory.js';
+import * as adjust_inventory from './business/adjust_inventory.js';
+import * as record_payment from './business/record_payment.js';
+import * as print_receipt from './business/print_receipt.js';
+import * as phase2Business from './business/phase2Stubs.js';
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
 function honestBlocker(toolName, message) {
@@ -210,6 +229,7 @@ export const executors = {
   search_music_for_business,
   select_music_track,
   create_campaign_brief,
+  create_campaign,
   generate_campaign_graphics,
   generate_campaign_copy,
   qa_campaign_package,
@@ -232,6 +252,15 @@ export const executors = {
   handle_booking_outcome,
   get_booking_summary,
   manage_product_catalog,
+  validate_store_context,
+  prepare_catalog,
+  finalize_catalog,
+  validate_products,
+  select_products,
+  specify_purpose,
+  review_graphic: planner_checkpoint_delegate,
+  review_campaign: planner_checkpoint_delegate,
+  capture_requirements: planner_checkpoint_delegate,
   manage_menu_sync,
   get_store_analytics,
   generate_report_summary,
@@ -243,6 +272,7 @@ export const executors = {
   define_loyalty_tiers,
   create_loyalty_offer,
   schedule_loyalty_campaign,
+  setup_loyalty_program,
   fetch_store_content,
   rewrite_content_copy,
   generate_seo_tags,
@@ -303,6 +333,7 @@ export const executors = {
   prepare_cnet_payload, // DANH: skill-round5-cnet
   deploy_to_cnet, // DANH: skill-round5-cnet
   extract_document_data, // DANH: skill-round6-document
+  ingest_asset_for_intent_detection,
   create_products_from_document, // DANH: skill-round6-document
   create_promotions_from_document, // DANH: skill-round6-document
   suggest_campaign_plan, // DANH: skill-round6-document
@@ -316,10 +347,31 @@ export const executors = {
   enrich_ghost_store,
   create_store,
   create_mini_website,
-  generate_promotion_asset: honestBlocker(
-    'generate_promotion_asset',
-    'Promotion asset generation is not implemented yet.',
-  ),
+  smart_visual,
+  create_promotion_graphic: smart_visual,
+  generate_promo_image: smart_visual,
+  generate_promotion_asset: smart_visual,
+  create_order,
+  checkout_order,
+  cancel_order,
+  receive_inventory,
+  adjust_inventory,
+  record_payment,
+  print_receipt,
+  update_order: phase2Business.update_order,
+  transfer_inventory: phase2Business.transfer_inventory,
+  refund_order: phase2Business.refund_order,
+  close_shift: phase2Business.close_shift,
+  open_shift: phase2Business.open_shift,
+  create_supplier: phase2Business.create_supplier,
+  create_purchase_order: phase2Business.create_purchase_order,
+  receive_purchase_order: phase2Business.receive_purchase_order,
+  apply_discount: phase2Business.apply_discount,
+  apply_tax: phase2Business.apply_tax,
+  assign_table: phase2Business.assign_table,
+  move_table: phase2Business.move_table,
+  merge_order: phase2Business.merge_order,
+  split_bill: phase2Business.split_bill,
   mission_conditional_branch,
   mission_pipeline_stub: mission_conditional_branch,
   resolve_target_screens: honestBlocker(
@@ -338,10 +390,6 @@ export const executors = {
     'activate_screen_content',
     'Screen content activation is not implemented yet.',
   ),
-  smart_visual: honestBlocker(
-    'smart_visual',
-    'Smart visual generation is coming soon. Use search_hero_media or edit_artifact meanwhile.',
-  ),
   'signage.list-devices': signage_list_devices,
   'signage.publish-to-devices': signage_publish_to_devices,
   'device.sendInput': device_send_input,
@@ -355,4 +403,9 @@ export function getExecutor(toolName) {
   if (!toolName || typeof toolName !== 'string') return undefined;
   const key = toolName.trim();
   return executors[key];
+}
+
+/** @returns {string[]} Registered executor tool names (includes aliases). */
+export function listRegisteredExecutorTools() {
+  return Object.keys(executors);
 }

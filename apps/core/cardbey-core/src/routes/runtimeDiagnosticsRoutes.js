@@ -61,9 +61,14 @@ async function readStorageSnapshot() {
   }
 }
 
+const ingestRateLimitMax = (() => {
+  const raw = Number(process.env.RUNTIME_DIAGNOSTICS_RATE_LIMIT_MAX);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 30;
+})();
+
 const ingestRateLimit = rateLimit({
   windowMs: 60_000,
-  max: 60,
+  max: ingestRateLimitMax,
   keyGenerator: (req) => req.userId || req.ip || 'unknown',
   message: 'Runtime diagnostics rate limit exceeded. Retry in {retryAfter}s.',
   code: 'runtime_diagnostics_rate_limit',

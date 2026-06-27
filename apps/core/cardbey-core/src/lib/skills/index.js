@@ -16,6 +16,7 @@ import './definitions/SmartDisplayPublishSkill.js';
 import './definitions/OfferOptimizationSkill.js';
 import './definitions/LocalGrowthSkill.js';
 import './definitions/BookingManagementSkill.js';
+import './definitions/BusinessOperationsSkill.js';
 import './definitions/ProductCatalogSkill.js';
 import './definitions/MenuSyncSkill.js';
 import './definitions/AnalyticsReportSkill.js';

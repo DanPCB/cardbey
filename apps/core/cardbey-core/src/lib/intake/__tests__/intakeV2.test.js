@@ -5,7 +5,7 @@ import {
   normalizeCreateStoreToolParameters,
   mergeStoreCreateFormIntoParameters,
 } from '../intakeContractValidate.js';
-import { normalizePlan } from '../intakeNormalizePlan.js';
+import { normalizePlan, mergePlanLevelParametersIntoSteps } from '../intakeNormalizePlan.js';
 import { evaluateExecutionPolicy, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM } from '../intakeExecutionPolicy.js';
 import { blockCreateStoreOnCompletedMission, detectIntent, validateCreateStorePayload } from '../intakeSystemShortcuts.js';
 
@@ -53,6 +53,15 @@ describe('validateIntakeClassification', () => {
     expect(v.downgradedTo).toBe('chat');
   });
 
+  it('allows replace_store_catalog with draftId but no storeId', () => {
+    const v = validateIntakeClassification(
+      { executionPath: 'proactive_plan', tool: 'replace_store_catalog', parameters: {} },
+      null,
+      { draftId: 'draft-1' },
+    );
+    expect(v.ok).toBe(true);
+  });
+
   it('accepts create_store when classifier used alias "name" (maps to storeName)', () => {
     const v = validateIntakeClassification(
       {
@@ -97,6 +106,49 @@ describe('create_store parameter normalization', () => {
     expect(n).toEqual({ storeName: 'N', storeType: 'C', location: 'Melbourne', _autoSubmit: true });
   });
 
+  it('normalizeCreateStoreToolParameters strips reasoner metadata (source, intentLabel)', () => {
+    const n = normalizeCreateStoreToolParameters({
+      storeName: 'My Cafe',
+      storeType: 'Food & drink',
+      location: 'Melbourne',
+      intentMode: 'store',
+      _autoSubmit: true,
+      source: 'store_create_form',
+      intentLabel: 'Create store',
+    });
+    expect(n).toEqual({
+      storeName: 'My Cafe',
+      storeType: 'Food & drink',
+      location: 'Melbourne',
+      intentMode: 'store',
+      _autoSubmit: true,
+    });
+    const v = validateIntakeClassification(
+      { executionPath: 'proactive_plan', tool: 'create_store', parameters: n },
+      null,
+    );
+    expect(v.ok).toBe(true);
+  });
+
+  it('normalizeCreateStoreToolParameters strips manual mode metadata', () => {
+    const n = normalizeCreateStoreToolParameters({
+      storeName: 'My Cafe',
+      storeType: 'Food & drink',
+      location: 'Melbourne',
+      intentMode: 'store',
+      _autoSubmit: true,
+      _performerMode: 'manual',
+      _performerSource: 'performer',
+      _manualAction: 'create_store',
+      intentText: 'Create store: My Cafe',
+    });
+    const v = validateIntakeClassification(
+      { executionPath: 'proactive_plan', tool: 'create_store', parameters: n },
+      null,
+    );
+    expect(v.ok).toBe(true);
+  });
+
   it('mergeStoreCreateFormIntoParameters overlays form onto classifier params', () => {
     const m = mergeStoreCreateFormIntoParameters(
       { name: 'LLM', _autoSubmit: true },
@@ -108,6 +160,74 @@ describe('create_store parameter normalization', () => {
     );
     expect(v.ok).toBe(true);
     expect(v.cleanedParameters?.storeName).toBe('Form Name');
+  });
+
+  it('skips planner plan step validation for create_store checkpoint runway', () => {
+    const v = validateIntakeClassification(
+      {
+        executionPath: 'proactive_plan',
+        tool: 'create_store',
+        parameters: {
+          storeName: 'my Cafe',
+          storeType: 'Food & drink',
+          location: 'Melbourne',
+          intentMode: 'store',
+          _autoSubmit: true,
+        },
+        plan: [{ step: 1, recommendedTool: 'validate_store_input' }],
+      },
+      null,
+    );
+    expect(v.ok).toBe(true);
+  });
+
+  it('accepts structured draft submit metadata spilled into parameters', () => {
+    const v = validateIntakeClassification(
+      {
+        executionPath: 'proactive_plan',
+        tool: 'create_store',
+        parameters: {
+          storeName: 'ABC Bakery',
+          storeType: 'Food & drink',
+          location: 'Melbourne',
+          intentMode: 'store',
+          _autoSubmit: true,
+          source: 'store_creation_draft',
+          storeCreationDraft: { name: 'ABC Bakery', category: 'Food & drink', location: 'Melbourne' },
+          storeCreateForm: { storeName: 'ABC Bakery', storeType: 'Food & drink', location: 'Melbourne' },
+          traceId: 'trace-1',
+          workspaceId: 'ws-1',
+        },
+      },
+      null,
+    );
+    expect(v.ok).toBe(true);
+    expect(v.cleanedParameters?.source).toBeUndefined();
+    expect(v.cleanedParameters?.storeCreationDraft).toBeUndefined();
+    expect(v.cleanedParameters?.storeCreateForm).toBeUndefined();
+    expect(v.cleanedParameters?._autoSubmit).toBe(true);
+  });
+
+  it('still rejects unknown business keys in create_store parameters after metadata strip', () => {
+    const v = validateIntakeClassification(
+      {
+        executionPath: 'proactive_plan',
+        tool: 'create_store',
+        parameters: {
+          storeName: 'ABC Bakery',
+          storeType: 'Food & drink',
+          location: 'Melbourne',
+          _autoSubmit: true,
+          source: 'store_creation_draft',
+          unknownBusinessField: 'nope',
+        },
+      },
+      null,
+    );
+    expect(v.ok).toBe(false);
+    expect(v.errors?.some((e) => e.field === 'unknownBusinessField' && e.reason === 'unknown_field')).toBe(
+      true,
+    );
   });
 });
 
@@ -156,6 +276,24 @@ describe('normalizePlan', () => {
     });
     expect(injectedTools).not.toContain('analyze_store');
     expect(normalizedPlan.map((s) => s.recommendedTool)).toEqual(['improve_hero']);
+  });
+});
+
+describe('mergePlanLevelParametersIntoSteps', () => {
+  it('merges prompt and storeId into standalone destination step', () => {
+    const { normalizedPlan } = normalizePlan('create_promotion_graphic', []);
+    const merged = mergePlanLevelParametersIntoSteps(
+      normalizedPlan,
+      {
+        storeId: 'store-1',
+        prompt: 'Create a promotion graphic for spring dresses',
+        description: 'Create a promotion graphic for spring dresses',
+      },
+      'create_promotion_graphic',
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].parameters?.storeId).toBe('store-1');
+    expect(merged[0].parameters?.prompt).toContain('spring dresses');
   });
 });
 

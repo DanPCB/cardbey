@@ -73,10 +73,13 @@ function staticChecks() {
   }
 
   const intakeV1 = readSrc('routes/performerIntakeRoutes.js');
-  if (intakeV1.includes('guardPhaseFIntakeV1Dispatch') && intakeV1.includes('intake_v1_facade')) {
-    pass('intake_v1', 'facade routing wired');
+  if (
+    intakeV1.includes('performerIntakeV2Routes') &&
+    intakeV1.includes('applyIntakeV1DeprecationHeaders')
+  ) {
+    pass('intake_v1', 'v1 shim forwards to v2 with deprecation headers');
   } else {
-    fail('intake_v1', 'intake v1 not migrated');
+    fail('intake_v1', 'intake v1 shim missing or legacy implementation restored');
     ok = false;
   }
 
