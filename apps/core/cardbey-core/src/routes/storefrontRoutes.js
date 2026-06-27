@@ -19,6 +19,8 @@ import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactPro
 import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
 import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
 import { isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
+import { optionalAuth } from '../middleware/auth.js';
+import { attachStoreEngagementToPublicStores } from '../services/storeEngagement/attachStoreEngagementToPublicStores.js';
 
 const router = express.Router();
 
@@ -69,7 +71,7 @@ function businessMatchesType(businessType, apiType) {
  * to filter by store category so food stores appear under Food tab, not Products. Contract-true: heroImageUrl,
  * avatarImageUrl, and publishedAt are from the published entity (Business), not from draft.
  */
-router.get('/frontscreen', async (req, res, next) => {
+router.get('/frontscreen', optionalAuth, async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '50', 10) || 50, 100);
     const typeParam = (req.query.type && String(req.query.type).trim()) || null;
@@ -119,10 +121,12 @@ router.get('/frontscreen', async (req, res, next) => {
       mapped.push(row);
     }
 
+    const storesWithEngagement = await attachStoreEngagementToPublicStores(prisma, mapped, req);
+
     return res.json({
       ok: true,
-      stores: mapped,
-      total: mapped.length,
+      stores: storesWithEngagement,
+      total: storesWithEngagement.length,
     });
   } catch (error) {
     const msg = error?.message ?? String(error);

@@ -21,6 +21,8 @@ import { listStoreProducts, parseProductPagination } from '../lib/listStoreProdu
 import { parseDocumentIngestionContext } from '../lib/documentIngestion/documentAwareConcierge.js';
 
 import { prisma } from '../lib/prisma.js';
+import { optionalAuth } from '../middleware/auth.js';
+import { attachStoreEngagementToPublicStores } from '../services/storeEngagement/attachStoreEngagementToPublicStores.js';
 import { isGhostStoreRemoved, isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 
 const router = Router();
@@ -133,7 +135,7 @@ function businessTypeMatchesCategory(businessType, category) {
  * Order: createdAt DESC, id DESC (tie-break)
  * Response: { items: PublicStore[], nextCursor: string | null }
  */
-router.get('/stores/feed', async (req, res, next) => {
+router.get('/stores/feed', optionalAuth, async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 10), 50);
     const cursorRaw = typeof req.query.cursor === 'string' ? req.query.cursor : null;
@@ -176,7 +178,8 @@ router.get('/stores/feed', async (req, res, next) => {
       route: 'GET /api/public/stores/feed',
       req,
     });
-    const items = resolved.map(({ store }) => store);
+    let items = resolved.map(({ store }) => store);
+    items = await attachStoreEngagementToPublicStores(prisma, items, req);
     const last = items[items.length - 1];
     let nextCursor = null;
     if (hasMore && last) {
