@@ -28,6 +28,7 @@ import { csvDiscoveryProvider } from './providers/CsvDiscoveryProvider.js';
 import { manualDiscoveryProvider } from './providers/ManualDiscoveryProvider.js';
 import { osmDiscoveryProvider } from './providers/OsmDiscoveryProvider.js';
 import { googlePlacesDiscoveryProvider } from './providers/GooglePlacesDiscoveryProvider.js';
+import { referralDiscoveryProvider } from './providers/ReferralDiscoveryProvider.js';
 import {
   ingestDiscoveredCandidates,
   buildBatchOnboardingMetrics,
