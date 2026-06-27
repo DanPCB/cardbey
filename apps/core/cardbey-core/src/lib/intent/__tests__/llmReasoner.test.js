@@ -11,20 +11,32 @@ vi.mock('../../llm/llmGateway.ts', () => ({
   },
 }));
 
+vi.mock('../../../services/ragService.js', () => ({
+  buildRagContext: vi.fn(),
+}));
+
 import { llmGateway } from '../../llm/llmGateway.ts';
+import { buildRagContext } from '../../../services/ragService.js';
 
 describe('LLMReasoner', () => {
+  /** @type {Record<string, string | undefined>} */
+  let envSnapshot;
+
   beforeEach(() => {
+    envSnapshot = { ...process.env };
     vi.clearAllMocks();
+    process.env.ENABLE_RAG_IN_REASONER = 'false';
   });
 
   afterEach(() => {
+    process.env = envSnapshot;
     vi.useRealTimers();
   });
 
-  it('includes full conversation history without truncation in prompt', () => {
-    const longContent = 'x'.repeat(900);
-    const { user } = buildLlmReasonerPromptForTest(
+  it('truncates long conversation history per env limits', () => {
+    process.env.LLM_REASONER_MAX_TURN_LENGTH = '1000';
+    const longContent = 'x'.repeat(1100);
+    const { messages } = buildLlmReasonerPromptForTest(
       { text: 'Create a store called Test' },
       {
         conversationHistory: [
@@ -35,9 +47,28 @@ describe('LLMReasoner', () => {
       },
     );
 
-    expect(user).toContain(longContent);
-    expect(user).toContain('Sure, tell me more.');
-    expect(user).toContain('store_1');
+    const serialized = messages.map((m) => m.content).join('\n');
+    expect(serialized).not.toContain(longContent);
+    expect(serialized).toContain('x'.repeat(1000));
+    expect(serialized).toContain('Sure, tell me more.');
+  });
+
+  it('omits duplicate tool schema appendix from system prompt', () => {
+    const { system } = buildLlmReasonerPromptForTest(
+      { text: 'help me create a store named Test' },
+      {},
+    );
+    expect(system).not.toContain('## Tool parameter reference');
+    expect(system).toContain('Params:');
+  });
+
+  it('filters tools for store creation domain', () => {
+    const { system } = buildLlmReasonerPromptForTest(
+      { text: 'help me create a store named Golden Restaurant' },
+      {},
+    );
+    expect(system).toContain('create_store');
+    expect(system).not.toMatch(/\d+\. launch_campaign\b/);
   });
 
   it('parses LLM JSON into IntentReasoningResult with registered tool', async () => {
@@ -103,5 +134,77 @@ describe('LLMReasoner', () => {
 
     expect(result.action).toBe('ask_clarification');
     expect(result.requiresClarification).toBe(true);
+  });
+
+  it('augments prompt with RAG context when flag is on', async () => {
+    process.env.ENABLE_RAG_IN_REASONER = 'true';
+
+    buildRagContext.mockResolvedValue({
+      chunks: [
+        {
+          id: 'c1',
+          content: 'Weekly sales were $12,400.',
+          similarity: 0.88,
+          sourcePath: 'reports/weekly.md',
+          scope: 'tenant_activity',
+          chunkIndex: 0,
+        },
+      ],
+      context: '',
+      sources: [],
+    });
+
+    llmGateway.generate.mockResolvedValue({
+      text: JSON.stringify({
+        intent: 'view_analytics',
+        tool: 'get_store_analytics',
+        parameters: {},
+        confidence: 0.9,
+        reasoning: 'User asked about sales; analytics tool fits.',
+      }),
+      inputTokens: 100,
+      outputTokens: 50,
+      cached: false,
+    });
+
+    const reasoner = new LLMReasoner();
+    const result = await reasoner.reason('user_1', 'session_1', { text: 'What are my sales?' }, {
+      tenantKey: 'tenant_1',
+    });
+
+    expect(buildRagContext).toHaveBeenCalled();
+    expect(result.metadata?.ragUsed).toBe(true);
+    expect(result.metadata?.ragSummary?.chunkCount).toBe(1);
+    expect(result.metadata?.contextUsed).toContain('rag');
+
+    const call = llmGateway.generate.mock.calls[0][0];
+    const userMessage = call.messages.find((m) => m.role === 'user')?.content ?? '';
+    expect(userMessage).toContain('Weekly sales were $12,400.');
+  });
+
+  it('continues without RAG when retrieval fails', async () => {
+    process.env.ENABLE_RAG_IN_REASONER = 'true';
+    buildRagContext.mockRejectedValue(new Error('OPENAI_NOT_CONFIGURED'));
+
+    llmGateway.generate.mockResolvedValue({
+      text: JSON.stringify({
+        intent: 'view_analytics',
+        tool: 'get_store_analytics',
+        parameters: {},
+        confidence: 0.85,
+        reasoning: 'Proceed without retrieved docs.',
+      }),
+      inputTokens: 10,
+      outputTokens: 10,
+      cached: false,
+    });
+
+    const reasoner = new LLMReasoner();
+    const result = await reasoner.reason('user_1', 'session_1', { text: 'What are my sales?' }, {
+      tenantKey: 'tenant_1',
+    });
+
+    expect(result.intent).toBe('view_analytics');
+    expect(result.metadata?.ragUsed).toBe(false);
   });
 });

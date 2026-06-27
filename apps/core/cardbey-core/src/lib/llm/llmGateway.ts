@@ -1,154 +1,190 @@
 /**
- * LLM Gateway — single entry for LLM calls with cache, usage tracking, and daily cap.
- * Uses LlmCache and LlmUsageDaily from Prisma schema.
+ * LLM Gateway — multi-message chat + native tool calling with cache and usage tracking.
  */
 
 import crypto from 'node:crypto';
-import OpenAI from 'openai';
 import { getPrismaClient } from '../../lib/prisma.js';
-import { anthropicProvider, postAnthropicMessages } from './anthropicProvider.js';
 import { resolveAnthropicModel } from './anthropicModelConfig.js';
+import { buildChatMessages, capChatMessages, hashChatPayload } from './llmMessageBuilder.js';
+import { callAnthropicChat } from './providers/anthropicChat.js';
+import { callDeepSeekChat } from './providers/deepseekChat.js';
+import { callOpenAIChat, callXaiChat } from './providers/openaiChat.js';
+import type {
+  LLMGatewayOptions,
+  LLMProviderChatRequest,
+  LLMProviderChatResponse,
+  LLMResult,
+} from './llmGatewayTypes.js';
 
-export type LLMGatewayOptions = {
-  purpose: string;
-  prompt: string;
-  model?: string;
-  provider?: string;
-  maxTokens?: number;
-  tenantKey: string;
-  responseFormat?: 'text' | 'json';
-  temperature?: number;
-  /** Split prompt: system block (Anthropic `system` field) when set. */
-  systemPrompt?: string;
-  /** Anthropic extended thinking (requires anthropic provider). */
-  thinking?: boolean;
-  thinkingBudget?: number;
-};
-
-export type LLMResult = {
-  text: string;
-  inputTokens: number;
-  outputTokens: number;
-  cached: boolean;
-  /** Anthropic thinking trace when extended thinking is enabled. */
-  thinkingText?: string;
-};
+export type { LLMGatewayOptions, LLMResult, LLMChatMessage, LLMToolDefinition, LLMToolCall } from './llmGatewayTypes.js';
 
 const OPENAI_PROVIDER = 'openai';
-/** Prefer env; default `gpt-4o` — some OpenAI-compatible gateways omit `gpt-4o-mini`. */
 const DEFAULT_MODEL =
   process.env.OPENAI_CHAT_MODEL?.trim() || 'gpt-4o';
-/** When the primary model returns 404 / "model not found", try these (deduped). */
-const OPENAI_MODEL_FALLBACKS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'];
-/** Anthropic default must be a Claude id — never reuse OpenAI DEFAULT_MODEL for this provider. */
 const DEFAULT_ANTHROPIC_MODEL = resolveAnthropicModel();
 const DEFAULT_MAX_TOKENS = 1000;
 const DEFAULT_TEMPERATURE = 0.3;
 const CACHE_TTL_DAYS = 7;
-
-function resolveModel(
-  providerName: string,
-  explicit?: string
-): string {
-  const trimmed =
-    typeof explicit === 'string' && explicit.trim() ? explicit.trim() : '';
-  if (trimmed) {
-    if (providerName === 'anthropic' && /^gpt-/i.test(trimmed)) {
-      console.warn(
-        '[llmGateway] OpenAI-style model with anthropic provider; using DEFAULT_ANTHROPIC_MODEL'
-      );
-      return DEFAULT_ANTHROPIC_MODEL;
-    }
-    return providerName === 'anthropic' ? resolveAnthropicModel(trimmed) : trimmed;
-  }
-  return providerName === 'anthropic'
-    ? DEFAULT_ANTHROPIC_MODEL
-    : DEFAULT_MODEL;
-}
 
 const DEFAULT_PROVIDER_ENV = process.env.LLM_DEFAULT_PROVIDER;
 const DEFAULT_PROVIDER =
   DEFAULT_PROVIDER_ENV ??
   (process.env.ANTHROPIC_API_KEY ? 'anthropic' : OPENAI_PROVIDER);
 
+function resolveModel(providerName: string, explicit?: string): string {
+  const trimmed =
+    typeof explicit === 'string' && explicit.trim() ? explicit.trim() : '';
+  if (trimmed) {
+    if (providerName === 'anthropic' && /^gpt-/i.test(trimmed)) {
+      console.warn(
+        '[llmGateway] OpenAI-style model with anthropic provider; using DEFAULT_ANTHROPIC_MODEL',
+      );
+      return DEFAULT_ANTHROPIC_MODEL;
+    }
+    return providerName === 'anthropic' ? resolveAnthropicModel(trimmed) : trimmed;
+  }
+  return providerName === 'anthropic' ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_MODEL;
+}
+
+function selectProvider(explicit?: string, model?: string): string {
+  if (explicit?.trim()) return explicit.trim().toLowerCase();
+  if (model?.startsWith('claude')) return 'anthropic';
+  if (model?.startsWith('gpt')) return OPENAI_PROVIDER;
+  if (model?.startsWith('deepseek')) return 'deepseek';
+  if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  if (process.env.OPENAI_API_KEY) return OPENAI_PROVIDER;
+  return DEFAULT_PROVIDER;
+}
+
+function getFallbackProvider(primary: string): string | null {
+  const configured = String(process.env.LLM_FALLBACK_PROVIDER ?? '').trim().toLowerCase();
+  if (configured && configured !== primary) return configured;
+  if (primary === 'anthropic' && process.env.OPENAI_API_KEY) return OPENAI_PROVIDER;
+  if (primary === OPENAI_PROVIDER && process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  return null;
+}
+
+function toolCallingEnabled(): boolean {
+  return String(process.env.LLM_TOOL_CALLING_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+}
+
+function maxMessagesLimit(): number {
+  const n = parseInt(process.env.LLM_MAX_MESSAGES || '50', 10);
+  return Number.isFinite(n) && n > 0 ? n : 50;
+}
+
 function getTodayUtc(): string {
-  const now = new Date();
-  return now.toISOString().slice(0, 10);
+  return new Date().toISOString().slice(0, 10);
 }
 
 function hashPrompt(prompt: string): string {
   return crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
 }
 
-function isOpenAiModelNotFoundError(err: unknown): boolean {
-  const e = err as {
-    status?: number;
-    message?: string;
-    error?: { message?: string; code?: string };
+async function callProviderChat(
+  providerName: string,
+  request: LLMProviderChatRequest,
+): Promise<LLMProviderChatResponse> {
+  switch (providerName) {
+    case 'anthropic':
+      return callAnthropicChat(request);
+    case 'deepseek':
+      return callDeepSeekChat(request);
+    case 'xai':
+      return callXaiChat(request);
+    case 'openai':
+    default:
+      return callOpenAIChat(request);
+  }
+}
+
+async function invokeProviderWithFallback(
+  providerName: string,
+  request: LLMProviderChatRequest,
+): Promise<LLMProviderChatResponse> {
+  try {
+    return await callProviderChat(providerName, request);
+  } catch (error) {
+    const fallback = getFallbackProvider(providerName);
+    if (!fallback) throw error;
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `[llmGateway] provider "${providerName}" failed; falling back to "${fallback}"`,
+      );
+    }
+    return callProviderChat(fallback, request);
+  }
+}
+
+function toGatewayResult(response: LLMProviderChatResponse, cached = false): LLMResult {
+  return {
+    text: response.content,
+    content: response.content,
+    inputTokens: response.inputTokens,
+    outputTokens: response.outputTokens,
+    cached,
+    ...(response.thinkingText ? { thinkingText: response.thinkingText } : {}),
+    tool_calls: response.tool_calls ?? null,
+    ...(response.model ? { model: response.model } : {}),
+    ...(response.stopReason ? { stopReason: response.stopReason } : {}),
+    ...(response.finishReason ? { finishReason: response.finishReason } : {}),
   };
-  const blob = `${e?.message ?? ''} ${e?.error?.message ?? ''} ${e?.error?.code ?? ''}`.toLowerCase();
-  return (
-    e?.status === 404 ||
-    /model not found|does not exist|invalid_model|unknown model|model_not_found/i.test(blob)
-  );
 }
 
 /**
- * OpenAI Chat Completions with best-effort model fallback (compat proxies / account SKUs).
+ * Full multi-message + tool calling entry point.
  */
-async function openaiChatCompletionsWithFallback(
-  openai: OpenAI,
-  primaryModel: string,
-  bodyBase: Omit<OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming, 'model'>
-): Promise<OpenAI.Chat.Completions.ChatCompletion> {
-  const candidates = [primaryModel, ...OPENAI_MODEL_FALLBACKS].filter(
-    (m, i, a) => m && a.indexOf(m) === i
-  );
-  let lastErr: unknown;
-  for (const tryModel of candidates) {
-    const body = { ...bodyBase, model: tryModel } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
-    try {
-      const completion = (await openai.chat.completions.create(
-        body
-      )) as OpenAI.Chat.Completions.ChatCompletion;
-      if (tryModel !== primaryModel && process.env.NODE_ENV !== 'production') {
-        console.warn(
-          `[llmGateway] OpenAI model "${primaryModel}" unavailable; succeeded with "${tryModel}"`
-        );
-      }
-      return completion;
-    } catch (err) {
-      lastErr = err;
-      if (!isOpenAiModelNotFoundError(err)) throw err;
-    }
-  }
-  throw lastErr;
-}
-
-async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
+export async function complete(options: LLMGatewayOptions): Promise<LLMResult> {
   const {
     purpose,
+    tenantKey,
+    messages: messagesOption,
     prompt,
+    system,
+    systemPrompt,
+    tools = [],
+    tool_choice = 'auto',
+    tool_results = [],
+    autoContinueAfterToolResults = false,
     model: modelOption,
     provider,
     maxTokens = DEFAULT_MAX_TOKENS,
-    tenantKey,
-    responseFormat = 'text',
     temperature = DEFAULT_TEMPERATURE,
-    systemPrompt,
+    responseFormat = 'text',
     thinking = false,
     thinkingBudget,
+    timeoutMs,
   } = options;
-  const providerName = provider ?? DEFAULT_PROVIDER;
+
+  const providerName = selectProvider(provider, modelOption);
   const model = resolveModel(providerName, modelOption);
 
   if (process.env.LLM_ENABLED === 'false') {
-    return { text: '', inputTokens: 0, outputTokens: 0, cached: false };
+    return {
+      text: '',
+      content: '',
+      inputTokens: 0,
+      outputTokens: 0,
+      cached: false,
+      tool_calls: null,
+    };
   }
 
+  let builtMessages = buildChatMessages({
+    messages: messagesOption,
+    system: system ?? systemPrompt,
+    systemPrompt,
+    prompt,
+    tool_results,
+  });
+  builtMessages = capChatMessages(builtMessages, maxMessagesLimit());
+
+  const effectiveTools = toolCallingEnabled() && tools.length > 0 ? tools : undefined;
+
   const prisma = getPrismaClient();
-  const promptHash = hashPrompt(`${systemPrompt ?? ''}\n${prompt}`);
+  const promptHash = hashPrompt(hashChatPayload(builtMessages, effectiveTools));
   const day = getTodayUtc();
+  const skipCache = thinking === true || Boolean(effectiveTools?.length);
 
   const dailyCap =
     Math.max(0, parseInt(process.env.LLM_DAILY_CAP ?? '100000', 10) || 100000);
@@ -161,25 +197,8 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
     throw new Error('LLM daily cap reached');
   }
 
-  const skipCache = thinking === true;
-
-  const cacheRecord = skipCache
-    ? null
-    : await prisma.llmCache.findUnique({
-        where: {
-          LlmCache_key: {
-            tenantKey,
-            purpose,
-            promptHash,
-            provider: providerName,
-            model,
-          },
-        },
-        select: { response: true, expiresAt: true },
-      });
-
-  if (cacheRecord && cacheRecord.expiresAt > new Date()) {
-    await prisma.llmCache.update({
+  if (!skipCache) {
+    const cacheRecord = await prisma.llmCache.findUnique({
       where: {
         LlmCache_key: {
           tenantKey,
@@ -189,99 +208,81 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
           model,
         },
       },
-      data: {
-        lastAccessedAt: new Date(),
-        hitCount: { increment: 1 },
-      },
-    }).catch(() => {});
-    return {
-      text: cacheRecord.response,
-      inputTokens: 0,
-      outputTokens: 0,
-      cached: true,
-    };
-  }
-
-  let text = '';
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let thinkingText: string | undefined;
-
-  if (providerName === 'anthropic' && thinking) {
-    const thinkingModel =
-      modelOption?.trim() ||
-      process.env.LLM_THINKING_MODEL?.trim() ||
-      model;
-    const budget = Math.max(
-      1024,
-      thinkingBudget ??
-        (parseInt(process.env.LLM_THINKING_BUDGET || '4096', 10) || 4096),
-    );
-    const anthropicResult = await anthropicProvider.generateTextWithThinking({
-      prompt,
-      systemPrompt: systemPrompt || undefined,
-      maxTokens: Math.max(maxTokens, budget + 512),
-      model: thinkingModel,
-      thinkingBudget: budget,
+      select: { response: true, expiresAt: true },
     });
-    if (anthropicResult.error) {
-      throw new Error(anthropicResult.error);
-    }
-    text = anthropicResult.text ?? '';
-    thinkingText = anthropicResult.thinkingText;
-    inputTokens = anthropicResult.tokensIn ?? 0;
-    outputTokens = anthropicResult.tokensOut ?? 0;
-  } else if (providerName === 'anthropic') {
-    const result = await anthropicProvider.generateText(prompt, {
-      maxTokens,
-      model,
-      systemPrompt: systemPrompt || undefined,
-    });
-    text = result.text ?? '';
-    inputTokens = result.tokensIn ?? 0;
-    outputTokens = result.tokensOut ?? 0;
-  } else if (providerName === 'xai') {
-    const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) {
-      console.warn('[llmGateway] XAI_API_KEY not set, returning empty');
-      return { text: '', inputTokens: 0, outputTokens: 0, cached: false };
-    }
-    const xai = new OpenAI({ apiKey, baseURL: 'https://api.x.ai/v1' });
-    const body: Parameters<OpenAI['chat']['completions']['create']>[0] = {
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      messages: [{ role: 'user', content: prompt }],
-    };
-    if (responseFormat === 'json') {
-      (body as unknown as Record<string, unknown>).response_format = {
-        type: 'json_object',
+
+    if (cacheRecord && cacheRecord.expiresAt > new Date()) {
+      await prisma.llmCache
+        .update({
+          where: {
+            LlmCache_key: {
+              tenantKey,
+              purpose,
+              promptHash,
+              provider: providerName,
+              model,
+            },
+          },
+          data: {
+            lastAccessedAt: new Date(),
+            hitCount: { increment: 1 },
+          },
+        })
+        .catch(() => {});
+
+      return {
+        text: cacheRecord.response,
+        content: cacheRecord.response,
+        inputTokens: 0,
+        outputTokens: 0,
+        cached: true,
+        tool_calls: null,
       };
     }
-    const completion = (await xai.chat.completions.create(
-      body
-    )) as OpenAI.Chat.Completions.ChatCompletion;
-    text = completion.choices[0]?.message?.content ?? '';
-    inputTokens = completion.usage?.prompt_tokens ?? 0;
-    outputTokens = completion.usage?.completion_tokens ?? 0;
-  } else {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return { text: '', inputTokens: 0, outputTokens: 0, cached: false };
-    }
+  }
 
-    const openai = new OpenAI({ apiKey });
-    const completion = (await openaiChatCompletionsWithFallback(openai, model, {
-      max_tokens: maxTokens,
-      temperature,
-      messages: [{ role: 'user', content: prompt }],
-      ...(responseFormat === 'json'
-        ? { response_format: { type: 'json_object' as const } }
-        : {}),
-    })) as OpenAI.Chat.Completions.ChatCompletion;
-    text = completion.choices[0]?.message?.content ?? '';
-    inputTokens = completion.usage?.prompt_tokens ?? 0;
-    outputTokens = completion.usage?.completion_tokens ?? 0;
+  const chatRequest: LLMProviderChatRequest = {
+    messages: builtMessages,
+    tools: effectiveTools,
+    tool_choice: effectiveTools ? tool_choice : undefined,
+    maxTokens,
+    temperature,
+    model,
+    thinking,
+    thinkingBudget,
+    responseFormat,
+    timeoutMs,
+    purpose,
+  };
+
+  let response = await invokeProviderWithFallback(providerName, chatRequest);
+
+  if (
+    autoContinueAfterToolResults &&
+    tool_results.length > 0 &&
+    response.tool_calls?.length
+  ) {
+    const assistantMessage = {
+      role: 'assistant' as const,
+      content: response.content,
+      tool_calls: response.tool_calls,
+    };
+    const continuationMessages = [
+      ...builtMessages,
+      assistantMessage,
+      ...tool_results.map((tr) => ({
+        role: 'tool' as const,
+        tool_call_id: tr.tool_call_id,
+        content:
+          typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result ?? null),
+        ...(tr.name ? { name: tr.name } : {}),
+      })),
+    ];
+
+    response = await invokeProviderWithFallback(providerName, {
+      ...chatRequest,
+      messages: capChatMessages(continuationMessages, maxMessagesLimit()),
+    });
   }
 
   const expiresAt = new Date();
@@ -290,30 +291,30 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
   const cacheUpsert = skipCache
     ? Promise.resolve()
     : prisma.llmCache.upsert({
-    where: {
-      LlmCache_key: {
-        tenantKey,
-        purpose,
-        promptHash,
-        provider: providerName,
-        model,
-      },
-    },
-    create: {
-      tenantKey,
-      purpose,
-      promptHash,
-      provider: providerName,
-      model,
-      response: text,
-      expiresAt,
-    },
-    update: {
-      response: text,
-      expiresAt,
-      lastAccessedAt: new Date(),
-    },
-  });
+        where: {
+          LlmCache_key: {
+            tenantKey,
+            purpose,
+            promptHash,
+            provider: providerName,
+            model,
+          },
+        },
+        create: {
+          tenantKey,
+          purpose,
+          promptHash,
+          provider: providerName,
+          model,
+          response: response.content,
+          expiresAt,
+        },
+        update: {
+          response: response.content,
+          expiresAt,
+          lastAccessedAt: new Date(),
+        },
+      });
 
   const usageUpsert = prisma.llmUsageDaily.upsert({
     where: {
@@ -332,18 +333,17 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
       model,
       day,
       calls: 1,
-      tokensIn: inputTokens,
-      tokensOut: outputTokens,
+      tokensIn: response.inputTokens,
+      tokensOut: response.outputTokens,
     },
     update: {
       calls: { increment: 1 },
-      tokensIn: { increment: inputTokens },
-      tokensOut: { increment: outputTokens },
+      tokensIn: { increment: response.inputTokens },
+      tokensOut: { increment: response.outputTokens },
     },
   });
 
   const isSQLite = (process.env.DATABASE_URL ?? '').includes('.db');
-
   if (isSQLite) {
     try {
       await cacheUpsert;
@@ -361,20 +361,21 @@ async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
     await Promise.all([cacheUpsert, usageUpsert]);
   }
 
-  return {
-    text,
-    inputTokens,
-    outputTokens,
-    cached: false,
-    ...(thinkingText ? { thinkingText } : {}),
-  };
+  return toGatewayResult(response, false);
 }
 
-const VISION_ANTHROPIC_MODEL = resolveAnthropicModel();
-
 /**
- * Anthropic Messages API with multimodal content (vision). No prompt cache.
+ * Backward-compatible generate() — accepts legacy prompt/systemPrompt or messages[].
  */
+async function generate(options: LLMGatewayOptions): Promise<LLMResult> {
+  return complete({
+    ...options,
+    system: options.system ?? options.systemPrompt,
+    prompt: options.prompt,
+  });
+}
+
+/** Anthropic Messages API with multimodal content (vision). No prompt cache. */
 export async function completeAnthropicVisionMessages(opts: {
   messages: Array<Record<string, unknown>>;
   maxTokens?: number;
@@ -384,7 +385,8 @@ export async function completeAnthropicVisionMessages(opts: {
   error?: string;
   text?: string;
 }> {
-  const model = opts.model?.trim() || VISION_ANTHROPIC_MODEL;
+  const { postAnthropicMessages } = await import('./anthropicProvider.js');
+  const model = opts.model?.trim() || resolveAnthropicModel();
   const max_tokens = opts.maxTokens ?? 400;
   const raw = (await postAnthropicMessages({
     model,
@@ -404,4 +406,4 @@ export async function completeAnthropicVisionMessages(opts: {
   return { ...raw, text };
 }
 
-export const llmGateway = { generate, completeAnthropicVisionMessages };
+export const llmGateway = { generate, complete, completeAnthropicVisionMessages };

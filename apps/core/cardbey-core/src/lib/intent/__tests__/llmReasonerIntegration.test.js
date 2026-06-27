@@ -61,7 +61,88 @@ describe('LLMReasonerIntegration', () => {
     expect(deterministicReasoner.reason).not.toHaveBeenCalled();
   });
 
-  it('uses LLM result when enabled', async () => {
+  it('uses LLM result when enabled and intent is ambiguous for deterministic preview', async () => {
+    process.env.ENABLE_LLM_REASONER = 'true';
+    const llmResult = {
+      intent: 'general_chat',
+      tool: 'general_chat',
+      confidence: 0.9,
+      action: 'show_help',
+      parameters: {},
+      reasoning: ['ok'],
+      metadata: { sources: ['llm'] },
+    };
+
+    LLMReasoner.mockImplementation(() => ({
+      reason: vi.fn().mockResolvedValue(llmResult),
+    }));
+
+    const deterministicReasoner = {
+      reason: vi.fn().mockResolvedValue({
+        intent: 'general_chat',
+        confidence: 0.95,
+        tool: 'general_chat',
+        action: 'show_help',
+        parameters: {},
+        reasoning: ['rules'],
+        metadata: { sources: ['rules'] },
+      }),
+    };
+    const integration = new LLMReasonerIntegration({ deterministicReasoner });
+
+    const out = await integration.tryReason({
+      userId: 'user_1',
+      sessionId: 'session_1',
+      input: { text: 'tell me about marketing strategy for cafes' },
+      classifyOpts: {
+        conversationHistory: [{ role: 'user', content: 'Hi' }],
+      },
+      req: { headers: {} },
+    });
+
+    expect(out?.source).toBe('llm');
+    expect(out?.result.intent).toBe('general_chat');
+    expect(LLMReasoner).toHaveBeenCalled();
+  });
+
+  it('skips LLM for unambiguous create_store deterministic preview', async () => {
+    process.env.ENABLE_LLM_REASONER = 'true';
+    const reasonMock = vi.fn();
+
+    LLMReasoner.mockImplementation(() => ({
+      reason: reasonMock,
+      reasonWithTools: vi.fn(),
+    }));
+
+    const deterministicReasoner = {
+      reason: vi.fn().mockResolvedValue({
+        intent: 'create_store',
+        tool: 'create_store',
+        confidence: 0.95,
+        action: 'start_new_workflow',
+        parameters: { storeName: 'Golden Restaurant' },
+        reasoning: ['Store creation phrase detected'],
+        metadata: { sources: ['rules'] },
+      }),
+    };
+
+    const integration = new LLMReasonerIntegration({ deterministicReasoner });
+
+    const out = await integration.tryReason({
+      userId: 'user_1',
+      sessionId: 'session_1',
+      input: { text: 'help me to create a store, named Golden Restaurant' },
+      classifyOpts: { conversationHistory: [] },
+      req: { headers: {} },
+    });
+
+    expect(out?.source).toBe('deterministic_fallback');
+    expect(out?.result.intent).toBe('create_store');
+    expect(out?.result.metadata?.llmSkipped).toBe('unambiguous_intent');
+    expect(reasonMock).not.toHaveBeenCalled();
+  });
+
+  it('uses LLM result when enabled for non-unambiguous preview', async () => {
     process.env.ENABLE_LLM_REASONER = 'true';
     const llmResult = {
       intent: 'create_store',
@@ -77,7 +158,17 @@ describe('LLMReasonerIntegration', () => {
       reason: vi.fn().mockResolvedValue(llmResult),
     }));
 
-    const deterministicReasoner = { reason: vi.fn() };
+    const deterministicReasoner = {
+      reason: vi.fn().mockResolvedValue({
+        intent: 'general_chat',
+        confidence: 0.5,
+        tool: 'general_chat',
+        action: 'show_help',
+        parameters: {},
+        reasoning: ['rules'],
+        metadata: { sources: ['rules'] },
+      }),
+    };
     const integration = new LLMReasonerIntegration({ deterministicReasoner });
 
     const out = await integration.tryReason({
@@ -92,7 +183,7 @@ describe('LLMReasonerIntegration', () => {
 
     expect(out?.source).toBe('llm');
     expect(out?.result.intent).toBe('create_store');
-    expect(deterministicReasoner.reason).not.toHaveBeenCalled();
+    expect(deterministicReasoner.reason).toHaveBeenCalled();
   });
 
   it('falls back to deterministic reasoner on LLM failure', async () => {
@@ -121,14 +212,15 @@ describe('LLMReasonerIntegration', () => {
     const out = await integration.tryReason({
       userId: 'user_1',
       sessionId: 'session_1',
-      input: { text: 'hello' },
+      input: { text: 'explain quarterly marketing strategy for cafes' },
       classifyOpts: {},
       req: { headers: {} },
     });
 
     expect(out?.source).toBe('deterministic_fallback');
     expect(out?.result.intent).toBe('general_chat');
-    expect(deterministicReasoner.reason).toHaveBeenCalled();
+    expect(deterministicReasoner.reason).toHaveBeenCalledTimes(1);
+    expect(out?.result.metadata?.llmSkipped).toBe('llm_error');
   });
 });
 

@@ -16,6 +16,7 @@ import {
   pickUnifiedMemory,
 } from '../intake/intakeMemoryContext.js';
 import { shouldUseIntentFastPath } from './intentFastPath.js';
+import { diagLog, isLlmReasonerDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 
 /** @type {IntentIntegration | null} */
 let integrationSingleton = null;
@@ -95,8 +96,15 @@ export class IntentIntegration {
    */
   async processIntake({ userId, sessionId, input, classifyOpts, req }) {
     const startTime = Date.now();
+    const diag = isLlmReasonerDiagEnabled();
 
     try {
+      diagLog(diag, '===== IntentIntegration processIntake =====');
+      diagLog(diag, 'Input text:', input?.text?.slice(0, 200));
+      diagLog(diag, 'Intent from input:', input?.intent ?? input?.forceIntent ?? null);
+      diagLog(diag, 'source:', classifyOpts?.source ?? input?.source ?? null);
+      diagLog(diag, 'ENABLE_LLM_REASONER:', process.env.ENABLE_LLM_REASONER);
+
       this.logger.debug?.('[IntentIntegration] Running IntentReasoner', {
         userId,
         sessionId,
@@ -140,9 +148,18 @@ export class IntentIntegration {
       const llmEnabled = isLlmReasonerEnabled(req, userId);
       const useFastPath = llmEnabled && shouldUseIntentFastPath(reasonerInput, classifyOpts);
 
+      diagLog(diag, 'llmEnabled:', llmEnabled);
+      diagLog(diag, 'useFastPath (intentFastPath):', useFastPath);
+
       if (useFastPath) {
         result = await this.reasoner.reason(userId, sessionId, reasonerInput);
         classificationSource = 'fast_path';
+        diagLog(diag, '✅ FAST PATH (IntentIntegration):', {
+          intent: result.intent,
+          confidence: result.confidence,
+          tool: result.tool,
+          action: result.action,
+        });
         this.logger.debug?.('[IntentIntegration] Using fast path (skipping LLM)', {
           userId,
           sessionId,
@@ -212,6 +229,7 @@ export class IntentIntegration {
         _classificationSource: classificationSource,
       };
     } catch (error) {
+      diagLog(diag, '❌ processIntake error:', error?.message ?? String(error));
       this.logger.error?.('[IntentIntegration] IntentReasoner failed', {
         userId,
         sessionId,

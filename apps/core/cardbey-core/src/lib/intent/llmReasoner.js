@@ -4,18 +4,23 @@
  */
 
 import { llmGateway } from '../llm/llmGateway.ts';
-import {
-  formatToolRegistryForPrompt,
-  getToolEntry,
-  INTAKE_TOOL_REGISTRY,
-  isRegisteredTool,
-} from '../intake/intakeToolRegistry.js';
-import { INTENT_TYPE_LIST } from './constants.js';
+import { getToolEntry, isRegisteredTool } from '../intake/intakeToolRegistry.js';
 import { createReasoningResult } from './utils.ts';
 import {
   executeLlmReasonerReadOnlyTool,
-  getLlmReasonerReadOnlyToolAllowlist,
 } from './llmReasonerReadOnlyTools.js';
+import { RagIntegration } from './ragIntegration.js';
+import {
+  formatToolLoopResultAppend,
+  getCachedSystemPrompt,
+  inferToolDomainFromText,
+  isLlmReasonerLogMemoryUsageEnabled,
+  isLlmReasonerLogPromptBytesEnabled,
+  measurePromptFromMessages,
+  normalizeConversationHistory,
+  resolveMaxToolLoopResultSize,
+} from './llmReasonerPromptUtils.js';
+import { INTENT_TYPE_LIST } from './constants.js';
 
 export const LLM_REASONER_VERSION = '1.0.0';
 
@@ -125,108 +130,42 @@ function formatHistoryBlock(history) {
     .map((msg) => {
       const role = cleanString(msg?.role) || 'unknown';
       const label = role === 'assistant' || role === 'agent' ? 'Assistant' : 'User';
-      let content = msg?.content;
-      if (content == null) return '';
-      if (typeof content !== 'string') {
-        try {
-          content = JSON.stringify(content);
-        } catch {
-          content = String(content);
-        }
-      }
+      const content = truncateTurnContentForBlock(msg?.content);
+      if (!content) return '';
       return `${label}: ${content}`;
     })
     .filter(Boolean)
     .join('\n\n');
 }
 
-function formatToolSchemaAppendix() {
-  return INTAKE_TOOL_REGISTRY.map((t) => {
-    const required = Array.isArray(t.requiredParams) ? t.requiredParams : [];
-    const optional = Array.isArray(t.optionalParams) ? t.optionalParams.slice(0, 6) : [];
-    const props = t.parameterSchema?.properties
-      ? Object.keys(t.parameterSchema.properties).slice(0, 8).join(', ')
-      : '';
-    return `- ${t.toolName}: required=[${required.join(', ')}] optional=[${optional.join(', ')}]${props ? ` schema_keys=${props}` : ''}`;
-  }).join('\n');
+function truncateTurnContentForBlock(content) {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
 }
 
 export function buildLlmReasonerPromptForTest(input, options) {
   const locale = options?.locale === 'vi' ? 'vi' : 'en';
   const withToolLoop = options?.withToolLoop === true;
+  const text = cleanString(input?.text) || cleanString(input?.originalUserMessage);
+  const toolDomain = options?.toolDomain ?? inferToolDomainFromText(text);
+  const normalizedOpts = {
+    ...options,
+    conversationHistory: normalizeConversationHistory(options?.conversationHistory),
+  };
+  const system = getCachedSystemPrompt(locale, withToolLoop, toolDomain);
   return {
-    system: buildSystemPrompt(locale, withToolLoop),
-    user: buildUserPrompt(input, options),
+    system,
+    user: buildLatestTurnUserPrompt(input, normalizedOpts),
+    messages: buildReasonerMessages({ system, input, options: normalizedOpts }),
   };
 }
 
-function buildToolLoopSystemAppendix() {
-  const allow = getLlmReasonerReadOnlyToolAllowlist();
-  return `
-
-## Optional context-gathering (ReAct tool loop)
-Before your final answer you MAY request read-only context tools (one at a time).
-Allowed read-only tools: ${allow.join(', ')}
-
-To request a tool, respond with JSON only:
-{
-  "phase": "tool_call",
-  "tool_call": { "name": "<allowed toolName>", "parameters": { } },
-  "reasoning": "why you need this data"
-}
-
-When ready to decide intent, respond with JSON only:
-{
-  "phase": "final",
-  "intent": "...",
-  "tool": "...",
-  "parameters": { },
-  "confidence": 0.0,
-  "reasoning": "..."
-}`;
-}
-
-function buildSystemPrompt(locale, withToolLoop = false) {
-  const langLine =
-    locale === 'vi'
-      ? 'Respond in Vietnamese for any natural-language strings in JSON values.'
-      : 'Respond in English for any natural-language strings in JSON values.';
-  const intentList = INTENT_TYPE_LIST.join(' | ');
-
-  return `You are Performer Intake — Cardbey's reasoning engine for store and marketing operations.
-
-Analyze the user's latest message using the full conversation history and mission context.
-Think step-by-step about what the user wants, which registered tool best matches, and what parameters are needed.
-
-${langLine}
-
-CRITICAL: Output MUST be ONLY valid JSON. No markdown fences. No prose outside JSON.
-
-## Registered tools (choose toolName exactly as listed)
-${formatToolRegistryForPrompt()}
-
-## Tool parameter reference
-${formatToolSchemaAppendix()}
-
-## Rules
-- Prefer a registered tool when the user wants an action that changes data or runs a workflow.
-- Use tool null with intent general_chat only for pure conversation with no actionable request.
-- Use intent clarification when critical information is missing (e.g. which store, which product).
-- Never invent tool names not in the registry.
-- Extract parameters from the user message and context; use storeId/draftId from context when omitted.
-- For multi-step campaign flows, respect tool prerequisites (market_research before create_promotion before launch_campaign).
-
-Return this exact JSON shape:
-{
-  "intent": "<one of: ${intentList}>",
-  "tool": "<registered toolName or null>",
-  "parameters": { },
-  "confidence": 0.0,
-  "reasoning": "<step-by-step explanation of your analysis>"
-}${withToolLoop ? buildToolLoopSystemAppendix() : ''}`;
-}
-
-function buildUserPrompt(input, options) {
+function buildLatestTurnUserPrompt(input, options) {
   const text = cleanString(input?.text) || cleanString(input?.originalUserMessage);
   const locale = options.locale === 'vi' ? 'vi' : 'en';
   const lines = [
@@ -234,9 +173,6 @@ function buildUserPrompt(input, options) {
     '',
     'Mission / session context:',
     formatContextBlock(options.currentContext, options.hydratedContext),
-    '',
-    'Conversation history (oldest to newest):',
-    formatHistoryBlock(options.conversationHistory),
     '',
     'Latest user message:',
     text || '(empty — user may have attached media only)',
@@ -253,6 +189,80 @@ function buildUserPrompt(input, options) {
   }
 
   return lines.join('\n');
+}
+
+function normalizeHistoryRole(role) {
+  const r = String(role ?? 'user').toLowerCase();
+  return r === 'assistant' ? 'assistant' : 'user';
+}
+
+function buildReasonerMessages({ system, input, options, extraUserAppend = '' }) {
+  /** @type {Array<{ role: string, content: string }>} */
+  const messages = [{ role: 'system', content: system }];
+  const history = normalizeConversationHistory(options.conversationHistory);
+
+  for (const turn of history) {
+    const content = cleanString(turn?.content);
+    if (!content) continue;
+    messages.push({ role: normalizeHistoryRole(turn.role), content });
+  }
+
+  let userBlock = buildLatestTurnUserPrompt(input, options);
+  if (extraUserAppend) {
+    userBlock += `\n\n${extraUserAppend}`;
+  }
+  messages.push({ role: 'user', content: userBlock });
+  return messages;
+}
+
+function logPromptBuilt(logger, messages, meta = {}, memBefore = null) {
+  const metrics = measurePromptFromMessages(messages);
+  if (!isLlmReasonerLogPromptBytesEnabled()) {
+    return metrics;
+  }
+
+  const payload = {
+    ...metrics,
+    ...meta,
+  };
+
+  if (isLlmReasonerLogMemoryUsageEnabled() && memBefore != null) {
+    const memAfter = process.memoryUsage().heapUsed;
+    payload.promptAllocMB = Math.round(((memAfter - memBefore) / 1024 / 1024) * 100) / 100;
+  }
+
+  logger.debug?.('[LLMReasoner] Prompt built', payload);
+  return metrics;
+}
+
+function logLlmCallComplete(logger, promptMetrics, memBefore, memAfterPrompt) {
+  if (!isLlmReasonerLogPromptBytesEnabled() && !isLlmReasonerLogMemoryUsageEnabled()) {
+    return null;
+  }
+
+  const payload = {
+    promptBytes: promptMetrics.promptBytes,
+    estimatedTokens: promptMetrics.estimatedTokens,
+  };
+
+  if (isLlmReasonerLogMemoryUsageEnabled() && memBefore != null && memAfterPrompt != null) {
+    const memAfterCall = process.memoryUsage().heapUsed;
+    payload.callAllocMB = Math.round(((memAfterCall - memAfterPrompt) / 1024 / 1024) * 100) / 100;
+    payload.totalAllocMB = Math.round(((memAfterCall - memBefore) / 1024 / 1024) * 100) / 100;
+  }
+
+  logger.debug?.('[LLMReasoner] LLM call complete', payload);
+  return payload.totalAllocMB ?? null;
+}
+
+function attachPromptTelemetry(result, promptMetrics, memoryAllocatedMB, extra = {}) {
+  result.metadata = {
+    ...result.metadata,
+    promptBytes: promptMetrics.promptBytes,
+    estimatedTokens: promptMetrics.estimatedTokens,
+    ...(memoryAllocatedMB != null ? { memoryAllocatedMB } : {}),
+    ...extra,
+  };
 }
 
 function llmParsedToReasoningResult(parsed, input, { minConfidence, reasoningTimeMs }) {
@@ -364,14 +374,39 @@ function resolveLlmInvokeOptions(options = {}) {
   };
 }
 
-async function invokeLlmGateway({ system, user, extraUserAppend = '', purpose, options = {} }) {
+async function invokeLlmGateway({
+  system,
+  user,
+  input,
+  extraUserAppend = '',
+  purpose,
+  options = {},
+  tools,
+  memStart = null,
+}) {
   const cfg = resolveLlmInvokeOptions(options);
-  const userBlock = extraUserAppend ? `${user}\n\n${extraUserAppend}` : user;
+  const messages = input
+    ? buildReasonerMessages({ system, input, options, extraUserAppend })
+    : [
+        { role: 'system', content: system },
+        { role: 'user', content: extraUserAppend ? `${user}\n\n${extraUserAppend}` : user },
+      ];
+
+  const memBeforePrompt =
+    memStart ?? (isLlmReasonerLogMemoryUsageEnabled() ? process.memoryUsage().heapUsed : null);
+  const promptMetrics = logPromptBuilt(options.logger ?? console, messages, {
+    purpose,
+    historyLength: options.conversationHistory?.length ?? 0,
+    toolDomain: options.toolDomain ?? null,
+  }, memBeforePrompt);
+
+  const memAfterPrompt = isLlmReasonerLogMemoryUsageEnabled()
+    ? process.memoryUsage().heapUsed
+    : null;
 
   const generatePromise = llmGateway.generate({
     purpose,
-    prompt: userBlock,
-    systemPrompt: system,
+    messages,
     tenantKey: cfg.tenantKey,
     maxTokens: cfg.maxTokens,
     temperature: cfg.temperature,
@@ -380,22 +415,82 @@ async function invokeLlmGateway({ system, user, extraUserAppend = '', purpose, o
     thinkingBudget: cfg.thinkingBudget,
     ...(cfg.provider ? { provider: cfg.provider } : {}),
     ...(cfg.model ? { model: cfg.model } : {}),
+    ...(Array.isArray(tools) && tools.length ? { tools, tool_choice: 'auto' } : {}),
   });
 
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => reject(new Error(`llm_reasoner_timeout_${cfg.timeoutMs}ms`)), cfg.timeoutMs);
   });
 
-  return Promise.race([generatePromise, timeoutPromise]);
+  const llmRes = await Promise.race([generatePromise, timeoutPromise]);
+  const memoryAllocatedMB = logLlmCallComplete(
+    options.logger ?? console,
+    promptMetrics,
+    memBeforePrompt,
+    memAfterPrompt,
+  );
+
+  return { llmRes, promptMetrics, memoryAllocatedMB };
 }
 
 export class LLMReasoner {
   /**
    * @param {Object} [options]
    * @param {Console} [options.logger]
+   * @param {{ track?: (event: string, props: Record<string, unknown>) => void } | null} [options.telemetry]
    */
-  constructor({ logger = console } = {}) {
+  constructor({ logger = console, telemetry = null } = {}) {
     this.logger = logger;
+    this.telemetry = telemetry;
+    this.ragIntegration = new RagIntegration({ logger, telemetry });
+  }
+
+  /**
+   * @param {string} userId
+   * @param {string} sessionId
+   * @param {Object} input
+   * @param {Object} [options]
+   * @returns {Promise<{ ragAppendix: string | null, ragSummary: ReturnType<RagIntegration['getRagSummary']> }>}
+   */
+  async _maybeFetchRag(userId, sessionId, input, options = {}) {
+    const context = options.currentContext ?? input?.currentContext ?? null;
+    if (!this.ragIntegration.shouldUseRag(input, context)) {
+      return { ragAppendix: null, ragSummary: { hasRag: false, chunkCount: 0, sources: [], topScore: 0 } };
+    }
+
+    const query = cleanString(input?.text) || cleanString(input?.originalUserMessage);
+    const ragResult = await this.ragIntegration.fetchRagContext(userId, sessionId, query, {
+      ...(context && typeof context === 'object' ? context : {}),
+      tenantKey: cleanString(options.tenantKey) || cleanString(userId),
+    });
+
+    if (!ragResult?.chunks?.length) {
+      return { ragAppendix: null, ragSummary: this.ragIntegration.getRagSummary(ragResult) };
+    }
+
+    return {
+      ragAppendix: this.ragIntegration.formatRagContext(ragResult),
+      ragSummary: this.ragIntegration.getRagSummary(ragResult),
+    };
+  }
+
+  /**
+   * @param {import('./intentTypes.js').IntentReasoningResult} result
+   * @param {{ hasRag: boolean, chunkCount: number, sources: string[], topScore: number }} ragSummary
+   * @param {string | null} ragAppendix
+   */
+  _attachRagMetadata(result, ragSummary, ragAppendix) {
+    const contextUsed = [...(result.metadata?.contextUsed ?? [])];
+    if (ragSummary?.hasRag && !contextUsed.includes('rag')) {
+      contextUsed.push('rag');
+    }
+
+    result.metadata = {
+      ...result.metadata,
+      ragUsed: Boolean(ragAppendix),
+      ragSummary,
+      ...(contextUsed.length ? { contextUsed } : {}),
+    };
   }
 
   /**
@@ -414,24 +509,33 @@ export class LLMReasoner {
    */
   async reason(userId, sessionId, input, options = {}) {
     const startTime = Date.now();
-    const history = Array.isArray(options.conversationHistory) ? options.conversationHistory : [];
+    const memStart = isLlmReasonerLogMemoryUsageEnabled() ? process.memoryUsage().heapUsed : null;
+    const text = cleanString(input?.text) || cleanString(input?.originalUserMessage);
+    const toolDomain = inferToolDomainFromText(text);
+    const conversationHistory = normalizeConversationHistory(options.conversationHistory);
+    const reasonOptions = { ...options, conversationHistory, toolDomain, logger: this.logger };
 
     this.logger.debug?.('[LLMReasoner] Starting LLM reasoning', {
       userId,
       sessionId,
-      input: input?.text?.slice(0, 100),
-      historyLength: history.length,
+      input: text?.slice(0, 100),
+      historyLength: conversationHistory.length,
+      toolDomain,
     });
 
     const locale = options.locale === 'vi' ? 'vi' : 'en';
-    const system = buildSystemPrompt(locale, false);
-    const user = buildUserPrompt(input, options);
+    const system = getCachedSystemPrompt(locale, false, toolDomain);
+    const user = buildLatestTurnUserPrompt(input, reasonOptions);
+    const { ragAppendix, ragSummary } = await this._maybeFetchRag(userId, sessionId, input, reasonOptions);
 
-    const llmRes = await invokeLlmGateway({
+    const { llmRes, promptMetrics, memoryAllocatedMB } = await invokeLlmGateway({
       system,
       user,
+      input,
+      extraUserAppend: ragAppendix ?? '',
       purpose: 'intake:llm_reasoner',
-      options: { ...options, tenantKey: cleanString(options.tenantKey) || cleanString(userId) },
+      options: { ...reasonOptions, tenantKey: cleanString(options.tenantKey) || cleanString(userId) },
+      memStart,
     });
 
     const rawText = cleanString(llmRes?.text);
@@ -457,6 +561,9 @@ export class LLMReasoner {
       };
     }
 
+    this._attachRagMetadata(result, ragSummary, ragAppendix);
+    attachPromptTelemetry(result, promptMetrics, memoryAllocatedMB);
+
     this.logger.debug?.('[LLMReasoner] Reasoning complete', {
       userId,
       sessionId,
@@ -464,6 +571,9 @@ export class LLMReasoner {
       tool: result.tool,
       confidence: result.confidence,
       durationMs: result.metadata?.reasoningTimeMs,
+      ragUsed: Boolean(ragAppendix),
+      promptBytes: promptMetrics.promptBytes,
+      estimatedTokens: promptMetrics.estimatedTokens,
     });
 
     return result;
@@ -480,25 +590,40 @@ export class LLMReasoner {
    */
   async reasonWithTools(userId, sessionId, input, options = {}) {
     const startTime = Date.now();
+    const memStart = isLlmReasonerLogMemoryUsageEnabled() ? process.memoryUsage().heapUsed : null;
     const maxIterations = Math.min(
       Math.max(parseInt(process.env.LLM_TOOL_LOOP_MAX_ITERATIONS || '3', 10) || 3, 1),
       5,
     );
+    const maxResultSize = resolveMaxToolLoopResultSize();
+    const text = cleanString(input?.text) || cleanString(input?.originalUserMessage);
+    const toolDomain = inferToolDomainFromText(text);
+    const conversationHistory = normalizeConversationHistory(options.conversationHistory);
+    const reasonOptions = { ...options, conversationHistory, toolDomain, logger: this.logger };
     const locale = options.locale === 'vi' ? 'vi' : 'en';
-    const system = buildSystemPrompt(locale, true);
-    const user = buildUserPrompt(input, options);
-    let toolAppendix = '';
+    const system = getCachedSystemPrompt(locale, true, toolDomain);
+    const user = buildLatestTurnUserPrompt(input, reasonOptions);
+    const { ragAppendix, ragSummary } = await this._maybeFetchRag(userId, sessionId, input, reasonOptions);
+    let toolAppendix = ragAppendix ?? '';
+    let totalResultSize = 0;
+    let toolLoopCapReached = false;
     /** @type {Array<{ tool: string, result: unknown }>} */
     const toolTrace = [];
+    let lastPromptMetrics = measurePromptFromMessages([]);
+    let lastMemoryAllocatedMB = null;
 
     for (let i = 0; i < maxIterations; i++) {
-      const llmRes = await invokeLlmGateway({
+      const { llmRes, promptMetrics, memoryAllocatedMB } = await invokeLlmGateway({
         system,
         user,
+        input,
         extraUserAppend: toolAppendix,
         purpose: 'intake:llm_reasoner_tool_loop',
-        options: { ...options, tenantKey: cleanString(options.tenantKey) || cleanString(userId) },
+        options: { ...reasonOptions, tenantKey: cleanString(options.tenantKey) || cleanString(userId) },
+        memStart,
       });
+      lastPromptMetrics = promptMetrics;
+      lastMemoryAllocatedMB = memoryAllocatedMB;
 
       const rawText = cleanString(llmRes?.text);
       if (!rawText) {
@@ -512,6 +637,12 @@ export class LLMReasoner {
 
       const toolCall = extractToolCall(parsed);
       if (toolCall && !isFinalPhase(parsed)) {
+        if (toolLoopCapReached) {
+          toolAppendix +=
+            '\n\n[Tool loop result cap reached — respond with final JSON only, no further tool calls]';
+          continue;
+        }
+
         const exec = await executeLlmReasonerReadOnlyTool(toolCall.name, toolCall.parameters, {
           userId,
           sessionId,
@@ -524,7 +655,25 @@ export class LLMReasoner {
             null,
         });
         toolTrace.push({ tool: toolCall.name, result: exec });
-        toolAppendix += `\n\nTool result for ${toolCall.name}:\n${JSON.stringify(exec, null, 2)}`;
+
+        const formatted = formatToolLoopResultAppend(toolCall.name, exec, maxResultSize);
+        if (formatted.truncated) {
+          this.logger.warn?.('[LLMReasoner] Tool loop result truncated', {
+            tool: toolCall.name,
+            maxResultSize,
+          });
+        }
+
+        totalResultSize += formatted.byteLength;
+        toolAppendix += formatted.append;
+
+        if (totalResultSize > maxResultSize * 2) {
+          this.logger.warn?.('[LLMReasoner] Tool loop result size exceeded cap, stopping tool executions', {
+            totalResultSize,
+            maxResultSize,
+          });
+          toolLoopCapReached = true;
+        }
         continue;
       }
 
@@ -538,6 +687,7 @@ export class LLMReasoner {
         result.metadata = {
           ...result.metadata,
           toolLoopTrace: toolTrace,
+          toolLoopUsed: true,
           contextUsed: [...(result.metadata?.contextUsed ?? []), 'tool_loop'],
         };
       }
@@ -547,6 +697,12 @@ export class LLMReasoner {
           thinkingTrace: llmRes.thinkingText,
         };
       }
+
+      this._attachRagMetadata(result, ragSummary, ragAppendix);
+      attachPromptTelemetry(result, lastPromptMetrics, lastMemoryAllocatedMB, {
+        toolLoopUsed: toolTrace.length > 0,
+        toolLoopSteps: toolTrace.length,
+      });
 
       return result;
     }
