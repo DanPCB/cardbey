@@ -28,6 +28,8 @@ export const DASHBOARD_CORS_REQUEST_HEADERS = [
   'X-Performer-Mode',
   // App context
   'x-cardbey-context',
+  'x-cardbey-viewer-key',
+  'X-Cardbey-Viewer-Key',
   'x-user-key',
   'X-User-Key',
   'x-guest-session',
