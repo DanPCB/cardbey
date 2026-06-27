@@ -19,6 +19,7 @@ import './env/ensureDatabaseUrl.js';
 import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentity.js';
 import { logStorageBoot } from './lib/storage/index.js';
 import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
+import { logPublicWebBaseOnStartup } from './utils/publicWebBase.js';
 import './lib/skills/index.js';
 import './services/skills/builtinSkills.js';
 import './services/hooks/builtinHooks.js';
@@ -128,6 +129,7 @@ import adminCaiRoutes from './routes/admin/cai.js';
 import adminPlatformRoutes from './routes/admin/platformOverview.js';
 import adminPlatformActivityRoutes from './routes/admin/platformActivityRoutes.js';
 import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
+import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
@@ -168,6 +170,7 @@ import businessBrandRoutes from './routes/businessBrandRoutes.js';
 import discoveryRoutes from './routes/discoveryRoutes.js';
 import businessIngestionRoutes from './routes/businessIngestionRoutes.js';
 import discoveryEngineRoutes from './routes/discoveryEngineRoutes.js';
+import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import claimBusinessPublicRoutes from './routes/claimBusinessPublicRoutes.js';
@@ -330,6 +333,8 @@ function validateEnvironment() {
     if (!process.env.JWT_SECRET) {
       console.error('[env] JWT_SECRET is not set in production.');
     }
+
+    logPublicWebBaseOnStartup();
     
     // CDN_BASE_URL optional; log info if missing but only if you expect it
     // (No warning - it's optional)
@@ -984,6 +989,7 @@ app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:store
 app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
 app.use('/api/business-ingestion', businessIngestionRoutes); // Bulk factual business ingestion pipeline
 app.use('/api/discovery-engine', discoveryEngineRoutes); // Discovery Engine V1 — candidates → seeds
+app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first BusinessCandidate pilot
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
@@ -1151,6 +1157,7 @@ app.use('/api/admin', adminCaiRoutes);
 app.use('/api/admin', adminPlatformRoutes);
 app.use('/api/admin', adminPlatformActivityRoutes);
 app.use('/api/admin', adminPlatformSearchRoutes);
+app.use('/api/admin', adminAccountManagementRoutes);
 app.use('/api/language', languageRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);

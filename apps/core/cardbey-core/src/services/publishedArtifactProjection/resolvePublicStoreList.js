@@ -108,7 +108,7 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
   return dedupeNearDuplicatePublicStoreResults(results);
 }
 
-function normalizePublicStoreIdentityKey(store) {
+export function normalizePublicStoreIdentityKey(store) {
   const slugStem = String(store?.slug ?? '')
     .toLowerCase()
     .trim()
