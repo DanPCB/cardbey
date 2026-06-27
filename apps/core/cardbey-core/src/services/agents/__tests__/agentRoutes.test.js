@@ -83,4 +83,24 @@ describe('agentRoutes', () => {
     expect(orchestrator.executeAgent).toHaveBeenCalled();
     expect(res.body.ok).toBe(true);
   });
+
+  it('POST /api/agents/auto-layout reformats messy content', async () => {
+    const res = await request(app)
+      .post('/api/agents/auto-layout')
+      .send({
+        content: 'Cardbey Audit\n\nExecutive Summary\nSome findings here.',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.processed).toContain('# Cardbey Audit');
+    expect(res.body.processed).toContain('## Executive Summary');
+    expect(res.body.stats.lines).toBeGreaterThan(0);
+  });
+
+  it('POST /api/agents/auto-layout rejects missing content', async () => {
+    const res = await request(app).post('/api/agents/auto-layout').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
 });

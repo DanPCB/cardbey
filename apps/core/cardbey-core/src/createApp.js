@@ -271,6 +271,7 @@ export async function createCardbeyApp() {
   await tryMountRouter(app, './routes/auth.js', '/api/auth');
   await tryMountRouter(app, './routes/publicProducts.js', '/');
   await tryMountRouter(app, './routes/agentRoutes.js', '/api/agent');
+  await tryMountRouter(app, './routes/layoutRoutes.js', '/api/layout');
   await tryMountRouter(app, './routes/telemetryRoutes.js', '/api/telemetry');
   await tryMountRouter(app, './routes/missionsRoutes.js', '/api/missions');
   await tryMountRouter(app, './routes/toolsRoutes.js', '/api/tools');

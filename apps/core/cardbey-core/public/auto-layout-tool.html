@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>General Layout Engine</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+    select, button { padding: 8px 12px; font-size: 14px; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    textarea { width: 100%; height: 480px; padding: 10px; font-family: ui-monospace, monospace; box-sizing: border-box; }
+    .output { background: #f5f5f5; padding: 20px; border-radius: 8px; overflow: auto; height: 480px; white-space: pre-wrap; font-family: ui-monospace, monospace; box-sizing: border-box; }
+    .stats, .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 14px; color: #444; }
+    .actions span { background: #e8e8e8; padding: 4px 8px; border-radius: 4px; }
+    .error { color: #b00020; margin-top: 8px; }
+    @media (max-width: 800px) {
+      .container { grid-template-columns: 1fr; }
+      textarea, .output { height: 280px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>General Layout Engine</h1>
+  <p>Paste messy content — auto-detect type or pick a layout: text, menu, graphic, dashboard, document, storefront.</p>
+
+  <div class="controls">
+    <label>
+      Layout type
+      <select id="type">
+        <option value="">Auto-detect</option>
+        <option value="text">Text</option>
+        <option value="menu">Menu</option>
+        <option value="graphic">Graphic</option>
+        <option value="dashboard">Dashboard</option>
+        <option value="document">Document</option>
+        <option value="storefront">Storefront</option>
+      </select>
+    </label>
+    <label>
+      Output
+      <select id="format">
+        <option value="markdown">Markdown</option>
+        <option value="html">HTML</option>
+        <option value="json">JSON</option>
+        <option value="css">CSS</option>
+      </select>
+    </label>
+    <button type="button" id="format-btn">Apply Layout</button>
+  </div>
+
+  <div class="container">
+    <div>
+      <h3>Input</h3>
+      <textarea id="input" placeholder="Paste messy content here..."></textarea>
+      <div class="error" id="error" hidden></div>
+    </div>
+    <div>
+      <h3>Output</h3>
+      <div class="output" id="output"></div>
+      <div class="stats" id="stats"></div>
+      <div class="actions" id="actions"></div>
+    </div>
+  </div>
+
+  <script>
+    async function applyLayout() {
+      const input = document.getElementById('input').value;
+      const type = document.getElementById('type').value;
+      const format = document.getElementById('format').value;
+      const errorEl = document.getElementById('error');
+      errorEl.hidden = true;
+
+      if (!input.trim()) return;
+
+      const body = {
+        content: input,
+        options: { format },
+      };
+      if (type) body.type = type;
+
+      try {
+        const response = await fetch('/api/layout/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Layout failed');
+        }
+
+        document.getElementById('output').textContent = data.processed;
+        document.getElementById('stats').innerHTML = Object.entries(data.stats || {})
+          .map(([key, value]) => `<span>${key}: ${value}</span>`)
+          .concat([`<span>detected: ${data.type}</span>`])
+          .join('');
+
+        document.getElementById('actions').innerHTML = (data.suggestedActions || [])
+          .map((action) => `<span>${action.label}</span>`)
+          .join('');
+      } catch (err) {
+        errorEl.textContent = err.message || 'Request failed';
+        errorEl.hidden = false;
+      }
+    }
+
+    document.getElementById('format-btn').addEventListener('click', applyLayout);
+  </script>
+</body>
+</html>

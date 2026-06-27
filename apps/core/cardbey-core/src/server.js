@@ -209,6 +209,7 @@ import copilotRoutes from './routes/copilotRoutes.js';
 import skillRoutes from './routes/skillRoutes.js';
 import hookRoutes from './routes/hookRoutes.js';
 import agentRoutes from './routes/agentRoutes.js';
+import layoutRoutes from './routes/layoutRoutes.js';
 import reliabilityRoutes from './routes/reliabilityRoutes.js';
 import signalRoutes from './routes/signalRoutes.js';
 import userMemoryRoutes from './routes/userMemoryRoutes.js';
@@ -907,6 +908,14 @@ app.use('/assets', express.static(publicAssetsDir, {
   }
 }));
 
+const autoLayoutToolPath = path.join(process.cwd(), 'public', 'auto-layout-tool.html');
+app.get('/tools/auto-layout', (_req, res) => {
+  if (fs.existsSync(autoLayoutToolPath)) {
+    return res.sendFile(autoLayoutToolPath);
+  }
+  return res.status(404).json({ ok: false, error: 'auto_layout_tool_not_found' });
+});
+
 // SSE routes are handled by realtimeRoutes (mounted at /api)
 // The fallback handler below is kept for compatibility but should not be needed
 // since realtimeRoutes handles /api/stream
@@ -1000,6 +1009,7 @@ app.use('/api/copilot', copilotRoutes); // Proactive copilot suggestions (govern
 app.use('/api/skills', skillRoutes); // Composable skills registry + execution
 app.use('/api/hooks', hookRoutes); // Lifecycle hooks registry + test
 app.use('/api/agents', agentRoutes); // Sub-agent registry, orchestration, message bus
+app.use('/api/layout', layoutRoutes); // General layout engine: POST /apply, GET /types
 app.use('/api/reliability', reliabilityRoutes); // P6: auto-heal, rate limits, bulkhead, SLO, alerts
 app.use('/api/conversations', conversationRoutes); // Phase 0 — continuous Performer conversation sessions
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.

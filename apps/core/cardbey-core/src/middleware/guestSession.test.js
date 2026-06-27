@@ -27,6 +27,7 @@ describe('guestSession cookie options', () => {
   it('uses none+secure on production cross-site deploys', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.GUEST_COOKIE_SAMESITE;
+    delete process.env.CARDEY_DEPLOY_ENV;
     expect(shouldUseCrossSiteGuestCookie()).toBe(true);
     expect(buildGuestCookieOptions()).toMatchObject({
       sameSite: 'none',
@@ -34,6 +35,23 @@ describe('guestSession cookie options', () => {
       httpOnly: true,
       path: '/',
     });
+  });
+
+  it('uses none+secure when NODE_ENV is staging (Render staging core)', () => {
+    process.env.NODE_ENV = 'staging';
+    delete process.env.GUEST_COOKIE_SAMESITE;
+    delete process.env.CARDEY_DEPLOY_ENV;
+    expect(shouldUseCrossSiteGuestCookie()).toBe(true);
+    expect(buildGuestCookieOptions().sameSite).toBe('none');
+    expect(buildGuestCookieOptions().secure).toBe(true);
+  });
+
+  it('uses none+secure when CARDEY_DEPLOY_ENV is staging', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.CARDEY_DEPLOY_ENV = 'staging';
+    delete process.env.GUEST_COOKIE_SAMESITE;
+    expect(shouldUseCrossSiteGuestCookie()).toBe(true);
+    expect(buildGuestCookieOptions().sameSite).toBe('none');
   });
 
   it('honors GUEST_COOKIE_SAMESITE override', () => {

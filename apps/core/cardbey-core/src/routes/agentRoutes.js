@@ -10,8 +10,10 @@ import messageBus from '../services/agents/messageBus.js';
 import agentLifecycle from '../services/agents/agentLifecycle.js';
 import { ensureRuntimeAuthorizedContext } from '../lib/runtime/performerRuntime/runtimeOwnership.js';
 import { rateLimitMiddleware } from '../services/reliability/rateLimitMiddleware.js';
+import { AutoLayoutAgent } from '../lib/agents/autoLayoutAgent.js';
 
 const router = Router();
+const autoLayoutAgent = new AutoLayoutAgent();
 
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -108,6 +110,48 @@ router.post('/delegate', requireAuth, async (req, res) => {
     res.status(500).json({ ok: false, error: error?.message || 'agents_delegate_failed' });
   }
 });
+
+/**
+ * POST /api/agents/auto-layout
+ * Reformat messy unstructured content into clean readable layout (no side effects).
+ */
+router.post(
+  '/auto-layout',
+  rateLimitMiddleware({
+    endpoint: '/api/agents/auto-layout',
+    windowMs: 60_000,
+    maxRequests: 30,
+    perUser: false,
+  }),
+  async (req, res) => {
+    try {
+      const content = req.body?.content;
+      const options =
+        req.body?.options && typeof req.body.options === 'object' ? req.body.options : {};
+
+      if (!content || typeof content !== 'string') {
+        return res.status(400).json({ success: false, error: 'Content is required' });
+      }
+
+      if (content.length > 500_000) {
+        return res.status(413).json({ success: false, error: 'Content exceeds 500KB limit' });
+      }
+
+      const result = await autoLayoutAgent.process(content, options);
+
+      res.json({
+        success: true,
+        processed: result.processed,
+        type: result.type,
+        stats: result.stats,
+        original: result.original,
+      });
+    } catch (error) {
+      console.error('[AutoLayoutAgent] Error:', error);
+      res.status(500).json({ success: false, error: error?.message || 'auto_layout_failed' });
+    }
+  },
+);
 
 router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {

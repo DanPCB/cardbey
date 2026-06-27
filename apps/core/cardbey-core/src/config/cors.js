@@ -146,7 +146,7 @@ export const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: CORS_API_ALLOWED_HEADERS,
-  exposedHeaders: ['Content-Length'],
+  exposedHeaders: ['Content-Length', 'X-Guest-Session'],
   maxAge: 86400, // 24 hours
 };
 

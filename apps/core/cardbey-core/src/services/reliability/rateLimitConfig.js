@@ -20,6 +20,20 @@ rateLimiter.configure({
 });
 
 rateLimiter.configure({
+  endpoint: '/api/layout/apply',
+  windowMs: 60_000,
+  maxRequests: 30,
+  perUser: false,
+});
+
+rateLimiter.configure({
+  endpoint: '/api/agents/auto-layout',
+  windowMs: 60_000,
+  maxRequests: 30,
+  perUser: false,
+});
+
+rateLimiter.configure({
   endpoint: '/api/agents/execute',
   windowMs: 60_000,
   maxRequests: 20,
