@@ -24,6 +24,8 @@ export const DASHBOARD_CORS_REQUEST_HEADERS = [
   'X-Maintenance-Token',
   'x-performer-role',
   'X-Performer-Role',
+  'x-performer-mode',
+  'X-Performer-Mode',
   // App context
   'x-cardbey-context',
   'x-user-key',

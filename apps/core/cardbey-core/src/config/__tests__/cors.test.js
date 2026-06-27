@@ -24,6 +24,12 @@ describe('CORS API allowed headers', () => {
     );
   });
 
+  it('includes x-performer-mode for automation/manual mode routing', () => {
+    expect(CORS_API_ALLOWED_HEADERS).toEqual(
+      expect.arrayContaining(['x-performer-mode', 'X-Performer-Mode']),
+    );
+  });
+
   it('resolvePreflightAllowHeaders echoes requested headers when all are allowed', () => {
     const echoed = resolvePreflightAllowHeaders(
       'content-type, authorization, x-session-id',
@@ -77,7 +83,7 @@ describe('OPTIONS /api/performer/intake/v2 preflight (cardbey.com → core)', ()
       .set('Access-Control-Request-Method', 'POST')
       .set(
         'Access-Control-Request-Headers',
-        'content-type, authorization, x-session-id, x-maintenance-token, x-performer-role',
+        'content-type, authorization, x-session-id, x-maintenance-token, x-performer-role, x-performer-mode',
       );
 
     expect(res.status).toBe(204);
@@ -85,6 +91,7 @@ describe('OPTIONS /api/performer/intake/v2 preflight (cardbey.com → core)', ()
     expect(allowed).toContain('x-session-id');
     expect(allowed).toContain('x-maintenance-token');
     expect(allowed).toContain('x-performer-role');
+    expect(allowed).toContain('x-performer-mode');
   });
 });
 
