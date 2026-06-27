@@ -3,7 +3,8 @@
  */
 
 import { unifiedDispatch } from './unifiedDispatch.js';
-import { isKernelOnlyIntakeTool, getKernelOnlyIntakeToolMessage } from './intakeShortcutPolicy.js';
+import { isKernelOnlyIntakeTool, getKernelOnlyIntakeToolMessage, KERNEL_ONLY_INTAKE_TOOLS } from './intakeShortcutPolicy.js';
+import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 
 /**
  * Execute a classified or shortcut tool through unifiedDispatch → executeRuntimeAction.
@@ -23,10 +24,28 @@ import { isKernelOnlyIntakeTool, getKernelOnlyIntakeToolMessage } from './intake
  * @returns {Promise<{ toolResult: object, payload: object, dispatchResult?: object }>}
  */
 export async function dispatchIntakeToolViaUnifiedKernel(toolName, cleanedParams, ctx = {}) {
+  const diag = isKernelDispatchDiagEnabled();
   const tool = String(toolName ?? '').trim();
   const payload = cleanedParams && typeof cleanedParams === 'object' && !Array.isArray(cleanedParams)
     ? { ...cleanedParams }
     : {};
+
+  diagLog(diag, '===== Kernel Tool Dispatch =====');
+  diagLog(diag, 'Tool name:', tool);
+  diagLog(diag, 'Parameters:', payload);
+  diagLog(diag, 'Context:', {
+    source: ctx.source ?? null,
+    missionId: ctx.missionId ?? null,
+    storeId: ctx.storeId ?? null,
+    userId: ctx.userId ?? null,
+    activeStoreId: ctx.context?.activeStoreId ?? null,
+  });
+  diagLog(diag, 'viaKernel: true (dispatchIntakeToolViaUnifiedKernel)');
+  const isKernelOnly = isKernelOnlyIntakeTool(tool);
+  diagLog(diag, 'Is kernel-only?', isKernelOnly);
+  diagLog(diag, 'Kernel-only tools:', [...KERNEL_ONLY_INTAKE_TOOLS]);
+  diagLog(diag, 'BYPASS_KERNEL_FOR_CREATE_STORE:', process.env.BYPASS_KERNEL_FOR_CREATE_STORE);
+  diagLog(diag, 'EMERGENCY_BYPASS_KERNEL:', process.env.EMERGENCY_BYPASS_KERNEL);
 
   if (!tool) {
     return {
@@ -39,6 +58,7 @@ export async function dispatchIntakeToolViaUnifiedKernel(toolName, cleanedParams
   }
 
   if (isKernelOnlyIntakeTool(tool)) {
+    diagLog(diag, '❌ BLOCKED: KERNEL_EXECUTION_REQUIRED (kernel-only tool — use checkpoint dispatch)');
     return {
       toolResult: {
         status: 'blocked',
@@ -80,6 +100,12 @@ export async function dispatchIntakeToolViaUnifiedKernel(toolName, cleanedParams
   );
 
   if (!result.ok || result.status === 'blocked') {
+    diagLog(diag, '❌ unifiedDispatch blocked/failed:', {
+      ok: result.ok,
+      status: result.status,
+      code: result.code ?? null,
+      message: result.message ?? null,
+    });
     return {
       toolResult: {
         status: 'blocked',
@@ -95,6 +121,7 @@ export async function dispatchIntakeToolViaUnifiedKernel(toolName, cleanedParams
     };
   }
 
+  diagLog(diag, '✅ Tool dispatch allowed via unifiedDispatch');
   const toolResult =
     result.toolResult ??
     ({

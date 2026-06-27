@@ -2110,8 +2110,19 @@ export function isRegisteredTool(toolName) {
   return INTAKE_TOOL_REGISTRY.some((t) => t.toolName === toolName);
 }
 
-export function formatToolRegistryForPrompt() {
-  return INTAKE_TOOL_REGISTRY.map((t, i) => {
+/**
+ * @param {{ toolNames?: string[] | null }} [options]
+ */
+export function formatToolRegistryForPrompt(options = {}) {
+  const { toolNames = null } = options;
+  let entries = INTAKE_TOOL_REGISTRY;
+  if (Array.isArray(toolNames) && toolNames.length > 0) {
+    const byName = new Map(INTAKE_TOOL_REGISTRY.map((t) => [t.toolName, t]));
+    entries = toolNames.map((name) => byName.get(name)).filter(Boolean);
+  }
+
+  return entries
+    .map((t, i) => {
       const path =
         t.executionPath === 'proactive_plan'
           ? '(multi-step plan)'
@@ -2119,12 +2130,20 @@ export function formatToolRegistryForPrompt() {
             ? '(proactive_plan)'
             : '(chat)';
       const risk =
-        t.riskLevel === RISK.STATE_CHANGE ? ' ⚠ state_change' : t.riskLevel === RISK.DESTRUCTIVE ? ' ⚠ destructive' : '';
+        t.riskLevel === RISK.STATE_CHANGE
+          ? ' ⚠ state_change'
+          : t.riskLevel === RISK.DESTRUCTIVE
+            ? ' ⚠ destructive'
+            : '';
       const description = String(t.semanticDescription ?? t.description ?? '').trim();
       const descriptionPreview = description.length > 100 ? `${description.slice(0, 100)}…` : description;
       const examples = Array.isArray(t.examples) ? t.examples.slice(0, 3).join('; ') : '';
+      const required = Array.isArray(t.requiredParams) ? t.requiredParams : [];
+      const optional = Array.isArray(t.optionalParams) ? t.optionalParams.slice(0, 6) : [];
+      const paramHint = `required=[${required.join(', ')}] optional=[${optional.join(', ')}]`;
       return `${i + 1}. ${t.toolName} ${path}${risk}
-   ${descriptionPreview}${examples ? `\n   Examples: ${examples}` : ''}`;
+   ${descriptionPreview}${examples ? `\n   Examples: ${examples}` : ''}
+   Params: ${paramHint}`;
     })
     .join('\n\n');
 }

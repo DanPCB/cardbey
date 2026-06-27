@@ -18,6 +18,7 @@ import {
   runCreateStoreViaUnifiedDispatch,
 } from './createStoreCheckpointDispatch.js';
 import { isFreshStoreCreationMission } from './intakePayloadGuard.js';
+import { diagLog, isIntakeDiagEnabled, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 
 /**
  * @param {import('express').Request} req
@@ -33,11 +34,21 @@ import { isFreshStoreCreationMission } from './intakePayloadGuard.js';
  */
 export async function handleFreshStoreCreationDraftSubmit(req, res, ctx) {
   const { body, locale, cardbeyTraceId, resolveActorId, resolveUserLike } = ctx;
+  const diag = isIntakeDiagEnabled() || isKernelDispatchDiagEnabled();
+
+  diagLog(diag, '===== Fresh Store Creation Fast Path =====');
+  diagLog(diag, 'isFreshStoreCreationMission:', isFreshStoreCreationMission(body));
+  diagLog(diag, 'isStoreCreationDraftConfirmationSubmit:', isStoreCreationDraftConfirmationSubmit(body));
+  diagLog(diag, '_autoSubmit:', body._autoSubmit);
 
   if (!isFreshStoreCreationMission(body) || !isStoreCreationDraftConfirmationSubmit(body)) {
+    diagLog(diag, '→ skip fast path (not a draft confirmation submit)');
     return false;
   }
-  if (body._autoSubmit !== true) return false;
+  if (body._autoSubmit !== true) {
+    diagLog(diag, '→ skip fast path (_autoSubmit !== true)');
+    return false;
+  }
 
   const intakeSource = body.source ?? body.intentSource;
   const sourceError = validateCreateStoreIntakeSource(intakeSource);
@@ -161,6 +172,11 @@ export async function handleFreshStoreCreationDraftSubmit(req, res, ctx) {
     },
     'intake_v2_fresh_store_draft',
   );
+
+  diagLog(diag, 'runCreateStoreViaUnifiedDispatch result kind:', classifiedDispatch?.kind ?? null);
+  if (classifiedDispatch?.kind === 'failed') {
+    diagLog(diag, '❌ create store failed:', classifiedDispatch.responseBody ?? null);
+  }
 
   const responded = await respondCreateStoreCheckpointDispatch(res, classifiedDispatch, {
     locale,

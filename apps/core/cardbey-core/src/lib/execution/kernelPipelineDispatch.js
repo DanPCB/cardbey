@@ -4,7 +4,7 @@
 
 import { executeRuntimeAction } from '../runtime/performerRuntime/executeRuntimeAction.js';
 import { getTenantId } from '../missionAccess.js';
-import { evaluateStructuredCheckpointRunResult } from '../storeMission/executeStoreMissionPipelineRun.js';
+import { evaluateStructuredCheckpointRunResult, isOrchestratorCheckpointSuccess } from '../storeMission/executeStoreMissionPipelineRun.js';
 import { getPrismaClient } from '../prisma.js';
 import { emitExecutionNotification, EXECUTION_EVENT_TYPES } from './executionNotificationEmitter.js';
 
@@ -267,6 +267,8 @@ export async function mapCreateStoreRuntimeToRunResult(runtimeResult, missionId,
   const output = runtimeResult?.output && typeof runtimeResult.output === 'object' ? runtimeResult.output : {};
   const outputStatus = pickString(output.status).toLowerCase();
   const outputMode = pickString(output.mode).toLowerCase();
+  const outputOrch =
+    output.orchestration && typeof output.orchestration === 'object' ? output.orchestration : null;
 
   /** Trust runtime tool output when DB read races pipeline checkpoint write. */
   if (outputMode === 'checkpoint_pipeline' && outputStatus === 'awaiting_input' && mid) {
@@ -288,23 +290,70 @@ export async function mapCreateStoreRuntimeToRunResult(runtimeResult, missionId,
     };
   }
 
-  const missionRow = mid
-    ? await prisma.missionPipeline.findUnique({
+  if (
+    mid &&
+    outputOrch &&
+    String(outputOrch.stoppedReason ?? '') === 'awaiting_checkpoint'
+  ) {
+    return {
+      ok: true,
+      missionId: mid,
+      jobId: pickString(output.jobId),
+      generationRunId: pickString(output.generationRunId),
+      draftId: pickString(output.draftId),
+      status: outputStatus || 'awaiting_input',
+      mode: 'checkpoint_pipeline',
+      orchestration: {
+        ok: true,
+        status: outputStatus || 'awaiting_input',
+        stepsRun: typeof outputOrch.stepsRun === 'number' ? outputOrch.stepsRun : 1,
+        stoppedReason: 'awaiting_checkpoint',
+      },
+      dispatchedVia: 'runtime_kernel',
+    };
+  }
+
+  let missionRow = null;
+  if (mid) {
+    try {
+      missionRow = await prisma.missionPipeline.findUnique({
         where: { id: mid },
         select: { status: true, runState: true },
-      })
-    : null;
+      });
+    } catch (err) {
+      console.warn(
+        '[kernelPipelineDispatch] mission read failed after create_store runtime:',
+        err?.message ?? err,
+      );
+    }
+  }
 
   const orch = {
     ok: true,
     status: output.status ?? missionRow?.status,
     runState: missionRow?.runState,
-    stepsRun: 1,
-    stoppedReason: output.status === 'awaiting_input' ? 'awaiting_checkpoint' : undefined,
+    stepsRun: typeof outputOrch?.stepsRun === 'number' ? outputOrch.stepsRun : 1,
+    stoppedReason:
+      output.status === 'awaiting_input' || outputOrch?.stoppedReason === 'awaiting_checkpoint'
+        ? 'awaiting_checkpoint'
+        : outputOrch?.stoppedReason,
   };
 
   const evalResult = evaluateStructuredCheckpointRunResult(orch, missionRow);
   if (!evalResult.ok) {
+    if (isOrchestratorCheckpointSuccess(orch)) {
+      return {
+        ok: true,
+        missionId: mid,
+        jobId: pickString(output.jobId),
+        generationRunId: pickString(output.generationRunId),
+        draftId: pickString(output.draftId),
+        status: pickString(output.status, orch.status, 'awaiting_input'),
+        mode: pickString(output.mode, 'checkpoint_pipeline'),
+        orchestration: orch,
+        dispatchedVia: 'runtime_kernel',
+      };
+    }
     return {
       ok: false,
       statusCode: evalResult.statusCode ?? 409,

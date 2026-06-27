@@ -5,6 +5,7 @@
 
 import { isEmergencyBypassEnabled } from './emergencyBypass.js';
 import { normalizeCampaignClassificationForKernel } from '../intake/campaignKernelRouting.js';
+import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 import {
   isKernelMandatoryEnabled,
   isRuntimeStepExecutionEnabled,
@@ -38,6 +39,7 @@ export const KERNEL_AUTHORIZED_RUNTIME_SOURCES = new Set([
   'intake_v2_confirm',
   'intake_v2_shortcut_contract',
   'intake_v2_classified_checkpoint',
+  'intake_v2_fresh_store_draft',
   'mission_execution_engine',
   'mission_checkpoint_respond',
   'run_mission_until_blocked',
@@ -94,6 +96,13 @@ export function assertKernelAuthorizedExecution(input = {}) {
   if (source.startsWith('ui_') || source === 'ui_runtime' || source === 'ui_runtime_action') {
     return { ok: true };
   }
+
+  const diag = isKernelDispatchDiagEnabled();
+  diagLog(diag, '===== Kernel Guard (assertKernelAuthorizedExecution) =====');
+  diagLog(diag, '❌ BLOCKED source:', source, 'actionType:', actionType || '(none)');
+  diagLog(diag, 'KERNEL_AUTHORIZED_RUNTIME_SOURCES has source?', KERNEL_AUTHORIZED_RUNTIME_SOURCES.has(source));
+  diagLog(diag, 'EMERGENCY_BYPASS_KERNEL:', process.env.EMERGENCY_BYPASS_KERNEL);
+  diagLog(diag, 'BYPASS_KERNEL_FOR_CREATE_STORE:', process.env.BYPASS_KERNEL_FOR_CREATE_STORE);
 
   return {
     ok: false,

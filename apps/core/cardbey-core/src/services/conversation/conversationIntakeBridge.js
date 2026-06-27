@@ -11,8 +11,8 @@ export { isPerformerConversationEnabled };
 
 function resolveMaxHistoryTurns() {
   if (String(process.env.ENABLE_LLM_REASONER ?? '').trim().toLowerCase() === 'true') {
-    const configured = parseInt(process.env.LLM_REASONER_MAX_HISTORY_TURNS || '50', 10);
-    return Number.isFinite(configured) && configured > 0 ? configured : 50;
+    const configured = parseInt(process.env.LLM_REASONER_MAX_HISTORY_TURNS || '15', 10);
+    return Number.isFinite(configured) && configured > 0 ? configured : 15;
   }
   return DEFAULT_MAX_HISTORY_TURNS;
 }

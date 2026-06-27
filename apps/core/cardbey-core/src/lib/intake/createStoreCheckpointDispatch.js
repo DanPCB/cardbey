@@ -16,6 +16,8 @@ import { UNIFIED_ACTION_TYPES } from '../execution/executionTypes.js';
 import { findDuplicateStoreForUser } from './storeDuplicateDetection.js';
 import { FactBuilder } from '../response/factBuilder.js';
 import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
+import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
+import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
 
 function stripQuotes(value) {
   return String(value ?? '')
@@ -184,6 +186,7 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     createMissionPipeline,
   } = deps;
 
+  const diag = isKernelDispatchDiagEnabled();
   const { businessName, businessType, locationTrim, intentMode } = resolveCreateStoreHandoffFields({
     storeCreateForm,
     classification,
@@ -191,11 +194,37 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
   });
   const ctxIntentMode = intentMode === 'website' ? 'website' : 'store';
 
+  diagLog(diag, '===== Create Store Checkpoint Dispatch =====');
+  diagLog(diag, 'Handoff fields:', {
+    businessName,
+    businessType,
+    location: locationTrim,
+    intentMode: ctxIntentMode,
+    auditSource,
+    actorId: actorId ?? null,
+    userId: user?.id ?? null,
+    _autoSubmit: classification?.parameters?._autoSubmit ?? null,
+    source: classification?.parameters?.source ?? null,
+  });
+  const kernelAuthPreview = assertKernelAuthorizedExecution({
+    source: auditSource ?? 'intake_v2_unified',
+    actionType: 'dispatch_tool',
+    userId: user?.id ?? actorId ?? null,
+  });
+  diagLog(diag, 'Kernel auth preview for auditSource:', {
+    auditSource,
+    ok: kernelAuthPreview.ok,
+    code: kernelAuthPreview.ok ? null : kernelAuthPreview.code,
+    message: kernelAuthPreview.ok ? null : kernelAuthPreview.message,
+  });
+
   if (!businessName) {
+    diagLog(diag, '→ needs_form (missing businessName)');
     return { kind: 'needs_form', intentMode: ctxIntentMode };
   }
 
   if (!actorId || !user?.id) {
+    diagLog(diag, '→ auth_required', { actorId: actorId ?? null, userId: user?.id ?? null });
     return { kind: 'auth_required' };
   }
 
@@ -248,6 +277,12 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     { missionId: pipeline.id, source: auditSource, executionPath: 'kernel_dispatch' },
   );
 
+  diagLog(diag, 'Calling executeMission(checkpoint_pipeline)...', {
+    missionId: pipeline.id,
+    auditSource,
+    source: auditSource,
+  });
+
   const runResult = await executeMission({
     mode: 'checkpoint_pipeline',
     prisma,
@@ -264,6 +299,15 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     },
     auditSource,
     source: auditSource,
+  });
+
+  diagLog(diag, 'executeMission(checkpoint_pipeline) result:', {
+    ok: runResult.ok,
+    statusCode: runResult.statusCode ?? null,
+    error: runResult.error ?? null,
+    message: runResult.message ?? null,
+    missionId: runResult.missionId ?? pipeline.id,
+    executionPath: runResult.executionPath ?? null,
   });
 
   if (runResult.ok) {
@@ -421,10 +465,18 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
 
   if (result.kind === 'started') {
     const body = result.responseBody ?? {};
-    const enriched =
-      body.fact && typeof body.fact === 'object'
-        ? await explainFactForIntake(new StructuredFact(body.fact), explainContext, body)
-        : body;
+    let enriched = body;
+    try {
+      enriched =
+        body.fact && typeof body.fact === 'object'
+          ? await explainFactForIntake(new StructuredFact(body.fact), explainContext, body)
+          : body;
+    } catch (explainErr) {
+      console.warn(
+        '[CreateStoreDispatch] explainFactForIntake failed (returning base payload):',
+        explainErr?.message ?? explainErr,
+      );
+    }
     await safeJson(enriched, result.telemetry);
     return res;
   }
@@ -453,14 +505,30 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
  * @returns {Promise<Awaited<ReturnType<typeof dispatchCreateStoreCheckpointPipeline>>>}
  */
 export async function runCreateStoreViaUnifiedDispatch(deps, auditSource) {
+  const diag = isKernelDispatchDiagEnabled();
+  const resolvedSource = auditSource ?? deps.auditSource ?? 'intake_v2_unified';
+  diagLog(diag, '===== runCreateStoreViaUnifiedDispatch =====');
+  diagLog(diag, 'auditSource:', resolvedSource);
+  diagLog(diag, 'CREATE_STORE_CHECKPOINT payload keys:', Object.keys(deps ?? {}));
+
   const { unifiedDispatch } = await import('./unifiedDispatch.js');
   const unifiedResult = await unifiedDispatch(
     {
       type: UNIFIED_ACTION_TYPES.CREATE_STORE_CHECKPOINT,
       payload: deps,
     },
-    { source: auditSource ?? deps.auditSource ?? 'intake_v2_unified' },
+    { source: resolvedSource },
   );
+
+  diagLog(diag, 'unifiedDispatch(CREATE_STORE_CHECKPOINT) result:', {
+    ok: unifiedResult.ok,
+    status: unifiedResult.status,
+    dispatchKind: unifiedResult.dispatchKind,
+    code: unifiedResult.code ?? null,
+    message: unifiedResult.message ?? null,
+    statusCode: unifiedResult.statusCode ?? null,
+    executionPath: unifiedResult.executionPath ?? null,
+  });
 
   const kind = unifiedResult.dispatchKind;
   if (kind === 'started') {

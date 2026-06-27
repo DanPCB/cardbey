@@ -86,6 +86,41 @@ export function evaluateStructuredCheckpointRunResult(orch, missionRow) {
 }
 
 /**
+ * @param {{ ok?: boolean, status?: string, runState?: string, stoppedReason?: string }} [orch]
+ * @returns {boolean}
+ */
+export function isOrchestratorCheckpointSuccess(orch) {
+  if (!orch || orch.ok === false) return false;
+  const stopped = String(orch.stoppedReason ?? '').trim();
+  const status = String(orch.status ?? '').trim().toLowerCase();
+  const runState = String(orch.runState ?? '').trim().toLowerCase();
+  return (
+    stopped === 'awaiting_checkpoint' ||
+    status === 'awaiting_input' ||
+    runState === 'blocked_on_checkpoint'
+  );
+}
+
+/**
+ * @param {import('../prismaClient.js').PrismaClient} prisma
+ * @param {string} missionId
+ */
+async function readMissionPipelineCheckpointRow(prisma, missionId) {
+  try {
+    return await prisma.missionPipeline.findUnique({
+      where: { id: missionId },
+      select: { status: true, runState: true, outputsJson: true },
+    });
+  } catch (err) {
+    console.warn(
+      '[executeStoreMissionPipelineRun] mission read failed:',
+      err?.message ?? err,
+    );
+    return null;
+  }
+}
+
+/**
  * Store POST /run expects the pipeline in `queued`. `approveMissionPipeline` only advances
  * `awaiting_confirmation` → `queued`. Missions can still be `requested` if creation did not
  * finish transitions — advance requested → planned → (awaiting_confirmation | queued) first.
@@ -268,12 +303,23 @@ async function executeStoreMissionPipelineRunCore({
       }
       const { runMissionUntilBlocked } = await import('../missionPipelineOrchestrator.js');
       const orch = await runMissionUntilBlocked(missionId);
-      const mAfter = await prisma.missionPipeline.findUnique({
-        where: { id: missionId },
-        select: { status: true, runState: true, outputsJson: true },
-      });
+      const mAfter = await readMissionPipelineCheckpointRow(prisma, missionId);
       const out = mAfter?.outputsJson && typeof mAfter.outputsJson === 'object' ? mAfter.outputsJson : {};
       const orchestration = { stepsRun: orch.stepsRun, stoppedReason: orch.stoppedReason };
+
+      if (!mAfter && isOrchestratorCheckpointSuccess(orch)) {
+        return {
+          ok: true,
+          missionId,
+          jobId: typeof out.jobId === 'string' ? out.jobId : '',
+          generationRunId: typeof out.generationRunId === 'string' ? out.generationRunId : '',
+          draftId: typeof out.draftId === 'string' ? out.draftId : '',
+          status: orch.status || 'awaiting_input',
+          mode: 'checkpoint_pipeline',
+          orchestration,
+        };
+      }
+
       const runEval = evaluateStructuredCheckpointRunResult(orch, mAfter);
       if (!runEval.ok) {
         return {

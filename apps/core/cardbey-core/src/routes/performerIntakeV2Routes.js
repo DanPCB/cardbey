@@ -41,6 +41,7 @@ import {
 } from '../lib/intake/createStoreCheckpointDispatch.js';
 import { applyIntakePayloadGuard } from '../lib/intake/intakePayloadGuard.js';
 import { handleFreshStoreCreationDraftSubmit } from '../lib/intake/freshStoreCreationFastPath.js';
+import { diagLog, isIntakeDiagEnabled } from '../lib/diagnostics/storeCreationDiagnostics.js';
 import {
   respondCreateCampaignCheckpointDispatch,
   runCreateCampaignViaUnifiedDispatch,
@@ -1423,11 +1424,29 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const body = req.body;
   const freshStoreMission = payloadGuard.freshStoreMission;
 
+  const intakeDiag = isIntakeDiagEnabled();
+  diagLog(intakeDiag, '===== INTAKE V2 REQUEST =====');
+  diagLog(intakeDiag, 'traceId:', cardbeyTraceId);
+  diagLog(intakeDiag, 'Body:', {
+    text: String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').slice(0, 100),
+    mode: body.mode ?? req.headers?.['x-performer-mode'] ?? null,
+    source: body.source ?? body.intentSource ?? null,
+    intent: body.intent ?? null,
+    _autoSubmit: body._autoSubmit ?? null,
+    freshStoreMission: body.freshStoreMission ?? freshStoreMission ?? null,
+    storeCreationDraft: body.storeCreationDraft ?? null,
+    storeCreateForm: body.storeCreateForm ?? null,
+  });
+  diagLog(intakeDiag, 'freshStoreMission (payload guard):', freshStoreMission);
+  diagLog(intakeDiag, 'LOG_KERNEL_DISPATCH_DIAGNOSTICS:', process.env.LOG_KERNEL_DISPATCH_DIAGNOSTICS);
+  diagLog(intakeDiag, 'BYPASS_KERNEL_FOR_CREATE_STORE:', process.env.BYPASS_KERNEL_FOR_CREATE_STORE);
+
   // Accept both legacy keys (text/goal/message) and the newer client contract key (userMessage).
   const userMessage = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const locale = resolveIntakeLocale(body.locale ?? req.headers?.['x-locale'], userMessage);
 
   if (freshStoreMission) {
+    diagLog(intakeDiag, '→ handleFreshStoreCreationDraftSubmit (fast path)');
     const fastHandled = await handleFreshStoreCreationDraftSubmit(req, res, {
       body,
       locale,
@@ -1435,6 +1454,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       resolveActorId: performerIntakeV2ActorId,
       resolveUserLike: performerIntakeV2UserLike,
     });
+    diagLog(intakeDiag, 'handleFreshStoreCreationDraftSubmit returned:', fastHandled);
     if (fastHandled) return;
   }
 
