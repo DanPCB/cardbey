@@ -27,13 +27,30 @@ import { discoveryRegistry } from './registry/DiscoveryRegistry.js';
 import { csvDiscoveryProvider } from './providers/CsvDiscoveryProvider.js';
 import { manualDiscoveryProvider } from './providers/ManualDiscoveryProvider.js';
 import { osmDiscoveryProvider } from './providers/OsmDiscoveryProvider.js';
-import { referralDiscoveryProvider } from './providers/ReferralDiscoveryProvider.js';
+import { googlePlacesDiscoveryProvider } from './providers/GooglePlacesDiscoveryProvider.js';
+import {
+  ingestDiscoveredCandidates,
+  buildBatchOnboardingMetrics,
+  MELBOURNE_BATCH001_ID,
+  MELBOURNE_BATCH001_REAL_LOCAL_ID,
+  MELBOURNE_BATCH001_CAMPAIGN_ID,
+  isPerformerFirstBatch,
+} from '../businessCandidate/index.js';
 import type {
   DiscoveryCenterMetrics,
   DiscoveryDiscoverParams,
   DiscoveryEngineRunResult,
   DiscoveryProviderId,
 } from './types/index.js';
+
+export interface PerformerFirstDiscoveryResult {
+  job: Awaited<ReturnType<typeof updateDiscoveryJob>>;
+  candidatesFound: number;
+  candidatesAccepted: number;
+  duplicatesRejected: number;
+  missionsCreated: number;
+  batchId: string;
+}
 
 let providersRegistered = false;
 
@@ -43,6 +60,7 @@ export function registerDefaultDiscoveryProviders(): void {
   discoveryRegistry.registerProvider(csvDiscoveryProvider);
   discoveryRegistry.registerProvider(referralDiscoveryProvider);
   discoveryRegistry.registerProvider(manualDiscoveryProvider);
+  discoveryRegistry.registerProvider(googlePlacesDiscoveryProvider);
   providersRegistered = true;
 }
 
@@ -132,6 +150,75 @@ export async function runDiscoveryEngine(
     });
     throw err;
   }
+}
+
+/**
+ * Performer-first discovery — persists BusinessCandidate + onboarding mission only.
+ * Never creates BusinessSeed or Store. Used for Batch 001+.
+ */
+export async function runPerformerFirstDiscoveryEngine(
+  params: DiscoveryDiscoverParams & { batchId?: string; createdBy?: string | null },
+): Promise<PerformerFirstDiscoveryResult> {
+  registerDefaultDiscoveryProviders();
+
+  const batchId = params.batchId ?? MELBOURNE_BATCH001_ID;
+  if (!isPerformerFirstBatch(batchId)) {
+    throw new Error(`Batch ${batchId} is not configured for Performer-first discovery`);
+  }
+
+  const job = createDiscoveryJob({
+    provider: params.provider,
+    region: params.city ?? params.region ?? params.postcode ?? null,
+    category: params.category ?? null,
+    params: { ...params, batchId, performerFirst: true },
+  });
+
+  await appendDiscoveryJob(job);
+  await updateDiscoveryJob(job.id, { status: 'running' });
+
+  try {
+    if (params.provider === 'referral') {
+      await assertReferralAllowed(params);
+    }
+
+    const rawCandidates = await discoveryRegistry.discover(params);
+    const ingestion = await ingestDiscoveredCandidates(rawCandidates, {
+      batchId,
+      campaignId: MELBOURNE_BATCH001_CAMPAIGN_ID,
+      createdBy: params.createdBy ?? null,
+    });
+
+    const completedAt = new Date().toISOString();
+    const updatedJob = await updateDiscoveryJob(job.id, {
+      status: 'completed',
+      recordsFound: rawCandidates.length,
+      recordsAccepted: ingestion.accepted.length,
+      recordsRejected: ingestion.duplicatesRejected,
+      completedAt,
+    });
+
+    return {
+      job: updatedJob ?? { ...job, status: 'completed', completedAt },
+      candidatesFound: rawCandidates.length,
+      candidatesAccepted: ingestion.accepted.length,
+      duplicatesRejected: ingestion.duplicatesRejected,
+      missionsCreated: ingestion.missionsCreated,
+      batchId,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const completedAt = new Date().toISOString();
+    await updateDiscoveryJob(job.id, {
+      status: 'failed',
+      error: message,
+      completedAt,
+    });
+    throw err;
+  }
+}
+
+export async function buildBatch001OnboardingMetrics(batchId?: string) {
+  return buildBatchOnboardingMetrics(batchId ?? MELBOURNE_BATCH001_REAL_LOCAL_ID);
 }
 
 export async function buildDiscoveryCenterMetrics(): Promise<DiscoveryCenterMetrics> {

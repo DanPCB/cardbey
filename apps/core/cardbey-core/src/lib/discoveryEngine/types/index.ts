@@ -11,7 +11,8 @@ export type DiscoveryProviderId =
   | 'government_register'
   | 'directory'
   | 'partner_import'
-  | 'vision';
+  | 'vision'
+  | 'google_places';
 
 export type DiscoveryJobStatus = 'pending' | 'running' | 'completed' | 'failed';
 

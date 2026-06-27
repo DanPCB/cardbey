@@ -10,6 +10,7 @@ const PROVIDER_SOURCE: Record<string, IngestionSourceType> = {
   directory: 'licensed_feed',
   partner_import: 'partner_feed',
   vision: 'website_discovery',
+  google_places: 'places_discovery',
 };
 
 export function providerToSourceType(providerId: string): IngestionSourceType {

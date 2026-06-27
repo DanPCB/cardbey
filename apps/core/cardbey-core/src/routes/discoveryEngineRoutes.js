@@ -9,6 +9,8 @@ import { rateLimit } from '../middleware/rateLimit.js';
 import {
   buildDiscoveryCenterMetrics,
   runDiscoveryEngine,
+  runPerformerFirstDiscoveryEngine,
+  buildBatch001OnboardingMetrics,
   listDiscoveryJobs,
   discoveryRegistry,
   registerDefaultDiscoveryProviders,
@@ -105,6 +107,58 @@ router.post('/discover', requireAuth, requireAdmin, discoveryRunRateLimit, async
     });
 
     res.json({ ok: true, result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/discovery-engine/batch-001/metrics — Performer-first Batch 001 runtime metrics */
+router.get('/batch-001/metrics', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const metrics = await buildBatch001OnboardingMetrics();
+    res.json({ ok: true, metrics });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/discovery-engine/batch-001/discover — Performer-first pipeline.
+ * Creates BusinessCandidate + onboarding mission only (never Store/Seed).
+ */
+router.post('/batch-001/discover', requireAuth, requireAdmin, discoveryRunRateLimit, async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const provider = body.provider;
+    if (!provider || typeof provider !== 'string') {
+      return res.status(400).json({ ok: false, error: 'provider is required' });
+    }
+    if (!ADMIN_PROVIDERS.has(provider)) {
+      return res.status(400).json({ ok: false, error: 'provider not allowed on this endpoint' });
+    }
+    if (body.csvPath) {
+      return res.status(400).json({ ok: false, error: 'csvPath is not allowed via API; use csvContent' });
+    }
+
+    const result = await runPerformerFirstDiscoveryEngine({
+      provider,
+      city: body.city ?? body.suburb,
+      category: body.category,
+      postcode: body.postcode,
+      limit: body.limit != null ? Number(body.limit) : undefined,
+      bbox: body.bbox,
+      csvContent: body.csvContent,
+      businessName: body.businessName,
+      website: body.website,
+      phone: body.phone,
+      email: body.email,
+      address: body.address,
+      region: body.region,
+      batchId: body.batchId,
+      createdBy: req.user?.id ?? null,
+    });
+
+    res.json({ ok: true, result, pipeline: 'performer_first' });
   } catch (err) {
     next(err);
   }

@@ -6,8 +6,11 @@ export {
 export {
   registerDefaultDiscoveryProviders,
   runDiscoveryEngine,
+  runPerformerFirstDiscoveryEngine,
   buildDiscoveryCenterMetrics,
+  buildBatch001OnboardingMetrics,
 } from './discoveryEngineService.js';
+export type { PerformerFirstDiscoveryResult } from './discoveryEngineService.js';
 export { OsmDiscoveryProvider, osmDiscoveryProvider } from './providers/OsmDiscoveryProvider.js';
 export { CsvDiscoveryProvider, csvDiscoveryProvider } from './providers/CsvDiscoveryProvider.js';
 export {
