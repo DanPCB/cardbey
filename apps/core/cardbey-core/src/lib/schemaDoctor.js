@@ -38,6 +38,9 @@ export const REQUIRED_COLUMNS = {
 /** Primary migration that introduces engagement tables. */
 export const ENGAGEMENT_MIGRATION = '20260626120000_add_store_engagement_models';
 
+/** Migration that adds StorePromo.promoType (required by schemaDoctor). */
+export const STORE_PROMO_TYPE_MIGRATION = '20260627120000_add_store_promo_type';
+
 export function resolveMigrationsDir(provider = schemaProviderFromUrl()) {
   if (provider === 'postgres' || provider === 'postgres_proxy') {
     return path.join(coreRoot, 'prisma', 'postgres', 'migrations');
@@ -184,10 +187,11 @@ export async function runSchemaDoctor(options = {}) {
 
   const requiredMigration =
     missingMigrations.includes(ENGAGEMENT_MIGRATION) ||
-    missingTables.length > 0 ||
-    columnCheck.missingColumns.some((c) => c.table === 'StorePromo')
+    missingTables.length > 0
       ? ENGAGEMENT_MIGRATION
-      : missingMigrations[0] ?? null;
+      : columnCheck.missingColumns.some((c) => c.table === 'StorePromo' && c.column === 'promoType')
+        ? STORE_PROMO_TYPE_MIGRATION
+        : missingMigrations[0] ?? null;
 
   return buildReport({
     provider,
