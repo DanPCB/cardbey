@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cardbey System Architecture</title>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --panel: #12121a;
+      --border: #2a2a3a;
+      --text: #e8e8f0;
+      --muted: #8888a0;
+      --running: #22c55e;
+      --freezing: #f59e0b;
+      --placeholder: #ef4444;
+      --accent: #8b5cf6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    h1 { font-size: 1.75rem; margin: 0 0 4px; }
+    .subtitle { color: var(--muted); margin-bottom: 24px; font-size: 0.95rem; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      padding: 14px 18px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 24px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.875rem; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .dot.running { background: var(--running); }
+    .dot.freezing { background: var(--freezing); }
+    .dot.placeholder { background: var(--placeholder); }
+    .layer {
+      margin: 16px 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      background: var(--panel);
+    }
+    .layer-title {
+      font-weight: 700;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .components { display: flex; flex-wrap: wrap; gap: 10px; }
+    .component {
+      background: #1a1a24;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border-left: 4px solid #444;
+      min-width: 160px;
+      flex: 1 0 180px;
+      max-width: 280px;
+      transition: transform 0.15s;
+    }
+    .component:hover { transform: translateY(-1px); }
+    .component .name { font-weight: 600; font-size: 0.9rem; }
+    .component .route { font-size: 0.7rem; color: var(--accent); margin-top: 2px; font-family: ui-monospace, monospace; }
+    .component .desc { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+    .component .badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+    .component.running { border-left-color: var(--running); }
+    .component.running .badge { background: rgba(34,197,94,0.2); color: var(--running); }
+    .component.freezing { border-left-color: var(--freezing); }
+    .component.freezing .badge { background: rgba(245,158,11,0.2); color: var(--freezing); }
+    .component.placeholder { border-left-color: var(--placeholder); }
+    .component.placeholder .badge { background: rgba(239,68,68,0.2); color: var(--placeholder); }
+    .arrow {
+      text-align: center;
+      color: #444;
+      padding: 6px;
+      font-size: 1.25rem;
+    }
+    .integration {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    .flow-box {
+      background: #1a1a24;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .flow-box strong { color: var(--text); display: block; margin-bottom: 6px; }
+    .flow-box code { color: var(--accent); font-size: 0.75rem; }
+    .summary {
+      margin-top: 32px;
+      padding: 20px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .summary h3 { margin: 0 0 12px; font-size: 1rem; }
+    .stats { display: flex; flex-wrap: wrap; gap: 24px; }
+    .stat { font-size: 0.9rem; }
+    .stat strong { font-size: 1.25rem; }
+    .stat.running strong { color: var(--running); }
+    .stat.freezing strong { color: var(--freezing); }
+    .stat.placeholder strong { color: var(--placeholder); }
+    .links { margin-top: 16px; font-size: 0.8rem; color: var(--muted); }
+    .links a { color: var(--accent); }
+    @media print {
+      body { background: #fff; color: #000; }
+      .component { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Cardbey System Architecture</h1>
+  <p class="subtitle">Frontend · Backend · Integration · Component maturity (codebase audit)</p>
+
+  <div class="legend">
+    <div class="legend-item"><span class="dot running"></span> Running / Implemented</div>
+    <div class="legend-item"><span class="dot freezing"></span> Freezing / Partial / Flag-gated</div>
+    <div class="legend-item"><span class="dot placeholder"></span> Placeholder / Not implemented</div>
+  </div>
+
+  <!-- Frontend -->
+  <div class="layer">
+    <div class="layer-title">Frontend — cardbey-marketing-dashboard</div>
+    <div class="components">
+      <div class="component running">
+        <div class="name">Performer Console</div>
+        <div class="route">/app · POST /api/performer/intake/v2</div>
+        <div class="desc">Chat, missions, checkpoints, draft preview, guest store creation</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">Control Center</div>
+        <div class="route">/marketing · /control-center/*</div>
+        <div class="desc">Ops hero, attention queue, metrics, BI governance workflows</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">PIL Assistant</div>
+        <div class="route">Feed · Discover · Storefront</div>
+        <div class="desc">Observe → Confirm → Performer handoff (autoSubmit: false)</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">Ask Cardbey</div>
+        <div class="route">POST /api/rag/ask</div>
+        <div class="desc">RAG Q&amp;A panel; hidden on Performer-first surfaces</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">Layout Studio</div>
+        <div class="route">/tools/layout-studio</div>
+        <div class="desc">Auto-layout tool via POST /api/layout/apply</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">Storefront</div>
+        <div class="route">/s/:slug · /preview/*</div>
+        <div class="desc">Canonical renderer, commerce shell, public store pages</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component freezing">
+        <div class="name">Control Tower</div>
+        <div class="route">/app/console/control-tower</div>
+        <div class="desc">Overview API wired; other tabs use mock data</div>
+        <span class="badge">Partial</span>
+      </div>
+      <div class="component placeholder">
+        <div class="name">Console Sidebar Stubs</div>
+        <div class="route">/console/stores · products</div>
+        <div class="desc">Placeholder sections in console nav</div>
+        <span class="badge">Placeholder</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓ REST /api/* · SSE · Governance</div>
+
+  <!-- Integration -->
+  <div class="layer">
+    <div class="layer-title">Integration Layer</div>
+    <div class="integration">
+      <div class="flow-box">
+        <strong>HTTP API</strong>
+        Dashboard <code>src/lib/api.ts</code> → Vite proxy → Core <code>:3001</code>
+      </div>
+      <div class="flow-box">
+        <strong>SSE Streams</strong>
+        <code>/api/stream</code> · platform activity · mission blackboard · store pulse
+      </div>
+      <div class="flow-box">
+        <strong>Safe Execution Governance</strong>
+        High-impact actions require confirmation; trace in <code>cardbey.safeExecution.audit.v1</code>
+      </div>
+      <div class="flow-box">
+        <strong>Performer Handoff</strong>
+        Control Center · PIL · Discover → <code>openPerformerIntent</code> with context
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- Intake -->
+  <div class="layer">
+    <div class="layer-title">Backend Intake — cardbey-core</div>
+    <div class="components">
+      <div class="component running">
+        <div class="name">Intake V2</div>
+        <div class="route">POST /api/performer/intake/v2</div>
+        <div class="desc">Primary NL entry: shortcuts → reasoner → planner → runtime</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component freezing">
+        <div class="name">Intake V1</div>
+        <div class="route">POST /api/performer/intake</div>
+        <div class="desc">Deprecated shim forwarding to V2</div>
+        <span class="badge">Freezing</span>
+      </div>
+      <div class="component freezing">
+        <div class="name">LLMReasoner</div>
+        <div class="route">ENABLE_LLM_REASONER=false</div>
+        <div class="desc">AI-first intent; optional RAG retrieval</div>
+        <span class="badge">Flag-gated</span>
+      </div>
+      <div class="component running">
+        <div class="name">IntentReasoner</div>
+        <div class="route">Always-on deterministic</div>
+        <div class="desc">Phase B.2 classification + learning hooks</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">ReactPlanner</div>
+        <div class="route">ask · confirm · execute</div>
+        <div class="desc">Post-classify decision layer (default on)</div>
+        <span class="badge">Running</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- Planning + Execution -->
+  <div class="layer">
+    <div class="layer-title">Planning &amp; Execution</div>
+    <div class="components">
+      <div class="component freezing">
+        <div class="name">Dynamic Planner</div>
+        <div class="route">ENABLE_DYNAMIC_PLANNER=false</div>
+        <div class="desc">Generates executable plans when enabled</div>
+        <span class="badge">Flag-gated</span>
+      </div>
+      <div class="component freezing">
+        <div class="name">Mission Orchestrator</div>
+        <div class="route">ENABLE_RUNTIME_MISSION_ORCHESTRATOR</div>
+        <div class="desc">Proactive step sequencing (Phase B)</div>
+        <span class="badge">Flag-gated</span>
+      </div>
+      <div class="component running">
+        <div class="name">Runtime Kernel</div>
+        <div class="route">EXECUTION_MODE=kernel</div>
+        <div class="desc">Mission step execution authority</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">Tool Dispatcher</div>
+        <div class="route">toolRegistry → executors</div>
+        <div class="desc">Validates, runs tools, episodic write-back</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component freezing">
+        <div class="name">Legacy Orchestrator</div>
+        <div class="route">/api/orchestrator/*</div>
+        <div class="desc">Creative/SAM3 path parallel to runtime</div>
+        <span class="badge">Partial</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- Memory + Learning -->
+  <div class="layer">
+    <div class="layer-title">Memory &amp; Learning</div>
+    <div class="components">
+      <div class="component running">
+        <div class="name">Context Engine</div>
+        <div class="route">PerformerSessionContext</div>
+        <div class="desc">Session/user workflow state</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">Episodic Memory</div>
+        <div class="route">MissionBlackboard events</div>
+        <div class="desc">Append-only tool/mission events</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component running">
+        <div class="name">Memory Facade</div>
+        <div class="route">POST /api/memory/bundle</div>
+        <div class="desc">Unified business + user + suitcase + PIL</div>
+        <span class="badge">Running</span>
+      </div>
+      <div class="component freezing">
+        <div class="name">RAG</div>
+        <div class="route">RagChunk · ENABLE_RAG_IN_REASONER</div>
+        <div class="desc">Vector retrieval; partial integration</div>
+        <span class="badge">Partial</span>
+      </div>
+      <div class="component freezing">
+        <div class="name">Semantic Memory</div>
+        <div class="route">entity + business + user</div>
+        <div class="desc">Distributed; no single module</div>
+        <span class="badge">Partial</span>
+      </div>
+      <div class="component running">
+        <div class="name">Learning Layer</div>
+        <div class="route">/api/learning/*</div>
+        <div class="desc">Feedback, behavior, calibration, personalization</div>
+        <span class="badge">Running</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- Tools + DB -->
+  <div class="layer">
+    <div class="layer-title">Tools, Skills &amp; Data</div>
+    <div class="components">
+      <div class="component running"><div class="name">Store Tools</div><div class="desc">create_store, analyze, publish pipeline</div><span class="badge">Running</span></div>
+      <div class="component running"><div class="name">Campaign Tools</div><div class="desc">create_campaign, graphics, QA package</div><span class="badge">Running</span></div>
+      <div class="component running"><div class="name">Product Tools</div><div class="desc">catalog, document ingest, scan</div><span class="badge">Running</span></div>
+      <div class="component running"><div class="name">Graphic Tools</div><div class="desc">smart_visual, promotion graphics</div><span class="badge">Running</span></div>
+      <div class="component running"><div class="name">Skills API</div><div class="desc">Composable skill definitions + router</div><span class="badge">Running</span></div>
+      <div class="component running"><div class="name">SQLite / Postgres</div><div class="desc">Prisma dual schema (dev/prod)</div><span class="badge">Running</span></div>
+      <div class="component running"><div class="name">Memory Store</div><div class="desc">Context, learning, blackboard tables</div><span class="badge">Running</span></div>
+      <div class="component freezing"><div class="name">RAG Store</div><div class="desc">RagChunk embeddings schema</div><span class="badge">Partial</span></div>
+    </div>
+  </div>
+
+  <div class="summary">
+    <h3>Summary</h3>
+    <div class="stats">
+      <div class="stat running">Running: <strong>24</strong></div>
+      <div class="stat freezing">Freezing / Partial: <strong>13</strong></div>
+      <div class="stat placeholder">Placeholder: <strong>2</strong></div>
+      <div class="stat">Overall maturity: <strong>~78%</strong> production-ready</div>
+    </div>
+    <div class="links">
+      Also available:
+      <a href="system_architecture.md">Mermaid (system_architecture.md)</a> ·
+      <a href="system_architecture.puml">PlantUML (system_architecture.puml)</a>
+    </div>
+  </div>
+</body>
+</html>
