@@ -16,6 +16,11 @@ import { getPrismaClient } from '../lib/prisma.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
 import { businessPublicReadSelect, publicCommerceFields } from '../lib/dbCapabilities.js';
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
+import { resolvePublicStoresForList } from '../services/publishedArtifactProjection/resolvePublicStoreList.js';
+import {
+  assemblePublicFeedItems,
+  publicStoreResultToFeedItem,
+} from '../services/feed/assemblePublicFeedItems.js';
 import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
 import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
 import { isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
@@ -91,35 +96,41 @@ router.get('/frontscreen', optionalAuth, async (req, res, next) => {
     stores = stores.filter(isPublicFeedEligibleBusiness);
 
     const webBase = publicWebBase();
-    const mapped = [];
-    for (const s of stores) {
-      const { store: pub } = await resolvePublicStoreFromArtifact(prisma, s);
-      const slug = pub.slug ?? s.slug;
-      const row = resolvePublicStoreMediaUrls(
+    const resolved = await resolvePublicStoresForList(prisma, stores, {
+      route: 'GET /api/storefront/frontscreen',
+      req,
+    });
+    const feedItems = assemblePublicFeedItems(
+      resolved.map((row, rank) =>
+        publicStoreResultToFeedItem(row, { source: 'frontscreen', rank }),
+      ),
+    );
+    const mapped = feedItems.map(({ store: pub }) => {
+      const slug = pub.slug ?? null;
+      return resolvePublicStoreMediaUrls(
         enrichStoreHeroVideoUrls(
           {
-            id: s.id,
+            id: pub.id,
             name: pub.name,
             slug,
-            type: pub.type ?? s.type,
-            heroImageUrl: pub.heroUrl ?? s.heroImageUrl ?? null,
+            type: pub.type ?? null,
+            heroImageUrl: pub.heroUrl ?? pub.heroImage ?? null,
             heroVideo: pub.heroVideo ?? null,
-            avatarImageUrl: pub.avatarUrl ?? s.avatarImageUrl ?? null,
-            publishedAt: s.publishedAt?.toISOString?.() ?? null,
+            avatarImageUrl: pub.avatarUrl ?? null,
+            publishedAt: pub.publishedAt ?? null,
             description: pub.description ?? null,
             tagline: pub.tagline ?? null,
             website: pub.website ?? null,
             liveUrl: slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null,
-            ...publicCommerceFields(s, pub),
-            storefrontSettings: pub.storefrontSettings ?? jsonToPlainObject(s.storefrontSettings),
+            ...publicCommerceFields(pub, pub),
+            storefrontSettings: pub.storefrontSettings ?? null,
             socialLinks: pub.socialLinks ?? null,
           },
           { uploadsDir: process.env.UPLOADS_DIR },
         ),
         req,
       );
-      mapped.push(row);
-    }
+    });
 
     const storesWithEngagement = await attachStoreEngagementToPublicStores(prisma, mapped, req);
 

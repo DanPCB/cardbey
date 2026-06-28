@@ -8,7 +8,14 @@ import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
 import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
-import { resolvePublicStoresForList } from '../services/publishedArtifactProjection/resolvePublicStoreList.js';
+import {
+  resolvePublicStoresForList,
+} from '../services/publishedArtifactProjection/resolvePublicStoreList.js';
+import {
+  assemblePublicFeedItems,
+  logPublicFeedAssembly,
+  publicStoreResultToFeedItem,
+} from '../services/feed/assemblePublicFeedItems.js';
 import {
   findPublicBusinesses,
   findPublicBusinessByUnique,
@@ -178,7 +185,13 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
       route: 'GET /api/public/stores/feed',
       req,
     });
-    let items = resolved.map(({ store }) => store);
+    const feedItems = assemblePublicFeedItems(
+      resolved.map((row, rank) =>
+        publicStoreResultToFeedItem(row, { source: 'public_stores_feed', rank }),
+      ),
+    );
+    logPublicFeedAssembly(feedItems, { route: 'GET /api/public/stores/feed' });
+    let items = feedItems.map(({ store }) => store);
     items = await attachStoreEngagementToPublicStores(prisma, items, req);
     const last = items[items.length - 1];
     let nextCursor = null;

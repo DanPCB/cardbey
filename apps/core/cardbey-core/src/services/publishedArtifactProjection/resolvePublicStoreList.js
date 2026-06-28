@@ -105,7 +105,22 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
     results.push({ store: enriched, projection, usedFallback });
   }
 
-  return dedupeNearDuplicatePublicStoreResults(results);
+  return dedupeNearDuplicatePublicStoreResults(dedupeExactStoreIdPublicStoreResults(results));
+}
+
+/** One Business.id → one list row (before near-duplicate slug/name collapse). */
+export function dedupeExactStoreIdPublicStoreResults(results) {
+  if (!Array.isArray(results) || results.length <= 1) return results;
+
+  const seen = new Set();
+  const out = [];
+  for (const row of results) {
+    const storeId = String(row?.store?.id ?? '').trim();
+    if (!storeId || seen.has(storeId)) continue;
+    seen.add(storeId);
+    out.push(row);
+  }
+  return out;
 }
 
 export function normalizePublicStoreIdentityKey(store) {
