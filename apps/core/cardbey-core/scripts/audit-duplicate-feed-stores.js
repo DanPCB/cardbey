@@ -10,13 +10,16 @@
  *   node scripts/audit-duplicate-feed-stores.js
  *   node scripts/audit-duplicate-feed-stores.js --repair
  *   node scripts/audit-duplicate-feed-stores.js --dry-run
+ *
+ * Works on SQLite (local) and Postgres (Render) — uses client-gen via getPrismaClient().
  */
-import { PrismaClient } from '@prisma/client';
+import '../src/env/ensureDatabaseUrl.js';
+import { getPrismaClient, disconnectDatabase } from '../src/lib/prisma.js';
 import {
   normalizePublicStoreIdentityKey,
 } from '../src/services/publishedArtifactProjection/resolvePublicStoreList.js';
 
-const prisma = new PrismaClient();
+const prisma = getPrismaClient();
 
 function parseArgs(argv) {
   return {
@@ -40,6 +43,10 @@ function pickCanonicalBusiness(candidates) {
 
 async function main() {
   const { repair, dryRun } = parseArgs(process.argv.slice(2));
+
+  const dbUrl = String(process.env.DATABASE_URL ?? '');
+  const provider = /^postgres/i.test(dbUrl) ? 'postgres' : 'sqlite';
+  console.log('[audit-duplicate-feed-stores] database provider:', provider);
 
   const active = await prisma.business.findMany({
     where: { isActive: true },
@@ -128,5 +135,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await disconnectDatabase();
   });
