@@ -4,63 +4,52 @@
   "version": "1.0.0",
   "missionType": "store",
   "metadata": {
-    "description": "Structured store build: logo checkpoint → conditional branch → draft generation → review"
+    "description": "Structured store build: draft generation → brand assets checkpoint → review"
   },
   "steps": [
     {
-      "id": "logo",
-      "orderIndex": 0,
-      "stepKind": "checkpoint",
-      "toolName": "mission.checkpoint",
-      "labels": { "en": "Logo", "vi": "Logo" },
-      "config": {
-        "type": "checkpoint",
-        "outputKey": "logoChoice",
-        "prompts": {
-          "en": "Would you like to upload a logo for your store?",
-          "vi": "Bạn có muốn tải lên logo cho cửa hàng không?"
-        },
-        "optionItems": [
-          {
-            "value": "Upload now",
-            "displayLabel": { "en": "Upload now", "vi": "Tải lên ngay" }
-          },
-          {
-            "value": "Skip",
-            "displayLabel": { "en": "Skip", "vi": "Bỏ qua" }
-          },
-          {
-            "value": "Choose from library",
-            "displayLabel": { "en": "Choose from library", "vi": "Chọn từ thư viện" }
-          }
-        ]
-      }
-    },
-    {
-      "id": "logo_path",
-      "orderIndex": 1,
-      "stepKind": "conditional",
-      "toolName": "mission.conditional",
-      "labels": { "en": "Logo path", "vi": "Nhánh logo" },
-      "config": {
-        "type": "conditional",
-        "condition": "logoChoice === \"Upload now\"",
-        "ifTrueTool": "mission_conditional_branch",
-        "ifFalseTool": "mission_conditional_branch",
-        "ifTrueInput": { "branch": "upload", "label": "await_logo_upload" },
-        "ifFalseInput": { "branch": "default", "label": "assign_default_logo" }
-      }
-    },
-    {
       "id": "generate_store_draft",
-      "orderIndex": 2,
+      "orderIndex": 0,
       "stepKind": "action",
       "toolName": "structured_store_build",
       "labels": { "en": "Generate store draft", "vi": "Tạo bản nháp cửa hàng" }
     },
     {
+      "id": "brand_assets",
+      "orderIndex": 1,
+      "stepKind": "checkpoint",
+      "toolName": "mission.checkpoint",
+      "labels": { "en": "Brand assets", "vi": "Tài sản thương hiệu" },
+      "config": {
+        "type": "checkpoint",
+        "outputKey": "brandAssetsChoice",
+        "prompts": {
+          "en": "Your store draft is ready. You can personalise it now by adding your branding.",
+          "vi": "Bản nháp cửa hàng đã sẵn sàng. Bạn có thể cá nhân hóa bằng cách thêm thương hiệu."
+        },
+        "optionItems": [
+          {
+            "value": "Upload logo",
+            "displayLabel": { "en": "Upload logo", "vi": "Tải logo lên" }
+          },
+          {
+            "value": "Upload hero video",
+            "displayLabel": { "en": "Upload hero video", "vi": "Tải video hero lên" }
+          },
+          {
+            "value": "Choose from library",
+            "displayLabel": { "en": "Choose from library", "vi": "Chọn từ thư viện" }
+          },
+          {
+            "value": "Skip",
+            "displayLabel": { "en": "Skip for now", "vi": "Bỏ qua" }
+          }
+        ]
+      }
+    },
+    {
       "id": "review_store",
-      "orderIndex": 3,
+      "orderIndex": 2,
       "stepKind": "action",
       "toolName": "analyze_store",
       "labels": { "en": "Review store", "vi": "Xem lại cửa hàng" }

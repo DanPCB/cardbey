@@ -241,6 +241,15 @@ export async function ingestAssetForIntentDetection(input = {}) {
     });
     logAssetIntentProbe(ASSET_INTENT_EVENTS.AWAITING_USER, { entityContextId: entityContext.id });
 
+    const ocrHintsOut = {
+      ...(input.ocrHints && typeof input.ocrHints === 'object' ? input.ocrHints : {}),
+      ...(entityContext.detectedBusinessName
+        ? { businessName: entityContext.detectedBusinessName, detectedBusinessName: entityContext.detectedBusinessName }
+        : {}),
+      ...(entityContext.detectedLocations?.[0] ? { location: entityContext.detectedLocations[0] } : {}),
+      ...(rawOcrText ? { rawText: rawOcrText } : {}),
+    };
+
     return {
       ok: true,
       phase: 'awaiting_intent_selection',
@@ -249,6 +258,9 @@ export async function ingestAssetForIntentDetection(input = {}) {
       extracted,
       display,
       confidence: entityContext.confidence,
+      rawOcrText,
+      ocrHints: ocrHintsOut,
+      imageDataUrl: input.imageDataUrl ?? entityContext.imageDataUrl ?? null,
       evidence: {
         documentType: entityContext.documentType,
         detectedBusinessName: entityContext.detectedBusinessName,

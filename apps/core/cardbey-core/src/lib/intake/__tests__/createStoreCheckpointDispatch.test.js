@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   resolveCreateStoreHandoffFields,
+  shouldDeferStorePipelineExecutionForIntake,
   shouldForceCreateStoreCheckpointDispatch,
 } from '../createStoreCheckpointDispatch.js';
 
@@ -65,5 +66,18 @@ describe('shouldForceCreateStoreCheckpointDispatch', () => {
         storeCreateForm: { storeName: 'My Cafe' },
       }),
     ).toBe(false);
+  });
+});
+
+describe('shouldDeferStorePipelineExecutionForIntake', () => {
+  it('defers for intake v2 sources', () => {
+    expect(shouldDeferStorePipelineExecutionForIntake('intake_v2_fresh_store_draft')).toBe(true);
+    expect(shouldDeferStorePipelineExecutionForIntake('intake_v2_classified_checkpoint')).toBe(true);
+    expect(shouldDeferStorePipelineExecutionForIntake('intake_v2_unified')).toBe(true);
+  });
+
+  it('does not defer for non-intake runners', () => {
+    expect(shouldDeferStorePipelineExecutionForIntake('proactive_runway_create_store')).toBe(false);
+    expect(shouldDeferStorePipelineExecutionForIntake('')).toBe(false);
   });
 });

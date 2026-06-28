@@ -49,6 +49,21 @@ describe('shouldRouteIngestToStoreCreationDraft', () => {
 });
 
 describe('buildStoreCreationDraft from asset', () => {
+  it('builds draft from client cardExtraction handoff only', () => {
+    const assetExtraction = buildAssetExtractionInput({
+      intentSourceContext: {
+        cardExtraction: {
+          businessName: 'PTH International Furniture',
+          location: 'Derrimut, VIC',
+          vertical: 'furniture',
+        },
+      },
+    });
+    expect(assetExtraction?.name).toBe('PTH International Furniture');
+    expect(assetExtraction?.location).toMatch(/Derrimut|VIC/i);
+    expect(hasMeaningfulAssetExtraction(assetExtraction)).toBe(true);
+  });
+
   it('builds complete draft from business card OCR', () => {
     const assetExtraction = buildAssetExtractionInput({
       imageContext: { extractedText: SAMPLE_CARD },

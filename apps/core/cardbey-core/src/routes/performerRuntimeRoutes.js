@@ -17,6 +17,8 @@ import {
 } from '../services/draftStore/storeAssetUploadService.js';
 import { UPLOAD_ACTIONS } from '../lib/runtime/runtimeActionTypes.js';
 import { buildRuntimeUploadEnvelope } from '../lib/runtime/runtimeUploadEnvelope.js';
+import { emitBrandAssetsUpdated } from '../lib/brandAssetsMissionEvents.js';
+import { getPrismaClient } from '../lib/prisma.js';
 import {
   exploreVideoUploadFields,
   executeExploreVideoUpload,
@@ -221,6 +223,19 @@ async function handleRuntimeStoreAssetUpload(req, res, kind) {
       kind,
       req,
     });
+    if (missionId && kind === 'logo') {
+      try {
+        await emitBrandAssetsUpdated(getPrismaClient(), {
+          missionId,
+          draftId: resolved.draft?.id ?? draftId,
+          logoUrl: output.logoUrl ?? output.url ?? null,
+          artifacts: ['uploaded_logo'],
+          source,
+        });
+      } catch (emitErr) {
+        console.warn('[performer/runtime/upload-logo] brand_assets_updated failed (non-fatal):', emitErr?.message || emitErr);
+      }
+    }
     return res.status(200).json(buildRuntimeUploadEnvelope(action, output, { missionId, source }));
   } catch (err) {
     if (err?.statusCode === 400) {

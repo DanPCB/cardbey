@@ -24,6 +24,11 @@ describe('artifactCheckpointAuthority', () => {
     expect(isArtifactCheckpointDeferredRespond('logoChoice', 'Skip', {})).toBe(false);
   });
 
+  it('does not defer brand assets checkpoint option clicks', () => {
+    expect(isArtifactCheckpointDeferredRespond('brandAssetsChoice', 'Upload logo', {})).toBe(false);
+    expect(isArtifactCheckpointDeferredRespond('brandAssetsChoice', 'Choose from library', {})).toBe(false);
+  });
+
   it('defers hero video upload without videoUrl', () => {
     expect(isArtifactCheckpointDeferredRespond('heroVideoChoice', 'Upload file', {})).toBe(true);
     expect(
@@ -48,6 +53,15 @@ describe('artifactCheckpointAuthority', () => {
       isArtifactCheckpointResolved('logoChoice', 'Upload now', { logoUrl: 'https://cdn.example/l.png' }),
     ).toBe(true);
     expect(isArtifactCheckpointResolved('logoChoice', 'Skip', { logoUploadStatus: 'skipped' })).toBe(true);
+    expect(
+      isArtifactCheckpointResolved('brandAssetsChoice', 'Skip', { brandAssetsStatus: 'skipped' }),
+    ).toBe(true);
+    expect(
+      isArtifactCheckpointResolved('brandAssetsChoice', 'Skip', {
+        brandAssetsStatus: 'completed',
+        logoUrl: 'https://cdn.example/l.png',
+      }),
+    ).toBe(true);
   });
 
   it('blocks store build when upload path chosen without artifact', () => {

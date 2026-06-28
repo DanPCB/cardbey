@@ -16,6 +16,7 @@ export const ARTIFACT_SKIP_RESPONSES = new Set(['Skip', 'Skip for now']);
 /** outputKey → any of these data fields satisfies the artifact requirement. */
 export const ARTIFACT_PAYLOAD_FIELDS_BY_OUTPUT_KEY = {
   logoChoice: ['logoUrl'],
+  brandAssetsChoice: ['logoUrl', 'heroVideoUrl', 'videoUrl'],
   heroImageChoice: ['heroImageUrl', 'heroUrl', 'assetUrl', 'imageUrl'],
   heroVideoChoice: ['heroVideoUrl', 'videoUrl', 'assetUrl'],
   graphicChoice: ['graphicUrl', 'assetUrl', 'imageUrl'],
@@ -51,6 +52,9 @@ export function readArtifactPayloadValue(data = {}, fields = []) {
 export function isExplicitArtifactSkip(response, data = {}) {
   const responseStr = typeof response === 'string' ? response.trim() : '';
   if (ARTIFACT_SKIP_RESPONSES.has(responseStr)) return true;
+  const brandAssetsStatus =
+    typeof data.brandAssetsStatus === 'string' ? data.brandAssetsStatus.trim() : '';
+  if (brandAssetsStatus === 'skipped' || brandAssetsStatus === 'completed') return true;
   const status = typeof data.artifactUploadStatus === 'string' ? data.artifactUploadStatus.trim() : '';
   if (status === 'skipped') return true;
   const logoStatus = typeof data.logoUploadStatus === 'string' ? data.logoUploadStatus.trim() : '';
@@ -58,14 +62,21 @@ export function isExplicitArtifactSkip(response, data = {}) {
 }
 
 export function isArtifactCheckpointResolved(outputKey, response, data = {}, stepOutput = {}) {
+  const key = String(outputKey ?? '').trim();
   const fields = artifactPayloadFieldsForOutputKey(outputKey);
   if (!fields.length) return true;
   if (isExplicitArtifactSkip(response, data)) return true;
   const merged = { ...(stepOutput && typeof stepOutput === 'object' ? stepOutput : {}), ...data };
+  if (key === 'brandAssetsChoice') {
+    const brandAssetsStatus =
+      typeof merged.brandAssetsStatus === 'string' ? merged.brandAssetsStatus.trim() : '';
+    return brandAssetsStatus === 'skipped' || brandAssetsStatus === 'completed';
+  }
   return Boolean(readArtifactPayloadValue(merged, fields));
 }
 
 export function isArtifactCheckpointDeferredRespond(outputKey, response, data = {}) {
+  if (String(outputKey ?? '').trim() === 'brandAssetsChoice') return false;
   const fields = artifactPayloadFieldsForOutputKey(outputKey);
   if (!fields.length) return false;
   const responseStr = typeof response === 'string' ? response.trim() : '';

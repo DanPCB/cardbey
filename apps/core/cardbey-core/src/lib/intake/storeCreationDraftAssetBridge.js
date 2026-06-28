@@ -195,7 +195,11 @@ export function buildAssetExtractionInput(input = {}) {
     typeof input.intentSourceContext.assetIngestResult === 'object'
       ? input.intentSourceContext.assetIngestResult
       : null;
-  const effectiveIngest = ingest ?? fromIntent;
+  const fromPersisted =
+    input.persistedIngestResult && typeof input.persistedIngestResult === 'object'
+      ? input.persistedIngestResult
+      : null;
+  const effectiveIngest = ingest ?? fromIntent ?? fromPersisted;
 
   let ocrHints = null;
   if (input.imageContext?.extractedText) {
@@ -205,6 +209,22 @@ export function buildAssetExtractionInput(input = {}) {
       (effectiveIngest.ocrHints && typeof effectiveIngest.ocrHints === 'object'
         ? effectiveIngest.ocrHints
         : null) ?? buildOcrHintsFromImageText(effectiveIngest.rawOcrText ?? '');
+  }
+
+  const cardExtraction =
+    input.intentSourceContext?.cardExtraction &&
+    typeof input.intentSourceContext.cardExtraction === 'object'
+      ? input.intentSourceContext.cardExtraction
+      : null;
+  if (cardExtraction) {
+    const clientHints = {
+      businessName: asTrimmed(cardExtraction.businessName),
+      detectedBusinessName: asTrimmed(cardExtraction.businessName),
+      location: asTrimmed(cardExtraction.location),
+      vertical: asTrimmed(cardExtraction.vertical ?? cardExtraction.category),
+      businessType: asTrimmed(cardExtraction.vertical ?? cardExtraction.category),
+    };
+    ocrHints = ocrHints ? { ...clientHints, ...ocrHints } : clientHints;
   }
 
   const entityContext = effectiveIngest?.entityContext ?? null;

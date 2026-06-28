@@ -94,6 +94,11 @@ import {
   shouldAttachDraftToAssetSelection,
   shouldRouteIngestToStoreCreationDraft,
 } from '../lib/intake/storeCreationDraftAssetBridge.js';
+import {
+  buildAssetIngestFromCardExtraction,
+  loadPersistedAssetIngestFromMission,
+  persistAttachmentOcrToMission,
+} from '../lib/intake/attachmentOcrPersistence.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
 const STORE_CONTEXT_FREE_TOOLS = CONTEXT_FREE_TOOLS;
@@ -709,10 +714,31 @@ function respondGuestDraftSignInGate({
 }
 
 /**
- * Guest with a draft — vague add-product asks for details (not create-store or sign-in yet).
- *
- * @param {object} args
+ * Resolve persisted / client attachment ingest for create_store when the follow-up has no image body.
+ * @param {{
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   missionId?: string | null;
+ * }} input
  */
+async function resolveAssetIngestContextForStoreDraft(input = {}) {
+  const ctx =
+    input.intentSourceContext && typeof input.intentSourceContext === 'object'
+      ? input.intentSourceContext
+      : null;
+  if (ctx?.assetIngestResult && typeof ctx.assetIngestResult === 'object') {
+    return ctx.assetIngestResult;
+  }
+  if (ctx?.cardExtraction) {
+    const fromCard = buildAssetIngestFromCardExtraction(ctx.cardExtraction);
+    if (fromCard) return fromCard;
+  }
+  const mid = String(input.missionId ?? '').trim();
+  if (mid) {
+    return loadPersistedAssetIngestFromMission(getPrismaClient(), mid);
+  }
+  return null;
+}
+
 function respondGuestDraftProductClarify({
   safeJson,
   locale,
@@ -1717,6 +1743,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       } catch (err) {
         console.error('[IntakeV2] Image pre-processing failed:', err?.message ?? err);
       }
+    }
+
+    if (imageContext?.hasText && missionId) {
+      const imageRefForPersist = resolveIntakeImageRefForOcr(body);
+      void persistAttachmentOcrToMission(getPrismaClient(), missionId, {
+        rawOcrText: imageContext.extractedText,
+        ocrHints: buildOcrHintsFromImageText(imageContext.extractedText),
+        imageDataUrl: imageRefForPersist,
+      }).catch(() => {});
     }
   }
 
@@ -3452,10 +3487,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       classification.parameters && typeof classification.parameters === 'object'
         ? classification.parameters
         : {};
+    const persistedAssetIngest = await resolveAssetIngestContextForStoreDraft({
+      intentSourceContext,
+      missionId,
+    });
     let assetExtraction = buildAssetExtractionInput({
       imageContext,
       userMessage,
       intentSourceContext,
+      persistedIngestResult: persistedAssetIngest,
     });
     const websiteCandidate =
       extractFirstUrlFromText(userMessage) ||
@@ -4848,11 +4888,16 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
     const assetActionFromIntent =
       intentSourceContext?.assetAction === 'create_store' || detectExplicitStoreIntent(userMessage);
+    const persistedAssetIngest = await resolveAssetIngestContextForStoreDraft({
+      intentSourceContext,
+      missionId,
+    });
     let assetExtraction = buildAssetExtractionInput({
-      ingestResult,
+      ingestResult: ingestResult.ok ? ingestResult : persistedAssetIngest,
       imageContext,
       userMessage,
       intentSourceContext,
+      persistedIngestResult: persistedAssetIngest,
     });
     const websiteFromAsset = assetExtraction?.website ? String(assetExtraction.website) : null;
     if (websiteFromAsset) {

@@ -19,6 +19,82 @@ import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
 import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
 
+const INTAKE_ASYNC_PIPELINE_SOURCES = new Set([
+  'intake_v2_fresh_store_draft',
+  'intake_v2_classified_checkpoint',
+  'intake_v2_unified',
+]);
+
+/** Intake HTTP must not block on structured_store_build (draft generation runs in background). */
+export function shouldDeferStorePipelineExecutionForIntake(auditSource) {
+  const source = String(auditSource ?? '').trim();
+  if (!source) return false;
+  if (INTAKE_ASYNC_PIPELINE_SOURCES.has(source)) return true;
+  return source.startsWith('intake_v2_');
+}
+
+function buildStoreMissionStartedDispatchResult({
+  missionId,
+  businessName,
+  businessType,
+  locationTrim,
+  intentMode,
+  runResult = {},
+}) {
+  const fact = FactBuilder.storeMissionStarted({
+    missionId,
+    storeName: businessName,
+    intentMode,
+    businessType,
+    location: locationTrim,
+    mode: runResult.mode ?? 'checkpoint_pipeline',
+    jobId: runResult.jobId,
+    generationRunId: runResult.generationRunId,
+    draftId: runResult.draftId,
+  });
+
+  const responseBody = buildIntakePayloadFromFact(fact, { explanation: null }, {
+    success: true,
+    action: 'store_mission_started',
+    missionId,
+    jobId: runResult.jobId,
+    generationRunId: runResult.generationRunId,
+    draftId: runResult.draftId,
+    intentMode,
+    mode: runResult.mode ?? 'checkpoint_pipeline',
+    storeMissionSummary: {
+      businessName,
+      businessType,
+      location: locationTrim,
+      ...(runResult.mode ? { mode: runResult.mode } : {}),
+    },
+  });
+
+  return {
+    kind: 'started',
+    responseBody,
+    telemetry: {
+      classification: {
+        executionPath: 'kernel_dispatch',
+        tool: 'create_store',
+        confidence: 1,
+        parameters: {
+          storeName: businessName,
+          location: locationTrim || null,
+          storeType: businessType,
+          intentMode,
+          _autoSubmit: true,
+        },
+      },
+      validated: true,
+      downgraded: false,
+      validationErrors: [],
+      riskLevel: RISK.STATE_CHANGE,
+      result: 'success',
+    },
+  };
+}
+
 function stripQuotes(value) {
   return String(value ?? '')
     .replace(/^[\s"'`\u201c\u201d\u2018\u2019]+|[\s"'`\u201c\u201d\u2018\u2019]+$/g, '')
@@ -281,25 +357,72 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     missionId: pipeline.id,
     auditSource,
     source: auditSource,
+    deferForIntake: shouldDeferStorePipelineExecutionForIntake(auditSource),
   });
 
-  const runResult = await executeMission({
-    mode: 'checkpoint_pipeline',
-    prisma,
-    user,
-    missionId: pipeline.id,
-    body: {
+  const missionRunBody = {
+    businessName,
+    businessType,
+    location: locationTrim,
+    currencyCode,
+    intentMode: ctxIntentMode,
+    rawUserText: userMessage,
+    cardbeyTraceId,
+  };
+
+  if (shouldDeferStorePipelineExecutionForIntake(auditSource)) {
+    void executeMission({
+      mode: 'checkpoint_pipeline',
+      prisma,
+      user,
+      missionId: pipeline.id,
+      body: missionRunBody,
+      auditSource,
+      source: auditSource,
+    }).catch((err) => {
+      console.error(
+        '[CreateStoreDispatch] async intake pipeline failed:',
+        err?.message ?? err,
+      );
+    });
+
+    return buildStoreMissionStartedDispatchResult({
+      missionId: pipeline.id,
       businessName,
       businessType,
-      location: locationTrim,
-      currencyCode,
+      locationTrim,
       intentMode: ctxIntentMode,
-      rawUserText: userMessage,
-      cardbeyTraceId,
-    },
-    auditSource,
-    source: auditSource,
-  });
+      runResult: { mode: 'checkpoint_pipeline', missionId: pipeline.id },
+    });
+  }
+
+  let runResult;
+  try {
+    runResult = await executeMission({
+      mode: 'checkpoint_pipeline',
+      prisma,
+      user,
+      missionId: pipeline.id,
+      body: missionRunBody,
+      auditSource,
+      source: auditSource,
+    });
+  } catch (err) {
+    console.error('[CreateStoreDispatch] executeMission threw:', err?.message ?? err);
+    return {
+      kind: 'failed',
+      statusCode: 500,
+      responseBody: {
+        success: false,
+        action: 'create_store_failed',
+        message:
+          typeof err?.message === 'string' && err.message.trim()
+            ? err.message.trim()
+            : 'Store setup could not be started.',
+        error: 'pipeline_run_threw',
+      },
+    };
+  }
 
   diagLog(diag, 'executeMission(checkpoint_pipeline) result:', {
     ok: runResult.ok,
@@ -311,58 +434,14 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
   });
 
   if (runResult.ok) {
-    const fact = FactBuilder.storeMissionStarted({
-      missionId: runResult.missionId,
-      storeName: businessName,
-      intentMode: ctxIntentMode,
+    return buildStoreMissionStartedDispatchResult({
+      missionId: runResult.missionId ?? pipeline.id,
+      businessName,
       businessType,
-      location: locationTrim,
-      mode: runResult.mode,
-      jobId: runResult.jobId,
-      generationRunId: runResult.generationRunId,
-      draftId: runResult.draftId,
-    });
-
-    const responseBody = buildIntakePayloadFromFact(fact, { explanation: null }, {
-      success: true,
-      action: 'store_mission_started',
-      missionId: runResult.missionId,
-      jobId: runResult.jobId,
-      generationRunId: runResult.generationRunId,
-      draftId: runResult.draftId,
+      locationTrim,
       intentMode: ctxIntentMode,
-      ...(runResult.mode ? { mode: runResult.mode } : {}),
-      storeMissionSummary: {
-        businessName,
-        businessType,
-        location: locationTrim,
-        ...(runResult.mode ? { mode: runResult.mode } : {}),
-      },
+      runResult,
     });
-
-    return {
-      kind: 'started',
-      responseBody,
-      telemetry: {
-        classification: {
-          executionPath: 'kernel_dispatch',
-          tool: 'create_store',
-          confidence: 1,
-          parameters: {
-            storeName: businessName,
-            location: locationTrim || null,
-            storeType: businessType,
-            intentMode: ctxIntentMode,
-            _autoSubmit: true,
-          },
-        },
-        validated: true,
-        downgraded: false,
-        validationErrors: [],
-        riskLevel: RISK.STATE_CHANGE,
-        result: 'success',
-      },
-    };
   }
 
   return {
