@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 import { selectBestCandidateMedia } from '../media/selectBestCandidateMedia.js';
 import { resolvePilotCategoryKey } from '../media/categoryMediaVocabulary.js';
-import { getBriefByCandidateId, newBriefId, saveBrief } from './briefRepository.js';
+import { getBriefByCandidateId, getBriefBySeedId, newBriefId, saveBrief } from './briefRepository.js';
 import {
   buildBusinessHealthScore,
   formatHealthScoreMarkdown,
@@ -424,7 +424,7 @@ export async function generateBusinessIntelligenceBrief(
   const completenessScore = visibility.profileCompleteness;
 
   const name = candidate.name ?? 'Business';
-  const categoryKey = resolvePilotCategoryKey(candidate.businessType);
+  const categoryKey = resolvePilotCategoryKey(candidate.businessType, candidate.name);
   const summary = `Cardbey found public information for ${name} and prepared a starter brief for the owner to review. This ${categoryKey.replace(/_/g, ' ')} business has ${strengths.length} observable strength${strengths.length === 1 ? '' : 's'} and ${missingFieldsJson.length} field${missingFieldsJson.length === 1 ? '' : 's'} that may benefit from owner verification.`;
 
   const existing = await getBriefByCandidateId(candidateId);
@@ -473,6 +473,80 @@ export async function generateBusinessIntelligenceBrief(
     generatedHtml,
   };
 
+  await saveBrief(brief);
+  return brief;
+}
+
+export async function generateBusinessIntelligenceBriefForSeed(
+  seed: import('../businessIngestion/types.js').IngestedSeedRecord,
+): Promise<CandidateIntelligenceBrief | null> {
+  const { businessCandidateFromSeed } = await import('../seedBriefAdapter.js');
+  const candidate = businessCandidateFromSeed(seed);
+  const existing = await getBriefBySeedId(seed.id);
+  if (existing && existing.status !== 'draft') return existing;
+
+  const media = await selectBestCandidateMedia(candidate.id, { discoverIfEmpty: false }).catch(
+    () => null,
+  );
+  const signals = buildSignals(candidate, media);
+  const visibility = buildVisibility(candidate, signals);
+  const healthScore = buildBusinessHealthScore(candidate, media, visibility);
+  const visibilityEstimate = buildEstimate(visibility, healthScore);
+  const strengths = buildStrengths(signals);
+  const weaknesses = buildWeaknesses(signals);
+  const evidenceJson = buildEvidenceJson(candidate, signals);
+  const missingFieldsJson = buildMissingFields(signals);
+  const recommendedActionsJson = buildRecommendedActions(signals);
+
+  const confidenceScore = clamp(
+    candidate.confidenceScore * 40 +
+      visibility.profileCompleteness * 0.4 +
+      healthScore.overallReadiness * 0.2,
+  );
+  const completenessScore = visibility.profileCompleteness;
+
+  const name = candidate.name ?? 'Business';
+  const categoryKey = resolvePilotCategoryKey(candidate.businessType, candidate.name);
+  const summary = `Cardbey found public information for ${name} and prepared a starter brief for the owner to review. This ${categoryKey.replace(/_/g, ' ')} business has ${strengths.length} observable strength${strengths.length === 1 ? '' : 's'} and ${missingFieldsJson.length} field${missingFieldsJson.length === 1 ? '' : 's'} that may benefit from owner verification.`;
+
+  const now = new Date().toISOString();
+  const base: Omit<CandidateIntelligenceBrief, 'generatedMarkdown' | 'generatedHtml'> = {
+    id: existing?.id ?? newBriefId(),
+    candidateId: candidate.id,
+    seedId: seed.id,
+    batchId: seed.batchId ?? 'SEED_CLAIMABLE',
+    title: `Business Intelligence Brief — ${name}`,
+    summary,
+    confidenceScore,
+    completenessScore,
+    evidenceJson,
+    missingFieldsJson,
+    recommendedActionsJson,
+    mediaSummaryJson: {
+      heroSource: media?.heroImage?.sourceType ?? 'category_stock',
+      representativeDisclosureRequired: media?.representativeDisclosureRequired ?? true,
+      confidenceSummary: media?.confidenceSummary ?? null,
+      missingMediaReasons: media?.missingMediaReasons ?? ['No business-specific images on file'],
+    },
+    visibility,
+    visibilityEstimate,
+    healthScore,
+    strengths,
+    weaknesses,
+    seoExplanation: SEO_EXPLANATION,
+    geoExplanation: GEO_EXPLANATION,
+    disclaimer: DISCLAIMER,
+    generatedPdfUrl: null,
+    status: 'ready',
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    downloadedAt: existing?.downloadedAt ?? null,
+    claimStartedAt: existing?.claimStartedAt ?? null,
+  };
+
+  const generatedMarkdown = buildMarkdown(candidate, base);
+  const generatedHtml = buildHtml(generatedMarkdown, base.title);
+  const brief: CandidateIntelligenceBrief = { ...base, generatedMarkdown, generatedHtml };
   await saveBrief(brief);
   return brief;
 }

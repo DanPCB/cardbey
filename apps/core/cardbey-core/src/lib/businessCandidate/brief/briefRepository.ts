@@ -44,9 +44,19 @@ export async function getBriefByCandidateId(
   return all.find((b) => b.candidateId === candidateId) ?? null;
 }
 
+export async function getBriefBySeedId(seedId: string): Promise<CandidateIntelligenceBrief | null> {
+  const all = await readAll();
+  return all.find((b) => b.seedId === seedId) ?? null;
+}
+
 export async function saveBrief(brief: CandidateIntelligenceBrief): Promise<CandidateIntelligenceBrief> {
   const all = await readAll();
-  const idx = all.findIndex((b) => b.id === brief.id || b.candidateId === brief.candidateId);
+  const idx = all.findIndex(
+    (b) =>
+      b.id === brief.id ||
+      b.candidateId === brief.candidateId ||
+      (brief.seedId && b.seedId === brief.seedId),
+  );
   if (idx >= 0) all[idx] = brief;
   else all.push(brief);
   const op = writeChain.then(() => writeAll(all));

@@ -9,8 +9,12 @@ import { listSeedRecords } from './IngestionRepository.js';
 import { buildPublicBusinessSlug, findSeedByPublicSlug } from './businessPublicSlug.js';
 import { findPublishedStoreForSeed, type PublishedStoreIdentity } from './publishedStoreSeedMatch.js';
 import { resolvePublicMediaForSeed } from '../businessCandidate/media/resolvePublicCandidateMedia.js';
-import { getBriefByCandidateId } from '../businessCandidate/brief/briefRepository.js';
-import { briefSummaryForPublic } from '../businessCandidate/brief/generateBusinessIntelligenceBrief.js';
+import { resolvePilotCategoryKey } from '../businessCandidate/media/categoryMediaVocabulary.js';
+import { getBriefByCandidateId, getBriefBySeedId } from '../businessCandidate/brief/briefRepository.js';
+import {
+  briefSummaryForPublic,
+  generateBusinessIntelligenceBriefForSeed,
+} from '../businessCandidate/brief/generateBusinessIntelligenceBrief.js';
 import {
   DISCOVERED_BUSINESS_BADGE,
   translateSeedToPublicLifecycle,
@@ -135,16 +139,29 @@ export async function buildPublicBusinessProfile(
   const activeStoreUrl = await resolveActiveStoreUrl(seed, publishedStores);
 
   let briefSummary = null;
-  if (media.candidateId) {
-    const brief = await getBriefByCandidateId(media.candidateId);
+  try {
+    let brief =
+      (media.candidateId ? await getBriefByCandidateId(media.candidateId) : null) ??
+      (await getBriefBySeedId(seed.id));
+    if (!brief && seed.claimable) {
+      brief = await generateBusinessIntelligenceBriefForSeed(seed);
+    }
     if (brief) briefSummary = briefSummaryForPublic(brief);
+  } catch (err) {
+    console.warn('[publicBusinessProfile] brief generation failed:', err);
   }
+
+  const resolvedCategoryKey = resolvePilotCategoryKey(n.category, n.businessName);
+  const categoryLabel =
+    resolvedCategoryKey !== 'unknown'
+      ? resolvedCategoryKey.replace(/_/g, ' ')
+      : n.category;
 
   return {
     slug,
     businessName: n.businessName,
     category: n.category,
-    categoryLabel: n.category,
+    categoryLabel,
     locationLabel,
     city: canonical.suburb ?? canonical.city,
     description: buildProfileDescription(seed, locationLabel),

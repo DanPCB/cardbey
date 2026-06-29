@@ -10,6 +10,7 @@ import { listPublicDiscoveryCards } from '../lib/businessIngestion/DiscoveryCard
 import { getPublicBusinessProfileBySlug } from '../lib/businessIngestion/PublicBusinessProfileService.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { getBusinessCandidateBySeedId } from '../lib/businessCandidate/candidateRepository.js';
+import { seedBriefCandidateId } from '../lib/businessCandidate/seedBriefAdapter.js';
 import { findSeedByPublicSlug } from '../lib/businessIngestion/businessPublicSlug.js';
 import { listSeedRecords } from '../lib/businessIngestion/IngestionRepository.js';
 
@@ -61,17 +62,21 @@ router.get('/discovery/businesses/:slug', async (req, res, next) => {
 async function resolveCandidateFromSlug(slug) {
   const seeds = await listSeedRecords();
   const seed = findSeedByPublicSlug(seeds, slug);
-  if (!seed) return { seed: null, candidate: null };
+  if (!seed) return { seed: null, candidate: null, candidateId: null };
   const candidate = await getBusinessCandidateBySeedId(seed.id);
-  return { seed, candidate };
+  return {
+    seed,
+    candidate,
+    candidateId: candidate?.id ?? seedBriefCandidateId(seed.id),
+  };
 }
 
 /** POST /api/public/discovery/businesses/:slug/brief/download-intent */
 router.post('/discovery/businesses/:slug/brief/download-intent', optionalAuth, async (req, res, next) => {
   try {
     const slug = String(req.params.slug ?? '').trim();
-    const { seed, candidate } = await resolveCandidateFromSlug(slug);
-    if (!seed || !candidate) {
+    const { seed, candidateId } = await resolveCandidateFromSlug(slug);
+    if (!seed || !candidateId) {
       return res.status(404).json({ ok: false, message: 'Business not found.' });
     }
 
@@ -80,7 +85,7 @@ router.post('/discovery/businesses/:slug/brief/download-intent', optionalAuth, a
     );
     const sessionId = req.headers['x-session-id'] ?? req.cookies?.['cardbey.session'] ?? null;
     const result = await recordBriefDownloadIntent({
-      candidateId: candidate.id,
+      candidateId,
       seedId: seed.id,
       userId: req.user?.id ?? null,
       email: req.user?.email ?? null,
@@ -98,15 +103,15 @@ router.get('/discovery/businesses/:slug/brief/download', optionalAuth, async (re
   try {
     const slug = String(req.params.slug ?? '').trim();
     const format = req.query.format === 'html' ? 'html' : 'markdown';
-    const { seed, candidate } = await resolveCandidateFromSlug(slug);
-    if (!seed || !candidate) {
+    const { seed, candidateId } = await resolveCandidateFromSlug(slug);
+    if (!seed || !candidateId) {
       return res.status(404).json({ ok: false, message: 'Business not found.' });
     }
 
     const { downloadBriefIfAllowed } = await import('../lib/businessCandidate/brief/briefService.js');
     const sessionId = req.headers['x-session-id'] ?? req.cookies?.['cardbey.session'] ?? null;
     const result = await downloadBriefIfAllowed({
-      candidateId: candidate.id,
+      candidateId,
       seedId: seed.id,
       userId: req.user?.id ?? null,
       sessionId: typeof sessionId === 'string' ? sessionId : null,
@@ -136,7 +141,7 @@ router.post('/discovery/businesses/:slug/claim-intent', optionalAuth, async (req
   try {
     const slug = String(req.params.slug ?? '').trim();
     const source = req.body?.source ?? 'CLAIM_BUTTON';
-    const { seed, candidate } = await resolveCandidateFromSlug(slug);
+    const { seed, candidate, candidateId } = await resolveCandidateFromSlug(slug);
     if (!seed) {
       return res.status(404).json({ ok: false, message: 'Business not found.' });
     }

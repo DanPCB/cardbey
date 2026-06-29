@@ -50,8 +50,11 @@ const FOOD_CATEGORY_KEYS = new Set<PilotCategoryKey>(['bakery', 'cafe', 'restaur
 
 export function resolvePilotCategoryKey(
   businessType: string | null | undefined,
+  businessName?: string | null,
 ): PilotCategoryKey {
-  const text = String(businessType ?? '')
+  const text = [businessName, businessType]
+    .filter(Boolean)
+    .join(' ')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ');
 

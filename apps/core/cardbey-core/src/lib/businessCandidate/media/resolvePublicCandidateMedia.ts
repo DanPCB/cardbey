@@ -3,9 +3,10 @@
  */
 
 import type { IngestedSeedRecord } from '../../businessIngestion/types.js';
-import { resolveDiscoveryCardHero, type DiscoveryHeroSource } from '../../businessIngestion/DiscoveryCardHeroResolver.js';
+import type { DiscoveryHeroSource } from '../../businessIngestion/DiscoveryCardHeroResolver.js';
 import { getBusinessCandidateBySeedId } from '../candidateRepository.js';
 import { selectBestCandidateMedia } from './selectBestCandidateMedia.js';
+import { resolveSeedRepresentativeHero } from './resolveSeedRepresentativeHero.js';
 
 export interface PublicCandidateMediaResolution {
   heroImageUrl: string;
@@ -19,34 +20,35 @@ export interface PublicCandidateMediaResolution {
 const REPRESENTATIVE_LABEL =
   'Representative image shown until the owner verifies this business.';
 
+function seedRepresentativeFallback(seed: IngestedSeedRecord): PublicCandidateMediaResolution {
+  const { heroImageUrl, categoryKey } = resolveSeedRepresentativeHero(seed);
+  return {
+    heroImageUrl,
+    heroImageSource: 'representative',
+    representativeDisclosureRequired: true,
+    representativeImageLabel: REPRESENTATIVE_LABEL,
+    mediaConfidenceSummary:
+      categoryKey !== 'unknown'
+        ? `Representative ${categoryKey.replace(/_/g, ' ')} image from public business profile`
+        : 'Representative image until owner verifies',
+    candidateId: null,
+  };
+}
+
 export async function resolvePublicMediaForSeed(
   seed: IngestedSeedRecord,
 ): Promise<PublicCandidateMediaResolution> {
   const candidate = await getBusinessCandidateBySeedId(seed.id);
   if (!candidate) {
-    const fallback = resolveDiscoveryCardHero(seed);
-    return {
-      heroImageUrl: fallback.heroImageUrl,
-      heroImageSource: fallback.heroImageSource,
-      representativeDisclosureRequired: fallback.heroImageSource === 'generic',
-      representativeImageLabel:
-        fallback.heroImageSource === 'generic' || fallback.heroImageSource === 'category_template'
-          ? REPRESENTATIVE_LABEL
-          : null,
-      mediaConfidenceSummary: null,
-      candidateId: null,
-    };
+    return seedRepresentativeFallback(seed);
   }
 
   const selected = await selectBestCandidateMedia(candidate.id);
   if (!selected?.heroImage) {
-    const fallback = resolveDiscoveryCardHero(seed);
+    const fallback = seedRepresentativeFallback(seed);
     return {
-      heroImageUrl: fallback.heroImageUrl,
-      heroImageSource: fallback.heroImageSource,
-      representativeDisclosureRequired: true,
-      representativeImageLabel: REPRESENTATIVE_LABEL,
-      mediaConfidenceSummary: selected?.confidenceSummary ?? null,
+      ...fallback,
+      mediaConfidenceSummary: selected?.confidenceSummary ?? fallback.mediaConfidenceSummary,
       candidateId: candidate.id,
     };
   }
