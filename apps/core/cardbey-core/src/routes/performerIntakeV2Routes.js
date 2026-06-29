@@ -51,9 +51,19 @@ import {
   shouldRouteToAssetIntentDetection,
   detectExplicitAssetIntent,
   detectExplicitStoreIntent,
+  detectCreateStoreFromUploadedAssetIntent,
+  hasExplicitUploadCreateStoreOrWebsiteIntent,
+  isExplicitCreateStoreFromUploadContext,
   shouldAutoSubmitCreateStoreClassification,
+  shouldAnalyzeUploadedAssetForStoreCreation,
+  shouldBlockStoreCheckWithoutContext,
+  shouldDeferCreateStoreDraftForAssetIngest,
+  hasRecentUploadedAssetInContext,
 } from '../lib/intake/assetUploadGuard.js';
-import { buildAssetIntentDetectionClassification } from '../lib/intake/assetIntentIngestService.js';
+import {
+  buildAssetIntentDetectionClassification,
+  buildAnalyzeUploadedAssetForStoreCreationClassification,
+} from '../lib/intake/assetIntentIngestService.js';
 import {
   createModeResponseMeta,
   resolveManualIntakeRequest,
@@ -90,6 +100,7 @@ import {
   formatStoreCreationDraftResponseForBundle,
   hasMeaningfulAssetExtraction,
   mergeAssetExtraction,
+  enrichAssetExtractionWithUploadOcr,
   resolveWebsiteMetadataForStoreDraft,
   shouldAttachDraftToAssetSelection,
   shouldRouteIngestToStoreCreationDraft,
@@ -98,7 +109,30 @@ import {
   buildAssetIngestFromCardExtraction,
   loadPersistedAssetIngestFromMission,
   persistAttachmentOcrToMission,
+  stashVisionExtractionForSession,
 } from '../lib/intake/attachmentOcrPersistence.js';
+import {
+  buildDocumentExtractionArtifact,
+  persistDocumentExtractionToMission,
+  resolveStoreCandidateForHandoff,
+  peekPendingDocumentExtraction,
+  storeCandidateToAssetExtraction,
+} from '../lib/intake/storeCandidate.js';
+import {
+  hydrateIntentSourceFromWorkflow,
+  persistUploadedAssetWorkflow,
+  resolveIntakeAssetSessionKey,
+  stashIntakeWorkflowContext,
+  workflowPatchFromIntakePayload,
+} from '../lib/intake/intakeWorkflowContext.js';
+import {
+  UPLOAD_INTAKE_PHASE,
+  applyUploadPhaseRouting,
+  clearStaleAssetAction,
+  injectUploadImageIntoBody,
+  resolveUploadIntakePhase,
+} from '../lib/intake/uploadIntakePhase.js';
+import { resolveStoreCandidateForIntakeTurn } from '../lib/intake/resolveStoreCandidateForIntakeTurn.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
 const STORE_CONTEXT_FREE_TOOLS = CONTEXT_FREE_TOOLS;
@@ -142,7 +176,12 @@ import {
 import {
   resolveStoreAmbiguity,
   tryAutoResolveSingleStoreId,
+  validateUserStoreId,
 } from '../lib/intake/resolveStoreAmbiguity.js';
+import {
+  buildStoreClarifyOptionsFromHydratedContext,
+  tryReplayPendingStoreSelection,
+} from '../lib/intake/storeSelectionReplay.js';
 import {
   bootstrapIntakeContext,
   finalizeIntakeContext,
@@ -247,12 +286,17 @@ import {
 } from '../lib/runwayContext.js';
 import {
   attachIntakeMemoryFields,
+  extractMemoryLoadStatus,
+  hydrateContextFromMemoryBundle,
+  loadIntakeMemoryBundle,
   pickMemorySummary,
   pickUnifiedMemory,
   resolveIntakeDraftId,
   resolveIntakeMissionId,
   resolveIntakeStoreId,
+  resolveStoreIdFromIntakeSelection,
 } from '../lib/intake/intakeMemoryContext.js';
+import { enrichClassificationWithMemoryPlan } from '../lib/intake/dispatchPlanAction.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -267,6 +311,7 @@ import {
   finalizeConversationIntakeResponse,
   attachConversationToMissionMetadata,
   getIntakeConversationHistoryLimit,
+  persistConversationSessionStoreId,
 } from '../services/conversation/conversationIntakeBridge.js';
 
 function getIntakeIntentIntegration() {
@@ -1489,6 +1534,16 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     freshStoreMission || !body.currentContext || typeof body.currentContext !== 'object'
       ? {}
       : body.currentContext;
+
+  const earlySelectionStoreId = resolveStoreIdFromIntakeSelection(body.intakeV2Selection);
+  if (earlySelectionStoreId) {
+    currentContext = {
+      ...currentContext,
+      activeStoreId: currentContext.activeStoreId ?? earlySelectionStoreId,
+      storeId: currentContext.storeId ?? earlySelectionStoreId,
+    };
+  }
+
   let contextEngineUserContext = null;
   let missionId = freshStoreMission ? null : resolveIntakeMissionId({ body, currentContext });
   let history = freshStoreMission
@@ -1503,6 +1558,18 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
     null;
 
+  let intakeAssetSessionKey = resolveIntakeAssetSessionKey({
+    conversationSessionId: conversationSessionIdHint,
+    sessionId: conversationSessionIdHint,
+    userId: String(req.user?.id ?? body?.userId ?? '').trim() || null,
+    guestSessionId: req.guestSessionId ?? null,
+  });
+
+  /** @type {Record<string, unknown> | null} */
+  let intakeMemoryBundle = null;
+  /** @type {ReturnType<typeof extractMemoryLoadStatus> | null} */
+  let memoryLoadStatus = null;
+
   let conversationState = { session: null, context: null, history: [] };
   if (!freshStoreMission && userMessage && req.user?.id) {
     conversationState = await bootstrapConversationForIntake({
@@ -1516,6 +1583,23 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (conversationState.history?.length) {
       history = conversationState.history;
     }
+    const sessionStoreId =
+      conversationState.session?.storeId && String(conversationState.session.storeId).trim()
+        ? String(conversationState.session.storeId).trim()
+        : null;
+    if (sessionStoreId && !resolveIntakeStoreId(currentContext)) {
+      currentContext = {
+        ...currentContext,
+        activeStoreId: sessionStoreId,
+        storeId: sessionStoreId,
+      };
+    }
+    intakeAssetSessionKey = resolveIntakeAssetSessionKey({
+      conversationSessionId: conversationState.session?.id ?? conversationSessionIdHint,
+      sessionId: conversationState.session?.id ?? conversationSessionIdHint,
+      userId: String(req.user?.id ?? body?.userId ?? '').trim() || null,
+      guestSessionId: req.guestSessionId ?? null,
+    });
   }
 
   if (!freshStoreMission && isContextEngineEnabled()) {
@@ -1542,13 +1626,78 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (!freshStoreMission) {
     currentContext = attachIntakeMemoryFields(currentContext);
     missionId = resolveIntakeMissionId({ body, currentContext }) || missionId;
+    try {
+      intakeMemoryBundle = await loadIntakeMemoryBundle({
+        req,
+        body: { ...body, currentContext },
+        sessionId: intakeAssetSessionKey,
+      });
+      memoryLoadStatus = extractMemoryLoadStatus(intakeMemoryBundle);
+      if (intakeMemoryBundle && typeof intakeMemoryBundle === 'object') {
+        const prior =
+          currentContext.unifiedMemory && typeof currentContext.unifiedMemory === 'object'
+            ? currentContext.unifiedMemory
+            : {};
+        const suitcaseItems = Array.isArray(intakeMemoryBundle.suitcase) ? intakeMemoryBundle.suitcase : [];
+        const highlights = suitcaseItems
+          .map((h) => (typeof h?.title === 'string' ? h.title.trim() : ''))
+          .filter(Boolean)
+          .slice(0, 5);
+        currentContext = {
+          ...currentContext,
+          unifiedMemory: {
+            ...prior,
+            ...(intakeMemoryBundle.activeSummary
+              ? { activeSummary: String(intakeMemoryBundle.activeSummary) }
+              : intakeMemoryBundle.store?.summary
+                ? { activeSummary: String(intakeMemoryBundle.store.summary) }
+                : {}),
+            ...(highlights.length ? { keyFacts: highlights } : {}),
+            ...(Array.isArray(intakeMemoryBundle.session?.learnedSignals) &&
+            intakeMemoryBundle.session.learnedSignals.length
+              ? { learnedSignals: intakeMemoryBundle.session.learnedSignals.slice(0, 8) }
+              : {}),
+            ...(memoryLoadStatus?.partial ? { partial: true } : {}),
+          },
+        };
+        currentContext = hydrateContextFromMemoryBundle(currentContext, intakeMemoryBundle);
+      }
+    } catch (memoryErr) {
+      memoryLoadStatus = extractMemoryLoadStatus(null);
+      memoryLoadStatus.error = memoryErr?.message ?? String(memoryErr);
+      console.warn('[intake] memory bundle load failed (non-blocking):', memoryErr?.message ?? memoryErr);
+    }
   }
 
   const serviceRequestThreadBlob = collectUserTextsForServiceDraft(history, userMessage).join('\n');
-  const intentSourceContext =
+  let intentSourceContext =
     body.intentSourceContext && typeof body.intentSourceContext === 'object'
       ? body.intentSourceContext
       : null;
+
+  intentSourceContext = hydrateIntentSourceFromWorkflow(
+    intentSourceContext,
+    body.currentContext?.workflowContext,
+    intakeAssetSessionKey,
+  );
+  if (intentSourceContext) {
+    body.intentSourceContext = intentSourceContext;
+  }
+
+  // Follow-up create-store turns may carry the upload only in handoff context — hydrate body for OCR.
+  if (!resolveIntakeImageRefForOcr(body)) {
+    const pendingUploadImage = String(
+      intentSourceContext?.pendingImageDataUrl ??
+        intentSourceContext?.imageDataUrl ??
+        '',
+    ).trim();
+    if (pendingUploadImage.length > 50) {
+      body.imageDataUrl = pendingUploadImage;
+      if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+        body.attachments = [{ type: 'image', dataUrl: pendingUploadImage, uri: pendingUploadImage }];
+      }
+    }
+  }
 
   // Multi-agent / campaign orchestration — unified dispatch (no escape hatch)
   if (body.missionType === 'multi_agent') {
@@ -1701,7 +1850,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   let imageContext = null;
   const hasAnyImageEarly =
     hasIntakeImageAttachment(body) ||
-    (typeof body?.imageDataUrl === 'string' && body.imageDataUrl.length > 100);
+    (typeof body?.imageDataUrl === 'string' && body.imageDataUrl.length > 50);
 
   if (hasAnyImageEarly) {
     const imageRef = resolveIntakeImageRefForOcr(body);
@@ -1751,7 +1900,22 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         rawOcrText: imageContext.extractedText,
         ocrHints: buildOcrHintsFromImageText(imageContext.extractedText),
         imageDataUrl: imageRefForPersist,
+        sessionId: intakeAssetSessionKey,
       }).catch(() => {});
+    } else if (imageContext?.hasText && intakeAssetSessionKey) {
+      const attachmentOnlyForStash = shouldRouteToAssetIntentDetection(userMessage, {
+        attachments: body.attachments,
+        imageDataUrl: body.imageDataUrl,
+      });
+      const stashArtifact = stashVisionExtractionForSession({
+        rawOcrText: imageContext.extractedText,
+        imageDataUrl: resolveIntakeImageRefForOcr(body),
+        sessionId: intakeAssetSessionKey,
+        documentType: attachmentOnlyForStash ? 'business_card' : 'unknown',
+      });
+      if (stashArtifact) {
+        persistUploadedAssetWorkflow(intakeAssetSessionKey, stashArtifact);
+      }
     }
   }
 
@@ -1774,7 +1938,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   // Attachment-only uploads must NOT auto-start store creation.
   const attachmentOnlyUpload = shouldRouteToAssetIntentDetection(userMessage, {
     attachments: body.attachments,
-    imageDataUrl: body.imageDataUrl,
+    imageDataUrl:
+      resolveIntakeImageRefForOcr(body) ??
+      (typeof intentSourceContext?.pendingImageDataUrl === 'string'
+        ? intentSourceContext.pendingImageDataUrl
+        : body.imageDataUrl),
   });
   const explicitCreateStore = detectExplicitStoreIntent(userMessage);
 
@@ -1890,8 +2058,25 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     })();
   }
 
-  const selection =
+  const pendingIntentFromBodyEarly =
+    body.pendingIntent && typeof body.pendingIntent === 'object' && !Array.isArray(body.pendingIntent)
+      ? body.pendingIntent
+      : null;
+
+  let selection =
     body.intakeV2Selection && typeof body.intakeV2Selection === 'object' ? body.intakeV2Selection : null;
+  if (!selection && pendingIntentFromBodyEarly && req.user?.id) {
+    const replayedSelection = await tryReplayPendingStoreSelection({
+      userMessage,
+      pendingIntent: pendingIntentFromBodyEarly,
+      userId: req.user.id,
+    });
+    if (replayedSelection) {
+      selection = replayedSelection;
+      body.intakeV2Selection = replayedSelection;
+    }
+  }
+
   const isSelectionConfirm = Boolean(selection);
   const forcedTool = selection ? String(selection.selectedTool ?? '').trim() : '';
   const forcedParams =
@@ -1905,10 +2090,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     blackboardContextRaw && typeof blackboardContextRaw === 'object' && !Array.isArray(blackboardContextRaw)
       ? blackboardContextRaw
       : null;
-  const pendingIntentFromBody =
-    body.pendingIntent && typeof body.pendingIntent === 'object' && !Array.isArray(body.pendingIntent)
-      ? body.pendingIntent
-      : null;
+  const pendingIntentFromBody = pendingIntentFromBodyEarly;
   const pendingSkillContextEarly = readPendingSkillContext({
     currentContext,
     blackboardContext,
@@ -1921,6 +2103,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const selectionStoreId = String(mergedForcedParams?.storeId ?? mergedForcedParams?.activeStoreId ?? '').trim();
   if (!storeId && selectionStoreId) {
     storeId = selectionStoreId;
+    currentContext = {
+      ...currentContext,
+      activeStoreId: selectionStoreId,
+      storeId: selectionStoreId,
+    };
   }
   const draftId = resolveDraftId(currentContext);
   const tenantKey = String(req.user?.id ?? req.guest?.id ?? 'intake-v2').slice(0, 120);
@@ -1949,9 +2136,48 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   /** Read-only derived store context: allow Performee spaceId to act as storeId for classification/runtime without writing any client context. */
-  const effectiveStoreId = storeId || runway.activeStoreId || performeeStoreId;
+  let effectiveStoreId = storeId || runway.activeStoreId || performeeStoreId;
   /** Store id used for validation + dispatch (may auto-resolve single-store owners). */
   let dispatchStoreId = effectiveStoreId;
+  const intakeActorUserIdEarly = req.user?.id ?? performerIntakeV2ActorId(req) ?? null;
+
+  if (dispatchStoreId && intakeActorUserIdEarly) {
+    const clientStoreId = resolveIntakeStoreId(body.currentContext);
+    const shouldValidatePersistedStore = !clientStoreId && !selectionStoreId;
+    if (shouldValidatePersistedStore) {
+      const storeStillValid = await validateUserStoreId(intakeActorUserIdEarly, dispatchStoreId);
+      if (!storeStillValid) {
+        dispatchStoreId = null;
+        storeId = null;
+        effectiveStoreId = runway.activeStoreId || performeeStoreId || null;
+        currentContext = {
+          ...currentContext,
+          activeStoreId: null,
+          storeId: null,
+        };
+      }
+    }
+  }
+
+  if (dispatchStoreId) {
+    void persistConversationSessionStoreId({
+      sessionId: conversationState.session?.id ?? conversationSessionIdHint,
+      storeId: dispatchStoreId,
+    });
+    if (isContextEngineEnabled()) {
+      const contextUserId = resolveContextUserId(req);
+      const contextSessionId =
+        conversationState.session?.id ?? resolveContextSessionId(req, body);
+      if (contextUserId && contextSessionId) {
+        void getContextProvider()
+          .updateContext(contextUserId, contextSessionId, { activeStoreId: dispatchStoreId })
+          .catch((err) => {
+            console.warn('[context] early activeStoreId persist failed (non-fatal):', err?.message ?? err);
+          });
+      }
+    }
+  }
+
   /** Appended to Intake V2 JSON when pre-intake agent loop ran. */
   let agentLoopTraceForResponse = null;
 
@@ -2222,6 +2448,31 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         },
       };
     }
+    if (
+      memoryLoadStatus &&
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload)
+    ) {
+      responsePayload = {
+        ...responsePayload,
+        memoryLoadStatus,
+      };
+    }
+    if (
+      dispatchStoreId &&
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload)
+    ) {
+      responsePayload = {
+        ...responsePayload,
+        activeStoreId: dispatchStoreId,
+        ...(intakeMemoryBundle?._context?.store
+          ? { activeStore: intakeMemoryBundle._context.store }
+          : {}),
+      };
+    }
     if (conversationState.session?.id) {
       res.setHeader('X-Session-ID', conversationState.session.id);
       responsePayload = await finalizeConversationIntakeResponse({
@@ -2230,6 +2481,26 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         payload: responsePayload,
         missionId,
       });
+    }
+    if (
+      intakeAssetSessionKey &&
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload)
+    ) {
+      const workflowPatch = workflowPatchFromIntakePayload(responsePayload);
+      if (workflowPatch) {
+        const artifact = workflowPatch.uploadedAsset?.documentExtraction;
+        if (artifact) {
+          persistUploadedAssetWorkflow(intakeAssetSessionKey, artifact);
+        } else {
+          stashIntakeWorkflowContext(intakeAssetSessionKey, workflowPatch);
+        }
+        responsePayload = {
+          ...responsePayload,
+          workflowContext: workflowPatch,
+        };
+      }
     }
     if (isContextEngineEnabled()) {
       const contextUserId = resolveContextUserId(req);
@@ -3227,21 +3498,20 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     classifierReason = classification._downgradedReason ?? classifierReason;
 
     // Attachment-only uploads: read document + ask what to do next — never auto proactive upload plan.
-    if (
-      attachmentOnlyUpload &&
-      !skipReasoningPipeline &&
-      String(classification?.tool ?? '').trim() === 'upload_store_asset'
-    ) {
-      classification = {
-        ...buildAssetIntentDetectionClassification(userMessage, {
-          attachments: body.attachments,
-          imageDataUrl: resolveIntakeImageRefForOcr(body),
-          storeId: effectiveStoreId ?? storeId ?? null,
-          source: body.intentSource ?? body.intentSourceContext?.source ?? 'performer_composer',
-          currentEntry: 'performer',
-        }),
-        _classificationOverride: 'attachment_only_asset_intent',
-      };
+    if (attachmentOnlyUpload && !skipReasoningPipeline) {
+      const routedTool = String(classification?.tool ?? '').trim();
+      if (routedTool !== 'ingest_asset_for_intent_detection') {
+        classification = {
+          ...buildAssetIntentDetectionClassification(userMessage, {
+            attachments: body.attachments,
+            imageDataUrl: resolveIntakeImageRefForOcr(body),
+            storeId: effectiveStoreId ?? storeId ?? null,
+            source: body.intentSource ?? body.intentSourceContext?.source ?? 'performer_composer',
+            currentEntry: 'performer',
+          }),
+          _classificationOverride: 'attachment_only_asset_intent',
+        };
+      }
     }
 
     // V1 consolidation: route legacy mini-website creation tools through canonical create_store runway.
@@ -3310,6 +3580,33 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         _reasoningClassifier: classification._reasoning,
       };
     }
+    }
+
+    if (classification && !skipReasoningPipeline) {
+      classification = await enrichClassificationWithMemoryPlan(classification, {
+        memoryBundle: intakeMemoryBundle,
+        storeId: effectiveStoreId ?? storeId ?? resolveIntakeStoreId(currentContext) ?? null,
+      });
+    }
+  }
+
+  // Always enforce ask-step routing for attachment-only uploads — even when reasoning was skipped.
+  if (!forcedTool && attachmentOnlyUpload) {
+    const routedTool = String(classification?.tool ?? '').trim();
+    if (routedTool !== 'ingest_asset_for_intent_detection') {
+      classification = {
+        ...buildAssetIntentDetectionClassification(userMessage, {
+          attachments: body.attachments,
+          imageDataUrl:
+            resolveIntakeImageRefForOcr(body) ??
+            intentSourceContext?.pendingImageDataUrl ??
+            null,
+          storeId: effectiveStoreId ?? storeId ?? null,
+          source: body.intentSource ?? body.intentSourceContext?.source ?? 'performer_composer',
+          currentEntry: 'performer',
+        }),
+        _classificationOverride: 'attachment_only_asset_intent',
+      };
     }
   }
 
@@ -3433,6 +3730,78 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     body,
   });
 
+  const sessionPendingExtraction = intakeAssetSessionKey
+    ? peekPendingDocumentExtraction(intakeAssetSessionKey)
+    : null;
+  const uploadedAssetRoutingCtx = {
+    userMessage,
+    storeId: effectiveStoreId ?? storeId ?? null,
+    draftId,
+    attachments: body.attachments,
+    imageDataUrl:
+      resolveIntakeImageRefForOcr(body) ??
+      intentSourceContext?.pendingImageDataUrl ??
+      sessionPendingExtraction?.imageDataUrl ??
+      null,
+    intentSourceContext,
+    sessionId: intakeAssetSessionKey,
+    hasSessionPendingExtraction: Boolean(sessionPendingExtraction),
+  };
+
+  let uploadIntakePhaseResult = { phase: UPLOAD_INTAKE_PHASE.NONE, skipCreateStoreEarlyDraft: false };
+
+  if (!forcedTool && !draftConfirmationSubmit && !storeCreateFormPayload) {
+    intentSourceContext = clearStaleAssetAction(intentSourceContext, userMessage);
+    body.intentSourceContext = intentSourceContext;
+
+    const resolvedUploadPhase = resolveUploadIntakePhase({
+      ...uploadedAssetRoutingCtx,
+      userMessage,
+      intentSourceContext,
+    });
+    uploadIntakePhaseResult = { ...resolvedUploadPhase, skipCreateStoreEarlyDraft: false };
+
+    const routed = applyUploadPhaseRouting({
+      phase: resolvedUploadPhase.phase,
+      userMessage,
+      classification,
+      body,
+      intentSourceContext,
+      uploadedAssetRoutingCtx,
+      storeId: effectiveStoreId ?? storeId ?? null,
+      resolveImageRef: resolveIntakeImageRefForOcr,
+    });
+    classification = routed.classification;
+    intentSourceContext = routed.intentSourceContext;
+    body.intentSourceContext = intentSourceContext;
+    uploadIntakePhaseResult.skipCreateStoreEarlyDraft = routed.skipCreateStoreEarlyDraft;
+  }
+
+  if (
+    !forcedTool &&
+    uploadIntakePhaseResult.phase === UPLOAD_INTAKE_PHASE.NONE &&
+    shouldBlockStoreCheckWithoutContext(classification?.tool, uploadedAssetRoutingCtx)
+  ) {
+    const handoffImage = String(uploadedAssetRoutingCtx.imageDataUrl ?? '').trim();
+    injectUploadImageIntoBody(body, handoffImage);
+    classification = {
+      ...buildAnalyzeUploadedAssetForStoreCreationClassification(userMessage, {
+        attachments: body.attachments,
+        imageDataUrl: resolveIntakeImageRefForOcr(body) ?? handoffImage ?? null,
+        source: 'uploaded_asset_store_creation',
+        currentEntry: 'performer',
+      }),
+      _classificationOverride: 'store_check_blocks_without_upload_context_analyze',
+    };
+    intentSourceContext = {
+      ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+      assetAction: 'create_store',
+      ...(handoffImage ? { pendingImageDataUrl: handoffImage } : {}),
+    };
+    body.intentSourceContext = intentSourceContext;
+    uploadIntakePhaseResult.skipCreateStoreEarlyDraft = true;
+  }
+
   if (classification?.tool === 'create_store') {
     const topLevelForm =
       body.storeCreateForm && typeof body.storeCreateForm === 'object' && !Array.isArray(body.storeCreateForm)
@@ -3469,7 +3838,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   // The LLM may omit intentMode:'website' even when the
   // user said "mini website" — detect it from the raw
   // message and override so the pipeline uses the correct runway.
-  if (classification?.tool === 'create_store') {
+  if (classification?.tool === 'create_store' && !uploadIntakePhaseResult.skipCreateStoreEarlyDraft) {
     const msgLower = String(userMessage ?? body?.text ?? '').toLowerCase();
     const llmMode = String(classification.parameters?.intentMode ?? '').trim().toLowerCase();
     const isWebsite = llmMode === 'website' || looksWebsiteCreateIntent(msgLower);
@@ -3491,11 +3860,70 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       intentSourceContext,
       missionId,
     });
+    const sessionIdForExtraction = intakeAssetSessionKey;
+    let missionMetaForCandidate = null;
+    if (missionId) {
+      try {
+        const row = await getPrismaClient().missionPipeline.findUnique({
+          where: { id: missionId },
+          select: { metadataJson: true },
+        });
+        missionMetaForCandidate = row?.metadataJson ?? null;
+      } catch {
+        missionMetaForCandidate = null;
+      }
+    }
+    const storeCandidate = resolveStoreCandidateForHandoff({
+      intentSourceContext,
+      metadataJson: missionMetaForCandidate,
+      sessionId: sessionIdForExtraction,
+      persistedIngest: persistedAssetIngest,
+    });
     let assetExtraction = buildAssetExtractionInput({
       imageContext,
       userMessage,
       intentSourceContext,
       persistedIngestResult: persistedAssetIngest,
+      storeCandidate,
+    });
+    const workflowEntities =
+      intentSourceContext?.workflowEntities &&
+      typeof intentSourceContext.workflowEntities === 'object' &&
+      !Array.isArray(intentSourceContext.workflowEntities)
+        ? intentSourceContext.workflowEntities
+        : null;
+    if (workflowEntities) {
+      assetExtraction = mergeAssetExtraction(assetExtraction, {
+        name: workflowEntities.storeName ?? workflowEntities.businessName ?? null,
+        location: workflowEntities.location ?? workflowEntities.address ?? null,
+        category: workflowEntities.category ?? null,
+        phone: workflowEntities.phone ?? null,
+        email: workflowEntities.email ?? null,
+        website: workflowEntities.website ?? null,
+        source: 'uploaded_asset_workflow',
+        documentType: 'business_card',
+      });
+    }
+    if (storeCandidate) {
+      assetExtraction = mergeAssetExtraction(
+        storeCandidateToAssetExtraction(storeCandidate),
+        assetExtraction,
+      );
+    }
+    assetExtraction = await enrichAssetExtractionWithUploadOcr(assetExtraction, {
+      imageDataUrl:
+        resolveIntakeImageRefForOcr(body) ??
+        intentSourceContext?.pendingImageDataUrl ??
+        storeCandidate?.imageDataUrl ??
+        uploadedAssetRoutingCtx.imageDataUrl ??
+        null,
+      rawOcrText:
+        imageContext?.extractedText ??
+        storeCandidate?.rawOcrText ??
+        intentSourceContext?.documentExtraction?.rawOcrText ??
+        null,
+      imageContext,
+      ocrExtractFn: ocrExtractText,
     });
     const websiteCandidate =
       extractFirstUrlFromText(userMessage) ||
@@ -3514,6 +3942,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     const draftResponseText = formatStoreCreationDraftResponseForBundle(storeCreationDraftBundle, {
       documentType: assetExtraction?.documentType,
       source: storeCreationDraftBundle.draft?.source,
+      storeCandidate,
+      awaitingExtraction:
+        hasRecentUploadedAssetInContext(uploadedAssetRoutingCtx) &&
+        !hasMeaningfulAssetExtraction(assetExtraction),
     });
     const formName =
       storeCreateFormPayload && typeof storeCreateFormPayload.storeName === 'string'
@@ -3559,8 +3991,65 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     if (!businessName) {
+      const uploadDraftCtx = {
+        ...uploadedAssetRoutingCtx,
+        intentSourceContext,
+        sessionId: intakeAssetSessionKey,
+        hasSessionPendingExtraction: Boolean(peekPendingDocumentExtraction(intakeAssetSessionKey)),
+      };
+      const explicitCreateFollowUp = isExplicitCreateStoreFromUploadContext({
+        userMessage,
+        intentSourceContext,
+      });
+      const uploadOnlyNeedsAsk =
+        shouldRouteToAssetIntentDetection(userMessage, uploadDraftCtx) &&
+        !shouldAnalyzeUploadedAssetForStoreCreation(uploadDraftCtx);
+      const needsIngestOcr =
+        !hasMeaningfulAssetExtraction(assetExtraction) &&
+        (explicitCreateFollowUp || uploadOnlyNeedsAsk || shouldAnalyzeUploadedAssetForStoreCreation(uploadDraftCtx));
+      if (needsIngestOcr) {
+        const handoffImage = String(uploadDraftCtx.imageDataUrl ?? '').trim();
+        if (handoffImage.length > 100 && !resolveIntakeImageRefForOcr(body)) {
+          body.imageDataUrl = handoffImage;
+          if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+            body.attachments = [{ type: 'image', dataUrl: handoffImage, uri: handoffImage }];
+          }
+        }
+        const routeAnalyzeUpload = shouldAnalyzeUploadedAssetForStoreCreation(uploadDraftCtx);
+        classification = {
+          ...(routeAnalyzeUpload
+            ? buildAnalyzeUploadedAssetForStoreCreationClassification(userMessage, {
+                attachments: body.attachments,
+                imageDataUrl: resolveIntakeImageRefForOcr(body) ?? handoffImage ?? null,
+                source: 'uploaded_asset_store_creation',
+                currentEntry: 'performer',
+              })
+            : buildAssetIntentDetectionClassification(userMessage, {
+                attachments: body.attachments,
+                imageDataUrl: resolveIntakeImageRefForOcr(body) ?? handoffImage ?? null,
+                storeId: effectiveStoreId ?? storeId ?? null,
+                source: body.intentSource ?? body.intentSourceContext?.source ?? 'performer_composer',
+                currentEntry: 'performer',
+              })),
+          _classificationOverride: routeAnalyzeUpload
+            ? 'create_store_empty_extraction_reroute_ingest_analyze'
+            : 'create_store_empty_extraction_reroute_ingest_ask',
+        };
+        intentSourceContext = {
+          ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+          ...(routeAnalyzeUpload ? { assetAction: 'create_store' } : {}),
+          ...(handoffImage ? { pendingImageDataUrl: handoffImage } : {}),
+        };
+        if (!routeAnalyzeUpload && intentSourceContext && typeof intentSourceContext === 'object') {
+          delete intentSourceContext.assetAction;
+        }
+        body.intentSourceContext = intentSourceContext;
+      } else {
       const ctxIntentMode = draftIntentMode;
       const missing = storeCreationDraftBundle.missingFields ?? [];
+      const documentExtractionArtifact = storeCandidate
+        ? buildDocumentExtractionArtifact(storeCandidate, { missionId: missionId ?? undefined })
+        : null;
       return safeJson(
         {
           success: true,
@@ -3569,6 +4058,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           storeCreationDraft: storeCreationDraftBundle,
           missingFields: missing,
           response: draftResponseText,
+          ...(storeCandidate ? { storeCandidate } : {}),
+          ...(documentExtractionArtifact ? { documentExtraction: documentExtractionArtifact } : {}),
+          imageDataUrl:
+            storeCandidate?.imageDataUrl ??
+            resolveIntakeImageRefForOcr(body) ??
+            undefined,
         },
         {
           classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
@@ -3579,9 +4074,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           result: 'success',
         },
       );
+      }
     }
 
-    if (businessName) {
+    if (classification?.tool !== 'create_store') {
+      // Rerouted to ingest for OCR — skip remaining create_store early returns.
+    } else if (businessName) {
       classification = {
         ...classification,
         parameters: {
@@ -3735,7 +4233,32 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       hydratedContext: intakeHydratedContext,
     });
 
-    if (isReactPlannerAskDecision(plannerDecision)) {
+    const uploadPlannerCtx = {
+      userMessage,
+      attachments: body.attachments,
+      imageDataUrl:
+        resolveIntakeImageRefForOcr(body) ??
+        intentSourceContext?.pendingImageDataUrl ??
+        null,
+      intentSourceContext,
+      sessionId: intakeAssetSessionKey,
+      hasSessionPendingExtraction: Boolean(sessionPendingExtraction),
+      storeId: effectiveStoreId ?? storeId ?? null,
+      draftId,
+    };
+    const skipReactPlannerAsk =
+      attachmentOnlyUpload ||
+      classification?.tool === 'ingest_asset_for_intent_detection' ||
+      uploadIntakePhaseResult.phase === UPLOAD_INTAKE_PHASE.ASK_INTENT ||
+      uploadIntakePhaseResult.phase === UPLOAD_INTAKE_PHASE.EXTRACT_AND_DRAFT ||
+      shouldRouteToAssetIntentDetection(userMessage, uploadPlannerCtx) ||
+      shouldAnalyzeUploadedAssetForStoreCreation(uploadPlannerCtx);
+
+    if (isReactPlannerAskDecision(plannerDecision) && !skipReactPlannerAsk) {
+      const storeClarifyOptions = buildStoreClarifyOptionsFromHydratedContext(
+        intakeHydratedContext,
+        classification,
+      );
       const pendingIntent = plannerDecision.pendingSkill
         ? enrichPendingIntentForDocumentIngestion(classification, {
             pendingSkill: plannerDecision.pendingSkill,
@@ -3744,13 +4267,25 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               ? plannerDecision.missionContext
               : {}),
           })
-        : null;
+        : storeClarifyOptions.length > 0
+          ? {
+              userMessage: String(userMessage ?? '').trim(),
+              originalTool: String(classification?.tool ?? plannerDecision.toolName ?? '').trim(),
+              clarifyType: 'store_picker',
+              storeCandidates: storeClarifyOptions.map((o) => ({
+                id: o.parameters?.storeId,
+                name: o.label,
+              })),
+            }
+          : null;
 
       return safeJson(
         {
           success: true,
           action: 'clarify',
+          clarifyType: storeClarifyOptions.length > 0 ? 'store_picker' : undefined,
           response: plannerDecision.prompt,
+          ...(storeClarifyOptions.length > 0 ? { options: storeClarifyOptions } : {}),
           pendingIntent,
           ...(plannerDecision.pendingSkill
             ? {
@@ -3838,10 +4373,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               : {}),
           },
         }));
-        const pendingIntent = enrichPendingIntentForDocumentIngestion(
-          classification,
-          ambiguity.pendingIntent,
-        );
+        const pendingIntent = enrichPendingIntentForDocumentIngestion(classification, {
+          ...(ambiguity.pendingIntent && typeof ambiguity.pendingIntent === 'object' ? ambiguity.pendingIntent : {}),
+          userMessage: String(ambiguity.pendingIntent?.userMessage ?? userMessage ?? '').trim(),
+          originalTool: clarifyTool,
+          clarifyType: 'store_picker',
+          storeCandidates: ambiguity.options.map((o) => ({ id: o.value, name: o.label })),
+        });
         return safeJson(
           {
             success: true,
@@ -3929,10 +4467,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
                 : {}),
             },
           }));
-          const pendingIntent = enrichPendingIntentForDocumentIngestion(
-            classification,
-            ambiguity.pendingIntent,
-          );
+          const pendingIntent = enrichPendingIntentForDocumentIngestion(classification, {
+            ...(ambiguity.pendingIntent && typeof ambiguity.pendingIntent === 'object' ? ambiguity.pendingIntent : {}),
+            userMessage: String(ambiguity.pendingIntent?.userMessage ?? originalGoal ?? userMessage ?? '').trim(),
+            originalTool: classification.tool,
+            clarifyType: 'store_picker',
+            storeCandidates: ambiguity.options.map((o) => ({ id: o.value, name: o.label })),
+          });
           return safeJson(
             {
               success: true,
@@ -4139,6 +4680,35 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     cleanedParams = validation.cleanedParameters ?? {};
 
     if (classification.executionPath === 'clarify') {
+      if (
+        !forcedTool &&
+        isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext }) &&
+        hasRecentUploadedAssetInContext(uploadedAssetRoutingCtx)
+      ) {
+        const handoffImage = String(uploadedAssetRoutingCtx.imageDataUrl ?? '').trim();
+        if (handoffImage.length > 100 && !resolveIntakeImageRefForOcr(body)) {
+          body.imageDataUrl = handoffImage;
+          if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+            body.attachments = [{ type: 'image', dataUrl: handoffImage, uri: handoffImage }];
+          }
+        }
+        classification = {
+          ...buildAnalyzeUploadedAssetForStoreCreationClassification(userMessage, {
+            attachments: body.attachments,
+            imageDataUrl: resolveIntakeImageRefForOcr(body) ?? handoffImage ?? null,
+            source: 'uploaded_asset_store_creation',
+            currentEntry: 'performer',
+          }),
+          _classificationOverride: 'clarify_override_upload_create_store',
+        };
+        intentSourceContext = {
+          ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+          assetAction: 'create_store',
+          ...(handoffImage ? { pendingImageDataUrl: handoffImage } : {}),
+        };
+        body.intentSourceContext = intentSourceContext;
+        continue;
+      } else {
       if (recoveryAttempt === 0) {
         const rec = attemptIntentRecovery({
           userMessage,
@@ -4192,6 +4762,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           result: 'clarify',
         },
       );
+      }
     }
 
     const rawPolicyConfidence =
@@ -4854,6 +5425,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (missionId && ingestResult.ok && ingestResult.entityContext) {
       try {
         const prisma = getPrismaClient();
+        const ingestStoreCandidate = resolveStoreCandidateForHandoff({
+          intentSourceContext: { assetIngestResult: ingestResult },
+          persistedIngest: ingestResult,
+        });
+        if (ingestStoreCandidate) {
+          const artifact = buildDocumentExtractionArtifact(ingestStoreCandidate, { missionId });
+          await persistDocumentExtractionToMission(prisma, missionId, artifact);
+        }
         const existing = await prisma.missionPipeline.findUnique({
           where: { id: missionId },
           select: { metadataJson: true },
@@ -4886,19 +5465,43 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
     }
 
-    const assetActionFromIntent =
-      intentSourceContext?.assetAction === 'create_store' || detectExplicitStoreIntent(userMessage);
+    const explicitCreateFromUpload = isExplicitCreateStoreFromUploadContext({
+      userMessage,
+      intentSourceContext,
+    });
     const persistedAssetIngest = await resolveAssetIngestContextForStoreDraft({
       intentSourceContext,
       missionId,
     });
-    let assetExtraction = buildAssetExtractionInput({
-      ingestResult: ingestResult.ok ? ingestResult : persistedAssetIngest,
-      imageContext,
-      userMessage,
-      intentSourceContext,
-      persistedIngestResult: persistedAssetIngest,
-    });
+    let effectiveIngestResult =
+      ingestResult.ok !== false ? ingestResult : persistedAssetIngest;
+    if (
+      (!effectiveIngestResult || effectiveIngestResult.ok === false) &&
+      intentSourceContext?.cardExtraction &&
+      typeof intentSourceContext.cardExtraction === 'object'
+    ) {
+      const fromClientCard = buildAssetIngestFromCardExtraction(intentSourceContext.cardExtraction);
+      if (fromClientCard) {
+        effectiveIngestResult = {
+          ...fromClientCard,
+          imageDataUrl: imageDataUrl ?? fromClientCard.imageDataUrl ?? null,
+        };
+      }
+    }
+    let { storeCandidate: ingestStoreCandidate, assetExtraction } =
+      await resolveStoreCandidateForIntakeTurn({
+        userMessage,
+        intentSourceContext: {
+          ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+          assetIngestResult: effectiveIngestResult,
+        },
+        sessionId: intakeAssetSessionKey,
+        persistedIngest: persistedAssetIngest,
+        ingestResult: effectiveIngestResult,
+        imageContext,
+        imageDataUrl,
+        ocrExtractFn: ocrExtractText,
+      });
     const websiteFromAsset = assetExtraction?.website ? String(assetExtraction.website) : null;
     if (websiteFromAsset) {
       const webMeta = await resolveWebsiteMetadataForStoreDraft(websiteFromAsset);
@@ -4906,11 +5509,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
 
     const routeToStoreDraft =
-      assetActionFromIntent ||
+      explicitCreateFromUpload &&
       shouldRouteIngestToStoreCreationDraft({
         ingestResult,
         assetExtraction,
-        explicitCreateStore: assetActionFromIntent,
+        explicitCreateStore: explicitCreateFromUpload,
         userMessage,
       });
 
@@ -4937,7 +5540,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       const draftResponseText = formatStoreCreationDraftResponseForBundle(storeCreationDraftBundle, {
         documentType: assetExtraction.documentType,
         source: assetExtraction.source,
+        storeCandidate: ingestStoreCandidate,
       });
+      const documentExtractionArtifact = ingestStoreCandidate
+        ? buildDocumentExtractionArtifact(ingestStoreCandidate, { missionId: missionId ?? undefined })
+        : null;
       return safeJson(
         {
           success: true,
@@ -4948,7 +5555,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           response: draftResponseText,
           businessName: storeCreationDraftBundle.draft.name ?? undefined,
           businessType: storeCreationDraftBundle.draft.category ?? undefined,
-          imageDataUrl: imageDataUrl ?? undefined,
+          imageDataUrl: imageDataUrl ?? ingestStoreCandidate?.imageDataUrl ?? undefined,
+          ...(ingestStoreCandidate ? { storeCandidate: ingestStoreCandidate } : {}),
+          ...(documentExtractionArtifact ? { documentExtraction: documentExtractionArtifact } : {}),
           assetContext: {
             documentType: assetExtraction.documentType ?? ingestResult.entityContext?.documentType,
             entityContextId: ingestResult.entityContext?.id ?? null,
@@ -4983,6 +5592,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       ingestResult.display = `${draftSummary}\n\nWhat would you like to do with this?`;
     }
 
+    const askStepDocumentExtraction = ingestStoreCandidate
+      ? buildDocumentExtractionArtifact(ingestStoreCandidate, { missionId: missionId ?? undefined })
+      : null;
+
     return safeJson(
       {
         success: ingestResult.ok !== false,
@@ -4996,6 +5609,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           ingestResult.entityContext?.summary ??
           'What would you like to do with this file?',
         result: ingestResult,
+        imageDataUrl: imageDataUrl ?? ingestStoreCandidate?.imageDataUrl ?? undefined,
+        ...(ingestStoreCandidate ? { storeCandidate: ingestStoreCandidate } : {}),
+        ...(askStepDocumentExtraction ? { documentExtraction: askStepDocumentExtraction } : {}),
       },
       {
         classification: { ...classification, parameters: cleanedParams },
