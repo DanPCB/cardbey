@@ -13,7 +13,9 @@ import {
   hasUploadAttachmentEvidence,
   isAttachmentOnlyPlaceholderMessage,
   isUploadWithoutClearUserIntent,
+  shouldRouteToAssetIntentDetection,
 } from './assetUploadGuard.js';
+import { peekPendingDocumentExtraction } from './storeCandidate.js';
 
 export const UPLOAD_INTAKE_PHASE = {
   NONE: 'none',
@@ -34,6 +36,96 @@ export function buildUploadRoutingCtx(opts = {}) {
     sessionId: opts.sessionId,
     hasSessionPendingExtraction: opts.hasSessionPendingExtraction,
   };
+}
+
+/**
+ * Full attachment guard context (body + handoff + session stash).
+ * @param {object} opts
+ */
+export function buildUploadAttachmentGuardCtx(opts = {}) {
+  const sessionId = String(opts.sessionId ?? '').trim() || null;
+  const hasSessionPendingExtraction =
+    opts.hasSessionPendingExtraction === true ||
+    Boolean(sessionId && peekPendingDocumentExtraction(sessionId));
+  return {
+    attachments: opts.attachments,
+    imageDataUrl: opts.imageDataUrl ?? null,
+    intentSourceContext: opts.intentSourceContext ?? null,
+    sessionId,
+    hasSessionPendingExtraction,
+  };
+}
+
+/**
+ * Rule 1: upload-only / ambiguous message → Ask panel (not create_store).
+ * @param {string} message
+ * @param {object} ctx
+ */
+export function isUploadOnlyAskTurn(message, ctx = {}) {
+  return shouldRouteToAssetIntentDetection(message, ctx);
+}
+
+/**
+ * Hard override: never leave attachment-only uploads on create_store / proactive_plan.
+ * @param {object} opts
+ */
+export function enforceUploadAskIntentClassification(opts = {}) {
+  const {
+    userMessage,
+    classification,
+    body,
+    intentSourceContext,
+    uploadAttachmentGuardCtx,
+    storeId,
+    resolveImageRef,
+    reason = 'enforce_upload_ask_intent',
+  } = opts;
+
+  if (!isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx)) {
+    return { classification, intentSourceContext, applied: false };
+  }
+  if (String(classification?.tool ?? '').trim() === 'ingest_asset_for_intent_detection') {
+    return { classification, intentSourceContext, applied: false };
+  }
+
+  const handoffImage = String(
+    uploadAttachmentGuardCtx?.imageDataUrl ??
+      intentSourceContext?.pendingImageDataUrl ??
+      '',
+  ).trim();
+  if (handoffImage.length > 50 && typeof resolveImageRef === 'function' && !resolveImageRef(body)) {
+    injectUploadImageIntoBody(body, handoffImage);
+  }
+
+  const nextIntentSourceContext = clearStaleAssetAction(intentSourceContext, userMessage);
+  return {
+    classification: {
+      ...buildAssetIntentDetectionClassification(userMessage, {
+        attachments: body?.attachments,
+        imageDataUrl:
+          (typeof resolveImageRef === 'function' ? resolveImageRef(body) : null) ?? handoffImage ?? null,
+        storeId: storeId ?? null,
+        source:
+          body?.intentSource ??
+          (nextIntentSourceContext && typeof nextIntentSourceContext === 'object'
+            ? nextIntentSourceContext.source
+            : null) ??
+          'performer_composer',
+        currentEntry: 'performer',
+      }),
+      _classificationOverride: reason,
+    },
+    intentSourceContext: nextIntentSourceContext,
+    applied: true,
+  };
+}
+
+/**
+ * @param {object} payload
+ */
+export function logUploadIntakePhaseIfDev(isDev, payload) {
+  if (!isDev) return;
+  console.log('[UPLOAD PHASE]', payload);
 }
 
 /**

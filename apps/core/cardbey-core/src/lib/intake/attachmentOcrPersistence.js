@@ -4,6 +4,12 @@
 
 import { buildOcrHintsFromImageText } from './storeCreationDraftAssetBridge.js';
 import { buildAssetEntityContext } from './assetIntentIngestService.js';
+import {
+  buildDocumentExtractionArtifact,
+  buildStoreCandidateFromOcr,
+  persistDocumentExtractionToMission,
+  stashPendingDocumentExtraction,
+} from './storeCandidate.js';
 
 /**
  * @param {import('@prisma/client').PrismaClient} prisma
@@ -13,6 +19,8 @@ import { buildAssetEntityContext } from './assetIntentIngestService.js';
  *   ocrHints?: Record<string, unknown> | null;
  *   imageDataUrl?: string | null;
  *   entityContext?: Record<string, unknown> | null;
+ *   documentType?: string | null;
+ *   sessionId?: string | null;
  * }} payload
  */
 export async function persistAttachmentOcrToMission(prisma, missionId, payload = {}) {
@@ -62,26 +70,72 @@ export async function persistAttachmentOcrToMission(prisma, missionId, payload =
       imageDataUrl: payload.imageDataUrl ?? null,
     };
 
-    await prisma.missionPipeline.update({
-      where: { id: mid },
-      data: {
-        metadataJson: {
-          ...baseMeta,
-          assetIntentContext: entityContext,
-          pendingAttachmentOcr: {
-            rawOcrText,
-            ocrHints,
-            imageDataUrl: payload.imageDataUrl ?? null,
-            updatedAt: new Date().toISOString(),
-          },
-          stepOutputs: {
-            ...priorOutputs,
-            ingest_asset_for_intent_detection: ingestSnapshot,
-            pending_attachment_ocr: ingestSnapshot,
+    const storeCandidate = buildStoreCandidateFromOcr(rawOcrText, {
+      documentType: payload.documentType ?? entityContext.documentType ?? 'business_card',
+      imageDataUrl: payload.imageDataUrl ?? null,
+    });
+    const documentArtifact = storeCandidate
+      ? buildDocumentExtractionArtifact(storeCandidate, { missionId: mid, uploadRef: payload.imageDataUrl ?? null })
+      : null;
+
+    if (documentArtifact) {
+      await persistDocumentExtractionToMission(prisma, mid, documentArtifact);
+      const refreshed = await prisma.missionPipeline.findUnique({
+        where: { id: mid },
+        select: { metadataJson: true },
+      });
+      const refreshedMeta =
+        refreshed?.metadataJson && typeof refreshed.metadataJson === 'object' && !Array.isArray(refreshed.metadataJson)
+          ? { ...refreshed.metadataJson }
+          : baseMeta;
+      await prisma.missionPipeline.update({
+        where: { id: mid },
+        data: {
+          metadataJson: {
+            ...refreshedMeta,
+            assetIntentContext: entityContext,
+            pendingAttachmentOcr: {
+              rawOcrText,
+              ocrHints,
+              imageDataUrl: payload.imageDataUrl ?? null,
+              updatedAt: new Date().toISOString(),
+            },
+            stepOutputs: {
+              ...(refreshedMeta.stepOutputs && typeof refreshedMeta.stepOutputs === 'object'
+                ? refreshedMeta.stepOutputs
+                : priorOutputs),
+              ingest_asset_for_intent_detection: ingestSnapshot,
+              pending_attachment_ocr: ingestSnapshot,
+            },
           },
         },
-      },
-    });
+      });
+    } else {
+      await prisma.missionPipeline.update({
+        where: { id: mid },
+        data: {
+          metadataJson: {
+            ...baseMeta,
+            assetIntentContext: entityContext,
+            pendingAttachmentOcr: {
+              rawOcrText,
+              ocrHints,
+              imageDataUrl: payload.imageDataUrl ?? null,
+              updatedAt: new Date().toISOString(),
+            },
+            stepOutputs: {
+              ...priorOutputs,
+              ingest_asset_for_intent_detection: ingestSnapshot,
+              pending_attachment_ocr: ingestSnapshot,
+            },
+          },
+        },
+      });
+    }
+
+    if (payload.sessionId && documentArtifact) {
+      stashPendingDocumentExtraction(payload.sessionId, documentArtifact);
+    }
     return true;
   } catch {
     return false;
@@ -187,4 +241,31 @@ export function buildAssetIngestFromCardExtraction(cardExtraction) {
     ocrHints,
     rawOcrText: null,
   };
+}
+
+/**
+ * Persist vision extraction when no mission exists yet (pre-clarify upload).
+ * @param {{
+ *   rawOcrText: string;
+ *   imageDataUrl?: string | null;
+ *   sessionId?: string | null;
+ *   documentType?: string | null;
+ * }} payload
+ */
+export function stashVisionExtractionForSession(payload = {}) {
+  const rawOcrText = String(payload.rawOcrText ?? '').trim();
+  const sessionId = String(payload.sessionId ?? '').trim();
+  if (!rawOcrText || !sessionId) return null;
+
+  const storeCandidate = buildStoreCandidateFromOcr(rawOcrText, {
+    documentType: payload.documentType ?? 'business_card',
+    imageDataUrl: payload.imageDataUrl ?? null,
+  });
+  if (!storeCandidate) return null;
+
+  const artifact = buildDocumentExtractionArtifact(storeCandidate, {
+    uploadRef: payload.imageDataUrl ?? null,
+  });
+  stashPendingDocumentExtraction(sessionId, artifact);
+  return artifact;
 }

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "e563f361-7263-4f58-8263-ad3de8a5a316",
+    "seedId": "lifecycle-seed-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-qa",
+    "timestamp": "2026-06-29T04:56:58.102Z",
+    "reason": "Approved",
+    "canonicalSeedId": null
+  },
+  {
+    "id": "efcc5051-6d3b-4efc-be5f-8e10b1d27f16",
+    "seedId": "lifecycle-seed-1",
+    "previousStatus": "seeded_claimable",
+    "nextStatus": "rejected",
+    "action": "reject",
+    "reviewerId": "admin-qa",
+    "timestamp": "2026-06-29T04:56:58.129Z",
+    "reason": "Rejected after review",
+    "canonicalSeedId": null
+  }
+]

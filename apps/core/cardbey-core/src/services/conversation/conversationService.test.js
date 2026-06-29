@@ -7,6 +7,10 @@ function createMockPrisma() {
   const pending = [];
 
   return {
+    user: {
+      findUnique: vi.fn(async () => ({ id: 'user-1' })),
+      upsert: vi.fn(),
+    },
     conversationSession: {
       findUnique: vi.fn(async ({ where }) => sessions.get(where.id) ?? null),
       findFirst: vi.fn(async ({ where, orderBy }) => {
@@ -113,6 +117,18 @@ describe('conversationService', () => {
     expect(context.conversationHistory).toHaveLength(2);
     expect(context.conversationHistory[0].role).toBe('user');
     expect(context.conversationHistory[1].content).toBe('Hi there');
+  });
+
+  it('skips session create for guest user ids', async () => {
+    const prisma = createMockPrisma();
+    prisma.user.findUnique = vi.fn(async () => null);
+    const service = new ConversationService(prisma);
+
+    const out = await service.getOrCreateSession({ userId: 'guest_abc-123' });
+    expect(out.skipped).toBe(true);
+    expect(out.reason).toBe('user_not_in_db');
+    expect(out.session).toBeNull();
+    expect(prisma.conversationSession.create).not.toHaveBeenCalled();
   });
 
   it('tracks pending actions', async () => {

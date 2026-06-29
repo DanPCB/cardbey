@@ -300,8 +300,20 @@ export function buildStoreCreationDraft(input = {}) {
             ? 0.75
             : 0.5;
 
-  const draftSource =
-    String(params.source ?? asset?.source ?? (form ? 'form' : asset ? 'ocr' : parsed.source ?? 'reasoning'));
+  const assetMeaningful = Boolean(
+    asset &&
+      (asset.name ||
+        asset.location ||
+        asset.phone ||
+        asset.email ||
+        asset.website ||
+        (asset.category && String(asset.category).toLowerCase() !== 'other')),
+  );
+  const draftSource = String(
+    params.source ??
+      (assetMeaningful && asset?.source ? asset.source : null) ??
+      (form ? 'form' : assetMeaningful ? 'ocr' : parsed.source ?? 'reasoning'),
+  );
 
   /** @type {StoreCreationDraft} */
   const draft = {

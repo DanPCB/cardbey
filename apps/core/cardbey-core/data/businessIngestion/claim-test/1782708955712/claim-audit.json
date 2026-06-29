@@ -1,0 +1,21 @@
+[
+  {
+    "id": "0a7cc63b-2330-4b70-92a2-53cfdeb6b9c1",
+    "seedId": "dup-act-1",
+    "claimRequestId": null,
+    "action": "duplicate_blocked",
+    "actorId": "user-dup-act",
+    "previousStatus": "verified_owner",
+    "nextStatus": "verified_owner",
+    "reason": "Activation blocked — duplicate live store detected.",
+    "timestamp": "2026-06-29T04:55:55.755Z",
+    "metadata": {
+      "matchedBusinessId": "live-biz-88",
+      "phase": "activation"
+    },
+    "details": {
+      "matchedBusinessId": "live-biz-88",
+      "phase": "activation"
+    }
+  }
+]

@@ -1,0 +1,40 @@
+[
+  {
+    "id": "442bee47-b1d0-4c24-adb6-16b46cb57a24",
+    "normalized": {
+      "id": "442bee47-b1d0-4c24-adb6-16b46cb57a24",
+      "businessName": "Staging Referral 1782709280942",
+      "legalName": null,
+      "address": null,
+      "phone": null,
+      "website": "https://staging-1782709280942.example.com",
+      "category": null,
+      "categoryConfidence": 0,
+      "registrationNumber": null,
+      "email": null,
+      "operatingRegion": null,
+      "country": null,
+      "state": null,
+      "city": null,
+      "confidenceScore": 0.57,
+      "sourceType": "owner_submission",
+      "sourceReference": "referral:fa0d6a14-106c-4312-824d-539851dc6126",
+      "sourceRowId": "fa0d6a14-106c-4312-824d-539851dc6126",
+      "ingestedAt": "2026-06-29T05:01:20.965Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 44,
+    "qualityTier": "low_quality",
+    "verificationStatus": "seeded_pending_qa",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-29T05:01:20.966Z",
+    "updatedAt": "2026-06-29T05:01:20.966Z",
+    "batchId": "discovery-job-10012338-95ca-49d8-9a8c-01aa13b1a104",
+    "campaignId": null
+  }
+]

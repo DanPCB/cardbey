@@ -49,6 +49,19 @@ export class ContextExtractor {
     /** @type {ContextUpdate} */
     const update = {};
 
+    const clientContext =
+      input.currentContext && typeof input.currentContext === 'object' && !Array.isArray(input.currentContext)
+        ? /** @type {Record<string, unknown>} */ (input.currentContext)
+        : {};
+    const selection =
+      input.intakeV2Selection && typeof input.intakeV2Selection === 'object' && !Array.isArray(input.intakeV2Selection)
+        ? /** @type {Record<string, unknown>} */ (input.intakeV2Selection)
+        : null;
+    const selectionParams =
+      selection?.selectedParameters && typeof selection.selectedParameters === 'object'
+        ? /** @type {Record<string, unknown>} */ (selection.selectedParameters)
+        : {};
+
     const intentType =
       (input.intent && typeof input.intent === 'object'
         ? String(/** @type {Record<string, unknown>} */ (input.intent).type ?? '')
@@ -93,8 +106,13 @@ export class ContextExtractor {
     if (input.missionId) {
       update.activeMissionId = String(input.missionId);
     }
-    if (input.storeId || input.activeStoreId) {
-      update.activeStoreId = String(input.storeId ?? input.activeStoreId);
+
+    const storeFromSelection = selectionParams.storeId ?? selectionParams.activeStoreId;
+    const storeFromClient = clientContext.activeStoreId ?? clientContext.storeId;
+    const storeFromInput = input.storeId ?? input.activeStoreId;
+    const resolvedStoreId = storeFromSelection ?? storeFromClient ?? storeFromInput;
+    if (resolvedStoreId) {
+      update.activeStoreId = String(resolvedStoreId);
     }
 
     return update;

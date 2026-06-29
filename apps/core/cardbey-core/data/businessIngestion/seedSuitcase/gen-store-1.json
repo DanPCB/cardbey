@@ -1,11 +1,11 @@
 {
   "seedId": "gen-store-1",
-  "createdAt": "2026-06-20T14:28:25.654Z",
-  "updatedAt": "2026-06-20T14:28:25.664Z",
+  "createdAt": "2026-06-29T04:56:32.625Z",
+  "updatedAt": "2026-06-29T04:56:32.633Z",
   "discoveryEvidence": {
     "sourceType": "csv",
     "sourceReference": "gen-store-1",
-    "ingestedAt": "2026-06-20T14:28:25.654Z",
+    "ingestedAt": "2026-06-29T04:56:32.625Z",
     "matchEvidenceCount": 0
   },
   "enrichmentCandidateIds": [],
@@ -21,14 +21,14 @@
       "type": "performer_store_generation_started",
       "seedId": "gen-store-1",
       "missionId": "mission-gen-1",
-      "createdAt": "2026-06-20T14:28:25.654Z"
+      "createdAt": "2026-06-29T04:56:32.625Z"
     },
     {
       "type": "performer_store_draft_created",
       "seedId": "gen-store-1",
       "missionId": "mission-gen-1",
       "draftStoreId": "draft-gen-1",
-      "createdAt": "2026-06-20T14:28:25.656Z"
+      "createdAt": "2026-06-29T04:56:32.627Z"
     }
   ]
 }

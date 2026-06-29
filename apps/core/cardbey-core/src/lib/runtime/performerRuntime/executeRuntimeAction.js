@@ -23,6 +23,7 @@ import {
 } from '../../telemetry/executionStates.js';
 import activeSummary from '../../../services/memory/activeSummary.js';
 import hookExecutor from '../../../services/hooks/hookExecutor.js';
+import { loadStepMemory } from '../loadStepMemory.js';
 
 /**
  * @typedef {'dispatch_tool' | 'run_pipeline_step' | 'run_skill' | 'run_factory' | 'orchestra_start' | 'execute_action' | 'run_agent' | 'run_agents_parallel' | 'run_agents_chain'} RuntimeActionType
@@ -203,6 +204,22 @@ export async function executeRuntimeAction(request) {
     },
     ctx.runtimeId,
   );
+
+  const runtimeMemory = await loadStepMemory({
+    missionId: ctx.missionId ?? req.missionId ?? null,
+    userId: ctx.userId ?? req.userId ?? null,
+    storeId: ctx.storeId ?? req.storeId ?? innerPayload.storeId ?? null,
+    sessionId:
+      typeof innerPayload.sessionId === 'string' && innerPayload.sessionId.trim()
+        ? innerPayload.sessionId.trim()
+        : null,
+  });
+  if (runtimeMemory) {
+    innerContext.memory = runtimeMemory;
+    if (innerPayload.context && typeof innerPayload.context === 'object') {
+      innerPayload.context = { ...innerPayload.context, memory: runtimeMemory };
+    }
+  }
 
   let facadeResult;
   const hookSkillId =

@@ -1,7 +1,7 @@
 // DANH: store-disambiguation
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as prismaModule from '../../lib/prisma.js';
-import { resolveStoreAmbiguity } from '../../lib/intake/resolveStoreAmbiguity.js';
+import { resolveStoreAmbiguity, validateUserStoreId } from '../../lib/intake/resolveStoreAmbiguity.js';
 
 describe('resolveStoreAmbiguity', () => {
   /** @type {import('vitest').MockInstance} */
@@ -101,5 +101,33 @@ describe('resolveStoreAmbiguity', () => {
     });
 
     expect(result).toBeNull();
+  });
+});
+
+describe('validateUserStoreId', () => {
+  /** @type {import('vitest').MockInstance} */
+  let findFirstMock;
+
+  beforeEach(() => {
+    findFirstMock = vi.fn();
+    vi.spyOn(prismaModule, 'getPrismaClient').mockReturnValue({
+      business: {
+        findFirst: findFirstMock,
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns true when store belongs to user', async () => {
+    findFirstMock.mockResolvedValue({ id: 'store-1' });
+    await expect(validateUserStoreId('user-1', 'store-1')).resolves.toBe(true);
+  });
+
+  it('returns false when store is missing', async () => {
+    findFirstMock.mockResolvedValue(null);
+    await expect(validateUserStoreId('user-1', 'store-missing')).resolves.toBe(false);
   });
 });

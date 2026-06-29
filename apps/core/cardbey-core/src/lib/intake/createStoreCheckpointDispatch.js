@@ -331,6 +331,15 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
       intentMode: ctxIntentMode,
       source: auditSource,
       cardbeyTraceId,
+      ...(deps.documentExtraction && typeof deps.documentExtraction === 'object'
+        ? {
+            documentExtraction: deps.documentExtraction,
+            missionContext: {
+              documentExtraction:
+                deps.documentExtraction.storeCandidate ?? deps.documentExtraction ?? null,
+            },
+          }
+        : {}),
     },
     requiresConfirmation: true,
     executionMode: 'AUTO_RUN',
@@ -343,6 +352,20 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
   const pipeline = createResult.pipeline;
 
   await ensureStructuredStoreCheckpointSteps(prisma, pipeline.id, { logPrefix: '[CreateStoreDispatch]' });
+
+  if (deps.documentExtraction?.storeCandidate) {
+    try {
+      const { persistDocumentExtractionToMission } = await import('./storeCandidate.js');
+      const artifact = {
+        ...deps.documentExtraction,
+        missionId: pipeline.id,
+        updatedAt: new Date().toISOString(),
+      };
+      await persistDocumentExtractionToMission(prisma, pipeline.id, artifact);
+    } catch {
+      /* non-fatal */
+    }
+  }
 
   const currencyCode =
     inferCurrencyFromLocationText(locationTrim) || inferCurrencyFromLocationText(businessName) || 'AUD';

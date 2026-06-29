@@ -1,6 +1,30 @@
 [
   {
     "scanEventId": "scan-1",
+    "entityContextId": "64e8bd5f-c818-4ada-a49a-b729c9101559",
+    "userId": null,
+    "sessionId": null,
+    "intentId": "_suggestions_shown",
+    "selected": false,
+    "agentType": "PerformerAgent",
+    "missionId": null,
+    "outcome": "completed",
+    "feedback": null,
+    "suggestionsShown": [
+      "open_website",
+      "save_store",
+      "save_to_suitcase",
+      "share_store",
+      "ask_about_store",
+      "create_prestore_candidate",
+      "check_if_on_cardbey",
+      "report_wrong_result"
+    ],
+    "id": "5cc65e9f-5239-4fed-811c-a6084ec7d3ef",
+    "createdAt": "2026-06-29T05:00:23.100Z"
+  },
+  {
+    "scanEventId": "scan-1",
     "entityContextId": "872360af-0e48-416b-9990-4dfbc5ca0329",
     "userId": null,
     "sessionId": null,

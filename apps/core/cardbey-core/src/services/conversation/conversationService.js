@@ -21,6 +21,55 @@ function estimateTokens(text) {
   return len ? Math.ceil(len / 4) : 0;
 }
 
+/**
+ * ConversationSession.userId FK requires a User row. Dev tokens and guests may not have one.
+ * @returns {Promise<boolean>} true when user row exists or was created for dev
+ */
+async function ensureConversationUserRow(prisma, userId) {
+  const uid = String(userId ?? '').trim();
+  if (!uid) return false;
+
+  const existing = await prisma.user.findUnique({ where: { id: uid }, select: { id: true } });
+  if (existing) return true;
+
+  if (process.env.NODE_ENV === 'production') return false;
+
+  if (uid.startsWith('guest_')) return false;
+
+  if (uid === 'dev-admin') {
+    await prisma.user.upsert({
+      where: { id: 'dev-admin' },
+      create: {
+        id: 'dev-admin',
+        email: 'dev-admin@cardbey.local',
+        passwordHash: '',
+        displayName: 'Dev Admin',
+        role: 'super_admin',
+        roles: '["super_admin"]',
+        emailVerified: true,
+      },
+      update: {},
+    });
+    return true;
+  }
+
+  if (uid === 'dev-user-id') {
+    await prisma.user.upsert({
+      where: { id: 'dev-user-id' },
+      create: {
+        id: 'dev-user-id',
+        email: 'dev@cardbey.local',
+        passwordHash: '',
+        displayName: 'Dev User',
+      },
+      update: {},
+    });
+    return true;
+  }
+
+  return false;
+}
+
 function mapMessageRow(row) {
   if (!row) return null;
   return {
@@ -72,23 +121,49 @@ export class ConversationService {
         },
       });
       if (existing && existing.userId === uid && existing.status === 'active') {
-        await this.touchSession(sid, prisma);
+        const resolvedStoreId = storeId ? String(storeId).trim() : null;
+        if (resolvedStoreId && existing.storeId !== resolvedStoreId) {
+          await this.updateSessionStoreId(sid, resolvedStoreId, prisma);
+          existing.storeId = resolvedStoreId;
+        } else {
+          await this.touchSession(sid, prisma);
+        }
         return { session: existing, skipped: false, created: false };
       }
     }
 
-    const session = await prisma.conversationSession.create({
-      data: {
-        userId: uid,
-        storeId: storeId ? String(storeId).trim() : null,
-        surface: String(surface || 'performer_console').trim() || 'performer_console',
-        status: 'active',
-        lastMessageAt: new Date(),
-      },
-      include: {
-        messages: { orderBy: { sequence: 'asc' }, take: DEFAULT_MESSAGE_LIMIT },
-      },
-    });
+    const canPersist = await ensureConversationUserRow(prisma, uid);
+    if (!canPersist) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[conversation] skipping session create — user not in database', { userId: uid });
+      }
+      return { session: null, skipped: true, reason: 'user_not_in_db' };
+    }
+
+    let session;
+    try {
+      session = await prisma.conversationSession.create({
+        data: {
+          userId: uid,
+          storeId: storeId ? String(storeId).trim() : null,
+          surface: String(surface || 'performer_console').trim() || 'performer_console',
+          status: 'active',
+          lastMessageAt: new Date(),
+        },
+        include: {
+          messages: { orderBy: { sequence: 'asc' }, take: DEFAULT_MESSAGE_LIMIT },
+        },
+      });
+    } catch (err) {
+      if (err?.code === 'P2003') {
+        console.warn('[conversation] session create FK failed (non-blocking)', {
+          userId: uid,
+          storeId: storeId ?? null,
+        });
+        return { session: null, skipped: true, reason: 'fk_constraint' };
+      }
+      throw err;
+    }
 
     return { session, skipped: false, created: true };
   }
@@ -278,6 +353,22 @@ export class ConversationService {
       where: { id: sid },
       data: { lastMessageAt: new Date() },
     });
+  }
+
+  async updateSessionStoreId(sessionId, storeId, prisma = this.prisma) {
+    if (!modelAvailable(prisma)) return { session: null, skipped: true };
+    const sid = String(sessionId ?? '').trim();
+    const resolvedStoreId = storeId ? String(storeId).trim() : null;
+    if (!sid || !resolvedStoreId) return { session: null, skipped: true };
+
+    const session = await prisma.conversationSession.update({
+      where: { id: sid },
+      data: {
+        storeId: resolvedStoreId,
+        lastMessageAt: new Date(),
+      },
+    });
+    return { session, skipped: false };
   }
 
   async assertSessionOwner(sessionId, userId, prisma = this.prisma) {

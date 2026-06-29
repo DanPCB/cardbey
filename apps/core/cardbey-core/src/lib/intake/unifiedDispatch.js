@@ -15,6 +15,8 @@ import { UNIFIED_ACTION_TYPES } from '../execution/executionTypes.js';
 import { executeMission } from '../execution/missionExecutionEngine.js';
 import { dispatchCreateStoreCheckpointPipeline } from './createStoreCheckpointDispatch.js';
 import { dispatchCreateCampaignCheckpointPipeline } from './createCampaignCheckpointDispatch.js';
+import { loadStepMemory } from '../runtime/loadStepMemory.js';
+import { reasonAboutDispatch } from './dispatchReasoningEngine.js';
 
 const ORCHESTRATION_TYPES = new Set(['multi_agent', 'campaign_orchestration']);
 const FACTORY_ACTION_TYPE = 'run_factory';
@@ -358,6 +360,30 @@ export async function unifiedDispatch(action, options = {}) {
       proposedAction: type,
       executionPath: 'proactive_plan',
     };
+  }
+
+  if (options.useMemoryPipeline !== false && !confirmed) {
+    try {
+      const memoryBundle = await loadStepMemory({
+        userId: payload.userId ?? payload.actorId ?? null,
+        storeId: payload.storeId ?? null,
+        missionId: payload.missionId ?? null,
+        sessionId: payload.sessionId ?? null,
+      });
+      const reasoning = reasonAboutDispatch(type, memoryBundle, { requiresConfirmation });
+      if (reasoning.requiresConfirmation) {
+        return {
+          ok: false,
+          status: 'pending_confirmation',
+          proposedAction: reasoning.governanceAction,
+          reasoning: reasoning.reasoning,
+          memoryUsed: reasoning.memoryUsed,
+          executionPath: 'proactive_plan',
+        };
+      }
+    } catch (memErr) {
+      console.warn('[unifiedDispatch] memory pipeline skipped:', memErr?.message ?? memErr);
+    }
   }
 
   const kernelAuth = assertKernelAuthorizedExecution({

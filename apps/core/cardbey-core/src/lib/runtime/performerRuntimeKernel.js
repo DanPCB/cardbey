@@ -29,6 +29,7 @@ import { recordKernelExecution } from './kernelAudit.js';
 import {
   isMissionPipelineCancelledRow,
 } from './missionCancellationGuard.js';
+import { loadAndEmitStepMemory } from './loadStepMemory.js';
 
 function str(v) {
   return typeof v === 'string' ? v.trim() : '';
@@ -299,14 +300,32 @@ export async function executeMissionStep(input) {
       ...(extra && typeof extra === 'object' ? extra : {}),
     });
 
+  const storeIdForMemory =
+    str(parameters.storeId) ||
+    str(body.storeId) ||
+    (pipeline.targetId && String(pipeline.targetId).trim()) ||
+    null;
+
+  const runtimeMemory = await loadAndEmitStepMemory({
+    missionId,
+    userId: req.user?.id ?? null,
+    storeId: storeIdForMemory,
+    sessionId: str(body.sessionId) || null,
+    traceId,
+  });
+
+  const enrichedParameters =
+    runtimeMemory != null ? { ...parameters, runtimeMemory } : parameters;
+  const enrichedBody = runtimeMemory != null ? { ...body, runtimeMemory } : body;
+
   const result = await executeProactiveRunwayStep({
     user: req.user,
     missionId,
     stepNumber,
     recommendedTool: toolAssert.canonicalTool,
     proactivePlanTotal,
-    parameters,
-    body,
+    parameters: enrichedParameters,
+    body: enrichedBody,
     source,
     allowGeneralChat: false,
     stepStatusPatch,

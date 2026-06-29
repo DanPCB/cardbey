@@ -128,10 +128,29 @@ import {
 import {
   UPLOAD_INTAKE_PHASE,
   applyUploadPhaseRouting,
+  buildUploadAttachmentGuardCtx,
   clearStaleAssetAction,
+  enforceUploadAskIntentClassification,
   injectUploadImageIntoBody,
+  isUploadOnlyAskTurn,
+  logUploadIntakePhaseIfDev,
   resolveUploadIntakePhase,
 } from '../lib/intake/uploadIntakePhase.js';
+import {
+  runIntakeBeliefShadow,
+  runIntakeShadowRank,
+  runDecisionLoopAuthority,
+  isIntakeDecisionLoopAuthorityEnabled,
+  tryEarlyDecisionLoopGate,
+  shouldSkipCreateStoreEarlyDraftForDecisionLoop,
+  shouldSkipPlannersForDecisionLoop,
+  buildUploadAskClarifyFallback,
+  shouldForceUploadAskPanel,
+  loadBelief,
+  hydrateBeliefForDecisionLoop,
+  recordIntakeBypass,
+  INTAKE_BYPASS_IDS,
+} from '../lib/decision/index.js';
 import { resolveStoreCandidateForIntakeTurn } from '../lib/intake/resolveStoreCandidateForIntakeTurn.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
@@ -1684,6 +1703,24 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     body.intentSourceContext = intentSourceContext;
   }
 
+  /** Phase 1: unified belief shadow (read-only; no classification change). */
+  let intakeBeliefShadow = null;
+  if (!freshStoreMission) {
+    intakeBeliefShadow = await runIntakeBeliefShadow({
+      req,
+      sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
+      sessionKey: intakeAssetSessionKey,
+      currentContext,
+      intentSourceContext,
+      contextEngineUserContext,
+      intakeMemoryBundle,
+      body,
+    });
+    if (isDev && intakeBeliefShadow?.summary) {
+      diagLog(isIntakeDiagEnabled(), '[intake/belief] shadow', intakeBeliefShadow.summary);
+    }
+  }
+
   // Follow-up create-store turns may carry the upload only in handoff context — hydrate body for OCR.
   if (!resolveIntakeImageRefForOcr(body)) {
     const pendingUploadImage = String(
@@ -1727,6 +1764,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   // ── Campaign orchestration via unified dispatch ──
   if (body.missionType === 'campaign_orchestration' || isCampaignOrchestrationIntent(userMessage)) {
+    recordIntakeBypass(INTAKE_BYPASS_IDS.CAMPAIGN_ORCHESTRATION_PRE_GATE, {
+      missionType: body.missionType ?? null,
+      userMessagePreview: String(userMessage ?? '').slice(0, 120),
+    });
     return dispatchCampaignOrchestrationFromIntake(req, res, {
       body,
       currentContext,
@@ -1848,6 +1889,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   // ── Image Pre-Processing (runs before everything else) ──
   let imageContext = null;
+  let uploadAttachmentGuardCtx = buildUploadAttachmentGuardCtx({
+    attachments: body.attachments,
+    imageDataUrl:
+      resolveIntakeImageRefForOcr(body) ??
+      (typeof intentSourceContext?.pendingImageDataUrl === 'string'
+        ? intentSourceContext.pendingImageDataUrl
+        : body.imageDataUrl),
+    intentSourceContext,
+    sessionId: intakeAssetSessionKey,
+  });
+  let attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
   const hasAnyImageEarly =
     hasIntakeImageAttachment(body) ||
     (typeof body?.imageDataUrl === 'string' && body.imageDataUrl.length > 50);
@@ -1903,10 +1955,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         sessionId: intakeAssetSessionKey,
       }).catch(() => {});
     } else if (imageContext?.hasText && intakeAssetSessionKey) {
-      const attachmentOnlyForStash = shouldRouteToAssetIntentDetection(userMessage, {
-        attachments: body.attachments,
-        imageDataUrl: body.imageDataUrl,
-      });
+      const attachmentOnlyForStash = isUploadOnlyAskTurn(
+        userMessage,
+        buildUploadAttachmentGuardCtx({
+          attachments: body.attachments,
+          imageDataUrl: resolveIntakeImageRefForOcr(body) ?? body.imageDataUrl,
+          intentSourceContext,
+          sessionId: intakeAssetSessionKey,
+        }),
+      );
       const stashArtifact = stashVisionExtractionForSession({
         rawOcrText: imageContext.extractedText,
         imageDataUrl: resolveIntakeImageRefForOcr(body),
@@ -1915,10 +1972,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       });
       if (stashArtifact) {
         persistUploadedAssetWorkflow(intakeAssetSessionKey, stashArtifact);
+        uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
+        attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
       }
     }
   }
 
+  // When an image has extractable text and user explicitly asked to create a store,
+  // attempt to parse as a business card and spin up the smart store pipeline.
+  // Attachment-only uploads must NOT auto-start store creation.
   const enrichedUserMessage = imageContext?.hasText
     ? `${userMessage}\n\n[Attached image content: ${imageContext.extractedText.slice(0, 800)}]`
     : userMessage;
@@ -1933,22 +1995,30 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   /** May gain agent-loop tool observations before classifyIntent. */
   let classifierInputMessage = enrichedUserMessageWithHint;
 
-  // When an image has extractable text and user explicitly asked to create a store,
-  // attempt to parse as a business card and spin up the smart store pipeline.
-  // Attachment-only uploads must NOT auto-start store creation.
-  const attachmentOnlyUpload = shouldRouteToAssetIntentDetection(userMessage, {
-    attachments: body.attachments,
-    imageDataUrl:
-      resolveIntakeImageRefForOcr(body) ??
-      (typeof intentSourceContext?.pendingImageDataUrl === 'string'
-        ? intentSourceContext.pendingImageDataUrl
-        : body.imageDataUrl),
-  });
+  const resolveUploadGuardImageRef = () =>
+    resolveIntakeImageRefForOcr(body) ??
+    (typeof intentSourceContext?.pendingImageDataUrl === 'string'
+      ? intentSourceContext.pendingImageDataUrl
+      : body.imageDataUrl);
+
+  const buildCurrentUploadAttachmentGuardCtx = () =>
+    buildUploadAttachmentGuardCtx({
+      attachments: body.attachments,
+      imageDataUrl: resolveUploadGuardImageRef(),
+      intentSourceContext,
+      sessionId: intakeAssetSessionKey,
+    });
+
+  uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
+  attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
   const explicitCreateStore = detectExplicitStoreIntent(userMessage);
 
   if (imageContext?.hasText && req.user?.id && !attachmentOnlyUpload && explicitCreateStore) {
     const legacyAutoSmartStore = process.env.PERFORMER_LEGACY_AUTO_SMART_STORE_FROM_CARD === 'true';
     if (legacyAutoSmartStore) {
+    recordIntakeBypass(INTAKE_BYPASS_IDS.LEGACY_SMART_STORE_OCR, {
+      userMessagePreview: String(userMessage ?? '').slice(0, 120),
+    });
     void (async () => {
       try {
         const { parseBusinessCardOCR } = await import('../lib/businessCardParser.js');
@@ -3294,6 +3364,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           loopOut.response &&
           signalsServiceRequest(userMessage);
         if (loopOut.mode === 'direct_chat' && loopOut.response && !skipPreIntakeDirectChat) {
+          recordIntakeBypass(INTAKE_BYPASS_IDS.AGENT_LOOP_DIRECT_CHAT, {
+            userMessagePreview: String(userMessage ?? '').slice(0, 120),
+          });
           const agentLoopCapabilityExtras = await buildIntakeV2AgentLoopChatCapabilityExtras({
             userMessage,
             enrichedMessage: classifierInputMessage,
@@ -3453,6 +3526,28 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             tool: classification.tool,
           });
         }
+
+        uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
+        attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
+        const postReasoningAsk = enforceUploadAskIntentClassification({
+          userMessage,
+          classification,
+          body,
+          intentSourceContext,
+          uploadAttachmentGuardCtx,
+          storeId: effectiveStoreId ?? storeId ?? null,
+          resolveImageRef: resolveIntakeImageRefForOcr,
+          reason: 'post_reasoning_upload_ask_hard_gate',
+        });
+        if (postReasoningAsk.applied) {
+          recordIntakeBypass(INTAKE_BYPASS_IDS.UPLOAD_ASK_ENFORCE, {
+            reason: 'post_reasoning_upload_ask_hard_gate',
+            tool: classification?.tool ?? null,
+          });
+          classification = postReasoningAsk.classification;
+          intentSourceContext = postReasoningAsk.intentSourceContext;
+          body.intentSourceContext = intentSourceContext;
+        }
       }
     } catch (e) {
       if (String(e?.message ?? '').includes('IntentReasoner failed')) {
@@ -3501,6 +3596,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (attachmentOnlyUpload && !skipReasoningPipeline) {
       const routedTool = String(classification?.tool ?? '').trim();
       if (routedTool !== 'ingest_asset_for_intent_detection') {
+        recordIntakeBypass(INTAKE_BYPASS_IDS.ATTACHMENT_ONLY_ASSET_INTENT, {
+          priorTool: routedTool || null,
+        });
         classification = {
           ...buildAssetIntentDetectionClassification(userMessage, {
             attachments: body.attachments,
@@ -3591,22 +3689,23 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   // Always enforce ask-step routing for attachment-only uploads — even when reasoning was skipped.
-  if (!forcedTool && attachmentOnlyUpload) {
-    const routedTool = String(classification?.tool ?? '').trim();
-    if (routedTool !== 'ingest_asset_for_intent_detection') {
-      classification = {
-        ...buildAssetIntentDetectionClassification(userMessage, {
-          attachments: body.attachments,
-          imageDataUrl:
-            resolveIntakeImageRefForOcr(body) ??
-            intentSourceContext?.pendingImageDataUrl ??
-            null,
-          storeId: effectiveStoreId ?? storeId ?? null,
-          source: body.intentSource ?? body.intentSourceContext?.source ?? 'performer_composer',
-          currentEntry: 'performer',
-        }),
-        _classificationOverride: 'attachment_only_asset_intent',
-      };
+  if (!forcedTool) {
+    uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
+    attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
+    const askEnforced = enforceUploadAskIntentClassification({
+      userMessage,
+      classification,
+      body,
+      intentSourceContext,
+      uploadAttachmentGuardCtx,
+      storeId: effectiveStoreId ?? storeId ?? null,
+      resolveImageRef: resolveIntakeImageRefForOcr,
+      reason: 'attachment_only_asset_intent',
+    });
+    if (askEnforced.applied) {
+      classification = askEnforced.classification;
+      intentSourceContext = askEnforced.intentSourceContext;
+      body.intentSourceContext = intentSourceContext;
     }
   }
 
@@ -3761,6 +3860,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
     uploadIntakePhaseResult = { ...resolvedUploadPhase, skipCreateStoreEarlyDraft: false };
 
+    if (resolvedUploadPhase.phase !== UPLOAD_INTAKE_PHASE.NONE) {
+      recordIntakeBypass(INTAKE_BYPASS_IDS.UPLOAD_PHASE_ROUTING, {
+        phase: resolvedUploadPhase.phase,
+        tool: classification?.tool ?? null,
+      });
+    }
+
     const routed = applyUploadPhaseRouting({
       phase: resolvedUploadPhase.phase,
       userMessage,
@@ -3776,6 +3882,20 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     body.intentSourceContext = intentSourceContext;
     uploadIntakePhaseResult.skipCreateStoreEarlyDraft = routed.skipCreateStoreEarlyDraft;
   }
+
+  logUploadIntakePhaseIfDev(isDev, {
+    message: userMessage,
+    phase: uploadIntakePhaseResult.phase,
+    attachmentOnlyUpload,
+    tool: classification?.tool,
+    executionPath: classification?.executionPath,
+    override: classification?._classificationOverride,
+    assetAction:
+      intentSourceContext && typeof intentSourceContext === 'object'
+        ? intentSourceContext.assetAction
+        : undefined,
+    hasSessionExtraction: Boolean(sessionPendingExtraction),
+  });
 
   if (
     !forcedTool &&
@@ -3800,6 +3920,146 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     };
     body.intentSourceContext = intentSourceContext;
     uploadIntakePhaseResult.skipCreateStoreEarlyDraft = true;
+  }
+
+  // Phase 3: decision loop authority before create_store early draft (upload ask).
+  let decisionLoopSkipPlanners = false;
+  if (
+    !forcedTool &&
+    !freshStoreMission &&
+    performerMode !== 'manual' &&
+    !draftConfirmationSubmit &&
+    !storeCreateFormPayload
+  ) {
+    const earlyGate = await tryEarlyDecisionLoopGate({
+      freshStoreMission,
+      forcedTool,
+      manualMode: performerMode === 'manual',
+      draftConfirmationSubmit,
+      storeCreateFormPayload,
+      attachmentOnlyUpload,
+      hasImageAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
+      intentSourceContext,
+      classification,
+      belief: intakeBeliefShadow?.belief ?? null,
+      imageDataUrl: resolveIntakeImageRefForOcr(body),
+      extractedText: imageContext?.extractedText ?? null,
+      beliefLoaderOpts: {
+        req,
+        sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
+        sessionKey: intakeAssetSessionKey,
+        currentContext,
+        intentSourceContext: {
+          ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+          ...(attachmentOnlyUpload ? { uploadedAssetPending: true } : {}),
+        },
+        contextEngineUserContext,
+        intakeMemoryBundle,
+        body,
+      },
+      advisorInput: {
+        userMessage,
+        originalUserMessage: userMessage,
+        attachments: body.attachments,
+        imageDataUrl: resolveIntakeImageRefForOcr(body),
+        hasAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
+        intentSourceContext,
+        shortcutContext: intakeShortcutContext,
+        storeCreateForm: storeCreateFormPayload,
+        forceIntent: body.forceIntent ?? intentSourceContext?.forceIntent ?? null,
+        currentFlow: intentSourceContext?.currentFlow ?? null,
+        source: body.intentSource ?? intentSourceContext?.source ?? null,
+      },
+    });
+    if (earlyGate?.classification) {
+      classification = earlyGate.classification;
+    }
+    if (earlyGate?.skipPlanners) {
+      decisionLoopSkipPlanners = true;
+    }
+    if (earlyGate?.clarifyPayload) {
+      const handoffImage = String(resolveIntakeImageRefForOcr(body) ?? '').trim();
+      intentSourceContext = {
+        ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+        uploadedAssetPending: true,
+        ...(handoffImage ? { pendingImageDataUrl: handoffImage } : {}),
+      };
+      body.intentSourceContext = intentSourceContext;
+      if (isDev && earlyGate.summary) {
+        diagLog(isIntakeDiagEnabled(), '[intake/decision-loop/early]', earlyGate.summary);
+      }
+      const toolEntryEarly = getToolEntry(classification.tool);
+      return safeJson(earlyGate.clarifyPayload, {
+        classification,
+        validated: true,
+        downgraded: false,
+        downgradeReason: null,
+        validationErrors: [],
+        riskLevel: toolEntryEarly?.riskLevel ?? RISK.SAFE_READ,
+        result: 'clarify',
+      });
+    }
+    if (
+      shouldForceUploadAskPanel({
+        attachmentOnlyUpload,
+        userMessage,
+        intentSourceContext,
+      })
+    ) {
+      const uploadAskFallback = await buildUploadAskClarifyFallback({
+        belief: intakeBeliefShadow?.belief ?? null,
+        attachmentOnlyUpload,
+        hasImageAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
+        imageDataUrl: resolveIntakeImageRefForOcr(body),
+        extractedText: imageContext?.extractedText ?? null,
+        beliefLoaderOpts: {
+          req,
+          sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
+          sessionKey: intakeAssetSessionKey,
+          currentContext,
+          intentSourceContext: {
+            ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+            uploadedAssetPending: true,
+          },
+          contextEngineUserContext,
+          intakeMemoryBundle,
+          body,
+        },
+      });
+      if (uploadAskFallback?.payload) {
+        classification = uploadAskFallback.classification;
+        const handoffImage = String(resolveIntakeImageRefForOcr(body) ?? '').trim();
+        intentSourceContext = {
+          ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+          uploadedAssetPending: true,
+          ...(handoffImage ? { pendingImageDataUrl: handoffImage } : {}),
+        };
+        body.intentSourceContext = intentSourceContext;
+        recordIntakeBypass(INTAKE_BYPASS_IDS.UPLOAD_ASK_ENFORCE, {
+          reason: 'upload_ask_rule1_fallback',
+          authority: isIntakeDecisionLoopAuthorityEnabled(),
+        });
+        if (isDev) {
+          diagLog(isIntakeDiagEnabled(), '[intake/upload-ask]', {
+            source: 'rule1_fallback',
+            authority: isIntakeDecisionLoopAuthorityEnabled(),
+          });
+        }
+        const toolEntryAsk = getToolEntry(classification.tool);
+        return safeJson(uploadAskFallback.payload, {
+          classification,
+          validated: true,
+          downgraded: false,
+          downgradeReason: null,
+          validationErrors: [],
+          riskLevel: toolEntryAsk?.riskLevel ?? RISK.SAFE_READ,
+          result: 'clarify',
+        });
+      }
+    }
+    if (isDev && earlyGate?.summary) {
+      diagLog(isIntakeDiagEnabled(), '[intake/decision-loop/early]', earlyGate.summary);
+    }
   }
 
   if (classification?.tool === 'create_store') {
@@ -3838,7 +4098,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   // The LLM may omit intentMode:'website' even when the
   // user said "mini website" — detect it from the raw
   // message and override so the pipeline uses the correct runway.
-  if (classification?.tool === 'create_store' && !uploadIntakePhaseResult.skipCreateStoreEarlyDraft) {
+  if (
+    classification?.tool === 'create_store' &&
+    !uploadIntakePhaseResult.skipCreateStoreEarlyDraft &&
+    !shouldSkipCreateStoreEarlyDraftForDecisionLoop(classification)
+  ) {
     const msgLower = String(userMessage ?? body?.text ?? '').toLowerCase();
     const llmMode = String(classification.parameters?.intentMode ?? '').trim().toLowerCase();
     const isWebsite = llmMode === 'website' || looksWebsiteCreateIntent(msgLower);
@@ -4044,6 +4308,28 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           delete intentSourceContext.assetAction;
         }
         body.intentSourceContext = intentSourceContext;
+      } else if (uploadOnlyNeedsAsk) {
+        const handoffImage = String(uploadDraftCtx.imageDataUrl ?? '').trim();
+        if (handoffImage.length > 100 && !resolveIntakeImageRefForOcr(body)) {
+          body.imageDataUrl = handoffImage;
+          if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+            body.attachments = [{ type: 'image', dataUrl: handoffImage, uri: handoffImage }];
+          }
+        }
+        const askEnforced = enforceUploadAskIntentClassification({
+          userMessage,
+          classification,
+          body,
+          intentSourceContext,
+          uploadAttachmentGuardCtx: uploadDraftCtx,
+          storeId: effectiveStoreId ?? storeId ?? null,
+          resolveImageRef: resolveIntakeImageRefForOcr,
+          reason: 'create_store_empty_draft_upload_ask_reroute',
+        });
+        classification = askEnforced.classification;
+        intentSourceContext = askEnforced.intentSourceContext;
+        body.intentSourceContext = intentSourceContext;
+        uploadIntakePhaseResult.skipCreateStoreEarlyDraft = true;
       } else {
       const ctxIntentMode = draftIntentMode;
       const missing = storeCreationDraftBundle.missingFields ?? [];
@@ -4144,6 +4430,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
+  const skipDynamicPlannerForDecisionLoop =
+    decisionLoopSkipPlanners || shouldSkipPlannersForDecisionLoop(classification);
+
   const skipDynamicPlannerForCreateStoreCheckpoint =
     classification?.tool === 'create_store' &&
     shouldForceCreateStoreCheckpointDispatch({
@@ -4156,7 +4445,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   try {
     const plannerIntegration = getPlannerIntegration();
-    if (plannerIntegration.isEnabled(req) && !skipReasoningPipeline && !skipDynamicPlannerForCreateStoreCheckpoint) {
+    if (
+      plannerIntegration.isEnabled(req) &&
+      !skipReasoningPipeline &&
+      !skipDynamicPlannerForCreateStoreCheckpoint &&
+      !skipDynamicPlannerForDecisionLoop
+    ) {
       dynamicPlanBundle = await plannerIntegration.maybeGenerateForIntake({
         classification,
         reasoningResult: classification._reasoningResult ?? null,
@@ -4247,6 +4541,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       draftId,
     };
     const skipReactPlannerAsk =
+      decisionLoopSkipPlanners ||
+      shouldSkipPlannersForDecisionLoop(classification) ||
       attachmentOnlyUpload ||
       classification?.tool === 'ingest_asset_for_intent_detection' ||
       uploadIntakePhaseResult.phase === UPLOAD_INTAKE_PHASE.ASK_INTENT ||
@@ -4408,6 +4704,84 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
       const autoStoreId = await tryAutoResolveSingleStoreId(intakeActorUserId);
       if (autoStoreId) dispatchStoreId = autoStoreId;
+    }
+  }
+
+  // Phase 2/3: advisor shadow rank or decision loop authority (before validation).
+  const canRunDecisionPipeline =
+    !freshStoreMission &&
+    classification &&
+    !forcedTool &&
+    !draftConfirmationSubmit &&
+    !storeCreateFormPayload &&
+    performerMode !== 'manual' &&
+    (intakeBeliefShadow?.belief || isIntakeDecisionLoopAuthorityEnabled());
+
+  if (canRunDecisionPipeline) {
+    const advisorInput = {
+      userMessage,
+      originalUserMessage: userMessage,
+      attachments: body.attachments,
+      imageDataUrl: resolveIntakeImageRefForOcr(body),
+      hasAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
+      intentSourceContext,
+      shortcutContext: intakeShortcutContext,
+      storeCreateForm: storeCreateFormPayload,
+      forceIntent: body.forceIntent ?? intentSourceContext?.forceIntent ?? null,
+      currentFlow: intentSourceContext?.currentFlow ?? null,
+      source: body.intentSource ?? intentSourceContext?.source ?? null,
+    };
+
+    let decisionBelief = intakeBeliefShadow?.belief ?? null;
+    if (isIntakeDecisionLoopAuthorityEnabled()) {
+      try {
+        const reloaded = await loadBelief({
+          req,
+          sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
+          sessionKey: intakeAssetSessionKey,
+          currentContext,
+          intentSourceContext: {
+            ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+            ...(attachmentOnlyUpload ? { uploadedAssetPending: true } : {}),
+          },
+          contextEngineUserContext,
+          intakeMemoryBundle,
+          body,
+        });
+        decisionBelief = hydrateBeliefForDecisionLoop(reloaded, {
+          imageDataUrl: resolveIntakeImageRefForOcr(body),
+          extractedText: imageContext?.extractedText ?? null,
+          attachmentOnlyUpload,
+          hasAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
+        });
+      } catch (beliefReloadErr) {
+        if (isDev) {
+          console.warn('[intake/decision-loop] belief reload failed:', beliefReloadErr?.message ?? beliefReloadErr);
+        }
+      }
+    }
+
+    if (isIntakeDecisionLoopAuthorityEnabled()) {
+      const authorityOut = await runDecisionLoopAuthority({
+        belief: decisionBelief,
+        input: advisorInput,
+        legacyClassification: classification,
+      });
+      if (authorityOut.classification) {
+        classification = authorityOut.classification;
+      }
+      if (isDev && authorityOut.summary) {
+        diagLog(isIntakeDiagEnabled(), '[intake/decision-loop]', authorityOut.summary);
+      }
+    } else if (decisionBelief) {
+      const shadowRank = runIntakeShadowRank({
+        belief: decisionBelief,
+        input: advisorInput,
+        legacyClassification: classification,
+      });
+      if (isDev && shadowRank?.summary) {
+        diagLog(isIntakeDiagEnabled(), '[intake/shadow-rank]', shadowRank.summary);
+      }
     }
   }
 
@@ -4938,6 +5312,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
       if (isCreationIntent && imageContext?.hasText) {
         if (effectiveStoreId && performerIntakeV2ActorId(req)) {
+          recordIntakeBypass(INTAKE_BYPASS_IDS.IMAGE_CHAT_CAMPAIGN_AUTOSUBMIT, {
+            storeId: effectiveStoreId,
+            userMessagePreview: String(userMessage ?? '').slice(0, 120),
+          });
           const prismaImgCampaign = getPrismaClient();
           const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
           const imgCampaignDispatch = await runCreateCampaignViaUnifiedDispatch(
@@ -5664,6 +6042,30 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     storeCreateForm: storeCreateFormPayload,
     userMessage,
   });
+
+  if (
+    !forcedTool &&
+    classification?.tool === 'create_store' &&
+    classification?.executionPath === 'proactive_plan'
+  ) {
+    uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
+    attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
+    const proactiveAsk = enforceUploadAskIntentClassification({
+      userMessage,
+      classification,
+      body,
+      intentSourceContext,
+      uploadAttachmentGuardCtx,
+      storeId: effectiveStoreId ?? storeId ?? null,
+      resolveImageRef: resolveIntakeImageRefForOcr,
+      reason: 'proactive_plan_upload_ask_hard_gate',
+    });
+    if (proactiveAsk.applied) {
+      classification = proactiveAsk.classification;
+      intentSourceContext = proactiveAsk.intentSourceContext;
+      body.intentSourceContext = intentSourceContext;
+    }
+  }
 
   if (
     forceCreateStoreCheckpoint ||

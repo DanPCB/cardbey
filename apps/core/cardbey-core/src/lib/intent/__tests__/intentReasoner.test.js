@@ -136,6 +136,25 @@ describe('IntentReasoner', () => {
     expect(result.userState?.storeId).toBe('cmqs9bfcl003bjvow6iv9lbyx');
   });
 
+  it('should treat memory bundle _context.store as active store when other sources unset', async () => {
+    mockContext.activeStoreId = null;
+
+    const result = await reasoner.reason('user_123', 'session_123', {
+      text: 'Add a product',
+      currentContext: {
+        _memoryContext: {
+          hasActiveStore: true,
+          store: { id: 'store_from_bundle', name: 'My Bakery', category: 'Food', status: 'active' },
+        },
+      },
+    });
+
+    expect(result.intent).toBe('add_product');
+    expect(result.userState?.hasStore).toBe(true);
+    expect(result.userState?.storeId).toBe('store_from_bundle');
+    expect(result.parameters?.storeId).toBe('store_from_bundle');
+  });
+
   it('should ask for clarification when intent is ambiguous', async () => {
     const result = await reasoner.reason('user_123', 'session_123', {
       text: 'Upload this file',
