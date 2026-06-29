@@ -18,8 +18,8 @@ import {
 import { createConfidenceFactor, createReasoningResult } from './utils.js';
 import { isVagueAddProductMessage } from '../intake/guestDraftProductClarify.js';
 import { PERFORMER_INTAKE_MESSAGES } from '../intake/performerIntakeMessageCatalog.js';
-import { shouldRouteToAssetIntentDetection } from '../intake/assetUploadGuard.js';
-import { buildAssetIntentDetectionClassification } from '../intake/assetIntentIngestService.js';
+import { shouldRouteToAssetIntentDetection, detectCreateStoreFromUploadedAssetIntent, hasExplicitUploadCreateStoreOrWebsiteIntent, hasRecentUploadedAssetInContext } from '../intake/assetUploadGuard.js';
+import { buildAssetIntentDetectionClassification, buildAnalyzeUploadedAssetForStoreCreationClassification } from '../intake/assetIntentIngestService.js';
 import {
   buildDocumentIngestionClassification,
   detectDocumentIngestionIntent,
@@ -293,11 +293,22 @@ export class IntentReasoner {
       intakeMeta.memorySummary && typeof intakeMeta.memorySummary === 'object'
         ? intakeMeta.memorySummary
         : pickMemorySummary(clientCtx);
+    const memoryContext =
+      clientCtx._memoryContext && typeof clientCtx._memoryContext === 'object'
+        ? clientCtx._memoryContext
+        : null;
+    const storeFromMemoryContext =
+      memoryContext?.hasActiveStore && memoryContext?.store?.id
+        ? String(memoryContext.store.id).trim()
+        : null;
 
     const storeId = resolveIntakeStoreId({
-      activeStoreId: context.activeStoreId ?? clientCtx.activeStoreId,
-      storeId: clientCtx.storeId ?? clientCtx.activeStoreId,
-      memorySummary,
+      activeStoreId: context.activeStoreId ?? clientCtx.activeStoreId ?? storeFromMemoryContext,
+      storeId: clientCtx.storeId ?? storeFromMemoryContext,
+      memorySummary: storeFromMemoryContext
+        ? { ...memorySummary, storeId: storeFromMemoryContext }
+        : memorySummary,
+      _memoryContext: memoryContext,
     });
     const draftId = resolveIntakeDraftId({
       activeDraftId: context.activeDraftId ?? clientCtx.activeDraftId,
@@ -603,9 +614,16 @@ export class IntentReasoner {
     ).trim();
     const fastPathCtx = {
       attachments: parsedInput.attachments,
-      imageDataUrl: parsedInput.intakeMeta?.imageDataUrl ?? null,
+      imageDataUrl: parsedInput.intakeMeta?.imageDataUrl ?? parsedInput.imageDataUrl ?? null,
       storeId,
       storeContext: storeId ? { storeId } : undefined,
+      intentSourceContext:
+        parsedInput.intakeMeta?.intentSourceContext && typeof parsedInput.intakeMeta.intentSourceContext === 'object'
+          ? parsedInput.intakeMeta.intentSourceContext
+          : null,
+      sessionId:
+        typeof parsedInput.intakeMeta?.sessionId === 'string' ? parsedInput.intakeMeta.sessionId.trim() : null,
+      hasSessionPendingExtraction: Boolean(parsedInput.intakeMeta?.hasSessionPendingExtraction),
     };
 
     const attachmentOnlyUpload =
@@ -687,8 +705,8 @@ export class IntentReasoner {
 
     if (
       shouldRouteToAssetIntentDetection(guardMessage, fastPathCtx) &&
-      userState.workflowType !== 'store_creation' &&
-      userState.workflowType !== 'campaign_creation'
+      (attachmentOnlyUpload ||
+        (userState.workflowType !== 'store_creation' && userState.workflowType !== 'campaign_creation'))
     ) {
       const assetCls = buildAssetIntentDetectionClassification(guardMessage, fastPathCtx);
       candidates.push({
@@ -723,6 +741,26 @@ export class IntentReasoner {
           parameters: { storeId },
           _fastPath: 'analytics',
         },
+      });
+    }
+
+    if (
+      hasExplicitUploadCreateStoreOrWebsiteIntent(rawText) &&
+      hasRecentUploadedAssetInContext({
+        attachments: parsedInput.attachments,
+        imageDataUrl: parsedInput.imageDataUrl,
+        intentSourceContext: fastPathCtx.intentSourceContext,
+        sessionId: fastPathCtx.sessionId,
+        hasSessionPendingExtraction: fastPathCtx.hasSessionPendingExtraction,
+      })
+    ) {
+      const uploadStoreCls = buildAnalyzeUploadedAssetForStoreCreationClassification(rawText, fastPathCtx);
+      candidates.push({
+        type: 'analyze_asset',
+        confidence: 0.98,
+        description: 'User wants to create a store from an uploaded business card or document',
+        factors: ['uploaded_asset_store_creation_fast_path'],
+        fastPathClassification: uploadStoreCls,
       });
     }
 

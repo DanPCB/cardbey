@@ -187,6 +187,15 @@ export interface BatchOnboardingMetrics {
   categoriesSearched: string[];
   fetchLimit: number;
   errors: string[];
+  /** Media + BI brief pilot metrics */
+  candidatesWithMedia: number;
+  candidatesWithBusinessSpecificMedia: number;
+  candidatesUsingRepresentativeMedia: number;
+  briefsGenerated: number;
+  briefsDownloaded: number;
+  claimIntentsStarted: number;
+  claimIntentsFromBiDownload: number;
+  claimConversionRate: number;
 }
 
 export type { DiscoveryBusinessCandidate };

@@ -3,6 +3,7 @@
  * Batch 0 (MELBOURNE_BATCH0) remains for engineering validation; Batch 001 is separate.
  */
 
+export const MELBOURNE_BATCH0_ID = 'MELBOURNE_BATCH0_20260617';
 export const MELBOURNE_BATCH001_ID = 'MELBOURNE_BATCH001_20260627';
 /** Real local business pilot — 25 businesses, Melbourne West suburbs */
 export const MELBOURNE_BATCH001_REAL_LOCAL_ID = 'MELBOURNE_BATCH001_REAL_LOCAL';
@@ -55,6 +56,11 @@ export const REAL_LOCAL_CATEGORY_KEYWORDS: Record<string, string> = {
   'Local retail': 'shop retail store',
   'Home services': 'plumber electrician home services',
 };
+
+export function isProtectedBatch0(batchId: string | null | undefined): boolean {
+  if (!batchId) return false;
+  return batchId.includes('BATCH0') && !batchId.includes('BATCH001');
+}
 
 export function isBatch001BatchId(batchId: string | null | undefined): boolean {
   if (!batchId) return false;

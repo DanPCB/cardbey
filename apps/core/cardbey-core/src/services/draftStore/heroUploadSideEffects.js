@@ -5,6 +5,7 @@ import {
   recordHeroArtifactCheckpoint,
   resolveMissionIdForHeroUpload,
 } from '../../lib/artifactCheckpointAuthority.js';
+import { emitBrandAssetsUpdated } from '../../lib/brandAssetsMissionEvents.js';
 import { broadcastMissionArtifact } from '../../realtime/simpleSse.js';
 
 /**
@@ -53,6 +54,34 @@ export async function emitHeroUploadSideEffects(prisma, args) {
       checkpointRecorded = rec.recorded === true;
     } catch (err) {
       console.warn('[heroUploadSideEffects] checkpoint record failed (non-fatal):', err?.message || err);
+    }
+
+    if (heroVideoUrl) {
+      try {
+        await emitBrandAssetsUpdated(prisma, {
+          missionId,
+          draftId,
+          heroVideoUrl,
+          posterUrl: heroImageUrl,
+          artifacts: ['uploaded_hero_video', 'generated_video_poster'],
+          source: 'hero_upload',
+        });
+      } catch (err) {
+        console.warn('[heroUploadSideEffects] brand_assets_updated failed (non-fatal):', err?.message || err);
+      }
+    } else if (heroImageUrl) {
+      try {
+        await emitBrandAssetsUpdated(prisma, {
+          missionId,
+          draftId,
+          heroVideoUrl: null,
+          posterUrl: heroImageUrl,
+          artifacts: ['uploaded_hero_video'],
+          source: 'hero_image_upload',
+        });
+      } catch (err) {
+        console.warn('[heroUploadSideEffects] brand_assets_updated failed (non-fatal):', err?.message || err);
+      }
     }
 
     try {

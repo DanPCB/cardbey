@@ -6,6 +6,60 @@
  */
 
 import { getPrismaClient } from '../../lib/prisma.js';
+
+/**
+ * Lightweight store snapshot for intake / reasoner context (non-blocking).
+ *
+ * @param {string | null | undefined} storeId
+ * @param {string | null | undefined} ownerId
+ */
+async function fetchStoreContextSnapshot(storeId, ownerId) {
+  const sid = storeId ? String(storeId).trim() : '';
+  const oid = ownerId ? String(ownerId).trim() : '';
+  if (!sid || !oid) return null;
+
+  try {
+    const prisma = getPrismaClient();
+    const store = await prisma.business.findFirst({
+      where: { id: sid, userId: oid, isActive: true },
+      select: { id: true, name: true, type: true, isActive: true },
+    });
+    if (!store) return null;
+    return {
+      id: store.id,
+      name: store.name ?? null,
+      category: store.type ?? null,
+      status: store.isActive ? 'active' : 'inactive',
+    };
+  } catch (err) {
+    console.warn('[MemoryFacade] store context fetch failed:', err?.message ?? err);
+    return null;
+  }
+}
+
+/**
+ * @param {string | null | undefined} storeId
+ * @param {{ id?: string | null; name?: string | null; category?: string | null; status?: string | null } | null | undefined} storeSnapshot
+ */
+export function buildMemoryBundleContext(storeId, storeSnapshot) {
+  const sid = storeId ? String(storeId).trim() : '';
+  const store =
+    storeSnapshot && typeof storeSnapshot === 'object' && storeSnapshot.id
+      ? {
+          id: String(storeSnapshot.id),
+          name: storeSnapshot.name ? String(storeSnapshot.name) : null,
+          category: storeSnapshot.category ? String(storeSnapshot.category) : null,
+          status: storeSnapshot.status ? String(storeSnapshot.status) : 'active',
+        }
+      : sid
+        ? { id: sid, name: null, category: null, status: 'active' }
+        : null;
+
+  return {
+    hasActiveStore: Boolean(store?.id),
+    store,
+  };
+}
 import { getBusinessMemorySummary } from '../businessMemory/businessMemoryService.js';
 import { listSuitcaseItems } from '../suitcase/suitcaseItemService.js';
 import { getUserMemory } from '../user/userMemoryService.js';
@@ -109,6 +163,7 @@ export class MemoryFacade {
       console.log(`[MemoryFacade] Cache hit for actor=${actorLabel} store=${context.storeId ?? 'none'}`);
       return {
         ...cached,
+        _context: cached._context ?? buildMemoryBundleContext(context.storeId, null),
         meta: { ...cached.meta, cacheHit: true, fetchDurationMs: Date.now() - startTime },
       };
     }
@@ -132,8 +187,13 @@ export class MemoryFacade {
     const suitcaseRaw =
       results.suitcase?.status === 'fulfilled' ? results.suitcase.value?.items ?? [] : [];
 
+    const storeSnapshot =
+      results.storeContext?.status === 'fulfilled' ? results.storeContext.value : null;
+    const bundleContext = buildMemoryBundleContext(context.storeId, storeSnapshot);
+
     const bundle = {
       ok: true,
+      _context: bundleContext,
       business: results.business?.status === 'fulfilled' ? results.business.value : null,
       suitcase: suitcaseRaw.slice(0, MAX_SUITCASE_HIGHLIGHTS).map(formatSuitcaseItem),
       user: results.user?.status === 'fulfilled' ? results.user.value : null,
@@ -173,8 +233,12 @@ export class MemoryFacade {
     const ownerId = context.ownerId ?? actorId;
     const storeId = context.storeId;
 
-    const shouldFetchBusiness = actorType === 'store_owner' && Boolean(storeId && ownerId);
-    const shouldFetchSuitcase = actorType === 'store_owner' && Boolean(storeId && ownerId);
+    const hasStoreScope = Boolean(storeId && ownerId);
+    const shouldFetchBusiness =
+      hasStoreScope && (actorType === 'store_owner' || actorType === 'user');
+    const shouldFetchSuitcase =
+      hasStoreScope && (actorType === 'store_owner' || actorType === 'user');
+    const shouldFetchStoreContext = hasStoreScope;
     const shouldFetchUser =
       Boolean(actorId) &&
       (actorType === 'consumer' || actorType === 'admin' || actorType === 'store_owner');
@@ -201,6 +265,9 @@ export class MemoryFacade {
         : () => Promise.resolve([]),
       mission: shouldFetchMission
         ? () => getMissionMemorySnapshot(context.missionId, prisma)
+        : () => Promise.resolve(null),
+      storeContext: shouldFetchStoreContext
+        ? () => fetchStoreContextSnapshot(storeId, ownerId)
         : () => Promise.resolve(null),
     };
   }

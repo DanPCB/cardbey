@@ -1,0 +1,66 @@
+[
+  {
+    "id": "cd154793-fc42-4772-a206-5d59554c141a",
+    "seedId": "verify-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-21T12:17:16.222Z"
+  },
+  {
+    "id": "2be6c730-9848-4e2d-9aab-35ec6421e379",
+    "seedId": "verify-1",
+    "fromStatus": "seeded_claimable",
+    "toStatus": "claim_pending",
+    "lifecycleStage": "claim_pending",
+    "action": "claim_start",
+    "actorId": "user-verify-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "2a0247d8-ea89-4b9b-aa15-6e52dc2e802d",
+    "metadata": {
+      "proofType": "email"
+    },
+    "createdAt": "2026-06-21T12:17:16.230Z"
+  },
+  {
+    "id": "55b8aaa0-28ee-49df-98e6-d394f1f88eb3",
+    "seedId": "verify-1",
+    "fromStatus": "claim_pending",
+    "toStatus": "verified_owner",
+    "lifecycleStage": "claimed",
+    "action": "claim_verify",
+    "actorId": "user-verify-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "2a0247d8-ea89-4b9b-aa15-6e52dc2e802d",
+    "metadata": {
+      "proofType": "email",
+      "phase": "ownership_verified"
+    },
+    "createdAt": "2026-06-21T12:17:16.248Z"
+  },
+  {
+    "id": "312f027f-0400-4502-a6be-1301ea18c1c3",
+    "seedId": "verify-1",
+    "fromStatus": "verified_owner",
+    "toStatus": "verified_owner",
+    "lifecycleStage": "activation_ready",
+    "action": "claim_verify",
+    "actorId": "user-verify-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": "2a0247d8-ea89-4b9b-aa15-6e52dc2e802d",
+    "metadata": {
+      "proofType": "email",
+      "phase": "activation_ready"
+    },
+    "createdAt": "2026-06-21T12:17:16.251Z"
+  }
+]

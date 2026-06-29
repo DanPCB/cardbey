@@ -21,7 +21,16 @@ vi.mock('./getMissionMemorySnapshot.js', () => ({
 }));
 
 vi.mock('../../lib/prisma.js', () => ({
-  getPrismaClient: vi.fn(() => ({})),
+  getPrismaClient: vi.fn(() => ({
+    business: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'store-456',
+        name: 'My Bakery',
+        type: 'Food',
+        isActive: true,
+      }),
+    },
+  })),
   prisma: {},
 }));
 
@@ -94,6 +103,39 @@ describe('memoryFacade', () => {
     expect(bundle.meta.sources).toContain('userMemory');
     expect(bundle.meta.sources).toContain('pilEvents');
     expect(bundle.meta.sources).toContain('missionContext');
+  });
+
+  it('includes _context.store when storeId is present', async () => {
+    const context = {
+      actor: { type: 'store_owner', id: 'user-123' },
+      storeId: 'store-456',
+      sessionId: null,
+    };
+
+    const bundle = await memoryFacade.getBundle(context);
+
+    expect(bundle._context).toEqual({
+      hasActiveStore: true,
+      store: {
+        id: 'store-456',
+        name: 'My Bakery',
+        category: 'Food',
+        status: 'active',
+      },
+    });
+  });
+
+  it('returns hasActiveStore false when no storeId', async () => {
+    const bundle = await memoryFacade.getBundle({
+      actor: { type: 'guest', id: null },
+      storeId: null,
+      sessionId: null,
+    });
+
+    expect(bundle._context).toEqual({
+      hasActiveStore: false,
+      store: null,
+    });
   });
 
   it('caches results for subsequent requests', async () => {

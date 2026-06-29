@@ -65,6 +65,7 @@
     "soak:runtime-kernel:mock": "cross-env RUNTIME_KERNEL_SOAK_USE_MOCK=true node scripts/runtime-kernel-staging-soak.mjs",
     "soak:stage-e": "node scripts/stage-e-soak.mjs",
     "audit:phase-f-bypass": "node scripts/phase-f-bypass-audit.mjs",
+    "audit:duplicate-feed-stores": "node scripts/audit-duplicate-feed-stores.js",
     "test:contracts": "vitest run src/routes/__tests__/runwayRouteContract.test.js src/routes/__tests__/healthRoute.contract.test.js src/routes/__tests__/journeysTemplates.smoke.test.js src/realtime/simpleSse.streamPolicy.test.js",
     "test:playlist": "node scripts/test/playlist-full.js",
     "scan:missing-media": "node scripts/scan-missing-media.js",

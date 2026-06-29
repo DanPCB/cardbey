@@ -312,6 +312,20 @@ export async function finalizeIntakeContext({
     typeof classification.parameters === 'object' &&
     /** @type {Record<string, unknown>} */ (classification.parameters).storeId
       ? String(/** @type {Record<string, unknown>} */ (classification.parameters).storeId)
+      : null) ||
+    (body?.intakeV2Selection &&
+    typeof body.intakeV2Selection === 'object' &&
+    body.intakeV2Selection.selectedParameters &&
+    typeof body.intakeV2Selection.selectedParameters === 'object' &&
+    /** @type {Record<string, unknown>} */ (body.intakeV2Selection.selectedParameters).storeId
+      ? String(
+          /** @type {Record<string, unknown>} */ (body.intakeV2Selection.selectedParameters).storeId,
+        )
+      : null) ||
+    (body?.currentContext &&
+    typeof body.currentContext === 'object' &&
+    /** @type {Record<string, unknown>} */ (body.currentContext).activeStoreId
+      ? String(/** @type {Record<string, unknown>} */ (body.currentContext).activeStoreId)
       : null);
 
   if (storeId) {

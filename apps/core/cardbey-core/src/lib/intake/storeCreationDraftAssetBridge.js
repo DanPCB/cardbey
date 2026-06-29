@@ -5,6 +5,11 @@
 import { parseBusinessCardOCR } from '../businessCardParser.js';
 import { inferStoreCategoryFromHint, formatStoreCreationDraftResponse } from './storeCreationDraft.js';
 import { fetchHtml, extractMetaContent, extractTitle, extractJsonLd } from '../social-import/scrapeUtils.js';
+import {
+  formatStoreCandidateReviewResponse,
+  buildStoreCandidateFromOcr,
+  storeCandidateToAssetExtraction,
+} from './storeCandidate.js';
 
 const URL_RE = /https?:\/\/[^\s\]\)"'<>]+/i;
 const WWW_RE = /(?:^|[\s(])www\.[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9](?:\/[^\s\]\)"'<>]*)?/i;
@@ -186,6 +191,7 @@ export function mapAssetContextToExtraction(ocrHints, entityContext, extracted, 
  *   imageContext?: { extractedText?: string } | null;
  *   userMessage?: string;
  *   intentSourceContext?: Record<string, unknown> | null;
+ *   storeCandidate?: Record<string, unknown> | null;
  * }} input
  */
 export function buildAssetExtractionInput(input = {}) {
@@ -195,7 +201,11 @@ export function buildAssetExtractionInput(input = {}) {
     typeof input.intentSourceContext.assetIngestResult === 'object'
       ? input.intentSourceContext.assetIngestResult
       : null;
-  const effectiveIngest = ingest ?? fromIntent;
+  const fromPersisted =
+    input.persistedIngestResult && typeof input.persistedIngestResult === 'object'
+      ? input.persistedIngestResult
+      : null;
+  const effectiveIngest = ingest ?? fromIntent ?? fromPersisted;
 
   let ocrHints = null;
   if (input.imageContext?.extractedText) {
@@ -207,11 +217,37 @@ export function buildAssetExtractionInput(input = {}) {
         : null) ?? buildOcrHintsFromImageText(effectiveIngest.rawOcrText ?? '');
   }
 
+  const cardExtraction =
+    input.intentSourceContext?.cardExtraction &&
+    typeof input.intentSourceContext.cardExtraction === 'object'
+      ? input.intentSourceContext.cardExtraction
+      : null;
+  if (cardExtraction) {
+    const clientHints = {
+      businessName: asTrimmed(cardExtraction.businessName),
+      detectedBusinessName: asTrimmed(cardExtraction.businessName),
+      location: asTrimmed(cardExtraction.location),
+      vertical: asTrimmed(cardExtraction.vertical ?? cardExtraction.category),
+      businessType: asTrimmed(cardExtraction.vertical ?? cardExtraction.category),
+    };
+    ocrHints = ocrHints ? { ...clientHints, ...ocrHints } : clientHints;
+  }
+
+  const storeCandidate =
+    input.storeCandidate && typeof input.storeCandidate === 'object' ? input.storeCandidate : null;
+
   const entityContext = effectiveIngest?.entityContext ?? null;
   const extracted = effectiveIngest?.extracted ?? entityContext?.extractedContent ?? null;
   const documentType = entityContext?.documentType ?? entityContext?.assetType ?? 'unknown';
 
   let assetExtraction = mapAssetContextToExtraction(ocrHints, entityContext, extracted, documentType);
+
+  if (storeCandidate) {
+    assetExtraction = mergeAssetExtraction(
+      storeCandidateToAssetExtraction(storeCandidate),
+      assetExtraction,
+    );
+  }
 
   const urlFromMessage = extractFirstUrlFromText(input.userMessage ?? '');
   if (urlFromMessage && assetExtraction && !assetExtraction.website) {
@@ -237,6 +273,46 @@ export function hasMeaningfulAssetExtraction(assetExtraction) {
 }
 
 /**
+ * Fill gaps in asset extraction from OCR text or a live OCR pass on the upload image.
+ * @param {Record<string, unknown> | null | undefined} assetExtraction
+ * @param {{
+ *   imageDataUrl?: string | null;
+ *   rawOcrText?: string | null;
+ *   imageContext?: { extractedText?: string } | null;
+ *   ocrExtractFn?: (input: { imageDataUrl: string; context?: Record<string, unknown> }) => Promise<{ text?: string }>;
+ * }} [opts]
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+export async function enrichAssetExtractionWithUploadOcr(assetExtraction, opts = {}) {
+  if (hasMeaningfulAssetExtraction(assetExtraction)) return assetExtraction ?? null;
+
+  let text = String(opts.rawOcrText ?? opts.imageContext?.extractedText ?? '').trim();
+  const imageDataUrl = String(opts.imageDataUrl ?? '').trim();
+
+  if (!text && imageDataUrl.length > 100 && typeof opts.ocrExtractFn === 'function') {
+    try {
+      const ocrResult = await opts.ocrExtractFn({
+        imageDataUrl,
+        context: { purpose: 'business_card' },
+      });
+      text = String(ocrResult?.text ?? '').trim();
+    } catch {
+      text = '';
+    }
+  }
+
+  if (!text) return assetExtraction ?? null;
+
+  const candidate = buildStoreCandidateFromOcr(text, {
+    documentType: 'business_card',
+    imageDataUrl: imageDataUrl || null,
+  });
+  if (!candidate) return assetExtraction ?? null;
+
+  return mergeAssetExtraction(storeCandidateToAssetExtraction(candidate), assetExtraction);
+}
+
+/**
  * @param {{
  *   ingestResult?: Record<string, unknown> | null;
  *   assetExtraction?: Record<string, unknown> | null;
@@ -245,20 +321,30 @@ export function hasMeaningfulAssetExtraction(assetExtraction) {
  * }} input
  */
 export function shouldRouteIngestToStoreCreationDraft(input = {}) {
+  const explicit = Boolean(input.explicitCreateStore);
+  if (!explicit) return false;
+
   const ingest = input.ingestResult ?? {};
   const entityContext = ingest.entityContext ?? {};
   const dt = String(entityContext.documentType ?? entityContext.assetType ?? '').trim();
   const assetExtraction = input.assetExtraction ?? null;
-  const explicit = Boolean(input.explicitCreateStore);
 
   if (!hasMeaningfulAssetExtraction(assetExtraction)) return false;
 
-  if (dt === 'business_card') return true;
+  const storeSeedDocTypes = new Set([
+    'business_card',
+    'storefront_photo',
+    'menu',
+    'product_catalog',
+    'price_list',
+    'flyer',
+    'brochure',
+  ]);
+  if (storeSeedDocTypes.has(dt)) return true;
   if (STORE_DRAFT_DIRECT_ASSET_TYPES.has(dt) && entityContext.detectedBusinessName) return true;
-  if (explicit) return true;
   if (assetExtraction?.source === 'qr' && assetExtraction?.name) return true;
 
-  return false;
+  return true;
 }
 
 /**
@@ -376,7 +462,11 @@ export function formatAssetStoreDraftResponse(bundle, meta = {}) {
   if (email) found.push(`✓ Email\n${email}`);
   if (website) found.push(`✓ Website\n${website}`);
 
-  const body = found.length > 0 ? `${intro}\n\n${found.join('\n\n')}\n\n` : `${intro}\n\n`;
+  if (found.length === 0) {
+    return "I'm reading the uploaded card now...";
+  }
+
+  const body = `${intro}\n\n${found.join('\n\n')}\n\n`;
 
   if (bundle.isComplete) {
     return `${body}Everything looks complete.\n\nReady to create your store?`;
@@ -403,10 +493,21 @@ export function isAssetSourcedStoreDraft(bundle) {
 
 /**
  * @param {import('./storeCreationDraft.js').StoreCreationDraftBundle} bundle
- * @param {{ documentType?: string; source?: string }} [meta]
+ * @param {{ documentType?: string; source?: string; storeCandidate?: import('./storeCandidate.js').StoreCandidate | null }} [meta]
  */
 export function formatStoreCreationDraftResponseForBundle(bundle, meta = {}) {
   if (isAssetSourcedStoreDraft(bundle)) {
+    if (meta.storeCandidate) {
+      const review = formatStoreCandidateReviewResponse(bundle, meta.storeCandidate, {
+        documentType: meta.documentType ?? bundle.draft?.source,
+        extractionPending: meta.extractionPending,
+        awaitingExtraction: meta.awaitingExtraction,
+      });
+      if (review) return review;
+    }
+    if (meta.extractionPending || meta.awaitingExtraction) {
+      return "I'm reading the uploaded card now...";
+    }
     return formatAssetStoreDraftResponse(bundle, {
       documentType: meta.documentType ?? bundle.draft?.source,
       source: meta.source ?? bundle.draft?.source,

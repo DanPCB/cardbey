@@ -241,6 +241,15 @@ export async function ingestAssetForIntentDetection(input = {}) {
     });
     logAssetIntentProbe(ASSET_INTENT_EVENTS.AWAITING_USER, { entityContextId: entityContext.id });
 
+    const ocrHintsOut = {
+      ...(input.ocrHints && typeof input.ocrHints === 'object' ? input.ocrHints : {}),
+      ...(entityContext.detectedBusinessName
+        ? { businessName: entityContext.detectedBusinessName, detectedBusinessName: entityContext.detectedBusinessName }
+        : {}),
+      ...(entityContext.detectedLocations?.[0] ? { location: entityContext.detectedLocations[0] } : {}),
+      ...(rawOcrText ? { rawText: rawOcrText } : {}),
+    };
+
     return {
       ok: true,
       phase: 'awaiting_intent_selection',
@@ -249,6 +258,9 @@ export async function ingestAssetForIntentDetection(input = {}) {
       extracted,
       display,
       confidence: entityContext.confidence,
+      rawOcrText,
+      ocrHints: ocrHintsOut,
+      imageDataUrl: input.imageDataUrl ?? entityContext.imageDataUrl ?? null,
       evidence: {
         documentType: entityContext.documentType,
         detectedBusinessName: entityContext.detectedBusinessName,
@@ -293,5 +305,28 @@ export function buildAssetIntentDetectionClassification(message, context = {}) {
       currentEntry: context.currentEntry ?? 'performer',
     },
     _fastPath: 'asset_intent_detection',
+  };
+}
+
+/**
+ * Classify "create store from uploaded card" → analyze asset first (alias capability).
+ * Executor remains ingest_asset_for_intent_detection; routing must not hit store-check tools.
+ * @param {string} message
+ * @param {object} [context]
+ */
+export function buildAnalyzeUploadedAssetForStoreCreationClassification(message, context = {}) {
+  const base = buildAssetIntentDetectionClassification(message, {
+    ...context,
+    source: context.source ?? 'uploaded_asset_store_creation',
+  });
+  return {
+    ...base,
+    confidence: 0.98,
+    parameters: {
+      ...base.parameters,
+      userPrompt: String(message ?? '').trim() || base.parameters?.userPrompt || null,
+      assetAction: 'create_store',
+    },
+    _fastPath: 'analyze_uploaded_asset_for_store_creation',
   };
 }

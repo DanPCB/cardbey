@@ -34,20 +34,24 @@ describe('blueprintLoader', () => {
     expect(doc?.id).toBe('store');
     expect(doc?.version).toBe('1.0.0');
     expect(Array.isArray(doc?.steps)).toBe(true);
-    expect(doc?.steps.length).toBe(4);
+    expect(doc?.steps.length).toBe(3);
     const validation = validateBlueprint(doc);
     expect(validation.ok).toBe(true);
   });
 
   it('materializes store steps with English locale', () => {
     const steps = materializeBlueprintSteps('store', 'en');
-    expect(steps).toHaveLength(4);
-    expect(steps[0]?.stepKind).toBe('checkpoint');
-    expect(steps[0]?.configJson?.outputKey).toBe('logoChoice');
-    expect(steps[0]?.configJson?.options).toEqual(['Upload now', 'Skip', 'Choose from library']);
-    expect(steps[1]?.configJson?.condition).toBe('logoChoice === "Upload now"');
-    expect(steps[2]?.toolName).toBe('structured_store_build');
-    expect(steps[3]?.toolName).toBe('analyze_store');
+    expect(steps).toHaveLength(3);
+    expect(steps[0]?.toolName).toBe('structured_store_build');
+    expect(steps[1]?.stepKind).toBe('checkpoint');
+    expect(steps[1]?.configJson?.outputKey).toBe('brandAssetsChoice');
+    expect(steps[1]?.configJson?.options).toEqual([
+      'Upload logo',
+      'Upload hero video',
+      'Choose from library',
+      'Skip',
+    ]);
+    expect(steps[2]?.toolName).toBe('analyze_store');
   });
 
   it('materializes campaign steps with localized labels', () => {

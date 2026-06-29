@@ -70,7 +70,7 @@ describe('Public business profile by slug', () => {
     const slug = buildPublicBusinessSlug(approved!);
     expect(slug).toMatch(/^harbour-cafe-melbourne-[a-z0-9]+$/);
 
-    const card = buildPublicDiscoveryCard(approved!);
+    const card = await buildPublicDiscoveryCard(approved!);
     expect(card?.slug).toBe(slug);
     expect(card?.profileUrl).toBe(`/business/${slug}`);
   });

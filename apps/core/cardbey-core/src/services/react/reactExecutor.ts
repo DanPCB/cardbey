@@ -54,7 +54,8 @@ export async function executeWithReAct(
   llmGateway: LLMGatewayLike,
   reporter: StepReporterLike
 ): Promise<ReActTrace> {
-  const useReflection = process.env.USE_REACT_REFLECTION === 'true';
+  const reactEnv = String(process.env.USE_REACT_REFLECTION ?? '').trim().toLowerCase();
+  const useReflection = reactEnv !== 'false' && reactEnv !== '0';
 
   let steps: RuntimePlannedStep[] = cloneSteps(missionPlan?.steps?.length ? missionPlan.steps : staticSteps);
   const trace: ReActTrace = {

@@ -1,6 +1,6 @@
 [
   {
-    "id": "89799662-978a-4005-85e7-5f588ce3fd17",
+    "id": "71bc54bd-2e5c-4415-ae98-de51c0f9c511",
     "seedId": "gen-store-1",
     "fromStatus": "seeded_pending_qa",
     "toStatus": "seeded_claimable",
@@ -13,6 +13,6 @@
     "reason": null,
     "claimRequestId": null,
     "metadata": {},
-    "createdAt": "2026-06-20T14:28:25.642Z"
+    "createdAt": "2026-06-29T04:56:32.619Z"
   }
 ]

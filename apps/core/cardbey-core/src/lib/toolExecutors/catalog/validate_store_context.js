@@ -24,6 +24,7 @@ export async function execute(input = {}, context = {}) {
         storeId: null,
         draftId: null,
         status: 'failed',
+        routeHint: 'analyze_uploaded_asset_for_store_creation',
       },
     };
   }

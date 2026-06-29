@@ -20,7 +20,7 @@
       "sourceType": "csv",
       "sourceReference": "MELBOURNE_BATCH0_20260617",
       "sourceRowId": "1",
-      "ingestedAt": "2026-06-20T14:28:25.627Z"
+      "ingestedAt": "2026-06-29T04:56:32.604Z"
     },
     "verificationStatus": "seeded_claimable",
     "claimable": true,
@@ -28,10 +28,10 @@
     "ownerUserId": null,
     "storeId": null,
     "draftId": null,
-    "createdAt": "2026-06-20T14:28:25.627Z",
-    "updatedAt": "2026-06-20T14:28:25.639Z",
+    "createdAt": "2026-06-29T04:56:32.604Z",
+    "updatedAt": "2026-06-29T04:56:32.616Z",
     "batchId": "MELBOURNE_BATCH0_20260617",
     "campaignId": null,
-    "firstSeenAt": "2026-06-20T14:28:25.639Z"
+    "firstSeenAt": "2026-06-29T04:56:32.616Z"
   }
 ]

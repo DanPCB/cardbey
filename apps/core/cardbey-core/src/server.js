@@ -207,6 +207,7 @@ import pilRoutes from './routes/pilRoutes.js';
 import businessMemoryRoutes from './routes/businessMemoryRoutes.js';
 import intelligenceRoutes from './routes/intelligenceRoutes.js';
 import memoryRoutes from './routes/memoryRoutes.js';
+import configRoutes from './routes/configRoutes.js';
 import observationRoutes from './routes/observationRoutes.js';
 import copilotRoutes from './routes/copilotRoutes.js';
 import skillRoutes from './routes/skillRoutes.js';
@@ -249,6 +250,7 @@ import telemetryRoutes from './routes/telemetryRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
 import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
+import performerDispatchRoutes from './routes/performerDispatchRoutes.js';
 import agentsV1Routes from './routes/agentsV1Routes.js';
 import researcherRoutes from './routes/researcherRoutes.js';
 import campaignRoutes from './routes/campaignRoutes.js';
@@ -294,6 +296,7 @@ import devApplyPatchRoutes from './routes/devApplyPatchRoutes.js';
 import devSystemMissionsRoutes from './routes/devSystemMissions.js';
 import devBrokerRuntimeProofRoutes from './routes/devBrokerRuntimeProofRoutes.js';
 import { initializeToolsRegistry } from './orchestrator/toolsRegistry.js';
+import { validateSystemStartup } from './lib/intake/systemStartupValidation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -941,6 +944,7 @@ app.patch('/api/users/me', requireAuth, patchCurrentUserProfile); // Alias for P
 app.patch('/api/users/me/profile', requireAuth, patchCurrentUserProfile);
 // Performer intake: mount before any `app.use('/api', …)` stack so POST /api/performer/intake is never swallowed (404) or mis-logged.
 app.use('/api/performer/intake', performerIntakeRoutes);
+app.use('/api/performer', performerDispatchRoutes);
 app.use('/api/performer/runtime', performerRuntimeRoutes); // Phase 1.5: stream + state
 app.use('/api/tools', toolsRoutes);
 app.use('/api/business-operations', businessOperationsRoutes);
@@ -1011,6 +1015,7 @@ app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observati
 app.use('/api/intelligence', intelligenceRoutes); // Foundation: /health, /memory, /express, /metrics (requires jsonParser above)
 if (process.env.USE_UNIFIED_MEMORY !== 'false') {
   app.use('/api/memory', memoryRoutes); // Unified memory facade: /bundle, /invalidate
+  app.use('/api/config', configRoutes);
   app.use('/api/observations', observationRoutes); // Runtime observation bus read API
   app.use('/api/signals', signalRoutes); // Signal configuration: /status, /preferences
 }
@@ -1267,6 +1272,14 @@ const isTestEnv = (process.env.NODE_ENV || '').toLowerCase() === 'test' || Boole
       await initializeToolsRegistry();
     } catch (error) {
       console.error('[CORE] Failed to initialize tools registry:', error);
+    }
+
+    if (process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true') {
+      try {
+        await validateSystemStartup();
+      } catch (startupErr) {
+        console.warn('[STARTUP] Validation failed (non-blocking):', startupErr?.message ?? startupErr);
+      }
     }
     
     // Start scheduler heartbeat (only for API server, not worker). Skip under Vitest — integration tests import this module

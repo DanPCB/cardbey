@@ -10,22 +10,22 @@ const FALLBACK_STEPS = [
   {
     tool: 'upload_store_asset',
     ui: 'logo_upload',
-    label: 'Upload store logo →',
-    prompt: 'I want to upload a logo for my store',
-    rationale: 'Fallback suggestion',
-  },
-  {
-    tool: 'replace_store_catalog',
-    ui: 'product_import',
-    label: 'Add real menu items →',
-    prompt: 'I want to add my real products',
+    label: 'Upload logo & avatar →',
+    prompt: 'I want to upload a logo and avatar for my store',
     rationale: 'Fallback suggestion',
   },
   {
     tool: 'update_store_hero',
     ui: 'hero_customizer',
-    label: 'Change hero image →',
-    prompt: 'I want to change my hero image',
+    label: 'Upload hero video →',
+    prompt: 'I want to upload or change my store hero background video',
+    rationale: 'Fallback suggestion',
+  },
+  {
+    tool: 'change_hero_headline',
+    ui: 'headline_editor',
+    label: 'Change headline →',
+    prompt: 'I want to change my store headline and tagline',
     rationale: 'Fallback suggestion',
   },
 ];

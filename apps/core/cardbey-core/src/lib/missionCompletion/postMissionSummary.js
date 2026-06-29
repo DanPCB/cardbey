@@ -19,9 +19,9 @@ const ALLOWED_MISSION_KINDS = new Set([
 const FALLBACK = {
   summary: "Your store is ready. Here's what you can do next:",
   suggestions: [
-    { label: 'Upload your logo', prompt: 'I want to upload my logo' },
-    { label: 'Replace with my menu', prompt: 'Replace my store menu with my real items' },
-    { label: 'Publish my store', prompt: "I'm ready to publish my store" },
+    { label: 'Upload logo & avatar →', prompt: 'I want to upload a logo and avatar for my store' },
+    { label: 'Upload hero video →', prompt: 'I want to upload or change my store hero background video' },
+    { label: 'Change headline →', prompt: 'I want to change my store headline and tagline' },
   ],
 };
 
@@ -137,8 +137,9 @@ function parseSummaryPayload(text) {
 function resolveSuggestedTool(label) {
   const l = String(label ?? '').toLowerCase();
   if (l.includes('logo') || l.includes('avatar')) return 'upload_store_asset';
+  if (l.includes('headline') || l.includes('tagline') || l.includes('title')) return 'change_hero_headline';
+  if (l.includes('hero') || l.includes('banner') || l.includes('video')) return 'update_store_hero';
   if (l.includes('menu') || l.includes('product') || l.includes('catalog')) return 'replace_store_catalog';
-  if (l.includes('hero') || l.includes('banner') || l.includes('image')) return 'update_store_hero';
   if (l.includes('publish')) return 'publish_store';
   if (l.includes('campaign') || l.includes('market')) return 'market_research';
   return 'general_chat';

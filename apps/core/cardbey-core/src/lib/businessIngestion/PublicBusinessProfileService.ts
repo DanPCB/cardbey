@@ -8,7 +8,9 @@ import { getPrismaClient } from '../prisma.js';
 import { listSeedRecords } from './IngestionRepository.js';
 import { buildPublicBusinessSlug, findSeedByPublicSlug } from './businessPublicSlug.js';
 import { findPublishedStoreForSeed, type PublishedStoreIdentity } from './publishedStoreSeedMatch.js';
-import { resolveDiscoveryCardHero } from './DiscoveryCardHeroResolver.js';
+import { resolvePublicMediaForSeed } from '../businessCandidate/media/resolvePublicCandidateMedia.js';
+import { getBriefByCandidateId } from '../businessCandidate/brief/briefRepository.js';
+import { briefSummaryForPublic } from '../businessCandidate/brief/generateBusinessIntelligenceBrief.js';
 import {
   DISCOVERED_BUSINESS_BADGE,
   translateSeedToPublicLifecycle,
@@ -35,6 +37,11 @@ export interface PublicBusinessProfile {
   claimUrl: string;
   /** When published, public storefront URL — page may redirect here in future. */
   activeStoreUrl: string | null;
+  heroImageSource: string;
+  representativeImageLabel: string | null;
+  mediaConfidenceSummary: string | null;
+  candidateId: string | null;
+  briefSummary: ReturnType<typeof briefSummaryForPublic> | null;
 }
 
 function profileLifecycleLabel(lifecycle: PublicBusinessLifecycle): string {
@@ -123,9 +130,15 @@ export async function buildPublicBusinessProfile(
   const locationLabel =
     canonical.source === 'unavailable' ? null : canonical.displayLocation;
 
-  const hero = resolveDiscoveryCardHero(seed);
+  const media = await resolvePublicMediaForSeed(seed);
   const slug = buildPublicBusinessSlug(seed);
   const activeStoreUrl = await resolveActiveStoreUrl(seed, publishedStores);
+
+  let briefSummary = null;
+  if (media.candidateId) {
+    const brief = await getBriefByCandidateId(media.candidateId);
+    if (brief) briefSummary = briefSummaryForPublic(brief);
+  }
 
   return {
     slug,
@@ -135,7 +148,7 @@ export async function buildPublicBusinessProfile(
     locationLabel,
     city: canonical.suburb ?? canonical.city,
     description: buildProfileDescription(seed, locationLabel),
-    heroImageUrl: hero.heroImageUrl,
+    heroImageUrl: media.heroImageUrl,
     heroVideoUrl: null,
     badge: DISCOVERED_BUSINESS_BADGE,
     publicLifecycle,
@@ -143,6 +156,11 @@ export async function buildPublicBusinessProfile(
     lifecycleStage: lifecycleStageFromStatus(seed.verificationStatus),
     claimUrl: `/activate-business/${seed.id}`,
     activeStoreUrl,
+    heroImageSource: media.heroImageSource,
+    representativeImageLabel: media.representativeImageLabel,
+    mediaConfidenceSummary: media.mediaConfidenceSummary,
+    candidateId: media.candidateId,
+    briefSummary,
   };
 }
 

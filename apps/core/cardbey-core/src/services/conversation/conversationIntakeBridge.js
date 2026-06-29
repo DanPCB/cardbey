@@ -10,7 +10,8 @@ const DEFAULT_MAX_HISTORY_TURNS = 10;
 export { isPerformerConversationEnabled };
 
 function resolveMaxHistoryTurns() {
-  if (String(process.env.ENABLE_LLM_REASONER ?? '').trim().toLowerCase() === 'true') {
+  const llmOff = String(process.env.ENABLE_LLM_REASONER ?? '').trim().toLowerCase();
+  if (llmOff !== 'false' && llmOff !== '0') {
     const configured = parseInt(process.env.LLM_REASONER_MAX_HISTORY_TURNS || '15', 10);
     return Number.isFinite(configured) && configured > 0 ? configured : 15;
   }
@@ -203,4 +204,21 @@ export function attachConversationToMissionMetadata(metadata, conversationContex
       messageCount: conversationContext?.messageCount ?? 0,
     },
   };
+}
+
+/**
+ * Persist active store on the conversation session (non-blocking).
+ *
+ * @param {{ sessionId?: string | null; storeId?: string | null }} opts
+ */
+export async function persistConversationSessionStoreId({ sessionId, storeId }) {
+  const sid = String(sessionId ?? '').trim();
+  const resolvedStoreId = String(storeId ?? '').trim();
+  if (!sid || !resolvedStoreId || !isPerformerConversationEnabled()) return;
+
+  try {
+    await conversationService.updateSessionStoreId(sid, resolvedStoreId);
+  } catch (err) {
+    console.warn('[conversation] persist session storeId failed (non-fatal):', err?.message ?? err);
+  }
 }

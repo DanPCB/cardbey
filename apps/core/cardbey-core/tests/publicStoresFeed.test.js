@@ -92,4 +92,29 @@ describe('GET /api/public/stores/feed', () => {
     const ids = res.body.items.map((i) => i.id);
     expect(ids).toContain(productStore.id);
   });
+
+  it('returns each storeId at most once when duplicate published businesses share identity', async () => {
+    await prisma.business.create({
+      data: {
+        userId: testUser.id,
+        name: 'Union Road Beauty',
+        type: 'beauty',
+        slug: 'union-road-beauty-2',
+        description: 'Republish duplicate',
+        isActive: true,
+      },
+    });
+
+    const res = await testRequest
+      .get('/api/public/stores/feed?limit=20')
+      .expect(200);
+
+    const beautyRows = res.body.items.filter((i) =>
+      String(i.name ?? '').toLowerCase().includes('union road beauty'),
+    );
+    expect(beautyRows.length).toBeLessThanOrEqual(1);
+
+    const ids = res.body.items.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });

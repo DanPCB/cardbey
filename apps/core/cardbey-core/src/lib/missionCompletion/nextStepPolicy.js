@@ -18,14 +18,38 @@ const RULES = [
     step: {
       tool: 'upload_store_asset',
       ui: 'logo_upload',
-      label: 'Upload store logo →',
-      prompt: 'I want to upload a logo for my store',
+      label: 'Upload logo & avatar →',
+      prompt: 'I want to upload a logo and avatar for my store',
       rationale: 'No logo uploaded yet',
     },
   },
   {
-    id: 'add_real_products',
+    id: 'change_hero',
     priority: 9,
+    condition: (f) => !f.hasCustomHero,
+    step: {
+      tool: 'update_store_hero',
+      ui: 'hero_customizer',
+      label: 'Upload hero video →',
+      prompt: 'I want to upload or change my store hero background video',
+      rationale: 'Hero background is still default or generic',
+    },
+  },
+  {
+    id: 'change_headline',
+    priority: 8,
+    condition: (f) => Boolean(f.storeId || f.draftId),
+    step: {
+      tool: 'change_hero_headline',
+      ui: 'headline_editor',
+      label: 'Change headline →',
+      prompt: 'I want to change my store headline and tagline',
+      rationale: 'Personalize your store message',
+    },
+  },
+  {
+    id: 'add_real_products',
+    priority: 7,
     condition: (f) => Boolean(f.storeId) && !f.hasRealProducts,
     step: {
       tool: 'replace_store_catalog',
@@ -36,20 +60,8 @@ const RULES = [
     },
   },
   {
-    id: 'change_hero',
-    priority: 8,
-    condition: (f) => !f.hasCustomHero,
-    step: {
-      tool: 'update_store_hero',
-      ui: 'hero_customizer',
-      label: 'Change hero image →',
-      prompt: 'I want to change my store hero image',
-      rationale: 'Hero image is still default or generic',
-    },
-  },
-  {
     id: 'publish_store',
-    priority: 7,
+    priority: 6,
     condition: (f) => Boolean(f.storeId) && !f.isPublished,
     step: {
       tool: 'publish_store',

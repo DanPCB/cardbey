@@ -3,6 +3,29 @@
  */
 
 import { isGraphicOrPromotionIntent } from './intentDetectors.js';
+import { peekPendingDocumentExtraction } from './storeCandidate.js';
+
+/** Tools that require an existing store or draft — invalid for upload-only store creation. */
+export const STORE_CHECK_TOOLS_WITHOUT_CONTEXT = new Set([
+  'validate_store_context',
+  'validate_store_input',
+  'analyze_store',
+  'store_health_check',
+  'existing_store_review',
+]);
+
+/** User explicitly wants a new store seeded from a recent upload (not an existing store check). */
+export const CREATE_STORE_FROM_UPLOADED_ASSET_PATTERNS = [
+  /create\s+(?:a\s+)?store\s+from\s+(?:the\s+)?upload(?:ed)?\s+(?:card|image|photo|document|menu|file)/i,
+  /create\s+(?:a\s+)?store\s+from\s+(?:this|the)\s+(?:card|image|photo|document|menu|upload|business\s+card)/i,
+  /create\s+(?:a\s+)?store\s+from\s+(?:uploaded|attached)\b/i,
+  /create\s+(?:a\s+)?store\s+(?:form\s+)?(?:the\s+)?upload(?:ed)?\s+(?:card|image|business\s+card)\b/i,
+  /create\s+(?:a\s+)?store\s+(?:from\s+)?(?:the\s+)?(?:card|image)\s+above\b/i,
+  /(?:card|image|business\s+card)\s+above\b.*create\s+(?:a\s+)?store/i,
+  /build\s+(?:a\s+)?store\s+from\s+(?:this|the|upload|uploaded|attached)/i,
+  /store\s+from\s+(?:this|the|upload|uploaded)\s+(?:business\s+)?card/i,
+  /make\s+(?:a\s+)?store\s+from\s+(?:this|the|upload|uploaded)\s+(?:card|image|menu)/i,
+];
 
 const PLACEHOLDER_MESSAGES = new Set([
   '(image attached)',
@@ -74,6 +97,68 @@ export function detectExplicitStoreIntent(message) {
 }
 
 /**
+ * Upload + explicit create-store or create-website wording (not attachment-only placeholders).
+ * Rule 2: card/menu/image + this intent → OCR + auto-fill store draft (skip ask step).
+ * @param {string} message
+ */
+export function hasExplicitUploadCreateStoreOrWebsiteIntent(message) {
+  const msg = String(message ?? '').trim();
+  if (!msg || isAttachmentOnlyPlaceholderMessage(msg)) return false;
+  return detectCreateStoreFromUploadedAssetIntent(msg) || detectExplicitStoreIntent(msg);
+}
+
+/**
+ * Attachment evidence on the intake turn (body, handoff context, or session stash).
+ * @param {object} [ctx]
+ */
+export function hasUploadAttachmentEvidence(ctx = {}) {
+  if (Array.isArray(ctx.attachments) && ctx.attachments.length > 0) return true;
+  if (String(ctx.imageDataUrl ?? '').trim()) return true;
+  const isc =
+    ctx.intentSourceContext && typeof ctx.intentSourceContext === 'object'
+      ? ctx.intentSourceContext
+      : null;
+  if (String(isc?.pendingImageDataUrl ?? '').trim()) return true;
+  if (isc?.assetIngestResult || isc?.storeCandidate || isc?.documentExtraction || isc?.cardExtraction) {
+    return true;
+  }
+  if (ctx.hasSessionPendingExtraction) return true;
+  const sessionId = String(ctx.sessionId ?? '').trim();
+  if (sessionId && peekPendingDocumentExtraction(sessionId)) return true;
+  return false;
+}
+
+/**
+ * Explicit create-store from upload (message wording or Ask-panel assetAction handoff).
+ * @param {{ userMessage?: string; intentSourceContext?: Record<string, unknown> | null }} [opts]
+ */
+export function isExplicitCreateStoreFromUploadContext(opts = {}) {
+  const msg = String(opts.userMessage ?? '').trim();
+  if (isAttachmentOnlyPlaceholderMessage(msg)) return false;
+  if (hasExplicitUploadCreateStoreOrWebsiteIntent(msg)) return true;
+  const isc =
+    opts.intentSourceContext && typeof opts.intentSourceContext === 'object'
+      ? opts.intentSourceContext
+      : null;
+  if (String(isc?.assetAction ?? '').trim() === 'create_store') return true;
+  if (String(isc?.fromAskSelection ?? '').trim() === 'create_store') return true;
+  return false;
+}
+
+/**
+ * Rule 1: document uploaded without clear chat intent → read + ask before next step.
+ * @param {string} message
+ * @param {{ attachments?: unknown[]; imageDataUrl?: string | null; intentSourceContext?: Record<string, unknown> | null; sessionId?: string | null; hasSessionPendingExtraction?: boolean }} [ctx]
+ */
+export function isUploadWithoutClearUserIntent(message, ctx = {}) {
+  if (!hasUploadAttachmentEvidence(ctx)) return false;
+  if (isGraphicOrPromotionIntent(message)) return false;
+  if (detectExplicitAssetIntent(message)) return false;
+  if (hasExplicitUploadCreateStoreOrWebsiteIntent(message)) return false;
+  return isAttachmentOnlyPlaceholderMessage(message) || Boolean(String(message ?? '').trim());
+}
+
+/**
  * Gates create_store pipeline _autoSubmit — uploads without explicit store wording stay manual.
  * @param {{ userMessage?: string, hasAttachment?: boolean, storeFormEnvelope?: unknown }} opts
  */
@@ -101,11 +186,86 @@ export function isAttachmentOnlyPlaceholderMessage(message) {
  * @param {{ attachments?: unknown[]; imageDataUrl?: string | null }} [ctx]
  */
 export function shouldRouteToAssetIntentDetection(message, ctx = {}) {
-  const hasAttachment =
-    (Array.isArray(ctx.attachments) && ctx.attachments.length > 0) ||
-    Boolean(ctx.imageDataUrl?.trim());
-  if (!hasAttachment) return false;
-  if (isGraphicOrPromotionIntent(message)) return false;
-  if (detectExplicitAssetIntent(message)) return false;
-  return isAttachmentOnlyPlaceholderMessage(message);
+  return isUploadWithoutClearUserIntent(message, ctx);
+}
+
+/**
+ * True when the user asked to create a store from an uploaded card/image/menu/document.
+ * @param {string} message
+ */
+export function detectCreateStoreFromUploadedAssetIntent(message) {
+  const msg = String(message ?? '').trim();
+  if (!msg || isAttachmentOnlyPlaceholderMessage(msg)) return false;
+  return CREATE_STORE_FROM_UPLOADED_ASSET_PATTERNS.some((pattern) => pattern.test(msg));
+}
+
+/**
+ * Recent upload evidence in the current intake turn (body, handoff context, or session stash).
+ * @param {object} [ctx]
+ */
+export function hasRecentUploadedAssetInContext(ctx = {}) {
+  return hasUploadAttachmentEvidence(ctx);
+}
+
+/**
+ * Route upload → analyze → StoreCandidate before any store-detail check.
+ * @param {object} opts
+ */
+export function shouldAnalyzeUploadedAssetForStoreCreation(opts = {}) {
+  const userMessage = String(opts.userMessage ?? '').trim();
+  const explicitCreate = isExplicitCreateStoreFromUploadContext({
+    userMessage,
+    intentSourceContext: opts.intentSourceContext,
+  });
+  const hasAsset = hasRecentUploadedAssetInContext(opts);
+  if (!explicitCreate && !opts.forceAssetStoreCreation) return false;
+  if (!hasAsset) return false;
+  return true;
+}
+
+/**
+ * Store-check tools are invalid when no store/draft exists and the user is creating from an upload.
+ * @param {string} tool
+ * @param {object} opts
+ */
+export function shouldBlockStoreCheckWithoutContext(tool, opts = {}) {
+  const t = String(tool ?? '').trim();
+  if (!STORE_CHECK_TOOLS_WITHOUT_CONTEXT.has(t)) return false;
+  const storeId = String(opts.storeId ?? '').trim();
+  const draftId = String(opts.draftId ?? '').trim();
+  if (storeId || draftId) return false;
+  if (!hasRecentUploadedAssetInContext(opts)) return false;
+  return (
+    detectCreateStoreFromUploadedAssetIntent(opts.userMessage) ||
+    opts.forceAssetStoreCreation === true
+  );
+}
+
+/**
+ * create_store must not return an empty draft when an upload still needs ingest/OCR.
+ * @param {{
+ *   userMessage?: string;
+ *   classificationTool?: string;
+ *   draftConfirmationSubmit?: boolean;
+ *   storeFormSubmit?: boolean;
+ *   hasMeaningfulExtraction?: boolean;
+ *   attachments?: unknown[];
+ *   imageDataUrl?: string | null;
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   sessionId?: string | null;
+ *   hasSessionPendingExtraction?: boolean;
+ * }} opts
+ */
+export function shouldDeferCreateStoreDraftForAssetIngest(opts = {}) {
+  if (opts.draftConfirmationSubmit || opts.storeFormSubmit) return false;
+  if (shouldRouteToAssetIntentDetection(opts.userMessage, opts)) return true;
+  if (shouldAnalyzeUploadedAssetForStoreCreation(opts)) return true;
+  if (
+    String(opts.classificationTool ?? '').trim() === 'create_store' &&
+    hasRecentUploadedAssetInContext(opts) &&
+    opts.hasMeaningfulExtraction === false
+  ) {
+    return true;
+  }
+  return false;
 }

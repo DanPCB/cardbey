@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCreateStoreDraftIntakeResponseFromUpload,
   resolveCreateStoreHandoffFields,
+  shouldDeferStorePipelineExecutionForIntake,
   shouldForceCreateStoreCheckpointDispatch,
+  shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../createStoreCheckpointDispatch.js';
 
 describe('resolveCreateStoreHandoffFields', () => {
@@ -29,6 +32,22 @@ describe('resolveCreateStoreHandoffFields', () => {
     });
     expect(fields.businessName).toBe('Melbourne Flower');
     expect(fields.locationTrim).toBe('Melbourne');
+  });
+
+  it('reads client cardExtraction from intentSourceContext', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from uploaded card',
+      intentSourceContext: {
+        cardExtraction: {
+          businessName: 'PTH Construction',
+          location: 'Melbourne',
+          vertical: 'Construction',
+        },
+      },
+    });
+    expect(fields.businessName).toBe('PTH Construction');
+    expect(fields.locationTrim).toBe('Melbourne');
+    expect(fields.businessType).toBe('Construction');
   });
 });
 
@@ -65,5 +84,74 @@ describe('shouldForceCreateStoreCheckpointDispatch', () => {
         storeCreateForm: { storeName: 'My Cafe' },
       }),
     ).toBe(false);
+  });
+
+  it('returns true when cardExtraction supplies business name', () => {
+    expect(
+      shouldForceCreateStoreCheckpointDispatch({
+        classification: { tool: 'create_store', parameters: { _autoSubmit: true } },
+        userMessage: 'Create store from uploaded card',
+        intentSourceContext: {
+          cardExtraction: { businessName: 'PTH Construction', location: 'Melbourne' },
+        },
+      }),
+    ).toBe(true);
+  });
+});
+
+describe('shouldSkipDynamicPlannerForUploadCreateStore', () => {
+  it('skips planner for upload create_store without resolved business name', () => {
+    expect(
+      shouldSkipDynamicPlannerForUploadCreateStore({
+        classification: { tool: 'create_store', parameters: { source: 'upload_ask_selection' } },
+        userMessage: 'Create store from uploaded card',
+        intentSourceContext: { fromAskSelection: 'create_store' },
+      }),
+    ).toBe(true);
+  });
+
+  it('does not skip when OCR supplies business name', () => {
+    expect(
+      shouldSkipDynamicPlannerForUploadCreateStore({
+        classification: { tool: 'create_store', parameters: { _autoSubmit: true } },
+        userMessage: 'Create store from uploaded card',
+        intentSourceContext: {
+          cardExtraction: { businessName: 'PTH Construction' },
+        },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('buildCreateStoreDraftIntakeResponseFromUpload', () => {
+  it('returns storeCreationDraft for upload create_store selection', async () => {
+    const body = await buildCreateStoreDraftIntakeResponseFromUpload({
+      userMessage: 'Create store from uploaded card',
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        cardExtraction: {
+          businessName: 'PTH Construction',
+          location: 'Melbourne',
+          vertical: 'Construction',
+        },
+      },
+    });
+    expect(body?.action).toBe('create_store');
+    expect(body?.storeCreationDraft?.draft?.name).toBe('PTH Construction');
+    expect(body?.missingFields).toBeDefined();
+    expect(typeof body?.response).toBe('string');
+  });
+});
+
+describe('shouldDeferStorePipelineExecutionForIntake', () => {
+  it('defers for intake v2 sources', () => {
+    expect(shouldDeferStorePipelineExecutionForIntake('intake_v2_fresh_store_draft')).toBe(true);
+    expect(shouldDeferStorePipelineExecutionForIntake('intake_v2_classified_checkpoint')).toBe(true);
+    expect(shouldDeferStorePipelineExecutionForIntake('intake_v2_unified')).toBe(true);
+  });
+
+  it('does not defer for non-intake runners', () => {
+    expect(shouldDeferStorePipelineExecutionForIntake('proactive_runway_create_store')).toBe(false);
+    expect(shouldDeferStorePipelineExecutionForIntake('')).toBe(false);
   });
 });

@@ -1,5 +1,39 @@
 [
   {
+    "id": "64e8bd5f-c818-4ada-a49a-b729c9101559",
+    "sourceType": "qr",
+    "rawPayload": "https://www.liverwell.org.au/liverline",
+    "imageAssetUrl": null,
+    "detectedText": null,
+    "detectedUrl": "https://www.liverwell.org.au/liverline",
+    "resolvedUrl": "https://www.liverwell.org.au/liverline",
+    "entityName": "LiverWell Australia",
+    "entityType": "service_organisation",
+    "category": "Health support service",
+    "address": null,
+    "phone": null,
+    "email": null,
+    "website": "https://www.liverwell.org.au/liverline",
+    "socialProfiles": [],
+    "coordinates": null,
+    "confidence": 0.9500000000000001,
+    "evidence": [
+      "domain:liverwell.org.au",
+      "scan_status:scanned"
+    ],
+    "cardbeyMatch": null,
+    "businessSeedMatch": null,
+    "discoveryCandidateMatch": {
+      "scanEventId": "scan-1"
+    },
+    "privacyRisk": "none",
+    "safetyFlags": [],
+    "scanEventId": "scan-1",
+    "userId": null,
+    "sessionId": null,
+    "createdAt": "2026-06-29T05:00:23.099Z"
+  },
+  {
     "id": "872360af-0e48-416b-9990-4dfbc5ca0329",
     "sourceType": "qr",
     "rawPayload": "https://www.liverwell.org.au/liverline",
