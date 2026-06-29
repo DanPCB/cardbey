@@ -41,13 +41,26 @@ describe('runIntakeAuthorityTurn', () => {
     expect(out.httpPayload?.response).not.toMatch(/Could you clarify what you would like to do/i);
   });
 
-  it('defers when forcedTool is set (chip selection)', async () => {
+  it('routes chip selection through decision loop when forcedTool is set', async () => {
     const out = await runIntakeAuthorityTurn({
       forcedTool: 'create_store',
       attachmentOnlyUpload: false,
       hasAttachment: true,
       imageDataUrl: 'data:image/png;base64,abc',
+      advisorInput: {
+        userMessage: 'Create store',
+        originalUserMessage: 'Create store',
+        hasAttachment: true,
+        imageDataUrl: 'data:image/png;base64,abc',
+        shortcutContext: { type: 'create_store' },
+      },
+      beliefLoaderOpts: {
+        sessionKey: 'sess-chip',
+        body: {
+          attachments: [{ type: 'image', uri: 'data:image/png;base64,abc', dataUrl: 'data:image/png;base64,abc' }],
+        },
+      },
     });
-    expect(out.handled).toBe(false);
+    expect(out.handled === true || Boolean(out.classification)).toBe(true);
   });
 });

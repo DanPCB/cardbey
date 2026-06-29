@@ -20,6 +20,7 @@ export function explicitStoreAdvisor(belief, input) {
     currentFlow: input.currentFlow,
     source: input.source,
     activeStoreId: belief.anchors.storeId,
+    allowInDecisionLoop: true,
   });
 
   if (fast?.tool === 'create_store') {

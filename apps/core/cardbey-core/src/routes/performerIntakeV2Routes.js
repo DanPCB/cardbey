@@ -155,7 +155,8 @@ import {
   recordIntakeBypass,
   INTAKE_BYPASS_IDS,
 } from '../lib/decision/index.js';
-import { runIntakeAuthorityTurn } from '../lib/intake/intakeV2AuthorityTurn.js';
+import { runIntakeAuthorityTurn, runIntakeAuthorityGateEarly } from '../lib/intake/intakeV2AuthorityTurn.js';
+import { isDecisionLoopEnabled } from '../config/features.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
 const STORE_CONTEXT_FREE_TOOLS = CONTEXT_FREE_TOOLS;
@@ -1541,7 +1542,122 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const userMessage = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const locale = resolveIntakeLocale(body.locale ?? req.headers?.['x-locale'], userMessage);
 
-  if (freshStoreMission) {
+  /** Set when top-of-handler decision loop authority runs (Phase 4). */
+  let decisionLoopEarlyRan = false;
+  /** @type {Awaited<ReturnType<typeof runIntakeAuthorityTurn>> | null} */
+  let decisionLoopEarlyResult = null;
+
+  if (isDecisionLoopEnabled()) {
+    const earlyConversationSessionId =
+      String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+      null;
+    const earlySessionKey = resolveIntakeAssetSessionKey({
+      conversationSessionId: earlyConversationSessionId,
+      sessionId: earlyConversationSessionId,
+      userId: String(req.user?.id ?? body?.userId ?? '').trim() || null,
+      guestSessionId: req.guestSessionId ?? null,
+    });
+
+    let earlyIntentSourceContext =
+      body.intentSourceContext && typeof body.intentSourceContext === 'object'
+        ? body.intentSourceContext
+        : null;
+
+    if (!resolveIntakeImageRefForOcr(body)) {
+      const pendingUploadImage = String(
+        earlyIntentSourceContext?.pendingImageDataUrl ??
+          earlyIntentSourceContext?.imageDataUrl ??
+          '',
+      ).trim();
+      if (pendingUploadImage.length > 50) {
+        body.imageDataUrl = pendingUploadImage;
+        if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+          body.attachments = [{ type: 'image', dataUrl: pendingUploadImage, uri: pendingUploadImage }];
+        }
+      }
+    }
+
+    const earlyUploadCtx = buildUploadAttachmentGuardCtx({
+      attachments: body.attachments,
+      imageDataUrl: resolveIntakeImageRefForOcr(body) ?? earlyIntentSourceContext?.pendingImageDataUrl ?? null,
+      intentSourceContext: earlyIntentSourceContext,
+      sessionId: earlySessionKey,
+    });
+    const earlyAttachmentOnly = isUploadOnlyAskTurn(userMessage, earlyUploadCtx);
+    const earlyHasAttachment = hasIntakeImageAttachment(body);
+
+    const earlySelection =
+      body.intakeV2Selection && typeof body.intakeV2Selection === 'object'
+        ? body.intakeV2Selection
+        : null;
+    const earlyForcedTool = earlySelection
+      ? String(earlySelection.selectedTool ?? '').trim()
+      : '';
+    const earlyShortcutContext =
+      earlyForcedTool === 'create_store'
+        ? { type: 'create_store' }
+        : earlyForcedTool
+          ? { type: earlyForcedTool }
+          : null;
+
+    try {
+      const authorityTurn = await runIntakeAuthorityGateEarly({
+        attachmentOnlyUpload: earlyAttachmentOnly,
+        hasAttachment: earlyHasAttachment,
+        imageDataUrl: resolveIntakeImageRefForOcr(body),
+        freshStoreMission,
+        performerMode:
+          String(body.mode ?? req.headers?.['x-performer-mode'] ?? '').trim().toLowerCase() === 'manual'
+            ? 'manual'
+            : null,
+        beliefLoaderOpts: {
+          req,
+          sessionKey: earlySessionKey,
+          sessionId: earlyConversationSessionId ?? earlySessionKey,
+          currentContext:
+            body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {},
+          intentSourceContext: {
+            ...(earlyIntentSourceContext ?? {}),
+            ...(earlyAttachmentOnly ? { uploadedAssetPending: true } : {}),
+          },
+          body,
+        },
+        advisorInput: {
+          userMessage,
+          originalUserMessage: userMessage,
+          attachments: body.attachments,
+          imageDataUrl: resolveIntakeImageRefForOcr(body),
+          hasAttachment: earlyHasAttachment,
+          intentSourceContext: earlyIntentSourceContext,
+          shortcutContext: earlyShortcutContext,
+          forceIntent: body.forceIntent ?? earlyIntentSourceContext?.forceIntent ?? null,
+          currentFlow: earlyIntentSourceContext?.currentFlow ?? null,
+          source: body.intentSource ?? earlyIntentSourceContext?.source ?? null,
+        },
+      });
+
+      decisionLoopEarlyRan = true;
+      decisionLoopEarlyResult = authorityTurn;
+
+      if (authorityTurn.handled && authorityTurn.httpPayload) {
+        return res.json({
+          ...authorityTurn.httpPayload,
+          executionPath: 'decision_loop',
+        });
+      }
+    } catch (error) {
+      console.error('[INTAKE] Decision loop error:', error);
+      return res.status(500).json({
+        ok: false,
+        error: 'decision_loop_error',
+        message: 'Could not process your request. Please try again.',
+      });
+    }
+  } else {
+    console.log('[INTAKE] Decision loop authority OFF - using legacy path');
+  }
+
+  if (freshStoreMission && !isDecisionLoopEnabled()) {
     diagLog(intakeDiag, '→ handleFreshStoreCreationDraftSubmit (fast path)');
     const fastHandled = await handleFreshStoreCreationDraftSubmit(req, res, {
       body,
@@ -2156,6 +2272,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   let decisionLoopSkipPlanners = false;
   let intakeShortcutContext = null;
 
+  if (decisionLoopEarlyResult?.classification) {
+    classification = decisionLoopEarlyResult.classification;
+    skipReasoningPipeline = true;
+    decisionLoopSkipPlanners = Boolean(decisionLoopEarlyResult.skipPlanners);
+  }
+
   let heroGenTelemetry = {
     heroAutoGenerateTriggered: false,
     heroGenerationReady: false,
@@ -2727,8 +2849,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  // ── Decision loop authority (sole classifier) ─────────────────────────────
-  if (!forcedTool && !skipReasoningPipeline) {
+  // ── Decision loop authority (sole classifier) — skip if early gate already ran ──
+  if (!decisionLoopEarlyRan && !forcedTool && !skipReasoningPipeline) {
     const authorityTurn = await runIntakeAuthorityTurn({
       forcedTool,
       freshStoreMission,

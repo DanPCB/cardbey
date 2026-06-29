@@ -82,6 +82,11 @@ export const Features = {
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
+/** Whether the intake decision loop is the sole classifier authority. */
+export function isDecisionLoopEnabled() {
+  return Features.decisionLoop.enabled;
+}
+
 export function snapshotFeatures() {
   return {
     decisionLoop: {

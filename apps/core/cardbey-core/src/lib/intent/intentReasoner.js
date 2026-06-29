@@ -27,6 +27,7 @@ import {
 import { detectPromotionGraphicIntent } from '../intake/intakeSystemShortcuts.js';
 import { isLoyaltyIntent } from '../intake/intentDetectors.js';
 import { tryStoreCreateFastPath } from './storeCreateFastPath.js';
+import { isDecisionLoopEnabled } from '../../config/features.js';
 import { parseNaturalLanguageStoreCreation } from '../intake/storeCreationDraft.js';
 import { LearningIntegration, isLearningLayerEnabled } from '../learning/learningIntegration.js';
 
@@ -653,7 +654,7 @@ export class IntentReasoner {
       });
     }
 
-    if (!attachmentOnlyUpload && shortcutContext?.type !== 'create_store') {
+    if (!attachmentOnlyUpload && shortcutContext?.type !== 'create_store' && !isDecisionLoopEnabled()) {
       const storeFast = tryStoreCreateFastPath(rawText, {
         storeCreateForm: parsedInput.intakeMeta?.storeCreateForm,
         forceIntent: parsedInput.intakeMeta?.forceIntent,

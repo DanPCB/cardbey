@@ -1,3 +1,5 @@
+import { isDecisionLoopEnabled } from '../../config/features.js';
+
 /**
  * Fast-path heuristics — skip LLM reasoner for trivial intake messages.
  */
@@ -50,6 +52,10 @@ export function isSimpleGreetingText(text) {
  * @returns {boolean}
  */
 export function shouldUseIntentFastPath(input = {}, classifyOpts = {}) {
+  if (isDecisionLoopEnabled()) {
+    return false;
+  }
+
   if (String(process.env.DISABLE_LLM_REASONER_FAST_PATH ?? '').trim().toLowerCase() === 'true') {
     return false;
   }

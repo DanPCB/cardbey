@@ -42,10 +42,6 @@ export async function runIntakeAuthorityTurn(ctx = {}) {
     return { handled: false };
   }
 
-  if (ctx.forcedTool || ctx.freshStoreMission || ctx.draftConfirmationSubmit || ctx.storeCreateFormPayload) {
-    return { handled: false };
-  }
-
   if (ctx.performerMode === 'manual') {
     return { handled: false };
   }
@@ -201,4 +197,35 @@ export async function runIntakeAuthorityTurn(ctx = {}) {
     telExtra: { ...telBase, result: 'chat' },
     skipPlanners: true,
   };
+}
+
+/**
+ * Top-of-handler authority gate — routes every intake turn through the decision loop when enabled.
+ * @param {object} ctx
+ * @returns {Promise<ReturnType<typeof runIntakeAuthorityTurn>>}
+ */
+export async function runIntakeAuthorityGateEarly(ctx = {}) {
+  if (!Features.decisionLoop.enabled) {
+    return { handled: false };
+  }
+
+  console.log('[INTAKE] Decision loop authority ON - routing to loop');
+  console.log('[INTAKE] Message:', ctx.advisorInput?.userMessage || '(no message)');
+  console.log('[INTAKE] Has image:', ctx.hasAttachment === true);
+
+  try {
+    const result = await runIntakeAuthorityTurn(ctx);
+    if (result.handled && result.httpPayload) {
+      console.log('[INTAKE] Loop result:', {
+        nextStep: result.classification?._decisionNextStep ?? result.httpPayload?.nextStep ?? null,
+        tool: result.classification?.tool ?? result.httpPayload?.action ?? null,
+        action: result.httpPayload?.action ?? null,
+        hasDraft: Boolean(result.httpPayload?.draft),
+      });
+    }
+    return result;
+  } catch (error) {
+    console.error('[INTAKE] Decision loop error:', error);
+    throw error;
+  }
 }

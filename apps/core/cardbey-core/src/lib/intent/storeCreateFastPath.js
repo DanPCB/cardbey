@@ -1,3 +1,5 @@
+import { isDecisionLoopEnabled } from '../../config/features.js';
+
 /**
  * Deterministic store-creation intent detection — runs before LLM classification
  * and blocks service_request misroutes for store setup phrases.
@@ -170,6 +172,10 @@ export function shouldBlockServiceRequestForStoreCreate(userMessage, opts = {}) 
  * @returns {object|null}
  */
 export function tryStoreCreateFastPath(userMessage, opts = {}) {
+  if (isDecisionLoopEnabled() && !opts.allowInDecisionLoop) {
+    return null;
+  }
+
   const msg = String(userMessage ?? '').trim();
   if (!msg && !opts.storeCreateForm) return null;
 
