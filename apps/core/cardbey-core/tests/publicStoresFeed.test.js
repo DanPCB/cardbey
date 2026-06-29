@@ -93,6 +93,41 @@ describe('GET /api/public/stores/feed', () => {
     expect(ids).toContain(productStore.id);
   });
 
+  it('orders by publishedAt desc so a recently published store ranks above newer drafts', async () => {
+    const recentlyPublished = await prisma.business.create({
+      data: {
+        userId: testUser.id,
+        name: 'Glamshell Beauty',
+        type: 'beauty',
+        slug: 'glamshell-beauty',
+        description: 'Recently published',
+        isActive: true,
+        createdAt: new Date('2026-01-15T10:00:00.000Z'),
+        publishedAt: new Date('2026-06-29T12:00:00.000Z'),
+      },
+    });
+
+    await prisma.business.create({
+      data: {
+        userId: testUser.id,
+        name: 'Older Published Cafe',
+        type: 'cafe',
+        slug: 'older-published-cafe',
+        description: 'Published earlier',
+        isActive: true,
+        createdAt: new Date('2026-06-28T10:00:00.000Z'),
+        publishedAt: new Date('2026-06-01T08:00:00.000Z'),
+      },
+    });
+
+    const res = await testRequest
+      .get('/api/public/stores/feed?limit=20')
+      .expect(200);
+
+    expect(res.body.items[0]?.id).toBe(recentlyPublished.id);
+    expect(res.body.items[0]?.publishedAt).toBeTruthy();
+  });
+
   it('returns each storeId at most once when duplicate published businesses share identity', async () => {
     await prisma.business.create({
       data: {

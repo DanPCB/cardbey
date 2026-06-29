@@ -206,9 +206,17 @@ export function toPublicStore(business, options = {}) {
       })
     : [];
 
+  const publishedAt =
+    business.publishedAt instanceof Date
+      ? business.publishedAt.toISOString()
+      : typeof business.publishedAt === 'string'
+        ? business.publishedAt
+        : null;
+
   return {
     ...base,
     products,
+    ...(publishedAt ? { publishedAt } : {}),
   };
 }
 

@@ -122,10 +122,18 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
         locationLabel: locationFromProjection?.displayLabel ?? null,
       };
 
+  const publishedAtIso =
+    business?.publishedAt instanceof Date
+      ? business.publishedAt.toISOString()
+      : typeof business?.publishedAt === 'string'
+        ? business.publishedAt
+        : projection.publishedAt ?? null;
+
   return {
     id: projection.businessId ?? projection.storeId,
     name,
     slug: projection.slug,
+    ...(publishedAtIso ? { publishedAt: publishedAtIso } : {}),
     description,
     tagline,
     type: businessType,

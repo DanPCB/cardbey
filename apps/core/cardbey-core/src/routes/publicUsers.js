@@ -21,6 +21,7 @@ import {
   findPublicBusinessByUnique,
   publicStoreListWhere,
 } from '../services/publishedArtifactProjection/findPublicBusinesses.js';
+import { getBusinessColumnSupport } from '../lib/businessColumnCapabilities.js';
 import { getPublishedBusinessArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { publicWebBase } from '../utils/publicWebBase.js';
 import { parseSocialLinks } from '../lib/socialLinks.js';
@@ -139,7 +140,8 @@ function businessTypeMatchesCategory(businessType, category) {
  * No authentication required.
  *
  * Query: limit (default 10), cursor (opaque), category (optional: food|products|services)
- * Order: createdAt DESC, id DESC (tie-break)
+ * Order: publishedAt DESC, updatedAt DESC, id DESC (tie-break) when publishedAt column exists;
+ *         otherwise createdAt DESC, id DESC.
  * Response: { items: PublicStore[], nextCursor: string | null }
  */
 router.get('/stores/feed', optionalAuth, async (req, res, next) => {
@@ -147,11 +149,14 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
     const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 10), 50);
     const cursorRaw = typeof req.query.cursor === 'string' ? req.query.cursor : null;
     const categoryRaw = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : null;
+    const supportsPublishedAt = getBusinessColumnSupport().publishedAt;
     let cursor = null;
     if (cursorRaw) {
       try {
         const decoded = JSON.parse(Buffer.from(cursorRaw, 'base64').toString('utf8'));
-        if (decoded.createdAt && decoded.id) {
+        if (supportsPublishedAt && decoded.publishedAt && decoded.id) {
+          cursor = { publishedAt: new Date(decoded.publishedAt), id: decoded.id };
+        } else if (!supportsPublishedAt && decoded.createdAt && decoded.id) {
           cursor = { createdAt: new Date(decoded.createdAt), id: decoded.id };
         }
       } catch {
@@ -160,7 +165,13 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
     }
 
     const take = limit + 1;
-    const orderBy = [{ createdAt: 'desc' }, { id: 'desc' }];
+    const orderBy = supportsPublishedAt
+      ? [
+          { publishedAt: { sort: 'desc', nulls: 'last' } },
+          { updatedAt: 'desc' },
+          { id: 'desc' },
+        ]
+      : [{ createdAt: 'desc' }, { id: 'desc' }];
     const where = publicStoreListWhere();
 
     // Fetch extra rows when filtering by category so we have enough after in-memory keyword filter (no fallback to all stores)
@@ -198,10 +209,20 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
     if (hasMore && last) {
       const lastBusiness = businesses[limit - 1];
       nextCursor = Buffer.from(
-        JSON.stringify({
-          createdAt: lastBusiness.createdAt.toISOString(),
-          id: lastBusiness.id,
-        })
+        JSON.stringify(
+          supportsPublishedAt
+            ? {
+                publishedAt:
+                  lastBusiness.publishedAt?.toISOString?.() ??
+                  lastBusiness.updatedAt?.toISOString?.() ??
+                  lastBusiness.createdAt.toISOString(),
+                id: lastBusiness.id,
+              }
+            : {
+                createdAt: lastBusiness.createdAt.toISOString(),
+                id: lastBusiness.id,
+              },
+        ),
       ).toString('base64');
     }
 
