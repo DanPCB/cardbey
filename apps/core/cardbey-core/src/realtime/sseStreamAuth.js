@@ -1,6 +1,7 @@
 /**
- * SSE stream authentication — env stream key, dev admin key, or session JWT.
+ * SSE stream authentication — env stream key, dev admin key, session JWT, or agent-chat streamToken.
  * EventSource cannot send Authorization headers; JWT may be passed as ?token=.
+ * agent-chat: streamToken + missionId verified upstream by verifyAgentChatStreamToken middleware.
  */
 
 import jwt from 'jsonwebtoken';
@@ -46,6 +47,9 @@ export function sseStreamAuthHint(error) {
   if (error === 'invalid_jwt') {
     return 'Session expired or invalid. Sign in again to reconnect live device events.';
   }
+  if (error === 'mission_id_required') {
+    return 'missionId is required for agent-chat stream.';
+  }
   return 'Valid stream token or SSE_STREAM_KEY required.';
 }
 
@@ -60,6 +64,19 @@ export function resolveSseStreamAuth(req) {
   const rawKey = String(req.query?.key ?? 'admin').trim() || 'admin';
   const tokenParam = typeof req.query?.token === 'string' ? req.query.token.trim() : '';
   const jwtToken = tokenParam || (looksLikeJwt(rawKey) ? rawKey : '');
+
+  const missionId =
+    typeof req.query?.missionId === 'string' && req.query.missionId.trim()
+      ? req.query.missionId.trim()
+      : null;
+
+  // Mission console SSE — streamToken verified by verifyAgentChatStreamToken before handleSse.
+  if (rawKey === 'agent-chat') {
+    if (!missionId) {
+      return { ok: false, error: 'mission_id_required' };
+    }
+    return { ok: true, clientKey: 'agent-chat', authMode: 'stream-token', missionId };
+  }
 
   const envKey = process.env.SSE_STREAM_KEY || process.env.TV_STREAM_KEY;
   if (envKey && rawKey === envKey) {

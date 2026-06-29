@@ -21,6 +21,7 @@
 
 import { randomUUID } from 'crypto';
 import { isBotSseRequest } from '../lib/sseBotGuard.js';
+import { applySseCorsHeaders } from '../config/cors.js';
 import { resolveSseStreamAuth, sseStreamAuthHint } from './sseStreamAuth.js';
 
 /**
@@ -58,6 +59,7 @@ export function handleSse(req, res) {
       ip: req.headers['cf-connecting-ip'] ?? req.ip,
       origin: req.headers.origin ?? 'none',
     });
+    applySseCorsHeaders(req, res);
     res.status(403).json({
       ok: false,
       error: 'forbidden',
@@ -75,6 +77,7 @@ export function handleSse(req, res) {
       ip: req.headers['cf-connecting-ip'] ?? req.ip,
       origin: req.headers.origin ?? 'none',
     });
+    applySseCorsHeaders(req, res);
     res.status(403).json({
       ok: false,
       error: auth.error,

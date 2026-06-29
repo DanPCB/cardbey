@@ -6,6 +6,7 @@
  */
 
 import jwt from 'jsonwebtoken';
+import { applySseCorsHeaders } from '../config/cors.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-this';
 const STREAM_TOKEN_EXPIRES_IN = '5m';
@@ -79,6 +80,7 @@ export function verifyAgentChatStreamToken(req, res, next) {
   if (result.ok) {
     return next();
   }
+  applySseCorsHeaders(req, res);
   res.status(result.status || 403).json({
     ok: false,
     code: result.code || 'FORBIDDEN',

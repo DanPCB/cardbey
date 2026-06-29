@@ -151,6 +151,31 @@ export const corsOptions = {
 };
 
 /**
+ * CORS headers for /api/stream SSE (global cors() middleware is skipped for long-lived SSE).
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+export function applySseCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  if (process.env.NODE_ENV !== 'production') {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  } else if (origin && isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'false');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, Cache-Control, Last-Event-ID, Authorization',
+  );
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Vary', 'Origin');
+}
+
+/**
  * CORS options for SSE routes (credentials not needed)
  * Includes headers that EventSource may send
  * Uses permissive CORS policy - allows any origin for SSE
