@@ -28,7 +28,7 @@ describe('buildOcrHintsFromImageText', () => {
 });
 
 describe('shouldRouteIngestToStoreCreationDraft', () => {
-  it('routes business_card uploads with extracted name to store draft', () => {
+  it('does not route business_card without explicit create intent (rule 1 — ask first)', () => {
     const ingestResult = {
       ok: true,
       entityContext: { documentType: 'business_card', detectedBusinessName: 'ABC Bakery' },
@@ -43,8 +43,27 @@ describe('shouldRouteIngestToStoreCreationDraft', () => {
         assetExtraction,
         explicitCreateStore: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(hasMeaningfulAssetExtraction(assetExtraction)).toBe(true);
+  });
+
+  it('routes business_card to store draft when user explicitly asked to create store (rule 2)', () => {
+    const ingestResult = {
+      ok: true,
+      entityContext: { documentType: 'business_card', detectedBusinessName: 'ABC Bakery' },
+    };
+    const assetExtraction = buildAssetExtractionInput({
+      ingestResult,
+      imageContext: { extractedText: SAMPLE_CARD },
+    });
+    expect(
+      shouldRouteIngestToStoreCreationDraft({
+        ingestResult,
+        assetExtraction,
+        explicitCreateStore: true,
+        userMessage: 'Create a store from this document',
+      }),
+    ).toBe(true);
   });
 });
 
@@ -101,6 +120,16 @@ describe('buildStoreCreationDraft from asset', () => {
     expect(text).toContain('ABC Bakery');
     expect(text).toContain('0400 123 456');
     expect(text).toContain('Ready to create your store?');
+  });
+
+  it('returns pending copy when asset draft has no extracted fields', () => {
+    const bundle = buildStoreCreationDraft({
+      userMessage: '(Image attached)',
+      classification: { parameters: { source: 'business_card' } },
+      assetExtraction: { source: 'business_card', documentType: 'business_card' },
+    });
+    const text = formatAssetStoreDraftResponse(bundle, { documentType: 'business_card' });
+    expect(text).toBe("I'm reading the uploaded card now...");
   });
 });
 

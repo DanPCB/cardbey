@@ -1,6 +1,6 @@
 [
   {
-    "id": "f6f655b5-fa01-4839-b0f7-fb672143d632",
+    "id": "aee9a4b6-42a0-4a50-9dfd-103d19addf5c",
     "seedId": "gen-store-1",
     "previousStatus": "seeded_pending_qa",
     "nextStatus": "seeded_claimable",
@@ -8,7 +8,7 @@
     "reviewerId": {
       "actorId": "qa-1"
     },
-    "timestamp": "2026-06-20T14:28:25.640Z",
+    "timestamp": "2026-06-29T04:56:32.618Z",
     "reason": null,
     "canonicalSeedId": null
   }

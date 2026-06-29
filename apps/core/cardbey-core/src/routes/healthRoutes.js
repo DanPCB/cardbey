@@ -18,6 +18,8 @@ import {
   buildExternalCapabilityStatus,
   buildLegacyFeatureStatus,
 } from '../lib/external/externalCapabilityRegistry.js';
+import { getDecisionLoopHealth } from '../lib/decision/decisionLoopHealth.js';
+import { snapshotFeatures } from '../config/features.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -68,13 +70,24 @@ router.get('/storage/status', (req, res) => {
  * Otherwise returns simple format: { ok: true, env: "...", timestamp: "..." }
  */
 router.get('/health', async (req, res) => {
+  const decisionLoopHealth = getDecisionLoopHealth();
+
   // Simple health check for device players (default) — no DB, no logging spam
   if (req.query.full !== 'true') {
     res.setHeader('Cache-Control', 'no-store');
     return res.json({
       ok: true,
+      status: 'ok',
       env: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version,
+      features: snapshotFeatures(),
+      decisionLoop: {
+        enabled: decisionLoopHealth.enabled,
+        running: decisionLoopHealth.running,
+      },
+      belief: decisionLoopHealth.belief,
     });
   }
 
@@ -120,6 +133,13 @@ router.get('/health', async (req, res) => {
 
     const storage = getStorageStatus();
 
+    let intakeDecisionLoopAuthority = false;
+    try {
+      intakeDecisionLoopAuthority = decisionLoopHealth.enabled;
+    } catch {
+      intakeDecisionLoopAuthority = false;
+    }
+
     const healthData = {
       version,
       uptimeSec,
@@ -130,6 +150,16 @@ router.get('/health', async (req, res) => {
       sse: sseStatus,
       oauth: oauthStatus,
       storage,
+      features: snapshotFeatures(),
+      intake: {
+        decisionLoopAuthority: intakeDecisionLoopAuthority,
+        decisionLoop: {
+          enabled: decisionLoopHealth.enabled,
+          running: decisionLoopHealth.running,
+          lastDecision: decisionLoopHealth.lastDecision,
+        },
+        belief: decisionLoopHealth.belief,
+      },
     };
     
     fullHealthCache = healthData;

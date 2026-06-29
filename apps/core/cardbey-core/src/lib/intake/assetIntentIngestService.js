@@ -307,3 +307,26 @@ export function buildAssetIntentDetectionClassification(message, context = {}) {
     _fastPath: 'asset_intent_detection',
   };
 }
+
+/**
+ * Classify "create store from uploaded card" → analyze asset first (alias capability).
+ * Executor remains ingest_asset_for_intent_detection; routing must not hit store-check tools.
+ * @param {string} message
+ * @param {object} [context]
+ */
+export function buildAnalyzeUploadedAssetForStoreCreationClassification(message, context = {}) {
+  const base = buildAssetIntentDetectionClassification(message, {
+    ...context,
+    source: context.source ?? 'uploaded_asset_store_creation',
+  });
+  return {
+    ...base,
+    confidence: 0.98,
+    parameters: {
+      ...base.parameters,
+      userPrompt: String(message ?? '').trim() || base.parameters?.userPrompt || null,
+      assetAction: 'create_store',
+    },
+    _fastPath: 'analyze_uploaded_asset_for_store_creation',
+  };
+}

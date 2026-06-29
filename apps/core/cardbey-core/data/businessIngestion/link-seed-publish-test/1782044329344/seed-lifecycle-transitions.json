@@ -1,0 +1,16 @@
+[
+  {
+    "id": "e6081d36-29b4-4407-9e53-5d2808a2c73a",
+    "seedId": "gen-store-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-21T12:18:49.364Z"
+  }
+]

@@ -45,8 +45,13 @@ describe('GET /api/health (contract)', () => {
     const res = await request(appWithHealth()).get('/api/health');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/json/);
-    expect(res.body).toMatchObject({ ok: true });
+    expect(res.body).toMatchObject({ ok: true, status: 'ok' });
     expect(typeof res.body.timestamp).toBe('string');
+    expect(res.body.decisionLoop).toMatchObject({
+      enabled: expect.any(Boolean),
+      running: expect.any(Boolean),
+    });
+    expect(res.body.features?.decisionLoop).toBeDefined();
   });
 
   it('returns 200 with full payload when ?full=true', async () => {
@@ -55,6 +60,10 @@ describe('GET /api/health (contract)', () => {
     expect(res.body.api).toMatchObject({ ok: true });
     expect(res.body.database).toMatchObject({ ok: true });
     expect(res.body.sse).toMatchObject({ path: '/api/stream' });
+    expect(res.body.intake?.decisionLoop).toMatchObject({
+      enabled: expect.any(Boolean),
+      running: expect.any(Boolean),
+    });
   });
 
   it('GET /api/ping returns ok', async () => {

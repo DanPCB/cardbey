@@ -1,0 +1,34 @@
+[
+  {
+    "id": "2ad0b230-0c05-4a99-bf23-a4e78dd94ff0",
+    "seedId": "activate-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-29T04:57:16.782Z"
+  },
+  {
+    "id": "7d143e76-f55e-44f3-8c93-3b318b8c06bb",
+    "seedId": "activate-1",
+    "fromStatus": "verified_owner",
+    "toStatus": "active",
+    "lifecycleStage": "activated_store",
+    "action": "activation_confirmed",
+    "actorId": "owner-1",
+    "actorType": "user",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {
+      "storeId": "store-runway-1",
+      "draftId": "draft-1",
+      "runtimeAuthority": true
+    },
+    "createdAt": "2026-06-29T04:57:16.803Z"
+  }
+]

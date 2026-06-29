@@ -48,6 +48,8 @@ import {
   attachGeneratedStore,
   candidateToBuildStorePayload,
 } from '../lib/businessDiscovery/index.js';
+import { runDiscoverySearch } from '../lib/discoverySearch/discoverySearchService.js';
+import { DISCOVERY_ENTITY_TYPES } from '../lib/discoverySearch/discoverySearchTypes.js';
 import {
   createBuildStoreJob,
   runBuildStoreJob,
@@ -114,6 +116,48 @@ async function resolveClaimDraftStoreId(store, userId) {
   const draft = await UnclaimedStoreService.createDraftFromUnclaimed(store, userId);
   return draft.id;
 }
+
+function parseDiscoveryEntityTypes(raw) {
+  if (!raw) return undefined;
+  if (Array.isArray(raw)) return raw;
+  return String(raw)
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((t) => DISCOVERY_ENTITY_TYPES.includes(t));
+}
+
+function parseDiscoveryFloatOrNull(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** GET /api/discovery/search?query=&entityTypes=&location=&category=&page=&suggest= */
+router.get('/search', optionalAuth, async (req, res, next) => {
+  try {
+    const query = String(req.query.query ?? req.query.q ?? '').trim();
+    const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+    const limit = Math.min(Math.max(1, parseInt(String(req.query.limit ?? '20'), 10) || 20), 50);
+    const suggest = req.query.suggest === 'true' || req.query.suggest === '1';
+
+    const result = await runDiscoverySearch({
+      query,
+      entityTypes: parseDiscoveryEntityTypes(req.query.entityTypes ?? req.query.type),
+      location: typeof req.query.location === 'string' ? req.query.location : undefined,
+      category: typeof req.query.category === 'string' ? req.query.category : undefined,
+      page,
+      limit,
+      lat: parseDiscoveryFloatOrNull(req.query.lat),
+      lng: parseDiscoveryFloatOrNull(req.query.lng),
+      suggest,
+    });
+
+    return res.status(200).json({ ok: true, ...result });
+  } catch (error) {
+    console.error('[discovery/search]', error);
+    next(error);
+  }
+});
 
 /** GET /api/discovery/business/search?q=&location= */
 router.get('/business/search', optionalAuth, async (req, res, next) => {

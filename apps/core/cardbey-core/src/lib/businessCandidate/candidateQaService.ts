@@ -102,6 +102,13 @@ export async function approveCandidateForClaiming(params: {
     metadata: { seedId: seed.id, reviewerReason: params.reason ?? null },
   });
 
+  try {
+    const { enrichCandidateForPublicDisplay } = await import('./candidateEnrichmentPipeline.js');
+    await enrichCandidateForPublicDisplay({ ...updated, seedId: seed.id });
+  } catch (err) {
+    console.warn('[candidateQa] enrichment after approve failed:', err);
+  }
+
   return {
     ok: true,
     candidate: updated,
@@ -133,4 +140,56 @@ export async function rejectCandidateQa(params: {
   });
 
   return { ok: true, candidate: updated, message: 'Candidate rejected' };
+}
+
+export async function bulkApproveCandidatesForClaiming(params: {
+  candidateIds?: string[];
+  batchId?: string | null;
+  reviewerId: string;
+  reason?: string | null;
+}): Promise<{
+  ok: boolean;
+  approved: number;
+  failed: Array<{ id: string; message: string }>;
+  message: string;
+}> {
+  let targets: BusinessCandidateRecord[] = [];
+
+  if (params.candidateIds?.length) {
+    for (const id of params.candidateIds) {
+      const row = await getBusinessCandidateById(id);
+      if (row && isPendingQaCandidate(row)) targets.push(row);
+    }
+  } else if (params.batchId) {
+    targets = await listCandidatesPendingQa(params.batchId);
+  } else {
+    targets = await listCandidatesPendingQa(null);
+  }
+
+  if (!targets.length) {
+    return { ok: false, approved: 0, failed: [], message: 'No pending QA candidates to approve' };
+  }
+
+  const failed: Array<{ id: string; message: string }> = [];
+  let approved = 0;
+
+  for (const candidate of targets) {
+    const result = await approveCandidateForClaiming({
+      candidateId: candidate.id,
+      reviewerId: params.reviewerId,
+      reason: params.reason ?? 'Bulk QA approved — real local pilot batch',
+    });
+    if (result.ok) {
+      approved += 1;
+    } else {
+      failed.push({ id: candidate.id, message: result.message });
+    }
+  }
+
+  return {
+    ok: approved > 0,
+    approved,
+    failed,
+    message: `Approved ${approved} of ${targets.length} candidate(s)`,
+  };
 }

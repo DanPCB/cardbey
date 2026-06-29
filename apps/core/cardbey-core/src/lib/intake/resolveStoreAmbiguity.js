@@ -71,6 +71,30 @@ export async function tryAutoResolveSingleStoreId(userId) {
 }
 
 /**
+ * Verify that a store id still belongs to the user and is active.
+ *
+ * @param {string | null | undefined} userId
+ * @param {string | null | undefined} storeId
+ * @returns {Promise<boolean>}
+ */
+export async function validateUserStoreId(userId, storeId) {
+  const uid = String(userId ?? '').trim();
+  const sid = String(storeId ?? '').trim();
+  if (!uid || !sid) return false;
+
+  try {
+    const prisma = getPrismaClient();
+    const store = await prisma.business.findFirst({
+      where: { id: sid, userId: uid, isActive: true },
+      select: { id: true },
+    });
+    return Boolean(store?.id);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Checks if the user has multiple stores and the intent requires a specific store.
  *
  * @param {{

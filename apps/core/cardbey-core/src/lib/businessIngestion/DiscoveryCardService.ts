@@ -12,7 +12,7 @@ import {
   type PublishedStoreIdentity,
 } from './publishedStoreSeedMatch.js';
 import { buildPublicBusinessSlug } from './businessPublicSlug.js';
-import { resolveDiscoveryCardHero } from './DiscoveryCardHeroResolver.js';
+import { resolvePublicMediaForSeed } from '../businessCandidate/media/resolvePublicCandidateMedia.js';
 import {
   DISCOVERED_BUSINESS_BADGE,
   publicLifecycleLabel,
@@ -34,6 +34,9 @@ export interface PublicDiscoveryCard {
   description: string | null;
   heroImageUrl: string;
   heroImageSource: string;
+  representativeImageLabel: string | null;
+  briefProfileUrl: string | null;
+  candidateId: string | null;
   publicLifecycle: PublicBusinessLifecycle;
   lifecycleLabel: string;
   badge: string;
@@ -64,7 +67,9 @@ function buildDescription(seed: IngestedSeedRecord, locationLabel: string | null
   return `${name}. Claim your business profile on Cardbey.`;
 }
 
-export function buildPublicDiscoveryCard(seed: IngestedSeedRecord): PublicDiscoveryCard | null {
+export async function buildPublicDiscoveryCard(
+  seed: IngestedSeedRecord,
+): Promise<PublicDiscoveryCard | null> {
   if (!seed.claimable || seed.storeId) return null;
   const publicLifecycle = translateSeedToPublicLifecycle(seed.verificationStatus);
   if (publicLifecycle !== 'discovered_business') return null;
@@ -76,7 +81,7 @@ export function buildPublicDiscoveryCard(seed: IngestedSeedRecord): PublicDiscov
   const locationLabel =
     canonical.source === 'unavailable' ? null : canonical.displayLocation;
 
-  const hero = resolveDiscoveryCardHero(seed);
+  const media = await resolvePublicMediaForSeed(seed);
   const feedCategory = inferFeedCategory(seed);
   const slug = buildPublicBusinessSlug(seed);
 
@@ -88,8 +93,11 @@ export function buildPublicDiscoveryCard(seed: IngestedSeedRecord): PublicDiscov
     categoryLabel: n.category,
     locationLabel,
     description: buildDescription(seed, locationLabel),
-    heroImageUrl: hero.heroImageUrl,
-    heroImageSource: hero.heroImageSource,
+    heroImageUrl: media.heroImageUrl,
+    heroImageSource: media.heroImageSource,
+    representativeImageLabel: media.representativeImageLabel,
+    briefProfileUrl: `/business/${slug}#bi-brief`,
+    candidateId: media.candidateId,
     publicLifecycle,
     lifecycleLabel: publicLifecycleLabel(publicLifecycle),
     badge: DISCOVERED_BUSINESS_BADGE,
@@ -121,8 +129,8 @@ export async function listPublicDiscoveryCards(opts: {
     loadPublishedStoreIdentities(),
   ]);
   const publishedNameKeys = buildPublishedStoreNameKeySet(publishedStores);
-  let cards = seeds
-    .map(buildPublicDiscoveryCard)
+  const built = await Promise.all(seeds.map((s) => buildPublicDiscoveryCard(s)));
+  let cards = built
     .filter((c): c is PublicDiscoveryCard => c != null)
     .filter(
       (c) => !publishedNameKeys.has(normalizeBusinessIdentityName(c.businessName)),

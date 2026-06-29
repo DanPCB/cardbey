@@ -1,18 +1,12 @@
 /**
- * Single source of truth for upload intake phase (Rule 1 Ask vs Rule 2 extract+draft).
- * Replaces scattered overrides in performerIntakeV2Routes.js.
+ * Upload intake utilities — phase routing removed; decision loop is sole authority.
+ * Kept: image handoff helpers used by belief loader and routes.
  */
 
+import { peekPendingDocumentExtraction } from './storeCandidate.js';
 import {
-  buildAssetIntentDetectionClassification,
-  buildAnalyzeUploadedAssetForStoreCreationClassification,
-} from './assetIntentIngestService.js';
-import {
-  detectCreateStoreFromUploadedAssetIntent,
-  detectExplicitStoreIntent,
-  hasUploadAttachmentEvidence,
   isAttachmentOnlyPlaceholderMessage,
-  isUploadWithoutClearUserIntent,
+  shouldRouteToAssetIntentDetection,
 } from './assetUploadGuard.js';
 
 export const UPLOAD_INTAKE_PHASE = {
@@ -37,7 +31,44 @@ export function buildUploadRoutingCtx(opts = {}) {
 }
 
 /**
- * Strip stale assetAction on placeholder-only turns (e.g. "(Image attached)").
+ * @param {object} opts
+ */
+export function buildUploadAttachmentGuardCtx(opts = {}) {
+  const sessionId = String(opts.sessionId ?? '').trim() || null;
+  const hasSessionPendingExtraction =
+    opts.hasSessionPendingExtraction === true ||
+    Boolean(sessionId && peekPendingDocumentExtraction(sessionId));
+  return {
+    attachments: opts.attachments,
+    imageDataUrl: opts.imageDataUrl ?? null,
+    intentSourceContext: opts.intentSourceContext ?? null,
+    sessionId,
+    hasSessionPendingExtraction,
+  };
+}
+
+export function isUploadOnlyAskTurn(message, ctx = {}) {
+  return shouldRouteToAssetIntentDetection(message, ctx);
+}
+
+/** @deprecated Removed — decision loop is sole authority */
+export function enforceUploadAskIntentClassification(opts = {}) {
+  return {
+    classification: opts.classification,
+    intentSourceContext: opts.intentSourceContext,
+    applied: false,
+  };
+}
+
+/**
+ * @param {object} payload
+ */
+export function logUploadIntakePhaseIfDev(isDev, payload) {
+  if (!isDev) return;
+  console.log('[UPLOAD PHASE]', payload);
+}
+
+/**
  * @param {Record<string, unknown> | null | undefined} intentSourceContext
  * @param {string} userMessage
  */
@@ -52,48 +83,20 @@ export function clearStaleAssetAction(intentSourceContext, userMessage) {
   return base;
 }
 
-/**
- * Explicit create-store from upload — never on placeholder-only messages.
- * @param {string} message
- * @param {Record<string, unknown> | null | undefined} intentSourceContext
- */
+/** @deprecated Decision loop handles explicit create detection */
 export function isExplicitCreateFromUpload(message, intentSourceContext) {
-  const msg = String(message ?? '').trim();
-  if (isAttachmentOnlyPlaceholderMessage(msg)) return false;
-  if (detectCreateStoreFromUploadedAssetIntent(msg)) return true;
-  if (detectExplicitStoreIntent(msg)) return true;
-  const isc =
-    intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : null;
-  if (String(isc?.assetAction ?? '').trim() === 'create_store') return true;
-  if (String(isc?.fromAskSelection ?? '').trim() === 'create_store') return true;
+  void message;
+  void intentSourceContext;
   return false;
 }
 
-/**
- * @param {object} opts
- * @returns {{ phase: string }}
- */
+/** @deprecated Phase routing removed — always none */
 export function resolveUploadIntakePhase(opts = {}) {
-  const ctx = buildUploadRoutingCtx(opts);
-  const userMessage = String(opts.userMessage ?? '').trim();
-
-  if (!hasUploadAttachmentEvidence(ctx)) {
-    return { phase: UPLOAD_INTAKE_PHASE.NONE };
-  }
-
-  if (isUploadWithoutClearUserIntent(userMessage, ctx)) {
-    return { phase: UPLOAD_INTAKE_PHASE.ASK_INTENT };
-  }
-
-  if (isExplicitCreateFromUpload(userMessage, opts.intentSourceContext)) {
-    return { phase: UPLOAD_INTAKE_PHASE.EXTRACT_AND_DRAFT };
-  }
-
-  return { phase: UPLOAD_INTAKE_PHASE.ASK_INTENT };
+  void opts;
+  return { phase: UPLOAD_INTAKE_PHASE.NONE };
 }
 
 /**
- * Inject handoff image into body when missing (follow-up create-store turns).
  * @param {Record<string, unknown>} body
  * @param {string | null | undefined} imageDataUrl
  */
@@ -108,83 +111,15 @@ export function injectUploadImageIntoBody(body, imageDataUrl) {
   }
 }
 
-/**
- * Apply phase → classification + intentSourceContext (single gate).
- * @param {object} opts
- */
+/** @deprecated Phase routing removed — pass-through */
 export function applyUploadPhaseRouting(opts = {}) {
-  const {
-    phase,
-    userMessage,
-    classification,
-    body,
-    intentSourceContext,
-    uploadedAssetRoutingCtx,
-    storeId,
-    resolveImageRef,
-  } = opts;
-
-  let nextClassification = classification;
-  let nextIntentSourceContext =
-    intentSourceContext && typeof intentSourceContext === 'object' ? { ...intentSourceContext } : {};
-
-  if (phase === UPLOAD_INTAKE_PHASE.NONE) {
-    return {
-      classification: nextClassification,
-      intentSourceContext: Object.keys(nextIntentSourceContext).length ? nextIntentSourceContext : null,
-      skipCreateStoreEarlyDraft: false,
-    };
-  }
-
-  const handoffImage = String(uploadedAssetRoutingCtx?.imageDataUrl ?? '').trim();
-  if (handoffImage.length > 50 && typeof resolveImageRef === 'function' && !resolveImageRef(body)) {
-    injectUploadImageIntoBody(body, handoffImage);
-  }
-
-  if (phase === UPLOAD_INTAKE_PHASE.ASK_INTENT) {
-    delete nextIntentSourceContext.assetAction;
-    nextClassification = {
-      ...buildAssetIntentDetectionClassification(userMessage, {
-        attachments: body?.attachments,
-        imageDataUrl:
-          (typeof resolveImageRef === 'function' ? resolveImageRef(body) : null) ?? handoffImage ?? null,
-        storeId: storeId ?? null,
-        source: body?.intentSource ?? nextIntentSourceContext?.source ?? 'performer_composer',
-        currentEntry: 'performer',
-      }),
-      _classificationOverride: 'upload_intake_phase_ask_intent',
-    };
-    if (handoffImage) nextIntentSourceContext.pendingImageDataUrl = handoffImage;
-    return {
-      classification: nextClassification,
-      intentSourceContext: nextIntentSourceContext,
-      skipCreateStoreEarlyDraft: true,
-    };
-  }
-
-  if (phase === UPLOAD_INTAKE_PHASE.EXTRACT_AND_DRAFT) {
-    nextClassification = {
-      ...buildAnalyzeUploadedAssetForStoreCreationClassification(userMessage, {
-        attachments: body?.attachments,
-        imageDataUrl:
-          (typeof resolveImageRef === 'function' ? resolveImageRef(body) : null) ?? handoffImage ?? null,
-        source: 'uploaded_asset_store_creation',
-        currentEntry: 'performer',
-      }),
-      _classificationOverride: 'upload_intake_phase_extract_and_draft',
-    };
-    nextIntentSourceContext.assetAction = 'create_store';
-    if (handoffImage) nextIntentSourceContext.pendingImageDataUrl = handoffImage;
-    return {
-      classification: nextClassification,
-      intentSourceContext: nextIntentSourceContext,
-      skipCreateStoreEarlyDraft: true,
-    };
-  }
-
+  const intentSourceContext =
+    opts.intentSourceContext && typeof opts.intentSourceContext === 'object'
+      ? { ...opts.intentSourceContext }
+      : null;
   return {
-    classification: nextClassification,
-    intentSourceContext: Object.keys(nextIntentSourceContext).length ? nextIntentSourceContext : null,
+    classification: opts.classification,
+    intentSourceContext,
     skipCreateStoreEarlyDraft: false,
   };
 }

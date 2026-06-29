@@ -33,7 +33,8 @@ export function hashUserIdForRollout(userId) {
  * @returns {boolean}
  */
 export function isLlmReasonerEnabled(req, userId) {
-  if (String(process.env.ENABLE_LLM_REASONER ?? '').trim().toLowerCase() !== 'true') {
+  const envVal = String(process.env.ENABLE_LLM_REASONER ?? '').trim().toLowerCase();
+  if (envVal === 'false' || envVal === '0') {
     return false;
   }
 
