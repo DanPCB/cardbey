@@ -69,6 +69,34 @@ describe('intakePayloadGuard', () => {
     expect(guard.body.unifiedMemory).toBeUndefined();
   });
 
+  it('preserves upload evidence when decision loop authority is on', () => {
+    const prev = process.env.INTAKE_DECISION_LOOP_AUTHORITY;
+    process.env.INTAKE_DECISION_LOOP_AUTHORITY = 'true';
+    try {
+      const heavy = {
+        message: '(Image attached)',
+        userMessage: '(Image attached)',
+        unifiedMemory: { blob: 'x'.repeat(300_000) },
+        history: Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `m${i}` })),
+        imageDataUrl: 'data:image/png;base64,abc',
+        attachments: [{ type: 'image', dataUrl: 'data:image/png;base64,abc' }],
+        intentSourceContext: { cardExtraction: { businessName: 'Test Shop' } },
+      };
+      const guard = applyIntakePayloadGuard(heavy, { maxBytes: 64 * 1024 });
+      expect(guard.stripped).toContain('unifiedMemory');
+      expect(guard.stripped).toContain('history');
+      expect(guard.stripped).not.toContain('imageDataUrl');
+      expect(guard.stripped).not.toContain('attachments');
+      expect(guard.stripped).not.toContain('intentSourceContext');
+      expect(guard.body.imageDataUrl).toBe('data:image/png;base64,abc');
+      expect(guard.body.attachments).toHaveLength(1);
+      expect(guard.body.intentSourceContext?.cardExtraction?.businessName).toBe('Test Shop');
+    } finally {
+      if (prev === undefined) delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
+      else process.env.INTAKE_DECISION_LOOP_AUTHORITY = prev;
+    }
+  });
+
   it('rejects payloads that remain too large after trim', () => {
     const heavy = {
       message: 'hello',

@@ -62,6 +62,7 @@ import {
   shouldBlockStoreCheckWithoutContext,
   shouldDeferCreateStoreDraftForAssetIngest,
   hasRecentUploadedAssetInContext,
+  isAttachmentOnlyPlaceholderMessage,
 } from '../lib/intake/assetUploadGuard.js';
 import {
   buildAssetIntentDetectionClassification,
@@ -156,6 +157,7 @@ import {
   INTAKE_BYPASS_IDS,
 } from '../lib/decision/index.js';
 import { runIntakeAuthorityTurn, runIntakeAuthorityGateEarly } from '../lib/intake/intakeV2AuthorityTurn.js';
+import { resolveToolForIntent } from '../lib/decision/intentToolMap.js';
 import { isDecisionLoopEnabled } from '../config/features.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
@@ -191,6 +193,7 @@ import {
   putIntakeApprovalPreview,
   getIntakeApprovalPreview,
   deleteIntakeApprovalPreview,
+  findLatestIntakeApprovalPreviewForActor,
 } from '../lib/intake/intakeApprovalPreviewStore.js';
 import { resolveIntakeV2ActorKey, resolveIntakeV2TenantKey } from '../lib/intake/intakeV2ActorContext.js';
 import {
@@ -745,6 +748,371 @@ function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, us
       result: 'success',
     },
   );
+}
+
+const INTAKE_CONFIRM_AFFIRMATIONS = new Set([
+  'yes',
+  'yep',
+  'yeah',
+  'ok',
+  'okay',
+  'sure',
+  'proceed',
+  'confirm',
+  'approve',
+  "let's do it",
+  'lets do it',
+  'go ahead',
+  'yes proceed',
+  'ok go ahead',
+]);
+
+/**
+ * Case-insensitive affirmations that should route to confirm when a plan is pending.
+ * @param {string} message
+ */
+function isIntakeConfirmAffirmation(message) {
+  const normalized = String(message ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  return normalized.length > 0 && INTAKE_CONFIRM_AFFIRMATIONS.has(normalized);
+}
+
+/**
+ * @param {import('../lib/decision/constants.js').BeliefSnapshot | null | undefined} belief
+ * @param {ReturnType<typeof getPersistedIntentResolution> | null} persistedIntent
+ */
+function sessionHasPendingIntakePlanConfirm(belief, persistedIntent, history = []) {
+  const hasIntentAnchor =
+    Boolean(String(persistedIntent?.family ?? '').trim()) ||
+    Boolean(String(persistedIntent?.chosenTool ?? '').trim()) ||
+    Boolean(String(persistedIntent?.subtype ?? '').trim()) ||
+    Boolean(String(belief?.activeGoal?.intent ?? '').trim());
+
+  const workflowType = String(belief?.workflow?.type ?? '').trim();
+  const activeGoalIntent = String(belief?.activeGoal?.intent ?? '').trim();
+  if (workflowType && activeGoalIntent && hasIntentAnchor) return true;
+
+  if (hasIntentAnchor && belief?.workflow?.status === 'pending_confirmation') return true;
+
+  return hasIntentAnchor && conversationAwaitingIntakeConfirm(history);
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} history
+ */
+function conversationAwaitingIntakeConfirm(history) {
+  if (!Array.isArray(history) || history.length < 2) return false;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const msg = history[i];
+    if (!msg || typeof msg !== 'object') continue;
+    const role = String(msg.role ?? msg.type ?? '').toLowerCase();
+    const text = String(msg.content ?? msg.text ?? msg.message ?? '').trim();
+    if (role !== 'assistant' && role !== 'agent' && role !== 'mi') continue;
+    if (!/please confirm before proceeding/i.test(text)) continue;
+    for (let j = i - 1; j >= 0; j -= 1) {
+      const prior = history[j];
+      if (!prior || typeof prior !== 'object') continue;
+      const priorRole = String(prior.role ?? prior.type ?? '').toLowerCase();
+      const priorText = String(prior.content ?? prior.text ?? prior.message ?? '').trim();
+      if (
+        (priorRole === 'user' || priorRole === 'human') &&
+        priorText &&
+        !isIntakeConfirmAffirmation(priorText)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * @param {import('../lib/decision/constants.js').BeliefSnapshot | null | undefined} belief
+ * @param {ReturnType<typeof getPersistedIntentResolution> | null} persistedIntent
+ * @param {Array<Record<string, unknown>>} history
+ * @param {Record<string, unknown>} currentContext
+ */
+function resolvePendingConfirmInterceptPlan(belief, persistedIntent, history, currentContext) {
+  const intentHint = String(
+    persistedIntent?.chosenTool ?? persistedIntent?.subtype ?? belief?.activeGoal?.intent ?? '',
+  ).trim();
+  let tool = resolveToolForIntent(intentHint, persistedIntent?.chosenTool ?? belief?.activeGoal?.intent);
+  let originalGoal = '';
+
+  if (Array.isArray(history)) {
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      const msg = history[i];
+      if (!msg || typeof msg !== 'object') continue;
+      const role = String(msg.role ?? msg.type ?? '').toLowerCase();
+      const text = String(msg.content ?? msg.text ?? msg.message ?? '').trim();
+      if (role !== 'assistant' && role !== 'agent' && role !== 'mi') continue;
+      if (!/please confirm before proceeding/i.test(text)) continue;
+      const proposed = text.match(/please confirm before proceeding:\s*([a-z0-9_.-]+)/i);
+      if (proposed?.[1] && isRegisteredTool(proposed[1])) {
+        tool = proposed[1];
+      }
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const prior = history[j];
+        if (!prior || typeof prior !== 'object') continue;
+        const priorRole = String(prior.role ?? prior.type ?? '').toLowerCase();
+        const priorText = String(prior.content ?? prior.text ?? prior.message ?? '').trim();
+        if (
+          (priorRole === 'user' || priorRole === 'human') &&
+          priorText &&
+          !isIntakeConfirmAffirmation(priorText)
+        ) {
+          originalGoal = priorText;
+          break;
+        }
+      }
+      break;
+    }
+  }
+
+  if (!tool || tool === 'general_chat') return null;
+
+  const toolEntry = getToolEntry(tool);
+  const storeId =
+    belief?.anchors?.storeId ??
+    resolveIntakeStoreId(currentContext) ??
+    persistedIntent?.storeId ??
+    null;
+  const draftId =
+    belief?.anchors?.draftId ?? resolveIntakeDraftId(currentContext) ?? persistedIntent?.draftStoreId ?? null;
+  const missionId =
+    belief?.anchors?.missionId ??
+    resolveIntakeMissionId({ body: { currentContext }, currentContext }) ??
+    persistedIntent?.missionId ??
+    null;
+
+  /** @type {Record<string, unknown>} */
+  const parameters = {
+    ...(storeId ? { storeId } : {}),
+    ...(draftId ? { draftId } : {}),
+    ...(missionId ? { missionId } : {}),
+    _autoSubmit: true,
+    confirmed: true,
+  };
+  if (originalGoal && tool === 'create_campaign') {
+    parameters.campaignContext = originalGoal;
+    parameters.hint = originalGoal;
+  }
+
+  return {
+    executionPath: persistedIntent?.executionPath ?? toolEntry?.executionPath ?? 'direct_action',
+    tool,
+    confidence: 0.95,
+    parameters,
+    _decisionLoop: true,
+    _decisionNextStep: 'execute',
+    _confirmIntercept: true,
+    _originalGoal: originalGoal || null,
+  };
+}
+
+/**
+ * Shared confirm execution — used by POST /confirm and NL confirm intercept on POST /.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {{ previewId?: string; locale?: string; missionId?: string | null; currentContext?: Record<string, unknown> }} [overrides]
+ */
+async function handleIntakeV2ConfirmRequest(req, res, overrides = {}) {
+  const startMs = Date.now();
+  const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
+  res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
+  const body = req.body ?? {};
+  const previewId = String(overrides.previewId ?? body.previewId ?? '').trim();
+  const currentContext =
+    overrides.currentContext && typeof overrides.currentContext === 'object'
+      ? overrides.currentContext
+      : body.currentContext && typeof body.currentContext === 'object'
+        ? body.currentContext
+        : {};
+  const storeIdNow = resolveStoreId(currentContext);
+  const draftIdNow = resolveDraftId(currentContext);
+  const missionId =
+    String(overrides.missionId ?? body.missionId ?? currentContext.activeMissionId ?? '').trim() || null;
+  const locale = String(overrides.locale ?? body.locale ?? 'en');
+
+  const emitConfirm = (extra) => {
+    emitIntakeV2Telemetry({
+      tag: 'INTAKE_V2',
+      message: `confirm:${previewId}`,
+      traceId: cardbeyTraceId,
+      missionId,
+      storeId: storeIdNow,
+      executionPath: 'proactive_plan',
+      tool: extra.tool ?? null,
+      confidence: null,
+      validated: extra.validated ?? null,
+      downgraded: Boolean(extra.downgraded),
+      downgradeReason: extra.downgradeReason ?? null,
+      validationErrors: extra.validationErrors ?? [],
+      riskLevel: extra.riskLevel ?? null,
+      result: extra.result ?? null,
+      latencyMs: Date.now() - startMs,
+    });
+  };
+
+  if (!previewId) {
+    emitConfirm({ validated: false, result: 'error', downgradeReason: 'missing_preview_id' });
+    return res.json({
+      success: false,
+      action: 'error',
+      response: intakeMessage('missingApprovalReference', locale),
+    });
+  }
+
+  const record = getIntakeApprovalPreview(previewId);
+  if (!record) {
+    emitConfirm({ validated: false, result: 'error', downgradeReason: 'preview_expired' });
+    return res.json({
+      success: false,
+      action: 'error',
+      error: 'expired_or_missing',
+      response: intakeMessage('approvalExpired', locale),
+    });
+  }
+
+  const actorNow = resolveIntakeV2ActorKey(req);
+  const tenantNow = resolveIntakeV2TenantKey(req);
+  if (!actorNow || record.actorKey !== actorNow || record.tenantKey !== tenantNow) {
+    emitConfirm({ tool: record.tool, validated: false, result: 'error', downgradeReason: 'actor_mismatch' });
+    return res.status(403).json({
+      success: false,
+      action: 'error',
+      error: 'forbidden',
+      response: intakeMessage('approvalSessionForbidden', locale),
+    });
+  }
+
+  const tool = record.tool;
+  const effectiveStore = storeIdNow || record.resolvedStoreIdAtPreview;
+  const merged = { ...record.executionParameters };
+  const storeContextFree =
+    STORE_CONTEXT_FREE_TOOLS.has(tool) || isContextFreeTool(tool);
+
+  const toolEntry = getToolEntry(tool);
+  const confirmExecutionPath = toolEntry?.executionPath ?? 'proactive_plan';
+
+  if (effectiveStore && !merged.storeId && !storeContextFree) merged.storeId = effectiveStore;
+
+  const validation = validateIntakeClassification(
+    {
+      executionPath: confirmExecutionPath,
+      tool,
+      parameters: merged,
+    },
+    storeContextFree ? null : effectiveStore,
+    { missionId, draftId: draftIdNow },
+  );
+
+  if (!validation.ok) {
+    if (isDev) {
+      console.warn('[IntakeV2] confirm revalidation failed', {
+        tool,
+        errors: validation.errors,
+        mergedKeys: Object.keys(merged),
+      });
+    }
+    emitConfirm({
+      tool,
+      validated: false,
+      result: 'clarify',
+      downgradeReason: 'confirm_revalidation_failed',
+      validationErrors: validation.errors,
+    });
+    return res.json({
+      success: false,
+      action: 'clarify',
+      response: intakeMessage('approvalContextFailed', locale),
+      validationErrors: validation.errors,
+    });
+  }
+
+  const cleaned = validation.cleanedParameters ?? {};
+
+  if (
+    shouldGateGuestPostDraftStoreAction({
+      req,
+      effectiveStoreId: effectiveStore,
+      draftId: draftIdNow,
+      runway: null,
+      missionId,
+      tool,
+    })
+  ) {
+    emitConfirm({
+      tool,
+      validated: false,
+      result: 'fallback',
+      downgradeReason: 'guest_sign_in_required',
+    });
+    return res.json({
+      success: true,
+      action: 'chat',
+      response: intakeMessage('signInToAddProducts', locale),
+      _requiresStore: true,
+      _requiresSignIn: true,
+    });
+  }
+
+  try {
+    const actorId = performerIntakeV2ActorId(req);
+    const dispatchResult = await unifiedDispatch(
+      {
+        type: tool,
+        payload: {
+          toolName: tool,
+          input: cleaned,
+          parameters: cleaned,
+          missionId,
+          storeId: storeContextFree ? undefined : effectiveStore,
+          userId: actorId || req.user?.id || null,
+          tenantId: getTenantId(req.user),
+          locale,
+        },
+      },
+      { confirmed: true, requireConfirmation: false, source: 'intake_v2_confirm' },
+    );
+    deleteIntakeApprovalPreview(previewId);
+
+    if (!dispatchResult.ok || dispatchResult.status === 'blocked') {
+      emitConfirm({
+        tool,
+        validated: true,
+        result: 'error',
+        downgradeReason: dispatchResult.code ?? 'kernel_required',
+      });
+      return res.json({
+        success: false,
+        action: 'error',
+        code: dispatchResult.code ?? 'KERNEL_EXECUTION_REQUIRED',
+        response:
+          dispatchResult.message ??
+          'Direct tool execution is disabled. Execution must go through the Runtime Kernel.',
+      });
+    }
+
+    const mapped = mapUnifiedDispatchToIntakeResponse(dispatchResult, { tool, locale });
+    const toolResponse = mapped.response ?? intakeMessage('actionCompleted', locale);
+
+    emitConfirm({ tool, validated: true, result: 'success', riskLevel: getToolEntry(tool)?.riskLevel });
+    return res.json({
+      ...mapped,
+      response: toolResponse,
+      riskLevel: getToolEntry(tool)?.riskLevel,
+    });
+  } catch (e) {
+    emitConfirm({ tool, validated: true, result: 'error', downgradeReason: 'dispatch_error' });
+    return res.json({
+      success: false,
+      action: 'error',
+      response: intakeMessage('actionFailedRetry', locale),
+    });
+  }
 }
 
 /**
@@ -1600,6 +1968,112 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           ? { type: earlyForcedTool }
           : null;
 
+    const earlyCurrentContext =
+      body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
+    const earlyBeliefLoaderOpts = {
+      req,
+      sessionKey: earlySessionKey,
+      sessionId: earlyConversationSessionId ?? earlySessionKey,
+      currentContext: earlyCurrentContext,
+      intentSourceContext: {
+        ...(earlyIntentSourceContext ?? {}),
+        ...(earlyAttachmentOnly ? { uploadedAssetPending: true } : {}),
+      },
+      body,
+    };
+    const earlyAdvisorInput = {
+      userMessage,
+      originalUserMessage: userMessage,
+      attachments: body.attachments,
+      imageDataUrl: resolveIntakeImageRefForOcr(body),
+      hasAttachment: earlyHasAttachment,
+      intentSourceContext: earlyIntentSourceContext,
+      shortcutContext: earlyShortcutContext,
+      forceIntent: body.forceIntent ?? earlyIntentSourceContext?.forceIntent ?? null,
+      currentFlow: earlyIntentSourceContext?.currentFlow ?? null,
+      source: body.intentSource ?? earlyIntentSourceContext?.source ?? null,
+    };
+
+    let confirmInterceptApplied = false;
+    const earlyHistory = Array.isArray(body.history)
+      ? body.history.slice(-getIntakeConversationHistoryLimit())
+      : [];
+
+    if (userMessage && isIntakeConfirmAffirmation(userMessage)) {
+      const intakeActorKeyEarly = resolveIntakeV2ActorKey(req);
+      const intakeTenantKeyEarly = resolveIntakeV2TenantKey(req);
+      const earlyMissionId = resolveIntakeMissionId({ body, currentContext: earlyCurrentContext });
+      const earlyStoreId = resolveIntakeStoreId(earlyCurrentContext);
+      const earlyDraftId = resolveIntakeDraftId(earlyCurrentContext);
+      const earlyPersistedIntent =
+        intakeActorKeyEarly != null
+          ? getPersistedIntentResolution({
+              actorKey: intakeActorKeyEarly,
+              tenantKey: intakeTenantKeyEarly,
+              missionId: earlyMissionId,
+              storeId: earlyStoreId,
+              draftId: earlyDraftId,
+            })
+          : null;
+
+      let earlyBelief = null;
+      try {
+        earlyBelief = await loadBelief(earlyBeliefLoaderOpts);
+      } catch (beliefErr) {
+        console.warn('[IntakeV2] confirm intercept belief load failed:', beliefErr?.message ?? beliefErr);
+      }
+
+      if (isIntakeConfirmAffirmation(userMessage)) {
+        const previewFromBody = String(
+          body.previewId ?? earlyIntentSourceContext?.approvalPreviewId ?? '',
+        ).trim();
+        const previewRecord =
+          previewFromBody
+            ? getIntakeApprovalPreview(previewFromBody)
+            : findLatestIntakeApprovalPreviewForActor(intakeActorKeyEarly, intakeTenantKeyEarly);
+
+        if (previewRecord?.previewId) {
+          console.log('[IntakeV2] NL confirm → approval preview handler', {
+            previewId: previewRecord.previewId,
+            tool: previewRecord.tool,
+          });
+          return handleIntakeV2ConfirmRequest(req, res, {
+            previewId: previewRecord.previewId,
+            locale,
+            missionId: earlyMissionId,
+            currentContext: earlyCurrentContext,
+          });
+        }
+      }
+
+      if (
+        userMessage &&
+        isIntakeConfirmAffirmation(userMessage) &&
+        sessionHasPendingIntakePlanConfirm(earlyBelief, earlyPersistedIntent, earlyHistory)
+      ) {
+        const confirmedClassification = resolvePendingConfirmInterceptPlan(
+          earlyBelief,
+          earlyPersistedIntent,
+          earlyHistory,
+          earlyCurrentContext,
+        );
+        if (confirmedClassification) {
+          confirmInterceptApplied = true;
+          decisionLoopEarlyRan = true;
+          decisionLoopEarlyResult = {
+            handled: false,
+            classification: confirmedClassification,
+            skipPlanners: true,
+          };
+          console.log('[IntakeV2] NL confirm → execute pending plan', {
+            tool: confirmedClassification.tool,
+            executionPath: confirmedClassification.executionPath,
+          });
+        }
+      }
+    }
+
+    if (!confirmInterceptApplied) {
     try {
       const authorityTurn = await runIntakeAuthorityGateEarly({
         attachmentOnlyUpload: earlyAttachmentOnly,
@@ -1610,30 +2084,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           String(body.mode ?? req.headers?.['x-performer-mode'] ?? '').trim().toLowerCase() === 'manual'
             ? 'manual'
             : null,
-        beliefLoaderOpts: {
-          req,
-          sessionKey: earlySessionKey,
-          sessionId: earlyConversationSessionId ?? earlySessionKey,
-          currentContext:
-            body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {},
-          intentSourceContext: {
-            ...(earlyIntentSourceContext ?? {}),
-            ...(earlyAttachmentOnly ? { uploadedAssetPending: true } : {}),
-          },
-          body,
-        },
-        advisorInput: {
-          userMessage,
-          originalUserMessage: userMessage,
-          attachments: body.attachments,
-          imageDataUrl: resolveIntakeImageRefForOcr(body),
-          hasAttachment: earlyHasAttachment,
-          intentSourceContext: earlyIntentSourceContext,
-          shortcutContext: earlyShortcutContext,
-          forceIntent: body.forceIntent ?? earlyIntentSourceContext?.forceIntent ?? null,
-          currentFlow: earlyIntentSourceContext?.currentFlow ?? null,
-          source: body.intentSource ?? earlyIntentSourceContext?.source ?? null,
-        },
+        beliefLoaderOpts: earlyBeliefLoaderOpts,
+        advisorInput: earlyAdvisorInput,
       });
 
       decisionLoopEarlyRan = true;
@@ -1645,6 +2097,29 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           executionPath: 'decision_loop',
         });
       }
+
+      // Loop deferred — never let legacy direct_action override upload Ask on attachment-only turns.
+      if (!authorityTurn.handled) {
+        const uploadAskFallback = await buildUploadAskClarifyFallback({
+          attachmentOnlyUpload: earlyAttachmentOnly,
+          hasImageAttachment: earlyHasAttachment,
+          imageDataUrl: resolveIntakeImageRefForOcr(body),
+          beliefLoaderOpts: earlyBeliefLoaderOpts,
+        });
+        const shouldForceUploadAsk =
+          Boolean(uploadAskFallback?.payload) &&
+          (earlyAttachmentOnly ||
+            earlyHasAttachment ||
+            isAttachmentOnlyPlaceholderMessage(userMessage));
+        if (shouldForceUploadAsk) {
+          console.log('[INTAKE] Loop deferred — returning upload Ask panel (no legacy override)');
+          return res.json({
+            ...uploadAskFallback.payload,
+            action: 'clarify',
+            executionPath: 'decision_loop',
+          });
+        }
+      }
     } catch (error) {
       console.error('[INTAKE] Decision loop error:', error);
       return res.status(500).json({
@@ -1652,6 +2127,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         error: 'decision_loop_error',
         message: 'Could not process your request. Please try again.',
       });
+    }
     }
   } else {
     console.log('[INTAKE] Decision loop authority OFF - using legacy path');
@@ -2276,6 +2752,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     classification = decisionLoopEarlyResult.classification;
     skipReasoningPipeline = true;
     decisionLoopSkipPlanners = Boolean(decisionLoopEarlyResult.skipPlanners);
+  } else if (isDecisionLoopEnabled() && decisionLoopEarlyRan && !forcedTool) {
+    console.log('[INTAKE] Decision loop ran — blocking legacy classifier override');
+    skipReasoningPipeline = true;
   }
 
   let heroGenTelemetry = {
@@ -5282,6 +5761,36 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (
     classification.tool === 'create_store' &&
     !forceCreateStoreCheckpoint &&
+    isDecisionLoopEnabled() &&
+    isAttachmentOnlyPlaceholderMessage(userMessage) &&
+    !isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
+  ) {
+    const uploadAskSafety = await buildUploadAskClarifyFallback({
+      attachmentOnlyUpload: attachmentOnlyUpload === true,
+      hasImageAttachment: hasIntakeImageAttachment(body),
+      imageDataUrl: resolveIntakeImageRefForOcr(body),
+      beliefLoaderOpts: {
+        req,
+        sessionKey: intakeAssetSessionKey,
+        sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
+        currentContext,
+        intentSourceContext,
+        body,
+      },
+    });
+    if (uploadAskSafety?.payload) {
+      console.log('[INTAKE] Blocked create_store legacy override — returning upload Ask panel');
+      return res.json({
+        ...uploadAskSafety.payload,
+        action: 'clarify',
+        executionPath: 'decision_loop',
+      });
+    }
+  }
+
+  if (
+    classification.tool === 'create_store' &&
+    !forceCreateStoreCheckpoint &&
     isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
   ) {
     const uploadDraftBody = await buildCreateStoreDraftIntakeResponseFromUpload({
@@ -5818,196 +6327,7 @@ router.post('/maintenance/error-log', superAdminOnly, async (req, res) => {
 });
 
 router.post('/confirm', requireUserOrGuest, async (req, res) => {
-  const startMs = Date.now();
-  const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
-  res.setHeader(CARDBEY_TRACE_HEADER, cardbeyTraceId);
-  const body = req.body ?? {};
-  const previewId = String(body.previewId ?? '').trim();
-  const currentContext = body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
-  const storeIdNow = resolveStoreId(currentContext);
-  const draftIdNow = resolveDraftId(currentContext);
-  const missionId = String(body.missionId ?? currentContext.activeMissionId ?? '').trim() || null;
-  const locale = String(body.locale ?? 'en');
-
-  const emitConfirm = (extra) => {
-    emitIntakeV2Telemetry({
-      tag: 'INTAKE_V2',
-      message: `confirm:${previewId}`,
-      traceId: cardbeyTraceId,
-      missionId,
-      storeId: storeIdNow,
-      executionPath: 'proactive_plan',
-      tool: extra.tool ?? null,
-      confidence: null,
-      validated: extra.validated ?? null,
-      downgraded: Boolean(extra.downgraded),
-      downgradeReason: extra.downgradeReason ?? null,
-      validationErrors: extra.validationErrors ?? [],
-      riskLevel: extra.riskLevel ?? null,
-      result: extra.result ?? null,
-      latencyMs: Date.now() - startMs,
-    });
-  };
-
-  if (!previewId) {
-    emitConfirm({ validated: false, result: 'error', downgradeReason: 'missing_preview_id' });
-    return res.json({
-      success: false,
-      action: 'error',
-      response: intakeMessage('missingApprovalReference', locale),
-    });
-  }
-
-  const record = getIntakeApprovalPreview(previewId);
-  if (!record) {
-    emitConfirm({ validated: false, result: 'error', downgradeReason: 'preview_expired' });
-    return res.json({
-      success: false,
-      action: 'error',
-      error: 'expired_or_missing',
-      response: intakeMessage('approvalExpired', locale),
-    });
-  }
-
-  const actorNow = resolveIntakeV2ActorKey(req);
-  const tenantNow = resolveIntakeV2TenantKey(req);
-  if (!actorNow || record.actorKey !== actorNow || record.tenantKey !== tenantNow) {
-    emitConfirm({ tool: record.tool, validated: false, result: 'error', downgradeReason: 'actor_mismatch' });
-    return res.status(403).json({
-      success: false,
-      action: 'error',
-      error: 'forbidden',
-      response: intakeMessage('approvalSessionForbidden', locale),
-    });
-  }
-
-  const tool = record.tool;
-  const effectiveStore = storeIdNow || record.resolvedStoreIdAtPreview;
-  const merged = { ...record.executionParameters };
-  const storeContextFree =
-    STORE_CONTEXT_FREE_TOOLS.has(tool) || isContextFreeTool(tool);
-
-  const toolEntry = getToolEntry(tool);
-  const confirmExecutionPath = toolEntry?.executionPath ?? 'proactive_plan';
-
-  // No `if (!storeId || !activeStore)` guard here — confirm fails via validateIntakeClassification.
-  // Context-free tools (e.g. device.sendInput) must not inject storeId into strict schemas.
-  if (effectiveStore && !merged.storeId && !storeContextFree) merged.storeId = effectiveStore;
-
-  const validation = validateIntakeClassification(
-    {
-      executionPath: confirmExecutionPath,
-      tool,
-      parameters: merged,
-    },
-    storeContextFree ? null : effectiveStore,
-    { missionId, draftId: draftIdNow },
-  );
-
-  if (!validation.ok) {
-    if (isDev) {
-      console.warn('[IntakeV2] confirm revalidation failed', {
-        tool,
-        errors: validation.errors,
-        mergedKeys: Object.keys(merged),
-      });
-    }
-    emitConfirm({
-      tool,
-      validated: false,
-      result: 'clarify',
-      downgradeReason: 'confirm_revalidation_failed',
-      validationErrors: validation.errors,
-    });
-    return res.json({
-      success: false,
-      action: 'clarify',
-      response: intakeMessage('approvalContextFailed', locale),
-      validationErrors: validation.errors,
-    });
-  }
-
-  const cleaned = validation.cleanedParameters ?? {};
-
-  if (
-    shouldGateGuestPostDraftStoreAction({
-      req,
-      effectiveStoreId: effectiveStore,
-      draftId: draftIdNow,
-      runway: null,
-      missionId,
-      tool,
-    })
-  ) {
-    emitConfirm({
-      tool,
-      validated: false,
-      result: 'fallback',
-      downgradeReason: 'guest_sign_in_required',
-    });
-    return res.json({
-      success: true,
-      action: 'chat',
-      response: intakeMessage('signInToAddProducts', locale),
-      _requiresStore: true,
-      _requiresSignIn: true,
-    });
-  }
-
-  try {
-    const actorId = performerIntakeV2ActorId(req);
-    const dispatchResult = await unifiedDispatch(
-      {
-        type: tool,
-        payload: {
-          toolName: tool,
-          input: cleaned,
-          parameters: cleaned,
-          missionId,
-          storeId: storeContextFree ? undefined : effectiveStore,
-          userId: actorId || req.user?.id || null,
-          tenantId: getTenantId(req.user),
-          locale,
-        },
-      },
-      { confirmed: true, requireConfirmation: false, source: 'intake_v2_confirm' },
-    );
-    deleteIntakeApprovalPreview(previewId);
-
-    if (!dispatchResult.ok || dispatchResult.status === 'blocked') {
-      emitConfirm({
-        tool,
-        validated: true,
-        result: 'error',
-        downgradeReason: dispatchResult.code ?? 'kernel_required',
-      });
-      return res.json({
-        success: false,
-        action: 'error',
-        code: dispatchResult.code ?? 'KERNEL_EXECUTION_REQUIRED',
-        response:
-          dispatchResult.message ??
-          'Direct tool execution is disabled. Execution must go through the Runtime Kernel.',
-      });
-    }
-
-    const mapped = mapUnifiedDispatchToIntakeResponse(dispatchResult, { tool, locale });
-    const toolResponse = mapped.response ?? intakeMessage('actionCompleted', locale);
-
-    emitConfirm({ tool, validated: true, result: 'success', riskLevel: getToolEntry(tool)?.riskLevel });
-    return res.json({
-      ...mapped,
-      response: toolResponse,
-      riskLevel: getToolEntry(tool)?.riskLevel,
-    });
-  } catch (e) {
-    emitConfirm({ tool, validated: true, result: 'error', downgradeReason: 'dispatch_error' });
-    return res.json({
-      success: false,
-      action: 'error',
-      response: intakeMessage('actionFailedRetry', locale),
-    });
-  }
+  return handleIntakeV2ConfirmRequest(req, res);
 });
 
 export default router;

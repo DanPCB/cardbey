@@ -1,9 +1,13 @@
 /**
  * Intake payload size guard — strip heavy client context before planner/memory paths.
  */
+import { isDecisionLoopEnabled } from '../../config/features.js';
 import { isStoreCreationDraftConfirmationSubmit } from './storeCreationDraft.js';
 
 export const DEFAULT_INTAKE_PAYLOAD_MAX_BYTES = 256 * 1024;
+
+/** Fields required for upload → Ask panel when decision-loop authority is on. */
+const DECISION_LOOP_EVIDENCE_KEYS = new Set(['attachments', 'imageDataUrl', 'intentSourceContext']);
 
 const HEAVY_TOP_LEVEL_KEYS = [
   'unifiedMemory',
@@ -152,9 +156,16 @@ export function normalizeFreshStoreCreationBody(body) {
  * @param {string[]} stripped
  * @returns {Record<string, unknown>}
  */
-export function trimHeavyIntakeFields(body, stripped = []) {
+/**
+ * @param {Record<string, unknown>} body
+ * @param {string[]} stripped
+ * @param {{ preserveLoopEvidence?: boolean }} [options]
+ */
+export function trimHeavyIntakeFields(body, stripped = [], options = {}) {
+  const preserveLoopEvidence = options.preserveLoopEvidence === true;
   const next = { ...body };
   for (const key of HEAVY_TOP_LEVEL_KEYS) {
+    if (preserveLoopEvidence && DECISION_LOOP_EVIDENCE_KEYS.has(key)) continue;
     if (key in next) {
       delete next[key];
       stripped.push(key);
@@ -217,7 +228,9 @@ export function applyIntakePayloadGuard(body, options = {}) {
       if (!(key in normalized)) stripped.push(key);
     }
   } else if (rawSize > maxBytes) {
-    normalized = trimHeavyIntakeFields(input, stripped);
+    normalized = trimHeavyIntakeFields(input, stripped, {
+      preserveLoopEvidence: isDecisionLoopEnabled(),
+    });
   }
 
   const finalSize = estimateJsonBytes(normalized);
