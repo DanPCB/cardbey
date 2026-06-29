@@ -18,6 +18,9 @@ import { listSeedRecords } from '../businessIngestion/IngestionRepository.js';
 import { listMediaForCandidate } from './media/mediaEvidenceRepository.js';
 import { listBriefs } from './brief/briefRepository.js';
 import { listClaimIntents } from './claimIntent/claimIntentRepository.js';
+import { listRollbackJobs } from './rollback/rollbackRepository.js';
+import { isCandidateRolledBack } from './rollback/isRolledBack.js';
+import { ROLLED_BACK_SEED_STATUSES } from './rollback/isRolledBack.js';
 
 const ALL_STATUSES: BusinessCandidateStatus[] = [
   'DISCOVERED',
@@ -34,6 +37,8 @@ const ALL_STATUSES: BusinessCandidateStatus[] = [
   'CLAIM_PENDING',
   'VERIFIED',
   'DUPLICATE',
+  'ROLLED_BACK',
+  'HIDDEN_BY_OPERATOR',
 ];
 
 function countByStatus(candidates: BusinessCandidateRecord[]): Partial<Record<BusinessCandidateStatus, number>> {
@@ -94,6 +99,15 @@ export async function buildBatchOnboardingMetrics(
       claimIntentsStarted: 0,
       claimIntentsFromBiDownload: 0,
       claimConversionRate: 0,
+      rolledBackCandidates: 0,
+      rolledBackSeeds: 0,
+      hiddenByOperator: 0,
+      rollbackJobs: 0,
+      blockedRollbacks: 0,
+      activeAfterRollback: 0,
+      activeDiscovered: 0,
+      claimableActive: 0,
+      claimableRolledBack: 0,
     };
   }
 
@@ -170,6 +184,25 @@ export async function buildBatchOnboardingMetrics(
       ? Math.round((briefsDownloaded / claimIntentsStarted) * 100)
       : 0;
 
+  const rolledBackCandidates = candidates.filter(isCandidateRolledBack).length;
+  const hiddenByOperator = candidates.filter(
+    (c) => c.status === 'HIDDEN_BY_OPERATOR' || c.operatorVisibility === 'hidden',
+  ).length;
+  const activeDiscovered = candidates.filter((c) => !isCandidateRolledBack(c)).length;
+  const rolledBackSeeds = linkedSeeds.filter((s) =>
+    ROLLED_BACK_SEED_STATUSES.includes(s.verificationStatus),
+  ).length;
+  const claimableActive = linkedSeeds.filter(
+    (s) => s.claimable && s.verificationStatus === 'seeded_claimable',
+  ).length;
+  const claimableRolledBack = rolledBackSeeds;
+  const batchJobs = (await listRollbackJobs(200)).filter((j) => j.batchId === batchId);
+  const rollbackJobs = batchJobs.filter((j) => j.mode === 'EXECUTE').length;
+  const blockedRollbacks = batchJobs.filter(
+    (j) => j.status === 'BLOCKED' || j.safetyLevel === 'BLOCKED',
+  ).length;
+  const activeAfterRollback = activeDiscovered;
+
   return {
     batchId,
     campaignId,
@@ -207,5 +240,14 @@ export async function buildBatchOnboardingMetrics(
     claimIntentsStarted,
     claimIntentsFromBiDownload,
     claimConversionRate,
+    rolledBackCandidates,
+    rolledBackSeeds,
+    hiddenByOperator,
+    rollbackJobs,
+    blockedRollbacks,
+    activeAfterRollback,
+    activeDiscovered,
+    claimableActive,
+    claimableRolledBack,
   };
 }

@@ -171,6 +171,7 @@ import discoveryRoutes from './routes/discoveryRoutes.js';
 import businessIngestionRoutes from './routes/businessIngestionRoutes.js';
 import discoveryEngineRoutes from './routes/discoveryEngineRoutes.js';
 import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
+import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import claimBusinessPublicRoutes from './routes/claimBusinessPublicRoutes.js';
@@ -994,6 +995,7 @@ app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: sea
 app.use('/api/business-ingestion', businessIngestionRoutes); // Bulk factual business ingestion pipeline
 app.use('/api/discovery-engine', discoveryEngineRoutes); // Discovery Engine V1 — candidates → seeds
 app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first BusinessCandidate pilot
+app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds

@@ -21,6 +21,7 @@ import {
 } from './publicLifecycle.js';
 import type { IngestedSeedRecord } from './types.js';
 import { classifyBusinessVertical } from '../classifyBusinessVertical.js';
+import { isSeedRolledBack } from '../businessCandidate/rollback/isRolledBack.js';
 
 export type PublicFeedCategory = 'food' | 'products' | 'services' | 'other';
 
@@ -70,6 +71,7 @@ function buildDescription(seed: IngestedSeedRecord, locationLabel: string | null
 export async function buildPublicDiscoveryCard(
   seed: IngestedSeedRecord,
 ): Promise<PublicDiscoveryCard | null> {
+  if (isSeedRolledBack(seed)) return null;
   if (!seed.claimable || seed.storeId) return null;
   const publicLifecycle = translateSeedToPublicLifecycle(seed.verificationStatus);
   if (publicLifecycle !== 'discovered_business') return null;

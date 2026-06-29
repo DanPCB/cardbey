@@ -7,7 +7,9 @@ export type BriefStatus =
   | 'ready'
   | 'downloaded'
   | 'claim_started'
-  | 'claimed';
+  | 'claimed'
+  | 'rolled_back'
+  | 'archived';
 
 export interface VisibilityScores {
   overall: number;

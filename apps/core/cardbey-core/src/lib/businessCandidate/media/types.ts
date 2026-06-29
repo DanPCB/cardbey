@@ -22,7 +22,7 @@ export type MediaSourceType =
 
 export type MediaLicenseStatus = 'owner' | 'allowed' | 'needs_review' | 'unknown' | 'prohibited';
 
-export type MediaUsageStatus = 'approved' | 'needs_review' | 'blocked';
+export type MediaUsageStatus = 'approved' | 'needs_review' | 'blocked' | 'archived';
 
 export interface CandidateMediaAsset {
   id: string;

@@ -20,7 +20,9 @@ export type BusinessCandidateStatus =
   | 'CLAIMABLE'
   | 'CLAIM_PENDING'
   | 'VERIFIED'
-  | 'DUPLICATE';
+  | 'DUPLICATE'
+  | 'ROLLED_BACK'
+  | 'HIDDEN_BY_OPERATOR';
 
 export type DiscoveredFromSource =
   | 'google'
@@ -115,6 +117,8 @@ export interface BusinessCandidateRecord {
   /** Linked BusinessSeed after QA approval (claim flow) */
   seedId: string | null;
   status: BusinessCandidateStatus;
+  /** Operator soft-hide without deleting record */
+  operatorVisibility?: 'visible' | 'hidden';
   dedupeKey: string;
   discoveryProviderId: string;
   externalId: string;
@@ -196,6 +200,16 @@ export interface BatchOnboardingMetrics {
   claimIntentsStarted: number;
   claimIntentsFromBiDownload: number;
   claimConversionRate: number;
+  /** Rollback governance metrics */
+  rolledBackCandidates: number;
+  rolledBackSeeds: number;
+  hiddenByOperator: number;
+  rollbackJobs: number;
+  blockedRollbacks: number;
+  activeAfterRollback: number;
+  activeDiscovered: number;
+  claimableActive: number;
+  claimableRolledBack: number;
 }
 
 export type { DiscoveryBusinessCandidate };

@@ -20,6 +20,7 @@ import {
   translateSeedToPublicLifecycle,
   type PublicBusinessLifecycle,
 } from './publicLifecycle.js';
+import { isSeedRolledBack } from '../businessCandidate/rollback/isRolledBack.js';
 import type { IngestedSeedRecord, SeedVerificationStatus } from './types.js';
 
 export type PublicLifecycleStage = 'discovered' | 'claimed' | 'verified' | 'active';
@@ -124,6 +125,7 @@ export async function buildPublicBusinessProfile(
   seed: IngestedSeedRecord,
   publishedStores?: PublishedStoreIdentity[],
 ): Promise<PublicBusinessProfile | null> {
+  if (isSeedRolledBack(seed)) return null;
   const publicLifecycle = translateSeedToPublicLifecycle(seed.verificationStatus);
   if (!publicLifecycle) return null;
 

@@ -14,7 +14,8 @@ export type ClaimIntentStatus =
   | 'registered'
   | 'verification_pending'
   | 'verified'
-  | 'abandoned';
+  | 'abandoned'
+  | 'abandoned_rollback';
 
 export interface ClaimIntentRecord {
   id: string;

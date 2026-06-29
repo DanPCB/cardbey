@@ -24,6 +24,9 @@ export function translateSeedToPublicLifecycle(
       return 'verified_owner';
     case 'active':
       return 'business_space';
+    case 'rolled_back':
+    case 'hidden_by_operator':
+      return null;
     default:
       return null;
   }

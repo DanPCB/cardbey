@@ -13,6 +13,7 @@ import { getBusinessCandidateBySeedId } from '../lib/businessCandidate/candidate
 import { seedBriefCandidateId } from '../lib/businessCandidate/seedBriefAdapter.js';
 import { findSeedByPublicSlug } from '../lib/businessIngestion/businessPublicSlug.js';
 import { listSeedRecords } from '../lib/businessIngestion/IngestionRepository.js';
+import { isSeedRolledBack } from '../lib/businessCandidate/rollback/isRolledBack.js';
 
 const router = express.Router();
 
@@ -45,6 +46,16 @@ router.get('/discovery/businesses/:slug', async (req, res, next) => {
     const slug = String(req.params.slug ?? '').trim();
     if (!slug) {
       return res.status(400).json({ ok: false, message: 'Business slug is required.' });
+    }
+
+    const seeds = await listSeedRecords();
+    const seed = findSeedByPublicSlug(seeds, slug);
+    if (seed && isSeedRolledBack(seed)) {
+      return res.status(404).json({
+        ok: false,
+        message: 'This business preview is no longer available.',
+        reason: 'rolled_back',
+      });
     }
 
     const profile = await getPublicBusinessProfileBySlug(slug);

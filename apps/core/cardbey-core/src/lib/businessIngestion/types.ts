@@ -25,7 +25,9 @@ export type SeedVerificationStatus =
   | 'verified_owner'
   | 'active'
   | 'rejected'
-  | 'duplicate';
+  | 'duplicate'
+  | 'rolled_back'
+  | 'hidden_by_operator';
 
 /** Governed lifecycle stage labels (Discovery Center / audit contract). */
 export type GovernedSeedLifecycleStage =
