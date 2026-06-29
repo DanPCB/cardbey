@@ -9,6 +9,103 @@ import {
   normalizePublicStoreIdentityKey,
 } from '../../services/publishedArtifactProjection/resolvePublicStoreList.js';
 
+async function deleteManyIfAvailable(tx, modelName, args = {}) {
+  const delegate = tx?.[modelName];
+  if (!delegate?.deleteMany) return 0;
+  const result = await delegate.deleteMany(args);
+  return result?.count ?? 0;
+}
+
+/**
+ * Remove mission/chat rows that block User delete (Mission.createdByUserId is Restrict).
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {string} userId
+ */
+async function purgeUserAccountDependencies(tx, userId) {
+  const missions = await tx.mission.findMany({
+    where: { createdByUserId: userId },
+    select: { id: true },
+  });
+  const missionIds = missions.map((m) => m.id);
+
+  if (missionIds.length) {
+    const agentTasks = await tx.agentTask.findMany({
+      where: { missionId: { in: missionIds } },
+      select: { id: true },
+    });
+    const agentTaskIds = agentTasks.map((t) => t.id);
+
+    if (agentTaskIds.length) {
+      await deleteManyIfAvailable(tx, 'interactionFeedback', {
+        where: { assignment: { taskId: { in: agentTaskIds } } },
+      });
+      await deleteManyIfAvailable(tx, 'assignment', { where: { taskId: { in: agentTaskIds } } });
+      await deleteManyIfAvailable(tx, 'bid', { where: { taskId: { in: agentTaskIds } } });
+      await deleteManyIfAvailable(tx, 'agentTask', { where: { id: { in: agentTaskIds } } });
+    }
+
+    const agentRuns = await tx.agentRun.findMany({
+      where: { missionId: { in: missionIds } },
+      select: { id: true },
+    });
+    const agentRunIds = agentRuns.map((r) => r.id);
+    if (agentRunIds.length) {
+      await deleteManyIfAvailable(tx, 'assignment', { where: { agentRunId: { in: agentRunIds } } });
+      await deleteManyIfAvailable(tx, 'agentRun', { where: { id: { in: agentRunIds } } });
+    }
+
+    await deleteManyIfAvailable(tx, 'interactionFeedback', { where: { missionId: { in: missionIds } } });
+    await deleteManyIfAvailable(tx, 'agentMessage', { where: { missionId: { in: missionIds } } });
+    await deleteManyIfAvailable(tx, 'agentChatConfig', { where: { missionId: { in: missionIds } } });
+    await deleteManyIfAvailable(tx, 'missionEvent', { where: { missionId: { in: missionIds } } });
+    await deleteManyIfAvailable(tx, 'missionOperatorRun', { where: { missionId: { in: missionIds } } });
+    await deleteManyIfAvailable(tx, 'missionContext', { where: { missionId: { in: missionIds } } });
+    await deleteManyIfAvailable(tx, 'intentRequest', { where: { missionId: { in: missionIds } } });
+    await deleteManyIfAvailable(tx, 'missionBlackboard', { where: { missionId: { in: missionIds } } });
+
+    const orchestratorTasks = await tx.orchestratorTask.findMany({
+      where: { OR: [{ missionId: { in: missionIds } }, { userId }] },
+      select: { id: true },
+    });
+    const orchestratorTaskIds = orchestratorTasks.map((t) => t.id);
+    if (orchestratorTaskIds.length) {
+      await deleteManyIfAvailable(tx, 'agentMessage', { where: { taskId: { in: orchestratorTaskIds } } });
+      await deleteManyIfAvailable(tx, 'orchestratorTask', { where: { id: { in: orchestratorTaskIds } } });
+    }
+
+    await deleteManyIfAvailable(tx, 'mission', { where: { id: { in: missionIds } } });
+  }
+
+  await deleteManyIfAvailable(tx, 'missionOperatorRun', { where: { userId } });
+
+  const missionRuns = await tx.missionRun.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  const missionRunIds = missionRuns.map((r) => r.id);
+  if (missionRunIds.length) {
+    await deleteManyIfAvailable(tx, 'agentMessage', { where: { missionRunId: { in: missionRunIds } } });
+    await deleteManyIfAvailable(tx, 'missionRun', { where: { id: { in: missionRunIds } } });
+  }
+
+  await deleteManyIfAvailable(tx, 'missionPipeline', { where: { createdBy: userId } });
+  await deleteManyIfAvailable(tx, 'orchestratorTask', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'paidAiJob', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'draftStore', { where: { ownerUserId: userId } });
+  await deleteManyIfAvailable(tx, 'chatThread', { where: { createdByUserId: userId } });
+  await deleteManyIfAvailable(tx, 'conversationThread', { where: { createdByUserId: userId } });
+  await deleteManyIfAvailable(tx, 'conversationSession', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'userIdentifier', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'passwordResetToken', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'personalMedia', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'demand', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'content', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'greetingCard', { where: { ownerId: userId } });
+  await deleteManyIfAvailable(tx, 'card', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'suitcaseItem', { where: { ownerId: userId } });
+  await deleteManyIfAvailable(tx, 'smartDocument', { where: { userId } });
+}
+
 const GENERIC_STORE_NAMES = new Set([
   'my business',
   'my store',
@@ -318,7 +415,10 @@ export async function adminDeleteUser(prisma, userId, opts = {}) {
     await adminDeleteStore(prisma, biz.id);
   }
 
-  await prisma.user.delete({ where: { id: userId } });
+  await prisma.$transaction(async (tx) => {
+    await purgeUserAccountDependencies(tx, userId);
+    await tx.user.delete({ where: { id: userId } });
+  });
 
   return { id: user.id, email: user.email, deletedStoreCount: user.businesses.length };
 }
