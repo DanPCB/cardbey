@@ -15,6 +15,9 @@ import {
   REAL_LOCAL_PILOT_TARGET_COUNT,
 } from './batch001Config.js';
 import { listSeedRecords } from '../businessIngestion/IngestionRepository.js';
+import { listMediaForCandidate } from './media/mediaEvidenceRepository.js';
+import { listBriefs } from './brief/briefRepository.js';
+import { listClaimIntents } from './claimIntent/claimIntentRepository.js';
 
 const ALL_STATUSES: BusinessCandidateStatus[] = [
   'DISCOVERED',
@@ -83,6 +86,14 @@ export async function buildBatchOnboardingMetrics(
       categoriesSearched: [],
       fetchLimit: resolvedTarget,
       errors: [],
+      candidatesWithMedia: 0,
+      candidatesWithBusinessSpecificMedia: 0,
+      candidatesUsingRepresentativeMedia: 0,
+      briefsGenerated: 0,
+      briefsDownloaded: 0,
+      claimIntentsStarted: 0,
+      claimIntentsFromBiDownload: 0,
+      claimConversionRate: 0,
     };
   }
 
@@ -129,6 +140,36 @@ export async function buildBatchOnboardingMetrics(
   const providerUsed =
     candidates.find((c) => c.discoveryProviderId)?.discoveryProviderId ?? null;
 
+  const candidateIds = new Set(candidates.map((c) => c.id));
+  const allMedia = await Promise.all(candidates.map((c) => listMediaForCandidate(c.id)));
+  let candidatesWithMedia = 0;
+  let candidatesWithBusinessSpecificMedia = 0;
+  let candidatesUsingRepresentativeMedia = 0;
+  for (const assets of allMedia) {
+    const usable = assets.filter((a) => a.licenseStatus !== 'prohibited' && a.usageStatus !== 'blocked');
+    if (usable.length) candidatesWithMedia += 1;
+    if (usable.some((a) => a.businessSpecificConfidence >= 0.6 && !a.isRepresentative)) {
+      candidatesWithBusinessSpecificMedia += 1;
+    }
+    if (usable.some((a) => a.isRepresentative || a.sourceType === 'category_stock')) {
+      candidatesUsingRepresentativeMedia += 1;
+    }
+  }
+
+  const briefs = (await listBriefs()).filter((b) => candidateIds.has(b.candidateId));
+  const briefsGenerated = briefs.filter((b) => b.status !== 'draft').length;
+  const briefsDownloaded = briefs.filter((b) => b.downloadedAt).length;
+
+  const intents = (await listClaimIntents()).filter(
+    (i) => i.candidateId && candidateIds.has(i.candidateId),
+  );
+  const claimIntentsStarted = intents.length;
+  const claimIntentsFromBiDownload = intents.filter((i) => i.source === 'BI_BRIEF_DOWNLOAD').length;
+  const claimConversionRate =
+    claimIntentsStarted > 0
+      ? Math.round((briefsDownloaded / claimIntentsStarted) * 100)
+      : 0;
+
   return {
     batchId,
     campaignId,
@@ -158,5 +199,13 @@ export async function buildBatchOnboardingMetrics(
     categoriesSearched: Object.keys(byBusinessType),
     fetchLimit: resolvedTarget,
     errors: [],
+    candidatesWithMedia,
+    candidatesWithBusinessSpecificMedia,
+    candidatesUsingRepresentativeMedia,
+    briefsGenerated,
+    briefsDownloaded,
+    claimIntentsStarted,
+    claimIntentsFromBiDownload,
+    claimConversionRate,
   };
 }

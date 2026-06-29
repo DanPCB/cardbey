@@ -7,7 +7,29 @@ import { loadBelief } from './beliefLoader.js';
 import { hydrateBeliefForDecisionLoop } from './hydrateBeliefForDecisionLoop.js';
 import { runDecisionLoopAuthority } from './runDecisionLoopAuthority.js';
 import { isExplicitCreateStoreFromUploadContext } from '../intake/assetUploadGuard.js';
+import { UPLOAD_INTAKE_PHASE } from '../intake/uploadIntakePhase.js';
 import { buildIntakeResponse, buildUploadAskResponseFromBelief } from '../response/responseBuilder.js';
+
+/**
+ * Rule 1 — attachment-only / ask-intent phase must show upload Ask panel (not generic clarify).
+ * @param {object} opts
+ */
+export function shouldRequireUploadAskPanel(opts = {}) {
+  const advisorInput = opts.advisorInput ?? {};
+  if (
+    isExplicitCreateStoreFromUploadContext({
+      userMessage: advisorInput.originalUserMessage ?? advisorInput.userMessage ?? opts.userMessage,
+      intentSourceContext: opts.intentSourceContext ?? advisorInput.intentSourceContext,
+    })
+  ) {
+    return false;
+  }
+  return (
+    opts.attachmentOnlyUpload === true ||
+    opts.uploadIntakePhase === UPLOAD_INTAKE_PHASE.ASK_INTENT ||
+    opts.intentSourceContext?.uploadedAssetPending === true
+  );
+}
 
 /**
  * Rule 1 Ask panel — HTTP payload (works with or without authority flag).
@@ -35,6 +57,7 @@ export async function loadHydratedBeliefForUploadDecision(opts = {}) {
     extractedText: opts.extractedText ?? null,
     attachmentOnlyUpload: opts.attachmentOnlyUpload === true,
     hasAttachment: opts.hasImageAttachment === true,
+    sessionKey: opts.beliefLoaderOpts?.sessionKey ?? opts.belief?.sessionKey ?? null,
   });
 }
 
@@ -119,6 +142,40 @@ export async function tryEarlyDecisionLoopGate(opts = {}) {
 
   if (!shouldConsider) return null;
 
+  // Rule 1 hard gate: attachment-only uploads always get the upload Ask panel — never generic clarify.
+  if (shouldRequireUploadAskPanel(opts)) {
+    const beliefForAsk = await loadHydratedBeliefForUploadDecision({
+      ...opts,
+      sessionKey: opts.beliefLoaderOpts?.sessionKey ?? opts.belief?.sessionKey ?? null,
+    });
+    const hasImage =
+      Boolean(beliefForAsk?.lastUpload?.imageRef) ||
+      opts.hasImageAttachment === true ||
+      Boolean(String(opts.imageDataUrl ?? '').trim());
+    if (hasImage) {
+      const payload = buildUploadAskClarifyFromBelief(beliefForAsk);
+      return {
+        classification: {
+          executionPath: 'clarify',
+          tool: 'ingest_asset_for_intent_detection',
+          confidence: 0.9,
+          parameters: {
+            imageDataUrl: beliefForAsk?.lastUpload?.imageRef ?? opts.imageDataUrl ?? null,
+            source: 'upload_ask_rule1_early_gate',
+          },
+          message: payload.response,
+          clarifyOptions: payload.options ?? [],
+          _decisionLoop: true,
+          _decisionNextStep: 'present_options',
+          _uploadAskSource: 'rule1_early_gate',
+        },
+        clarifyPayload: payload,
+        summary: { event: 'upload_ask_rule1_early_gate', attachmentOnlyUpload: true },
+        skipPlanners: false,
+      };
+    }
+  }
+
   let belief = opts.belief ?? null;
   if (opts.beliefLoaderOpts) {
     try {
@@ -133,6 +190,7 @@ export async function tryEarlyDecisionLoopGate(opts = {}) {
     extractedText: opts.extractedText ?? null,
     attachmentOnlyUpload: opts.attachmentOnlyUpload === true,
     hasAttachment: opts.hasImageAttachment === true,
+    sessionKey: opts.beliefLoaderOpts?.sessionKey ?? belief?.sessionKey ?? null,
   });
 
   if (!belief?.lastUpload?.imageRef && !opts.hasImageAttachment) return null;

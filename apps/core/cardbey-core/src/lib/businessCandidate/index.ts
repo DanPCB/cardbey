@@ -12,6 +12,7 @@ export {
   listCandidatesPendingQa,
   approveCandidateForClaiming,
   rejectCandidateQa,
+  bulkApproveCandidatesForClaiming,
 } from './candidateQaService.js';
 export { checkCandidateDuplicate, isPendingQaCandidate } from './candidateDedupe.js';
 export {
@@ -40,3 +41,9 @@ export {
 export { createBusinessOnboardingMission } from './businessOnboardingMission.js';
 export { ingestDiscoveredCandidates } from './candidateIngestionPipeline.js';
 export { buildBatchOnboardingMetrics } from './buildBatchMetrics.js';
+export { selectBestCandidateMedia, selectBestMediaForSeed } from './media/selectBestCandidateMedia.js';
+export { runMediaDiscoveryForCandidate } from './media/mediaDiscoveryAgent.js';
+export { generateBusinessIntelligenceBrief, briefSummaryForPublic } from './brief/generateBusinessIntelligenceBrief.js';
+export { enrichCandidateForPublicDisplay } from './candidateEnrichmentPipeline.js';
+export { resolvePublicMediaForSeed } from './media/resolvePublicCandidateMedia.js';
+export { buildBusinessHealthScore } from './brief/businessHealthScore.js';

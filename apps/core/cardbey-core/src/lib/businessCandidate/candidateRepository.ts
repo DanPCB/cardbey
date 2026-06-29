@@ -76,6 +76,11 @@ export async function getBusinessCandidateByDedupeKey(dedupeKey: string): Promis
   return all.find((c) => c.dedupeKey === dedupeKey) ?? null;
 }
 
+export async function getBusinessCandidateBySeedId(seedId: string): Promise<BusinessCandidateRecord | null> {
+  const all = await listBusinessCandidates();
+  return all.find((c) => c.seedId === seedId) ?? null;
+}
+
 export async function upsertBusinessCandidates(
   incoming: BusinessCandidateRecord[],
 ): Promise<BusinessCandidateRecord[]> {

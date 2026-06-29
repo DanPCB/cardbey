@@ -13,6 +13,11 @@ import { applyGovernanceEnforcer } from '../decision/governanceEnforcer.js';
 import { persistBeliefDelta } from '../decision/persistBeliefDelta.js';
 import { recordDecisionLoopTurn } from '../decision/decisionLoopHealth.js';
 import { getToolEntry, RISK } from './intakeToolRegistry.js';
+import {
+  shouldRequireUploadAskPanel,
+  buildUploadAskClarifyFromBelief,
+  loadHydratedBeliefForUploadDecision,
+} from '../decision/earlyDecisionLoopGate.js';
 
 const DIRECT_RESPONSE_STEPS = new Set([
   'present_options',
@@ -43,6 +48,67 @@ export async function runIntakeAuthorityTurn(ctx = {}) {
 
   if (ctx.performerMode === 'manual') {
     return { handled: false };
+  }
+
+  const intentSourceContext =
+    ctx.advisorInput?.intentSourceContext ??
+    ctx.beliefLoaderOpts?.intentSourceContext ??
+    null;
+
+  if (
+    shouldRequireUploadAskPanel({
+      attachmentOnlyUpload: ctx.attachmentOnlyUpload === true,
+      uploadIntakePhase: ctx.uploadIntakePhase,
+      intentSourceContext,
+      userMessage: ctx.advisorInput?.userMessage ?? ctx.advisorInput?.originalUserMessage,
+      advisorInput: ctx.advisorInput,
+    })
+  ) {
+    const beliefForAsk = await loadHydratedBeliefForUploadDecision({
+      belief: ctx.belief ?? null,
+      beliefLoaderOpts: ctx.beliefLoaderOpts,
+      attachmentOnlyUpload: true,
+      hasImageAttachment: ctx.hasAttachment === true,
+      imageDataUrl: ctx.imageDataUrl ?? null,
+      extractedText: ctx.extractedText ?? null,
+    });
+    const hasImage =
+      Boolean(beliefForAsk?.lastUpload?.imageRef) ||
+      ctx.hasAttachment === true ||
+      Boolean(String(ctx.imageDataUrl ?? '').trim());
+    if (hasImage) {
+      const httpPayload = buildUploadAskClarifyFromBelief(beliefForAsk);
+      const classification = {
+        executionPath: 'clarify',
+        tool: 'ingest_asset_for_intent_detection',
+        confidence: 0.9,
+        parameters: {
+          imageDataUrl: beliefForAsk?.lastUpload?.imageRef ?? ctx.imageDataUrl ?? null,
+          source: 'upload_ask_authority_turn',
+        },
+        message: httpPayload.response,
+        clarifyOptions: httpPayload.options ?? [],
+        _decisionLoop: true,
+        _decisionNextStep: 'present_options',
+        _uploadAskSource: 'authority_turn',
+      };
+      const toolEntry = getToolEntry(classification.tool);
+      return {
+        handled: true,
+        httpPayload,
+        classification,
+        telExtra: {
+          classification,
+          validated: true,
+          downgraded: false,
+          downgradeReason: null,
+          validationErrors: [],
+          riskLevel: toolEntry?.riskLevel ?? RISK.SAFE_READ,
+          result: 'clarify',
+        },
+        skipPlanners: true,
+      };
+    }
   }
 
   const pipelineInput = {

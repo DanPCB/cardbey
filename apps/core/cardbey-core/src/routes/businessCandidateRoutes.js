@@ -37,7 +37,32 @@ router.get('/qa', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const batchId = typeof req.query.batchId === 'string' ? req.query.batchId : undefined;
     const candidates = await listCandidatesPendingQa(batchId ?? null);
-    return res.json({ ok: true, candidates, total: candidates.length, batchId: batchId ?? null });
+    const { selectBestCandidateMedia } = await import(
+      '../lib/businessCandidate/media/selectBestCandidateMedia.js'
+    );
+    const { getBriefByCandidateId } = await import(
+      '../lib/businessCandidate/brief/briefRepository.js'
+    );
+    const enriched = await Promise.all(
+      candidates.map(async (c) => {
+        const [media, brief] = await Promise.all([
+          selectBestCandidateMedia(c.id),
+          getBriefByCandidateId(c.id),
+        ]);
+        return {
+          ...c,
+          qaEnrichment: {
+            mediaPreviewUrl: media?.heroImage?.thumbnailUrl ?? media?.heroImage?.url ?? null,
+            mediaSource: media?.heroImage?.sourceType ?? null,
+            mediaConfidence: media?.heroImage?.matchConfidence ?? null,
+            isRepresentative: media?.representativeDisclosureRequired ?? false,
+            briefStatus: brief?.status ?? 'not_generated',
+            briefUpdatedAt: brief?.updatedAt ?? null,
+          },
+        };
+      }),
+    );
+    return res.json({ ok: true, candidates: enriched, total: enriched.length, batchId: batchId ?? null });
   } catch (err) {
     next(err);
   }
@@ -89,6 +114,32 @@ router.post('/real-local/discover', requireAuth, requireAdmin, realLocalRateLimi
   }
 });
 
+/** POST /api/business-candidates/batch/qa-approve — bulk approve pending QA (makes claimable) */
+router.post('/batch/qa-approve', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const candidateIds = Array.isArray(body.candidateIds)
+      ? body.candidateIds.filter((id) => typeof id === 'string')
+      : undefined;
+    const batchId = typeof body.batchId === 'string' ? body.batchId : null;
+    const reason = typeof body.reason === 'string' ? body.reason : null;
+
+    const { bulkApproveCandidatesForClaiming } = await import(
+      '../lib/businessCandidate/candidateQaService.js'
+    );
+    const result = await bulkApproveCandidatesForClaiming({
+      candidateIds,
+      batchId,
+      reviewerId: req.user?.id ?? 'admin',
+      reason,
+    });
+
+    return res.json({ ok: result.ok, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** GET /api/business-candidates/batch/:batchId */
 router.get('/batch/:batchId', requireAuth, requireAdmin, async (req, res, next) => {
   try {
@@ -130,6 +181,67 @@ router.post('/:id/qa-reject', requireAuth, requireAdmin, async (req, res, next) 
       return res.status(result.message.includes('not found') ? 404 : 409).json(result);
     }
     return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/business-candidates/:id/brief */
+router.get('/:id/brief', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { getOrGenerateBrief } = await import('../lib/businessCandidate/brief/briefService.js');
+    const brief = await getOrGenerateBrief(req.params.id);
+    if (!brief) return res.status(404).json({ ok: false, error: 'not_found' });
+    return res.json({ ok: true, brief });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/business-candidates/:id/brief/generate */
+router.post('/:id/brief/generate', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const { getOrGenerateBrief } = await import('../lib/businessCandidate/brief/briefService.js');
+    const brief = await getOrGenerateBrief(req.params.id, true);
+    if (!brief) return res.status(404).json({ ok: false, error: 'not_found' });
+    return res.json({ ok: true, brief });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/business-candidates/:id/media/discover */
+router.post('/:id/media/discover', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const candidate = await getBusinessCandidateById(req.params.id);
+    if (!candidate) return res.status(404).json({ ok: false, error: 'not_found' });
+    const { runMediaDiscoveryForCandidate } = await import(
+      '../lib/businessCandidate/media/mediaDiscoveryAgent.js'
+    );
+    const assets = await runMediaDiscoveryForCandidate(candidate);
+    const { selectBestCandidateMedia } = await import(
+      '../lib/businessCandidate/media/selectBestCandidateMedia.js'
+    );
+    const selected = await selectBestCandidateMedia(candidate.id, { discoverIfEmpty: false });
+    return res.json({ ok: true, assets, selected });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** PATCH /api/business-candidates/media/:assetId/usage */
+router.patch('/media/:assetId/usage', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const usageStatus = req.body?.usageStatus;
+    if (!['approved', 'needs_review', 'blocked'].includes(usageStatus)) {
+      return res.status(400).json({ ok: false, error: 'invalid_usage_status' });
+    }
+    const { updateMediaUsageStatus } = await import(
+      '../lib/businessCandidate/media/mediaEvidenceRepository.js'
+    );
+    const updated = await updateMediaUsageStatus(req.params.assetId, usageStatus);
+    if (!updated) return res.status(404).json({ ok: false, error: 'not_found' });
+    return res.json({ ok: true, asset: updated });
   } catch (err) {
     next(err);
   }

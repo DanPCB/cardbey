@@ -60,4 +60,23 @@ describe('responseBuilder', () => {
     expect(payload.storeCreationDraft?.draft?.name).toMatch(/PTH/i);
     expect(payload.missingFields).toBeDefined();
   });
+
+  it('uses upload ask question when clarify falls back to default upload options', () => {
+    const belief = hydrateBeliefForDecisionLoop(baseBelief(), {
+      imageDataUrl: 'data:image/png;base64,abc',
+      attachmentOnlyUpload: true,
+      hasAttachment: true,
+    });
+    const turnResult = {
+      nextStep: 'clarify',
+      rationale: 'Could you clarify what you would like to do?',
+      options: undefined,
+      tool: { name: 'general_chat', parameters: {} },
+      governance: {},
+      belief,
+    };
+    const payload = buildIntakeResponse(turnResult, belief);
+    expect(payload.response).toMatch(/I see your upload/i);
+    expect(payload.options?.some((o) => o.label === 'Create store')).toBe(true);
+  });
 });

@@ -21,6 +21,7 @@ export {
   buildClarifyPayloadFromTurnResult,
   buildUploadAskClarifyFallback,
   shouldForceUploadAskPanel,
+  shouldRequireUploadAskPanel,
   shouldSkipCreateStoreEarlyDraftForDecisionLoop,
   shouldSkipPlannersForDecisionLoop,
 } from './earlyDecisionLoopGate.js';

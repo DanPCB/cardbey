@@ -160,10 +160,24 @@ export function buildIntakeResponse(turnResult, belief = null, extras = {}) {
         })
         .filter(Boolean);
 
+      const usedUploadDefaultOptions =
+        !(turnResult.options?.length) &&
+        options.some(
+          (o) =>
+            o.tool === 'create_store' &&
+            o.parameters &&
+            typeof o.parameters === 'object' &&
+            o.parameters.source === 'upload_ask_selection',
+        );
+      const uploadQuestion =
+        usedUploadDefaultOptions || turnResult.nextStep === 'present_options'
+          ? buildUploadGoalOptions(belief).question
+          : null;
+
       return {
         success: true,
         action: 'clarify',
-        response: turnResult.rationale || 'How can I help?',
+        response: uploadQuestion ?? (turnResult.rationale || 'How can I help?'),
         ...(options.length > 0 ? { options } : {}),
         storeCreationDraft: null,
       };

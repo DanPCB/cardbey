@@ -4,6 +4,14 @@
  */
 
 import { parseStructuredStoreCreatePillMessage } from '../intent/storeCreateFastPath.js';
+import { isExplicitCreateStoreFromUploadContext } from './assetUploadGuard.js';
+import { buildStoreCreationDraft } from './storeCreationDraft.js';
+import {
+  buildOcrHintsFromImageText,
+  formatStoreCreationDraftResponseForBundle,
+} from './storeCreationDraftAssetBridge.js';
+import { resolveStoreCandidateForIntakeTurn } from './resolveStoreCandidateForIntakeTurn.js';
+import { buildDocumentExtractionArtifact } from './storeCandidate.js';
 import { ensureStructuredStoreCheckpointSteps } from '../storeMission/ensureStructuredStoreCheckpointSteps.js';
 import { executeMission } from '../execution/missionExecutionEngine.js';
 import { inferCurrencyFromLocationText } from '../../services/draftStore/currencyInfer.js';
@@ -111,6 +119,8 @@ async function findDuplicateBusinessNameForUser(prisma, userId, businessName, lo
  *   storeCreateForm?: Record<string, unknown> | null;
  *   classification?: { parameters?: Record<string, unknown> } | null;
  *   userMessage?: string;
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   imageContext?: { extractedText?: string } | null;
  * }} input
  */
 export function resolveCreateStoreHandoffFields(input = {}) {
@@ -160,7 +170,158 @@ export function resolveCreateStoreHandoffFields(input = {}) {
     }
   }
 
+  const isc =
+    input.intentSourceContext && typeof input.intentSourceContext === 'object'
+      ? input.intentSourceContext
+      : null;
+  if (isc) {
+    const card =
+      isc.cardExtraction && typeof isc.cardExtraction === 'object' ? isc.cardExtraction : null;
+    if (!businessName && card) {
+      businessName = stripQuotes(card.businessName);
+    }
+    if (businessType === 'Other' && card) {
+      businessType = stripQuotes(card.vertical ?? card.category) || businessType;
+    }
+    if (!locationTrim && card) {
+      locationTrim = stripQuotes(card.location);
+    }
+
+    const storeCandidate =
+      (isc.storeCandidate && typeof isc.storeCandidate === 'object' ? isc.storeCandidate : null) ??
+      (isc.documentExtraction &&
+      typeof isc.documentExtraction === 'object' &&
+      isc.documentExtraction.storeCandidate &&
+      typeof isc.documentExtraction.storeCandidate === 'object'
+        ? isc.documentExtraction.storeCandidate
+        : null);
+    if (storeCandidate) {
+      if (!businessName) {
+        businessName = stripQuotes(storeCandidate.businessName ?? storeCandidate.name);
+      }
+      if (!locationTrim) {
+        locationTrim = stripQuotes(storeCandidate.location ?? storeCandidate.address);
+      }
+      if (businessType === 'Other') {
+        businessType =
+          stripQuotes(storeCandidate.category ?? storeCandidate.vertical) || businessType;
+      }
+    }
+  }
+
+  if (!businessName && input.imageContext?.extractedText) {
+    const hints = buildOcrHintsFromImageText(input.imageContext.extractedText);
+    if (hints?.businessName) businessName = stripQuotes(hints.businessName);
+    if (businessType === 'Other' && hints?.businessType) {
+      businessType = stripQuotes(hints.businessType) || businessType;
+    }
+    if (!locationTrim && hints?.location) locationTrim = stripQuotes(hints.location);
+  }
+
   return { businessName, businessType, locationTrim, intentMode };
+}
+
+/**
+ * Skip the dynamic proactive planner for upload create_store until handoff fields resolve.
+ *
+ * @param {{
+ *   classification?: { tool?: string; parameters?: Record<string, unknown> } | null;
+ *   storeCreateForm?: Record<string, unknown> | null;
+ *   userMessage?: string;
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   imageContext?: { extractedText?: string } | null;
+ * }} input
+ */
+export function shouldSkipDynamicPlannerForUploadCreateStore(input = {}) {
+  const tool = String(input.classification?.tool ?? '').trim();
+  if (tool !== 'create_store') return false;
+  if (
+    !isExplicitCreateStoreFromUploadContext({
+      userMessage: input.userMessage,
+      intentSourceContext: input.intentSourceContext,
+    })
+  ) {
+    return false;
+  }
+  const { businessName } = resolveCreateStoreHandoffFields(input);
+  return !String(businessName ?? '').trim();
+}
+
+/**
+ * Build create_store draft HTTP payload from upload OCR / client card extraction.
+ *
+ * @param {object} input
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) {
+  const userMessage = String(input.userMessage ?? '').trim();
+  const intentSourceContext =
+    input.intentSourceContext && typeof input.intentSourceContext === 'object'
+      ? input.intentSourceContext
+      : null;
+  if (
+    !isExplicitCreateStoreFromUploadContext({
+      userMessage,
+      intentSourceContext,
+    })
+  ) {
+    return null;
+  }
+
+  const { storeCandidate, assetExtraction } = await resolveStoreCandidateForIntakeTurn({
+    userMessage,
+    intentSourceContext,
+    sessionId: input.sessionId ?? null,
+    persistedIngest: input.persistedIngest ?? null,
+    imageContext: input.imageContext ?? null,
+    imageDataUrl: input.imageDataUrl ?? null,
+    ocrExtractFn: input.ocrExtractFn ?? null,
+  });
+
+  const classification =
+    input.classification && typeof input.classification === 'object'
+      ? input.classification
+      : { tool: 'create_store', parameters: { source: 'upload_ask_selection' } };
+
+  const bundle = buildStoreCreationDraft({
+    userMessage,
+    classification,
+    storeCreateForm: input.storeCreateForm ?? null,
+    memoryContext: input.memoryContext ?? null,
+    assetExtraction: assetExtraction && typeof assetExtraction === 'object' ? assetExtraction : {},
+  });
+
+  const documentExtractionArtifact =
+    storeCandidate != null
+      ? buildDocumentExtractionArtifact(storeCandidate, {
+          missionId: input.missionId ?? undefined,
+        })
+      : intentSourceContext?.documentExtraction &&
+          typeof intentSourceContext.documentExtraction === 'object'
+        ? intentSourceContext.documentExtraction
+        : null;
+
+  return {
+    success: true,
+    action: 'create_store',
+    intentMode: bundle.intentMode,
+    storeCreationDraft: bundle,
+    missingFields: bundle.missingFields,
+    response: formatStoreCreationDraftResponseForBundle(bundle, {
+      documentType: assetExtraction?.documentType,
+      source: assetExtraction?.source,
+      storeCandidate,
+    }),
+    businessName: bundle.draft.name ?? undefined,
+    businessType: bundle.draft.category ?? undefined,
+    imageDataUrl:
+      input.imageDataUrl ??
+      (storeCandidate && typeof storeCandidate.imageDataUrl === 'string'
+        ? storeCandidate.imageDataUrl
+        : undefined),
+    ...(storeCandidate ? { storeCandidate } : {}),
+    ...(documentExtractionArtifact ? { documentExtraction: documentExtractionArtifact } : {}),
+  };
 }
 
 /**
@@ -171,6 +332,8 @@ export function resolveCreateStoreHandoffFields(input = {}) {
  *   classification?: { tool?: string; parameters?: Record<string, unknown> } | null;
  *   storeCreateForm?: Record<string, unknown> | null;
  *   userMessage?: string;
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   imageContext?: { extractedText?: string } | null;
  * }} input
  */
 export function shouldForceCreateStoreCheckpointDispatch(input = {}) {
@@ -190,6 +353,8 @@ export function shouldForceCreateStoreCheckpointDispatch(input = {}) {
     storeCreateForm: input.storeCreateForm,
     classification,
     userMessage: input.userMessage,
+    intentSourceContext: input.intentSourceContext,
+    imageContext: input.imageContext,
   });
   return Boolean(String(businessName ?? '').trim());
 }
@@ -267,6 +432,8 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     storeCreateForm,
     classification,
     userMessage,
+    intentSourceContext: deps.intentSourceContext,
+    imageContext: deps.imageContext,
   });
   const ctxIntentMode = intentMode === 'website' ? 'website' : 'store';
 
@@ -501,8 +668,12 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
   const { explainDuplicateStoreIntakeResponse } = await import('./intakeErrorTypes.js');
 
   if (result.kind === 'needs_form') {
+    const uploadDraft =
+      ctx.uploadDraftContext && typeof ctx.uploadDraftContext === 'object'
+        ? await buildCreateStoreDraftIntakeResponseFromUpload(ctx.uploadDraftContext)
+        : null;
     await safeJson(
-      {
+      uploadDraft ?? {
         success: true,
         action: 'create_store',
         intentMode: result.intentMode,

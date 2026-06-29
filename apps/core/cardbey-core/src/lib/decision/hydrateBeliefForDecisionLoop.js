@@ -15,15 +15,45 @@ function strip(value) {
  * @param {string | null} [input.extractedText]
  * @param {boolean} [input.attachmentOnlyUpload]
  * @param {boolean} [input.hasAttachment]
+ * @param {string | null} [input.sessionKey]
  * @returns {import('./constants.js').BeliefSnapshot | null}
  */
-export function hydrateBeliefForDecisionLoop(belief, input = {}) {
-  if (!belief) return null;
+/**
+ * Minimal belief row when loader has not run yet but the turn carries an attachment.
+ * @param {object} [input]
+ * @returns {import('./constants.js').BeliefSnapshot}
+ */
+export function createEphemeralBeliefForUpload(input = {}) {
+  const sessionKey = strip(input.sessionKey) ?? 'upload-turn';
+  return {
+    sessionId: sessionKey,
+    sessionKey,
+    identity: { guest: false, actorId: null, userId: null },
+    anchors: { storeId: null, draftId: null, missionId: null },
+    workflow: null,
+    lastUpload: null,
+    activeGoal: null,
+    pendingClarify: null,
+    blockers: [],
+    sourcesLoaded: ['ephemeral_upload'],
+    divergences: [],
+    loadedAt: new Date().toISOString(),
+    loaderVersion: '1.0.0',
+  };
+}
 
-  const imageRef = strip(input.imageDataUrl) ?? belief.lastUpload?.imageRef ?? null;
+export function hydrateBeliefForDecisionLoop(belief, input = {}) {
+  const imageRef = strip(input.imageDataUrl) ?? belief?.lastUpload?.imageRef ?? null;
+  const hasAttachment = input.hasAttachment === true || Boolean(imageRef);
+
+  if (!belief) {
+    if (!hasAttachment) return null;
+    belief = createEphemeralBeliefForUpload({ sessionKey: input.sessionKey });
+  }
+
+  const imageRefResolved = imageRef;
   const ocrText = strip(input.extractedText) ?? belief.lastUpload?.ocrText ?? null;
   const attachmentOnly = input.attachmentOnlyUpload === true;
-  const hasAttachment = input.hasAttachment === true || Boolean(imageRef);
 
   if (!hasAttachment && !belief.lastUpload) return belief;
 
@@ -36,7 +66,7 @@ export function hydrateBeliefForDecisionLoop(belief, input = {}) {
 
   /** @type {import('./constants.js').BeliefLastUpload} */
   const lastUpload = {
-    imageRef,
+    imageRef: imageRefResolved,
     ocrText,
     documentType: belief.lastUpload?.documentType ?? (ocrText ? 'business_card' : null),
     businessName,

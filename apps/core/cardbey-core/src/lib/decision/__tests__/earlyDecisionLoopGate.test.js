@@ -4,8 +4,10 @@ import {
   tryEarlyDecisionLoopGate,
   buildClarifyPayloadFromTurnResult,
   buildUploadAskClarifyFromBelief,
+  shouldRequireUploadAskPanel,
   shouldSkipCreateStoreEarlyDraftForDecisionLoop,
 } from '../earlyDecisionLoopGate.js';
+import { UPLOAD_INTAKE_PHASE } from '../../intake/uploadIntakePhase.js';
 import { decideTurn } from '../decideTurn.js';
 import { turnResultToClassification } from '../turnResultToClassification.js';
 
@@ -42,6 +44,18 @@ describe('hydrateBeliefForDecisionLoop', () => {
     expect(hydrated?.lastUpload?.businessName).toMatch(/JOE/i);
     expect(hydrated?.pendingClarify?.type).toBe('upload_goal');
     expect(hydrated?.workflow?.status).toBe('pending_confirmation');
+  });
+
+  it('creates ephemeral belief when loader has not run yet', () => {
+    const hydrated = hydrateBeliefForDecisionLoop(null, {
+      imageDataUrl: 'data:image/png;base64,abc',
+      attachmentOnlyUpload: true,
+      hasAttachment: true,
+      sessionKey: 'sess-upload',
+    });
+    expect(hydrated?.sessionKey).toBe('sess-upload');
+    expect(hydrated?.lastUpload?.imageRef).toContain('data:image');
+    expect(hydrated?.pendingClarify?.type).toBe('upload_goal');
   });
 });
 
@@ -86,6 +100,78 @@ describe('earlyDecisionLoopGate', () => {
     expect(gate?.clarifyPayload?.options?.some((o) => o.label === 'Create store')).toBe(true);
     expect(gate?.clarifyPayload?.response).toMatch(/upload|next/i);
     expect(gate?.classification?._decisionLoop).toBe(true);
+    expect(gate?.summary?.event).toBe('upload_ask_rule1_early_gate');
+  });
+
+  it('returns upload ask panel without prior belief loader row', async () => {
+    const gate = await tryEarlyDecisionLoopGate({
+      attachmentOnlyUpload: true,
+      hasImageAttachment: true,
+      imageDataUrl: 'data:image/png;base64,xyz',
+      classification: { tool: 'general_chat', executionPath: 'chat', confidence: 0.2 },
+      belief: null,
+      advisorInput: {
+        originalUserMessage: '(Image attached)',
+        userMessage: '(Image attached)',
+        hasAttachment: true,
+        imageDataUrl: 'data:image/png;base64,xyz',
+      },
+    });
+
+    expect(gate?.clarifyPayload?.response).toMatch(/I see your upload/i);
+    expect(gate?.clarifyPayload?.options?.some((o) => o.label === 'Create store')).toBe(true);
+  });
+
+  it('shouldRequireUploadAskPanel when uploadedAssetPending without attachmentOnly flag', () => {
+    expect(
+      shouldRequireUploadAskPanel({
+        attachmentOnlyUpload: false,
+        intentSourceContext: { uploadedAssetPending: true },
+        userMessage: '(Image attached)',
+      }),
+    ).toBe(true);
+  });
+
+  it('returns upload ask when gate opens via uploadedAssetPending only', async () => {
+    const gate = await tryEarlyDecisionLoopGate({
+      attachmentOnlyUpload: false,
+      hasImageAttachment: true,
+      imageDataUrl: 'data:image/png;base64,abc',
+      intentSourceContext: { uploadedAssetPending: true },
+      classification: { tool: 'general_chat', executionPath: 'clarify', confidence: 0.2 },
+      belief: null,
+      advisorInput: {
+        originalUserMessage: '(Image attached)',
+        userMessage: '(Image attached)',
+        hasAttachment: true,
+        imageDataUrl: 'data:image/png;base64,abc',
+      },
+    });
+
+    expect(gate?.clarifyPayload?.response).toMatch(/I see your upload/i);
+    expect(gate?.summary?.event).toBe('upload_ask_rule1_early_gate');
+  });
+
+  it('shouldRequireUploadAskPanel false for explicit create from upload', () => {
+    expect(
+      shouldRequireUploadAskPanel({
+        attachmentOnlyUpload: true,
+        userMessage: 'create store from uploaded card above',
+        advisorInput: {
+          userMessage: 'create store from uploaded card above',
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('shouldRequireUploadAskPanel true for ASK_INTENT phase', () => {
+    expect(
+      shouldRequireUploadAskPanel({
+        attachmentOnlyUpload: false,
+        uploadIntakePhase: UPLOAD_INTAKE_PHASE.ASK_INTENT,
+        userMessage: '(Image attached)',
+      }),
+    ).toBe(true);
   });
 
   it('skips planners for explicit create from upload turn', async () => {

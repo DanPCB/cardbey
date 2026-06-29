@@ -53,12 +53,19 @@ export function turnResultToClassification(turnResult) {
       };
 
     case 'clarify':
-    case 'guide_auth':
+    case 'guide_auth': {
+      const clarifyOptions = (turnResult.options ?? []).map((opt) => ({
+        label: opt.label,
+        tool: opt.tool ?? toolName,
+        parameters: opt.parameters ?? {},
+      }));
       return {
         ...base,
         executionPath: 'clarify',
         tool: turnResult.nextStep === 'guide_auth' ? 'general_chat' : toolName,
+        ...(clarifyOptions.length > 0 ? { clarifyOptions } : {}),
       };
+    }
 
     case 'checkpoint':
       return {

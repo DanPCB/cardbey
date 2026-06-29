@@ -140,10 +140,11 @@ export function decideTurn(belief, input, hypotheses = null) {
   }
 
   // Upload awaiting goal — prefer present_options unless explicit create
-  const uploadAwaiting = isUploadAskTurn(belief, input);
+  const panelBeliefEarly = beliefForUploadPanel(belief, input);
+  const uploadAwaiting = isUploadAskTurn(panelBeliefEarly, input);
 
   if (uploadAwaiting) {
-    const panelBelief = beliefForUploadPanel(belief, input);
+    const panelBelief = panelBeliefEarly;
     const panel = buildUploadGoalOptions(panelBelief);
     return {
       ...base,

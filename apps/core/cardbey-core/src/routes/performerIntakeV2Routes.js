@@ -34,10 +34,12 @@ import {
 } from '../lib/intent/storeCreateFastPath.js';
 import { resolveIntakeShortcutContext } from '../lib/intake/intakeShortcutContext.js';
 import {
+  buildCreateStoreDraftIntakeResponseFromUpload,
   dispatchCreateStoreCheckpointPipeline,
   respondCreateStoreCheckpointDispatch,
   runCreateStoreViaUnifiedDispatch,
   shouldForceCreateStoreCheckpointDispatch,
+  shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../lib/intake/createStoreCheckpointDispatch.js';
 import { applyIntakePayloadGuard } from '../lib/intake/intakePayloadGuard.js';
 import { handleFreshStoreCreationDraftSubmit } from '../lib/intake/freshStoreCreationFastPath.js';
@@ -2366,6 +2368,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       responsePayload &&
       typeof responsePayload === 'object' &&
       !Array.isArray(responsePayload) &&
+      responsePayload.action !== 'create_store' &&
       responsePayload.action !== 'store_mission_started' &&
       responsePayload.action !== 'campaign_mission_started'
     ) {
@@ -3685,11 +3688,20 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   const skipDynamicPlannerForCreateStoreCheckpoint =
     classification?.tool === 'create_store' &&
-    shouldForceCreateStoreCheckpointDispatch({
+    (shouldForceCreateStoreCheckpointDispatch({
       classification,
       storeCreateForm: storeCreateFormPayload,
       userMessage,
-    });
+      intentSourceContext,
+      imageContext,
+    }) ||
+      shouldSkipDynamicPlannerForUploadCreateStore({
+        classification,
+        storeCreateForm: storeCreateFormPayload,
+        userMessage,
+        intentSourceContext,
+        imageContext,
+      }));
 
   classification = normalizeClassificationForKernel(classification);
 
@@ -5138,7 +5150,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     classification: { ...classification, parameters: cleanedParams },
     storeCreateForm: storeCreateFormPayload,
     userMessage,
+    intentSourceContext,
+    imageContext,
   });
+
+  if (
+    classification.tool === 'create_store' &&
+    !forceCreateStoreCheckpoint &&
+    isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
+  ) {
+    const uploadDraftBody = await buildCreateStoreDraftIntakeResponseFromUpload({
+      userMessage,
+      intentSourceContext,
+      imageContext,
+      imageDataUrl: resolveIntakeImageRefForOcr(body) ?? body.imageDataUrl ?? null,
+      classification: { ...classification, parameters: cleanedParams },
+      storeCreateForm: storeCreateFormPayload,
+      memoryContext: contextEngineUserContext,
+      sessionId: intakeAssetSessionKey,
+      missionId,
+      ocrExtractFn: ocrExtractText,
+      persistedIngest: await resolveAssetIngestContextForStoreDraft({
+        intentSourceContext,
+        missionId,
+      }),
+    });
+    if (uploadDraftBody) {
+      return safeJson(uploadDraftBody, {
+        classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
+        validated: true,
+        downgraded: false,
+        validationErrors: [],
+        riskLevel,
+        result: 'success',
+      });
+    }
+  }
 
   if (
     forceCreateStoreCheckpoint ||
@@ -5160,6 +5207,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         auditSource: 'intake_v2_classified_checkpoint',
         storeCreateForm: storeCreateFormPayload,
         classification,
+        intentSourceContext,
+        imageContext,
         safeJson,
         formatDuplicateResponse: formatDuplicateStoreIntakeResponse,
         createMissionPipeline,
@@ -5170,6 +5219,22 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       locale,
       safeJson,
       formatDuplicateResponse: formatDuplicateStoreIntakeResponse,
+      uploadDraftContext: {
+        userMessage,
+        intentSourceContext,
+        imageContext,
+        imageDataUrl: resolveIntakeImageRefForOcr(body) ?? body.imageDataUrl ?? null,
+        classification: { ...classification, parameters: cleanedParams },
+        storeCreateForm: storeCreateFormPayload,
+        memoryContext: contextEngineUserContext,
+        sessionId: intakeAssetSessionKey,
+        missionId,
+        ocrExtractFn: ocrExtractText,
+        persistedIngest: await resolveAssetIngestContextForStoreDraft({
+          intentSourceContext,
+          missionId,
+        }),
+      },
       explainContext: {
         userId: classifiedActorId ?? null,
         activeStoreName:
