@@ -16,6 +16,7 @@ import {
   pickUnifiedMemory,
 } from '../intake/intakeMemoryContext.js';
 import { shouldUseIntentFastPath } from './intentFastPath.js';
+import { isDecisionLoopEnabled } from '../../config/features.js';
 import { diagLog, isLlmReasonerDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 
 /** @type {IntentIntegration | null} */
@@ -144,6 +145,10 @@ export class IntentIntegration {
 
       let result;
       let classificationSource = 'intent_reasoner';
+
+      if (isDecisionLoopEnabled()) {
+        throw new Error('LEGACY_INTENT_CLASSIFIER_BLOCKED: decision loop authority is on');
+      }
 
       const llmEnabled = isLlmReasonerEnabled(req, userId);
       const useFastPath = llmEnabled && shouldUseIntentFastPath(reasonerInput, classifyOpts);

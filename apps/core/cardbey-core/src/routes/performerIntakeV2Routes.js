@@ -156,6 +156,13 @@ import {
   recordIntakeBypass,
   INTAKE_BYPASS_IDS,
 } from '../lib/decision/index.js';
+import {
+  shouldBlockLegacyIntakePaths,
+  isLegacyDirectActionDispatchAllowed,
+  shouldBlockLegacyClassificationMutation,
+  applyLoopClassificationGuard,
+  normalizeTelemetryClassification,
+} from '../lib/decision/decisionLoopLegacyGuard.js';
 import { runIntakeAuthorityTurn, runIntakeAuthorityGateEarly } from '../lib/intake/intakeV2AuthorityTurn.js';
 import { resolveToolForIntent } from '../lib/decision/intentToolMap.js';
 import { isDecisionLoopEnabled } from '../config/features.js';
@@ -1914,6 +1921,103 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   let decisionLoopEarlyRan = false;
   /** @type {Awaited<ReturnType<typeof runIntakeAuthorityTurn>> | null} */
   let decisionLoopEarlyResult = null;
+  let confirmInterceptApplied = false;
+
+  const earlyCurrentContextForConfirm =
+    body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
+  const earlyHistoryForConfirm = Array.isArray(body.history)
+    ? body.history.slice(-getIntakeConversationHistoryLimit())
+    : [];
+  const earlyIntentSourceContextForConfirm =
+    body.intentSourceContext && typeof body.intentSourceContext === 'object'
+      ? body.intentSourceContext
+      : null;
+
+  if (userMessage && isIntakeConfirmAffirmation(userMessage)) {
+    const intakeActorKeyEarly = resolveIntakeV2ActorKey(req);
+    const intakeTenantKeyEarly = resolveIntakeV2TenantKey(req);
+    const earlyMissionId = resolveIntakeMissionId({ body, currentContext: earlyCurrentContextForConfirm });
+    const earlyStoreId = resolveIntakeStoreId(earlyCurrentContextForConfirm);
+    const earlyDraftId = resolveIntakeDraftId(earlyCurrentContextForConfirm);
+    const earlyPersistedIntent =
+      intakeActorKeyEarly != null
+        ? getPersistedIntentResolution({
+            actorKey: intakeActorKeyEarly,
+            tenantKey: intakeTenantKeyEarly,
+            missionId: earlyMissionId,
+            storeId: earlyStoreId,
+            draftId: earlyDraftId,
+          })
+        : null;
+
+    const previewFromBody = String(
+      body.previewId ?? earlyIntentSourceContextForConfirm?.approvalPreviewId ?? '',
+    ).trim();
+    const previewRecord =
+      previewFromBody
+        ? getIntakeApprovalPreview(previewFromBody)
+        : findLatestIntakeApprovalPreviewForActor(intakeActorKeyEarly, intakeTenantKeyEarly);
+
+    if (previewRecord?.previewId) {
+      console.log('[IntakeV2] NL confirm → approval preview handler', {
+        previewId: previewRecord.previewId,
+        tool: previewRecord.tool,
+      });
+      return handleIntakeV2ConfirmRequest(req, res, {
+        previewId: previewRecord.previewId,
+        locale,
+        missionId: earlyMissionId,
+        currentContext: earlyCurrentContextForConfirm,
+      });
+    }
+
+    if (isDecisionLoopEnabled()) {
+      let earlyBelief = null;
+      try {
+        const earlyConversationSessionId =
+          String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+          null;
+        const earlySessionKey = resolveIntakeAssetSessionKey({
+          conversationSessionId: earlyConversationSessionId,
+          sessionId: earlyConversationSessionId,
+          userId: String(req.user?.id ?? body?.userId ?? '').trim() || null,
+          guestSessionId: req.guestSessionId ?? null,
+        });
+        earlyBelief = await loadBelief({
+          req,
+          sessionKey: earlySessionKey,
+          sessionId: earlyConversationSessionId ?? earlySessionKey,
+          currentContext: earlyCurrentContextForConfirm,
+          intentSourceContext: earlyIntentSourceContextForConfirm,
+          body,
+        });
+      } catch (beliefErr) {
+        console.warn('[IntakeV2] confirm intercept belief load failed:', beliefErr?.message ?? beliefErr);
+      }
+
+      if (sessionHasPendingIntakePlanConfirm(earlyBelief, earlyPersistedIntent, earlyHistoryForConfirm)) {
+        const confirmedClassification = resolvePendingConfirmInterceptPlan(
+          earlyBelief,
+          earlyPersistedIntent,
+          earlyHistoryForConfirm,
+          earlyCurrentContextForConfirm,
+        );
+        if (confirmedClassification) {
+          confirmInterceptApplied = true;
+          decisionLoopEarlyRan = true;
+          decisionLoopEarlyResult = {
+            handled: false,
+            classification: confirmedClassification,
+            skipPlanners: true,
+          };
+          console.log('[IntakeV2] NL confirm → execute pending plan', {
+            tool: confirmedClassification.tool,
+            executionPath: confirmedClassification.executionPath,
+          });
+        }
+      }
+    }
+  }
 
   if (isDecisionLoopEnabled()) {
     const earlyConversationSessionId =
@@ -1994,85 +2098,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       source: body.intentSource ?? earlyIntentSourceContext?.source ?? null,
     };
 
-    let confirmInterceptApplied = false;
-    const earlyHistory = Array.isArray(body.history)
-      ? body.history.slice(-getIntakeConversationHistoryLimit())
-      : [];
-
-    if (userMessage && isIntakeConfirmAffirmation(userMessage)) {
-      const intakeActorKeyEarly = resolveIntakeV2ActorKey(req);
-      const intakeTenantKeyEarly = resolveIntakeV2TenantKey(req);
-      const earlyMissionId = resolveIntakeMissionId({ body, currentContext: earlyCurrentContext });
-      const earlyStoreId = resolveIntakeStoreId(earlyCurrentContext);
-      const earlyDraftId = resolveIntakeDraftId(earlyCurrentContext);
-      const earlyPersistedIntent =
-        intakeActorKeyEarly != null
-          ? getPersistedIntentResolution({
-              actorKey: intakeActorKeyEarly,
-              tenantKey: intakeTenantKeyEarly,
-              missionId: earlyMissionId,
-              storeId: earlyStoreId,
-              draftId: earlyDraftId,
-            })
-          : null;
-
-      let earlyBelief = null;
-      try {
-        earlyBelief = await loadBelief(earlyBeliefLoaderOpts);
-      } catch (beliefErr) {
-        console.warn('[IntakeV2] confirm intercept belief load failed:', beliefErr?.message ?? beliefErr);
-      }
-
-      if (isIntakeConfirmAffirmation(userMessage)) {
-        const previewFromBody = String(
-          body.previewId ?? earlyIntentSourceContext?.approvalPreviewId ?? '',
-        ).trim();
-        const previewRecord =
-          previewFromBody
-            ? getIntakeApprovalPreview(previewFromBody)
-            : findLatestIntakeApprovalPreviewForActor(intakeActorKeyEarly, intakeTenantKeyEarly);
-
-        if (previewRecord?.previewId) {
-          console.log('[IntakeV2] NL confirm → approval preview handler', {
-            previewId: previewRecord.previewId,
-            tool: previewRecord.tool,
-          });
-          return handleIntakeV2ConfirmRequest(req, res, {
-            previewId: previewRecord.previewId,
-            locale,
-            missionId: earlyMissionId,
-            currentContext: earlyCurrentContext,
-          });
-        }
-      }
-
-      if (
-        userMessage &&
-        isIntakeConfirmAffirmation(userMessage) &&
-        sessionHasPendingIntakePlanConfirm(earlyBelief, earlyPersistedIntent, earlyHistory)
-      ) {
-        const confirmedClassification = resolvePendingConfirmInterceptPlan(
-          earlyBelief,
-          earlyPersistedIntent,
-          earlyHistory,
-          earlyCurrentContext,
-        );
-        if (confirmedClassification) {
-          confirmInterceptApplied = true;
-          decisionLoopEarlyRan = true;
-          decisionLoopEarlyResult = {
-            handled: false,
-            classification: confirmedClassification,
-            skipPlanners: true,
-          };
-          console.log('[IntakeV2] NL confirm → execute pending plan', {
-            tool: confirmedClassification.tool,
-            executionPath: confirmedClassification.executionPath,
-          });
-        }
-      }
-    }
-
     if (!confirmInterceptApplied) {
     try {
       const authorityTurn = await runIntakeAuthorityGateEarly({
@@ -2132,6 +2157,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   } else {
     console.log('[INTAKE] Decision loop authority OFF - using legacy path');
   }
+
+  const blockLegacyIntakePaths = shouldBlockLegacyIntakePaths(decisionLoopEarlyRan);
 
   if (freshStoreMission && !isDecisionLoopEnabled()) {
     diagLog(intakeDiag, '→ handleFreshStoreCreationDraftSubmit (fast path)');
@@ -2334,8 +2361,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  // Multi-agent / campaign orchestration — unified dispatch (no escape hatch)
-  if (body.missionType === 'multi_agent') {
+  // Multi-agent / campaign orchestration — unified dispatch (legacy only when loop authority off)
+  if (body.missionType === 'multi_agent' && !isDecisionLoopEnabled()) {
     const actorId = performerIntakeV2ActorId(req);
     const result = await unifiedDispatch(
       {
@@ -2755,6 +2782,21 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   } else if (isDecisionLoopEnabled() && decisionLoopEarlyRan && !forcedTool) {
     console.log('[INTAKE] Decision loop ran — blocking legacy classifier override');
     skipReasoningPipeline = true;
+  }
+
+  if (
+    blockLegacyIntakePaths &&
+    !decisionLoopEarlyResult?.classification &&
+    !forcedTool &&
+    performerMode !== 'manual'
+  ) {
+    console.warn('[INTAKE] Decision loop incomplete — refusing legacy fallback');
+    return res.status(422).json({
+      ok: false,
+      error: 'decision_loop_incomplete',
+      message: 'Could not complete intake decision. Please try again.',
+      executionPath: 'decision_loop',
+    });
   }
 
   let heroGenTelemetry = {
@@ -3379,8 +3421,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  // ── 1) System shortcuts ────────────────────────────────────────────────────
-  if (!forcedTool && !skipReasoningPipeline) {
+  // ── 1) System shortcuts (legacy — skipped when decision loop authority ran) ──
+  if (!forcedTool && !skipReasoningPipeline && !blockLegacyIntakePaths) {
     if (isDeviceIntentPreClassifyAllowed()) {
       const deviceIntent = detectDeviceIntent(userMessage);
       if (deviceIntent) {
@@ -3827,7 +3869,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   let classifierReason = null;
   let intakeHydratedContext = null;
 
-  if (forcedTool && isRegisteredTool(forcedTool)) {
+  if (forcedTool && isRegisteredTool(forcedTool) && !blockLegacyIntakePaths) {
     const fe = getToolEntry(forcedTool);
     classification = {
       executionPath: fe.executionPath,
@@ -3841,7 +3883,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (originalGoal && !String(classification.parameters.description ?? '').trim() && forcedTool === 'code_fix') {
       classification.parameters = { ...classification.parameters, description: originalGoal };
     }
-  } else if (!skipReasoningPipeline) {
+  } else if (!skipReasoningPipeline && !blockLegacyIntakePaths) {
     // Performee slideshow: narrow deterministic override (still flows through Intake V2 validation + dispatch).
     const msgLower = userMessage.toLowerCase();
     const performeeWantsSlideshow =
@@ -4109,7 +4151,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   /** Hero / banner image: clarify with executable paths — never UI-only “use the button” guidance. */
-  if (!forcedTool && isHeroImageChangeMessage(userMessage)) {
+  if (!forcedTool && !blockLegacyIntakePaths && isHeroImageChangeMessage(userMessage)) {
     const hasImg = hasIntakeImageAttachment(body);
     if (!storeId) {
       return safeJson(
@@ -4170,7 +4212,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if (!forcedTool && storeId && !hasIntakeImageAttachment(body) && !isHeroImageChangeMessage(userMessage)) {
+  if (!forcedTool && !blockLegacyIntakePaths && storeId && !hasIntakeImageAttachment(body) && !isHeroImageChangeMessage(userMessage)) {
     const autoHeroFollowUp = tryHeroAutoVisualDirectAction({
       userMessage,
       conversationHistory: history,
@@ -4191,7 +4233,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if (!forcedTool) {
+  if (!forcedTool && !blockLegacyIntakePaths) {
     const conf =
       typeof classification.confidence === 'number' && !Number.isNaN(classification.confidence)
         ? classification.confidence
@@ -4220,13 +4262,18 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  classification = await guardClassificationAgainstCompletedCreateStore(classification, missionId);
-  classification = guardClassificationForActiveMission(classification, {
+  const guardedCompletedCreateStore = await guardClassificationAgainstCompletedCreateStore(
+    classification,
+    missionId,
+  );
+  classification = applyLoopClassificationGuard(guardedCompletedCreateStore, classification);
+  const guardedActiveMission = guardClassificationForActiveMission(classification, {
     missionStatus: existingMission?.status,
     missionId,
     userMessage,
     body,
   });
+  classification = applyLoopClassificationGuard(guardedActiveMission, classification);
 
   const sessionPendingExtraction = intakeAssetSessionKey
     ? peekPendingDocumentExtraction(intakeAssetSessionKey)
@@ -4378,7 +4425,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if (!forcedTool) {
+  if (!forcedTool && !blockLegacyIntakePaths) {
     const plannerDecision = await runPostClassifyReactPlanner({
       userMessage: classifierInputMessage ?? userMessage,
       classification,
@@ -4852,15 +4899,18 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             body.attachments = [{ type: 'image', dataUrl: handoffImage, uri: handoffImage }];
           }
         }
-        classification = {
-          ...buildAnalyzeUploadedAssetForStoreCreationClassification(userMessage, {
-            attachments: body.attachments,
-            imageDataUrl: resolveIntakeImageRefForOcr(body) ?? handoffImage ?? null,
-            source: 'uploaded_asset_store_creation',
-            currentEntry: 'performer',
-          }),
-          _classificationOverride: 'clarify_override_upload_create_store',
-        };
+        classification = applyLoopClassificationGuard(
+          {
+            ...buildAnalyzeUploadedAssetForStoreCreationClassification(userMessage, {
+              attachments: body.attachments,
+              imageDataUrl: resolveIntakeImageRefForOcr(body) ?? handoffImage ?? null,
+              source: 'uploaded_asset_store_creation',
+              currentEntry: 'performer',
+            }),
+            _classificationOverride: 'clarify_override_upload_create_store',
+          },
+          classification,
+        );
         intentSourceContext = {
           ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
           assetAction: 'create_store',
@@ -6089,7 +6139,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   // ── direct_action (legacy path when kernel mandatory is off) ───────────────
-  if (classification.executionPath === 'direct_action' && classification.tool) {
+  if (
+    classification.executionPath === 'direct_action' &&
+    classification.tool &&
+    isLegacyDirectActionDispatchAllowed(classification)
+  ) {
     const legacyDispatch = await dispatchIntakeV2DirectTool(
       classification.tool,
       cleanedParams,

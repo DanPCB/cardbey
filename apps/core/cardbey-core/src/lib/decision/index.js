@@ -35,6 +35,15 @@ export { createHypothesis } from './hypothesisUtils.js';
 export { recordIntakeBypass, INTAKE_BYPASS_IDS, resetIntakeBypassCountsForTests, getIntakeBypassCount } from './bypassTelemetry.js';
 export { noteDivergence, hasMaterialDivergence } from './beliefDivergence.js';
 export {
+  isDecisionLoopAuthorityActive,
+  shouldBlockLegacyIntakePaths,
+  isLoopOwnedClassification,
+  isLegacyDirectActionDispatchAllowed,
+  shouldBlockLegacyClassificationMutation,
+  applyLoopClassificationGuard,
+  normalizeTelemetryClassification,
+} from './decisionLoopLegacyGuard.js';
+export {
   getDecisionLoopHealth,
   recordDecisionLoopTurn,
   recordBeliefLoad,
