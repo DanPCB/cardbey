@@ -141,13 +141,33 @@ export function buildIntakeResponse(turnResult, belief = null, extras = {}) {
         returnTo: turnResult.belief?.sessionKey ?? null,
       };
 
-    case 'clarify':
+    case 'clarify': {
+      const rawOptions = turnResult.options?.length ? turnResult.options : getDefaultOptions(belief);
+      const options = (Array.isArray(rawOptions) ? rawOptions : [])
+        .map((opt) => {
+          if (!opt || typeof opt !== 'object') return null;
+          const label = String(opt.label ?? opt.id ?? '').trim();
+          const tool = String(opt.tool ?? turnResult.tool?.name ?? '').trim();
+          if (!label || !tool || !isRegisteredTool(tool)) return null;
+          return {
+            label,
+            tool,
+            parameters:
+              opt.parameters && typeof opt.parameters === 'object' && !Array.isArray(opt.parameters)
+                ? opt.parameters
+                : {},
+          };
+        })
+        .filter(Boolean);
+
       return {
         success: true,
         action: 'clarify',
         response: turnResult.rationale || 'How can I help?',
+        ...(options.length > 0 ? { options } : {}),
         storeCreationDraft: null,
       };
+    }
 
     default:
       return {

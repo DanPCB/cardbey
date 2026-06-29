@@ -8,7 +8,7 @@ import { loadBelief } from '../decision/beliefLoader.js';
 import { hydrateBeliefForDecisionLoop } from '../decision/hydrateBeliefForDecisionLoop.js';
 import { decideTurn } from '../decision/decideTurn.js';
 import { runAllAdvisors } from '../decision/advisors/index.js';
-import { evaluateToolGovernance } from '../decision/governancePolicy.js';
+import { applyGovernanceEnforcer } from '../decision/governanceEnforcer.js';
 import { turnResultToClassification } from '../decision/turnResultToClassification.js';
 import { buildIntakeResponse } from '../response/responseBuilder.js';
 import { recordBeliefLoad, recordDecisionLoopTurn } from '../decision/decisionLoopHealth.js';
@@ -72,16 +72,8 @@ export async function decideIntakeTurn(belief, input) {
 /**
  * @param {import('../decision/decideTurn.js').TurnResult} turnResult
  */
-export async function applyGovernance(turnResult) {
-  const toolName = turnResult.tool?.name ?? null;
-  const governance = evaluateToolGovernance(toolName);
-  return {
-    ...turnResult,
-    governance: {
-      ...turnResult.governance,
-      ...governance,
-    },
-  };
+export async function applyGovernance(turnResult, context = {}) {
+  return applyGovernanceEnforcer(turnResult, context);
 }
 
 /**

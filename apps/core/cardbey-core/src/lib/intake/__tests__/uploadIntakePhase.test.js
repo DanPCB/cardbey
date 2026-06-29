@@ -4,9 +4,9 @@ import {
   buildUploadAttachmentGuardCtx,
   clearStaleAssetAction,
   enforceUploadAskIntentClassification,
-  isExplicitCreateFromUpload,
   isUploadOnlyAskTurn,
   resolveUploadIntakePhase,
+  applyUploadPhaseRouting,
 } from '../uploadIntakePhase.js';
 import { isAttachmentOnlyPlaceholderMessage } from '../assetUploadGuard.js';
 
@@ -23,63 +23,28 @@ function withUpload(message, extra = {}) {
   };
 }
 
-describe('resolveUploadIntakePhase', () => {
-  it('Rule 1: upload-only placeholders → ask_intent', () => {
-    const cases = ['', '(Image attached)', 'image', 'card', 'business card', '   '];
-    for (const message of cases) {
-      const result = resolveUploadIntakePhase(withUpload(message));
-      expect(result.phase, message).toBe(UPLOAD_INTAKE_PHASE.ASK_INTENT);
-    }
-  });
-
-  it('Rule 2: explicit create → extract_and_draft', () => {
-    const cases = [
-      'create a store from this card',
-      'create store from uploaded card',
-      'create store form uploaded card above',
-      'make a store from this business card',
-    ];
-    for (const message of cases) {
-      const result = resolveUploadIntakePhase(withUpload(message));
-      expect(result.phase, message).toBe(UPLOAD_INTAKE_PHASE.EXTRACT_AND_DRAFT);
-    }
-  });
-
-  it('ignores stale assetAction on placeholder messages', () => {
-    const result = resolveUploadIntakePhase(
-      withUpload('(Image attached)', {
-        intentSourceContext: { assetAction: 'create_store' },
-      }),
+describe('resolveUploadIntakePhase (deprecated)', () => {
+  it('always returns none — decision loop is sole authority', () => {
+    expect(resolveUploadIntakePhase(withUpload('(Image attached)')).phase).toBe(UPLOAD_INTAKE_PHASE.NONE);
+    expect(resolveUploadIntakePhase(withUpload('create a store from this card')).phase).toBe(
+      UPLOAD_INTAKE_PHASE.NONE,
     );
-    expect(result.phase).toBe(UPLOAD_INTAKE_PHASE.ASK_INTENT);
   });
+});
 
-  it('respects assetAction when message is explicit', () => {
-    const result = resolveUploadIntakePhase(
-      withUpload('Create a store from this document', {
-        intentSourceContext: { assetAction: 'create_store' },
-      }),
-    );
-    expect(result.phase).toBe(UPLOAD_INTAKE_PHASE.EXTRACT_AND_DRAFT);
-  });
-
-  it('respects fromAskSelection', () => {
-    const result = resolveUploadIntakePhase(
-      withUpload('Create a store from this document', {
-        intentSourceContext: { fromAskSelection: 'create_store' },
-      }),
-    );
-    expect(result.phase).toBe(UPLOAD_INTAKE_PHASE.EXTRACT_AND_DRAFT);
-  });
-
-  it('no upload evidence → none', () => {
-    const result = resolveUploadIntakePhase({
-      userMessage: 'create a store',
+describe('applyUploadPhaseRouting (deprecated)', () => {
+  it('passes classification through unchanged', () => {
+    const classification = { tool: 'create_store', executionPath: 'direct_action' };
+    const out = applyUploadPhaseRouting({
+      phase: UPLOAD_INTAKE_PHASE.ASK_INTENT,
+      userMessage: '(Image attached)',
+      classification,
+      body: {},
       intentSourceContext: {},
-      attachments: [],
-      imageDataUrl: null,
+      uploadedAssetRoutingCtx: {},
     });
-    expect(result.phase).toBe(UPLOAD_INTAKE_PHASE.NONE);
+    expect(out.classification).toEqual(classification);
+    expect(out.skipCreateStoreEarlyDraft).toBe(false);
   });
 });
 
@@ -117,17 +82,18 @@ describe('buildUploadAttachmentGuardCtx', () => {
   });
 });
 
-describe('enforceUploadAskIntentClassification', () => {
-  it('overrides create_store proactive_plan to ingest ask', () => {
+describe('enforceUploadAskIntentClassification (deprecated)', () => {
+  it('never applies — decision loop owns upload ask', () => {
     const guardCtx = withUpload('(Image attached)');
+    const classification = {
+      tool: 'create_store',
+      executionPath: 'proactive_plan',
+      confidence: 0.7,
+      parameters: {},
+    };
     const out = enforceUploadAskIntentClassification({
       userMessage: '(Image attached)',
-      classification: {
-        tool: 'create_store',
-        executionPath: 'proactive_plan',
-        confidence: 0.7,
-        parameters: {},
-      },
+      classification,
       body: { attachments: guardCtx.attachments, imageDataUrl: guardCtx.imageDataUrl },
       intentSourceContext: {},
       uploadAttachmentGuardCtx: guardCtx,
@@ -135,8 +101,7 @@ describe('enforceUploadAskIntentClassification', () => {
       resolveImageRef: () => guardCtx.imageDataUrl,
       reason: 'test',
     });
-    expect(out.applied).toBe(true);
-    expect(out.classification.tool).toBe('ingest_asset_for_intent_detection');
-    expect(out.classification._classificationOverride).toBe('test');
+    expect(out.applied).toBe(false);
+    expect(out.classification).toEqual(classification);
   });
 });
