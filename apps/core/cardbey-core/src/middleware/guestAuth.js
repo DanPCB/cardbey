@@ -278,6 +278,10 @@ export async function requireUserOrGuest(req, res, next) {
     if (process.env.NODE_ENV !== 'production') {
       console.log('[assistantAuth] No valid auth found - no Authorization header or cookie token');
     }
+    const headerSession = String(req.headers['x-guest-session'] ?? '').trim();
+    if (headerSession && !req.guestSessionId) {
+      req.guestSessionId = headerSession;
+    }
     const anonGuestId = req.guestSessionId
       ? `guest_${String(req.guestSessionId).trim()}`
       : `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

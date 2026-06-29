@@ -9,6 +9,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { requireUserOrGuest } from '../middleware/guestAuth.js';
+import { guestSessionId } from '../middleware/guestSession.js';
 import { isCampaignOrchestrationIntent } from '../lib/intent/campaignOrchestrationIntent.js';
 import {
   validateCreateStorePayload,
@@ -436,6 +437,8 @@ async function maintenanceDispatchTool(toolName, parameters, toolContext) {
 }
 
 const router = express.Router();
+/** Stable guest session id (cookie / X-Guest-Session) for cross-origin performer intake. */
+router.use(guestSessionId);
 const isDev = process.env.NODE_ENV !== 'production';
 const CREATE_CARD_RE =
   /(create\s+.*card|make\s+.*card|loyalty\s+card|promo\s+card|promotion\s+card|gift\s+card|event\s+card|invitation|invite|profile\s+card|business\s+card)/i;

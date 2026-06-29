@@ -5,6 +5,8 @@
 
 import { Router } from 'express';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
+import { requireUserOrGuest } from '../middleware/guestAuth.js';
+import { guestSessionId } from '../middleware/guestSession.js';
 import { getPrismaClient } from '../lib/prisma.js';
 import { canAccessMission } from './agentMessagesRoutes.js';
 import { getOrCreateMission, mergeMissionContext } from '../lib/mission.js';
@@ -46,6 +48,9 @@ import { parseBusinessCardOCR } from '../lib/businessCardParser.js';
 import { businessCardLooksLikeOcrText, isRefusalResponse } from '../modules/vision/runOcr.js';
 
 const router = Router();
+
+/** Guest performer console: mission reads without JWT when X-Guest-Session / guest cookie is present. */
+const requireMissionReadAuth = [guestSessionId, requireUserOrGuest];
 
 const MAX_CARD_IMAGE_DATA_URL_LENGTH = 8 * 1024 * 1024;
 
@@ -402,7 +407,7 @@ router.post('/:missionId/spawn-child', requireAuth, handleAgentsV1MissionSpawn);
  * Store / website missions: workflowState, draft ids, review readiness, CTAs.
  * When USE_OUTPUT_VALIDATION is off and all steps completed, returns workflowState=ready (no needsAttention).
  */
-router.get('/:missionId/recovery-state', requireAuth, async (req, res, next) => {
+router.get('/:missionId/recovery-state', ...requireMissionReadAuth, async (req, res, next) => {
   try {
     const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
     if (!missionId) {
@@ -423,7 +428,7 @@ router.get('/:missionId/recovery-state', requireAuth, async (req, res, next) => 
   }
 });
 
-router.get('/:missionId/state', requireAuth, async (req, res, next) => {
+router.get('/:missionId/state', ...requireMissionReadAuth, async (req, res, next) => {
   try {
     const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
     if (process.env.NODE_ENV !== 'production') {
@@ -1051,7 +1056,7 @@ router.get('/:missionId/runs/:runId', requireAuth, async (req, res, next) => {
  * Same contract as GET /api/agents/v1/missions/:missionId/blackboard — MissionBlackboard events for Performer UI.
  * Query: limit, afterSeq | offset, correlationId (optional).
  */
-router.get('/:missionId/blackboard', requireAuth, async (req, res, next) => {
+router.get('/:missionId/blackboard', ...requireMissionReadAuth, async (req, res, next) => {
   try {
     const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
     if (!missionIdTrimmed) {
@@ -1603,7 +1608,7 @@ router.post('/:missionId/respond', optionalAuth, async (req, res, next) => {
  * GET /api/missions/:missionId
  * Returns mission (id, title, status, context) for chain status UI. Same permission as canAccessMission.
  */
-router.get('/:missionId', requireAuth, async (req, res, next) => {
+router.get('/:missionId', ...requireMissionReadAuth, async (req, res, next) => {
   try {
     const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
     if (!missionIdTrimmed) {

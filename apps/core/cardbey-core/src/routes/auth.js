@@ -2117,21 +2117,18 @@ router.post('/reset', async (req, res, next) => {
 
 function envTrue(v) { return String(v || '').toLowerCase() === 'true' || v === '1'; }
 
-/** Guest JWT issuance — dev always; prod when explicitly enabled or on staging hosts. */
+/** Guest JWT issuance — dev always; production unless explicitly disabled (performer guest store flows). */
 function isGuestAuthEnabled() {
   if (process.env.NODE_ENV !== 'production') return true;
   if (
-    envTrue(process.env.GUEST_AUTH_ENABLED) ||
-    envTrue(process.env.ENABLE_GUEST_AUTH) ||
-    envTrue(process.env.ALLOW_GUEST_AUTH)
+    process.env.GUEST_AUTH_ENABLED === '0' ||
+    String(process.env.GUEST_AUTH_ENABLED ?? '').toLowerCase() === 'false' ||
+    process.env.ALLOW_GUEST_AUTH === '0' ||
+    String(process.env.ALLOW_GUEST_AUTH ?? '').toLowerCase() === 'false'
   ) {
-    return true;
+    return false;
   }
-  const cardbeyEnv = String(process.env.CARDBEY_ENV ?? '').trim().toLowerCase();
-  if (cardbeyEnv === 'staging' || cardbeyEnv === 'preview') return true;
-  const renderService = String(process.env.RENDER_SERVICE_NAME ?? '').trim().toLowerCase();
-  if (renderService.includes('staging')) return true;
-  return false;
+  return true;
 }
 
 /** Rate limit: 5/min per IP for guest auth */

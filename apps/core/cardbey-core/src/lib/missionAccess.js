@@ -61,7 +61,8 @@ function isDevPlaceholderId(value) {
 }
 
 function isGuestActorId(value) {
-  return typeof value === 'string' && value.trim().toLowerCase().startsWith('guest_');
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized.startsWith('guest_') || normalized.startsWith('anon_');
 }
 
 /** Pipeline tenant/createdBy match, guest-session handoff, or dev placeholder bypass. */
