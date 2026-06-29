@@ -6,6 +6,30 @@ import { isStoreCreationDraftConfirmationSubmit } from './storeCreationDraft.js'
 
 export const DEFAULT_INTAKE_PAYLOAD_MAX_BYTES = 256 * 1024;
 
+/** Upload turns with loop evidence may carry a compressed image — higher ceiling after slimming. */
+export const DECISION_LOOP_UPLOAD_PAYLOAD_MAX_BYTES = 512 * 1024;
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isUsableImageRef(value) {
+  const s = String(value ?? '').trim();
+  return s.length > 20;
+}
+
+const SLIM_INTENT_SOURCE_KEYS = [
+  'pendingImageDataUrl',
+  'imageDataUrl',
+  'cardExtraction',
+  'uploadedAssetPending',
+  'assetAction',
+  'fromAskSelection',
+  'storeCandidate',
+  'documentExtraction',
+  'workflowContext',
+];
+
 /** Fields required for upload → Ask panel when decision-loop authority is on. */
 const DECISION_LOOP_EVIDENCE_KEYS = new Set(['attachments', 'imageDataUrl', 'intentSourceContext']);
 
@@ -152,14 +176,84 @@ export function normalizeFreshStoreCreationBody(body) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function hasIntakeUploadEvidence(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  if (isUsableImageRef(body.imageDataUrl)) return true;
+  if (Array.isArray(body.attachments) && body.attachments.length > 0) return true;
+  const isc = body.intentSourceContext;
+  if (isc && typeof isc === 'object' && !Array.isArray(isc)) {
+    if (isUsableImageRef(isc.pendingImageDataUrl)) return true;
+    if (isUsableImageRef(isc.imageDataUrl)) return true;
+  }
+  return false;
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {Record<string, unknown> | undefined}
+ */
+function slimIntentSourceContextForLoop(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const slim = {};
+  for (const key of SLIM_INTENT_SOURCE_KEYS) {
+    if (raw[key] !== undefined) slim[key] = raw[key];
+  }
+  return Object.keys(slim).length > 0 ? slim : undefined;
+}
+
+/**
+ * Minimal intake body for upload + decision loop — drops history/memory bloat, keeps image evidence.
+ *
  * @param {Record<string, unknown>} body
- * @param {string[]} stripped
  * @returns {Record<string, unknown>}
  */
+export function normalizeDecisionLoopUploadBody(body) {
+  const message = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
+  const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
+  const attachments = Array.isArray(body.attachments) ? body.attachments.slice(0, 1) : [];
+  let intentSourceContext = slimIntentSourceContextForLoop(body.intentSourceContext);
+
+  if (intentSourceContext && isUsableImageRef(imageDataUrl)) {
+    const pending = String(intentSourceContext.pendingImageDataUrl ?? '').trim();
+    if (pending === imageDataUrl) {
+      const next = { ...intentSourceContext };
+      delete next.pendingImageDataUrl;
+      delete next.imageDataUrl;
+      intentSourceContext = Object.keys(next).length > 0 ? next : undefined;
+    }
+  }
+
+  const normalized = {
+    userMessage: message,
+    text: message,
+    goal: message,
+    message,
+    ...(body.locale != null ? { locale: body.locale } : {}),
+    ...(body.sessionId ? { sessionId: body.sessionId } : {}),
+    ...(body.conversationSessionId ? { conversationSessionId: body.conversationSessionId } : {}),
+    ...(body.mode ? { mode: body.mode } : {}),
+    ...(body.intakeV2Selection && typeof body.intakeV2Selection === 'object'
+      ? { intakeV2Selection: body.intakeV2Selection }
+      : {}),
+    ...(intentSourceContext ? { intentSourceContext } : {}),
+  };
+
+  if (isUsableImageRef(imageDataUrl)) {
+    normalized.imageDataUrl = imageDataUrl;
+  } else if (attachments.length > 0) {
+    normalized.attachments = attachments;
+  }
+
+  return normalized;
+}
+
 /**
  * @param {Record<string, unknown>} body
  * @param {string[]} stripped
- * @param {{ preserveLoopEvidence?: boolean }} [options]
+ * @returns {Record<string, unknown>}
  */
 export function trimHeavyIntakeFields(body, stripped = [], options = {}) {
   const preserveLoopEvidence = options.preserveLoopEvidence === true;
@@ -213,8 +307,15 @@ export function normalizeCreateStoreDispatchBody(body) {
  * @param {{ maxBytes?: number }} [options]
  */
 export function applyIntakePayloadGuard(body, options = {}) {
-  const maxBytes = options.maxBytes ?? DEFAULT_INTAKE_PAYLOAD_MAX_BYTES;
   const input = body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
+  const uploadEvidence = hasIntakeUploadEvidence(input);
+  const decisionLoopUpload =
+    isDecisionLoopEnabled() && uploadEvidence && !isFreshStoreCreationMission(input);
+
+  let maxBytes =
+    options.maxBytes ??
+    (decisionLoopUpload ? DECISION_LOOP_UPLOAD_PAYLOAD_MAX_BYTES : DEFAULT_INTAKE_PAYLOAD_MAX_BYTES);
+
   const rawSize = estimateJsonBytes(input);
   const largestKeys = getTopLevelKeySizes(input);
   const stripped = [];
@@ -224,6 +325,11 @@ export function applyIntakePayloadGuard(body, options = {}) {
 
   if (freshStoreMission) {
     normalized = normalizeFreshStoreCreationBody(input);
+    for (const key of Object.keys(input)) {
+      if (!(key in normalized)) stripped.push(key);
+    }
+  } else if (decisionLoopUpload && rawSize > DEFAULT_INTAKE_PAYLOAD_MAX_BYTES) {
+    normalized = normalizeDecisionLoopUploadBody(input);
     for (const key of Object.keys(input)) {
       if (!(key in normalized)) stripped.push(key);
     }

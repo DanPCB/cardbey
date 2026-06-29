@@ -85,12 +85,39 @@ describe('intakePayloadGuard', () => {
       const guard = applyIntakePayloadGuard(heavy, { maxBytes: 64 * 1024 });
       expect(guard.stripped).toContain('unifiedMemory');
       expect(guard.stripped).toContain('history');
-      expect(guard.stripped).not.toContain('imageDataUrl');
-      expect(guard.stripped).not.toContain('attachments');
-      expect(guard.stripped).not.toContain('intentSourceContext');
+      expect(guard.rejected).toBe(false);
       expect(guard.body.imageDataUrl).toBe('data:image/png;base64,abc');
-      expect(guard.body.attachments).toHaveLength(1);
       expect(guard.body.intentSourceContext?.cardExtraction?.businessName).toBe('Test Shop');
+      expect(guard.body.unifiedMemory).toBeUndefined();
+      expect(guard.body.history).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
+      else process.env.INTAKE_DECISION_LOOP_AUTHORITY = prev;
+    }
+  });
+
+  it('slims oversized upload payloads for decision loop without rejecting', () => {
+    const prev = process.env.INTAKE_DECISION_LOOP_AUTHORITY;
+    process.env.INTAKE_DECISION_LOOP_AUTHORITY = 'true';
+    try {
+      const image = 'data:image/jpeg;base64,' + 'A'.repeat(280_000);
+      const heavy = {
+        userMessage: '(Image attached)',
+        imageDataUrl: image,
+        unifiedMemory: { blob: 'x'.repeat(200_000) },
+        history: Array.from({ length: 30 }, (_, i) => ({ role: 'user', content: `line-${i}-`.repeat(40) })),
+        currentContext: { unifiedMemory: { stores: [{ id: 's1' }] }, activeStoreId: 's1' },
+        intentSourceContext: {
+          cardExtraction: { businessName: 'PTH Furniture' },
+          pendingImageDataUrl: image,
+        },
+      };
+      const guard = applyIntakePayloadGuard(heavy);
+      expect(guard.rejected).toBe(false);
+      expect(guard.body.imageDataUrl).toBe(image);
+      expect(guard.body.history).toBeUndefined();
+      expect(guard.body.currentContext).toBeUndefined();
+      expect(guard.body.intentSourceContext?.cardExtraction?.businessName).toBe('PTH Furniture');
     } finally {
       if (prev === undefined) delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
       else process.env.INTAKE_DECISION_LOOP_AUTHORITY = prev;
