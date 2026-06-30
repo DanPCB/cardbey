@@ -3,6 +3,7 @@ import {
   putIntakeApprovalPreview,
   getIntakeApprovalPreview,
   deleteIntakeApprovalPreview,
+  findLatestIntakeApprovalPreviewForActor,
   clearIntakeApprovalPreviewStoreForTests,
 } from '../intakeApprovalPreviewStore.js';
 
@@ -56,5 +57,27 @@ describe('intakeApprovalPreviewStore', () => {
     });
     deleteIntakeApprovalPreview('del');
     expect(getIntakeApprovalPreview('del')).toBeNull();
+  });
+
+  it('findLatestIntakeApprovalPreviewForActor returns newest row for actor', () => {
+    putIntakeApprovalPreview({
+      previewId: 'older',
+      tool: 'a',
+      executionParameters: {},
+      actorKey: 'u:1',
+      tenantKey: 't:1',
+      resolvedStoreIdAtPreview: null,
+    });
+    vi.advanceTimersByTime(1000);
+    putIntakeApprovalPreview({
+      previewId: 'newer',
+      tool: 'b',
+      executionParameters: {},
+      actorKey: 'u:1',
+      tenantKey: 't:1',
+      resolvedStoreIdAtPreview: null,
+    });
+    const latest = findLatestIntakeApprovalPreviewForActor('u:1', 't:1');
+    expect(latest?.previewId).toBe('newer');
   });
 });

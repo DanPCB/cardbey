@@ -51,6 +51,23 @@ export function deleteIntakeApprovalPreview(previewId) {
   previewStore.delete(String(previewId ?? '').trim());
 }
 
+/**
+ * Most recent non-expired approval preview for an actor (NL confirm intercept).
+ * @returns {object | null}
+ */
+export function findLatestIntakeApprovalPreviewForActor(actorKey, tenantKey) {
+  pruneExpired();
+  const actor = String(actorKey ?? '').trim();
+  const tenant = String(tenantKey ?? '').trim();
+  if (!actor || !tenant) return null;
+  let latest = null;
+  for (const row of previewStore.values()) {
+    if (row.actorKey !== actor || row.tenantKey !== tenant) continue;
+    if (!latest || row.createdAt > latest.createdAt) latest = row;
+  }
+  return latest;
+}
+
 /** Test helper */
 export function clearIntakeApprovalPreviewStoreForTests() {
   previewStore.clear();
