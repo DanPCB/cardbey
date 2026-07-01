@@ -8,11 +8,12 @@ import { Router } from 'express';
 import multer from 'multer';
 import { requireAuth } from '../middleware/auth.js';
 import { assetService } from '../lib/content/assetService.js';
+import { VIDEO_UPLOAD_MAX_BYTES } from '../constants/videoUploadLimits.js';
 
 const router = Router({ mergeParams: true });
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: VIDEO_UPLOAD_MAX_BYTES },
 });
 
 function handleError(err, res, next) {

@@ -15,6 +15,7 @@ import {
   mapCollectionRow,
   sumAssetStorage,
 } from './assetTypes.js';
+import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_MAX_MB } from '../../constants/videoUploadLimits.js';
 
 export class AssetService {
   /** @param {import('@prisma/client').PrismaClient} [prisma] */
@@ -96,6 +97,11 @@ export class AssetService {
     const originalname = file.originalname || 'upload';
     const mimetype = file.mimetype || mimeLookup(originalname) || 'application/octet-stream';
     const type = detectAssetType(mimetype, originalname);
+    if (type === 'video' && file.size > VIDEO_UPLOAD_MAX_BYTES) {
+      const err = new Error(`Video must be ${VIDEO_UPLOAD_MAX_MB}MB or smaller.`);
+      err.status = 400;
+      throw err;
+    }
     const assetId = randomUUID();
     const ext = path.extname(originalname) || '';
     const safeName = (metadata.name || path.basename(originalname, ext) || 'asset')

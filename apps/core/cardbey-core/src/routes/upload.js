@@ -13,6 +13,7 @@ import { publishVideoOptimizeJob } from '../lib/sqsClient.js';
 import { createTempPath, safeUnlink } from '../lib/tempFiles.js';
 import { prisma } from '../lib/prisma.js';
 import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
+import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_MAX_MB } from '../constants/videoUploadLimits.js';
 import { requireAuth } from '../middleware/auth.js';
 import {
   audioFetchMaxImportBytes,
@@ -102,7 +103,7 @@ const router = Router();
 // Use memory storage for S3 uploads (files are buffered in memory, then uploaded to S3)
 // NOTE: For large files, consider using diskStorage and streaming to S3 to reduce memory usage
 const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 1024 * 1024 * 100 } }); // Reduced to 100MB to prevent OOM on 512MB instances
+const upload = multer({ storage, limits: { fileSize: VIDEO_UPLOAD_MAX_BYTES } });
 
 // Keep uploadsDir for temporary processing (metadata extraction, video optimization)
 // Only used for temporary files, not final storage
@@ -424,7 +425,7 @@ router.get('/create', async (req, res) => {
       endpoint: uploadUrl, // Another alternative
       method: 'POST',
       fieldName: 'file',
-      maxFileSize: 100 * 1024 * 1024, // 100MB
+      maxFileSize: VIDEO_UPLOAD_MAX_BYTES,
       supportedFormats: ['image/*', 'video/*'],
       accepts: ['multipart/form-data', 'application/json'],
     });
@@ -457,7 +458,7 @@ router.post('/create', async (req, res, next) => {
       if (err.code === 'LIMIT_FILE_SIZE') {
         statusCode = 413;
         errorCode = 'file_too_large';
-        message = 'File size exceeds maximum limit (100MB)';
+        message = `File size exceeds maximum limit (${VIDEO_UPLOAD_MAX_MB}MB)`;
       } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
         errorCode = 'unexpected_file';
         message = 'Unexpected file field. Use "file" as the field name.';
@@ -606,6 +607,13 @@ async function handleJsonUpload(req, res, next) {
         ok: false,
         error: 'invalid_kind',
         message: `Invalid kind: "${kind}". Must be "VIDEO" or "IMAGE" (case-insensitive)`,
+      });
+    }
+    if (fileKind === 'VIDEO' && buffer.length > VIDEO_UPLOAD_MAX_BYTES) {
+      return res.status(413).json({
+        ok: false,
+        error: 'file_too_large',
+        message: `File size exceeds maximum limit (${VIDEO_UPLOAD_MAX_MB}MB)`,
       });
     }
     const originalName = filename || `upload.${mimeType.split('/')[1] || 'bin'}`;

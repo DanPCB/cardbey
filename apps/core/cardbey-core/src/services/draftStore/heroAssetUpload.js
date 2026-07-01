@@ -17,6 +17,7 @@ import { canAccessDraftStore } from '../../lib/draftOwnership.js';
 import { hasRole } from '../../lib/authorization.js';
 import { assertValidHeroVideoUpload } from '../../utils/videoBinaryValidation.js';
 import { ensureWebCompatibleVideoBuffer } from '../../lib/videoCompat.js';
+import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_MAX_MB } from '../../constants/videoUploadLimits.js';
 
 const prisma = getPrismaClient();
 
@@ -26,7 +27,7 @@ const ALLOWED_HERO_MIMES = [...ALLOWED_IMAGE_MIMES, ...ALLOWED_HERO_VIDEO_MIMES]
 
 export const heroAssetUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 75 * 1024 * 1024 },
+  limits: { fileSize: VIDEO_UPLOAD_MAX_BYTES },
   fileFilter: (req, file, cb) => {
     const mime = file.mimetype ? String(file.mimetype).toLowerCase() : '';
     if (mime && ALLOWED_HERO_MIMES.includes(mime)) {
@@ -44,7 +45,7 @@ export function heroAssetUploadSingle(req, res, next) {
       return res.status(400).json({
         ok: false,
         error: isLimit ? 'file_too_large' : 'invalid_file',
-        message: isLimit ? 'File must be 75MB or smaller.' : err.message || 'Invalid or missing file',
+        message: isLimit ? `File must be ${VIDEO_UPLOAD_MAX_MB}MB or smaller.` : err.message || 'Invalid or missing file',
       });
     }
     next();
@@ -228,12 +229,12 @@ export async function executeHeroAssetUpload(req, res, { draft, routeStoreId }) 
       );
     }
   }
-  const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
+  const maxBytes = isVideo ? VIDEO_UPLOAD_MAX_BYTES : 20 * 1024 * 1024;
   if (buffer.length > maxBytes) {
     return res.status(400).json({
       ok: false,
       error: 'file_too_large',
-      message: isVideo ? 'Video must be 75MB or smaller.' : 'Image must be 20MB or smaller.',
+      message: isVideo ? `Video must be ${VIDEO_UPLOAD_MAX_MB}MB or smaller.` : 'Image must be 20MB or smaller.',
     });
   }
 

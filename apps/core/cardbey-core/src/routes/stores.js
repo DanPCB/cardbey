@@ -12,6 +12,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
+import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_MAX_MB } from '../constants/videoUploadLimits.js';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
 import { isOwnerVisibleStore } from '../utils/publicStoreVisibility.js';
 import { normalizeSocialLinks } from '../lib/socialLinks.js';
@@ -361,10 +362,10 @@ const OwnerProfileVisibilitySchema = z.object({
   showOwnerProfile: z.boolean(),
 });
 
-/** Multer for store draft hero/avatar uploads: images/GIF/SVG up to 20MB, video up to 75MB */
+/** Multer for store draft hero/avatar uploads: images/GIF/SVG up to 20MB, video up to 50MB */
 const storeAssetUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 75 * 1024 * 1024 },
+  limits: { fileSize: VIDEO_UPLOAD_MAX_BYTES },
   fileFilter: (req, file, cb) => {
     const mime = file.mimetype ? String(file.mimetype).toLowerCase() : '';
     if (mime && ALLOWED_HERO_MIMES.includes(mime)) {
@@ -2074,7 +2075,7 @@ function storeAssetUploadSingle(req, res, next) {
       return res.status(400).json({
         ok: false,
         error: isLimit ? 'file_too_large' : 'invalid_file',
-        message: isLimit ? 'File must be 75MB or smaller.' : err.message || 'Invalid or missing file',
+        message: isLimit ? `File must be ${VIDEO_UPLOAD_MAX_MB}MB or smaller.` : err.message || 'Invalid or missing file',
       });
     }
     next();
