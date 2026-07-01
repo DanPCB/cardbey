@@ -5,11 +5,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { prisma } from '../../lib/prisma.js';
+import { VIDEO_UPLOAD_MAX_BYTES } from '../../constants/videoUploadLimits.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_FILE = path.resolve(__dirname, '../../.cache/exploreVideos.json');
 
-const DEFAULT_MAX_BYTES = Number(process.env.EXPLORE_VIDEO_MAX_BYTES || 100 * 1024 * 1024);
+const DEFAULT_MAX_BYTES = Number(process.env.EXPLORE_VIDEO_MAX_BYTES || VIDEO_UPLOAD_MAX_BYTES);
 
 export const EXPLORE_VIDEO_ALLOWED_MIME = new Set([
   'video/mp4',
@@ -20,7 +21,7 @@ export const EXPLORE_VIDEO_ALLOWED_MIME = new Set([
 export function getExploreVideoMaxBytes() {
   return Number.isFinite(DEFAULT_MAX_BYTES) && DEFAULT_MAX_BYTES > 0
     ? DEFAULT_MAX_BYTES
-    : 100 * 1024 * 1024;
+    : VIDEO_UPLOAD_MAX_BYTES;
 }
 
 function hasPrismaModel() {

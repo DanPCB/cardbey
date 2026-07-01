@@ -13,6 +13,7 @@ import {
 } from './heroUpdateService.js';
 import { uploadBufferToS3 } from '../../lib/s3Client.js';
 import { ensureWebCompatibleVideoBuffer, videoUploadMaxTranscodeBytes, videoUploadSkipTranscodeEnabled } from '../../lib/videoCompat.js';
+import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_MAX_MB } from '../../constants/videoUploadLimits.js';
 import {
   buildStorageUploadResponse,
   resolveClientHeroMediaUrl,
@@ -25,7 +26,7 @@ export const ALLOWED_HERO_MIMES = [...ALLOWED_IMAGE_MIMES, ...ALLOWED_HERO_VIDEO
 
 const heroMediaUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 75 * 1024 * 1024 },
+  limits: { fileSize: VIDEO_UPLOAD_MAX_BYTES },
   fileFilter: (_req, file, cb) => {
     const mime = file.mimetype ? String(file.mimetype).toLowerCase() : '';
     if (mime && ALLOWED_HERO_MIMES.includes(mime)) {
@@ -47,7 +48,7 @@ export function heroMediaUploadSingle(req, res, next) {
       return res.status(400).json({
         ok: false,
         error: isLimit ? 'file_too_large' : 'invalid_file',
-        message: isLimit ? 'File must be 75MB or smaller.' : err.message || 'Invalid or missing file',
+        message: isLimit ? `File must be ${VIDEO_UPLOAD_MAX_MB}MB or smaller.` : err.message || 'Invalid or missing file',
       });
     }
     next();
@@ -190,9 +191,9 @@ export async function executeStoreHeroMediaUpload(input) {
     }
   }
 
-  const maxBytes = isVideo ? 75 * 1024 * 1024 : 20 * 1024 * 1024;
+  const maxBytes = isVideo ? VIDEO_UPLOAD_MAX_BYTES : 20 * 1024 * 1024;
   if (buffer.length > maxBytes) {
-    const err = new Error(isVideo ? 'Video must be 75MB or smaller.' : 'Image must be 20MB or smaller.');
+    const err = new Error(isVideo ? `Video must be ${VIDEO_UPLOAD_MAX_MB}MB or smaller.` : 'Image must be 20MB or smaller.');
     err.code = 'file_too_large';
     err.statusCode = 400;
     throw err;

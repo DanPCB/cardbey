@@ -69,6 +69,8 @@ services:
         value: "true"
       - key: VIDEO_UPLOAD_MAX_TRANSCODE_MB
         value: "20"
+      - key: EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"
       - key: ENABLE_PIXABAY_MUSIC
         value: "true"
       - key: PIXABAY_API_KEY
@@ -103,6 +105,8 @@ services:
         value: "1"
       - key: VITE_PERFORMER_EXECUTION_REAL_CAPABILITIES
         value: "1"
+      - key: VITE_EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"
       - key: VITE_PIL_ACTIVITY_AWARE
         value: "true"
       - key: VITE_ENABLE_ORB_COPILOT
@@ -175,6 +179,8 @@ services:
         value: "true"
       - key: VIDEO_UPLOAD_MAX_TRANSCODE_MB
         value: "20"
+      - key: EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"
 
   # Dashboard (production) — static site build (Vite)
   # Reconcile with existing Render service before blueprint sync if cardbey-dashboard already exists.
@@ -203,3 +209,5 @@ services:
         value: "1"
       - key: VITE_PERFORMER_EXECUTION_REAL_CAPABILITIES
         value: "1"
+      - key: VITE_EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"

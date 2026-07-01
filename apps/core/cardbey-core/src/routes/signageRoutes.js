@@ -8,6 +8,7 @@ import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import multer from 'multer';
 import { lookup as mimeLookup } from 'mime-types';
+import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_MAX_MB } from '../constants/videoUploadLimits.js';
 import { resolvePublicUrl, buildMediaUrl } from '../utils/publicUrl.js';
 import { getCoreBaseUrl, normalizeMediaObject, normalizeMediaUrl } from '../utils/normalizeMediaUrl.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
@@ -43,7 +44,7 @@ function extractLanguageFromHeader(acceptLanguage) {
 const signageAssetUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB — matches playlist hub; avoids Render OOM with memoryStorage
+    fileSize: VIDEO_UPLOAD_MAX_BYTES,
   },
 });
 
@@ -56,7 +57,7 @@ function signageAssetUploadSingle(req, res, next) {
         ok: false,
         error: isLimit ? 'file_too_large' : 'invalid_file',
         message: isLimit
-          ? 'File must be 100MB or smaller.'
+          ? `File must be ${VIDEO_UPLOAD_MAX_MB}MB or smaller.`
           : err.message || 'Invalid or missing file',
       });
     }

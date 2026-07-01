@@ -31,7 +31,7 @@ vi.mock('../lib/videoCompat.js', () => ({
 vi.mock('../services/explore/exploreVideoService.js', () => ({
   canManageExploreVideos: vi.fn(async () => true),
   createExploreVideo: (...args) => createSpy(...args),
-  getExploreVideoMaxBytes: () => 100 * 1024 * 1024,
+  getExploreVideoMaxBytes: () => 50 * 1024 * 1024,
   validateVideoMime: () => true,
 }));
 
