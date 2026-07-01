@@ -147,6 +147,37 @@ router.get('/discovery/businesses/:slug/brief/download', optionalAuth, async (re
   }
 });
 
+/** POST /api/public/discovery/seeds/:seedId/claim-intent */
+router.post('/discovery/seeds/:seedId/claim-intent', optionalAuth, async (req, res, next) => {
+  try {
+    const seedId = String(req.params.seedId ?? '').trim();
+    if (!seedId) {
+      return res.status(400).json({ ok: false, message: 'Seed id is required.' });
+    }
+
+    const seed = (await listSeedRecords()).find((row) => row.id === seedId);
+    if (!seed) {
+      return res.status(404).json({ ok: false, message: 'Business not found.' });
+    }
+
+    const source = req.body?.source ?? 'CLAIM_BUTTON';
+    const { recordClaimButtonIntent } = await import('../lib/businessCandidate/brief/briefService.js');
+    const sessionId = req.headers['x-session-id'] ?? req.cookies?.['cardbey.session'] ?? null;
+    const candidate = await getBusinessCandidateBySeedId(seed.id);
+    await recordClaimButtonIntent({
+      candidateId: candidate?.id ?? null,
+      seedId: seed.id,
+      userId: req.user?.id ?? null,
+      sessionId: typeof sessionId === 'string' ? sessionId : null,
+      source,
+    });
+
+    return res.json({ ok: true, claimUrl: `/activate-business/${seed.id}` });
+  } catch (error) {
+    next(error);
+  }
+});
+
 /** POST /api/public/discovery/businesses/:slug/claim-intent */
 router.post('/discovery/businesses/:slug/claim-intent', optionalAuth, async (req, res, next) => {
   try {
