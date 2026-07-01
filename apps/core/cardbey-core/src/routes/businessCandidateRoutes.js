@@ -96,6 +96,8 @@ router.post('/real-local/discover', requireAuth, requireAdmin, realLocalRateLimi
       maxResults: body.maxResults != null ? Number(body.maxResults) : REAL_LOCAL_PILOT_TARGET_COUNT,
       dryRun: body.dryRun === true,
       provider: body.provider,
+      slowMode: body.slowMode === true,
+      retryRateLimited: Array.isArray(body.retryRateLimited) ? body.retryRateLimited : undefined,
       createdBy: req.user?.id ?? null,
     });
 
