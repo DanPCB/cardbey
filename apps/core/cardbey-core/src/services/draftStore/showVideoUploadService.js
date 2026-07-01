@@ -125,9 +125,11 @@ function prependShowWorkToMiniWebsite(stylePreferences, work) {
  *   storeId: string,
  *   file: Express.Multer.File,
  *   title?: string | null,
+ *   userId?: string | null,
+ *   isDevAdmin?: boolean,
  * }} input
  */
-export async function executeShowVideoUpload({ prisma, storeId, file, title }) {
+export async function executeShowVideoUpload({ prisma, storeId, file, title, userId, isDevAdmin = false }) {
   if (!file?.buffer?.length) {
     const err = new Error('File buffer is empty');
     err.statusCode = 400;
@@ -157,11 +159,16 @@ export async function executeShowVideoUpload({ prisma, storeId, file, title }) {
 
   const store = await prisma.business.findUnique({
     where: { id: storeId },
-    select: { id: true, isActive: true, storefrontSettings: true, stylePreferences: true },
+    select: { id: true, isActive: true, storefrontSettings: true, stylePreferences: true, userId: true },
   });
   if (!store) {
     const err = new Error('Store not found');
     err.statusCode = 404;
+    throw err;
+  }
+  if (!isDevAdmin && userId && store.userId !== userId) {
+    const err = new Error('You do not have permission to upload to this store');
+    err.statusCode = 403;
     throw err;
   }
 
