@@ -72,14 +72,14 @@ export function buildShowWorksFromExtraction(extractedData, thumbUrls = []) {
  */
 function mergeShowSectionIntoWebsite(website, showWorks) {
   if (!website || typeof website !== 'object') {
-    return { sections: [{ type: 'show', content: { heading: 'Show', items: showWorks } }] };
+    return { sections: [{ type: 'show', content: { heading: 'Shows', items: showWorks } }] };
   }
   const site = JSON.parse(JSON.stringify(website));
   if (!Array.isArray(site.sections)) site.sections = [];
 
   let showSection = site.sections.find((s) => s?.type === 'show');
   if (!showSection) {
-    showSection = { type: 'show', content: { heading: 'Show', items: [] } };
+    showSection = { type: 'show', content: { heading: 'Shows', items: [] } };
     const uspIdx = site.sections.findIndex((s) => s?.type === 'usp_bar');
     if (uspIdx >= 0) site.sections.splice(uspIdx + 1, 0, showSection);
     else {
@@ -100,7 +100,7 @@ function mergeShowSectionIntoWebsite(website, showWorks) {
 
   showSection.content = {
     ...content,
-    heading: content.heading || 'Show',
+    heading: content.heading || 'Shows',
     items: [...existingItems, ...newWorks],
   };
 

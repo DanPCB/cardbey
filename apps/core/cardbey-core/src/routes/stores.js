@@ -55,6 +55,10 @@ import {
   heroMediaUploadSingle,
   resolveDraftForHeroUpload,
 } from '../services/draftStore/heroMediaUploadService.js';
+import {
+  executeShowVideoUpload,
+  showVideoUploadSingle,
+} from '../services/draftStore/showVideoUploadService.js';
 import { assertUiWriteAuthority } from '../lib/runtime/performerRuntime/uiWriteAuthorityGuard.js';
 import { assertLegacyUploadAuthority } from '../lib/runtime/performerRuntime/runtimeUploadAuthority.js';
 import {
@@ -2057,6 +2061,43 @@ router.get('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, asyn
     const mix = mixes[String(workId).trim()] ?? null;
     return res.json({ ok: true, mix });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/stores/:storeId/show-videos/upload
+ * Upload a show-section video, prepend to featured works, bump publishedAt for frontpage queue.
+ */
+router.post('/:storeId/show-videos/upload', requireAuth, requireOwner, showVideoUploadSingle, async (req, res, next) => {
+  try {
+    const { storeId } = req.params;
+    if (!req.file) {
+      return res.status(400).json({ ok: false, error: 'file_required', message: 'Video file is required' });
+    }
+    const title = typeof req.body?.title === 'string' ? req.body.title : undefined;
+    const result = await executeShowVideoUpload({
+      prisma,
+      storeId,
+      file: req.file,
+      title,
+    });
+    return res.status(201).json({
+      ok: true,
+      work: result.work,
+      url: result.url,
+      publishedAt: result.publishedAt,
+    });
+  } catch (err) {
+    if (err?.statusCode === 400) {
+      return res.status(400).json({ ok: false, message: err.message });
+    }
+    if (err?.statusCode === 413) {
+      return res.status(413).json({ ok: false, error: 'file_too_large', message: err.message });
+    }
+    if (err?.statusCode === 404) {
+      return res.status(404).json({ ok: false, message: err.message });
+    }
     next(err);
   }
 });
