@@ -2094,6 +2094,45 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
+  if (
+    userMessage &&
+    isCasualChatTurn(userMessage) &&
+    !isIntakeConfirmAffirmation(userMessage) &&
+    !confirmInterceptApplied &&
+    !hasIntakeImageAttachment(body) &&
+    !(body.intakeV2Selection && typeof body.intakeV2Selection === 'object') &&
+    body._autoSubmit !== true &&
+    !body.storeCreateForm &&
+    !body.storeCreationDraft
+  ) {
+    const casualSessionId =
+      String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+      null;
+    const casualSessionKey = resolveIntakeAssetSessionKey({
+      conversationSessionId: casualSessionId,
+      sessionId: casualSessionId,
+      userId: String(req.user?.id ?? body?.userId ?? '').trim() || null,
+      guestSessionId: req.guestSessionId ?? null,
+    });
+    if (casualSessionKey) {
+      try {
+        await clearStaleUploadBeliefContext(casualSessionKey);
+      } catch (clearErr) {
+        console.warn(
+          '[IntakeV2] casual chat upload context clear failed:',
+          clearErr?.message ?? clearErr,
+        );
+      }
+    }
+    console.log('[IntakeV2] routing:casual_chat_shortcircuit', { userMessage });
+    return res.json({
+      success: true,
+      action: 'chat',
+      response: /^thanks/i.test(userMessage) ? "You're welcome!" : 'Hello! How can I help you today?',
+      executionPath: 'direct_action',
+    });
+  }
+
   if (isDecisionLoopEnabled()) {
     const earlyConversationSessionId =
       String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
