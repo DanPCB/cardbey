@@ -10,6 +10,7 @@ import {
   messageLooksLikeStoreCreate,
   messageLooksLikeWebsiteCreate,
 } from '../intake/storeWebsiteRunwayClassifier.js';
+import { isCasualChatTurn } from '../intake/intakeCasualChatTurn.js';
 
 /** @typedef {'store'|'website'} CreateRunwayMode */
 
@@ -322,6 +323,9 @@ export function resolveCreateStoreShortcut(input = {}) {
 
   const primaryMode = String(input.primaryMode ?? '').trim().toLowerCase();
   if (primaryMode === 'create' || primaryMode === 'store_setup' || primaryMode === 'website') {
+    if (isCasualChatTurn(String(input.userMessage ?? ''))) {
+      return null;
+    }
     const runway = classifyStoreWebsiteCreateIntent(String(input.userMessage ?? ''));
     if (!runway.ambiguous && runway.intentMode) {
       return {

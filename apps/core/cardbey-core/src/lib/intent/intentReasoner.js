@@ -19,6 +19,7 @@ import { createConfidenceFactor, createReasoningResult } from './utils.js';
 import { isVagueAddProductMessage } from '../intake/guestDraftProductClarify.js';
 import { PERFORMER_INTAKE_MESSAGES } from '../intake/performerIntakeMessageCatalog.js';
 import { shouldRouteToAssetIntentDetection, detectCreateStoreFromUploadedAssetIntent, hasExplicitUploadCreateStoreOrWebsiteIntent, hasRecentUploadedAssetInContext } from '../intake/assetUploadGuard.js';
+import { isCasualChatTurn } from '../intake/intakeCasualChatTurn.js';
 import { buildAssetIntentDetectionClassification, buildAnalyzeUploadedAssetForStoreCreationClassification } from '../intake/assetIntentIngestService.js';
 import {
   buildDocumentIngestionClassification,
@@ -349,6 +350,9 @@ export class IntentReasoner {
     const hasForm = formName.length >= 2;
     const hasHint = primaryModeHint === 'store_setup' || primaryModeHint === 'store_creation';
     const hasAction = action === 'create_store';
+    const userText = String(input.text ?? input.userMessage ?? '').trim();
+
+    if (isCasualChatTurn(userText)) return null;
 
     if (!hasForm && !hasHint && !hasAction) return null;
 
@@ -599,6 +603,8 @@ export class IntentReasoner {
     const candidates = [];
 
     const formDrivenGoal = this._createStoreGoalFromFormSignals({
+      text: rawText,
+      userMessage: rawText,
       storeCreateForm: parsedInput.storeCreateForm ?? parsedInput.intakeMeta?.storeCreateForm,
       parameters: parsedInput.parameters ?? parsedInput.intakeMeta?.parameters,
       primaryModeHint: parsedInput.primaryModeHint ?? parsedInput.intakeMeta?.primaryModeHint,

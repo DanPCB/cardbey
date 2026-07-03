@@ -13,6 +13,7 @@ import {
   resolveCreateStoreShortcut,
   shouldPreserveCreateStoreShortcutWhenKernelMandatory,
 } from '../intent/storeCreateFastPath.js';
+import { isCasualChatTurn } from './intakeCasualChatTurn.js';
 
 /**
  * @typedef {{
@@ -37,6 +38,9 @@ import {
  */
 export function resolveIntakeShortcutContext(input = {}) {
   const userMessage = String(input.userMessage ?? '').trim();
+  if (isCasualChatTurn(userMessage)) {
+    return null;
+  }
   const storeCreateForm =
     input.storeCreateForm && typeof input.storeCreateForm === 'object' && !Array.isArray(input.storeCreateForm)
       ? input.storeCreateForm

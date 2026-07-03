@@ -386,6 +386,12 @@ describe('intakeSystemShortcuts', () => {
     });
   });
 
+  it('does not shortcut casual greetings even with store_setup primaryMode', () => {
+    expect(detectIntent({ userMessage: 'hi', primaryMode: 'store_setup' })).toBeNull();
+    expect(detectIntent({ userMessage: 'hello', primaryModeHint: 'store_setup' })).toBeNull();
+    expect(detectIntent({ userMessage: 'hi', primaryMode: 'website' })).toBeNull();
+  });
+
   it('does not shortcut frontscreen campaign handoff', () => {
     expect(
       detectIntent({

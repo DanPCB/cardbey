@@ -9,6 +9,7 @@
 import { classifyStoreWebsiteCreateIntent } from './storeWebsiteRunwayClassifier.js';
 import { validateStoreCreationFields } from './intakeErrorTypes.js';
 import { findUnknownStoreCreateFormFields } from './createStoreIntakeMetadata.js';
+import { isCasualChatTurn } from './intakeCasualChatTurn.js';
 
 const STORE_CREATE_PRIMARY_MODES = new Set(['create', 'website', 'store_setup']);
 
@@ -97,6 +98,10 @@ export function detectIntent(input) {
     .trim()
     .toLowerCase();
   const runway = classifyStoreWebsiteCreateIntent(raw);
+
+  if (isCasualChatTurn(raw)) {
+    return null;
+  }
 
   if (primaryMode === 'website') {
     return { type: 'create_store', intentMode: 'website', intentLabel: 'create_mini_website' };
