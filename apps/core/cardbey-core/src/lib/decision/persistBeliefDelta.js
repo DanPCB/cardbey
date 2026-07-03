@@ -6,9 +6,68 @@
 import { stashIntakeWorkflowContext, persistUploadedAssetWorkflow } from '../intake/intakeWorkflowContext.js';
 import { setPersistedIntentResolution } from '../intake/intakePersistedIntentStore.js';
 import { getContextProvider, isContextEngineEnabled } from '../context/contextEngine.js';
+import { activeGoalSupersedesUploadClarify } from './uploadBeliefContext.js';
 
 function strip(value) {
   return String(value ?? '').trim() || null;
+}
+
+const UPLOAD_ASK_SELECTION_TOOLS = new Set([
+  'create_store',
+  'replace_store_catalog',
+  'ingest_asset_for_intent_detection',
+]);
+
+/**
+ * @param {BeliefDelta} delta
+ */
+function shouldClearStaleUploadContext(delta) {
+  if (delta.clearUploadContext === true) return true;
+  if (delta.clearPendingClarify === true && delta.pendingClarify === null) return true;
+  if (delta.uploadAskHandled === true) return true;
+  const goal = strip(delta.activeGoal?.intent);
+  if (goal && activeGoalSupersedesUploadClarify(delta.activeGoal)) return true;
+  return false;
+}
+
+/**
+ * Clear stale upload workflow memory so later turns are not hijacked by uploadedAssetPending.
+ * @param {string | null | undefined} sessionKey
+ * @param {{ activeGoal?: string | null }} [extras]
+ */
+export async function clearStaleUploadBeliefContext(sessionKey, extras = {}) {
+  const key = strip(sessionKey);
+  if (!key) {
+    return { applied: [], skipped: ['clear_upload_context:no_session_key'] };
+  }
+
+  const activeGoal = strip(extras.activeGoal);
+  stashIntakeWorkflowContext(key, {
+    uploadContextCleared: true,
+    uploadedAssetPending: false,
+    uploadedAsset: null,
+    pendingIntents: null,
+    entities: null,
+    storeCandidate: null,
+    documentExtraction: null,
+    ...(activeGoal
+      ? {
+          activeWorkflow: {
+            type: activeGoal,
+            status: 'active',
+            source: 'belief_delta_clear_upload',
+          },
+        }
+      : {
+          activeWorkflow: {
+            type: 'upload_resolved',
+            status: 'completed',
+            source: 'belief_delta_clear_upload',
+          },
+        }),
+  });
+
+  return { applied: ['clear_upload_context'], skipped: [] };
 }
 
 /**
@@ -24,6 +83,9 @@ function strip(value) {
  * @property {string | null} [userId]
  * @property {string | null} [actorKey]
  * @property {string | null} [tenantKey]
+ * @property {boolean} [clearUploadContext]
+ * @property {boolean} [clearPendingClarify]
+ * @property {boolean} [uploadAskHandled]
  */
 
 /**
@@ -36,6 +98,14 @@ export async function persistBeliefDelta(delta = {}) {
   const applied = [];
   const skipped = [];
   const sessionKey = strip(delta.sessionKey);
+
+  if (sessionKey && shouldClearStaleUploadContext(delta)) {
+    const cleared = await clearStaleUploadBeliefContext(sessionKey, {
+      activeGoal: strip(delta.activeGoal?.intent),
+    });
+    applied.push(...cleared.applied);
+    skipped.push(...cleared.skipped);
+  }
 
   if (sessionKey && delta.workflow) {
     stashIntakeWorkflowContext(sessionKey, {
@@ -53,16 +123,24 @@ export async function persistBeliefDelta(delta = {}) {
     skipped.push('workflow_map:no_session_key');
   }
 
-  if (sessionKey && delta.lastUpload?.ocrText && delta.lastUpload.imageRef) {
-    // Reuse existing artifact shape when storeCandidate already stashed elsewhere.
+  if (sessionKey && delta.lastUpload?.imageRef) {
+    // Overwrite prior upload state — never layer stale uploads across missions.
     const patch = {
+      uploadContextCleared: false,
+      uploadedAssetPending: true,
       uploadedAsset: {
         imageDataUrl: delta.lastUpload.imageRef,
-        rawOcrText: delta.lastUpload.ocrText,
+        rawOcrText: delta.lastUpload.ocrText ?? null,
       },
       entities: delta.lastUpload.businessName
         ? { businessName: delta.lastUpload.businessName, storeName: delta.lastUpload.businessName }
         : undefined,
+      activeWorkflow: {
+        type: 'upload_intake',
+        status: 'pending_confirmation',
+        source: 'belief_delta_last_upload',
+      },
+      pendingIntents: ['create_store', 'import_catalog', 'analyze_document'],
     };
     stashIntakeWorkflowContext(sessionKey, patch);
     applied.push('last_upload_patch');

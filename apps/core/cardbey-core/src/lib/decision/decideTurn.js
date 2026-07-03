@@ -14,6 +14,9 @@ import {
   hasExplicitUploadCreateStoreOrWebsiteIntent,
   isAttachmentOnlyPlaceholderMessage,
 } from '../intake/assetUploadGuard.js';
+import { isIntakeConfirmAffirmation } from '../intake/intakeConfirmIntercept.js';
+import { isCasualChatTurn } from '../intake/intakeCasualChatTurn.js';
+import { isUploadPendingConfirmationWorkflow } from './uploadBeliefContext.js';
 
 /** @typedef {import('./hypothesisUtils.js').Hypothesis} Hypothesis */
 
@@ -66,6 +69,8 @@ function userWantsExplicitCreate(input) {
  */
 function isUploadAskTurn(belief, input) {
   const msg = String(input.originalUserMessage ?? input.userMessage ?? '').trim();
+  if (isIntakeConfirmAffirmation(msg)) return false;
+  if (isCasualChatTurn(msg)) return false;
   const explicitCreate = userWantsExplicitCreate(input);
   if (explicitCreate) return false;
   const hasUploadEvidence =
@@ -76,7 +81,8 @@ function isUploadAskTurn(belief, input) {
   return (
     isAttachmentOnlyPlaceholderMessage(msg) ||
     belief.pendingClarify?.type === 'upload_goal' ||
-    belief.workflow?.status === 'pending_confirmation' ||
+    (belief.workflow?.status === 'pending_confirmation' &&
+      isUploadPendingConfirmationWorkflow(belief.workflow)) ||
     input.hasAttachment === true
   );
 }
@@ -106,16 +112,12 @@ function beliefForUploadPanel(belief, input) {
  */
 export function decideTurn(belief, input, hypotheses = null) {
   const { tLow, tMargin } = getDecisionThresholds();
-  const raw = hypotheses ?? runAllAdvisors(belief, input);
-  const { ranked, top } = rankHypotheses(raw, belief);
-  const second = ranked[1] ?? null;
-  const chosen = top;
-  const explicitCreate = userWantsExplicitCreate(input);
+  const msg = String(input.originalUserMessage ?? input.userMessage ?? '').trim();
 
   const base = {
     belief,
-    hypotheses: ranked,
-    chosen,
+    hypotheses: [],
+    chosen: null,
     missing: [],
     governance: {
       requiresConfirmation: false,
@@ -125,6 +127,39 @@ export function decideTurn(belief, input, hypotheses = null) {
     beliefDelta: {},
   };
 
+  if (isCasualChatTurn(msg)) {
+    const staleUpload =
+      Boolean(belief.lastUpload?.imageRef) || belief.pendingClarify?.type === 'upload_goal';
+    return {
+      ...base,
+      nextStep: 'chat',
+      tool: { name: 'general_chat', parameters: {} },
+      rationale: /^thanks/i.test(msg) ? "You're welcome!" : 'Hello! How can I help you today?',
+      ...(staleUpload
+        ? {
+            beliefDelta: {
+              sessionKey: belief.sessionKey,
+              clearUploadContext: true,
+              pendingClarify: null,
+              clearPendingClarify: true,
+            },
+          }
+        : {}),
+    };
+  }
+
+  const raw = hypotheses ?? runAllAdvisors(belief, input);
+  const { ranked, top } = rankHypotheses(raw, belief);
+  const second = ranked[1] ?? null;
+  const chosen = top;
+  const explicitCreate = userWantsExplicitCreate(input);
+
+  const baseWithRanking = {
+    ...base,
+    hypotheses: ranked,
+    chosen,
+  };
+
   // Active mission continuation (non-forced text)
   if (
     belief.anchors.missionId &&
@@ -132,7 +167,7 @@ export function decideTurn(belief, input, hypotheses = null) {
     (chosen.score ?? 0) >= 0.65
   ) {
     return {
-      ...base,
+      ...baseWithRanking,
       nextStep: 'continue_workflow',
       tool: { name: 'general_chat', parameters: { missionId: belief.anchors.missionId, command: 'continue' } },
       rationale: 'Continuing your active mission.',
@@ -147,7 +182,7 @@ export function decideTurn(belief, input, hypotheses = null) {
     const panelBelief = panelBeliefEarly;
     const panel = buildUploadGoalOptions(panelBelief);
     return {
-      ...base,
+      ...baseWithRanking,
       nextStep: 'present_options',
       tool: {
         name: 'ingest_asset_for_intent_detection',
@@ -168,12 +203,10 @@ export function decideTurn(belief, input, hypotheses = null) {
 
   if (!chosen || chosen.score < tLow) {
     const panelBelief = beliefForUploadPanel(belief, input);
-    const panel =
-      isUploadAskTurn(belief, input) || panelBelief.lastUpload?.imageRef
-        ? buildUploadGoalOptions(panelBelief)
-        : null;
+    const msg = String(input.originalUserMessage ?? input.userMessage ?? '').trim();
+    const panel = isUploadAskTurn(belief, input) ? buildUploadGoalOptions(panelBelief) : null;
     return {
-      ...base,
+      ...baseWithRanking,
       nextStep: panel ? 'present_options' : 'clarify',
       tool: panel
         ? { name: 'ingest_asset_for_intent_detection', parameters: {} }
@@ -191,7 +224,7 @@ export function decideTurn(belief, input, hypotheses = null) {
   ) {
     const options = buildDisambiguationOptions(ranked, 3);
     return {
-      ...base,
+      ...baseWithRanking,
       nextStep: 'present_options',
       tool: {
         name: resolveToolForIntent(chosen.intent, chosen.suggestedTool),
@@ -229,7 +262,7 @@ export function decideTurn(belief, input, hypotheses = null) {
   if (toolEntry?.requiresStore && !belief.anchors.storeId && !belief.anchors.draftId) {
     if (chosen.intent !== 'create_store' && chosen.intent !== 'create_store_from_upload') {
       return {
-        ...base,
+        ...baseWithRanking,
         nextStep: 'clarify',
         tool: { name: toolName, parameters },
         missing: ['store'],
@@ -240,7 +273,7 @@ export function decideTurn(belief, input, hypotheses = null) {
 
   if (belief.identity.guest && toolEntry?.riskLevel === 'state_change' && chosen.intent === 'create_campaign') {
     return {
-      ...base,
+      ...baseWithRanking,
       nextStep: 'guide_auth',
       tool: { name: toolName, parameters },
       rationale: 'Sign in to launch a campaign.',
@@ -250,7 +283,7 @@ export function decideTurn(belief, input, hypotheses = null) {
   if (governance.requiresConfirmation) {
     parameters._autoSubmit = false;
     return {
-      ...base,
+      ...baseWithRanking,
       nextStep: 'checkpoint',
       tool: { name: toolName, parameters },
       governance,
@@ -263,7 +296,7 @@ export function decideTurn(belief, input, hypotheses = null) {
   }
 
   return {
-    ...base,
+    ...baseWithRanking,
     nextStep: 'execute',
     tool: { name: toolName, parameters },
     governance,

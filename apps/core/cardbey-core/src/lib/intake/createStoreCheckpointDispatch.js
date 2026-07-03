@@ -650,6 +650,43 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
 }
 
 /**
+ * Build canonical create_store draft payload when checkpoint dispatch needs the inline form.
+ *
+ * @param {{
+ *   userMessage?: string;
+ *   intentMode?: 'store' | 'website';
+ *   classification?: { parameters?: Record<string, unknown> } | null;
+ *   storeCreateForm?: Record<string, unknown> | null;
+ *   memoryContext?: Record<string, unknown> | null;
+ * }} input
+ */
+export function buildNeedsFormCreateStoreIntakeBody(input = {}) {
+  const userMessage = String(input.userMessage ?? '').trim();
+  const intentMode = input.intentMode === 'website' ? 'website' : 'store';
+  const bundle = buildStoreCreationDraft({
+    userMessage,
+    classification:
+      input.classification && typeof input.classification === 'object'
+        ? input.classification
+        : { tool: 'create_store', parameters: { source: 'needs_form' } },
+    storeCreateForm: input.storeCreateForm ?? null,
+    memoryContext: input.memoryContext ?? null,
+  });
+  return {
+    success: true,
+    action: 'create_store',
+    intentMode: bundle.intentMode ?? intentMode,
+    storeCreationDraft: bundle,
+    missingFields: bundle.missingFields,
+    response: formatStoreCreationDraftResponseForBundle(bundle, {
+      source: bundle.draft?.source,
+    }),
+    businessName: bundle.draft.name ?? undefined,
+    businessType: bundle.draft.category ?? undefined,
+  };
+}
+
+/**
  * Map dispatch result to HTTP via safeJson / res.status.
  *
  * @param {import('express').Response} res
@@ -672,12 +709,19 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
       ctx.uploadDraftContext && typeof ctx.uploadDraftContext === 'object'
         ? await buildCreateStoreDraftIntakeResponseFromUpload(ctx.uploadDraftContext)
         : null;
+    const draftContext =
+      ctx.uploadDraftContext && typeof ctx.uploadDraftContext === 'object'
+        ? ctx.uploadDraftContext
+        : {};
     await safeJson(
-      uploadDraft ?? {
-        success: true,
-        action: 'create_store',
-        intentMode: result.intentMode,
-      },
+      uploadDraft ??
+        buildNeedsFormCreateStoreIntakeBody({
+          userMessage: draftContext.userMessage ?? ctx.userMessage,
+          intentMode: result.intentMode,
+          classification: draftContext.classification,
+          storeCreateForm: draftContext.storeCreateForm,
+          memoryContext: draftContext.memoryContext,
+        }),
       {
         classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
         validated: true,

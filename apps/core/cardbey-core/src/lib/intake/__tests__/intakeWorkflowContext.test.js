@@ -63,4 +63,21 @@ describe('intakeWorkflowContext', () => {
     expect(hydrated?.workflowEntities?.storeName).toBe('Morning Bakery');
     expect(hydrated?.pendingIntents).toContain('create_store');
   });
+
+  it('does not rehydrate session upload workflow on casual greeting', () => {
+    const candidate = buildStoreCandidateFromOcr(SAMPLE_CARD, { documentType: 'business_card' });
+    const sessionKey = 'user:casual-1';
+    persistUploadedAssetWorkflow(sessionKey, {
+      id: 'doc-casual',
+      artifactType: 'document_extraction',
+      documentType: 'business_card',
+      storeCandidate: candidate,
+      confidence: candidate.confidence,
+      createdAt: new Date().toISOString(),
+    });
+
+    const hydrated = hydrateIntentSourceFromWorkflow(null, null, sessionKey, 'hi');
+    expect(hydrated?.uploadedAssetPending).toBeUndefined();
+    expect(hydrated?.storeCandidate).toBeUndefined();
+  });
 });

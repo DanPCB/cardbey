@@ -9,6 +9,128 @@ import { runDecisionLoopAuthority } from './runDecisionLoopAuthority.js';
 import { isExplicitCreateStoreFromUploadContext } from '../intake/assetUploadGuard.js';
 import { UPLOAD_INTAKE_PHASE } from '../intake/uploadIntakePhase.js';
 import { buildIntakeResponse, buildUploadAskResponseFromBelief } from '../response/responseBuilder.js';
+import { activeGoalSupersedesUploadClarify } from './uploadBeliefContext.js';
+import {
+  conversationAwaitingIntakeConfirm,
+  isIntakeConfirmAffirmation,
+} from '../intake/intakeConfirmIntercept.js';
+import { isCasualChatTurn } from '../intake/intakeCasualChatTurn.js';
+import { clearStaleUploadBeliefContext, persistBeliefDelta } from './persistBeliefDelta.js';
+
+const UPLOAD_ASK_SELECTION_TOOLS = new Set([
+  'create_store',
+  'replace_store_catalog',
+  'ingest_asset_for_intent_detection',
+]);
+
+function strip(value) {
+  return String(value ?? '').trim() || null;
+}
+
+/**
+ * @param {object} opts
+ */
+function hasRelevantUploadAttachment(opts = {}) {
+  const intentSourceContext = opts.intentSourceContext ?? opts.advisorInput?.intentSourceContext ?? {};
+  return (
+    opts.hasImageAttachment === true ||
+    opts.attachmentOnlyUpload === true ||
+    Boolean(String(opts.imageDataUrl ?? intentSourceContext.pendingImageDataUrl ?? '').trim())
+  );
+}
+
+/**
+ * @param {object} opts
+ */
+function isUploadAskSelectionResolved(opts = {}) {
+  const intentSourceContext = opts.intentSourceContext ?? opts.advisorInput?.intentSourceContext ?? {};
+  if (strip(intentSourceContext.fromAskSelection)) return true;
+  const selected = opts.intakeV2Selection ?? opts.advisorInput?.intakeV2Selection;
+  const tool = strip(selected?.selectedTool ?? selected?.tool);
+  return Boolean(tool && UPLOAD_ASK_SELECTION_TOOLS.has(tool));
+}
+
+/**
+ * @param {import('./constants.js').BeliefSnapshot | null | undefined} belief
+ * @param {object} opts
+ */
+function hasUnrelatedPendingPlan(belief, opts = {}) {
+  if (opts.hasActivePendingCheckpoint === true) return true;
+  if (activeGoalSupersedesUploadClarify(belief?.activeGoal) && belief?.pendingClarify == null) {
+    return true;
+  }
+
+  const intentSourceContext = opts.intentSourceContext ?? opts.advisorInput?.intentSourceContext ?? {};
+  const contextGoal = strip(intentSourceContext.activeGoal ?? intentSourceContext.chosenTool);
+  if (contextGoal && activeGoalSupersedesUploadClarify({ intent: contextGoal })) {
+    return true;
+  }
+
+  const msg = strip(
+    opts.advisorInput?.originalUserMessage ?? opts.advisorInput?.userMessage ?? opts.userMessage,
+  );
+  const history = opts.conversationHistory ?? opts.history ?? opts.advisorInput?.history;
+  if (isIntakeConfirmAffirmation(msg) && conversationAwaitingIntakeConfirm(history)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * @param {import('./constants.js').BeliefSnapshot | null | undefined} belief
+ * @param {object} opts
+ */
+async function maybeClearSupersededUploadContext(belief, opts = {}) {
+  const sessionKey = belief?.sessionKey ?? opts.beliefLoaderOpts?.sessionKey ?? null;
+  if (!sessionKey) return;
+
+  const msg = strip(
+    opts.advisorInput?.originalUserMessage ?? opts.advisorInput?.userMessage ?? opts.userMessage,
+  );
+  if (isCasualChatTurn(msg) && (belief?.lastUpload || belief?.pendingClarify?.type === 'upload_goal')) {
+    await clearStaleUploadBeliefContext(sessionKey);
+    return;
+  }
+
+  if (isUploadAskSelectionResolved(opts)) {
+    await persistBeliefDelta({
+      sessionKey,
+      clearUploadContext: true,
+      uploadAskHandled: true,
+      pendingClarify: null,
+      clearPendingClarify: true,
+    });
+    return;
+  }
+
+  if (hasUnrelatedPendingPlan(belief, opts)) {
+    await clearStaleUploadBeliefContext(sessionKey, {
+      activeGoal: belief?.activeGoal?.intent ?? null,
+    });
+  }
+}
+
+/**
+ * @param {object} opts
+ * @param {import('./constants.js').BeliefSnapshot | null | undefined} belief
+ */
+function resolveIntentSourceContextForUploadGate(opts = {}, belief = null) {
+  const base =
+    opts.intentSourceContext && typeof opts.intentSourceContext === 'object'
+      ? { ...opts.intentSourceContext }
+      : opts.advisorInput?.intentSourceContext && typeof opts.advisorInput.intentSourceContext === 'object'
+        ? { ...opts.advisorInput.intentSourceContext }
+        : null;
+  if (!base || base.uploadedAssetPending !== true) return base;
+  if (hasUnrelatedPendingPlan(belief, opts) || isUploadAskSelectionResolved(opts)) {
+    return { ...base, uploadedAssetPending: false };
+  }
+  if (!hasRelevantUploadAttachment(opts)) {
+    return { ...base, uploadedAssetPending: false };
+  }
+  return base;
+}
 
 /**
  * Rule 1 — attachment-only / ask-intent phase must show upload Ask panel (not generic clarify).
@@ -16,18 +138,23 @@ import { buildIntakeResponse, buildUploadAskResponseFromBelief } from '../respon
  */
 export function shouldRequireUploadAskPanel(opts = {}) {
   const advisorInput = opts.advisorInput ?? {};
+  const userMessage = advisorInput.originalUserMessage ?? advisorInput.userMessage ?? opts.userMessage;
+  if (isIntakeConfirmAffirmation(userMessage)) return false;
+  if (isCasualChatTurn(userMessage)) return false;
+  if (hasUnrelatedPendingPlan(opts.belief ?? null, opts)) return false;
   if (
     isExplicitCreateStoreFromUploadContext({
-      userMessage: advisorInput.originalUserMessage ?? advisorInput.userMessage ?? opts.userMessage,
+      userMessage,
       intentSourceContext: opts.intentSourceContext ?? advisorInput.intentSourceContext,
     })
   ) {
     return false;
   }
+  const intentSourceContext = resolveIntentSourceContextForUploadGate(opts, opts.belief ?? null);
   return (
     opts.attachmentOnlyUpload === true ||
     opts.uploadIntakePhase === UPLOAD_INTAKE_PHASE.ASK_INTENT ||
-    opts.intentSourceContext?.uploadedAssetPending === true
+    (intentSourceContext?.uploadedAssetPending === true && hasRelevantUploadAttachment(opts))
   );
 }
 
@@ -69,6 +196,13 @@ export async function loadHydratedBeliefForUploadDecision(opts = {}) {
  * } | null>}
  */
 export async function buildUploadAskClarifyFallback(opts = {}) {
+  const userMessage =
+    opts.advisorInput?.originalUserMessage ??
+    opts.advisorInput?.userMessage ??
+    opts.userMessage ??
+    '';
+  if (isCasualChatTurn(userMessage) || isIntakeConfirmAffirmation(userMessage)) return null;
+
   const belief = await loadHydratedBeliefForUploadDecision(opts);
   if (!belief?.lastUpload?.imageRef && !opts.hasImageAttachment) return null;
 
@@ -128,30 +262,57 @@ export async function tryEarlyDecisionLoopGate(opts = {}) {
   if (opts.draftConfirmationSubmit || opts.storeCreateFormPayload) return null;
 
   const advisorInput = opts.advisorInput ?? {};
+  const userMessage = advisorInput.originalUserMessage ?? advisorInput.userMessage ?? opts.userMessage;
+  if (isIntakeConfirmAffirmation(userMessage)) {
+    return null;
+  }
+  if (isCasualChatTurn(userMessage)) {
+    return null;
+  }
+
+  let beliefForGate = opts.belief ?? null;
+  if (opts.beliefLoaderOpts) {
+    try {
+      beliefForGate = await loadBelief(opts.beliefLoaderOpts);
+    } catch {
+      beliefForGate = opts.belief ?? null;
+    }
+  }
+
+  await maybeClearSupersededUploadContext(beliefForGate, opts);
+
+  if (hasUnrelatedPendingPlan(beliefForGate, opts)) {
+    return null;
+  }
+
+  const intentSourceContext = resolveIntentSourceContextForUploadGate(opts, beliefForGate);
+  const gateOpts = { ...opts, intentSourceContext };
+
   const explicitCreateFromUpload = isExplicitCreateStoreFromUploadContext({
-    userMessage: advisorInput.originalUserMessage ?? advisorInput.userMessage,
-    intentSourceContext: advisorInput.intentSourceContext,
+    userMessage,
+    intentSourceContext,
   });
 
   const shouldConsider =
-    opts.attachmentOnlyUpload === true ||
+    gateOpts.attachmentOnlyUpload === true ||
     explicitCreateFromUpload ||
-    opts.intentSourceContext?.uploadedAssetPending === true ||
-    (opts.hasImageAttachment === true && opts.classification?.tool === 'create_store') ||
-    (opts.hasImageAttachment === true && opts.attachmentOnlyUpload !== false);
+    (intentSourceContext?.uploadedAssetPending === true && hasRelevantUploadAttachment(gateOpts)) ||
+    (gateOpts.hasImageAttachment === true && gateOpts.classification?.tool === 'create_store') ||
+    (gateOpts.hasImageAttachment === true && gateOpts.attachmentOnlyUpload !== false);
 
   if (!shouldConsider) return null;
 
   // Rule 1 hard gate: attachment-only uploads always get the upload Ask panel — never generic clarify.
-  if (shouldRequireUploadAskPanel(opts)) {
+  if (shouldRequireUploadAskPanel({ ...gateOpts, belief: beliefForGate })) {
     const beliefForAsk = await loadHydratedBeliefForUploadDecision({
-      ...opts,
-      sessionKey: opts.beliefLoaderOpts?.sessionKey ?? opts.belief?.sessionKey ?? null,
+      ...gateOpts,
+      belief: beliefForGate,
+      sessionKey: gateOpts.beliefLoaderOpts?.sessionKey ?? beliefForGate?.sessionKey ?? null,
     });
     const hasImage =
       Boolean(beliefForAsk?.lastUpload?.imageRef) ||
-      opts.hasImageAttachment === true ||
-      Boolean(String(opts.imageDataUrl ?? '').trim());
+      gateOpts.hasImageAttachment === true ||
+      Boolean(String(gateOpts.imageDataUrl ?? '').trim());
     if (hasImage) {
       const payload = buildUploadAskClarifyFromBelief(beliefForAsk);
       return {
@@ -160,7 +321,7 @@ export async function tryEarlyDecisionLoopGate(opts = {}) {
           tool: 'ingest_asset_for_intent_detection',
           confidence: 0.9,
           parameters: {
-            imageDataUrl: beliefForAsk?.lastUpload?.imageRef ?? opts.imageDataUrl ?? null,
+            imageDataUrl: beliefForAsk?.lastUpload?.imageRef ?? gateOpts.imageDataUrl ?? null,
             source: 'upload_ask_rule1_early_gate',
           },
           message: payload.response,
@@ -176,29 +337,29 @@ export async function tryEarlyDecisionLoopGate(opts = {}) {
     }
   }
 
-  let belief = opts.belief ?? null;
-  if (opts.beliefLoaderOpts) {
+  let belief = beliefForGate;
+  if (!belief && gateOpts.beliefLoaderOpts) {
     try {
-      belief = await loadBelief(opts.beliefLoaderOpts);
+      belief = await loadBelief(gateOpts.beliefLoaderOpts);
     } catch {
-      belief = opts.belief ?? null;
+      belief = gateOpts.belief ?? null;
     }
   }
 
   belief = hydrateBeliefForDecisionLoop(belief, {
-    imageDataUrl: opts.imageDataUrl ?? null,
-    extractedText: opts.extractedText ?? null,
-    attachmentOnlyUpload: opts.attachmentOnlyUpload === true,
-    hasAttachment: opts.hasImageAttachment === true,
-    sessionKey: opts.beliefLoaderOpts?.sessionKey ?? belief?.sessionKey ?? null,
+    imageDataUrl: gateOpts.imageDataUrl ?? null,
+    extractedText: gateOpts.extractedText ?? null,
+    attachmentOnlyUpload: gateOpts.attachmentOnlyUpload === true,
+    hasAttachment: gateOpts.hasImageAttachment === true,
+    sessionKey: gateOpts.beliefLoaderOpts?.sessionKey ?? belief?.sessionKey ?? null,
   });
 
-  if (!belief?.lastUpload?.imageRef && !opts.hasImageAttachment) return null;
+  if (!belief?.lastUpload?.imageRef && !gateOpts.hasImageAttachment) return null;
 
   const authorityOut = await runDecisionLoopAuthority({
     belief,
     input: advisorInput,
-    legacyClassification: opts.classification ?? null,
+    legacyClassification: gateOpts.classification ?? null,
   });
 
   if (!authorityOut.classification) return null;
@@ -219,7 +380,7 @@ export async function tryEarlyDecisionLoopGate(opts = {}) {
 
   const wantsUploadAskPanel =
     turnResult.nextStep === 'present_options' ||
-    (opts.attachmentOnlyUpload === true &&
+    (gateOpts.attachmentOnlyUpload === true &&
       (turnResult.nextStep === 'clarify' || turnResult.nextStep === 'present_options'));
 
   if (wantsUploadAskPanel) {

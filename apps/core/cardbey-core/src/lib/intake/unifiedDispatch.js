@@ -13,7 +13,7 @@ import {
 } from '../telemetry/executionStates.js';
 import { UNIFIED_ACTION_TYPES } from '../execution/executionTypes.js';
 import { executeMission } from '../execution/missionExecutionEngine.js';
-import { dispatchCreateStoreCheckpointPipeline } from './createStoreCheckpointDispatch.js';
+import { dispatchCreateStoreCheckpointPipeline, buildNeedsFormCreateStoreIntakeBody } from './createStoreCheckpointDispatch.js';
 import { dispatchCreateCampaignCheckpointPipeline } from './createCampaignCheckpointDispatch.js';
 import { loadStepMemory } from '../runtime/loadStepMemory.js';
 import { reasonAboutDispatch } from './dispatchReasoningEngine.js';
@@ -625,9 +625,13 @@ export function mapUnifiedDispatchToIntakeResponse(result, ctx = {}) {
   if (result.dispatchKind && result.dispatchKind !== 'started') {
     if (result.dispatchKind === 'needs_form') {
       return {
-        success: true,
-        action: 'create_store',
-        intentMode: result.intentMode ?? 'store',
+        ...buildNeedsFormCreateStoreIntakeBody({
+          userMessage: ctx.userMessage,
+          intentMode: result.intentMode ?? 'store',
+          classification: ctx.classification,
+          storeCreateForm: ctx.storeCreateForm,
+          memoryContext: ctx.memoryContext,
+        }),
         executionPath: 'kernel_dispatch',
       };
     }

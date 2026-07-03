@@ -223,4 +223,18 @@ describe('assetUploadGuard', () => {
       }),
     ).toBe(true);
   });
+
+  it('does not route casual greeting with stale upload handoff', () => {
+    expect(
+      shouldRouteToAssetIntentDetection('hi', {
+        intentSourceContext: { pendingImageDataUrl: 'data:image/png;base64,' + 'a'.repeat(120) },
+        hasSessionPendingExtraction: true,
+      }),
+    ).toBe(false);
+    expect(
+      isUploadWithoutClearUserIntent('hello', {
+        imageDataUrl: 'data:image/png;base64,' + 'a'.repeat(120),
+      }),
+    ).toBe(false);
+  });
 });

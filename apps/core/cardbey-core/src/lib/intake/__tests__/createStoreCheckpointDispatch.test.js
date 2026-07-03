@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCreateStoreDraftIntakeResponseFromUpload,
+  buildNeedsFormCreateStoreIntakeBody,
   resolveCreateStoreHandoffFields,
   shouldDeferStorePipelineExecutionForIntake,
   shouldForceCreateStoreCheckpointDispatch,
@@ -140,6 +141,18 @@ describe('buildCreateStoreDraftIntakeResponseFromUpload', () => {
     expect(body?.storeCreationDraft?.draft?.name).toBe('PTH Construction');
     expect(body?.missingFields).toBeDefined();
     expect(typeof body?.response).toBe('string');
+  });
+});
+
+describe('buildNeedsFormCreateStoreIntakeBody', () => {
+  it('returns unified draft bundle and intro copy for blank create store turns', () => {
+    const body = buildNeedsFormCreateStoreIntakeBody({
+      userMessage: 'Create store',
+      intentMode: 'store',
+    });
+    expect(body.action).toBe('create_store');
+    expect(body.storeCreationDraft?.missingFields).toEqual(['name', 'location', 'category']);
+    expect(body.response).toContain("Let's set up your store");
   });
 });
 

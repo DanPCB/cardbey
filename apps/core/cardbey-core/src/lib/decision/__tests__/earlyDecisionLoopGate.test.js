@@ -122,14 +122,93 @@ describe('earlyDecisionLoopGate', () => {
     expect(gate?.clarifyPayload?.options?.some((o) => o.label === 'Create store')).toBe(true);
   });
 
-  it('shouldRequireUploadAskPanel when uploadedAssetPending without attachmentOnly flag', () => {
+  it('shouldRequireUploadAskPanel false when uploadedAssetPending is stale without attachment', () => {
     expect(
       shouldRequireUploadAskPanel({
         attachmentOnlyUpload: false,
         intentSourceContext: { uploadedAssetPending: true },
+        userMessage: 'confirm',
+      }),
+    ).toBe(false);
+  });
+
+  it('shouldRequireUploadAskPanel when uploadedAssetPending with live attachment', () => {
+    expect(
+      shouldRequireUploadAskPanel({
+        attachmentOnlyUpload: false,
+        hasImageAttachment: true,
+        imageDataUrl: 'data:image/png;base64,abc',
+        intentSourceContext: { uploadedAssetPending: true },
         userMessage: '(Image attached)',
       }),
     ).toBe(true);
+  });
+
+  it('skips gate for confirm affirmation even with stale uploadedAssetPending', async () => {
+    const gate = await tryEarlyDecisionLoopGate({
+      attachmentOnlyUpload: false,
+      hasImageAttachment: false,
+      intentSourceContext: { uploadedAssetPending: true, pendingImageDataUrl: 'data:image/png;base64,abc' },
+      classification: { tool: 'create_campaign', executionPath: 'checkpoint', confidence: 0.9 },
+      belief: baseBelief({
+        lastUpload: {
+          imageRef: 'data:image/png;base64,abc',
+          ocrText: 'GOLF TOUR',
+          documentType: 'flyer',
+          businessName: 'Golf Tour',
+          sessionKey: 'sess-early',
+        },
+        activeGoal: { intent: 'create_campaign', confidence: 0.9 },
+      }),
+      advisorInput: {
+        originalUserMessage: 'confirm',
+        userMessage: 'confirm',
+        hasAttachment: false,
+      },
+      conversationHistory: [
+        { role: 'user', content: 'Create a promotion campaign for my store' },
+        { role: 'assistant', content: 'Please confirm before proceeding: create_campaign' },
+      ],
+    });
+
+    expect(gate).toBeNull();
+  });
+
+  it('skips gate for casual greeting even with stale lastUpload belief', async () => {
+    const gate = await tryEarlyDecisionLoopGate({
+      attachmentOnlyUpload: false,
+      hasImageAttachment: false,
+      intentSourceContext: { uploadedAssetPending: true, pendingImageDataUrl: 'data:image/png;base64,abc' },
+      classification: { tool: 'general_chat', executionPath: 'chat', confidence: 0.2 },
+      belief: baseBelief({
+        lastUpload: {
+          imageRef: 'data:image/png;base64,abc',
+          ocrText: 'JOE BAKERY',
+          documentType: 'business_card',
+          businessName: 'JOE BAKERY',
+          sessionKey: 'sess-early',
+        },
+        pendingClarify: { type: 'upload_goal', options: [{ id: 'create_store' }] },
+      }),
+      beliefLoaderOpts: { sessionKey: 'sess-early', sessionId: 'sess-early', currentContext: {} },
+      advisorInput: {
+        originalUserMessage: 'hi',
+        userMessage: 'hi',
+        hasAttachment: false,
+      },
+    });
+
+    expect(gate).toBeNull();
+  });
+
+  it('shouldRequireUploadAskPanel false for casual greeting', () => {
+    expect(
+      shouldRequireUploadAskPanel({
+        attachmentOnlyUpload: false,
+        intentSourceContext: { uploadedAssetPending: true },
+        userMessage: 'hi',
+      }),
+    ).toBe(false);
   });
 
   it('returns upload ask when gate opens via uploadedAssetPending only', async () => {

@@ -8,6 +8,8 @@ import {
   peekPendingDocumentExtraction,
   stashPendingDocumentExtraction,
 } from './storeCandidate.js';
+import { isCasualChatTurn } from './intakeCasualChatTurn.js';
+import { isIntakeConfirmAffirmation } from './intakeConfirmIntercept.js';
 
 /** @type {Map<string, Record<string, unknown>>} */
 const workflowBySession = new Map();
@@ -127,7 +129,21 @@ export function persistUploadedAssetWorkflow(sessionKey, artifact) {
  * @param {Record<string, unknown> | null | undefined} workflowContext
  * @param {string | null | undefined} sessionKey
  */
-export function hydrateIntentSourceFromWorkflow(intentSourceContext, workflowContext, sessionKey) {
+export function hydrateIntentSourceFromWorkflow(
+  intentSourceContext,
+  workflowContext,
+  sessionKey,
+  userMessage = null,
+) {
+  const msg = String(userMessage ?? '').trim();
+  if (msg && (isCasualChatTurn(msg) || isIntakeConfirmAffirmation(msg))) {
+    const baseOnly =
+      intentSourceContext && typeof intentSourceContext === 'object' && !Array.isArray(intentSourceContext)
+        ? { ...intentSourceContext }
+        : {};
+    return Object.keys(baseOnly).length ? baseOnly : null;
+  }
+
   const workflow =
     (workflowContext && typeof workflowContext === 'object' ? workflowContext : null) ??
     peekIntakeWorkflowContext(sessionKey);

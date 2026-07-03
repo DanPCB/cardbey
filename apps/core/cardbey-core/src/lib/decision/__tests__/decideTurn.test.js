@@ -43,6 +43,45 @@ describe('decideTurn', () => {
     expect(result.rationale).toMatch(/upload|next/i);
   });
 
+  it('does not show upload ask for casual greeting with stale upload belief', () => {
+    const result = decideTurn(
+      belief({
+        lastUpload: {
+          imageRef: 'data:image/png;base64,x',
+          ocrText: 'JOE BAKERY',
+          documentType: 'business_card',
+          businessName: 'JOE BAKERY',
+          sessionKey: 'sess-dt',
+        },
+        pendingClarify: { type: 'upload_goal', options: [{ id: 'create_store' }] },
+      }),
+      { originalUserMessage: 'hi', userMessage: 'hi' },
+    );
+
+    expect(result.nextStep).not.toBe('present_options');
+    expect(result.rationale).not.toMatch(/I see your upload/i);
+  });
+
+  it('does not show upload ask for confirm affirmation with stale upload belief', () => {
+    const result = decideTurn(
+      belief({
+        lastUpload: {
+          imageRef: 'data:image/png;base64,x',
+          ocrText: 'GOLF TOUR',
+          documentType: 'flyer',
+          businessName: 'Golf Tour',
+          sessionKey: 'sess-dt',
+        },
+        workflow: { type: 'store_creation', status: 'pending_confirmation', source: 'uploaded_asset' },
+        pendingClarify: { type: 'upload_goal', options: [{ id: 'create_store' }] },
+      }),
+      { originalUserMessage: 'confirm', userMessage: 'confirm' },
+    );
+
+    expect(result.nextStep).not.toBe('present_options');
+    expect(result.rationale).not.toMatch(/I see your upload/i);
+  });
+
   it('returns present_options for upload awaiting goal', () => {
     const result = decideTurn(
       belief({

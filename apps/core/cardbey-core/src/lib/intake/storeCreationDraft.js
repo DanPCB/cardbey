@@ -7,6 +7,12 @@ import { parseStructuredStoreCreatePillMessage } from '../intent/storeCreateFast
 
 const WRAP_QUOTE_RE = /^[\s"'`\u201c\u201d\u2018\u2019]+|[\s"'`\u201c\u201d\u2018\u2019]+$/g;
 
+/** Canonical assistant intro when no store fields are known yet. */
+export const STORE_CREATION_INTRO_COPY = {
+  store: "Let's set up your store. I need a few details to get started.",
+  website: "Let's set up your mini website. I need a few details to get started.",
+};
+
 /** @typedef {'name' | 'location' | 'category'} StoreCreationDraftField */
 
 /**
@@ -217,7 +223,8 @@ export function formatStoreCreationDraftResponse(bundle) {
   if (found.length > 0) {
     return `I found:\n\n${found.join('\n\n')}\n\nI need a bit more detail before we can create your store.`;
   }
-  return 'I need a bit more detail before we can create your store.';
+  const mode = bundle?.intentMode === 'website' ? 'website' : 'store';
+  return STORE_CREATION_INTRO_COPY[mode];
 }
 
 /**
