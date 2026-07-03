@@ -296,6 +296,16 @@ describe('IntentReasoner', () => {
     expect(result.requiresClarification).toBe(false);
   });
 
+  it('does not infer create_store from stale store_setup hint on casual hi', async () => {
+    const result = await reasoner.reason('user_123', 'session_123', {
+      text: 'hi',
+      primaryModeHint: 'store_setup',
+    });
+
+    expect(result.intent).not.toBe('create_store');
+    expect(result.tool).not.toBe('create_store');
+  });
+
   it('should infer create_store from explicit action create_store', async () => {
     mockContext.activeStoreId = 'store_existing';
 

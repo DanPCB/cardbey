@@ -3685,8 +3685,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     intakeShortcutContext = resolveIntakeShortcutContext({
       userMessage,
       storeCreateForm: storeCreateFormPayload,
-      primaryMode: body.primaryMode,
-      primaryModeHint: body.primaryModeHint,
+      primaryMode: isCasualChatTurn(userMessage) ? undefined : body.primaryMode,
+      primaryModeHint: isCasualChatTurn(userMessage) ? undefined : body.primaryModeHint,
       intentSource: body.intentSource,
       forceIntent: body.forceIntent ?? body.intentSourceContext?.forceIntent,
       currentFlow: body.intentSourceContext?.currentFlow,
@@ -4187,7 +4187,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         isSelectionConfirm,
         intakeV2Selection: selection,
         storeCreateForm: storeCreateFormPayload,
-        primaryModeHint: body.primaryModeHint,
+        primaryModeHint: isCasualChatTurn(userMessage) ? undefined : body.primaryModeHint,
         action: body.action,
         parameters:
           body.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
@@ -4242,7 +4242,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             hasAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
             shortcutContext: intakeShortcutContext,
             storeCreateForm: storeCreateFormPayload,
-            primaryModeHint: body.primaryModeHint,
+            primaryModeHint: isCasualChatTurn(userMessage) ? undefined : body.primaryModeHint,
             action: body.action,
             parameters:
               body.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
