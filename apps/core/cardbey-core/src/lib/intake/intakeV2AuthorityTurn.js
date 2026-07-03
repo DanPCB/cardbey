@@ -18,6 +18,8 @@ import {
   buildUploadAskClarifyFromBelief,
   loadHydratedBeliefForUploadDecision,
 } from '../decision/earlyDecisionLoopGate.js';
+import { isCasualChatTurn } from './intakeCasualChatTurn.js';
+import { clearStaleUploadBeliefContext } from '../decision/persistBeliefDelta.js';
 
 const DIRECT_RESPONSE_STEPS = new Set([
   'present_options',
@@ -117,9 +119,24 @@ export async function runIntakeAuthorityTurn(ctx = {}) {
     belief: ctx.belief ?? null,
   };
 
-  const belief = await loadBeliefForIntake(pipelineInput);
+  let belief = await loadBeliefForIntake(pipelineInput);
   if (!belief) {
     return { handled: false };
+  }
+
+  const casualMsg =
+    ctx.advisorInput?.originalUserMessage ?? ctx.advisorInput?.userMessage ?? null;
+  if (isCasualChatTurn(casualMsg) && belief.sessionKey) {
+    if (belief.lastUpload || belief.pendingClarify?.type === 'upload_goal') {
+      await clearStaleUploadBeliefContext(belief.sessionKey);
+    }
+    belief = {
+      ...belief,
+      lastUpload: null,
+      pendingClarify: null,
+      workflow:
+        belief.workflow?.status === 'pending_confirmation' ? null : belief.workflow,
+    };
   }
 
   const turnResult = await decideIntakeTurn(belief, pipelineInput);

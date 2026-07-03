@@ -164,8 +164,32 @@ import {
   normalizeTelemetryClassification,
 } from '../lib/decision/decisionLoopLegacyGuard.js';
 import { runIntakeAuthorityTurn, runIntakeAuthorityGateEarly } from '../lib/intake/intakeV2AuthorityTurn.js';
+import { clearStaleUploadBeliefContext } from '../lib/decision/persistBeliefDelta.js';
 import { resolveToolForIntent } from '../lib/decision/intentToolMap.js';
 import { isDecisionLoopEnabled } from '../config/features.js';
+import {
+  isIntakeConfirmAffirmation,
+  sessionHasPendingIntakePlanConfirm,
+  normalizeConfirmInterceptClassification,
+  extractPendingConfirmFromHistory,
+  formatIntakeValidationClarifyMessage,
+  conversationAwaitingIntakeConfirm,
+} from '../lib/intake/intakeConfirmIntercept.js';
+import {
+  getPendingIntakeConfirmation,
+  setPendingIntakeConfirmation,
+  clearPendingIntakeConfirmation,
+} from '../lib/intake/intakePendingConfirmationStore.js';
+import {
+  buildIntakeTurnIdempotencyKey,
+  peekIntakeTurnIdempotentResponse,
+  recordIntakeTurnIdempotentResponse,
+} from '../lib/intake/intakeTurnIdempotency.js';
+import {
+  shouldInjectStalePendingUploadImage,
+  stripStaleUploadHandoffFromIntentSource,
+} from '../lib/intake/intakeUploadHandoffGuard.js';
+import { isCasualChatTurn } from '../lib/intake/intakeCasualChatTurn.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
 const STORE_CONTEXT_FREE_TOOLS = CONTEXT_FREE_TOOLS;
@@ -757,125 +781,42 @@ function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, us
   );
 }
 
-const INTAKE_CONFIRM_AFFIRMATIONS = new Set([
-  'yes',
-  'yep',
-  'yeah',
-  'ok',
-  'okay',
-  'sure',
-  'proceed',
-  'confirm',
-  'approve',
-  "let's do it",
-  'lets do it',
-  'go ahead',
-  'yes proceed',
-  'ok go ahead',
-]);
-
-/**
- * Case-insensitive affirmations that should route to confirm when a plan is pending.
- * @param {string} message
- */
-function isIntakeConfirmAffirmation(message) {
-  const normalized = String(message ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-  return normalized.length > 0 && INTAKE_CONFIRM_AFFIRMATIONS.has(normalized);
-}
-
-/**
- * @param {import('../lib/decision/constants.js').BeliefSnapshot | null | undefined} belief
- * @param {ReturnType<typeof getPersistedIntentResolution> | null} persistedIntent
- */
-function sessionHasPendingIntakePlanConfirm(belief, persistedIntent, history = []) {
-  const hasIntentAnchor =
-    Boolean(String(persistedIntent?.family ?? '').trim()) ||
-    Boolean(String(persistedIntent?.chosenTool ?? '').trim()) ||
-    Boolean(String(persistedIntent?.subtype ?? '').trim()) ||
-    Boolean(String(belief?.activeGoal?.intent ?? '').trim());
-
-  const workflowType = String(belief?.workflow?.type ?? '').trim();
-  const activeGoalIntent = String(belief?.activeGoal?.intent ?? '').trim();
-  if (workflowType && activeGoalIntent && hasIntentAnchor) return true;
-
-  if (hasIntentAnchor && belief?.workflow?.status === 'pending_confirmation') return true;
-
-  return hasIntentAnchor && conversationAwaitingIntakeConfirm(history);
-}
-
-/**
- * @param {Array<Record<string, unknown>>} history
- */
-function conversationAwaitingIntakeConfirm(history) {
-  if (!Array.isArray(history) || history.length < 2) return false;
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    const msg = history[i];
-    if (!msg || typeof msg !== 'object') continue;
-    const role = String(msg.role ?? msg.type ?? '').toLowerCase();
-    const text = String(msg.content ?? msg.text ?? msg.message ?? '').trim();
-    if (role !== 'assistant' && role !== 'agent' && role !== 'mi') continue;
-    if (!/please confirm before proceeding/i.test(text)) continue;
-    for (let j = i - 1; j >= 0; j -= 1) {
-      const prior = history[j];
-      if (!prior || typeof prior !== 'object') continue;
-      const priorRole = String(prior.role ?? prior.type ?? '').toLowerCase();
-      const priorText = String(prior.content ?? prior.text ?? prior.message ?? '').trim();
-      if (
-        (priorRole === 'user' || priorRole === 'human') &&
-        priorText &&
-        !isIntakeConfirmAffirmation(priorText)
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 /**
  * @param {import('../lib/decision/constants.js').BeliefSnapshot | null | undefined} belief
  * @param {ReturnType<typeof getPersistedIntentResolution> | null} persistedIntent
  * @param {Array<Record<string, unknown>>} history
  * @param {Record<string, unknown>} currentContext
  */
-function resolvePendingConfirmInterceptPlan(belief, persistedIntent, history, currentContext) {
-  const intentHint = String(
-    persistedIntent?.chosenTool ?? persistedIntent?.subtype ?? belief?.activeGoal?.intent ?? '',
-  ).trim();
-  let tool = resolveToolForIntent(intentHint, persistedIntent?.chosenTool ?? belief?.activeGoal?.intent);
-  let originalGoal = '';
+function resolvePendingConfirmInterceptPlan(belief, persistedIntent, history, currentContext, pendingStoreOpts = null) {
+  const fromHistory = extractPendingConfirmFromHistory(history);
+  const fromStore =
+    pendingStoreOpts?.actorKey != null
+      ? getPendingIntakeConfirmation({
+          actorKey: pendingStoreOpts.actorKey,
+          tenantKey: pendingStoreOpts.tenantKey ?? 'unknown',
+          missionId: pendingStoreOpts.missionId ?? null,
+          storeId: pendingStoreOpts.storeId ?? null,
+          draftId: pendingStoreOpts.draftId ?? null,
+        })
+      : null;
 
-  if (Array.isArray(history)) {
-    for (let i = history.length - 1; i >= 0; i -= 1) {
-      const msg = history[i];
-      if (!msg || typeof msg !== 'object') continue;
-      const role = String(msg.role ?? msg.type ?? '').toLowerCase();
-      const text = String(msg.content ?? msg.text ?? msg.message ?? '').trim();
-      if (role !== 'assistant' && role !== 'agent' && role !== 'mi') continue;
-      if (!/please confirm before proceeding/i.test(text)) continue;
-      const proposed = text.match(/please confirm before proceeding:\s*([a-z0-9_.-]+)/i);
-      if (proposed?.[1] && isRegisteredTool(proposed[1])) {
-        tool = proposed[1];
-      }
-      for (let j = i - 1; j >= 0; j -= 1) {
-        const prior = history[j];
-        if (!prior || typeof prior !== 'object') continue;
-        const priorRole = String(prior.role ?? prior.type ?? '').toLowerCase();
-        const priorText = String(prior.content ?? prior.text ?? prior.message ?? '').trim();
-        if (
-          (priorRole === 'user' || priorRole === 'human') &&
-          priorText &&
-          !isIntakeConfirmAffirmation(priorText)
-        ) {
-          originalGoal = priorText;
-          break;
-        }
-      }
-      break;
-    }
+  const intentHint = String(
+    fromHistory?.tool ??
+      fromStore?.tool ??
+      persistedIntent?.chosenTool ??
+      persistedIntent?.subtype ??
+      belief?.activeGoal?.intent ??
+      '',
+  ).trim();
+  let tool = resolveToolForIntent(
+    intentHint,
+    fromHistory?.tool ?? fromStore?.tool ?? persistedIntent?.chosenTool ?? belief?.activeGoal?.intent,
+  );
+  let originalGoal = fromHistory?.originalGoal ?? fromStore?.originalGoal ?? '';
+  if (fromHistory?.tool && isRegisteredTool(fromHistory.tool)) {
+    tool = fromHistory.tool;
+  } else if (fromStore?.tool && isRegisteredTool(fromStore.tool)) {
+    tool = fromStore.tool;
   }
 
   if (!tool || tool === 'general_chat') return null;
@@ -907,8 +848,8 @@ function resolvePendingConfirmInterceptPlan(belief, persistedIntent, history, cu
     parameters.hint = originalGoal;
   }
 
-  return {
-    executionPath: persistedIntent?.executionPath ?? toolEntry?.executionPath ?? 'direct_action',
+  return normalizeConfirmInterceptClassification({
+    executionPath: toolEntry?.executionPath ?? 'direct_action',
     tool,
     confidence: 0.95,
     parameters,
@@ -916,7 +857,114 @@ function resolvePendingConfirmInterceptPlan(belief, persistedIntent, history, cu
     _decisionNextStep: 'execute',
     _confirmIntercept: true,
     _originalGoal: originalGoal || null,
-  };
+  });
+}
+
+function injectStaleClientPendingUploadIfAllowed(body, intentSourceContext, userMessage, uploadCtx) {
+  if (!body || typeof body !== 'object') return;
+  if (resolveIntakeImageRefForOcr(body)) return;
+  if (!shouldInjectStalePendingUploadImage(userMessage, uploadCtx)) return;
+  const pendingUploadImage = String(
+    intentSourceContext?.pendingImageDataUrl ?? intentSourceContext?.imageDataUrl ?? '',
+  ).trim();
+  if (pendingUploadImage.length <= 50) return;
+  body.imageDataUrl = pendingUploadImage;
+  if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+    body.attachments = [{ type: 'image', dataUrl: pendingUploadImage, uri: pendingUploadImage }];
+  }
+}
+
+function maybePersistPendingConfirmFromResponseText(req, responseText, {
+  missionId,
+  storeId,
+  draftId,
+  history,
+  userMessage,
+}) {
+  const text = String(responseText ?? '').trim();
+  const pendingMatch = text.match(/please confirm before proceeding:\s*([a-z0-9_.-]+)/i);
+  if (!pendingMatch?.[1] || !isRegisteredTool(pendingMatch[1])) return;
+  const actorKey = resolveIntakeV2ActorKey(req);
+  if (!actorKey) return;
+  const pendingOriginal =
+    extractPendingConfirmFromHistory([
+      ...(Array.isArray(history) ? history : []),
+      ...(userMessage ? [{ role: 'user', content: userMessage }] : []),
+    ])?.originalGoal ?? null;
+  setPendingIntakeConfirmation({
+    actorKey,
+    tenantKey: resolveIntakeV2TenantKey(req),
+    missionId,
+    storeId,
+    draftId,
+    tool: pendingMatch[1],
+    originalGoal: pendingOriginal,
+  });
+}
+
+/**
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+async function dispatchConfirmInterceptCampaignIfReady(req, res, ctx) {
+  const {
+    classification,
+    userMessage,
+    locale,
+    cardbeyTraceId,
+    dispatchStoreId,
+    effectiveStoreId,
+    storeId,
+    safeJson,
+    intakeActorKey,
+    intakeTenantKey,
+    missionId,
+    draftId,
+  } = ctx;
+  const normalized = normalizeConfirmInterceptClassification(classification);
+  if (!normalized?._confirmIntercept || normalized.tool !== 'create_campaign') return null;
+
+  console.log('[IntakeV2] routing:confirm_intercept_campaign_dispatch', {
+    traceId: cardbeyTraceId,
+    tool: normalized.tool,
+    executionPath: normalized.executionPath,
+  });
+
+  const classifiedActorId = performerIntakeV2ActorId(req);
+  const classifiedUser = performerIntakeV2UserLike(req);
+  const prismaClassified = getPrismaClient();
+  const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+  const classifiedCampaignDispatch = await runCreateCampaignViaUnifiedDispatch(
+    {
+      res,
+      prisma: prismaClassified,
+      user: classifiedUser ?? req.user,
+      actorId: classifiedActorId,
+      locale,
+      userMessage: normalized._originalGoal || userMessage,
+      cardbeyTraceId,
+      auditSource: 'intake_v2_confirm_intercept_campaign',
+      classification: normalized,
+      storeId: dispatchStoreId ?? effectiveStoreId ?? storeId ?? null,
+      safeJson,
+      createMissionPipeline,
+    },
+    'intake_v2_confirm_intercept_campaign',
+  );
+  const classifiedCampaignResponded = await respondCreateCampaignCheckpointDispatch(res, classifiedCampaignDispatch, {
+    locale,
+    safeJson,
+  });
+  if (classifiedCampaignResponded && intakeActorKey) {
+    clearPendingIntakeConfirmation({
+      actorKey: intakeActorKey,
+      tenantKey: intakeTenantKey,
+      missionId,
+      storeId: dispatchStoreId ?? storeId ?? null,
+      draftId,
+    });
+  }
+  return classifiedCampaignResponded;
 }
 
 /**
@@ -1922,6 +1970,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   /** @type {Awaited<ReturnType<typeof runIntakeAuthorityTurn>> | null} */
   let decisionLoopEarlyResult = null;
   let confirmInterceptApplied = false;
+  let intakeIdempotencyKey = null;
 
   const earlyCurrentContextForConfirm =
     body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
@@ -1942,6 +1991,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     const earlyPersistedIntent =
       intakeActorKeyEarly != null
         ? getPersistedIntentResolution({
+            actorKey: intakeActorKeyEarly,
+            tenantKey: intakeTenantKeyEarly,
+            missionId: earlyMissionId,
+            storeId: earlyStoreId,
+            draftId: earlyDraftId,
+          })
+        : null;
+
+    const earlyPendingFromStore =
+      intakeActorKeyEarly != null
+        ? getPendingIntakeConfirmation({
             actorKey: intakeActorKeyEarly,
             tenantKey: intakeTenantKeyEarly,
             missionId: earlyMissionId,
@@ -1995,12 +2055,26 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         console.warn('[IntakeV2] confirm intercept belief load failed:', beliefErr?.message ?? beliefErr);
       }
 
-      if (sessionHasPendingIntakePlanConfirm(earlyBelief, earlyPersistedIntent, earlyHistoryForConfirm)) {
+      if (
+        sessionHasPendingIntakePlanConfirm(
+          earlyBelief,
+          earlyPersistedIntent,
+          earlyHistoryForConfirm,
+          earlyPendingFromStore,
+        )
+      ) {
         const confirmedClassification = resolvePendingConfirmInterceptPlan(
           earlyBelief,
           earlyPersistedIntent,
           earlyHistoryForConfirm,
           earlyCurrentContextForConfirm,
+          {
+            actorKey: intakeActorKeyEarly,
+            tenantKey: intakeTenantKeyEarly,
+            missionId: earlyMissionId,
+            storeId: earlyStoreId,
+            draftId: earlyDraftId,
+          },
         );
         if (confirmedClassification) {
           confirmInterceptApplied = true;
@@ -2010,9 +2084,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             classification: confirmedClassification,
             skipPlanners: true,
           };
-          console.log('[IntakeV2] NL confirm → execute pending plan', {
+          console.log('[IntakeV2] routing:NL confirm intercept', {
             tool: confirmedClassification.tool,
             executionPath: confirmedClassification.executionPath,
+            source: earlyPendingFromStore?.tool ? 'pending_store' : 'history_or_belief',
           });
         }
       }
@@ -2030,24 +2105,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       guestSessionId: req.guestSessionId ?? null,
     });
 
+    if (userMessage && isCasualChatTurn(userMessage) && earlySessionKey) {
+      try {
+        await clearStaleUploadBeliefContext(earlySessionKey);
+      } catch (clearErr) {
+        console.warn(
+          '[IntakeV2] casual chat upload context clear failed:',
+          clearErr?.message ?? clearErr,
+        );
+      }
+    }
+
     let earlyIntentSourceContext =
       body.intentSourceContext && typeof body.intentSourceContext === 'object'
         ? body.intentSourceContext
         : null;
 
-    if (!resolveIntakeImageRefForOcr(body)) {
-      const pendingUploadImage = String(
-        earlyIntentSourceContext?.pendingImageDataUrl ??
-          earlyIntentSourceContext?.imageDataUrl ??
-          '',
-      ).trim();
-      if (pendingUploadImage.length > 50) {
-        body.imageDataUrl = pendingUploadImage;
-        if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
-          body.attachments = [{ type: 'image', dataUrl: pendingUploadImage, uri: pendingUploadImage }];
-        }
-      }
+    earlyIntentSourceContext = stripStaleUploadHandoffFromIntentSource(earlyIntentSourceContext, userMessage, {
+      hasPendingPlanConfirm:
+        confirmInterceptApplied ||
+        isIntakeConfirmAffirmation(userMessage) ||
+        conversationAwaitingIntakeConfirm(earlyHistoryForConfirm),
+    });
+    if (earlyIntentSourceContext) {
+      body.intentSourceContext = earlyIntentSourceContext;
     }
+
+    const earlyUploadCtxForInject = {
+      hasImageAttachment: hasIntakeImageAttachment(body),
+      intentSourceContext: earlyIntentSourceContext,
+    };
+    injectStaleClientPendingUploadIfAllowed(
+      body,
+      earlyIntentSourceContext,
+      userMessage,
+      earlyUploadCtxForInject,
+    );
 
     const earlyUploadCtx = buildUploadAttachmentGuardCtx({
       attachments: body.attachments,
@@ -2117,6 +2210,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       decisionLoopEarlyResult = authorityTurn;
 
       if (authorityTurn.handled && authorityTurn.httpPayload) {
+        maybePersistPendingConfirmFromResponseText(
+          req,
+          authorityTurn.httpPayload?.response,
+          {
+            missionId: resolveIntakeMissionId({ body, currentContext: earlyCurrentContext }),
+            storeId: resolveIntakeStoreId(earlyCurrentContext),
+            draftId: resolveIntakeDraftId(earlyCurrentContext),
+            history: earlyHistoryForConfirm,
+            userMessage,
+          },
+        );
         return res.json({
           ...authorityTurn.httpPayload,
           executionPath: 'decision_loop',
@@ -2133,6 +2237,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         });
         const shouldForceUploadAsk =
           Boolean(uploadAskFallback?.payload) &&
+          !isCasualChatTurn(userMessage) &&
           (earlyAttachmentOnly ||
             earlyHasAttachment ||
             isAttachmentOnlyPlaceholderMessage(userMessage));
@@ -2246,6 +2351,92 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
   }
 
+  if (
+    !confirmInterceptApplied &&
+    userMessage &&
+    isIntakeConfirmAffirmation(userMessage) &&
+    isDecisionLoopEnabled()
+  ) {
+    const lateActorKey = resolveIntakeV2ActorKey(req);
+    const lateTenantKey = resolveIntakeV2TenantKey(req);
+    const lateMissionId = resolveIntakeMissionId({ body, currentContext });
+    const lateStoreId = resolveIntakeStoreId(currentContext);
+    const lateDraftId = resolveIntakeDraftId(currentContext);
+    const latePersistedIntent =
+      lateActorKey != null
+        ? getPersistedIntentResolution({
+            actorKey: lateActorKey,
+            tenantKey: lateTenantKey,
+            missionId: lateMissionId,
+            storeId: lateStoreId,
+            draftId: lateDraftId,
+          })
+        : null;
+    const latePendingFromStore =
+      lateActorKey != null
+        ? getPendingIntakeConfirmation({
+            actorKey: lateActorKey,
+            tenantKey: lateTenantKey,
+            missionId: lateMissionId,
+            storeId: lateStoreId,
+            draftId: lateDraftId,
+          })
+        : null;
+
+    if (
+      sessionHasPendingIntakePlanConfirm(
+        null,
+        latePersistedIntent,
+        history,
+        latePendingFromStore,
+      )
+    ) {
+      let lateBelief = null;
+      try {
+        lateBelief = await loadBelief({
+          req,
+          sessionKey: intakeAssetSessionKey,
+          sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
+          currentContext,
+          intentSourceContext:
+            body.intentSourceContext && typeof body.intentSourceContext === 'object'
+              ? body.intentSourceContext
+              : null,
+          body,
+        });
+      } catch (beliefErr) {
+        console.warn('[IntakeV2] post-history confirm belief load failed:', beliefErr?.message ?? beliefErr);
+      }
+
+      const confirmedClassification = resolvePendingConfirmInterceptPlan(
+        lateBelief,
+        latePersistedIntent,
+        history,
+        currentContext,
+        {
+          actorKey: lateActorKey,
+          tenantKey: lateTenantKey,
+          missionId: lateMissionId,
+          storeId: lateStoreId,
+          draftId: lateDraftId,
+        },
+      );
+      if (confirmedClassification) {
+        confirmInterceptApplied = true;
+        decisionLoopEarlyRan = true;
+        decisionLoopEarlyResult = {
+          handled: false,
+          classification: confirmedClassification,
+          skipPlanners: true,
+        };
+        console.log('[IntakeV2] routing:NL confirm intercept (post-history)', {
+          tool: confirmedClassification.tool,
+          executionPath: confirmedClassification.executionPath,
+        });
+      }
+    }
+  }
+
   if (!freshStoreMission && isContextEngineEnabled()) {
     try {
       const sessionIdForContext =
@@ -2270,6 +2461,26 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (!freshStoreMission) {
     currentContext = attachIntakeMemoryFields(currentContext);
     missionId = resolveIntakeMissionId({ body, currentContext }) || missionId;
+
+    const intakeActorKeyForTurn = resolveIntakeV2ActorKey(req);
+    if (intakeActorKeyForTurn && userMessage) {
+      intakeIdempotencyKey = buildIntakeTurnIdempotencyKey({
+        actorKey: intakeActorKeyForTurn,
+        missionId,
+        sessionKey: conversationSessionIdHint ?? intakeAssetSessionKey,
+        userMessage,
+        clientRequestId: body.clientRequestId ?? body.requestId ?? null,
+      });
+      const cachedTurn = peekIntakeTurnIdempotentResponse(intakeIdempotencyKey);
+      if (cachedTurn) {
+        console.log('[IntakeV2] routing:idempotent_replay', {
+          traceId: cardbeyTraceId,
+          key: intakeIdempotencyKey,
+        });
+        return res.json(cachedTurn);
+      }
+    }
+
     try {
       intakeMemoryBundle = await loadIntakeMemoryBundle({
         req,
@@ -2323,7 +2534,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     intentSourceContext,
     body.currentContext?.workflowContext,
     intakeAssetSessionKey,
+    userMessage,
   );
+  intentSourceContext = stripStaleUploadHandoffFromIntentSource(intentSourceContext, userMessage, {
+    hasPendingPlanConfirm:
+      confirmInterceptApplied ||
+      isIntakeConfirmAffirmation(userMessage) ||
+      conversationAwaitingIntakeConfirm(history),
+  });
   if (intentSourceContext) {
     body.intentSourceContext = intentSourceContext;
   }
@@ -2347,19 +2565,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   // Follow-up create-store turns may carry the upload only in handoff context — hydrate body for OCR.
-  if (!resolveIntakeImageRefForOcr(body)) {
-    const pendingUploadImage = String(
-      intentSourceContext?.pendingImageDataUrl ??
-        intentSourceContext?.imageDataUrl ??
-        '',
-    ).trim();
-    if (pendingUploadImage.length > 50) {
-      body.imageDataUrl = pendingUploadImage;
-      if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
-        body.attachments = [{ type: 'image', dataUrl: pendingUploadImage, uri: pendingUploadImage }];
-      }
-    }
-  }
+  injectStaleClientPendingUploadIfAllowed(body, intentSourceContext, userMessage, {
+    hasImageAttachment: hasIntakeImageAttachment(body),
+    intentSourceContext,
+  });
 
   // Multi-agent / campaign orchestration — unified dispatch (legacy only when loop authority off)
   if (body.missionType === 'multi_agent' && !isDecisionLoopEnabled()) {
@@ -2776,7 +2985,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   let intakeShortcutContext = null;
 
   if (decisionLoopEarlyResult?.classification) {
-    classification = decisionLoopEarlyResult.classification;
+    classification = decisionLoopEarlyResult.classification._confirmIntercept
+      ? normalizeConfirmInterceptClassification(decisionLoopEarlyResult.classification)
+      : decisionLoopEarlyResult.classification;
     skipReasoningPipeline = true;
     decisionLoopSkipPlanners = Boolean(decisionLoopEarlyResult.skipPlanners);
   } else if (isDecisionLoopEnabled() && decisionLoopEarlyRan && !forcedTool) {
@@ -3114,6 +3325,31 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           );
         });
       }
+    }
+    maybePersistPendingConfirmFromResponseText(req, responsePayload?.response, {
+      missionId,
+      storeId: dispatchStoreId ?? storeId ?? null,
+      draftId,
+      history,
+      userMessage,
+    });
+    if (
+      responsePayload &&
+      typeof responsePayload === 'object' &&
+      !Array.isArray(responsePayload) &&
+      responsePayload.action === 'campaign_mission_started' &&
+      intakeActorKey
+    ) {
+      clearPendingIntakeConfirmation({
+        actorKey: intakeActorKey,
+        tenantKey: intakeTenantKeyForPersistence,
+        missionId,
+        storeId: dispatchStoreId ?? storeId ?? null,
+        draftId,
+      });
+    }
+    if (intakeIdempotencyKey) {
+      recordIntakeTurnIdempotentResponse(intakeIdempotencyKey, responsePayload);
     }
     return res.json(responsePayload);
   };
@@ -4554,6 +4790,24 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   /** Last validation result (for telemetry / fallback branches). */
   let lastValidation = /** @type {{ ok: boolean, errors?: unknown[], downgradedTo?: string } | null} */ (null);
 
+  if (classification?._confirmIntercept) {
+    const confirmCampaignResponded = await dispatchConfirmInterceptCampaignIfReady(req, res, {
+      classification,
+      userMessage,
+      locale,
+      cardbeyTraceId,
+      dispatchStoreId,
+      effectiveStoreId,
+      storeId,
+      safeJson,
+      intakeActorKey,
+      intakeTenantKey: intakeTenantKeyForPersistence,
+      missionId,
+      draftId,
+    });
+    if (confirmCampaignResponded) return confirmCampaignResponded;
+  }
+
   // DANH: store-disambiguation — multi-store clarify before validation / skill dispatch
   if (classification?.tool) {
     const toolMetaForStore = getToolEntry(classification.tool);
@@ -4636,6 +4890,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (guestProductClarifyEarly) return guestProductClarifyEarly;
 
   for (let recoveryAttempt = 0; recoveryAttempt < 2; recoveryAttempt++) {
+    if (classification?._confirmIntercept) {
+      classification = normalizeConfirmInterceptClassification(classification);
+    }
     toolEntry = getToolEntry(classification.tool);
     riskLevel = toolEntry?.riskLevel ?? RISK.SAFE_READ;
 
@@ -4863,12 +5120,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           );
         }
       }
-      const options = mergeClarifyOptionsFromResolution(ir, userMessage, locale, classification.tool ? [classification.tool] : []);
+      if (classification?._confirmIntercept && isIntakeConfirmAffirmation(userMessage)) {
+        console.log('[IntakeV2] routing:confirm_intercept_validation_failed', {
+          traceId: cardbeyTraceId,
+          tool: classification.tool,
+          errors: validation.errors,
+        });
+        return safeJson(
+          {
+            success: true,
+            action: 'clarify',
+            response: formatIntakeValidationClarifyMessage(validation.errors, locale),
+            options: [],
+            validationErrors: validation.errors,
+          },
+          {
+            classification,
+            validated: false,
+            downgraded: true,
+            downgradeReason: 'validation_failed',
+            validationErrors: validation.errors,
+            riskLevel,
+            result: 'clarify',
+          },
+        );
+      }
+      const options = mergeClarifyOptionsFromResolution(
+        ir,
+        userMessage,
+        locale,
+        classification.tool ? [classification.tool] : [],
+      );
       return safeJson(
         {
           success: true,
           action: 'clarify',
-          response: intakeMessage('needMoreDetail', locale),
+          response: formatIntakeValidationClarifyMessage(validation.errors, locale),
           options,
           validationErrors: validation.errors,
         },

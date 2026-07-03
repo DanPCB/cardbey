@@ -42,4 +42,30 @@ describe('showVideoUploadService', () => {
     expect(data.storefrontSettings.featuredWorks[1].id).toBe('old');
     expect(data.publishedAt).toBeInstanceOf(Date);
   });
+
+  it('rejects upload when user does not own the store', async () => {
+    const prisma = {
+      business: {
+        findUnique: vi.fn(async () => ({
+          id: 'store-1',
+          isActive: true,
+          userId: 'owner-a',
+          storefrontSettings: {},
+          stylePreferences: {},
+        })),
+        update: vi.fn(),
+      },
+    };
+
+    const file = {
+      buffer: Buffer.from('fake-video'),
+      mimetype: 'video/mp4',
+      originalname: 'clip.mp4',
+      size: 11,
+    };
+
+    await expect(
+      executeShowVideoUpload({ prisma, storeId: 'store-1', file, userId: 'owner-b' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
 });

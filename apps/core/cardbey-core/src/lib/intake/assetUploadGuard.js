@@ -4,6 +4,8 @@
 
 import { isGraphicOrPromotionIntent } from './intentDetectors.js';
 import { peekPendingDocumentExtraction } from './storeCandidate.js';
+import { isCasualChatTurn } from './intakeCasualChatTurn.js';
+import { isIntakeConfirmAffirmation } from './intakeConfirmIntercept.js';
 
 /** Tools that require an existing store or draft — invalid for upload-only store creation. */
 export const STORE_CHECK_TOOLS_WITHOUT_CONTEXT = new Set([
@@ -151,11 +153,13 @@ export function isExplicitCreateStoreFromUploadContext(opts = {}) {
  * @param {{ attachments?: unknown[]; imageDataUrl?: string | null; intentSourceContext?: Record<string, unknown> | null; sessionId?: string | null; hasSessionPendingExtraction?: boolean }} [ctx]
  */
 export function isUploadWithoutClearUserIntent(message, ctx = {}) {
+  const msg = String(message ?? '').trim();
+  if (isCasualChatTurn(msg) || isIntakeConfirmAffirmation(msg)) return false;
   if (!hasUploadAttachmentEvidence(ctx)) return false;
   if (isGraphicOrPromotionIntent(message)) return false;
   if (detectExplicitAssetIntent(message)) return false;
   if (hasExplicitUploadCreateStoreOrWebsiteIntent(message)) return false;
-  return isAttachmentOnlyPlaceholderMessage(message) || Boolean(String(message ?? '').trim());
+  return isAttachmentOnlyPlaceholderMessage(message) || Boolean(msg);
 }
 
 /**
@@ -186,6 +190,8 @@ export function isAttachmentOnlyPlaceholderMessage(message) {
  * @param {{ attachments?: unknown[]; imageDataUrl?: string | null }} [ctx]
  */
 export function shouldRouteToAssetIntentDetection(message, ctx = {}) {
+  const msg = String(message ?? '').trim();
+  if (isCasualChatTurn(msg) || isIntakeConfirmAffirmation(msg)) return false;
   return isUploadWithoutClearUserIntent(message, ctx);
 }
 

@@ -65,6 +65,16 @@ describe('formatStoreCreationDraftResponse', () => {
     expect(text).toContain('Melbourne');
     expect(text).toContain('Ready to create your store?');
   });
+
+  it('uses unified intro copy when no fields are known yet', () => {
+    const bundle = buildStoreCreationDraft({
+      userMessage: 'Create store',
+      classification: { parameters: {} },
+    });
+    const text = formatStoreCreationDraftResponse(bundle);
+    expect(text).toContain("Let's set up your store");
+    expect(text).not.toContain('I need a bit more detail before we can create your store.');
+  });
 });
 
 describe('parseStoreCreationFromUserMessage adapter', () => {

@@ -19,6 +19,10 @@ import {
   makePersistedIntentStorageKey,
 } from '../intake/intakePersistedIntentStore.js';
 import { resolveIntakeV2ActorKey, resolveIntakeV2TenantKey } from '../intake/intakeV2ActorContext.js';
+import {
+  activeGoalSupersedesUploadClarify,
+  isUploadPendingConfirmationWorkflow,
+} from './uploadBeliefContext.js';
 
 function strip(value) {
   return String(value ?? '').trim() || null;
@@ -107,11 +111,12 @@ function lastUploadFromSources(opts) {
  * @returns {import('./constants.js').BeliefPendingClarify | null}
  */
 function pendingClarifyFromSources(opts) {
-  const { workflowCtx, intentSourceContext, lastUpload } = opts;
+  const { workflowCtx, intentSourceContext, lastUpload, activeGoal } = opts;
   const isc = asObject(intentSourceContext);
   const wf = workflowFromIntakeMap(workflowCtx ?? {});
+  const uploadSuperseded = activeGoalSupersedesUploadClarify(activeGoal);
 
-  if (isc.uploadedAssetPending === true && lastUpload) {
+  if (!uploadSuperseded && isc.uploadedAssetPending === true && lastUpload) {
     return {
       type: 'upload_goal',
       question: 'What would you like to do with this upload?',
@@ -119,7 +124,12 @@ function pendingClarifyFromSources(opts) {
     };
   }
 
-  if (wf?.status === 'pending_confirmation' && lastUpload) {
+  if (
+    !uploadSuperseded &&
+    wf?.status === 'pending_confirmation' &&
+    lastUpload &&
+    isUploadPendingConfirmationWorkflow(wf, workflowCtx)
+  ) {
     return {
       type: 'upload_goal',
       question: 'Upload awaiting goal selection',
@@ -327,17 +337,18 @@ export async function loadBelief(opts = {}) {
     noteDivergence(divergences, 'hasUpload', true, 'workflow_map', false, 'client_handoff');
   }
 
-  const pendingClarify = pendingClarifyFromSources({
-    workflowCtx,
-    intentSourceContext,
-    lastUpload,
-  });
-
   const activeGoal = activeGoalFromSources({
     persistedIntent,
     unifiedMemory,
     memorySummary,
     intentSourceContext,
+  });
+
+  const pendingClarify = pendingClarifyFromSources({
+    workflowCtx,
+    intentSourceContext,
+    lastUpload,
+    activeGoal,
   });
 
   const blockers = [];

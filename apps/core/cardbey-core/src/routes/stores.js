@@ -2069,18 +2069,21 @@ router.get('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, asyn
  * POST /api/stores/:storeId/show-videos/upload
  * Upload a show-section video, prepend to featured works, bump publishedAt for frontpage queue.
  */
-router.post('/:storeId/show-videos/upload', requireAuth, requireOwner, showVideoUploadSingle, async (req, res, next) => {
+router.post('/:storeId/show-videos/upload', requireAuth, showVideoUploadSingle, async (req, res, next) => {
   try {
     const { storeId } = req.params;
     if (!req.file) {
       return res.status(400).json({ ok: false, error: 'file_required', message: 'Video file is required' });
     }
     const title = typeof req.body?.title === 'string' ? req.body.title : undefined;
+    const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
     const result = await executeShowVideoUpload({
       prisma,
       storeId,
       file: req.file,
       title,
+      userId: req.userId,
+      isDevAdmin,
     });
     return res.status(201).json({
       ok: true,
@@ -2097,6 +2100,9 @@ router.post('/:storeId/show-videos/upload', requireAuth, requireOwner, showVideo
     }
     if (err?.statusCode === 404) {
       return res.status(404).json({ ok: false, message: err.message });
+    }
+    if (err?.statusCode === 403) {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: err.message });
     }
     next(err);
   }

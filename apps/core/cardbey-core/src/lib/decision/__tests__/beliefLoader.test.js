@@ -61,6 +61,45 @@ describe('beliefLoader', () => {
     expect(belief.sourcesLoaded).toContain('workflow_map');
   });
 
+  it('does not infer upload pendingClarify when active goal supersedes stale upload', async () => {
+    const sessionKey = 'sess-upload-campaign';
+    const candidate = buildStoreCandidateFromOcr(SAMPLE_CARD, { documentType: 'business_card' });
+    persistUploadedAssetWorkflow(sessionKey, {
+      id: 'doc-campaign',
+      artifactType: 'document_extraction',
+      documentType: 'business_card',
+      storeCandidate: candidate,
+      rawOcrText: SAMPLE_CARD,
+      imageDataUrl: 'data:image/png;base64,campaign',
+      confidence: candidate.confidence,
+      createdAt: new Date().toISOString(),
+    });
+
+    setPersistedIntentResolution({
+      actorKey: 'u:user-1',
+      tenantKey: 't:user-1',
+      missionId: 'm-campaign',
+      storeId: 'store-1',
+      draftId: null,
+      family: 'promotion_campaign',
+      subtype: 'create_campaign',
+      chosenTool: 'create_campaign',
+      source: 'test',
+    });
+
+    const belief = await loadBelief({
+      sessionId: sessionKey,
+      sessionKey,
+      req: { user: { id: 'user-1' } },
+      body: { missionId: 'm-campaign' },
+      currentContext: { activeStoreId: 'store-1' },
+    });
+
+    expect(belief.lastUpload).not.toBeNull();
+    expect(belief.pendingClarify).toBeNull();
+    expect(belief.activeGoal?.intent).toBe('create_campaign');
+  });
+
   it('infers pendingClarify for upload awaiting goal', async () => {
     const sessionKey = 'sess-upload-2';
     const candidate = buildStoreCandidateFromOcr(SAMPLE_CARD, { documentType: 'business_card' });
@@ -156,5 +195,48 @@ describe('persistBeliefDelta', () => {
       currentContext: {},
     });
     expect(belief.workflow?.type).toBe('store_creation');
+  });
+
+  it('clears stale upload context when active goal supersedes upload', async () => {
+    const sessionKey = 'sess-clear-upload';
+    const candidate = buildStoreCandidateFromOcr(SAMPLE_CARD, { documentType: 'business_card' });
+    persistUploadedAssetWorkflow(sessionKey, {
+      id: 'doc-clear',
+      artifactType: 'document_extraction',
+      documentType: 'business_card',
+      storeCandidate: candidate,
+      rawOcrText: SAMPLE_CARD,
+      imageDataUrl: 'data:image/png;base64,clear',
+      confidence: candidate.confidence,
+      createdAt: new Date().toISOString(),
+    });
+
+    const result = await persistBeliefDelta({
+      sessionKey,
+      activeGoal: { intent: 'create_campaign', confidence: 0.9 },
+      clearUploadContext: true,
+    });
+    expect(result.applied).toContain('clear_upload_context');
+
+    const belief = await loadBelief({ sessionId: sessionKey, sessionKey, currentContext: {} });
+    expect(belief.workflow?.type).toBe('create_campaign');
+    expect(belief.pendingClarify).toBeNull();
+  });
+
+  it('overwrites prior upload state when a new lastUpload patch is persisted', async () => {
+    const sessionKey = 'sess-overwrite-upload';
+    await persistBeliefDelta({
+      sessionKey,
+      lastUpload: {
+        imageRef: 'data:image/png;base64,new',
+        ocrText: 'NEW SHOP',
+        businessName: 'NEW SHOP',
+        sessionKey,
+      },
+    });
+
+    const belief = await loadBelief({ sessionId: sessionKey, sessionKey, currentContext: {} });
+    expect(belief.lastUpload?.imageRef).toContain('new');
+    expect(belief.workflow?.type).toBe('upload_intake');
   });
 });

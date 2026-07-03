@@ -3,6 +3,7 @@
  */
 
 import { createHypothesis, pushHypothesis } from '../hypothesisUtils.js';
+import { isUploadPendingConfirmationWorkflow } from '../uploadBeliefContext.js';
 
 /**
  * @param {import('../constants.js').BeliefSnapshot} belief
@@ -54,7 +55,10 @@ export function continuityAdvisor(belief, input) {
     );
   }
 
-  if (belief.workflow?.status === 'pending_confirmation' && belief.lastUpload) {
+  if (
+    isUploadPendingConfirmationWorkflow(belief.workflow) &&
+    belief.lastUpload
+  ) {
     pushHypothesis(
       hypotheses,
       createHypothesis({
