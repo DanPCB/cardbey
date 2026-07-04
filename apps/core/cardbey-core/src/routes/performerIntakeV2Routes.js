@@ -1116,6 +1116,76 @@ async function handleIntakeV2ConfirmRequest(req, res, overrides = {}) {
 
   try {
     const actorId = performerIntakeV2ActorId(req);
+    const cardbeyTraceId = getOrCreateCardbeyTraceId(req);
+
+    if (isCampaignCheckpointKernelTool(tool)) {
+      const prisma = getPrismaClient();
+      const { createMissionPipeline } = await import('../lib/missionPipelineService.js');
+      const campaignUserMessage = String(
+        cleaned.campaignContext ??
+          cleaned.hint ??
+          record.executionParameters?.campaignContext ??
+          record.executionParameters?.hint ??
+          body.text ??
+          body.userMessage ??
+          '',
+      ).trim();
+      const campaignDispatch = await runCreateCampaignViaUnifiedDispatch(
+        {
+          res,
+          prisma,
+          user: performerIntakeV2UserLike(req) ?? req.user,
+          actorId,
+          locale,
+          userMessage: campaignUserMessage,
+          cardbeyTraceId,
+          auditSource: 'intake_v2_confirm',
+          classification: {
+            tool: 'create_campaign',
+            parameters: { ...cleaned, confirmed: true, _autoSubmit: true },
+          },
+          storeId: effectiveStore,
+          safeJson: async (payload) => payload,
+          createMissionPipeline,
+        },
+        'intake_v2_confirm',
+      );
+      deleteIntakeApprovalPreview(previewId);
+
+      const confirmSafeJson = async (payload, telExtra = {}) => {
+        emitConfirm({
+          tool,
+          validated: telExtra.validated ?? true,
+          result: telExtra.result ?? null,
+          downgraded: Boolean(telExtra.downgraded),
+          downgradeReason: telExtra.downgradeReason ?? null,
+          validationErrors: telExtra.validationErrors ?? [],
+          riskLevel: telExtra.riskLevel ?? getToolEntry(tool)?.riskLevel,
+        });
+        return payload;
+      };
+      const campaignResponded = await respondCreateCampaignCheckpointDispatch(res, campaignDispatch, {
+        locale,
+        safeJson: confirmSafeJson,
+      });
+      if (campaignResponded) return campaignResponded;
+
+      emitConfirm({
+        tool,
+        validated: true,
+        result: 'error',
+        downgradeReason: campaignDispatch.kind ?? 'campaign_dispatch_failed',
+      });
+      return res.json({
+        success: false,
+        action: 'error',
+        code: 'CREATE_CAMPAIGN_FAILED',
+        response:
+          campaignDispatch.responseBody?.message ??
+          'Campaign setup could not be started.',
+      });
+    }
+
     const dispatchResult = await unifiedDispatch(
       {
         type: tool,
@@ -2031,8 +2101,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       });
     }
 
+    let earlyBelief = null;
     if (isDecisionLoopEnabled()) {
-      let earlyBelief = null;
       try {
         const earlyConversationSessionId =
           String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
@@ -2054,42 +2124,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       } catch (beliefErr) {
         console.warn('[IntakeV2] confirm intercept belief load failed:', beliefErr?.message ?? beliefErr);
       }
+    }
 
-      if (
-        sessionHasPendingIntakePlanConfirm(
-          earlyBelief,
-          earlyPersistedIntent,
-          earlyHistoryForConfirm,
-          earlyPendingFromStore,
-        )
-      ) {
-        const confirmedClassification = resolvePendingConfirmInterceptPlan(
-          earlyBelief,
-          earlyPersistedIntent,
-          earlyHistoryForConfirm,
-          earlyCurrentContextForConfirm,
-          {
-            actorKey: intakeActorKeyEarly,
-            tenantKey: intakeTenantKeyEarly,
-            missionId: earlyMissionId,
-            storeId: earlyStoreId,
-            draftId: earlyDraftId,
-          },
-        );
-        if (confirmedClassification) {
-          confirmInterceptApplied = true;
-          decisionLoopEarlyRan = true;
-          decisionLoopEarlyResult = {
-            handled: false,
-            classification: confirmedClassification,
-            skipPlanners: true,
-          };
-          console.log('[IntakeV2] routing:NL confirm intercept', {
-            tool: confirmedClassification.tool,
-            executionPath: confirmedClassification.executionPath,
-            source: earlyPendingFromStore?.tool ? 'pending_store' : 'history_or_belief',
-          });
-        }
+    if (
+      sessionHasPendingIntakePlanConfirm(
+        earlyBelief,
+        earlyPersistedIntent,
+        earlyHistoryForConfirm,
+        earlyPendingFromStore,
+      )
+    ) {
+      const confirmedClassification = resolvePendingConfirmInterceptPlan(
+        earlyBelief,
+        earlyPersistedIntent,
+        earlyHistoryForConfirm,
+        earlyCurrentContextForConfirm,
+        {
+          actorKey: intakeActorKeyEarly,
+          tenantKey: intakeTenantKeyEarly,
+          missionId: earlyMissionId,
+          storeId: earlyStoreId,
+          draftId: earlyDraftId,
+        },
+      );
+      if (confirmedClassification) {
+        confirmInterceptApplied = true;
+        decisionLoopEarlyRan = true;
+        decisionLoopEarlyResult = {
+          handled: false,
+          classification: confirmedClassification,
+          skipPlanners: true,
+        };
+        console.log('[IntakeV2] routing:NL confirm intercept', {
+          tool: confirmedClassification.tool,
+          executionPath: confirmedClassification.executionPath,
+          source: earlyPendingFromStore?.tool ? 'pending_store' : 'history_or_belief',
+        });
       }
     }
   }
@@ -2393,8 +2463,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (
     !confirmInterceptApplied &&
     userMessage &&
-    isIntakeConfirmAffirmation(userMessage) &&
-    isDecisionLoopEnabled()
+    isIntakeConfirmAffirmation(userMessage)
   ) {
     const lateActorKey = resolveIntakeV2ActorKey(req);
     const lateTenantKey = resolveIntakeV2TenantKey(req);
@@ -2431,20 +2500,22 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       )
     ) {
       let lateBelief = null;
-      try {
-        lateBelief = await loadBelief({
-          req,
-          sessionKey: intakeAssetSessionKey,
-          sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
-          currentContext,
-          intentSourceContext:
-            body.intentSourceContext && typeof body.intentSourceContext === 'object'
-              ? body.intentSourceContext
-              : null,
-          body,
-        });
-      } catch (beliefErr) {
-        console.warn('[IntakeV2] post-history confirm belief load failed:', beliefErr?.message ?? beliefErr);
+      if (isDecisionLoopEnabled()) {
+        try {
+          lateBelief = await loadBelief({
+            req,
+            sessionKey: intakeAssetSessionKey,
+            sessionId: conversationSessionIdHint ?? intakeAssetSessionKey,
+            currentContext,
+            intentSourceContext:
+              body.intentSourceContext && typeof body.intentSourceContext === 'object'
+                ? body.intentSourceContext
+                : null,
+            body,
+          });
+        } catch (beliefErr) {
+          console.warn('[IntakeV2] post-history confirm belief load failed:', beliefErr?.message ?? beliefErr);
+        }
       }
 
       const confirmedClassification = resolvePendingConfirmInterceptPlan(
@@ -4631,6 +4702,24 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   classification = normalizeClassificationForKernel(classification);
 
+  if (classification?._confirmIntercept) {
+    const confirmCampaignRespondedEarly = await dispatchConfirmInterceptCampaignIfReady(req, res, {
+      classification,
+      userMessage,
+      locale,
+      cardbeyTraceId,
+      dispatchStoreId,
+      effectiveStoreId,
+      storeId,
+      safeJson,
+      intakeActorKey,
+      intakeTenantKey: intakeTenantKeyForPersistence,
+      missionId,
+      draftId,
+    });
+    if (confirmCampaignRespondedEarly) return confirmCampaignRespondedEarly;
+  }
+
   try {
     const plannerIntegration = getPlannerIntegration();
     if (
@@ -4700,7 +4789,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if (!forcedTool && !blockLegacyIntakePaths) {
+  if (!forcedTool && !blockLegacyIntakePaths && !classification?._confirmIntercept) {
     const plannerDecision = await runPostClassifyReactPlanner({
       userMessage: classifierInputMessage ?? userMessage,
       classification,

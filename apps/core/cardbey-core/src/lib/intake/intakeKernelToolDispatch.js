@@ -57,6 +57,54 @@ export async function dispatchIntakeToolViaUnifiedKernel(toolName, cleanedParams
     };
   }
 
+  if (tool === 'create_campaign' && ctx.confirmed !== false) {
+    const { UNIFIED_ACTION_TYPES } = await import('../execution/executionTypes.js');
+    const result = await unifiedDispatch(
+      {
+        type: UNIFIED_ACTION_TYPES.CREATE_CAMPAIGN_CHECKPOINT,
+        payload: {
+          toolName: tool,
+          input: payload,
+          parameters: payload,
+          userId: ctx.userId ?? null,
+          actorId: ctx.userId ?? null,
+          tenantId: ctx.tenantId ?? null,
+          storeId: ctx.storeId ?? payload.storeId ?? null,
+          missionId: ctx.missionId ?? payload.missionId ?? null,
+          locale: ctx.locale ?? 'en',
+          userMessage: String(payload.campaignContext ?? payload.hint ?? '').trim(),
+          classification: { tool: 'create_campaign', parameters: { ...payload, confirmed: true, _autoSubmit: true } },
+        },
+      },
+      {
+        source: ctx.source ?? 'intake_v2_unified',
+        requireConfirmation: false,
+        confirmed: true,
+      },
+    );
+    if (!result.ok || result.status === 'blocked') {
+      return {
+        toolResult: {
+          status: 'blocked',
+          blocker: {
+            code: result.code ?? 'KERNEL_EXECUTION_REQUIRED',
+            message: result.message ?? getKernelOnlyIntakeToolMessage(tool),
+          },
+        },
+        payload: result.payload ?? payload,
+        dispatchResult: result,
+      };
+    }
+    return {
+      toolResult: {
+        status: 'ok',
+        output: result.responseBody ?? result,
+      },
+      payload: result.payload ?? payload,
+      dispatchResult: result,
+    };
+  }
+
   if (isKernelOnlyIntakeTool(tool)) {
     diagLog(diag, '❌ BLOCKED: KERNEL_EXECUTION_REQUIRED (kernel-only tool — use checkpoint dispatch)');
     return {

@@ -129,6 +129,43 @@ describe('POST /api/performer/intake/v2 — confirm campaign regression', () => 
     clearIntakeTurnIdempotencyForTests();
   });
 
+  it('replays brunch → confirm via pending store when decision loop authority is off', async () => {
+    delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
+
+    setPendingIntakeConfirmation({
+      actorKey: 'u:user-brunch-off',
+      tenantKey: 't:user-brunch-off',
+      storeId: 'store-1',
+      tool: 'create_campaign',
+      originalGoal: 'create a weekend brunch promotion campaign for my store',
+    });
+
+    const app = makeApp({ id: 'user-brunch-off', business: undefined });
+    const res = await request(app)
+      .post('/api/performer/intake/v2')
+      .send({
+        userMessage: 'confirm',
+        currentContext: { activeStoreId: 'store-1' },
+        history: [
+          {
+            role: 'user',
+            content: 'create a weekend brunch promotion campaign for my store',
+          },
+          {
+            role: 'assistant',
+            content: 'Please confirm before proceeding: create_campaign',
+          },
+        ],
+        clientRequestId: 'req-confirm-loop-off',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.action).toBe('campaign_mission_started');
+    expect(runCreateCampaignViaUnifiedDispatchMock).toHaveBeenCalled();
+    expect(mockProcessIntake).not.toHaveBeenCalled();
+  });
+
   it('replays brunch → confirm transcript via pending store and dispatches create_campaign', async () => {
     setPendingIntakeConfirmation({
       actorKey: 'u:user-brunch',
