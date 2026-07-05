@@ -5,7 +5,6 @@
 import { isIntakeDecisionLoopAuthorityEnabled } from './constants.js';
 import { loadBelief } from './beliefLoader.js';
 import { hydrateBeliefForDecisionLoop } from './hydrateBeliefForDecisionLoop.js';
-import { runDecisionLoopAuthority } from './runDecisionLoopAuthority.js';
 import { isExplicitCreateStoreFromUploadContext } from '../intake/assetUploadGuard.js';
 import { UPLOAD_INTAKE_PHASE } from '../intake/uploadIntakePhase.js';
 import { buildIntakeResponse, buildUploadAskResponseFromBelief } from '../response/responseBuilder.js';
@@ -256,176 +255,20 @@ export function buildClarifyPayloadFromTurnResult(turnResult, classification, be
  *   skipPlanners: boolean;
  * } | null>}
  */
-export async function tryEarlyDecisionLoopGate(opts = {}) {
-  if (!isIntakeDecisionLoopAuthorityEnabled()) return null;
-  if (opts.freshStoreMission || opts.forcedTool || opts.manualMode) return null;
-  if (opts.draftConfirmationSubmit || opts.storeCreateFormPayload) return null;
-
-  const advisorInput = opts.advisorInput ?? {};
-  const userMessage = advisorInput.originalUserMessage ?? advisorInput.userMessage ?? opts.userMessage;
-  if (isIntakeConfirmAffirmation(userMessage)) {
-    return null;
-  }
-  if (isCasualChatTurn(userMessage)) {
-    return null;
-  }
-
-  let beliefForGate = opts.belief ?? null;
-  if (opts.beliefLoaderOpts) {
-    try {
-      beliefForGate = await loadBelief(opts.beliefLoaderOpts);
-    } catch {
-      beliefForGate = opts.belief ?? null;
-    }
-  }
-
-  await maybeClearSupersededUploadContext(beliefForGate, opts);
-
-  if (hasUnrelatedPendingPlan(beliefForGate, opts)) {
-    return null;
-  }
-
-  const intentSourceContext = resolveIntentSourceContextForUploadGate(opts, beliefForGate);
-  const gateOpts = { ...opts, intentSourceContext };
-
-  const explicitCreateFromUpload = isExplicitCreateStoreFromUploadContext({
-    userMessage,
-    intentSourceContext,
-  });
-
-  const shouldConsider =
-    gateOpts.attachmentOnlyUpload === true ||
-    explicitCreateFromUpload ||
-    (intentSourceContext?.uploadedAssetPending === true && hasRelevantUploadAttachment(gateOpts)) ||
-    (gateOpts.hasImageAttachment === true && gateOpts.classification?.tool === 'create_store') ||
-    (gateOpts.hasImageAttachment === true && gateOpts.attachmentOnlyUpload !== false);
-
-  if (!shouldConsider) return null;
-
-  // Rule 1 hard gate: attachment-only uploads always get the upload Ask panel — never generic clarify.
-  if (shouldRequireUploadAskPanel({ ...gateOpts, belief: beliefForGate })) {
-    const beliefForAsk = await loadHydratedBeliefForUploadDecision({
-      ...gateOpts,
-      belief: beliefForGate,
-      sessionKey: gateOpts.beliefLoaderOpts?.sessionKey ?? beliefForGate?.sessionKey ?? null,
-    });
-    const hasImage =
-      Boolean(beliefForAsk?.lastUpload?.imageRef) ||
-      gateOpts.hasImageAttachment === true ||
-      Boolean(String(gateOpts.imageDataUrl ?? '').trim());
-    if (hasImage) {
-      const payload = buildUploadAskClarifyFromBelief(beliefForAsk);
-      return {
-        classification: {
-          executionPath: 'clarify',
-          tool: 'ingest_asset_for_intent_detection',
-          confidence: 0.9,
-          parameters: {
-            imageDataUrl: beliefForAsk?.lastUpload?.imageRef ?? gateOpts.imageDataUrl ?? null,
-            source: 'upload_ask_rule1_early_gate',
-          },
-          message: payload.response,
-          clarifyOptions: payload.options ?? [],
-          _decisionLoop: true,
-          _decisionNextStep: 'present_options',
-          _uploadAskSource: 'rule1_early_gate',
-        },
-        clarifyPayload: payload,
-        summary: { event: 'upload_ask_rule1_early_gate', attachmentOnlyUpload: true },
-        skipPlanners: false,
-      };
-    }
-  }
-
-  let belief = beliefForGate;
-  if (!belief && gateOpts.beliefLoaderOpts) {
-    try {
-      belief = await loadBelief(gateOpts.beliefLoaderOpts);
-    } catch {
-      belief = gateOpts.belief ?? null;
-    }
-  }
-
-  belief = hydrateBeliefForDecisionLoop(belief, {
-    imageDataUrl: gateOpts.imageDataUrl ?? null,
-    extractedText: gateOpts.extractedText ?? null,
-    attachmentOnlyUpload: gateOpts.attachmentOnlyUpload === true,
-    hasAttachment: gateOpts.hasImageAttachment === true,
-    sessionKey: gateOpts.beliefLoaderOpts?.sessionKey ?? belief?.sessionKey ?? null,
-  });
-
-  if (!belief?.lastUpload?.imageRef && !gateOpts.hasImageAttachment) return null;
-
-  const authorityOut = await runDecisionLoopAuthority({
-    belief,
-    input: advisorInput,
-    legacyClassification: gateOpts.classification ?? null,
-  });
-
-  if (!authorityOut.classification) return null;
-
-  const turnResult = authorityOut.turnResult;
-  const skipPlanners =
-    turnResult?.nextStep === 'execute' &&
-    (turnResult.tool?.name === 'create_store' || turnResult.chosen?.intent === 'create_store_from_upload');
-
-  if (!turnResult) {
-    return {
-      classification: authorityOut.classification,
-      clarifyPayload: null,
-      summary: authorityOut.summary,
-      skipPlanners: false,
-    };
-  }
-
-  const wantsUploadAskPanel =
-    turnResult.nextStep === 'present_options' ||
-    (gateOpts.attachmentOnlyUpload === true &&
-      (turnResult.nextStep === 'clarify' || turnResult.nextStep === 'present_options'));
-
-  if (wantsUploadAskPanel) {
-    return {
-      classification: authorityOut.classification,
-      clarifyPayload: buildClarifyPayloadFromTurnResult(
-        turnResult,
-        authorityOut.classification,
-        belief,
-      ),
-      summary: authorityOut.summary,
-      skipPlanners: false,
-    };
-  }
-
-  return {
-    classification: authorityOut.classification,
-    clarifyPayload: null,
-    summary: authorityOut.summary,
-    skipPlanners,
-  };
+export async function tryEarlyDecisionLoopGate(_opts = {}) {
+  return null;
 }
 
 /**
  * @param {Record<string, unknown> | null | undefined} classification
  */
-export function shouldSkipCreateStoreEarlyDraftForDecisionLoop(classification) {
-  if (!isIntakeDecisionLoopAuthorityEnabled() || !classification?._decisionLoop) return false;
-  const tool = String(classification.tool ?? '').trim();
-  if (tool === 'ingest_asset_for_intent_detection') return true;
-  if (classification.executionPath === 'clarify' && classification._decisionNextStep === 'present_options') {
-    return true;
-  }
+export function shouldSkipCreateStoreEarlyDraftForDecisionLoop(_classification) {
   return false;
 }
 
 /**
  * @param {Record<string, unknown> | null | undefined} classification
  */
-export function shouldSkipPlannersForDecisionLoop(classification) {
-  if (!isIntakeDecisionLoopAuthorityEnabled() || !classification?._decisionLoop) return false;
-  const next = String(classification._decisionNextStep ?? '').trim();
-  const tool = String(classification.tool ?? '').trim();
-  if (next === 'present_options') return true;
-  if (next === 'execute' && tool === 'create_store') return true;
-  if (next === 'checkpoint' && tool === 'create_store') return true;
+export function shouldSkipPlannersForDecisionLoop(_classification) {
   return false;
 }
