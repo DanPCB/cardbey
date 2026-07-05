@@ -116,7 +116,12 @@ describe('campaign executors', () => {
   it('generate_campaign_graphics uses VideoSearchService results', async () => {
     VideoSearchService.searchAllSources.mockResolvedValue({
       results: [
-        { id: 'v1', url: 'https://cdn.example.com/1.mp4', source: 'mixkit' },
+        {
+          id: 'v1',
+          url: 'https://cdn.example.com/1.mp4',
+          thumbnail_url: 'https://cdn.example.com/1.jpg',
+          source: 'mixkit',
+        },
       ],
       bySource: { mixkit: 1 },
       skipped: [],
@@ -137,8 +142,34 @@ describe('campaign executors', () => {
     expect(result.output?.graphics[0]).toMatchObject({
       id: 'v1',
       type: 'photo',
-      url: 'https://cdn.example.com/1.mp4',
+      url: 'https://cdn.example.com/1.jpg',
       source: 'mixkit',
     });
+  });
+
+  it('generate_campaign_graphics maps video_url from normalized VideoResult', async () => {
+    VideoSearchService.searchAllSources.mockResolvedValue({
+      results: [
+        {
+          id: 'mixkit-coffee',
+          source: 'mixkit',
+          video_url: 'https://assets.mixkit.co/videos/3574/3574-720.mp4',
+          thumbnail_url: 'https://assets.mixkit.co/videos/3574/3574-thumb-360-0.jpg',
+        },
+      ],
+      bySource: { mixkit: 1 },
+      skipped: [],
+      errors: {},
+    });
+
+    const result = await generateCampaignGraphics({
+      storeId: 'store-1',
+      brief: { objective: 'brunch promo' },
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.output?.graphics?.[0]?.url).toBe(
+      'https://assets.mixkit.co/videos/3574/3574-thumb-360-0.jpg',
+    );
   });
 });

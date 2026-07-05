@@ -28,7 +28,7 @@ import {
 import { detectPromotionGraphicIntent } from '../intake/intakeSystemShortcuts.js';
 import { isLoyaltyIntent } from '../intake/intentDetectors.js';
 import { tryStoreCreateFastPath } from './storeCreateFastPath.js';
-import { isDecisionLoopEnabled } from '../../config/features.js';
+import { detectCampaignCreationIntent } from './campaignOrchestrationIntent.js';
 import { parseNaturalLanguageStoreCreation } from '../intake/storeCreationDraft.js';
 import { LearningIntegration, isLearningLayerEnabled } from '../learning/learningIntegration.js';
 
@@ -660,7 +660,7 @@ export class IntentReasoner {
       });
     }
 
-    if (!attachmentOnlyUpload && shortcutContext?.type !== 'create_store' && !isDecisionLoopEnabled()) {
+    if (!attachmentOnlyUpload && shortcutContext?.type !== 'create_store') {
       const storeFast = tryStoreCreateFastPath(rawText, {
         storeCreateForm: parsedInput.intakeMeta?.storeCreateForm,
         forceIntent: parsedInput.intakeMeta?.forceIntent,
@@ -859,30 +859,28 @@ export class IntentReasoner {
       }
     }
 
-    if (
-      this._matchPatterns(text, [
-        /create\s+(?:a\s+)?campaign/i,
-        /launch\s+(?:a\s+)?campaign/i,
-        /start\s+(?:a\s+)?campaign/i,
-        /new\s+campaign/i,
-        /promo\s+campaign/i,
-        /marketing\s+campaign/i,
-      ])
-    ) {
-      if (userState.hasStore) {
-        candidates.push({
-          type: 'create_campaign',
-          confidence: 0.88,
-          description: 'User wants to create a campaign for their store',
-          factors: ['explicit_campaign_phrases', 'has_store'],
-        });
-      } else {
-        candidates.push({
-          type: 'create_campaign',
-          confidence: 0.5,
-          description: 'User wants a campaign but needs a store first',
-          factors: ['explicit_campaign_phrases', 'no_store'],
-        });
+    if (detectCampaignCreationIntent(rawText)) {
+      const orchestrationPhrase = /campaign\s+for\s+|promotion(?:al)?\s+campaign|marketing\s+campaign/i.test(
+        rawText,
+      );
+      const campaignConfidence = userState.hasStore
+        ? orchestrationPhrase
+          ? 0.92
+          : 0.88
+        : orchestrationPhrase
+          ? 0.55
+          : 0.5;
+      candidates.push({
+        type: 'create_campaign',
+        confidence: campaignConfidence,
+        description: userState.hasStore
+          ? 'User wants to create a campaign for their store'
+          : 'User wants a campaign but needs a store first',
+        factors: userState.hasStore
+          ? ['explicit_campaign_phrases', 'has_store']
+          : ['explicit_campaign_phrases', 'no_store'],
+      });
+      if (!userState.hasStore) {
         candidates.push({
           type: 'create_store_first',
           confidence: 0.6,
@@ -1315,6 +1313,20 @@ export class IntentReasoner {
         action.tool = null;
         action.clarificationPrompt = goal.clarificationPrompt || 'What would you like to do?';
         action.suggestedActions = this._getDefaultSuggestions(userState);
+        break;
+
+      case 'create_store_first':
+        action.type = 'start_new_workflow';
+        action.intent = 'create_store_first';
+        action.suggestedActions = [
+          {
+            id: 'create_store',
+            label: 'Create a store first',
+            description: 'Start your store before running campaigns',
+            action: 'start_new_workflow',
+            priority: 1,
+          },
+        ];
         break;
 
       default:

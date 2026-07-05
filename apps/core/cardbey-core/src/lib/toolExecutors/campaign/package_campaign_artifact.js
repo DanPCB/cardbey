@@ -27,6 +27,11 @@ export async function execute(input = {}, context = {}) {
         typeof inp?.slideshowId === 'string' && inp.slideshowId.trim()
           ? inp.slideshowId.trim()
           : null;
+      const slideshowUrl =
+        typeof inp?.slideshowUrl === 'string' && inp.slideshowUrl.trim()
+          ? inp.slideshowUrl.trim()
+          : null;
+      const poster = inp?.poster && typeof inp.poster === 'object' ? inp.poster : null;
 
       const artifact = {
         id: randomUUID(),
@@ -35,7 +40,9 @@ export async function execute(input = {}, context = {}) {
         brief,
         graphics,
         copy,
+        ...(poster ? { poster } : {}),
         slideshowId,
+        ...(slideshowUrl ? { slideshowUrl } : {}),
         status: 'ready',
         createdAt: new Date().toISOString(),
       };
