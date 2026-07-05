@@ -18,7 +18,14 @@ export const PLAN_ROLE = {
   STANDALONE: 'STANDALONE',
 };
 
-export const EXECUTION_PATHS = new Set(['chat', 'direct_action', 'proactive_plan', 'clarify', 'service_request']);
+export const EXECUTION_PATHS = new Set([
+  'chat',
+  'direct_action',
+  'proactive_plan',
+  'clarify',
+  'service_request',
+  'kernel_dispatch',
+]);
 
 const ROLE_SORT = {
   [PLAN_ROLE.FIRST]: 0,
@@ -30,7 +37,7 @@ const ROLE_SORT = {
 /**
  * @type {Array<{
  *   toolName: string,
- *   executionPath: 'chat'|'direct_action'|'proactive_plan',
+ *   executionPath: 'chat'|'direct_action'|'proactive_plan'|'kernel_dispatch',
  *   label: string,
  *   riskLevel: string,
  *   requiresStore: boolean,
