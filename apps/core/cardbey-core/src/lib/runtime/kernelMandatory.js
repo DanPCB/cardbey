@@ -39,6 +39,8 @@ export const KERNEL_AUTHORIZED_RUNTIME_SOURCES = new Set([
   'intake_v2_confirm',
   'intake_v2_shortcut_contract',
   'intake_v2_classified_checkpoint',
+  'intake_v2_classified_campaign_checkpoint',
+  'intake_v2_confirm_intercept_campaign',
   'intake_v2_fresh_store_draft',
   'mission_execution_engine',
   'mission_checkpoint_respond',

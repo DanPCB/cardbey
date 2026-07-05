@@ -3,6 +3,7 @@
  */
 
 import { executeRuntimeAction } from '../runtime/performerRuntime/executeRuntimeAction.js';
+import { isKernelAuthorizedRuntimeSource } from '../runtime/kernelMandatory.js';
 import { getTenantId } from '../missionAccess.js';
 import { evaluateStructuredCheckpointRunResult, isOrchestratorCheckpointSuccess } from '../storeMission/executeStoreMissionPipelineRun.js';
 import { getPrismaClient } from '../prisma.js';
@@ -13,6 +14,27 @@ function pickString(...values) {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return '';
+}
+
+/**
+ * Intake audit sources (e.g. intake_v2_confirm_intercept_campaign) must not block
+ * executeRuntimeAction — normalize to a kernel-authorized runtime source while
+ * preserving the original audit label in payload context.
+ *
+ * @param {string} [source]
+ * @param {string} [auditSource]
+ * @returns {string}
+ */
+export function resolveRuntimeKernelSource(source, auditSource) {
+  const candidates = [pickString(source), pickString(auditSource)].filter(Boolean);
+  for (const candidate of candidates) {
+    if (isKernelAuthorizedRuntimeSource(candidate, 'dispatch_tool')) {
+      return candidate;
+    }
+  }
+  const raw = pickString(source, auditSource);
+  if (raw.startsWith('intake_v2_')) return 'intake_v2_unified';
+  return 'intake_v2_unified';
 }
 
 /**
@@ -33,7 +55,8 @@ function pickString(...values) {
  */
 export async function dispatchToolViaKernel(input = {}) {
   const toolName = pickString(input.toolName);
-  const source = pickString(input.source, input.auditSource, 'intake_v2_unified');
+  const auditSource = pickString(input.auditSource, input.source);
+  const source = resolveRuntimeKernelSource(input.source, input.auditSource);
   const missionId = pickString(input.missionId, input.context?.missionId);
   const userId = pickString(input.userId, input.context?.userId);
   const tenantId = pickString(input.tenantId, input.context?.tenantId);
@@ -80,7 +103,7 @@ export async function dispatchToolViaKernel(input = {}) {
         tenantId,
         storeId,
         source,
-        auditSource: input.auditSource ?? source,
+        auditSource: auditSource || source,
         runtimeOwned: true,
         performerRuntimeOwned: true,
         ...(input.context && typeof input.context === 'object' ? input.context : {}),

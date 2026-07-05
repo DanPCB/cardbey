@@ -25,6 +25,7 @@ import {
   dispatchToolViaKernel,
   mapCreateStoreRuntimeToRunResult,
   mapCreateCampaignRuntimeToRunResult,
+  resolveRuntimeKernelSource,
 } from '../kernelPipelineDispatch.js';
 
 vi.mock('./executionNotificationEmitter.js', () => ({
@@ -141,6 +142,44 @@ describe('kernelPipelineDispatch', () => {
     expect(result.ok).toBe(true);
     expect(result.missionId).toBe('m-campaign-1');
     expect(result.dispatchedVia).toBe('runtime_kernel');
+  });
+
+  it('allows confirm-intercept campaign audit source for runtime kernel auth', async () => {
+    expect(resolveRuntimeKernelSource('intake_v2_confirm_intercept_campaign')).toBe(
+      'intake_v2_confirm_intercept_campaign',
+    );
+    expect(resolveRuntimeKernelSource('intake_v2_classified_campaign_checkpoint')).toBe(
+      'intake_v2_classified_campaign_checkpoint',
+    );
+    expect(resolveRuntimeKernelSource('intake_v2_new_campaign_audit_path')).toBe('intake_v2_unified');
+
+    executeRuntimeActionMock.mockResolvedValue({
+      status: 'ok',
+      output: {
+        missionId: 'm-campaign-confirm',
+        mode: 'checkpoint_pipeline',
+        status: 'awaiting_input',
+      },
+    });
+
+    await dispatchCreateCampaignViaKernel({
+      missionId: 'm-campaign-confirm',
+      user: { id: 'user-1' },
+      body: { storeId: 'store-1', campaignContext: 'Multi-agent orchestration' },
+      source: 'intake_v2_confirm_intercept_campaign',
+      auditSource: 'intake_v2_confirm_intercept_campaign',
+    });
+
+    expect(executeRuntimeActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'intake_v2_confirm_intercept_campaign',
+        payload: expect.objectContaining({
+          context: expect.objectContaining({
+            auditSource: 'intake_v2_confirm_intercept_campaign',
+          }),
+        }),
+      }),
+    );
   });
 
   it('maps blocked campaign runtime results to failed run results', async () => {
