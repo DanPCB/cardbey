@@ -257,6 +257,11 @@ export async function respondCreateCampaignCheckpointDispatch(res, result, ctx) 
     return res;
   }
 
+  if (result.kind === 'compiled') {
+    await safeJson(result.responseBody, result.telemetry);
+    return res;
+  }
+
   if (result.kind === 'failed') {
     return res.status(result.statusCode).json(result.responseBody);
   }
@@ -270,15 +275,32 @@ export async function respondCreateCampaignCheckpointDispatch(res, result, ctx) 
  */
 export async function runCreateCampaignViaUnifiedDispatch(deps, auditSource) {
   const { unifiedDispatch } = await import('./unifiedDispatch.js');
+  const params =
+    deps.classification?.parameters &&
+    typeof deps.classification.parameters === 'object' &&
+    !Array.isArray(deps.classification.parameters)
+      ? deps.classification.parameters
+      : {};
+  const confirmed = params.confirmed === true || params._autoSubmit === true;
   const unifiedResult = await unifiedDispatch(
     {
       type: UNIFIED_ACTION_TYPES.CREATE_CAMPAIGN_CHECKPOINT,
       payload: deps,
     },
-    { source: auditSource ?? deps.auditSource ?? 'intake_v2_unified' },
+    {
+      source: auditSource ?? deps.auditSource ?? 'intake_v2_unified',
+      confirmed,
+    },
   );
 
   const kind = unifiedResult.dispatchKind;
+  if (kind === 'compiled') {
+    return {
+      kind: 'compiled',
+      responseBody: unifiedResult.responseBody ?? {},
+      telemetry: unifiedResult.telemetry ?? {},
+    };
+  }
   if (kind === 'started') {
     return {
       kind: 'started',

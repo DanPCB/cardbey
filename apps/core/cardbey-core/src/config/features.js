@@ -1,5 +1,5 @@
 /**
- * Single source of truth for intake / decision-loop feature flags.
+ * Single source of truth for intake feature flags.
  * All runtime code must read flags from here — no direct process.env.INTAKE_* elsewhere.
  */
 
@@ -15,16 +15,9 @@ function parseThreshold(raw, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-/** @type {boolean | null} */
-let decisionLoopAuthorityLogged = null;
-
+/** @deprecated Decision loop removed — IntentReasoner is the sole classifier. Always false. */
 function readDecisionLoopEnabled() {
-  const enabled = parseBoolEnv(process.env.INTAKE_DECISION_LOOP_AUTHORITY, false);
-  if (process.env.NODE_ENV !== 'test' && decisionLoopAuthorityLogged !== enabled) {
-    decisionLoopAuthorityLogged = enabled;
-    console.log('[intake/decision-loop] INTAKE_DECISION_LOOP_AUTHORITY=', enabled ? 'on' : 'off');
-  }
-  return enabled;
+  return false;
 }
 
 function readBeliefShadowEnabled() {
@@ -79,12 +72,20 @@ export const Features = {
       return parseBoolEnv(process.env.INTAKE_BYPASS_TELEMETRY_LOG, false);
     },
   },
+  compiler: {
+    get useForCampaigns() {
+      return parseBoolEnv(process.env.USE_COMPILER_FOR_CAMPAIGNS, false);
+    },
+    get useForStores() {
+      return parseBoolEnv(process.env.USE_COMPILER_FOR_STORES, false);
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
-/** Whether the intake decision loop is the sole classifier authority. */
+/** @deprecated Always false — decision loop authority removed (Phase 1 collapse). */
 export function isDecisionLoopEnabled() {
-  return Features.decisionLoop.enabled;
+  return false;
 }
 
 export function snapshotFeatures() {
@@ -108,6 +109,10 @@ export function snapshotFeatures() {
     },
     bypasses: {
       telemetryLog: Features.bypasses.telemetryLog,
+    },
+    compiler: {
+      useForCampaigns: Features.compiler.useForCampaigns,
+      useForStores: Features.compiler.useForStores,
     },
   };
 }

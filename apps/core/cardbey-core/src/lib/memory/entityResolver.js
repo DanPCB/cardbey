@@ -100,6 +100,15 @@ async function resolveStoreRef(userId, ref, pronoun, episodicContext, missionId,
         return { store: row, confidence: 'low', error: null };
       }
     }
+    if (activeStoreId) {
+      const row = await prisma.business.findFirst({
+        where: { id: String(activeStoreId), userId },
+        select: { id: true, name: true, slug: true },
+      });
+      if (row) {
+        return { store: row, confidence: 'high', error: null };
+      }
+    }
     return {
       store: null,
       confidence: 'low',
@@ -125,6 +134,21 @@ async function resolveStoreRef(userId, ref, pronoun, episodicContext, missionId,
     }
   }
 
+  const fromContext = await resolveStoreIdFromContext({
+    missionId,
+    storeContext: activeStoreId ? { storeId: activeStoreId } : null,
+    blackboardContext: null,
+  });
+  if (fromContext) {
+    const row = await prisma.business.findFirst({
+      where: { id: fromContext, userId },
+      select: { id: true, name: true, slug: true },
+    });
+    if (row) {
+      return { store: row, confidence: 'high', error: null };
+    }
+  }
+
   const refNorm = ref.replace(/\b(my|the|store|shop|web)\b/gi, '').trim();
   const owned = await prisma.business.findMany({
     where: { userId },
@@ -143,21 +167,6 @@ async function resolveStoreRef(userId, ref, pronoun, episodicContext, missionId,
         candidates: owned.map((r) => ({ id: r.id, name: r.name })),
       },
     };
-  }
-
-  const fromContext = await resolveStoreIdFromContext({
-    missionId,
-    storeContext: activeStoreId ? { storeId: activeStoreId } : null,
-    blackboardContext: null,
-  });
-  if (fromContext) {
-    const row = await prisma.business.findFirst({
-      where: { id: fromContext, userId },
-      select: { id: true, name: true, slug: true },
-    });
-    if (row) {
-      return { store: row, confidence: 'high', error: null };
-    }
   }
 
   if (refNorm.length >= 2) {

@@ -7,31 +7,31 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
-  runCreateCampaignViaUnifiedDispatchMock,
-  runIntakeAuthorityGateEarlyMock,
+  dispatchAndRespondCreateCampaignMock,
   mockProcessIntake,
 } = vi.hoisted(() => ({
-  runCreateCampaignViaUnifiedDispatchMock: vi.fn(async () => ({
-    kind: 'started',
-    responseBody: {
+  dispatchAndRespondCreateCampaignMock: vi.fn(async (_req, res, deps) => {
+    const responseBody = {
       success: true,
       action: 'campaign_mission_started',
       missionId: 'mission-campaign-1',
       response: 'Started building your campaign…',
-    },
-    telemetry: {
+    };
+    const telemetry = {
       classification: { executionPath: 'kernel_dispatch', tool: 'create_campaign', confidence: 1 },
       validated: true,
       downgraded: false,
       validationErrors: [],
       riskLevel: 'state_change',
       result: 'success',
-    },
-  })),
-  runIntakeAuthorityGateEarlyMock: vi.fn(async () => ({
-    handled: false,
-    classification: null,
-  })),
+    };
+    if (typeof deps?.safeJson === 'function') {
+      await deps.safeJson(responseBody, telemetry);
+    } else {
+      res.status(200).json(responseBody);
+    }
+    return res;
+  }),
   mockProcessIntake: vi.fn(async () => ({
     executionPath: 'chat',
     tool: 'general_chat',
@@ -54,18 +54,9 @@ vi.mock('../../lib/intent/intentIntegration.js', () => ({
   resetIntentIntegrationForTests: vi.fn(),
 }));
 
-vi.mock('../../lib/intake/intakeV2AuthorityTurn.js', () => ({
-  runIntakeAuthorityTurn: vi.fn(async () => ({ handled: false })),
-  runIntakeAuthorityGateEarly: (...args) => runIntakeAuthorityGateEarlyMock(...args),
+vi.mock('../../lib/mission/dispatchCreateCampaignFromIntake.js', () => ({
+  dispatchAndRespondCreateCampaign: (...args) => dispatchAndRespondCreateCampaignMock(...args),
 }));
-
-vi.mock('../../lib/intake/createCampaignCheckpointDispatch.js', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    runCreateCampaignViaUnifiedDispatch: (...args) => runCreateCampaignViaUnifiedDispatchMock(...args),
-  };
-});
 
 vi.mock('../../lib/prisma.js', () => ({
   getPrismaClient: vi.fn(() => ({
@@ -115,23 +106,18 @@ function makeApp(user) {
 
 describe('POST /api/performer/intake/v2 — confirm campaign regression', () => {
   beforeEach(() => {
-    process.env.INTAKE_DECISION_LOOP_AUTHORITY = 'true';
     clearPendingIntakeConfirmationStoreForTests();
     clearIntakeTurnIdempotencyForTests();
-    runCreateCampaignViaUnifiedDispatchMock.mockClear();
-    runIntakeAuthorityGateEarlyMock.mockClear();
+    dispatchAndRespondCreateCampaignMock.mockClear();
     mockProcessIntake.mockClear();
   });
 
   afterEach(() => {
-    delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
     clearPendingIntakeConfirmationStoreForTests();
     clearIntakeTurnIdempotencyForTests();
   });
 
-  it('replays brunch → confirm via pending store when decision loop authority is off', async () => {
-    delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
-
+  it('replays brunch → confirm via pending store', async () => {
     setPendingIntakeConfirmation({
       actorKey: 'u:user-brunch-off',
       tenantKey: 't:user-brunch-off',
@@ -162,7 +148,7 @@ describe('POST /api/performer/intake/v2 — confirm campaign regression', () => 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.action).toBe('campaign_mission_started');
-    expect(runCreateCampaignViaUnifiedDispatchMock).toHaveBeenCalled();
+    expect(dispatchAndRespondCreateCampaignMock).toHaveBeenCalled();
     expect(mockProcessIntake).not.toHaveBeenCalled();
   });
 
@@ -203,7 +189,7 @@ describe('POST /api/performer/intake/v2 — confirm campaign regression', () => 
     expect(res.body.success).toBe(true);
     expect(res.body.action).toBe('campaign_mission_started');
     expect(res.body.response ?? '').not.toMatch(/more detail to run that safely/i);
-    expect(runCreateCampaignViaUnifiedDispatchMock).toHaveBeenCalled();
+    expect(dispatchAndRespondCreateCampaignMock).toHaveBeenCalled();
     expect(mockProcessIntake).not.toHaveBeenCalled();
   });
 
@@ -233,6 +219,6 @@ describe('POST /api/performer/intake/v2 — confirm campaign regression', () => 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(second.body).toEqual(first.body);
-    expect(runCreateCampaignViaUnifiedDispatchMock).toHaveBeenCalledTimes(1);
+    expect(dispatchAndRespondCreateCampaignMock).toHaveBeenCalledTimes(1);
   });
 });

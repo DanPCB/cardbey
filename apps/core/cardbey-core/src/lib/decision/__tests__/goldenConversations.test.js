@@ -2,10 +2,8 @@
  * Golden conversation fixtures — Phase 0 spec, Phase 1 belief gates, Phase 3 turn results.
  */
 
-import { describe, expect, it, afterEach, vi } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import { loadBelief } from '../beliefLoader.js';
-import { decideTurn } from '../decideTurn.js';
-import { turnResultToClassification } from '../turnResultToClassification.js';
 import {
   clearIntakeWorkflowContextForTests,
   persistUploadedAssetWorkflow,
@@ -115,86 +113,5 @@ describe('golden conversations — belief layer (Phase 1)', () => {
 
     expect(belief.lastUpload).not.toBeNull();
     expect(belief.lastUpload?.businessName).toMatch(/PTH/i);
-  });
-});
-
-describe('golden conversations — turn result (Phase 3 authority flag)', () => {
-  it('decideTurn is exported and authority flag defaults off', async () => {
-    const prev = process.env.INTAKE_DECISION_LOOP_AUTHORITY;
-    delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
-    vi.resetModules();
-    const { isIntakeDecisionLoopAuthorityEnabled } = await import('../constants.js');
-    expect(typeof decideTurn).toBe('function');
-    expect(isIntakeDecisionLoopAuthorityEnabled()).toBe(false);
-    if (prev === undefined) delete process.env.INTAKE_DECISION_LOOP_AUTHORITY;
-    else process.env.INTAKE_DECISION_LOOP_AUTHORITY = prev;
-    vi.resetModules();
-  });
-
-  it('scenario 1: nextStep present_options without _classificationOverride', async () => {
-    const sessionKey = 'golden-s1-turn';
-    const belief = uploadBeliefFromSession(sessionKey, await loadUploadBelief(sessionKey));
-
-    const turn = decideTurn(belief, {
-      originalUserMessage: '(image attached)',
-      userMessage: '(image attached)',
-      hasAttachment: true,
-    });
-    const classification = turnResultToClassification(turn);
-
-    expect(turn.nextStep).toBe('present_options');
-    expect(turn.chosen?.intent).toBe('analyze_asset');
-    expect(turn.governance.confirmationState).toBe('not_required');
-    expect(turn.tool?.name).not.toBe('create_store');
-    expect(turn.tool?.parameters?._autoSubmit).toBeUndefined();
-    expect(classification._classificationOverride).toBeUndefined();
-    expect(classification.executionPath).toBe('clarify');
-    expect(classification.clarifyOptions?.length).toBeGreaterThan(0);
-  });
-
-  it('scenario 10: vague creation language must not campaign autoSubmit', async () => {
-    const sessionKey = 'golden-s10';
-    const belief = uploadBeliefFromSession(sessionKey, await loadUploadBelief(sessionKey));
-
-    const turn = decideTurn(belief, {
-      originalUserMessage: 'help me grow my business',
-      userMessage: 'help me grow my business',
-      hasAttachment: true,
-    });
-    const classification = turnResultToClassification(turn);
-
-    expect(turn.nextStep).toBe('present_options');
-    expect(turn.tool?.name).not.toBe('launch_campaign');
-    expect(turn.tool?.parameters?._autoSubmit).not.toBe(true);
-    expect(classification.parameters?._autoSubmit).not.toBe(true);
-    expect(classification._classificationOverride).toBeUndefined();
-  });
-
-  it('scenario 15: campaign requires checkpoint and _autoSubmit false', () => {
-    const turn = decideTurn(
-      {
-        sessionId: 'golden-s15',
-        sessionKey: 'golden-s15',
-        identity: { guest: false, actorId: 'u:1', userId: '1' },
-        anchors: { storeId: 'store-golden', draftId: null, missionId: null },
-        workflow: null,
-        lastUpload: null,
-        activeGoal: null,
-        pendingClarify: null,
-        blockers: [],
-        sourcesLoaded: [],
-        divergences: [],
-        loadedAt: new Date().toISOString(),
-        loaderVersion: '1.0.0',
-      },
-      { originalUserMessage: 'launch campaign', userMessage: 'launch campaign' },
-    );
-    const classification = turnResultToClassification(turn);
-
-    expect(turn.nextStep).toBe('checkpoint');
-    expect(turn.governance.requiresConfirmation).toBe(true);
-    expect(turn.tool?.parameters?._autoSubmit).toBe(false);
-    expect(classification.parameters?._autoSubmit).toBe(false);
-    expect(classification._classificationOverride).toBeUndefined();
   });
 });

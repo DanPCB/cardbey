@@ -1,30 +1,10 @@
 /**
- * Startup validation — verify decision loop subsystems before accepting traffic.
+ * Startup validation — verify intake subsystems before accepting traffic.
  */
 
-import { Features, snapshotFeatures } from '../../config/features.js';
+import { snapshotFeatures } from '../../config/features.js';
 import { loadBelief } from '../decision/beliefLoader.js';
-import { decideTurn } from '../decision/decideTurn.js';
-import { markStartupValidated, recordBeliefLoad, recordDecisionLoopTurn } from '../decision/decisionLoopHealth.js';
-
-/** @returns {import('../decision/constants.js').BeliefSnapshot} */
-function startupTestBelief() {
-  return {
-    sessionId: 'startup-test',
-    sessionKey: 'startup-test',
-    identity: { guest: true, actorId: 'g:startup', userId: null },
-    anchors: { storeId: null, draftId: null, missionId: null },
-    workflow: null,
-    lastUpload: null,
-    activeGoal: null,
-    pendingClarify: null,
-    blockers: [],
-    sourcesLoaded: ['startup_probe'],
-    divergences: [],
-    loadedAt: new Date().toISOString(),
-    loaderVersion: 'startup-probe',
-  };
-}
+import { markStartupValidated, recordBeliefLoad } from '../decision/decisionLoopHealth.js';
 
 export async function validateSystemStartup() {
   const features = snapshotFeatures();
@@ -47,31 +27,14 @@ export async function validateSystemStartup() {
     console.log('[STARTUP] Belief loader: ❌');
   }
 
-  let decisionLoopOk = false;
-  try {
-    const belief = startupTestBelief();
-    const testResult = decideTurn(belief, { userMessage: 'test', originalUserMessage: 'test' });
-    decisionLoopOk = Boolean(testResult?.nextStep);
-    if (decisionLoopOk) {
-      recordDecisionLoopTurn({ event: 'startup_probe', nextStep: testResult.nextStep });
-    }
-    console.log('[STARTUP] Decision loop:', decisionLoopOk ? '✅' : '❌');
-  } catch (err) {
-    console.warn('[STARTUP] Decision loop probe failed:', err?.message ?? err);
-    console.log('[STARTUP] Decision loop: ❌');
-  }
-
   markStartupValidated();
 
-  const active = Features.decisionLoop.enabled;
   console.log('[STARTUP] ✅ System ready');
-  console.log(`[STARTUP] Decision Loop: ${active ? '🔴 ACTIVE' : '⚪ INACTIVE'}`);
+  console.log('[STARTUP] Intake classifier: IntentReasoner (single path)');
 
   return {
-    ok: beliefLoaderOk && decisionLoopOk,
+    ok: beliefLoaderOk,
     features,
     beliefLoader: beliefLoaderOk,
-    decisionLoop: decisionLoopOk,
-    decisionLoopAuthority: active,
   };
 }

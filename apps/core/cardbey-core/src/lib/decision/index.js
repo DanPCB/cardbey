@@ -1,5 +1,5 @@
 /**
- * Decision loop module exports (Phase 1–3).
+ * Decision module exports — belief, upload ask helpers, advisors (shadow/diagnostics).
  */
 
 export {
@@ -10,20 +10,15 @@ export {
   ADVISOR_REGISTRY_VERSION,
 } from './constants.js';
 export { loadBelief, summarizeBeliefForShadow } from './beliefLoader.js';
-export { persistBeliefDelta, persistUploadedAssetWorkflow } from './persistBeliefDelta.js';
+export { persistBeliefDelta, persistUploadedAssetWorkflow, clearStaleUploadBeliefContext } from './persistBeliefDelta.js';
 export { runIntakeBeliefShadow } from './shadowIntakeBelief.js';
 export { runIntakeShadowRank } from './shadowRank.js';
-export { decideTurn } from './decideTurn.js';
-export { turnResultToClassification } from './turnResultToClassification.js';
-export { runDecisionLoopAuthority } from './runDecisionLoopAuthority.js';
 export {
-  tryEarlyDecisionLoopGate,
-  buildClarifyPayloadFromTurnResult,
   buildUploadAskClarifyFallback,
   shouldForceUploadAskPanel,
   shouldRequireUploadAskPanel,
-  shouldSkipCreateStoreEarlyDraftForDecisionLoop,
-  shouldSkipPlannersForDecisionLoop,
+  buildUploadAskClarifyFromBelief,
+  loadHydratedBeliefForUploadDecision,
 } from './earlyDecisionLoopGate.js';
 export { hydrateBeliefForDecisionLoop } from './hydrateBeliefForDecisionLoop.js';
 export { evaluateToolGovernance } from './governancePolicy.js';
@@ -34,15 +29,6 @@ export { resolveToolForIntent, toolsAgree } from './intentToolMap.js';
 export { createHypothesis } from './hypothesisUtils.js';
 export { recordIntakeBypass, INTAKE_BYPASS_IDS, resetIntakeBypassCountsForTests, getIntakeBypassCount } from './bypassTelemetry.js';
 export { noteDivergence, hasMaterialDivergence } from './beliefDivergence.js';
-export {
-  isDecisionLoopAuthorityActive,
-  shouldBlockLegacyIntakePaths,
-  isLoopOwnedClassification,
-  isLegacyDirectActionDispatchAllowed,
-  shouldBlockLegacyClassificationMutation,
-  applyLoopClassificationGuard,
-  normalizeTelemetryClassification,
-} from './decisionLoopLegacyGuard.js';
 export {
   getDecisionLoopHealth,
   recordDecisionLoopTurn,

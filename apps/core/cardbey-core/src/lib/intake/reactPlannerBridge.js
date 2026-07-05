@@ -56,6 +56,14 @@ export async function runPostClassifyReactPlanner(input) {
     return null;
   }
 
+  // Campaign kernel dispatch handles store context + compiler/checkpoint — skip entity-resolution asks.
+  if (
+    executionPath === 'kernel_dispatch' &&
+    (classifiedTool === 'create_campaign' || classifiedTool === 'launch_campaign')
+  ) {
+    return null;
+  }
+
   return reactPlanner({
     userMessage: input.userMessage,
     classification,

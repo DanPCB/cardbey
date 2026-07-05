@@ -44,6 +44,31 @@ describe('validateIntakeClassification', () => {
     expect(v.ok).toBe(false);
   });
 
+  it('accepts create_campaign on kernel_dispatch with active store context', () => {
+    const v = validateIntakeClassification(
+      {
+        executionPath: 'kernel_dispatch',
+        tool: 'create_campaign',
+        parameters: { campaignContext: 'weekend brunch promotion' },
+      },
+      'store-1',
+    );
+    expect(v.ok).toBe(true);
+    expect(v.errors).toEqual([]);
+  });
+
+  it('accepts launch_campaign on kernel_dispatch with active store context', () => {
+    const v = validateIntakeClassification(
+      {
+        executionPath: 'kernel_dispatch',
+        tool: 'launch_campaign',
+        parameters: { campaignContext: 'Valentine promo' },
+      },
+      'store-1',
+    );
+    expect(v.ok).toBe(true);
+  });
+
   it('rejects missing store when required', () => {
     const v = validateIntakeClassification(
       { executionPath: 'proactive_plan', tool: 'orders_report', parameters: {} },

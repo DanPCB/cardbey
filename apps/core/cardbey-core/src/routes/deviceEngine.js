@@ -38,6 +38,7 @@
  *   * Also updates associated Screen orientation if provided
  */
 
+import crypto from 'crypto';
 import express from 'express';
 import { getPrismaClient } from '../db/prisma.js';
 import {
@@ -4888,6 +4889,120 @@ router.post('/pair/complete', async (req, res) => {
       message: error.message || 'Failed to complete pairing',
     });
   }
+});
+
+/**
+ * GET /api/device/compatibility
+ * Device V2 APK compatibility probe (no auth).
+ */
+router.get('/compatibility', (req, res) => {
+  const engine = String(req.query.engine || 'DEVICE_V2').toUpperCase();
+  const apkVersion = String(req.query.apkVersion || 'unknown');
+  res.json({
+    ok: true,
+    minSupportedApkVersion: '1.0',
+    currentCoreVersion: process.env.CORE_VERSION || process.env.npm_package_version || 'dev',
+    supportedEngines: ['DEVICE_V2', 'LEGACY'],
+    pairingProtocolVersion: '2',
+    engineSupported: engine.includes('DEVICE'),
+    requestedEngine: engine,
+    requestedApkVersion: apkVersion,
+  });
+});
+
+/**
+ * POST /api/device/self-repair
+ * Device-initiated pairing reset (no auth — same trust model as request-pairing).
+ */
+router.post('/self-repair', async (req, res, next) => {
+  try {
+    const { deviceId } = req.body || {};
+    if (!deviceId || !String(deviceId).trim()) {
+      return res.status(422).json({
+        ok: false,
+        error: 'invalid_payload',
+        message: 'deviceId is required',
+      });
+    }
+
+    const id = String(deviceId).trim();
+    const device = await prisma.device.findUnique({ where: { id } });
+    if (!device) {
+      return res.status(404).json({
+        ok: false,
+        error: 'device_not_found',
+        message: 'Device not registered — start new pairing',
+      });
+    }
+
+    const isPaired =
+      device.tenantId &&
+      device.tenantId !== 'temp' &&
+      device.storeId &&
+      device.storeId !== 'temp' &&
+      (device.status === 'online' || device.status === 'paired');
+
+    if (isPaired) {
+      return res.status(409).json({
+        ok: false,
+        error: 'device_already_paired',
+        message: 'Device already paired — unpair from dashboard or restart pairing',
+      });
+    }
+
+    const pairingCode = crypto.randomBytes(3).toString('hex').toUpperCase().substring(0, 6);
+    await prisma.device.update({
+      where: { id },
+      data: {
+        status: 'offline',
+        pairingCode,
+        lastSeenAt: new Date(),
+      },
+    });
+
+    res.json({
+      ok: true,
+      message: 'Device repair completed — pairing reset on Core',
+      actions: ['reset_pairing', 'cleared_repair_state'],
+      deviceId: id,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/device/pair-complete
+ * APK alias: acknowledge device-side pairing after poll returned credentials.
+ */
+router.post('/pair-complete', async (req, res) => {
+  const { sessionId, screenId, deviceId, token, code } = req.body || {};
+  const id = String(sessionId || screenId || deviceId || '').trim();
+  if (!id) {
+    return res.status(422).json({
+      ok: false,
+      error: 'missing_fields',
+      message: 'sessionId, screenId, or deviceId is required',
+    });
+  }
+
+  const device = await prisma.device.findUnique({ where: { id } });
+  if (!device) {
+    return res.status(404).json({
+      ok: false,
+      error: 'device_not_found',
+      message: 'Device not found',
+    });
+  }
+
+  res.json({
+    ok: true,
+    screenId: device.id,
+    deviceId: device.id,
+    token: token || null,
+    code: code || null,
+    status: device.status,
+  });
 });
 
 /**

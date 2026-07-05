@@ -52,6 +52,8 @@ describe('Runtime Kernel Mandatory', () => {
     expect(assertKernelAuthorizedExecution({ source: 'intake_v2_unified' }).ok).toBe(true);
     expect(assertKernelAuthorizedExecution({ source: 'intake_v2_confirm' }).ok).toBe(true);
     expect(assertKernelAuthorizedExecution({ source: 'intake_v2_fresh_store_draft' }).ok).toBe(true);
+    expect(assertKernelAuthorizedExecution({ source: 'intake_v2_confirm_intercept_campaign' }).ok).toBe(true);
+    expect(assertKernelAuthorizedExecution({ source: 'intake_v2_classified_campaign_checkpoint' }).ok).toBe(true);
     expect(assertKernelAuthorizedExecution({ source: 'agent_orchestration' }).ok).toBe(true);
   });
 

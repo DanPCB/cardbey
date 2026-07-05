@@ -1511,6 +1511,110 @@ router.patch('/:missionId/context', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * POST /api/missions/:missionId/topology-decision
+ * HITL approve / reject / modify for multi-agent execution plans.
+ */
+router.post('/:missionId/topology-decision', requireAuth, async (req, res, next) => {
+  try {
+    const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    const decision = String(req.body?.decision ?? '').trim().toLowerCase();
+
+    if (!missionIdTrimmed || !['approve', 'reject', 'modify'].includes(decision)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'validation',
+        message: 'missionId and decision (approve|reject|modify) are required',
+      });
+    }
+
+    const access = await resolveAccessibleMission(req.user ?? {}, missionIdTrimmed);
+    if (!access.ok) {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Mission not found or access denied' });
+    }
+
+    const userId =
+      String(req.user?.id ?? req.user?.userId ?? req.guestId ?? req.guest?.id ?? '').trim() || null;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    const { handleTopologyDecision } = await import('../lib/mission/topologyReviewService.js');
+    const result = await handleTopologyDecision(missionIdTrimmed, {
+      decision,
+      reason: typeof req.body?.reason === 'string' ? req.body.reason.trim() : undefined,
+      topology: req.body?.topology,
+      policy: req.body?.policy,
+      reasoning: req.body?.reasoning,
+      modifications:
+        req.body?.modifications && typeof req.body.modifications === 'object'
+          ? req.body.modifications
+          : undefined,
+      userId,
+      storeId: typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : undefined,
+    });
+
+    if (!result.ok) {
+      return res.status(400).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/missions/:missionId/execute-topology
+ * Re-run approved topology (retry after failure or manual trigger).
+ */
+router.post('/:missionId/execute-topology', requireAuth, async (req, res, next) => {
+  try {
+    const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionIdTrimmed) {
+      return res.status(400).json({ ok: false, error: 'validation', message: 'missionId is required' });
+    }
+
+    const access = await resolveAccessibleMission(req.user ?? {}, missionIdTrimmed);
+    if (!access.ok) {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Mission not found or access denied' });
+    }
+
+    const userId =
+      String(req.user?.id ?? req.user?.userId ?? req.guestId ?? req.guest?.id ?? '').trim() || null;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    const { readMetadata } = await import('../lib/persistence/metadataWriter.js');
+    const { executeApprovedTopology } = await import('../lib/mission/topologyExecutor.js');
+    const meta = await readMetadata(missionIdTrimmed);
+    const metadata = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : {};
+    const topology = metadata.approvedTopology ?? metadata.pendingTopology;
+    if (!topology) {
+      return res.status(400).json({ ok: false, message: 'No approved topology to execute' });
+    }
+
+    const storeId =
+      typeof req.body?.storeId === 'string'
+        ? req.body.storeId.trim()
+        : typeof metadata.storeId === 'string'
+          ? metadata.storeId.trim()
+          : undefined;
+
+    const execution = await executeApprovedTopology(missionIdTrimmed, topology, { userId, storeId });
+    return res.status(200).json({
+      ok: execution.ok,
+      status: execution.status,
+      missionId: missionIdTrimmed,
+      executionMode: execution.executionMode,
+      execution,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/missions/:missionId/plan-decision
  * Owner decision on skill plan preview (approve / regenerate / cancel).
  * Idempotent per mission+executionId for approve.

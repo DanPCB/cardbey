@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest';
+import { resolveTopologyExecutionMode, ensureMissionReadyForTopologyExecution } from '../topologyExecutor.js';
+import { canTransitionMissionPipeline } from '../../missionPipelineTransitions.js';
+
+describe('resolveTopologyExecutionMode', () => {
+  it('maps launch_campaign to campaign mode', () => {
+    expect(resolveTopologyExecutionMode('launch_campaign')).toBe('campaign');
+  });
+
+  it('maps store_creation_workflow to store mode', () => {
+    expect(resolveTopologyExecutionMode('store_creation_workflow')).toBe('store');
+  });
+
+  it('uses compiler tool hint from metadata', () => {
+    expect(resolveTopologyExecutionMode(null, { tool: 'create_campaign' })).toBe('campaign');
+  });
+
+  it('defaults unknown types to generic', () => {
+    expect(resolveTopologyExecutionMode('custom_mission')).toBe('generic');
+  });
+});
+
+describe('ensureMissionReadyForTopologyExecution', () => {
+  it('allows awaiting_confirmation to queued to executing transitions', () => {
+    expect(canTransitionMissionPipeline('awaiting_confirmation', 'queued')).toBe(true);
+    expect(canTransitionMissionPipeline('queued', 'executing')).toBe(true);
+    expect(canTransitionMissionPipeline('executing', 'completed')).toBe(true);
+    expect(canTransitionMissionPipeline('executing', 'failed')).toBe(true);
+    expect(canTransitionMissionPipeline('failed', 'queued')).toBe(true);
+  });
+
+  it('rejects invalid direct awaiting_confirmation to executing transition', () => {
+    expect(canTransitionMissionPipeline('awaiting_confirmation', 'executing')).toBe(false);
+  });
+});

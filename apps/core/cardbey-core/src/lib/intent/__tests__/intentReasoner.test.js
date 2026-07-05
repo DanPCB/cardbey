@@ -335,4 +335,17 @@ describe('IntentReasoner', () => {
     expect(result.tool).toBe('create_store');
     expect(result.confidence).toBeGreaterThan(0.7);
   });
+
+  it('infers create_campaign for weekend brunch promotion when store is active', async () => {
+    mockContext.activeStoreId = 'store_pho_chu_the';
+
+    const result = await reasoner.reason('user_123', 'session_123', {
+      text: 'create a weekend brunch promotion campaign for my store',
+    });
+
+    expect(result.intent).toBe('create_campaign');
+    expect(result.tool).toBe('create_campaign');
+    expect(result.parameters?.storeId).toBe('store_pho_chu_the');
+    expect(result.action).toBe('execute_tool');
+  });
 });

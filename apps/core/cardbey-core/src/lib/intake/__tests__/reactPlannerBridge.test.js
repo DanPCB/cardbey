@@ -68,6 +68,36 @@ describe('reactPlannerBridge', () => {
     });
     expect(out).toBeNull();
   });
+
+  it('bypasses reactPlanner for kernel_dispatch create_campaign', async () => {
+    const out = await runPostClassifyReactPlanner({
+      userMessage: 'create a weekend brunch promotion campaign for my store',
+      classification: {
+        executionPath: 'kernel_dispatch',
+        tool: 'create_campaign',
+        confidence: 1,
+        parameters: {},
+      },
+      context: { storeId: null },
+      hydratedContext: {
+        message: 'create a weekend brunch promotion campaign for my store',
+        entities: {},
+        episodic: [],
+        working: {},
+        resolution: {
+          errors: [
+            {
+              entityType: 'store',
+              ref: 'store',
+              reason: 'AMBIGUOUS',
+              candidates: [{ id: 's1', name: 'Store A' }],
+            },
+          ],
+        },
+      },
+    });
+    expect(out).toBeNull();
+  });
 });
 
 describe('reactPlanner graphic policy', () => {

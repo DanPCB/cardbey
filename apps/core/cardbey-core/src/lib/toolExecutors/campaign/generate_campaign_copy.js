@@ -5,6 +5,26 @@
 import { executeContentTool } from '../executeContentTool.js';
 
 /**
+ * Build a short marketing headline from a verbose intake objective.
+ * @param {string} objective
+ */
+export function shortenCampaignHeadline(objective) {
+  const raw = String(objective ?? '').trim();
+  if (!raw) return 'Special offer';
+
+  const stripped = raw
+    .replace(/^(create|make|build|run|launch)\s+(a|an)\s+/i, '')
+    .replace(/\s+campaign\s+for\s+my\s+store\.?$/i, '')
+    .replace(/\s+for\s+my\s+store\.?$/i, '')
+    .replace(/\s+campaign\.?$/i, '')
+    .trim();
+
+  if (stripped.length >= 3 && stripped.length <= 80) return stripped;
+  if (raw.length <= 80) return raw;
+  return `${raw.slice(0, 77).trim()}…`;
+}
+
+/**
  * @param {object} brief
  * @param {string} tone
  * @param {string[]} platforms
@@ -14,7 +34,8 @@ function buildCopyFromBrief(brief, tone, platforms) {
   const offer = brief?.offer ? String(brief.offer).trim() : '';
   const audience = String(brief?.targetAudience ?? 'local customers').trim();
 
-  const headline = offer ? `${objective} — ${offer}` : objective;
+  const shortHeadline = shortenCampaignHeadline(objective);
+  const headline = offer ? `${shortHeadline} — ${offer}` : shortHeadline;
   const caption = `${objective}${offer ? ` (${offer})` : ''}. Perfect for ${audience}. Tone: ${tone}.`;
   const cta = offer ? `Claim ${offer} now` : 'Shop now';
 

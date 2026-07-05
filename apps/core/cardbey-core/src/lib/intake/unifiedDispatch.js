@@ -17,6 +17,7 @@ import { dispatchCreateStoreCheckpointPipeline, buildNeedsFormCreateStoreIntakeB
 import { dispatchCreateCampaignCheckpointPipeline } from './createCampaignCheckpointDispatch.js';
 import { loadStepMemory } from '../runtime/loadStepMemory.js';
 import { reasonAboutDispatch } from './dispatchReasoningEngine.js';
+import { Features } from '../../config/features.js';
 
 const ORCHESTRATION_TYPES = new Set(['multi_agent', 'campaign_orchestration']);
 const FACTORY_ACTION_TYPE = 'run_factory';
@@ -407,6 +408,53 @@ export async function unifiedDispatch(action, options = {}) {
   }
 
   if (type === UNIFIED_ACTION_TYPES.CREATE_CAMPAIGN_CHECKPOINT) {
+    if (Features.compiler.useForCampaigns) {
+      try {
+        const { runMultiAgentCompilerFromIntake, shouldDispatchCampaignViaCompiler } = await import(
+          '../mission/dispatchMultiAgentCompilerFromIntake.js'
+        );
+        const classification =
+          payload.classification && typeof payload.classification === 'object'
+            ? payload.classification
+            : { tool: 'create_campaign', parameters: {} };
+        if (shouldDispatchCampaignViaCompiler(classification)) {
+          const compilerResult = await runMultiAgentCompilerFromIntake({
+            user: payload.user,
+            actorId: payload.actorId,
+            locale: payload.locale,
+            userMessage: payload.userMessage,
+            classification,
+            storeId: payload.storeId ?? classification.parameters?.storeId ?? null,
+            sessionId: payload.sessionId ?? null,
+            missionId: payload.missionId ?? null,
+            auditSource: source,
+          });
+          if (compilerResult.kind === 'compiled') {
+            return {
+              ok: true,
+              status: 'ok',
+              dispatchKind: 'compiled',
+              executionPath: 'multi_agent_compile',
+              missionId: compilerResult.missionId,
+              responseBody: compilerResult.responseBody,
+              telemetry: compilerResult.telemetry,
+            };
+          }
+          if (compilerResult.kind === 'auth_required') {
+            return { ok: true, dispatchKind: 'auth_required', executionPath: 'multi_agent_compile' };
+          }
+          if (compilerResult.kind === 'store_required') {
+            return { ok: true, dispatchKind: 'store_required', executionPath: 'multi_agent_compile' };
+          }
+        }
+      } catch (compilerErr) {
+        console.error(
+          '[unifiedDispatch] compiler failed, falling back to checkpoint:',
+          compilerErr?.message ?? compilerErr,
+        );
+      }
+    }
+
     const dispatchResult = await dispatchCreateCampaignCheckpointPipeline(payload);
     return mapCreateCampaignDispatchResult(dispatchResult);
   }
@@ -619,6 +667,15 @@ export function mapUnifiedDispatchToIntakeResponse(result, ctx = {}) {
       success: true,
       ...result.responseBody,
       executionPath: 'kernel_dispatch',
+    };
+  }
+
+  if (result.dispatchKind === 'compiled' && result.responseBody) {
+    return {
+      success: true,
+      ...result.responseBody,
+      executionPath: 'multi_agent_compile',
+      missionId: result.missionId ?? result.responseBody.missionId ?? null,
     };
   }
 

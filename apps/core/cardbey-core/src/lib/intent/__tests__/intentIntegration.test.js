@@ -162,4 +162,24 @@ describe('IntentIntegration', () => {
       }),
     ).rejects.toThrow('IntentReasoner failed: Test error');
   });
+
+  it('classifies weekend brunch campaign as create_campaign when store is active', async () => {
+    process.env.ENABLE_LLM_REASONER = 'false';
+    mockContext.activeStoreId = 'store_pho_chu_the';
+
+    const result = await integration.processIntake({
+      userId: 'user_123',
+      sessionId: 'session_123',
+      input: { text: 'create a weekend brunch promotion campaign for my store' },
+      classifyOpts: {
+        userMessage: 'create a weekend brunch promotion campaign for my store',
+        currentContext: { activeStoreId: 'store_pho_chu_the' },
+      },
+      req: mockReq,
+    });
+
+    expect(result.tool).toBe('create_campaign');
+    expect(result.executionPath).toBe('kernel_dispatch');
+    expect(result._reasoning?.intent).toBe('create_campaign');
+  });
 });
