@@ -14,6 +14,16 @@ const JWT_SECRET = requireJwtSecret();
 // In-memory rate limiting (use Redis in production)
 const guestRateLimits = new Map();
 
+/** Read-only mission hydration — must not consume the tight guest daily cap (state polling). */
+export function isGuestRateLimitExemptRequest(req) {
+  if (!req || String(req.method || '').toUpperCase() !== 'GET') return false;
+  const path = String(req.path || req.url || '').split('?')[0];
+  const original = String(req.originalUrl || '').split('?')[0];
+  const relative = /^\/[^/]+\/(state|recovery-state|blackboard)$/.test(path);
+  const absolute = /\/missions\/[^/]+\/(state|recovery-state|blackboard)$/.test(original);
+  return relative || absolute;
+}
+
 function applyGuestRateLimit(guestKey) {
   const guestId = String(guestKey || '').trim();
   if (!guestId) return true;
@@ -165,7 +175,7 @@ export async function requireUserOrGuest(req, res, next) {
         // (must run before DB user lookup; guest ids are not User rows).
         if (decoded.role === 'guest' && decoded.auth === 'guest' && tokenUserId) {
           const gid = String(tokenUserId).trim();
-          if (!applyGuestRateLimit(gid)) {
+          if (!isGuestRateLimitExemptRequest(req) && !applyGuestRateLimit(gid)) {
             return res.status(429).json({
               error: 'Rate limit exceeded',
               message: 'Create an account to continue using Cardbey Assistant',
@@ -182,7 +192,7 @@ export async function requireUserOrGuest(req, res, next) {
         // Legacy guest tokens: guestId claim only (no User row)
         if (decoded.role === 'guest' && decoded.guestId) {
           const guestId = String(decoded.guestId).trim();
-          if (!applyGuestRateLimit(guestId)) {
+          if (!isGuestRateLimitExemptRequest(req) && !applyGuestRateLimit(guestId)) {
             return res.status(429).json({
               error: 'Rate limit exceeded',
               message: 'Create an account to continue using Cardbey Assistant',
@@ -285,7 +295,7 @@ export async function requireUserOrGuest(req, res, next) {
     const anonGuestId = req.guestSessionId
       ? `guest_${String(req.guestSessionId).trim()}`
       : `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    if (!applyGuestRateLimit(anonGuestId)) {
+    if (!isGuestRateLimitExemptRequest(req) && !applyGuestRateLimit(anonGuestId)) {
       return res.status(429).json({
         error: 'Rate limit exceeded',
         message: 'Create an account to continue using Cardbey Assistant',

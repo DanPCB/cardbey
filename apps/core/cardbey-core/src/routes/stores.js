@@ -41,6 +41,9 @@ import { executeAgentRunInProcess } from '../lib/agentRunExecutor.js';
 import { uploadBufferToS3 } from '../lib/s3Client.js';
 import { ensureWebCompatibleVideoBuffer } from '../lib/videoCompat.js';
 import { toPublicStore } from '../utils/publicStoreMapper.js';
+import { enrichPublicCatalogItem } from '../lib/catalog/catalogItemClassification.js';
+import { PRODUCT_CATALOG_PRISMA_SELECT } from '../lib/catalog/productCatalogPrismaSelect.js';
+import { resolveStoreCommercePresentation } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
 import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
 import { buildPersistAndApplyPublishedProjection } from '../services/publishedArtifactProjection/publishProjectionHooks.js';
 import { normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
@@ -1148,7 +1151,7 @@ router.get('/:id/preview', async (req, res, next) => {
         products: {
           where: { isPublished: true, deletedAt: null },
           orderBy: [{ category: 'asc' }, { name: 'asc' }],
-          select: { name: true, price: true, description: true, imageUrl: true, category: true },
+          select: PRODUCT_CATALOG_PRISMA_SELECT,
         },
       },
     });
@@ -1176,16 +1179,48 @@ router.get('/:id/preview', async (req, res, next) => {
     if (!categories.some((c) => c.id === 'other')) {
       categories.push({ id: 'other', name: 'Other' });
     }
-    const items = business.products.map((p) => {
+    const publicDto = toPublicStore(business);
+    const resolvedCommerce = resolveStoreCommercePresentation(business, business.products ?? []);
+    const catalogEnrichmentCtx = {
+      businessType: resolvedCommerce.businessType ?? business.type,
+      canonicalBusinessType: resolvedCommerce.businessType,
+      businessName: business.name,
+      storeName: business.name,
+    };
+    const items = business.products.map((p, index) => {
       const catName = p.category ?? null;
       const categoryId = catKey(catName);
+      const enriched = enrichPublicCatalogItem(
+        {
+          id: p.id ?? `preview-item-${index}`,
+          name: p.name,
+          price: p.price != null ? Number(p.price) : null,
+          description: p.description ?? null,
+          imageUrl: p.imageUrl ?? null,
+          category: catName,
+          itemType: p.itemType ?? null,
+          bookingEnabled: p.bookingEnabled ?? null,
+          purchaseEnabled: p.purchaseEnabled ?? null,
+          primaryAction: p.primaryAction ?? null,
+          serviceCatalog: p.serviceCatalog ?? null,
+        },
+        catalogEnrichmentCtx,
+      );
       return {
-        name: p.name,
-        price: p.price != null ? String(p.price) : null,
-        description: p.description ?? null,
-        imageUrl: p.imageUrl ?? null,
+        id: enriched.id ?? p.id ?? `preview-item-${index}`,
+        name: enriched.name ?? p.name,
+        price: enriched.price != null ? String(enriched.price) : p.price != null ? String(p.price) : null,
+        fromPrice: enriched.fromPrice ?? null,
+        description: enriched.description ?? p.description ?? null,
+        imageUrl: enriched.imageUrl ?? p.imageUrl ?? null,
         category: catName,
         categoryId,
+        itemType: enriched.itemType ?? null,
+        type: enriched.type ?? enriched.itemType ?? null,
+        serviceMode: enriched.serviceMode ?? null,
+        executionAction: enriched.executionAction ?? null,
+        primaryAction: enriched.primaryAction ?? null,
+        serviceCatalog: enriched.serviceCatalog ?? null,
       };
     });
     // Hero/avatar: use persisted Business.heroImageUrl/avatarImageUrl first (same as editor) so public preview matches draft UI
@@ -1221,6 +1256,11 @@ router.get('/:id/preview', async (req, res, next) => {
     const preview = {
       storeName: business.name,
       storeType: business.type || 'business',
+      businessType: resolvedCommerce.businessType ?? business.type,
+      canonicalBusinessType: resolvedCommerce.businessType,
+      businessProfile: publicDto.businessProfile ?? publicDto.resolvedBusinessProfile ?? null,
+      catalogLabel: publicDto.catalogLabel ?? resolvedCommerce.resolvedCatalogPresentation?.catalogLabel ?? null,
+      catalogMode: publicDto.catalogMode ?? resolvedCommerce.catalogMode ?? null,
       slogan: business.tagline ?? business.description ?? undefined,
       tagline: business.tagline ?? business.description ?? undefined,
       heroText: business.heroText ?? business.description ?? undefined,
@@ -1235,13 +1275,13 @@ router.get('/:id/preview', async (req, res, next) => {
       },
       storefront,
     };
-    const publicDto = toPublicStore(business);
     const slugTrimmed = typeof business.slug === 'string' && business.slug.trim();
     const hasPublishedMiniWebsite = Boolean(
       slugTrimmed && publicDto.website != null && typeof publicDto.website === 'object',
     );
     res.json({
       ok: true,
+      storeId: business.id,
       status: 'ready',
       mode: 'ai',
       preview,

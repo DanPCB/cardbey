@@ -28,6 +28,34 @@ describe('parseNaturalLanguageStoreCreation', () => {
     expect(parsed.location).toBe('Melbourne');
     expect(parsed.category).toBe('Food & drink');
   });
+
+  it('does not treat "my business" as a store name', () => {
+    const parsed = parseNaturalLanguageStoreCreation('Create a store for my business');
+    expect(parsed.name).toBeNull();
+    expect(parsed.source).toBe('exact_phrase');
+  });
+
+  it('extracts a real name after "store for"', () => {
+    const parsed = parseNaturalLanguageStoreCreation('Create a store for Joe\'s Deli');
+    expect(parsed.name).toBe("Joe's Deli");
+  });
+
+  it('rejects generic possessive names from legacy regex', () => {
+    const parsed = parseNaturalLanguageStoreCreation('Create a shop for my store');
+    expect(parsed.name).toBeNull();
+  });
+
+  it('does not treat create store substring as bare request when a name is present', () => {
+    const parsed = parseNaturalLanguageStoreCreation('Create a store called ABC Bakery in Melbourne');
+    expect(parsed.name).toBe('ABC Bakery');
+    expect(parsed.location).toBe('Melbourne');
+  });
+
+  it('allows location suffix on bare generic phrase', () => {
+    const parsed = parseNaturalLanguageStoreCreation('Create a store for my business in Melbourne');
+    expect(parsed.name).toBeNull();
+    expect(parsed.location).toBe('Melbourne');
+  });
 });
 
 describe('buildStoreCreationDraft', () => {
@@ -74,6 +102,18 @@ describe('formatStoreCreationDraftResponse', () => {
     const text = formatStoreCreationDraftResponse(bundle);
     expect(text).toContain("Let's set up your store");
     expect(text).not.toContain('I need a bit more detail before we can create your store.');
+  });
+
+  it('does not claim store name for create a store for my business', () => {
+    const bundle = buildStoreCreationDraft({
+      userMessage: 'Create a store for my business',
+      classification: { parameters: {} },
+    });
+    expect(bundle.draft.name).toBeNull();
+    expect(bundle.missingFields).toContain('name');
+    const text = formatStoreCreationDraftResponse(bundle);
+    expect(text).toContain("Let's set up your store");
+    expect(text).not.toMatch(/Store name[\s\S]*my business/i);
   });
 });
 

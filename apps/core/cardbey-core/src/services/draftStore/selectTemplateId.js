@@ -32,7 +32,10 @@ export function selectTemplateId(verticalSlug, audience) {
   if (slug === 'entertainment.game_centre') return 'game_centre';
   if (slug.startsWith('entertainment.')) return 'game_centre';
 
-  if (slug.startsWith('services.') || slug.startsWith('home.') || slug.startsWith('auto.') || slug.startsWith('education.') || slug.startsWith('events.')) return 'services_generic';
+  if (slug.startsWith('services.') || slug.startsWith('home.') || slug.startsWith('auto.') || slug.startsWith('education.') || slug.startsWith('events.')) {
+    if (slug === 'services.tiling' || slug === 'services.flooring') return 'tiling_flooring';
+    return 'services_generic';
+  }
 
   return 'services_generic';
 }

@@ -57,6 +57,8 @@ export const VERTICALS = [
   { slug: 'education.tutoring', group: 'education', label: 'Tutoring', keywords: ['tutoring', 'tutor', 'lesson', 'classes', 'math', 'english', 'study', 'homework'] },
   { slug: 'events.catering', group: 'events', label: 'Catering', keywords: ['catering', 'event', 'party', 'platter', 'canape', 'canapé', 'function', 'corporate catering'] },
   { slug: 'entertainment.game_centre', group: 'entertainment', label: 'Game Centre', keywords: ['game centre', 'game center', 'arcade', 'kids arcade', 'bowling', 'laser tag', 'vr', 'virtual reality', 'birthday party', 'party room', 'fun centre'] },
+  { slug: 'services.tiling', group: 'services', label: 'Tiling', keywords: ['tiling', 'tiler', 'tile', 'tiles', 'bathroom tiling', 'splashback', 'grout', 'waterproofing', 'ceramic tile', 'porcelain tile'] },
+  { slug: 'services.flooring', group: 'services', label: 'Flooring', keywords: ['flooring', 'floor tiling', 'timber floor', 'hardwood floor', 'vinyl plank', 'laminate floor', 'floor installation', 'floor sanding'] },
   { slug: 'services.generic', group: 'services', label: 'General Services', keywords: ['service', 'services', 'appointment', 'booking', 'quote'] },
   { slug: 'retail.generic', group: 'retail', label: 'General Retail', keywords: ['shop', 'store', 'retail', 'buy', 'sale', 'product'] },
 ];

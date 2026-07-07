@@ -29,6 +29,11 @@ function effectiveVertical(storeType, businessType) {
   const tradesTokens = ['plumbing', 'electrician', 'roofing', 'contractor', 'trade', 'hvac', 'landscaping'];
   if (tokens.some((t) => tradesTokens.includes(t))) return 'trades';
 
+  const serviceTokens = [
+    'beauty', 'salon', 'spa', 'nail', 'hair', 'barber', 'massage', 'wax', 'lash', 'brow',
+  ];
+  if (tokens.some((t) => serviceTokens.includes(t))) return 'services';
+
   return 'products';
 }
 

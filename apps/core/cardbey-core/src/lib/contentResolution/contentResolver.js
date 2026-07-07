@@ -7,30 +7,33 @@
  */
 
 import { emitHealthProbe } from '../telemetry/healthProbes.js';
+import { sanitizeStoreSlogan } from './sanitizeStoreSlogan.js';
 
 /** Matches common LLM preamble phrases to strip from generated text. */
 const LLM_PREAMBLE_RE =
   /^(?:here(?:'s| is)(?: your)?[^.!?\n]{0,60}[.!?]\s*|sure[!,]?\s*|certainly[!,]?\s*|of course[!,]?\s*|absolutely[!,]?\s*|great[!,]?\s*)/i;
 
 /**
- * Polish step: trim whitespace, strip LLM preamble, capitalize first letter,
+ * Polish step: trim whitespace, strip LLM preamble/list tips, capitalize first letter,
  * truncate to maxLength.
  * @param {string} text
  * @param {number|undefined} maxLength
+ * @param {string|undefined} type
  * @returns {string}
  */
-function polishContent(text, maxLength) {
+function polishContent(text, maxLength, type) {
   if (typeof text !== 'string') return '';
+  if (type === 'slogan') {
+    return sanitizeStoreSlogan(text, maxLength);
+  }
+
   let s = text.trim();
-  // Remove LLM preamble (may repeat e.g. "Sure! Here is your slogan:")
   for (let i = 0; i < 3; i++) {
     const stripped = s.replace(LLM_PREAMBLE_RE, '').trim();
     if (stripped === s) break;
     s = stripped;
   }
-  // Capitalize first letter
   if (s.length > 0) s = s[0].toUpperCase() + s.slice(1);
-  // Truncate to maxLength
   if (typeof maxLength === 'number' && maxLength > 0 && s.length > maxLength) {
     s = s.slice(0, maxLength).trimEnd();
   }
@@ -91,7 +94,7 @@ export async function resolveContent(missionId, contentRequest, options = {}) {
 
     if (typeof existingContent === 'string' && existingContent.trim().length > 20) {
       await emitLine(emitContextUpdate, '✨ Polishing content...');
-      return { content: polishContent(existingContent, maxLength), source: 'fetched' };
+      return { content: polishContent(existingContent, maxLength, type), source: 'fetched' };
     }
 
     // ── STEP 2 — Generate ───────────────────────────────────────────────────
@@ -143,10 +146,10 @@ export async function resolveContent(missionId, contentRequest, options = {}) {
         businessName
           ? `${businessName}${businessType ? ` — ${businessType}` : ''}`
           : businessType || 'Welcome';
-      return { content: polishContent(fallback, maxLength), source: 'fallback' };
+      return { content: polishContent(fallback, maxLength, type), source: 'fallback' };
     }
 
-    return { content: polishContent(generated, maxLength), source: 'generated' };
+    return { content: polishContent(generated, maxLength, type), source: 'generated' };
   } catch (outerErr) {
     // Outermost safety net — never throw
     emitHealthProbe('content_resolution_error', {
@@ -155,6 +158,6 @@ export async function resolveContent(missionId, contentRequest, options = {}) {
       error: String(outerErr?.message ?? outerErr),
     });
     const fallback = businessName || businessType || 'Welcome';
-    return { content: polishContent(fallback, maxLength), source: 'fallback' };
+    return { content: polishContent(fallback, maxLength, type), source: 'fallback' };
   }
 }

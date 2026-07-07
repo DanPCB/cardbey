@@ -8,12 +8,33 @@ import { buildPublishedBusinessArtifact } from './buildPublishedBusinessArtifact
 import { publishedBusinessArtifactToPublicStore } from './publishedBusinessArtifactToPublicStore.js';
 import { loadPersistedProjectionsByBusinessIds } from './persistPublishedBusinessArtifact.js';
 import { toPublicStore } from '../../utils/publicStoreMapper.js';
+import { resolveStoreCommercePresentation } from '../../lib/businessSemantic/resolveStoreCommercePresentation.js';
 import { enrichStoreHeroVideoUrls } from '../../lib/videoIosSafe.js';
 import { resolvePublicStoreMediaUrls } from '../../utils/publicUrl.js';
 import { loadActiveFeedPromoArtifacts } from '../feed/loadActiveFeedPromoArtifacts.js';
 
 /** Fields required for projection build + public DTO on list/feed routes. */
 export const PUBLIC_STORE_LIST_SELECT = businessPublicReadSelect();
+
+/**
+ * Attach BSL-resolved commerce fields so projection and legacy stores classify consistently.
+ * @param {object} store
+ */
+export function attachResolvedCommercePresentation(store) {
+  const resolved = resolveStoreCommercePresentation(store, store?.products ?? []);
+  return {
+    ...store,
+    resolvedBusinessProfile:
+      store.resolvedBusinessProfile ?? resolved.resolvedBusinessProfile ?? null,
+    resolvedCatalogPresentation:
+      store.resolvedCatalogPresentation ?? resolved.resolvedCatalogPresentation,
+    canonicalBusinessType: store.canonicalBusinessType ?? resolved.businessType,
+    commerceType: store.commerceType ?? resolved.commerceType,
+    catalogMode: store.catalogMode ?? resolved.catalogMode,
+    hasServices: store.hasServices ?? resolved.hasServices,
+    includedInServices: store.includedInServices ?? resolved.includedInServices,
+  };
+}
 
 /**
  * @param {import('@prisma/client').PrismaClient} prisma
@@ -67,9 +88,11 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
       usedFallback = true;
     }
 
-    const store = projection
-      ? publishedBusinessArtifactToPublicStore(projection, { business, lang })
-      : toPublicStore(business, { lang });
+    const store = attachResolvedCommercePresentation(
+      projection
+        ? publishedBusinessArtifactToPublicStore(projection, { business, lang })
+        : toPublicStore(business, { lang }),
+    );
 
     const slug = store.slug ?? business.slug;
     const storeUrl = slug ? `${webBase}/s/${encodeURIComponent(slug)}` : null;

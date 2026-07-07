@@ -3,7 +3,10 @@
  * All sources (chat, OCR, form, pill) converge here before UI or checkpoint dispatch.
  */
 
-import { parseStructuredStoreCreatePillMessage } from '../intent/storeCreateFastPath.js';
+import {
+  isBareStoreCreateRequest,
+  parseStructuredStoreCreatePillMessage,
+} from '../intent/storeCreateFastPath.js';
 
 const WRAP_QUOTE_RE = /^[\s"'`\u201c\u201d\u2018\u2019]+|[\s"'`\u201c\u201d\u2018\u2019]+$/g;
 
@@ -49,6 +52,65 @@ function asTrimmedString(value) {
   return s || null;
 }
 
+/** Possessive / placeholder phrases — not real business names. */
+const GENERIC_STORE_NAMES = new Set([
+  'my business',
+  'my store',
+  'my shop',
+  'my cafe',
+  'my restaurant',
+  'my company',
+  'the business',
+  'the store',
+  'a business',
+  'a store',
+  'a shop',
+  'new store',
+  'untitled store',
+  'start business',
+  'start a business',
+]);
+
+/**
+ * @param {string | null | undefined} name
+ * @returns {boolean}
+ */
+export function isGenericStoreName(name) {
+  const norm = String(name ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!norm || norm.length < 2) return true;
+  if (GENERIC_STORE_NAMES.has(norm)) return true;
+  if (/^(my|the|a|an)\s+(business|store|shop|cafe|company|restaurant)$/i.test(norm)) return true;
+  if (/^(store|shop|business)$/i.test(norm)) return true;
+  return false;
+}
+
+/**
+ * @param {string | null | undefined} name
+ * @returns {string | null}
+ */
+export function sanitizeExtractedStoreName(name) {
+  const cleaned = asTrimmedString(name);
+  return isGenericStoreName(cleaned) ? null : cleaned;
+}
+
+/**
+ * @param {{ name?: string | null; location?: string | null; category?: string | null; source: string }} parsed
+ */
+function finalizeParsedStoreCreation(parsed) {
+  const name = sanitizeExtractedStoreName(parsed.name);
+  const location = asTrimmedString(parsed.location);
+  return {
+    name,
+    location,
+    category:
+      parsed.category ?? inferStoreCategoryFromHint(null, name ?? '', location ?? ''),
+    source: parsed.source,
+  };
+}
+
 /**
  * Map free-text business type hints to dashboard category labels.
  * @param {string | null | undefined} hint
@@ -90,14 +152,24 @@ export function parseNaturalLanguageStoreCreation(raw) {
     return { name: null, location: null, category: null, source: 'empty' };
   }
 
+  if (isBareStoreCreateRequest(userMessage)) {
+    const locationMatch = userMessage.match(/\bin\s+(.+?)\.?$/i);
+    return finalizeParsedStoreCreation({
+      name: null,
+      location: locationMatch ? stripQuotes(locationMatch[1]) : null,
+      category: null,
+      source: 'exact_phrase',
+    });
+  }
+
   const pill = parseStructuredStoreCreatePillMessage(userMessage);
   if (pill?.storeName) {
-    return {
+    return finalizeParsedStoreCreation({
       name: asTrimmedString(pill.storeName),
       location: asTrimmedString(pill.location),
       category: inferStoreCategoryFromHint(pill.category, pill.storeName, pill.location),
       source: 'pill',
-    };
+    });
   }
 
   // "Create a bakery in Melbourne called ABC Bakery"
@@ -108,12 +180,12 @@ export function parseNaturalLanguageStoreCreation(raw) {
     const categoryHint = stripQuotes(typeInLocCalled[1]);
     const location = stripQuotes(typeInLocCalled[2]);
     const name = stripQuotes(typeInLocCalled[3]);
-    return {
+    return finalizeParsedStoreCreation({
       name: name || null,
       location: location || null,
       category: inferStoreCategoryFromHint(categoryHint, name, location),
       source: 'nl_type_in_location_called',
-    };
+    });
   }
 
   // "Create a store called ABC Bakery in Melbourne"
@@ -123,12 +195,12 @@ export function parseNaturalLanguageStoreCreation(raw) {
   if (calledIn) {
     const name = stripQuotes(calledIn[1]);
     const location = stripQuotes(calledIn[2]);
-    return {
+    return finalizeParsedStoreCreation({
       name: name || null,
       location: location || null,
       category: inferStoreCategoryFromHint(null, name, location),
       source: 'nl_called_in',
-    };
+    });
   }
 
   // "Create ABC Bakery in Melbourne"
@@ -138,12 +210,12 @@ export function parseNaturalLanguageStoreCreation(raw) {
     const location = stripQuotes(nameIn[2]);
     const skipGeneric = /^(store|shop|business)$/i.test(chunk);
     if (!skipGeneric && chunk.length >= 2) {
-      return {
+      return finalizeParsedStoreCreation({
         name: chunk,
         location: location || null,
         category: inferStoreCategoryFromHint(null, chunk, location),
         source: 'nl_name_in',
-      };
+      });
     }
   }
 
@@ -165,12 +237,12 @@ export function parseNaturalLanguageStoreCreation(raw) {
     name = name.slice(0, name.length - (` in ${location}`).length).trim();
   }
 
-  return {
+  return finalizeParsedStoreCreation({
     name: name || null,
     location: location || null,
     category: inferStoreCategoryFromHint(null, name, location),
     source: 'nl_legacy',
-  };
+  });
 }
 
 /**
@@ -261,11 +333,12 @@ export function buildStoreCreationDraft(input = {}) {
   const parsed = parseNaturalLanguageStoreCreation(userMessage);
   const pill = parseStructuredStoreCreatePillMessage(userMessage);
 
-  const name =
+  const name = sanitizeExtractedStoreName(
     asTrimmedString(form?.storeName) ||
-    asTrimmedString(params.storeName ?? params.businessName ?? params.name) ||
-    asTrimmedString(asset?.name ?? asset?.businessName) ||
-    asTrimmedString(parsed.name);
+      asTrimmedString(params.storeName ?? params.businessName ?? params.name) ||
+      asTrimmedString(asset?.name ?? asset?.businessName) ||
+      asTrimmedString(parsed.name),
+  );
 
   const location =
     asTrimmedString(form?.location) ||

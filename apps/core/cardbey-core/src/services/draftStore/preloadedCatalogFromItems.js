@@ -52,6 +52,11 @@ export function buildCatalogFromPreloadedItems(rawItems, opts = {}) {
         : imageUrl
           ? 'imported'
           : undefined;
+    const isServiceItem =
+      it?.itemType === 'service' ||
+      it?.kind === 'service' ||
+      it?.serviceMode != null ||
+      it?.executionAction === 'book';
     return {
       id: `pre_item_${i}`,
       productId: `preloaded_${i}`,
@@ -63,7 +68,20 @@ export function buildCatalogFromPreloadedItems(rawItems, opts = {}) {
       categoryId: cat.id,
       category: cname,
       categoryName: cname,
-      kind: resolveItemKind(it, storeCommerceMode),
+      kind: it?.kind ?? (isServiceItem ? 'service' : resolveItemKind(it, storeCommerceMode)),
+      ...(isServiceItem
+        ? {
+            itemType: 'service',
+            type: 'service',
+            serviceMode: it?.serviceMode ?? 'fixed_booking',
+            executionAction: it?.executionAction ?? 'book',
+            isService: true,
+            serviceCatalog: it?.serviceCatalog ?? null,
+            catalogSource: it?.catalogSource ?? null,
+            sourceEvidence: it?.sourceEvidence ?? it?.sourceType ?? null,
+            durationMinutes: it?.durationMinutes ?? null,
+          }
+        : {}),
       ...(imageUrl ? { imageUrl, imageSource: imageSource || 'imported' } : {}),
     };
   });

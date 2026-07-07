@@ -30,6 +30,19 @@ import {
   validateCategoriesForPublish,
 } from '../../lib/draftCategoryUtils.js';
 import { resolveStoreCommerce, normalizeCatalogItem } from '../../lib/storeTransactionMode.js';
+import {
+  applyCatalogProfileToItems,
+  buildCatalogGenerationProfile,
+  buildCategoriesFromProfile,
+} from '../../lib/catalog/buildCatalogGenerationProfile.js';
+import { repairCatalogPresentation } from '../../lib/catalog/catalogPresentation.js';
+import {
+  applyResearchProfileToPreview,
+  finalizeResearchCatalogForDraft,
+  isResearchBackedPreview,
+  isResearchCatalogSource,
+  mergeResearchBusinessProfileIntoParams,
+} from './researchCatalogDraft.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -199,24 +212,61 @@ export function resolveGeneratedCTA(context) {
  */
 export function applyCommerceFieldsToPreview(preview) {
   if (!preview || typeof preview !== 'object') return preview;
+  if (isResearchBackedPreview(preview)) {
+    return applyResearchProfileToPreview(preview);
+  }
+  const catalogProfile = buildCatalogGenerationProfile({
+    businessName: preview.storeName ?? preview.name,
+    businessType: preview.storeType ?? preview.meta?.storeType,
+    category: preview.businessCategory ?? preview.meta?.storeType,
+    description: preview.description,
+    items: preview.items,
+  });
   const commerce = resolveStoreCommerce({
     storeType: preview.storeType,
-    businessType: preview.meta?.storeType,
-    commerceMode: preview.commerceMode,
-    transactionMode: preview.transactionMode,
+    businessType: preview.meta?.storeType ?? preview.storeType,
+    commerceMode: preview.commerceMode ?? catalogProfile.commerceMode,
+    transactionMode: preview.transactionMode ?? catalogProfile.transactionMode,
     items: preview.items,
-    ctaLabel: preview.ctaLabel,
-    catalogLabel: preview.catalogLabel,
-    ctaAction: preview.storefront?.cta?.action,
+    ctaLabel: preview.ctaLabel ?? catalogProfile.ctaLabel,
+    catalogLabel: preview.catalogLabel ?? catalogProfile.catalogLabel,
+    ctaAction: preview.storefront?.cta?.action ?? catalogProfile.ctaAction,
   });
+  const presentation = repairCatalogPresentation(
+    {
+      id: preview.storeId,
+      name: preview.storeName ?? preview.name,
+      type: preview.storeType ?? preview.meta?.storeType,
+      catalogLabel: commerce.catalogLabel,
+      catalogMode: catalogProfile.catalogMode,
+      generatedContentProfile: catalogProfile.generatedContentProfile,
+    },
+    preview.items,
+  );
+  preview.businessType = catalogProfile.businessType;
+  preview.catalogMode = catalogProfile.catalogMode;
+  preview.generatedContentProfile = catalogProfile.generatedContentProfile;
+  preview.businessProfile = catalogProfile.businessProfile ?? preview.businessProfile ?? null;
+  if (preview.businessProfile) {
+    preview.storefrontSettings = {
+      ...(preview.storefrontSettings && typeof preview.storefrontSettings === 'object'
+        ? preview.storefrontSettings
+        : {}),
+      businessProfile: preview.businessProfile,
+    };
+  }
   preview.commerceMode = commerce.commerceMode;
   preview.transactionMode = commerce.transactionMode;
-  preview.catalogLabel = commerce.catalogLabel;
+  preview.catalogLabel = presentation.catalogLabel;
   preview.ctaLabel = commerce.ctaLabel;
+  preview.primaryCTA = catalogProfile.primaryCTA;
   if (Array.isArray(preview.items)) {
     const businessType = preview.storeType ?? preview.meta?.storeType ?? null;
     const businessName = preview.storeName ?? preview.name ?? null;
-    preview.items = preview.items.map((it) => {
+    preview.items = applyCatalogProfileToItems(preview.items, catalogProfile, {
+      businessType,
+      businessName,
+    }).map((it) => {
       if (!it || typeof it !== 'object') return it;
       const normalized = normalizeCatalogItem(it, {
         businessType,
@@ -225,6 +275,14 @@ export function applyCommerceFieldsToPreview(preview) {
       });
       return { ...it, ...normalized };
     });
+    console.log(
+      '[catalog_items_generated]',
+      JSON.stringify({
+        businessType: catalogProfile.businessType,
+        itemCount: preview.items.length,
+        catalogLabel: preview.catalogLabel,
+      }),
+    );
   }
   const sf = preview.storefront && typeof preview.storefront === 'object' ? { ...preview.storefront } : {};
   if (!hasMeaningfulCta(sf.cta)) {
@@ -304,6 +362,10 @@ import { DraftErrorCode, RecommendedAction } from '../errors/draftErrorCodes.js'
 import { getTenantId } from '../../lib/tenant.js';
 import { mergeMissionContext } from '../../lib/mission.js';
 import { inferCurrencyFromLocationText } from './currencyInfer.js';
+import {
+  runStoreCreationResearch,
+  shouldRunStoreCreationResearch,
+} from '../../lib/storeCreationResearch/index.js';
 
 // Default expiry: 48 hours from now
 const DEFAULT_EXPIRY_HOURS = 48;
@@ -313,15 +375,32 @@ const DEV = process.env.NODE_ENV !== 'production';
 /** When true (default), use two-modes pipeline: resolveGenerationParams → buildCatalog → saveDraftBase → finalizeDraft. Set to 'false' to keep legacy path. */
 const USE_QUICK_START_TWO_MODES = process.env.USE_QUICK_START_TWO_MODES !== 'false';
 
-function buildStorePlannedStepsFromRegistry() {
+function buildStorePlannedStepsFromRegistry(params = {}) {
+  const catalogMode = params?.catalogMode ?? params?.catalogGenerationProfile?.catalogMode;
+  const isServiceCatalog = catalogMode === 'services';
   return [
     { tool: 'research', label: 'Analysing store input', priority: 'required' },
-    { tool: 'catalog', label: 'Building product catalogue', priority: 'required' },
+    {
+      tool: 'catalog',
+      label: isServiceCatalog ? 'Building service catalog' : 'Building product catalogue',
+      priority: 'required',
+    },
     { tool: 'web_scrape_store_images', label: 'Finding real store images', priority: 'required' },
     { tool: 'business_image_enrich', label: 'Enriching image keywords', priority: 'required' },
     { tool: 'media', label: 'Generating store visuals', priority: 'required' },
-    { tool: 'copy', label: 'Writing product descriptions', priority: 'optional' },
+    {
+      tool: 'copy',
+      label: isServiceCatalog ? 'Writing service descriptions' : 'Writing product descriptions',
+      priority: 'optional',
+    },
   ];
+}
+
+function resolveCatalogReadyLabel(params) {
+  const label = params?.catalogLabel ?? params?.catalogGenerationProfile?.catalogLabel;
+  if (label && String(label).trim()) return String(label).trim();
+  const mode = params?.catalogMode ?? params?.catalogGenerationProfile?.catalogMode;
+  return mode === 'services' ? 'Services' : 'Catalog';
 }
 
 function resolveMilestoneBusinessName(params, input) {
@@ -350,15 +429,65 @@ function resolveCatalogItemTarget(params) {
  */
 async function buildCatalogForStoreReactStep(missionId, params, input) {
   const { buildCatalogFromPreloadedItems, sanitizePreloadedCatalogItems } = await import('./preloadedCatalogFromItems.js');
+
+  if (shouldRunStoreCreationResearch(params, input)) {
+    const researchFields = (
+      await import('../../lib/storeCreationResearch/researchInputFields.js')
+    ).resolveStoreResearchInputFields(
+      { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId: missionId ?? null },
+      input,
+    );
+    const research = await runStoreCreationResearch(
+      {
+        ...researchFields,
+        socialLinks: researchFields.socialLinks ?? input?.socialLinks ?? params.socialLinks ?? null,
+        ocrText: input?.ocrRawText ?? input?.ocrText ?? null,
+      },
+      { prisma },
+    );
+    const researchCatalog = resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems);
+    if (researchCatalog) {
+      const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[buildCatalogForStoreReactStep] using research catalog', {
+          missionId,
+          itemCount: finalized.products?.length ?? 0,
+          confidence: research.confidence,
+          businessType: research.businessProfile?.businessType,
+          fallbackToGenerated: research.fallbackToGenerated,
+        });
+      }
+      return { catalog: finalized, fromPreload: false, fromResearch: true, research };
+    }
+    if (process.env.NODE_ENV !== 'production' && research.researchRan) {
+      console.log('[STORE_RESEARCH_FALLBACK_USED]', {
+        missionId,
+        reason: research.fallbackToGenerated ? 'fallback_flag' : 'no_catalog_products',
+        confidence: research.confidence,
+        sourceCount: research.sourcesUsed?.length ?? 0,
+      });
+    }
+  }
+
   let pre = null;
+  let missionResearch = null;
   if (missionId) {
     const mrow = await prisma.mission
       .findUnique({ where: { id: missionId }, select: { context: true } })
       .catch(() => null);
     const ctx = mrow?.context && typeof mrow.context === 'object' ? mrow.context : {};
+    missionResearch =
+      ctx.storeCreationResearch && typeof ctx.storeCreationResearch === 'object'
+        ? ctx.storeCreationResearch
+        : null;
     const fromMission = ctx.preloadedCatalogItems;
     if (Array.isArray(fromMission) && fromMission.length > 0) {
       pre = sanitizePreloadedCatalogItems(fromMission) ?? fromMission;
+    }
+    if ((!Array.isArray(pre) || pre.length === 0) && missionResearch?.extractedServices?.length) {
+      if (missionResearch.fallbackToGenerated !== true) {
+        pre = sanitizePreloadedCatalogItems(missionResearch.extractedServices) ?? missionResearch.extractedServices;
+      }
     }
   }
   if ((!Array.isArray(pre) || pre.length === 0) && Array.isArray(input?.preloadedCatalogItems) && input.preloadedCatalogItems.length > 0) {
@@ -374,15 +503,89 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       null;
     const inferredCur = inferCurrencyFromLocationText(params?.location ?? input?.location ?? '') || null;
     const currencyCode = fromInputCur || fromParamsCur || inferredCur || 'AUD';
+    const researchBusinessType =
+      missionResearch?.businessKind ??
+      missionResearch?.businessProfile?.businessType ??
+      params.canonicalBusinessType ??
+      params.businessType ??
+      input?.businessType ??
+      null;
     const catalog = buildCatalogFromPreloadedItems(pre, {
       businessName: params.businessName ?? input?.businessName ?? '',
       verticalSlug: params.verticalSlug ?? input?.vertical ?? null,
       currencyCode,
+      businessType: researchBusinessType,
     });
-    return { catalog, fromPreload: true };
+    const fromResearchPreload = Boolean(missionResearch?.extractedServices?.length);
+    if (fromResearchPreload) {
+      const researchStub = {
+        businessProfile: missionResearch.businessProfile ?? null,
+        confidence: missionResearch.confidence,
+      };
+      return {
+        catalog: finalizeResearchCatalogForDraft(
+          {
+            ...catalog,
+            profile: {
+              ...(catalog.profile ?? {}),
+              businessProfile: missionResearch.businessProfile ?? catalog.profile?.businessProfile,
+            },
+          },
+          researchStub,
+          params,
+        ),
+        fromPreload: true,
+        fromResearch: true,
+        research: researchStub,
+      };
+    }
+    return { catalog, fromPreload: true, fromResearch: false };
   }
+
   const catalog = await buildCatalog(params);
   return { catalog, fromPreload: false };
+}
+
+function resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems) {
+  if (!research?.researchRan || research.fallbackToGenerated) return null;
+  if (research.catalog?.products?.length) {
+    return research.catalog;
+  }
+  const rawItems =
+    research.extractedItems ??
+    research.facts?.services ??
+    research.facts?.menuItems ??
+    research.facts?.products ??
+    [];
+  if (!Array.isArray(rawItems) || !rawItems.length) return null;
+  const fromInputCur =
+    (input?.currencyCode != null && String(input.currencyCode).trim() && String(input.currencyCode).trim().toUpperCase()) ||
+    (input?.currency != null && String(input.currency).trim() && String(input.currency).trim().toUpperCase()) ||
+    null;
+  const fromParamsCur =
+    (params?.currencyCode != null && String(params.currencyCode).trim() && String(params.currencyCode).trim().toUpperCase()) ||
+    null;
+  const inferredCur = inferCurrencyFromLocationText(params?.location ?? input?.location ?? '') || null;
+  const currencyCode = fromInputCur || fromParamsCur || inferredCur || 'AUD';
+  const catalog = buildCatalogFromPreloadedItems(rawItems, {
+    businessName: params.businessName ?? input?.businessName ?? '',
+    verticalSlug: params.verticalSlug ?? input?.vertical ?? null,
+    currencyCode,
+    businessType: params.businessType ?? input?.businessType ?? null,
+  });
+  catalog.meta = {
+    ...(catalog.meta ?? {}),
+    catalogSource: 'research',
+    researchConfidence: research.confidence,
+    aiGenerated: false,
+  };
+  if (research.businessProfile) {
+    catalog.profile = {
+      ...(catalog.profile ?? {}),
+      businessProfile: research.businessProfile,
+    };
+  }
+  return catalog;
 }
 
 /** Map generation profile → ImageFillProfile shape for BusinessImageEnricher. */
@@ -661,7 +864,20 @@ export async function createDraft({ mode, input, meta = {} }) {
  * @param {{ includeImages: boolean }} params - for preview.meta
  */
 async function saveDraftBase(draftId, catalog, params) {
-  const { profile, categories, products, meta } = catalog;
+  let workingCatalog = catalog;
+  if (isResearchCatalogSource(catalog?.meta)) {
+    workingCatalog = finalizeResearchCatalogForDraft(
+      catalog,
+      {
+        businessProfile: catalog.profile?.businessProfile ?? params?.businessProfile ?? null,
+        confidence: catalog.meta?.researchConfidence ?? params?.bslConfidence,
+      },
+      params,
+    );
+  }
+  const { profile, categories, products, meta } = workingCatalog;
+  const isResearch = isResearchCatalogSource(meta);
+  const businessProfile = profile?.businessProfile ?? params?.businessProfile ?? meta?.businessProfile ?? null;
   const existingRow = await prisma.draftStore.findUnique({
     where: { id: draftId },
     select: { preview: true },
@@ -690,7 +906,7 @@ async function saveDraftBase(draftId, catalog, params) {
       });
   const preview = {
     storeName: profile.name,
-    storeType: profile.type,
+    storeType: businessProfile?.businessType ?? profile.type,
     slogan: profile.tagline,
     categories: Array.isArray(categories) ? categories : [],
     items: Array.isArray(products) ? products : [],
@@ -702,6 +918,11 @@ async function saveDraftBase(draftId, catalog, params) {
     tagline: profile.tagline,
     heroText: profile.heroText,
     stylePreferences: profile.stylePreferences,
+    ...(businessProfile ? { businessProfile, canonicalBusinessType: businessProfile.businessType } : {}),
+    ...(isResearch && businessProfile?.catalogMode ? { catalogMode: businessProfile.catalogMode } : {}),
+    ...(isResearch && businessProfile?.presentation?.catalogLabel
+      ? { catalogLabel: businessProfile.presentation.catalogLabel }
+      : {}),
     ...(prevPreview.hero && typeof prevPreview.hero === 'object' ? { hero: { ...prevPreview.hero } } : {}),
     ...(typeof prevPreview.heroImageUrl === 'string' && prevPreview.heroImageUrl.trim()
       ? { heroImageUrl: prevPreview.heroImageUrl.trim() }
@@ -716,13 +937,38 @@ async function saveDraftBase(draftId, catalog, params) {
       ...(meta && typeof meta === 'object' ? meta : {}),
       catalogSource: meta.catalogSource || 'template',
       includeImages: params.includeImages !== false,
+      businessType:
+        businessProfile?.businessType ??
+        params.canonicalBusinessType ??
+        meta.businessType ??
+        params.catalogGenerationProfile?.businessType,
+      catalogMode:
+        businessProfile?.catalogMode ??
+        params.catalogMode ??
+        meta.catalogMode ??
+        params.catalogGenerationProfile?.catalogMode,
+      catalogLabel:
+        businessProfile?.presentation?.catalogLabel ??
+        params.catalogLabel ??
+        meta.catalogLabel ??
+        params.catalogGenerationProfile?.catalogLabel,
+      generatedContentProfile:
+        params.generatedContentProfile ??
+        meta.generatedContentProfile ??
+        params.catalogGenerationProfile?.generatedContentProfile,
+      primaryCTA:
+        businessProfile?.presentation?.primaryCTA ??
+        params.primaryCTA ??
+        meta.primaryCTA ??
+        params.catalogGenerationProfile?.primaryCTA,
+      ...(businessProfile ? { businessProfile } : {}),
     },
     storefront: {
       ...prevStorefront,
       cta,
     },
   };
-  if (isDraftGuardsEnabled()) {
+  if (isDraftGuardsEnabled() && !isResearch) {
     const effectiveVerticalType = effectiveVertical(profile.type, params.businessType);
     applyNameGuards(preview.items, effectiveVerticalType, preview.categories);
   }
@@ -1380,7 +1626,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
           }
           await stepReporter.completed('catalog').catch(() => {});
           await appendReasoningLogLine(missionId, '✓ Profile generated', emitCtx);
-          await appendReasoningLogLine(missionId, '✓ Product catalogue ready', emitCtx);
+          await appendReasoningLogLine(missionId, `✓ ${resolveCatalogReadyLabel(catalogParams)} ready`, emitCtx);
 
           await stepReporter.started('media').catch(() => {});
           await runFinalizeDraftChecked(
@@ -1426,7 +1672,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
           await appendReasoningLogLine(missionId, '🧠 Cardbey is thinking…', emitCtx);
           await executeWithReAct(
             missionPlan,
-            buildStorePlannedStepsFromRegistry(),
+            buildStorePlannedStepsFromRegistry(params),
             bb,
             businessContext,
             async (tool, hint) => {
@@ -1453,29 +1699,70 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
                   emitCtx
                 );
                 await stepReporter.started('catalog').catch(() => {});
-                const { catalog: builtCatalog, fromPreload } = await buildCatalogForStoreReactStep(
-                  missionId,
-                  params,
-                  input,
-                );
+                const {
+                  catalog: builtCatalog,
+                  fromPreload,
+                  fromResearch,
+                  research,
+                } = await buildCatalogForStoreReactStep(missionId, params, input);
                 catalogState.catalog = builtCatalog;
-                await saveDraftBase(draftId, catalogState.catalog, params);
+                const catalogParams =
+                  fromResearch && research
+                    ? mergeResearchBusinessProfileIntoParams(params, research, builtCatalog)
+                    : params;
+                await saveDraftBase(draftId, catalogState.catalog, catalogParams);
                 if (typeof emitContextUpdate === 'function' && catalogState.catalog?.products?.length) {
                   const products = catalogState.catalog.products.map((p) => ({
                     id: p.id,
                     productId: p.productId,
                     name: p?.name ?? p?.title ?? null,
                   }));
-                  await emitContextUpdate({ entities: { products } }).catch(() => {});
+                  await emitContextUpdate({
+                    entities: { products, draftId },
+                    draftId,
+                  }).catch(() => {});
                 }
                 bb.write('generatedProducts', catalogState.catalog?.products ?? []);
                 if (fromPreload) {
                   bb.write('catalogSource', 'user_upload');
                   bb.write('catalogItems', catalogState.catalog?.products ?? []);
                 }
+                if (fromResearch && research && missionId) {
+                  bb.write('catalogSource', 'research');
+                  bb.write('catalogItems', catalogState.catalog?.products ?? []);
+                  const {
+                    emitStoreResearchReviewArtifact,
+                    buildStoreResearchReviewArtifactPayload,
+                  } = await import('../storeCreationResearch/storeResearchReviewService.js');
+                  const mrow = await prisma.mission
+                    .findUnique({ where: { id: missionId }, select: { context: true } })
+                    .catch(() => null);
+                  const persistedResearch =
+                    mrow?.context?.storeCreationResearch && typeof mrow.context.storeCreationResearch === 'object'
+                      ? mrow.context.storeCreationResearch
+                      : null;
+                  if (persistedResearch && persistedResearch.ownerConfirmed !== true) {
+                    const hasReviewPayload =
+                      persistedResearch.ownerReviewRequired ||
+                      (Array.isArray(persistedResearch.extractedServices) &&
+                        persistedResearch.extractedServices.length > 0) ||
+                      (persistedResearch.researchDebugger &&
+                        typeof persistedResearch.researchDebugger === 'object');
+                    if (hasReviewPayload) {
+                      await emitStoreResearchReviewArtifact(
+                        missionId,
+                        buildStoreResearchReviewArtifactPayload(missionId, persistedResearch, { draftId }),
+                      );
+                    }
+                  }
+                }
                 await stepReporter.completed('catalog').catch(() => {});
                 await appendReasoningLogLine(missionId, '✓ Profile generated', emitCtx);
-                await appendReasoningLogLine(missionId, '✓ Product catalogue ready', emitCtx);
+                await appendReasoningLogLine(
+                  missionId,
+                  `✓ ${resolveCatalogReadyLabel(catalogParams)} ready`,
+                  emitCtx,
+                );
                 return;
               }
               if (tool === 'web_scrape_store_images') {
@@ -1627,8 +1914,10 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
         emitCtx
       );
     }
-    const { catalog } = await buildCatalogForStoreReactStep(missionId, params, input);
-    await saveDraftBase(draftId, catalog, params);
+    const { catalog, fromResearch, research } = await buildCatalogForStoreReactStep(missionId, params, input);
+    const catalogParams =
+      fromResearch && research ? mergeResearchBusinessProfileIntoParams(params, research, catalog) : params;
+    await saveDraftBase(draftId, catalog, catalogParams);
     const emitContextUpdate = options.emitContextUpdate;
     if (typeof emitContextUpdate === 'function' && catalog?.products?.length) {
       const products = catalog.products.map((p) => ({
@@ -1640,7 +1929,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
     }
     await stepReporter.completed('catalog').catch(() => {});
     await appendReasoningLogLine(missionId, '✓ Profile generated', emitCtx);
-    await appendReasoningLogLine(missionId, '✓ Product catalogue ready', emitCtx);
+    await appendReasoningLogLine(missionId, `✓ ${resolveCatalogReadyLabel(catalogParams)} ready`, emitCtx);
 
     await stepReporter.started('media').catch(() => {});
     await runFinalizeDraftChecked(
@@ -1695,7 +1984,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
     await appendReasoningLogLine(missionId, '🧠 Cardbey is thinking…', emitCtx);
     await executeWithReAct(
       missionPlan,
-      buildStorePlannedStepsFromRegistry(),
+      buildStorePlannedStepsFromRegistry(params),
       bb,
       businessContext,
       async (tool, hint) => {
@@ -1712,13 +2001,18 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
         }
         if (tool === 'catalog') {
           await stepReporter.started('catalog').catch(() => {});
-          const { catalog: builtCatalogOuter, fromPreload: fromPreloadOuter } = await buildCatalogForStoreReactStep(
-            missionId,
-            params,
-            input,
-          );
+          const {
+            catalog: builtCatalogOuter,
+            fromPreload: fromPreloadOuter,
+            fromResearch: fromResearchOuter,
+            research: researchOuter,
+          } = await buildCatalogForStoreReactStep(missionId, params, input);
           catalogState.catalog = builtCatalogOuter;
-          await saveDraftBase(draftId, catalogState.catalog, params);
+          const catalogParamsOuter =
+            fromResearchOuter && researchOuter
+              ? mergeResearchBusinessProfileIntoParams(params, researchOuter, builtCatalogOuter)
+              : params;
+          await saveDraftBase(draftId, catalogState.catalog, catalogParamsOuter);
           if (typeof emitContextUpdate === 'function' && catalogState.catalog?.products?.length) {
             const products = catalogState.catalog.products.map((p) => ({
               id: p.id,
@@ -1728,13 +2022,21 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
             await emitContextUpdate({ entities: { products } }).catch(() => {});
           }
           bb.write('generatedProducts', catalogState.catalog?.products ?? []);
-          if (fromPreloadOuter) {
+          if (fromPreloadOuter && !fromResearchOuter) {
             bb.write('catalogSource', 'user_upload');
+            bb.write('catalogItems', catalogState.catalog?.products ?? []);
+          }
+          if (fromResearchOuter && researchOuter) {
+            bb.write('catalogSource', 'research');
             bb.write('catalogItems', catalogState.catalog?.products ?? []);
           }
           await stepReporter.completed('catalog').catch(() => {});
           await appendReasoningLogLine(missionId, '✓ Profile generated', emitCtx);
-          await appendReasoningLogLine(missionId, '✓ Product catalogue ready', emitCtx);
+          await appendReasoningLogLine(
+            missionId,
+            `✓ ${resolveCatalogReadyLabel(catalogParamsOuter)} ready`,
+            emitCtx,
+          );
           return;
         }
         if (tool === 'web_scrape_store_images') {

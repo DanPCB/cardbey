@@ -152,6 +152,7 @@ model Business {
   // Relations
   products    Product[]
   bookings    Booking[]
+  quoteRequests QuoteRequest[]
   productVariants ProductVariant[]
   warehouses  Warehouse[]
   inventoryItems InventoryItem[]
@@ -221,6 +222,35 @@ model Booking {
   @@index([storeId, date])
   @@index([storeId, status])
   @@index([date, timeSlot])
+}
+
+model QuoteRequest {
+  id              String   @id @default(cuid())
+  storeId         String
+  serviceId       String?
+  customerId      String?
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  description     String
+  address         String?
+  preferredDate   String?
+  uploadedFiles   Json?
+  approximateSize String?
+  budget          Float?
+  quoteAmount     Float?
+  quoteMessage    String?
+  status          String   @default("new") // new | reviewing | quoted | accepted | declined | completed
+  missionId       String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
 }
 
 /// Canonical published store projection (single source for public read surfaces).
@@ -338,6 +368,7 @@ model Product {
   bookingEnabled Boolean?
   purchaseEnabled Boolean?
   primaryAction  String?  // book | add_to_cart | enquire
+  serviceCatalog Json?   // Service catalog metadata: serviceMode, pricingModel, fromPrice, etc.
   deletedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

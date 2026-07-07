@@ -7,6 +7,8 @@
  * - Template mode hard-fails if templateId is missing or invalid (caller must validate).
  */
 
+import { resolveStoreCreationClassification } from './resolveStoreCreationClassification.js';
+
 /**
  * @param {Record<string, any>} input - Raw draft.input (from API or orchestra)
  * @param {{ draftMode?: string }} [opts] - draft.mode when input.mode is absent (e.g. orchestra sets draft.mode = 'ai')
@@ -52,6 +54,8 @@ export function resolveGenerationParams(input, opts = {}) {
       : (raw.includeImages !== false);
   const vertical = raw.vertical != null ? String(raw.vertical).trim() : (raw.businessType || raw.storeType) ? String(raw.businessType || raw.storeType).trim() : undefined;
 
+  const classificationBundle = resolveStoreCreationClassification(raw);
+
   return {
     mode,
     templateId: mode === 'template' ? templateId : undefined,
@@ -65,6 +69,18 @@ export function resolveGenerationParams(input, opts = {}) {
     businessType: raw.businessType != null ? String(raw.businessType).trim() : undefined,
     storeType: raw.storeType != null ? String(raw.storeType).trim() : undefined,
     location: raw.location != null ? String(raw.location) : undefined,
+    website:
+      raw.website != null && String(raw.website).trim()
+        ? String(raw.website).trim()
+        : raw.websiteUrl != null && String(raw.websiteUrl).trim()
+          ? String(raw.websiteUrl).trim()
+          : undefined,
+    websiteUrl:
+      raw.websiteUrl != null && String(raw.websiteUrl).trim()
+        ? String(raw.websiteUrl).trim()
+        : raw.website != null && String(raw.website).trim()
+          ? String(raw.website).trim()
+          : undefined,
     currencyCode:
       raw.currencyCode != null && String(raw.currencyCode).trim()
         ? String(raw.currencyCode).trim().toUpperCase()
@@ -76,7 +92,13 @@ export function resolveGenerationParams(input, opts = {}) {
     ocrRawText: raw.ocrRawText,
     photoDataUrl: raw.photoDataUrl,
     intent: raw.intent != null ? String(raw.intent).trim() : undefined,
-    classificationProfile: raw.classificationProfile != null ? raw.classificationProfile : undefined,
-    generationProfile: raw.generationProfile != null ? raw.generationProfile : raw.classificationProfile,
+    classificationProfile: classificationBundle.classificationProfile,
+    generationProfile: classificationBundle.generationProfile,
+    catalogGenerationProfile: classificationBundle.catalogGenerationProfile,
+    canonicalBusinessType: classificationBundle.classification.businessType,
+    catalogMode: classificationBundle.classification.catalogMode,
+    catalogLabel: classificationBundle.classification.catalogLabel,
+    primaryCTA: classificationBundle.classification.primaryCTA,
+    generatedContentProfile: classificationBundle.classification.generatedContentProfile,
   };
 }

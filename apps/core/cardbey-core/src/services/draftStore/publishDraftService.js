@@ -14,6 +14,7 @@ import { hasBusinessColumn } from '../../lib/businessColumnCapabilities.js';
 import { resolveContactFieldsForPublish } from './storeContactIntake.js';
 import { resolveStoreCommerce } from '../../lib/storeTransactionMode.js';
 import { classifyBusinessVertical } from '../../lib/classifyBusinessVertical.js';
+import { createAndPersistBusinessProfile } from '../../lib/businessSemantic/index.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
 import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
 import {
@@ -727,11 +728,30 @@ export async function publishDraft(prisma, {
     businessVertical: commerce.businessVertical ?? rawPreview.businessVertical ?? null,
     commerceMode: commerce.commerceVerticalMode ?? rawPreview.commerceVerticalMode ?? null,
   });
+  const bslPersisted = createAndPersistBusinessProfile(
+    {
+      storeId: effectiveStoreId ?? null,
+      businessName: storeName,
+      storeName,
+      businessType: storeType,
+      category: rawPreview.meta?.storeType ?? storeType,
+      description: storeDescription,
+      items: rawPreview.items,
+    },
+    { existingSettings: existingStorefrontSettings },
+  );
   const storefrontSettings = {
+    ...bslPersisted.storefrontSettings,
     ...mergedStorefront,
+    businessProfile: bslPersisted.profile,
     commerceMode: commerce.commerceMode,
     businessVertical: classification.businessVertical,
     commerceVerticalMode: classification.commerceMode,
+    businessType: commerce.businessType ?? rawPreview.businessType ?? null,
+    catalogMode: commerce.catalogMode ?? rawPreview.catalogMode ?? null,
+    generatedContentProfile:
+      commerce.generatedContentProfile ?? rawPreview.generatedContentProfile ?? null,
+    primaryCTA: commerce.primaryCTA ?? rawPreview.primaryCTA ?? null,
     defaultView: (mergedStorefront.defaultView === 'list' || mergedStorefront.defaultView === 'grid')
       ? mergedStorefront.defaultView
       : 'grid',

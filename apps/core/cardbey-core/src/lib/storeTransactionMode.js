@@ -11,6 +11,8 @@ import {
   resolveItemCommerceModeFromClassification,
 } from './catalog/catalogItemClassification.js';
 import { classifyBusinessVertical } from './classifyBusinessVertical.js';
+import { getStoreCatalogPresentation, shouldOverrideStoredCatalogLabel } from './catalog/catalogPresentation.js';
+import { buildCatalogGenerationProfile } from './catalog/buildCatalogGenerationProfile.js';
 
 export const COMMERCE_MODES = ['booking', 'order', 'inquiry'];
 
@@ -232,16 +234,38 @@ export function resolveStoreCommerce(input = {}) {
     else if (hasOrder && !hasBooking) commerceMode = 'order';
   }
 
+  const catalogProfile = buildCatalogGenerationProfile({
+    businessName,
+    businessType,
+    category: input.category ?? null,
+    items: input.items,
+  });
+  const presentation = getStoreCatalogPresentation(
+    {
+      name: businessName,
+      type: businessType,
+      catalogLabel: input.catalogLabel,
+      catalogMode: input.catalogMode ?? catalogProfile.catalogMode,
+    },
+    input.items,
+  );
+
   const resolved = resolveCommerceFromMode(commerceMode, businessType, {
-    ctaLabel: input.ctaLabel,
-    ctaAction: input.ctaAction,
-    catalogLabel: input.catalogLabel,
+    ctaLabel: input.ctaLabel ?? catalogProfile.ctaLabel,
+    ctaAction: input.ctaAction ?? catalogProfile.ctaAction,
+    catalogLabel: shouldOverrideStoredCatalogLabel(input.catalogLabel, presentation.catalogLabel)
+      ? presentation.catalogLabel
+      : input.catalogLabel,
     businessName,
     category: input.category ?? null,
   });
-  if (!input.catalogLabel?.trim()) {
-    resolved.catalogLabel = inferCatalogSectionLabel(businessType, commerceMode, businessName);
+  if (!input.catalogLabel?.trim() || shouldOverrideStoredCatalogLabel(input.catalogLabel, presentation.catalogLabel)) {
+    resolved.catalogLabel = presentation.catalogLabel;
   }
+  resolved.businessType = catalogProfile.businessType;
+  resolved.catalogMode = catalogProfile.catalogMode;
+  resolved.generatedContentProfile = catalogProfile.generatedContentProfile;
+  resolved.primaryCTA = catalogProfile.primaryCTA;
   return resolved;
 }
 
