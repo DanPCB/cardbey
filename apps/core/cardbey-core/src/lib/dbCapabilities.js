@@ -5,6 +5,8 @@
 
 import { isServiceBusinessContext } from './catalog/catalogItemClassification.js';
 import { classifyBusinessVertical } from './classifyBusinessVertical.js';
+import { getStoreCatalogPresentation, shouldOverrideStoredCatalogLabel } from './catalog/catalogPresentation.js';
+import { extractBusinessProfile } from './businessSemantic/index.js';
 import { coerceServiceCtaLabel, isServiceVertical, inferCatalogSectionLabel } from './storeTransactionMode.js';
 import { hasBusinessColumn } from './businessColumnCapabilities.js';
 import { getDbCapabilities, resolveDbProvider } from './persistence/dbCapabilityRegistry.js';
@@ -164,13 +166,35 @@ export function publicCommerceFields(business, pub = {}) {
       isServiceBusinessContext({ type, name }));
   const rawCta = business?.ctaLabel ?? pub.ctaLabel ?? null;
   const commerceMode = isService ? 'booking' : transactionMode === 'order' ? 'order' : 'inquiry';
+  const presentation = getStoreCatalogPresentation(
+    {
+      name,
+      type,
+      catalogLabel: business?.catalogLabel ?? pub.catalogLabel,
+      category: settings.category ?? pub.category ?? null,
+      storefrontSettings: settings,
+    },
+    pub.products ?? business?.products,
+  );
+  const businessProfile =
+    extractBusinessProfile(settings) ?? presentation.businessProfile ?? null;
+  const storedCatalogLabel = business?.catalogLabel ?? pub.catalogLabel ?? null;
+  const catalogLabel = shouldOverrideStoredCatalogLabel(storedCatalogLabel, presentation.catalogLabel)
+    ? presentation.catalogLabel
+    : storedCatalogLabel ?? presentation.catalogLabel ?? inferCatalogSectionLabel(type, commerceMode, name);
   return {
     transactionMode: isService ? 'booking' : transactionMode,
-    catalogLabel:
-      business?.catalogLabel ??
-      pub.catalogLabel ??
-      classification.catalogLabel ??
-      inferCatalogSectionLabel(type, commerceMode, name),
+    catalogLabel,
+    businessType: presentation.businessType,
+    catalogMode: presentation.catalogMode,
+    generatedContentProfile: presentation.generatedContentProfile,
+    primaryCTA: presentation.primaryCTA,
+    businessProfile,
+    capabilities: businessProfile?.capabilities ?? presentation.capabilities ?? null,
+    runtimeProfile: businessProfile?.runtimeProfile ?? presentation.runtimeProfile ?? null,
+    dashboardWidgets: businessProfile?.metadata?.dashboardWidgets ?? presentation.dashboardWidgets ?? [],
+    performerRecommendations:
+      businessProfile?.metadata?.performerRecommendations ?? presentation.performerRecommendations ?? [],
     ctaLabel: coerceServiceCtaLabel({
       businessType: type,
       transactionMode: isService ? 'booking' : transactionMode,

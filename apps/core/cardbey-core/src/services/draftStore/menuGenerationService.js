@@ -65,9 +65,14 @@ export async function generateVerticalLockedMenu(params) {
     ? `
 
 This is a ${businessTypeLabel} business. ${catalogTargetPrompt}
-Focus on professional bookable SERVICES (not physical products).
-Each service needs: name, description, price, category. Categories should be service types (e.g. Haircuts, Treatments, Packages).
-Do NOT generate retail products, food items, or merchandise — only services a customer would book an appointment for.`
+Focus on professional SERVICES (not physical retail products).
+Each service needs: name, description, category, and appropriate pricing:
+- Fixed bookable services (haircut, nails, massage, cleaning package, inspection fee): include exact price and durationMinutes.
+- Quote-required services (tiling, flooring, renovation, plumbing, painting, construction): use fromPrice with priceUnit (m2, hour, project) — never fake a fixed total price.
+Use serviceMode "fixed_booking" or "quote_required" on each item.
+Categories should be service types (e.g. Book Services, Request a Quote).
+Do NOT use "Add to cart" language — use Book now or Request quote CTAs only.
+Do NOT generate retail products, food items, or merchandise.`
     : `
 
 This is a ${businessTypeLabel} business. Generate only products or services appropriate for this category.

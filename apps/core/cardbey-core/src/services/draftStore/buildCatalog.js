@@ -26,6 +26,11 @@ import {
   dedupeCatalogProductsByName,
   normalizeCatalogProductName,
 } from '../../lib/persistence/catalogDedupe.js';
+import {
+  applyCatalogProfileToItems,
+  buildCatalogGenerationProfile,
+  buildCategoriesFromProfile,
+} from '../../lib/catalog/buildCatalogGenerationProfile.js';
 
 function tsModuleUnavailable(name) {
   const e = new Error(`${name} unavailable in plain Node runtime. Run server with tsx or add build step to compile TS.`);
@@ -267,6 +272,15 @@ export async function buildFromTemplate(params) {
     price: p.price ?? null,
     categoryId: '', // assigned below
     imageUrl: null,
+    ...(p.serviceMode ? { serviceMode: p.serviceMode } : {}),
+    ...(p.pricingModel ? { pricingModel: p.pricingModel } : {}),
+    ...(p.fromPrice != null ? { fromPrice: p.fromPrice } : {}),
+    ...(p.priceUnit ? { priceUnit: p.priceUnit } : {}),
+    ...(p.durationMinutes != null ? { durationMinutes: p.durationMinutes } : {}),
+    ...(p.estimateDurationLabel ? { estimateDurationLabel: p.estimateDurationLabel } : {}),
+    ...(p.isGallery ? { isGallery: true } : {}),
+    type: p.isGallery ? 'service' : undefined,
+    kind: p.isGallery ? 'service' : undefined,
   }));
 
   const menuResult = getMenuCategoriesAndAssignments(products, profile.type || '');
@@ -682,6 +696,48 @@ export async function buildCatalog(params) {
       result.products = deduped.products;
     }
   }
+
+  const catalogProfile =
+    params.catalogGenerationProfile ??
+    params.generationProfile ??
+    buildCatalogGenerationProfile({
+      businessName: params.businessName,
+      businessType: params.businessType ?? params.storeType,
+      prompt: params.prompt,
+      location: params.location,
+      items: result?.products,
+    });
+  if (result?.products?.length) {
+    result.products = applyCatalogProfileToItems(result.products, catalogProfile, {
+      businessType: params.businessType ?? params.storeType,
+      businessName: params.businessName,
+    });
+    console.log(
+      '[catalog_items_generated]',
+      JSON.stringify({
+        businessType: catalogProfile.businessType,
+        itemCount: result.products.length,
+        catalogLabel: catalogProfile.catalogLabel,
+      }),
+    );
+  }
+  if (
+    catalogProfile.suggestedSubcategories?.length &&
+    (!Array.isArray(result.categories) || result.categories.length <= 1)
+  ) {
+    result.categories = buildCategoriesFromProfile(
+      catalogProfile.suggestedSubcategories,
+      `cat_${params.draftId ?? 'gen'}`,
+    );
+  }
+  result.meta = {
+    ...(result.meta ?? {}),
+    businessType: catalogProfile.businessType,
+    catalogMode: catalogProfile.catalogMode,
+    catalogLabel: catalogProfile.catalogLabel,
+    generatedContentProfile: catalogProfile.generatedContentProfile,
+    primaryCTA: catalogProfile.primaryCTA,
+  };
 
   const itemCount = (result?.products || []).length;
   if (process.env.NODE_ENV !== 'production') {

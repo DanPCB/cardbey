@@ -150,8 +150,11 @@ export function buildSeedCatalog(profile, opts = {}) {
   if (group === 'food' || model === 'food') {
     return buildFoodSeed(profile, targetCount);
   }
-  if (group === 'retail' || model === 'retail' || group === 'fashion' || group === 'beauty') {
+  if (group === 'retail' || model === 'retail' || group === 'fashion') {
     return buildRetailSeed(profile, targetCount);
+  }
+  if (group === 'beauty' || model === 'beauty' || slug.startsWith('beauty.')) {
+    return buildServicesSeed(profile, targetCount);
   }
   return buildServicesSeed(profile, targetCount);
 }

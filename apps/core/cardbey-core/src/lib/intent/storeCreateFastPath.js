@@ -96,6 +96,32 @@ function normalizeExactPhrase(text) {
 }
 
 /**
+ * @param {string} text
+ */
+function escapeRegex(text) {
+  return String(text ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * True when the message is a generic create-store/website request with no embedded business name.
+ * Stricter than matchExactStoreCreatePhrase (no substring includes).
+ *
+ * @param {string} userMessage
+ */
+export function isBareStoreCreateRequest(userMessage) {
+  const normalized = normalizeExactPhrase(userMessage);
+  if (!normalized) return false;
+
+  const phrases = [...EXACT_STORE_PHRASES, ...EXACT_WEBSITE_PHRASES];
+  for (const phrase of phrases) {
+    if (normalized === phrase) return true;
+    const withLocation = new RegExp(`^${escapeRegex(phrase)}\\s+in\\s+[a-z0-9\\s'.-]+$`);
+    if (withLocation.test(normalized)) return true;
+  }
+  return false;
+}
+
+/**
  * @param {string} userMessage
  */
 export function matchExactStoreCreatePhrase(userMessage) {

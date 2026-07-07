@@ -7,6 +7,7 @@ import { FASHION_KEYWORDS } from './draftQaAgent.js';
 import { GENERIC_NAME_REGEX, effectiveVertical } from '../draftStore/draftGuards.js';
 import { buildSeedCatalog } from '../store/seeds/seedCatalogBuilder.js';
 import { recomputeDraftCategoriesFromItems } from '../../lib/draftCategoryUtils.js';
+import { isResearchBackedPreview } from '../draftStore/researchCatalogDraft.js';
 
 const MIN_DESCRIPTION_LEN = 12;
 const MIN_TAGLINE_LEN = 8;
@@ -278,6 +279,7 @@ function ensurePreviewItems(preview) {
  */
 export function planDraftCatalogQaTier2Fixes(preview, input = {}, params = {}) {
   if (!preview || typeof preview !== 'object') return [];
+  if (skipCatalogQaForResearch(preview)) return [];
   const audit = auditDraftCatalogQa(preview, {
     ...input,
     verticalSlug: params.verticalSlug ?? input.verticalSlug,
@@ -369,10 +371,17 @@ export function planDraftCatalogQaTier2Fixes(preview, input = {}, params = {}) {
   });
 }
 
+function skipCatalogQaForResearch(preview) {
+  return isResearchBackedPreview(preview);
+}
+
 /**
  * Tier 1 — safe additive repairs only (missing schema defaults, empty copy, absent hero tags).
  */
 export function applyDraftCatalogQaTier1AutoRepair(preview, input = {}, params = {}) {
+  if (skipCatalogQaForResearch(preview)) {
+    return { preview, autoFixed: [], repairedProductCount: 0 };
+  }
   if (!preview || typeof preview !== 'object') {
     return { preview, autoFixed: [], repairedProductCount: 0 };
   }
@@ -453,6 +462,9 @@ export function applyDraftCatalogQaTier1AutoRepair(preview, input = {}, params =
  */
 export function applyDraftCatalogQaTier2Fixes(preview, input = {}, params = {}, opts = {}) {
   if (!preview || typeof preview !== 'object') {
+    return { preview, autoFixed: [], repairedProductCount: 0 };
+  }
+  if (skipCatalogQaForResearch(preview)) {
     return { preview, autoFixed: [], repairedProductCount: 0 };
   }
 

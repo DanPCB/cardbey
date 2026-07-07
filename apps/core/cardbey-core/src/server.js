@@ -57,6 +57,7 @@ Promise.resolve().then(() => {
     dotenvLoaded: true,
     OPENAI_API_KEY: !!process.env.OPENAI_API_KEY ? 'present' : 'missing',
     ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY ? 'present' : 'missing',
+    GOOGLE_PLACES_API_KEY: !!process.env.GOOGLE_PLACES_API_KEY ? 'present' : 'missing',
     GUEST_MAX_DRAFTS: process.env.GUEST_MAX_DRAFTS != null ? 'set' : 'not set',
   };
   console.log('[env] generation-critical (post-loadEnv):', JSON.stringify(vars));
@@ -174,6 +175,7 @@ import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
 import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
+import { serviceCatalogPublicRoutes, quoteRequestOwnerRoutes } from './routes/serviceCatalogRoutes.js';
 import claimBusinessPublicRoutes from './routes/claimBusinessPublicRoutes.js';
 import activateBusinessPublicRoutes from './routes/activateBusinessPublicRoutes.js';
 import exploreRoutes from './routes/exploreRoutes.js';
@@ -998,6 +1000,7 @@ app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first
 app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
+app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owner quote request management
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
 app.use('/api/claim-business', claimBusinessPublicRoutes); // Dev proxy alias (/api → core)
 app.use('/activate-business', activateBusinessPublicRoutes);
@@ -1057,6 +1060,7 @@ app.use('/api/menu', menuRoutes); // Menu engine routes: /api/menu/configure-fro
 app.use('/api/catalog', catalogRoutes); // Catalog SAM-3 processing routes: /api/catalog/process, /api/catalog/reprocess-all
 app.use('/api/public/store', publicStoreRoutes); // Draft alias: GET /api/public/store/:storeId/draft (before /api/public)
 app.use('/api/public/stores', intentFeedRoutes); // Intent feed: GET /api/public/stores/:storeId/intent-feed (no auth)
+app.use('/api/public/stores', serviceCatalogPublicRoutes); // Service catalog + quote requests (public)
 app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public/store-engagement', storeEngagementRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar

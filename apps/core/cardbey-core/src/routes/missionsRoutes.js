@@ -699,6 +699,63 @@ router.post('/:missionId/retry', requireAuth, async (req, res, next) => {
   }
 });
 
+router.post('/:missionId/store-research/confirm', requireAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+    const access = await resolveAccessibleMission(req.user, missionId);
+    if (!access.ok) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found or access denied' });
+    }
+    const actionRaw = typeof req.body?.action === 'string' ? req.body.action.trim().toLowerCase() : '';
+    const action = actionRaw === 'reject_fallback' ? 'reject_fallback' : 'accept';
+    const services = Array.isArray(req.body?.services) ? req.body.services : undefined;
+    const { applyStoreResearchReviewDecision } = await import(
+      '../services/storeCreationResearch/storeResearchReviewService.js'
+    );
+    const result = await applyStoreResearchReviewDecision({ missionId, action, services });
+    if (!result.ok && result.reason === 'no_pending_research') {
+      return res.status(409).json({
+        ok: false,
+        error: 'no_pending_research',
+        message: 'No researched catalog is waiting for your review',
+      });
+    }
+    if (!result.ok && result.reason === 'already_confirmed') {
+      return res.status(409).json({
+        ok: false,
+        error: 'already_confirmed',
+        message: 'Research catalog was already accepted',
+      });
+    }
+    if (!result.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: result.error || 'store_research_confirm_failed',
+        message: result.message || result.error || 'Could not save your catalog review',
+      });
+    }
+    return res.json({
+      ok: true,
+      action: result.action,
+      accepted: result.accepted === true,
+      rejected: result.rejected === true,
+      serviceCount: result.serviceCount ?? null,
+    });
+  } catch (err) {
+    const message = err?.message || 'Could not save your catalog review';
+    console.error('[store-research/confirm] failed:', message);
+    return res.status(500).json({
+      ok: false,
+      error: message,
+      message,
+      retryable: true,
+    });
+  }
+});
+
 router.post('/:missionId/qa-fixes/approve', requireAuth, async (req, res, next) => {
   try {
     const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';

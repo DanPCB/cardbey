@@ -4,9 +4,16 @@
  */
 
 import { isServiceVertical, resolveCommerceMode } from '../storeTransactionMode.js';
+import {
+  enrichPublicServiceCatalogItem,
+  executionActionToPrimaryAction,
+  normalizeServiceCatalogItem,
+  toServiceCatalogJson,
+} from './serviceCatalogNormalizer.js';
 
 export const CATALOG_ITEM_TYPES = ['service', 'product', 'ticket', 'event', 'venue', 'package'];
 export const PRIMARY_ACTIONS = ['book', 'add_to_cart', 'enquire'];
+export { normalizeServiceCatalogItem, enrichPublicServiceCatalogItem, migrateServiceCatalogItems } from './serviceCatalogNormalizer.js';
 
 const BOOKING_ITEM_TYPES = new Set(['service', 'ticket', 'event', 'venue', 'package']);
 
@@ -38,7 +45,7 @@ export function isRetailBusiness(businessType) {
 function isServiceBusinessContextFromName(ctx = {}) {
   const combined = `${ctx.type ?? ''} ${ctx.name ?? ''} ${ctx.storeName ?? ''}`.toLowerCase();
   if (TRAVEL_PACKAGE_RE.test(combined)) return true;
-  if (/\b(booking|beauty|salon|spa|repair|event|venue|ticket|function\s+room|table)\b/i.test(combined)) {
+  if (/\b(booking|beauty|salon|spa|repair|event|venue|ticket|function\s+room|table|til(e|ing)|floor(ing)?|renovation|plumb|contractor|builder)\b/i.test(combined)) {
     return true;
   }
   return false;
@@ -100,13 +107,18 @@ function normalizeItemType(raw) {
  * @param {{ businessType?: string | null, businessName?: string | null, storeName?: string | null, commerceMode?: string | null }} ctx
  */
 export function normalizeCatalogItem(item, ctx = {}) {
-  const businessType = ctx.businessType ?? null;
+  const canonicalBusinessType = ctx.canonicalBusinessType ?? ctx.bslBusinessType ?? null;
+  const businessType = canonicalBusinessType ?? ctx.businessType ?? null;
   const commerceMode = resolveCommerceMode(businessType, { commerceMode: ctx.commerceMode });
-  const serviceBusiness = isServiceBusinessContext({
-    type: businessType,
-    name: ctx.businessName,
-    storeName: ctx.storeName,
-  });
+  const serviceBusiness =
+    canonicalBusinessType === 'service_quote_required' ||
+    canonicalBusinessType === 'service_fixed_booking' ||
+    canonicalBusinessType === 'hybrid' ||
+    isServiceBusinessContext({
+      type: businessType,
+      name: ctx.businessName,
+      storeName: ctx.storeName,
+    });
 
   const fromItem =
     normalizeItemType(item?.itemType) ??
@@ -118,6 +130,22 @@ export function normalizeCatalogItem(item, ctx = {}) {
     itemType = TRAVEL_PACKAGE_RE.test(`${businessType ?? ''} ${ctx.businessName ?? ''}`.toLowerCase())
       ? 'package'
       : 'service';
+  }
+
+  const itemCorpus = [item?.name, item?.title, item?.category, item?.description].filter(Boolean).join(' ');
+  const clearlyRetailMerchandise = /\b(merchandise|accessor|gift\s*card|voucher|shop\s*item|supply\s*only)\b/i.test(
+    itemCorpus,
+  );
+  if (
+    itemType === 'product' &&
+    serviceBusiness &&
+    !clearlyRetailMerchandise &&
+    (canonicalBusinessType === 'service_quote_required' ||
+      canonicalBusinessType === 'service_fixed_booking' ||
+      (canonicalBusinessType === 'hybrid' &&
+        /\b(install|tiling|tile|floor|repair|renovation|waterproof|service)\b/i.test(itemCorpus)))
+  ) {
+    itemType = 'service';
   }
 
   let bookingEnabled = item?.bookingEnabled;
@@ -157,12 +185,26 @@ export function normalizeCatalogItem(item, ctx = {}) {
     }
   }
 
+  const serviceCatalog = normalizeServiceCatalogItem(item, {
+    businessType,
+    businessName: ctx.businessName,
+    storeName: ctx.storeName,
+    itemType,
+  });
+  if (serviceCatalog.executionAction && !isRestaurantBusiness(businessType)) {
+    primaryAction = executionActionToPrimaryAction(serviceCatalog.executionAction);
+    bookingEnabled = serviceCatalog.executionAction === 'book';
+    purchaseEnabled = serviceCatalog.executionAction === 'add_to_cart';
+  }
+
   return {
     itemType,
     bookingEnabled,
     purchaseEnabled,
     primaryAction,
     kind: itemType === 'product' ? 'product' : 'service',
+    serviceCatalog: toServiceCatalogJson(serviceCatalog),
+    ...serviceCatalog,
   };
 }
 
@@ -193,7 +235,7 @@ export function resolveItemActionVisibility(normalized) {
  */
 export function enrichPublicCatalogItem(product, ctx = {}) {
   const normalized = normalizeCatalogItem(product, ctx);
-  return {
+  const base = {
     ...product,
     itemType: product?.itemType ?? normalized.itemType,
     bookingEnabled: product?.bookingEnabled ?? normalized.bookingEnabled,
@@ -201,7 +243,9 @@ export function enrichPublicCatalogItem(product, ctx = {}) {
     primaryAction: product?.primaryAction ?? normalized.primaryAction,
     kind: product?.kind ?? product?.itemKind ?? normalized.kind,
     itemKind: product?.itemKind ?? normalized.kind,
+    serviceCatalog: product?.serviceCatalog ?? normalized.serviceCatalog ?? null,
   };
+  return enrichPublicServiceCatalogItem(base, ctx);
 }
 
 export function resolveItemCommerceModeFromClassification(item, storeCommerceMode, ctx = {}) {

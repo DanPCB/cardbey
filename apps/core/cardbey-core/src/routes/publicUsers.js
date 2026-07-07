@@ -32,6 +32,7 @@ import { prisma } from '../lib/prisma.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { attachStoreEngagementToPublicStores } from '../services/storeEngagement/attachStoreEngagementToPublicStores.js';
 import { isGhostStoreRemoved, isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
+import { filterBusinessesForFeedCategory } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
 
 const router = Router();
 /**
@@ -123,6 +124,9 @@ const FEED_CATEGORY_KEYWORDS = {
   services: [
     'service', 'services', 'beauty', 'salon', 'spa', 'barber', 'hair', 'wellness',
     'cleaning', 'repair', 'mechanic', 'clinic', 'dentist', 'physio', 'office', 'nails',
+    'nail', 'manicure', 'pedicure', 'massage', 'facial', 'tiling', 'flooring', 'tiler',
+    'renovation', 'plumbing', 'electrician', 'painting', 'construction', 'contractor',
+    'builder', 'signage', 'quote', 'booking',
   ],
 };
 
@@ -184,7 +188,7 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
     let businesses = await findPublicBusinesses(prisma, listArgs);
 
     if (categoryRaw && FEED_CATEGORY_KEYWORDS[categoryRaw]) {
-      businesses = businesses.filter((b) => businessTypeMatchesCategory(b.type, categoryRaw));
+      businesses = await filterBusinessesForFeedCategory(prisma, businesses, categoryRaw);
       businesses = businesses.slice(0, take);
     }
 

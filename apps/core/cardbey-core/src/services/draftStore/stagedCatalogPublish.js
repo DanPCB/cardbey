@@ -5,6 +5,7 @@
 
 import cuid from 'cuid';
 import { normalizeCatalogItem } from '../../lib/catalog/catalogItemClassification.js';
+import { normalizeServiceCatalogItem, toServiceCatalogJson } from '../../lib/catalog/serviceCatalogNormalizer.js';
 import { batchInsertProducts } from '../../lib/persistence/catalogPersistence.js';
 import { normalizeCatalogProductName } from '../../lib/persistence/catalogDedupe.js';
 import {
@@ -141,11 +142,19 @@ export function prepareCatalogProductRows(
         : defaultCurrency;
 
     const classified = normalizeCatalogItem(item, { businessType, businessName });
+    const serviceFields = normalizeServiceCatalogItem(
+      { ...item, itemType: classified.itemType },
+      { businessType, businessName, itemType: classified.itemType },
+    );
+    const rowPrice =
+      serviceFields.serviceMode === 'quote_required'
+        ? serviceFields.fromPrice ?? (price > 0 ? price : null)
+        : price;
     rows.push({
       id,
       name: nameTrim,
       description: item.description || null,
-      price,
+      price: serviceFields.serviceMode === 'quote_required' ? null : rowPrice,
       currency,
       category: categoryName || otherCategoryName,
       imageUrl,
@@ -156,6 +165,7 @@ export function prepareCatalogProductRows(
       bookingEnabled: classified.bookingEnabled,
       purchaseEnabled: classified.purchaseEnabled,
       primaryAction: classified.primaryAction,
+      serviceCatalog: toServiceCatalogJson(serviceFields),
     });
     publishedIdsByDraftIndex[i] = id;
     preparedCount += 1;

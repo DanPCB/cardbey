@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isBareStoreCreateRequest,
   isStructuredStoreCreatePillMessage,
   matchExactStoreCreatePhrase,
   parseStructuredStoreCreatePillMessage,
@@ -70,5 +71,16 @@ describe('storeCreateIntentFastPath', () => {
     expect(signalsServiceRequest('Create a store for my business')).toBe(false);
     expect(signalsServiceRequest('Melbourne Flower · Other · Melbourne')).toBe(false);
     expect(signalsServiceRequest('help me book a haircut this Sunday')).toBe(true);
+  });
+
+  it('isBareStoreCreateRequest is false when a specific name is embedded', () => {
+    expect(isBareStoreCreateRequest('Create a store called ABC Bakery in Melbourne')).toBe(false);
+    expect(isBareStoreCreateRequest("Create a store for Joe's Deli")).toBe(false);
+  });
+
+  it('isBareStoreCreateRequest is true for generic phrases only', () => {
+    expect(isBareStoreCreateRequest('Create a store for my business')).toBe(true);
+    expect(isBareStoreCreateRequest('Create a store for my business in Melbourne')).toBe(true);
+    expect(matchExactStoreCreatePhrase('Create a store called ABC Bakery')?.intentMode).toBe('store');
   });
 });

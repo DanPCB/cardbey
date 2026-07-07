@@ -8,7 +8,9 @@ import { getTranslatedField } from '../services/i18n/translationUtils.js';
 import { resolveHeroMediaFromBusiness } from './heroMediaResolve.js';
 import { parseSocialLinks } from '../lib/socialLinks.js';
 import { enrichPublicCatalogItem } from '../lib/catalog/catalogItemClassification.js';
+import { migrateServiceCatalogItems } from '../lib/catalog/serviceCatalogNormalizer.js';
 import { publicCommerceFields } from '../lib/dbCapabilities.js';
+import { resolveStoreCommercePresentation } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
 import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
 import { buildStoreLocationFields } from '../lib/formatStoreLocation.js';
 
@@ -130,6 +132,16 @@ export function toPublicStore(business, options = {}) {
   // Base store mapping (heroUrl + bannerUrl for compat; avatarUrl from first-class or logo)
   // type included for Explore/frontscreen services mode filtering (client-side)
   const commerce = publicCommerceFields(business);
+  const resolvedCommerce = resolveStoreCommercePresentation(
+    { ...business, storefrontSettings, products: business.products },
+    business.products ?? [],
+  );
+  const catalogEnrichmentCtx = {
+    businessType: resolvedCommerce.businessType ?? commerce.businessType ?? business.type,
+    canonicalBusinessType: resolvedCommerce.businessType,
+    businessName: business.name,
+    storeName: business.name,
+  };
   const base = {
     id: business.id,
     name,
@@ -170,6 +182,21 @@ export function toPublicStore(business, options = {}) {
     contact: buildPublicStoreContact(business),
     ...(business.phone ? { phone: business.phone } : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
+    ...(commerce.businessType ? { businessType: commerce.businessType } : {}),
+    ...(commerce.catalogMode ? { catalogMode: commerce.catalogMode } : {}),
+    ...(commerce.generatedContentProfile ? { generatedContentProfile: commerce.generatedContentProfile } : {}),
+    ...(commerce.primaryCTA ? { primaryCTA: commerce.primaryCTA } : {}),
+    ...(commerce.businessProfile ? { businessProfile: commerce.businessProfile } : {}),
+    ...(commerce.capabilities ? { capabilities: commerce.capabilities } : {}),
+    ...(commerce.runtimeProfile ? { runtimeProfile: commerce.runtimeProfile } : {}),
+    ...(commerce.dashboardWidgets?.length ? { dashboardWidgets: commerce.dashboardWidgets } : {}),
+    resolvedBusinessProfile: resolvedCommerce.resolvedBusinessProfile ?? commerce.businessProfile ?? null,
+    resolvedCatalogPresentation: resolvedCommerce.resolvedCatalogPresentation,
+    canonicalBusinessType: resolvedCommerce.businessType,
+    commerceType: resolvedCommerce.commerceType,
+    catalogMode: resolvedCommerce.catalogMode ?? commerce.catalogMode,
+    hasServices: resolvedCommerce.hasServices,
+    includedInServices: resolvedCommerce.includedInServices,
     ...(stylePrefs?.showVideoMixes &&
     typeof stylePrefs.showVideoMixes === 'object' &&
     !Array.isArray(stylePrefs.showVideoMixes)
@@ -200,11 +227,17 @@ export function toPublicStore(business, options = {}) {
             primaryAction: p.primaryAction ?? null,
             kind: p.kind ?? null,
             itemKind: p.itemKind ?? null,
+            serviceCatalog: p.serviceCatalog ?? null,
           },
-          { businessType: business.type, businessName: business.name },
+          catalogEnrichmentCtx,
         );
       })
     : [];
+
+  const migrated = migrateServiceCatalogItems(products, {
+    ...catalogEnrichmentCtx,
+    storeId: business.id,
+  });
 
   const publishedAt =
     business.publishedAt instanceof Date
@@ -215,7 +248,7 @@ export function toPublicStore(business, options = {}) {
 
   return {
     ...base,
-    products,
+    products: migrated.items,
     ...(publishedAt ? { publishedAt } : {}),
   };
 }

@@ -283,8 +283,38 @@ export const TEMPLATE_SERVICES_GENERIC = {
     { categoryKey: 'popular', name: 'Premium Service', description: 'Extended service with extra care and detail.', basePrice: 180.0, tags: ['service', 'premium'] },
     { categoryKey: 'packages', name: 'Starter Package', description: 'Great for first-time customers.', basePrice: 250.0, tags: ['package', 'starter'] },
     { categoryKey: 'packages', name: 'Business Package', description: 'For ongoing support and priority scheduling.', basePrice: 480.0, tags: ['package', 'business'] },
-    { categoryKey: 'callout', name: 'Call-out Fee', description: 'On-site visit and assessment.', basePrice: 80.0, tags: ['callout', 'visit'] },
-    { categoryKey: 'callout', name: 'Custom Quote', description: "Tell us what you need and we'll quote it.", basePrice: 0.0, tags: ['quote', 'custom'] },
+    { categoryKey: 'callout', name: 'Call-out Fee', description: 'On-site visit and assessment.', basePrice: 80.0, tags: ['callout', 'visit'], serviceMode: 'fixed_booking', pricingModel: 'fixed', durationMinutes: 60 },
+    { categoryKey: 'callout', name: 'Custom Quote', description: "Tell us what you need and we'll quote it.", basePrice: 0.0, tags: ['quote', 'custom'], serviceMode: 'quote_required', pricingModel: 'custom' },
+  ],
+};
+
+export const TEMPLATE_TILING_FLOORING = {
+  templateId: 'tiling_flooring',
+  label: 'Tiling & Flooring',
+  verticalSlug: 'services.tiling',
+  currency: 'AUD',
+  categories: [
+    { key: 'tiling', label: 'Tiling Services' },
+    { key: 'flooring', label: 'Flooring Services' },
+    { key: 'bookable', label: 'Book Services' },
+    { key: 'gallery', label: 'Gallery & Guides' },
+  ],
+  imageQueryHints: {
+    tiling: ['bathroom tiling renovation', 'ceramic wall tiles bathroom', 'kitchen splashback tiles'],
+    flooring: ['timber floor installation', 'floor tiling living room', 'vinyl plank flooring'],
+    bookable: ['tile measurement service', 'tiling contractor consultation'],
+    gallery: ['tile showroom display', 'completed bathroom renovation tiles'],
+  },
+  items: [
+    { categoryKey: 'tiling', name: 'Bathroom Tiling', description: 'Wall and floor tiling for bathrooms — waterproofing included.', fromPrice: 35, priceUnit: 'm2', serviceMode: 'quote_required', pricingModel: 'from_price', estimateDurationLabel: 'Site inspection available' },
+    { categoryKey: 'tiling', name: 'Floor Tiling', description: 'Indoor floor tiling with professional levelling and grouting.', fromPrice: 40, priceUnit: 'm2', serviceMode: 'quote_required', pricingModel: 'from_price', estimateDurationLabel: 'Quote after measurement' },
+    { categoryKey: 'tiling', name: 'Kitchen Splashback', description: 'Custom splashback tiling to match your kitchen design.', fromPrice: 480, priceUnit: 'project', serviceMode: 'quote_required', pricingModel: 'from_price' },
+    { categoryKey: 'tiling', name: 'Waterproofing', description: 'Wet-area waterproofing membrane before tiling.', fromPrice: 15, priceUnit: 'm2', serviceMode: 'quote_required', pricingModel: 'from_price' },
+    { categoryKey: 'tiling', name: 'Tile Repair', description: 'Replace cracked or loose tiles and re-grout affected areas.', fromPrice: 180, priceUnit: 'project', serviceMode: 'quote_required', pricingModel: 'from_price' },
+    { categoryKey: 'bookable', name: 'On-site Measurement', description: 'Professional site visit to measure and scope your tiling project.', basePrice: 120, serviceMode: 'fixed_booking', pricingModel: 'fixed', durationMinutes: 60 },
+    { categoryKey: 'gallery', name: 'Tile Collections', description: 'Browse our curated tile ranges and finishes.', serviceMode: 'quote_required', pricingModel: 'custom', estimateDurationLabel: 'Browse collections', isGallery: true },
+    { categoryKey: 'gallery', name: 'Recent Projects', description: 'See completed bathroom, kitchen, and flooring projects.', serviceMode: 'quote_required', pricingModel: 'custom', estimateDurationLabel: 'Portfolio', isGallery: true },
+    { categoryKey: 'gallery', name: 'Pricing Guide', description: 'Indicative pricing ranges — final quote after site inspection.', serviceMode: 'quote_required', pricingModel: 'custom', estimateDurationLabel: 'Guide only', isGallery: true },
   ],
 };
 
@@ -295,5 +325,13 @@ export function structuredItemsToFlat(items) {
     name: i.name,
     description: i.description ?? '',
     price: typeof i.basePrice === 'number' ? `$${i.basePrice.toFixed(2)}` : (i.price ?? ''),
+    ...(i.serviceMode ? { serviceMode: i.serviceMode } : {}),
+    ...(i.pricingModel ? { pricingModel: i.pricingModel } : {}),
+    ...(i.fromPrice != null ? { fromPrice: i.fromPrice } : {}),
+    ...(i.priceUnit ? { priceUnit: i.priceUnit } : {}),
+    ...(i.durationMinutes != null ? { durationMinutes: i.durationMinutes } : {}),
+    ...(i.estimateDurationLabel ? { estimateDurationLabel: i.estimateDurationLabel } : {}),
+    ...(i.isGallery ? { isGallery: true } : {}),
+    ...(i.categoryKey ? { categoryKey: i.categoryKey } : {}),
   }));
 }

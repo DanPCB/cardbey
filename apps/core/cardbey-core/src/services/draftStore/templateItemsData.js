@@ -13,6 +13,7 @@ import {
   TEMPLATE_FASHION_KIDS,
   TEMPLATE_GAME_CENTRE,
   TEMPLATE_SERVICES_GENERIC,
+  TEMPLATE_TILING_FLOORING,
   structuredItemsToFlat,
 } from './structuredTemplates.js';
 import {
@@ -94,6 +95,7 @@ export const TEMPLATE_ITEMS = {
   fashion_kids: structuredItemsToFlat(TEMPLATE_FASHION_KIDS.items),
   game_centre: structuredItemsToFlat(TEMPLATE_GAME_CENTRE.items),
   services_generic: structuredItemsToFlat(TEMPLATE_SERVICES_GENERIC.items),
+  tiling_flooring: structuredItemsToFlat(TEMPLATE_TILING_FLOORING.items),
   bakery: [
     { name: 'Croissant', price: '$3.00', description: 'Buttery and flaky' },
     { name: 'Chocolate Cake', price: '$8.00', description: 'Rich and decadent' },
