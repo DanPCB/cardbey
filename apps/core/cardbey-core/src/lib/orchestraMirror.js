@@ -271,6 +271,23 @@ export async function reconcileStaleOrchestraMirrors() {
     const terminal = new Set(['completed', 'failed', 'cancelled']);
 
     for (const pipeline of stalePipelines) {
+      // Structured store draft may still be pending with no OrchestratorTask yet — do not
+      // force-reconcile those; deferredStorePipelineRunner resumes them separately.
+      const pendingStoreBuild = await prisma.missionPipelineStep.count({
+        where: {
+          missionId: pipeline.id,
+          toolName: 'structured_store_build',
+          status: { in: ['pending', 'running'] },
+        },
+      });
+      if (pendingStoreBuild > 0) {
+        const taskProbe = await prisma.orchestratorTask.findFirst({
+          where: { missionId: pipeline.id },
+          select: { id: true },
+        });
+        if (!taskProbe) continue;
+      }
+
       const task = await prisma.orchestratorTask.findFirst({
         where: { missionId: pipeline.id },
         select: { status: true, result: true },
