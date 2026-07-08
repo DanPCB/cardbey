@@ -8,6 +8,7 @@ import { startOfflineWatcher, stopOfflineWatcher } from '../worker/offlineWatche
 import { startSessionCleanup, stopSessionCleanup } from '../worker/sessionCleanup.js';
 import { startDeviceCleanupWorker, stopDeviceCleanupWorker } from '../worker/deviceCleanup.js';
 import { reconcileStaleOrchestraMirrors } from './orchestraMirror.js';
+import { resumeOrphanedDeferredStorePipelines } from './storeMission/deferredStorePipelineRunner.js';
 import { initReportScheduler, stopReportScheduler } from '../scheduler/reportScheduler.js';
 import suggestionEngine from '../services/copilot/suggestionEngine.js';
 import { initDiscoveryScheduler, stopDiscoveryScheduler } from './discovery/DiscoveryScheduler.js';
@@ -21,6 +22,8 @@ import { startDiagnosticsCleanup } from './diagnostics/diagnosticsCleanup.js';
 let rateLimitCleanupInterval = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let orchestraMirrorInterval = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let deferredStorePipelineInterval = null;
 /** @type {(() => void) | null} */
 let diagnosticsCleanupStop = null;
 let workersStarted = false;
@@ -72,6 +75,18 @@ export function startBackgroundWorkers(opts = {}) {
         console.error('[CORE] reconcileStaleOrchestraMirrors:', e?.message || e),
       );
     }, 5 * 60 * 1000);
+  }
+
+  if (process.env.NODE_ENV !== 'test' && !deferredStorePipelineInterval) {
+    const runOrphanResume = () =>
+      resumeOrphanedDeferredStorePipelines(opts.prisma ?? getPrismaClient()).catch((e) =>
+        console.error('[CORE] resumeOrphanedDeferredStorePipelines:', e?.message || e),
+      );
+    // Slight delay so DB/migrate bootstrap can finish before resuming long draft builds.
+    setTimeout(() => {
+      runOrphanResume();
+    }, 15_000);
+    deferredStorePipelineInterval = setInterval(runOrphanResume, 2 * 60 * 1000);
   }
 
   if (process.env.NODE_ENV !== 'test') {
@@ -148,6 +163,10 @@ export function stopBackgroundWorkers() {
   if (orchestraMirrorInterval) {
     clearInterval(orchestraMirrorInterval);
     orchestraMirrorInterval = null;
+  }
+  if (deferredStorePipelineInterval) {
+    clearInterval(deferredStorePipelineInterval);
+    deferredStorePipelineInterval = null;
   }
   try {
     stopReportScheduler();

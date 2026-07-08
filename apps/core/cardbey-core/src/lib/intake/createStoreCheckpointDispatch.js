@@ -13,6 +13,7 @@ import {
 import { resolveStoreCandidateForIntakeTurn } from './resolveStoreCandidateForIntakeTurn.js';
 import { buildDocumentExtractionArtifact } from './storeCandidate.js';
 import { ensureStructuredStoreCheckpointSteps } from '../storeMission/ensureStructuredStoreCheckpointSteps.js';
+import { scheduleDeferredStorePipelineRun } from '../storeMission/deferredStorePipelineRunner.js';
 import { executeMission } from '../execution/missionExecutionEngine.js';
 import { inferCurrencyFromLocationText } from '../../services/draftStore/currencyInfer.js';
 import { emitExecutionNotification, EXECUTION_EVENT_TYPES } from '../execution/executionNotificationEmitter.js';
@@ -561,19 +562,15 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
   };
 
   if (shouldDeferStorePipelineExecutionForIntake(auditSource)) {
-    void executeMission({
-      mode: 'checkpoint_pipeline',
+    // Persist run request + background execute. Soft failures mark mission failed;
+    // Render restart resumes via resumeOrphanedDeferredStorePipelines.
+    await scheduleDeferredStorePipelineRun({
       prisma,
       user,
       missionId: pipeline.id,
       body: missionRunBody,
       auditSource,
       source: auditSource,
-    }).catch((err) => {
-      console.error(
-        '[CreateStoreDispatch] async intake pipeline failed:',
-        err?.message ?? err,
-      );
     });
 
     return buildStoreMissionStartedDispatchResult({
