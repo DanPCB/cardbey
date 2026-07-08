@@ -431,40 +431,49 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
   const { buildCatalogFromPreloadedItems, sanitizePreloadedCatalogItems } = await import('./preloadedCatalogFromItems.js');
 
   if (shouldRunStoreCreationResearch(params, input)) {
-    const researchFields = (
-      await import('../../lib/storeCreationResearch/researchInputFields.js')
-    ).resolveStoreResearchInputFields(
-      { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId: missionId ?? null },
-      input,
-    );
-    const research = await runStoreCreationResearch(
-      {
-        ...researchFields,
-        socialLinks: researchFields.socialLinks ?? input?.socialLinks ?? params.socialLinks ?? null,
-        ocrText: input?.ocrRawText ?? input?.ocrText ?? null,
-      },
-      { prisma },
-    );
-    const researchCatalog = resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems);
-    if (researchCatalog) {
-      const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[buildCatalogForStoreReactStep] using research catalog', {
+    try {
+      const researchFields = (
+        await import('../../lib/storeCreationResearch/researchInputFields.js')
+      ).resolveStoreResearchInputFields(
+        { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId: missionId ?? null },
+        input,
+      );
+      const research = await runStoreCreationResearch(
+        {
+          ...researchFields,
+          socialLinks: researchFields.socialLinks ?? input?.socialLinks ?? params.socialLinks ?? null,
+          ocrText: input?.ocrRawText ?? input?.ocrText ?? null,
+        },
+        { prisma },
+      );
+      const researchCatalog = resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems);
+      if (researchCatalog) {
+        const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[buildCatalogForStoreReactStep] using research catalog', {
+            missionId,
+            itemCount: finalized.products?.length ?? 0,
+            confidence: research.confidence,
+            businessType: research.businessProfile?.businessType,
+            fallbackToGenerated: research.fallbackToGenerated,
+          });
+        }
+        return { catalog: finalized, fromPreload: false, fromResearch: true, research };
+      }
+      if (process.env.NODE_ENV !== 'production' && research.researchRan) {
+        console.log('[STORE_RESEARCH_FALLBACK_USED]', {
           missionId,
-          itemCount: finalized.products?.length ?? 0,
+          reason: research.fallbackToGenerated ? 'fallback_flag' : 'no_catalog_products',
           confidence: research.confidence,
-          businessType: research.businessProfile?.businessType,
-          fallbackToGenerated: research.fallbackToGenerated,
+          sourceCount: research.sourcesUsed?.length ?? 0,
         });
       }
-      return { catalog: finalized, fromPreload: false, fromResearch: true, research };
-    }
-    if (process.env.NODE_ENV !== 'production' && research.researchRan) {
-      console.log('[STORE_RESEARCH_FALLBACK_USED]', {
+    } catch (err) {
+      // Research must never abort store creation — fall through to template/preloaded catalog.
+      console.warn('[buildCatalogForStoreReactStep] research failed; continuing without research catalog', {
         missionId,
-        reason: research.fallbackToGenerated ? 'fallback_flag' : 'no_catalog_products',
-        confidence: research.confidence,
-        sourceCount: research.sourcesUsed?.length ?? 0,
+        message: err?.message ?? String(err),
+        code: err?.code ?? null,
       });
     }
   }
