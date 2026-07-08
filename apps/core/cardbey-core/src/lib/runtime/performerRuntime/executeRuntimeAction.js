@@ -508,8 +508,7 @@ export async function executeRuntimeAction(request) {
       },
     };
   } else {
-    const { default: bulkhead } = await import('../../../services/reliability/bulkhead.js');
-    facadeResult = await bulkhead.execute('llm_operations', () =>
+    const dispatchTool = () =>
       executeMissionAction({
         actionType: 'dispatch_tool',
         missionId: ctx.missionId,
@@ -523,8 +522,23 @@ export async function executeRuntimeAction(request) {
           toolName: toolName || innerPayload.toolName,
           context: innerContext,
         },
-      }),
-    );
+      });
+
+    // create_store / create_campaign run multi-minute pipelines (research → catalog → images).
+    // llm_operations bulkhead (30s) must not wrap them — timeout rejects the outer promise while
+    // work continues, dual-cleanup can corrupt the pool, and live can surface Needs attention.
+    const longRunningCheckpointTool =
+      toolName === 'create_store' ||
+      toolName === 'create_campaign' ||
+      innerPayload.toolName === 'create_store' ||
+      innerPayload.toolName === 'create_campaign';
+
+    if (longRunningCheckpointTool) {
+      facadeResult = await dispatchTool();
+    } else {
+      const { default: bulkhead } = await import('../../../services/reliability/bulkhead.js');
+      facadeResult = await bulkhead.execute('llm_operations', dispatchTool);
+    }
   }
   }
 
