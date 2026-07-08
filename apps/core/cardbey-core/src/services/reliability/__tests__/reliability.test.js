@@ -145,6 +145,27 @@ describe('Bulkhead', () => {
     release?.();
     await slow;
   });
+
+  it('does not double-decrement active after timeout when late fn settles', async () => {
+    bulkhead.configure({
+      name: 'timeout_pool',
+      maxConcurrent: 1,
+      maxQueueSize: 2,
+      timeoutMs: 30,
+    });
+
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+
+    await expect(bulkhead.execute('timeout_pool', () => gate)).rejects.toThrow(/timeout/);
+    expect(bulkhead.getStatus('timeout_pool')?.active).toBe(0);
+
+    release?.('late');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(bulkhead.getStatus('timeout_pool')?.active).toBe(0);
+  });
 });
 
 describe('SLOTracker', () => {

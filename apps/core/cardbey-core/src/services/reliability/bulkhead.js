@@ -80,23 +80,28 @@ export class Bulkhead {
     executor.active++;
     executor.peakActive = Math.max(executor.peakActive, executor.active);
     const task = executor.queue.shift();
+    let settled = false;
+
+    const settle = (kind, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      if (kind === 'resolve') task.resolve(value);
+      else task.reject(value);
+      this.cleanup(name);
+    };
 
     const timeoutId = setTimeout(() => {
-      task.reject(new Error(`Bulkhead ${name} timeout (${executor.timeoutMs}ms)`));
-      this.cleanup(name);
+      settle('reject', new Error(`Bulkhead ${name} timeout (${executor.timeoutMs}ms)`));
     }, executor.timeoutMs);
 
     Promise.resolve()
       .then(() => task.fn())
       .then((result) => {
-        clearTimeout(timeoutId);
-        task.resolve(result);
-        this.cleanup(name);
+        settle('resolve', result);
       })
       .catch((error) => {
-        clearTimeout(timeoutId);
-        task.reject(error);
-        this.cleanup(name);
+        settle('reject', error);
       });
   }
 

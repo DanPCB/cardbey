@@ -80,12 +80,16 @@ export async function execute(input = {}, context = {}) {
 
   const userLike = userId ? { id: userId, tenantId: tenantId || userId } : { id: tenantId || 'temp' };
 
+  const auditSource =
+    pickString(context?.auditSource, context?.source, input?.auditSource) ||
+    'proactive_runway_create_store';
+
   const runResult = await executeStoreMissionPipelineRun({
     prisma,
     user: userLike,
     missionId,
     body: normalized,
-    auditSource: 'proactive_runway_create_store',
+    auditSource,
   });
 
   if (!runResult?.ok) {
