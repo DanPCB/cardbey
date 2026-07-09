@@ -9,6 +9,10 @@ import { resolveHeroMediaFromBusiness } from './heroMediaResolve.js';
 import { parseSocialLinks } from '../lib/socialLinks.js';
 import { enrichPublicCatalogItem } from '../lib/catalog/catalogItemClassification.js';
 import { migrateServiceCatalogItems } from '../lib/catalog/serviceCatalogNormalizer.js';
+import { repairServiceCatalogPlaceholderProducts } from '../lib/catalog/serviceCatalogPlaceholders.js';
+import { buildSeedCatalog } from '../services/store/seeds/seedCatalogBuilder.js';
+import { buildCuisineMenuCatalog } from '../services/draftStore/foodCuisineCatalog.js';
+import { resolveVertical } from '../lib/verticals/verticalTaxonomy.js';
 import { publicCommerceFields } from '../lib/dbCapabilities.js';
 import { resolveStoreCommercePresentation } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
 import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
@@ -234,7 +238,44 @@ export function toPublicStore(business, options = {}) {
       })
     : [];
 
-  const migrated = migrateServiceCatalogItems(products, {
+  const vertical = resolveVertical({
+    businessType: catalogEnrichmentCtx.businessType,
+    businessName: catalogEnrichmentCtx.businessName,
+  });
+  const leakRepair = repairServiceCatalogPlaceholderProducts(
+    products,
+    {
+      ...catalogEnrichmentCtx,
+      catalogLabel: commerce.catalogLabel,
+      verticalSlug: vertical.slug,
+      verticalGroup: vertical.group,
+    },
+    () => {
+      const cuisine = buildCuisineMenuCatalog(
+        {
+          verticalSlug: vertical.slug,
+          verticalGroup: vertical.group,
+          businessType: catalogEnrichmentCtx.businessType,
+          businessName: catalogEnrichmentCtx.businessName,
+          catalogLabel: commerce.catalogLabel,
+        },
+        Math.max(products.length, 24),
+      );
+      if (cuisine) return cuisine;
+      return buildSeedCatalog(
+        {
+          verticalSlug: vertical.slug,
+          verticalGroup: vertical.group,
+          businessType: catalogEnrichmentCtx.businessType,
+          businessName: catalogEnrichmentCtx.businessName,
+        },
+        { targetCount: Math.max(products.length, 24) },
+      );
+    },
+  );
+  const displayProducts = leakRepair.repaired ? leakRepair.products : products;
+
+  const migrated = migrateServiceCatalogItems(displayProducts, {
     ...catalogEnrichmentCtx,
     storeId: business.id,
   });

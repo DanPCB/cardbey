@@ -4,6 +4,8 @@
  * For fashion: if audience is 'kids', return fashion_kids.
  */
 
+import { cuisineSlugToTemplateKey } from './foodCuisineCatalog.js';
+
 /**
  * @param {string} verticalSlug - e.g. food.cafe, beauty.nails, food.seafood, fashion.kids
  * @param {string} [audience] - 'kids' | 'adults' | 'unisex'; when fashion.* and 'kids', use fashion_kids
@@ -16,7 +18,14 @@ export function selectTemplateId(verticalSlug, audience) {
   if (slug === 'food' || slug === 'food.cafe') return 'cafe';
   if (slug === 'food.seafood') return 'food_seafood';
   if (slug === 'food.bakery') return 'food_bakery';
-  if (slug.startsWith('food.')) return 'food_restaurant_generic';
+  if (slug === 'food.vietnamese') return 'food_vietnamese';
+  if (slug === 'food.asian') return 'food_asian';
+  if (slug === 'food.fast_food') return 'food_fast_food';
+  if (slug === 'food.restaurant') return 'food_restaurant_generic';
+  if (slug.startsWith('food.')) {
+    const cuisineTemplate = cuisineSlugToTemplateKey(slug);
+    return cuisineTemplate || 'food_restaurant_generic';
+  }
 
   if (slug === 'beauty' || slug === 'beauty.nails' || slug === 'beauty.hair_salon' || slug === 'beauty.barber' || slug === 'beauty.spa' || slug === 'beauty.lashes_brows' || slug === 'beauty.waxing') return 'beauty_nails';
   if (slug.startsWith('health.')) return 'beauty_nails';

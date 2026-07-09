@@ -8,6 +8,11 @@ import { GENERIC_NAME_REGEX, effectiveVertical } from '../draftStore/draftGuards
 import { buildSeedCatalog } from '../store/seeds/seedCatalogBuilder.js';
 import { recomputeDraftCategoriesFromItems } from '../../lib/draftCategoryUtils.js';
 import { isResearchBackedPreview } from '../draftStore/researchCatalogDraft.js';
+import {
+  isNonServiceCatalogVertical,
+  isServiceCatalogPlaceholderName,
+} from '../../lib/catalog/serviceCatalogPlaceholders.js';
+import { buildCuisineMenuCatalog } from '../draftStore/foodCuisineCatalog.js';
 
 const MIN_DESCRIPTION_LEN = 12;
 const MIN_TAGLINE_LEN = 8;
@@ -144,6 +149,28 @@ export function auditDraftCatalogQa(preview, input = {}) {
     }
   }
 
+  const leakProfile = {
+    businessType,
+    storeType: preview?.storeType,
+    businessName: storeName,
+    storeName,
+    verticalSlug,
+    verticalGroup: (verticalSlug || '').split('.')[0] || effectiveVertical(businessType),
+    catalogLabel: preview?.catalogLabel ?? preview?.meta?.catalogLabel,
+  };
+  if (isNonServiceCatalogVertical(leakProfile) && items.length >= 3) {
+    const serviceHits = items.filter((it) => isServiceCatalogPlaceholderName(it?.name));
+    if (serviceHits.length >= 2 || serviceHits.length / items.length >= 0.25) {
+      issues.push(
+        `SERVICE_CATALOG_LEAK: ${serviceHits.length} service placeholder names in food/retail catalog`,
+      );
+      issueCodes.push('SERVICE_CATALOG_LEAK');
+      items.forEach((it, i) => {
+        if (isServiceCatalogPlaceholderName(it?.name)) badProductIndices.add(i);
+      });
+    }
+  }
+
   const tagline = String(preview?.tagline ?? preview?.slogan ?? '').trim();
   if (!tagline || tagline.length < MIN_TAGLINE_LEN) {
     issues.push('Empty or weak tagline');
@@ -183,6 +210,17 @@ function defaultPriceForIndex(vertical, index) {
 }
 
 function buildReplacementProducts(profile, count, categories) {
+  const cuisine = buildCuisineMenuCatalog(profile, Math.max(24, count + 4));
+  if (cuisine?.items?.length) {
+    const firstCatId = categories?.[0]?.id || cuisine.categories?.[0]?.id || 'cat_0';
+    return cuisine.items.slice(0, count).map((it, i) => ({
+      name: it.name,
+      description: it.description || `${it.name} — made fresh for you.`,
+      price: String(defaultPriceForIndex(profile.businessType || profile.verticalSlug, i)),
+      priceV1: { amount: defaultPriceForIndex(profile.businessType || profile.verticalSlug, i) },
+      categoryId: it.categoryId || firstCatId,
+    }));
+  }
   const seed = buildSeedCatalog(profile, { targetCount: Math.max(24, count + 4) });
   const seedItems = seed.items || [];
   const firstCatId = categories?.[0]?.id || seed.categories?.[0]?.id || 'cat_0';
@@ -393,6 +431,36 @@ export function applyDraftCatalogQaTier1AutoRepair(preview, input = {}, params =
   const profile = catalogRepairProfile(preview, input, params);
   const audit = auditDraftCatalogQa(preview, { ...input, verticalSlug });
   const badIndices = new Set(audit.badProductIndices ?? []);
+
+  if (audit.issueCodes?.includes('SERVICE_CATALOG_LEAK') && badIndices.size > 0) {
+    const profile = catalogRepairProfile(preview, input, params);
+    const replacements = buildReplacementProducts(profile, badIndices.size, preview.categories);
+    let repIndex = 0;
+    for (const idx of [...badIndices].sort((a, b) => a - b)) {
+      const item = items[idx];
+      const rep = replacements[repIndex % replacements.length];
+      repIndex += 1;
+      if (!item || !rep) continue;
+      item.name = rep.name;
+      item.description = rep.description;
+      item.price = rep.price;
+      item.priceV1 = rep.priceV1;
+      if (rep.categoryId) item.categoryId = rep.categoryId;
+      item.serviceMode = undefined;
+      item.executionAction = undefined;
+      item.primaryAction = undefined;
+      item.bookingEnabled = undefined;
+      item.purchaseEnabled = undefined;
+      item.serviceCatalog = undefined;
+      item.itemType = undefined;
+      item.type = undefined;
+      autoFixed.push(`products[${idx}].service_catalog_leak`);
+    }
+    const { categories, items: itemsWithCat } = recomputeDraftCategoriesFromItems(items);
+    preview.categories = categories;
+    preview.items = itemsWithCat;
+    badIndices.clear();
+  }
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];

@@ -8,6 +8,7 @@ import {
   CATALOG_ITEM_LIMIT,
   CATALOG_ITEM_MIN,
 } from '../../../config/catalogLimits.js';
+import { buildCuisineMenuCatalog } from '../../draftStore/foodCuisineCatalog.js';
 
 const MIN_ITEMS = CATALOG_ITEM_MIN;
 const TARGET_DEFAULT = CATALOG_ITEM_LIMIT;
@@ -17,6 +18,19 @@ const COFFEE_KEYWORDS = ['espresso', 'latte', 'cappuccino', 'coffee', 'mocha', '
 
 /** Food: 5 categories × 6 items. Bakery and cafe get vertical-appropriate items; no cafe items unless food.cafe. */
 function buildFoodSeed(profile, targetCount) {
+  const cuisineCatalog = buildCuisineMenuCatalog(profile, targetCount);
+  if (cuisineCatalog?.items?.length) {
+    const imageQueryHints = (cuisineCatalog.categories || []).reduce((acc, c) => {
+      acc[c.id] = [c.name.toLowerCase(), 'restaurant dish'];
+      return acc;
+    }, {});
+    return {
+      categories: cuisineCatalog.categories,
+      items: cuisineCatalog.items,
+      imageQueryHints,
+      meta: cuisineCatalog.meta,
+    };
+  }
   const slug = (profile?.verticalSlug || '').toLowerCase();
   const isCafe = slug === 'food.cafe';
   const isBakery = slug === 'food.bakery';
@@ -155,6 +169,15 @@ export function buildSeedCatalog(profile, opts = {}) {
   }
   if (group === 'beauty' || model === 'beauty' || slug.startsWith('beauty.')) {
     return buildServicesSeed(profile, targetCount);
+  }
+  const businessTypeHint = String(profile?.businessType ?? profile?.storeType ?? '').toLowerCase();
+  if (group === 'services' || !group) {
+    if (/\b(cafe|coffee|restaurant|food|bakery|menu|dining|kitchen|bistro)\b/.test(businessTypeHint)) {
+      return buildFoodSeed(profile, targetCount);
+    }
+    if (/\b(fashion|retail|clothing|apparel|boutique|wear|shop|store)\b/.test(businessTypeHint)) {
+      return buildRetailSeed(profile, targetCount);
+    }
   }
   return buildServicesSeed(profile, targetCount);
 }
