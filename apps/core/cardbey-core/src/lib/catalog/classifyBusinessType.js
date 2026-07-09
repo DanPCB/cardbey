@@ -14,7 +14,7 @@ export const BUSINESS_TYPES = [
 const FOOD_RE =
   /\b(restaurant|cafe|café|coffee|bakery|baker|takeaway|take away|food truck|food|dining|kitchen|bar\b|bistro|eatery|pizza|sushi|noodle|catering|menu)\b/i;
 const RETAIL_RE =
-  /\b(retail|shop|store|boutique|clothing|apparel|electronics|homewares?|homeware|merchandise|sell|selling|products?|market|gallery|florist|wholesale)\b/i;
+  /\b(retail|shop|store|boutique|clothing|apparel|fashion|wear|accessories|footwear|electronics|homewares?|homeware|merchandise|sell|selling|products?|market|gallery|florist|wholesale)\b/i;
 const FIXED_BOOKING_RE =
   /\b(nails?|nail salon|manicure|pedicure|nail art|gel nails|acrylic nails|spa|massage|facial|waxing|lash|brow|haircut|hair cut|hair salon|barber|beauty salon|wellness|car wash|auto detailing|detailing|cleaning package|inspection fee|on-?site measurement)\b/i;
 const QUOTE_REQUIRED_RE =

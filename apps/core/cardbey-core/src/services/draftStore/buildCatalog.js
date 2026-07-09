@@ -186,6 +186,69 @@ const AI_EXPANSION_MIN = CATALOG_ITEM_MIN;
 const TARGET_ITEM_COUNT = CATALOG_ITEM_LIMIT;
 const MIN_ITEM_COUNT = CATALOG_ITEM_MIN;
 
+/** BSL catalog profiles expose businessType/catalogMode; vertical profiles expose verticalSlug/verticalGroup. */
+function isVerticalGenerationProfile(profile) {
+  if (!profile || typeof profile !== 'object') return false;
+  return Boolean(profile.verticalSlug || profile.verticalGroup);
+}
+
+function resolveCatalogClassificationProfile(params = {}) {
+  return params.catalogGenerationProfile ?? params.classificationProfile ?? null;
+}
+
+function resolveVerticalCatalogProfile(params = {}) {
+  const explicitSlug = params.verticalSlug != null ? String(params.verticalSlug).trim() : '';
+  const candidate = params.generationProfile ?? params.classificationProfile ?? null;
+  const fromCandidate = isVerticalGenerationProfile(candidate) ? candidate : null;
+  const categoryHint = params.storeType ?? params.businessType ?? params.category ?? null;
+
+  if (fromCandidate?.verticalSlug || explicitSlug) {
+    const slug = explicitSlug || fromCandidate?.verticalSlug || 'services.generic';
+    return {
+      verticalSlug: slug,
+      verticalGroup:
+        fromCandidate?.verticalGroup ??
+        params.verticalGroup ??
+        String(slug).split('.')[0] ||
+        'services',
+      audience:
+        params.audience ??
+        fromCandidate?.audience ??
+        resolveAudience({ businessType: categoryHint, businessName: params.businessName }),
+      keywords: fromCandidate?.keywords ?? [],
+      forbiddenKeywords: fromCandidate?.forbiddenKeywords,
+      categoryHints: fromCandidate?.categoryHints,
+    };
+  }
+
+  const r = resolveVertical({
+    businessType: categoryHint,
+    businessName: params.businessName,
+    userNotes: [params.location, params.prompt].filter(Boolean).join(' '),
+    explicitVertical: explicitSlug || null,
+  });
+  if ((r?.slug || 'services.generic') === 'services.generic') {
+    console.log('[verticalResolver]', {
+      businessName: params.businessName ?? null,
+      businessType: categoryHint ?? null,
+      location: params.location ?? null,
+      chosenSlug: r?.slug ?? null,
+      matchedKeywords: Array.isArray(r?.matchedKeywords) ? r.matchedKeywords.slice(0, 8) : [],
+    });
+  }
+  const slug = explicitSlug || r.slug || 'services.generic';
+  return {
+    verticalSlug: slug,
+    verticalGroup: r.group ?? String(slug).split('.')[0] ?? 'services',
+    audience:
+      params.audience ??
+      resolveAudience({ businessType: categoryHint, businessName: params.businessName }),
+    keywords: r.matchedKeywords || [],
+    forbiddenKeywords: undefined,
+    categoryHints: undefined,
+  };
+}
+
 /**
  * If audience is kids, scan products for forbidden adult keywords. Corrective: if >=2 hits or >10% flagged, return true (caller should rebuild with fashion_kids).
  * @param {{ name?: string, description?: string }[]} products
@@ -545,31 +608,11 @@ export async function buildFromOcr(params) {
  */
 export async function buildCatalog(params) {
   const mode = params.mode;
-  let profile = params.generationProfile ?? params.classificationProfile ?? null;
-  if (!profile) {
-    const r = resolveVertical({
-      businessType: params.businessType,
-      businessName: params.businessName,
-      userNotes: [params.location, params.prompt].filter(Boolean).join(' '),
-      explicitVertical: null,
-    });
-    if ((r?.slug || 'services.generic') === 'services.generic') {
-      console.log('[verticalResolver]', {
-        businessName: params.businessName ?? null,
-        businessType: params.businessType ?? null,
-        location: params.location ?? null,
-        chosenSlug: r?.slug ?? null,
-        matchedKeywords: Array.isArray(r?.matchedKeywords) ? r.matchedKeywords.slice(0, 8) : [],
-      });
-    }
-    profile = {
-      verticalSlug: r.slug || 'services.generic',
-      verticalGroup: r.group || 'services',
-      audience: params.audience || resolveAudience({ businessType: params.businessType, businessName: params.businessName }),
-      keywords: r.matchedKeywords || [],
-    };
-  }
-  const verticalSlug = profile.verticalSlug ?? params.verticalSlug ?? resolveVerticalSlug(params.businessType, params.vertical);
+  const profile = resolveVerticalCatalogProfile(params);
+  const verticalSlug =
+    profile.verticalSlug ??
+    params.verticalSlug ??
+    resolveVerticalSlug(params.storeType ?? params.businessType, params.vertical);
   const paramsWithVertical = {
     ...params,
     generationProfile: profile,
@@ -698,18 +741,19 @@ export async function buildCatalog(params) {
   }
 
   const catalogProfile =
-    params.catalogGenerationProfile ??
-    params.generationProfile ??
+    resolveCatalogClassificationProfile(params) ??
     buildCatalogGenerationProfile({
       businessName: params.businessName,
-      businessType: params.businessType ?? params.storeType,
+      category: params.storeType ?? params.businessType,
+      businessType: params.storeType ?? params.businessType,
+      storeType: params.storeType ?? params.businessType,
       prompt: params.prompt,
       location: params.location,
       items: result?.products,
     });
   if (result?.products?.length) {
     result.products = applyCatalogProfileToItems(result.products, catalogProfile, {
-      businessType: params.businessType ?? params.storeType,
+      businessType: catalogProfile.businessType ?? params.canonicalBusinessType ?? params.storeType ?? params.businessType,
       businessName: params.businessName,
     });
     console.log(
