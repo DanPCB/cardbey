@@ -353,6 +353,7 @@ import { resolveGenerationParams } from './resolveGenerationParams.js';
 import { buildCatalog } from './buildCatalog.js';
 import { getTemplateItems } from './templateItemsData.js';
 import { resolveVerticalSlug } from './verticalResolver.js';
+import { resolveVertical } from '../../lib/verticals/verticalTaxonomy.js';
 import { selectTemplateId } from './selectTemplateId.js';
 import { CostSource } from '../billing/costPolicy.js';
 import { withPaidAiBudget } from '../billing/withPaidAiBudget.js';
@@ -600,14 +601,31 @@ function resolveResearchCatalogFromResult(research, params, input, buildCatalogF
 /** Map generation profile → ImageFillProfile shape for BusinessImageEnricher. */
 function classifierProfileFromParams(params) {
   const gen = params?.generationProfile ?? null;
-  if (!gen || typeof gen !== 'object') return null;
+  const explicitSlug = params?.verticalSlug != null ? String(params.verticalSlug).trim() : '';
+  const explicitGroup = params?.verticalGroup != null ? String(params.verticalGroup).trim() : '';
+  if (explicitSlug || explicitGroup || (gen && (gen.verticalSlug || gen.verticalGroup))) {
+    const slug = explicitSlug || gen?.verticalSlug || '';
+    return {
+      verticalSlug: slug,
+      verticalGroup: explicitGroup || gen?.verticalGroup || (slug ? slug.split('.')[0] : undefined),
+      keywords: gen?.keywords,
+      forbiddenKeywords: gen?.forbiddenKeywords,
+      audience: gen?.audience ?? params?.audience,
+      categoryHints: gen?.categoryHints,
+    };
+  }
+  const resolved = resolveVertical({
+    businessType: params?.storeType ?? params?.businessType ?? params?.category,
+    businessName: params?.businessName,
+    userNotes: [params?.location, params?.prompt].filter(Boolean).join(' '),
+  });
   return {
-    verticalSlug: gen.verticalSlug || '',
-    verticalGroup: gen.verticalGroup,
-    keywords: gen.keywords,
-    forbiddenKeywords: gen.forbiddenKeywords,
-    audience: gen.audience,
-    categoryHints: gen.categoryHints,
+    verticalSlug: resolved.slug || '',
+    verticalGroup: resolved.group,
+    keywords: resolved.matchedKeywords,
+    forbiddenKeywords: undefined,
+    audience: params?.audience,
+    categoryHints: undefined,
   };
 }
 
@@ -915,7 +933,7 @@ async function saveDraftBase(draftId, catalog, params) {
       });
   const preview = {
     storeName: profile.name,
-    storeType: businessProfile?.businessType ?? profile.type,
+    storeType: params.storeType ?? params.businessType ?? profile.type,
     slogan: profile.tagline,
     categories: Array.isArray(categories) ? categories : [],
     items: Array.isArray(products) ? products : [],

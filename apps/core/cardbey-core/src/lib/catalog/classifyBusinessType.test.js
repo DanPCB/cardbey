@@ -45,6 +45,17 @@ describe('classifyBusinessType', () => {
     expect(result.primaryCTA).toBe('Order');
   });
 
+  it('classifies fashion boutique as product_retail', () => {
+    const result = classifyBusinessType({
+      businessName: 'Another Fashion',
+      businessType: 'Fashion',
+      category: 'Fashion',
+    });
+    expect(result.businessType).toBe('product_retail');
+    expect(result.recommendedCatalogLabel).toBe('Products');
+    expect(result.primaryCTA).toBe('Add to cart');
+  });
+
   it('classifies retail boutique as product_retail', () => {
     const result = classifyBusinessType({
       businessName: 'Urban Boutique',

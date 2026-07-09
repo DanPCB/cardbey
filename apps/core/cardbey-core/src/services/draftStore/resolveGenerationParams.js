@@ -8,6 +8,7 @@
  */
 
 import { resolveStoreCreationClassification } from './resolveStoreCreationClassification.js';
+import { resolveVertical } from '../../lib/verticals/verticalTaxonomy.js';
 
 /**
  * @param {Record<string, any>} input - Raw draft.input (from API or orchestra)
@@ -55,6 +56,20 @@ export function resolveGenerationParams(input, opts = {}) {
   const vertical = raw.vertical != null ? String(raw.vertical).trim() : (raw.businessType || raw.storeType) ? String(raw.businessType || raw.storeType).trim() : undefined;
 
   const classificationBundle = resolveStoreCreationClassification(raw);
+  const categoryHint =
+    raw.storeType != null && String(raw.storeType).trim()
+      ? String(raw.storeType).trim()
+      : raw.businessType != null && String(raw.businessType).trim()
+        ? String(raw.businessType).trim()
+        : raw.category != null && String(raw.category).trim()
+          ? String(raw.category).trim()
+          : undefined;
+  const verticalResolved = resolveVertical({
+    businessType: categoryHint,
+    businessName: raw.businessName ?? raw.storeName,
+    userNotes: [raw.location, raw.prompt].filter(Boolean).join(' '),
+    explicitVertical: raw.verticalSlug != null ? String(raw.verticalSlug).trim() : null,
+  });
 
   return {
     mode,
@@ -100,5 +115,10 @@ export function resolveGenerationParams(input, opts = {}) {
     catalogLabel: classificationBundle.classification.catalogLabel,
     primaryCTA: classificationBundle.classification.primaryCTA,
     generatedContentProfile: classificationBundle.classification.generatedContentProfile,
+    verticalSlug:
+      raw.verticalSlug != null && String(raw.verticalSlug).trim()
+        ? String(raw.verticalSlug).trim()
+        : verticalResolved.slug,
+    verticalGroup: verticalResolved.group,
   };
 }
