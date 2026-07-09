@@ -14,6 +14,14 @@ function readHistory(raw) {
   return [];
 }
 
+function isMissingPatternWeightTableError(err) {
+  const msg = err?.message || String(err || '');
+  return (
+    err?.code === 'P2021' ||
+    (msg.includes('PatternWeight') && (msg.includes('does not exist') || msg.includes('no such table')))
+  );
+}
+
 export class AdaptiveWeightService {
   /** @type {AdaptiveWeightService | null} */
   static instance = null;
@@ -36,7 +44,18 @@ export class AdaptiveWeightService {
     }
 
     const prisma = getPrismaClient();
-    const record = await prisma.patternWeight.findUnique({ where: { patternId: key } });
+    if (!prisma?.patternWeight?.findUnique) {
+      return 1.0;
+    }
+    let record = null;
+    try {
+      record = await prisma.patternWeight.findUnique({ where: { patternId: key } });
+    } catch (err) {
+      if (isMissingPatternWeightTableError(err)) {
+        return 1.0;
+      }
+      throw err;
+    }
     const weight = record?.weight ?? 1.0;
 
     weightCache.set(key, { weight, expiresAt: Date.now() + CACHE_TTL_MS });

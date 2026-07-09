@@ -146,6 +146,18 @@ export function normalizeObservationLatencyMs(metadata) {
 /** @type {Map<string, { success: number; failure: number }>} */
 const learningWeights = new Map();
 
+/** Skip PatternWeight DB writes when table is missing (staging / pending migration). */
+let patternWeightTableMissing = false;
+let patternWeightTableMissingWarned = false;
+
+function isMissingPatternWeightTableError(err) {
+  const msg = err?.message || String(err || '');
+  return (
+    err?.code === 'P2021' ||
+    (msg.includes('PatternWeight') && (msg.includes('does not exist') || msg.includes('no such table')))
+  );
+}
+
 function weightKey(intentType, actionType) {
   return `${String(intentType ?? 'unknown')}:${String(actionType ?? 'unknown')}`;
 }
@@ -252,6 +264,8 @@ export class ObservationBus {
     else current.failure += 1;
     learningWeights.set(key, current);
 
+    if (patternWeightTableMissing) return;
+
     try {
       const prisma = getPrismaClient();
       if (!prisma?.patternWeight?.upsert) return;
@@ -280,7 +294,17 @@ export class ObservationBus {
           lastAdjusted: new Date(),
         },
       });
-    } catch {
+    } catch (err) {
+      if (isMissingPatternWeightTableError(err)) {
+        patternWeightTableMissing = true;
+        if (!patternWeightTableMissingWarned) {
+          patternWeightTableMissingWarned = true;
+          console.warn(
+            '[ObservationBus] PatternWeight table missing — skipping DB weight persistence (run prisma migrate deploy).',
+          );
+        }
+        return;
+      }
       /* non-fatal — in-memory weights still updated */
     }
   }
@@ -307,6 +331,8 @@ export class ObservationBus {
   resetForTests() {
     observationRing.length = 0;
     learningWeights.clear();
+    patternWeightTableMissing = false;
+    patternWeightTableMissingWarned = false;
   }
 }
 

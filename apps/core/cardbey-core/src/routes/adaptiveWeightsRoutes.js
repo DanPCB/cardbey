@@ -13,12 +13,19 @@ const adaptiveWeights = getAdaptiveWeightService();
 router.get('/weights', requireAuth, requireSuperAdmin, async (req, res, next) => {
   try {
     const prisma = getPrismaClient();
+    if (!prisma?.patternWeight?.findMany) {
+      return res.json({ ok: true, weights: [] });
+    }
     const weights = await prisma.patternWeight.findMany({
       orderBy: { lastAdjusted: 'desc' },
       take: 200,
     });
     return res.json({ ok: true, weights });
   } catch (error) {
+    const msg = error?.message || String(error);
+    if (msg.includes('PatternWeight') && msg.includes('does not exist')) {
+      return res.json({ ok: true, weights: [], tableMissing: true });
+    }
     return next(error);
   }
 });
