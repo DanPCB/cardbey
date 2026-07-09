@@ -5,6 +5,7 @@
 import { getTranslatedField } from '../i18n/translationUtils.js';
 import { parseSocialLinks } from '../../lib/socialLinks.js';
 import { enrichPublicCatalogItem } from '../../lib/catalog/catalogItemClassification.js';
+import { repairPublicCatalogServicePlaceholders } from '../../lib/catalog/serviceCatalogPlaceholders.js';
 import { publicCommerceFields } from '../../lib/dbCapabilities.js';
 import { buildPublicStoreContact } from '../../utils/publicStoreMapper.js';
 import { buildStoreLocationFields } from '../../lib/formatStoreLocation.js';
@@ -82,7 +83,7 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
       { businessType, businessName },
     );
 
-  const products =
+  const productsRaw =
     dbProducts.length > 0
       ? dbProducts.map(mapProduct)
       : projectionProducts.map((p) =>
@@ -104,6 +105,16 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
             { businessType, businessName },
           ),
         );
+
+  const leakRepair = repairPublicCatalogServicePlaceholders(productsRaw, {
+    businessType,
+    businessName,
+    storeName: businessName,
+    catalogLabel: business?.catalogLabel ?? projection.content?.catalogLabel ?? null,
+    verticalSlug: business?.verticalSlug ?? projection.category ?? null,
+    verticalGroup: business?.verticalGroup ?? null,
+  });
+  const products = leakRepair.repaired ? leakRepair.products : productsRaw;
 
   const locationFromProjection = projection.location && typeof projection.location === 'object'
     ? projection.location

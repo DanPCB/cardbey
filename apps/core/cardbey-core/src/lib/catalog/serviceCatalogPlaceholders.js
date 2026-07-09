@@ -4,6 +4,10 @@
  * services_generic templates and seed builders — not from food or product menus.
  */
 
+import { resolveVertical } from '../verticals/verticalTaxonomy.js';
+import { buildSeedCatalog } from '../../services/store/seeds/seedCatalogBuilder.js';
+import { buildCuisineMenuCatalog } from '../../services/draftStore/foodCuisineCatalog.js';
+
 const SERVICE_CATALOG_PLACEHOLDER_RE =
   /\b(business package|call-?out fee|custom quote|consultation|starter package|essential package|complete package|value package|core service|standard service|premium service|basic service|extended service|express service|full service|scheduled visit|emergency call-?out|support package|standard visit|site visit|follow-?up|maintenance|inspection|report|priority service|one-?off service|recurring service|add-?on service|package deal)\b/i;
 
@@ -66,10 +70,9 @@ export function isNonServiceCatalogVertical(profile = {}) {
  * @param {object} profile
  */
 export function shouldRepairServiceCatalogLeak(products, profile = {}) {
-  if (!Array.isArray(products) || products.length < 2) return false;
+  if (!Array.isArray(products) || products.length === 0) return false;
   if (!isNonServiceCatalogVertical(profile)) return false;
-  const hits = countServiceCatalogPlaceholderHits(products);
-  return hits >= 2 && hits / products.length >= 0.25;
+  return countServiceCatalogPlaceholderHits(products) >= 1;
 }
 
 /**
@@ -125,5 +128,146 @@ export function repairServiceCatalogPlaceholderProducts(products, profile = {}, 
     categories: seed?.categories,
     repaired: repairedCount > 0,
     repairedCount,
+  };
+}
+
+/**
+ * Repair leaked service scaffold names on public storefront catalog output.
+ * Used by toPublicStore and publishedBusinessArtifactToPublicStore.
+ *
+ * @param {object[]} products
+ * @param {object} profile
+ */
+export function repairPublicCatalogServicePlaceholders(products, profile = {}) {
+  const vertical = resolveVertical({
+    businessType: profile.businessType,
+    businessName: profile.businessName ?? profile.storeName,
+  });
+  const leakProfile = {
+    ...profile,
+    verticalSlug: profile.verticalSlug ?? vertical.slug,
+    verticalGroup: profile.verticalGroup ?? vertical.group,
+  };
+  return repairServiceCatalogPlaceholderProducts(products, leakProfile, () =>
+    buildServiceCatalogPlaceholderSeed(products, leakProfile),
+  );
+}
+
+/**
+ * Build seed catalog for placeholder repair (shared by API mapper and DB backfill).
+ *
+ * @param {object[]} products
+ * @param {object} profile
+ */
+export function buildServiceCatalogPlaceholderSeed(products, profile = {}) {
+  const vertical = resolveVertical({
+    businessType: profile.businessType,
+    businessName: profile.businessName ?? profile.storeName,
+  });
+  const leakProfile = {
+    ...profile,
+    verticalSlug: profile.verticalSlug ?? vertical.slug,
+    verticalGroup: profile.verticalGroup ?? vertical.group,
+  };
+  const targetCount = Math.max(products.length, 24);
+  const cuisine = buildCuisineMenuCatalog(
+    {
+      verticalSlug: leakProfile.verticalSlug,
+      verticalGroup: leakProfile.verticalGroup,
+      businessType: leakProfile.businessType,
+      businessName: leakProfile.businessName ?? leakProfile.storeName,
+      catalogLabel: leakProfile.catalogLabel,
+    },
+    targetCount,
+  );
+  if (cuisine) return cuisine;
+  return buildSeedCatalog(
+    {
+      verticalSlug: leakProfile.verticalSlug,
+      verticalGroup: leakProfile.verticalGroup,
+      businessType: leakProfile.businessType,
+      businessName: leakProfile.businessName ?? leakProfile.storeName,
+    },
+    { targetCount },
+  );
+}
+
+/**
+ * Repair placeholders for DB writes — avoids duplicate normalized product names.
+ *
+ * @param {object[]} products
+ * @param {object} profile
+ * @param {(name: string) => string} normalizeName
+ */
+export function repairServiceCatalogPlaceholderProductsForDb(products, profile = {}, normalizeName) {
+  if (!shouldRepairServiceCatalogLeak(products, profile)) {
+    return { products, repairs: [], repaired: false, repairedCount: 0 };
+  }
+  const seed = buildServiceCatalogPlaceholderSeed(products, profile);
+  const seedItems = Array.isArray(seed?.items) ? seed.items : [];
+  if (seedItems.length === 0) {
+    return { products, repairs: [], repaired: false, repairedCount: 0 };
+  }
+
+  const usedNames = new Set(
+    products
+      .filter((p) => p && !isServiceCatalogPlaceholderName(p.name))
+      .map((p) => normalizeName(p.name))
+      .filter(Boolean),
+  );
+
+  let seedIdx = 0;
+  const repairs = [];
+  const repaired = products.map((product) => {
+    if (!product || typeof product !== 'object' || !isServiceCatalogPlaceholderName(product.name)) {
+      return product;
+    }
+
+    let replacement = null;
+    for (let attempt = 0; attempt < seedItems.length; attempt += 1) {
+      const candidate = seedItems[(seedIdx + attempt) % seedItems.length];
+      const candidateName = String(candidate?.name ?? '').trim();
+      const normalized = normalizeName(candidateName);
+      if (!candidateName || usedNames.has(normalized)) continue;
+      replacement = candidate;
+      seedIdx = (seedIdx + attempt + 1) % seedItems.length;
+      usedNames.add(normalized);
+      break;
+    }
+
+    if (!replacement) {
+      const fallbackName = `${normalizeServicePlaceholderName(product.name) || 'Menu item'} special`;
+      const normalized = normalizeName(fallbackName);
+      if (!usedNames.has(normalized)) {
+        usedNames.add(normalized);
+        replacement = { name: fallbackName, description: product.description ?? null };
+      } else {
+        return product;
+      }
+    }
+
+    repairs.push({
+      id: product.id,
+      fromName: product.name,
+      toName: replacement.name,
+    });
+
+    return {
+      ...product,
+      name: replacement.name,
+      description: replacement.description ?? product.description ?? null,
+      itemType: null,
+      bookingEnabled: null,
+      purchaseEnabled: null,
+      primaryAction: null,
+      serviceCatalog: null,
+    };
+  });
+
+  return {
+    products: repaired,
+    repairs,
+    repaired: repairs.length > 0,
+    repairedCount: repairs.length,
   };
 }
