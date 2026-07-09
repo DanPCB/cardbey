@@ -209,8 +209,7 @@ function resolveVerticalCatalogProfile(params = {}) {
       verticalGroup:
         fromCandidate?.verticalGroup ??
         params.verticalGroup ??
-        String(slug).split('.')[0] ||
-        'services',
+        (String(slug).split('.')[0] || 'services'),
       audience:
         params.audience ??
         fromCandidate?.audience ??
