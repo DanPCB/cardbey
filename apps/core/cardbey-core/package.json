@@ -57,6 +57,8 @@
     "db:resolve-legacy-baseline": "node scripts/resolve-legacy-baseline.mjs --apply --deploy",
     "rebuild:projections": "node scripts/rebuild-published-projections.mjs",
     "rebuild:projections:dry": "node scripts/rebuild-published-projections.mjs --dry-run",
+    "backfill:service-catalog-placeholders": "node scripts/backfill-service-catalog-placeholder-repair.mjs --dry-run",
+    "backfill:service-catalog-placeholders:apply": "node scripts/backfill-service-catalog-placeholder-repair.mjs --apply",
     "db:push:test": "cross-env DATABASE_URL=file:../test.db npx prisma db push --schema prisma/sqlite/schema.prisma --accept-data-loss",
     "setup": "npm install && npx prisma generate --schema prisma/sqlite/schema.prisma",
     "smoke": "node scripts/smoke.js",
