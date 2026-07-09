@@ -1640,8 +1640,16 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
               emitCtx,
             );
           }
-          const { catalog: catalogPaidNoReact } = await buildCatalogForStoreReactStep(missionId, params, input);
-          await saveDraftBase(draftId, catalogPaidNoReact, params);
+          const { catalog: catalogPaidNoReact, fromResearch, research } = await buildCatalogForStoreReactStep(
+            missionId,
+            params,
+            input,
+          );
+          const catalogParams =
+            fromResearch && research
+              ? mergeResearchBusinessProfileIntoParams(params, research, catalogPaidNoReact)
+              : params;
+          await saveDraftBase(draftId, catalogPaidNoReact, catalogParams);
           const emitContextUpdate = options.emitContextUpdate;
           if (typeof emitContextUpdate === 'function' && catalogPaidNoReact?.products?.length) {
             const products = catalogPaidNoReact.products.map((p) => ({
