@@ -146,15 +146,24 @@ function flattenToPreviewShape(parsed, draftId) {
   const categories = [];
   const items = [];
   let globalItemIndex = 0;
+  const fallbackCategoryNames = ['Starters', 'Mains', 'Sides', 'Drinks', 'Desserts', 'Specials', 'Combos', 'Chef\'s Picks'];
   for (let ci = 0; ci < (parsed.categories || []).length; ci++) {
     const cat = parsed.categories[ci];
     const subs = cat?.subcategories || [];
     for (let si = 0; si < subs.length; si++) {
       const sub = subs[si];
       const catId = `cat_${ci}_${si}`;
+      const parentName = (cat?.name || '').toString().trim();
+      const subName = (sub?.name || '').toString().trim();
+      let displayName = subName || parentName;
+      if (/^cat[_\s-]?\d/i.test(displayName)) {
+        displayName = parentName && !/^cat[_\s-]?\d/i.test(parentName)
+          ? parentName
+          : fallbackCategoryNames[ci % fallbackCategoryNames.length];
+      }
       categories.push({
         id: catId,
-        name: sub?.name || `Category ${ci + 1}`,
+        name: displayName,
       });
       for (const it of sub?.items || []) {
         const itemId = `item_${draftId}_${globalItemIndex}`;

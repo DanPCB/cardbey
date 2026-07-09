@@ -3,6 +3,8 @@
  * Runs before catalog items, section titles, CTAs, and subcategories are generated.
  */
 
+import { isServiceCatalogPlaceholderName } from './serviceCatalogPlaceholders.js';
+
 export const BUSINESS_TYPES = [
   'product_retail',
   'service_fixed_booking',
@@ -48,9 +50,14 @@ export function buildBusinessTypeCorpus(input = {}) {
     input.userPrompt,
     input.documentText,
     input.location,
+    input.catalogLabel,
     ...(Array.isArray(input.detectedServices) ? input.detectedServices : []),
     ...(Array.isArray(input.detectedProducts) ? input.detectedProducts : []),
-    ...(Array.isArray(input.items) ? input.items.map((i) => [i?.name, i?.title, i?.category, i?.description].join(' ')) : []),
+    ...(Array.isArray(input.items)
+      ? input.items
+          .filter((i) => !isServiceCatalogPlaceholderName(i?.name))
+          .map((i) => [i?.name, i?.title, i?.category, i?.description].join(' '))
+      : []),
   ];
   return parts.map(norm).filter(Boolean).join(' ');
 }
@@ -119,7 +126,9 @@ export function classifyBusinessType(input = {}) {
   const corpus = buildBusinessTypeCorpus(input);
   const signals = scoreSignals(corpus);
   const hasServiceItems = Array.isArray(input.items)
-    ? input.items.some((i) => {
+    ? input.items
+        .filter((i) => !isServiceCatalogPlaceholderName(i?.name))
+        .some((i) => {
         const t = norm(i?.itemType ?? i?.type ?? i?.kind);
         return t === 'service' || t === 'services';
       })
@@ -162,9 +171,19 @@ export function classifyBusinessType(input = {}) {
     confidence = 0.8;
     reasoning = 'Retail/product keywords detected';
   } else if (hasServiceItems && !hasProductItems) {
-    businessType = signals.quoteRequired > 0 ? 'service_quote_required' : 'service_fixed_booking';
-    confidence = 0.7;
-    reasoning = 'Catalog items are predominantly services';
+    if (signals.food > 0) {
+      businessType = 'food_menu';
+      confidence = 0.82;
+      reasoning = 'Food signals override leaked service placeholder items';
+    } else if (signals.retail > 0) {
+      businessType = 'product_retail';
+      confidence = 0.82;
+      reasoning = 'Retail signals override leaked service placeholder items';
+    } else {
+      businessType = signals.quoteRequired > 0 ? 'service_quote_required' : 'service_fixed_booking';
+      confidence = 0.7;
+      reasoning = 'Catalog items are predominantly services';
+    }
   }
 
   const recommendedCatalogLabel = recommendedCatalogLabelForType(businessType, corpus);

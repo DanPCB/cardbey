@@ -2347,7 +2347,16 @@ export async function generateDraft(draftId, options = {}) {
     const guardsEnabled = isDraftGuardsEnabled();
     const effectiveVerticalType = guardsEnabled ? effectiveVertical(profile.type, input.businessType || input.storeType) : null;
 
-    const menuFirstMode = input.menuFirstMode === true || input.menuOnly === true || input.ignoreImages === true;
+    const resolvedFoodVertical = resolveVertical({
+      businessType: input.businessType || input.storeType || profile.type,
+      businessName: profile.name || input.businessName,
+      explicitVertical: input.verticalSlug ?? null,
+    });
+    const menuFirstMode =
+      input.menuFirstMode === true ||
+      input.menuOnly === true ||
+      input.ignoreImages === true ||
+      (resolvedFoodVertical.group === 'food' && draft.mode !== 'ocr');
     let products = [];
     let categories;
     let itemsForPreview;
@@ -2364,6 +2373,7 @@ export async function generateDraft(draftId, options = {}) {
         businessName: profile.name || input.businessName || 'Store',
         businessType: String(input.businessType || input.storeType || profile.type || '').trim(),
         vertical: verticalForMenu,
+        verticalSlug: resolvedFoodVertical.slug,
         location: (input.location || '').toString().trim(),
         priceTier: (input.priceTier || '').toString().trim(),
         currency,
@@ -2596,6 +2606,24 @@ export async function generateDraft(draftId, options = {}) {
       };
 
       // Map profile types (e.g. coffee-shop from businessProfileService) to template keys (cafe, restaurant, etc.)
+      const resolveNonServiceLegacyTemplateList = (legacyInput, legacyProfile, preferredKey) => {
+        const blob = `${legacyInput.businessType || ''} ${legacyInput.storeType || ''} ${legacyProfile?.type || ''} ${legacyInput.businessName || legacyProfile?.name || ''}`.toLowerCase();
+        const candidates = [];
+        if (/\b(cafe|coffee)\b/.test(blob)) candidates.push('cafe', 'food_restaurant_generic');
+        else if (/\b(vietnamese|pho|phở|banh mi|bánh mì)\b/.test(blob)) candidates.push('food_vietnamese', 'food_restaurant_generic');
+        else if (/\b(restaurant|food|bakery|menu|dining|kitchen|bistro)\b/.test(blob)) {
+          candidates.push('food_restaurant_generic', 'cafe');
+        }
+        if (/\b(fashion|clothing|apparel|boutique|wear)\b/.test(blob)) candidates.push('fashion_boutique', 'retail');
+        if (/\b(retail|shop|store)\b/.test(blob)) candidates.push('retail', 'fashion_boutique');
+        if (preferredKey) candidates.push(preferredKey);
+        candidates.push('generic_store');
+        for (const key of candidates) {
+          const resolved = getTemplateItems(key);
+          if (resolved) return resolved;
+        }
+        return null;
+      };
       const profileTypeToTemplateKey = {
         'coffee-shop': 'cafe',
         'coffee_shop': 'cafe',
@@ -2647,7 +2675,7 @@ export async function generateDraft(draftId, options = {}) {
         const resolved = selectTemplateId(verticalSlugInput.trim(), audience);
         if (resolved) templateKey = resolved;
       }
-      let list = templateItems[templateKey] || templateItems[fromProfile] || templateItems[rawType] || templateItems[normalizedKey] || getTemplateItems(templateKey) || getTemplateItems('services_generic') || null;
+      let list = templateItems[templateKey] || templateItems[fromProfile] || templateItems[rawType] || templateItems[normalizedKey] || getTemplateItems(templateKey) || resolveNonServiceLegacyTemplateList(input, profile, templateKey) || null;
       if (!list) {
         const verticalForMenu = (input.vertical || input.businessType || input.storeType || profile.type || 'general').toString().trim();
         const verticalNorm = verticalForMenu.toLowerCase().replace(/\s+/g, '_');
@@ -2664,6 +2692,7 @@ export async function generateDraft(draftId, options = {}) {
               businessName: profile.name || input.businessName || 'Store',
               businessType: String(input.businessType || input.storeType || profile.type || '').trim(),
               vertical: verticalNorm || 'general',
+              verticalSlug: resolvedFoodVertical.slug,
               location: (input.location || '').toString().trim(),
               priceTier: (input.priceTier || '').toString().trim(),
               currency,
@@ -2684,7 +2713,7 @@ export async function generateDraft(draftId, options = {}) {
           }
         }
         if (!usedAiMenuFallback) {
-          list = getTemplateItems('services_generic') || getTemplateItems('generic_store') || Array.from({ length: 30 }, (_, i) => ({
+          list = resolveNonServiceLegacyTemplateList(input, profile, templateKey) || Array.from({ length: 30 }, (_, i) => ({
             name: `${profile.type || 'Product'} ${i + 1}`,
             price: `$${(19.99 + i).toFixed(2)}`,
             description: i % 3 === 0 ? 'Quality item' : i % 3 === 1 ? 'Popular choice' : 'Customer favourite',

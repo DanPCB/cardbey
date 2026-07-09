@@ -21,6 +21,17 @@ import {
   CATALOG_ITEM_MIN,
   CATALOG_ITEM_MAX,
 } from '../../config/catalogLimits.js';
+import { buildCuisineMenuCatalog } from './foodCuisineCatalog.js';
+
+function flatCuisineTemplateItems(verticalSlug) {
+  const catalog = buildCuisineMenuCatalog({ verticalSlug }, CATALOG_ITEM_LIMIT);
+  if (!catalog?.items?.length) return null;
+  return catalog.items.map((i) => ({
+    name: i.name,
+    price: i.price ?? null,
+    description: i.description ?? null,
+  }));
+}
 
 export const TEMPLATE_ITEMS = {
   cafe: [
@@ -90,6 +101,9 @@ export const TEMPLATE_ITEMS = {
   food_seafood: structuredItemsToFlat(TEMPLATE_FOOD_SEAFOOD.items),
   food_restaurant_generic: structuredItemsToFlat(TEMPLATE_FOOD_RESTAURANT_GENERIC.items),
   food_bakery: structuredItemsToFlat(TEMPLATE_FOOD_BAKERY.items),
+  food_vietnamese: flatCuisineTemplateItems('food.vietnamese'),
+  food_asian: flatCuisineTemplateItems('food.asian'),
+  food_fast_food: flatCuisineTemplateItems('food.fast_food'),
   beauty_nails: structuredItemsToFlat(TEMPLATE_BEAUTY_NAILS.items),
   fashion_boutique: structuredItemsToFlat(TEMPLATE_FASHION_BOUTIQUE.items),
   fashion_kids: structuredItemsToFlat(TEMPLATE_FASHION_KIDS.items),

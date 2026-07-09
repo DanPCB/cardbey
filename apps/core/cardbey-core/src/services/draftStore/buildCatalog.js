@@ -31,6 +31,8 @@ import {
   buildCatalogGenerationProfile,
   buildCategoriesFromProfile,
 } from '../../lib/catalog/buildCatalogGenerationProfile.js';
+import { repairServiceCatalogPlaceholderProducts } from '../../lib/catalog/serviceCatalogPlaceholders.js';
+import { buildCuisineMenuCatalog, cuisineSlugToTemplateKey } from './foodCuisineCatalog.js';
 
 function tsModuleUnavailable(name) {
   const e = new Error(`${name} unavailable in plain Node runtime. Run server with tsx or add build step to compile TS.`);
@@ -179,7 +181,36 @@ const VERTICAL_SLUG_TO_EXPANSION_KEY = {
   retail: 'retail',
   'retail.generic': 'retail',
   'retail.general': 'retail',
+  fashion: 'fashion',
+  'fashion.boutique': 'fashion',
+  'fashion.kids': 'fashion',
+  'fashion.generic': 'fashion',
 };
+
+/**
+ * Never use service-style expansion names for food/retail/fashion catalogs.
+ * @param {string} verticalKey
+ * @param {string} [verticalGroup]
+ * @param {string | null | undefined} businessType
+ */
+function resolveAiExpansionVariations(verticalKey, verticalGroup, businessType) {
+  const aliasKey = VERTICAL_SLUG_TO_EXPANSION_KEY[verticalKey];
+  const businessTypeKey = typeof businessType === 'string' ? businessType.toLowerCase().trim() : null;
+  let variations =
+    (aliasKey !== undefined ? AI_EXPANSION_VARIATIONS[aliasKey] : undefined) ??
+    (businessTypeKey ? AI_EXPANSION_VARIATIONS[businessTypeKey] : undefined) ??
+    AI_EXPANSION_VARIATIONS[verticalKey] ??
+    AI_EXPANSION_VARIATIONS[verticalKey.split('.')[0]] ??
+    AI_EXPANSION_VARIATIONS[verticalGroup];
+
+  if (Array.isArray(variations) && variations.length > 0) return variations;
+
+  const group = String(verticalGroup || verticalKey.split('.')[0] || '').toLowerCase();
+  if (group === 'food') return AI_EXPANSION_VARIATIONS.food;
+  if (group === 'fashion') return AI_EXPANSION_VARIATIONS.fashion;
+  if (group === 'retail') return AI_EXPANSION_VARIATIONS.fashion ?? AI_EXPANSION_VARIATIONS.retail;
+  return GENERIC_EXPANSION_FALLBACK;
+}
 
 const AI_EXPANSION_TARGET = CATALOG_ITEM_LIMIT;
 const AI_EXPANSION_MIN = CATALOG_ITEM_MIN;
@@ -286,6 +317,30 @@ export async function buildFromTemplate(params) {
   let key = String(templateId).toLowerCase().trim();
   const verticalSlug = params.verticalSlug ?? resolveVerticalSlug(businessType, params.vertical);
   const isFood = verticalSlug === 'food' || (typeof verticalSlug === 'string' && verticalSlug.startsWith('food.'));
+  const isFashionOrRetail =
+    typeof verticalSlug === 'string' &&
+    (verticalSlug === 'fashion' ||
+      verticalSlug.startsWith('fashion.') ||
+      verticalSlug === 'retail' ||
+      verticalSlug.startsWith('retail.'));
+  if (key === 'services_generic' && (isFood || isFashionOrRetail)) {
+    const redirected = selectTemplateId(verticalSlug, params.audience);
+    if (redirected && redirected !== 'services_generic') {
+      key = redirected;
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[buildCatalog] template guard: non-service vertical but templateId was services_generic; using', key);
+      }
+    }
+  }
+  if (isFood) {
+    const cuisineTemplate = cuisineSlugToTemplateKey(verticalSlug);
+    if (
+      cuisineTemplate &&
+      (key === 'food_restaurant_generic' || key === 'restaurant' || key === 'general' || key === 'generic_store')
+    ) {
+      key = cuisineTemplate;
+    }
+  }
   if (!isFood && key === 'cafe') {
     key = selectTemplateId(verticalSlug);
     if (process.env.NODE_ENV !== 'production') {
@@ -464,6 +519,7 @@ export async function buildFromAi(params) {
     businessName: profile.name || businessName || 'Store',
     businessType: String(businessType || storeType || profile.type || '').trim(),
     vertical: verticalForMenu,
+    verticalSlug: params.verticalSlug || verticalForMenu.replace(/_/g, '.'),
     location: (location || '').toString().trim(),
     priceTier: (priceTier || '').toString().trim(),
     currency,
@@ -480,15 +536,11 @@ export async function buildFromAi(params) {
   }));
   if (products.length < AI_EXPANSION_MIN && products.length > 0) {
     const verticalKey = verticalForMenu.replace(/_/g, '.');
-    const aliasKey = VERTICAL_SLUG_TO_EXPANSION_KEY[verticalKey];
-    const businessTypeKey =
-      typeof businessType === 'string' ? businessType.toLowerCase().trim() : null;
-    const variations =
-      (aliasKey !== undefined ? AI_EXPANSION_VARIATIONS[aliasKey] : undefined) ??
-      (businessTypeKey ? AI_EXPANSION_VARIATIONS[businessTypeKey] : undefined) ??
-      AI_EXPANSION_VARIATIONS[verticalKey] ??
-      AI_EXPANSION_VARIATIONS[verticalKey.split('.')[0]] ??
-      GENERIC_EXPANSION_FALLBACK;
+    const variations = resolveAiExpansionVariations(
+      verticalKey,
+      verticalKey.split('.')[0],
+      businessType,
+    );
     const primaryCategoryId = products[0].categoryId || (menuResult.categories && menuResult.categories[0] && menuResult.categories[0].id) || `cat_${draftId}_0`;
     /** Fill only to minimum viable catalog — not CATALOG_ITEM_LIMIT (avoids 200+ duplicate placeholders). */
     const need = AI_EXPANSION_MIN - products.length;
@@ -739,6 +791,42 @@ export async function buildCatalog(params) {
     }
   }
 
+  const leakProfile = {
+    ...seedProfile,
+    businessName: params.businessName,
+    storeName: params.businessName,
+    storeType: params.storeType ?? params.businessType,
+    businessType: params.businessType ?? params.storeType ?? seedProfile.businessType,
+    catalogLabel: result?.meta?.catalogLabel,
+  };
+  const leakRepair = repairServiceCatalogPlaceholderProducts(
+    result?.products ?? [],
+    leakProfile,
+    () => {
+      const cuisine = buildCuisineMenuCatalog(leakProfile, TARGET_ITEM_COUNT);
+      if (cuisine) return cuisine;
+      return buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT });
+    },
+  );
+  if (leakRepair.repaired) {
+    result.products = leakRepair.products;
+    if (leakRepair.categories?.length) {
+      result.categories = leakRepair.categories;
+    }
+    result.meta = {
+      ...(result.meta ?? {}),
+      serviceCatalogLeakRepaired: true,
+      serviceCatalogLeakRepairedCount: leakRepair.repairedCount,
+    };
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[buildCatalog] repaired service catalog placeholder leak', {
+        mode,
+        verticalSlug: seedProfile.verticalSlug,
+        repairedCount: leakRepair.repairedCount,
+      });
+    }
+  }
+
   const catalogProfile =
     resolveCatalogClassificationProfile(params) ??
     buildCatalogGenerationProfile({
@@ -748,6 +836,7 @@ export async function buildCatalog(params) {
       storeType: params.storeType ?? params.businessType,
       prompt: params.prompt,
       location: params.location,
+      catalogLabel: result?.meta?.catalogLabel,
       items: result?.products,
     });
   if (result?.products?.length) {

@@ -12,6 +12,8 @@ import {
   flattenToPreviewShape,
 } from './menuGenerationValidation.js';
 import { isServiceVertical } from '../../lib/storeTransactionMode.js';
+import { getCuisineMenuPromptHints, isFoodVerticalSlug } from './foodCuisineCatalog.js';
+import { VERTICALS } from '../../lib/verticals/verticalTaxonomy.js';
 import {
   CATALOG_ITEM_LIMIT,
   CATALOG_ITEM_MIN,
@@ -24,6 +26,13 @@ function stripJsonBlock(text) {
   const end = t.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return t;
   return t.slice(start, end + 1);
+}
+
+function verticalLabel(slug) {
+  const normalized = String(slug || '').toLowerCase().replace(/\s+/g, '_');
+  const dotted = normalized.replace(/_/g, '.');
+  const match = VERTICALS.find((v) => v.slug === dotted || v.slug === normalized);
+  return match?.label || String(slug || 'general').replace(/_/g, ' ');
 }
 
 /**
@@ -47,16 +56,19 @@ export async function generateVerticalLockedMenu(params) {
     currency = '',
     draftId = 'menu',
     audience = '',
+    verticalSlug = '',
   } = params;
 
   const businessTypeLabel = String(businessType || '').trim() || 'the stated vertical';
+  const resolvedVerticalSlug = String(verticalSlug || vertical || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/\./g, '.');
+  const cuisineHints = getCuisineMenuPromptHints(resolvedVerticalSlug, businessName, businessTypeLabel);
 
   const catalogTargetPrompt = `Generate up to ${CATALOG_ITEM_LIMIT} items, organized into categories of 20–${CATALOG_CATEGORY_TARGET} items each (min ${CATALOG_ITEM_MIN} total).`;
 
   let userPrompt = USER_PROMPT_TEMPLATE
     .replace(/\{BUSINESS_NAME\}/g, businessName)
     .replace(/\{BUSINESS_TYPE\}/g, businessTypeLabel)
-    .replace(/\{VERTICAL\}/g, vertical)
+    .replace(/\{VERTICAL\}/g, verticalLabel(resolvedVerticalSlug || vertical))
     .replace(/\{CITY_COUNTRY\}/g, location || '(not specified)')
     .replace(/\{PRICE_TIER\}/g, priceTier || '(not specified)')
     .replace(/\{CURRENCY\}/g, currency || '');
@@ -78,6 +90,20 @@ Do NOT generate retail products, food items, or merchandise.`
 This is a ${businessTypeLabel} business. Generate only products or services appropriate for this category.
 Do not generate products outside this vertical.
 ${catalogTargetPrompt}`;
+  if (cuisineHints) {
+    userPrompt += `
+
+CUISINE / CATEGORY GUIDANCE (required):
+${cuisineHints}`;
+  }
+  if (isFoodVerticalSlug(resolvedVerticalSlug) || /\b(restaurant|cafe|food|menu|bakery|kitchen|bistro|dining)\b/i.test(businessTypeLabel)) {
+    userPrompt += `
+
+FOOD MENU RULES:
+- Item names must be real dishes customers order (e.g. Phở Bò, Chả giò, Avocado Toast) — NEVER service scaffolds like "Business Package", "Call-out Fee", or "Custom Quote".
+- Category names must be menu sections (Starters, Mains, Noodles, Drinks) — not internal ids.
+- Set isService=false for all food menu items.`;
+  }
   if (audience === 'kids') {
     userPrompt += `
 
