@@ -687,8 +687,27 @@ export async function buildCatalog(params) {
   let result;
   if (mode === 'template') result = await buildFromTemplate(paramsWithVertical);
   else if (mode === 'seed') result = await buildFromSeed(paramsWithVertical);
-  else if (mode === 'ai') result = await buildFromAi(paramsWithVertical);
-  else if (mode === 'ocr') result = await buildFromOcr(paramsWithVertical);
+  else if (mode === 'ai') {
+    try {
+      result = await buildFromAi(paramsWithVertical);
+    } catch (aiErr) {
+      const templateId = selectTemplateId(verticalSlug, paramsWithVertical.audience);
+      console.warn('[buildCatalog] AI catalog failed; falling back to template catalog', {
+        draftId: params.draftId ?? null,
+        verticalSlug,
+        templateId,
+        message: aiErr?.message ?? String(aiErr),
+        code: aiErr?.code ?? null,
+      });
+      result = await buildFromTemplate({ ...paramsWithVertical, templateId });
+      result.meta = {
+        ...(result.meta ?? {}),
+        catalogSource: 'template',
+        aiFallback: true,
+        aiFallbackReason: typeof aiErr?.message === 'string' ? aiErr.message.slice(0, 240) : 'ai_catalog_failed',
+      };
+    }
+  } else if (mode === 'ocr') result = await buildFromOcr(paramsWithVertical);
   else throw new Error(`Unsupported mode: ${mode}. Use "template", "seed", "ai", or "ocr".`);
 
   if (result?.products && result.products.length < MIN_ITEM_COUNT) {
