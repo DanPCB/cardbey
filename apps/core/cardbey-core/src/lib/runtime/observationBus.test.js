@@ -117,6 +117,30 @@ describe('observationBus', () => {
     expect(latest[0].actionType).toBe('diagnose_store');
   });
 
+  it('skips PatternWeight upsert when table is missing (non-fatal)', async () => {
+    prismaMock.patternWeight.upsert.mockRejectedValueOnce(
+      new Error('The table `public.PatternWeight` does not exist in the current database.'),
+    );
+
+    await observationBus.emit({
+      intent: { type: 'create_store' },
+      action: 'structured_store_build',
+      result: { success: true },
+      metadata: { latency: 50 },
+    });
+
+    expect(getObservationRingForTests()).toHaveLength(1);
+    expect(prismaMock.patternWeight.upsert).toHaveBeenCalledTimes(1);
+
+    prismaMock.patternWeight.upsert.mockClear();
+    await observationBus.emit({
+      intent: { type: 'create_store' },
+      action: 'structured_store_build',
+      result: { success: true },
+    });
+    expect(prismaMock.patternWeight.upsert).not.toHaveBeenCalled();
+  });
+
   it('normalizes per-request latency and ignores cumulative duration', () => {
     expect(normalizeObservationLatencyMs({ latency: 120 })).toBe(120);
     expect(normalizeObservationLatencyMs({ latencyMs: 2500 })).toBe(2500);
