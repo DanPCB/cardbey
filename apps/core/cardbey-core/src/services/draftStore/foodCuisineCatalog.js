@@ -135,8 +135,14 @@ export function resolveCuisineMenuBankKey(verticalSlug, businessName = '', busin
   if (/\b(burger|fast food|takeaway|take away|kebab|fried chicken)\b/.test(blob)) {
     return 'food.fast_food';
   }
-  if (/\b(cafe|coffee|espresso|latte|bakery)\b/.test(blob)) {
+  if (/\b(bakery|baker|sourdough|patisserie|pastry shop)\b/.test(blob)) {
+    return 'food.bakery';
+  }
+  if (/\b(cafe|café|coffee|espresso|latte|barista)\b/.test(blob)) {
     return 'food.cafe';
+  }
+  if (/\b(restaurant|dining|bistro|grill|eatery)\b/.test(blob)) {
+    return 'food.restaurant';
   }
   if (resolved?.group === 'food' && resolved.slug?.startsWith('food.')) {
     return resolved.slug in CUISINE_BANKS ? resolved.slug : null;

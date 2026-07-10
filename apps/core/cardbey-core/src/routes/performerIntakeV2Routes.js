@@ -44,7 +44,37 @@ import { applyIntakePayloadGuard } from '../lib/intake/intakePayloadGuard.js';
 import { handleFreshStoreCreationDraftSubmit } from '../lib/intake/freshStoreCreationFastPath.js';
 import { diagLog, isIntakeDiagEnabled } from '../lib/diagnostics/storeCreationDiagnostics.js';
 import { dispatchAndRespondCreateCampaign } from '../lib/mission/dispatchCreateCampaignFromIntake.js';
+import {
+  dispatchAndRespondLoyaltyCompile,
+  isLoyaltyCompilerTool,
+  shouldDispatchLoyaltyViaCompiler,
+} from '../lib/mission/dispatchLoyaltyFromIntake.js';
 import { isCampaignCheckpointKernelTool } from '../lib/intake/campaignKernelRouting.js';
+import { emitSpinePathTelemetry } from '../lib/intake/spinePathTelemetry.js';
+import {
+  isLoyaltyIntent,
+  shouldPreferLoyaltyOverCampaign,
+} from '../lib/intake/intentDetectors.js';
+import {
+  buildAttachmentAnalysis,
+  buildLoyaltyMissingFieldsClarify,
+  detectLoyaltyCardVisualHints,
+  formatAttachmentAnalysisMessage,
+  isLoyaltyCardAttachment,
+} from '../lib/intake/attachmentAnalysis.js';
+import { getIntakeEvidenceBundleByEvidenceId } from '../lib/kernel/ingress/evidenceStore.js';
+import { observeIntakeClassificationParity } from '../lib/kernel/passive/intakeParityObserver.js';
+import {
+  runIntakeEvidenceBarrier,
+  buildAwaitingPerceptionIntakeResponse,
+} from '../lib/kernel/ingress/intakeEvidenceBarrier.js';
+import { buildClassifierInputFromEvidence } from '../lib/kernel/ingress/classifierEvidenceInput.js';
+import {
+  assertClassificationEvidenceGate,
+  guardClassificationAgainstEvidence,
+  IntakeEvidenceAssertionError,
+} from '../lib/kernel/ingress/evidenceAssertions.js';
+import { Features } from '../config/features.js';
 import {
   shouldRouteToAssetIntentDetection,
   detectExplicitAssetIntent,
@@ -52,6 +82,7 @@ import {
   detectCreateStoreFromUploadedAssetIntent,
   hasExplicitUploadCreateStoreOrWebsiteIntent,
   isExplicitCreateStoreFromUploadContext,
+  isExplicitLoyaltyFromUploadContext,
   shouldAutoSubmitCreateStoreClassification,
   shouldAnalyzeUploadedAssetForStoreCreation,
   shouldBlockStoreCheckWithoutContext,
@@ -78,6 +109,7 @@ import {
 } from '../lib/intake/intakeShortcutPolicy.js';
 import { resolveIntakeLocale } from '../lib/localePrompt.js';
 import { areIntakeShortcutsAllowed, isKernelMandatoryEnabled, normalizeClassificationForKernel } from '../lib/runtime/kernelMandatory.js';
+import { withCanonicalRuntimeState } from '../lib/runtime/canonicalRuntimeState.js';
 import {
   validateIntakeClassification,
   mergeStoreCreateFormIntoParameters,
@@ -219,6 +251,7 @@ import {
   tryAutoResolveSingleStoreId,
   validateUserStoreId,
 } from '../lib/intake/resolveStoreAmbiguity.js';
+import { resolveStoreForIntakeTool, hydrateStoreHint, pickStoreHintForIntakeTool } from '../lib/mission/executionContextKernel.js';
 import {
   buildStoreClarifyOptionsFromHydratedContext,
   tryReplayPendingStoreSelection,
@@ -611,6 +644,53 @@ function resolveStoreId(ctx) {
 
 function resolveDraftId(ctx) {
   return resolveIntakeDraftId(ctx);
+}
+
+/**
+ * Loyalty / spine: hydrate active store before missingContext or compiler dispatch.
+ * Priority: body.storeId → body.activeStoreId → context → runway → session → selection → performee.
+ * @param {object} opts
+ * @returns {string | null}
+ */
+function hydrateLoyaltyStoreId(opts = {}) {
+  const {
+    body = {},
+    currentContext = {},
+    runway = null,
+    session = null,
+    selectionStoreId = null,
+    performeeStoreId = null,
+    dispatchStoreId = null,
+    effectiveStoreId = null,
+    storeId = null,
+  } = opts;
+  const sessionStore =
+    (session && typeof session === 'object'
+      ? session.activeStoreId ?? session.storeId
+      : null) ?? null;
+  const runwayStore =
+    (runway && typeof runway === 'object' ? runway.activeStoreId ?? runway.storeId : null) ?? null;
+  const candidates = [
+    body?.storeId,
+    body?.activeStoreId,
+    body?.currentContext?.storeId,
+    body?.currentContext?.activeStoreId,
+    currentContext?.storeId,
+    currentContext?.activeStoreId,
+    resolveIntakeStoreId(body?.currentContext),
+    resolveIntakeStoreId(currentContext),
+    runwayStore,
+    sessionStore,
+    selectionStoreId,
+    performeeStoreId,
+    dispatchStoreId,
+    effectiveStoreId,
+    storeId,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 /**
@@ -1963,10 +2043,18 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   const payloadGuard = applyIntakePayloadGuard(req.body ?? {});
   if (payloadGuard.rejected) {
+    const rawBody = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const hadUploadEvidence =
+      Boolean(rawBody.imageDataUrl || rawBody.attachments) &&
+      (Boolean(rawBody.intakeV2Selection) ||
+        Boolean(rawBody.evidenceId) ||
+        Boolean(rawBody.intakeEvidenceId));
     return res.status(413).json({
       success: false,
       action: 'payload_too_large',
-      message: 'Request payload is too large. Please retry with a smaller submission.',
+      message: hadUploadEvidence
+        ? 'Upload already analyzed. Please retry with evidence reference, not image data.'
+        : 'Request payload is too large. Please retry with a smaller submission.',
       maxBytes: payloadGuard.maxBytes,
       payloadBytes: payloadGuard.rawSize,
       largestKeys: payloadGuard.largestKeys,
@@ -2156,6 +2244,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
   }
 
+  /** @type {Awaited<ReturnType<typeof runIntakeEvidenceBarrier>> | null} */
+  let intakeEvidenceBarrierResult = null;
+  /** @type {import('../lib/kernel/ingress/intakeEvidence.types.js').IntakeEvidenceBundle | null} */
+  let intakeEvidenceBundle = null;
+
   {
     const earlyConversationSessionId =
       String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
@@ -2201,6 +2294,34 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
     const earlyAttachmentOnly = isUploadOnlyAskTurn(userMessage, earlyUploadCtx);
     const earlyHasAttachment = hasIntakeImageAttachment(body);
+    const earlyFirstAtt = Array.isArray(body.attachments) ? body.attachments[0] : null;
+    const earlyFilename =
+      earlyFirstAtt && typeof earlyFirstAtt === 'object'
+        ? earlyFirstAtt.name ?? earlyFirstAtt.filename
+        : null;
+    const earlyMime =
+      earlyFirstAtt && typeof earlyFirstAtt === 'object' ? earlyFirstAtt.mimeType : null;
+
+    if (earlyHasAttachment && !confirmInterceptApplied) {
+      intakeEvidenceBarrierResult = await runIntakeEvidenceBarrier({
+        hasAttachment: true,
+        imageRef:
+          resolveIntakeImageRefForOcr(body) ?? earlyIntentSourceContext?.pendingImageDataUrl ?? null,
+        filename: earlyFilename,
+        mimeType: earlyMime,
+        userMessage,
+        sessionId: earlySessionKey,
+        attachmentOnlyUpload: earlyAttachmentOnly === true,
+        runVisionEnrichment: false,
+      });
+      if (intakeEvidenceBarrierResult.status === 'awaiting_perception') {
+        return res.json(buildAwaitingPerceptionIntakeResponse(intakeEvidenceBarrierResult));
+      }
+      if (intakeEvidenceBarrierResult.status === 'ready') {
+        intakeEvidenceBundle = intakeEvidenceBarrierResult.bundle;
+        body.__intakeEvidenceBarrier = intakeEvidenceBarrierResult;
+      }
+    }
 
     const earlyCurrentContext =
       body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
@@ -2231,22 +2352,58 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
 
     if (!confirmInterceptApplied) {
-      const uploadAskTurn = await maybeRespondUploadAskBeforeClassifier({
-        userMessage,
-        attachmentOnlyUpload: earlyAttachmentOnly,
-        hasAttachment: earlyHasAttachment,
-        imageDataUrl: resolveIntakeImageRefForOcr(body),
-        intentSourceContext: earlyIntentSourceContext,
-        beliefLoaderOpts: earlyBeliefLoaderOpts,
-        advisorInput: earlyAdvisorInput,
-      });
-      if (uploadAskTurn?.payload) {
-        console.log('[INTAKE] Upload Ask panel before classifier');
-        return res.json({
-          ...uploadAskTurn.payload,
-          action: 'clarify',
-          executionPath: 'intake_upload_ask',
+      let skipUploadAskForLoyalty = false;
+      if (earlyHasAttachment) {
+        try {
+          const earlyAnalysis =
+            intakeEvidenceBarrierResult?.status === 'ready'
+              ? intakeEvidenceBarrierResult.attachmentAnalysis
+              : body.__earlyAttachmentAnalysis ?? null;
+          const loyaltyAttachment =
+            earlyAnalysis && isLoyaltyCardAttachment(earlyAnalysis);
+          const loyaltyText =
+            isLoyaltyIntent(userMessage) ||
+            shouldPreferLoyaltyOverCampaign(userMessage, earlyAnalysis) ||
+            isExplicitLoyaltyFromUploadContext({
+              userMessage,
+              intentSourceContext: earlyIntentSourceContext,
+              attachmentAnalysis: earlyAnalysis,
+            });
+          if ((loyaltyAttachment && earlyAttachmentOnly) || loyaltyText) {
+            skipUploadAskForLoyalty = true;
+            if (earlyAnalysis) body.__earlyAttachmentAnalysis = earlyAnalysis;
+            console.log('[INTAKE] Skipping upload-ask — loyalty AttachmentAnalysis path');
+          }
+        } catch (earlyAaErr) {
+          console.warn(
+            '[INTAKE] early AttachmentAnalysis failed (non-fatal):',
+            earlyAaErr?.message ?? earlyAaErr,
+          );
+        }
+      }
+
+      if (!skipUploadAskForLoyalty) {
+        const uploadAskTurn = await maybeRespondUploadAskBeforeClassifier({
+          userMessage,
+          attachmentOnlyUpload: earlyAttachmentOnly,
+          hasAttachment: earlyHasAttachment,
+          imageDataUrl: resolveIntakeImageRefForOcr(body),
+          intentSourceContext: earlyIntentSourceContext,
+          beliefLoaderOpts: earlyBeliefLoaderOpts,
+          advisorInput: earlyAdvisorInput,
+          attachmentAnalysis:
+            intakeEvidenceBarrierResult?.status === 'ready'
+              ? intakeEvidenceBarrierResult.attachmentAnalysis
+              : body.__earlyAttachmentAnalysis ?? null,
         });
+        if (uploadAskTurn?.payload) {
+          console.log('[INTAKE] Upload Ask panel before classifier');
+          return res.json({
+            ...uploadAskTurn.payload,
+            action: 'clarify',
+            executionPath: 'intake_upload_ask',
+          });
+        }
       }
     }
   }
@@ -2446,6 +2603,12 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         userMessage,
         clientRequestId: body.clientRequestId ?? body.requestId ?? null,
         activeStoreId: resolveIntakeStoreId(body.currentContext),
+        selectionStoreId:
+          String(
+            body.intakeV2Selection?.selectedParameters?.storeId ??
+              body.intakeV2Selection?.selectedParameters?.activeStoreId ??
+              '',
+          ).trim() || null,
       });
       const cachedTurn = peekIntakeTurnIdempotentResponse(intakeIdempotencyKey);
       if (cachedTurn) {
@@ -2682,62 +2845,75 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     String(intentSourceContext.artifactKind ?? '').trim() === 'capability_bridge:service_request' &&
     String(intentSourceContext.bridgeActionId ?? '').trim().startsWith('select_provider:');
 
-  // ── Image Pre-Processing (runs before everything else) ──
+  // ── Mandatory intake evidence barrier (Reality → Perception → Evidence) ──
   let imageContext = null;
-  let uploadAttachmentGuardCtx = buildUploadAttachmentGuardCtx({
-    attachments: body.attachments,
-    imageDataUrl:
-      resolveIntakeImageRefForOcr(body) ??
-      (typeof intentSourceContext?.pendingImageDataUrl === 'string'
-        ? intentSourceContext.pendingImageDataUrl
-        : body.imageDataUrl),
-    intentSourceContext,
-    sessionId: intakeAssetSessionKey,
-  });
+  /** @type {Awaited<ReturnType<typeof buildAttachmentAnalysis>> | null} */
+  let attachmentAnalysis = null;
+  const resolveUploadGuardImageRef = () =>
+    resolveIntakeImageRefForOcr(body) ??
+    (typeof intentSourceContext?.pendingImageDataUrl === 'string'
+      ? intentSourceContext.pendingImageDataUrl
+      : body.imageDataUrl);
+  const buildCurrentUploadAttachmentGuardCtx = () =>
+    buildUploadAttachmentGuardCtx({
+      attachments: body.attachments,
+      imageDataUrl: resolveUploadGuardImageRef(),
+      intentSourceContext,
+      sessionId: intakeAssetSessionKey,
+    });
+  let uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
   let attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
   const hasAnyImageEarly =
     hasIntakeImageAttachment(body) ||
     (typeof body?.imageDataUrl === 'string' && body.imageDataUrl.length > 50);
+  const firstAttachmentMeta = Array.isArray(body.attachments) ? body.attachments[0] : null;
+  const attachmentFilename =
+    (firstAttachmentMeta && typeof firstAttachmentMeta === 'object'
+      ? firstAttachmentMeta.name ?? firstAttachmentMeta.filename
+      : null) ?? null;
+  const attachmentMime =
+    (firstAttachmentMeta && typeof firstAttachmentMeta === 'object'
+      ? firstAttachmentMeta.mimeType
+      : null) ?? null;
 
   if (hasAnyImageEarly) {
-    const imageRef = resolveIntakeImageRefForOcr(body);
-    if (imageRef) {
-      try {
-        const attachmentOnlyOcr =
-          shouldRouteToAssetIntentDetection(userMessage, {
-            attachments: body.attachments,
-            imageDataUrl: body.imageDataUrl,
-          }) && !detectExplicitStoreIntent(userMessage);
-        console.log('[IntakeV2] Pre-processing image with OCR...');
-        const ocrResult = await ocrExtractText({
-          imageDataUrl: imageRef,
-          context: { purpose: attachmentOnlyOcr ? 'business_card' : 'intake_attachment' },
-        });
-        console.log('[IntakeV2] OCR raw result:', {
-          textLength: (ocrResult.text ?? '').length,
-          textPreview: (ocrResult.text ?? '').slice(0, 150),
-          provider: ocrResult.provider,
-        });
-        const extractedText = (ocrResult.text ?? '').trim();
-        // Any non-empty OCR text feeds the classifier (was >10 chars, which dropped short cards/labels).
-        if (extractedText.length > 0) {
-          imageContext = {
-            extractedText,
-            provider: ocrResult.provider,
-            hasText: true,
-          };
-          console.log('[IntakeV2] Image pre-processed:', {
-            textLength: extractedText.length,
-            provider: ocrResult.provider,
-          });
-        } else {
-          imageContext = {
-            extractedText: '',
-            hasText: false,
-          };
-        }
-      } catch (err) {
-        console.error('[IntakeV2] Image pre-processing failed:', err?.message ?? err);
+    let barrierResult = body.__intakeEvidenceBarrier ?? intakeEvidenceBarrierResult ?? null;
+    if (!barrierResult || barrierResult.status === 'no_attachment') {
+      barrierResult = await runIntakeEvidenceBarrier({
+        hasAttachment: true,
+        imageRef: resolveIntakeImageRefForOcr(body),
+        filename: attachmentFilename,
+        mimeType: attachmentMime,
+        userMessage,
+        sessionId: intakeAssetSessionKey,
+        missionId,
+        storeId: resolveIntakeStoreId(currentContext) ?? null,
+        attachmentOnlyUpload: attachmentOnlyUpload === true,
+        runVisionEnrichment: false,
+      });
+    }
+    if (barrierResult.status === 'awaiting_perception') {
+      return res.json(buildAwaitingPerceptionIntakeResponse(barrierResult));
+    }
+    if (barrierResult.status === 'ready') {
+      intakeEvidenceBarrierResult = barrierResult;
+      intakeEvidenceBundle = barrierResult.bundle;
+      body.__intakeEvidenceBarrier = barrierResult;
+      imageContext = barrierResult.imageContext;
+      attachmentAnalysis = barrierResult.attachmentAnalysis;
+      if (
+        body.__earlyAttachmentAnalysis &&
+        isLoyaltyCardAttachment(body.__earlyAttachmentAnalysis) &&
+        attachmentAnalysis &&
+        !isLoyaltyCardAttachment(attachmentAnalysis)
+      ) {
+        attachmentAnalysis = body.__earlyAttachmentAnalysis;
+        imageContext = {
+          ...(imageContext && typeof imageContext === 'object' ? imageContext : {}),
+          attachmentAnalysis,
+          ocrWarning: attachmentAnalysis.ocrWarning,
+          documentType: attachmentAnalysis.artifactType,
+        };
       }
     }
 
@@ -2749,36 +2925,72 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         imageDataUrl: imageRefForPersist,
         sessionId: intakeAssetSessionKey,
       }).catch(() => {});
-    } else if (imageContext?.hasText && intakeAssetSessionKey) {
-      const attachmentOnlyForStash = isUploadOnlyAskTurn(
-        userMessage,
-        buildUploadAttachmentGuardCtx({
-          attachments: body.attachments,
-          imageDataUrl: resolveIntakeImageRefForOcr(body) ?? body.imageDataUrl,
-          intentSourceContext,
-          sessionId: intakeAssetSessionKey,
-        }),
-      );
+    }
+
+    if (attachmentAnalysis && missionId) {
+      try {
+        const prismaAa = getPrismaClient();
+        const existingAa = await prismaAa.missionPipeline.findUnique({
+          where: { id: missionId },
+          select: { metadataJson: true },
+        });
+        if (existingAa) {
+          const baseMeta =
+            existingAa.metadataJson &&
+            typeof existingAa.metadataJson === 'object' &&
+            !Array.isArray(existingAa.metadataJson)
+              ? { ...existingAa.metadataJson }
+              : {};
+          await prismaAa.missionPipeline.update({
+            where: { id: missionId },
+            data: {
+              metadataJson: {
+                ...baseMeta,
+                attachmentAnalysis,
+                ocrWarning: attachmentAnalysis.ocrWarning,
+                documentType: attachmentAnalysis.artifactType,
+                intakeEvidenceId: intakeEvidenceBundle?.evidenceView?.evidenceId ?? null,
+                intakeEvidenceStreamId: intakeEvidenceBundle?.streamId ?? null,
+              },
+            },
+          });
+        }
+      } catch (persistAaErr) {
+        console.warn(
+          '[IntakeV2] AttachmentAnalysis persist failed (non-fatal):',
+          persistAaErr?.message ?? persistAaErr,
+        );
+      }
+    } else if (attachmentAnalysis && intakeAssetSessionKey) {
       const stashArtifact = stashVisionExtractionForSession({
-        rawOcrText: imageContext.extractedText,
+        rawOcrText: imageContext?.extractedText ?? '',
         imageDataUrl: resolveIntakeImageRefForOcr(body),
         sessionId: intakeAssetSessionKey,
-        documentType: attachmentOnlyForStash ? 'business_card' : 'unknown',
+        documentType: attachmentAnalysis.artifactType,
       });
       if (stashArtifact) {
-        persistUploadedAssetWorkflow(intakeAssetSessionKey, stashArtifact);
+        persistUploadedAssetWorkflow(intakeAssetSessionKey, {
+          ...stashArtifact,
+          attachmentAnalysis,
+          documentType: attachmentAnalysis.artifactType,
+          intakeEvidenceId: intakeEvidenceBundle?.evidenceView?.evidenceId ?? null,
+        });
         uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
         attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
       }
     }
   }
 
-  // When an image has extractable text and user explicitly asked to create a store,
-  // attempt to parse as a business card and spin up the smart store pipeline.
-  // Attachment-only uploads must NOT auto-start store creation.
-  const enrichedUserMessage = imageContext?.hasText
-    ? `${userMessage}\n\n[Attached image content: ${imageContext.extractedText.slice(0, 800)}]`
+  const evidenceClassifierBase = intakeEvidenceBundle
+    ? buildClassifierInputFromEvidence({ userMessage, bundle: intakeEvidenceBundle })
     : userMessage;
+
+  const enrichedUserMessage =
+    evidenceClassifierBase !== userMessage
+      ? evidenceClassifierBase
+      : imageContext?.hasText
+        ? `${userMessage}\n\n[Attached image content: ${imageContext.extractedText.slice(0, 800)}]`
+        : userMessage;
 
   /** When an image is present but OCR is empty/unusable, nudge classifier + agent loop toward analyze_content / description. */
   let classifierHintForWeakImage = '';
@@ -2790,19 +3002,22 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   /** May gain agent-loop tool observations before classifyIntent. */
   let classifierInputMessage = enrichedUserMessageWithHint;
 
-  const resolveUploadGuardImageRef = () =>
-    resolveIntakeImageRefForOcr(body) ??
-    (typeof intentSourceContext?.pendingImageDataUrl === 'string'
-      ? intentSourceContext.pendingImageDataUrl
-      : body.imageDataUrl);
-
-  const buildCurrentUploadAttachmentGuardCtx = () =>
-    buildUploadAttachmentGuardCtx({
-      attachments: body.attachments,
-      imageDataUrl: resolveUploadGuardImageRef(),
-      intentSourceContext,
-      sessionId: intakeAssetSessionKey,
-    });
+  if (hasAnyImageEarly && !intakeEvidenceBundle) {
+    return res.json(
+      buildAwaitingPerceptionIntakeResponse({
+        status: 'awaiting_perception',
+        streamId:
+          intakeEvidenceBarrierResult?.status === 'awaiting_perception'
+            ? intakeEvidenceBarrierResult.streamId
+            : intakeEvidenceBundle?.streamId ?? null,
+        message: 'Processing your upload — evidence view not ready.',
+        timing:
+          intakeEvidenceBarrierResult?.status === 'awaiting_perception'
+            ? intakeEvidenceBarrierResult.timing
+            : { startedAt: new Date().toISOString() },
+      }),
+    );
+  }
 
   uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
   attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
@@ -2846,6 +3061,30 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     pendingIntent: pendingIntentFromBody,
   });
   const mergedForcedParams = mergePendingDocumentIntoForcedParams(forcedParams, pendingSkillContextEarly);
+
+  if (!attachmentAnalysis && isSelectionConfirm) {
+    const fromSelection =
+      mergedForcedParams?.attachmentAnalysis ??
+      selection?.selectedParameters?.attachmentAnalysis ??
+      null;
+    if (fromSelection && typeof fromSelection === 'object' && !Array.isArray(fromSelection)) {
+      attachmentAnalysis = fromSelection;
+    }
+  }
+
+  if (!intakeEvidenceBundle && isSelectionConfirm) {
+    const replayEvidenceId = String(
+      body.evidenceId ??
+        body.intentSourceContext?.evidenceId ??
+        mergedForcedParams?.evidenceId ??
+        mergedForcedParams?.attachmentAnalysis?.evidenceId ??
+        '',
+    ).trim();
+    if (replayEvidenceId) {
+      const replayBundle = getIntakeEvidenceBundleByEvidenceId(replayEvidenceId);
+      if (replayBundle) intakeEvidenceBundle = replayBundle;
+    }
+  }
 
   let storeId = resolveStoreId(currentContext);
   // DANH: store-disambiguation — replay store pick from clarify chip (intakeV2Selection)
@@ -2950,6 +3189,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     confidence: 0,
     parameters: {},
   };
+  /** IntentReasoner tool before intake attachment/campaign overrides (parity observe only). */
+  let intentReasonerTool = null;
 
   /** Phase C.2 — dynamic plan bundle for intake responses + blackboard. */
   let dynamicPlanBundle = null;
@@ -3029,7 +3270,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           : cls?.tool ?? classification?.tool ?? 'unknown',
       outcome: telExtra.result ?? null,
     });
-    let responsePayload = payload;
+    let responsePayload = withCanonicalRuntimeState(payload, {
+      missionStatus: classification?.status ?? null,
+      multiAgentStatus:
+        payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.multiAgentStatus : null,
+    });
     const responseMetadata = {};
     try {
       const clsForCap =
@@ -3238,6 +3483,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         payload: responsePayload,
         missionId,
       });
+      responsePayload = withCanonicalRuntimeState(responsePayload, {
+        missionStatus: classification?.status ?? null,
+      });
     }
     if (
       intakeAssetSessionKey &&
@@ -3253,10 +3501,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         } else {
           stashIntakeWorkflowContext(intakeAssetSessionKey, workflowPatch);
         }
-        responsePayload = {
+        responsePayload = withCanonicalRuntimeState({
           ...responsePayload,
           workflowContext: workflowPatch,
-        };
+        });
       }
     }
     if (isContextEngineEnabled()) {
@@ -3307,7 +3555,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (intakeIdempotencyKey) {
       recordIntakeTurnIdempotentResponse(intakeIdempotencyKey, responsePayload);
     }
-    return res.json(responsePayload);
+    return res.json(withCanonicalRuntimeState(responsePayload, {
+      missionStatus: classification?.status ?? null,
+    }));
   };
 
   // Phase C.3 — execute a persisted dynamic plan via runtime orchestrator (explicit client flag).
@@ -4074,6 +4324,30 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       const classifierStoreId =
         intakeHydratedContext?.entities?.store?.id ?? effectiveStoreId ?? null;
 
+      const hasAttachmentForClassify = hasAnyImageEarly || hasIntakeImageAttachment(body);
+      if (hasAttachmentForClassify) {
+        try {
+          assertClassificationEvidenceGate({
+            hasAttachmentFlag: hasAttachmentForClassify,
+            streamId: intakeEvidenceBundle?.streamId ?? null,
+            evidenceView: intakeEvidenceBundle?.evidenceView ?? null,
+          });
+        } catch (gateErr) {
+          if (gateErr instanceof IntakeEvidenceAssertionError) {
+            console.warn('[KernelIngress] classification evidence gate blocked:', gateErr.code, gateErr.message);
+            return res.json(
+              buildAwaitingPerceptionIntakeResponse({
+                status: 'awaiting_perception',
+                streamId: intakeEvidenceBundle?.streamId ?? null,
+                message: 'Processing your upload — waiting for frozen evidence view.',
+                timing: intakeEvidenceBundle?.timing ?? { startedAt: new Date().toISOString() },
+              }),
+            );
+          }
+          throw gateErr;
+        }
+      }
+
       const classifyOpts = {
         userMessage: classifierInputMessage,
         originalUserMessage: userMessage,
@@ -4110,6 +4384,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         shortcutContext: intakeShortcutContext,
         memorySummary: pickMemorySummary(currentContext),
         unifiedMemory: pickUnifiedMemory(currentContext),
+        intakeEvidence: intakeEvidenceBundle
+          ? {
+              evidenceId: intakeEvidenceBundle.evidenceView.evidenceId,
+              streamId: intakeEvidenceBundle.streamId,
+              snapshot: intakeEvidenceBundle.snapshot,
+              timing: intakeEvidenceBundle.timing,
+            }
+          : undefined,
       };
 
       if (storeCreateFormPayload) {
@@ -4157,6 +4439,165 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           classifyOpts,
           req,
         });
+        intentReasonerTool = String(classification?.tool ?? '').trim() || null;
+
+        classification = guardClassificationAgainstEvidence({
+          classification: classification ?? {},
+          userMessage,
+          bundle: intakeEvidenceBundle,
+          attachmentOnlyUpload,
+        });
+
+        // P1: visual loyalty_card locks setup_loyalty_program even when OCR failed / placeholder text.
+        if (
+          isLoyaltyCardAttachment(attachmentAnalysis) &&
+          !isLoyaltyCompilerTool(classification)
+        ) {
+          const priorTool = String(classification?.tool || '').trim() || null;
+          const priorParams =
+            classification?.parameters &&
+            typeof classification.parameters === 'object' &&
+            !Array.isArray(classification.parameters)
+              ? classification.parameters
+              : {};
+          classification = {
+            ...classification,
+            // Keep compiler-eligible; do not lean on proactive_plan — spine hard-routes next.
+            executionPath: Features.loyalty.useSpine ? 'loyalty_chat_compile' : 'proactive_plan',
+            tool: 'setup_loyalty_program',
+            confidence: Math.max(Number(classification?.confidence) || 0, attachmentAnalysis.confidence || 0.85),
+            parameters: {
+              ...priorParams,
+              ...(dispatchStoreId || effectiveStoreId
+                ? { storeId: dispatchStoreId ?? effectiveStoreId }
+                : {}),
+              preseededDraft: attachmentAnalysis.preseededDraft,
+              attachmentAnalysis,
+              ...(intakeEvidenceBundle?.evidenceView?.evidenceId
+                ? {
+                    evidenceId: intakeEvidenceBundle.evidenceView.evidenceId,
+                    streamId: intakeEvidenceBundle.streamId ?? null,
+                  }
+                : {}),
+              source: 'attachment_analysis_loyalty_lock',
+            },
+            _requiresStore: true,
+            requiresStore: true,
+            _compilerEligible: true,
+            _classificationSource: 'attachment_analysis',
+            message: formatAttachmentAnalysisMessage(attachmentAnalysis),
+          };
+          if (priorTool === 'create_campaign') {
+            emitSpinePathTelemetry({
+              pathId: 'loyalty_overrode_campaign',
+              source: 'intake_v2_loyalty_over_campaign',
+              ok: true,
+              reason: 'loyalty_card_attachment',
+              originalTool: 'create_campaign',
+              finalTool: 'setup_loyalty_program',
+              tool: 'setup_loyalty_program',
+              executionPath: 'loyalty_chat_compile',
+              spine: true,
+            });
+          } else {
+            emitSpinePathTelemetry({
+              pathId: 'loyalty_attachment_analysis',
+              source: 'intake_v2_visual_lock',
+              ok: true,
+              reason: 'loyalty_card_locked',
+              tool: 'setup_loyalty_program',
+              spine: true,
+            });
+          }
+        } else if (
+          String(classification?.tool || '').trim() === 'create_campaign' &&
+          shouldPreferLoyaltyOverCampaign(
+            String(originalGoal || classifierInputMessage || userMessage || ''),
+            attachmentAnalysis,
+          )
+        ) {
+          // Text: "loyalty campaign" misclassified as create_campaign — force loyalty spine.
+          const priorParams =
+            classification?.parameters &&
+            typeof classification.parameters === 'object' &&
+            !Array.isArray(classification.parameters)
+              ? classification.parameters
+              : {};
+          const overrideReason = isLoyaltyCardAttachment(attachmentAnalysis)
+            ? 'loyalty_card_attachment'
+            : 'loyalty_intent_over_campaign';
+          classification = {
+            ...classification,
+            executionPath: Features.loyalty.useSpine ? 'loyalty_chat_compile' : 'proactive_plan',
+            tool: 'setup_loyalty_program',
+            confidence: Math.max(Number(classification?.confidence) || 0, 0.97),
+            parameters: {
+              ...priorParams,
+              ...(dispatchStoreId || effectiveStoreId
+                ? { storeId: dispatchStoreId ?? effectiveStoreId }
+                : {}),
+              ...(attachmentAnalysis
+                ? {
+                    preseededDraft:
+                      priorParams.preseededDraft ?? attachmentAnalysis.preseededDraft,
+                    attachmentAnalysis,
+                  }
+                : {}),
+              source: 'loyalty_overrode_campaign',
+            },
+            _requiresStore: true,
+            requiresStore: true,
+            _compilerEligible: true,
+            _classificationSource: 'loyalty_over_campaign',
+          };
+          emitSpinePathTelemetry({
+            pathId: 'loyalty_overrode_campaign',
+            source: 'intake_v2_loyalty_over_campaign',
+            ok: true,
+            reason: overrideReason,
+            originalTool: 'create_campaign',
+            finalTool: 'setup_loyalty_program',
+            tool: 'setup_loyalty_program',
+            executionPath: 'loyalty_chat_compile',
+            spine: true,
+          });
+        } else if (isLoyaltyCompilerTool(classification) && attachmentAnalysis) {
+          const priorParams =
+            classification.parameters &&
+            typeof classification.parameters === 'object' &&
+            !Array.isArray(classification.parameters)
+              ? classification.parameters
+              : {};
+          classification = {
+            ...classification,
+            parameters: {
+              ...priorParams,
+              preseededDraft: priorParams.preseededDraft ?? attachmentAnalysis.preseededDraft,
+              attachmentAnalysis,
+              ocrWarning: attachmentAnalysis.ocrWarning,
+            },
+            _requiresStore: true,
+            requiresStore: true,
+          };
+        }
+
+        // P0.4 — track loyalty phrase missed by classifier (should be rare after storeId unlock).
+        const loyaltyProbeText = String(originalGoal || classifierInputMessage || userMessage || '');
+        if (
+          isLoyaltyIntent(loyaltyProbeText) &&
+          !isLoyaltyCompilerTool(classification) &&
+          !isLoyaltyCardAttachment(attachmentAnalysis) &&
+          !shouldPreferLoyaltyOverCampaign(loyaltyProbeText, attachmentAnalysis)
+        ) {
+          emitSpinePathTelemetry({
+            pathId: 'loyalty_classify_miss',
+            source: 'intake_v2',
+            ok: false,
+            reason: 'loyalty_phrase_not_classified',
+            tool: classification?.tool ?? null,
+            spine: false,
+          });
+        }
 
         if (isDev) {
           console.log('[Phase 3] Intent Reasoning used', {
@@ -4168,6 +4609,32 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             tool: classification.tool,
           });
         }
+
+        // Phase 2 — passive kernel parity (observe only; Performer still routes).
+        observeIntakeClassificationParity({
+          intakeAssetSessionKey,
+          contextSessionId,
+          missionId,
+          intentReasonerTool,
+          performerTool: classification?.tool ?? null,
+          performerConfidence:
+            classification?.confidence ?? classification?._reasoning?.confidence ?? null,
+          classificationSource:
+            classification?._classificationSource ?? classification?._reasoning?.source ?? null,
+          hasAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
+          userText: classifierInputMessage || userMessage || null,
+          attachmentSignals: {
+            ocrWeak: attachmentAnalysis?.ocrStatus === 'weak',
+            ocrFailed: attachmentAnalysis?.ocrStatus === 'failed',
+            visionAmbiguous:
+              Boolean(attachmentAnalysis) &&
+              !attachmentAnalysis?.confirmedFields &&
+              (attachmentAnalysis?.visualHints?.length ?? 0) > 0,
+            missingStore: !dispatchStoreId && !effectiveStoreId,
+          },
+          evidenceBarrierTiming: intakeEvidenceBundle?.timing ?? null,
+          evidenceId: intakeEvidenceBundle?.evidenceView?.evidenceId ?? null,
+        });
 
         uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
         attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
@@ -4512,12 +4979,99 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (confirmCampaignRespondedEarly) return confirmCampaignRespondedEarly;
   }
 
+  // ── HARD-ROUTE: loyalty → compiler spine (before dynamic planner / proactive_plan) ──
+  // Dynamic planner has no setup_loyalty template and falls back to general_chat
+  // ("Processing your message...") — must never rewrite loyalty when USE_LOYALTY_SPINE=true.
+  if (isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification)) {
+    const loyaltyContextHint = hydrateLoyaltyStoreId({
+      body,
+      currentContext,
+      runway,
+      session: conversationState?.session ?? null,
+      selectionStoreId: selectionStoreId || null,
+      performeeStoreId,
+      dispatchStoreId,
+      effectiveStoreId,
+      storeId,
+    });
+
+    emitSpinePathTelemetry({
+      pathId: 'loyalty_proactive_bypass_prevented',
+      source: 'intake_v2_hard_route',
+      ok: true,
+      reason: 'skipped_dynamic_planner_and_proactive_plan',
+      tool: classification.tool,
+      storeId: loyaltyContextHint,
+      missingContext: loyaltyContextHint ? [] : ['store'],
+      executionPath: 'resolve_execution_context',
+      action: 'show_execution_plan',
+      spine: true,
+    });
+
+    const loyaltyActorIdEarly = performerIntakeV2ActorId(req);
+    const loyaltyUserEarly = performerIntakeV2UserLike(req);
+    // Do NOT inject session activeStoreId into classification.parameters as an explicit lock.
+    // Pass it only as hintedStoreId via deps.storeId so multi-store must confirm.
+    const loyaltyParamsEarly = {
+      ...(classification.parameters && typeof classification.parameters === 'object'
+        ? classification.parameters
+        : {}),
+      ...(isSelectionConfirm && mergedForcedParams && typeof mergedForcedParams === 'object'
+        ? mergedForcedParams
+        : {}),
+      ...(attachmentAnalysis?.preseededDraft
+        ? { preseededDraft: attachmentAnalysis.preseededDraft }
+        : {}),
+      ...(attachmentAnalysis ? { attachmentAnalysis } : {}),
+    };
+
+    const loyaltyRespondedEarly = await dispatchAndRespondLoyaltyCompile(
+      req,
+      res,
+      {
+        res,
+        user: loyaltyUserEarly ?? req.user,
+        actorId: loyaltyActorIdEarly,
+        locale,
+        userMessage: originalGoal || userMessage,
+        classification: {
+          ...classification,
+          parameters: loyaltyParamsEarly,
+        },
+        // Hint only — resolveStoreForIntakeTool will confirm when multi-store.
+        storeId: pickStoreHintForIntakeTool(loyaltyParamsEarly, loyaltyContextHint),
+        missionId,
+        sessionId: conversationSessionIdHint ?? null,
+        safeJson: async (responseBody, telemetry) => {
+          const enriched = {
+            ...responseBody,
+            ...(attachmentAnalysis
+              ? {
+                  attachmentAnalysis,
+                  ocrWarning: attachmentAnalysis.ocrWarning,
+                  perception: formatAttachmentAnalysisMessage(attachmentAnalysis),
+                  missingFields: attachmentAnalysis.missingFields,
+                }
+              : {}),
+          };
+          return safeJson(enriched, telemetry);
+        },
+      },
+      'intake_v2_loyalty_hard_route',
+    );
+    if (loyaltyRespondedEarly) return loyaltyRespondedEarly;
+  }
+
+  const skipDynamicPlannerForLoyaltySpine =
+    isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification);
+
   try {
     const plannerIntegration = getPlannerIntegration();
     if (
       plannerIntegration.isEnabled(req) &&
       !skipReasoningPipeline &&
-      !skipDynamicPlannerForCreateStoreCheckpoint
+      !skipDynamicPlannerForCreateStoreCheckpoint &&
+      !skipDynamicPlannerForLoyaltySpine
     ) {
       dynamicPlanBundle = await plannerIntegration.maybeGenerateForIntake({
         classification,
@@ -4725,46 +5279,97 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (confirmCampaignResponded) return confirmCampaignResponded;
   }
 
-  // DANH: store-disambiguation — multi-store clarify before validation / skill dispatch
+  // DANH: store-disambiguation — universal ExecutionContextResolver before validation / skill dispatch
+  // Prefer session/active store on dispatchStoreId; only ask when still empty / ambiguous.
   if (classification?.tool) {
     const toolMetaForStore = getToolEntry(classification.tool);
+    const loyaltyNeedsStore =
+      isLoyaltyCompilerTool(classification) ||
+      classification._requiresStore === true ||
+      classification.requiresStore === true;
     const pathNeedsStore =
-      classification.executionPath === 'direct_action' || classification.executionPath === 'proactive_plan';
-    if (toolMetaForStore?.requiresStore && pathNeedsStore && !dispatchStoreId) {
-      const ambiguity = await resolveStoreAmbiguity({
+      classification.executionPath === 'direct_action' ||
+      classification.executionPath === 'proactive_plan' ||
+      classification.executionPath === 'kernel_dispatch' ||
+      loyaltyNeedsStore;
+
+    const storeHint = hydrateStoreHint({
+      body,
+      currentContext,
+      runway,
+      session: conversationState?.session ?? null,
+      selectionStoreId: selectionStoreId || null,
+      performeeStoreId,
+      dispatchStoreId,
+      effectiveStoreId,
+      storeId,
+    });
+
+    if (toolMetaForStore?.requiresStore && pathNeedsStore) {
+      const lockedParams =
+        classification.parameters &&
+        typeof classification.parameters === 'object' &&
+        !Array.isArray(classification.parameters)
+          ? { ...classification.parameters }
+          : {};
+      const resolution = await resolveStoreForIntakeTool({
         userId: intakeActorUserId,
-        effectiveStoreId: null,
-        intentRequiresStore: true,
+        tool: classification.tool,
         userMessage: originalGoal || userMessage,
+        classification,
+        hintedStoreId: storeHint,
+        lockedParams,
       });
-      if (ambiguity?.needsClarification) {
+
+      if (resolution.resolved && resolution.storeId) {
+        dispatchStoreId = resolution.storeId;
+        effectiveStoreId = resolution.storeId;
+        storeId = resolution.storeId;
+        if (resolution.executionContext) {
+          classification.parameters = {
+            ...lockedParams,
+            storeId: resolution.storeId,
+            activeStoreId: resolution.storeId,
+            selectionMethod: resolution.executionContext.selectionMethod ?? lockedParams.selectionMethod,
+          };
+          // Stash for compilers that read mission metadata later.
+          classification._executionContext = resolution.executionContext;
+        }
+      } else if (resolution.clarify) {
         const clarifyTool = classification.tool;
-        const options = ambiguity.options.map((o) => ({
-          label: o.label,
-          tool: clarifyTool,
-          parameters: {
-            storeId: o.value,
-            ...(classification.parameters &&
-            typeof classification.parameters === 'object' &&
-            !Array.isArray(classification.parameters)
-              ? classification.parameters
-              : {}),
-          },
-        }));
         const pendingIntent = enrichPendingIntentForDocumentIngestion(classification, {
-          ...(ambiguity.pendingIntent && typeof ambiguity.pendingIntent === 'object' ? ambiguity.pendingIntent : {}),
-          userMessage: String(ambiguity.pendingIntent?.userMessage ?? userMessage ?? '').trim(),
+          ...(resolution.clarify.pendingIntent && typeof resolution.clarify.pendingIntent === 'object'
+            ? resolution.clarify.pendingIntent
+            : {}),
+          userMessage: String(originalGoal || userMessage || '').trim(),
           originalTool: clarifyTool,
-          clarifyType: 'store_picker',
-          storeCandidates: ambiguity.options.map((o) => ({ id: o.value, name: o.label })),
+          tool: clarifyTool,
+          lockedTool: clarifyTool,
+          lockedIntent: clarifyTool,
+          clarifyType: resolution.clarify.clarifyType ?? 'execution_context_store_picker',
+          storeCandidates: resolution.clarify.storeCandidates,
+          activeStoreCandidate: resolution.clarify.activeStoreCandidate,
         });
+        if (isLoyaltyCompilerTool(classification)) {
+          emitSpinePathTelemetry({
+            pathId: 'resolve_execution_context',
+            source: 'intake_v2_store_picker',
+            ok: true,
+            reason: resolution.kind ?? 'execution_context_pending',
+            tool: clarifyTool,
+            storeId: null,
+            missingContext: ['store'],
+            executionPath: 'resolve_execution_context',
+            action: 'clarify_store',
+            spine: false,
+          });
+        }
         return safeJson(
           {
+            ...resolution.clarify,
             success: true,
-            action: 'clarify',
-            clarifyType: ambiguity.clarifyType,
-            response: ambiguity.question,
-            options,
+            action: 'clarify_store',
+            lockedTool: clarifyTool,
             pendingIntent,
             ...(pendingIntent.pendingSkill
               ? {
@@ -4774,18 +5379,29 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               : {}),
           },
           {
-            classification,
+            classification: {
+              ...classification,
+              tool: clarifyTool,
+              lockedTool: clarifyTool,
+              _requiresStore: true,
+              requiresStore: true,
+              pathId: 'resolve_execution_context',
+              executionPath: 'resolve_execution_context',
+            },
             validated: true,
-            downgraded: false,
-            downgradeReason: null,
+            downgraded: true,
+            downgradeReason: 'requires_execution_context',
             validationErrors: [],
             riskLevel: toolMetaForStore?.riskLevel ?? RISK.SAFE_READ,
             result: 'clarify_store',
           },
         );
+      } else if (!dispatchStoreId && storeHint) {
+        // Soft fallback: keep prior hint if resolver returned no_stores / auth.
+        dispatchStoreId = storeHint;
+        effectiveStoreId = storeHint;
+        storeId = storeHint;
       }
-      const autoStoreId = await tryAutoResolveSingleStoreId(intakeActorUserId);
-      if (autoStoreId) dispatchStoreId = autoStoreId;
     }
   }
 
@@ -4829,39 +5445,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       const toolMetaChat = getToolEntry(classification.tool);
       const storeRequired = validation.errors?.some((e) => e?.reason === 'requires_store');
       if (storeRequired && toolMetaChat?.requiresStore && !dispatchStoreId) {
-        const ambiguity = await resolveStoreAmbiguity({
+        const resolution = await resolveStoreForIntakeTool({
           userId: intakeActorUserId,
-          effectiveStoreId: null,
-          intentRequiresStore: true,
+          tool: classification.tool,
           userMessage: originalGoal || userMessage,
+          classification,
+          hintedStoreId: hydrateStoreHint({
+            body,
+            currentContext,
+            runway,
+            session: conversationState?.session ?? null,
+            selectionStoreId: selectionStoreId || null,
+            performeeStoreId,
+            dispatchStoreId,
+            effectiveStoreId,
+            storeId,
+          }),
         });
-        if (ambiguity?.needsClarification) {
-          const options = ambiguity.options.map((o) => ({
-            label: o.label,
-            tool: classification.tool,
-            parameters: {
-              storeId: o.value,
-              ...(classification.parameters &&
-              typeof classification.parameters === 'object' &&
-              !Array.isArray(classification.parameters)
-                ? classification.parameters
-                : {}),
-            },
-          }));
+        if (resolution.resolved && resolution.storeId) {
+          dispatchStoreId = resolution.storeId;
+          continue;
+        }
+        if (resolution.clarify) {
           const pendingIntent = enrichPendingIntentForDocumentIngestion(classification, {
-            ...(ambiguity.pendingIntent && typeof ambiguity.pendingIntent === 'object' ? ambiguity.pendingIntent : {}),
-            userMessage: String(ambiguity.pendingIntent?.userMessage ?? originalGoal ?? userMessage ?? '').trim(),
+            ...(resolution.clarify.pendingIntent && typeof resolution.clarify.pendingIntent === 'object'
+              ? resolution.clarify.pendingIntent
+              : {}),
+            userMessage: String(originalGoal || userMessage || '').trim(),
             originalTool: classification.tool,
-            clarifyType: 'store_picker',
-            storeCandidates: ambiguity.options.map((o) => ({ id: o.value, name: o.label })),
+            clarifyType: resolution.clarify.clarifyType ?? 'execution_context_store_picker',
+            storeCandidates: resolution.clarify.storeCandidates,
           });
           return safeJson(
             {
+              ...resolution.clarify,
               success: true,
-              action: 'clarify',
-              clarifyType: ambiguity.clarifyType,
-              response: ambiguity.question,
-              options,
+              action: 'clarify_store',
               pendingIntent,
               ...(pendingIntent.pendingSkill
                 ? {
@@ -4873,18 +5492,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             {
               classification,
               validated: true,
-              downgraded: false,
-              downgradeReason: null,
+              downgraded: true,
+              downgradeReason: 'requires_execution_context',
               validationErrors: validation.errors,
               riskLevel,
               result: 'clarify_store',
             },
           );
-        }
-        const autoStoreId = await tryAutoResolveSingleStoreId(intakeActorUserId);
-        if (autoStoreId) {
-          dispatchStoreId = autoStoreId;
-          continue;
         }
       }
       if (
@@ -5967,6 +6581,102 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     );
   }
 
+  // ── loyalty compiler spine (USE_LOYALTY_SPINE) ─────────────────────────────
+  if (isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification)) {
+    const loyaltyActorId = performerIntakeV2ActorId(req);
+    const loyaltyUser = performerIntakeV2UserLike(req);
+    const resolvedLoyaltyStore = dispatchStoreId ?? effectiveStoreId ?? storeId ?? null;
+    const loyaltyParams = {
+      ...(cleanedParams && typeof cleanedParams === 'object' ? cleanedParams : {}),
+      ...(classification.parameters && typeof classification.parameters === 'object'
+        ? classification.parameters
+        : {}),
+      ...(attachmentAnalysis?.preseededDraft
+        ? { preseededDraft: attachmentAnalysis.preseededDraft }
+        : {}),
+      ...(attachmentAnalysis ? { attachmentAnalysis } : {}),
+    };
+
+    // P1.5 — if store resolved but critical draft fields missing, clarify after locking loyalty
+    // (still keep path open: user can continue; do not treat OCR as a failure).
+    const missingLoyaltyFields = Array.isArray(attachmentAnalysis?.missingFields)
+      ? attachmentAnalysis.missingFields
+      : [];
+    if (
+      resolvedLoyaltyStore &&
+      attachmentAnalysis &&
+      isLoyaltyCardAttachment(attachmentAnalysis) &&
+      missingLoyaltyFields.length > 0 &&
+      !loyaltyParams.confirmed &&
+      body?.skipLoyaltyMissingFieldsClarify !== true
+    ) {
+      // Prefer TopologyReview when store known — compile first, attach missing-field prompt on plan.
+      // If both reward and stamps missing, ask before compile for clearer UX.
+      const bothCriticalMissing =
+        missingLoyaltyFields.includes('reward') && missingLoyaltyFields.includes('requiredStamps');
+      if (bothCriticalMissing) {
+        const clarifyBody = buildLoyaltyMissingFieldsClarify(attachmentAnalysis, {
+          storeId: resolvedLoyaltyStore,
+        });
+        emitSpinePathTelemetry({
+          pathId: 'loyalty_chat_compile',
+          source: 'intake_v2_missing_fields',
+          ok: true,
+          reason: 'ask_missing_fields',
+          tool: 'setup_loyalty_program',
+          spine: false,
+        });
+        return safeJson(clarifyBody, {
+          classification: {
+            ...classification,
+            parameters: loyaltyParams,
+            pathId: 'loyalty_chat_compile',
+          },
+          validated: true,
+          downgraded: false,
+          validationErrors: [],
+          riskLevel: RISK.STATE_CHANGE,
+          result: 'clarify_loyalty_fields',
+        });
+      }
+    }
+
+    const loyaltyResponded = await dispatchAndRespondLoyaltyCompile(
+      req,
+      res,
+      {
+        res,
+        user: loyaltyUser ?? req.user,
+        actorId: loyaltyActorId,
+        locale,
+        userMessage: originalGoal || userMessage,
+        classification: {
+          ...classification,
+          parameters: loyaltyParams,
+        },
+        storeId: pickStoreHintForIntakeTool(loyaltyParams, resolvedLoyaltyStore),
+        missionId,
+        sessionId: conversationSessionIdHint ?? null,
+        safeJson: async (responseBody, telemetry) => {
+          const enriched = {
+            ...responseBody,
+            ...(attachmentAnalysis
+              ? {
+                  attachmentAnalysis,
+                  ocrWarning: attachmentAnalysis.ocrWarning,
+                  perception: formatAttachmentAnalysisMessage(attachmentAnalysis),
+                  missingFields: attachmentAnalysis.missingFields,
+                }
+              : {}),
+          };
+          return safeJson(enriched, telemetry);
+        },
+      },
+      'intake_v2_loyalty_chat_compile',
+    );
+    if (loyaltyResponded) return loyaltyResponded;
+  }
+
   // ── proactive_plan ─────────────────────────────────────────────────────────
   if (
     (classification.executionPath === 'kernel_dispatch' && classification.tool === 'create_campaign') ||
@@ -6130,6 +6840,60 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   if (classification.executionPath === 'proactive_plan') {
+    // Never fall through to legacy proactive_plan for loyalty when spine is on.
+    if (isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification)) {
+      emitSpinePathTelemetry({
+        pathId: 'loyalty_proactive_bypass_prevented',
+        source: 'intake_v2_proactive_guard',
+        ok: true,
+        reason: 'blocked_proactive_plan_fallthrough',
+        tool: classification.tool,
+        storeId: dispatchStoreId ?? effectiveStoreId ?? storeId ?? null,
+        missingContext: dispatchStoreId || effectiveStoreId || storeId ? [] : ['store'],
+        executionPath: 'loyalty_chat_compile',
+        action: 'show_execution_plan',
+        spine: true,
+      });
+      const guardStore = hydrateLoyaltyStoreId({
+        body,
+        currentContext,
+        runway,
+        session: conversationState?.session ?? null,
+        selectionStoreId: selectionStoreId || null,
+        performeeStoreId,
+        dispatchStoreId,
+        effectiveStoreId,
+        storeId,
+      });
+      const guardParams = {
+        ...(cleanedParams && typeof cleanedParams === 'object' ? cleanedParams : {}),
+        ...(classification.parameters && typeof classification.parameters === 'object'
+          ? classification.parameters
+          : {}),
+      };
+      const loyaltyRespondedGuard = await dispatchAndRespondLoyaltyCompile(
+        req,
+        res,
+        {
+          res,
+          user: performerIntakeV2UserLike(req) ?? req.user,
+          actorId: performerIntakeV2ActorId(req),
+          locale,
+          userMessage: originalGoal || userMessage,
+          classification: {
+            ...classification,
+            parameters: guardParams,
+          },
+          storeId: pickStoreHintForIntakeTool(guardParams, guardStore),
+          missionId,
+          sessionId: conversationSessionIdHint ?? null,
+          safeJson,
+        },
+        'intake_v2_proactive_guard',
+      );
+      if (loyaltyRespondedGuard) return loyaltyRespondedGuard;
+    }
+
     if (forceCreateStoreCheckpoint) {
       return safeJson(
         {

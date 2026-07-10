@@ -176,7 +176,33 @@ export async function createSuitcaseItem(input, prisma = getPrismaClient()) {
   if (idempotencyKey) {
     const existing = await prisma.suitcaseItem.findUnique({ where: { idempotencyKey } });
     if (existing && existing.ownerId === ownerId) {
-      return { item: mapRow(existing), created: false, skipped: false };
+      const shouldRefresh =
+        input.refreshOnIdempotency === true ||
+        input.payload != null ||
+        input.summary != null ||
+        input.thumbnailUrl != null;
+      if (shouldRefresh) {
+        const row = await prisma.suitcaseItem.update({
+          where: { id: existing.id },
+          data: {
+            title,
+            description: input.description ? String(input.description) : existing.description,
+            summary: input.summary ? String(input.summary) : existing.summary,
+            tagsJson: input.tags ? jsonStringify(normalizeTags(input.tags)) : existing.tagsJson,
+            metadataJson: input.metadata ? jsonStringify(input.metadata) : existing.metadataJson,
+            payloadJson: input.payload != null ? jsonStringify(input.payload) : existing.payloadJson,
+            thumbnailUrl: input.thumbnailUrl ? String(input.thumbnailUrl) : existing.thumbnailUrl,
+            storeId: input.storeId ? String(input.storeId).trim() : existing.storeId,
+            missionId: input.missionId ? String(input.missionId).trim() : existing.missionId,
+            updatedAt: new Date(),
+          },
+        });
+        if (row.storeId) {
+          INVALIDATION_TRIGGERS.SUITCASE_SAVE(row.storeId);
+        }
+        return { item: mapRow(row), created: false, skipped: false, updated: true };
+      }
+      return { item: mapRow(existing), created: false, skipped: false, updated: false };
     }
     if (existing && existing.ownerId !== ownerId) {
       const err = new Error('Forbidden');

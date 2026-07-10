@@ -5,7 +5,9 @@ import {
   applyResearchProfileToPreview,
   enrichResearchCatalogProducts,
   finalizeResearchCatalogForDraft,
+  isResearchCatalogPendingOwnerReview,
   mergeResearchBusinessProfileIntoParams,
+  shouldApplyResearchCatalogToDraft,
 } from './researchCatalogDraft.js';
 import { applyCommerceFieldsToPreview } from './draftStoreService.js';
 import { applyDraftCatalogQaTier2Fixes } from '../qa/draftCatalogQa.js';
@@ -99,5 +101,29 @@ describe('researchCatalogDraft — Glamshell Beauty acceptance', () => {
     });
     expect(profile.profile.businessType).toBe('service_fixed_booking');
     expect(profile.profile.businessType).not.toBe('product_retail');
+  });
+});
+
+describe('researchCatalogDraft — owner review gate', () => {
+  it('defers research catalog until owner confirms', () => {
+    const pending = {
+      researchRan: true,
+      ownerReviewRequired: true,
+      ownerConfirmed: false,
+      catalog: { products: [{ name: 'Sourdough' }] },
+    };
+    expect(isResearchCatalogPendingOwnerReview(pending)).toBe(true);
+    expect(shouldApplyResearchCatalogToDraft(pending)).toBe(false);
+  });
+
+  it('applies research catalog after owner confirmation', () => {
+    const confirmed = {
+      researchRan: true,
+      ownerReviewRequired: true,
+      ownerConfirmed: true,
+      catalog: { products: [{ name: 'Sourdough' }] },
+    };
+    expect(isResearchCatalogPendingOwnerReview(confirmed)).toBe(false);
+    expect(shouldApplyResearchCatalogToDraft(confirmed)).toBe(true);
   });
 });

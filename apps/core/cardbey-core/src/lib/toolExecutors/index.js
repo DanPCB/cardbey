@@ -61,6 +61,7 @@ import * as define_loyalty_tiers from './loyalty/define_loyalty_tiers.js';
 import * as create_loyalty_offer from './loyalty/create_loyalty_offer.js';
 import * as schedule_loyalty_campaign from './loyalty/schedule_loyalty_campaign.js';
 import * as setup_loyalty_program from './loyalty/setup_loyalty_program.js';
+import { LOYALTY_STAGE_EXECUTORS } from './loyalty/loyaltyStageHandlers.js';
 import * as fetch_store_content from './content/fetch_store_content.js';
 import * as rewrite_content_copy from './content/rewrite_content_copy.js';
 import * as generate_seo_tags from './content/generate_seo_tags.js';
@@ -83,6 +84,12 @@ import * as change_hero_headline from './store/change_hero_headline.js';
 import * as propose_website_patch from '../../toolExecutors/store/propose_website_patch.js';
 import * as consensus from './store/consensus.js';
 import * as content_creator from './content/content_creator.js';
+import * as create_creator_profile from './creator/create_creator_profile.js';
+import * as publish_creator_content from './creator/publish_creator_content.js';
+import * as update_creator_content from './creator/update_creator_content.js';
+import * as delete_creator_content from './creator/delete_creator_content.js';
+import * as submit_creator_content_for_review from './creator/submit_creator_content_for_review.js';
+import * as calculate_creator_progress from './creator/calculate_creator_progress.js';
 import * as generate_social_posts from './content/generate_social_posts.js';
 import * as crm from './crm/crm.js';
 import * as signage_list_devices from './signage/signage_list_devices.js';
@@ -215,6 +222,12 @@ export const executors = {
   propose_website_patch,
   consensus,
   content_creator,
+  create_creator_profile,
+  publish_creator_content,
+  update_creator_content,
+  delete_creator_content,
+  submit_creator_content_for_review,
+  calculate_creator_progress,
   generate_social_posts,
   crm,
   generate_tags,
@@ -273,6 +286,7 @@ export const executors = {
   create_loyalty_offer,
   schedule_loyalty_campaign,
   setup_loyalty_program,
+  ...LOYALTY_STAGE_EXECUTORS,
   fetch_store_content,
   rewrite_content_copy,
   generate_seo_tags,

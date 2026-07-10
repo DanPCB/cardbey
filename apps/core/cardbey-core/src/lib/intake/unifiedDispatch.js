@@ -18,6 +18,7 @@ import { dispatchCreateCampaignCheckpointPipeline } from './createCampaignCheckp
 import { loadStepMemory } from '../runtime/loadStepMemory.js';
 import { reasonAboutDispatch } from './dispatchReasoningEngine.js';
 import { Features } from '../../config/features.js';
+import { readMissionSpineOwnership, SPINE_OWNERS } from '../kernel/spineAuthority.js';
 
 const ORCHESTRATION_TYPES = new Set(['multi_agent', 'campaign_orchestration']);
 const FACTORY_ACTION_TYPE = 'run_factory';
@@ -352,6 +353,20 @@ export async function unifiedDispatch(action, options = {}) {
       message: 'Unified dispatch requires action.type',
       executionPath: 'proactive_plan',
     };
+  }
+
+  const missionId = typeof payload.missionId === 'string' ? payload.missionId.trim() : '';
+  if (missionId && PIPELINE_ACTION_TYPES.has(type)) {
+    const spineOwnership = await readMissionSpineOwnership(missionId);
+    if (spineOwnership?.owner === SPINE_OWNERS.COMPILER_TOPOLOGY) {
+      return {
+        ok: false,
+        status: 'blocked',
+        code: 'MISSION_SPINE_LOCKED',
+        message: `Mission ${missionId} is owned by compiler topology and cannot fall back to checkpoint dispatch.`,
+        executionPath: 'proactive_plan',
+      };
+    }
   }
 
   if (requireConfirmation && !confirmed) {

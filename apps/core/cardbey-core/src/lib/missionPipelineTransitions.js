@@ -8,9 +8,19 @@ const ALLOWED = {
   planned: ['awaiting_confirmation', 'queued', 'cancelled'],
   awaiting_confirmation: ['queued', 'cancelled'],
   queued: ['executing', 'cancelled', 'completed', 'paused'],
-  executing: ['paused', 'completed', 'failed', 'cancelled', 'awaiting_input'],
+  executing: [
+    'paused',
+    'completed',
+    'failed',
+    'cancelled',
+    'awaiting_input',
+    // First-class topology pause for expected owner fields (not a failure).
+    'awaiting_owner_input',
+  ],
   /** Owner responded to a checkpoint; pipeline resumes via runMissionUntilBlocked only. */
   awaiting_input: ['executing', 'cancelled'],
+  /** Topology node returned needs_input — keep mission active until owner replies. */
+  awaiting_owner_input: ['executing', 'cancelled'],
   paused: ['queued', 'cancelled'],
   failed: ['queued', 'cancelled'],
   completed: [],

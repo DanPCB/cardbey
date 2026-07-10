@@ -7,8 +7,16 @@ import { createMissionPipeline } from '../missionPipelineService.js';
 import {
   readMetadata,
   writePendingArtifactBundle,
+  writeMetadata,
 } from '../persistence/metadataWriter.js';
 import { ARTIFACT_COMPILER_VERSION } from '../artifact/types.ts';
+import {
+  freezeMissionContract,
+  deriveMissionFamily,
+  MissionContractAssertionError,
+} from '../kernel/missionContract.js';
+import { claimMissionSpineOwnership, SPINE_OWNERS } from '../kernel/spineAuthority.js';
+import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
 
 /**
  * @param {{
@@ -36,7 +44,11 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
   const tool = String(intent.tool ?? 'create_campaign').trim();
   const missionType =
     intent.missionType ??
-    (tool === 'create_campaign' ? 'launch_campaign' : tool);
+    (tool === 'create_campaign'
+      ? 'launch_campaign'
+      : tool === 'setup_loyalty_program' || tool === 'create_loyalty_program'
+        ? 'setup_loyalty_program'
+        : tool);
 
   let missionId = typeof options.missionId === 'string' ? options.missionId.trim() : '';
 
@@ -44,16 +56,30 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
     const titleSeed = intentText.slice(0, 80) || 'Multi-agent plan';
     const pipeline = await createMissionPipeline({
       type: missionType,
-      title: `Plan: ${titleSeed}`.slice(0, 180),
+      title: (options.title || `Plan: ${titleSeed}`).slice(0, 180),
       targetType: storeId ? 'store' : 'generic',
       targetId: storeId ?? undefined,
       metadata: {
         storeId: storeId ?? null,
         sessionId: sessionId ?? null,
         goal: intentText,
-        source: 'multi_agent_compiler',
+        source:
+          missionType === 'setup_loyalty_program' ? 'loyalty_spine' : 'multi_agent_compiler',
+        compilerTool: tool,
         compilerVersion: ARTIFACT_COMPILER_VERSION,
         locale: options.locale ?? 'en',
+        ...(options.executionContext && typeof options.executionContext === 'object'
+          ? {
+              executionContext: options.executionContext,
+              selectedStore: options.executionContext.selectedStore ?? null,
+              selectedSpace: options.executionContext.selectedSpace ?? null,
+              selectionMethod: options.executionContext.selectionMethod ?? null,
+              selectionReason: options.executionContext.selectionReason ?? null,
+              storeLocked: options.executionContext.storeLocked === true,
+              brandTheme: options.executionContext.brandTheme ?? null,
+            }
+          : {}),
+        ...(intent.parameters && typeof intent.parameters === 'object' ? { intentParameters: intent.parameters } : {}),
       },
       requiresConfirmation: true,
       executionMode: 'GUIDED_RUN',
@@ -62,6 +88,12 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
     });
     missionId = pipeline.id;
   }
+
+  await claimMissionSpineOwnership(missionId, SPINE_OWNERS.COMPILER_TOPOLOGY, {
+    source: 'generate_execution_plan',
+    tool,
+    missionFamily: deriveMissionFamily({ tool, missionType }),
+  });
 
   const compileResult = await compileWithMultiAgent(
     {
@@ -81,15 +113,62 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
     },
   );
 
-  const metadata = await writePendingArtifactBundle(missionId, compileResult.artifactBundle);
+  const params =
+    intent.parameters && typeof intent.parameters === 'object' && !Array.isArray(intent.parameters)
+      ? intent.parameters
+      : {};
+  const preseededDraft =
+    params.preseededDraft && typeof params.preseededDraft === 'object' ? params.preseededDraft : null;
 
-  return {
+  let metadata = await writePendingArtifactBundle(missionId, compileResult.artifactBundle);
+  try {
+    await freezeMissionContract(missionId, {
+      tool,
+      missionType,
+      missionId,
+      userGoalSnapshot: intentText,
+      evidenceId: params.evidenceId ?? options.intakeEvidence?.evidenceId ?? null,
+      executionContext: options.executionContext ?? { storeId: storeId ?? null },
+      storeId,
+      userId: options.userId ?? null,
+      builderId:
+        compileResult?.builder ??
+        (deriveMissionFamily({ tool, missionType }) === 'loyalty' ? 'loyaltyTopologyBuilder' : 'multiAgentCompiler'),
+    });
+  } catch (error) {
+    if (error instanceof MissionContractAssertionError) {
+      error.message = `[generateExecutionPlan] ${error.message}`;
+    }
+    throw error;
+  }
+  if (preseededDraft || params.source || options.executionContext || options.intakeEvidence) {
+    metadata = await writeMetadata(missionId, {
+      ...(preseededDraft ? { preseededDraft } : {}),
+      ...(params.source ? { source: params.source } : {}),
+      ...(options.executionContext && typeof options.executionContext === 'object'
+        ? {
+            executionContext: options.executionContext,
+            selectedStore: options.executionContext.selectedStore ?? null,
+            selectedSpace: options.executionContext.selectedSpace ?? null,
+            selectionMethod: options.executionContext.selectionMethod ?? null,
+            selectionReason: options.executionContext.selectionReason ?? null,
+            storeLocked: options.executionContext.storeLocked === true,
+            brandTheme: options.executionContext.brandTheme ?? null,
+          }
+        : {}),
+      compilerTool: tool,
+      intakeEvidence:
+        options.intakeEvidence && typeof options.intakeEvidence === 'object' ? options.intakeEvidence : undefined,
+    });
+  }
+
+  return withCanonicalRuntimeState({
     missionId,
     artifactBundle: compileResult.artifactBundle,
     validation: compileResult.validation,
     metadata,
     response: buildCompilerIntakeResponse(missionId, compileResult.artifactBundle, metadata),
-  };
+  });
 }
 
 /**
@@ -100,7 +179,7 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
  * @param {Record<string, unknown>} metadata
  */
 export function buildCompilerIntakeResponse(missionId, artifactBundle, metadata) {
-  return {
+  return withCanonicalRuntimeState({
     success: true,
     action: 'show_execution_plan',
     missionId,
@@ -123,7 +202,7 @@ export function buildCompilerIntakeResponse(missionId, artifactBundle, metadata)
       estimatedMinutes: artifactBundle.reasoning.timeline?.estimatedMinutes ?? null,
       qualityScore: artifactBundle.reasoning.metadata?.qualityScore ?? null,
     },
-  };
+  });
 }
 
 /**

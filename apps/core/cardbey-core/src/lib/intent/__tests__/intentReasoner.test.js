@@ -215,6 +215,17 @@ describe('IntentReasoner', () => {
     expect(result.tool).toBe('setup_loyalty_program');
   });
 
+  it('should detect loyalty program without active store (P0 unlock)', async () => {
+    mockContext.activeStoreId = null;
+
+    const result = await reasoner.reason('user_123', 'session_123', {
+      text: 'create a loyalty program for my store from the uploaded card.',
+    });
+
+    expect(result.intent).toBe('setup_loyalty');
+    expect(result.tool).toBe('setup_loyalty_program');
+  });
+
   it('should detect analytics fast path when store is active', async () => {
     mockContext.activeStoreId = 'store_123';
 

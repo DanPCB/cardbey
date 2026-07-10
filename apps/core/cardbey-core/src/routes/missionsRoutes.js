@@ -303,11 +303,30 @@ router.post('/extract-card', requireAuth, async (req, res) => {
         : extractedText;
     console.log('[extract-card] vision raw response:', rawTextLog);
     if (isRefusalResponse(extractedText) || !businessCardLooksLikeOcrText(extractedText)) {
-      console.warn('[extract-card] OCR refusal or unreadable card text');
+      console.warn(
+        '[extract-card] OCR refusal or unreadable card text — attempting loyalty soft fallback',
+      );
+      // P1: OCR must not kill loyalty-card style uploads. Soft-continue with AttachmentAnalysis.
+      try {
+        const { softLoyaltyExtractCardFallback } = await import(
+          '../lib/intake/extractCardLoyaltySoft.js'
+        );
+        const soft = await softLoyaltyExtractCardFallback({
+          extractedText,
+          cardImageDataUrl,
+          filename: req.body?.filename ?? null,
+        });
+        if (soft?.ok) {
+          return res.status(200).json(soft);
+        }
+      } catch (softErr) {
+        console.warn('[extract-card] loyalty soft fallback failed:', softErr?.message ?? softErr);
+      }
       return res.status(502).json({
         ok: false,
         error: 'OCR_FAILED',
         message: 'OCR did not return usable business card text.',
+        warning: 'ocr_failed_non_loyalty',
       });
     }
 
@@ -1666,6 +1685,51 @@ router.post('/:missionId/execute-topology', requireAuth, async (req, res, next) 
       executionMode: execution.executionMode,
       execution,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/missions/:missionId/owner-input
+ * Submit clarification fields and resume topology from the paused node.
+ */
+router.post('/:missionId/owner-input', requireAuth, async (req, res, next) => {
+  try {
+    const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionIdTrimmed) {
+      return res.status(400).json({ ok: false, error: 'validation', message: 'missionId is required' });
+    }
+
+    const access = await resolveAccessibleMission(req.user ?? {}, missionIdTrimmed);
+    if (!access.ok) {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Mission not found or access denied' });
+    }
+
+    const userId =
+      String(req.user?.id ?? req.user?.userId ?? req.guestId ?? req.guest?.id ?? '').trim() || null;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    const fieldsRaw = req.body?.fields ?? req.body?.ownerInput ?? req.body;
+    const fields =
+      fieldsRaw && typeof fieldsRaw === 'object' && !Array.isArray(fieldsRaw)
+        ? Object.fromEntries(
+            Object.entries(fieldsRaw).filter(
+              ([k]) => !['missionId', 'storeId', 'userId'].includes(k),
+            ),
+          )
+        : null;
+
+    const { submitOwnerInput } = await import('../lib/mission/ownerInputService.js');
+    const result = await submitOwnerInput(missionIdTrimmed, fields ?? {}, { userId });
+    if (!result.ok) {
+      const status =
+        result.error === 'validation' ? 400 : result.error === 'conflict' ? 409 : 500;
+      return res.status(status).json(result);
+    }
+    return res.status(200).json(result);
   } catch (err) {
     next(err);
   }

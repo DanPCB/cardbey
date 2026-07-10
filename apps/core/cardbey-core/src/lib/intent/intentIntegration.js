@@ -306,11 +306,20 @@ export class IntentIntegration {
 
     if (result.tool) {
       const entry = getToolEntry(result.tool);
+      const isLoyaltyTool =
+        result.tool === 'setup_loyalty_program' || result.tool === 'create_loyalty_program';
       return {
         ...base,
         executionPath: entry?.executionPath ?? 'proactive_plan',
         tool: result.tool,
         ...(result.tool === 'create_campaign' ? { _compilerEligible: true } : {}),
+        ...(isLoyaltyTool
+          ? {
+              _compilerEligible: true,
+              _requiresStore: true,
+              requiresStore: true,
+            }
+          : {}),
       };
     }
 

@@ -130,7 +130,24 @@ export function detectFixableStoreBuildIssues(preview, input = {}, metadata = {}
   }
 
   const heroUrl = p?.hero?.imageUrl ?? p?.heroImageUrl ?? p?.hero?.url;
-  if (!heroUrl || !String(heroUrl).trim()) {
+  const heroSource = p?.hero?.source ?? p?.heroImageSource ?? null;
+  const heroConfidence =
+    typeof p?.hero?.confidence === 'number'
+      ? p.hero.confidence
+      : typeof p?.heroImageConfidence === 'number'
+        ? p.heroImageConfidence
+        : null;
+  const storeNameBlob = String(p.storeName ?? input.businessName ?? '').toLowerCase();
+  const serviceStore = /\b(handyman|handy[\s-]?man|plumb|electric|cleaning|mechanic|auto repair)\b/.test(
+    storeNameBlob,
+  );
+  const heroNeedsRefresh =
+    !heroUrl ||
+    !String(heroUrl).trim() ||
+    heroSource === 'seed_library' ||
+    (typeof heroConfidence === 'number' && heroConfidence < 0.58) ||
+    (serviceStore && heroSource !== 'upload' && typeof heroConfidence !== 'number');
+  if (heroNeedsRefresh) {
     issues.add('hero');
   }
 
@@ -142,8 +159,20 @@ export function detectFixableStoreBuildIssues(preview, input = {}, metadata = {}
   }
 
   if (items.length > 0) {
+    const LOW_IMAGE_CONFIDENCE = 0.58;
+    const storeNameBlob = String(p.storeName ?? input.businessName ?? '').toLowerCase();
+    const serviceStore = /\b(handyman|handy[\s-]?man|plumb|electric|cleaning|mechanic|auto repair)\b/.test(
+      storeNameBlob,
+    );
     const missingImages = items.filter((it) => !resolveUsableDraftItemImageUrl(it));
-    if (missingImages.length > 0) {
+    const weakImages = items.filter((it) => {
+      if (!it || !resolveUsableDraftItemImageUrl(it)) return false;
+      if (String(it.imageSource ?? '').trim() === 'seed_library') return true;
+      if (typeof it.imageConfidence === 'number' && it.imageConfidence < LOW_IMAGE_CONFIDENCE) return true;
+      if (serviceStore && typeof it.imageConfidence !== 'number') return true;
+      return false;
+    });
+    if (missingImages.length > 0 || weakImages.length > 0) {
       issues.add('imageUrl');
     }
     const weakDesc = items.filter(
@@ -192,40 +221,22 @@ async function fixMissingProductImages(items, verticalSlug, storeType, opts = {}
     process.env.NODE_ENV !== 'production' ||
     process.env.LOG_IMAGEFIX === '1';
 
+  const LOW_CONFIDENCE = 0.55;
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (!item || typeof item !== 'object') continue;
 
-    const existing = resolveDraftItemImageUrl(item);
     const usable = resolveUsableDraftItemImageUrl(item);
-    if (usable) continue;
+    const lowConfidence =
+      typeof item.imageConfidence === 'number' && Number.isFinite(item.imageConfidence) && item.imageConfidence < LOW_CONFIDENCE;
+    const seedOnly = String(item.imageSource ?? '').trim() === 'seed_library';
+    if (usable && !lowConfidence && !seedOnly) continue;
 
-    const categoryKey =
-      (item.categoryName && String(item.categoryName).trim()) ||
-      (item.category && String(item.category).trim()) ||
-      storeType ||
-      null;
-    const resolved = await getSeedImageForCategory({
-      vertical,
-      categoryKey,
-      orientation: 'landscape',
-      businessName: opts.storeName ?? null,
-    });
-
-    if (debugImages) {
-      console.log('[imagefix-debug]', {
-        productName: item.name,
-        category: categoryKey,
-        existing,
-        resolved,
-        isAbsoluteUrl: isAbsoluteHttpUrl(resolved),
-      });
-    }
-
-    if (resolved && isAbsoluteHttpUrl(resolved)) {
-      item.imageUrl = resolved;
-      item.imageSource = item.imageSource || 'seed_library';
-      fixed.push(`products[${i}].imageUrl`);
+    if (usable && (lowConfidence || seedOnly)) {
+      item.imageUrl = null;
+      item.imageSource = null;
+      item.imageConfidence = null;
+      item.imageQuery = null;
     }
   }
 
@@ -248,8 +259,41 @@ async function fixMissingProductImages(items, verticalSlug, storeType, opts = {}
         }
       }
       if (debugImages) {
-        console.log('[imagefix-debug] pexels fallback patched', { patched });
+        console.log('[imagefix-debug] pexels/hint fallback patched', { patched });
       }
+    }
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item || typeof item !== 'object') continue;
+    if (resolveUsableDraftItemImageUrl(item)) continue;
+
+    const categoryKey =
+      (item.categoryName && String(item.categoryName).trim()) ||
+      (item.category && String(item.category).trim()) ||
+      storeType ||
+      null;
+    const resolved = await getSeedImageForCategory({
+      vertical,
+      categoryKey,
+      orientation: 'landscape',
+      businessName: opts.storeName ?? null,
+    });
+
+    if (debugImages) {
+      console.log('[imagefix-debug] seed last-resort', {
+        productName: item.name,
+        category: categoryKey,
+        resolved,
+        isAbsoluteUrl: isAbsoluteHttpUrl(resolved),
+      });
+    }
+
+    if (resolved && isAbsoluteHttpUrl(resolved)) {
+      item.imageUrl = resolved;
+      item.imageSource = 'seed_library';
+      fixed.push(`products[${i}].imageUrl`);
     }
   }
 
@@ -812,29 +856,30 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
       effectiveVertical(preview.storeType, preview.meta?.storeType) ||
       (verticalSlug && verticalSlug.split('.')[0]) ||
       null;
-    let heroUrl = await getSeedImageForCategory({
-      vertical,
-      categoryKey: preview.storeType || businessType,
-      businessName: preview.storeName || businessName,
-      orientation: 'landscape',
-    });
-    if (!heroUrl) {
-      try {
-        const heroMod = await import('../mi/heroGenerationService.ts');
-        const generateHeroForDraft = heroMod.generateHeroForDraft ?? heroMod.default?.generateHeroForDraft;
-        if (typeof generateHeroForDraft === 'function') {
-          const { hero } = await generateHeroForDraft({
-            storeName: preview.storeName || businessName,
-            businessType: preview.storeType || businessType,
-            storeType: preview.storeType || businessType,
-            verticalSlug: preview.meta?.verticalSlug ?? verticalSlug ?? null,
-            verticalGroup: preview.meta?.verticalGroup ?? (verticalSlug || '').split('.')[0] ?? null,
-          });
-          heroUrl = hero?.imageUrl ?? null;
-        }
-      } catch (heroErr) {
-        console.warn('[storeBuildQaAutoFix] hero pexels fallback failed:', heroErr?.message || heroErr);
+    let heroUrl = null;
+    try {
+      const heroMod = await import('../mi/heroGenerationService.ts');
+      const generateHeroForDraft = heroMod.generateHeroForDraft ?? heroMod.default?.generateHeroForDraft;
+      if (typeof generateHeroForDraft === 'function') {
+        const { hero } = await generateHeroForDraft({
+          storeName: preview.storeName || businessName,
+          businessType: preview.storeType || businessType,
+          storeType: preview.storeType || businessType,
+          verticalSlug: preview.meta?.verticalSlug ?? verticalSlug ?? null,
+          verticalGroup: preview.meta?.verticalGroup ?? (verticalSlug || '').split('.')[0] ?? null,
+        });
+        heroUrl = hero?.imageUrl ?? null;
       }
+    } catch (heroErr) {
+      console.warn('[storeBuildQaAutoFix] hero pexels generation failed:', heroErr?.message || heroErr);
+    }
+    if (!heroUrl) {
+      heroUrl = await getSeedImageForCategory({
+        vertical,
+        categoryKey: preview.storeType || businessType,
+        businessName: preview.storeName || businessName,
+        orientation: 'landscape',
+      });
     }
     if (heroUrl) {
       const { applyPipelineGeneratedHeroImage } = await import('../draftStore/draftPreviewHeroSync.js');

@@ -5,7 +5,7 @@
 import { isIntakeDecisionLoopAuthorityEnabled } from './constants.js';
 import { loadBelief } from './beliefLoader.js';
 import { hydrateBeliefForDecisionLoop } from './hydrateBeliefForDecisionLoop.js';
-import { isExplicitCreateStoreFromUploadContext } from '../intake/assetUploadGuard.js';
+import { isExplicitCreateStoreFromUploadContext, isExplicitLoyaltyFromUploadContext } from '../intake/assetUploadGuard.js';
 import { UPLOAD_INTAKE_PHASE } from '../intake/uploadIntakePhase.js';
 import { buildIntakeResponse, buildUploadAskResponseFromBelief } from '../response/responseBuilder.js';
 import { activeGoalSupersedesUploadClarify } from './uploadBeliefContext.js';
@@ -145,6 +145,15 @@ export function shouldRequireUploadAskPanel(opts = {}) {
     isExplicitCreateStoreFromUploadContext({
       userMessage,
       intentSourceContext: opts.intentSourceContext ?? advisorInput.intentSourceContext,
+    })
+  ) {
+    return false;
+  }
+  if (
+    isExplicitLoyaltyFromUploadContext({
+      userMessage,
+      intentSourceContext: opts.intentSourceContext ?? advisorInput.intentSourceContext,
+      attachmentAnalysis: opts.attachmentAnalysis ?? null,
     })
   ) {
     return false;

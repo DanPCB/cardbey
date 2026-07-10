@@ -1,0 +1,76 @@
+/** @type {Record<string, import('../industryBlueprintRegistry.js').IndustryBlueprint>} */
+export const FASHION_BLUEPRINTS = {
+  'fashion.boutique': {
+    id: 'fashion.boutique',
+    industry: 'fashion',
+    label: 'Clothing Boutique',
+    verticalSlugs: ['fashion.boutique', 'fashion.mens', 'fashion.womens'],
+    matchPatterns: [/\b(boutique|clothing|apparel|fashion|wear|dresses|shirts|jeans)\b/i],
+    templateKey: 'fashion_boutique',
+    categories: [
+      { key: 'women', label: "Women's" },
+      { key: 'men', label: "Men's" },
+      { key: 'collections', label: 'Collections' },
+      { key: 'accessories', label: 'Accessories' },
+    ],
+    imageQueryHints: {
+      women: ['women dress boutique', 'womens fashion clothing rack'],
+      men: ['mens shirt clothing store', 'mens casual fashion'],
+      collections: ['fashion collection display boutique', 'new arrivals clothing store'],
+      accessories: ['fashion accessories display', 'handbag boutique shelf'],
+    },
+    items: [
+      { categoryKey: 'women', name: "Women's Dresses", description: 'Day and occasion dresses in seasonal fabrics.', price: '$89.00', basePrice: 89, pricingModel: 'fixed', imageQueryHint: 'womens dress boutique display' },
+      { categoryKey: 'women', name: 'Summer Collection', description: 'Lightweight tops, skirts, and linen pieces.', price: '$59.00', basePrice: 59, pricingModel: 'fixed' },
+      { categoryKey: 'men', name: "Men's Shirts", description: 'Casual and smart shirts in cotton and linen.', price: '$69.00', basePrice: 69, pricingModel: 'fixed', imageQueryHint: 'mens shirts clothing rack' },
+      { categoryKey: 'men', name: 'Jeans', description: 'Classic and slim-fit denim in multiple washes.', price: '$99.00', basePrice: 99, pricingModel: 'fixed' },
+      { categoryKey: 'collections', name: 'New Arrivals', description: 'Latest pieces just landed in store.', price: '$79.00', basePrice: 79, pricingModel: 'fixed' },
+      { categoryKey: 'collections', name: 'Sale Collection', description: 'Selected styles at reduced prices.', price: '$49.00', basePrice: 49, pricingModel: 'fixed' },
+      { categoryKey: 'accessories', name: 'Accessories', description: 'Belts, scarves, and small leather goods.', price: '$35.00', basePrice: 35, pricingModel: 'fixed' },
+      { categoryKey: 'accessories', name: 'Shoes', description: 'Seasonal footwear for everyday wear.', price: '$119.00', basePrice: 119, pricingModel: 'fixed', imageQueryHint: 'shoes boutique display' },
+      { categoryKey: 'women', name: 'Knitwear', description: 'Cosy sweaters and cardigans.', price: '$75.00', basePrice: 75, pricingModel: 'fixed' },
+      { categoryKey: 'men', name: 'Chino Pants', description: 'Smart-casual chinos in neutral tones.', price: '$79.00', basePrice: 79, pricingModel: 'fixed' },
+    ],
+    promptHints: 'Generate a clothing boutique catalog with real product categories and price ranges. Never use Variant A/B or Size S/M/L as product names unless describing actual size variants on a real product.',
+    websiteCopy: {
+      uspItems: [
+        { icon: '✦', label: 'Curated style', description: 'Hand-picked pieces for every season.' },
+        { icon: '⚡', label: 'New arrivals weekly', description: 'Fresh looks added regularly.' },
+        { icon: '♥', label: 'Personal service', description: 'Friendly styling advice in store and online.' },
+      ],
+      heroImageKeywords: ['fashion boutique interior', 'clothing store display'],
+      ctaLabel: 'Shop now',
+    },
+  },
+  'fashion.kids': {
+    id: 'fashion.kids',
+    industry: 'fashion',
+    label: 'Kids Clothing',
+    verticalSlugs: ['fashion.kids'],
+    templateKey: 'fashion_kids',
+    categories: [
+      { key: 'tops', label: 'Tops' },
+      { key: 'bottoms', label: 'Bottoms' },
+      { key: 'outerwear', label: 'Outerwear' },
+      { key: 'accessories', label: 'Accessories' },
+    ],
+    items: [
+      { categoryKey: 'tops', name: 'Kids T-Shirt', description: 'Soft cotton tee in fun colours.', price: '$24.00', basePrice: 24 },
+      { categoryKey: 'tops', name: 'Kids Hoodie', description: 'Cosy pullover hoodie for play and school.', price: '$39.00', basePrice: 39 },
+      { categoryKey: 'bottoms', name: 'Kids Joggers', description: 'Comfortable elastic-waist joggers.', price: '$29.00', basePrice: 29 },
+      { categoryKey: 'bottoms', name: 'Kids Jeans', description: 'Durable denim with adjustable waist.', price: '$34.00', basePrice: 34 },
+      { categoryKey: 'outerwear', name: 'Kids Puffer Jacket', description: 'Warm lightweight jacket for winter.', price: '$59.00', basePrice: 59 },
+      { categoryKey: 'accessories', name: 'Kids Sneakers', description: 'Everyday sneakers with easy fastenings.', price: '$49.00', basePrice: 49 },
+    ],
+    promptHints: 'Generate kids clothing with age-appropriate product names.',
+    websiteCopy: {
+      uspItems: [
+        { icon: '✦', label: 'Quality kids wear', description: 'Durable, comfortable clothing for active kids.' },
+        { icon: '⚡', label: 'Easy sizing', description: 'Clear age and size guides online.' },
+        { icon: '♥', label: 'Play-ready', description: 'Styles made for school, sport, and fun.' },
+      ],
+      heroImageKeywords: ['kids clothing store', 'children fashion boutique'],
+      ctaLabel: 'Shop kids',
+    },
+  },
+};

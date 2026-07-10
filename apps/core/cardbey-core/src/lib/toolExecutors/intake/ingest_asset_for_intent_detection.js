@@ -37,6 +37,8 @@ export async function execute(input = {}, context = {}) {
     rawOcrText: pickString(input?.rawOcrText, input?.ocrHints?.rawText) || null,
     ocrHints: input?.ocrHints ?? context?.ocrHints ?? null,
     entityContextId: input?.entityContextId ?? null,
+    sessionId: pickString(input?.sessionId, context?.sessionId, context?.sessionKey) || null,
+    missionId: missionId || null,
   });
 
   if (!ingestResult.ok) {

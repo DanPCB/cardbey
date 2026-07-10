@@ -7,6 +7,7 @@
 import { resolveVertical } from '../verticals/verticalTaxonomy.js';
 import { buildSeedCatalog } from '../../services/store/seeds/seedCatalogBuilder.js';
 import { buildCuisineMenuCatalog } from '../../services/draftStore/foodCuisineCatalog.js';
+import { buildIndustryCatalog } from '../../services/draftStore/industryBlueprintRegistry.js';
 
 const SERVICE_CATALOG_PLACEHOLDER_RE =
   /\b(business package|call-?out fee|custom quote|consultation|starter package|essential package|complete package|value package|core service|standard service|premium service|basic service|extended service|express service|full service|scheduled visit|emergency call-?out|support package|standard visit|site visit|follow-?up|maintenance|inspection|report|priority service|one-?off service|recurring service|add-?on service|package deal)\b/i;
@@ -170,6 +171,17 @@ export function buildServiceCatalogPlaceholderSeed(products, profile = {}) {
     verticalGroup: profile.verticalGroup ?? vertical.group,
   };
   const targetCount = Math.max(products.length, 24);
+  const industry = buildIndustryCatalog(
+    {
+      verticalSlug: leakProfile.verticalSlug,
+      verticalGroup: leakProfile.verticalGroup,
+      businessType: leakProfile.businessType,
+      businessName: leakProfile.businessName ?? leakProfile.storeName,
+      catalogLabel: leakProfile.catalogLabel,
+    },
+    targetCount,
+  );
+  if (industry) return industry;
   const cuisine = buildCuisineMenuCatalog(
     {
       verticalSlug: leakProfile.verticalSlug,

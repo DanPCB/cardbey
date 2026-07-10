@@ -158,6 +158,41 @@ describe('suitcaseItemService', () => {
     expect(filtered.items[0].title).toBe('Briefing A');
   });
 
+  it('upserts suitcase item when idempotency key matches and payload is provided', async () => {
+    const first = await createSuitcaseItem(
+      {
+        ownerId: 'owner-1',
+        storeId: 'store-1',
+        sourceType: 'artifact',
+        contentType: 'json',
+        title: 'Loyalty v1',
+        payload: { version: 1 },
+        idempotencyKey: 'loyalty-gen:owner-1:store-1',
+        refreshOnIdempotency: true,
+      },
+      prisma,
+    );
+    const second = await createSuitcaseItem(
+      {
+        ownerId: 'owner-1',
+        storeId: 'store-1',
+        sourceType: 'artifact',
+        contentType: 'json',
+        title: 'Loyalty v2',
+        payload: { version: 2 },
+        idempotencyKey: 'loyalty-gen:owner-1:store-1',
+        refreshOnIdempotency: true,
+      },
+      prisma,
+    );
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(second.updated).toBe(true);
+    expect(items.size).toBe(1);
+    expect(second.item.title).toBe('Loyalty v2');
+    expect(second.item.payload?.version).toBe(2);
+  });
+
   it('saves briefing idempotently', async () => {
     const briefing = {
       greeting: 'Good morning',

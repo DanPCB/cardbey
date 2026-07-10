@@ -1,6 +1,7 @@
 /**
  * Owner review for research-backed store catalog (accept / edit / fallback).
  */
+import { applyOwnerDecisionToEvidence } from '../../lib/researchEvidence/researchEvidenceRepository.js';
 
 /**
  * @param {string} missionId
@@ -212,7 +213,7 @@ export async function applyStoreResearchReviewDecision(params) {
   );
 
   if (action === 'reject_fallback') {
-    const nextCtx = {
+    const nextCtx = applyOwnerDecisionToEvidence({
       ...ctx,
       storeCreationResearch: {
         ...research,
@@ -221,7 +222,7 @@ export async function applyStoreResearchReviewDecision(params) {
         reviewStatus: 'rejected_fallback',
         rejectedAt: new Date().toISOString(),
       },
-    };
+    }, action);
     await prisma.mission.update({ where: { id: missionId }, data: { context: nextCtx } }).catch(() => {});
     await emitStoreResearchConfirmedArtifact(
       missionId,
@@ -241,7 +242,7 @@ export async function applyStoreResearchReviewDecision(params) {
     }
   }
 
-  const nextCtx = {
+  const nextCtx = applyOwnerDecisionToEvidence({
     ...ctx,
     preloadedCatalogItems: incomingServices.map((s) => ({
       name: s.name,
@@ -259,7 +260,37 @@ export async function applyStoreResearchReviewDecision(params) {
       reviewStatus: 'accepted',
       confirmedAt: new Date().toISOString(),
     },
-  };
+  }, action, incomingServices);
+
+  try {
+    const { freezeStoreCreationMissionContract, buildStoreCreationMissionContract } = await import(
+      '../../lib/storeResearch/missionContract.js'
+    );
+    const { markProvenanceOwnerConfirmed } = await import('../../lib/storeResearch/provenancePersistence.js');
+    const existingContract = ctx.storeCreationMissionContract ?? research.storeResearchPipeline?.missionContract;
+    const evidenceId =
+      existingContract?.evidenceId ??
+      ctx.storeResearchProvenance?.evidenceId ??
+      research.storeResearchPipeline?.evidence?.evidenceId ??
+      '';
+    nextCtx.storeCreationMissionContract = freezeStoreCreationMissionContract(
+      existingContract ??
+        buildStoreCreationMissionContract({
+          evidenceId,
+          approvedSources: [],
+          executionContext: { missionId, draftId },
+          contentPolicy: {
+            sourcedFieldsApproved: true,
+            suggestedFieldsApproved: Boolean(params.suggestedFieldsApproved),
+          },
+        }),
+    );
+    if (nextCtx.storeResearchProvenance) {
+      nextCtx.storeResearchProvenance = markProvenanceOwnerConfirmed(nextCtx.storeResearchProvenance);
+    }
+  } catch {
+    /* optional module */
+  }
 
   await prisma.mission.update({ where: { id: missionId }, data: { context: nextCtx } }).catch(() => {});
   await emitStoreResearchConfirmedArtifact(
@@ -277,18 +308,78 @@ export async function applyStoreResearchReviewDecision(params) {
  * @param {{ draftId?: string|null }} [meta]
  */
 export function buildStoreResearchReviewArtifactPayload(missionId, research, meta = {}) {
+  const pipeline = research.storeResearchPipeline && typeof research.storeResearchPipeline === 'object'
+    ? research.storeResearchPipeline
+    : null;
+  const reviewArtifact = pipeline?.reviewArtifact ?? meta.reviewArtifact ?? null;
+
   return {
-    ownerReviewRequired: Boolean(research.ownerReviewRequired),
-    confidence: typeof research.confidence === 'number' ? research.confidence : null,
-    sourcesUsed: Array.isArray(research.sourcesUsed) ? research.sourcesUsed : [],
+    artifactType: reviewArtifact?.artifactType ?? 'store_research_review',
+    ownerReviewRequired: Boolean(research.ownerReviewRequired ?? reviewArtifact?.requiresOwnerConfirmation),
+    confidence:
+      typeof research.confidence === 'number'
+        ? research.confidence
+        : reviewArtifact?.confidence ?? null,
+    sourcesUsed: Array.isArray(research.sourcesUsed) ? research.sourcesUsed : reviewArtifact?.sourcesUsed ?? [],
     sourcesPendingConfirmation: Array.isArray(research.sourcesPendingConfirmation)
       ? research.sourcesPendingConfirmation
       : [],
-    extractedServices: Array.isArray(research.extractedServices) ? research.extractedServices : [],
+    extractedServices: Array.isArray(research.extractedServices)
+      ? research.extractedServices
+      : reviewArtifact?.extractedCatalog ?? [],
+    suggestedItems: reviewArtifact?.suggestedItems ?? [],
+    matchedBusiness: reviewArtifact?.matchedBusiness ?? pipeline?.entityResolution?.selectedCandidate ?? null,
+    candidates: reviewArtifact?.candidates ?? pipeline?.entityResolution?.candidates ?? [],
+    conflicts: reviewArtifact?.conflicts ?? [],
+    missingFields: reviewArtifact?.missingFields ?? [],
+    imageRightsWarnings: reviewArtifact?.imageRightsWarnings ?? [],
+    contentPolicy: pipeline?.missionContract?.contentPolicy ?? {
+      sourcedFieldsApproved: false,
+      suggestedFieldsApproved: false,
+    },
+    actions: reviewArtifact?.actions ?? [
+      'confirm_and_create',
+      'edit_extracted_data',
+      'exclude_source',
+      'replace_with_upload',
+      'use_suggestions',
+      'start_blank',
+    ],
     researchDebugger:
       research.researchDebugger && typeof research.researchDebugger === 'object'
         ? research.researchDebugger
         : null,
-    draftId: meta.draftId ?? null,
+    draftId: meta.draftId ?? reviewArtifact?.draftId ?? null,
   };
+}
+
+/**
+ * Emit owner review artifact when research is pending confirmation.
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string|null|undefined} missionId
+ * @param {string|null|undefined} draftId
+ */
+export async function maybeEmitPendingStoreResearchReview(prisma, missionId, draftId) {
+  const mid = typeof missionId === 'string' ? missionId.trim() : '';
+  if (!mid) return;
+  const mrow = await prisma.mission
+    .findUnique({ where: { id: mid }, select: { context: true } })
+    .catch(() => null);
+  const ctx = mrow?.context && typeof mrow.context === 'object' ? mrow.context : {};
+  const persistedResearch =
+    ctx.storeCreationResearch && typeof ctx.storeCreationResearch === 'object'
+      ? ctx.storeCreationResearch
+      : null;
+  if (!persistedResearch || persistedResearch.ownerConfirmed === true) return;
+  const hasReviewPayload =
+    persistedResearch.ownerReviewRequired ||
+    (Array.isArray(persistedResearch.extractedServices) && persistedResearch.extractedServices.length > 0) ||
+    (persistedResearch.researchDebugger && typeof persistedResearch.researchDebugger === 'object') ||
+    (persistedResearch.storeResearchPipeline &&
+      typeof persistedResearch.storeResearchPipeline === 'object');
+  if (!hasReviewPayload) return;
+  await emitStoreResearchReviewArtifact(
+    mid,
+    buildStoreResearchReviewArtifactPayload(mid, persistedResearch, { draftId: draftId ?? null }),
+  );
 }

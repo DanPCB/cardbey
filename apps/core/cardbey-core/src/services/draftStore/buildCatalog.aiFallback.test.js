@@ -36,5 +36,10 @@ describe('buildCatalog AI fallback', () => {
     expect(result?.products?.length).toBeGreaterThan(0);
     expect(result?.meta?.aiFallback).toBe(true);
     expect(result?.meta?.catalogSource).toBe('template');
+    const names = (result?.products ?? []).map((p) => p.name);
+    expect(names.some((n) => /interior painting|tv wall mounting|door repair|window cleaning/i.test(String(n)))).toBe(
+      true,
+    );
+    expect(names.some((n) => /featured item|variant b|size s/i.test(String(n)))).toBe(false);
   });
 });

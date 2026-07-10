@@ -40,8 +40,10 @@ import {
   applyResearchProfileToPreview,
   finalizeResearchCatalogForDraft,
   isResearchBackedPreview,
+  isResearchCatalogPendingOwnerReview,
   isResearchCatalogSource,
   mergeResearchBusinessProfileIntoParams,
+  shouldApplyResearchCatalogToDraft,
 } from './researchCatalogDraft.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
@@ -430,6 +432,7 @@ function resolveCatalogItemTarget(params) {
  */
 async function buildCatalogForStoreReactStep(missionId, params, input) {
   const { buildCatalogFromPreloadedItems, sanitizePreloadedCatalogItems } = await import('./preloadedCatalogFromItems.js');
+  let deferredResearch = null;
 
   if (shouldRunStoreCreationResearch(params, input)) {
     try {
@@ -447,6 +450,9 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         },
         { prisma },
       );
+      if (isResearchCatalogPendingOwnerReview(research)) {
+        deferredResearch = research;
+      }
       const researchCatalog = resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems);
       if (researchCatalog) {
         const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
@@ -464,7 +470,11 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       if (process.env.NODE_ENV !== 'production' && research.researchRan) {
         console.log('[STORE_RESEARCH_FALLBACK_USED]', {
           missionId,
-          reason: research.fallbackToGenerated ? 'fallback_flag' : 'no_catalog_products',
+          reason: research.fallbackToGenerated
+            ? 'fallback_flag'
+            : isResearchCatalogPendingOwnerReview(research)
+              ? 'owner_review_pending'
+              : 'no_catalog_products',
           confidence: research.confidence,
           sourceCount: research.sourcesUsed?.length ?? 0,
         });
@@ -494,10 +504,13 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     if (Array.isArray(fromMission) && fromMission.length > 0) {
       pre = sanitizePreloadedCatalogItems(fromMission) ?? fromMission;
     }
-    if ((!Array.isArray(pre) || pre.length === 0) && missionResearch?.extractedServices?.length) {
-      if (missionResearch.fallbackToGenerated !== true) {
-        pre = sanitizePreloadedCatalogItems(missionResearch.extractedServices) ?? missionResearch.extractedServices;
-      }
+    if (
+      (!Array.isArray(pre) || pre.length === 0) &&
+      missionResearch?.extractedServices?.length &&
+      missionResearch.ownerConfirmed === true &&
+      missionResearch.fallbackToGenerated !== true
+    ) {
+      pre = sanitizePreloadedCatalogItems(missionResearch.extractedServices) ?? missionResearch.extractedServices;
     }
   }
   if ((!Array.isArray(pre) || pre.length === 0) && Array.isArray(input?.preloadedCatalogItems) && input.preloadedCatalogItems.length > 0) {
@@ -553,10 +566,20 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
   }
 
   const catalog = await buildCatalog(params);
+  if (deferredResearch) {
+    return {
+      catalog,
+      fromPreload: false,
+      fromResearch: false,
+      pendingOwnerReview: true,
+      research: deferredResearch,
+    };
+  }
   return { catalog, fromPreload: false };
 }
 
 function resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems) {
+  if (!shouldApplyResearchCatalogToDraft(research)) return null;
   if (!research?.researchRan || research.fallbackToGenerated) return null;
   if (research.catalog?.products?.length) {
     return research.catalog;
@@ -596,6 +619,20 @@ function resolveResearchCatalogFromResult(research, params, input, buildCatalogF
     };
   }
   return catalog;
+}
+
+async function emitStoreResearchReviewIfPending(missionId, draftId, catalogResult = {}) {
+  const mid = typeof missionId === 'string' ? missionId.trim() : '';
+  if (!mid) return;
+  const shouldEmit =
+    catalogResult.fromResearch ||
+    catalogResult.pendingOwnerReview ||
+    isResearchCatalogPendingOwnerReview(catalogResult.research);
+  if (!shouldEmit) return;
+  const { maybeEmitPendingStoreResearchReview } = await import(
+    '../storeCreationResearch/storeResearchReviewService.js'
+  );
+  await maybeEmitPendingStoreResearchReview(prisma, mid, draftId ?? null);
 }
 
 /** Map generation profile → ImageFillProfile shape for BusinessImageEnricher. */
@@ -1163,6 +1200,23 @@ async function finalizeDraft(draftId, {
   });
 
   if (includeImages && items.length > 0) {
+    try {
+      const { dedupeServiceCatalogItems, ServiceImageRegistry } = await import('../media/serviceImageResolver.js');
+      const deduped = dedupeServiceCatalogItems(items, categories);
+      if (deduped.removedCount > 0) {
+        items.splice(0, items.length, ...deduped.items);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[DraftStore] finalizeDraft: deduped service catalog items', {
+            draftId,
+            removedCount: deduped.removedCount,
+            mergedKeys: deduped.mergedKeys.slice(0, 8),
+          });
+        }
+      }
+    } catch (dedupeErr) {
+      console.warn('[DraftStore] service catalog dedupe skipped:', dedupeErr?.message ?? dedupeErr);
+    }
+
     console.log('[menuVisualAgent] START batch', {
       draftId,
       itemCount: items.length,
@@ -1185,6 +1239,13 @@ async function finalizeDraft(draftId, {
     const BATCH_SIZE = 5;
     const toEnrich = items.slice(0, MAX_ITEMS);
     const usedUrls = new Set();
+    let serviceImageRegistry = null;
+    try {
+      const { ServiceImageRegistry } = await import('../media/serviceImageResolver.js');
+      serviceImageRegistry = new ServiceImageRegistry();
+    } catch {
+      serviceImageRegistry = null;
+    }
     let billingLimitHit = false;
     itemImages: for (let offset = 0; offset < toEnrich.length && !billingLimitHit; offset += BATCH_SIZE) {
       if (isShutdownRequested()) {
@@ -1222,22 +1283,49 @@ async function finalizeDraft(draftId, {
           continue;
         }
         const catalogCategoryHint = p.categoryId && categories.length ? categories.find((c) => c.id === p.categoryId)?.name : null;
-        const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
-        const categoryHint = [derivedHint, catalogCategoryHint].filter(Boolean).join(' ').trim() || null;
+        let imageQueryHint = p?.imageQueryHint ?? null;
+        try {
+          const { resolveItemImageSearchQuery } = await import('./itemImageQueryResolver.js');
+          imageQueryHint = resolveItemImageSearchQuery({
+            itemName: p?.name,
+            description: p?.description,
+            imageQueryHint: p?.imageQueryHint,
+            verticalSlug: verticalForItem,
+            verticalGroup: effectiveImageFillProfile?.verticalGroup,
+            businessType: preview.storeType,
+            storeName: preview.storeName,
+            categoryName: catalogCategoryHint,
+          });
+        } catch {
+          const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
+          imageQueryHint = derivedHint || imageQueryHint;
+        }
+        const categoryHint = imageQueryHint || [deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType), catalogCategoryHint].filter(Boolean).join(' ').trim() || null;
         const itemIndex = offset + batchIdx;
         const opts = effectiveImageFillProfile
           ? {
               profile: effectiveImageFillProfile,
+              imageQueryHint,
               categoryHint,
               categoryName: categoryHint,
               businessType: preview.storeType || null,
+              storeName: preview.storeName ?? null,
+              verticalSlug: verticalForItem,
+              verticalGroup: effectiveImageFillProfile?.verticalGroup,
               usedUrls,
+              serviceImageRegistry,
+              allowNullOnLowConfidence: true,
               ...(locationStr ? { location: locationStr } : {}),
             }
           : {
+              imageQueryHint,
               categoryName: categoryHint,
               businessType: preview.storeType || null,
+              storeName: preview.storeName ?? null,
+              verticalSlug: verticalForItem,
               usedUrls,
+              serviceImageRegistry,
+              allowNullOnLowConfidence: true,
               ...(locationStr ? { location: locationStr } : {}),
             };
         if (
@@ -1273,6 +1361,9 @@ async function finalizeDraft(draftId, {
           item.imageSource = img.source;
           item.imageQuery = img.query;
           item.imageConfidence = img.confidence;
+          if (img.imageSelection) item.imageSelection = img.imageSelection;
+          if (img.imageMatchStatus) item.imageMatchStatus = img.imageMatchStatus;
+          if (img.canonicalServiceTitle) item.canonicalServiceTitle = img.canonicalServiceTitle;
         }
         if (result?.status === 'rejected' && result.reason?.code === 'BILLING_HARD_LIMIT') {
           billingLimitHit = true;
@@ -1640,16 +1731,18 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
               emitCtx,
             );
           }
-          const { catalog: catalogPaidNoReact, fromResearch, research } = await buildCatalogForStoreReactStep(
-            missionId,
-            params,
-            input,
-          );
+          const { catalog: catalogPaidNoReact, fromResearch, pendingOwnerReview, research } =
+            await buildCatalogForStoreReactStep(missionId, params, input);
           const catalogParams =
             fromResearch && research
               ? mergeResearchBusinessProfileIntoParams(params, research, catalogPaidNoReact)
               : params;
           await saveDraftBase(draftId, catalogPaidNoReact, catalogParams);
+          await emitStoreResearchReviewIfPending(missionId, draftId, {
+            fromResearch,
+            pendingOwnerReview,
+            research,
+          });
           const emitContextUpdate = options.emitContextUpdate;
           if (typeof emitContextUpdate === 'function' && catalogPaidNoReact?.products?.length) {
             const products = catalogPaidNoReact.products.map((p) => ({
@@ -1738,6 +1831,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
                   catalog: builtCatalog,
                   fromPreload,
                   fromResearch,
+                  pendingOwnerReview,
                   research,
                 } = await buildCatalogForStoreReactStep(missionId, params, input);
                 catalogState.catalog = builtCatalog;
@@ -1765,32 +1859,12 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
                 if (fromResearch && research && missionId) {
                   bb.write('catalogSource', 'research');
                   bb.write('catalogItems', catalogState.catalog?.products ?? []);
-                  const {
-                    emitStoreResearchReviewArtifact,
-                    buildStoreResearchReviewArtifactPayload,
-                  } = await import('../storeCreationResearch/storeResearchReviewService.js');
-                  const mrow = await prisma.mission
-                    .findUnique({ where: { id: missionId }, select: { context: true } })
-                    .catch(() => null);
-                  const persistedResearch =
-                    mrow?.context?.storeCreationResearch && typeof mrow.context.storeCreationResearch === 'object'
-                      ? mrow.context.storeCreationResearch
-                      : null;
-                  if (persistedResearch && persistedResearch.ownerConfirmed !== true) {
-                    const hasReviewPayload =
-                      persistedResearch.ownerReviewRequired ||
-                      (Array.isArray(persistedResearch.extractedServices) &&
-                        persistedResearch.extractedServices.length > 0) ||
-                      (persistedResearch.researchDebugger &&
-                        typeof persistedResearch.researchDebugger === 'object');
-                    if (hasReviewPayload) {
-                      await emitStoreResearchReviewArtifact(
-                        missionId,
-                        buildStoreResearchReviewArtifactPayload(missionId, persistedResearch, { draftId }),
-                      );
-                    }
-                  }
                 }
+                await emitStoreResearchReviewIfPending(missionId, draftId, {
+                  fromResearch,
+                  pendingOwnerReview,
+                  research,
+                });
                 await stepReporter.completed('catalog').catch(() => {});
                 await appendReasoningLogLine(missionId, '✓ Profile generated', emitCtx);
                 await appendReasoningLogLine(

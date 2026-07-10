@@ -130,6 +130,10 @@ function resolveChannelStatus(channel, contexts, sourcesUsed, sourcesPendingConf
     matched: status === 'matched' || status === 'pending',
     confidence,
     sourceUrl: hit.source.sourceUrl ?? null,
+    tier: hit.match?.researchProvider?.tier ?? null,
+    providerId: hit.match?.researchProvider?.providerId ?? null,
+    providerName: hit.match?.researchProvider?.providerName ?? null,
+    ownerVerifiedStatus: status === 'pending' ? 'needs_owner_review' : 'pending',
     reason: hit.match?.reasons?.[0] ?? null,
   };
 }
@@ -160,6 +164,12 @@ function serializeBusinessFacts(facts) {
       value: entry.value,
       confidence: typeof entry.confidence === 'number' ? entry.confidence : null,
       sourceType: typeof entry.sourceType === 'string' ? entry.sourceType : null,
+      tier: typeof entry.tier === 'number' ? entry.tier : null,
+      providerId: typeof entry.providerId === 'string' ? entry.providerId : null,
+      providerName: typeof entry.providerName === 'string' ? entry.providerName : null,
+      ownerVerifiedStatus: typeof entry.ownerVerifiedStatus === 'string' ? entry.ownerVerifiedStatus : null,
+      conflict: Boolean(entry.conflict),
+      conflictingValues: Array.isArray(entry.conflictingValues) ? entry.conflictingValues : [],
     });
   }
   if (facts.socialLinks && typeof facts.socialLinks === 'object') {
@@ -196,6 +206,13 @@ function serializeServices(items) {
       category: typeof row.category === 'string' ? row.category : null,
       sourceType: typeof row.sourceType === 'string' ? row.sourceType : null,
       confidence: typeof row.confidence === 'number' ? row.confidence : null,
+      tier: typeof row.tier === 'number' ? row.tier : null,
+      providerId: typeof row.providerId === 'string' ? row.providerId : null,
+      providerName: typeof row.providerName === 'string' ? row.providerName : null,
+      ownerVerifiedStatus:
+        typeof row.ownerVerifiedStatus === 'string' ? row.ownerVerifiedStatus : null,
+      conflict: Boolean(row.conflict),
+      conflictingValues: Array.isArray(row.conflictingValues) ? row.conflictingValues : [],
     };
   }).filter(Boolean);
 }

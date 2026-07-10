@@ -26,7 +26,7 @@ import {
   detectDocumentIngestionIntent,
 } from '../intent/documentIngestIntent.js';
 import { detectPromotionGraphicIntent } from '../intake/intakeSystemShortcuts.js';
-import { isLoyaltyIntent } from '../intake/intentDetectors.js';
+import { shouldPreferLoyaltyOverCampaign } from '../intake/intentDetectors.js';
 import { tryStoreCreateFastPath } from './storeCreateFastPath.js';
 import { detectCampaignCreationIntent } from './campaignOrchestrationIntent.js';
 import { parseNaturalLanguageStoreCreation } from '../intake/storeCreationDraft.js';
@@ -696,16 +696,28 @@ export class IntentReasoner {
       }
     }
 
-    if (storeId && isLoyaltyIntent(rawText)) {
+    // Intent first: store is execution context, not a condition for recognizing loyalty.
+    // Confidence above asset/document ingest so loyalty + attachment still locks loyalty.
+    // "loyalty campaign" / stamp card → loyalty program (not marketing create_campaign).
+    // Explicit poster/social "advertise my loyalty program" stays create_campaign.
+    const attachmentAnalysisHint =
+      parsedInput?.attachmentAnalysis ??
+      parsedInput?.parameters?.attachmentAnalysis ??
+      null;
+    const loyaltyOverCampaign = shouldPreferLoyaltyOverCampaign(rawText, attachmentAnalysisHint);
+    if (loyaltyOverCampaign) {
       candidates.push({
         type: 'setup_loyalty',
-        confidence: 0.93,
+        confidence: 0.97,
         description: 'User wants to set up a loyalty program',
-        factors: ['loyalty_fast_path'],
+        factors: ['loyalty_fast_path', 'loyalty_over_campaign'],
         fastPathClassification: {
           tool: 'setup_loyalty_program',
-          parameters: { storeId },
+          parameters: storeId ? { storeId } : {},
+          requiresStore: true,
           _fastPath: 'loyalty',
+          _requiresStore: true,
+          reason: 'loyalty intent has priority over generic campaign intent',
         },
       });
     }
@@ -859,7 +871,8 @@ export class IntentReasoner {
       }
     }
 
-    if (detectCampaignCreationIntent(rawText)) {
+    // Loyalty setup beats generic campaign (“loyalty campaign”, stamp card + campaign, etc.).
+    if (detectCampaignCreationIntent(rawText) && !loyaltyOverCampaign) {
       const orchestrationPhrase = /campaign\s+for\s+|promotion(?:al)?\s+campaign|marketing\s+campaign/i.test(
         rawText,
       );

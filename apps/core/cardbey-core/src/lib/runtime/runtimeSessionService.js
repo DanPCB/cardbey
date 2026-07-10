@@ -29,6 +29,7 @@ import {
 import { resolveRuntimeGuidanceForSession } from './runtimeGuidanceService.js';
 import { getMissionParentMissionId } from '../mission/missionParentLineage.js';
 import { isMissionEndedByUser } from './missionRuntimeEnd.js';
+import { resolveCanonicalMissionRuntimeState } from './runtimeMissionStatus.js';
 
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
@@ -59,6 +60,7 @@ export const RECOVERABLE_MISSION_STATUSES = [
   'planned',
   'awaiting_confirmation',
   'awaiting_input',
+  'awaiting_owner_input',
   'queued',
   'executing',
   'paused',
@@ -172,6 +174,7 @@ function mapMissionSummary(row, extras = {}) {
     stepOutputKeys: Object.keys(asObj(meta.stepOutputs)),
     runtimePrerequisites,
     updatedAt: row.updatedAt ?? null,
+    runtimeState: resolveCanonicalMissionRuntimeState(row),
     isTerminal: isTerminalMissionPipelineStatus(row.status, { runState: row.runState }),
     isSuccessTerminal: isSuccessfulTerminalMissionPipelineStatus(row.status, {
       runState: row.runState,
@@ -476,7 +479,10 @@ export async function resolveActiveRuntimeSession(input) {
     targetId = userStores[0].storeId;
   }
 
-  const requiresStoreSelection = !activeStoreId && userStores.length > 1;
+  const storeCreationInProgress = isStoreCreationMissionActive(activeMissionRow);
+
+  const requiresStoreSelection =
+    !activeStoreId && userStores.length > 1 && !storeCreationInProgress;
 
   let targetReadiness = null;
   if (readinessEnabled && userId) {
@@ -505,8 +511,6 @@ export async function resolveActiveRuntimeSession(input) {
   const waitingForPrerequisiteEarly =
     runtimePrerequisitesEarly &&
     str(runtimePrerequisitesEarly.status) === 'waiting_for_prerequisite';
-
-  const storeCreationInProgress = isStoreCreationMissionActive(activeMissionRow);
 
   const needsStoreFirst = readinessEnabled
     ? Boolean(
@@ -620,6 +624,7 @@ export async function resolveActiveRuntimeSession(input) {
         requiresStoreSelection,
         storeCandidates: requiresStoreSelection ? userStores : userStores.length > 1 ? userStores : [],
         needsStoreFirst,
+        storeCreationInProgress,
         targetReadiness,
       })
     : [];

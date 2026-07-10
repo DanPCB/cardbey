@@ -33,6 +33,12 @@ import {
 } from '../../lib/catalog/buildCatalogGenerationProfile.js';
 import { repairServiceCatalogPlaceholderProducts } from '../../lib/catalog/serviceCatalogPlaceholders.js';
 import { buildCuisineMenuCatalog, cuisineSlugToTemplateKey } from './foodCuisineCatalog.js';
+import {
+  buildIndustryCatalog,
+  reconcileIndustryVerticalSlug,
+  shouldRepairRetailCatalogLeakInServiceStore,
+  isRetailCatalogPlaceholderName,
+} from './industryBlueprintRegistry.js';
 
 function tsModuleUnavailable(name) {
   const e = new Error(`${name} unavailable in plain Node runtime. Run server with tsx or add build step to compile TS.`);
@@ -235,12 +241,20 @@ function resolveVerticalCatalogProfile(params = {}) {
 
   if (fromCandidate?.verticalSlug || explicitSlug) {
     const slug = explicitSlug || fromCandidate?.verticalSlug || 'services.generic';
-    return {
+    const reconciledSlug = reconcileIndustryVerticalSlug(slug, {
+      businessName: params.businessName,
+      storeName: params.businessName,
+      businessType: categoryHint,
+      storeType: categoryHint,
+      prompt: params.prompt,
       verticalSlug: slug,
+    });
+    return {
+      verticalSlug: reconciledSlug,
       verticalGroup:
         fromCandidate?.verticalGroup ??
         params.verticalGroup ??
-        (String(slug).split('.')[0] || 'services'),
+        (String(reconciledSlug).split('.')[0] || 'services'),
       audience:
         params.audience ??
         fromCandidate?.audience ??
@@ -267,9 +281,17 @@ function resolveVerticalCatalogProfile(params = {}) {
     });
   }
   const slug = explicitSlug || r.slug || 'services.generic';
-  return {
+  const reconciledSlug = reconcileIndustryVerticalSlug(slug, {
+    businessName: params.businessName,
+    storeName: params.businessName,
+    businessType: categoryHint,
+    storeType: categoryHint,
+    prompt: params.prompt,
     verticalSlug: slug,
-    verticalGroup: r.group ?? String(slug).split('.')[0] ?? 'services',
+  });
+  return {
+    verticalSlug: reconciledSlug,
+    verticalGroup: r.group ?? String(reconciledSlug).split('.')[0] ?? 'services',
     audience:
       params.audience ??
       resolveAudience({ businessType: categoryHint, businessName: params.businessName }),
@@ -396,6 +418,7 @@ export async function buildFromTemplate(params) {
     ...(p.durationMinutes != null ? { durationMinutes: p.durationMinutes } : {}),
     ...(p.estimateDurationLabel ? { estimateDurationLabel: p.estimateDurationLabel } : {}),
     ...(p.isGallery ? { isGallery: true } : {}),
+    ...(p.imageQueryHint ? { imageQueryHint: p.imageQueryHint } : {}),
     type: p.isGallery ? 'service' : undefined,
     kind: p.isGallery ? 'service' : undefined,
   }));
@@ -822,12 +845,43 @@ export async function buildCatalog(params) {
     result?.products ?? [],
     leakProfile,
     () => {
+      const industry = buildIndustryCatalog(leakProfile, TARGET_ITEM_COUNT);
+      if (industry) return industry;
       const cuisine = buildCuisineMenuCatalog(leakProfile, TARGET_ITEM_COUNT);
       if (cuisine) return cuisine;
       return buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT });
     },
   );
-  if (leakRepair.repaired) {
+  if (!leakRepair.repaired && shouldRepairRetailCatalogLeakInServiceStore(result?.products ?? [], leakProfile)) {
+    const industry = buildIndustryCatalog(leakProfile, TARGET_ITEM_COUNT);
+    if (industry?.items?.length) {
+      let seedIdx = 0;
+      let repairedCount = 0;
+      const products = (result?.products ?? []).map((product) => {
+        if (!product || !isRetailCatalogPlaceholderName(product?.name)) return product;
+        const replacement = industry.items[seedIdx % industry.items.length];
+        seedIdx += 1;
+        repairedCount += 1;
+        return {
+          ...product,
+          name: replacement?.name || product.name,
+          description: replacement?.description ?? product.description ?? null,
+          price: replacement?.price ?? product.price ?? null,
+          ...(replacement?.serviceMode ? { serviceMode: replacement.serviceMode } : {}),
+          ...(replacement?.pricingModel ? { pricingModel: replacement.pricingModel } : {}),
+        };
+      });
+      if (repairedCount > 0) {
+        result.products = products;
+        if (industry.categories?.length) result.categories = industry.categories;
+        result.meta = {
+          ...(result.meta ?? {}),
+          retailCatalogLeakRepaired: true,
+          retailCatalogLeakRepairedCount: repairedCount,
+        };
+      }
+    }
+  } else if (leakRepair.repaired) {
     result.products = leakRepair.products;
     if (leakRepair.categories?.length) {
       result.categories = leakRepair.categories;

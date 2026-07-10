@@ -11,6 +11,7 @@ import {
   readMetadata,
   writeMetadata,
 } from '../persistence/metadataWriter.js';
+import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
 
 export { generateExecutionPlan };
 
@@ -53,13 +54,13 @@ export async function handleTopologyDecision(missionId, input) {
 
   if (decision === 'reject') {
     const metadata = await markTopologyRejected(mid, input.reason ?? 'User rejected plan');
-    return {
+    return withCanonicalRuntimeState({
       ok: true,
       status: 'rejected',
       missionId: mid,
       metadata,
       message: 'Execution plan rejected',
-    };
+    });
   }
 
   if (decision === 'modify') {
@@ -73,13 +74,15 @@ export async function handleTopologyDecision(missionId, input) {
       ...(input.modifications && typeof input.modifications === 'object' ? input.modifications : {}),
     };
     const metadata = await writeMetadata(mid, updates);
-    return {
+    return withCanonicalRuntimeState({
       ok: true,
       status: 'pending_approval',
       missionId: mid,
       metadata,
       message: 'Execution plan updated — awaiting approval',
-    };
+      action: 'approval_required',
+      multiAgentStatus: metadata.multiAgentStatus ?? 'pending_approval',
+    });
   }
 
   // approve
@@ -115,27 +118,66 @@ export async function handleTopologyDecision(missionId, input) {
   });
 
   const executionStatus = execution.status ?? 'executing';
+  const nodeRun = execution.nodeRun ?? null;
+  const nodes = Array.isArray(topologyToRun?.nodes) ? topologyToRun.nodes : [];
 
-  return {
-    ok: execution.ok !== false,
+  let failureSummary = null;
+  if (executionStatus === 'failed') {
+    const { buildTopologyFailureSummary } = await import('./topologyExecutionTelemetry.js');
+    failureSummary = buildTopologyFailureSummary(nodeRun ?? execution, nodes);
+  }
+
+  const failedMessage = failureSummary?.detail
+    ? `Execution plan approved — ${failureSummary.detail}`
+    : 'Execution plan approved — topology execution failed';
+
+  const missingFields = Array.isArray(nodeRun?.missingFields)
+    ? nodeRun.missingFields
+    : Array.isArray(execution.metadata?.missingFields)
+      ? execution.metadata.missingFields
+      : [];
+
+  const awaitingMessage =
+    missingFields.length > 0
+      ? `I need one more detail before creating the loyalty program: What reward should customers receive after completing the card? (Missing: ${missingFields.join(', ')})`
+      : 'I need one more detail before creating the loyalty program: What reward should customers receive after completing the card?';
+
+  return withCanonicalRuntimeState({
+    // Plan was approved; execution failure / owner-input pause are soft results (HTTP 200).
+    ok: true,
+    approved: true,
     status: executionStatus,
     missionId: mid,
     executionMode: execution.executionMode ?? 'generic',
-    metadata: execution.metadata,
+    metadata: execution.metadata ?? {
+      ...(nodeRun?.nodeStatus ? { topologyNodeStatus: nodeRun.nodeStatus } : {}),
+      ...(nodeRun?.nodeOutputs ? { topologyNodeOutputs: nodeRun.nodeOutputs } : {}),
+      ...(nodeRun?.failedNodeIds ? { executionSummary: { failedNodeIds: nodeRun.failedNodeIds } } : {}),
+    },
+    missingFields,
     message:
       executionStatus === 'completed'
         ? execution.executionMode === 'campaign'
           ? 'Execution plan approved — campaign build completed'
           : 'Execution plan approved — topology execution completed'
-        : executionStatus === 'failed'
-          ? 'Execution plan approved — topology execution failed'
-          : execution.executionMode === 'campaign'
-            ? 'Execution plan approved — campaign execution started'
-            : execution.executionMode === 'store'
-              ? 'Execution plan approved — store setup started'
-              : 'Execution plan approved — topology execution started',
-    execution,
-  };
+        : executionStatus === 'awaiting_owner_input'
+          ? awaitingMessage
+          : executionStatus === 'failed'
+            ? failedMessage
+            : execution.executionMode === 'campaign'
+              ? 'Execution plan approved — campaign execution started'
+              : execution.executionMode === 'store'
+                ? 'Execution plan approved — store setup started'
+                : 'Execution plan approved — topology execution started',
+    failureSummary,
+    execution: {
+      ...execution,
+      nodeRun,
+      failureSummary,
+    },
+    action: executionStatus === 'awaiting_owner_input' ? 'awaiting_owner_input' : 'show_execution_plan',
+    multiAgentStatus: execution.metadata?.multiAgentStatus ?? metadata.multiAgentStatus ?? null,
+  });
 }
 
 /**
@@ -149,6 +191,9 @@ export async function getTopologyReviewState(missionId) {
     missionId,
     multiAgentStatus: meta.multiAgentStatus ?? null,
     approvalStatus: meta.approvalStatus ?? null,
+    runtimeState: meta.runtimeState ?? meta.executionState ?? null,
+    missionContract: meta.missionContract ?? null,
+    spineOwnership: meta.spineOwnership ?? null,
     pendingTopology: meta.pendingTopology ?? null,
     pendingPolicy: meta.pendingPolicy ?? null,
     pendingReasoning: meta.pendingReasoning ?? null,

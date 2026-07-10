@@ -3,6 +3,10 @@
  */
 import { isDecisionLoopEnabled } from '../../config/features.js';
 import { isStoreCreationDraftConfirmationSubmit } from './storeCreationDraft.js';
+import {
+  normalizeIntakeReplayBody,
+  stripHeavyUploadFieldsDeep,
+} from './intakeReplayPayload.js';
 
 export const DEFAULT_INTAKE_PAYLOAD_MAX_BYTES = 256 * 1024;
 
@@ -236,7 +240,9 @@ export function normalizeDecisionLoopUploadBody(body) {
     ...(body.conversationSessionId ? { conversationSessionId: body.conversationSessionId } : {}),
     ...(body.mode ? { mode: body.mode } : {}),
     ...(body.intakeV2Selection && typeof body.intakeV2Selection === 'object'
-      ? { intakeV2Selection: body.intakeV2Selection }
+      ? {
+          intakeV2Selection: stripHeavyUploadFieldsDeep(body.intakeV2Selection),
+        }
       : {}),
     ...(intentSourceContext ? { intentSourceContext } : {}),
   };
@@ -314,7 +320,9 @@ export function applyIntakePayloadGuard(body, options = {}) {
 
   let maxBytes =
     options.maxBytes ??
-    (decisionLoopUpload ? DECISION_LOOP_UPLOAD_PAYLOAD_MAX_BYTES : DEFAULT_INTAKE_PAYLOAD_MAX_BYTES);
+    (uploadEvidence || decisionLoopUpload
+      ? DECISION_LOOP_UPLOAD_PAYLOAD_MAX_BYTES
+      : DEFAULT_INTAKE_PAYLOAD_MAX_BYTES);
 
   const rawSize = estimateJsonBytes(input);
   const largestKeys = getTopLevelKeySizes(input);
@@ -323,19 +331,33 @@ export function applyIntakePayloadGuard(body, options = {}) {
   const freshStoreMission = isFreshStoreCreationMission(input);
   let normalized = input;
 
-  if (freshStoreMission) {
-    normalized = normalizeFreshStoreCreationBody(input);
+  const replayNormalized = normalizeIntakeReplayBody(normalized);
+  if (replayNormalized.applied) {
+    normalized = replayNormalized.body;
     for (const key of Object.keys(input)) {
       if (!(key in normalized)) stripped.push(key);
     }
-  } else if (decisionLoopUpload && rawSize > DEFAULT_INTAKE_PAYLOAD_MAX_BYTES) {
-    normalized = normalizeDecisionLoopUploadBody(input);
-    for (const key of Object.keys(input)) {
-      if (!(key in normalized)) stripped.push(key);
+  }
+
+  if (!replayNormalized.applied) {
+    if (freshStoreMission) {
+      normalized = normalizeFreshStoreCreationBody(input);
+      for (const key of Object.keys(input)) {
+        if (!(key in normalized)) stripped.push(key);
+      }
+    } else if (uploadEvidence && rawSize > DEFAULT_INTAKE_PAYLOAD_MAX_BYTES) {
+      normalized = normalizeDecisionLoopUploadBody(input);
+      for (const key of Object.keys(input)) {
+        if (!(key in normalized)) stripped.push(key);
+      }
+    } else if (rawSize > maxBytes) {
+      normalized = trimHeavyIntakeFields(input, stripped, {
+        preserveLoopEvidence: uploadEvidence || isDecisionLoopEnabled(),
+      });
     }
-  } else if (rawSize > maxBytes) {
-    normalized = trimHeavyIntakeFields(input, stripped, {
-      preserveLoopEvidence: isDecisionLoopEnabled(),
+  } else if (estimateJsonBytes(normalized) > maxBytes) {
+    normalized = trimHeavyIntakeFields(normalized, stripped, {
+      preserveLoopEvidence: false,
     });
   }
 

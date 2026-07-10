@@ -31,6 +31,7 @@ import {
   resolvePublishedStoreCopyFromPreview,
 } from './publishRunway.js';
 import { buildPersistAndApplyPublishedProjection } from '../publishedArtifactProjection/publishProjectionHooks.js';
+import { heroMediaChangedForFeedRank } from '../../lib/feed/publicFeedRankBump.js';
 
 const VIDEO_EXT = /\.(mp4|webm|mov)(\?|#|$)/i;
 
@@ -359,6 +360,12 @@ export async function publishDraft(prisma, {
     const heroUrlForColumn =
       heroImageUrlForBusinessColumn(heroVideo, heroImage) || existing.heroImageUrl;
     const { tagline, description } = resolvePublishedStoreCopyFromPreview(rawPreview);
+    const heroChanged = heroMediaChangedForFeedRank(existing, {
+      heroVideo,
+      heroImage,
+      heroUrlForColumn,
+    });
+    const rankBumpAt = heroChanged ? new Date() : null;
 
     const stylePreferences = {
       ...existingPrefs,
@@ -378,15 +385,22 @@ export async function publishDraft(prisma, {
       where: { id },
       data: sanitizeBusinessPublishData({
         isActive: true,
-        publishedAt: existing.publishedAt ?? publishedAt,
+        publishedAt: rankBumpAt ?? existing.publishedAt ?? publishedAt,
         heroImageUrl: heroUrlForColumn || null,
         ...(resolvedAvatarUrl ? { avatarImageUrl: resolvedAvatarUrl } : {}),
         ...(tagline ? { tagline } : {}),
         ...(description ? { description } : {}),
         stylePreferences,
-        updatedAt: publishedAt,
+        updatedAt: rankBumpAt ?? publishedAt,
       }),
     });
+    if (heroChanged && process.env.NODE_ENV !== 'production') {
+      console.log('[publicFeedRankBump]', {
+        storeId: id,
+        reason: 'republish_hero_sync',
+        publishedAt: (rankBumpAt ?? publishedAt).toISOString(),
+      });
+    }
     logPublishRunway('STORE_CARD_SYNC', { businessId: id, slug: null, tagline, description });
   }
 
@@ -497,6 +511,18 @@ export async function publishDraft(prisma, {
   // Always read the latest persisted draft (hero edits may have landed just before publish).
   const freshDraftRow = await prisma.draftStore.findUnique({ where: { id: targetDraft.id } });
   if (freshDraftRow) targetDraft = freshDraftRow;
+
+  const { getStoreResearchPublishBlockReason } = await import(
+    '../../lib/storeResearch/storeResearchPublishGate.js'
+  );
+  const researchPublishBlock = await getStoreResearchPublishBlockReason(prisma, targetDraft);
+  if (researchPublishBlock.blocked) {
+    throw new PublishDraftError(
+      'store_research_owner_review_required',
+      'Confirm researched business data before publishing this store.',
+      409,
+    );
+  }
 
   // Idempotent: if this draft is already committed, return the existing store (no duplicate business/store).
   if (targetDraft.status === 'committed' && targetDraft.committedStoreId) {

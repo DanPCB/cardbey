@@ -11,6 +11,7 @@ import {
 import type { ImageFillProfile } from '../menuVisualAgent/menuVisualAgent.js';
 import type { ScrapedImage } from '../draftStore/storeImageScraper.js';
 import { scrapeStoreImages } from '../draftStore/storeImageScraper.js';
+import { resolveItemImageSearchQuery } from '../draftStore/itemImageQueryResolver.js';
 
 /** Order: research → catalog (AI) → web scrape → enrich → media → copy. Catalog is never gated on image confidence. */
 export const BUILD_STORE_REACT_TOOLS = [
@@ -68,52 +69,19 @@ function readScrapedImagesFromSnapshot(snap: Record<string, unknown> | undefined
 
 /**
  * Per-item Pexels/category hint from product name + store vertical (slug or storeType string).
- * Used in finalizeDraft so e.g. "Altar Cabinet" vs "Dining Table" get different search bias.
+ * Used in finalizeDraft so e.g. "Door Repair" gets handyman-specific search bias.
  */
 export function deriveItemCategoryHint(
   itemName: string,
   verticalSlug?: string | null,
   storeTypeHint?: string | null,
 ): string {
-  const name = (itemName || '').toLowerCase();
-  const slug = (verticalSlug || '').toLowerCase();
-  const store = (storeTypeHint || '').toLowerCase();
-
-  const furnitureish =
-    /furniture|home_garden|timber|wood|interior|decor|upholster|living|bedroom|kitchen|cabinet|table|sofa/.test(slug) ||
-    /furniture|wood|interior|home|cabinet|table|sofa|decor/.test(store);
-
-  const foodish =
-    /^food\.|restaurant|cafe|bakery|noodle|pho|viet|dining/.test(slug) ||
-    /restaurant|cafe|food|noodle|pho|viet|bakery|bistro/.test(store);
-
-  const beautyish =
-    /beauty|salon|hair|spa|nail|cosmetic|barber/.test(slug) || /beauty|salon|hair|nail|spa/.test(store);
-
-  if (furnitureish) {
-    if (/altar|shrine|worship|buddha|temple/.test(name)) return 'wooden altar shrine buddhist furniture';
-    if (/dining|table|chair|bench/.test(name)) return 'dining furniture wood interior';
-    if (/sofa|couch|lounge|recliner/.test(name)) return 'sofa lounge furniture interior';
-    if (/cabinet|wardrobe|drawer|buffet|sideboard/.test(name)) return 'wooden cabinet storage furniture';
-    return 'furniture wood home interior';
-  }
-
-  if (foodish) {
-    if (/pho|noodle|soup|banh|bun/.test(name)) return 'Vietnamese pho noodle soup bowl';
-    if (/banh|bread|sandwich|roll/.test(name)) return 'Vietnamese banh mi sandwich';
-    if (/coffee|ca phe|espresso|latte/.test(name)) return 'Vietnamese coffee drip filter';
-    if (/rice|com tam|broken rice/.test(name)) return 'Vietnamese rice dish plate';
-    return 'restaurant food dish plating';
-  }
-
-  if (beautyish) {
-    if (/hair|cut|colour|color|colouring|highlights/.test(name)) return 'hair salon styling cut';
-    if (/nail|manicure|pedicure|gel/.test(name)) return 'nail salon manicure beauty';
-    if (/massage|facial|skin|peel/.test(name)) return 'spa facial skincare treatment';
-    return 'beauty salon treatment styling';
-  }
-
-  return [itemName, verticalSlug].filter(Boolean).join(' ').trim();
+  return resolveItemImageSearchQuery({
+    itemName,
+    verticalSlug: verticalSlug ?? undefined,
+    businessType: storeTypeHint ?? undefined,
+    storeName: undefined,
+  });
 }
 
 /**

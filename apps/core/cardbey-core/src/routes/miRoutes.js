@@ -2285,7 +2285,13 @@ async function runGenerateHero(draft, jobId) {
     const storeName = preview.storeName ?? input.businessName ?? null;
     const businessType = (preview.storeType ?? input.businessType ?? null) ?? null;
     const storeType = (preview.storeType ?? input.storeType ?? input.businessType ?? null) ?? null;
-    const { hero } = await generateHeroForDraft({ storeName, businessType, storeType });
+    const { hero } = await generateHeroForDraft({
+      storeName,
+      businessType,
+      storeType,
+      verticalSlug: preview.meta?.verticalSlug ?? input.verticalSlug ?? null,
+      verticalGroup: preview.meta?.verticalGroup ?? input.verticalGroup ?? null,
+    });
     const heroPayload = {
       hero: {
         imageUrl: hero.imageUrl ?? null,

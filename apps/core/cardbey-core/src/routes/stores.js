@@ -2444,11 +2444,31 @@ async function enqueueCatalogItemImageFetch({ draftId, generationRunId }) {
         }
         const catalogCategoryHint =
           p.categoryId && categories.length ? categories.find((c) => c.id === p.categoryId)?.name : null;
-        const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
-        const categoryHint = [derivedHint, catalogCategoryHint].filter(Boolean).join(' ').trim() || null;
+        let imageQueryHint = p?.imageQueryHint ?? null;
+        try {
+          const { resolveItemImageSearchQuery } = await import('../services/draftStore/itemImageQueryResolver.js');
+          imageQueryHint = resolveItemImageSearchQuery({
+            itemName: p?.name,
+            description: p?.description,
+            imageQueryHint: p?.imageQueryHint,
+            verticalSlug: verticalForItem,
+            verticalGroup: effectiveImageFillProfile?.verticalGroup,
+            businessType: preview.storeType,
+            storeName: preview.storeName,
+            categoryName: catalogCategoryHint,
+          });
+        } catch {
+          const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
+          imageQueryHint = derivedHint || imageQueryHint;
+        }
+        const categoryHint =
+          imageQueryHint ||
+          [deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType), catalogCategoryHint].filter(Boolean).join(' ').trim() ||
+          null;
         const opts = effectiveImageFillProfile
           ? {
               profile: effectiveImageFillProfile,
+              imageQueryHint,
               categoryHint,
               categoryName: categoryHint,
               businessType: preview.storeType || null,
@@ -2456,6 +2476,7 @@ async function enqueueCatalogItemImageFetch({ draftId, generationRunId }) {
               ...(locationStr ? { location: locationStr } : {}),
             }
           : {
+              imageQueryHint,
               categoryName: categoryHint,
               businessType: preview.storeType || null,
               usedUrls,

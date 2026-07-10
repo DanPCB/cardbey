@@ -208,25 +208,34 @@ model PosOrderItem {
 }
 
 model Payment {
-  id                 String   @id @default(cuid())
-  storeId            String
-  posOrderId         String?
-  method             String
-  status             String   @default("pending")
-  amount             Float
-  currency           String   @default("AUD")
-  externalRef        String?
-  runtimeExecutionId String?
-  missionId          String?
-  metadata           Json?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  storeId                 String
+  posOrderId              String?
+  customerId              String?
+  journeyId               String?
+  linkedEntityType        String?
+  linkedEntityId          String?
+  stripePaymentIntentId   String?
+  stripeCheckoutSessionId String?
+  method                  String
+  status                  String   @default("pending")
+  amount                  Float
+  currency                String   @default("AUD")
+  purpose                 String?
+  externalRef             String?
+  runtimeExecutionId      String?
+  missionId               String?
+  metadata                Json?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
   posOrder PosOrder? @relation(fields: [posOrderId], references: [id], onDelete: SetNull)
 
   @@index([storeId, createdAt])
   @@index([posOrderId])
+  @@index([stripePaymentIntentId])
+  @@index([linkedEntityType, linkedEntityId])
 }
 
 model Receipt {

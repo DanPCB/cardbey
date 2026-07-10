@@ -176,6 +176,9 @@ import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import { serviceCatalogPublicRoutes, quoteRequestOwnerRoutes } from './routes/serviceCatalogRoutes.js';
+import { bookingOwnerRoutes } from './routes/bookingOwnerRoutes.js';
+import { paymentRoutes, journeyPaymentRoutes, paymentOwnerRoutes } from './routes/paymentRoutes.js';
+import { handleStripeWebhook } from './lib/payments/paymentWebhookService.js';
 import claimBusinessPublicRoutes from './routes/claimBusinessPublicRoutes.js';
 import activateBusinessPublicRoutes from './routes/activateBusinessPublicRoutes.js';
 import exploreRoutes from './routes/exploreRoutes.js';
@@ -195,6 +198,7 @@ import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
+import creatorRoutes from './routes/creatorRoutes.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
 import skillSuitcaseRoutes from './routes/skillSuitcaseRoutes.js';
 import suitcaseItemRoutes from './routes/suitcaseItemRoutes.js';
@@ -616,6 +620,28 @@ app.get('/robots.txt', (_req, res) => {
  */
 app.use(cookieParser()); // Parse cookies for OAuth
 
+// Stripe webhook — MUST use raw body (before express.json)
+app.post(
+  '/api/payments/webhook',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    try {
+      const signature = req.headers['stripe-signature'];
+      if (!signature || typeof signature !== 'string') {
+        return res.status(400).send('Missing stripe-signature header');
+      }
+      const result = await handleStripeWebhook(req.body, signature);
+      return res.json(result);
+    } catch (err) {
+      if (err?.code === 'INVALID_SIGNATURE') {
+        return res.status(400).send('Invalid signature');
+      }
+      console.error('[payments/webhook]', err?.message ?? err);
+      return res.status(500).json({ ok: false, error: 'webhook_error' });
+    }
+  },
+);
+
 // Body parsing middleware - skip for SSE routes
 // Increased limits to 50MB to handle large content payloads (designs with many elements, images, etc.)
 const jsonParser = express.json({ limit: '50mb' });
@@ -1001,6 +1027,8 @@ app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discove
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
 app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owner quote request management
+app.use('/api/stores/:storeId/bookings', bookingOwnerRoutes); // Owner bookings + payment status
+app.use('/api/stores/:storeId/payments', paymentOwnerRoutes); // Owner payment list
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
 app.use('/api/claim-business', claimBusinessPublicRoutes); // Dev proxy alias (/api → core)
 app.use('/activate-business', activateBusinessPublicRoutes);
@@ -1012,6 +1040,7 @@ app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
 app.use('/api/creative-templates', creativeTemplatesRoutes); // Creative template routes: /api/creative-templates
 app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /api/greeting-cards
+app.use('/api', creatorRoutes); // Creator Foundation: /api/creators, /api/creator/*
 app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/programs, /api/loyalty/stamp/*
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.
 app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/event, /api/watcher/insights, /api/watcher/chat
@@ -1061,6 +1090,8 @@ app.use('/api/catalog', catalogRoutes); // Catalog SAM-3 processing routes: /api
 app.use('/api/public/store', publicStoreRoutes); // Draft alias: GET /api/public/store/:storeId/draft (before /api/public)
 app.use('/api/public/stores', intentFeedRoutes); // Intent feed: GET /api/public/stores/:storeId/intent-feed (no auth)
 app.use('/api/public/stores', serviceCatalogPublicRoutes); // Service catalog + quote requests (public)
+app.use('/api/public/stores', journeyPaymentRoutes); // Journey submit + payment prepare
+app.use('/api/payments', paymentRoutes); // Stripe PaymentIntent, checkout, status
 app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public/store-engagement', storeEngagementRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar

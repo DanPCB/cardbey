@@ -67,7 +67,26 @@ export async function gatherLoyaltyProgramContext(params) {
     promoHistory = [];
   }
 
+  let storeName = '';
+  let businessCategory = 'General';
+  try {
+    if (prisma?.business?.findUnique) {
+      const store = await prisma.business.findUnique({
+        where: { id: storeId },
+        // Canonical Business model uses `type` (not removed `category`).
+        select: { id: true, name: true, type: true },
+      });
+      storeName = pickString(store?.name);
+      businessCategory = pickString(store?.type, 'General');
+    }
+  } catch {
+    /* non-fatal */
+  }
+
   return {
+    storeId,
+    storeName,
+    businessCategory,
     customerCount,
     segmentOut,
     products,

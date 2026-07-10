@@ -9,6 +9,7 @@ import {
   businessNameOverridesHeroCategory,
   resolveHeroSearchSubject,
 } from '../../lib/seedLibrary/getSeedImageForCategory.js';
+import { resolveHeroImageSearchQuery } from '../draftStore/itemImageQueryResolver.js';
 
 export interface GenerateHeroForDraftArgs {
   storeName?: string | null;
@@ -39,6 +40,7 @@ const STYLE_MAP: Record<string, 'warm' | 'vibrant' | 'modern' | 'minimal'> = {
   spa: 'modern',
   design: 'minimal',
   studio: 'minimal',
+  handyman: 'modern',
 };
 
 function styleForDraft(businessType?: string | null, storeType?: string | null): 'warm' | 'vibrant' | 'modern' | 'minimal' {
@@ -54,7 +56,14 @@ export async function generateHeroForDraft(
 ): Promise<GenerateHeroForDraftResult> {
   const { storeName, businessType, storeType, verticalSlug, verticalGroup } = args;
   const category = businessType || storeType || null;
-  const searchSubject = resolveHeroSearchSubject(storeName, category);
+  const industryHeroQuery = resolveHeroImageSearchQuery({
+    storeName,
+    businessType,
+    storeType,
+    verticalSlug,
+    verticalGroup,
+  });
+  const searchSubject = industryHeroQuery ?? resolveHeroSearchSubject(storeName, category);
   const styleName = styleForDraft(businessType, storeType);
 
   const skipVerticalProfile = businessNameOverridesHeroCategory(storeName, category);
@@ -65,7 +74,35 @@ export async function generateHeroForDraft(
           verticalGroup: verticalGroup || (verticalSlug || '').split('.')[0] || undefined,
         }
       : undefined;
-  const options = profile ? { profile } : undefined;
+  const heroHint = industryHeroQuery
+    ? industryHeroQuery.replace(/\s+hero\s+banner$/i, '').trim()
+    : null;
+  const options = heroHint
+    ? {
+        imageQueryHint: heroHint,
+        pexelsOrientation: 'landscape' as const,
+        profile: skipVerticalProfile
+          ? {
+              verticalSlug: verticalSlug || '',
+              verticalGroup: verticalGroup || undefined,
+              keywords: [],
+              forbiddenKeywords: [
+                'bakery',
+                'pastry',
+                'donut',
+                'doughnut',
+                'croissant',
+                'cafe',
+                'coffee shop',
+                'patisserie',
+                'boulanger',
+              ],
+            }
+          : profile,
+      }
+    : profile
+      ? { profile, pexelsOrientation: 'landscape' as const }
+      : { pexelsOrientation: 'landscape' as const };
 
   let imageUrl: string | null = null;
   try {

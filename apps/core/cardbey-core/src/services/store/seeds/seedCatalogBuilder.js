@@ -9,6 +9,7 @@ import {
   CATALOG_ITEM_MIN,
 } from '../../../config/catalogLimits.js';
 import { buildCuisineMenuCatalog } from '../../draftStore/foodCuisineCatalog.js';
+import { buildIndustryCatalog } from '../../draftStore/industryBlueprintRegistry.js';
 
 const MIN_ITEMS = CATALOG_ITEM_MIN;
 const TARGET_DEFAULT = CATALOG_ITEM_LIMIT;
@@ -160,6 +161,16 @@ export function buildSeedCatalog(profile, opts = {}) {
   const group = (profile?.verticalGroup || '').toLowerCase();
   const model = (profile?.businessModel || '').toLowerCase();
   const slug = (profile?.verticalSlug || '').toLowerCase();
+
+  const industryCatalog = buildIndustryCatalog(profile, targetCount);
+  if (industryCatalog?.items?.length) {
+    return {
+      categories: industryCatalog.categories,
+      items: industryCatalog.items,
+      imageQueryHints: industryCatalog.imageQueryHints ?? {},
+      meta: industryCatalog.meta ?? { catalogSource: 'industry_blueprint', vertical: slug },
+    };
+  }
 
   if (group === 'food' || model === 'food') {
     return buildFoodSeed(profile, targetCount);

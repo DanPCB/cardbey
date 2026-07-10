@@ -107,6 +107,13 @@ export async function writePendingArtifactBundle(missionId, artifactBundle) {
     [METADATA_KEYS.COMPILED_AT]: new Date().toISOString(),
     [METADATA_KEYS.COMPILER_VERSION]: artifactBundle.topology.version,
     toolContracts: artifactBundle.toolContracts ?? [],
+    // Explicit remount contract for TopologyReviewCard / GET /state consumers.
+    action: 'show_execution_plan',
+    executionPlan: {
+      topology: artifactBundle.topology,
+      policy: artifactBundle.policy,
+      reasoning: artifactBundle.reasoning,
+    },
   });
 }
 
