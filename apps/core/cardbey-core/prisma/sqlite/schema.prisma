@@ -4640,3 +4640,93 @@ model BusinessEvent {
   @@index([storeId, createdAt])
   @@index([aggregateType, aggregateId])
 }
+
+model Artifact {
+  id          String   @id
+  type        String
+  objective   String
+  ownerUserId String
+  storeId     String?
+  missionId   String?
+  status      String   @default("draft")
+  contextJson Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  versions     ArtifactVersion[]
+  blueprints   ArtifactBlueprint[]
+  validations  ArtifactValidation[]
+  publications ArtifactPublication[]
+  learning     ArtifactLearning[]
+
+  @@index([ownerUserId, createdAt])
+  @@index([missionId])
+  @@index([storeId, type])
+}
+
+model ArtifactVersion {
+  id          String   @id @default(cuid())
+  artifactId  String
+  version     Int      @default(1)
+  status      String   @default("draft")
+  payloadJson Json?
+  createdAt   DateTime @default(now())
+
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, version])
+  @@index([artifactId])
+}
+
+model ArtifactBlueprint {
+  id          String   @id @default(cuid())
+  artifactId  String
+  blueprintId String
+  status      String   @default("draft")
+  payloadJson Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([artifactId])
+}
+
+model ArtifactValidation {
+  id           String   @id @default(cuid())
+  artifactId   String
+  status       String   @default("pending")
+  findingsJson Json?
+  createdAt    DateTime @default(now())
+
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([artifactId, createdAt])
+}
+
+model ArtifactPublication {
+  id          String   @id @default(cuid())
+  artifactId  String
+  target      String
+  status      String   @default("pending")
+  payloadJson Json?
+  createdAt   DateTime @default(now())
+
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([artifactId, target])
+}
+
+model ArtifactLearning {
+  id          String   @id @default(cuid())
+  artifactId  String
+  missionId   String?
+  storeId     String?
+  payloadJson Json?
+  createdAt   DateTime @default(now())
+
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([artifactId, createdAt])
+  @@index([missionId])
+}

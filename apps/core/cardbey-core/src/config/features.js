@@ -86,6 +86,27 @@ export const Features = {
       return parseBoolEnv(process.env.USE_LOYALTY_SPINE, false);
     },
   },
+  uaf: {
+    get enabled() {
+      const raw = String(process.env.ENABLE_UNIVERSAL_ARTIFACT_FACTORY ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on') return true;
+      return process.env.NODE_ENV !== 'production';
+    },
+  },
+  typedCatalog: {
+    get compilerEnabled() {
+      const raw = String(process.env.ENABLE_TYPED_CATALOG_COMPILER ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on') return true;
+      return process.env.NODE_ENV !== 'production';
+    },
+    get semanticQaEnabled() {
+      const raw = String(process.env.ENABLE_SEMANTIC_CATALOG_QA ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off') return false;
+      return true;
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -120,8 +141,15 @@ export function snapshotFeatures() {
       useForCampaigns: Features.compiler.useForCampaigns,
       useForStores: Features.compiler.useForStores,
     },
+    typedCatalog: {
+      compilerEnabled: Features.typedCatalog.compilerEnabled,
+      semanticQaEnabled: Features.typedCatalog.semanticQaEnabled,
+    },
     loyalty: {
       useSpine: Features.loyalty.useSpine,
+    },
+    uaf: {
+      enabled: Features.uaf.enabled,
     },
   };
 }
