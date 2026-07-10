@@ -380,11 +380,17 @@ dropSqliteMissionBlackboardIfNeeded(schemaPath);
 const isPostgresForRestore = schemaIsPostgres;
 
 /** Postgres: auto-resolve known-safe failed migrations (P3009) before deploy. */
-function resolvePostgresFailedMigrationsBeforeDeploy() {
+function parseP3009MigrationName(text) {
+  const m = String(text || "").match(/The `([^`]+)` migration/);
+  return m ? m[1].trim() : null;
+}
+
+function resolvePostgresFailedMigrationsBeforeDeploy(migrationName) {
   if (!schemaIsPostgres) return;
   try {
     const script = path.join(rootDir, "scripts", "resolve-postgres-failed-migration.mjs");
-    execSync(`node ${script}`, { stdio: "inherit", env: prismaChildEnv(), shell: true });
+    const nameFlag = migrationName ? ` --name=${migrationName}` : "";
+    execSync(`node ${script}${nameFlag}`, { stdio: "inherit", env: prismaChildEnv(), shell: true });
   } catch (e) {
     const msg = String(e?.message || e);
     if (msg.includes("not auto-resolving")) throw e;
@@ -405,15 +411,16 @@ if (hasMigrations) {
     const msg = String(e?.message || e);
     if (msg.includes("P3009")) {
       if (schemaIsPostgres) {
+        const failedName = parseP3009MigrationName(msg);
         console.warn("[prisma] P3009 — attempting auto-resolve for allowlisted migrations, then retry deploy");
         try {
-          resolvePostgresFailedMigrationsBeforeDeploy();
+          resolvePostgresFailedMigrationsBeforeDeploy(failedName);
           runMigrateDeploy(schemaPath);
           console.log("[prisma] migrate deploy succeeded after auto-resolve");
         } catch (retryErr) {
           console.error("[prisma] P3009 persists after auto-resolve. Manual Render Shell:");
           console.error(
-            "  node scripts/resolve-postgres-failed-migration.mjs --name=20260613120000_add_ghost_store_models",
+            `  node scripts/resolve-postgres-failed-migration.mjs --name=${failedName || "20260707140000_extend_payment_stripe_journey"}`,
           );
           console.error("  npx prisma migrate deploy --schema prisma/postgres/schema.prisma");
           throw retryErr;
