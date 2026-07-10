@@ -71,6 +71,10 @@ function parseFailedMigrationNames(text) {
     names.add(m[1].trim());
   }
 
+  for (const m of blob.matchAll(/Migration name:\s*(\S+)/g)) {
+    names.add(m[1].trim());
+  }
+
   const failedSection = blob.match(
     /following migrations? have failed:?\s*([\s\S]*?)(?:\n\n|\nTo |\nDatasource|\nEnvironment|$)/i,
   );
