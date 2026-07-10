@@ -24,6 +24,32 @@ function pickString(...values) {
 }
 
 /**
+ * Completed store/other missions can still carry pending topology metadata after compiler remount.
+ * Reopen them for HITL approval instead of hard-failing Approve & Execute.
+ * @param {Record<string, unknown> | null | undefined} meta
+ */
+export function canReopenCompletedTopologyMission(meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  const pending = meta.pendingTopology;
+  const hasPending =
+    pending &&
+    typeof pending === 'object' &&
+    !Array.isArray(pending) &&
+    Array.isArray(pending.nodes) &&
+    pending.nodes.length > 0;
+  if (!hasPending) return false;
+
+  const multiStatus = String(meta.multiAgentStatus ?? '').trim().toLowerCase();
+  const approvalStatus = String(meta.approvalStatus ?? '').trim().toLowerCase();
+  return (
+    multiStatus === 'pending_approval' ||
+    multiStatus === 'approved' ||
+    approvalStatus === 'pending' ||
+    approvalStatus === 'approved'
+  );
+}
+
+/**
  * Loyalty topology must materialize a draft artifact before marking completed.
  * @param {TopologyExecutionMode} executionMode
  * @param {Record<string, unknown>} nodeRun
@@ -126,6 +152,25 @@ export async function ensureMissionReadyForTopologyExecution(prisma, missionId) 
   if (!row) throw new Error(`MissionPipeline not found: ${missionId}`);
 
   let status = String(row.status ?? '').trim();
+
+  if (status === 'completed') {
+    const meta = await readMetadata(missionId);
+    if (canReopenCompletedTopologyMission(meta)) {
+      await safePipelineUpdate(
+        prisma,
+        {
+          where: { id: missionId },
+          data: {
+            status: 'awaiting_confirmation',
+            completedAt: null,
+            runState: 'idle',
+          },
+        },
+        { label: 'topologyExecutor.reopen_completed_for_plan', missionId },
+      );
+      status = 'awaiting_confirmation';
+    }
+  }
 
   if (status === 'awaiting_confirmation') {
     const moved = await transitionMissionStatus(prisma, missionId, 'awaiting_confirmation', 'queued');

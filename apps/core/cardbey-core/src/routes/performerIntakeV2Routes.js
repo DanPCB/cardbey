@@ -75,6 +75,7 @@ import {
   IntakeEvidenceAssertionError,
 } from '../lib/kernel/ingress/evidenceAssertions.js';
 import { Features } from '../config/features.js';
+import { readMissionContract } from '../lib/kernel/missionContract.js';
 import {
   shouldRouteToAssetIntentDetection,
   detectExplicitAssetIntent,
@@ -235,6 +236,11 @@ import { handleReplaceStoreCatalog } from '../lib/tools/handlers/replaceStoreCat
 import { handleUpdateStoreHero } from '../lib/tools/handlers/updateStoreHero.js';
 import { handlePublishStore } from '../lib/tools/handlers/publishStore.js';
 import { buildApprovalPayload } from '../lib/intake/intakeApprovalPayload.js';
+import { resolveRuntimePrincipal, buildRuntimeAuthDiagnostics } from '../lib/runtime/resolveRuntimePrincipal.js';
+import {
+  buildExecutionPlanAuthorizationFields,
+  resolveToolAuthorization,
+} from '../lib/runtime/resolveToolAuthorization.js';
 import {
   putIntakeApprovalPreview,
   getIntakeApprovalPreview,
@@ -440,7 +446,7 @@ async function buildContext(req, existingMission) {
   return {
     missionId: req.body?.missionId ?? existingMission?.id ?? null,
     storeId: req.body?.storeId ?? existingMission?.storeId ?? null,
-    userId: req.body?.userId ?? null,
+    userId: req.user?.id ?? performerIntakeV2ActorId(req) ?? null,
     missionType: resolveMissionType(req, existingMission),
     userRole: resolveUserRole(req),
     locale,
@@ -761,7 +767,7 @@ function buildTelemetryBase({
  * @param {import('express').Request} req
  * @param {object} args
  */
-function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, userMessage, locale, classification, riskLevel }) {
+async function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, userMessage, locale, classification, riskLevel }) {
   const execParams = { ...cleanedParams };
   if (storeId && !execParams.storeId && !isContextFreeTool(tool)) execParams.storeId = storeId;
   const actorKey = resolveIntakeV2ActorKey(req);
@@ -784,10 +790,17 @@ function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, us
       },
     );
   }
+  const principal = resolveRuntimePrincipal(req);
+  const authorization = await resolveToolAuthorization({
+    principal,
+    storeId: storeId ?? execParams.storeId ?? null,
+    tool,
+  });
   const approval = buildApprovalPayload({
     tool,
     parameters: execParams,
     context: { locale, userMessage },
+    authorization,
   });
   putIntakeApprovalPreview({
     previewId: approval.previewId,
@@ -805,8 +818,21 @@ function issueApprovalRequired({ req, safeJson, tool, cleanedParams, storeId, us
       confidence: classification.confidence,
       riskLevel,
       approval,
+      authorization,
+      authorizationState: authorization.state,
+      canExecute: authorization.canExecute,
+      plan: buildExecutionPlanAuthorizationFields(authorization, {
+        toolName: tool,
+        storeId: storeId ?? execParams.storeId ?? null,
+        parameters: execParams,
+      }),
       response: intakeMessage('approvalReviewConfirm', locale),
       reasoning: classification._reasoning,
+      authDiagnostics: buildRuntimeAuthDiagnostics(req, {
+        toolName: tool,
+        storeId: storeId ?? execParams.storeId ?? null,
+        executionPath: 'approval_required',
+      }),
     },
     {
       classification: { ...classification, parameters: cleanedParams },
@@ -3073,13 +3099,23 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   if (!intakeEvidenceBundle && isSelectionConfirm) {
-    const replayEvidenceId = String(
+    let replayEvidenceId = String(
       body.evidenceId ??
         body.intentSourceContext?.evidenceId ??
         mergedForcedParams?.evidenceId ??
         mergedForcedParams?.attachmentAnalysis?.evidenceId ??
+        pendingIntentFromBody?.evidenceId ??
+        pendingIntentFromBody?.parameters?.evidenceId ??
         '',
     ).trim();
+    if (!replayEvidenceId && missionId) {
+      try {
+        const contract = await readMissionContract(missionId);
+        replayEvidenceId = String(contract?.evidenceId ?? '').trim();
+      } catch {
+        // non-fatal — fall through to barrier if needed
+      }
+    }
     if (replayEvidenceId) {
       const replayBundle = getIntakeEvidenceBundleByEvidenceId(replayEvidenceId);
       if (replayBundle) intakeEvidenceBundle = replayBundle;

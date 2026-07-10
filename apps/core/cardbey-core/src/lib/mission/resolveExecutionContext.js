@@ -174,6 +174,12 @@ export function buildExecutionContextClarifyPayload(args) {
       clarifyType: isConfirm ? 'active_space_confirm' : 'execution_context_store_picker',
       storeCandidates: stores,
       activeStoreCandidate: activeStore,
+      ...(pickString(lockedParams.evidenceId) ? { evidenceId: pickString(lockedParams.evidenceId) } : {}),
+      ...(pickString(lockedParams.streamId) ? { streamId: pickString(lockedParams.streamId) } : {}),
+      ...(lockedParams.attachmentAnalysis && typeof lockedParams.attachmentAnalysis === 'object'
+        ? { attachmentAnalysis: lockedParams.attachmentAnalysis }
+        : {}),
+      parameters: { ...lockedParams },
     },
     executionPath: 'resolve_execution_context',
     pathId: 'resolve_execution_context',

@@ -57,4 +57,38 @@ describe('missionContract', () => {
       }),
     ).toThrow(/store/i);
   });
+
+  it('rejects evidence rewrites after freeze', () => {
+    const contract = buildMissionContract({
+      missionId: 'mission_4',
+      tool: 'setup_loyalty_program',
+      storeId: 'store_a',
+      evidenceId: 'evidence_a',
+    });
+
+    expect(() =>
+      assertMissionContractConsistency(contract, {
+        tool: 'setup_loyalty_program',
+        storeId: 'store_a',
+        evidenceId: 'evidence_b',
+      }),
+    ).toThrow(/evidence/i);
+  });
+
+  it('allows idempotent re-freeze with same evidence id', () => {
+    const contract = buildMissionContract({
+      missionId: 'mission_5',
+      tool: 'setup_loyalty_program',
+      storeId: 'store_a',
+      evidenceId: 'evidence_a',
+    });
+
+    expect(() =>
+      assertMissionContractConsistency(contract, {
+        tool: 'setup_loyalty_program',
+        storeId: 'store_a',
+        evidenceId: 'evidence_a',
+      }),
+    ).not.toThrow();
+  });
 });

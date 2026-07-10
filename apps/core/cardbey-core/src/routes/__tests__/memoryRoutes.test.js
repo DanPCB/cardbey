@@ -11,7 +11,10 @@ vi.mock('../../services/memory/memoryFacade.js', () => ({
 }));
 
 vi.mock('../../middleware/auth.js', () => ({
-  optionalAuth: (_req, _res, next) => next(),
+  optionalAuth: (req, _res, next) => {
+    req.user = { id: 'user-test', role: 'store_owner', email: 'test@example.com' };
+    next();
+  },
   requireAuth: (req, _res, next) => {
     req.user = { id: 'user-test', role: 'store_owner', email: 'test@example.com' };
     next();
@@ -64,6 +67,33 @@ describe('memoryRoutes', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.bundle).toHaveProperty('meta');
     expect(memoryFacade.getBundle).toHaveBeenCalledOnce();
+  });
+
+  it('POST /api/memory/bundle never downgrades authenticated user to guest', async () => {
+    memoryFacade.getBundle.mockResolvedValue({
+      ok: true,
+      business: null,
+      suitcase: [],
+      user: null,
+      session: { learnedSignals: [], recentTypes: [], sessionId: null },
+      mission: null,
+      meta: { fetchedAt: new Date().toISOString(), sources: [], partial: false, fetchDurationMs: 12 },
+    });
+
+    const res = await request(app)
+      .post('/api/memory/bundle')
+      .send({
+        context: {
+          actor: { type: 'guest', id: 'user-test', userId: 'user-test' },
+          storeId: 'store-1',
+        },
+      });
+
+    expect(res.status).toBe(200);
+    const { normalizeMemoryContext } = await import('../../services/memory/memoryFacade.js');
+    const normalized = normalizeMemoryContext.mock.calls.at(-1)?.[0];
+    expect(normalized.actor.type).not.toBe('guest');
+    expect(normalized.actor.id).toBe('user-test');
   });
 
   it('POST /api/memory/invalidate succeeds for authenticated user', async () => {

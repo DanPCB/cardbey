@@ -33,6 +33,8 @@ export function deriveCanonicalRuntimeState(input = {}) {
     return 'awaiting_perception';
   }
   if (action === 'clarify_store') return 'awaiting_context';
+  // show_execution_plan must stay in executing — pending_approval is plan review, not intake approval.
+  if (action === 'show_execution_plan') return 'executing';
   if (action === 'approval_required' || missionStatus === 'awaiting_confirmation' || multiAgentStatus === 'pending_approval') {
     return 'awaiting_approval';
   }
@@ -44,7 +46,6 @@ export function deriveCanonicalRuntimeState(input = {}) {
     return 'awaiting_owner_input';
   }
   if (
-    action === 'show_execution_plan' ||
     status === 'executing' ||
     missionStatus === 'executing' ||
     missionStatus === 'queued' ||
