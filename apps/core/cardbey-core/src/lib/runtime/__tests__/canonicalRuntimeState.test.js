@@ -17,8 +17,17 @@ describe('canonicalRuntimeState', () => {
     expect(deriveCanonicalRuntimeState({ status: 'awaiting_owner_input' })).toBe('awaiting_owner_input');
   });
 
+  it('keeps show_execution_plan in executing even when multiAgentStatus is pending_approval', () => {
+    expect(
+      deriveCanonicalRuntimeState({
+        action: 'show_execution_plan',
+        multiAgentStatus: 'pending_approval',
+      }),
+    ).toBe('executing');
+  });
+
   it('adds runtimeState to payloads', () => {
     const payload = withCanonicalRuntimeState({ action: 'show_execution_plan', multiAgentStatus: 'pending_approval' });
-    expect(payload.runtimeState).toBe('awaiting_approval');
+    expect(payload.runtimeState).toBe('executing');
   });
 });

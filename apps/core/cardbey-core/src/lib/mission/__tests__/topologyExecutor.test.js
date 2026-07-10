@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveTopologyExecutionMode, ensureMissionReadyForTopologyExecution } from '../topologyExecutor.js';
+import { resolveTopologyExecutionMode, ensureMissionReadyForTopologyExecution, canReopenCompletedTopologyMission } from '../topologyExecutor.js';
 import { canTransitionMissionPipeline } from '../../missionPipelineTransitions.js';
 
 describe('resolveTopologyExecutionMode', () => {
@@ -40,5 +40,36 @@ describe('ensureMissionReadyForTopologyExecution', () => {
 
   it('rejects invalid direct awaiting_confirmation to executing transition', () => {
     expect(canTransitionMissionPipeline('awaiting_confirmation', 'executing')).toBe(false);
+  });
+});
+
+describe('canReopenCompletedTopologyMission', () => {
+  it('returns true when completed mission still has pending topology awaiting approval', () => {
+    expect(
+      canReopenCompletedTopologyMission({
+        multiAgentStatus: 'pending_approval',
+        approvalStatus: 'pending',
+        pendingTopology: { nodes: [{ id: 'n1' }] },
+      }),
+    ).toBe(true);
+  });
+
+  it('returns true after promote to approved but before execution starts', () => {
+    expect(
+      canReopenCompletedTopologyMission({
+        multiAgentStatus: 'approved',
+        approvalStatus: 'approved',
+        pendingTopology: { nodes: [{ id: 'n1' }] },
+      }),
+    ).toBe(true);
+  });
+
+  it('returns false for completed missions without pending topology', () => {
+    expect(
+      canReopenCompletedTopologyMission({
+        multiAgentStatus: 'completed',
+        pendingTopology: null,
+      }),
+    ).toBe(false);
   });
 });

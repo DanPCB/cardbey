@@ -380,11 +380,28 @@ dropSqliteMissionBlackboardIfNeeded(schemaPath);
 const isPostgresForRestore = schemaIsPostgres;
 
 /** Postgres: auto-resolve known-safe failed migrations (P3009) before deploy. */
-function resolvePostgresFailedMigrationsBeforeDeploy() {
+function parseFailedMigrationName(text) {
+  const blob = String(text || "");
+  const backtick = blob.match(/The `([^`]+)` migration/);
+  if (backtick) return backtick[1].trim();
+  const named = blob.match(/Migration name:\s*(\S+)/);
+  return named ? named[1].trim() : null;
+}
+
+function tryResolvePostgresFailedMigrationAndRedeploy(schemaPath, msg, code) {
+  const failedName = parseFailedMigrationName(msg);
+  console.warn(`[prisma] ${code} — attempting auto-resolve for allowlisted migrations, then retry deploy`);
+  resolvePostgresFailedMigrationsBeforeDeploy(failedName);
+  runMigrateDeploy(schemaPath);
+  console.log(`[prisma] migrate deploy succeeded after ${code} auto-resolve`);
+}
+
+function resolvePostgresFailedMigrationsBeforeDeploy(migrationName) {
   if (!schemaIsPostgres) return;
   try {
     const script = path.join(rootDir, "scripts", "resolve-postgres-failed-migration.mjs");
-    execSync(`node ${script}`, { stdio: "inherit", env: prismaChildEnv(), shell: true });
+    const nameFlag = migrationName ? ` --name=${migrationName}` : "";
+    execSync(`node ${script}${nameFlag}`, { stdio: "inherit", env: prismaChildEnv(), shell: true });
   } catch (e) {
     const msg = String(e?.message || e);
     if (msg.includes("not auto-resolving")) throw e;
@@ -403,17 +420,16 @@ if (hasMigrations) {
     runMigrateDeploy(schemaPath);
   } catch (e) {
     const msg = String(e?.message || e);
-    if (msg.includes("P3009")) {
+    if (msg.includes("P3009") || (schemaIsPostgres && msg.includes("P3018"))) {
       if (schemaIsPostgres) {
-        console.warn("[prisma] P3009 — attempting auto-resolve for allowlisted migrations, then retry deploy");
+        const code = msg.includes("P3009") ? "P3009" : "P3018";
         try {
-          resolvePostgresFailedMigrationsBeforeDeploy();
-          runMigrateDeploy(schemaPath);
-          console.log("[prisma] migrate deploy succeeded after auto-resolve");
+          tryResolvePostgresFailedMigrationAndRedeploy(schemaPath, msg, code);
         } catch (retryErr) {
-          console.error("[prisma] P3009 persists after auto-resolve. Manual Render Shell:");
+          const failedName = parseFailedMigrationName(msg);
+          console.error(`[prisma] ${code} persists after auto-resolve. Manual Render Shell:`);
           console.error(
-            "  node scripts/resolve-postgres-failed-migration.mjs --name=20260613120000_add_ghost_store_models",
+            `  node scripts/resolve-postgres-failed-migration.mjs --name=${failedName || "20260707140000_extend_payment_stripe_journey"}`,
           );
           console.error("  npx prisma migrate deploy --schema prisma/postgres/schema.prisma");
           throw retryErr;

@@ -2,7 +2,7 @@
 /**
  * Clear Postgres P3009 failed migration rows so migrate deploy can retry.
  *
- * Uses Prisma CLI only (no PrismaClient import).
+ * Uses Prisma CLI for resolve; queries _prisma_migrations via PrismaClient when status omits failures.
  *
  * Usage:
  *   node scripts/resolve-postgres-failed-migration.mjs
@@ -34,6 +34,8 @@ const defaultAllowlist = [
   '20260613120000_add_ghost_store_models',
   '20260619140000_add_executive_growth_models',
   '20260619150000_add_business_lead_models',
+  // Idempotent Payment column/index DDL (IF NOT EXISTS) — safe to roll back and redeploy.
+  '20260707140000_extend_payment_stripe_journey',
 ];
 const allowlist = nameArg
   ? [nameArg.split('=')[1]]
@@ -69,6 +71,10 @@ function parseFailedMigrationNames(text) {
     names.add(m[1].trim());
   }
 
+  for (const m of blob.matchAll(/Migration name:\s*(\S+)/g)) {
+    names.add(m[1].trim());
+  }
+
   const failedSection = blob.match(
     /following migrations? have failed:?\s*([\s\S]*?)(?:\n\n|\nTo |\nDatasource|\nEnvironment|$)/i,
   );
@@ -87,6 +93,29 @@ function listFailedMigrationNames() {
   return parseFailedMigrationNames(status.combined);
 }
 
+/** migrate status often omits failed rows; query _prisma_migrations directly. */
+async function listFailedMigrationNamesFromDb() {
+  try {
+    const clientGenUrl = new URL('../node_modules/.prisma/client-gen/index.js', import.meta.url);
+    const { PrismaClient } = await import(clientGenUrl.href);
+    const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT migration_name FROM "_prisma_migrations"
+        WHERE finished_at IS NULL
+          AND rolled_back_at IS NULL
+          AND started_at IS NOT NULL
+      `;
+      return rows.map((row) => String(row.migration_name || '').trim()).filter(Boolean);
+    } finally {
+      await prisma.$disconnect();
+    }
+  } catch (err) {
+    console.warn('[resolve-postgres-failed] db query failed:', err?.message || err);
+    return [];
+  }
+}
+
 function resolveRolledBack(migrationName) {
   const cmd = `npx prisma migrate resolve --rolled-back ${migrationName} --schema=${schemaPath}`;
   console.log('[resolve-postgres-failed]', cmd);
@@ -103,14 +132,20 @@ function resolveRolledBack(migrationName) {
   }
 }
 
-function main() {
+async function main() {
   execSync(`npx prisma generate --schema=${schemaPath}`, {
     stdio: 'inherit',
     env: prismaEnv(),
     shell: true,
   });
 
-  const failed = listFailedMigrationNames();
+  const explicitName = nameArg ? nameArg.split('=')[1].trim() : '';
+  const fromStatus = listFailedMigrationNames();
+  const fromDb = await listFailedMigrationNamesFromDb();
+  const failed = [
+    ...new Set([...fromStatus, ...fromDb, ...(explicitName ? [explicitName] : [])]),
+  ].filter(Boolean);
+
   if (failed.length === 0) {
     console.log('[resolve-postgres-failed] no failed migrations');
     return;
@@ -144,7 +179,7 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (err) {
   console.error('[resolve-postgres-failed] fatal:', err?.message || err);
   process.exit(1);

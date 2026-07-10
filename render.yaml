@@ -64,6 +64,9 @@ services:
         value: "false"
       - key: INSIGHT_JOB_ENABLED
         value: "false"
+      # Loyalty card upload → multi-agent compile → TopologyReview (not legacy proactive preview)
+      - key: USE_LOYALTY_SPINE
+        value: "true"
       # Hero/explore video upload: skip ffmpeg on Render (OOM → instance exit 1)
       - key: VIDEO_UPLOAD_SKIP_TRANSCODE
         value: "true"
@@ -174,6 +177,9 @@ services:
         value: "false"
       - key: INSIGHT_JOB_ENABLED
         value: "false"
+      # Loyalty card upload → multi-agent compile → TopologyReview (not legacy proactive preview)
+      - key: USE_LOYALTY_SPINE
+        value: "true"
       # Hero video upload: skip ffmpeg on Render (OOM → instance exit 1)
       - key: VIDEO_UPLOAD_SKIP_TRANSCODE
         value: "true"

@@ -87,12 +87,15 @@ export function normalizeMemoryContext(raw) {
   const actor = raw?.actor && typeof raw.actor === 'object' ? raw.actor : {};
   const actorId = actor.id ?? actor.userId ?? null;
   const normalizedId = actorId ? String(actorId).trim() : null;
+  const rawType = actor.type ?? null;
+  const actorType =
+    normalizedId && (!rawType || rawType === 'guest')
+      ? 'consumer'
+      : rawType ?? (normalizedId ? 'consumer' : 'guest');
 
   return {
     actor: {
-      type: /** @type {import('../../lib/memory/memoryTypes.js').MemoryActorType} */ (
-        actor.type ?? 'guest'
-      ),
+      type: /** @type {import('../../lib/memory/memoryTypes.js').MemoryActorType} */ (actorType),
       id: normalizedId,
       userId: normalizedId,
       email: actor.email ? String(actor.email) : undefined,

@@ -20,6 +20,11 @@ import { RISK } from '../intake/intakeToolRegistry.js';
 
 import { emitSpinePathTelemetry } from '../intake/spinePathTelemetry.js';
 import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
+import { resolveRuntimePrincipal } from '../runtime/resolveRuntimePrincipal.js';
+import {
+  buildExecutionPlanAuthorizationFields,
+  resolveToolAuthorization,
+} from '../runtime/resolveToolAuthorization.js';
 import { fetchUserStoresForDisambiguation } from '../intake/resolveStoreAmbiguity.js';
 import {
   resolveStoreForIntakeTool,
@@ -404,28 +409,27 @@ export async function runLoyaltyCompilerFromIntake(deps) {
 
 
 
-  if (!actorId || !user?.id) {
-
+  const principal = deps.req
+    ? resolveRuntimePrincipal(deps.req)
+    : deps.user?.id && deps.user?.role !== 'guest' && deps.user?.isGuest !== true
+      ? {
+          kind: 'authenticated',
+          userId: String(deps.user.id).trim(),
+          authSource: 'bearer',
+          authenticated: true,
+        }
+      : null;
+  if (principal?.kind !== 'authenticated') {
     emitSpinePathTelemetry({
-
       pathId: 'loyalty_chat_compile',
-
       source: auditSource ?? 'intake_v2',
-
       ok: false,
-
       reason: 'auth_required',
-
       tool: classification?.tool ?? null,
-
       spine: false,
-
       executionPath: 'loyalty_chat_compile',
-
     });
-
     return { kind: 'auth_required' };
-
   }
 
 
@@ -591,6 +595,7 @@ export async function runLoyaltyCompilerFromIntake(deps) {
   try {
 
     const tenantId = getTenantId(user) ?? actorId;
+    const authUserId = principal.userId;
 
     const planResult = await generateExecutionPlan(
 
@@ -610,6 +615,10 @@ export async function runLoyaltyCompilerFromIntake(deps) {
 
           source: params.source ?? 'intake_v2_loyalty_chat',
 
+          ...(params.attachmentAnalysis?.imageAssetId
+            ? { sourceAssetId: params.attachmentAnalysis.imageAssetId, sourceType: 'loyalty_card_image' }
+            : {}),
+
         },
 
       },
@@ -622,7 +631,9 @@ export async function runLoyaltyCompilerFromIntake(deps) {
 
         missionId: handoff.missionId ?? missionIdFromDeps ?? undefined,
 
-        userId: actorId,
+        userId: authUserId,
+
+        principal,
 
         tenantId,
 
@@ -997,6 +1008,8 @@ export async function dispatchAndRespondLoyaltyCompile(req, res, deps, auditSour
   const result = await runLoyaltyCompilerFromIntake({
 
     ...deps,
+
+    req,
 
     auditSource,
 

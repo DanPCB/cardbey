@@ -16,13 +16,16 @@ const router = Router();
 const VALID_ACTOR_TYPES = new Set(['guest', 'consumer', 'store_owner', 'admin']);
 
 function resolveActorType(req, bodyActor) {
+  const userId = req.user?.id ? String(req.user.id) : null;
+  if (userId) {
+    const role = String(req.user?.role ?? '').toLowerCase();
+    if (role === 'admin' || role === 'platform_admin') return 'admin';
+    if (role === 'store_owner' || role === 'business_owner') return 'store_owner';
+    return 'consumer';
+  }
   if (bodyActor?.type && VALID_ACTOR_TYPES.has(String(bodyActor.type))) {
     return String(bodyActor.type);
   }
-  const role = String(req.user?.role ?? '').toLowerCase();
-  if (role === 'admin' || role === 'platform_admin') return 'admin';
-  if (role === 'store_owner' || role === 'business_owner') return 'store_owner';
-  if (req.user?.id) return 'consumer';
   return 'guest';
 }
 

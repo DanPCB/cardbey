@@ -14,9 +14,69 @@ import {
   freezeMissionContract,
   deriveMissionFamily,
   MissionContractAssertionError,
+  readMissionContract,
 } from '../kernel/missionContract.js';
+
+function pickString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+const TERMINAL_COMPILE_MISSION_STATUSES = new Set(['completed', 'cancelled']);
+
+/**
+ * Compiler must not remount topology into a terminal or wrong-type mission pipeline.
+ * @param {string | null | undefined} proposedMissionId
+ * @param {Parameters<typeof createMissionPipeline>[0]} createParams
+ */
+async function resolveMissionIdForExecutionPlan(proposedMissionId, createParams) {
+  const trimmed = typeof proposedMissionId === 'string' ? proposedMissionId.trim() : '';
+  if (!trimmed) {
+    const pipeline = await createMissionPipeline(createParams);
+    return pipeline.id;
+  }
+
+  const { getPrismaClient } = await import('../prisma.js');
+  const prisma = getPrismaClient();
+  const row = await prisma.missionPipeline.findUnique({
+    where: { id: trimmed },
+    select: { status: true, type: true },
+  });
+
+  const expectedType = String(createParams.type ?? '').trim();
+  if (!row) {
+    const pipeline = await createMissionPipeline(createParams);
+    return pipeline.id;
+  }
+
+  const status = String(row.status ?? '').trim();
+  const rowType = String(row.type ?? '').trim();
+  const terminal = TERMINAL_COMPILE_MISSION_STATUSES.has(status);
+  const typeMismatch = Boolean(expectedType && rowType && rowType !== expectedType);
+
+  if (terminal || typeMismatch) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[generateExecutionPlan] creating fresh mission — proposed id not eligible', {
+        proposedMissionId: trimmed,
+        status,
+        rowType,
+        expectedType,
+      });
+    }
+    const pipeline = await createMissionPipeline(createParams);
+    return pipeline.id;
+  }
+
+  return trimmed;
+}
 import { claimMissionSpineOwnership, SPINE_OWNERS } from '../kernel/spineAuthority.js';
 import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
+import {
+  buildExecutionPlanAuthorizationFields,
+  resolveToolAuthorization,
+} from '../runtime/resolveToolAuthorization.js';
 
 /**
  * @param {{
@@ -33,6 +93,7 @@ import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
  *   tenantId?: string | null;
  *   locale?: string;
  *   title?: string;
+ *   principal?: { kind: 'authenticated'; userId: string; accountId?: string } | { kind: 'anonymous'; anonymousSessionId?: string };
  * }} [options]
  */
 export async function generateExecutionPlan(intent, storeId, sessionId, options = {}) {
@@ -50,44 +111,40 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
         ? 'setup_loyalty_program'
         : tool);
 
-  let missionId = typeof options.missionId === 'string' ? options.missionId.trim() : '';
+  const createParams = {
+    type: missionType,
+    title: (options.title || `Plan: ${intentText.slice(0, 80) || 'Multi-agent plan'}`).slice(0, 180),
+    targetType: storeId ? 'store' : 'generic',
+    targetId: storeId ?? undefined,
+    metadata: {
+      storeId: storeId ?? null,
+      sessionId: sessionId ?? null,
+      goal: intentText,
+      source:
+        missionType === 'setup_loyalty_program' ? 'loyalty_spine' : 'multi_agent_compiler',
+      compilerTool: tool,
+      compilerVersion: ARTIFACT_COMPILER_VERSION,
+      locale: options.locale ?? 'en',
+      ...(options.executionContext && typeof options.executionContext === 'object'
+        ? {
+            executionContext: options.executionContext,
+            selectedStore: options.executionContext.selectedStore ?? null,
+            selectedSpace: options.executionContext.selectedSpace ?? null,
+            selectionMethod: options.executionContext.selectionMethod ?? null,
+            selectionReason: options.executionContext.selectionReason ?? null,
+            storeLocked: options.executionContext.storeLocked === true,
+            brandTheme: options.executionContext.brandTheme ?? null,
+          }
+        : {}),
+      ...(intent.parameters && typeof intent.parameters === 'object' ? { intentParameters: intent.parameters } : {}),
+    },
+    requiresConfirmation: true,
+    executionMode: 'GUIDED_RUN',
+    tenantId: options.tenantId ?? options.userId ?? 'default',
+    createdBy: options.userId ?? null,
+  };
 
-  if (!missionId) {
-    const titleSeed = intentText.slice(0, 80) || 'Multi-agent plan';
-    const pipeline = await createMissionPipeline({
-      type: missionType,
-      title: (options.title || `Plan: ${titleSeed}`).slice(0, 180),
-      targetType: storeId ? 'store' : 'generic',
-      targetId: storeId ?? undefined,
-      metadata: {
-        storeId: storeId ?? null,
-        sessionId: sessionId ?? null,
-        goal: intentText,
-        source:
-          missionType === 'setup_loyalty_program' ? 'loyalty_spine' : 'multi_agent_compiler',
-        compilerTool: tool,
-        compilerVersion: ARTIFACT_COMPILER_VERSION,
-        locale: options.locale ?? 'en',
-        ...(options.executionContext && typeof options.executionContext === 'object'
-          ? {
-              executionContext: options.executionContext,
-              selectedStore: options.executionContext.selectedStore ?? null,
-              selectedSpace: options.executionContext.selectedSpace ?? null,
-              selectionMethod: options.executionContext.selectionMethod ?? null,
-              selectionReason: options.executionContext.selectionReason ?? null,
-              storeLocked: options.executionContext.storeLocked === true,
-              brandTheme: options.executionContext.brandTheme ?? null,
-            }
-          : {}),
-        ...(intent.parameters && typeof intent.parameters === 'object' ? { intentParameters: intent.parameters } : {}),
-      },
-      requiresConfirmation: true,
-      executionMode: 'GUIDED_RUN',
-      tenantId: options.tenantId ?? options.userId ?? 'default',
-      createdBy: options.userId ?? null,
-    });
-    missionId = pipeline.id;
-  }
+  const missionId = await resolveMissionIdForExecutionPlan(options.missionId, createParams);
 
   await claimMissionSpineOwnership(missionId, SPINE_OWNERS.COMPILER_TOPOLOGY, {
     source: 'generate_execution_plan',
@@ -122,12 +179,16 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
 
   let metadata = await writePendingArtifactBundle(missionId, compileResult.artifactBundle);
   try {
+    const existingContract = await readMissionContract(missionId);
+    const evidenceIdForFreeze =
+      pickString(existingContract?.evidenceId) ??
+      pickString(params.evidenceId, options.intakeEvidence?.evidenceId);
     await freezeMissionContract(missionId, {
       tool,
       missionType,
       missionId,
       userGoalSnapshot: intentText,
-      evidenceId: params.evidenceId ?? options.intakeEvidence?.evidenceId ?? null,
+      evidenceId: evidenceIdForFreeze,
       executionContext: options.executionContext ?? { storeId: storeId ?? null },
       storeId,
       userId: options.userId ?? null,
@@ -162,12 +223,45 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
     });
   }
 
+  const principal =
+    options.principal ??
+    (options.userId
+      ? { kind: 'authenticated', userId: String(options.userId).trim() }
+      : { kind: 'anonymous', anonymousSessionId: 'unknown' });
+  const authorization = await resolveToolAuthorization({
+    principal,
+    storeId,
+    tool,
+  });
+  metadata = await writeMetadata(missionId, {
+    authorization: buildExecutionPlanAuthorizationFields(authorization, {
+      toolName: tool,
+      missionId,
+      uploadedAssetIds: Array.isArray(params.uploadedAssetIds)
+        ? params.uploadedAssetIds
+        : params.sourceAssetId
+          ? [params.sourceAssetId]
+          : [],
+    }),
+  });
+
   return withCanonicalRuntimeState({
     missionId,
     artifactBundle: compileResult.artifactBundle,
     validation: compileResult.validation,
     metadata,
-    response: buildCompilerIntakeResponse(missionId, compileResult.artifactBundle, metadata),
+    authorization,
+    response: buildCompilerIntakeResponse(
+      missionId,
+      compileResult.artifactBundle,
+      metadata,
+      {
+        tool,
+        storeId,
+        authorization,
+        parameters: params,
+      },
+    ),
   });
 }
 
@@ -177,8 +271,28 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
  * @param {string} missionId
  * @param {import('../artifact/types.ts').ArtifactBundle} artifactBundle
  * @param {Record<string, unknown>} metadata
+ * @param {{
+ *   tool?: string;
+ *   storeId?: string | null;
+ *   authorization?: Awaited<ReturnType<typeof resolveToolAuthorization>>;
+ *   parameters?: Record<string, unknown>;
+ * }} [extras]
  */
-export function buildCompilerIntakeResponse(missionId, artifactBundle, metadata) {
+export function buildCompilerIntakeResponse(missionId, artifactBundle, metadata, extras = {}) {
+  const tool = String(extras.tool ?? metadata.compilerTool ?? 'create_campaign').trim();
+  const authorization = extras.authorization ?? null;
+  const params =
+    extras.parameters && typeof extras.parameters === 'object' && !Array.isArray(extras.parameters)
+      ? extras.parameters
+      : {};
+  const uploadedAssetIds = Array.isArray(params.uploadedAssetIds)
+    ? params.uploadedAssetIds
+    : params.sourceAssetId
+      ? [params.sourceAssetId]
+      : params.imageAssetId
+        ? [params.imageAssetId]
+        : [];
+
   return withCanonicalRuntimeState({
     success: true,
     action: 'show_execution_plan',
@@ -198,10 +312,31 @@ export function buildCompilerIntakeResponse(missionId, artifactBundle, metadata)
       artifactBundle.reasoning.summary ??
       'Execution plan compiled. Review and approve to continue.',
     plan: {
+      toolName: tool,
       nodeCount: artifactBundle.topology.nodes.length,
       estimatedMinutes: artifactBundle.reasoning.timeline?.estimatedMinutes ?? null,
       qualityScore: artifactBundle.reasoning.metadata?.qualityScore ?? null,
+      requiresAuthentication: true,
+      requiresStore: true,
+      ...(authorization
+        ? buildExecutionPlanAuthorizationFields(authorization, {
+            storeId: extras.storeId ?? authorization.storeId ?? null,
+            missionId,
+            uploadedAssetIds,
+            parameters: {
+              sourceAssetId: params.sourceAssetId ?? params.imageAssetId ?? null,
+              sourceType: params.sourceType ?? (uploadedAssetIds.length ? 'loyalty_card_image' : undefined),
+            },
+          })
+        : {}),
     },
+    ...(authorization
+      ? {
+          authorization,
+          authorizationState: authorization.state,
+          canExecute: authorization.canExecute,
+        }
+      : {}),
   });
 }
 
