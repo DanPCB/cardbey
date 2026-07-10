@@ -199,6 +199,7 @@ import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import creatorRoutes from './routes/creatorRoutes.js';
+import artifactRoutes from './routes/artifactRoutes.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
 import skillSuitcaseRoutes from './routes/skillSuitcaseRoutes.js';
 import suitcaseItemRoutes from './routes/suitcaseItemRoutes.js';
@@ -1040,6 +1041,7 @@ app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
 app.use('/api/creative-templates', creativeTemplatesRoutes); // Creative template routes: /api/creative-templates
 app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /api/greeting-cards
+app.use('/api/artifacts', artifactRoutes);
 app.use('/api', creatorRoutes); // Creator Foundation: /api/creators, /api/creator/*
 app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/programs, /api/loyalty/stamp/*
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.

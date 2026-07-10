@@ -90,6 +90,10 @@ function isActiveFactoryExecution(existing) {
  * }} args
  */
 export async function tryRouteFactoryIntent(args) {
+  const { tryRouteUniversalArtifactIntent } = await import('../artifactFactory/artifactIntentRouter.js');
+  const uafRoute = await tryRouteUniversalArtifactIntent(args);
+  if (uafRoute) return uafRoute;
+
   const intentLabel = String(args.intentLabel ?? '').trim();
   const userMessage = typeof args.userMessage === 'string' ? args.userMessage.trim() : '';
   const intent = userMessage || intentLabel || 'factory intent';

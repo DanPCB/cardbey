@@ -22,6 +22,7 @@ import { readMissionSpineOwnership, SPINE_OWNERS } from '../kernel/spineAuthorit
 
 const ORCHESTRATION_TYPES = new Set(['multi_agent', 'campaign_orchestration']);
 const FACTORY_ACTION_TYPE = 'run_factory';
+const ARTIFACT_ACTION_TYPE = 'execute_artifact';
 const PIPELINE_ACTION_TYPES = new Set([
   UNIFIED_ACTION_TYPES.CREATE_STORE_CHECKPOINT,
   UNIFIED_ACTION_TYPES.CREATE_CAMPAIGN_CHECKPOINT,
@@ -135,6 +136,77 @@ async function dispatchRunFactoryViaKernel({ payload, source }) {
     actionType: FACTORY_ACTION_TYPE,
     factoryId,
     factoryExecution,
+    toolResult: runtimeResult,
+    payload: {
+      ...payload,
+      missionId,
+      dispatchedVia: 'unified_dispatch',
+    },
+  };
+}
+
+/**
+ * Universal Artifact Factory execution via Runtime Authority.
+ *
+ * @param {{ payload: object, source: string }} input
+ */
+async function dispatchExecuteArtifactViaKernel({ payload, source }) {
+  const missionId = payload.missionId ?? null;
+  const userId = payload.userId ?? null;
+  const artifactType = payload.artifactType ?? payload.type ?? null;
+
+  if (!artifactType || !missionId || !userId) {
+    return {
+      ok: false,
+      status: 'error',
+      code: 'ARTIFACT_CONTEXT_REQUIRED',
+      message: 'execute_artifact requires artifactType, missionId, and userId',
+      executionPath: 'universal_artifact_factory',
+      executionState: EXECUTION_STATES.BLOCKED,
+      source: 'intake_v2_unified',
+    };
+  }
+
+  const runtimeResult = await executeRuntimeAction({
+    actionType: ARTIFACT_ACTION_TYPE,
+    actionId: `artifact:${artifactType}`,
+    missionId,
+    userId,
+    storeId: payload.storeId ?? null,
+    source,
+    payload: {
+      artifactType,
+      objective: payload.objective ?? payload.intent ?? null,
+      context: payload.context ?? {},
+      inputs: payload.inputs ?? {},
+      outputs: payload.outputs ?? {},
+      skipReview: payload.skipReview === true,
+      autoPublish: payload.autoPublish === true,
+    },
+  });
+
+  const blocked = runtimeResult?.status === 'blocked';
+  const ok = runtimeResult?.status === 'ok' || runtimeResult?.status === 'completed';
+  const artifactExecution = runtimeResult?.output?.artifactExecution ?? runtimeResult?.output ?? null;
+  const executionState = deriveExecutionStateFromRuntime(runtimeResult, {
+    actionType: ARTIFACT_ACTION_TYPE,
+  });
+
+  return {
+    ok,
+    status: blocked ? 'blocked' : ok ? 'ok' : 'failed',
+    code: runtimeResult?.blocker?.code ?? runtimeResult?.error?.code ?? null,
+    message:
+      runtimeResult?.blocker?.message ??
+      runtimeResult?.error?.message ??
+      artifactExecution?.error?.message ??
+      null,
+    executionPath: 'universal_artifact_factory',
+    executionState,
+    source: 'intake_v2_unified',
+    actionType: ARTIFACT_ACTION_TYPE,
+    artifactType,
+    artifactExecution,
     toolResult: runtimeResult,
     payload: {
       ...payload,
@@ -552,6 +624,10 @@ export async function unifiedDispatch(action, options = {}) {
 
   if (ORCHESTRATION_TYPES.has(type)) {
     return dispatchOrchestrationViaKernel({ type, payload, source });
+  }
+
+  if (type === 'execute_artifact') {
+    return dispatchExecuteArtifactViaKernel({ payload, source });
   }
 
   if (type === FACTORY_ACTION_TYPE) {

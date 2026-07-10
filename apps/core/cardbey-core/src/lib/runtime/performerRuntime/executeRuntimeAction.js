@@ -494,6 +494,49 @@ export async function executeRuntimeAction(request) {
             },
           }),
     };
+  } else if (actionType === 'execute_artifact') {
+    const { executeArtifact } = await import('../../artifactFactory/ArtifactFactory.js');
+    const artifactType =
+      typeof innerPayload.artifactType === 'string'
+        ? innerPayload.artifactType.trim()
+        : typeof innerPayload.type === 'string'
+          ? innerPayload.type.trim()
+          : '';
+    const artifactResult = await executeArtifact({
+      artifactType,
+      objective:
+        typeof innerPayload.objective === 'string'
+          ? innerPayload.objective.trim()
+          : typeof innerPayload.goal === 'string'
+            ? innerPayload.goal.trim()
+            : undefined,
+      storeId: innerPayload.storeId ?? req.storeId ?? ctx.storeId ?? null,
+      missionId: ctx.missionId ?? req.missionId ?? null,
+      owner: req.userId ?? ctx.userId ?? null,
+      userId: req.userId ?? ctx.userId ?? null,
+      context: innerPayload.context && typeof innerPayload.context === 'object' ? innerPayload.context : {},
+      inputs: innerPayload.inputs && typeof innerPayload.inputs === 'object' ? innerPayload.inputs : {},
+      outputs: innerPayload.outputs && typeof innerPayload.outputs === 'object' ? innerPayload.outputs : {},
+      req,
+      skipReview: innerPayload.skipReview === true,
+      autoPublish: innerPayload.autoPublish === true,
+    });
+    const awaiting =
+      artifactResult.status === 'awaiting_owner_review' ||
+      artifactResult.status === 'awaiting_approval';
+    const okStatus = artifactResult.ok || awaiting;
+    facadeResult = {
+      status: okStatus ? 'ok' : 'failed',
+      output: { artifactExecution: artifactResult },
+      ...(okStatus
+        ? {}
+        : {
+            error: artifactResult.error ?? {
+              code: 'ARTIFACT_FAILED',
+              message: `Artifact pipeline ended in status ${artifactResult.status}`,
+            },
+          }),
+    };
   } else if (actionType === 'execute_action') {
     // UI runtime gateway (uiRuntimeActionService) runs adapters after this envelope completes.
     facadeResult = { status: 'ok', output: { uiActionEnvelope: true, actionId } };
