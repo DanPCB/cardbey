@@ -116,7 +116,10 @@ export function buildLoyaltyProgramDraftData(params) {
 
     programName = pickString(preseeded.programName, programName);
 
-    if (preseeded.requiredStamps != null) requiredStamps = Math.max(1, Number(preseeded.requiredStamps) || requiredStamps);
+    const seededStamps = preseeded.stampThreshold ?? preseeded.requiredStamps;
+    if (seededStamps != null) {
+      requiredStamps = Math.max(1, Number(seededStamps) || requiredStamps);
+    }
 
     reward = pickString(preseeded.reward, preseeded.rewardDescription, reward);
 
@@ -568,6 +571,49 @@ export async function applyLoyaltyProgramDraft(params) {
 
   return writeLoyaltyProgramFromMission(params);
 
+}
+
+
+
+/**
+ * @param {Record<string, unknown>} draft
+ * @returns {number | null}
+ */
+export function resolveDraftStampThreshold(draft = {}) {
+  const n = Number(draft.stampThreshold ?? draft.requiredStamps);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+
+
+
+/**
+ * Owner / execution-draft values win over OCR or planner defaults.
+ * @param {Record<string, unknown>} draft
+ * @param {Record<string, unknown>} [seed]
+ */
+export function applyCanonicalLoyaltyDraftFields(draft = {}, seed = {}) {
+  const out = { ...(draft && typeof draft === 'object' ? draft : {}) };
+  const stamps = resolveDraftStampThreshold(seed) ?? resolveDraftStampThreshold(out);
+  const reward = pickString(seed.reward, seed.rewardRule, out.reward);
+  if (reward) {
+    out.reward = reward;
+  }
+  if (stamps != null) {
+    out.requiredStamps = stamps;
+    out.stampThreshold = stamps;
+    out.rewardRule = pickString(
+      seed.rewardRule,
+      out.rewardRule,
+      reward ? `Buy ${stamps}, get ${reward}` : `Buy ${stamps}, get 1 free`,
+    );
+    out.customerInstructions = pickString(
+      out.customerInstructions,
+      `Collect ${stamps} stamps to unlock your reward.`,
+    );
+  }
+  const programName = pickString(seed.programName, out.programName);
+  if (programName) out.programName = programName;
+  return out;
 }
 
 

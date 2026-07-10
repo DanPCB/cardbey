@@ -138,13 +138,123 @@ router.post('/loyalty-from-card', requireAuth, async (req, res, next) => {
       storeName: store?.name ?? null,
     });
 
+    const preseededDraft = result?.preseededDraft ?? result?.payload?.preseededDraft ?? null;
+    const ocrText =
+      (typeof result?.raw?.ocrText === 'string' && result.raw.ocrText.trim()) ||
+      buildLoyaltySpineText(preseededDraft, store?.name);
+
+    const { Features } = await import('../../config/features.js');
+    const { emitSpinePathTelemetry } = await import('../../lib/intake/spinePathTelemetry.js');
+
+    if (Features.loyalty.useSpine && userId) {
+      const { handlePerformerIntake } = await import('../../lib/intake/index.js');
+      const files = [
+        {
+          url: imageUrl,
+          type: 'image',
+          role: 'loyalty_card',
+          documentType: 'loyalty_card',
+        },
+      ];
+
+      try {
+        const spineResult = await handlePerformerIntake({
+          text: ocrText,
+          userId,
+          tenantId: resolvedTenantId ?? userId,
+          storeId: resolvedStoreId,
+          sessionId: `loyalty-card:${resolvedStoreId}:${userId}`,
+          files,
+          parameters: {
+            storeId: resolvedStoreId,
+            preseededDraft,
+            source: 'dashboard_loyalty_card_scan',
+            imageUrl,
+          },
+          source: 'dashboard_loyalty_card_scan',
+          pathId: 'loyalty_spine',
+          req,
+        });
+
+        if (spineResult.ok && spineResult.compiled && spineResult.missionId) {
+          emitSpinePathTelemetry({
+            pathId: 'loyalty_spine',
+            source: 'dashboard_loyalty_card_scan',
+            ok: true,
+            reason: 'orchestrator_spine_success',
+            tool: spineResult.tool,
+            missionId: spineResult.missionId,
+            spine: true,
+            nodeCount: spineResult.artifactBundle?.topology?.nodes?.length ?? 0,
+            useLoyaltySpine: true,
+          });
+
+          return res.json({
+            ok: true,
+            result,
+            preseededDraft,
+            missionId: spineResult.missionId,
+            pathId: 'loyalty_spine',
+            spine: true,
+            handoff: {
+              action: 'show_execution_plan',
+              tool: spineResult.tool ?? 'setup_loyalty_program',
+              source: 'dashboard_loyalty_card_scan',
+              pathId: 'loyalty_spine',
+              missionId: spineResult.missionId,
+              requiresOwnerReview: true,
+            },
+            executionPlan: spineResult.response?.executionPlan ?? null,
+            pendingTopology: spineResult.response?.pendingTopology ?? null,
+            response: spineResult.response ?? null,
+          });
+        }
+
+        emitSpinePathTelemetry({
+          pathId: 'loyalty_ui_action_fallback',
+          source: 'dashboard_loyalty_card_scan',
+          ok: true,
+          reason: spineResult.compiled ? 'spine_incomplete' : 'classified_not_compiled',
+          tool: spineResult.tool ?? null,
+          spine: false,
+          useLoyaltySpine: true,
+        });
+      } catch (spineErr) {
+        console.warn(
+          '[Orchestrator] loyalty spine failed, falling back to ui-action handoff:',
+          spineErr?.message ?? spineErr,
+        );
+        emitSpinePathTelemetry({
+          pathId: 'loyalty_ui_action_fallback',
+          source: 'dashboard_loyalty_card_scan',
+          ok: false,
+          reason: 'spine_error',
+          spine: false,
+          useLoyaltySpine: true,
+        });
+      }
+    } else {
+      emitSpinePathTelemetry({
+        pathId: 'loyalty_ui_action_fallback',
+        source: 'dashboard_loyalty_card_scan',
+        ok: true,
+        reason: Features.loyalty.useSpine ? 'missing_user' : 'flag_disabled',
+        spine: false,
+        useLoyaltySpine: Features.loyalty.useSpine,
+      });
+    }
+
     res.json({
       ok: true,
       result,
-      preseededDraft: result?.preseededDraft ?? result?.payload?.preseededDraft ?? null,
+      preseededDraft,
+      pathId: 'loyalty_ui_action_fallback',
+      spine: false,
       handoff: {
         action: 'setup_loyalty_program',
         source: 'dashboard_loyalty_card_scan',
+        pathId: 'loyalty_ui_action_fallback',
+        requiresOwnerReview: true,
       },
     });
   } catch (error) {
@@ -152,6 +262,19 @@ router.post('/loyalty-from-card', requireAuth, async (req, res, next) => {
     next(error);
   }
 });
+
+/**
+ * Build IntentReasoner-friendly loyalty text from OCR / draft fields.
+ * @param {Record<string, unknown> | null} preseeded
+ * @param {string | null | undefined} storeName
+ */
+function buildLoyaltySpineText(preseeded, storeName) {
+  const stamps = preseeded?.requiredStamps ?? '?';
+  const reward = preseeded?.reward ?? preseeded?.rewardRule ?? 'a reward';
+  const program = preseeded?.programName ?? 'loyalty program';
+  const store = storeName ? ` for ${storeName}` : '';
+  return `Setup a loyalty program${store}: create loyalty program "${program}" — ${stamps} stamps for ${reward}. Stamp card rewards from scanned loyalty card.`;
+}
 
 /**
  * POST /api/orchestrator/menu-from-photo

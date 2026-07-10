@@ -22,6 +22,7 @@ function normalizeMessage(message) {
  *   userMessage?: string | null;
  *   clientRequestId?: string | null;
  *   activeStoreId?: string | null;
+ *   selectionStoreId?: string | null;
  * }} opts
  */
 export function buildIntakeTurnIdempotencyKey(opts = {}) {
@@ -29,10 +30,11 @@ export function buildIntakeTurnIdempotencyKey(opts = {}) {
   const mission = String(opts.missionId ?? '').trim() || '_';
   const session = String(opts.sessionKey ?? '').trim() || '_';
   const store = String(opts.activeStoreId ?? '').trim() || '_';
+  const selection = String(opts.selectionStoreId ?? '').trim() || '_';
   const msg = normalizeMessage(opts.userMessage);
   const clientId = String(opts.clientRequestId ?? '').trim();
-  if (clientId) return `${actor}\x1f${mission}\x1f${session}\x1f${store}\x1f${clientId}`;
-  return `${actor}\x1f${mission}\x1f${session}\x1f${store}\x1f${msg}`;
+  if (clientId) return `${actor}\x1f${mission}\x1f${session}\x1f${store}\x1f${selection}\x1f${clientId}`;
+  return `${actor}\x1f${mission}\x1f${session}\x1f${store}\x1f${selection}\x1f${msg}`;
 }
 
 /**
@@ -43,7 +45,10 @@ export function buildIntakeTurnIdempotencyKey(opts = {}) {
 export function shouldCacheIntakeTurnIdempotentResponse(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
   if (payload.action === 'clarify') return false;
+  if (payload.action === 'clarify_store') return false;
   if (payload.clarifyType === 'store_picker') return false;
+  if (payload.clarifyType === 'execution_context_store_picker') return false;
+  if (payload.clarifyType === 'active_space_confirm') return false;
   return true;
 }
 

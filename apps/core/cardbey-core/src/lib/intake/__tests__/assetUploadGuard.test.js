@@ -5,6 +5,7 @@ import {
   detectCreateStoreFromUploadedAssetIntent,
   hasExplicitUploadCreateStoreOrWebsiteIntent,
   isExplicitCreateStoreFromUploadContext,
+  isExplicitLoyaltyFromUploadContext,
   isUploadWithoutClearUserIntent,
   isAttachmentOnlyPlaceholderMessage,
   shouldAnalyzeUploadedAssetForStoreCreation,
@@ -60,6 +61,18 @@ describe('assetUploadGuard', () => {
 
   it('detects import catalog explicit intent', () => {
     expect(detectExplicitAssetIntent('Import these products')).toBe('import_catalog');
+  });
+
+  it('prefers loyalty setup over generic campaign for loyalty card phrases', () => {
+    expect(detectExplicitAssetIntent('create a loyalty campaign from this card')).toBe(
+      'setup_loyalty_program',
+    );
+    expect(
+      isExplicitLoyaltyFromUploadContext({
+        userMessage: 'create a loyalty campaign from this card',
+        attachmentAnalysis: { artifactType: 'loyalty_card' },
+      }),
+    ).toBe(true);
   });
 
   it('treats placeholder messages as attachment-only', () => {

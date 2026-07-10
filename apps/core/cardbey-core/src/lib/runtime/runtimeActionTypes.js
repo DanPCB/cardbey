@@ -14,6 +14,7 @@ export const UPLOAD_ACTIONS = {
   UPLOAD_PRODUCT_IMAGE: 'upload_product_image',
   SAVE_DRAFT_PREVIEW: 'save_draft_preview',
   UPLOAD_EXPLORE_VIDEO: 'upload_explore_video',
+  UPLOAD_CREATOR_VIDEO: 'upload_creator_video',
   UPLOAD_CONTENT: 'upload_content',
 };
 
@@ -51,6 +52,7 @@ export const UPLOAD_CONFIG = {
   [UPLOAD_ACTIONS.UPLOAD_PRODUCT_IMAGE]: { requireConfirmation: false, risk: 'low' },
   [UPLOAD_ACTIONS.SAVE_DRAFT_PREVIEW]: { requireConfirmation: false, risk: 'medium' },
   [UPLOAD_ACTIONS.UPLOAD_EXPLORE_VIDEO]: { requireConfirmation: false, risk: 'low' },
+  [UPLOAD_ACTIONS.UPLOAD_CREATOR_VIDEO]: { requireConfirmation: false, risk: 'low' },
   [UPLOAD_ACTIONS.UPLOAD_CONTENT]: { requireConfirmation: false, risk: 'low' },
   [DISPATCH_ACTIONS.PUBLISH_STORE]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.REPUBLISH_WEBSITE]: { requireConfirmation: true, risk: 'high' },

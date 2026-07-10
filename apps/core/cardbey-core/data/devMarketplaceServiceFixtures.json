@@ -1,0 +1,23 @@
+{
+  "description": "Reference profiles for local dev services marketplace. Run: node scripts/backfillBusinessProfiles.js --dry-run",
+  "fixtures": [
+    {
+      "namePattern": "nail|spa|salon|beauty",
+      "expected": {
+        "businessType": "service_fixed_booking",
+        "catalogMode": "services",
+        "catalogLabel": "Services",
+        "capability": "booking"
+      }
+    },
+    {
+      "namePattern": "til(e|ing)|floor(ing)?|renovation|plumb",
+      "expected": {
+        "businessType": "service_quote_required",
+        "catalogMode": "services",
+        "catalogLabel": "Services",
+        "capability": "quotation"
+      }
+    }
+  ]
+}

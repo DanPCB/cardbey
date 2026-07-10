@@ -7,7 +7,7 @@ import { EXECUTION_STATES } from '../../telemetry/executionStates.js';
 import { hasRuntimeAuthorityContext } from '../../runtime/performerRuntime/runtimeAuthorityGuard.js';
 import { advanceProactivePipelineStep } from '../../orchestrator/advanceProactivePipelineStep.js';
 import scheduleLoyaltyCampaign from './schedule_loyalty_campaign.js';
-import { assertStoreOwnership } from './loyaltyProgramDraft.js';
+import { assertStoreOwnership, resolveDraftStampThreshold } from './loyaltyProgramDraft.js';
 import { emitLoyaltyProgramTelemetry, LOYALTY_TELEMETRY } from './loyaltyProgramTelemetry.js';
 
 function pickString(...values) {
@@ -80,7 +80,7 @@ export async function writeLoyaltyProgramFromMission(params) {
 
   const prisma = getPrismaClient();
   const programName = pickString(draft.programName, `${access.store.name} Rewards`);
-  const requiredStamps = Math.max(1, Number(draft.requiredStamps) || 9);
+  const requiredStamps = Math.max(1, resolveDraftStampThreshold(draft) ?? 9);
   const reward = pickString(draft.reward, '1 free item');
 
   let program;
@@ -123,17 +123,30 @@ export async function writeLoyaltyProgramFromMission(params) {
 
   let suitcaseItemId = null;
   try {
-    const { createSuitcaseItem } = await import('../../../services/suitcase/suitcaseItemService.js');
-    const suitcase = await createSuitcaseItem({
-      userId,
-      title: programName,
-      subtype: 'loyalty_program',
-      contentJson: { programId: program.id, storeId, draft, promo: promoOut, missionId },
-      tags: ['loyalty', 'performer'],
+    const { saveGeneratedLoyaltyToSuitcase } = await import('./saveGeneratedLoyaltyToSuitcase.js');
+    const { buildGeneratedLoyaltyProgramArtifact } = await import('./generatedLoyaltyProgramService.js');
+    const artifact = await buildGeneratedLoyaltyProgramArtifact({
+      missionId,
+      storeId,
+      draft: {
+        ...draft,
+        programName,
+        reward,
+        requiredStamps,
+        stampThreshold: requiredStamps,
+        loyaltyProgramId: program.id,
+        phase: 'activated',
+      },
     });
-    suitcaseItemId = suitcase?.item?.id ?? null;
-  } catch {
-    /* optional */
+    const suitcaseResult = await saveGeneratedLoyaltyToSuitcase({
+      ownerId: userId,
+      missionId,
+      storeId,
+      artifact,
+    });
+    suitcaseItemId = suitcaseResult?.item?.id ?? null;
+  } catch (err) {
+    console.warn('[writeLoyaltyProgramFromMission] suitcase save failed:', err?.message ?? err);
   }
 
   const writeResult = {

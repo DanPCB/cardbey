@@ -12,7 +12,7 @@
 
 import { prisma } from '../../lib/prisma.js';
 import { searchUnsplashImage, isUnsplashAvailable } from './unsplashService.js';
-import { searchPexelsImage, searchPexelsImages, isPexelsAvailable } from './pexelsService.js';
+import { searchPexelsImage, searchPexelsImages, isPexelsAvailable, type PexelsImageResult } from './pexelsService.js';
 import { generateMenuItemImage, isOpenAIImageAvailable } from './openaiImageService.js';
 import { getStylePreset, STYLE_PRESETS } from './stylePresets.js';
 
@@ -241,6 +241,8 @@ function verticalGroupForImage(verticalSlug: string): 'food' | 'services' | 'ret
 /** Options for generateImageForDraftItem: context for query + guards. */
 export interface GenerateImageForDraftItemOptions {
   profile?: ImageFillProfile;
+  /** When set, used as the primary Pexels query (overrides profile keyword blending). */
+  imageQueryHint?: string | null;
   categoryHint?: string | null;
   categoryName?: string | null;
   businessType?: string | null;
@@ -253,6 +255,17 @@ export interface GenerateImageForDraftItemOptions {
   itemIndex?: number;
   imageEnrichmentStatus?: string;
   preloadedImageConfidence?: number;
+  /** Pexels search orientation (hero banners use landscape). */
+  pexelsOrientation?: 'square' | 'landscape' | 'portrait';
+  /** Shared registry for governed service-image dedup within a store run. */
+  serviceImageRegistry?: unknown;
+  storeName?: string | null;
+  verticalSlug?: string | null;
+  verticalGroup?: string | null;
+  disableServiceImageResolver?: boolean;
+  forceServiceImageResolver?: boolean;
+  excludeAssetIds?: Set<string>;
+  bypassSearchCache?: boolean;
 }
 
 /**
@@ -323,6 +336,9 @@ export interface GenerateImageForDraftItemResult {
   confidence: number;
   providerId?: string;
   meta?: Record<string, unknown>;
+  imageSelection?: Record<string, unknown>;
+  imageMatchStatus?: string;
+  canonicalServiceTitle?: string;
 }
 
 const DEBUG_IMAGE = process.env.DEBUG_IMAGE_ASSIGNMENT === '1' || process.env.DEBUG_IMAGE_ASSIGNMENT === 'true';
@@ -402,25 +418,168 @@ function violatesFoodMismatch(itemName: string, candidateText: string): boolean 
 
 const CATEGORY_TOKENS = ['drink', 'dessert', 'bread', 'pastry', 'salad', 'soup', 'main', 'appetizer', 'beverage'];
 
+/** Item title cue → alt-text terms that indicate a clearly wrong stock photo. */
+const SERVICE_DOMAIN_MISMATCH: { test: RegExp; banned: string[] }[] = [
+  { test: /\bdoor\b/, banned: ['bicycle', 'bike', 'cycle', 'motorcycle', 'cabinet', 'wardrobe'] },
+  { test: /\bfence\b/, banned: ['pillow', 'cushion', 'sofa', 'bedroom', 'interior design', 'living room'] },
+  { test: /\bdeck\b/, banned: ['shutter', 'blind', 'curtain', 'louvre', 'window shutter'] },
+  { test: /\btile\b/, banned: ['sofa', 'living room', 'couch', 'lounge'] },
+  { test: /\bflyscreen\b|\bfly screen\b/, banned: ['restaurant', 'cafe', 'dining', 'food'] },
+  { test: /\bplaster\b|\bwall repair\b/, banned: ['bicycle', 'bike', 'motorcycle', 'vehicle'] },
+  { test: /\bplumb|\btap\b|\bsink\b/, banned: ['deck', 'patio', 'outdoor furniture', 'garden'] },
+  { test: /\belectric|\blight fitting\b/, banned: ['deck', 'patio', 'outdoor', 'beach'] },
+  { test: /\bpaint|\bcaulk/, banned: ['food', 'restaurant', 'kitchen recipe'] },
+  { test: /\bpressure wash|\bgutter\b/, banned: ['bathroom', 'shower', 'toilet', 'kitchen sink'] },
+];
+
+function violatesServiceDomainMismatch(itemName: string, candidateLower: string): boolean {
+  const nameLower = normalize(itemName);
+  if (!candidateLower.trim()) return false;
+  for (const rule of SERVICE_DOMAIN_MISMATCH) {
+    if (!rule.test.test(nameLower)) continue;
+    if (rule.banned.some((b) => candidateLower.includes(b))) return true;
+  }
+  return false;
+}
+
+function isStrictImageHintQuery(hint?: string | null): boolean {
+  const h = String(hint ?? '').trim();
+  return h.length >= 12 && /\b(repair|handyman|plumb|electric|paint|clean|service|contractor|install|maintenance)\b/i.test(h);
+}
+
+function buildPexelsQueryVariants(hint: string, itemName: string): string[] {
+  const out: string[] = [];
+  const push = (q: string) => {
+    const t = q.trim().replace(/\s+/g, ' ').slice(0, 200);
+    if (t && !out.includes(t)) out.push(t);
+  };
+  push(hint);
+  const words = hint.split(/\s+/).filter((w) => w.length > 2);
+  if (words.length > 5) push(words.slice(0, 5).join(' '));
+  if (words.length > 3) push(words.slice(0, 3).join(' '));
+  push(`${itemName} service professional`);
+  return out.slice(0, 4);
+}
+
+type ScoredPexelsCandidate = PexelsImageResult & { score: number; query: string };
+
 function scorePexelsCandidate(
   candidate: { url: string; alt?: string },
   itemName: string,
   categoryName: string | undefined,
-  _usedUrls: Set<string>
+  _usedUrls: Set<string>,
+  searchQuery?: string,
+  forbiddenKeywords?: string[],
+  opts?: { strictHint?: boolean; rankIndex?: number },
 ): number {
-  let score = 0.5;
+  let score = opts?.strictHint ? 0.2 : 0.35;
   const altTitle = (candidate.alt || '').toLowerCase();
   const nameLower = normalize(itemName);
   const textLower = altTitle;
-  const nameTokens = tokenize(itemName);
-  if (nameTokens.length > 0 && nameTokens.some((t) => altTitle.includes(t))) score += 0.2;
-  if (categoryName && CATEGORY_TOKENS.some((t) => categoryName.toLowerCase().includes(t) && altTitle.includes(t))) score += 0.1;
-  if (violatesFoodMismatch(itemName, altTitle)) score -= 0.4;
+  const nameTokens = tokenize(itemName).filter((t) => t.length > 3);
+  const queryTokens = tokenize(searchQuery || '').filter((t) => t.length > 3);
+
+  if (nameTokens.length > 0 && nameTokens.some((t) => altTitle.includes(t))) score += 0.22;
+  if (categoryName && CATEGORY_TOKENS.some((t) => categoryName.toLowerCase().includes(t) && altTitle.includes(t))) {
+    score += 0.1;
+  }
+  if (searchQuery && queryTokens.length > 0) {
+    const overlap = queryTokens.filter((t) => textLower.includes(t)).length;
+    score += Math.min(0.4, overlap * 0.14);
+    if (opts?.strictHint && overlap === 0 && altTitle.trim()) score -= 0.15;
+  }
+  if (!altTitle.trim() && opts?.strictHint) {
+    score += Math.max(0.05, 0.2 - (opts.rankIndex ?? 0) * 0.025);
+  }
+  if (violatesFoodMismatch(itemName, altTitle)) score -= 0.45;
+  if (violatesNonFoodLeak(nameLower, textLower)) score -= 0.4;
+  if (violatesServiceDomainMismatch(itemName, textLower)) score -= 0.5;
+  if (forbiddenKeywords?.length) {
+    const forbiddenHit = forbiddenKeywords.some((k) => {
+      const term = k.toLowerCase().trim();
+      return term && textLower.includes(term);
+    });
+    if (forbiddenHit) score -= 0.55;
+  }
   if (isDrinkItem(nameLower) && !hasDrinkCue(textLower)) score -= 0.2;
+  if (opts?.strictHint && altTitle.trim()) {
+    const hasSignal =
+      queryTokens.some((t) => textLower.includes(t)) || nameTokens.some((t) => textLower.includes(t));
+    if (!hasSignal) score = Math.min(score, 0.36);
+  }
   return Math.max(0, Math.min(1, score));
 }
 
+async function selectBestPexelsMatch(params: {
+  queries: string[];
+  itemName: string;
+  categoryName?: string;
+  usedSet: Set<string>;
+  forbiddenKeywords?: string[];
+  strictHint: boolean;
+  orientation?: 'square' | 'landscape' | 'portrait';
+  minConfidence: number;
+}): Promise<{ winner: ScoredPexelsCandidate; query: string } | null> {
+  /** @type {ScoredPexelsCandidate[]} */
+  const allScored: ScoredPexelsCandidate[] = [];
+
+  for (const query of params.queries) {
+    const perQueryLimit = params.strictHint ? PEXELS_STRICT_HINT_CANDIDATE_LIMIT : PEXELS_CANDIDATE_LIMIT;
+    const candidates = await searchPexelsImages(query, perQueryLimit, params.orientation ?? 'square');
+    candidates.forEach((c, rankIndex) => {
+      allScored.push({
+        ...c,
+        query,
+        score: scorePexelsCandidate(
+          c,
+          params.itemName,
+          params.categoryName,
+          params.usedSet,
+          query,
+          params.forbiddenKeywords,
+          { strictHint: params.strictHint, rankIndex },
+        ),
+      });
+    });
+  }
+
+  if (!allScored.length) return null;
+
+  const available = allScored.filter((c) => !params.usedSet.has(c.url));
+  const pool = available.length > 0 ? available : allScored;
+  const sorted = [...pool].sort((a, b) => b.score - a.score);
+  const winner = sorted[0];
+  if (!winner || winner.score < params.minConfidence) return null;
+  return { winner, query: winner.query };
+}
+
+function violatesNonFoodLeak(itemNameLower: string, candidateLower: string): boolean {
+  const serviceLike =
+    /\b(repair|handyman|plumb|electric|paint|mount|assembly|clean|inspection|quote|maintenance|service|contractor|mechanic|oil change|brake|haircut|manicure|facial|massage)\b/.test(
+      itemNameLower,
+    );
+  if (!serviceLike) return false;
+  const foodRetailCues = [
+    'bakery',
+    'pastry',
+    'donut',
+    'doughnut',
+    'croissant',
+    'cafe',
+    'coffee shop',
+    'espresso',
+    'latte',
+    'pizza',
+    'sushi',
+    'cupcake',
+    'boulanger',
+    'patisserie',
+  ];
+  return foodRetailCues.some((cue) => candidateLower.includes(cue));
+}
+
 const PEXELS_CANDIDATE_LIMIT = 12;
+const PEXELS_STRICT_HINT_CANDIDATE_LIMIT = 20;
 /** Min confidence to accept a Pexels result (avoid AI fallback). Default 0.45 so more real photos are used; set IMAGE_PEXELS_MIN_CONFIDENCE in env to override. */
 const MIN_CONFIDENCE_ACCEPT =
   typeof process.env.IMAGE_PEXELS_MIN_CONFIDENCE !== 'undefined'
@@ -484,7 +643,10 @@ export async function generateImageForDraftItem(
     const styleKeywords = STYLE_SEARCH_KEYWORDS[styleKey] || STYLE_SEARCH_KEYWORDS.modern;
 
     let query: string;
-    if (options?.profile) {
+    const itemHint = options?.imageQueryHint?.trim();
+    if (itemHint) {
+      query = itemHint;
+    } else if (options?.profile) {
       query = buildImageQuery(
         options.profile,
         name,
@@ -511,7 +673,7 @@ export async function generateImageForDraftItem(
       .slice(0, 2)
       .join(' ')
       .trim();
-    if (itemTokens && !query.toLowerCase().startsWith(itemTokens)) {
+    if (!itemHint && itemTokens && !query.toLowerCase().startsWith(itemTokens)) {
       query = `${itemTokens} ${query}`.trim().slice(0, 200);
     }
 
@@ -522,17 +684,72 @@ export async function generateImageForDraftItem(
     }
 
     if (isPexelsAvailable()) {
-      const candidates = await searchPexelsImages(query, PEXELS_CANDIDATE_LIMIT);
+      try {
+        const mediaMod = await import('../media/serviceImageResolver.js');
+        if (
+          typeof mediaMod.resolveServiceImageForItem === 'function' &&
+          typeof mediaMod.shouldUseServiceImageResolver === 'function' &&
+          mediaMod.shouldUseServiceImageResolver({
+            profile: options?.profile,
+            businessType: options?.businessType,
+            storeName: options?.storeName,
+            verticalSlug: options?.profile?.verticalSlug ?? options?.verticalSlug,
+            verticalGroup: options?.profile?.verticalGroup ?? options?.verticalGroup,
+            disableServiceImageResolver: options?.disableServiceImageResolver,
+            forceServiceImageResolver: options?.forceServiceImageResolver,
+          })
+        ) {
+          const governed = await mediaMod.resolveServiceImageForItem({
+            serviceName: name,
+            description,
+            businessCategory: options?.businessType ?? options?.categoryName ?? null,
+            businessSubcategory: options?.profile?.verticalSlug ?? options?.verticalSlug ?? null,
+            categoryName: options?.categoryName ?? options?.categoryHint ?? null,
+            storeName: options?.storeName ?? null,
+            imageQueryHint: options?.imageQueryHint,
+            registry: options?.serviceImageRegistry,
+            usedUrls: usedSet,
+            excludeAssetIds: options?.excludeAssetIds,
+            bypassSearchCache: options?.bypassSearchCache,
+            pexelsOrientation: options?.pexelsOrientation ?? 'square',
+          });
+          if (governed?.url) {
+            return governed as GenerateImageForDraftItemResult;
+          }
+          if (options?.allowNullOnLowConfidence) {
+            return null;
+          }
+        }
+      } catch (resolverErr) {
+        console.warn('[menuVisualAgent] serviceImageResolver fallback:', (resolverErr as Error)?.message ?? resolverErr);
+      }
+
       const categoryName = options?.categoryName ?? options?.categoryHint ?? undefined;
-      const scored = candidates.map((c) => ({
-        ...c,
-        score: scorePexelsCandidate(c, name, categoryName, usedSet),
-      }));
-      const available = scored.filter((c) => !usedSet.has(c.url));
-      const pool = available.length > 0 ? available : scored;
-      const sorted = [...pool].sort((a, b) => b.score - a.score);
-      const winner = sorted[0];
-      if (winner) {
+      const strictHint = Boolean(itemHint && isStrictImageHintQuery(itemHint));
+      const forbidden =
+        options?.profile?.forbiddenKeywords ??
+        (strictHint
+          ? ['bakery', 'pastry', 'donut', 'doughnut', 'croissant', 'cafe', 'coffee shop', 'patisserie', 'boulanger']
+          : undefined);
+      const minConfidence = strictHint
+        ? Math.max(MIN_CONFIDENCE_ACCEPT, 0.55)
+        : MIN_CONFIDENCE_ACCEPT;
+      const queries = strictHint && itemHint ? buildPexelsQueryVariants(itemHint, name) : [query];
+      const orientation = options?.pexelsOrientation ?? 'square';
+
+      const match = await selectBestPexelsMatch({
+        queries,
+        itemName: name,
+        categoryName,
+        usedSet,
+        forbiddenKeywords: forbidden,
+        strictHint,
+        orientation,
+        minConfidence,
+      });
+
+      if (match?.winner) {
+        const winner = match.winner;
         const candidateText = winner.alt || '';
         if (DEBUG_IMAGE) {
           const nameLower = normalize(name);
@@ -540,22 +757,21 @@ export async function generateImageForDraftItem(
           console.log('[DEBUG_IMAGE_ASSIGNMENT]', {
             itemName: name,
             candidateText: candidateText.slice(0, 80),
+            query: match.query,
             isDrink: isDrinkItem(nameLower),
             hasDrinkCue: hasDrinkCue(textLower),
             violatesFoodMismatch: violatesFoodMismatch(name, candidateText),
             confidence: winner.score,
           });
         }
-        if (winner.score >= MIN_CONFIDENCE_ACCEPT) {
-          return {
-            url: winner.url,
-            source: 'pexels',
-            query,
-            confidence: winner.score,
-            providerId: winner.id?.toString(),
-            meta: winner.alt ? { alt: winner.alt } : undefined,
-          };
-        }
+        return {
+          url: winner.url,
+          source: 'pexels',
+          query: match.query,
+          confidence: winner.score,
+          providerId: winner.id?.toString(),
+          meta: winner.alt ? { alt: winner.alt } : undefined,
+        };
       }
     }
 

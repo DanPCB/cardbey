@@ -22,6 +22,51 @@ import {
   CATALOG_ITEM_MAX,
 } from '../../config/catalogLimits.js';
 import { buildCuisineMenuCatalog } from './foodCuisineCatalog.js';
+import { INDUSTRY_BLUEPRINTS } from './industryBlueprintRegistry.js';
+
+const TARGET_ITEM_COUNT = CATALOG_ITEM_LIMIT;
+const MIN_ITEM_COUNT = CATALOG_ITEM_MIN;
+const MAX_ITEM_COUNT = CATALOG_ITEM_MAX;
+
+function flatIndustryBlueprintItems(blueprintId) {
+  const bp = INDUSTRY_BLUEPRINTS[blueprintId];
+  if (!bp?.items?.length) return null;
+  return bp.items.map((i) => ({
+    name: i.name,
+    description: i.description ?? '',
+    price: i.price
+      ? i.price
+      : typeof i.basePrice === 'number' && i.basePrice > 0
+        ? `$${i.basePrice.toFixed(2)}`
+        : i.fromPrice != null
+          ? i.priceUnit === 'hour'
+            ? `From $${i.fromPrice}/hr`
+            : `From $${i.fromPrice}`
+          : 'Estimate required',
+    ...(i.serviceMode ? { serviceMode: i.serviceMode } : {}),
+    ...(i.pricingModel ? { pricingModel: i.pricingModel } : {}),
+    ...(i.fromPrice != null ? { fromPrice: i.fromPrice } : {}),
+    ...(i.priceUnit ? { priceUnit: i.priceUnit } : {}),
+    ...(i.durationMinutes != null ? { durationMinutes: i.durationMinutes } : {}),
+    ...(i.estimateDurationLabel ? { estimateDurationLabel: i.estimateDurationLabel } : {}),
+    ...(i.categoryKey ? { categoryKey: i.categoryKey } : {}),
+    ...(i.imageQueryHint ? { imageQueryHint: i.imageQueryHint } : {}),
+  }));
+}
+
+function expandIndustryBlueprintItems(blueprintId, target = TARGET_ITEM_COUNT) {
+  const base = flatIndustryBlueprintItems(blueprintId);
+  if (!base?.length) return null;
+  const cap = Math.min(MAX_ITEM_COUNT, Math.max(MIN_ITEM_COUNT, target));
+  if (base.length >= cap) return base.slice(0, cap);
+  const out = [...base];
+  let i = 0;
+  while (out.length < MIN_ITEM_COUNT) {
+    out.push({ ...base[i % base.length] });
+    i += 1;
+  }
+  return out.slice(0, cap);
+}
 
 function flatCuisineTemplateItems(verticalSlug) {
   const catalog = buildCuisineMenuCatalog({ verticalSlug }, CATALOG_ITEM_LIMIT);
@@ -34,7 +79,7 @@ function flatCuisineTemplateItems(verticalSlug) {
 }
 
 export const TEMPLATE_ITEMS = {
-  cafe: [
+  cafe: expandIndustryBlueprintItems('food.cafe') ?? [
     { name: 'Espresso', price: '$3.50', description: 'Rich and bold' },
     { name: 'Cappuccino', price: '$4.00', description: 'Smooth and creamy' },
     { name: 'Latte', price: '$4.50', description: 'Perfectly balanced' },
@@ -99,17 +144,29 @@ export const TEMPLATE_ITEMS = {
     { name: 'Coleslaw', price: '$3.50', description: 'Creamy or vinegar' },
   ],
   food_seafood: structuredItemsToFlat(TEMPLATE_FOOD_SEAFOOD.items),
-  food_restaurant_generic: structuredItemsToFlat(TEMPLATE_FOOD_RESTAURANT_GENERIC.items),
-  food_bakery: structuredItemsToFlat(TEMPLATE_FOOD_BAKERY.items),
+  food_restaurant_generic: expandIndustryBlueprintItems('food.restaurant') ?? structuredItemsToFlat(TEMPLATE_FOOD_RESTAURANT_GENERIC.items),
+  food_bakery: expandIndustryBlueprintItems('food.bakery') ?? structuredItemsToFlat(TEMPLATE_FOOD_BAKERY.items),
   food_vietnamese: flatCuisineTemplateItems('food.vietnamese'),
   food_asian: flatCuisineTemplateItems('food.asian'),
   food_fast_food: flatCuisineTemplateItems('food.fast_food'),
   beauty_nails: structuredItemsToFlat(TEMPLATE_BEAUTY_NAILS.items),
-  fashion_boutique: structuredItemsToFlat(TEMPLATE_FASHION_BOUTIQUE.items),
-  fashion_kids: structuredItemsToFlat(TEMPLATE_FASHION_KIDS.items),
+  beauty_salon:
+    expandIndustryBlueprintItems('beauty.hair_salon') ??
+    expandIndustryBlueprintItems('beauty.spa') ??
+    structuredItemsToFlat(TEMPLATE_BEAUTY_NAILS.items),
+  fashion_boutique: expandIndustryBlueprintItems('fashion.boutique') ?? structuredItemsToFlat(TEMPLATE_FASHION_BOUTIQUE.items),
+  fashion_kids: expandIndustryBlueprintItems('fashion.kids') ?? structuredItemsToFlat(TEMPLATE_FASHION_KIDS.items),
   game_centre: structuredItemsToFlat(TEMPLATE_GAME_CENTRE.items),
   services_generic: structuredItemsToFlat(TEMPLATE_SERVICES_GENERIC.items),
   tiling_flooring: structuredItemsToFlat(TEMPLATE_TILING_FLOORING.items),
+  home_services: expandIndustryBlueprintItems('services.handyman') ?? structuredItemsToFlat(TEMPLATE_SERVICES_GENERIC.items),
+  retail_furniture: expandIndustryBlueprintItems('retail.furniture') ?? [],
+  retail_electronics: expandIndustryBlueprintItems('retail.electronics') ?? [],
+  retail_grocery: expandIndustryBlueprintItems('retail.grocery') ?? [],
+  professional_services:
+    expandIndustryBlueprintItems('services.accounting') ??
+    expandIndustryBlueprintItems('services.legal') ??
+    structuredItemsToFlat(TEMPLATE_SERVICES_GENERIC.items),
   bakery: [
     { name: 'Croissant', price: '$3.00', description: 'Buttery and flaky' },
     { name: 'Chocolate Cake', price: '$8.00', description: 'Rich and decadent' },
@@ -142,7 +199,7 @@ export const TEMPLATE_ITEMS = {
     { name: 'Bread Roll', price: '$1.50', description: 'White or whole grain' },
     { name: 'Coffee', price: '$3.00', description: 'To go with your pastry' },
   ],
-  florist: [
+  florist: expandIndustryBlueprintItems('retail.flower') ?? [
     { name: 'Mixed Bouquet', price: '$35.00', description: 'Fresh seasonal flowers' },
     { name: 'Rose Arrangement', price: '$45.00', description: 'Classic red or mixed roses' },
     { name: 'Sympathy Wreath', price: '$55.00', description: 'Elegant tribute arrangement' },
@@ -272,10 +329,6 @@ export const TEMPLATE_ITEMS = {
     { name: 'Booking', price: '$0.00', description: 'Reserve your spot' },
   ],
 };
-
-const TARGET_ITEM_COUNT = CATALOG_ITEM_LIMIT;
-const MIN_ITEM_COUNT = CATALOG_ITEM_MIN;
-const MAX_ITEM_COUNT = CATALOG_ITEM_MAX;
 
 /** Valid template keys for mode=template (must have entry in TEMPLATE_ITEMS). */
 export function getTemplateItems(templateKey) {

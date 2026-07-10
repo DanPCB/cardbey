@@ -36,7 +36,16 @@ export function isMissionEndedByUser(row) {
  */
 export function buildEndedByUserMetadata(existingMeta) {
   const meta = asObj(existingMeta);
-  const next = { ...meta, endedByUser: true, endedAt: new Date().toISOString() };
+  const next = {
+    ...meta,
+    endedByUser: true,
+    endedAt: new Date().toISOString(),
+    multiAgentStatus: 'cancelled',
+    executionState: 'cancelled',
+    runtimeState: 'cancelled',
+    awaitingOwnerInput: false,
+    pendingNodeId: null,
+  };
   delete next.checkpointContinuation;
   delete next.continuationPayload;
   return next;

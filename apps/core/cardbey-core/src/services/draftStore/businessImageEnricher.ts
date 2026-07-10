@@ -84,12 +84,25 @@ function verticalBoosterTerms(blob: string): string[] {
   const push = (...xs: string[]) => {
     for (const x of xs) if (x && !out.includes(x)) out.push(x);
   };
-  if (
-    /furniture|timber|wood|interior|decor|flooring|renovation|blinds|curtains|garden|bedroom|dining|living|kitchen|showroom|upholster/.test(
-      blob,
-    )
-  ) {
-    push('showroom', 'interior', 'furniture', 'home decor');
+  if (/handyman|handy[\s-]?man|handyperson|property maintenance|home maintenance|general maintenance|tv mount|furniture assembly|pressure wash|gutter clean|window clean/.test(blob)) {
+    push('handyman', 'home repair', 'contractor tools', 'maintenance service');
+    return out;
+  }
+  if (/plumb|plumber|blocked drain|hot water|leaking tap/.test(blob)) {
+    push('plumber', 'plumbing repair', 'plumbing service');
+    return out;
+  }
+  if (/electrician|electrical|switchboard|lighting install/.test(blob)) {
+    push('electrician', 'electrical service', 'lighting installation');
+    return out;
+  }
+  if (/mechanic|auto repair|logbook|log book|tyre|tire|brake|oil change/.test(blob)) {
+    push('auto repair', 'mechanic workshop', 'car service garage');
+    return out;
+  }
+  if (/cleaning|cleaner|bond clean|deep clean|house clean/.test(blob)) {
+    push('professional cleaning', 'house cleaning service');
+    return out;
   }
   if (/pho|vietnamese|viet nam|noodle house|banh|bun bo|com tam|spring roll|saigon|hanoi/.test(blob)) {
     push('Vietnamese', 'pho', 'noodle soup', 'restaurant');
@@ -121,12 +134,23 @@ function verticalBoosterTerms(blob: string): string[] {
   if (/sign|signage|display|billboard|banner/i.test(blob)) {
     push('signage', 'business sign', 'storefront', 'LED display', 'outdoor advertising');
   }
+  if (
+    /furniture|timber|wood|interior|decor|flooring|renovation|blinds|curtains|bedroom|dining|living|kitchen|showroom|upholster/.test(
+      blob,
+    ) &&
+    !/\bgarden\b/.test(blob)
+  ) {
+    push('showroom', 'interior', 'furniture', 'home decor');
+  }
   return out;
 }
 
 function inferVerticalSlug(blob: string): string {
   if (/sign|signage|display|billboard|banner/i.test(blob)) {
     return 'signage';
+  }
+  if (/handyman|handy[\s-]?man|handyperson|odd[\s-]?jobs?|property maintenance|home maintenance|general maintenance|tv mount|furniture assembly|pressure wash|gutter clean|window clean/.test(blob)) {
+    return 'services.handyman';
   }
   if (/furniture|timber|wood|flooring|garden|home|interior|decor|bedroom|kitchen|living|blinds|curtains/.test(blob)) {
     return 'retail.home_garden';
@@ -263,13 +287,37 @@ export async function enrichImageFillProfileForBusiness(
   const boosted = verticalBoosterTerms(blob);
   const nameToks = tokensFromStoreName(String(input.storeName ?? ''));
   const locToks = tokensFromLocation(String(input.location ?? ''));
+
+  let industryKeywords: string[] = [];
+  let forbiddenExtra: string[] = [];
+  try {
+    const resolver = await import('./itemImageQueryResolver.js');
+    industryKeywords = resolver.resolveIndustryImageFillKeywords({
+      storeName: input.storeName,
+      businessName: input.storeName,
+      businessType: input.businessType,
+      verticalSlug: input.profile?.verticalSlug,
+      verticalGroup: input.profile?.verticalGroup,
+    });
+    forbiddenExtra = resolver.resolveIndustryForbiddenImageKeywords({
+      verticalSlug: input.profile?.verticalSlug,
+      verticalGroup: input.profile?.verticalGroup,
+      businessType: input.businessType,
+      storeName: input.storeName,
+    });
+  } catch {
+    /* optional module */
+  }
+
   /** Food / restaurant: put vertical boosters before store-name tokens so cuisine cues (e.g. Vietnamese pho) stay in the first keyword window. */
   const foodishBlob =
     /food\.|restaurant|cafe|bakery|noodle|pho|vietnamese|viet |bistro|coffee|banh|bun|kitchen|cuisine/.test(blob);
+  const keywordSeed =
+    industryKeywords.length > 0 ? industryKeywords : foodishBlob ? boosted : [...nameToks, ...locToks, ...boosted];
   const merged = dedupeKeywords(
     foodishBlob
-      ? [...(input.profile?.keywords ?? []), ...boosted, ...nameToks, ...locToks]
-      : [...(input.profile?.keywords ?? []), ...nameToks, ...locToks, ...boosted],
+      ? [...(input.profile?.keywords ?? []), ...keywordSeed, ...nameToks, ...locToks]
+      : [...(input.profile?.keywords ?? []), ...keywordSeed],
   ).slice(0, 8);
 
   const hasBaseProfile = input.profile != null;
@@ -297,7 +345,10 @@ export async function enrichImageFillProfileForBusiness(
         verticalSlug: input.profile!.verticalSlug?.trim() || verticalSlug,
         verticalGroup: input.profile!.verticalGroup ?? inferVerticalGroup(verticalSlug),
         keywords: merged.length ? merged : [...(input.profile!.keywords ?? [])],
-        forbiddenKeywords: input.profile!.forbiddenKeywords,
+        forbiddenKeywords: dedupeKeywords([
+          ...(input.profile!.forbiddenKeywords ?? []),
+          ...forbiddenExtra,
+        ]),
         audience: input.profile!.audience,
         categoryHints: dedupeKeywords([
           ...(input.profile!.categoryHints ?? []),
@@ -308,7 +359,7 @@ export async function enrichImageFillProfileForBusiness(
         verticalSlug,
         verticalGroup: inferVerticalGroup(verticalSlug),
         keywords: merged,
-        forbiddenKeywords: [],
+        forbiddenKeywords: forbiddenExtra,
         audience: undefined,
         categoryHints: locToks,
       };

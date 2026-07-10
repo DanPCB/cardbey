@@ -4,6 +4,7 @@
  */
 
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
+import { getIndustryWebsiteCopy } from './industryBlueprintRegistry.js';
 import {
   applyPipelineGeneratedHeroImage,
   getExistingVideoUrlFromPreview,
@@ -68,6 +69,37 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
 
   const firstItemImage = items.find((it) => it?.imageUrl)?.imageUrl ?? null;
 
+  const industryCopy = getIndustryWebsiteCopy({
+    businessName: storeName,
+    storeName,
+    businessType: storeType,
+    storeType,
+    verticalSlug: preview.meta?.verticalSlug ?? input?.verticalSlug ?? null,
+    verticalGroup: preview.meta?.verticalGroup ?? null,
+  });
+  const uspItems =
+    industryCopy?.uspItems ??
+    [
+      {
+        icon: '✦',
+        label: commerce.transactionMode === 'booking' ? 'Expert care' : 'Curated quality',
+        description:
+          commerce.transactionMode === 'booking'
+            ? 'Professional services tailored to you.'
+            : 'Hand-picked products you will love.',
+      },
+      {
+        icon: '⚡',
+        label: 'Fast service',
+        description:
+          commerce.transactionMode === 'booking'
+            ? 'Easy booking from browse to appointment.'
+            : 'A smooth experience from browse to checkout.',
+      },
+      { icon: '♥', label: 'Made for you', description: `${storeType} essentials with personality.` },
+    ];
+  const heroCtaLabel = industryCopy?.ctaLabel ?? commerce.ctaLabel;
+
   /** @type {Array<{ type: string, content: Record<string, unknown> }>} */
   const sections = [
     {
@@ -75,30 +107,14 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
       content: {
         headline: storeName,
         subheadline: slogan || `Welcome to ${storeName}`,
-        ctaLabel: commerce.ctaLabel,
+        ctaLabel: heroCtaLabel,
         ctaSecondary: 'Our story',
       },
     },
     {
       type: 'usp_bar',
       content: {
-        items: [
-          {
-            icon: '✦',
-            label: commerce.transactionMode === 'booking' ? 'Expert care' : 'Curated quality',
-            description: commerce.transactionMode === 'booking'
-              ? 'Professional services tailored to you.'
-              : 'Hand-picked products you will love.',
-          },
-          {
-            icon: '⚡',
-            label: 'Fast service',
-            description: commerce.transactionMode === 'booking'
-              ? 'Easy booking from browse to appointment.'
-              : 'A smooth experience from browse to checkout.',
-          },
-          { icon: '♥', label: 'Made for you', description: `${storeType} essentials with personality.` },
-        ],
+        items: uspItems,
       },
     },
     {

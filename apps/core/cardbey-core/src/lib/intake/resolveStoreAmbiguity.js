@@ -1,4 +1,3 @@
-// DANH: store-disambiguation
 /**
  * Multi-store disambiguation before store-scoped skill / tool dispatch.
  */
@@ -22,9 +21,16 @@ function parseLogoUrl(logo) {
   return null;
 }
 
+function pickLogoUrl(row) {
+  if (typeof row?.avatarImageUrl === 'string' && row.avatarImageUrl.trim()) {
+    return row.avatarImageUrl.trim();
+  }
+  return parseLogoUrl(row?.logo);
+}
+
 /**
  * @param {string | null | undefined} userId
- * @returns {Promise<Array<{ id: string, name: string, type: string | null, logoUrl: string | null }>>}
+ * @returns {Promise<Array<Record<string, unknown>>>}
  */
 export async function fetchUserStoresForDisambiguation(userId) {
   const uid = String(userId ?? '').trim();
@@ -41,17 +47,42 @@ export async function fetchUserStoresForDisambiguation(userId) {
         id: true,
         name: true,
         type: true,
+        slug: true,
         logo: true,
+        avatarImageUrl: true,
+        primaryColor: true,
+        secondaryColor: true,
+        tagline: true,
+        suburb: true,
+        city: true,
+        state: true,
+        region: true,
+        country: true,
+        address: true,
+        formattedAddress: true,
       },
       orderBy: { updatedAt: 'desc' },
-      take: 10,
+      take: 12,
     });
 
     return rows.map((s) => ({
       id: s.id,
       name: s.name,
       type: s.type ?? null,
-      logoUrl: parseLogoUrl(s.logo),
+      category: s.type ?? null,
+      slug: s.slug ?? null,
+      logoUrl: pickLogoUrl(s),
+      avatarImageUrl: s.avatarImageUrl ?? null,
+      primaryColor: s.primaryColor ?? null,
+      secondaryColor: s.secondaryColor ?? null,
+      tagline: s.tagline ?? null,
+      suburb: s.suburb ?? null,
+      city: s.city ?? null,
+      state: s.state ?? null,
+      region: s.region ?? null,
+      country: s.country ?? null,
+      address: s.address ?? null,
+      formattedAddress: s.formattedAddress ?? null,
     }));
   } catch {
     return [];
@@ -126,14 +157,16 @@ export async function resolveStoreAmbiguity({
 
   return {
     needsClarification: true,
-    clarifyType: 'store_picker',
-    question: 'Which store would you like to apply this to?',
+    clarifyType: 'execution_context_store_picker',
+    question: 'Which business should I create this for?',
     options: stores.map((s) => ({
       label: s.name,
       value: s.id,
-      hint: s.type ?? null,
+      hint: s.type ?? s.category ?? null,
       logoUrl: s.logoUrl ?? null,
+      storeCandidate: s,
     })),
+    storeCandidates: stores,
     pendingIntent: {
       userMessage: String(userMessage ?? '').trim(),
     },

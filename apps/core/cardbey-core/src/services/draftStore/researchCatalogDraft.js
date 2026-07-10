@@ -17,6 +17,26 @@ export function isResearchBackedPreview(preview) {
 }
 
 /**
+ * Research extracted real catalog data but owner has not confirmed yet.
+ * @param {import('../../lib/storeCreationResearch/types.js').BusinessResearchResult | null | undefined} research
+ */
+export function isResearchCatalogPendingOwnerReview(research) {
+  if (!research || research.fallbackToGenerated) return false;
+  if (research.ownerConfirmed === true) return false;
+  return Boolean(research.ownerReviewRequired);
+}
+
+/**
+ * Whether sourced research catalog may be written into the draft preview.
+ * @param {import('../../lib/storeCreationResearch/types.js').BusinessResearchResult | null | undefined} research
+ */
+export function shouldApplyResearchCatalogToDraft(research) {
+  if (!research?.researchRan || research.fallbackToGenerated) return false;
+  if (isResearchCatalogPendingOwnerReview(research)) return false;
+  return true;
+}
+
+/**
  * Re-run BSL from research; overwrite pre-research classification when research confidence is higher.
  * @param {object} params
  * @param {import('../../lib/storeCreationResearch/types.js').BusinessResearchResult | null | undefined} research

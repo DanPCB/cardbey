@@ -282,8 +282,15 @@ async function runUiActionAdapter(action, ctx) {
       return handleActivateBusinessSpace({ payload, userId, missionId });
 
     case 'setup_loyalty_program':
-    case 'apply_loyalty_program': {
+    case 'apply_loyalty_program':
+    case 'publish_loyalty_program':
+    case 'save_loyalty_draft':
+    case 'save_to_suitcase':
+    case 'publish_later': {
       const { executeSetupLoyaltyProgramRuntimeTool } = await import('./setupLoyaltyProgramRuntimeTool.js');
+      const { persistLoyaltyProgramDraftToStore } = await import(
+        '../../toolExecutors/loyalty/persistLoyaltyProgramDraftToStore.js'
+      );
       const draft =
         payload.draft && typeof payload.draft === 'object'
           ? payload.draft
@@ -294,6 +301,44 @@ async function runUiActionAdapter(action, ctx) {
         payload.preseededDraft && typeof payload.preseededDraft === 'object'
           ? payload.preseededDraft
           : null;
+      if (action === 'save_loyalty_draft') {
+        return persistLoyaltyProgramDraftToStore({
+          missionId,
+          storeId: storeId ?? payload.storeId ?? null,
+          userId,
+          tenantId: ctx.tenantId ?? null,
+          draft: draft ?? preseededDraft ?? {},
+          activate: false,
+          source: typeof payload.source === 'string' ? payload.source : 'loyalty_program_draft_card',
+        });
+      }
+      if (action === 'save_to_suitcase') {
+        const { saveGeneratedLoyaltyToSuitcase } = await import(
+          '../../toolExecutors/loyalty/saveGeneratedLoyaltyToSuitcase.js'
+        );
+        const { buildGeneratedLoyaltyProgramArtifact } = await import(
+          '../../toolExecutors/loyalty/generatedLoyaltyProgramService.js'
+        );
+        const artifact = await buildGeneratedLoyaltyProgramArtifact({
+          missionId,
+          storeId: storeId ?? payload.storeId ?? null,
+          draft: draft ?? preseededDraft ?? {},
+        });
+        return saveGeneratedLoyaltyToSuitcase({
+          ownerId: userId,
+          missionId,
+          storeId: storeId ?? payload.storeId ?? null,
+          artifact,
+        });
+      }
+      if (action === 'publish_later') {
+        return {
+          ok: true,
+          status: 'deferred',
+          message: 'Loyalty program draft saved for later.',
+        };
+      }
+      const publishNow = action === 'publish_loyalty_program';
       return executeSetupLoyaltyProgramRuntimeTool({
         missionId,
         storeId: storeId ?? payload.storeId ?? null,
@@ -301,11 +346,15 @@ async function runUiActionAdapter(action, ctx) {
         tenantId: ctx.tenantId ?? null,
         source: typeof payload.source === 'string' ? payload.source : 'performer_quick_action',
         requirements: typeof payload.requirements === 'string' ? payload.requirements : null,
-        confirmed: action === 'apply_loyalty_program' || payload.confirmed === true || payload.apply === true,
+        confirmed:
+          publishNow || action === 'apply_loyalty_program' || payload.confirmed === true || payload.apply === true,
         draft,
         loyaltyProgramDraft: draft,
         preseededDraft,
-        payload,
+        payload: {
+          ...(payload && typeof payload === 'object' ? payload : {}),
+          ...(publishNow ? { publishNow: true, confirmed: true, apply: true } : {}),
+        },
       });
     }
 

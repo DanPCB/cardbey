@@ -1,0 +1,1194 @@
+[
+  {
+    "id": "96c56544-5baf-4a9d-8579-0d1daa8b041c",
+    "candidateId": "seed:a1e824e8-9352-47ee-8395-6fc8454d8a98",
+    "seedId": "a1e824e8-9352-47ee-8395-6fc8454d8a98",
+    "batchId": "MELBOURNE_BATCH001_REAL_LOCAL",
+    "title": "Business Intelligence Brief — Petit Cafe",
+    "summary": "Cardbey found public information for Petit Cafe and prepared a starter brief for the owner to review. This cafe business has 3 observable strengths and 6 fields that may benefit from owner verification.",
+    "confidenceScore": 39,
+    "completenessScore": 27,
+    "evidenceJson": {
+      "discoveryStatus": "CLAIMABLE",
+      "confidenceScore": 0.6379999999999999,
+      "evidenceFound": [
+        "address",
+        "business_category",
+        "source_provider"
+      ],
+      "sourceProvider": "open_data_url",
+      "suburb": "Braybrook",
+      "address": "Braybrook",
+      "phone": null,
+      "website": null,
+      "coordinates": null,
+      "category": "food"
+    },
+    "missingFieldsJson": [
+      "logo",
+      "description",
+      "opening_hours",
+      "services",
+      "business_images",
+      "social_links"
+    ],
+    "recommendedActionsJson": [
+      {
+        "label": "Verify ownership",
+        "reason": "Unlock management tools and confirm public information"
+      },
+      {
+        "label": "Upload official logo",
+        "reason": "Strengthen brand recognition across search and AI surfaces"
+      },
+      {
+        "label": "Improve business description",
+        "reason": "Help search engines and AI assistants understand your offer"
+      },
+      {
+        "label": "Add services",
+        "reason": "Structured services improve GEO readiness"
+      },
+      {
+        "label": "Add opening hours",
+        "reason": "Improves local SEO and customer trust"
+      },
+      {
+        "label": "Connect website",
+        "reason": "Primary online presence signal for SEO"
+      },
+      {
+        "label": "Publish first promotion",
+        "reason": "Signals an active business profile after claim"
+      },
+      {
+        "label": "Activate AI Performer",
+        "reason": "Receive evidence-backed growth recommendations after verification"
+      }
+    ],
+    "mediaSummaryJson": {
+      "heroSource": "category_stock",
+      "representativeDisclosureRequired": true,
+      "confidenceSummary": null,
+      "missingMediaReasons": [
+        "No business-specific images on file"
+      ]
+    },
+    "visibility": {
+      "overall": 26,
+      "seoReadiness": 28,
+      "geoReadiness": 31,
+      "onlinePresence": 15,
+      "profileCompleteness": 27,
+      "confidenceLevel": "medium"
+    },
+    "visibilityEstimate": {
+      "seoReadiness": {
+        "current": 28,
+        "estimatedAfterClaim": 53
+      },
+      "geoReadiness": {
+        "current": 31,
+        "estimatedAfterClaim": 55
+      },
+      "profileCompleteness": {
+        "current": 27,
+        "estimatedAfterClaim": 53
+      },
+      "overall": {
+        "current": 26,
+        "estimatedAfterClaim": 52
+      },
+      "overallReadiness": {
+        "current": 14,
+        "estimatedAfterClaim": 44
+      },
+      "disclaimer": "These are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business."
+    },
+    "healthScore": {
+      "overallReadiness": 14,
+      "confidenceLevel": "medium",
+      "pillars": [
+        {
+          "key": "visibility",
+          "label": "Visibility",
+          "score": 30,
+          "subMetrics": [
+            {
+              "key": "seo",
+              "label": "SEO",
+              "score": 28,
+              "status": "evidence_found",
+              "detail": "Search engine discoverability from website, contact, hours, and profile signals."
+            },
+            {
+              "key": "geo",
+              "label": "GEO",
+              "score": 31,
+              "status": "evidence_found",
+              "detail": "AI assistant readiness from category, description, services, and structured public data."
+            }
+          ]
+        },
+        {
+          "key": "trust",
+          "label": "Trust",
+          "score": 42,
+          "subMetrics": [
+            {
+              "key": "identity_verification",
+              "label": "Identity verification",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Owner has not verified this business yet."
+            },
+            {
+              "key": "data_consistency",
+              "label": "Data consistency",
+              "score": 100,
+              "status": "evidence_found",
+              "detail": "Consistency across name, address, and provider-supplied fields."
+            },
+            {
+              "key": "contact_completeness",
+              "label": "Contact completeness",
+              "score": 25,
+              "status": "evidence_found",
+              "detail": "1 of 4 contact channels on file (phone, email, website, address)."
+            }
+          ]
+        },
+        {
+          "key": "content",
+          "label": "Content",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "logo",
+              "label": "Logo",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No logo on file."
+            },
+            {
+              "key": "images",
+              "label": "Images",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business images on file."
+            },
+            {
+              "key": "products",
+              "label": "Products",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no product catalog found."
+            },
+            {
+              "key": "services",
+              "label": "Services",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No structured services on file."
+            },
+            {
+              "key": "description",
+              "label": "Business description",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business description on file."
+            }
+          ]
+        },
+        {
+          "key": "customer_experience",
+          "label": "Customer Experience",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "reviews",
+              "label": "Reviews available",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no review data in provider sources."
+            },
+            {
+              "key": "opening_hours",
+              "label": "Opening hours",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Opening hours not available."
+            },
+            {
+              "key": "response_information",
+              "label": "Response information",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Customer contact channels for enquiries."
+            }
+          ]
+        },
+        {
+          "key": "commerce_readiness",
+          "label": "Commerce Readiness",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "promotions",
+              "label": "Promotions",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming and activating your Business Space."
+            },
+            {
+              "key": "loyalty",
+              "label": "Loyalty",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming — not yet activated."
+            },
+            {
+              "key": "ai_performer",
+              "label": "AI Performer",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claim and verification."
+            },
+            {
+              "key": "online_ordering",
+              "label": "Online ordering",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Not enough evidence — requires owner activation."
+            },
+            {
+              "key": "digital_assets",
+              "label": "Digital assets",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Website, social, and visual assets for digital commerce."
+            }
+          ]
+        }
+      ]
+    },
+    "strengths": [
+      "Business address detected",
+      "Business category identified",
+      "Discovery provider matched this business"
+    ],
+    "weaknesses": [
+      "No verified logo",
+      "Limited business description",
+      "No structured service information",
+      "Few business-specific images",
+      "Opening hours not available",
+      "Missing owner verification"
+    ],
+    "seoExplanation": "Search Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.",
+    "geoExplanation": "Generative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.",
+    "disclaimer": "This brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedPdfUrl": null,
+    "status": "ready",
+    "createdAt": "2026-07-05T03:10:00.583Z",
+    "updatedAt": "2026-07-05T03:10:00.583Z",
+    "downloadedAt": null,
+    "claimStartedAt": null,
+    "generatedMarkdown": "# Business Intelligence Brief\n\n**Petit Cafe**\nCardbey found public information for Petit Cafe and prepared a starter brief for the owner to review. This cafe business has 3 observable strengths and 6 fields that may benefit from owner verification.\n\n## Discovery\n- Status: CLAIMABLE\n- Category: food\n- Location: Braybrook\n- Confidence: 39%\n- Profile completeness: 27%\n- Source provider: open_data_url\n\n## Evidence found\n- address\n- business category\n- source provider\n\n## Missing fields\n- logo\n- description\n- opening hours\n- services\n- business images\n- social links\n\n## Business Visibility Report\n- Overall: 26%\n- SEO Readiness: 28%\n- GEO Readiness: 31%\n- Online Presence: 15%\n- Profile Completeness: 27%\n- Confidence: medium\n\n### What is SEO?\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.\n\n### What is GEO?\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.\n\n### Current strengths\n- ✓ Business address detected\n- ✓ Business category identified\n- ✓ Discovery provider matched this business\n\n### Current weaknesses\n- • No verified logo\n- • Limited business description\n- • No structured service information\n- • Few business-specific images\n- • Opening hours not available\n- • Missing owner verification\n\n### Recommended next actions\n- Verify ownership: Unlock management tools and confirm public information\n- Upload official logo: Strengthen brand recognition across search and AI surfaces\n- Improve business description: Help search engines and AI assistants understand your offer\n- Add services: Structured services improve GEO readiness\n- Add opening hours: Improves local SEO and customer trust\n- Connect website: Primary online presence signal for SEO\n- Publish first promotion: Signals an active business profile after claim\n- Activate AI Performer: Receive evidence-backed growth recommendations after verification\n\n### Estimated improvement after claiming\n- SEO: 28% → 53%\n- GEO: 31% → 55%\n- Profile: 27% → 53%\n- Overall: 26% → 52%\n- Business Readiness: 14% → 44%\n\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.\n\n## Business Health Score\n\n### Visibility\nPillar score: 30%\n- SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.\n- GEO: 31% — AI assistant readiness from category, description, services, and structured public data.\n\n### Trust\nPillar score: 42%\n- Identity verification: 0% — Owner has not verified this business yet.\n- Data consistency: 100% — Consistency across name, address, and provider-supplied fields.\n- Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).\n\n### Content\nPillar score: 0%\n- Logo: 0% — No logo on file.\n- Images: 0% — No business images on file.\n- Products: Not enough evidence — Not enough evidence — no product catalog found.\n- Services: 0% — No structured services on file.\n- Business description: 0% — No business description on file.\n\n### Customer Experience\nPillar score: 0%\n- Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.\n- Opening hours: 0% — Opening hours not available.\n- Response information: 0% — Customer contact channels for enquiries.\n\n### Commerce Readiness\nPillar score: 0%\n- Promotions: 0% — Available after claiming and activating your Business Space.\n- Loyalty: 0% — Available after claiming — not yet activated.\n- AI Performer: 0% — Available after claim and verification.\n- Online ordering: 0% — Not enough evidence — requires owner activation.\n- Digital assets: 0% — Website, social, and visual assets for digital commerce.\n\n**Overall Business Readiness: 14%**\n\n## Owner benefits after claim\n- Verify business details\n- Correct business information\n- Upload official images\n- Publish offers\n- Activate AI Performer\n- Receive growth recommendations\n\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedHtml": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Business Intelligence Brief — Petit Cafe</title>\n<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.5;color:#1e293b}\nh1{color:#0f172a}h2{margin-top:1.5rem;color:#334155}ul{padding-left:1.25rem}</style></head>\n<body><h1>Business Intelligence Brief</h1></p><p><strong>Petit Cafe</strong>\nCardbey found public information for Petit Cafe and prepared a starter brief for the owner to review. This cafe business has 3 observable strengths and 6 fields that may benefit from owner verification.</p><p><h2>Discovery</h2>\n<ul><li>Status: CLAIMABLE</li>\n<li>Category: food</li>\n<li>Location: Braybrook</li>\n<li>Confidence: 39%</li>\n<li>Profile completeness: 27%</li>\n<li>Source provider: open_data_url</li>\n</ul>\n<h2>Evidence found</h2>\n<ul><li>address</li>\n<li>business category</li>\n<li>source provider</li>\n</ul>\n<h2>Missing fields</h2>\n<ul><li>logo</li>\n<li>description</li>\n<li>opening hours</li>\n<li>services</li>\n<li>business images</li>\n<li>social links</li>\n</ul>\n<h2>Business Visibility Report</h2>\n<ul><li>Overall: 26%</li>\n<li>SEO Readiness: 28%</li>\n<li>GEO Readiness: 31%</li>\n<li>Online Presence: 15%</li>\n<li>Profile Completeness: 27%</li>\n<li>Confidence: medium</li>\n</ul>\n<h3>What is SEO?</h3>\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.</p><p><h3>What is GEO?</h3>\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.</p><p><h3>Current strengths</h3>\n<ul><li>✓ Business address detected</li>\n<li>✓ Business category identified</li>\n<li>✓ Discovery provider matched this business</li>\n</ul>\n<h3>Current weaknesses</h3>\n<ul><li>• No verified logo</li>\n<li>• Limited business description</li>\n<li>• No structured service information</li>\n<li>• Few business-specific images</li>\n<li>• Opening hours not available</li>\n<li>• Missing owner verification</li>\n</ul>\n<h3>Recommended next actions</h3>\n<ul><li>Verify ownership: Unlock management tools and confirm public information</li>\n<li>Upload official logo: Strengthen brand recognition across search and AI surfaces</li>\n<li>Improve business description: Help search engines and AI assistants understand your offer</li>\n<li>Add services: Structured services improve GEO readiness</li>\n<li>Add opening hours: Improves local SEO and customer trust</li>\n<li>Connect website: Primary online presence signal for SEO</li>\n<li>Publish first promotion: Signals an active business profile after claim</li>\n<li>Activate AI Performer: Receive evidence-backed growth recommendations after verification</li>\n</ul>\n<h3>Estimated improvement after claiming</h3>\n<ul><li>SEO: 28% → 53%</li>\n<li>GEO: 31% → 55%</li>\n<li>Profile: 27% → 53%</li>\n<li>Overall: 26% → 52%</li>\n<li>Business Readiness: 14% → 44%</li>\n</ul>\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.</p><p><h2>Business Health Score</h2></p><p><h3>Visibility</h3>\nPillar score: 30%\n<ul><li>SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.</li>\n<li>GEO: 31% — AI assistant readiness from category, description, services, and structured public data.</li>\n</ul>\n<h3>Trust</h3>\nPillar score: 42%\n<ul><li>Identity verification: 0% — Owner has not verified this business yet.</li>\n<li>Data consistency: 100% — Consistency across name, address, and provider-supplied fields.</li>\n<li>Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).</li>\n</ul>\n<h3>Content</h3>\nPillar score: 0%\n<ul><li>Logo: 0% — No logo on file.</li>\n<li>Images: 0% — No business images on file.</li>\n<li>Products: Not enough evidence — Not enough evidence — no product catalog found.</li>\n<li>Services: 0% — No structured services on file.</li>\n<li>Business description: 0% — No business description on file.</li>\n</ul>\n<h3>Customer Experience</h3>\nPillar score: 0%\n<ul><li>Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.</li>\n<li>Opening hours: 0% — Opening hours not available.</li>\n<li>Response information: 0% — Customer contact channels for enquiries.</li>\n</ul>\n<h3>Commerce Readiness</h3>\nPillar score: 0%\n<ul><li>Promotions: 0% — Available after claiming and activating your Business Space.</li>\n<li>Loyalty: 0% — Available after claiming — not yet activated.</li>\n<li>AI Performer: 0% — Available after claim and verification.</li>\n<li>Online ordering: 0% — Not enough evidence — requires owner activation.</li>\n<li>Digital assets: 0% — Website, social, and visual assets for digital commerce.</li>\n</ul>\n<strong>Overall Business Readiness: 14%</strong></p><p><h2>Owner benefits after claim</h2>\n<ul><li>Verify business details</li>\n<li>Correct business information</li>\n<li>Upload official images</li>\n<li>Publish offers</li>\n<li>Activate AI Performer</li>\n<li>Receive growth recommendations</li>\n</ul>\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.</body></html>"
+  },
+  {
+    "id": "ad554ecb-70c4-4d44-b6ed-13f4e5ca7a8e",
+    "candidateId": "seed:0c48a3bc-99a7-4992-aef1-6a5e125fb187",
+    "seedId": "0c48a3bc-99a7-4992-aef1-6a5e125fb187",
+    "batchId": "MELBOURNE_BATCH001_REAL_LOCAL",
+    "title": "Business Intelligence Brief — Cornerstone Espresso",
+    "summary": "Cardbey found public information for Cornerstone Espresso and prepared a starter brief for the owner to review. This cafe business has 3 observable strengths and 6 fields that may benefit from owner verification.",
+    "confidenceScore": 39,
+    "completenessScore": 27,
+    "evidenceJson": {
+      "discoveryStatus": "CLAIMABLE",
+      "confidenceScore": 0.6379999999999999,
+      "evidenceFound": [
+        "address",
+        "business_category",
+        "source_provider"
+      ],
+      "sourceProvider": "open_data_url",
+      "suburb": "Braybrook",
+      "address": "Braybrook",
+      "phone": null,
+      "website": null,
+      "coordinates": null,
+      "category": "food"
+    },
+    "missingFieldsJson": [
+      "logo",
+      "description",
+      "opening_hours",
+      "services",
+      "business_images",
+      "social_links"
+    ],
+    "recommendedActionsJson": [
+      {
+        "label": "Verify ownership",
+        "reason": "Unlock management tools and confirm public information"
+      },
+      {
+        "label": "Upload official logo",
+        "reason": "Strengthen brand recognition across search and AI surfaces"
+      },
+      {
+        "label": "Improve business description",
+        "reason": "Help search engines and AI assistants understand your offer"
+      },
+      {
+        "label": "Add services",
+        "reason": "Structured services improve GEO readiness"
+      },
+      {
+        "label": "Add opening hours",
+        "reason": "Improves local SEO and customer trust"
+      },
+      {
+        "label": "Connect website",
+        "reason": "Primary online presence signal for SEO"
+      },
+      {
+        "label": "Publish first promotion",
+        "reason": "Signals an active business profile after claim"
+      },
+      {
+        "label": "Activate AI Performer",
+        "reason": "Receive evidence-backed growth recommendations after verification"
+      }
+    ],
+    "mediaSummaryJson": {
+      "heroSource": "category_stock",
+      "representativeDisclosureRequired": true,
+      "confidenceSummary": null,
+      "missingMediaReasons": [
+        "No business-specific images on file"
+      ]
+    },
+    "visibility": {
+      "overall": 26,
+      "seoReadiness": 28,
+      "geoReadiness": 31,
+      "onlinePresence": 15,
+      "profileCompleteness": 27,
+      "confidenceLevel": "medium"
+    },
+    "visibilityEstimate": {
+      "seoReadiness": {
+        "current": 28,
+        "estimatedAfterClaim": 53
+      },
+      "geoReadiness": {
+        "current": 31,
+        "estimatedAfterClaim": 55
+      },
+      "profileCompleteness": {
+        "current": 27,
+        "estimatedAfterClaim": 53
+      },
+      "overall": {
+        "current": 26,
+        "estimatedAfterClaim": 52
+      },
+      "overallReadiness": {
+        "current": 14,
+        "estimatedAfterClaim": 44
+      },
+      "disclaimer": "These are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business."
+    },
+    "healthScore": {
+      "overallReadiness": 14,
+      "confidenceLevel": "medium",
+      "pillars": [
+        {
+          "key": "visibility",
+          "label": "Visibility",
+          "score": 30,
+          "subMetrics": [
+            {
+              "key": "seo",
+              "label": "SEO",
+              "score": 28,
+              "status": "evidence_found",
+              "detail": "Search engine discoverability from website, contact, hours, and profile signals."
+            },
+            {
+              "key": "geo",
+              "label": "GEO",
+              "score": 31,
+              "status": "evidence_found",
+              "detail": "AI assistant readiness from category, description, services, and structured public data."
+            }
+          ]
+        },
+        {
+          "key": "trust",
+          "label": "Trust",
+          "score": 42,
+          "subMetrics": [
+            {
+              "key": "identity_verification",
+              "label": "Identity verification",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Owner has not verified this business yet."
+            },
+            {
+              "key": "data_consistency",
+              "label": "Data consistency",
+              "score": 100,
+              "status": "evidence_found",
+              "detail": "Consistency across name, address, and provider-supplied fields."
+            },
+            {
+              "key": "contact_completeness",
+              "label": "Contact completeness",
+              "score": 25,
+              "status": "evidence_found",
+              "detail": "1 of 4 contact channels on file (phone, email, website, address)."
+            }
+          ]
+        },
+        {
+          "key": "content",
+          "label": "Content",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "logo",
+              "label": "Logo",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No logo on file."
+            },
+            {
+              "key": "images",
+              "label": "Images",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business images on file."
+            },
+            {
+              "key": "products",
+              "label": "Products",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no product catalog found."
+            },
+            {
+              "key": "services",
+              "label": "Services",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No structured services on file."
+            },
+            {
+              "key": "description",
+              "label": "Business description",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business description on file."
+            }
+          ]
+        },
+        {
+          "key": "customer_experience",
+          "label": "Customer Experience",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "reviews",
+              "label": "Reviews available",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no review data in provider sources."
+            },
+            {
+              "key": "opening_hours",
+              "label": "Opening hours",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Opening hours not available."
+            },
+            {
+              "key": "response_information",
+              "label": "Response information",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Customer contact channels for enquiries."
+            }
+          ]
+        },
+        {
+          "key": "commerce_readiness",
+          "label": "Commerce Readiness",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "promotions",
+              "label": "Promotions",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming and activating your Business Space."
+            },
+            {
+              "key": "loyalty",
+              "label": "Loyalty",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming — not yet activated."
+            },
+            {
+              "key": "ai_performer",
+              "label": "AI Performer",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claim and verification."
+            },
+            {
+              "key": "online_ordering",
+              "label": "Online ordering",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Not enough evidence — requires owner activation."
+            },
+            {
+              "key": "digital_assets",
+              "label": "Digital assets",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Website, social, and visual assets for digital commerce."
+            }
+          ]
+        }
+      ]
+    },
+    "strengths": [
+      "Business address detected",
+      "Business category identified",
+      "Discovery provider matched this business"
+    ],
+    "weaknesses": [
+      "No verified logo",
+      "Limited business description",
+      "No structured service information",
+      "Few business-specific images",
+      "Opening hours not available",
+      "Missing owner verification"
+    ],
+    "seoExplanation": "Search Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.",
+    "geoExplanation": "Generative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.",
+    "disclaimer": "This brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedPdfUrl": null,
+    "status": "ready",
+    "createdAt": "2026-07-08T12:57:28.440Z",
+    "updatedAt": "2026-07-08T12:57:28.440Z",
+    "downloadedAt": null,
+    "claimStartedAt": null,
+    "generatedMarkdown": "# Business Intelligence Brief\n\n**Cornerstone Espresso**\nCardbey found public information for Cornerstone Espresso and prepared a starter brief for the owner to review. This cafe business has 3 observable strengths and 6 fields that may benefit from owner verification.\n\n## Discovery\n- Status: CLAIMABLE\n- Category: food\n- Location: Braybrook\n- Confidence: 39%\n- Profile completeness: 27%\n- Source provider: open_data_url\n\n## Evidence found\n- address\n- business category\n- source provider\n\n## Missing fields\n- logo\n- description\n- opening hours\n- services\n- business images\n- social links\n\n## Business Visibility Report\n- Overall: 26%\n- SEO Readiness: 28%\n- GEO Readiness: 31%\n- Online Presence: 15%\n- Profile Completeness: 27%\n- Confidence: medium\n\n### What is SEO?\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.\n\n### What is GEO?\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.\n\n### Current strengths\n- ✓ Business address detected\n- ✓ Business category identified\n- ✓ Discovery provider matched this business\n\n### Current weaknesses\n- • No verified logo\n- • Limited business description\n- • No structured service information\n- • Few business-specific images\n- • Opening hours not available\n- • Missing owner verification\n\n### Recommended next actions\n- Verify ownership: Unlock management tools and confirm public information\n- Upload official logo: Strengthen brand recognition across search and AI surfaces\n- Improve business description: Help search engines and AI assistants understand your offer\n- Add services: Structured services improve GEO readiness\n- Add opening hours: Improves local SEO and customer trust\n- Connect website: Primary online presence signal for SEO\n- Publish first promotion: Signals an active business profile after claim\n- Activate AI Performer: Receive evidence-backed growth recommendations after verification\n\n### Estimated improvement after claiming\n- SEO: 28% → 53%\n- GEO: 31% → 55%\n- Profile: 27% → 53%\n- Overall: 26% → 52%\n- Business Readiness: 14% → 44%\n\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.\n\n## Business Health Score\n\n### Visibility\nPillar score: 30%\n- SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.\n- GEO: 31% — AI assistant readiness from category, description, services, and structured public data.\n\n### Trust\nPillar score: 42%\n- Identity verification: 0% — Owner has not verified this business yet.\n- Data consistency: 100% — Consistency across name, address, and provider-supplied fields.\n- Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).\n\n### Content\nPillar score: 0%\n- Logo: 0% — No logo on file.\n- Images: 0% — No business images on file.\n- Products: Not enough evidence — Not enough evidence — no product catalog found.\n- Services: 0% — No structured services on file.\n- Business description: 0% — No business description on file.\n\n### Customer Experience\nPillar score: 0%\n- Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.\n- Opening hours: 0% — Opening hours not available.\n- Response information: 0% — Customer contact channels for enquiries.\n\n### Commerce Readiness\nPillar score: 0%\n- Promotions: 0% — Available after claiming and activating your Business Space.\n- Loyalty: 0% — Available after claiming — not yet activated.\n- AI Performer: 0% — Available after claim and verification.\n- Online ordering: 0% — Not enough evidence — requires owner activation.\n- Digital assets: 0% — Website, social, and visual assets for digital commerce.\n\n**Overall Business Readiness: 14%**\n\n## Owner benefits after claim\n- Verify business details\n- Correct business information\n- Upload official images\n- Publish offers\n- Activate AI Performer\n- Receive growth recommendations\n\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedHtml": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Business Intelligence Brief — Cornerstone Espresso</title>\n<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.5;color:#1e293b}\nh1{color:#0f172a}h2{margin-top:1.5rem;color:#334155}ul{padding-left:1.25rem}</style></head>\n<body><h1>Business Intelligence Brief</h1></p><p><strong>Cornerstone Espresso</strong>\nCardbey found public information for Cornerstone Espresso and prepared a starter brief for the owner to review. This cafe business has 3 observable strengths and 6 fields that may benefit from owner verification.</p><p><h2>Discovery</h2>\n<ul><li>Status: CLAIMABLE</li>\n<li>Category: food</li>\n<li>Location: Braybrook</li>\n<li>Confidence: 39%</li>\n<li>Profile completeness: 27%</li>\n<li>Source provider: open_data_url</li>\n</ul>\n<h2>Evidence found</h2>\n<ul><li>address</li>\n<li>business category</li>\n<li>source provider</li>\n</ul>\n<h2>Missing fields</h2>\n<ul><li>logo</li>\n<li>description</li>\n<li>opening hours</li>\n<li>services</li>\n<li>business images</li>\n<li>social links</li>\n</ul>\n<h2>Business Visibility Report</h2>\n<ul><li>Overall: 26%</li>\n<li>SEO Readiness: 28%</li>\n<li>GEO Readiness: 31%</li>\n<li>Online Presence: 15%</li>\n<li>Profile Completeness: 27%</li>\n<li>Confidence: medium</li>\n</ul>\n<h3>What is SEO?</h3>\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.</p><p><h3>What is GEO?</h3>\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.</p><p><h3>Current strengths</h3>\n<ul><li>✓ Business address detected</li>\n<li>✓ Business category identified</li>\n<li>✓ Discovery provider matched this business</li>\n</ul>\n<h3>Current weaknesses</h3>\n<ul><li>• No verified logo</li>\n<li>• Limited business description</li>\n<li>• No structured service information</li>\n<li>• Few business-specific images</li>\n<li>• Opening hours not available</li>\n<li>• Missing owner verification</li>\n</ul>\n<h3>Recommended next actions</h3>\n<ul><li>Verify ownership: Unlock management tools and confirm public information</li>\n<li>Upload official logo: Strengthen brand recognition across search and AI surfaces</li>\n<li>Improve business description: Help search engines and AI assistants understand your offer</li>\n<li>Add services: Structured services improve GEO readiness</li>\n<li>Add opening hours: Improves local SEO and customer trust</li>\n<li>Connect website: Primary online presence signal for SEO</li>\n<li>Publish first promotion: Signals an active business profile after claim</li>\n<li>Activate AI Performer: Receive evidence-backed growth recommendations after verification</li>\n</ul>\n<h3>Estimated improvement after claiming</h3>\n<ul><li>SEO: 28% → 53%</li>\n<li>GEO: 31% → 55%</li>\n<li>Profile: 27% → 53%</li>\n<li>Overall: 26% → 52%</li>\n<li>Business Readiness: 14% → 44%</li>\n</ul>\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.</p><p><h2>Business Health Score</h2></p><p><h3>Visibility</h3>\nPillar score: 30%\n<ul><li>SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.</li>\n<li>GEO: 31% — AI assistant readiness from category, description, services, and structured public data.</li>\n</ul>\n<h3>Trust</h3>\nPillar score: 42%\n<ul><li>Identity verification: 0% — Owner has not verified this business yet.</li>\n<li>Data consistency: 100% — Consistency across name, address, and provider-supplied fields.</li>\n<li>Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).</li>\n</ul>\n<h3>Content</h3>\nPillar score: 0%\n<ul><li>Logo: 0% — No logo on file.</li>\n<li>Images: 0% — No business images on file.</li>\n<li>Products: Not enough evidence — Not enough evidence — no product catalog found.</li>\n<li>Services: 0% — No structured services on file.</li>\n<li>Business description: 0% — No business description on file.</li>\n</ul>\n<h3>Customer Experience</h3>\nPillar score: 0%\n<ul><li>Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.</li>\n<li>Opening hours: 0% — Opening hours not available.</li>\n<li>Response information: 0% — Customer contact channels for enquiries.</li>\n</ul>\n<h3>Commerce Readiness</h3>\nPillar score: 0%\n<ul><li>Promotions: 0% — Available after claiming and activating your Business Space.</li>\n<li>Loyalty: 0% — Available after claiming — not yet activated.</li>\n<li>AI Performer: 0% — Available after claim and verification.</li>\n<li>Online ordering: 0% — Not enough evidence — requires owner activation.</li>\n<li>Digital assets: 0% — Website, social, and visual assets for digital commerce.</li>\n</ul>\n<strong>Overall Business Readiness: 14%</strong></p><p><h2>Owner benefits after claim</h2>\n<ul><li>Verify business details</li>\n<li>Correct business information</li>\n<li>Upload official images</li>\n<li>Publish offers</li>\n<li>Activate AI Performer</li>\n<li>Receive growth recommendations</li>\n</ul>\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.</body></html>"
+  },
+  {
+    "id": "bbe930f8-dc94-4d36-a4c6-47cbaa223471",
+    "candidateId": "seed:145c96c7-fc80-4e74-81df-b52a172bb8fc",
+    "seedId": "145c96c7-fc80-4e74-81df-b52a172bb8fc",
+    "batchId": "MELBOURNE_BATCH001_REAL_LOCAL",
+    "title": "Business Intelligence Brief — Papa Bakehouse",
+    "summary": "Cardbey found public information for Papa Bakehouse and prepared a starter brief for the owner to review. This bakery business has 3 observable strengths and 6 fields that may benefit from owner verification.",
+    "confidenceScore": 39,
+    "completenessScore": 27,
+    "evidenceJson": {
+      "discoveryStatus": "CLAIMABLE",
+      "confidenceScore": 0.6379999999999999,
+      "evidenceFound": [
+        "address",
+        "business_category",
+        "source_provider"
+      ],
+      "sourceProvider": "open_data_url",
+      "suburb": "11 Market Place",
+      "address": "11 Market Place, Braybrook",
+      "phone": null,
+      "website": null,
+      "coordinates": null,
+      "category": "food"
+    },
+    "missingFieldsJson": [
+      "logo",
+      "description",
+      "opening_hours",
+      "services",
+      "business_images",
+      "social_links"
+    ],
+    "recommendedActionsJson": [
+      {
+        "label": "Verify ownership",
+        "reason": "Unlock management tools and confirm public information"
+      },
+      {
+        "label": "Upload official logo",
+        "reason": "Strengthen brand recognition across search and AI surfaces"
+      },
+      {
+        "label": "Improve business description",
+        "reason": "Help search engines and AI assistants understand your offer"
+      },
+      {
+        "label": "Add services",
+        "reason": "Structured services improve GEO readiness"
+      },
+      {
+        "label": "Add opening hours",
+        "reason": "Improves local SEO and customer trust"
+      },
+      {
+        "label": "Connect website",
+        "reason": "Primary online presence signal for SEO"
+      },
+      {
+        "label": "Publish first promotion",
+        "reason": "Signals an active business profile after claim"
+      },
+      {
+        "label": "Activate AI Performer",
+        "reason": "Receive evidence-backed growth recommendations after verification"
+      }
+    ],
+    "mediaSummaryJson": {
+      "heroSource": "category_stock",
+      "representativeDisclosureRequired": true,
+      "confidenceSummary": null,
+      "missingMediaReasons": [
+        "No business-specific images on file"
+      ]
+    },
+    "visibility": {
+      "overall": 26,
+      "seoReadiness": 28,
+      "geoReadiness": 31,
+      "onlinePresence": 15,
+      "profileCompleteness": 27,
+      "confidenceLevel": "medium"
+    },
+    "visibilityEstimate": {
+      "seoReadiness": {
+        "current": 28,
+        "estimatedAfterClaim": 53
+      },
+      "geoReadiness": {
+        "current": 31,
+        "estimatedAfterClaim": 55
+      },
+      "profileCompleteness": {
+        "current": 27,
+        "estimatedAfterClaim": 53
+      },
+      "overall": {
+        "current": 26,
+        "estimatedAfterClaim": 52
+      },
+      "overallReadiness": {
+        "current": 14,
+        "estimatedAfterClaim": 44
+      },
+      "disclaimer": "These are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business."
+    },
+    "healthScore": {
+      "overallReadiness": 14,
+      "confidenceLevel": "medium",
+      "pillars": [
+        {
+          "key": "visibility",
+          "label": "Visibility",
+          "score": 30,
+          "subMetrics": [
+            {
+              "key": "seo",
+              "label": "SEO",
+              "score": 28,
+              "status": "evidence_found",
+              "detail": "Search engine discoverability from website, contact, hours, and profile signals."
+            },
+            {
+              "key": "geo",
+              "label": "GEO",
+              "score": 31,
+              "status": "evidence_found",
+              "detail": "AI assistant readiness from category, description, services, and structured public data."
+            }
+          ]
+        },
+        {
+          "key": "trust",
+          "label": "Trust",
+          "score": 42,
+          "subMetrics": [
+            {
+              "key": "identity_verification",
+              "label": "Identity verification",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Owner has not verified this business yet."
+            },
+            {
+              "key": "data_consistency",
+              "label": "Data consistency",
+              "score": 100,
+              "status": "evidence_found",
+              "detail": "Consistency across name, address, and provider-supplied fields."
+            },
+            {
+              "key": "contact_completeness",
+              "label": "Contact completeness",
+              "score": 25,
+              "status": "evidence_found",
+              "detail": "1 of 4 contact channels on file (phone, email, website, address)."
+            }
+          ]
+        },
+        {
+          "key": "content",
+          "label": "Content",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "logo",
+              "label": "Logo",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No logo on file."
+            },
+            {
+              "key": "images",
+              "label": "Images",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business images on file."
+            },
+            {
+              "key": "products",
+              "label": "Products",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no product catalog found."
+            },
+            {
+              "key": "services",
+              "label": "Services",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No structured services on file."
+            },
+            {
+              "key": "description",
+              "label": "Business description",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business description on file."
+            }
+          ]
+        },
+        {
+          "key": "customer_experience",
+          "label": "Customer Experience",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "reviews",
+              "label": "Reviews available",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no review data in provider sources."
+            },
+            {
+              "key": "opening_hours",
+              "label": "Opening hours",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Opening hours not available."
+            },
+            {
+              "key": "response_information",
+              "label": "Response information",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Customer contact channels for enquiries."
+            }
+          ]
+        },
+        {
+          "key": "commerce_readiness",
+          "label": "Commerce Readiness",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "promotions",
+              "label": "Promotions",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming and activating your Business Space."
+            },
+            {
+              "key": "loyalty",
+              "label": "Loyalty",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming — not yet activated."
+            },
+            {
+              "key": "ai_performer",
+              "label": "AI Performer",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claim and verification."
+            },
+            {
+              "key": "online_ordering",
+              "label": "Online ordering",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Not enough evidence — requires owner activation."
+            },
+            {
+              "key": "digital_assets",
+              "label": "Digital assets",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Website, social, and visual assets for digital commerce."
+            }
+          ]
+        }
+      ]
+    },
+    "strengths": [
+      "Business address detected",
+      "Business category identified",
+      "Discovery provider matched this business"
+    ],
+    "weaknesses": [
+      "No verified logo",
+      "Limited business description",
+      "No structured service information",
+      "Few business-specific images",
+      "Opening hours not available",
+      "Missing owner verification"
+    ],
+    "seoExplanation": "Search Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.",
+    "geoExplanation": "Generative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.",
+    "disclaimer": "This brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedPdfUrl": null,
+    "status": "ready",
+    "createdAt": "2026-07-08T23:56:46.368Z",
+    "updatedAt": "2026-07-08T23:56:46.368Z",
+    "downloadedAt": null,
+    "claimStartedAt": null,
+    "generatedMarkdown": "# Business Intelligence Brief\n\n**Papa Bakehouse**\nCardbey found public information for Papa Bakehouse and prepared a starter brief for the owner to review. This bakery business has 3 observable strengths and 6 fields that may benefit from owner verification.\n\n## Discovery\n- Status: CLAIMABLE\n- Category: food\n- Location: 11 Market Place\n- Confidence: 39%\n- Profile completeness: 27%\n- Source provider: open_data_url\n\n## Evidence found\n- address\n- business category\n- source provider\n\n## Missing fields\n- logo\n- description\n- opening hours\n- services\n- business images\n- social links\n\n## Business Visibility Report\n- Overall: 26%\n- SEO Readiness: 28%\n- GEO Readiness: 31%\n- Online Presence: 15%\n- Profile Completeness: 27%\n- Confidence: medium\n\n### What is SEO?\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.\n\n### What is GEO?\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.\n\n### Current strengths\n- ✓ Business address detected\n- ✓ Business category identified\n- ✓ Discovery provider matched this business\n\n### Current weaknesses\n- • No verified logo\n- • Limited business description\n- • No structured service information\n- • Few business-specific images\n- • Opening hours not available\n- • Missing owner verification\n\n### Recommended next actions\n- Verify ownership: Unlock management tools and confirm public information\n- Upload official logo: Strengthen brand recognition across search and AI surfaces\n- Improve business description: Help search engines and AI assistants understand your offer\n- Add services: Structured services improve GEO readiness\n- Add opening hours: Improves local SEO and customer trust\n- Connect website: Primary online presence signal for SEO\n- Publish first promotion: Signals an active business profile after claim\n- Activate AI Performer: Receive evidence-backed growth recommendations after verification\n\n### Estimated improvement after claiming\n- SEO: 28% → 53%\n- GEO: 31% → 55%\n- Profile: 27% → 53%\n- Overall: 26% → 52%\n- Business Readiness: 14% → 44%\n\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.\n\n## Business Health Score\n\n### Visibility\nPillar score: 30%\n- SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.\n- GEO: 31% — AI assistant readiness from category, description, services, and structured public data.\n\n### Trust\nPillar score: 42%\n- Identity verification: 0% — Owner has not verified this business yet.\n- Data consistency: 100% — Consistency across name, address, and provider-supplied fields.\n- Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).\n\n### Content\nPillar score: 0%\n- Logo: 0% — No logo on file.\n- Images: 0% — No business images on file.\n- Products: Not enough evidence — Not enough evidence — no product catalog found.\n- Services: 0% — No structured services on file.\n- Business description: 0% — No business description on file.\n\n### Customer Experience\nPillar score: 0%\n- Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.\n- Opening hours: 0% — Opening hours not available.\n- Response information: 0% — Customer contact channels for enquiries.\n\n### Commerce Readiness\nPillar score: 0%\n- Promotions: 0% — Available after claiming and activating your Business Space.\n- Loyalty: 0% — Available after claiming — not yet activated.\n- AI Performer: 0% — Available after claim and verification.\n- Online ordering: 0% — Not enough evidence — requires owner activation.\n- Digital assets: 0% — Website, social, and visual assets for digital commerce.\n\n**Overall Business Readiness: 14%**\n\n## Owner benefits after claim\n- Verify business details\n- Correct business information\n- Upload official images\n- Publish offers\n- Activate AI Performer\n- Receive growth recommendations\n\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedHtml": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Business Intelligence Brief — Papa Bakehouse</title>\n<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.5;color:#1e293b}\nh1{color:#0f172a}h2{margin-top:1.5rem;color:#334155}ul{padding-left:1.25rem}</style></head>\n<body><h1>Business Intelligence Brief</h1></p><p><strong>Papa Bakehouse</strong>\nCardbey found public information for Papa Bakehouse and prepared a starter brief for the owner to review. This bakery business has 3 observable strengths and 6 fields that may benefit from owner verification.</p><p><h2>Discovery</h2>\n<ul><li>Status: CLAIMABLE</li>\n<li>Category: food</li>\n<li>Location: 11 Market Place</li>\n<li>Confidence: 39%</li>\n<li>Profile completeness: 27%</li>\n<li>Source provider: open_data_url</li>\n</ul>\n<h2>Evidence found</h2>\n<ul><li>address</li>\n<li>business category</li>\n<li>source provider</li>\n</ul>\n<h2>Missing fields</h2>\n<ul><li>logo</li>\n<li>description</li>\n<li>opening hours</li>\n<li>services</li>\n<li>business images</li>\n<li>social links</li>\n</ul>\n<h2>Business Visibility Report</h2>\n<ul><li>Overall: 26%</li>\n<li>SEO Readiness: 28%</li>\n<li>GEO Readiness: 31%</li>\n<li>Online Presence: 15%</li>\n<li>Profile Completeness: 27%</li>\n<li>Confidence: medium</li>\n</ul>\n<h3>What is SEO?</h3>\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.</p><p><h3>What is GEO?</h3>\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.</p><p><h3>Current strengths</h3>\n<ul><li>✓ Business address detected</li>\n<li>✓ Business category identified</li>\n<li>✓ Discovery provider matched this business</li>\n</ul>\n<h3>Current weaknesses</h3>\n<ul><li>• No verified logo</li>\n<li>• Limited business description</li>\n<li>• No structured service information</li>\n<li>• Few business-specific images</li>\n<li>• Opening hours not available</li>\n<li>• Missing owner verification</li>\n</ul>\n<h3>Recommended next actions</h3>\n<ul><li>Verify ownership: Unlock management tools and confirm public information</li>\n<li>Upload official logo: Strengthen brand recognition across search and AI surfaces</li>\n<li>Improve business description: Help search engines and AI assistants understand your offer</li>\n<li>Add services: Structured services improve GEO readiness</li>\n<li>Add opening hours: Improves local SEO and customer trust</li>\n<li>Connect website: Primary online presence signal for SEO</li>\n<li>Publish first promotion: Signals an active business profile after claim</li>\n<li>Activate AI Performer: Receive evidence-backed growth recommendations after verification</li>\n</ul>\n<h3>Estimated improvement after claiming</h3>\n<ul><li>SEO: 28% → 53%</li>\n<li>GEO: 31% → 55%</li>\n<li>Profile: 27% → 53%</li>\n<li>Overall: 26% → 52%</li>\n<li>Business Readiness: 14% → 44%</li>\n</ul>\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.</p><p><h2>Business Health Score</h2></p><p><h3>Visibility</h3>\nPillar score: 30%\n<ul><li>SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.</li>\n<li>GEO: 31% — AI assistant readiness from category, description, services, and structured public data.</li>\n</ul>\n<h3>Trust</h3>\nPillar score: 42%\n<ul><li>Identity verification: 0% — Owner has not verified this business yet.</li>\n<li>Data consistency: 100% — Consistency across name, address, and provider-supplied fields.</li>\n<li>Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).</li>\n</ul>\n<h3>Content</h3>\nPillar score: 0%\n<ul><li>Logo: 0% — No logo on file.</li>\n<li>Images: 0% — No business images on file.</li>\n<li>Products: Not enough evidence — Not enough evidence — no product catalog found.</li>\n<li>Services: 0% — No structured services on file.</li>\n<li>Business description: 0% — No business description on file.</li>\n</ul>\n<h3>Customer Experience</h3>\nPillar score: 0%\n<ul><li>Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.</li>\n<li>Opening hours: 0% — Opening hours not available.</li>\n<li>Response information: 0% — Customer contact channels for enquiries.</li>\n</ul>\n<h3>Commerce Readiness</h3>\nPillar score: 0%\n<ul><li>Promotions: 0% — Available after claiming and activating your Business Space.</li>\n<li>Loyalty: 0% — Available after claiming — not yet activated.</li>\n<li>AI Performer: 0% — Available after claim and verification.</li>\n<li>Online ordering: 0% — Not enough evidence — requires owner activation.</li>\n<li>Digital assets: 0% — Website, social, and visual assets for digital commerce.</li>\n</ul>\n<strong>Overall Business Readiness: 14%</strong></p><p><h2>Owner benefits after claim</h2>\n<ul><li>Verify business details</li>\n<li>Correct business information</li>\n<li>Upload official images</li>\n<li>Publish offers</li>\n<li>Activate AI Performer</li>\n<li>Receive growth recommendations</li>\n</ul>\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.</body></html>"
+  },
+  {
+    "id": "cdc56716-8b80-4cd7-a23d-bf61ebded3d9",
+    "candidateId": "seed:3eb6c881-5b55-484d-9521-72998a4e9cf4",
+    "seedId": "3eb6c881-5b55-484d-9521-72998a4e9cf4",
+    "batchId": "MELBOURNE_BATCH001_REAL_LOCAL",
+    "title": "Business Intelligence Brief — The Cheesecake",
+    "summary": "Cardbey found public information for The Cheesecake and prepared a starter brief for the owner to review. This restaurant business has 3 observable strengths and 6 fields that may benefit from owner verification.",
+    "confidenceScore": 39,
+    "completenessScore": 27,
+    "evidenceJson": {
+      "discoveryStatus": "CLAIMABLE",
+      "confidenceScore": 0.6379999999999999,
+      "evidenceFound": [
+        "address",
+        "business_category",
+        "source_provider"
+      ],
+      "sourceProvider": "open_data_url",
+      "suburb": "Braybrook",
+      "address": "Braybrook",
+      "phone": null,
+      "website": null,
+      "coordinates": null,
+      "category": "food"
+    },
+    "missingFieldsJson": [
+      "logo",
+      "description",
+      "opening_hours",
+      "services",
+      "business_images",
+      "social_links"
+    ],
+    "recommendedActionsJson": [
+      {
+        "label": "Verify ownership",
+        "reason": "Unlock management tools and confirm public information"
+      },
+      {
+        "label": "Upload official logo",
+        "reason": "Strengthen brand recognition across search and AI surfaces"
+      },
+      {
+        "label": "Improve business description",
+        "reason": "Help search engines and AI assistants understand your offer"
+      },
+      {
+        "label": "Add services",
+        "reason": "Structured services improve GEO readiness"
+      },
+      {
+        "label": "Add opening hours",
+        "reason": "Improves local SEO and customer trust"
+      },
+      {
+        "label": "Connect website",
+        "reason": "Primary online presence signal for SEO"
+      },
+      {
+        "label": "Publish first promotion",
+        "reason": "Signals an active business profile after claim"
+      },
+      {
+        "label": "Activate AI Performer",
+        "reason": "Receive evidence-backed growth recommendations after verification"
+      }
+    ],
+    "mediaSummaryJson": {
+      "heroSource": "category_stock",
+      "representativeDisclosureRequired": true,
+      "confidenceSummary": null,
+      "missingMediaReasons": [
+        "No business-specific images on file"
+      ]
+    },
+    "visibility": {
+      "overall": 26,
+      "seoReadiness": 28,
+      "geoReadiness": 31,
+      "onlinePresence": 15,
+      "profileCompleteness": 27,
+      "confidenceLevel": "medium"
+    },
+    "visibilityEstimate": {
+      "seoReadiness": {
+        "current": 28,
+        "estimatedAfterClaim": 53
+      },
+      "geoReadiness": {
+        "current": 31,
+        "estimatedAfterClaim": 55
+      },
+      "profileCompleteness": {
+        "current": 27,
+        "estimatedAfterClaim": 53
+      },
+      "overall": {
+        "current": 26,
+        "estimatedAfterClaim": 52
+      },
+      "overallReadiness": {
+        "current": 14,
+        "estimatedAfterClaim": 44
+      },
+      "disclaimer": "These are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business."
+    },
+    "healthScore": {
+      "overallReadiness": 14,
+      "confidenceLevel": "medium",
+      "pillars": [
+        {
+          "key": "visibility",
+          "label": "Visibility",
+          "score": 30,
+          "subMetrics": [
+            {
+              "key": "seo",
+              "label": "SEO",
+              "score": 28,
+              "status": "evidence_found",
+              "detail": "Search engine discoverability from website, contact, hours, and profile signals."
+            },
+            {
+              "key": "geo",
+              "label": "GEO",
+              "score": 31,
+              "status": "evidence_found",
+              "detail": "AI assistant readiness from category, description, services, and structured public data."
+            }
+          ]
+        },
+        {
+          "key": "trust",
+          "label": "Trust",
+          "score": 42,
+          "subMetrics": [
+            {
+              "key": "identity_verification",
+              "label": "Identity verification",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Owner has not verified this business yet."
+            },
+            {
+              "key": "data_consistency",
+              "label": "Data consistency",
+              "score": 100,
+              "status": "evidence_found",
+              "detail": "Consistency across name, address, and provider-supplied fields."
+            },
+            {
+              "key": "contact_completeness",
+              "label": "Contact completeness",
+              "score": 25,
+              "status": "evidence_found",
+              "detail": "1 of 4 contact channels on file (phone, email, website, address)."
+            }
+          ]
+        },
+        {
+          "key": "content",
+          "label": "Content",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "logo",
+              "label": "Logo",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No logo on file."
+            },
+            {
+              "key": "images",
+              "label": "Images",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business images on file."
+            },
+            {
+              "key": "products",
+              "label": "Products",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no product catalog found."
+            },
+            {
+              "key": "services",
+              "label": "Services",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No structured services on file."
+            },
+            {
+              "key": "description",
+              "label": "Business description",
+              "score": 0,
+              "status": "not_found",
+              "detail": "No business description on file."
+            }
+          ]
+        },
+        {
+          "key": "customer_experience",
+          "label": "Customer Experience",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "reviews",
+              "label": "Reviews available",
+              "score": null,
+              "status": "insufficient_evidence",
+              "detail": "Not enough evidence — no review data in provider sources."
+            },
+            {
+              "key": "opening_hours",
+              "label": "Opening hours",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Opening hours not available."
+            },
+            {
+              "key": "response_information",
+              "label": "Response information",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Customer contact channels for enquiries."
+            }
+          ]
+        },
+        {
+          "key": "commerce_readiness",
+          "label": "Commerce Readiness",
+          "score": 0,
+          "subMetrics": [
+            {
+              "key": "promotions",
+              "label": "Promotions",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming and activating your Business Space."
+            },
+            {
+              "key": "loyalty",
+              "label": "Loyalty",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claiming — not yet activated."
+            },
+            {
+              "key": "ai_performer",
+              "label": "AI Performer",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Available after claim and verification."
+            },
+            {
+              "key": "online_ordering",
+              "label": "Online ordering",
+              "score": 0,
+              "status": "post_claim",
+              "detail": "Not enough evidence — requires owner activation."
+            },
+            {
+              "key": "digital_assets",
+              "label": "Digital assets",
+              "score": 0,
+              "status": "not_found",
+              "detail": "Website, social, and visual assets for digital commerce."
+            }
+          ]
+        }
+      ]
+    },
+    "strengths": [
+      "Business address detected",
+      "Business category identified",
+      "Discovery provider matched this business"
+    ],
+    "weaknesses": [
+      "No verified logo",
+      "Limited business description",
+      "No structured service information",
+      "Few business-specific images",
+      "Opening hours not available",
+      "Missing owner verification"
+    ],
+    "seoExplanation": "Search Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.",
+    "geoExplanation": "Generative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.",
+    "disclaimer": "This brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedPdfUrl": null,
+    "status": "ready",
+    "createdAt": "2026-07-09T00:28:33.043Z",
+    "updatedAt": "2026-07-09T00:28:33.043Z",
+    "downloadedAt": null,
+    "claimStartedAt": null,
+    "generatedMarkdown": "# Business Intelligence Brief\n\n**The Cheesecake**\nCardbey found public information for The Cheesecake and prepared a starter brief for the owner to review. This restaurant business has 3 observable strengths and 6 fields that may benefit from owner verification.\n\n## Discovery\n- Status: CLAIMABLE\n- Category: food\n- Location: Braybrook\n- Confidence: 39%\n- Profile completeness: 27%\n- Source provider: open_data_url\n\n## Evidence found\n- address\n- business category\n- source provider\n\n## Missing fields\n- logo\n- description\n- opening hours\n- services\n- business images\n- social links\n\n## Business Visibility Report\n- Overall: 26%\n- SEO Readiness: 28%\n- GEO Readiness: 31%\n- Online Presence: 15%\n- Profile Completeness: 27%\n- Confidence: medium\n\n### What is SEO?\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.\n\n### What is GEO?\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.\n\n### Current strengths\n- ✓ Business address detected\n- ✓ Business category identified\n- ✓ Discovery provider matched this business\n\n### Current weaknesses\n- • No verified logo\n- • Limited business description\n- • No structured service information\n- • Few business-specific images\n- • Opening hours not available\n- • Missing owner verification\n\n### Recommended next actions\n- Verify ownership: Unlock management tools and confirm public information\n- Upload official logo: Strengthen brand recognition across search and AI surfaces\n- Improve business description: Help search engines and AI assistants understand your offer\n- Add services: Structured services improve GEO readiness\n- Add opening hours: Improves local SEO and customer trust\n- Connect website: Primary online presence signal for SEO\n- Publish first promotion: Signals an active business profile after claim\n- Activate AI Performer: Receive evidence-backed growth recommendations after verification\n\n### Estimated improvement after claiming\n- SEO: 28% → 53%\n- GEO: 31% → 55%\n- Profile: 27% → 53%\n- Overall: 26% → 52%\n- Business Readiness: 14% → 44%\n\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.\n\n## Business Health Score\n\n### Visibility\nPillar score: 30%\n- SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.\n- GEO: 31% — AI assistant readiness from category, description, services, and structured public data.\n\n### Trust\nPillar score: 42%\n- Identity verification: 0% — Owner has not verified this business yet.\n- Data consistency: 100% — Consistency across name, address, and provider-supplied fields.\n- Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).\n\n### Content\nPillar score: 0%\n- Logo: 0% — No logo on file.\n- Images: 0% — No business images on file.\n- Products: Not enough evidence — Not enough evidence — no product catalog found.\n- Services: 0% — No structured services on file.\n- Business description: 0% — No business description on file.\n\n### Customer Experience\nPillar score: 0%\n- Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.\n- Opening hours: 0% — Opening hours not available.\n- Response information: 0% — Customer contact channels for enquiries.\n\n### Commerce Readiness\nPillar score: 0%\n- Promotions: 0% — Available after claiming and activating your Business Space.\n- Loyalty: 0% — Available after claiming — not yet activated.\n- AI Performer: 0% — Available after claim and verification.\n- Online ordering: 0% — Not enough evidence — requires owner activation.\n- Digital assets: 0% — Website, social, and visual assets for digital commerce.\n\n**Overall Business Readiness: 14%**\n\n## Owner benefits after claim\n- Verify business details\n- Correct business information\n- Upload official images\n- Publish offers\n- Activate AI Performer\n- Receive growth recommendations\n\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.",
+    "generatedHtml": "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Business Intelligence Brief — The Cheesecake</title>\n<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.5;color:#1e293b}\nh1{color:#0f172a}h2{margin-top:1.5rem;color:#334155}ul{padding-left:1.25rem}</style></head>\n<body><h1>Business Intelligence Brief</h1></p><p><strong>The Cheesecake</strong>\nCardbey found public information for The Cheesecake and prepared a starter brief for the owner to review. This restaurant business has 3 observable strengths and 6 fields that may benefit from owner verification.</p><p><h2>Discovery</h2>\n<ul><li>Status: CLAIMABLE</li>\n<li>Category: food</li>\n<li>Location: Braybrook</li>\n<li>Confidence: 39%</li>\n<li>Profile completeness: 27%</li>\n<li>Source provider: open_data_url</li>\n</ul>\n<h2>Evidence found</h2>\n<ul><li>address</li>\n<li>business category</li>\n<li>source provider</li>\n</ul>\n<h2>Missing fields</h2>\n<ul><li>logo</li>\n<li>description</li>\n<li>opening hours</li>\n<li>services</li>\n<li>business images</li>\n<li>social links</li>\n</ul>\n<h2>Business Visibility Report</h2>\n<ul><li>Overall: 26%</li>\n<li>SEO Readiness: 28%</li>\n<li>GEO Readiness: 31%</li>\n<li>Online Presence: 15%</li>\n<li>Profile Completeness: 27%</li>\n<li>Confidence: medium</li>\n</ul>\n<h3>What is SEO?</h3>\nSearch Engine Optimization (SEO) helps customers find your business through Google and other search engines. Better SEO generally increases website visits, enquiries, and local visibility.</p><p><h3>What is GEO?</h3>\nGenerative Engine Optimization (GEO) helps AI assistants such as ChatGPT, Gemini, Claude, and other AI search experiences understand and recommend your business accurately. As AI-powered search becomes more common, GEO improves the likelihood that your business appears in AI-generated recommendations.</p><p><h3>Current strengths</h3>\n<ul><li>✓ Business address detected</li>\n<li>✓ Business category identified</li>\n<li>✓ Discovery provider matched this business</li>\n</ul>\n<h3>Current weaknesses</h3>\n<ul><li>• No verified logo</li>\n<li>• Limited business description</li>\n<li>• No structured service information</li>\n<li>• Few business-specific images</li>\n<li>• Opening hours not available</li>\n<li>• Missing owner verification</li>\n</ul>\n<h3>Recommended next actions</h3>\n<ul><li>Verify ownership: Unlock management tools and confirm public information</li>\n<li>Upload official logo: Strengthen brand recognition across search and AI surfaces</li>\n<li>Improve business description: Help search engines and AI assistants understand your offer</li>\n<li>Add services: Structured services improve GEO readiness</li>\n<li>Add opening hours: Improves local SEO and customer trust</li>\n<li>Connect website: Primary online presence signal for SEO</li>\n<li>Publish first promotion: Signals an active business profile after claim</li>\n<li>Activate AI Performer: Receive evidence-backed growth recommendations after verification</li>\n</ul>\n<h3>Estimated improvement after claiming</h3>\n<ul><li>SEO: 28% → 53%</li>\n<li>GEO: 31% → 55%</li>\n<li>Profile: 27% → 53%</li>\n<li>Overall: 26% → 52%</li>\n<li>Business Readiness: 14% → 44%</li>\n</ul>\nThese are estimated readiness improvements only. Do not imply guaranteed rankings or business results. Improving these areas generally increases the likelihood that customers and AI systems can discover accurate information about your business.</p><p><h2>Business Health Score</h2></p><p><h3>Visibility</h3>\nPillar score: 30%\n<ul><li>SEO: 28% — Search engine discoverability from website, contact, hours, and profile signals.</li>\n<li>GEO: 31% — AI assistant readiness from category, description, services, and structured public data.</li>\n</ul>\n<h3>Trust</h3>\nPillar score: 42%\n<ul><li>Identity verification: 0% — Owner has not verified this business yet.</li>\n<li>Data consistency: 100% — Consistency across name, address, and provider-supplied fields.</li>\n<li>Contact completeness: 25% — 1 of 4 contact channels on file (phone, email, website, address).</li>\n</ul>\n<h3>Content</h3>\nPillar score: 0%\n<ul><li>Logo: 0% — No logo on file.</li>\n<li>Images: 0% — No business images on file.</li>\n<li>Products: Not enough evidence — Not enough evidence — no product catalog found.</li>\n<li>Services: 0% — No structured services on file.</li>\n<li>Business description: 0% — No business description on file.</li>\n</ul>\n<h3>Customer Experience</h3>\nPillar score: 0%\n<ul><li>Reviews available: Not enough evidence — Not enough evidence — no review data in provider sources.</li>\n<li>Opening hours: 0% — Opening hours not available.</li>\n<li>Response information: 0% — Customer contact channels for enquiries.</li>\n</ul>\n<h3>Commerce Readiness</h3>\nPillar score: 0%\n<ul><li>Promotions: 0% — Available after claiming and activating your Business Space.</li>\n<li>Loyalty: 0% — Available after claiming — not yet activated.</li>\n<li>AI Performer: 0% — Available after claim and verification.</li>\n<li>Online ordering: 0% — Not enough evidence — requires owner activation.</li>\n<li>Digital assets: 0% — Website, social, and visual assets for digital commerce.</li>\n</ul>\n<strong>Overall Business Readiness: 14%</strong></p><p><h2>Owner benefits after claim</h2>\n<ul><li>Verify business details</li>\n<li>Correct business information</li>\n<li>Upload official images</li>\n<li>Publish offers</li>\n<li>Activate AI Performer</li>\n<li>Receive growth recommendations</li>\n</ul>\n---\nThis brief is generated from publicly available or provider-supplied information and should be verified by the business owner.</body></html>"
+  }
+]

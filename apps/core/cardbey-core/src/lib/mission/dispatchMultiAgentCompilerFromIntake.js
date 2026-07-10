@@ -7,6 +7,7 @@ import { generateExecutionPlan } from './generateExecutionPlan.js';
 import { shouldUseMultiAgentCompiler } from './intentCompilerBridge.js';
 import { intakeMessage } from '../intake/performerIntakeMessageCatalog.js';
 import { RISK } from '../intake/intakeToolRegistry.js';
+import { resolveStoreForIntakeTool } from './executionContextKernel.js';
 
 function pickString(...values) {
   for (const value of values) {
@@ -50,6 +51,7 @@ export function resolveCompilerHandoffFields(input = {}) {
  * @returns {Promise<
  *   | { kind: 'auth_required' }
  *   | { kind: 'store_required' }
+ *   | { kind: 'execution_context_required'; clarify: object }
  *   | { kind: 'compiled'; responseBody: object; telemetry: object; missionId: string }
  *   | { kind: 'failed'; statusCode: number; responseBody: object }
  * >}
@@ -71,13 +73,34 @@ export async function runMultiAgentCompilerFromIntake(deps) {
     return { kind: 'auth_required' };
   }
 
-  const { storeId, intentText, sessionId: resolvedSessionId, missionId } = resolveCompilerHandoffFields({
+  const handoff = resolveCompilerHandoffFields({
     classification,
     userMessage,
     storeId: storeIdFromDeps,
     sessionId,
     missionId: missionIdFromDeps,
   });
+
+  const resolution = await resolveStoreForIntakeTool({
+    userId: actorId,
+    tool: 'create_campaign',
+    userMessage,
+    classification,
+    hintedStoreId: pickString(storeIdFromDeps, handoff.storeId),
+  });
+
+  if (!resolution.resolved) {
+    if (resolution.clarify) {
+      return { kind: 'execution_context_required', clarify: resolution.clarify };
+    }
+    return { kind: 'store_required' };
+  }
+
+  const storeId = pickString(resolution.storeId, handoff.storeId);
+  const executionContext = resolution.executionContext ?? null;
+  const intentText = handoff.intentText;
+  const resolvedSessionId = handoff.sessionId;
+  const missionId = handoff.missionId;
 
   if (!storeId) {
     return { kind: 'store_required' };
@@ -107,8 +130,8 @@ export async function runMultiAgentCompilerFromIntake(deps) {
           classification?.parameters &&
           typeof classification.parameters === 'object' &&
           !Array.isArray(classification.parameters)
-            ? classification.parameters
-            : {},
+            ? { ...classification.parameters, storeId }
+            : { storeId },
       },
       storeId,
       resolvedSessionId,
@@ -117,6 +140,7 @@ export async function runMultiAgentCompilerFromIntake(deps) {
         userId: actorId,
         tenantId,
         locale,
+        executionContext,
       },
     );
 
@@ -126,6 +150,8 @@ export async function runMultiAgentCompilerFromIntake(deps) {
       responseBody: {
         ...planResult.response,
         storeId,
+        executionContext,
+        selectedStore: executionContext?.selectedStore ?? null,
         auditSource,
       },
       telemetry: {
@@ -137,6 +163,7 @@ export async function runMultiAgentCompilerFromIntake(deps) {
             storeId,
             campaignContext: text,
             confirmed: classification?.parameters?.confirmed === true,
+            selectionMethod: executionContext?.selectionMethod ?? null,
           },
         },
         validated: true,
@@ -187,13 +214,37 @@ export async function respondMultiAgentCompilerDispatch(res, result, ctx) {
     return res;
   }
 
+  if (result.kind === 'execution_context_required' && result.clarify) {
+    await safeJson(result.clarify, {
+      classification: {
+        executionPath: 'resolve_execution_context',
+        tool: 'create_campaign',
+        confidence: 1,
+        lockedTool: 'create_campaign',
+        _requiresStore: true,
+        requiresStore: true,
+      },
+      validated: true,
+      downgraded: true,
+      downgradeReason: 'requires_execution_context',
+      validationErrors: [],
+      riskLevel: RISK.STATE_CHANGE,
+      result: 'clarify_store',
+    });
+    return res;
+  }
+
   if (result.kind === 'store_required') {
     await safeJson(
       {
         success: true,
-        action: 'clarify',
+        action: 'clarify_store',
+        clarifyType: 'execution_context_store_picker',
         response: intakeMessage('campaignRequiresStore', locale),
+        message: intakeMessage('campaignRequiresStore', locale),
         options: [],
+        missingContext: ['store'],
+        lockedTool: 'create_campaign',
       },
       {
         classification: { executionPath: 'multi_agent_compile', tool: 'create_campaign', confidence: 1 },

@@ -418,3 +418,29 @@ export function requireStoreAccess(req, res, next) {
   next();
 }
 
+/**
+ * Require authenticated user owns the store in :storeId route param.
+ */
+export async function requireStoreOwner(req, res, next) {
+  try {
+    const storeId = String(req.params.storeId ?? '').trim();
+    if (!storeId) {
+      return res.status(400).json({ ok: false, error: 'storeId required' });
+    }
+    const store = await prisma.business.findUnique({
+      where: { id: storeId },
+      select: { id: true, userId: true, name: true, type: true },
+    });
+    if (!store) {
+      return res.status(404).json({ ok: false, error: 'store_not_found' });
+    }
+    if (store.userId !== req.userId) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    req.storeRecord = store;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+

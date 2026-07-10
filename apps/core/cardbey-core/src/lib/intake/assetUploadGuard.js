@@ -2,7 +2,7 @@
  * Upload intake guard — attachment uploads must not imply user intent.
  */
 
-import { isGraphicOrPromotionIntent } from './intentDetectors.js';
+import { isGraphicOrPromotionIntent, isLoyaltyIntent, shouldPreferLoyaltyOverCampaign } from './intentDetectors.js';
 import { peekPendingDocumentExtraction } from './storeCandidate.js';
 import { isCasualChatTurn } from './intakeCasualChatTurn.js';
 import { isIntakeConfirmAffirmation } from './intakeConfirmIntercept.js';
@@ -65,7 +65,9 @@ const EXPLICIT_INTENT_PATTERNS = [
 export function detectExplicitAssetIntent(message) {
   const msg = String(message ?? '').trim();
   if (!msg || isAttachmentOnlyPlaceholderMessage(msg)) return null;
+  if (isLoyaltyIntent(msg)) return 'setup_loyalty_program';
   for (const { intent, patterns } of EXPLICIT_INTENT_PATTERNS) {
+    if (intent === 'setup_loyalty_program') continue;
     if (patterns.some((p) => p.test(msg))) return intent;
   }
   return null;
@@ -144,6 +146,29 @@ export function isExplicitCreateStoreFromUploadContext(opts = {}) {
       : null;
   if (String(isc?.assetAction ?? '').trim() === 'create_store') return true;
   if (String(isc?.fromAskSelection ?? '').trim() === 'create_store') return true;
+  return false;
+}
+
+/**
+ * User explicitly asked for loyalty setup from an uploaded card/image.
+ * @param {object} opts
+ */
+export function isExplicitLoyaltyFromUploadContext(opts = {}) {
+  const msg = String(opts.userMessage ?? '').trim();
+  if (!msg || isAttachmentOnlyPlaceholderMessage(msg)) return false;
+  if (isLoyaltyIntent(msg)) return true;
+  if (shouldPreferLoyaltyOverCampaign(msg, opts.attachmentAnalysis ?? null)) return true;
+  const isc =
+    opts.intentSourceContext && typeof opts.intentSourceContext === 'object'
+      ? opts.intentSourceContext
+      : null;
+  if (String(isc?.assetAction ?? '').trim() === 'setup_loyalty_program') return true;
+  if (String(isc?.fromAskSelection ?? '').trim() === 'setup_loyalty_program') return true;
+  const pendingIntent =
+    isc?.pendingIntent && typeof isc.pendingIntent === 'object' ? isc.pendingIntent : null;
+  if (String(pendingIntent?.lockedIntent ?? pendingIntent?.tool ?? '').trim() === 'setup_loyalty_program') {
+    return true;
+  }
   return false;
 }
 

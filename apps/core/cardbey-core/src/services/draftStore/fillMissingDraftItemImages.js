@@ -46,6 +46,16 @@ export async function fillMissingDraftItemImages({
     return { patched: 0 };
   }
 
+  try {
+    const { dedupeServiceCatalogItems } = await import('../media/serviceImageResolver.js');
+    const deduped = dedupeServiceCatalogItems(items, categories);
+    if (deduped.removedCount > 0) {
+      items.splice(0, items.length, ...deduped.items);
+    }
+  } catch {
+    /* non-blocking */
+  }
+
   const idxList = [];
   for (let i = 0; i < items.length && idxList.length < maxItems; i++) {
     if (!resolveUsableDraftItemImageUrl(items[i])) idxList.push(i);
@@ -123,6 +133,13 @@ export async function fillMissingDraftItemImages({
     .replace(/\s+/g, '_');
   const styleName = BUSINESS_TYPE_TO_STYLE[businessTypeKey] || 'modern';
   const usedUrls = new Set();
+  let serviceImageRegistry = null;
+  try {
+    const { ServiceImageRegistry } = await import('../media/serviceImageResolver.js');
+    serviceImageRegistry = new ServiceImageRegistry();
+  } catch {
+    serviceImageRegistry = null;
+  }
   let patched = 0;
   let billingLimitHit = false;
   const BATCH_SIZE = 5;
@@ -139,21 +156,51 @@ export async function fillMissingDraftItemImages({
       }
       const catalogCategoryHint =
         p.categoryId && categories.length ? categories.find((c) => c.id === p.categoryId)?.name : null;
-      const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, storeType);
-      const categoryHint = [derivedHint, catalogCategoryHint].filter(Boolean).join(' ').trim() || null;
+      let imageQueryHint = p?.imageQueryHint ?? null;
+      try {
+        const { resolveItemImageSearchQuery } = await import('./itemImageQueryResolver.js');
+        imageQueryHint = resolveItemImageSearchQuery({
+          itemName: p?.name,
+          description: p?.description,
+          imageQueryHint: p?.imageQueryHint,
+          verticalSlug: verticalForItem,
+          verticalGroup: effectiveImageFillProfile?.verticalGroup,
+          businessType: storeType,
+          storeName,
+          categoryName: catalogCategoryHint,
+        });
+      } catch {
+        const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, storeType);
+        imageQueryHint = derivedHint || imageQueryHint;
+      }
+      const categoryHint =
+        imageQueryHint ||
+        [deriveItemCategoryHint(p?.name, verticalForItem, storeType), catalogCategoryHint].filter(Boolean).join(' ').trim() ||
+        null;
       const opts = effectiveImageFillProfile
         ? {
             profile: effectiveImageFillProfile,
+            imageQueryHint,
             categoryHint,
             categoryName: categoryHint,
             businessType: storeType || null,
+            storeName,
+            verticalSlug: verticalForItem,
+            verticalGroup: effectiveImageFillProfile?.verticalGroup,
             usedUrls,
+            serviceImageRegistry,
+            allowNullOnLowConfidence: true,
             ...(locationStr ? { location: locationStr } : {}),
           }
         : {
+            imageQueryHint,
             categoryName: categoryHint,
             businessType: storeType || null,
+            storeName,
+            verticalSlug: verticalForItem,
             usedUrls,
+            serviceImageRegistry,
+            allowNullOnLowConfidence: true,
             ...(locationStr ? { location: locationStr } : {}),
           };
       try {
@@ -178,6 +225,9 @@ export async function fillMissingDraftItemImages({
         item.imageSource = img.source;
         item.imageQuery = img.query;
         item.imageConfidence = img.confidence;
+        if (img.imageSelection) item.imageSelection = img.imageSelection;
+        if (img.imageMatchStatus) item.imageMatchStatus = img.imageMatchStatus;
+        if (img.canonicalServiceTitle) item.canonicalServiceTitle = img.canonicalServiceTitle;
         patched += 1;
       }
     });

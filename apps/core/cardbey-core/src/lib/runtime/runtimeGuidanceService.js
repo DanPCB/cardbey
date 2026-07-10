@@ -245,6 +245,7 @@ export function buildNextActionsGuidance(input) {
  *   requiresStoreSelection?: boolean;
  *   storeCandidates?: object[];
  *   needsStoreFirst?: boolean;
+ *   storeCreationInProgress?: boolean;
  *   targetReadiness?: object|null;
  * }} input
  * @returns {object[]}
@@ -267,6 +268,7 @@ export function resolveRuntimeGuidanceForSession(input) {
 
   if (
     missionId &&
+    !input?.storeCreationInProgress &&
     input?.requiresStoreSelection &&
     Array.isArray(input.storeCandidates) &&
     input.storeCandidates.length > 1

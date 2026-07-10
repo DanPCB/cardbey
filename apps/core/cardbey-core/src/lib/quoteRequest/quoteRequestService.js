@@ -69,7 +69,35 @@ export async function getQuoteRequestsForStore(storeId, opts = {}) {
     prisma.quoteRequest.count({ where }),
   ]);
 
-  return { quoteRequests: rows, total, limit, offset };
+  const quoteIds = rows.map((r) => r.id);
+  const payments =
+    quoteIds.length > 0
+      ? await prisma.payment.findMany({
+          where: {
+            storeId,
+            linkedEntityType: 'quote_request',
+            linkedEntityId: { in: quoteIds },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : [];
+
+  const paymentByQuote = new Map();
+  for (const payment of payments) {
+    if (payment.linkedEntityId && !paymentByQuote.has(payment.linkedEntityId)) {
+      paymentByQuote.set(payment.linkedEntityId, payment);
+    }
+  }
+
+  const quoteRequests = rows.map((row) => {
+    const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+    const payment = paymentByQuote.get(row.id);
+    const paymentStatus =
+      payment?.status ?? (meta.depositPaid === true ? 'succeeded' : null);
+    return { ...row, paymentStatus };
+  });
+
+  return { quoteRequests, total, limit, offset };
 }
 
 /**

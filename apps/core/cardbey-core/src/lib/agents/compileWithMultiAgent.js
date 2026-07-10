@@ -9,6 +9,10 @@ import { getToolEntry, RISK } from '../intake/intakeToolRegistry.js';
 import { ARTIFACT_COMPILER_VERSION } from '../artifact/types.ts';
 import { validateArtifactBundle } from '../artifact/validateToolContracts.js';
 import { isSlideshowGenerationProviderAvailable } from '../artifacts/slideshowArtifactContract.js';
+import {
+  buildLoyaltyProgramTopology,
+  loyaltyBuilderToArtifactBundle,
+} from '../mission/loyaltyTopologyBuilder.js';
 
 /** Campaign specialist agent types → intake tool registry names. */
 const CAMPAIGN_AGENT_TOOL_MAP = {
@@ -26,6 +30,20 @@ const CAMPAIGN_AGENT_TOOL_MAP = {
   media: 'generate_campaign_graphics',
 };
 
+/** Loyalty specialist agent types → loyalty tool executors (registry-safe). */
+const LOYALTY_AGENT_TOOL_MAP = {
+  segment: 'setup_loyalty_program',
+  research: 'setup_loyalty_program',
+  tiers: 'setup_loyalty_program',
+  define: 'setup_loyalty_program',
+  offers: 'setup_loyalty_program',
+  build: 'setup_loyalty_program',
+  schedule: 'setup_loyalty_program',
+  action: 'setup_loyalty_program',
+  package: 'setup_loyalty_program',
+  qa: 'setup_loyalty_program',
+};
+
 const STATE_CHANGE_TOOLS = new Set([
   'launch_campaign',
   'create_campaign',
@@ -40,10 +58,23 @@ const STATE_CHANGE_TOOLS = new Set([
  * @param {string} agentType
  * @param {string} missionType
  */
+function isLoyaltyMissionType(missionType) {
+  const t = String(missionType ?? '').trim().toLowerCase();
+  return (
+    t === 'setup_loyalty_program' ||
+    t === 'create_loyalty_program' ||
+    t === 'loyalty' ||
+    t === 'loyalty_campaign'
+  );
+}
+
 function resolveToolForAgent(agentType, missionType) {
   const key = String(agentType ?? '').trim().toLowerCase();
   if (missionType === 'launch_campaign' || missionType === 'create_campaign') {
     return CAMPAIGN_AGENT_TOOL_MAP[key] ?? 'create_campaign_brief';
+  }
+  if (isLoyaltyMissionType(missionType)) {
+    return LOYALTY_AGENT_TOOL_MAP[key] ?? 'setup_loyalty_program';
   }
   return CAMPAIGN_AGENT_TOOL_MAP[key] ?? 'market_research';
 }
@@ -57,6 +88,9 @@ function resolveMissionType(intent) {
   }
   if (intent.tool === 'create_campaign') return 'launch_campaign';
   if (intent.tool === 'create_store') return 'create_store';
+  if (intent.tool === 'setup_loyalty_program' || intent.tool === 'create_loyalty_program') {
+    return 'setup_loyalty_program';
+  }
   return String(intent.tool ?? 'generic').trim() || 'generic';
 }
 
@@ -356,9 +390,26 @@ async function planWithAgentCoordinator(goal, context, missionType) {
 
   let tasks = await coordinator.decomposeGoal(goal, missionContext);
   if (!Array.isArray(tasks) || tasks.length === 0) {
-    tasks = defaultCampaignTasks(goal);
+    tasks = isLoyaltyMissionType(missionType)
+      ? defaultLoyaltyTasks(goal)
+      : defaultCampaignTasks(goal);
   }
   return tasks.slice(0, coordinator.maxAgents);
+}
+
+/**
+ * @param {string} goal
+ */
+function defaultLoyaltyTasks(goal) {
+  const g = goal.trim() || 'Loyalty program';
+  return [
+    {
+      taskId: 'setup_1',
+      agentType: 'action',
+      description: `Draft loyalty program for owner review: ${g}`,
+      dependsOn: [],
+    },
+  ];
 }
 
 /**
@@ -508,6 +559,41 @@ export async function compileWithMultiAgent(intent, context) {
   const missionType = resolveMissionType(intent);
   const goal = intent.text.trim();
   const storeId = intent.storeId ?? context.storeId ?? null;
+  const params =
+    intent.parameters && typeof intent.parameters === 'object' && !Array.isArray(intent.parameters)
+      ? intent.parameters
+      : {};
+
+  // Deterministic loyalty topology (typed stages) — before generic multi-agent plan.
+  // Fallback LOYALTY_AGENT_TOOL_MAP remains for non-builder / legacy paths.
+  if (isLoyaltyMissionType(missionType) || intent.tool === 'setup_loyalty_program' || intent.tool === 'create_loyalty_program') {
+    const built = buildLoyaltyProgramTopology({
+      text: goal,
+      storeId,
+      attachmentAnalysis: params.attachmentAnalysis ?? context.attachmentAnalysis ?? null,
+      preseededDraft: params.preseededDraft ?? context.preseededDraft ?? null,
+      traceId: context.traceId ?? params.traceId ?? null,
+    });
+    const artifactBundle = loyaltyBuilderToArtifactBundle(built, {
+      intent: goal,
+      storeId,
+      sessionId: context.sessionId ?? null,
+      orchestrationKind: 'loyalty_topology',
+    });
+    const validation = validateArtifactBundle(artifactBundle);
+    if (!validation.ok) {
+      const err = new Error(`ArtifactBundle validation failed: ${(validation.errors ?? []).join('; ')}`);
+      err.validation = validation;
+      err.artifactBundle = artifactBundle;
+      throw err;
+    }
+    return {
+      missionId: context.missionId,
+      artifactBundle,
+      validation,
+      builder: 'loyaltyTopologyBuilder',
+    };
+  }
 
   let tasks = await planWithAgentCoordinator(goal, context, missionType);
   tasks = injectPosterTaskForStore(tasks, storeId, missionType);

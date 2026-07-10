@@ -10,6 +10,30 @@ import { getPrismaClient } from '../../lib/prisma.js';
 /** Business-name keyword overrides — win over category pill for hero query and seed keys. */
 export const BUSINESS_NAME_OVERRIDES = [
   {
+    keywords: ['handyman', 'handy man', 'handyperson', 'home maintenance', 'property maintenance'],
+    query: 'handyman home repair tools contractor',
+    vertical: 'services',
+    categoryKey: 'handyman',
+  },
+  {
+    keywords: ['plumber', 'plumbing', 'blocked drain', 'hot water'],
+    query: 'plumber fixing sink plumbing service',
+    vertical: 'services',
+    categoryKey: 'plumbing',
+  },
+  {
+    keywords: ['electrician', 'electrical'],
+    query: 'electrician installing light fixture',
+    vertical: 'services',
+    categoryKey: 'electrician',
+  },
+  {
+    keywords: ['mechanic', 'auto repair', 'car service', 'garage'],
+    query: 'auto repair workshop mechanic',
+    vertical: 'services',
+    categoryKey: 'automotive',
+  },
+  {
     keywords: ['sign', 'signs', 'signage', 'banner', 'display', 'neon', 'vinyl'],
     query: 'business signage neon signs storefront',
     vertical: 'services',

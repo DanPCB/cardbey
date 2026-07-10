@@ -172,6 +172,8 @@ export async function executeShowVideoUpload({ prisma, storeId, file, title, use
     throw err;
   }
 
+  const { bumpPublicFeedRankForStore } = await import('../../lib/feed/publicFeedRankBump.js');
+
   const storefrontSettings = prependShowWorkToStorefrontSettings(store.storefrontSettings, work);
   const stylePreferences = prependShowWorkToMiniWebsite(store.stylePreferences, work);
   const bumpTime = new Date();
@@ -182,9 +184,14 @@ export async function executeShowVideoUpload({ prisma, storeId, file, title, use
       storefrontSettings,
       stylePreferences,
       updatedAt: bumpTime,
-      ...(store.isActive ? { publishedAt: bumpTime } : {}),
     },
   });
 
-  return { work, url: storageUrl, publishedAt: store.isActive ? bumpTime.toISOString() : null };
+  let publishedAt = null;
+  if (store.isActive) {
+    const bumped = await bumpPublicFeedRankForStore(prisma, storeId, { reason: 'show_video_upload' });
+    publishedAt = bumped?.toISOString() ?? bumpTime.toISOString();
+  }
+
+  return { work, url: storageUrl, publishedAt };
 }

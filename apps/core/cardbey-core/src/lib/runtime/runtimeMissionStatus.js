@@ -2,6 +2,8 @@
  * Shared orchestration / mission status helpers for Runtime Kernel proactive missions.
  */
 
+import { deriveCanonicalRuntimeState } from './canonicalRuntimeState.js';
+
 export const ORCHESTRATION_STATUS = {
   IDLE: 'idle',
   RUNNING: 'running',
@@ -71,6 +73,20 @@ export function resolveMissionOrchestrationStatus(row) {
     return ORCHESTRATION_STATUS.RUNNING;
   }
   return ORCHESTRATION_STATUS.ACTIVE;
+}
+
+export function resolveCanonicalMissionRuntimeState(row) {
+  const meta =
+    row?.metadataJson && typeof row.metadataJson === 'object' && !Array.isArray(row.metadataJson)
+      ? row.metadataJson
+      : {};
+  return deriveCanonicalRuntimeState({
+    status: row?.status ?? null,
+    missionStatus: row?.status ?? null,
+    runtimeState: meta.runtimeState ?? meta.executionState ?? null,
+    action: meta.action ?? null,
+    multiAgentStatus: meta.multiAgentStatus ?? null,
+  });
 }
 
 export function isOrchestrationBlockedStatus(status) {

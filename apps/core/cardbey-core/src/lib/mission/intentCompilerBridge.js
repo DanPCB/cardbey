@@ -3,9 +3,19 @@
  */
 
 import { compileWithMultiAgent } from '../agents/compileWithMultiAgent.js';
+import {
+  deriveMissionFamily,
+  readMissionContract,
+  assertMissionContractConsistency,
+} from '../kernel/missionContract.js';
+import { claimMissionSpineOwnership, SPINE_OWNERS } from '../kernel/spineAuthority.js';
 
 /** Tools routed through compileWithMultiAgent (not legacy checkpoint dispatch). */
-export const MULTI_AGENT_COMPILER_TOOLS = new Set(['create_campaign']);
+export const MULTI_AGENT_COMPILER_TOOLS = new Set([
+  'create_campaign',
+  'setup_loyalty_program',
+  'create_loyalty_program',
+]);
 
 /**
  * @param {Record<string, unknown>} classification
@@ -47,6 +57,25 @@ export async function compileFromClassification(classification, context) {
     !Array.isArray(classification.parameters)
       ? classification.parameters.storeId
       : null);
+
+  const existingContract = await readMissionContract(context.missionId);
+  if (existingContract) {
+    assertMissionContractConsistency(existingContract, {
+      tool: classification.tool,
+      storeId: storeId != null ? String(storeId) : null,
+      evidenceId:
+        classification.parameters &&
+        typeof classification.parameters === 'object' &&
+        !Array.isArray(classification.parameters)
+          ? classification.parameters.evidenceId
+          : null,
+    });
+  }
+  await claimMissionSpineOwnership(context.missionId, SPINE_OWNERS.COMPILER_TOPOLOGY, {
+    source: 'intent_compiler_bridge',
+    tool: String(classification.tool ?? ''),
+    missionFamily: deriveMissionFamily({ tool: classification.tool }),
+  });
 
   return compileWithMultiAgent(
     {

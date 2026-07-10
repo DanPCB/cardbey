@@ -8,6 +8,7 @@ import {
   normalizeProjectionHeroForStorage,
 } from '../draftStore/normalizeHeroMediaUrlsForStorage.js';
 import { ensureProjectionHeroPoster } from '../explore/exploreVideoPosterService.js';
+import { heroMediaChangedForFeedRank } from '../../lib/feed/publicFeedRankBump.js';
 
 /**
  * Build, validate, persist projection and sync indexed Business columns.
@@ -126,6 +127,20 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
     delete stylePreferences.heroVideo;
   }
 
+  const heroChanged = heroMediaChangedForFeedRank(business, {
+    heroVideo: hero.videoUrl ?? null,
+    heroImage:
+      hero.type === 'video'
+        ? hero.posterUrl ?? hero.imageUrl ?? null
+        : hero.imageUrl ?? null,
+    heroUrlForColumn: heroImageUrl,
+  });
+  const publishedAtValue = heroChanged
+    ? new Date()
+    : projection.publishedAt
+      ? new Date(projection.publishedAt)
+      : new Date();
+
   const updateData = {
     name: projection.name,
     slug: projection.slug,
@@ -134,8 +149,9 @@ export async function buildPersistAndApplyPublishedProjection(prisma, ctx) {
     heroImageUrl,
     ...(brandLogoUrl ? { avatarImageUrl: brandLogoUrl } : {}),
     isActive: projection.status === 'published',
-    publishedAt: projection.publishedAt ? new Date(projection.publishedAt) : new Date(),
+    publishedAt: publishedAtValue,
     stylePreferences,
+    ...(heroChanged ? { updatedAt: publishedAtValue } : {}),
   };
 
   await prisma.business.update({

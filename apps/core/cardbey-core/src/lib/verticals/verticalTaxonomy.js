@@ -59,6 +59,9 @@ export const VERTICALS = [
   { slug: 'entertainment.game_centre', group: 'entertainment', label: 'Game Centre', keywords: ['game centre', 'game center', 'arcade', 'kids arcade', 'bowling', 'laser tag', 'vr', 'virtual reality', 'birthday party', 'party room', 'fun centre'] },
   { slug: 'services.tiling', group: 'services', label: 'Tiling', keywords: ['tiling', 'tiler', 'tile', 'tiles', 'bathroom tiling', 'splashback', 'grout', 'waterproofing', 'ceramic tile', 'porcelain tile'] },
   { slug: 'services.flooring', group: 'services', label: 'Flooring', keywords: ['flooring', 'floor tiling', 'timber floor', 'hardwood floor', 'vinyl plank', 'laminate floor', 'floor installation', 'floor sanding'] },
+  { slug: 'services.accounting', group: 'services', label: 'Accounting', keywords: ['accountant', 'accounting', 'bookkeeping', 'bookkeeper', 'tax return', 'bas', 'payroll', 'financial advisor'] },
+  { slug: 'services.legal', group: 'services', label: 'Legal', keywords: ['lawyer', 'legal', 'solicitor', 'conveyancing', 'conveyancer', 'litigation', 'family law', 'will', 'estate planning'] },
+  { slug: 'services.handyman', group: 'services', label: 'Handyman', keywords: ['handyman', 'handy man', 'handy-man', 'handyperson', 'odd job', 'odd jobs', 'home maintenance', 'general maintenance', 'property maintenance', 'fix it', 'fix-it', 'door repair', 'furniture assembly', 'tv mount', 'tv mounting', 'picture hanging', 'flyscreen', 'flat pack', 'pressure washing', 'gutter cleaning'] },
   { slug: 'services.generic', group: 'services', label: 'General Services', keywords: ['service', 'services', 'appointment', 'booking', 'quote'] },
   { slug: 'retail.generic', group: 'retail', label: 'General Retail', keywords: ['shop', 'store', 'retail', 'buy', 'sale', 'product'] },
 ];

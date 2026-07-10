@@ -10,6 +10,7 @@ import {
   writePendingArtifactBundle,
   METADATA_KEYS,
 } from '../../lib/persistence/metadataWriter.js';
+import { generateExecutionPlan } from '../../lib/mission/generateExecutionPlan.js';
 import { createTestMission, setupIntegrationTest, teardownIntegrationTest } from './setup.js';
 
 describe('integration: compileWithMultiAgent → writeMetadata', () => {
@@ -68,5 +69,40 @@ describe('integration: compileWithMultiAgent → writeMetadata', () => {
     expect(pendingTopology?.nodes?.length).toBeGreaterThan(0);
     expect(pendingPolicy?.gates).toBeDefined();
     expect(pendingReasoning?.summary).toBeTruthy();
+  });
+
+  it('freezes mission contract and spine ownership when generating a plan', async () => {
+    const result = await generateExecutionPlan(
+      {
+        text: 'create a weekend brunch promotion campaign for my store',
+        tool: 'create_campaign',
+        parameters: { evidenceId: 'evidence_test_campaign' },
+      },
+      'store_integration_test',
+      'session_integration_test',
+      {
+        userId: 'user_integration_test',
+        tenantId: 'tenant_integration_test',
+        executionContext: {
+          storeId: 'store_integration_test',
+          storeLocked: true,
+          selectionMethod: 'automatic',
+        },
+      },
+    );
+
+    expect(result.response.runtimeState).toBeTruthy();
+
+    const prisma = getPrismaClient();
+    const row = await prisma.missionPipeline.findUnique({
+      where: { id: result.missionId },
+      select: { metadataJson: true },
+    });
+
+    const persisted = /** @type {Record<string, unknown>} */ (row?.metadataJson ?? {});
+    expect(persisted.missionContract?.missionFamily).toBe('campaign');
+    expect(persisted.missionContract?.executionContext?.storeId).toBe('store_integration_test');
+    expect(persisted.spineOwnership?.owner).toBe('compiler_topology');
+    expect(persisted.expectedArtifactTypes).toContain('campaign_package');
   });
 });

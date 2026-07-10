@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { ASSET_INTENT_EVENTS, logAssetIntentProbe } from './assetIntentTelemetry.js';
 import { extractAssetContent } from './assetExtraction.js';
 import { formatAssetDisplay } from './assetContentDisplay.js';
+import { recordAttachmentIngestSidecar } from '../kernel/attachmentRealityStreamSidecar.js';
 
 /** @typedef {'business_card'|'storefront_photo'|'menu'|'product_catalog'|'price_list'|'loyalty_card'|'flyer'|'brochure'|'invoice'|'contract'|'general_document'|'unknown'} AssetDocumentType */
 
@@ -240,6 +241,22 @@ export async function ingestAssetForIntentDetection(input = {}) {
       count: suggestedActions.length,
     });
     logAssetIntentProbe(ASSET_INTENT_EVENTS.AWAITING_USER, { entityContextId: entityContext.id });
+
+    recordAttachmentIngestSidecar({
+      sessionId: input.sessionId ?? null,
+      missionId: input.missionId ?? null,
+      userId: input.userId ?? null,
+      fileAssetId: input.fileAssetId ?? entityContext.fileAssetId ?? null,
+      entityContextId: entityContext.id,
+      source: input.source ?? 'asset_intent_ingest',
+      filename: input.filename ?? entityContext.filename ?? null,
+      mimeType: input.mimeType ?? entityContext.mimeType ?? null,
+      imageRef: input.imageDataUrl ?? entityContext.imageDataUrl ?? null,
+      userGoal: input.userPrompt ?? null,
+      ocrText: rawOcrText,
+      ocrFailed: !rawOcrText && Boolean(input.imageDataUrl),
+      ocrProvider: input.ocrProvider ?? null,
+    });
 
     const ocrHintsOut = {
       ...(input.ocrHints && typeof input.ocrHints === 'object' ? input.ocrHints : {}),

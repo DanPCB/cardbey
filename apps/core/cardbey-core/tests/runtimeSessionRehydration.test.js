@@ -174,6 +174,39 @@ describe.skipIf(!dbAvailable)('runtimeSessionService', () => {
     expect(session.runtimeGuidance?.some((g) => g.subtype === 'store_selection')).toBe(true);
   });
 
+  it('regression: store creation mission does not prompt store selection when user has multiple stores', async () => {
+    await prisma.business.createMany({
+      data: [
+        { userId, name: 'My ROSES Florist', type: 'retail', slug: `roses-${Date.now()}`, isActive: true },
+        { userId, name: 'CA HANDY MAN', type: 'services', slug: `handy-${Date.now()}`, isActive: true },
+        { userId, name: 'ABC Bakery', type: 'food', slug: `bakery-${Date.now()}`, isActive: true },
+      ],
+    });
+    const mission = await prisma.missionPipeline.create({
+      data: {
+        type: 'store',
+        title: 'Create store: CA HANDYMAN',
+        status: 'executing',
+        runState: 'running',
+        targetType: 'store',
+        executionMode: 'AUTO_RUN',
+        requiresConfirmation: false,
+        createdBy: userId,
+        tenantId: userId,
+        outputsJson: { draftId: 'draft-test-1', structured_store_build: true },
+      },
+    });
+    const session = await resolveActiveRuntimeSession({
+      userId,
+      requestedMissionId: mission.id,
+      source: 'store_creation_runway',
+    });
+    expect(session.activeMissionId).toBe(mission.id);
+    expect(session.requiresStoreSelection).toBe(false);
+    expect(session.needsStoreFirst).toBe(false);
+    expect(session.runtimeGuidance?.some((g) => g.subtype === 'store_selection')).not.toBe(true);
+  });
+
   it('hydrates completed analyze_store step after refresh scenario', async () => {
     const store = await prisma.business.create({
       data: {

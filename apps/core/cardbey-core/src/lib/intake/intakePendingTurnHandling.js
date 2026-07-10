@@ -15,6 +15,7 @@ import {
   detectExplicitStoreIntent,
   hasExplicitUploadCreateStoreOrWebsiteIntent,
   isAttachmentOnlyPlaceholderMessage,
+  isExplicitLoyaltyFromUploadContext,
 } from './assetUploadGuard.js';
 import { isCasualChatTurn } from './intakeCasualChatTurn.js';
 import { isIntakeConfirmAffirmation } from './intakeConfirmIntercept.js';
@@ -53,6 +54,16 @@ export async function maybeClearStaleUploadOnTextOnlyIntent(opts = {}) {
 export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
   const userMessage = String(opts.userMessage ?? '').trim();
   if (!userMessage || isCasualChatTurn(userMessage) || isIntakeConfirmAffirmation(userMessage)) {
+    return null;
+  }
+
+  if (
+    isExplicitLoyaltyFromUploadContext({
+      userMessage,
+      intentSourceContext: opts.intentSourceContext ?? null,
+      attachmentAnalysis: opts.attachmentAnalysis ?? null,
+    })
+  ) {
     return null;
   }
 
@@ -117,6 +128,11 @@ export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
 
   const shouldForce =
     !isCasualChatTurn(userMessage) &&
+    !isExplicitLoyaltyFromUploadContext({
+      userMessage,
+      intentSourceContext: opts.intentSourceContext ?? null,
+      attachmentAnalysis: opts.attachmentAnalysis ?? null,
+    }) &&
     (opts.attachmentOnlyUpload === true ||
       opts.hasAttachment === true ||
       isAttachmentOnlyPlaceholderMessage(userMessage) ||

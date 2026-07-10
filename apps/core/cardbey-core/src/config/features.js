@@ -80,6 +80,12 @@ export const Features = {
       return parseBoolEnv(process.env.USE_COMPILER_FOR_STORES, false);
     },
   },
+  loyalty: {
+    /** When true: loyalty card scan uses IntentReasoner → compile → writeMetadata. Default false keeps ui-action. */
+    get useSpine() {
+      return parseBoolEnv(process.env.USE_LOYALTY_SPINE, false);
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -113,6 +119,9 @@ export function snapshotFeatures() {
     compiler: {
       useForCampaigns: Features.compiler.useForCampaigns,
       useForStores: Features.compiler.useForStores,
+    },
+    loyalty: {
+      useSpine: Features.loyalty.useSpine,
     },
   };
 }

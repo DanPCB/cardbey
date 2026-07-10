@@ -23,6 +23,10 @@ import {
   exploreVideoUploadFields,
   executeExploreVideoUpload,
 } from '../services/explore/exploreVideoUploadService.js';
+import {
+  creatorVideoUploadFields,
+  executeCreatorVideoUpload,
+} from '../services/creator/creatorMediaUploadService.js';
 import { handleFactoryApprovalDecision } from '../lib/factoryRuntime/factoryApprovalService.js';
 import {
   getRuntimeByMissionId,
@@ -303,6 +307,45 @@ router.post(
         ok: false,
         error: 'upload_failed',
         message: err?.message || 'Video upload failed',
+      });
+    }
+  },
+);
+
+router.post(
+  '/ui-action/upload-creator-video',
+  requireAuth,
+  creatorVideoUploadFields(),
+  async (req, res) => {
+    const userId = req.userId ?? req.user?.id ?? null;
+    const missionId =
+      (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null) || null;
+    recordRuntimeAuthorityPathUsed({
+      route: '/api/performer/runtime/ui-action/upload-creator-video',
+      toolName: UPLOAD_ACTIONS.UPLOAD_CREATOR_VIDEO,
+      userId,
+      missionId,
+      source: 'ui_creator_upload',
+    });
+    try {
+      const result = await executeCreatorVideoUpload(req);
+      if (result.status >= 400) {
+        return res.status(result.status).json(result.body);
+      }
+      return res
+        .status(result.status)
+        .json(
+          buildRuntimeUploadEnvelope(UPLOAD_ACTIONS.UPLOAD_CREATOR_VIDEO, result.body, {
+            missionId,
+            source: 'ui_creator_upload',
+          }),
+        );
+    } catch (err) {
+      console.error('[performer/runtime/ui-action/upload-creator-video]', err);
+      return res.status(500).json({
+        ok: false,
+        error: 'upload_failed',
+        message: err?.message || 'Creator video upload failed',
       });
     }
   },

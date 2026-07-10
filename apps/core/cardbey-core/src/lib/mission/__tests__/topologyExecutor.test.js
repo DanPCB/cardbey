@@ -15,6 +15,13 @@ describe('resolveTopologyExecutionMode', () => {
     expect(resolveTopologyExecutionMode(null, { tool: 'create_campaign' })).toBe('campaign');
   });
 
+  it('maps setup_loyalty_program to loyalty mode', () => {
+    expect(resolveTopologyExecutionMode('setup_loyalty_program')).toBe('loyalty');
+    expect(
+      resolveTopologyExecutionMode(null, { source: 'dashboard_loyalty_card_scan' }),
+    ).toBe('loyalty');
+  });
+
   it('defaults unknown types to generic', () => {
     expect(resolveTopologyExecutionMode('custom_mission')).toBe('generic');
   });
@@ -26,6 +33,8 @@ describe('ensureMissionReadyForTopologyExecution', () => {
     expect(canTransitionMissionPipeline('queued', 'executing')).toBe(true);
     expect(canTransitionMissionPipeline('executing', 'completed')).toBe(true);
     expect(canTransitionMissionPipeline('executing', 'failed')).toBe(true);
+    expect(canTransitionMissionPipeline('executing', 'awaiting_owner_input')).toBe(true);
+    expect(canTransitionMissionPipeline('awaiting_owner_input', 'executing')).toBe(true);
     expect(canTransitionMissionPipeline('failed', 'queued')).toBe(true);
   });
 

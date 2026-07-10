@@ -3,6 +3,7 @@
  */
 
 import { buildResearchDebuggerSnapshot } from './buildResearchDebuggerSnapshot.js';
+import { buildResearchEvidenceContext } from '../researchEvidence/researchEvidenceRepository.js';
 
 /** @type {Map<string, import('./types.js').BusinessResearchResult>} */
 const memoryStore = new Map();
@@ -61,6 +62,41 @@ export async function persistResearchToMission(prisma, missionId, result, meta =
   const researchDebugger = buildResearchDebuggerSnapshot(input, result, {
     scoredSources: meta.scoredSources ?? result.scoredSources ?? [],
   });
+  const evidenceContext =
+    result.researchEvidence && typeof result.researchEvidence === 'object'
+      ? {
+          researchEvidence: {
+            schemaVersion: result.researchEvidence.schemaVersion,
+            plannedProviders: result.researchEvidence.plannedProviders,
+            providerResults: result.researchEvidence.providerResults,
+            mergedEvidence: result.researchEvidence.mergedEvidence,
+            diagnostics: result.researchEvidence.diagnostics,
+          },
+          businessKnowledgeGraph: result.researchEvidence.businessKnowledgeGraph,
+        }
+      : buildResearchEvidenceContext({
+          input,
+          discoveredSources: meta.discoveredSources ?? [],
+          scoredSources: meta.scoredSources ?? result.scoredSources ?? [],
+          result,
+        });
+  const providerLookup = new Map(
+    (evidenceContext.researchEvidence?.providerResults ?? []).map((row) => [
+      `${row.providerId}|${row.sourceUrl ?? ''}`,
+      row,
+    ]),
+  );
+  const resolveProviderSummary = (match) => {
+    const sourceUrl = match?.source?.sourceUrl ?? '';
+    const byUrl = (evidenceContext.researchEvidence?.providerResults ?? []).find(
+      (row) => row.sourceUrl === sourceUrl,
+    );
+    return (
+      providerLookup.get(`${byUrl?.providerId ?? ''}|${sourceUrl}`) ??
+      byUrl ??
+      null
+    );
+  };
   ctx.storeCreationResearch = {
     ownerReviewRequired: result.ownerReviewRequired,
     ownerConfirmed: false,
@@ -73,21 +109,42 @@ export async function persistResearchToMission(prisma, missionId, result, meta =
     catalogMode: result.businessProfile?.catalogMode ?? null,
     primaryCTA: result.businessProfile?.presentation?.primaryCTA ?? null,
     sourcesUsed: (result.sourcesUsed ?? []).map((s) => ({
+      ...(resolveProviderSummary(s)
+        ? {
+            providerId: resolveProviderSummary(s).providerId ?? null,
+            providerName: resolveProviderSummary(s).providerName ?? null,
+            tier: resolveProviderSummary(s).tier ?? null,
+            sourceKind: resolveProviderSummary(s).sourceType ?? null,
+          }
+        : {}),
       sourceType: s.source.sourceType,
       sourceUrl: s.source.sourceUrl ?? null,
       confidence: s.confidence,
       reasons: s.reasons,
+      ownerVerifiedStatus: s.confidence >= 0.75 ? 'accepted' : 'pending',
     })),
     sourcesPendingConfirmation: (result.sourcesPendingConfirmation ?? []).map((s) => ({
+      ...(resolveProviderSummary(s)
+        ? {
+            providerId: resolveProviderSummary(s).providerId ?? null,
+            providerName: resolveProviderSummary(s).providerName ?? null,
+            tier: resolveProviderSummary(s).tier ?? null,
+            sourceKind: resolveProviderSummary(s).sourceType ?? null,
+          }
+        : {}),
       sourceType: s.source.sourceType,
       sourceUrl: s.source.sourceUrl ?? null,
       confidence: s.confidence,
+      reasons: s.reasons,
+      ownerVerifiedStatus: 'needs_owner_review',
     })),
     extractedServices: summarizeItemsForReview(serviceItems),
     researchDebugger,
     savedAt: new Date().toISOString(),
     draftId,
   };
+  ctx.researchEvidence = evidenceContext.researchEvidence;
+  ctx.businessKnowledgeGraph = evidenceContext.businessKnowledgeGraph;
   if (serviceItems.length && !result.fallbackToGenerated) {
     ctx.preloadedCatalogItems = summarizeItemsForPreload(serviceItems);
   }
@@ -107,9 +164,16 @@ function summarizeItemsForReview(items) {
     durationMinutes: item.durationMinutes ?? null,
     confidence: item.confidence ?? null,
     sourceType: item.sourceType ?? null,
+    providerId: item.providerId ?? null,
+    providerName: item.providerName ?? null,
+    tier: item.tier ?? null,
     needsOwnerReview: Boolean(item.needsOwnerReview),
+    ownerVerifiedStatus: item.ownerVerifiedStatus ?? (item.needsOwnerReview ? 'needs_owner_review' : 'pending'),
+    conflict: Boolean(item.conflict),
+    conflictingValues: Array.isArray(item.conflictingValues) ? item.conflictingValues : [],
     serviceMode: item.serviceMode ?? null,
     executionAction: item.executionAction ?? null,
+    category: item.category ?? null,
   }));
 }
 

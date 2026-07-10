@@ -75,6 +75,13 @@ function getNextActions(status, runState, { disableRunnerActions = false } = {})
  * @returns {Promise<object|null>} Normalized state or null if not found
  */
 export async function resolveMissionState(missionId) {
+  try {
+    const { reconcileStuckTopologyExecution } = await import('./mission/topologyExecutionReconcile.js');
+    await reconcileStuckTopologyExecution(missionId);
+  } catch {
+    /* non-blocking heal */
+  }
+
   const prisma = getPrismaClient();
   const mission = await prisma.missionPipeline.findUnique({
     where: { id: missionId },
@@ -211,6 +218,22 @@ export async function resolveMissionState(missionId) {
     ...(storeDraftReviewReady !== undefined ? { storeDraftReviewReady } : {}),
     /** Full pipeline metadata (e.g. proactive runway `stepOutputs`) for console restore. */
     metadata,
+    // Convenience mirrors for TopologyReviewCard remount (also live under metadata.*).
+    ...(metadata.pendingTopology ? { pendingTopology: metadata.pendingTopology } : {}),
+    ...(metadata.pendingReasoning ? { pendingReasoning: metadata.pendingReasoning } : {}),
+    ...(metadata.pendingPolicy ? { pendingPolicy: metadata.pendingPolicy } : {}),
+    ...(metadata.multiAgentStatus ? { multiAgentStatus: metadata.multiAgentStatus } : {}),
+    ...(metadata.executionPlan || metadata.pendingTopology
+      ? {
+          executionPlan: metadata.executionPlan ?? {
+            topology: metadata.pendingTopology ?? metadata.approvedTopology ?? null,
+            policy: metadata.pendingPolicy ?? metadata.approvedPolicy ?? null,
+            reasoning: metadata.pendingReasoning ?? metadata.approvedReasoning ?? null,
+            metadata,
+          },
+          action: metadata.action ?? 'show_execution_plan',
+        }
+      : {}),
     ...(activeCheckpoint
       ? { activeCheckpoint, pendingCheckpoint: activeCheckpoint }
       : {}),

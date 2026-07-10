@@ -13,6 +13,7 @@ import {
   isServiceCatalogPlaceholderName,
 } from '../../lib/catalog/serviceCatalogPlaceholders.js';
 import { buildCuisineMenuCatalog } from '../draftStore/foodCuisineCatalog.js';
+import { buildIndustryCatalog, getIndustryWebsiteCopy } from '../draftStore/industryBlueprintRegistry.js';
 
 const MIN_DESCRIPTION_LEN = 12;
 const MIN_TAGLINE_LEN = 8;
@@ -209,7 +210,30 @@ function defaultPriceForIndex(vertical, index) {
   return ladder[index % ladder.length];
 }
 
+function serviceDescriptionFallback(name, profile) {
+  const industry = buildIndustryCatalog(profile, 1);
+  if (industry?.items?.length) {
+    const match = industry.items.find((it) => String(it.name).toLowerCase() === String(name).toLowerCase());
+    if (match?.description) return match.description;
+  }
+  if (/\b(handyman|maintenance|repair|clean|plumb|electric|til(e|ing)|paint)\b/i.test(String(profile.businessType || profile.verticalSlug || ''))) {
+    return `${name} — professional service with clear scope and pricing on request.`;
+  }
+  return `${name} — made fresh for you.`;
+}
+
 function buildReplacementProducts(profile, count, categories) {
+  const industry = buildIndustryCatalog(profile, Math.max(24, count + 4));
+  if (industry?.items?.length) {
+    const firstCatId = categories?.[0]?.id || industry.categories?.[0]?.id || 'cat_0';
+    return industry.items.slice(0, count).map((it, i) => ({
+      name: it.name,
+      description: it.description || serviceDescriptionFallback(it.name, profile),
+      price: String(it.price ?? defaultPriceForIndex(profile.businessType || profile.verticalSlug, i)),
+      priceV1: { amount: it.price ?? defaultPriceForIndex(profile.businessType || profile.verticalSlug, i) },
+      categoryId: it.categoryId || firstCatId,
+    }));
+  }
   const cuisine = buildCuisineMenuCatalog(profile, Math.max(24, count + 4));
   if (cuisine?.items?.length) {
     const firstCatId = categories?.[0]?.id || cuisine.categories?.[0]?.id || 'cat_0';
@@ -239,6 +263,17 @@ function deriveHeroImageTags(preview, input, verticalSlug) {
   ).toLowerCase();
   const name = String(preview?.storeName || input?.businessName || 'store').trim();
   const v = String(verticalSlug || '').toLowerCase();
+  const industryHero = getIndustryWebsiteCopy({
+    businessName: name,
+    storeName: name,
+    businessType,
+    storeType: businessType,
+    verticalSlug: v,
+  })?.heroImageKeywords;
+  if (industryHero?.length) return [...industryHero, name];
+  if (/\b(handyman|handy[\s-]?man|handyperson)\b/.test(`${name} ${businessType}`)) {
+    return ['handyman home repair tools', 'contractor fixing wall', name, 'maintenance service'];
+  }
   if (/\b(cafe|coffee)\b/.test(v) || /\bcafe\b/.test(businessType)) {
     return ['cafe interior', 'coffee shop', name, 'latte art'];
   }

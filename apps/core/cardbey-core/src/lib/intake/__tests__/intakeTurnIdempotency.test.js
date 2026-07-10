@@ -21,7 +21,12 @@ describe('intakeTurnIdempotency', () => {
     };
     const withoutStore = buildIntakeTurnIdempotencyKey(base);
     const withStore = buildIntakeTurnIdempotencyKey({ ...base, activeStoreId: 'store-a' });
+    const withSelection = buildIntakeTurnIdempotencyKey({
+      ...base,
+      selectionStoreId: 'store-b',
+    });
     expect(withoutStore).not.toBe(withStore);
+    expect(withoutStore).not.toBe(withSelection);
   });
 
   it('does not cache clarify / store picker responses', () => {
@@ -30,6 +35,13 @@ describe('intakeTurnIdempotency', () => {
         success: true,
         action: 'clarify',
         clarifyType: 'store_picker',
+      }),
+    ).toBe(false);
+    expect(
+      shouldCacheIntakeTurnIdempotentResponse({
+        success: true,
+        action: 'clarify_store',
+        clarifyType: 'execution_context_store_picker',
       }),
     ).toBe(false);
 
