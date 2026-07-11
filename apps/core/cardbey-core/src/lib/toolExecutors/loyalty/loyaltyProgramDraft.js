@@ -439,7 +439,7 @@ export async function assertStoreOwnership(params) {
 
         code: 'AUTH_REQUIRED',
 
-        message: 'Sign in to set up a loyalty campaign.',
+        message: 'Sign in to set up a loyalty program.',
 
       },
 

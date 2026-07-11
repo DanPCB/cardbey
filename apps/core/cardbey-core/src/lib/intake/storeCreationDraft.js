@@ -7,6 +7,12 @@ import {
   isBareStoreCreateRequest,
   parseStructuredStoreCreatePillMessage,
 } from '../intent/storeCreateFastPath.js';
+import {
+  extractMultiStoreInfo,
+  generateMultiStoreClarificationResponse,
+  isMultiStoreRequest,
+  isVagueLocationPhrase,
+} from '../multiAgent/multiStorePlanHelpers.ts';
 
 const WRAP_QUOTE_RE = /^[\s"'`\u201c\u201d\u2018\u2019]+|[\s"'`\u201c\u201d\u2018\u2019]+$/g;
 
@@ -39,6 +45,8 @@ export const STORE_CREATION_INTRO_COPY = {
  * @property {StoreCreationDraft} draft
  * @property {StoreCreationDraftField[]} missingFields
  * @property {boolean} isComplete
+ * @property {boolean} [needsClarification]
+ * @property {import('../multiAgent/multiStorePlanHelpers.ts').MultiStoreExtractedInfo | null} [multiStore]
  */
 
 function stripQuotes(value) {
@@ -152,6 +160,16 @@ export function parseNaturalLanguageStoreCreation(raw) {
     return { name: null, location: null, category: null, source: 'empty' };
   }
 
+  if (isMultiStoreRequest(userMessage)) {
+    const info = extractMultiStoreInfo(userMessage);
+    return finalizeParsedStoreCreation({
+      name: info.names[0] ?? null,
+      location: info.locations[0] ?? null,
+      category: info.categories[0] ?? null,
+      source: 'multi_store',
+    });
+  }
+
   if (isBareStoreCreateRequest(userMessage)) {
     const locationMatch = userMessage.match(/\bin\s+(.+?)\.?$/i);
     return finalizeParsedStoreCreation({
@@ -256,7 +274,7 @@ export function computeMissingStoreCreationFields(draft) {
   const location = stripQuotes(draft?.location);
   const category = stripQuotes(draft?.category);
   if (!name || name.length < 2) missing.push('name');
-  if (!location || location.length < 2) missing.push('location');
+  if (!location || location.length < 2 || isVagueLocationPhrase(location)) missing.push('location');
   if (!category || category.toLowerCase() === 'other') missing.push('category');
   return missing;
 }
@@ -266,6 +284,10 @@ export function computeMissingStoreCreationFields(draft) {
  * @param {StoreCreationDraftBundle} bundle
  */
 export function formatStoreCreationDraftResponse(bundle) {
+  if (bundle?.multiStore?.isMultiStore) {
+    return generateMultiStoreClarificationResponse(bundle.multiStore);
+  }
+
   const draft = bundle?.draft ?? {};
   const name = stripQuotes(draft.name);
   const location = stripQuotes(draft.location);
@@ -332,6 +354,7 @@ export function buildStoreCreationDraft(input = {}) {
 
   const parsed = parseNaturalLanguageStoreCreation(userMessage);
   const pill = parseStructuredStoreCreatePillMessage(userMessage);
+  const multiStoreInfo = isMultiStoreRequest(userMessage) ? extractMultiStoreInfo(userMessage) : null;
 
   const name = sanitizeExtractedStoreName(
     asTrimmedString(form?.storeName) ||
@@ -345,7 +368,7 @@ export function buildStoreCreationDraft(input = {}) {
     asTrimmedString(params.location) ||
     asTrimmedString(asset?.location) ||
     asTrimmedString(memory.preferredCity ?? memory.activeCity ?? memory.location) ||
-    asTrimmedString(parsed.location);
+    (multiStoreInfo?.vagueLocation ? null : asTrimmedString(parsed.location));
 
   const categoryRaw =
     asTrimmedString(form?.storeType ?? form?.category ?? form?.businessType) ||
@@ -416,7 +439,13 @@ export function buildStoreCreationDraft(input = {}) {
     intentMode,
     draft,
     missingFields,
-    isComplete: missingFields.length === 0,
+    isComplete: missingFields.length === 0 && !multiStoreInfo?.missingFields?.length,
+    ...(multiStoreInfo?.isMultiStore
+      ? {
+          needsClarification: multiStoreInfo.missingFields.length > 0,
+          multiStore: multiStoreInfo,
+        }
+      : {}),
   };
 }
 

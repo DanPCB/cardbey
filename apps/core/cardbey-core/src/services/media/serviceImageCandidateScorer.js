@@ -4,9 +4,11 @@
 
 import { evaluateServiceMismatchGuard } from './serviceImageMismatchGuards.js';
 
+export const EXACT_MATCH = 0.85;
 export const STRONG_MATCH = 0.72;
-export const ACCEPTABLE_MATCH = 0.58;
-export const REJECT_MATCH = 0.42;
+export const MINIMUM_ACCEPTABLE = 0.62;
+export const ACCEPTABLE_MATCH = MINIMUM_ACCEPTABLE;
+export const REJECT_MATCH = MINIMUM_ACCEPTABLE;
 
 const STOPWORDS = new Set(['the', 'a', 'an', 'and', 'or', 'with', 'in', 'on', 'of', 'to', 'for', '&']);
 
@@ -126,7 +128,7 @@ export function scoreServiceImageCandidateMetadata(intent, candidate, opts = {})
  */
 export function combineServiceImageScores(metadataScore, visualScore, visualAvailable) {
   if (visualAvailable && typeof visualScore === 'number') {
-    return metadataScore * 0.55 + visualScore * 0.45;
+    return metadataScore * 0.4 + visualScore * 0.6;
   }
   return metadataScore;
 }

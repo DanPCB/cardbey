@@ -107,6 +107,19 @@ export class CircuitBreaker {
   }
 
   /**
+   * Force a circuit open (e.g. latency SLO breach or manual protective action).
+   * @param {string} name
+   * @param {string} [reason]
+   */
+  open(name, reason = 'manual_open') {
+    const circuit = this.getCircuit(name);
+    circuit.state = 'open';
+    circuit.lastFailure = Date.now();
+    circuit.failures = circuit.threshold;
+    console.warn(`[CircuitBreaker] ${name} opened: ${reason}`);
+  }
+
+  /**
    * @param {string} [name]
    */
   reset(name) {

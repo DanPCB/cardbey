@@ -21,6 +21,8 @@ export const SLO_EXCLUDED_ACTION_TYPES = new Set([
   'run_pipeline_step',
   'orchestra_start',
   'mission_pipeline',
+  'performer_intake',
+  'performer_intake_v2',
 ]);
 
 const SLO_EXCLUDED_ACTION_PREFIXES = ['pipeline:', 'mission_pipeline'];
@@ -46,6 +48,13 @@ export function isObservationSloEligible(row) {
   }
 
   if (snap.source === 'mission_pipeline' || snap.source === 'orchestra_start') {
+    return false;
+  }
+  if (
+    snap.source === 'performer_intake' ||
+    snap.source === 'performer_intake_v2' ||
+    String(snap.source ?? '').includes('performer_intake')
+  ) {
     return false;
   }
 

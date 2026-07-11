@@ -21,6 +21,57 @@ let prisma = null;
 let connectionTested = false;
 let connectionError = null;
 let campaignModelsAsserted = false;
+let connectPromise = null;
+
+function isPrismaConnectionError(error) {
+  const message = String(error?.message ?? '').toLowerCase();
+  return (
+    message.includes('connection has not been opened') ||
+    message.includes('database is closed') ||
+    message.includes('connection closed') ||
+    error?.name === 'PrismaClientInitializationError'
+  );
+}
+
+/** Ensure Prisma is connected (idempotent). */
+export async function ensurePrismaConnection() {
+  const client = getPrismaClient();
+  if (!connectPromise) {
+    connectPromise = client.$connect().then(() => client).catch((err) => {
+      connectPromise = null;
+      throw err;
+    });
+  }
+  return connectPromise;
+}
+
+/** Reset singleton after connection failure (recovery path). */
+export function resetPrismaClientForRecovery() {
+  prisma = null;
+  connectPromise = null;
+  connectionTested = false;
+  connectionError = null;
+}
+
+/**
+ * Run a Prisma operation with connect + one reconnect retry on closed connection.
+ * @template T
+ * @param {(client: import('./prismaClient.js').PrismaClient) => Promise<T>} fn
+ */
+export async function withPrismaConnection(fn) {
+  try {
+    const client = await ensurePrismaConnection();
+    return await fn(client);
+  } catch (error) {
+    if (isPrismaConnectionError(error)) {
+      console.warn('[Prisma] connection error — recreating client:', error?.message || error);
+      resetPrismaClientForRecovery();
+      const client = await ensurePrismaConnection();
+      return await fn(client);
+    }
+    throw error;
+  }
+}
 
 /** Campaign routes require these Prisma model delegates (camelCase). */
 const REQUIRED_CAMPAIGN_MODELS = [
@@ -128,6 +179,7 @@ export async function testDatabaseConnection() {
 
   try {
     const client = getPrismaClient();
+    await ensurePrismaConnection();
 
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('Database connection timeout (2s)')), 2000);
@@ -273,6 +325,7 @@ export async function disconnectDatabase() {
   if (prisma) {
     await prisma.$disconnect();
     prisma = null;
+    connectPromise = null;
     connectionTested = false;
     connectionError = null;
   }

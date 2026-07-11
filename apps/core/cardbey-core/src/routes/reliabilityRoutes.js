@@ -9,6 +9,7 @@ import rateLimiter from '../services/reliability/rateLimiter.js';
 import bulkhead from '../services/reliability/bulkhead.js';
 import circuitBreaker from '../services/reliability/circuitBreaker.js';
 import sloTracker from '../services/reliability/sloTracker.js';
+import metricsCollector from '../services/reliability/metricsCollector.js';
 import alerting from '../services/reliability/alerting.js';
 import {
   pushWebhookInbox,
@@ -65,6 +66,21 @@ router.get('/circuit-breaker/status', requireAuth, requireAdmin, (req, res) => {
   } catch (error) {
     console.error('[reliability/circuit-breaker/status]', error);
     res.status(500).json({ ok: false, error: 'circuit_breaker_status_failed' });
+  }
+});
+
+router.get('/metrics/latency', requireAuth, requireAdmin, (req, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    res.json({
+      ok: true,
+      recent: metricsCollector.getRecentMetrics('api.latency', limit),
+      aggregates: metricsCollector.getAggregates(),
+      circuit: circuitBreaker.getStatus('api_latency'),
+    });
+  } catch (error) {
+    console.error('[reliability/metrics/latency]', error);
+    res.status(500).json({ ok: false, error: 'latency_metrics_failed' });
   }
 });
 

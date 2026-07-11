@@ -115,6 +115,27 @@ describe('formatStoreCreationDraftResponse', () => {
     expect(text).toContain("Let's set up your store");
     expect(text).not.toMatch(/Store name[\s\S]*my business/i);
   });
+
+  it('MS-001 clarifies missing multi-store fields instead of accepting vague location', () => {
+    const bundle = buildStoreCreationDraft({
+      userMessage: 'Set up 3 stores in different cities',
+      classification: { tool: 'create_store', confidence: 0.7, parameters: { source: 'intent_reasoner' } },
+    });
+
+    expect(bundle.multiStore?.isMultiStore).toBe(true);
+    expect(bundle.multiStore?.count).toBe(3);
+    expect(bundle.needsClarification).toBe(true);
+    expect(bundle.draft.location).toBeNull();
+    expect(bundle.missingFields).toContain('name');
+    expect(bundle.missingFields).toContain('location');
+    expect(bundle.missingFields).toContain('category');
+
+    const text = formatStoreCreationDraftResponse(bundle);
+    expect(text).toContain('different cities (3 stores)');
+    expect(text).toContain('Store names: Please provide names for your 3 stores');
+    expect(text).toContain('Categories: Please specify categories for each store');
+    expect(text).not.toContain('I need a bit more detail before we can create your store.');
+  });
 });
 
 describe('parseStoreCreationFromUserMessage adapter', () => {

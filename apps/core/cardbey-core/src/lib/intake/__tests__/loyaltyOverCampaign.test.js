@@ -83,6 +83,16 @@ describe('IntentReasoner loyalty campaign override', () => {
     expect(result.tool).toBe('setup_loyalty_program');
   });
 
+  it('routes loyalty campaign to setup_loyalty_program without active store', async () => {
+    const reasoner = makeReasoner(null);
+    const result = await reasoner.reason('user_1', 'session_1', {
+      text: 'Create a loyalty campaign',
+    });
+    expect(result.intent).toBe('setup_loyalty');
+    expect(result.tool).toBe('setup_loyalty_program');
+    expect(result.tool).not.toBe('create_store');
+  });
+
   it.each(MARKETING_KEEP_CAMPAIGN)('does not route loyalty setup for marketing: %s', async (text) => {
     const reasoner = makeReasoner('store_1');
     const result = await reasoner.reason('user_1', 'session_1', { text });

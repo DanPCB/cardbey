@@ -44,4 +44,9 @@ describe('CircuitBreaker', () => {
     expect(result).toBe('recovered');
     expect(breaker.getStatus('recover')?.state).toBe('closed');
   });
+
+  it('supports manual open()', () => {
+    breaker.open('api_latency', 'test breach');
+    expect(breaker.getStatus('api_latency')?.state).toBe('open');
+  });
 });

@@ -181,6 +181,14 @@ describe('observationBus', () => {
         latency: 120,
       }),
     ).toBe(true);
+    expect(
+      isObservationSloEligible({
+        actionType: 'dispatch_tool',
+        intentType: 'create_campaign',
+        contextSnapshot: { source: 'performer_intake_v2' },
+        latency: 95_803,
+      }),
+    ).toBe(false);
   });
 
   it('excludes infrastructure failures from success-rate SLO', () => {

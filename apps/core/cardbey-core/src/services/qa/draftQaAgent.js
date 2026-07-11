@@ -1,3 +1,5 @@
+import { runSemanticCatalogQa } from './semanticCatalogQa.js';
+
 /** Fashion/template keywords that should not appear in sweets/cafe catalogs */
 export const FASHION_KEYWORDS = /\b(blouse|trousers|dress|denim|jacket|hoodie|wallet|watch|earrings|leggings|polo|shorts|accessories|sweater|handbag|boots|scarf|necklace|skirt|jumpsuit|coat)\b/i;
 
@@ -18,10 +20,52 @@ function detectTemplateLeakage(items, businessType, storeName) {
  * Returns qaReport for persistence in draft.preview.meta.qaReport.
  *
  * @param {object} draft - DraftStore or { preview, input } with items/products
- * @param {{ logger?: (msg: string) => void }} opts
- * @returns {{ totalItems: number, itemsWithImages: number, itemsWithoutImages: number, hasHero: boolean, hasAvatar: boolean, score: number, issues: string[], issueCodes?: string[], computedAt: string }}
+ * @param {{ logger?: (msg: string) => void, useSemanticQa?: boolean }} opts
+ * @returns {object}
  */
 export function runDraftQa(draft, opts = {}) {
+  const useSemantic =
+    opts.useSemanticQa !== false &&
+    (process.env.ENABLE_SEMANTIC_CATALOG_QA !== '0' || process.env.NODE_ENV !== 'production');
+
+  if (useSemantic) {
+    const semantic = runSemanticCatalogQa(draft, opts);
+    const preview =
+      draft?.preview && typeof draft.preview === 'object'
+        ? draft.preview
+        : typeof draft?.preview === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(draft.preview);
+              } catch {
+                return {};
+              }
+            })()
+          : {};
+    const heroUrl = preview?.hero?.imageUrl ?? preview?.heroImageUrl ?? preview?.hero?.url;
+    const avatarUrl =
+      preview?.avatar?.imageUrl ??
+      preview?.avatarImageUrl ??
+      preview?.avatar?.url ??
+      preview?.brand?.logoUrl;
+    const hasHero = !!(heroUrl && String(heroUrl).trim());
+    const hasAvatar = !!(avatarUrl && String(avatarUrl).trim());
+    if (!hasHero) {
+      semantic.issues.push('Missing hero image');
+    }
+    if (!hasAvatar) {
+      semantic.issues.push('Missing avatar/logo');
+    }
+    if (!hasHero || !hasAvatar) {
+      semantic.score = Math.min(semantic.score, 90);
+    }
+    return { ...semantic, hasHero, hasAvatar };
+  }
+
+  return runLegacyDraftQa(draft, opts);
+}
+
+function runLegacyDraftQa(draft, opts = {}) {
   const logger = opts.logger || (() => {});
   const preview = draft?.preview && typeof draft.preview === 'object'
     ? draft.preview

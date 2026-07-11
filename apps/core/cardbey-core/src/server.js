@@ -95,6 +95,7 @@ import { initializeWebSocketServer, broadcastLog, broadcastEvent } from './realt
 import { initializeDeviceWebSocketServer } from './realtime/deviceWebSocketHub.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
+import { latencyGuard } from './middleware/latencyGuard.js';
 import compression from 'compression';
 import pairRouter from './routes/pair.js';
 import {
@@ -130,6 +131,8 @@ import adminCaiRoutes from './routes/admin/cai.js';
 import adminPlatformRoutes from './routes/admin/platformOverview.js';
 import adminPlatformActivityRoutes from './routes/admin/platformActivityRoutes.js';
 import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
+import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoringRoutes.js';
+import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
@@ -256,6 +259,7 @@ import missionsRoutes from './routes/missionsRoutes.js';
 import executionRoutes from './routes/executionRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
+import selfAuditRoutes from './routes/selfAudit.routes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
 import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
 import performerDispatchRoutes from './routes/performerDispatchRoutes.js';
@@ -711,6 +715,10 @@ app.use((req, res, next) => {
   }
 });
 
+// Request ID + latency SLO guard (skips SSE/long-lived routes)
+app.use(requestIdMiddleware);
+app.use(latencyGuard);
+
 // EARLY request logger with SSE tap
 app.use(requestTap("SERVER"));
 
@@ -1138,8 +1146,10 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
 app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
+app.use('/api/self-audit', selfAuditRoutes); // Self-audit: status, run, fix proposals (admin)
 console.log('[CORE] mounted /api/telemetry (GET /summary, POST /code-fix-proposal)');
 console.log('[CORE] mounted /api/self-healing (GET /discovery-gaps, POST /propose-from-discovery)');
+console.log('[CORE] mounted /api/self-audit (GET /status, POST /run, POST /fix/:issueId)');
 app.use('/api/broker', brokerRoutes); // Broker Phase 1: GET /api/broker/actions, /agent-capabilities
 // missionsRoutes mounted earlier (after /api/tools) so /api/missions/* is not swallowed by other /api stacks.
 // Second stack: POST /api/missions/:missionId/spawn (OpenClaw child) when not defined on missionsRoutes
@@ -1201,7 +1211,26 @@ app.use('/api/admin', adminCaiRoutes);
 app.use('/api/admin', adminPlatformRoutes);
 app.use('/api/admin', adminPlatformActivityRoutes);
 app.use('/api/admin', adminPlatformSearchRoutes);
+app.use('/api/admin', adminMultiAgentMonitoringRoutes);
 app.use('/api/admin', adminAccountManagementRoutes);
+app.use('/api/monitoring', monitoringRoutes);
+
+app.get('/metrics', async (_req, res) => {
+  if (process.env.MONITORING_ENABLED === 'false') {
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(503).send('# monitoring disabled\n');
+  }
+  try {
+    const mod = await import('./multiAgent/monitoring/index.ts');
+    const { metricsStore } = mod.initMultiAgentMonitoring();
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    return res.send(metricsStore.getPrometheusMetrics());
+  } catch (error) {
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(500).send(`# monitoring error: ${error?.message || 'unknown'}\n`);
+  }
+});
+
 app.use('/api/language', languageRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
@@ -1327,6 +1356,20 @@ const isTestEnv = (process.env.NODE_ENV || '').toLowerCase() === 'test' || Boole
     if (process.env.ROLE !== 'worker' && process.env.VITEST !== 'true') {
       startHeartbeat(30000); // 30s interval
       initReliabilityLayer();
+      if (process.env.MONITORING_ENABLED !== 'false') {
+        import('./multiAgent/monitoring/index.ts')
+          .then((mod) => mod.initMultiAgentMonitoring())
+          .catch((err) => {
+            console.warn('[MultiAgentMonitoring] init failed (non-blocking):', err?.message ?? err);
+          });
+      }
+      if (process.env.SELF_AUDIT_ENABLED !== 'false') {
+        import('./selfAudit/scheduler.ts')
+          .then((mod) => mod.initSelfAuditScheduler())
+          .catch((err) => {
+            console.warn('[SelfAudit] scheduler init failed (non-blocking):', err?.message ?? err);
+          });
+      }
     }
     if (process.env.ROLE === 'api') {
       startApiHttpServer();

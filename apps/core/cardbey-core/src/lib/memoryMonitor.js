@@ -142,6 +142,12 @@ export function startMemoryMonitor(intervalMs = 30_000) {
     const stats = sampleMemoryStats();
     console.log(formatMemoryLogLine(stats));
 
+    void import('../multiAgent/monitoring/monitoringRuntimeBridge.ts')
+      .then((mod) => mod.notifyProcessMemory({ rssMb: stats.rssMb, heapUsedMb: stats.heapUsedMb }))
+      .catch(() => {
+        /* monitoring bridge optional */
+      });
+
     const pressureLevel = evaluateHeapPressureLevel(stats.heapPressurePercent);
     const pressurePct = formatPercent(stats.heapPressurePercent);
 
@@ -160,6 +166,14 @@ export function startMemoryMonitor(intervalMs = 30_000) {
       console.warn(
         `[MEM] WARNING: RSS growth trend +${growthPercent}% (${oldestMb}MB → ${newestMb}MB) — allocation usage ${Math.round(stats.allocatedHeapUsagePercent * 100)}%, not heap limit pressure`,
       );
+      if (newestMb >= 3500 && typeof globalThis.gc === 'function') {
+        console.warn('[MEM] RSS critical — suggesting GC (run node with --expose-gc)');
+        try {
+          globalThis.gc();
+        } catch {
+          /* ignore */
+        }
+      }
     }
   }, intervalMs);
 

@@ -16,6 +16,8 @@ import { resolveStoreCommerce } from '../../lib/storeTransactionMode.js';
 import { classifyBusinessVertical } from '../../lib/classifyBusinessVertical.js';
 import { createAndPersistBusinessProfile } from '../../lib/businessSemantic/index.js';
 import { parseDraftPreview } from './draftPreviewSchema.js';
+import { inferCurrencyFromLocationText } from './currencyInfer.js';
+import { countCatalogItemsByKind } from '../../lib/commerce/assertCatalogKindConsistency.js';
 import { normalizePreviewCategories, buildCategoryIdToNameMap, resolveDraftProductCategoryName, resolveDraftItemImageUrl, normalizeDraftProductPrice } from './draftStoreService.js';
 import {
   readCanonicalHeroFromPreview,
@@ -696,6 +698,31 @@ export async function publishDraft(prisma, {
     targetDraft?.input && typeof targetDraft.input === 'object' ? targetDraft.input : {};
   const previewMeta =
     rawPreview?.meta && typeof rawPreview.meta === 'object' ? rawPreview.meta : {};
+
+  const publishCurrency =
+    draftInput.currencyCode ??
+    previewMeta.currencyCode ??
+    inferCurrencyFromLocationText(draftInput.location ?? previewMeta.location) ??
+    'AUD';
+
+  if (rawPreview?.meta && typeof rawPreview.meta === 'object') {
+    const counts = countCatalogItemsByKind(products);
+    rawPreview.meta = {
+      ...rawPreview.meta,
+      catalogKind: rawPreview.meta.catalogKind ?? rawPreview.meta.businessCommerceProfile?.catalogKind,
+      catalogCounts: counts,
+      currencyCode: publishCurrency,
+    };
+    if (rawPreview.meta.catalogKind === 'service' && !rawPreview.catalog) {
+      rawPreview.catalog = { items: products, catalogKind: 'service' };
+    } else if (rawPreview.catalog && typeof rawPreview.catalog === 'object') {
+      rawPreview.catalog = {
+        ...rawPreview.catalog,
+        catalogKind: rawPreview.meta.catalogKind,
+        items: products,
+      };
+    }
+  }
   let canonicalForPublish =
     draftInput.canonicalLocation ??
     previewMeta.canonicalLocation ??
@@ -861,7 +888,7 @@ export async function publishDraft(prisma, {
     {
       categoryMap: draftCatIdToName,
       otherCategoryName,
-      defaultCurrency: 'USD',
+      defaultCurrency: publishCurrency,
       businessType: storeType,
       businessName: storeName,
     },

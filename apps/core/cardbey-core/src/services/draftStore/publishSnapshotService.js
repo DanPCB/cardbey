@@ -56,6 +56,18 @@ function catalogProductsFromPreview(preview) {
   return [];
 }
 
+/** Same normalization as buildPublishSnapshotFromPreview — drift checks must use this. */
+function normalizedPreviewForSnapshot(draft) {
+  const preview = parsePreviewBlob(draft.preview);
+  normalizePreviewCategories(preview);
+  try {
+    enforcePublishHeroCanonical(preview, { source: 'normalizedPreviewForSnapshot' });
+  } catch (e) {
+    console.warn('[publish-snapshot] hero canonicalize failed (non-fatal):', e?.message || e);
+  }
+  return preview;
+}
+
 function newPublishSourceId(draftId) {
   return `ps_${draftId}_${crypto.randomBytes(6).toString('hex')}`;
 }
@@ -266,7 +278,7 @@ export async function ensurePublishSnapshot(prisma, draftId) {
   const version = Number(draft.publishSnapshotVersion) || 0;
 
   if (stored && typeof stored === 'object' && stored.draftId === draftId) {
-    const preview = parsePreviewBlob(draft.preview);
+    const preview = normalizedPreviewForSnapshot(draft);
     const previewProducts = catalogProductsFromPreview(preview);
     const previewFp = buildSourceFingerprintFromCatalog(previewProducts);
     const storedFp = stored.sourceFingerprint || '';
@@ -282,11 +294,14 @@ export async function ensurePublishSnapshot(prisma, draftId) {
         nextVersion,
         stored.publishSourceId,
       );
+      const previewShape = snapshotToPreviewShape(snapshot);
+      normalizePreviewCategories(previewShape);
       await prisma.draftStore.update({
         where: { id: draftId },
         data: {
           publishSnapshot: snapshot,
           publishSnapshotVersion: nextVersion,
+          preview: previewShape,
         },
       });
       logTag('PUBLISH_SNAPSHOT_SAVE', {

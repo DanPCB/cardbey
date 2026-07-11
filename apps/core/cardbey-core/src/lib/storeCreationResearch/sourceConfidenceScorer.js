@@ -89,6 +89,8 @@ export function scoreSourceMatch(source, identity) {
   const bookwellOffers = Array.isArray(raw.offers) ? raw.offers : [];
   const bookwellDiscovery =
     raw.discoveryVia === 'bookwell_listing' ||
+    raw.discoveryVia === 'bookwell_sibling_venue' ||
+    raw.discoveryVia === 'fresha_supplement' ||
     (source.sourceType === 'booking_platform' && /bookwell\.com/i.test(sourceUrl));
   if (
     bookwellDiscovery &&

@@ -5,6 +5,12 @@
 
 import { parseStructuredStoreCreatePillMessage } from '../intent/storeCreateFastPath.js';
 import { isExplicitCreateStoreFromUploadContext } from './assetUploadGuard.js';
+import {
+  buildPerformerStoreSelectionClarify,
+  isExplicitGreenfieldCreateStoreIntent,
+  loadAccountStoreContext,
+} from './accountStoreIntakeGate.js';
+import { intentRequiresActiveStoreContext } from './intakePerformerRouting.js';
 import { buildStoreCreationDraft } from './storeCreationDraft.js';
 import {
   buildOcrHintsFromImageText,
@@ -362,6 +368,12 @@ export function shouldForceCreateStoreCheckpointDispatch(input = {}) {
 
 /**
  * @typedef {{
+ *   kind: 'store_selection_required';
+ *   stores: Array<Record<string, unknown>>;
+ *   userMessage: string;
+ *   lockedTool: string;
+ * }} CreateStoreSelectionRequiredResult
+ * @typedef {{
  *   kind: 'needs_form';
  *   intentMode: 'store' | 'website';
  * }} CreateStoreNeedsFormResult
@@ -463,6 +475,37 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
   });
 
   if (!businessName) {
+    const uid = String(user?.id ?? actorId ?? '').trim();
+    const explicitGreenfield = isExplicitGreenfieldCreateStoreIntent({
+      userMessage,
+      classification,
+      storeCreateForm,
+      intentSourceContext: deps.intentSourceContext,
+      primaryModeHint: deps.primaryModeHint,
+      primaryMode: deps.primaryMode,
+      action: deps.action,
+    });
+    if (uid && !explicitGreenfield) {
+      const { accountHasStores, stores } = await loadAccountStoreContext(uid);
+      const lockedTool = String(classification?.tool ?? 'general_chat').trim() || 'general_chat';
+      if (accountHasStores) {
+        if (intentRequiresActiveStoreContext({ tool: lockedTool })) {
+          diagLog(diag, '→ store_selection_required (store-scoped intent, no active store)');
+          return {
+            kind: 'store_selection_required',
+            stores,
+            userMessage: String(userMessage ?? '').trim(),
+            lockedTool,
+          };
+        }
+        diagLog(diag, '→ intake_chat (vague turn misrouted to create_store)');
+        return {
+          kind: 'intake_chat',
+          message:
+            "I didn't quite catch that. You can ask for help, manage campaigns, add products, or create a new business — what would you like to do?",
+        };
+      }
+    }
     diagLog(diag, '→ needs_form (missing businessName)');
     return { kind: 'needs_form', intentMode: ctxIntentMode };
   }
@@ -701,6 +744,53 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
   const { StructuredFact } = await import('../response/factTypes.js');
   const { explainDuplicateStoreIntakeResponse } = await import('./intakeErrorTypes.js');
 
+  if (result.kind === 'intake_chat') {
+    await safeJson(
+      {
+        success: true,
+        action: 'chat',
+        response:
+          result.message ??
+          "I didn't quite catch that. You can ask for help, manage campaigns, add products, or create a new business — what would you like to do?",
+        executionPath: 'direct_action',
+      },
+      {
+        classification: {
+          executionPath: 'chat',
+          tool: 'general_chat',
+          confidence: 1,
+        },
+        validated: true,
+        downgraded: false,
+        validationErrors: [],
+        riskLevel: RISK.SAFE_READ,
+        result: 'intake_chat',
+      },
+    );
+    return res;
+  }
+
+  if (result.kind === 'store_selection_required') {
+    const clarifyBody = buildPerformerStoreSelectionClarify({
+      stores: result.stores ?? [],
+      userMessage: result.userMessage ?? ctx.userMessage,
+      lockedTool: result.lockedTool ?? 'general_chat',
+    });
+    await safeJson(clarifyBody, {
+      classification: {
+        executionPath: 'clarify',
+        tool: result.lockedTool ?? 'general_chat',
+        confidence: 1,
+      },
+      validated: true,
+      downgraded: false,
+      validationErrors: [],
+      riskLevel: RISK.SAFE_READ,
+      result: 'store_selection_required',
+    });
+    return res;
+  }
+
   if (result.kind === 'needs_form') {
     const uploadDraft =
       ctx.uploadDraftContext && typeof ctx.uploadDraftContext === 'object'
@@ -850,6 +940,20 @@ export async function runCreateStoreViaUnifiedDispatch(deps, auditSource) {
       kind: 'started',
       responseBody: unifiedResult.responseBody ?? {},
       telemetry: unifiedResult.telemetry ?? {},
+    };
+  }
+  if (kind === 'store_selection_required') {
+    return {
+      kind: 'store_selection_required',
+      stores: unifiedResult.stores ?? [],
+      userMessage: unifiedResult.userMessage ?? '',
+      lockedTool: unifiedResult.lockedTool ?? 'general_chat',
+    };
+  }
+  if (kind === 'intake_chat') {
+    return {
+      kind: 'intake_chat',
+      message: unifiedResult.message ?? null,
     };
   }
   if (kind === 'needs_form') {

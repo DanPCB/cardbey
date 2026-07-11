@@ -6,6 +6,8 @@ import { resolveVertical } from '../../lib/verticals/verticalTaxonomy.js';
 import { buildCuisineMenuCatalog, isFoodVerticalSlug, resolveCuisineMenuBankKey } from './foodCuisineCatalog.js';
 import { ALL_INDUSTRY_BLUEPRINTS } from './industryBlueprints/index.js';
 import { CATALOG_ITEM_LIMIT, CATALOG_ITEM_MIN } from '../../config/catalogLimits.js';
+import { currencySymbol } from '../../lib/catalog/generators/serviceCatalogHelpers.js';
+import { canonicalizeServiceName } from '../../lib/catalog/canonicalServiceNormalizer.js';
 
 export function deriveDefaultImageQueryHint(itemName, bank) {
   const name = String(itemName ?? '').trim().replace(/\s+(- chef'?s|- special|- house)$/i, '').trim();
@@ -132,23 +134,25 @@ export function reconcileIndustryVerticalSlug(verticalSlug, profile = {}) {
   return slug || 'services.generic';
 }
 
-function formatBlueprintPrice(item) {
+function formatBlueprintPrice(item, currencyCode = 'AUD') {
+  const sym = currencySymbol(currencyCode);
   if (item.price) return item.price;
   if (item.pricingModel === 'custom' || (item.basePrice === 0 && /\bfree\b/i.test(item.name))) {
     return 'Free';
   }
   if (typeof item.basePrice === 'number' && item.basePrice > 0) {
-    return `$${item.basePrice.toFixed(2)}`;
+    return `${sym}${item.basePrice.toFixed(2)}`;
   }
   if (item.fromPrice != null && item.priceUnit) {
     const unit = item.priceUnit === 'hour' ? '/hr' : item.priceUnit === 'project' ? '' : `/${item.priceUnit}`;
-    return `From $${item.fromPrice}${unit}`;
+    return `From ${sym}${item.fromPrice}${unit}`;
   }
-  if (item.fromPrice != null) return `From $${item.fromPrice}`;
-  return 'Estimate required';
+  if (item.fromPrice != null) return `From ${sym}${item.fromPrice}`;
+  return 'Quote required';
 }
 
-function buildFromBlueprint(bank, key, targetCount) {
+function buildFromBlueprint(bank, key, targetCount, profile = {}) {
+  const currencyCode = profile.currencyCode ?? 'AUD';
   const cap = Math.max(CATALOG_ITEM_MIN, Math.min(CATALOG_ITEM_LIMIT, targetCount));
   const categories = bank.categories.map((c) => ({
     id: `cat_ind_${c.key}`,
@@ -158,31 +162,35 @@ function buildFromBlueprint(bank, key, targetCount) {
 
   const items = [];
   const baseItems = bank.items;
-  for (let i = 0; i < cap; i += 1) {
+  const seenCanonical = new Set();
+
+  for (let i = 0; items.length < cap && i < baseItems.length * 3; i += 1) {
     const src = baseItems[i % baseItems.length];
     const catId = catByKey[src.categoryKey] || categories[0].id;
-    const suffix =
-      i >= baseItems.length
-        ? ` ${['', "- Chef's", '- Special', '- House'][Math.floor(i / baseItems.length) % 4]}`.trim()
-        : '';
-    const name = suffix && !src.name.includes(suffix) ? `${src.name}${suffix}` : src.name;
+    const { canonicalName } = canonicalizeServiceName(src.name);
+    const dedupeKey = canonicalName.toLowerCase();
+    if (seenCanonical.has(dedupeKey)) continue;
+    seenCanonical.add(dedupeKey);
+
     items.push({
-      id: `item_ind_${i}`,
-      name,
+      id: `item_ind_${items.length}`,
+      name: canonicalName,
       description: src.description ?? null,
-      price: formatBlueprintPrice(src),
+      price: formatBlueprintPrice(src, currencyCode),
       categoryId: catId,
+      categoryKey: src.categoryKey,
+      currencyCode,
       ...(src.serviceMode ? { serviceMode: src.serviceMode } : {}),
       ...(src.pricingModel ? { pricingModel: src.pricingModel } : {}),
-      ...(src.fromPrice != null ? { fromPrice: src.fromPrice } : {}),
+      ...(src.fromPrice != null ? { fromPrice: src.fromPrice, priceProvenance: 'blueprint' } : {}),
       ...(src.basePrice != null ? { basePrice: src.basePrice } : {}),
       ...(src.priceUnit ? { priceUnit: src.priceUnit } : {}),
       ...(src.durationMinutes != null ? { durationMinutes: src.durationMinutes } : {}),
       ...(src.estimateDurationLabel ? { estimateDurationLabel: src.estimateDurationLabel } : {}),
       ...(src.imageQueryHint ? { imageQueryHint: src.imageQueryHint } : {}),
       ...(src.tags ? { tags: src.tags } : {}),
-      ...(!src.imageQueryHint && src.name
-        ? { imageQueryHint: deriveDefaultImageQueryHint(name, bank) }
+      ...(!src.imageQueryHint && canonicalName
+        ? { imageQueryHint: deriveDefaultImageQueryHint(canonicalName, bank) }
         : {}),
     });
   }
@@ -222,7 +230,7 @@ export function buildIndustryCatalog(profile = {}, targetCount = CATALOG_ITEM_LI
 
   const key = resolveIndustryBlueprintKey(profile);
   const bank = key ? INDUSTRY_BLUEPRINTS[key] : null;
-  if (bank) return buildFromBlueprint(bank, key, targetCount);
+  if (bank) return buildFromBlueprint(bank, key, targetCount, profile);
 
   if (isFood) {
     return buildCuisineMenuCatalog(profile, targetCount);

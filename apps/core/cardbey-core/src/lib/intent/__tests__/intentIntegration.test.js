@@ -182,4 +182,80 @@ describe('IntentIntegration', () => {
     expect(result.executionPath).toBe('kernel_dispatch');
     expect(result._reasoning?.intent).toBe('create_campaign');
   });
+
+  it('maps start_new_workflow to chat when account has stores but intent is general', async () => {
+    vi.spyOn(integration.reasoner, 'reason').mockResolvedValue({
+      intent: 'general_chat',
+      confidence: 0.35,
+      reasoning: ['Low confidence'],
+      trace: { reasoningId: 'r1', steps: [], decision: 'clarify' },
+      action: 'start_new_workflow',
+      tool: null,
+      parameters: {},
+      requiresClarification: false,
+      clarificationPrompt: null,
+      suggestedActions: [],
+      userState: {
+        hasStore: false,
+        accountHasStores: true,
+        hasActiveStoreContext: false,
+        accountStoreCount: 2,
+        accountStoreCandidates: [
+          { id: 's1', name: 'Pho Chu The', type: 'Food & drink' },
+          { id: 's2', name: 'ABC Bakery', type: 'Food & drink' },
+        ],
+        isGuest: false,
+      },
+    });
+
+    const result = await integration.processIntake({
+      userId: 'user_123',
+      sessionId: 'session_123',
+      input: { text: 'asdfjkl' },
+      classifyOpts: { userMessage: 'asdfjkl' },
+      req: mockReq,
+    });
+
+    expect(result.executionPath).toBe('chat');
+    expect(result.tool).toBe('general_chat');
+    expect(result.clarifyType).toBeUndefined();
+  });
+
+  it('maps select_store_first to store picker when account has stores', async () => {
+    vi.spyOn(integration.reasoner, 'reason').mockResolvedValue({
+      intent: 'select_store_first',
+      confidence: 0.72,
+      reasoning: ['Needs store selection'],
+      trace: { reasoningId: 'r2', steps: [], decision: 'clarify' },
+      action: 'ask_clarification',
+      tool: null,
+      parameters: {},
+      requiresClarification: true,
+      clarificationPrompt: 'Which business should we work on?',
+      suggestedActions: [],
+      userState: {
+        hasStore: false,
+        accountHasStores: true,
+        hasActiveStoreContext: false,
+        accountStoreCount: 2,
+        accountStoreCandidates: [
+          { id: 's1', name: 'Pho Chu The', type: 'Food & drink' },
+          { id: 's2', name: 'ABC Bakery', type: 'Food & drink' },
+        ],
+        isGuest: false,
+      },
+    });
+
+    const result = await integration.processIntake({
+      userId: 'user_123',
+      sessionId: 'session_123',
+      input: { text: 'add a product' },
+      classifyOpts: { userMessage: 'add a product' },
+      req: mockReq,
+    });
+
+    expect(result.executionPath).toBe('clarify');
+    expect(result.clarifyType).toBe('execution_context_store_picker');
+    expect(result.storeCandidates?.length).toBe(2);
+  });
 });

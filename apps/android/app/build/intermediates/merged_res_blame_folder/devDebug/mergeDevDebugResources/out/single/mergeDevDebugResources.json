@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "com.cardbey.android.app-devDebug-4:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.cardbey.android.app-main-8:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.cardbey.android.app-devDebug-4:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.cardbey.android.app-main-8:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.cardbey.android.app-devDebug-4:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.cardbey.android.app-main-8:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.cardbey.android.app-devDebug-4:/xml_network_security_config.xml.flat",
+        "source": "com.cardbey.android.app-main-8:/xml/network_security_config.xml"
+    }
+]

@@ -55,6 +55,7 @@ import {
   isLoyaltyIntent,
   shouldPreferLoyaltyOverCampaign,
 } from '../lib/intake/intentDetectors.js';
+import { applyLoyaltyTextIntentOverride } from '../lib/intake/loyaltyIntakeOverrides.js';
 import {
   buildAttachmentAnalysis,
   buildLoyaltyMissingFieldsClarify,
@@ -205,7 +206,19 @@ import {
   shouldInjectStalePendingUploadImage,
   stripStaleUploadHandoffFromIntentSource,
 } from '../lib/intake/intakeUploadHandoffGuard.js';
-import { isCasualChatTurn } from '../lib/intake/intakeCasualChatTurn.js';
+import {
+  isCasualChatTurn,
+  isGeneralPerformerChatTurn,
+  isOpenPerformerChatTurn,
+} from '../lib/intake/intakeCasualChatTurn.js';
+import {
+  mergePerformerIntakeContextIntoCurrentContext,
+  resolvePerformerIntakeContext,
+} from '../lib/intake/resolvePerformerIntakeContext.js';
+import {
+  shouldDeferMissionForStoreContext,
+} from '../lib/intake/intakePerformerRouting.js';
+import { buildPerformerStoreSelectionClarify } from '../lib/intake/accountStoreIntakeGate.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
 const STORE_CONTEXT_FREE_TOOLS = CONTEXT_FREE_TOOLS;
@@ -353,6 +366,13 @@ import { intakeMessage } from '../lib/intake/performerIntakeMessageCatalog.js';
 import { shouldGateGuestPostDraftStoreAction } from '../lib/intake/guestDraftSignInGate.js';
 import { shouldClarifyGuestDraftAddProduct } from '../lib/intake/guestDraftProductClarify.js';
 import { getIntentIntegration } from '../lib/intent/intentIntegration.js';
+import {
+  buildIntentEngineInput,
+  runIntentEnginePrimary,
+  runIntentEngineShadow,
+  shouldSkipLegacyCasualChatShortcircuit,
+  resolveIntentEngineOwnerUserId,
+} from '../intent/intentEngineIntake.js';
 import {
   applyDynamicPlanToClassification,
   getPlannerIntegration,
@@ -2115,6 +2135,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   let confirmInterceptClassification = null;
   let confirmInterceptApplied = false;
   let intakeIdempotencyKey = null;
+  /** Set when intent-first engine (primary) produces classification for dispatch. */
+  let intentEnginePrimaryClassification = null;
 
   const earlyCurrentContextForConfirm =
     body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
@@ -2233,14 +2255,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   if (
     userMessage &&
-    isCasualChatTurn(userMessage) &&
+    isOpenPerformerChatTurn(userMessage) &&
     !isIntakeConfirmAffirmation(userMessage) &&
     !confirmInterceptApplied &&
     !hasIntakeImageAttachment(body) &&
     !(body.intakeV2Selection && typeof body.intakeV2Selection === 'object') &&
     body._autoSubmit !== true &&
     !body.storeCreateForm &&
-    !body.storeCreationDraft
+    !body.storeCreationDraft &&
+    !shouldSkipLegacyCasualChatShortcircuit()
   ) {
     const casualSessionId =
       String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
@@ -2261,11 +2284,18 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         );
       }
     }
-    console.log('[IntakeV2] routing:casual_chat_shortcircuit', { userMessage });
+    console.log('[IntakeV2] routing:open_performer_chat_shortcircuit', { userMessage });
+    const helpReply = /^thanks/i.test(userMessage)
+      ? "You're welcome!"
+      : /^help|i need help/i.test(userMessage)
+        ? "I'm here to help. You can manage campaigns, products, loyalty, analytics, or create a new business. What would you like to do?"
+        : isGeneralPerformerChatTurn(userMessage)
+          ? 'Hello! How can I help you today?'
+          : "I didn't quite catch that. You can ask for help, manage campaigns, add products, or create a new business — what would you like to do?";
     return res.json({
       success: true,
       action: 'chat',
-      response: /^thanks/i.test(userMessage) ? "You're welcome!" : 'Hello! How can I help you today?',
+      response: helpReply,
       executionPath: 'direct_action',
     });
   }
@@ -2616,6 +2646,67 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
+  // Intent-first engine — runs after context bootstrap so owner userId + activeStoreId are available.
+  if (
+    Features.intentEngine.primary &&
+    userMessage &&
+    !isIntakeConfirmAffirmation(userMessage) &&
+    !confirmInterceptApplied &&
+    !hasIntakeImageAttachment(body) &&
+    !(body.intakeV2Selection && typeof body.intakeV2Selection === 'object') &&
+    body._autoSubmit !== true
+  ) {
+    const ownerUserId = resolveIntentEngineOwnerUserId(req, body);
+    const intentEngineInput = buildIntentEngineInput({
+      userMessage,
+      ownerUserId,
+      userId: ownerUserId,
+      sessionId:
+        String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+        null,
+      activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
+      primaryModeHint: body.primaryModeHint,
+      storeCreateForm: body.storeCreateForm,
+      action: body.action,
+    });
+    const { earlyResponse, classification: engineClassification } =
+      await runIntentEnginePrimary(intentEngineInput);
+    if (engineClassification) {
+      intentEnginePrimaryClassification = engineClassification;
+    }
+    if (earlyResponse) {
+      if (earlyResponse.action === 'chat') {
+        const casualSessionId =
+          String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+          null;
+        const casualSessionKey = resolveIntakeAssetSessionKey({
+          conversationSessionId: casualSessionId,
+          sessionId: casualSessionId,
+          userId: ownerUserId ?? (String(req.user?.id ?? body?.userId ?? '').trim() || null),
+          guestSessionId: req.guestSessionId ?? null,
+        });
+        if (casualSessionKey) {
+          try {
+            await clearStaleUploadBeliefContext(casualSessionKey);
+          } catch (clearErr) {
+            console.warn(
+              '[IntakeV2] intent-engine chat upload context clear failed:',
+              clearErr?.message ?? clearErr,
+            );
+          }
+        }
+      }
+      console.log('[IntakeV2] routing:intent_engine_primary', {
+        intent: earlyResponse._intentEngine?.intent,
+        action: earlyResponse.action,
+        ownerUserId,
+        contextStatus: earlyResponse._intentEngine?.contextStatus,
+        storeCount: earlyResponse._intentEngine?.storeCount,
+      });
+      return res.json(earlyResponse);
+    }
+  }
+
   if (!freshStoreMission) {
     currentContext = attachIntakeMemoryFields(currentContext);
     missionId = resolveIntakeMissionId({ body, currentContext }) || missionId;
@@ -2709,6 +2800,35 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   });
   if (intentSourceContext) {
     body.intentSourceContext = intentSourceContext;
+  }
+
+  if (!freshStoreMission && req.user?.id) {
+    try {
+      const performerIntakeContext = await resolvePerformerIntakeContext({
+        userId: req.user.id,
+        tenantId: getTenantId(req.user) ?? req.user.id,
+        currentContext,
+        intentSourceContext,
+        selectionStoreId: resolveStoreIdFromIntakeSelection(body.intakeV2Selection),
+      });
+      currentContext = mergePerformerIntakeContextIntoCurrentContext(
+        currentContext,
+        performerIntakeContext,
+      );
+      if (performerIntakeContext?.selectionMethod && performerIntakeContext.activeStoreId) {
+        console.log('[IntakeV2] intake_context_resolved', {
+          selectionMethod: performerIntakeContext.selectionMethod,
+          activeStoreId: performerIntakeContext.activeStoreId,
+          spaceType: performerIntakeContext.spaceType,
+          accountStoreCount: performerIntakeContext.accountStoreCount,
+        });
+      }
+    } catch (intakeContextErr) {
+      console.warn(
+        '[IntakeV2] resolvePerformerIntakeContext failed (non-blocking):',
+        intakeContextErr?.message ?? intakeContextErr,
+      );
+    }
   }
 
   /** Phase 1: unified belief shadow (read-only; no classification change). */
@@ -3240,6 +3360,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     classification = confirmInterceptClassification._confirmIntercept
       ? normalizeConfirmInterceptClassification(confirmInterceptClassification)
       : confirmInterceptClassification;
+    skipReasoningPipeline = true;
+  } else if (intentEnginePrimaryClassification) {
+    classification = intentEnginePrimaryClassification;
     skipReasoningPipeline = true;
   }
 
@@ -3876,8 +3999,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     intakeShortcutContext = resolveIntakeShortcutContext({
       userMessage,
       storeCreateForm: storeCreateFormPayload,
-      primaryMode: isCasualChatTurn(userMessage) ? undefined : body.primaryMode,
-      primaryModeHint: isCasualChatTurn(userMessage) ? undefined : body.primaryModeHint,
+      primaryMode: isGeneralPerformerChatTurn(userMessage) ? undefined : body.primaryMode,
+      primaryModeHint: isGeneralPerformerChatTurn(userMessage) ? undefined : body.primaryModeHint,
       intentSource: body.intentSource,
       forceIntent: body.forceIntent ?? body.intentSourceContext?.forceIntent,
       currentFlow: body.intentSourceContext?.currentFlow,
@@ -4402,7 +4525,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         isSelectionConfirm,
         intakeV2Selection: selection,
         storeCreateForm: storeCreateFormPayload,
-        primaryModeHint: isCasualChatTurn(userMessage) ? undefined : body.primaryModeHint,
+        primaryModeHint: isGeneralPerformerChatTurn(userMessage) ? undefined : body.primaryModeHint,
         action: body.action,
         parameters:
           body.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
@@ -4446,7 +4569,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
 
       const intentIntegration = getIntakeIntentIntegration();
-      if (performerMode !== 'manual') {
+      if (performerMode !== 'manual' && !skipReasoningPipeline) {
         const contextUserId =
           resolveContextUserId(req) ?? intakeActorKey ?? performerIntakeV2ActorId(req) ?? null;
         const contextSessionId =
@@ -4465,7 +4588,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             hasAttachment: hasAnyImageEarly || hasIntakeImageAttachment(body),
             shortcutContext: intakeShortcutContext,
             storeCreateForm: storeCreateFormPayload,
-            primaryModeHint: isCasualChatTurn(userMessage) ? undefined : body.primaryModeHint,
+            primaryModeHint: isGeneralPerformerChatTurn(userMessage) ? undefined : body.primaryModeHint,
             action: body.action,
             parameters:
               body.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
@@ -4476,6 +4599,20 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           req,
         });
         intentReasonerTool = String(classification?.tool ?? '').trim() || null;
+
+        void runIntentEngineShadow(
+          buildIntentEngineInput({
+            userMessage,
+            ownerUserId: resolveIntentEngineOwnerUserId(req, body) ?? contextUserId,
+            userId: resolveIntentEngineOwnerUserId(req, body) ?? contextUserId,
+            sessionId: contextSessionId,
+            activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
+            primaryModeHint: isGeneralPerformerChatTurn(userMessage) ? undefined : body.primaryModeHint,
+            storeCreateForm: storeCreateFormPayload,
+            action: body.action,
+          }),
+          classification,
+        );
 
         classification = guardClassificationAgainstEvidence({
           classification: classification ?? {},
@@ -4545,59 +4682,33 @@ router.post('/', requireUserOrGuest, async (req, res) => {
               spine: true,
             });
           }
-        } else if (
-          String(classification?.tool || '').trim() === 'create_campaign' &&
-          shouldPreferLoyaltyOverCampaign(
-            String(originalGoal || classifierInputMessage || userMessage || ''),
+        } else {
+          const loyaltyTextOverride = applyLoyaltyTextIntentOverride(classification, {
+            userMessage: String(originalGoal || classifierInputMessage || userMessage || ''),
             attachmentAnalysis,
-          )
-        ) {
-          // Text: "loyalty campaign" misclassified as create_campaign — force loyalty spine.
-          const priorParams =
-            classification?.parameters &&
-            typeof classification.parameters === 'object' &&
-            !Array.isArray(classification.parameters)
-              ? classification.parameters
-              : {};
-          const overrideReason = isLoyaltyCardAttachment(attachmentAnalysis)
-            ? 'loyalty_card_attachment'
-            : 'loyalty_intent_over_campaign';
-          classification = {
-            ...classification,
-            executionPath: Features.loyalty.useSpine ? 'loyalty_chat_compile' : 'proactive_plan',
-            tool: 'setup_loyalty_program',
-            confidence: Math.max(Number(classification?.confidence) || 0, 0.97),
-            parameters: {
-              ...priorParams,
-              ...(dispatchStoreId || effectiveStoreId
-                ? { storeId: dispatchStoreId ?? effectiveStoreId }
-                : {}),
-              ...(attachmentAnalysis
-                ? {
-                    preseededDraft:
-                      priorParams.preseededDraft ?? attachmentAnalysis.preseededDraft,
-                    attachmentAnalysis,
-                  }
-                : {}),
-              source: 'loyalty_overrode_campaign',
-            },
-            _requiresStore: true,
-            requiresStore: true,
-            _compilerEligible: true,
-            _classificationSource: 'loyalty_over_campaign',
-          };
-          emitSpinePathTelemetry({
-            pathId: 'loyalty_overrode_campaign',
-            source: 'intake_v2_loyalty_over_campaign',
-            ok: true,
-            reason: overrideReason,
-            originalTool: 'create_campaign',
-            finalTool: 'setup_loyalty_program',
-            tool: 'setup_loyalty_program',
-            executionPath: 'loyalty_chat_compile',
-            spine: true,
+            dispatchStoreId,
+            effectiveStoreId,
+            isLoyaltyCardAttachment,
+            shouldPreferLoyaltyOverCampaign,
+            isLoyaltyCompilerTool,
           });
-        } else if (isLoyaltyCompilerTool(classification) && attachmentAnalysis) {
+          if (loyaltyTextOverride) {
+            classification = loyaltyTextOverride.classification;
+            emitSpinePathTelemetry({
+              pathId: loyaltyTextOverride.telemetry.pathId,
+              source: 'intake_v2_loyalty_text_override',
+              ok: true,
+              reason: loyaltyTextOverride.telemetry.reason,
+              originalTool: loyaltyTextOverride.telemetry.originalTool,
+              finalTool: loyaltyTextOverride.telemetry.finalTool,
+              tool: 'setup_loyalty_program',
+              executionPath: 'loyalty_chat_compile',
+              spine: true,
+            });
+          }
+        }
+
+        if (isLoyaltyCompilerTool(classification) && attachmentAnalysis) {
           const priorParams =
             classification.parameters &&
             typeof classification.parameters === 'object' &&
@@ -4996,6 +5107,31 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }));
 
   classification = normalizeClassificationForKernel(classification);
+
+  if (process.env.MULTI_AGENT_ENABLED === 'true') {
+    try {
+      const { integrateDeepSeekMultiAgentIntake } = await import('../lib/multiAgent/deepseekIntakeBridge.ts');
+      const deepSeekIntegration = await integrateDeepSeekMultiAgentIntake({
+        userMessage: originalGoal || userMessage,
+        classification,
+        missionId,
+        locale,
+        actorId: performerIntakeV2ActorId(req),
+        storeId: effectiveStoreId ?? storeId ?? dispatchStoreId ?? null,
+      });
+      if (deepSeekIntegration.classification) {
+        classification = deepSeekIntegration.classification;
+      }
+      if (deepSeekIntegration.handled && deepSeekIntegration.response) {
+        return safeJson(deepSeekIntegration.response, deepSeekIntegration.telemetry ?? {});
+      }
+    } catch (deepSeekErr) {
+      console.warn(
+        '[intake/v2] DeepSeek multi-agent integration failed (non-blocking):',
+        deepSeekErr?.message ?? deepSeekErr,
+      );
+    }
+  }
 
   if (classification?._confirmIntercept) {
     const confirmCampaignRespondedEarly = await dispatchConfirmInterceptCampaignIfReady(req, res, {
@@ -5812,6 +5948,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             classification.message ||
             intakeMessage('pickAnOption', locale),
           options,
+          ...(classification.clarifyType ? { clarifyType: classification.clarifyType } : {}),
+          ...(Array.isArray(classification.storeCandidates) && classification.storeCandidates.length > 0
+            ? { storeCandidates: classification.storeCandidates }
+            : {}),
+          ...(classification.pendingIntent && typeof classification.pendingIntent === 'object'
+            ? { pendingIntent: classification.pendingIntent }
+            : {}),
         },
         {
           classification,
@@ -6876,6 +7019,55 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   if (classification.executionPath === 'proactive_plan') {
+    const intakeCtxForDefer =
+      currentContext?.performerIntakeContext && typeof currentContext.performerIntakeContext === 'object'
+        ? currentContext.performerIntakeContext
+        : null;
+    if (
+      shouldDeferMissionForStoreContext({
+        tool: classification.tool,
+        intent: classification._reasoning?.intent,
+        hasActiveStoreContext: Boolean(dispatchStoreId || draftId),
+        accountHasStores: intakeCtxForDefer?.accountHasStores,
+        accountStoreCount: intakeCtxForDefer?.accountStoreCount,
+      })
+    ) {
+      const deferStores = Array.isArray(intakeCtxForDefer?.accountStores)
+        ? intakeCtxForDefer.accountStores
+        : [];
+      const deferClarify = buildPerformerStoreSelectionClarify({
+        stores: deferStores,
+        lockedTool: classification.tool || 'general_chat',
+        userMessage,
+        lockedParams: cleanedParams,
+      });
+      return safeJson(
+        {
+          success: true,
+          action: 'clarify',
+          clarifyType: 'execution_context_store_picker',
+          response: deferClarify.message,
+          message: deferClarify.message,
+          options: deferClarify.options,
+          storeCandidates: deferClarify.storeCandidates,
+          pendingIntent: {
+            ...(deferClarify.pendingIntent && typeof deferClarify.pendingIntent === 'object'
+              ? deferClarify.pendingIntent
+              : {}),
+            originalTool: classification.tool,
+          },
+        },
+        {
+          classification,
+          validated: true,
+          downgraded: false,
+          validationErrors: [],
+          riskLevel,
+          result: 'clarify',
+        },
+      );
+    }
+
     // Never fall through to legacy proactive_plan for loyalty when spine is on.
     if (isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification)) {
       emitSpinePathTelemetry({

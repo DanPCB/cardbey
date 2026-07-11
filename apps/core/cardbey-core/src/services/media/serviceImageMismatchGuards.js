@@ -49,8 +49,36 @@ const SERVICE_MISMATCH_GUARDS = {
     reject: ['fence', 'deck', 'television', 'salon'],
   },
   'minor electrical assistance': {
-    require: ['electric', 'outlet', 'switch', 'wiring', 'light', 'fixture'],
-    reject: ['outdoor furniture', 'deck patio', 'salon', 'restaurant'],
+    require: ['electric', 'outlet', 'switch', 'wiring', 'light', 'fixture', 'rope'],
+    reject: ['outdoor furniture', 'deck patio', 'salon', 'restaurant', 'coiled rope', 'rope coil'],
+  },
+  'window cleaning': {
+    require: ['window', 'glass', 'squeegee', 'cleaner', 'pane'],
+    reject: ['drill', 'wood drilling', 'saw', 'woodworking'],
+  },
+  'pressure washing': {
+    require: ['pressure washer', 'water jet', 'surface cleaning', 'driveway', 'deck'],
+    reject: ['road maintenance truck', 'road truck', 'asphalt truck'],
+  },
+  'interior painting': {
+    require: ['paint', 'roller', 'wall', 'painter', 'brush'],
+    reject: ['ceiling fresco', 'ornate mural', 'classical ceiling'],
+  },
+  'picture hanging': {
+    require: ['picture', 'frame', 'wall', 'hanging', 'artwork', 'mirror'],
+    reject: ['chandelier', 'lobby', 'luxury gallery'],
+  },
+  'furniture assembly': {
+    require: ['furniture', 'assembly', 'flat pack', 'ikea', 'wardrobe', 'desk'],
+    reject: ['photography studio', 'studio lights', 'backdrop'],
+  },
+  'flat pack assembly': {
+    require: ['flat pack', 'furniture', 'assembly', 'wardrobe', 'desk'],
+    reject: ['laptop', 'electronic device', 'medical lab'],
+  },
+  'general home maintenance': {
+    require: ['handyman', 'toolbox', 'maintenance', 'home repair', 'tools'],
+    reject: ['paint roller only', 'office meeting'],
   },
 };
 

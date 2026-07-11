@@ -13,9 +13,9 @@ import {
 } from './researchEvidenceRepository.js';
 import { resolveStoreResearchInputFields, shouldRunStoreCreationResearchFromFields } from './researchInputFields.js';
 import {
-  isGooglePlacesConfigured,
-  getGooglePlacesApiMode,
-} from '../businessDiscovery/businessDiscoverySources.js';
+    isGooglePlacesConfigured,
+    getGooglePlacesApiMode,
+} from '../businessDiscovery/businessDiscoverySources';
 import { CONFIDENCE, RESEARCH_LOG } from './types.js';
 import { buildResearchEvidenceSnapshot } from '../researchEvidence/researchEvidenceRepository.js';
 import { normalizeLegacyMatchToProviderResult } from '../researchEvidence/providerResultNormalizer.js';

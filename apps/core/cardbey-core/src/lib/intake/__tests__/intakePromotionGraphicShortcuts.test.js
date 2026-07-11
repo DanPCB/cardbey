@@ -18,6 +18,14 @@ describe('detectPromotionGraphicIntent', () => {
     expect(hit?.params.storeId).toBe('store-1');
   });
 
+  it('matches promotional (not just promotion) phrasing', () => {
+    const msg = 'create a promotional graphic for my store';
+    expect(isPromotionGraphicIntent(msg)).toBe(true);
+    const hit = detectPromotionGraphicIntent(msg, 'store-1');
+    expect(hit?.tool).toBe('create_promotion_graphic');
+    expect(hit?.params.storeId).toBe('store-1');
+  });
+
   it('passes intake validation after kernel mandatory normalizes direct_action', () => {
     const msg = 'Create a promotion graphic for my new spring collection dresses';
     const normalized = normalizeClassificationForKernel({

@@ -192,6 +192,27 @@ describe('SLOTracker', () => {
     expect(tracker.isWithinTarget(96, { operator: 'gte', value: 95 })).toBe(true);
     expect(tracker.isWithinTarget(90, { operator: 'gte', value: 95 })).toBe(false);
   });
+
+  it('counts latency breaches only on transition into breach state', async () => {
+    tracker.define({
+      name: 'test_latency',
+      metric: 'latency_p95',
+      target: { operator: 'lte', value: 100 },
+      severity: 'high',
+    });
+
+    const original = tracker.getLatencyP95Stats.bind(tracker);
+    tracker.getLatencyP95Stats = async () => ({ p95: 500, sampleCount: 100, source: 'test', windowMs: 1000 });
+
+    await tracker.evaluate();
+    await tracker.evaluate();
+    await tracker.evaluate();
+
+    const objective = tracker.getObjectives().find((row) => row.name === 'test_latency');
+    expect(objective?.breaches).toBe(1);
+
+    tracker.getLatencyP95Stats = original;
+  });
 });
 
 describe('AlertingService', () => {
