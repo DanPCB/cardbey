@@ -1,12 +1,28 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildCreateStoreDraftIntakeResponseFromUpload,
   buildNeedsFormCreateStoreIntakeBody,
+  dispatchCreateStoreCheckpointPipeline,
   resolveCreateStoreHandoffFields,
   shouldDeferStorePipelineExecutionForIntake,
   shouldForceCreateStoreCheckpointDispatch,
   shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../createStoreCheckpointDispatch.js';
+
+vi.mock('../accountStoreIntakeGate.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    loadAccountStoreContext: vi.fn(async () => ({
+      accountHasStores: true,
+      storeCount: 2,
+      stores: [
+        { id: 's1', name: 'Pho Chu The', type: 'Food & drink' },
+        { id: 's2', name: 'ABC Bakery', type: 'Food & drink' },
+      ],
+    })),
+  };
+});
 
 describe('resolveCreateStoreHandoffFields', () => {
   it('prefers storeCreateForm over pill text', () => {
@@ -141,6 +157,69 @@ describe('buildCreateStoreDraftIntakeResponseFromUpload', () => {
     expect(body?.storeCreationDraft?.draft?.name).toBe('PTH Construction');
     expect(body?.missingFields).toBeDefined();
     expect(typeof body?.response).toBe('string');
+  });
+});
+
+describe('dispatchCreateStoreCheckpointPipeline account store gate', () => {
+  it('returns intake_chat for vague create_store mis-route on multi-store account', async () => {
+    const result = await dispatchCreateStoreCheckpointPipeline({
+      res: {},
+      prisma: {},
+      user: { id: 'user-1' },
+      actorId: 'user-1',
+      locale: 'en',
+      userMessage: 'sdfad',
+      cardbeyTraceId: 'trace-1',
+      auditSource: 'test',
+      storeCreateForm: null,
+      classification: { tool: 'create_store', parameters: { source: 'needs_form' } },
+      safeJson: async () => null,
+      formatDuplicateResponse: () => ({}),
+      createMissionPipeline: async () => ({ handled: false }),
+    });
+
+    expect(result.kind).toBe('intake_chat');
+  });
+
+  it('returns store_selection_required for store-scoped intent without active store', async () => {
+    const result = await dispatchCreateStoreCheckpointPipeline({
+      res: {},
+      prisma: {},
+      user: { id: 'user-1' },
+      actorId: 'user-1',
+      locale: 'en',
+      userMessage: 'add product',
+      cardbeyTraceId: 'trace-1',
+      auditSource: 'test',
+      storeCreateForm: null,
+      classification: { tool: 'replace_store_catalog', parameters: {} },
+      safeJson: async () => null,
+      formatDuplicateResponse: () => ({}),
+      createMissionPipeline: async () => ({ handled: false }),
+    });
+
+    expect(result.kind).toBe('store_selection_required');
+    expect(result.stores?.length).toBe(2);
+  });
+
+  it('still returns needs_form for explicit create store message', async () => {
+    const result = await dispatchCreateStoreCheckpointPipeline({
+      res: {},
+      prisma: {},
+      user: { id: 'user-1' },
+      actorId: 'user-1',
+      locale: 'en',
+      userMessage: 'Create a new store in Sydney',
+      cardbeyTraceId: 'trace-1',
+      auditSource: 'test',
+      storeCreateForm: null,
+      classification: { tool: 'create_store', parameters: { source: 'intent_reasoning' } },
+      safeJson: async () => null,
+      formatDuplicateResponse: () => ({}),
+      createMissionPipeline: async () => ({ handled: false }),
+    });
+
+    expect(result.kind).toBe('needs_form');
   });
 });
 

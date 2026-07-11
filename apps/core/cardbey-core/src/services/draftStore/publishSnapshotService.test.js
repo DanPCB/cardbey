@@ -167,6 +167,44 @@ describe('publishSnapshotService', () => {
     expect(preview.heroImageUrl).toBe('https://cdn.example.com/stale-only-image.jpg');
   });
 
+  it('ensurePublishSnapshot does not reconcile twice after category normalization drift', async () => {
+    const prev = process.env.PUBLISH_SNAPSHOT_V1;
+    process.env.PUBLISH_SNAPSHOT_V1 = 'true';
+    const items = [
+      { name: 'Manicure', price: 40, categoryId: 'missing-cat' },
+      { name: 'Pedicure', price: 35, categoryId: 'missing-cat' },
+    ];
+    const normalizedPreview = { items: items.map((item) => ({ ...item })), categories: [] };
+    const { normalizePreviewCategories } = await import('./draftStoreService.js');
+    normalizePreviewCategories(normalizedPreview);
+    const storedSnap = buildPublishSnapshotFromPreview(
+      { id: 'draft-cat', input: {}, preview: normalizedPreview },
+      normalizedPreview,
+      3,
+    );
+    const prisma = {
+      draftStore: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'draft-cat',
+          input: {},
+          preview: { items, categories: [] },
+          publishSnapshot: storedSnap,
+          publishSnapshotVersion: 3,
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+    };
+    const first = await ensurePublishSnapshot(prisma, 'draft-cat');
+    expect(first.reconciled).toBeUndefined();
+    expect(first.version).toBe(3);
+    const second = await ensurePublishSnapshot(prisma, 'draft-cat');
+    expect(second.reconciled).toBeUndefined();
+    expect(second.version).toBe(3);
+    expect(prisma.draftStore.update).not.toHaveBeenCalled();
+    if (prev === undefined) delete process.env.PUBLISH_SNAPSHOT_V1;
+    else process.env.PUBLISH_SNAPSHOT_V1 = prev;
+  });
+
   it('ensurePublishSnapshot rebuilds snapshot when only hero changed (catalog fingerprint unchanged)', async () => {
     const prev = process.env.PUBLISH_SNAPSHOT_V1;
     process.env.PUBLISH_SNAPSHOT_V1 = 'true';

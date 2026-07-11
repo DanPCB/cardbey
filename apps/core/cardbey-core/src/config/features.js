@@ -107,6 +107,22 @@ export const Features = {
       return true;
     },
   },
+  intentEngine: {
+    /** Phase 1: run intent-first engine alongside legacy pipeline (read-only compare). */
+    get shadow() {
+      return parseBoolEnv(process.env.INTENT_ENGINE_SHADOW, true);
+    },
+    /** Phase 2: route intake through intent-first engine as primary authority. */
+    get primary() {
+      return parseBoolEnv(process.env.INTENT_ENGINE_PRIMARY, false);
+    },
+    get shadowLog() {
+      return parseBoolEnv(
+        process.env.INTENT_ENGINE_SHADOW_LOG,
+        process.env.NODE_ENV === 'development',
+      );
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -150,6 +166,11 @@ export function snapshotFeatures() {
     },
     uaf: {
       enabled: Features.uaf.enabled,
+    },
+    intentEngine: {
+      shadow: Features.intentEngine.shadow,
+      primary: Features.intentEngine.primary,
+      shadowLog: Features.intentEngine.shadowLog,
     },
   };
 }

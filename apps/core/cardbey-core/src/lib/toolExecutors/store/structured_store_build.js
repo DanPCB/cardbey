@@ -16,6 +16,7 @@ import { mergeCanonicalOutputs } from '../../orchestrator/pipelineCanonicalResul
 import { safeMissionPipelineUpdate } from '../../safePipelineUpdate.js';
 import { shouldBlockStoreBuildForMissingArtifact } from '../../artifactCheckpointAuthority.js';
 import { guestDraftOptsForActor } from '../../storeMission/guestDraftOpts.js';
+import { countCatalogItemsByKind } from '../../commerce/assertCatalogKindConsistency.js';
 
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
@@ -697,6 +698,9 @@ export async function execute(_input = {}, context = {}) {
   }).catch(() => {});
 
   let productCount = 0;
+  let serviceCount = 0;
+  let catalogItemCount = 0;
+  let catalogKind = 'product';
   let hasImages = false;
   try {
     const draftRow = await prisma.draftStore.findUnique({
@@ -707,8 +711,19 @@ export async function execute(_input = {}, context = {}) {
       draftRow?.preview && typeof draftRow.preview === 'object' && !Array.isArray(draftRow.preview)
         ? draftRow.preview
         : {};
-    const products = Array.isArray(preview.items) ? preview.items : [];
-    productCount = products.length;
+    const products = Array.isArray(preview.items)
+      ? preview.items
+      : Array.isArray(preview.catalog?.products)
+        ? preview.catalog.products
+        : [];
+    const counts = countCatalogItemsByKind(products);
+    catalogItemCount = counts.catalogItemCount;
+    serviceCount = counts.serviceCount;
+    productCount = counts.productCount;
+    catalogKind =
+      preview.meta?.catalogKind ??
+      preview.meta?.businessCommerceProfile?.catalogKind ??
+      (serviceCount > 0 && productCount === 0 ? 'service' : 'product');
     hasImages = products.some(
       (p) => p && typeof p === 'object' && typeof p.imageUrl === 'string' && p.imageUrl.trim().length > 0,
     );
@@ -729,6 +744,9 @@ export async function execute(_input = {}, context = {}) {
     storeSlug,
     draftStoreId: draftIdForRun,
     generationRunId: created.generationRunId,
+    catalogKind,
+    catalogItemCount,
+    serviceCount,
     productCount,
     hasImages,
     previewUrl,

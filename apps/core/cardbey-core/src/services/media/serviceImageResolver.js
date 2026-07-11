@@ -14,6 +14,7 @@ import { ServiceImageRegistry, normalizeImageUrlKey } from './serviceImageRegist
 import {
   validateServiceImageVisualRelevance,
   metadataOnlyAcceptThreshold,
+  shouldRejectFromVisualResult,
 } from './serviceImageVisualValidator.js';
 import {
   buildServiceImageSearchCacheKey,
@@ -21,8 +22,8 @@ import {
   setCachedServiceImageSearch,
 } from './serviceImageCache.js';
 
-const CANDIDATES_PER_QUERY = 8;
-const MAXIMUM_QUERIES = 4;
+const CANDIDATES_PER_QUERY = 12;
+const MAXIMUM_QUERIES = 5;
 const DEBUG = process.env.CARDBEY_DEBUG_IMAGE_QUERY === '1';
 
 /**
@@ -115,7 +116,18 @@ async function rankCandidates(intent, candidates, registry, canonicalServiceKey,
     }
 
     const visual = await validateServiceImageVisualRelevance(intent, candidate);
-    const visualScore = visual?.containsConflictingSubject ? 0 : visual?.visualScore;
+    if (shouldRejectFromVisualResult(visual)) {
+      logResolver('candidate rejected', {
+        service: intent.originalTitle,
+        canonicalService: intent.canonicalTitle,
+        query: candidate.sourceQuery,
+        decision: 'rejected',
+        reason: 'visual validation failed',
+        detectedConcepts: visual?.detectedConcepts,
+      });
+      continue;
+    }
+    const visualScore = visual?.confidence ?? visual?.visualScore;
     const finalScore = combineServiceImageScores(
       meta.metadataScore,
       visualScore,
@@ -135,7 +147,8 @@ async function rankCandidates(intent, candidates, registry, canonicalServiceKey,
   }
 
   ranked.sort((a, b) => b.finalScore - a.finalScore);
-  const eligible = ranked.filter((r) => !r.hardReject && r.finalScore >= ACCEPTABLE_MATCH);
+  const minThreshold = metadataOnlyAcceptThreshold();
+  const eligible = ranked.filter((r) => !r.hardReject && r.finalScore >= minThreshold);
   if (!eligible.length) return null;
 
   const best = eligible[0];
@@ -288,13 +301,29 @@ export async function resolveServiceImageForItem(params = {}) {
   const imageSelection = {
     provider: winner.candidate.provider,
     providerAssetId: winner.candidate.providerAssetId,
+    assetId: winner.candidate.providerAssetId,
     sourceQuery: winner.candidate.sourceQuery,
     canonicalService: intent.canonicalTitle,
+    canonicalItemName: intent.canonicalTitle,
     metadataScore: winner.metadataScore,
     visualScore: winner.visualScore,
     finalScore: winner.finalScore,
     matchStatus,
+    status: matchStatus === 'strong' ? 'strong' : matchStatus === 'acceptable' ? 'acceptable' : 'rejected',
     matchedTerms: winner.matchedTerms,
+    matchedObjects: intent.objectTerms.filter((t) =>
+      [winner.candidate.title, winner.candidate.altText, ...(winner.candidate.tags ?? [])]
+        .join(' ')
+        .toLowerCase()
+        .includes(String(t).toLowerCase()),
+    ),
+    matchedActions: intent.actionTerms.filter((t) =>
+      [winner.candidate.title, winner.candidate.altText, ...(winner.candidate.tags ?? [])]
+        .join(' ')
+        .toLowerCase()
+        .includes(String(t).toLowerCase()),
+    ),
+    conflictingObjects: winner.rejectedConflicts,
     rejectedConflicts: winner.rejectedConflicts,
     selectedAt: new Date().toISOString(),
   };

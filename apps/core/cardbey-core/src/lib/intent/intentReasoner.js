@@ -25,12 +25,13 @@ import {
   buildDocumentIngestionClassification,
   detectDocumentIngestionIntent,
 } from '../intent/documentIngestIntent.js';
-import { detectPromotionGraphicIntent } from '../intake/intakeSystemShortcuts.js';
+import { detectPromotionGraphicIntent, isPromotionGraphicIntent } from '../intake/intakeSystemShortcuts.js';
 import { shouldPreferLoyaltyOverCampaign } from '../intake/intentDetectors.js';
 import { tryStoreCreateFastPath } from './storeCreateFastPath.js';
 import { detectCampaignCreationIntent } from './campaignOrchestrationIntent.js';
 import { parseNaturalLanguageStoreCreation } from '../intake/storeCreationDraft.js';
 import { LearningIntegration, isLearningLayerEnabled } from '../learning/learningIntegration.js';
+import { fetchUserStoresForDisambiguation } from '../intake/resolveStoreAmbiguity.js';
 
 /**
  * Intent Reasoning Engine.
@@ -109,7 +110,8 @@ export class IntentReasoner {
       }
 
       const parsedInput = this._parseInput(input);
-      const userState = this._evaluateState(context, parsedInput, userId);
+      const accountStoreContext = await this._resolveAccountStoreContext(userId, parsedInput);
+      const userState = this._evaluateState(context, parsedInput, userId, accountStoreContext);
       const goal = this._inferGoal(context, parsedInput, userState);
       const action = this._determineAction(context, parsedInput, userState, goal);
       const trace = this._buildTrace(reasoningId, startTime, userState, goal, action);
@@ -483,12 +485,44 @@ export class IntentReasoner {
   }
 
   /**
+   * @param {string | null | undefined} userId
+   * @param {import('./intentTypes.js').ParsedInput} [parsedInput]
+   * @returns {Promise<{ accountHasStores: boolean; storeCount: number; stores: Array<Record<string, unknown>> }>}
+   */
+  async _resolveAccountStoreContext(userId, parsedInput) {
+    const pre = parsedInput?.intakeMeta?.currentContext?.performerIntakeContext;
+    if (pre && typeof pre === 'object' && 'accountHasStores' in pre) {
+      return {
+        accountHasStores: Boolean(pre.accountHasStores),
+        storeCount: typeof pre.accountStoreCount === 'number' ? pre.accountStoreCount : 0,
+        stores: Array.isArray(pre.accountStores) ? pre.accountStores : [],
+      };
+    }
+
+    const uid = String(userId ?? '').trim();
+    if (!uid || uid.startsWith('guest_')) {
+      return { accountHasStores: false, storeCount: 0, stores: [] };
+    }
+    try {
+      const stores = await fetchUserStoresForDisambiguation(uid);
+      return {
+        accountHasStores: stores.length > 0,
+        storeCount: stores.length,
+        stores,
+      };
+    } catch {
+      return { accountHasStores: false, storeCount: 0, stores: [] };
+    }
+  }
+
+  /**
    * @param {import('../context/contextTypes.js').UserContext} context
    * @param {import('./intentTypes.js').ParsedInput} parsedInput
    * @param {string} userId
+   * @param {{ accountHasStores?: boolean; storeCount?: number; stores?: Array<Record<string, unknown>> }} [accountStoreContext]
    * @returns {import('./intentTypes.js').UserState}
    */
-  _evaluateState(context, parsedInput, userId) {
+  _evaluateState(context, parsedInput, userId, accountStoreContext = {}) {
     const isGuest = userId?.startsWith('guest_');
     const { storeId: activeStoreId, draftId: activeDraftId, missionId: activeMissionId, memorySummary } =
       this._resolveEffectiveIds(context, parsedInput);
@@ -500,7 +534,14 @@ export class IntentReasoner {
 
     const hasDraftStore = !!activeDraftId;
     const hasPermanentStore = !!activeStoreId;
-    const hasStore = hasPermanentStore || hasDraftStore;
+    const hasActiveStoreContext = hasPermanentStore || hasDraftStore;
+    const hasStore = hasActiveStoreContext;
+    const accountHasStores = Boolean(accountStoreContext?.accountHasStores);
+    const accountStoreCount =
+      typeof accountStoreContext?.storeCount === 'number' ? accountStoreContext.storeCount : 0;
+    const accountStoreCandidates = Array.isArray(accountStoreContext?.stores)
+      ? accountStoreContext.stores
+      : [];
     const workflowType =
       context.currentWorkflow ||
       (typeof memorySummary.missionType === 'string' && memorySummary.missionType.trim()
@@ -512,16 +553,29 @@ export class IntentReasoner {
     const blockers = [];
 
     if (workflowType !== 'store_creation' && !hasStore) {
-      blockers.push({
-        type: 'no_store',
-        description: 'You need a store to perform this action',
-        resolution: 'Create a store first',
-        resolutionAction: 'start_new_workflow',
-      });
+      if (accountHasStores) {
+        blockers.push({
+          type: 'no_store',
+          description: 'Select which business to work on',
+          resolution: 'Choose a store from your account',
+          resolutionAction: 'ask_clarification',
+        });
+      } else {
+        blockers.push({
+          type: 'no_store',
+          description: 'You need a store to perform this action',
+          resolution: 'Create a store first',
+          resolutionAction: 'start_new_workflow',
+        });
+      }
     }
 
     return {
       hasStore,
+      accountHasStores,
+      hasActiveStoreContext,
+      accountStoreCount,
+      accountStoreCandidates,
       storeId: activeStoreId,
       draftId: activeDraftId,
       isGuest,
@@ -679,19 +733,28 @@ export class IntentReasoner {
       }
     }
 
-    if (storeId) {
-      const promoGraphicIntent = detectPromotionGraphicIntent(rawText, storeId);
-      if (promoGraphicIntent) {
+    if (isPromotionGraphicIntent(rawText)) {
+      if (storeId) {
+        const promoGraphicIntent = detectPromotionGraphicIntent(rawText, storeId);
+        if (promoGraphicIntent) {
+          candidates.push({
+            type: 'generate_graphic',
+            confidence: promoGraphicIntent.confidence ?? 0.95,
+            description: 'User wants to create a promotion graphic',
+            factors: ['promotion_graphic_fast_path'],
+            fastPathClassification: {
+              tool: 'create_promotion_graphic',
+              parameters: promoGraphicIntent.params ?? { storeId },
+              _fastPath: 'promotion_graphic',
+            },
+          });
+        }
+      } else if (userState.accountHasStores) {
         candidates.push({
-          type: 'generate_graphic',
-          confidence: promoGraphicIntent.confidence ?? 0.95,
-          description: 'User wants to create a promotion graphic',
-          factors: ['promotion_graphic_fast_path'],
-          fastPathClassification: {
-            tool: 'create_promotion_graphic',
-            parameters: promoGraphicIntent.params ?? { storeId },
-            _fastPath: 'promotion_graphic',
-          },
+          type: 'select_store_first',
+          confidence: 0.78,
+          description: 'User wants a promotion graphic; select which store',
+          factors: ['promotion_graphic_intent', 'needs_store_selection'],
         });
       }
     }
@@ -862,12 +925,21 @@ export class IntentReasoner {
           description: 'User wants to add a product but has no store yet',
           factors: ['explicit_product_phrases', 'no_store'],
         });
-        candidates.push({
-          type: 'create_store_first',
-          confidence: 0.7,
-          description: 'User needs a store before adding products',
-          factors: ['needs_store_for_product'],
-        });
+        if (userState.accountHasStores) {
+          candidates.push({
+            type: 'select_store_first',
+            confidence: 0.72,
+            description: 'User needs to select a store before adding products',
+            factors: ['needs_store_selection_for_product'],
+          });
+        } else {
+          candidates.push({
+            type: 'create_store_first',
+            confidence: 0.7,
+            description: 'User needs a store before adding products',
+            factors: ['needs_store_for_product'],
+          });
+        }
       }
     }
 
@@ -894,12 +966,21 @@ export class IntentReasoner {
           : ['explicit_campaign_phrases', 'no_store'],
       });
       if (!userState.hasStore) {
-        candidates.push({
-          type: 'create_store_first',
-          confidence: 0.6,
-          description: 'User needs a store before creating campaigns',
-          factors: ['needs_store_for_campaign'],
-        });
+        if (userState.accountHasStores) {
+          candidates.push({
+            type: 'select_store_first',
+            confidence: 0.62,
+            description: 'User needs to select a store before creating campaigns',
+            factors: ['needs_store_selection_for_campaign'],
+          });
+        } else {
+          candidates.push({
+            type: 'create_store_first',
+            confidence: 0.6,
+            description: 'User needs a store before creating campaigns',
+            factors: ['needs_store_for_campaign'],
+          });
+        }
       }
     }
 
@@ -1341,6 +1422,41 @@ export class IntentReasoner {
           },
         ];
         break;
+
+      case 'select_store_first': {
+        const stores = Array.isArray(userState.accountStoreCandidates)
+          ? userState.accountStoreCandidates
+          : [];
+        action.type = 'ask_clarification';
+        action.intent = 'select_store_first';
+        action.tool = null;
+        action.clarificationPrompt =
+          stores.length > 1
+            ? 'You already have businesses on Cardbey. Which one should we work on?'
+            : 'Which business should we work on today?';
+        action.suggestedActions = stores.slice(0, 12).map((store, index) => ({
+          id: `store_${String(store.id ?? index)}`,
+          label: String(store.name ?? 'Store'),
+          description: String(store.type ?? store.category ?? 'Business'),
+          action: 'execute_tool',
+          tool: 'general_chat',
+          priority: index + 1,
+          parameters: {
+            storeId: String(store.id ?? ''),
+            activeStoreId: String(store.id ?? ''),
+            selectionMethod: 'manual',
+          },
+        }));
+        action.suggestedActions.push({
+          id: 'create_store',
+          label: 'Create a new business',
+          description: 'Start a new store',
+          action: 'start_new_workflow',
+          tool: 'create_store',
+          priority: stores.length + 1,
+        });
+        break;
+      }
 
       default:
         action.type = 'continue_workflow';

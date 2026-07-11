@@ -56,6 +56,27 @@ function isAutoPostMode(parameters) {
 function explicitApprovalFace(tool, parameters, context) {
   const locale = context?.locale === 'vi' ? 'vi' : 'en';
 
+  if (tool === 'setup_loyalty_program' || tool === 'create_loyalty_program') {
+    if (locale === 'vi') {
+      return {
+        title: 'Thiết lập chương trình khách hàng thân thiết',
+        summary: 'Xác nhận để tạo chương trình khách hàng thân thiết từ thẻ đã tải lên.',
+        impact: [
+          'Cardbey sẽ phân tích thẻ và tạo bản nháp chương trình để bạn xem lại.',
+          'Không có thay đổi trực tiếp cho đến khi bạn xác nhận.',
+        ],
+      };
+    }
+    return {
+      title: 'Set up loyalty program',
+      summary: 'Confirm to create a loyalty program from your uploaded card.',
+      impact: [
+        'Cardbey will analyze your card and prepare a reviewable loyalty program draft.',
+        'Nothing goes live until you confirm the draft.',
+      ],
+    };
+  }
+
   if (tool === 'publish_to_social') {
     const platformsLabel = formatPlatformsForApproval(parameters);
     const auto = isAutoPostMode(parameters);
@@ -212,16 +233,28 @@ function buildSummary(tool, parameters, context) {
 }
 
 /**
- * @param {{ tool: string, parameters: Record<string, unknown>, context?: { locale?: string, userMessage?: string } }} args
- * @returns {{ previewId: string, title: string, summary: string, impact: string[], parameters: Record<string, string>, requiresConfirmation: true }}
+ * @param {{ tool: string, parameters: Record<string, unknown>, context?: { locale?: string, userMessage?: string }, authorization?: { state?: string, message?: string | null, canExecute?: boolean } }} args
+ * @returns {{ previewId: string, title: string, summary: string, impact: string[], parameters: Record<string, string>, requiresConfirmation: true, authorizationState?: string, authorizationMessage?: string | null, canExecute?: boolean }}
  */
-export function buildApprovalPayload({ tool, parameters, context = {} }) {
+export function buildApprovalPayload({ tool, parameters, context = {}, authorization }) {
   const entry = getToolEntry(tool);
   const face = explicitApprovalFace(tool, parameters, context);
   const title = face?.title ?? entry?.label ?? tool;
   const summary = face?.summary ?? buildSummary(tool, parameters, context);
-  const impact = face?.impact ?? buildImpact(tool, parameters, context);
+  let impact = face?.impact ?? buildImpact(tool, parameters, context);
   const displayParams = formatParametersForDisplay(tool, parameters);
+  const authState = authorization?.state ?? 'authorized';
+  const authMessage = authorization?.message ?? null;
+  const canExecute = authorization?.canExecute !== false && authState === 'authorized';
+
+  if (authState !== 'authorized' && authMessage) {
+    impact = impact.filter(
+      (line) =>
+        !/sign in to set up a loyalty/i.test(line) &&
+        !/choose a store before setting up a loyalty/i.test(line),
+    );
+  }
+
   return {
     previewId: randomUUID(),
     title,
@@ -229,5 +262,8 @@ export function buildApprovalPayload({ tool, parameters, context = {} }) {
     impact,
     parameters: displayParams,
     requiresConfirmation: true,
+    authorizationState: authState,
+    authorizationMessage: authMessage,
+    canExecute,
   };
 }

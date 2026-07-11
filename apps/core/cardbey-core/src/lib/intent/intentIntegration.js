@@ -17,6 +17,8 @@ import {
 } from '../intake/intakeMemoryContext.js';
 import { shouldUseIntentFastPath } from './intentFastPath.js';
 import { diagLog, isLlmReasonerDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
+import { buildPerformerStoreSelectionClarify } from '../intake/accountStoreIntakeGate.js';
+import { shouldOfferStoreSelectionClarify } from '../intake/intakePerformerRouting.js';
 
 /** @type {IntentIntegration | null} */
 let integrationSingleton = null;
@@ -272,6 +274,26 @@ export class IntentIntegration {
       const clarifyTool =
         result.intent === 'add_product' ? 'replace_store_catalog' : 'general_chat';
       const entry = getToolEntry(clarifyTool);
+      const storeCandidates = Array.isArray(result.userState?.accountStoreCandidates)
+        ? result.userState.accountStoreCandidates
+        : [];
+      if (shouldOfferStoreSelectionClarify(result)) {
+        const clarifyPayload = buildPerformerStoreSelectionClarify({
+          stores: storeCandidates,
+          lockedTool: clarifyTool,
+          message: result.clarificationPrompt || undefined,
+        });
+        return {
+          ...base,
+          executionPath: 'clarify',
+          tool: clarifyTool,
+          message: clarifyPayload.message,
+          clarifyType: 'execution_context_store_picker',
+          storeCandidates: clarifyPayload.storeCandidates,
+          clarifyOptions: clarifyPayload.options,
+          pendingIntent: clarifyPayload.pendingIntent,
+        };
+      }
       return {
         ...base,
         executionPath: 'clarify',
@@ -324,13 +346,57 @@ export class IntentIntegration {
     }
 
     if (result.action === 'start_new_workflow') {
-      const tool = result.intent === 'create_store_first' ? 'create_store' : 'create_store';
-      const entry = getToolEntry(tool);
+      // @deprecated Phase 2 — start_new_workflow → create_store mapping removed from intent engine.
+      // Legacy path retained for migration; intent engine uses explicit create_store classification.
+      const accountHasStores = Boolean(result.userState?.accountHasStores);
+      const storeCandidates = Array.isArray(result.userState?.accountStoreCandidates)
+        ? result.userState.accountStoreCandidates
+        : [];
+
+      if (shouldOfferStoreSelectionClarify(result)) {
+        const clarifyPayload = buildPerformerStoreSelectionClarify({
+          stores: storeCandidates,
+          lockedTool: 'general_chat',
+          message: 'Which business should we work on for this?',
+        });
+        return {
+          ...base,
+          executionPath: 'clarify',
+          tool: 'general_chat',
+          message: clarifyPayload.message,
+          clarifyType: 'execution_context_store_picker',
+          storeCandidates: clarifyPayload.storeCandidates,
+          clarifyOptions: clarifyPayload.options,
+          pendingIntent: clarifyPayload.pendingIntent,
+        };
+      }
+
+      const greenfieldCreate =
+        result.intent === 'create_store' ||
+        result.intent === 'create_store_first' ||
+        result.tool === 'create_store' ||
+        !accountHasStores;
+
+      if (greenfieldCreate) {
+        const tool = 'create_store';
+        const entry = getToolEntry(tool);
+        return {
+          ...base,
+          executionPath: entry?.executionPath ?? 'direct_action',
+          tool,
+          message: result.reasoning?.[0] || 'I can help you get started',
+          clarifyOptions: this._formatClarifyOptions(result.suggestedActions),
+        };
+      }
+
       return {
         ...base,
-        executionPath: entry?.executionPath ?? 'direct_action',
-        tool,
-        message: result.reasoning?.[0] || 'I can help you get started',
+        executionPath: 'chat',
+        tool: 'general_chat',
+        message:
+          result.clarificationPrompt ||
+          result.reasoning?.[0] ||
+          'Tell me what you want to do — campaigns, products, loyalty, analytics, or creating a new business.',
         clarifyOptions: this._formatClarifyOptions(result.suggestedActions),
       };
     }

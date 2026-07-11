@@ -39,6 +39,9 @@ import {
   shouldRepairRetailCatalogLeakInServiceStore,
   isRetailCatalogPlaceholderName,
 } from './industryBlueprintRegistry.js';
+import { maybeCompileTypedCatalog } from '../../lib/catalog/catalogCompiler.js';
+import { resolveCommerceProfile } from '../../lib/commerce/resolveCommerceProfile.js';
+import { countCatalogItemsByKind } from '../../lib/commerce/assertCatalogKindConsistency.js';
 
 function tsModuleUnavailable(name) {
   const e = new Error(`${name} unavailable in plain Node runtime. Run server with tsx or add build step to compile TS.`);
@@ -944,13 +947,40 @@ export async function buildCatalog(params) {
     primaryCTA: catalogProfile.primaryCTA,
   };
 
+  const commerceProfile = resolveCommerceProfile({
+    businessName: params.businessName,
+    storeType: params.storeType ?? params.businessType,
+    businessType: params.businessType ?? params.storeType,
+    verticalSlug: profile.verticalSlug ?? verticalSlug,
+    verticalGroup: profile.verticalGroup,
+    location: params.location,
+    currencyCode: params.currencyCode,
+    prompt: params.prompt,
+    items: result?.products,
+  });
+  result = maybeCompileTypedCatalog(result, {
+    ...params,
+    verticalSlug: profile.verticalSlug ?? verticalSlug,
+    verticalGroup: profile.verticalGroup,
+    businessCommerceProfile: commerceProfile,
+  });
+  if (result.meta) {
+    result.meta.businessCommerceProfile = commerceProfile;
+    result.meta.catalogKind = result.catalogKind ?? commerceProfile.catalogKind;
+    if (result.counts) result.meta.catalogCounts = result.counts;
+  }
+
   const itemCount = (result?.products || []).length;
   if (process.env.NODE_ENV !== 'production') {
+    const counts = result.counts ?? countCatalogItemsByKind(result.catalogItems ?? result.products ?? []);
     console.log('[buildCatalog]', {
       mode,
       slug: profile.verticalSlug ?? verticalSlug,
       audience: profile.audience ?? params.audience,
       itemCount,
+      catalogKind: result.catalogKind ?? commerceProfile.catalogKind,
+      serviceCount: counts.serviceCount,
+      productCount: counts.productCount,
       corrected: catalogValidated.corrected,
       reasons: catalogValidated.reasons,
     });

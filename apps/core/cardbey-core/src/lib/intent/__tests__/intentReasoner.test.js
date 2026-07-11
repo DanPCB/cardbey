@@ -5,6 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentReasoner } from '../intentReasoner.js';
 import { isValidIntentType } from '../index.js';
 
+vi.mock('../../intake/resolveStoreAmbiguity.js', () => ({
+  fetchUserStoresForDisambiguation: vi.fn(async () => []),
+}));
+
 describe('IntentReasoner', () => {
   /** @type {IntentReasoner} */
   let reasoner;
@@ -358,5 +362,22 @@ describe('IntentReasoner', () => {
     expect(result.tool).toBe('create_campaign');
     expect(result.parameters?.storeId).toBe('store_pho_chu_the');
     expect(result.action).toBe('execute_tool');
+  });
+
+  it('does not route vague help to create_store when account already has stores', async () => {
+    const { fetchUserStoresForDisambiguation } = await import('../../intake/resolveStoreAmbiguity.js');
+    fetchUserStoresForDisambiguation.mockResolvedValueOnce([
+      { id: 's1', name: 'Pho Chu The', type: 'Food & drink' },
+      { id: 's2', name: 'ABC Bakery', type: 'Food & drink' },
+    ]);
+
+    const result = await reasoner.reason('user_123', 'session_123', {
+      text: 'I need help',
+    });
+
+    expect(result.tool).not.toBe('create_store');
+    expect(result.intent).not.toBe('create_store');
+    expect(['ask_clarification', 'show_help', 'continue_workflow']).toContain(result.action);
+    expect(result.userState?.accountHasStores).toBe(true);
   });
 });

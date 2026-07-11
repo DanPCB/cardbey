@@ -1,0 +1,51 @@
+# .github/workflows/self-audit.yml
+
+name: Self-Audit
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:        # Manual trigger
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run self-audit
+        run: npm run self-audit
+        
+      - name: Upload report
+        uses: actions/upload-artifact@v3
+        with:
+          name: audit-report
+          path: self-audit-reports/
+          
+      - name: Create PR if fixes found
+        if: success()
+        uses: peter-evans/create-pull-request@v4
+        with:
+          commit-message: '🤖 Auto-fix: Self-audit detected and fixed issues'
+          title: '🤖 Auto-fix: Self-audit detected issues'
+          branch: 'auto-fix/self-audit'
+          body: |
+            ## 🤖 Self-Audit Auto-Fix
+            
+            This PR contains auto-generated fixes from the self-audit system.
+            
+            ### Issues Fixed:
+            <!-- List of fixed issues -->
+            
+            ### Test Results:
+            <!-- Test results -->
+            
+            Please review before merging.

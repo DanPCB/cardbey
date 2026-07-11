@@ -28,11 +28,6 @@ function resolveTool(packageName, ...segments) {
   return null;
 }
 
-function quoteWin(p) {
-  if (process.platform !== 'win32') return p;
-  if (!/[\s"]/.test(p)) return p;
-  return `"${String(p).replace(/"/g, '\\"')}"`;
-}
 
 function mergeNodeOptions(extra) {
   const current = String(process.env.NODE_OPTIONS ?? '').trim();
@@ -78,13 +73,13 @@ if (cmd === 'dev-api') {
     process.exit(1);
   }
   const devEntry = path.join(root, 'scripts', 'dev-api-entry.mjs');
-  const execStr = [
-    quoteWin(process.execPath),
-    '--max-old-space-size=8192',
-    '--import',
-    'tsx/esm',
-    quoteWin(devEntry),
-  ].join(' ');
+ const execStr = [
+  'node',
+  '--max-old-space-size=8192',
+  '--import',
+  'tsx/esm',
+  `"${devEntry}"`,
+].join(' ');
   const nodemonConfig = path.join(root, 'nodemon.json');
   run('api', process.execPath, [
     nodemon,
@@ -100,14 +95,14 @@ if (cmd === 'dev-api') {
     process.exit(1);
   }
   run('worker', process.execPath, [
-    nodemon,
-    '--watch',
-    'src',
-    '--ext',
-    'js,mjs,cjs,json',
-    '--exec',
-    `${quoteWin(process.execPath)} --max-old-space-size=8192 src/worker.js`,
-  ]);
+  nodemon,
+  '--watch',
+  'src',
+  '--ext',
+  'js,mjs,cjs,json',
+  '--exec',
+  'node --max-old-space-size=8192 src/worker.js',
+]);
 } else if (cmd === 'start-api') {
   run('api', process.execPath, ['--max-old-space-size=8192', '--import', 'tsx', 'src/server.js']);
 } else if (cmd === 'start-worker') {

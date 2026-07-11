@@ -17,6 +17,7 @@ import { startInsightGenerationJob } from '../scheduler/systemWatcherJob.js';
 import { startQaSweepScheduler, stopQaSweepScheduler } from '../services/qa/qaSweepScheduler.js';
 import { getPrismaClient } from './prisma.js';
 import { startDiagnosticsCleanup } from './diagnostics/diagnosticsCleanup.js';
+import { cleanupStreamTokenRateLimitBuckets } from './streamTokenRateLimit.js';
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let rateLimitCleanupInterval = null;
@@ -62,6 +63,14 @@ export function startBackgroundWorkers(opts = {}) {
         cleanupRateLimitStore();
       } catch (e) {
         console.warn('[CORE] cleanupRateLimitStore failed (non-fatal):', e?.message || e);
+      }
+      try {
+        const removed = cleanupStreamTokenRateLimitBuckets();
+        if (removed > 0 && process.env.NODE_ENV === 'development') {
+          console.log(`[CORE] cleaned ${removed} stale stream-token rate limit buckets`);
+        }
+      } catch (e) {
+        console.warn('[CORE] cleanupStreamTokenRateLimitBuckets failed (non-fatal):', e?.message || e);
       }
     }, 5 * 60 * 1000);
   }

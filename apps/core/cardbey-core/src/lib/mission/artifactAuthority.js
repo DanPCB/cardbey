@@ -3,6 +3,10 @@
  */
 
 import { normalizeArtifact, isUsableArtifact } from '../artifacts/artifactContract.js';
+import {
+  normalizeCampaignPackageArtifact,
+  synthesizeCampaignPackageFromToolOutputs,
+} from './campaignPackageArtifact.js';
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -12,15 +16,46 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+const EXPECTED_ASSET_TYPE_ALIASES = {
+  campaign_package: ['campaign_package', 'campaign'],
+  campaign: ['campaign_package', 'campaign'],
+};
+
+function matchesExpectedAssetType(artifact, expectedType) {
+  const subtype = String(artifact?.subtype ?? '').trim();
+  const type = String(artifact?.type ?? '').trim();
+  const aliases = EXPECTED_ASSET_TYPE_ALIASES[expectedType] ?? [expectedType];
+  return aliases.includes(subtype) || aliases.includes(type);
+}
+
+function collectCampaignPackageCandidates({ meta, nodeOutputs, toolOutputs, outputsJson }) {
+  /** @type {unknown[]} */
+  const candidates = [];
+  const packageOut = toolOutputs.package_campaign_artifact;
+  if (packageOut && typeof packageOut === 'object' && packageOut.artifact) {
+    candidates.push(packageOut.artifact);
+  }
+  for (const key of ['campaignArtifact', 'campaignPackage']) {
+    if (nodeOutputs[key]) candidates.push(nodeOutputs[key]);
+    if (meta[key]) candidates.push(meta[key]);
+    if (outputsJson?.[key]) candidates.push(outputsJson[key]);
+  }
+  const synthesized = synthesizeCampaignPackageFromToolOutputs(toolOutputs);
+  if (synthesized) candidates.push(synthesized);
+  return candidates.map((row) => normalizeCampaignPackageArtifact(row)).filter(Boolean);
+}
+
 export function listMissionArtifacts({ metadata, nodeRun, outputsJson } = {}) {
   const meta = asObject(metadata);
   const nodeOutputs = asObject(nodeRun?.outputs);
   const toolOutputs = asObject(nodeRun?.toolOutputs);
+  const outputs = asObject(outputsJson);
   const all = [
     ...asArray(meta.missionDeliveredArtifacts),
-    ...asArray(outputsJson?.artifacts),
+    ...asArray(outputs.artifacts),
     ...asArray(nodeOutputs.artifacts),
     ...asArray(toolOutputs.artifacts),
+    ...collectCampaignPackageCandidates({ meta, nodeOutputs, toolOutputs, outputsJson: outputs }),
   ];
 
   if (nodeOutputs.loyaltyProgramDraftArtifact) all.push(nodeOutputs.loyaltyProgramDraftArtifact);
@@ -57,9 +92,8 @@ export function resolveMissionArtifactAuthority({ contract, metadata, nodeRun, o
   const expectedAssetTypes = Array.isArray(contract?.expectedAssetTypes) ? contract.expectedAssetTypes : [];
   const artifacts = listMissionArtifacts({ metadata, nodeRun, outputsJson });
   const matched = artifacts.filter((artifact) => {
-    const subtype = String(artifact.subtype ?? '').trim();
-    const type = String(artifact.type ?? '').trim();
-    return expectedAssetTypes.length === 0 || expectedAssetTypes.includes(subtype) || expectedAssetTypes.includes(type);
+    if (expectedAssetTypes.length === 0) return true;
+    return expectedAssetTypes.some((expectedType) => matchesExpectedAssetType(artifact, expectedType));
   });
   const usable = matched.some((artifact) => isUsableArtifact(artifact));
   return {

@@ -1,6 +1,10 @@
 /**
  * Deterministic system shortcuts only.
  *
+ * @deprecated Phase 1 Intent Engine — runner-led shortcuts replaced by intent-first
+ * classification. Kept temporarily for explicit entry points (primaryModeHint, form submit).
+ * Remove in Phase 2 when INTENT_ENGINE_PRIMARY is default.
+ *
  * Phase 5B removed store-setup regex fast-paths from Intake V2 classification.
  * Store creation detection is owned by IntentReasoner + storeCreateFastPath.
  * `primaryMode` / frontscreen handoff forces a create-store shortcut (then message wins for runway).
@@ -162,7 +166,7 @@ const POSTER_TRIGGERS = [
 
 /** Promotion graphic / promo image — routes to create_promotion_graphic (not campaign runway). */
 export const PROMOTION_GRAPHIC_INTENT_RE =
-  /\b(create|make|generate|design)\b[\s\S]{0,48}\b(promotion|promo)\b[\s\S]{0,24}\b(graphic|image|visual|banner|artwork)\b|\b(promotion|promo)\b[\s\S]{0,24}\b(graphic|image|visual)\b|\bcreate\s+a\s+promotion\s+graphic\b/i;
+  /\b(create|make|generate|design)\b[\s\S]{0,48}\b(promotion(?:al)?|promo)\b[\s\S]{0,24}\b(graphic|image|visual|banner|artwork)\b|\b(promotion(?:al)?|promo)\b[\s\S]{0,24}\b(graphic|image|visual)\b|\bcreate\s+a\s+promotion(?:al)?\s+graphic\b/i;
 
 /**
  * @param {string | null | undefined} userMessage

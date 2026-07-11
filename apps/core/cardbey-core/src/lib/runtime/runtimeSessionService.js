@@ -228,7 +228,7 @@ async function loadUserStores(userId, limit = 20) {
   }));
 }
 
-async function resolveLatestStoreTargetForUser(prisma, userId, tenantId) {
+export async function resolveLatestStoreTargetForUser(prisma, userId, tenantId) {
   const uid = str(userId);
   if (!uid) return { storeId: null, draftId: null, source: null };
 

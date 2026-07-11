@@ -576,6 +576,7 @@ async function handlePublishStore(prisma, { payload, userId, missionId, entrypoi
     draftId &&
     (payload.expectedSnapshotVersion != null ||
       typeof payload.expectedSourceFingerprint === 'string');
+  let resolvedPublishSnapshot = null;
 
   if (draftId && !hasSnapshotContract) {
     const { isPublishSnapshotV1Enabled } = await import(
@@ -586,6 +587,7 @@ async function handlePublishStore(prisma, { payload, userId, missionId, entrypoi
         const { snapshot } = await getPublishSnapshot(prisma, draftId);
         if (snapshot?.version != null) {
           hasSnapshotContract = true;
+          resolvedPublishSnapshot = snapshot;
           payload = {
             ...payload,
             expectedDraftId: draftId,
@@ -607,6 +609,7 @@ async function handlePublishStore(prisma, { payload, userId, missionId, entrypoi
       userId,
       missionId,
       draftId,
+      resolvedSnapshot: resolvedPublishSnapshot,
       entrypoint: entrypoint === 'mini_website_modal' ? 'mini_website_modal' : 'ui_runtime_publish_snapshot',
     });
     if (entrypoint === 'mini_website_modal') {
@@ -700,7 +703,14 @@ async function handleRenderCreativeAsset({ payload, userId, missionId }) {
 
 async function handlePublishStoreFromSnapshot(
   prisma,
-  { payload, userId, missionId, draftId, entrypoint = 'ui_runtime_publish_snapshot' },
+  {
+    payload,
+    userId,
+    missionId,
+    draftId,
+    entrypoint = 'ui_runtime_publish_snapshot',
+    resolvedSnapshot = null,
+  },
 ) {
   const draft = await getDraft(draftId);
   if (!draft) {
@@ -709,12 +719,13 @@ async function handlePublishStoreFromSnapshot(
     throw err;
   }
 
-  const { snapshot } = await getPublishSnapshot(prisma, draftId);
+  const snapshot =
+    resolvedSnapshot ?? (await getPublishSnapshot(prisma, draftId)).snapshot;
   verifyPublishIdentity(snapshot, {
     expectedDraftId: payload.expectedDraftId ?? draftId,
     expectedGenerationRunId: payload.expectedGenerationRunId ?? payload.generationRunId ?? null,
-    expectedSnapshotVersion: payload.expectedSnapshotVersion,
-    expectedSourceFingerprint: payload.expectedSourceFingerprint,
+    expectedSnapshotVersion: payload.expectedSnapshotVersion ?? snapshot.version,
+    expectedSourceFingerprint: payload.expectedSourceFingerprint ?? snapshot.sourceFingerprint,
   });
 
   const previewRaw =

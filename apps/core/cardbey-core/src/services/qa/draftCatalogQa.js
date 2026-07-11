@@ -14,6 +14,7 @@ import {
 } from '../../lib/catalog/serviceCatalogPlaceholders.js';
 import { buildCuisineMenuCatalog } from '../draftStore/foodCuisineCatalog.js';
 import { buildIndustryCatalog, getIndustryWebsiteCopy } from '../draftStore/industryBlueprintRegistry.js';
+import { catalogItemRef } from './catalogRepairHelpers.js';
 
 const MIN_DESCRIPTION_LEN = 12;
 const MIN_TAGLINE_LEN = 8;
@@ -517,7 +518,7 @@ export function applyDraftCatalogQaTier1AutoRepair(preview, input = {}, params =
     const desc = String(item.description ?? '').trim();
     if (!desc && item.name) {
       item.description = `${item.name} — prepared with care at ${preview.storeName || profile.businessName || 'our store'}.`;
-      autoFixed.push(`products[${i}].description`);
+      autoFixed.push(`${catalogItemRef(i, preview)}.description`);
     }
   }
 
@@ -605,7 +606,7 @@ export function applyDraftCatalogQaTier2Fixes(preview, input = {}, params = {}, 
       item.priceV1 = rep.priceV1;
       if (rep.categoryId) item.categoryId = rep.categoryId;
       item.imageUrl = item.imageUrl ?? null;
-      autoFixed.push(`regenerated products[${idx}] (was "${prevName}")`);
+      autoFixed.push(`regenerated ${catalogItemRef(idx, preview)} (was "${prevName}")`);
     });
     autoFixed.push(`regenerated ${badIndices.length} catalog item(s)`);
   }
@@ -620,13 +621,13 @@ export function applyDraftCatalogQaTier2Fixes(preview, input = {}, params = {}, 
       item.name
     ) {
       item.description = `${item.name} — prepared with care at ${preview.storeName || profile.businessName || 'our store'}.`;
-      autoFixed.push(`products[${i}].description`);
+      autoFixed.push(`${catalogItemRef(i, preview)}.description`);
     }
     if ((wants('product_rename') || wants('bulk_catalog_repair')) && isGenericProductName(item.name)) {
       const catLabel =
         (preview.categories || []).find((c) => c && c.id === item.categoryId)?.name || 'Special';
       item.name = `${catLabel} ${i + 1}`;
-      autoFixed.push(`products[${i}].name`);
+      autoFixed.push(`${catalogItemRef(i, preview)}.name`);
     }
   }
 

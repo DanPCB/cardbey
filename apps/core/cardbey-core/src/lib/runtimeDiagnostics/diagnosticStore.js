@@ -145,6 +145,20 @@ export function ingestRuntimeDiagnostic(payload, ctx = {}) {
     severity: record.severity,
   });
 
+  void import('../../multiAgent/monitoring/monitoringRuntimeBridge.ts')
+    .then((mod) =>
+      mod.notifyRuntimeDiagnostic({
+        id,
+        severity: record.severity,
+        category: record.category,
+        message: record.message,
+        missionId: record.missionId,
+      }),
+    )
+    .catch(() => {
+      /* monitoring bridge optional */
+    });
+
   return {
     ok: true,
     diagnosticId: id,

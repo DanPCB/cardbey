@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { getPrismaClient } from '../lib/prisma.js';
+import { getPrismaClient, withPrismaConnection } from '../lib/prisma.js';
 import { broadcastAgentMessage, broadcastThreadMessage } from '../realtime/simpleSse.js';
 import { issueStreamToken } from '../lib/agentChatStreamAuth.js';
 import { handleUserTurn } from '../orchestrator/agentChatTurn.js';
@@ -17,6 +17,10 @@ import { shouldDispatchOnChatMessage } from '../lib/chatIntentClassifier.js';
 import { isTextOnlyMission } from '../lib/missionConfig.js';
 import { classifyIntent, INTENT_MARKETING, INTENT_FIX_IMAGE_MISMATCH } from '../lib/agentIntentRouter.js';
 import { resolveAccessibleMission } from '../lib/missionAccess.js';
+import {
+  checkStreamTokenRateLimit,
+  cleanupStreamTokenRateLimitBuckets,
+} from '../lib/streamTokenRateLimit.js';
 
 const router = Router();
 const prisma = getPrismaClient();
@@ -200,9 +204,11 @@ export function validatePayloadByMessageType(messageType, payload) {
  * Uses the same resolver as GET /api/missions/:id/state (MissionPipeline + guest createdBy).
  */
 async function canAccessMission(missionIdTrimmed, user) {
-  const access = await resolveAccessibleMission(user, missionIdTrimmed);
+  const access = await withPrismaConnection(() => resolveAccessibleMission(user, missionIdTrimmed));
   return access.ok === true;
 }
+
+export { cleanupStreamTokenRateLimitBuckets };
 
 /**
  * POST /api/agent-messages
@@ -512,6 +518,15 @@ router.post('/agent-messages/stream-token', requireAuth, async (req, res, next) 
       });
     }
     const missionIdTrimmed = missionId.trim();
+    if (!checkStreamTokenRateLimit(missionIdTrimmed)) {
+      console.warn('[agent-messages] stream-token rate limit exceeded', { missionId: missionIdTrimmed });
+      return res.status(429).json({
+        ok: false,
+        code: 'STREAM_TOKEN_RATE_LIMIT',
+        message: 'Too many stream token requests for this mission. Please wait.',
+        retryAfterSec: 15,
+      });
+    }
     const allowed = await canAccessMission(missionIdTrimmed, req.user);
     if (!allowed) {
       return res.status(403).json({

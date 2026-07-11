@@ -13,15 +13,29 @@
 
 /** @typedef {'add_to_cart' | 'book' | 'request_quote' | 'contact'} ExecutionAction */
 
+/** @typedef {'on_site'|'at_business'|'remote'|'mobile'|'mixed'} ServiceModeLocation */
+
+/** @typedef {'instant'|'request'|'quote_first'|'contact_only'} BookingMode */
+
+/** @typedef {'fixed'|'starting_from'|'hourly'|'quote_required'|'free'|'mixed'} PriceMode */
+
 /**
  * @typedef {object} ServiceCatalogFields
  * @property {ServiceMode} [serviceMode]
+ * @property {ServiceModeLocation} [serviceModeLocation]
+ * @property {BookingMode} [bookingMode]
+ * @property {PriceMode} [priceMode]
  * @property {PricingModel} [pricingModel]
  * @property {number} [fromPrice]
  * @property {PriceUnit} [priceUnit]
  * @property {number} [durationMinutes]
  * @property {string} [estimateDurationLabel]
  * @property {ExecutionAction} [executionAction]
+ * @property {string[]} [serviceArea]
+ * @property {boolean} [requiresAddress]
+ * @property {boolean} [requiresAssessment]
+ * @property {boolean} [urgencySupported]
+ * @property {'owner'|'research'|'blueprint'|'inferred'|null} [priceProvenance]
  */
 
 export const SERVICE_MODES = ['fixed_booking', 'quote_required'];

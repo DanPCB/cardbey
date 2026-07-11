@@ -3,6 +3,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { normalizeCampaignPackageArtifact } from '../../mission/campaignPackageArtifact.js';
 import { executeContentTool } from '../executeContentTool.js';
 
 /**
@@ -33,10 +34,9 @@ export async function execute(input = {}, context = {}) {
           : null;
       const poster = inp?.poster && typeof inp.poster === 'object' ? inp.poster : null;
 
-      const artifact = {
+      const artifact = normalizeCampaignPackageArtifact({
         id: randomUUID(),
         storeId,
-        type: 'campaign',
         brief,
         graphics,
         copy,
@@ -45,7 +45,7 @@ export async function execute(input = {}, context = {}) {
         ...(slideshowUrl ? { slideshowUrl } : {}),
         status: 'ready',
         createdAt: new Date().toISOString(),
-      };
+      });
 
       return { artifact };
     },

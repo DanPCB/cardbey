@@ -16,6 +16,7 @@ import { auditDraftCatalogQa, applyDraftCatalogQaTier1AutoRepair, planDraftCatal
 import { runDraftQa } from './draftQaAgent.js';
 import { mergeMissionContext } from '../../lib/mission.js';
 import { hasUserUploadedLogo } from '../draftStore/logoUpdateService.js';
+import { catalogItemRef, repairSemanticImageMismatches } from './catalogRepairHelpers.js';
 
 /** @typedef {'vertical' | 'tagline' | 'description' | 'imageUrl' | 'hero' | 'avatar' | 'product_description'} FixableIssueKey */
 
@@ -255,7 +256,7 @@ async function fixMissingProductImages(items, verticalSlug, storeType, opts = {}
     if (patched > 0) {
       for (let i = 0; i < items.length; i++) {
         if (resolveUsableDraftItemImageUrl(items[i])) {
-          fixed.push(`products[${i}].imageUrl`);
+          fixed.push(`${catalogItemRef(i, opts.preview ?? {})}.imageUrl`);
         }
       }
       if (debugImages) {
@@ -293,7 +294,7 @@ async function fixMissingProductImages(items, verticalSlug, storeType, opts = {}
     if (resolved && isAbsoluteHttpUrl(resolved)) {
       item.imageUrl = resolved;
       item.imageSource = 'seed_library';
-      fixed.push(`products[${i}].imageUrl`);
+      fixed.push(`${catalogItemRef(i, opts.preview ?? {})}.imageUrl`);
     }
   }
 
@@ -848,6 +849,19 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
     preview.items = items;
     if (preview.catalog?.products) {
       preview.catalog = { ...preview.catalog, products: items };
+    }
+
+    const catalogKind = preview.meta?.catalogKind ?? preview.meta?.businessCommerceProfile?.catalogKind;
+    if (catalogKind === 'service') {
+      const semanticRepair = await repairSemanticImageMismatches(items, {
+        preview,
+        storeName: preview.storeName || businessName,
+        storeType: preview.storeType || businessType,
+        location: preview.location ?? input?.location ?? null,
+        businessCommerceProfile: preview.meta?.businessCommerceProfile,
+        generationProfile: preview.meta?.generationProfile,
+      });
+      autoFixed.push(...semanticRepair.repaired);
     }
   }
 

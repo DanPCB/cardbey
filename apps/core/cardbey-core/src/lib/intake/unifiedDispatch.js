@@ -14,6 +14,7 @@ import {
 import { UNIFIED_ACTION_TYPES } from '../execution/executionTypes.js';
 import { executeMission } from '../execution/missionExecutionEngine.js';
 import { dispatchCreateStoreCheckpointPipeline, buildNeedsFormCreateStoreIntakeBody } from './createStoreCheckpointDispatch.js';
+import { buildPerformerStoreSelectionClarify } from './accountStoreIntakeGate.js';
 import { dispatchCreateCampaignCheckpointPipeline } from './createCampaignCheckpointDispatch.js';
 import { loadStepMemory } from '../runtime/loadStepMemory.js';
 import { reasonAboutDispatch } from './dispatchReasoningEngine.js';
@@ -252,7 +253,7 @@ async function dispatchOrchestrationViaKernel({ type, payload, source }) {
         ? payload.metadata
         : {};
 
-  const metadata =
+  let metadata =
     missionType === 'multi_agent'
       ? {
           ...metaIn,
@@ -276,6 +277,18 @@ async function dispatchOrchestrationViaKernel({ type, payload, source }) {
           locale,
           cardbeyTraceId,
         };
+
+  if (missionType === 'multi_agent' && process.env.MULTI_AGENT_ENABLED === 'true') {
+    try {
+      const { enrichMultiAgentDispatchMetadata } = await import('../multiAgent/deepseekIntakeBridge.ts');
+      metadata = await enrichMultiAgentDispatchMetadata(metadata, goal);
+    } catch (deepSeekMetaErr) {
+      console.warn(
+        '[unifiedDispatch] DeepSeek metadata enrichment failed (non-blocking):',
+        deepSeekMetaErr?.message ?? deepSeekMetaErr,
+      );
+    }
+  }
 
   const title =
     missionType === 'multi_agent'
@@ -368,6 +381,14 @@ function mapCreateStoreDispatchResult(dispatchResult) {
         }
       : {}),
     ...(dispatchResult.kind === 'needs_form' ? { intentMode: dispatchResult.intentMode } : {}),
+    ...(dispatchResult.kind === 'store_selection_required'
+      ? {
+          stores: dispatchResult.stores ?? [],
+          userMessage: dispatchResult.userMessage ?? '',
+          lockedTool: dispatchResult.lockedTool ?? 'general_chat',
+        }
+      : {}),
+    ...(dispatchResult.kind === 'intake_chat' ? { message: dispatchResult.message ?? null } : {}),
   };
 }
 
@@ -771,6 +792,26 @@ export function mapUnifiedDispatchToIntakeResponse(result, ctx = {}) {
   }
 
   if (result.dispatchKind && result.dispatchKind !== 'started') {
+    if (result.dispatchKind === 'store_selection_required') {
+      return {
+        ...buildPerformerStoreSelectionClarify({
+          stores: result.stores ?? [],
+          userMessage: ctx.userMessage,
+          lockedTool: result.lockedTool ?? 'general_chat',
+        }),
+        executionPath: 'kernel_dispatch',
+      };
+    }
+    if (result.dispatchKind === 'intake_chat') {
+      return {
+        success: true,
+        action: 'chat',
+        response:
+          result.message ??
+          "I didn't quite catch that. You can ask for help, manage campaigns, add products, or create a new business — what would you like to do?",
+        executionPath: 'direct_action',
+      };
+    }
     if (result.dispatchKind === 'needs_form') {
       return {
         ...buildNeedsFormCreateStoreIntakeBody({

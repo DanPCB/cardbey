@@ -19,6 +19,10 @@ import {
   assertNoStaleMissingFields,
   computeMissingFields,
 } from './topologyExecutionDraft.js';
+import {
+  normalizeCampaignPackageArtifact,
+  synthesizeCampaignPackageFromToolOutputs,
+} from './campaignPackageArtifact.js';
 
 /** Tools that may soft-fail without blocking downstream packaging. */
 const SOFT_FAIL_TOOLS = new Set(['generate_slideshow', 'generate_poster']);
@@ -376,9 +380,9 @@ function extractToolOutput(result) {
 export function aggregateTopologyOutputs(toolOutputs) {
   const artifactOut = toolOutputs.package_campaign_artifact;
   const artifact =
-    artifactOut && typeof artifactOut === 'object' && artifactOut.artifact
-      ? artifactOut.artifact
-      : null;
+    (artifactOut && typeof artifactOut === 'object' && artifactOut.artifact
+      ? normalizeCampaignPackageArtifact(artifactOut.artifact)
+      : null) ?? synthesizeCampaignPackageFromToolOutputs(toolOutputs);
 
   const presentReview = toolOutputs['loyalty.present_review'];
   const loyaltyPresent =
@@ -393,7 +397,13 @@ export function aggregateTopologyOutputs(toolOutputs) {
 
   return {
     topologyToolOutputs: { ...toolOutputs },
-    ...(artifact ? { campaignArtifact: artifact, campaignPackage: artifact } : {}),
+    ...(artifact
+      ? {
+          campaignArtifact: artifact,
+          campaignPackage: artifact,
+          artifacts: [artifact],
+        }
+      : {}),
     ...(loyaltyArtifact
       ? {
           loyaltyProgramDraftArtifact: loyaltyArtifact,

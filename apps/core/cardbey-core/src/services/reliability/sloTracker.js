@@ -3,6 +3,7 @@
  */
 
 import { getPrismaClient } from '../../lib/prisma.js';
+import metricsCollector from './metricsCollector.js';
 import {
   isObservationSloEligible,
   isObservationSuccessRateEligible,
@@ -63,12 +64,21 @@ export class SLOTracker {
       ) {
         withinTarget = true;
       }
+      if (
+        objective.metric === 'latency_p95' &&
+        metricResult.stats &&
+        metricResult.stats.sampleCount < Math.min(minSample, 20)
+      ) {
+        withinTarget = true;
+      }
 
       const wasWithinTarget = objective.lastWithinTarget;
       objective.lastWithinTarget = withinTarget;
 
       if (!withinTarget) {
-        objective.breaches++;
+        if (wasWithinTarget === true) {
+          objective.breaches++;
+        }
         const breach = {
           name: objective.name,
           metric: objective.metric,
@@ -95,6 +105,10 @@ export class SLOTracker {
     if (metric === 'success_rate') {
       const stats = await this.getSuccessRateStats();
       return { value: stats.rate, stats };
+    }
+    if (metric === 'latency_p95') {
+      const stats = await this.getLatencyP95Stats();
+      return { value: stats.p95, stats };
     }
     return { value: await this.getMetric(metric), stats: null };
   }
@@ -209,41 +223,92 @@ export class SLOTracker {
     return stats.rate;
   }
 
+  async getLatencyP95Stats() {
+    const windowMs = this.parseLatencyWindowMs();
+    const http = metricsCollector.getPercentile('api.latency', 0.95, {
+      maxAgeMs: windowMs,
+      tagEquals: { sloEligible: 'true' },
+    });
+
+    if (http.sampleCount >= 20) {
+      return {
+        p95: Math.round(http.value),
+        sampleCount: http.sampleCount,
+        source: 'http_latency_guard',
+        windowMs,
+      };
+    }
+
+    const observationP95 = await this.getObservationLatencyP95(windowMs);
+    return {
+      p95: observationP95.p95,
+      sampleCount: observationP95.sampleCount,
+      source: observationP95.sampleCount > 0 ? 'observations' : 'none',
+      windowMs,
+    };
+  }
+
+  parseLatencyWindowMs() {
+    const raw = String(process.env.SLO_LATENCY_WINDOW ?? '24h').trim().toLowerCase();
+    if (raw.endsWith('h')) {
+      const hours = parseInt(raw, 10);
+      if (Number.isFinite(hours) && hours > 0) return hours * 60 * 60 * 1000;
+    }
+    if (raw.endsWith('m')) {
+      const minutes = parseInt(raw, 10);
+      if (Number.isFinite(minutes) && minutes > 0) return minutes * 60 * 1000;
+    }
+    return 24 * 60 * 60 * 1000;
+  }
+
   async getLatencyP95() {
+    const stats = await this.getLatencyP95Stats();
+    return stats.p95;
+  }
+
+  async getObservationLatencyP95(windowMs = 24 * 60 * 60 * 1000) {
     const prisma = getPrismaClient();
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const maxLatencyMs = parseInt(process.env.SLO_MAX_LATENCY_MS, 10) || 120_000;
+    const since = new Date(Date.now() - windowMs);
+    const sloCapMs = parseInt(process.env.SLO_P95_MAX_SAMPLE_MS, 10) || 10_000;
 
     try {
       const observations = await prisma.observation.findMany({
         where: {
           createdAt: { gte: since },
-          latency: { gt: 0, lte: maxLatencyMs },
+          latency: { gt: 0, lte: sloCapMs },
         },
-        select: { latency: true, actionType: true, intentType: true, contextSnapshot: true },
+        select: {
+          latency: true,
+          actionType: true,
+          intentType: true,
+          contextSnapshot: true,
+        },
         take: 2000,
         orderBy: { createdAt: 'desc' },
       });
-      if (observations.length === 0) return 0;
+      if (observations.length === 0) return { p95: 0, sampleCount: 0 };
 
       const sorted = observations
-        .filter((o) =>
-          isObservationSloEligible({
+        .filter((o) => {
+          const snap =
+            o.contextSnapshot && typeof o.contextSnapshot === 'object' ? o.contextSnapshot : {};
+          if (snap.sloEligible === false) return false;
+          return isObservationSloEligible({
             actionType: o.actionType,
             intentType: o.intentType,
             contextSnapshot: o.contextSnapshot,
             latency: o.latency,
-          }),
-        )
+          });
+        })
         .map((o) => Number(o.latency) || 0)
-        .filter((ms) => ms > 0 && ms <= maxLatencyMs)
+        .filter((ms) => ms > 0 && ms <= sloCapMs)
         .sort((a, b) => a - b);
-      if (sorted.length === 0) return 0;
+      if (sorted.length === 0) return { p95: 0, sampleCount: 0 };
 
       const index = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
-      return sorted[index] ?? 0;
+      return { p95: sorted[index] ?? 0, sampleCount: sorted.length };
     } catch {
-      return 0;
+      return { p95: 0, sampleCount: 0 };
     }
   }
 
