@@ -6,7 +6,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-        "test:intent": "vitest run src/intent/__tests__/*.test.ts",
+    "test:intent": "vitest run src/intent/__tests__/*.test.ts",
     "test:intent:unit": "vitest run src/intent/__tests__/*.test.ts",
     "test:intent:shadow": "vitest run src/intent/__tests__/shadow/*.test.ts 2>/dev/null || echo 'No shadow tests yet'",
     "test:intent:all": "vitest run --coverage",
@@ -145,7 +145,6 @@
   "author": "Cardbey Team",
   "license": "MIT",
   "dependencies": {
-    "typescript": "^5.0.0",
     "@aws-sdk/client-s3": "^3.937.0",
     "@aws-sdk/client-sqs": "^3.937.0",
     "@aws-sdk/s3-request-presigner": "^3.1007.0",
@@ -183,6 +182,7 @@
     "sharp": "^0.33.5",
     "stripe": "^22.0.1",
     "tsx": "^4.21.0",
+    "typescript": "^5.0.0",
     "unsplash-js": "^7.0.20",
     "ws": "^8.18.3",
     "zod": "^3.23.8"

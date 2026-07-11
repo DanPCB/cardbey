@@ -3,6 +3,7 @@
  */
 
 import { Features } from '../config/features.js';
+import { resolveContextUserId } from '../lib/context/contextIntakeBridge.js';
 import {
   getIntentOrchestrator,
   intentResultToIntakeResponse,
@@ -11,12 +12,43 @@ import {
   compareIntentEngineShadow,
 } from './index.js';
 
+function isGuestActorId(userId) {
+  const id = String(userId ?? '').trim().toLowerCase();
+  return !id || id.startsWith('guest_');
+}
+
+/**
+ * Authenticated account owner for Business.userId lookups — never a guest actor id.
+ *
+ * @param {import('express').Request} req
+ * @param {Record<string, unknown>} [body]
+ */
+export function resolveIntentEngineOwnerUserId(req, body = {}) {
+  const authUserId = String(req?.user?.id ?? '').trim();
+  if (authUserId && !isGuestActorId(authUserId)) {
+    return authUserId;
+  }
+
+  const bodyUserId = String(body?.userId ?? '').trim();
+  if (bodyUserId && !isGuestActorId(bodyUserId)) {
+    return bodyUserId;
+  }
+
+  const contextUserId = resolveContextUserId(req);
+  if (contextUserId && !isGuestActorId(contextUserId)) {
+    return contextUserId;
+  }
+
+  return null;
+}
+
 /**
  * Build intent engine input from intake request body.
  *
  * @param {{
  *   userMessage?: string;
  *   userId?: string | null;
+ *   ownerUserId?: string | null;
  *   sessionId?: string | null;
  *   activeStoreId?: string | null;
  *   primaryModeHint?: string | null;
@@ -25,9 +57,11 @@ import {
  * }} opts
  */
 export function buildIntentEngineInput(opts = {}) {
+  const ownerUserId = opts.ownerUserId ?? opts.userId ?? null;
   return {
     message: String(opts.userMessage ?? '').trim(),
-    userId: opts.userId ?? null,
+    userId: ownerUserId,
+    ownerUserId,
     sessionId: opts.sessionId ?? null,
     activeStoreId: opts.activeStoreId ?? null,
     primaryModeHint: opts.primaryModeHint ?? null,
@@ -55,20 +89,25 @@ export async function runIntentEnginePrimary(input) {
     return { earlyResponse: null, classification: null };
   }
 
-  const orchestrator = getIntentOrchestrator();
-  const result = await orchestrator.process(input);
+  try {
+    const orchestrator = getIntentOrchestrator();
+    const result = await orchestrator.process(input);
 
-  if (isIntentEngineEarlyReturn(result)) {
+    if (isIntentEngineEarlyReturn(result)) {
+      return {
+        earlyResponse: intentResultToIntakeResponse(result),
+        classification: null,
+      };
+    }
+
     return {
-      earlyResponse: intentResultToIntakeResponse(result),
-      classification: null,
+      earlyResponse: null,
+      classification: intentResultToClassification(result),
     };
+  } catch (err) {
+    console.error('[intent-engine/primary] failed:', err?.message ?? err);
+    return { earlyResponse: null, classification: null };
   }
-
-  return {
-    earlyResponse: null,
-    classification: intentResultToClassification(result),
-  };
 }
 
 /**

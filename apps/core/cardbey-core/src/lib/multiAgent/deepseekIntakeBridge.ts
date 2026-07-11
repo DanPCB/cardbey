@@ -7,6 +7,9 @@ import { Intent as DeepSeekIntent } from '../../multiAgent/types/agent.types.js'
 import type { MissionPlan, MissionResult } from '../../multiAgent/types/agent.types.js';
 import { loadMultiAgentRuntimeConfig } from '../../multiAgent/config/agent.config.js';
 import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
+import { executeMissionAction } from '../execution/executeMissionAction.js';
+import { registerCoreTools } from '../../tools/coreTools.js';
+import { getToolRegistry } from '../../tools/ToolRegistry.js';
 import {
   isCompilerSpineIntake,
   isCampaignOrLoyaltyMessage,
@@ -31,7 +34,48 @@ let orchestratorSingleton: Orchestrator | null = null;
 
 function getOrchestrator(): Orchestrator {
   if (!orchestratorSingleton) {
-    orchestratorSingleton = new Orchestrator();
+    registerCoreTools();
+    const toolRegistry = getToolRegistry();
+    orchestratorSingleton = new Orchestrator({
+      stepExecutor: async (step, ctx) => {
+        const toolName = String(step.action ?? '').trim();
+        if (!toolName) {
+          return { result: { ok: false, error: 'Missing step action' } };
+        }
+        if (toolRegistry.has(toolName)) {
+          const result = await toolRegistry.execute(
+            toolName,
+            (step.parameters as Record<string, unknown>) ?? {},
+            {
+              userId: ctx.userId ?? null,
+              storeId: ctx.storeId ?? null,
+              missionId: ctx.missionId ?? null,
+              source: 'deepseek_multi_agent',
+            },
+          );
+          return { result };
+        }
+        const dispatch = await executeMissionAction({
+          actionType: 'dispatch_tool',
+          payload: {
+            toolName,
+            input: step.parameters ?? {},
+            context: ctx,
+          },
+          missionId: ctx.missionId ?? null,
+          userId: ctx.userId ?? null,
+          storeId: ctx.storeId ?? null,
+          source: 'deepseek_multi_agent',
+        });
+        return {
+          result: {
+            ok: dispatch.status === 'ok',
+            output: dispatch.output,
+            error: dispatch.error?.message ?? dispatch.blocker?.message,
+          },
+        };
+      },
+    });
   }
   return orchestratorSingleton;
 }

@@ -371,6 +371,7 @@ import {
   runIntentEnginePrimary,
   runIntentEngineShadow,
   shouldSkipLegacyCasualChatShortcircuit,
+  resolveIntentEngineOwnerUserId,
 } from '../intent/intentEngineIntake.js';
 import {
   applyDynamicPlanToClassification,
@@ -2252,62 +2253,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  // Intent-first engine — primary authority (Phase 2) replaces legacy casual-chat shortcircuit.
-  if (
-    Features.intentEngine.primary &&
-    userMessage &&
-    !isIntakeConfirmAffirmation(userMessage) &&
-    !confirmInterceptApplied &&
-    !hasIntakeImageAttachment(body) &&
-    !(body.intakeV2Selection && typeof body.intakeV2Selection === 'object') &&
-    body._autoSubmit !== true
-  ) {
-    const intentEngineInput = buildIntentEngineInput({
-      userMessage,
-      userId: resolveContextUserId(req) ?? performerIntakeV2ActorId(req) ?? null,
-      sessionId:
-        String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
-        null,
-      activeStoreId: resolveIntakeStoreId(body.currentContext),
-      primaryModeHint: body.primaryModeHint,
-      storeCreateForm: body.storeCreateForm,
-      action: body.action,
-    });
-    const { earlyResponse, classification: engineClassification } =
-      await runIntentEnginePrimary(intentEngineInput);
-    if (engineClassification) {
-      intentEnginePrimaryClassification = engineClassification;
-    }
-    if (earlyResponse) {
-      if (earlyResponse.action === 'chat') {
-        const casualSessionId =
-          String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
-          null;
-        const casualSessionKey = resolveIntakeAssetSessionKey({
-          conversationSessionId: casualSessionId,
-          sessionId: casualSessionId,
-          userId: String(req.user?.id ?? body?.userId ?? '').trim() || null,
-          guestSessionId: req.guestSessionId ?? null,
-        });
-        if (casualSessionKey) {
-          try {
-            await clearStaleUploadBeliefContext(casualSessionKey);
-          } catch (clearErr) {
-            console.warn(
-              '[IntakeV2] intent-engine chat upload context clear failed:',
-              clearErr?.message ?? clearErr,
-            );
-          }
-        }
-      }
-      console.log('[IntakeV2] routing:intent_engine_primary', {
-        intent: earlyResponse._intentEngine?.intent,
-        action: earlyResponse.action,
-      });
-      return res.json(earlyResponse);
-    }
-  }
-
   if (
     userMessage &&
     isOpenPerformerChatTurn(userMessage) &&
@@ -2698,6 +2643,67 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         '[context] bootstrapIntakeContext failed (non-blocking):',
         contextBootstrapErr?.message ?? contextBootstrapErr,
       );
+    }
+  }
+
+  // Intent-first engine — runs after context bootstrap so owner userId + activeStoreId are available.
+  if (
+    Features.intentEngine.primary &&
+    userMessage &&
+    !isIntakeConfirmAffirmation(userMessage) &&
+    !confirmInterceptApplied &&
+    !hasIntakeImageAttachment(body) &&
+    !(body.intakeV2Selection && typeof body.intakeV2Selection === 'object') &&
+    body._autoSubmit !== true
+  ) {
+    const ownerUserId = resolveIntentEngineOwnerUserId(req, body);
+    const intentEngineInput = buildIntentEngineInput({
+      userMessage,
+      ownerUserId,
+      userId: ownerUserId,
+      sessionId:
+        String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+        null,
+      activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
+      primaryModeHint: body.primaryModeHint,
+      storeCreateForm: body.storeCreateForm,
+      action: body.action,
+    });
+    const { earlyResponse, classification: engineClassification } =
+      await runIntentEnginePrimary(intentEngineInput);
+    if (engineClassification) {
+      intentEnginePrimaryClassification = engineClassification;
+    }
+    if (earlyResponse) {
+      if (earlyResponse.action === 'chat') {
+        const casualSessionId =
+          String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+          null;
+        const casualSessionKey = resolveIntakeAssetSessionKey({
+          conversationSessionId: casualSessionId,
+          sessionId: casualSessionId,
+          userId: ownerUserId ?? (String(req.user?.id ?? body?.userId ?? '').trim() || null),
+          guestSessionId: req.guestSessionId ?? null,
+        });
+        if (casualSessionKey) {
+          try {
+            await clearStaleUploadBeliefContext(casualSessionKey);
+          } catch (clearErr) {
+            console.warn(
+              '[IntakeV2] intent-engine chat upload context clear failed:',
+              clearErr?.message ?? clearErr,
+            );
+          }
+        }
+      }
+      console.log('[IntakeV2] routing:intent_engine_primary', {
+        intent: earlyResponse._intentEngine?.intent,
+        action: earlyResponse.action,
+        ownerUserId,
+        contextStatus: earlyResponse._intentEngine?.contextStatus,
+        storeCount: earlyResponse._intentEngine?.storeCount,
+      });
+      return res.json(earlyResponse);
     }
   }
 
@@ -4597,7 +4603,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         void runIntentEngineShadow(
           buildIntentEngineInput({
             userMessage,
-            userId: contextUserId,
+            ownerUserId: resolveIntentEngineOwnerUserId(req, body) ?? contextUserId,
+            userId: resolveIntentEngineOwnerUserId(req, body) ?? contextUserId,
             sessionId: contextSessionId,
             activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
             primaryModeHint: isGeneralPerformerChatTurn(userMessage) ? undefined : body.primaryModeHint,

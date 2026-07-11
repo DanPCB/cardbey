@@ -38,7 +38,15 @@ export class IntentOrchestrator {
     const contextTime = Date.now() - contextStart;
 
     const executeStart = Date.now();
-    const execution = this.executor.execute(intent, context, input.message);
+    const useToolCalling =
+      String(process.env.DEEPSEEK_TOOL_CALLING_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+    const execution = useToolCalling
+      ? await this.executor.executeWithToolCalling(intent, context, input.message, {
+          userId: input.ownerUserId ?? input.userId ?? null,
+          storeId: context.storeId ?? input.activeStoreId ?? null,
+          sessionId: input.sessionId ?? null,
+        })
+      : this.executor.execute(intent, context, input.message);
     const executionTime = Date.now() - executeStart;
 
     const totalTime = Date.now() - pipelineStart;

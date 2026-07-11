@@ -78,6 +78,7 @@ export abstract class BaseAgent {
   protected buildRequestBody(
     messages: ChatMessage[],
     options: DeepSeekCallOptions,
+    tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
   ): OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming {
     const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {
       thinking?: { type: string; reasoning_effort: string };
@@ -92,6 +93,11 @@ export abstract class BaseAgent {
       body.response_format = options.responseFormat;
     }
 
+    if (tools?.length) {
+      body.tools = tools;
+      body.tool_choice = 'auto';
+    }
+
     if (this.thinkingConfig.type === 'enabled') {
       body.thinking = {
         type: this.thinkingConfig.type,
@@ -100,6 +106,30 @@ export abstract class BaseAgent {
     }
 
     return body;
+  }
+
+  /** Native tool-calling DeepSeek request. */
+  protected async callDeepSeekWithTools(
+    messages: ChatMessage[],
+    tools: OpenAI.Chat.Completions.ChatCompletionTool[],
+    options: DeepSeekCallOptions = {},
+  ): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; meta: DeepSeekCallMeta }> {
+    const startTime = Date.now();
+    const execute = async (): Promise<OpenAI.Chat.Completions.ChatCompletion> => {
+      const body = this.buildRequestBody(messages, options, tools);
+      return this.client.chat.completions.create(body);
+    };
+
+    const response = await retryWithBackoff(execute);
+    return {
+      response,
+      meta: {
+        tokensUsed: response.usage?.total_tokens ?? 0,
+        durationMs: Date.now() - startTime,
+        model: this.model,
+        provider: this.provider,
+      },
+    };
   }
 
   protected async callDeepSeek(

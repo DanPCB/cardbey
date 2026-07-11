@@ -15,7 +15,7 @@ export type {
 } from './intent.types.js';
 
 export { IntentClassifier, classifyIntent } from './classifier/IntentClassifier.js';
-export { ContextEvaluator, evaluateContext } from './context/ContextEvaluator.js';
+export { ContextEvaluator, evaluateContext, resolveStoreOwnerUserId } from './context/ContextEvaluator.js';
 export { IntentExecutor, executeIntent } from './executor/IntentExecutor.js';
 export {
   IntentOrchestrator,

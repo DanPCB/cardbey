@@ -3,6 +3,7 @@
  */
 
 import { buildPerformerStoreSelectionClarify } from '../../lib/intake/accountStoreIntakeGate.js';
+import { runToolCallingLoop } from '../../tools/toolCallingService.js';
 import type { ContextResult, ExecutionResult, Intent } from '../intent.types.js';
 
 const CAPABILITIES_RESPONSE =
@@ -146,5 +147,61 @@ export function executeIntent(
 export class IntentExecutor {
   execute(intent: Intent, context: ContextResult, userMessage = ''): ExecutionResult {
     return executeIntent(intent, context, userMessage);
+  }
+
+  /**
+   * Optional DeepSeek tool-calling enrichment for business intents with resolved context.
+   */
+  async executeWithToolCalling(
+    intent: Intent,
+    context: ContextResult,
+    userMessage: string,
+    opts: {
+      userId?: string | null;
+      storeId?: string | null;
+      missionId?: string | null;
+      sessionId?: string | null;
+    } = {},
+  ): Promise<ExecutionResult> {
+    const base = executeIntent(intent, context, userMessage);
+    const toolCallingEnabled =
+      String(process.env.DEEPSEEK_TOOL_CALLING_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+
+    const shouldEnrich =
+      toolCallingEnabled &&
+      context.status === 'ready' &&
+      (intent.type === 'analytics' ||
+        intent.type === 'create_campaign' ||
+        intent.type === 'manage_catalog' ||
+        intent.type === 'question');
+
+    if (!shouldEnrich) return base;
+
+    const storeId = opts.storeId ?? context.storeId ?? null;
+    const toolResult = await runToolCallingLoop({
+      userMessage,
+      context: {
+        userId: opts.userId ?? null,
+        storeId,
+        missionId: opts.missionId ?? null,
+        sessionId: opts.sessionId ?? null,
+        source: 'intent_executor',
+      },
+      toolNames:
+        intent.type === 'analytics'
+          ? ['get_store_metrics', 'fetch_campaign_analytics']
+          : intent.type === 'create_campaign'
+            ? ['create_campaign', 'fetch_campaign_analytics']
+            : intent.type === 'manage_catalog'
+              ? ['update_product_catalog']
+              : undefined,
+    });
+
+    return {
+      ...base,
+      response: toolResult.content || base.response,
+      toolCalls: toolResult.toolCalls,
+      thinkingText: toolResult.thinkingText,
+    };
   }
 }

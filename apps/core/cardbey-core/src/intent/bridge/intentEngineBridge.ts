@@ -75,6 +75,8 @@ export function intentResultToIntakeResponse(result: IntentResult): Record<strin
       contextStatus: context.status,
       metrics,
     },
+    ...(execution.toolCalls?.length ? { toolCalls: execution.toolCalls } : {}),
+    ...(execution.thinkingText ? { thinkingText: execution.thinkingText } : {}),
   };
 
   switch (execution.action) {

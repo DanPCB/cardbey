@@ -21,6 +21,7 @@ import { loadAccountStoreContext } from '../../lib/intake/accountStoreIntakeGate
 describe('IntentOrchestrator', () => {
   beforeEach(() => {
     vi.mocked(loadAccountStoreContext).mockReset();
+    process.env.DEEPSEEK_TOOL_CALLING_ENABLED = 'false';
   });
 
   it('returns chat for greeting regardless of store count', async () => {

@@ -54,6 +54,16 @@ export interface ExecutionResult {
   pendingIntent?: Record<string, unknown>;
   executionPath?: string;
   storeId?: string | null;
+  /** Tool-calling trace when DeepSeek live-data enrichment ran. */
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    status: string;
+    parameters?: Record<string, unknown>;
+    result?: { ok: boolean; data?: unknown; error?: string; summary?: string };
+    durationMs?: number;
+  }>;
+  thinkingText?: string;
 }
 
 export interface IntentResult {
@@ -72,6 +82,8 @@ export interface IntentResult {
 export interface IntentEngineInput {
   message: string;
   userId?: string | null;
+  /** Authenticated account owner — used for business table lookup (not guest actor id). */
+  ownerUserId?: string | null;
   sessionId?: string | null;
   activeStoreId?: string | null;
   /** Explicit entry points only — not used to override classification. */

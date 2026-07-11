@@ -84,7 +84,8 @@ export async function fetchUserStoresForDisambiguation(userId) {
       address: s.address ?? null,
       formattedAddress: s.formattedAddress ?? null,
     }));
-  } catch {
+  } catch (err) {
+    console.error('[resolveStoreAmbiguity] fetchUserStoresForDisambiguation failed:', err?.message ?? err);
     return [];
   }
 }

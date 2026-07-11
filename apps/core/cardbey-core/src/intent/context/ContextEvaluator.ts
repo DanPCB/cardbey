@@ -12,6 +12,25 @@ const INTENT_TOOL_MAP: Record<string, string> = {
   manage_catalog: 'replace_store_catalog',
 };
 
+function isGuestActorId(userId: string | null | undefined): boolean {
+  const id = String(userId ?? '').trim().toLowerCase();
+  return !id || id.startsWith('guest_');
+}
+
+/**
+ * Resolve the authenticated account owner for business table lookups.
+ * Guest actor ids must not be used — stores are keyed by User.id on Business.userId.
+ */
+export function resolveStoreOwnerUserId(input: IntentEngineInput): string | null {
+  const owner = String(input.ownerUserId ?? '').trim();
+  if (owner && !isGuestActorId(owner)) return owner;
+
+  const userId = String(input.userId ?? '').trim();
+  if (userId && !isGuestActorId(userId)) return userId;
+
+  return null;
+}
+
 function lockedToolForIntent(intent: Intent): string {
   return INTENT_TOOL_MAP[intent.type] ?? 'general_chat';
 }
@@ -25,7 +44,23 @@ export async function evaluateContext(intent: Intent, input: IntentEngineInput):
   }
 
   const activeStoreId = String(input.activeStoreId ?? '').trim() || null;
-  if (activeStoreId) {
+  const ownerUserId = resolveStoreOwnerUserId(input);
+
+  if (activeStoreId && ownerUserId) {
+    const account = await loadAccountStoreContext(ownerUserId);
+    const owned = Array.isArray(account.stores) ? account.stores : [];
+    const ownsActive = owned.some(
+      (s) => String(s?.id ?? s?.storeId ?? '').trim() === activeStoreId,
+    );
+    if (ownsActive || owned.length === 0) {
+      return {
+        status: 'ready',
+        storeId: activeStoreId,
+        storeCount: Math.max(owned.length, 1),
+        stores: owned.length > 0 ? owned : undefined,
+      };
+    }
+  } else if (activeStoreId && !ownerUserId) {
     return {
       status: 'ready',
       storeId: activeStoreId,
@@ -33,8 +68,7 @@ export async function evaluateContext(intent: Intent, input: IntentEngineInput):
     };
   }
 
-  const userId = String(input.userId ?? '').trim() || null;
-  if (!userId || userId.startsWith('guest_')) {
+  if (!ownerUserId) {
     if (intent.type === 'create_store') {
       return {
         status: 'ready',
@@ -50,9 +84,15 @@ export async function evaluateContext(intent: Intent, input: IntentEngineInput):
     };
   }
 
-  const account = await loadAccountStoreContext(userId);
+  console.log('[ContextEvaluator] loading stores for ownerUserId:', ownerUserId);
+  const account = await loadAccountStoreContext(ownerUserId);
   const stores = Array.isArray(account.stores) ? account.stores : [];
   const storeCount = stores.length;
+  console.log('[ContextEvaluator] store lookup result:', {
+    ownerUserId,
+    storeCount,
+    intent: intent.type,
+  });
 
   if (storeCount === 0) {
     if (intent.type === 'create_store') {
