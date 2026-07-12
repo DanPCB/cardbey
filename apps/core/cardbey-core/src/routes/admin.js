@@ -8,12 +8,16 @@ import { runCleanup } from '../services/s3Cleanup.js';
 
 import { prisma } from '../lib/prisma.js';
 import adminPublishedArtifactsRoutes from './adminPublishedArtifactsRoutes.js';
+import creatorContentModerationRoutes from './admin/creatorContentModerationRoutes.js';
+import creatorPublishingRoutes from './admin/creatorPublishingRoutes.js';
 
 const router = Router();
 // All admin routes require auth + platform admin role
 router.use(requireAuth);
 router.use(requireAdmin);
 router.use(adminPublishedArtifactsRoutes);
+router.use(creatorContentModerationRoutes);
+router.use(creatorPublishingRoutes);
 
 /**
  * GET /api/admin/health — quick verification that caller is platform admin

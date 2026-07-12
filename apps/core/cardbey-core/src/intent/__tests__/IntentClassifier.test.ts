@@ -40,6 +40,37 @@ describe('IntentClassifier', () => {
     expect(intent.requiresBusiness).toBe(true);
   });
 
+  it('classifies literal create_campaign tool key', () => {
+    const intent = classifyIntent({ message: 'create_campaign' });
+    expect(intent.type).toBe('create_campaign');
+    expect(intent.requiresBusiness).toBe(true);
+    expect(intent.shouldExecute).toBe(true);
+  });
+
+  it('classifies marketing campaign phrasing', () => {
+    const intent = classifyIntent({ message: 'Launch a marketing campaign' });
+    expect(intent.type).toBe('create_campaign');
+    expect(intent.requiresBusiness).toBe(true);
+  });
+
+  it('classifies create loyalty program intent', () => {
+    const intent = classifyIntent({ message: 'create a loyalty program from this card' });
+    expect(intent.type).toBe('setup_loyalty');
+    expect(intent.requiresBusiness).toBe(true);
+    expect(intent.shouldExecute).toBe(true);
+  });
+
+  it('classifies literal setup_loyalty_program tool key', () => {
+    const intent = classifyIntent({ message: 'setup_loyalty_program' });
+    expect(intent.type).toBe('setup_loyalty');
+    expect(intent.requiresBusiness).toBe(true);
+  });
+
+  it('honors explicit manual action key', () => {
+    const intent = classifyIntent({ message: 'go', action: 'create_campaign' });
+    expect(intent.type).toBe('create_campaign');
+  });
+
   it('does not use primaryModeHint to force store on casual chat', () => {
     const intent = classifyIntent({ message: 'Hi', primaryModeHint: 'store_setup' });
     expect(intent.type).toBe('greeting');

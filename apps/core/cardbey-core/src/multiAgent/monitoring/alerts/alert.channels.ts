@@ -2,7 +2,8 @@
  * Alert delivery channels for multi-agent monitoring.
  */
 
-import type { Alert, AlertChannel, AlertConfig } from '../types/alert.types.js';
+import type { Alert, AlertConfig } from '../types/alert.types.js';
+import { AlertChannel } from '../types/alert.types.js';
 
 export interface ChannelResult {
   success: boolean;

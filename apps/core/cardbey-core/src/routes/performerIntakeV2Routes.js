@@ -102,6 +102,7 @@ import {
   resolvePerformerMode,
 } from '../lib/mode/modeRouter.js';
 import { unifiedDispatch, mapUnifiedDispatchToIntakeResponse } from '../lib/intake/unifiedDispatch.js';
+import { resolveOrchestrationDispatchOptions, requiresConfirmation } from '../lib/orchestration/multiAgentGovernance.js';
 import { dispatchIntakeToolViaUnifiedKernel } from '../lib/intake/intakeKernelToolDispatch.js';
 import {
   isDeviceIntentPreClassifyAllowed,
@@ -531,6 +532,118 @@ function performerIntakeV2UserLike(req) {
   const gid = performerIntakeV2ActorId(req);
   if (!gid) return null;
   return { id: gid, role: 'guest', isGuest: true };
+}
+
+/**
+ * Dispatch multi_agent / campaign_orchestration through unified dispatch with governance gate.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {{
+ *   dispatchType: 'multi_agent' | 'campaign_orchestration';
+ *   body: Record<string, unknown>;
+ *   currentContext: Record<string, unknown>;
+ *   userMessage: string;
+ *   locale: string;
+ *   cardbeyTraceId: string | null;
+ *   goal?: string;
+ *   context?: string;
+ * }} input
+ */
+async function dispatchOrchestrationMissionFromIntake(req, res, input) {
+  const {
+    dispatchType,
+    body,
+    currentContext,
+    userMessage,
+    locale,
+    cardbeyTraceId,
+    goal: goalOverride,
+    context: contextOverride,
+  } = input;
+  const actorId = performerIntakeV2ActorId(req);
+  const goal =
+    String(
+      goalOverride ??
+        (typeof body.metadataJson === 'object' &&
+        body.metadataJson &&
+        !Array.isArray(body.metadataJson) &&
+        typeof body.metadataJson.goal === 'string'
+          ? body.metadataJson.goal
+          : '') ??
+        userMessage,
+    ).trim() || userMessage;
+  const dispatchOptions = resolveOrchestrationDispatchOptions(req, body, {
+    missionType: dispatchType,
+    action: dispatchType,
+  });
+  const payload =
+    body.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)
+      ? body.payload
+      : body;
+  const shouldConfirm = requiresConfirmation(dispatchType, payload, {
+    skipConfirmation: dispatchOptions.skipConfirmation,
+  });
+
+  if (process.env.MULTI_AGENT_GOVERNANCE_LOG === 'true' || process.env.NODE_ENV !== 'production') {
+    console.log(
+      `[Governance] Mission ${dispatchType} requires confirmation: ${shouldConfirm}`,
+    );
+  }
+
+  const result = await unifiedDispatch(
+    {
+      type: dispatchType,
+      payload: {
+        body,
+        currentContext,
+        userMessage,
+        locale,
+        cardbeyTraceId,
+        actorId,
+        user: req.user,
+        goal,
+        context: contextOverride ?? '',
+        metadata: body.metadataJson,
+      },
+    },
+    dispatchOptions,
+  );
+
+  const mapped = mapUnifiedDispatchToIntakeResponse(result);
+  if (
+    shouldConfirm &&
+    (mapped.action === 'approval_required' ||
+      mapped.action === 'confirm_multi_agent' ||
+      mapped.action === 'confirm_campaign_orchestration')
+  ) {
+    return res.json({
+      ...mapped,
+      success: true,
+      status: 'pending_approval',
+      requiresConfirmation: true,
+      message:
+        mapped.response ??
+        'This action requires your approval before execution.',
+      proposal:
+        result.proposal ??
+        mapped.proposal ?? {
+          missionType: dispatchType,
+          pipelineId: mapped.missionId ?? result.missionId ?? null,
+          description:
+            dispatchType === 'multi_agent'
+              ? 'This action will execute multi_agent with multiple specialist agents.'
+              : 'This action will run campaign orchestration with specialist agents.',
+          agents: Array.isArray(mapped.plan)
+            ? mapped.plan.map((step) => step?.agent).filter(Boolean)
+            : ['planner', 'writer', 'critic'],
+          estimatedDuration: '2-5 minutes',
+          plan: mapped.plan ?? result.plan,
+        },
+    });
+  }
+
+  return res.json(mapped);
 }
 
 /** Block only exact duplicate display names for same owner — multiple stores per user are allowed. */
@@ -2855,30 +2968,16 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     intentSourceContext,
   });
 
-  // Multi-agent orchestration — unified dispatch
-  if (body.missionType === 'multi_agent') {
-    const actorId = performerIntakeV2ActorId(req);
-    const result = await unifiedDispatch(
-      {
-        type: 'multi_agent',
-        payload: {
-          body,
-          currentContext,
-          userMessage,
-          locale,
-          cardbeyTraceId,
-          actorId,
-          user: req.user,
-          goal:
-            typeof body.metadataJson?.goal === 'string' && body.metadataJson.goal.trim()
-              ? body.metadataJson.goal.trim()
-              : userMessage,
-          metadata: body.metadataJson,
-        },
-      },
-      { requireConfirmation: false, source: 'agent_orchestration' },
-    );
-    return res.json(mapUnifiedDispatchToIntakeResponse(result));
+  // Multi-agent orchestration — unified dispatch (confirmation-gated)
+  if (body.missionType === 'multi_agent' || body.missionType === 'campaign_orchestration') {
+    return dispatchOrchestrationMissionFromIntake(req, res, {
+      dispatchType: body.missionType,
+      body,
+      currentContext,
+      userMessage,
+      locale,
+      cardbeyTraceId,
+    });
   }
 
   // ── Maintenance pre-check (super_admin only) ─────────────────────────────
@@ -2962,27 +3061,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
   if (maintenanceDecision?.kind === 'execute' && maintenanceDecision?.toolName === 'multi_agent_orchestration') {
-    const actorId = performerIntakeV2ActorId(req);
     const goal = String(maintenanceDecision.parameters?.goal ?? userMessage).trim();
-    const result = await unifiedDispatch(
-      {
-        type: 'multi_agent',
-        payload: {
-          body,
-          currentContext,
-          userMessage,
-          locale,
-          cardbeyTraceId,
-          actorId,
-          user: req.user,
-          goal,
-          context: maintenanceDecision.parameters?.context ?? '',
-          metadata: body.metadataJson,
-        },
-      },
-      { requireConfirmation: false, source: 'agent_orchestration' },
-    );
-    return res.json(mapUnifiedDispatchToIntakeResponse(result));
+    return dispatchOrchestrationMissionFromIntake(req, res, {
+      dispatchType: 'multi_agent',
+      body,
+      currentContext,
+      userMessage,
+      locale,
+      cardbeyTraceId,
+      goal,
+      context: maintenanceDecision.parameters?.context ?? '',
+    });
   }
 
   const isServiceRequestProviderSelect =

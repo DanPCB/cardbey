@@ -17,6 +17,8 @@ export const CREATOR_CONTENT_STATUS = Object.freeze({
 });
 
 export const QUALIFICATION_MINUTES = 300;
+/** Canonical qualification threshold — 300 minutes in seconds */
+export const QUALIFICATION_SECONDS = QUALIFICATION_MINUTES * 60;
 
 /** Future extension hooks — not implemented in Phase 1 */
 export const CREATOR_FUTURE_HOOKS = Object.freeze({

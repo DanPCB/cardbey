@@ -20,6 +20,13 @@ import { loadStepMemory } from '../runtime/loadStepMemory.js';
 import { reasonAboutDispatch } from './dispatchReasoningEngine.js';
 import { Features } from '../../config/features.js';
 import { readMissionSpineOwnership, SPINE_OWNERS } from '../kernel/spineAuthority.js';
+import {
+  requiresConfirmation as requiresOrchestrationConfirmation,
+  createOrchestrationGovernanceTrace,
+  appendOrchestrationGovernanceTrace,
+  MULTI_AGENT_PROPOSED_ACTION,
+} from '../orchestration/multiAgentGovernance.js';
+import { createOrchestrationMissionPipeline } from '../orchestration/createMissionPipeline.js';
 
 const ORCHESTRATION_TYPES = new Set(['multi_agent', 'campaign_orchestration']);
 const FACTORY_ACTION_TYPE = 'run_factory';
@@ -221,8 +228,9 @@ async function dispatchExecuteArtifactViaKernel({ payload, source }) {
  * Create and start an orchestration mission pipeline via kernel-authorized path.
  *
  * @param {{ type: string, payload: object, source: string }} input
+ * @param {{ confirmed?: boolean, skipConfirmation?: boolean, requireConfirmation?: boolean, actorId?: string | null }} [options]
  */
-async function dispatchOrchestrationViaKernel({ type, payload, source }) {
+async function dispatchOrchestrationViaKernel({ type, payload, source }, options = {}) {
   const body = payload?.body && typeof payload.body === 'object' ? payload.body : payload ?? {};
   const currentContext =
     payload?.currentContext && typeof payload.currentContext === 'object' ? payload.currentContext : {};
@@ -295,19 +303,162 @@ async function dispatchOrchestrationViaKernel({ type, payload, source }) {
       ? String(body.message ?? metadata.goal ?? 'Multi-agent mission').trim() || 'Multi-agent mission'
       : `Campaign: ${goal.slice(0, 60)}`;
 
-  const { createMissionPipeline } = await import('../missionPipelineService.js');
-  const pipeline = await createMissionPipeline({
+  const confirmed = options.confirmed === true;
+  const skipConfirmation = options.skipConfirmation === true;
+  const needsConfirmation =
+    options.requireConfirmation === true ||
+    requiresOrchestrationConfirmation(missionType, type, { skipConfirmation });
+
+  const previewPlan =
+    missionType === 'multi_agent'
+      ? [
+          { step: 1, agent: 'research', description: 'Research and analyze the topic' },
+          { step: 2, agent: 'build', description: 'Build the deliverable' },
+          { step: 3, agent: 'qa', description: 'Review and validate' },
+        ]
+      : Array.isArray(metadata.plan)
+        ? metadata.plan
+        : [
+            { step: 1, agent: 'brief', description: 'Campaign brief' },
+            { step: 2, agent: 'graphics', description: 'Promotional graphics' },
+            { step: 3, agent: 'copy', description: 'Campaign copy' },
+            { step: 4, agent: 'qa', description: 'QA deliverables' },
+            { step: 5, agent: 'package', description: 'Assemble campaign package' },
+          ];
+
+  if (needsConfirmation && !confirmed) {
+    const governanceTrace = appendOrchestrationGovernanceTrace(
+      createOrchestrationGovernanceTrace({
+        sourceIntent: goal,
+        targetId: storeId,
+        proposedAction: MULTI_AGENT_PROPOSED_ACTION,
+        confirmationState: 'pending',
+        executedBy: actorId || null,
+        missionType,
+      }),
+    );
+
+    const pendingPipeline = await createOrchestrationMissionPipeline({
+      type: missionType,
+      title: title.slice(0, 180),
+      targetType: storeId ? 'store' : 'generic',
+      targetId: storeId ?? undefined,
+      targetLabel: undefined,
+      metadata,
+      confirmed: false,
+      skipConfirmation: false,
+      requiresConfirmation: true,
+      sourceIntent: goal,
+      governanceTrace,
+      tenantId,
+      createdBy: actorId || null,
+    });
+
+    return {
+      ok: false,
+      status: 'pending_confirmation',
+      proposedAction: MULTI_AGENT_PROPOSED_ACTION,
+      missionId: pendingPipeline.id,
+      missionType,
+      executionPath: 'run_pipeline',
+      governanceTrace,
+      reasoning:
+        missionType === 'multi_agent'
+          ? 'Multi-agent orchestration requires your approval before specialist agents run.'
+          : 'Campaign orchestration requires your approval before specialist agents run.',
+      plan: previewPlan,
+      message:
+        missionType === 'multi_agent'
+          ? 'Review the multi-agent plan and confirm to start orchestration.'
+          : 'Review the campaign orchestration plan and confirm to start.',
+      proposal: {
+        missionType,
+        pipelineId: pendingPipeline.id,
+        description:
+          missionType === 'multi_agent'
+            ? 'This action will execute a multi-agent mission with specialist agents.'
+            : 'This action will run campaign orchestration with specialist agents.',
+        agents: previewPlan.map((step) => step.agent).filter(Boolean),
+        estimatedDuration: '2-5 minutes',
+        plan: previewPlan,
+      },
+    };
+  }
+
+  const existingMissionId = String(
+    payload.missionId ??
+      body.missionId ??
+      body.pipelineId ??
+      payload.pipelineId ??
+      '',
+  ).trim();
+
+  if (confirmed && existingMissionId) {
+    const { confirmOrchestrationPipeline } = await import('../orchestration/createMissionPipeline.js');
+    try {
+      const confirmedPipeline = await confirmOrchestrationPipeline(existingMissionId, actorId || null);
+      return {
+        ok: true,
+        status: 'ok',
+        executionPath: 'run_pipeline',
+        missionId: confirmedPipeline.id,
+        governanceTrace: confirmedPipeline.governanceTrace,
+        action:
+          missionType === 'multi_agent'
+            ? 'multi_agent_dispatched'
+            : 'campaign_orchestration_dispatched',
+        reasoning: 'Orchestration confirmed and started.',
+        plan: previewPlan,
+        orchestration: confirmedPipeline.orchestration,
+      };
+    } catch (confirmErr) {
+      console.warn(
+        '[unifiedDispatch] confirm existing orchestration pipeline failed:',
+        confirmErr?.message ?? confirmErr,
+      );
+    }
+  }
+
+  const governanceTrace = appendOrchestrationGovernanceTrace(
+    createOrchestrationGovernanceTrace({
+      sourceIntent: goal,
+      targetId: storeId,
+      proposedAction: MULTI_AGENT_PROPOSED_ACTION,
+      confirmationState: skipConfirmation ? 'not_required' : 'confirmed',
+      executedBy: actorId || null,
+      missionType,
+    }),
+  );
+
+  const pipeline = await createOrchestrationMissionPipeline({
     type: missionType,
     title: title.slice(0, 180),
     targetType: storeId ? 'store' : 'generic',
     targetId: storeId ?? undefined,
     targetLabel: undefined,
     metadata,
-    requiresConfirmation: false,
-    executionMode: 'AUTO_RUN',
+    confirmed: confirmed || skipConfirmation,
+    skipConfirmation,
+    requiresConfirmation: needsConfirmation,
+    sourceIntent: goal,
+    governanceTrace,
     tenantId,
     createdBy: actorId || null,
   });
+
+  if (pipeline.status === 'awaiting_confirmation') {
+    return {
+      ok: false,
+      status: 'pending_confirmation',
+      proposedAction: MULTI_AGENT_PROPOSED_ACTION,
+      missionId: pipeline.id,
+      missionType,
+      executionPath: 'run_pipeline',
+      governanceTrace,
+      reasoning: 'Orchestration mission is awaiting your confirmation.',
+      plan: previewPlan,
+    };
+  }
 
   const { runMissionUntilBlocked } = await import('../missionPipelineOrchestrator.js');
   runMissionUntilBlocked(pipeline.id).catch((err) =>
@@ -319,21 +470,14 @@ async function dispatchOrchestrationViaKernel({ type, payload, source }) {
     status: 'ok',
     executionPath: 'run_pipeline',
     missionId: pipeline.id,
+    governanceTrace,
     action:
       missionType === 'multi_agent' ? 'multi_agent_dispatched' : 'campaign_orchestration_dispatched',
     reasoning:
       missionType === 'multi_agent'
         ? 'Detected complex multi-step goal — running multi-agent orchestration.'
         : 'Running multi-agent campaign orchestration via AgentCoordinator.',
-    ...(missionType === 'multi_agent'
-      ? {
-          plan: [
-            { step: 1, agent: 'research', description: 'Research and analyze the topic' },
-            { step: 2, agent: 'build', description: 'Build the deliverable' },
-            { step: 3, agent: 'qa', description: 'Review and validate' },
-          ],
-        }
-      : {}),
+    ...(missionType === 'multi_agent' ? { plan: previewPlan } : { plan: previewPlan }),
   };
 }
 
@@ -462,7 +606,7 @@ export async function unifiedDispatch(action, options = {}) {
     }
   }
 
-  if (requireConfirmation && !confirmed) {
+  if (requireConfirmation && !confirmed && !ORCHESTRATION_TYPES.has(type)) {
     return {
       ok: false,
       status: 'pending_confirmation',
@@ -471,7 +615,7 @@ export async function unifiedDispatch(action, options = {}) {
     };
   }
 
-  if (options.useMemoryPipeline !== false && !confirmed) {
+  if (options.useMemoryPipeline !== false && !confirmed && !ORCHESTRATION_TYPES.has(type)) {
     try {
       const memoryBundle = await loadStepMemory({
         userId: payload.userId ?? payload.actorId ?? null,
@@ -508,6 +652,18 @@ export async function unifiedDispatch(action, options = {}) {
       message: kernelAuth.message,
       executionPath: 'proactive_plan',
     };
+  }
+
+  if (ORCHESTRATION_TYPES.has(type)) {
+    return dispatchOrchestrationViaKernel(
+      { type, payload, source },
+      {
+        confirmed,
+        skipConfirmation: options.skipConfirmation === true,
+        requireConfirmation: options.requireConfirmation === true,
+        actorId: payload.actorId ?? payload.userId ?? null,
+      },
+    );
   }
 
   if (type === UNIFIED_ACTION_TYPES.CREATE_STORE_CHECKPOINT) {
@@ -643,10 +799,6 @@ export async function unifiedDispatch(action, options = {}) {
     };
   }
 
-  if (ORCHESTRATION_TYPES.has(type)) {
-    return dispatchOrchestrationViaKernel({ type, payload, source });
-  }
-
   if (type === 'execute_artifact') {
     return dispatchExecuteArtifactViaKernel({ payload, source });
   }
@@ -747,12 +899,33 @@ export function mapUnifiedDispatchToIntakeResponse(result, ctx = {}) {
   }
 
   if (result.status === 'pending_confirmation') {
+    const orchestrationPending =
+      result.proposedAction === MULTI_AGENT_PROPOSED_ACTION ||
+      result.missionType === 'multi_agent' ||
+      result.missionType === 'campaign_orchestration';
     return {
       success: true,
-      action: 'approval_required',
       requiresConfirmation: true,
       tool: ctx.tool ?? result.proposedAction ?? null,
-      executionPath: 'proactive_plan',
+      proposedAction: result.proposedAction ?? null,
+      missionType: result.missionType ?? null,
+      missionId: result.missionId ?? null,
+      executionPath: orchestrationPending ? 'run_pipeline' : 'proactive_plan',
+      response:
+        result.message ??
+        result.reasoning ??
+        'This orchestration requires your approval before agents run.',
+      reasoning: result.reasoning ?? null,
+      plan: Array.isArray(result.plan) ? result.plan : undefined,
+      proposal: result.proposal ?? null,
+      governanceTrace: result.governanceTrace ?? null,
+      multiAgentStatus: 'pending_approval',
+      status: 'pending_approval',
+      action: orchestrationPending
+        ? result.missionType === 'campaign_orchestration'
+          ? 'confirm_campaign_orchestration'
+          : 'confirm_multi_agent'
+        : 'approval_required',
     };
   }
 

@@ -10,6 +10,8 @@
 
 The system currently has **~4 active intake entry surfaces**, **≥3 classifiers**, **≥5 planners**, **≥5 executors**, and **dozens of storage writers**. The clean target is **1 of each**. The loyalty-card test path **bypasses Intake V2 / IntentReasoner entirely**.
 
+**Update (2026-07-11):** P0 governance patch — `multi_agent` and `campaign_orchestration` orchestration missions now require explicit confirmation (`MULTI_AGENT_REQUIRE_CONFIRMATION`, default `true`) before `AgentCoordinator` AUTO_RUN. See `apps/core/cardbey-core/docs/multiAgent/GOVERNANCE.md`.
+
 ---
 
 ## 1. Layer Inventory

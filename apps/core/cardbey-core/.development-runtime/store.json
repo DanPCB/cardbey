@@ -1,0 +1,446 @@
+{
+  "missions": [
+    {
+      "id": "dev-1783819741812",
+      "type": "BUG_FIX",
+      "repositoryId": "cardbey",
+      "baseBranch": "main",
+      "title": "Remove duplicate sidebar on Development Runtime page",
+      "request": "Fix duplicate console sidebar on /app/development",
+      "expectedOutcome": "/app/development renders one Console sidebar only",
+      "observedBehaviour": "Two vertical sidebar rails visible on /app/development",
+      "riskLevel": "LOW",
+      "state": "AWAITING_CODE_REVIEW",
+      "requestedBy": "calibration-runner",
+      "executionMode": "GOVERNED_AUTOMATION",
+      "createdAt": "2026-07-12T01:29:01.812Z",
+      "updatedAt": "2026-07-12T01:29:59.333Z",
+      "evidenceSnapshotId": "ev-dev-1783819741812",
+      "approvedDesignId": "design-dev-1783819741812-v1",
+      "approvedDesignVersion": 1,
+      "approvedBy": "calibration-owner",
+      "workspaceId": "ws-dev-1783819741812"
+    }
+  ],
+  "evidence": {
+    "dev-1783819741812": {
+      "id": "ev-dev-1783819741812",
+      "missionId": "dev-1783819741812",
+      "logs": [],
+      "screenshots": [],
+      "requestIds": [],
+      "affectedRoutes": [
+        "/app/development",
+        "/console/development",
+        "/app",
+        "/app/missions"
+      ],
+      "suspectedFiles": [
+        "apps/dashboard/cardbey-marketing-dashboard/src/App.jsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleShell.tsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleSidebar.tsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/pages/development/DevelopmentCenterPage.tsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/components/development/DevelopmentTab.tsx"
+      ],
+      "reproductionSteps": [
+        "Open /app/development",
+        "Observe duplicate sidebar rails",
+        "Compare with /app/missions (single rail)"
+      ],
+      "expectedBehaviour": "/app/development renders one Console sidebar only",
+      "currentBehaviour": "Two vertical sidebar rails visible on /app/development",
+      "environment": {
+        "appVersions": {},
+        "commitHash": "unknown",
+        "databaseProvider": "unknown",
+        "nodeVersion": "v22.22.0"
+      },
+      "frozenAt": "2026-07-12T01:29:01.816Z",
+      "frozenBy": "calibration-runner"
+    }
+  },
+  "impactReports": {
+    "dev-1783819741812": {
+      "id": "imp-dev-1783819741812",
+      "missionId": "dev-1783819741812",
+      "affectedSystems": [
+        "frontend",
+        "routing",
+        "console",
+        "navigation",
+        "console-layout"
+      ],
+      "canonicalPath": "/app/development",
+      "legacyPaths": [],
+      "proposedFiles": [
+        "apps/dashboard/cardbey-marketing-dashboard/src/App.jsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleShell.tsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleSidebar.tsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/pages/development/DevelopmentCenterPage.tsx",
+        "apps/dashboard/cardbey-marketing-dashboard/src/components/development/DevelopmentTab.tsx"
+      ],
+      "migrationRequired": false,
+      "securityReviewRequired": false,
+      "performanceReviewRequired": false,
+      "estimatedRisk": "LOW",
+      "estimatedEffort": "SMALL",
+      "acceptanceCriteria": [
+        "/app/development renders one Console sidebar only",
+        "/app/development renders one Console sidebar only",
+        "No CSS hiding of duplicate rails"
+      ],
+      "findings": [
+        {
+          "severity": "WARNING",
+          "message": "Duplicate sidebar may be caused by nested shell or missing console route classification",
+          "location": "App.jsx / ConsoleShell"
+        }
+      ],
+      "recommendations": [
+        "Inspect ConsoleShell vs PageShell layout ownership",
+        "Verify /app/development is classified as console route",
+        "Keep DevelopmentCenterPage content-only"
+      ],
+      "generatedAt": "2026-07-12T01:29:01.818Z",
+      "generatedBy": "calibration-runner"
+    }
+  },
+  "designs": [
+    {
+      "id": "design-dev-1783819741812-v1",
+      "missionId": "dev-1783819741812",
+      "version": 1,
+      "summary": "Remove duplicate console sidebar on Development Runtime routes",
+      "diagnosis": "The duplicated rail may come from either:\n1. a second shell mounted inside the Development page, or\n2. the outer AppShell/PageShell wrapping /app/development while ConsoleShell also renders its own rail.\n\nRepository inspection is required before implementation. Hypothesis only — root cause must be verified in workspace.",
+      "proposedChanges": [
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/App.jsx",
+          "purpose": "Classify /app/development as console layout; add nested route under ConsoleShell",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/pages/development/DevelopmentCenterPage.tsx",
+          "purpose": "Keep page content-only — no nested ConsoleShell or Sidebar",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/components/development/DevelopmentTab.tsx",
+          "purpose": "State-specific review cards; no layout shell imports",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleShell.tsx",
+          "purpose": "Inspect layout ownership and sidebar rendering",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleSidebar.tsx",
+          "purpose": "Inspect layout ownership and sidebar rendering",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/components/development/developmentConsoleRouting.test.tsx",
+          "purpose": "Regression: single canonical console sidebar owner for /app/development",
+          "changeType": "CREATE"
+        }
+      ],
+      "testPlan": [
+        "Regression test: /app/development uses console layout without nested sidebar",
+        "Verify /app, /app/missions, /app/development each render one ConsoleSidebar",
+        "dashboard vitest targeted test passes",
+        "dashboard vite build (no minify) passes"
+      ],
+      "rollbackPlan": "Revert branch; remove /app/development console classification if regression detected",
+      "risks": [
+        "Console route classification may affect guest auth paths",
+        "Must not fix with CSS hiding — structural layout only"
+      ],
+      "proposedBy": "calibration-runner",
+      "createdAt": "2026-07-12T01:29:01.820Z",
+      "approvedBy": "calibration-owner",
+      "approvedAt": "2026-07-12T01:29:01.822Z"
+    }
+  ],
+  "workspaces": [
+    {
+      "id": "ws-dev-1783819741812",
+      "missionId": "dev-1783819741812",
+      "path": "C:\\Projects\\cardbey",
+      "repository": "cardbey",
+      "branch": "fix/dev-783819741812-remove-duplicate-sidebar-on-development-",
+      "status": "READY",
+      "createdAt": "2026-07-12T01:29:01.825Z",
+      "preparedAt": "2026-07-12T01:29:01.825Z"
+    }
+  ],
+  "patches": [
+    {
+      "id": "patch-dev-1783819741812",
+      "missionId": "dev-1783819741812",
+      "summary": "Remove duplicate console sidebar on Development Runtime routes",
+      "description": "Root cause B: /app/development not classified as console route. ConsoleSidebar references: 11; isConsole references: 47",
+      "filesAdded": [],
+      "filesModified": [],
+      "filesDeleted": [],
+      "linesAdded": 0,
+      "linesDeleted": 0,
+      "diff": "",
+      "author": "calibration-owner",
+      "createdAt": "2026-07-12T01:29:04.295Z",
+      "approved": true,
+      "workspaceId": "ws-dev-1783819741812",
+      "version": 1,
+      "riskLevel": "LOW",
+      "diffArtifactPath": "C:\\Projects\\cardbey\\.development-workspaces\\diffs\\dev-1783819741812.diff",
+      "reviewedBy": "calibration-reviewer",
+      "reviewedAt": "2026-07-12T01:29:59.334Z"
+    }
+  ],
+  "fileChanges": [],
+  "checkRuns": [
+    {
+      "id": "check-dev-1783819741812-dashboardTests",
+      "missionId": "dev-1783819741812",
+      "type": "UNIT_TEST",
+      "name": "dashboardTests",
+      "status": "PASSED",
+      "duration": 4205,
+      "output": " WARN  Unsupported engine: wanted: {\"node\":\"20.x\"} (current: {\"node\":\"v22.22.0\",\"pnpm\":\"10.25.0\"})\n\n RUN  v1.6.1 C:/Projects/cardbey/apps/dashboard/cardbey-marketing-dashboard\n\n ✓ src/components/development/developmentConsoleRouting.test.tsx  (2 tests) 4ms\n\n Test Files  1 passed (1)\n      Tests  2 passed (2)\n   Start at  11:29:06\n   Duration  1.96s (transform 86ms, setup 270ms, collect 11ms, tests 4ms, environment 0ms, prepare 358ms)\n\n",
+      "startedAt": "2026-07-12T01:29:04.298Z",
+      "completedAt": "2026-07-12T01:29:08.505Z",
+      "commandId": "dashboardTests",
+      "exitCode": 0,
+      "stdoutArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\dashboardTests.stdout.log",
+      "stderrArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\dashboardTests.stderr.log"
+    },
+    {
+      "id": "check-dev-1783819741812-dashboardTypecheck",
+      "missionId": "dev-1783819741812",
+      "type": "TYPECHECK",
+      "name": "dashboardTypecheck",
+      "status": "PASSED",
+      "duration": 2123,
+      "output": " WARN  Unsupported engine: wanted: {\"node\":\"20.x\"} (current: {\"node\":\"v22.22.0\",\"pnpm\":\"10.25.0\"})\n\n RUN  v1.6.1 C:/Projects/cardbey/apps/dashboard/cardbey-marketing-dashboard\n\n ✓ src/components/development/developmentConsoleRouting.test.tsx  (2 tests) 2ms\n\n Test Files  1 passed (1)\n      Tests  2 passed (2)\n   Start at  11:29:09\n   Duration  1.24s (transform 32ms, setup 147ms, collect 11ms, tests 2ms, environment 0ms, prepare 158ms)\n\n",
+      "startedAt": "2026-07-12T01:29:08.505Z",
+      "completedAt": "2026-07-12T01:29:10.630Z",
+      "commandId": "dashboardTypecheck",
+      "exitCode": 0,
+      "stdoutArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\dashboardTypecheck.stdout.log",
+      "stderrArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\dashboardTypecheck.stderr.log"
+    },
+    {
+      "id": "check-dev-1783819741812-dashboardBuild",
+      "missionId": "dev-1783819741812",
+      "type": "BUILD",
+      "name": "dashboardBuild",
+      "status": "PASSED",
+      "duration": 44838,
+      "output": " WARN  Unsupported engine: wanted: {\"node\":\"20.x\"} (current: {\"node\":\"v22.22.0\",\"pnpm\":\"10.25.0\"})\n[proxy] using target=http://127.0.0.1:3001 source=default\n[vite] Dev server host=all interfaces. HMR uses page host unless VITE_HMR_FORCE_LOCALHOST=1.\nvite v6.4.3 building for production...\ntransforming...\n✓ 5847 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                                              3.58 kB │ gzip:     1.29 kB\ndist/assets/Cardbey logo.WiOOEYjx.png                      160.57 kB\ndist/assets/index.C-N7ZO0n.css                             480.75 kB │ gzip:    69.04 kB\ndist/assets/folder-open.Bq-tvcKz.js                          0.60 kB │ gzip:     0.38 kB\ndist/assets/delete.mvCQ2JH1.js                               1.35 kB │ gzip:     0.65 kB\ndist/assets/PreviewDraftPage.BX6wNr_j.js                     1.55 kB │ gzip:     0.67 kB\ndist/assets/CreatorAnnouncementHost.D6G1KqXA.js              1.79 kB │ gzip:     0.77 kB\ndist/assets/discoverySearchResultMapper.RrzIAn53.js          1.94 kB │ gzip:     0.72 kB\ndist/assets/trendHelpers.CZ9Vf3YZ.js                         1.95 kB │ gzip:     0.62 kB\ndist/assets/BookingSuccessPage.CSnKTRFf.js                   1.95 kB │ gzip:     0.72 kB\ndist/assets/creatorShowcaseTypes.CHJWOhNr.js                 2.22 kB │ gzip:     0.81 kB\ndist/assets/BookingPage.B2FHem-F.js                          2.27 kB │ gzip:     0.84 kB\ndist/assets/serverOverrides.BizHM7_B.js                      2.36 kB │ gzip:     0.83 kB\ndist/assets/canonicalCoreUrl.DGtRq07P.js                     2.92 kB │ gzip:     0.92 kB\ndist/assets/designSpec.DoG2f3bn.js                           3.64 kB │ gzip:     1.07 kB\ndist/assets/DiscoverySearchPage.Cjk63qd2.js                  4.55 kB │ gzip:     1.57 kB\ndist/assets/createPromoDraftFromItem.DtCPUnGh.js             4.91 kB │ gzip:     1.65 kB\ndist/assets/designGenerator.Cum-k5fT.js                      5.77 kB │ gzip:     1.63 kB\ndist/assets/CreatorStudioOverview.DTqHjw85.js                6.82 kB │ gzip:     1.63 kB\ndist/assets/CreatorProfilePage.mZeA5bCm.js                   9.27 kB │ gzip:     2.30 kB\ndist/assets/UnifiedSearchBar.DbGQILUq.js                     9.27 kB │ gzip:     2.58 kB\ndist/assets/CreatorContentDetailPage._zJnpfeO.js            11.83 kB │ gzip:     2.49 kB\ndist/assets/DiscoverySearchResults.DZ7UeWXL.js              13.89 kB │ gzip:     3.51 kB\ndist/assets/CreatorAnnouncementModal.CQWv65s9.js            17.04 kB │ gzip:     4.23 kB\ndist/assets/confetti.module.D4FZypcR.js                     23.02 kB │ gzip:     6.01 kB\ndist/assets/CreatorsFeedPage.Dt0DEdby.js                    23.55 kB │ gzip:     5.46 kB\ndist/assets/slideshowExporter.CbA0uZMw.js                   24.01 kB │ gzip:     5.69 kB\ndist/assets/usePreparedPublicFeedArtifacts.CrR_cXyR.js      24.73 kB │ gzip:     6.94 kB\ndist/assets/CreatorStudioLayout.MarlkulR.js                 26.51 kB │ gzip:     5.68 kB\ndist/assets/CreatorStudioContentPage.3HgEyzUa.js            30.17 kB │ gzip:     6.34 kB\ndist/assets/MiniWebsiteLayout.COWfjIKA.js                   42.46 kB │ gzip:     7.75 kB\ndist/assets/PublicDiscoveryRail.CC3bKD_R.js                 54.52 kB │ gzip:    11.93 kB\ndist/assets/PublicHomeFeed.BQ_YpZof.js                      61.71 kB │ gzip:    14.23 kB\ndist/assets/ConciergeHost.BMWi_MXT.js                      126.40 kB │ gzip:    26.70 kB\ndist/assets/StorePreviewPage.C1a4CwtQ.js                   302.08 kB │ gzip:    54.87 kB\ndist/assets/ExploreDiscoveryPage.BrY_IrQ_.js             1,110.67 kB │ gzip:   182.85 kB\ndist/assets/index.BbsBYJoi.js                           18,035.60 kB │ gzip: 3,430.62 kB\n✓ built in 43.52s\n",
+      "startedAt": "2026-07-12T01:29:10.630Z",
+      "completedAt": "2026-07-12T01:29:55.471Z",
+      "commandId": "dashboardBuild",
+      "exitCode": 0,
+      "stdoutArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\dashboardBuild.stdout.log",
+      "stderrArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\dashboardBuild.stderr.log"
+    },
+    {
+      "id": "check-dev-1783819741812-coreDevelopmentTests",
+      "missionId": "dev-1783819741812",
+      "type": "UNIT_TEST",
+      "name": "coreDevelopmentTests",
+      "status": "PASSED",
+      "duration": 3856,
+      "output": "\n RUN  v1.6.1 C:/Projects/cardbey/apps/core/cardbey-core\n\nstdout | src\\test\\setupEnv.js:53:9\n[TestEnv] DATABASE_URL=file:C:/Projects/cardbey/apps/core/cardbey-core/prisma/test.db NODE_ENV=test JWT_SECRET=set\n\n ✓ src/development/__tests__/developmentPhase2.test.ts  (13 tests) 84ms\n\n Test Files  1 passed (1)\n      Tests  13 passed (13)\n   Start at  11:29:58\n   Duration  1.15s (transform 186ms, setup 53ms, collect 208ms, tests 84ms, environment 0ms, prepare 252ms)\n\n",
+      "startedAt": "2026-07-12T01:29:55.471Z",
+      "completedAt": "2026-07-12T01:29:59.328Z",
+      "commandId": "coreDevelopmentTests",
+      "exitCode": 0,
+      "stdoutArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\coreDevelopmentTests.stdout.log",
+      "stderrArtifact": "C:\\Projects\\cardbey\\.development-workspaces\\check-artifacts\\dev-1783819741812\\coreDevelopmentTests.stderr.log"
+    }
+  ],
+  "reviews": [
+    {
+      "id": "rev-design-dev-1783819741812-1",
+      "missionId": "dev-1783819741812",
+      "type": "DESIGN",
+      "reviewer": "calibration-owner",
+      "status": "APPROVED",
+      "comments": "Calibration approval",
+      "approvedAt": "2026-07-12T01:29:01.822Z"
+    },
+    {
+      "id": "rev-patch-dev-1783819741812",
+      "missionId": "dev-1783819741812",
+      "type": "CODE",
+      "reviewer": "calibration-reviewer",
+      "status": "APPROVED",
+      "comments": "Calibration patch approval",
+      "approvedAt": "2026-07-12T01:29:59.334Z"
+    }
+  ],
+  "pullRequests": [],
+  "events": [
+    {
+      "type": "MISSION_CREATED",
+      "missionId": "dev-1783819741812",
+      "actorType": "user",
+      "actorId": "calibration-runner",
+      "repositoryId": "cardbey",
+      "id": "evt-50bbbbb0-6009-4b6d-92cf-d6b731c45425",
+      "timestamp": "2026-07-12T01:29:01.816Z"
+    },
+    {
+      "type": "EVIDENCE_FROZEN",
+      "missionId": "dev-1783819741812",
+      "actorType": "user",
+      "actorId": "calibration-runner",
+      "repositoryId": "cardbey",
+      "id": "evt-4a7b7c4a-3bb6-466b-b966-5bb4cd974933",
+      "timestamp": "2026-07-12T01:29:01.817Z"
+    },
+    {
+      "type": "development_impact_analysed",
+      "missionId": "dev-1783819741812",
+      "actorType": "agent",
+      "actorId": "calibration-runner",
+      "repositoryId": "cardbey",
+      "id": "evt-00d3aaa5-9130-45b2-b198-53384c146a9e",
+      "timestamp": "2026-07-12T01:29:01.819Z"
+    },
+    {
+      "type": "development_design_proposed",
+      "missionId": "dev-1783819741812",
+      "designId": "design-dev-1783819741812-v1",
+      "actorType": "agent",
+      "actorId": "calibration-runner",
+      "repositoryId": "cardbey",
+      "id": "evt-86492b0b-6a6e-4717-a997-db4f7268d2e8",
+      "timestamp": "2026-07-12T01:29:01.821Z"
+    },
+    {
+      "type": "development_design_approved",
+      "missionId": "dev-1783819741812",
+      "designId": "design-dev-1783819741812-v1",
+      "actorType": "user",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "id": "evt-667a7760-1727-452a-9f05-1cfb0602a18d",
+      "timestamp": "2026-07-12T01:29:01.823Z"
+    },
+    {
+      "type": "development_workspace_prepare_started",
+      "missionId": "dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "id": "evt-306c1663-7bf5-4ad8-9f44-9eae47974399",
+      "timestamp": "2026-07-12T01:29:01.824Z"
+    },
+    {
+      "type": "development_workspace_prepared",
+      "missionId": "dev-1783819741812",
+      "workspaceId": "ws-dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "branchName": "fix/dev-783819741812-remove-duplicate-sidebar-on-development-",
+      "id": "evt-220f8be7-d8cb-4e6f-8af3-0a04f6dbd306",
+      "timestamp": "2026-07-12T01:29:01.827Z"
+    },
+    {
+      "type": "development_implementation_started",
+      "missionId": "dev-1783819741812",
+      "workspaceId": "ws-dev-1783819741812",
+      "designId": "design-dev-1783819741812-v1",
+      "actorType": "agent",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "branchName": "fix/dev-783819741812-remove-duplicate-sidebar-on-development-",
+      "id": "evt-0fc9bf94-d210-4239-aae1-7b90f37cf2db",
+      "timestamp": "2026-07-12T01:29:01.828Z"
+    },
+    {
+      "type": "development_patch_created",
+      "missionId": "dev-1783819741812",
+      "workspaceId": "ws-dev-1783819741812",
+      "patchId": "patch-dev-1783819741812",
+      "actorType": "agent",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "id": "evt-45f2e5df-f5b3-4bde-8e2c-d74a9ead8ffb",
+      "timestamp": "2026-07-12T01:29:04.296Z"
+    },
+    {
+      "type": "development_checks_started",
+      "missionId": "dev-1783819741812",
+      "workspaceId": "ws-dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "id": "evt-3ac1cb06-5d51-4132-9e90-e9871736738f",
+      "timestamp": "2026-07-12T01:29:04.297Z"
+    },
+    {
+      "type": "development_check_completed",
+      "missionId": "dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "payload": {
+        "checkId": "check-dev-1783819741812-dashboardTests",
+        "status": "PASSED"
+      },
+      "id": "evt-40a0904f-4c95-41d3-8c5e-a85f0ba2c7c1",
+      "timestamp": "2026-07-12T01:29:59.329Z"
+    },
+    {
+      "type": "development_check_completed",
+      "missionId": "dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "payload": {
+        "checkId": "check-dev-1783819741812-dashboardTypecheck",
+        "status": "PASSED"
+      },
+      "id": "evt-9a0cec29-d5e2-43dd-a191-d5360677d673",
+      "timestamp": "2026-07-12T01:29:59.330Z"
+    },
+    {
+      "type": "development_check_completed",
+      "missionId": "dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "payload": {
+        "checkId": "check-dev-1783819741812-dashboardBuild",
+        "status": "PASSED"
+      },
+      "id": "evt-4f14c834-e3c2-48a9-97b4-2d6b000f831d",
+      "timestamp": "2026-07-12T01:29:59.331Z"
+    },
+    {
+      "type": "development_check_completed",
+      "missionId": "dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "payload": {
+        "checkId": "check-dev-1783819741812-coreDevelopmentTests",
+        "status": "PASSED"
+      },
+      "id": "evt-2316e7ad-5271-490d-8b06-871f216bcc5a",
+      "timestamp": "2026-07-12T01:29:59.332Z"
+    },
+    {
+      "type": "development_checks_passed",
+      "missionId": "dev-1783819741812",
+      "actorType": "system",
+      "actorId": "calibration-owner",
+      "repositoryId": "cardbey",
+      "id": "evt-8ba2e346-1918-4bd1-b234-41955cb78944",
+      "timestamp": "2026-07-12T01:29:59.333Z"
+    }
+  ]
+}

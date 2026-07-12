@@ -1,6 +1,7 @@
 /**
  * CreatorProgressService — canonical published-minutes engine.
- * Sum(duration) where status === published; ignores drafts, deleted, failed.
+ * Sum(durationSeconds) where status === published; ignores drafts, deleted, failed.
+ * Qualification uses seconds internally (18,000 = 300 minutes).
  */
 
 import { getPrismaClient } from '../prisma.js';
@@ -8,11 +9,12 @@ import {
   CREATOR_CONTENT_STATUS,
   CREATOR_CONTENT_TYPES,
   QUALIFICATION_MINUTES,
+  QUALIFICATION_SECONDS,
 } from './creatorTypes.js';
 
 /**
  * @param {string} creatorId
- * @returns {Promise<{ totalPublishedMinutes: number, totalVideos: number, totalArticles: number, qualificationProgress: number, isQualified: boolean }>}
+ * @returns {Promise<{ totalPublishedSeconds: number, totalPublishedMinutes: number, totalVideos: number, totalArticles: number, qualificationProgress: number, isQualified: boolean }>}
  */
 export async function calculateCreatorProgress(creatorId) {
   const prisma = getPrismaClient();
@@ -27,32 +29,26 @@ export async function calculateCreatorProgress(creatorId) {
     },
   });
 
-  let totalSeconds = 0;
+  let totalPublishedSeconds = 0;
   let totalVideos = 0;
   let totalArticles = 0;
 
   for (const row of published) {
-    const secs = Number(row.durationSeconds) || 0;
-    totalSeconds += secs;
+    const secs = Math.max(0, Number(row.durationSeconds) || 0);
+    totalPublishedSeconds += secs;
     if (row.type === CREATOR_CONTENT_TYPES.VIDEO) totalVideos += 1;
-    if (row.type === CREATOR_CONTENT_TYPES.ARTICLE) {
-      // Articles count as 1 minute minimum for qualification
-      totalArticles += 1;
-      if (secs === 0) totalSeconds += 60;
-    }
-    if (row.type === CREATOR_CONTENT_TYPES.LIVESTREAM && secs === 0) {
-      totalSeconds += 60;
-    }
+    if (row.type === CREATOR_CONTENT_TYPES.ARTICLE) totalArticles += 1;
   }
 
-  const totalPublishedMinutes = Math.round((totalSeconds / 60) * 100) / 100;
+  const totalPublishedMinutes = Math.floor(totalPublishedSeconds / 60);
   const qualificationProgress = Math.min(
     100,
-    Math.round((totalPublishedMinutes / QUALIFICATION_MINUTES) * 10000) / 100,
+    Math.round((totalPublishedSeconds / QUALIFICATION_SECONDS) * 10000) / 100,
   );
-  const isQualified = totalPublishedMinutes >= QUALIFICATION_MINUTES;
+  const isQualified = totalPublishedSeconds >= QUALIFICATION_SECONDS;
 
   return {
+    totalPublishedSeconds,
     totalPublishedMinutes,
     totalVideos,
     totalArticles,
@@ -85,10 +81,11 @@ export async function syncCreatorProgress(creatorId) {
   return { creator: updated, progress };
 }
 
-export { QUALIFICATION_MINUTES } from './creatorTypes.js';
+export { QUALIFICATION_MINUTES, QUALIFICATION_SECONDS } from './creatorTypes.js';
 
 export default {
   calculateCreatorProgress,
   syncCreatorProgress,
   QUALIFICATION_MINUTES,
+  QUALIFICATION_SECONDS,
 };

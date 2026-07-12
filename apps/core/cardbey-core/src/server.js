@@ -256,10 +256,12 @@ import threadsRoutes from './routes/threadsRoutes.js';
 import contactsSyncRoutes from './routes/contactsSyncRoutes.js';
 import aiOperatorRoutes from './routes/aiOperatorRoutes.js';
 import missionsRoutes from './routes/missionsRoutes.js';
+import confirmationRoutes from './routes/confirmation.routes.js';
 import executionRoutes from './routes/executionRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import selfAuditRoutes from './routes/selfAudit.routes.js';
+import developmentRoutes from './routes/development.routes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
 import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
 import performerDispatchRoutes from './routes/performerDispatchRoutes.js';
@@ -990,6 +992,7 @@ app.use('/api/business-operations', businessOperationsRoutes);
 // Mount before /api/missions so unified execution checkpoint API is registered first.
 app.use('/api/execution', executionRoutes);
 app.use('/api/missions', missionsRoutes);
+app.use('/api', confirmationRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
@@ -1147,6 +1150,7 @@ app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
 app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
 app.use('/api/self-audit', selfAuditRoutes); // Self-audit: status, run, fix proposals (admin)
+app.use('/api', developmentRoutes); // Development Runtime: /api/development/*
 console.log('[CORE] mounted /api/telemetry (GET /summary, POST /code-fix-proposal)');
 console.log('[CORE] mounted /api/self-healing (GET /discovery-gaps, POST /propose-from-discovery)');
 console.log('[CORE] mounted /api/self-audit (GET /status, POST /run, POST /fix/:issueId)');

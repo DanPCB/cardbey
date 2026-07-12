@@ -3,6 +3,8 @@
  */
 
 import { submitCreatorContentForReview } from '../../creator/creatorContentService.js';
+import { toCreatorContentErrorPayload } from '../../creator/creatorContentErrors.js';
+import { enqueueCreatorClassificationPipeline } from '../../creator/publishing/creatorClassificationService.js';
 import { getPrismaClient } from '../../prisma.js';
 
 export async function execute(input = {}, context = {}) {
@@ -37,15 +39,33 @@ export async function execute(input = {}, context = {}) {
     }
 
     const content = await submitCreatorContentForReview(contentId, context);
+
+    let classification = null;
+    try {
+      classification = await enqueueCreatorClassificationPipeline(contentId, {
+        actorType: 'system',
+        actorId: context.userId ?? null,
+        requestId: context.runtimeExecutionId ?? null,
+      });
+    } catch (classifyErr) {
+      classification = {
+        status: 'failed',
+        message: classifyErr instanceof Error ? classifyErr.message : String(classifyErr),
+      };
+    }
+
     return {
       status: 'ok',
-      output: { content, missionId: context.missionId ?? null },
+      output: {
+        content,
+        classification,
+        missionId: context.missionId ?? null,
+      },
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     return {
       status: 'failed',
-      error: { code: 'SUBMIT_CREATOR_CONTENT_REVIEW_ERROR', message },
+      error: toCreatorContentErrorPayload(err),
     };
   }
 }
