@@ -31,7 +31,12 @@ export async function searchRepository(
   const q = query.toLowerCase();
 
   async function walk(dir: string, rel: string): Promise<void> {
-    const items = await fs.promises.readdir(dir, { withFileTypes: true });
+    let items;
+    try {
+      items = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const item of items) {
       if (item.name === 'node_modules' || item.name === 'dist') continue;
       const itemAbs = path.join(dir, item.name);

@@ -92,14 +92,21 @@ async function applyDuplicateSidebarFix(workspaceRoot: string): Promise<{
     const importLine = "import DevelopmentCenterPage from './pages/development/DevelopmentCenterPage.jsx';";
     if (!appAfter.includes(importLine)) {
       appAfter = appAfter.replace(
-        /(import ConsoleShell[^\n]+\n)/,
+        /(import ControlTowerPage[^\n]+\n)/,
         `$1${importLine}\n`,
       );
     }
+  }
+
+  if (!appAfter.includes('path="development"')) {
+    appAfter = appAfter.replace(
+      '<Route path="telemetry" element={<MissionConsoleTelemetryPage />} />',
+      '<Route path="telemetry" element={<MissionConsoleTelemetryPage />} />\n        <Route path="development" element={<DevelopmentCenterPage />} />',
+    );
     if (!appAfter.includes('path="development"')) {
       appAfter = appAfter.replace(
-        /<Route path="console\/control-tower"[^/]*\/>/,
-        (m) => `${m}\n        <Route path="development" element={<DevelopmentCenterPage />} />`,
+        '<Route path="control-tower" element={<ControlTowerPage />} />',
+        '<Route path="development" element={<DevelopmentCenterPage />} />\n        <Route path="control-tower" element={<ControlTowerPage />} />',
       );
     }
   }

@@ -543,9 +543,11 @@ export class DevelopmentOrchestrator {
 
     const patch = this.store.getLatestPatch(id);
     const fileChanges = patch ? this.store.getFileChangesForPatch(patch.id) : [];
-    const paths = fileChanges.map((f) => f.path);
-    if (paths.length > 0) {
-      await mirrorWorkspaceFilesForChecks(workspace.path, paths);
+    const mirrorPaths = fileChanges
+      .map((f) => f.path)
+      .filter((p) => !p.endsWith('App.jsx'));
+    if (mirrorPaths.length > 0) {
+      await mirrorWorkspaceFilesForChecks(workspace.path, mirrorPaths);
     }
 
     const checkIds = isDuplicateSidebarMission(mission) ? DUPLICATE_SIDEBAR_CHECK_IDS : undefined;

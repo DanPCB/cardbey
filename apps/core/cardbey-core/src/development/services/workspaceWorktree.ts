@@ -88,7 +88,35 @@ export async function prepareDevelopmentWorktree(input: {
     );
   }
 
+  await ensureDashboardSubmoduleCheckout(workspacePath);
+
   return { workspacePath, branchName, baseBranch, usedWorktree: true };
+}
+
+async function ensureDashboardSubmoduleCheckout(workspacePath: string): Promise<void> {
+  const submoduleRel = 'apps/dashboard/cardbey-marketing-dashboard';
+  const submodulePath = path.join(workspacePath, submoduleRel);
+  const repoSubmodule = path.join(cardbeyRepositoryManifest.repoRoot, submoduleRel);
+
+  const hasSrc = fs.existsSync(path.join(submodulePath, 'src'));
+  if (hasSrc) return;
+
+  const init = await runGit(['submodule', 'update', '--init', submoduleRel], workspacePath);
+  if (fs.existsSync(path.join(submodulePath, 'src'))) return;
+
+  if (fs.existsSync(path.join(repoSubmodule, 'src'))) {
+    await fs.promises.mkdir(path.dirname(submodulePath), { recursive: true });
+    await fs.promises.cp(repoSubmodule, submodulePath, { recursive: true });
+    return;
+  }
+
+  if (init.exitCode !== 0) {
+    throw new DevelopmentError(
+      500,
+      'WORKSPACE_SUBMODULE_INIT_FAILED',
+      `Dashboard submodule not available in workspace: ${init.stderr || init.stdout}`,
+    );
+  }
 }
 
 export async function removeDevelopmentWorktree(workspacePath: string, branchName: string): Promise<void> {
