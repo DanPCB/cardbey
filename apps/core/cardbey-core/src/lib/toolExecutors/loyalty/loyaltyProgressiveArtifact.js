@@ -5,6 +5,7 @@
 
 import { readMetadata, writeMetadata } from '../../persistence/metadataWriter.js';
 import { broadcastMissionArtifact } from '../../../realtime/simpleSse.js';
+import { renderLoyaltyDesktopChannel } from '../../businessUnderstanding/channelRenderers/loyaltyDesktopRenderer.js';
 
 /** @typedef {'store_loaded' | 'draft_ready' | 'awaiting_input' | 'complete'} LoyaltyProgressiveStage */
 
@@ -24,15 +25,43 @@ function asRecord(value) {
  * @param {Record<string, unknown>} [partial]
  */
 export function buildLoyaltyProgressiveArtifact(stage, partial = {}) {
-  const storeName = pickString(partial.storeName, partial.name) || null;
-  const reward = pickString(partial.reward, partial.rewardRule) || null;
-  const stampsRaw = partial.stampThreshold ?? partial.requiredStamps;
+  let mergedPartial = { ...partial };
+  const bundle = partial.businessUnderstanding ?? partial.businessUnderstandingBundle ?? null;
+  if (bundle?.artifact) {
+    const rendered = renderLoyaltyDesktopChannel(bundle, {
+      storeName: pickString(partial.storeName, partial.name) || null,
+    });
+    if (rendered.ok && rendered.payload) {
+      mergedPartial = {
+        ...mergedPartial,
+        programName: rendered.payload.programName ?? mergedPartial.programName,
+        storeName: rendered.payload.storeName ?? mergedPartial.storeName,
+        rule: rendered.payload.rule ?? mergedPartial.rule,
+        cardTopology: rendered.payload.cardTopology ?? mergedPartial.cardTopology,
+        cardFooterText: rendered.payload.cardFooterText ?? mergedPartial.cardFooterText,
+        rendererMode: rendered.rendererMode,
+        channel: rendered.channel,
+      };
+      const stamps = Number(rendered.payload.rule?.purchasesRequired);
+      if (Number.isFinite(stamps) && stamps > 0) {
+        mergedPartial.stampThreshold = stamps;
+        mergedPartial.requiredStamps = stamps;
+      }
+      if (rendered.payload.rule?.rewardItem) {
+        mergedPartial.reward = String(rendered.payload.rule.rewardItem);
+      }
+    }
+  }
+
+  const storeName = pickString(mergedPartial.storeName, mergedPartial.name) || null;
+  const reward = pickString(mergedPartial.reward, mergedPartial.rewardRule) || null;
+  const stampsRaw = mergedPartial.stampThreshold ?? mergedPartial.requiredStamps;
   const stamps = Number(stampsRaw);
   const stampThreshold = Number.isFinite(stamps) && stamps > 0 ? stamps : null;
-  const programName = pickString(partial.programName, partial.name) || null;
-  const storeId = pickString(partial.storeId) || null;
-  const logoUrl = pickString(partial.logoUrl, partial.avatarImageUrl) || null;
-  const category = pickString(partial.category, partial.businessCategory) || null;
+  const programName = pickString(mergedPartial.programName, mergedPartial.name) || null;
+  const storeId = pickString(mergedPartial.storeId) || null;
+  const logoUrl = pickString(mergedPartial.logoUrl, mergedPartial.avatarImageUrl) || null;
+  const category = pickString(mergedPartial.category, mergedPartial.businessCategory) || null;
 
   return {
     type: 'loyalty_progressive_artifact',
@@ -43,12 +72,16 @@ export function buildLoyaltyProgressiveArtifact(stage, partial = {}) {
     reward,
     stampThreshold,
     requiredStamps: stampThreshold,
-    rule: partial.rule && typeof partial.rule === 'object' ? partial.rule : null,
+    rule: mergedPartial.rule && typeof mergedPartial.rule === 'object' ? mergedPartial.rule : null,
     cardTopology:
-      partial.cardTopology && typeof partial.cardTopology === 'object' ? partial.cardTopology : null,
-    cardFooterText: pickString(partial.cardFooterText) || null,
+      mergedPartial.cardTopology && typeof mergedPartial.cardTopology === 'object'
+        ? mergedPartial.cardTopology
+        : null,
+    cardFooterText: pickString(mergedPartial.cardFooterText) || null,
     logoUrl,
     category,
+    rendererMode: pickString(mergedPartial.rendererMode) || null,
+    channel: pickString(mergedPartial.channel) || null,
     updatedAt: new Date().toISOString(),
     partial: true,
   };

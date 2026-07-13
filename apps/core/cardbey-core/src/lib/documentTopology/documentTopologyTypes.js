@@ -2,7 +2,7 @@
  * Reusable document topology contracts — loyalty and future interpreters share this layer.
  */
 
-/** @typedef {'LOYALTY_CARD' | 'MENU' | 'SERVICE_LIST' | 'BUSINESS_CARD' | 'PRICE_LIST' | 'COUPON' | 'VOUCHER' | 'MEMBERSHIP_CARD' | 'UNKNOWN'} DocumentType */
+/** @typedef {'LOYALTY_CARD' | 'MENU' | 'SERVICE_LIST' | 'BUSINESS_CARD' | 'PRICE_LIST' | 'COUPON' | 'VOUCHER' | 'MEMBERSHIP_CARD' | 'PROMOTION_FLYER' | 'UNKNOWN'} DocumentType */
 
 /** @typedef {'VISION_EXTRACTED' | 'OWNER_DEFINED' | 'DEFAULT_TEMPLATE' | 'APPROVED' | 'PUBLISHED'} TopologySource */
 
@@ -121,7 +121,7 @@ export const DOCUMENT_CELL_ROLES = Object.freeze([
 
 export const DOCUMENT_TYPES = Object.freeze([
   'LOYALTY_CARD', 'MENU', 'SERVICE_LIST', 'BUSINESS_CARD', 'PRICE_LIST',
-  'COUPON', 'VOUCHER', 'MEMBERSHIP_CARD', 'UNKNOWN',
+  'COUPON', 'VOUCHER', 'MEMBERSHIP_CARD', 'PROMOTION_FLYER', 'UNKNOWN',
 ]);
 
 export const TOPOLOGY_SOURCES = Object.freeze([

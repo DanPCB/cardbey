@@ -10,3 +10,6 @@ export { resolveDefaultAdaptationMode, SUPPORTED_RENDER_CHANNELS } from './compo
 export { buildMerchantUnderstandingSummary } from './merchantUnderstandingSummary.js';
 export { persistUnderstandingToSuitcase } from './suitcaseContractBridge.js';
 export { runBusinessUnderstandingPipeline } from './businessUnderstandingPipeline.js';
+export { composeFromUnderstandingBundle, bundleToLoyaltyContracts } from './businessCompositionEngine.js';
+export { renderLoyaltyDesktopChannel } from './channelRenderers/loyaltyDesktopRenderer.js';
+export { interpretBueArtifactDocument, mapBueArtifactToDocumentType } from './bueDocumentInterpretation.js';

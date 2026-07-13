@@ -18,6 +18,8 @@ import {
 } from './documentTopologyTelemetry.js';
 import { interpretDetectedDocument } from './DocumentInterpreterRegistry.js';
 import './LoyaltyTopologyInterpreter.js';
+import './MenuTopologyInterpreter.js';
+import './PromotionFlyerTopologyInterpreter.js';
 
 /**
  * @param {import('./documentTopologyTypes.js').DetectedDocumentGrid} detected
