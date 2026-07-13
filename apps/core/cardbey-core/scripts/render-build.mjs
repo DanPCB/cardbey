@@ -39,6 +39,8 @@ function run(cmd) {
 }
 
 purgeStaleEsbuild();
+run('npm install --prefix ../../../packages/template-engine');
+run('npm run build --prefix ../../../packages/template-engine');
 run('npm ci');
 run('npm rebuild esbuild');
 run('npm run build');
