@@ -140,6 +140,46 @@ describe('runTopologyNodes awaiting_owner_input + resume', () => {
     expect(executeFn).toHaveBeenCalledTimes(1);
   });
 
+  it('pauses for topology_review even when reward and stamps are already filled', async () => {
+    executeFn.mockImplementation(async () => ({
+      status: 'needs_input',
+      missingFields: ['topology_review'],
+      message: 'Review the detected card structure and reward rule before we continue.',
+      suggestedQuestion: 'Review the detected card structure and reward rule before we continue.',
+      output: {
+        executionDraft: {
+          reward: 'Free coffee',
+          stampThreshold: 6,
+          cardTopology: {
+            source: 'VISION_EXTRACTED',
+            rows: 2,
+            columns: 7,
+            cells: [{ row: 0, column: 0, role: 'PURCHASE' }],
+          },
+        },
+      },
+    }));
+
+    const result = await runTopologyNodes('mission_topology_review', topology, {
+      executionMode: 'loyalty',
+      executionDraft: {
+        reward: 'Free coffee',
+        stampThreshold: 6,
+        cardTopology: {
+          source: 'VISION_EXTRACTED',
+          rows: 2,
+          columns: 7,
+          cells: [{ row: 0, column: 0, role: 'PURCHASE' }],
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('awaiting_owner_input');
+    expect(result.missingFields).toEqual(['topology_review']);
+    expect(result.pendingNodeId).toBe('n1');
+  });
+
   it('does not re-pause when handler returns needs_input but executionDraft is complete', async () => {
     executeFn.mockImplementation(async (input) => {
       if (input.executionDraft?.reward) {

@@ -16,6 +16,9 @@ import {
   MissionContractAssertionError,
   readMissionContract,
 } from '../kernel/missionContract.js';
+import { asMissionEvidenceGraph } from './missionEvidenceGraph.js';
+import { computeTopologyHash } from './topologyHash.js';
+import { loadGraphByMission, seedMissionGraphFromLoyaltyMetadata } from '../evidence/missionEvidenceGraphService.js';
 
 function pickString(...values) {
   for (const value of values) {
@@ -176,13 +179,25 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
       : {};
   const preseededDraft =
     params.preseededDraft && typeof params.preseededDraft === 'object' ? params.preseededDraft : null;
+  const attachmentAnalysis =
+    params.attachmentAnalysis && typeof params.attachmentAnalysis === 'object'
+      ? params.attachmentAnalysis
+      : null;
 
   let metadata = await writePendingArtifactBundle(missionId, compileResult.artifactBundle);
+  let evidenceIdForFreeze = pickString(params.evidenceId, options.intakeEvidence?.evidenceId);
   try {
     const existingContract = await readMissionContract(missionId);
-    const evidenceIdForFreeze =
-      pickString(existingContract?.evidenceId) ??
-      pickString(params.evidenceId, options.intakeEvidence?.evidenceId);
+    evidenceIdForFreeze =
+      pickString(existingContract?.evidenceId) ?? evidenceIdForFreeze;
+    const priorMeta = await readMetadata(missionId);
+    const priorGraph =
+      (await loadGraphByMission(missionId)) ?? asMissionEvidenceGraph(priorMeta?.missionEvidenceGraph);
+    const topologyForHash =
+      preseededDraft?.cardTopology ??
+      attachmentAnalysis?.preseededDraft?.cardTopology ??
+      priorGraph?.topology ??
+      null;
     await freezeMissionContract(missionId, {
       tool,
       missionType,
@@ -195,6 +210,9 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
       builderId:
         compileResult?.builder ??
         (deriveMissionFamily({ tool, missionType }) === 'loyalty' ? 'loyaltyTopologyBuilder' : 'multiAgentCompiler'),
+      evidenceGraphId: pickString(priorGraph?.graphId) ?? null,
+      evidenceGraphVersion: priorGraph?.version ?? 1,
+      topologyHash: topologyForHash ? computeTopologyHash(topologyForHash) : null,
     });
   } catch (error) {
     if (error instanceof MissionContractAssertionError) {
@@ -202,10 +220,12 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
     }
     throw error;
   }
-  if (preseededDraft || params.source || options.executionContext || options.intakeEvidence) {
+  if (preseededDraft || attachmentAnalysis || params.source || options.executionContext || options.intakeEvidence) {
     metadata = await writeMetadata(missionId, {
       ...(preseededDraft ? { preseededDraft } : {}),
+      ...(attachmentAnalysis ? { attachmentAnalysis } : {}),
       ...(params.source ? { source: params.source } : {}),
+      ...(evidenceIdForFreeze ? { evidenceId: evidenceIdForFreeze } : {}),
       ...(options.executionContext && typeof options.executionContext === 'object'
         ? {
             executionContext: options.executionContext,
@@ -218,9 +238,29 @@ export async function generateExecutionPlan(intent, storeId, sessionId, options 
           }
         : {}),
       compilerTool: tool,
-      intakeEvidence:
-        options.intakeEvidence && typeof options.intakeEvidence === 'object' ? options.intakeEvidence : undefined,
+      ...(options.intakeEvidence && typeof options.intakeEvidence === 'object'
+        ? {
+            intakeEvidence: options.intakeEvidence,
+            ...(options.intakeEvidence.sessionId
+              ? { conversationSessionId: options.intakeEvidence.sessionId }
+              : {}),
+          }
+        : {}),
     });
+    try {
+      await seedMissionGraphFromLoyaltyMetadata(missionId, {
+        ...(metadata && typeof metadata === 'object' ? metadata : {}),
+        preseededDraft,
+        attachmentAnalysis,
+        intakeEvidence: options.intakeEvidence ?? null,
+        evidenceId: evidenceIdForFreeze ?? null,
+      });
+    } catch (seedErr) {
+      console.warn(
+        '[generateExecutionPlan] seedMissionGraphFromLoyaltyMetadata failed (non-fatal):',
+        seedErr instanceof Error ? seedErr.message : seedErr,
+      );
+    }
   }
 
   const principal =

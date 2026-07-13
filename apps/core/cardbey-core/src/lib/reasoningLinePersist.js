@@ -6,6 +6,8 @@
 
 import { appendEvent } from './missionBlackboard.js';
 import { broadcastMissionReasoningLine } from '../realtime/simpleSse.js';
+import { Features } from '../config/features.js';
+import { appendMissionReasoningToGraph } from './evidence/missionEvidenceGraphService.js';
 
 /** @type {Map<string, { lines: string[], timer: ReturnType<typeof setTimeout> | null, prisma: object, mergeMissionContext: Function, agent: string }>} */
 const pendingByMission = new Map();
@@ -62,23 +64,42 @@ function flushCoalescedReasoning(mid) {
   const agent = bucket.agent;
   const prisma = bucket.prisma;
   const mergeMissionContext = bucket.mergeMissionContext;
+  const startedAt = Date.now() - coalesceWindowMs();
+  const completedAt = Date.now();
+
   for (const text of lines) {
     emitReasoningLineLive(mid, text, agent);
-    void appendEvent(
-      mid,
-      'reasoning_line',
-      { line: text, timestamp: Date.now(), agent },
-      { agentId: agent },
-    ).catch(() => {});
-    if (prisma && typeof mergeMissionContext === 'function') {
-      let b = pendingByMission.get(mid);
-      if (!b) {
-        b = { lines: [], timer: null, prisma, mergeMissionContext, agent };
-        pendingByMission.set(mid, b);
-      }
-      b.lines.push(text);
-    }
   }
+
+  if (Features.phase1.consolidatedReasoningTrace) {
+    void appendMissionReasoningToGraph(mid, lines.join(' · '), { agent, batch: true, lineCount: lines.length }).catch(
+      () => {},
+    );
+  }
+
+  void appendEvent(
+    mid,
+    'reasoning_batch',
+    {
+      lines,
+      startedAt,
+      completedAt,
+      nodeId: agent,
+      agent,
+      lineCount: lines.length,
+    },
+    { agentId: agent },
+  ).catch(() => {});
+
+  if (prisma && typeof mergeMissionContext === 'function') {
+    let b = pendingByMission.get(mid);
+    if (!b) {
+      b = { lines: [], timer: null, prisma, mergeMissionContext, agent };
+      pendingByMission.set(mid, b);
+    }
+    b.lines.push(...lines);
+  }
+
   const pending = pendingByMission.get(mid);
   if (pending?.lines.length) {
     if (pending.timer) clearTimeout(pending.timer);

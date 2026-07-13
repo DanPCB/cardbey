@@ -168,6 +168,17 @@ export function hydrateIntentSourceFromWorkflow(
   if (uploaded.imageDataUrl && !base.pendingImageDataUrl) {
     base.pendingImageDataUrl = uploaded.imageDataUrl;
   }
+  const uploadedEvidenceId = strip(uploaded.intakeEvidenceId) ?? strip(uploaded.evidenceId);
+  if (uploadedEvidenceId && !base.evidenceId) {
+    base.evidenceId = uploadedEvidenceId;
+  }
+  if (
+    uploaded.attachmentAnalysis &&
+    typeof uploaded.attachmentAnalysis === 'object' &&
+    !base.attachmentAnalysis
+  ) {
+    base.attachmentAnalysis = uploaded.attachmentAnalysis;
+  }
   if (Array.isArray(workflow.pendingIntents) && workflow.pendingIntents.length) {
     base.pendingIntents = workflow.pendingIntents;
   }

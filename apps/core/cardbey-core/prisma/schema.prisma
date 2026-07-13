@@ -1130,6 +1130,12 @@ model LoyaltyProgram {
   stampsRequired Int
   reward         String
   expiresAt      DateTime?
+  ruleJson              Json?
+  cardTopologyJson      Json?
+  layoutSource          String?
+  layoutConfidence      Float?
+  layoutReviewedAt      DateTime?
+  layoutReviewedBy      String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -1138,6 +1144,23 @@ model LoyaltyProgram {
   @@index([tenantId])
   @@index([storeId])
   @@index([expiresAt])
+}
+
+model DocumentTopologyRevision {
+  id           String   @id @default(cuid())
+  documentId   String
+  documentType String
+  createdAt    DateTime @default(now())
+  createdBy    String?
+  source       String
+  topologyJson Json
+  changesJson  Json?
+  confidence   Float?
+  approved     Boolean  @default(false)
+
+  @@index([documentId])
+  @@index([documentType])
+  @@index([createdAt])
 }
 
 model LoyaltyProgramStamp {
@@ -2191,6 +2214,166 @@ model CreativeTemplate {
   @@index([orientation])
   @@index([isActive])
   @@index([isSystem])
+}
+
+// ─── Template Library Platform ───────────────────────────────────────────────
+// Canonical template system: libraries, versioned templates, instances, assets.
+// CreativeTemplate above remains for legacy Creative Engine compatibility.
+
+model TemplateLibrary {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  description  String?
+  ownerType    String   // PLATFORM | USER | STORE | COMMUNITY
+  ownerId      String?
+  visibility   String   @default("PUBLIC") // PRIVATE | STORE | PUBLIC | UNLISTED
+  status       String   @default("ACTIVE") // DRAFT | ACTIVE | ARCHIVED
+  thumbnailUrl String?
+  category     String?
+  tags         String   @default("[]") // JSON array
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  templates ContentTemplate[]
+
+  @@index([ownerType, ownerId])
+  @@index([status, visibility])
+  @@index([category])
+}
+
+model ContentTemplate {
+  id                String   @id @default(cuid())
+  libraryId         String
+  library           TemplateLibrary @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  name              String
+  slug              String
+  description       String?
+  contentType       String
+  industry          String?
+  useCase           String?
+  status            String   @default("DRAFT") // DRAFT | IN_REVIEW | PUBLISHED | ARCHIVED
+  visibility        String   @default("PUBLIC")
+  currentVersionId  String?
+  thumbnailUrl      String?
+  previewUrls       String   @default("[]") // JSON array of CDN URLs
+  tags              String   @default("[]")
+  supportedChannels String   @default("[]")
+  supportedLocales  String   @default("[\"en\"]")
+  qualityScore      Int      @default(0)
+  usageCount        Int      @default(0)
+  legacyCreativeTemplateId String?
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  versions  ContentTemplateVersion[]
+  instances TemplateInstance[]
+
+  @@unique([libraryId, slug])
+  @@index([contentType, status])
+  @@index([industry])
+  @@index([status, visibility])
+}
+
+model ContentTemplateVersion {
+  id                   String   @id @default(cuid())
+  templateId           String
+  template             ContentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  versionNumber        Int
+  schemaVersion        String   @default("1.0.0")
+  definition           Json
+  defaultData          Json?
+  fieldDefinitions     Json?
+  themeDefinition      Json?
+  layoutDefinition     Json?
+  assetManifest        Json?
+  supportedVariants    String   @default("[]")
+  renderPolicy         Json?
+  validationRules      Json?
+  changelog            String?
+  createdBy            String?
+  createdAt            DateTime @default(now())
+  publishedAt          DateTime?
+  immutableAfterPublish Boolean @default(true)
+
+  assets    TemplateAsset[]
+  instances TemplateInstance[]
+
+  @@unique([templateId, versionNumber])
+  @@index([templateId])
+  @@index([publishedAt])
+}
+
+model TemplateInstance {
+  id                  String   @id @default(cuid())
+  templateId          String
+  template            ContentTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateVersionId   String
+  templateVersion     ContentTemplateVersion @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
+  ownerType           String   // USER | STORE | MISSION
+  ownerId             String
+  storeId             String?
+  name                String
+  contentType         String
+  status              String   @default("DRAFT")
+  data                Json
+  themeOverrides      Json?
+  layoutOverrides     Json?
+  assetBindings       Json?
+  selectedVariant     String?
+  locale              String   @default("en")
+  generatedArtifactId String?
+  sourceMissionId     String?
+  idempotencyKey      String?
+  revision            Int      @default(1)
+  createdBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  publishedAt         DateTime?
+
+  assets TemplateAsset[]
+
+  @@index([templateId])
+  @@index([templateVersionId])
+  @@index([ownerType, ownerId])
+  @@index([storeId])
+  @@index([status])
+  @@index([createdBy])
+  @@unique([idempotencyKey])
+}
+
+model TemplateAsset {
+  id                 String   @id @default(cuid())
+  templateVersionId  String?
+  templateVersion    ContentTemplateVersion? @relation(fields: [templateVersionId], references: [id], onDelete: Cascade)
+  templateInstanceId String?
+  templateInstance   TemplateInstance? @relation(fields: [templateInstanceId], references: [id], onDelete: Cascade)
+  assetType          String
+  sourceType         String
+  publicUrl          String?
+  storageKey         String?
+  mimeType           String?
+  width              Int?
+  height             Int?
+  duration           Float?
+  attribution        String?
+  licence            String?
+  createdAt          DateTime @default(now())
+
+  @@index([templateVersionId])
+  @@index([templateInstanceId])
+}
+
+model TemplateFavorite {
+  id         String   @id @default(cuid())
+  userId     String
+  templateId String
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, templateId])
+  @@index([userId])
 }
 
 // MI Greeting Cards - User-generated greeting cards with sharing

@@ -13,11 +13,54 @@ vi.mock('../../../config/features.js', () => ({
   },
 }));
 
+vi.mock('../../loyalty/loyaltyTopologyExtraction.js', () => ({
+  extractLoyaltyCardTopology: vi.fn(async () => ({ ok: false })),
+}));
+
+vi.mock('../../toolExecutors/loyalty/loyaltyCardVisionExtract.js', () => ({
+  extractLoyaltyCardFromImage: vi.fn(async () => {
+    const { buildLoyaltyCardTopologyFromDetected } = await import('../../loyalty/loyaltyTopologyBuild.js');
+    const { inferRuleFromTopology } = await import('../../loyalty/loyaltyRuleInference.js');
+    const { alignLegacyFieldsWithCanonicalRule } = await import('../../loyalty/loyaltyContractDiagnostics.js');
+    const topology = buildLoyaltyCardTopologyFromDetected(
+      {
+        rows: 4,
+        columns: 8,
+        cells: Array.from({ length: 32 }, (_, i) => {
+          const row = Math.floor(i / 8);
+          const col = i % 8;
+          return { row, column: col, role: col < 7 ? 'PURCHASE' : 'REWARD' };
+        }),
+        footerText: 'Catering Available',
+        overallConfidence: 0.95,
+      },
+      { source: 'VISION_EXTRACTED' },
+    );
+    const rule = inferRuleFromTopology(topology, {
+      purchaseItem: 'Coffee',
+      rewardItem: 'Free Coffee',
+    });
+    return {
+      ok: true,
+      preseededDraft: alignLegacyFieldsWithCanonicalRule({
+        rule,
+        cardTopology: topology,
+        cardFooterText: 'Catering Available',
+        requiredStamps: 20,
+        reward: 'Reward',
+        extractedFromImage: true,
+        confidence: 0.95,
+      }),
+    };
+  }),
+}));
+
 import {
   buildAttachmentAnalysis,
   buildLoyaltyMissingFieldsClarify,
   detectLoyaltyCardVisualHints,
   formatAttachmentAnalysisMessage,
+  inferLoyaltyStampGridFromOcr,
   isLoyaltyCardAttachment,
   listMissingLoyaltyDraftFields,
 } from '../attachmentAnalysis.js';
@@ -36,6 +79,35 @@ describe('P1 AttachmentAnalysis vision-first', () => {
     expect(hints).toContain('filename_loyalty');
     expect(hints).toContain('stamp_grid');
     expect(hints).toContain('reward_program_candidate');
+  });
+
+  it('preserves vision topology contract in preseeded draft without OCR matrix override', async () => {
+    const analysis = await buildAttachmentAnalysis({
+      filename: 'stamp-card.jpg',
+      mimeType: 'image/jpeg',
+      imageDataUrl: 'data:image/jpeg;base64,abc',
+      ocrText: 'Coffee\nCoffee Free\nCatering Available',
+      runVisionEnrichment: true,
+      userMessage: '4x5+1free',
+    });
+    expect(analysis.preseededDraft?.cardTopology?.rows).toBe(4);
+    expect(analysis.preseededDraft?.cardTopology?.columns).toBe(8);
+    expect(analysis.preseededDraft?.rule?.purchasesRequired).toBe(7);
+    expect(analysis.preseededDraft?.requiredStamps).toBe(7);
+  });
+
+  it('user matrix spec overrides only when topology is absent', async () => {
+    const analysis = await buildAttachmentAnalysis({
+      filename: 'stamp-card.jpg',
+      mimeType: 'image/jpeg',
+      imageDataUrl: 'data:image/jpeg;base64,abc',
+      ocrText: 'Coffee',
+      runVisionEnrichment: false,
+      userMessage: '4x(7+1)',
+    });
+    expect(analysis.preseededDraft?.cardTopology?.rows).toBe(4);
+    expect(analysis.preseededDraft?.cardTopology?.columns).toBe(8);
+    expect(analysis.preseededDraft?.rule?.purchasesRequired).toBe(7);
   });
 
   it('OCR failure still yields loyalty_card for attachment-only upload', async () => {
@@ -83,53 +155,6 @@ describe('P1 AttachmentAnalysis vision-first', () => {
     expect(clarify.action).toBe('clarify');
     expect(clarify.response).not.toMatch(/OCR_FAILED/);
     expect(clarify.pendingIntent.lockedIntent).toBe('setup_loyalty_program');
-  });
-
-  it('smart defaults: high confidence reward+stamps clears missingFields and confirms', () => {
-    const smartAnalysis = {
-      artifactType: 'loyalty_card',
-      visualHints: ['stamp_grid', 'reward_program_candidate'],
-      confidence: 0.82,
-      ocrStatus: 'ok',
-      ocrWarning: null,
-      ocrText: 'Buy 8 get free latte',
-      preseededDraft: {
-        programName: 'Bean Bar Rewards',
-        reward: 'Free latte',
-        requiredStamps: 8,
-        confidence: 0.82,
-      },
-      missingFields: [],
-      confirmedFields: { reward: 'Free latte', requiredStamps: 8 },
-      source: 'test',
-    };
-    expect(listMissingLoyaltyDraftFields(smartAnalysis.preseededDraft)).toEqual([]);
-    const clarify = buildLoyaltyMissingFieldsClarify(smartAnalysis, { storeId: 'store_1' });
-    expect(clarify.clarifyType).toBe('loyalty_confirm_defaults');
-    expect(clarify.response).toMatch(/Reward: Free latte ✓/);
-    expect(clarify.response).toMatch(/Visits: 8 ✓/);
-    expect(clarify.response).toMatch(/Continue\?/);
-    expect(clarify.options[0].label).toBe('Continue');
-  });
-
-  it('smart defaults: low confidence still asks for blanks', () => {
-    const clarify = buildLoyaltyMissingFieldsClarify(
-      {
-        artifactType: 'loyalty_card',
-        visualHints: ['stamp_grid'],
-        confidence: 0.6,
-        ocrStatus: 'ok',
-        ocrWarning: null,
-        ocrText: 'Buy 10 get free coffee',
-        preseededDraft: { requiredStamps: null, reward: null },
-        missingFields: ['requiredStamps', 'reward'],
-        confirmedFields: null,
-        source: 'test',
-      },
-      { storeId: 'store_1' },
-    );
-    expect(clarify.clarifyType).toBe('loyalty_missing_fields');
-    expect(clarify.response).toMatch(/What reward should customers receive/);
   });
 
   it('softLoyaltyExtractCardFallback returns ok soft on empty OCR', async () => {

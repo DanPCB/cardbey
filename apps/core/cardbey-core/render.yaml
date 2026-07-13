@@ -75,6 +75,28 @@ services:
         value: "true"
       - key: CREWAI_ENABLED
         value: "false"
+      # Phase 1 — MissionEvidenceGraph as write target (staging soak)
+      - key: PHASE1_GRAPH_WRITE_TARGET
+        value: "true"
+      - key: PHASE1_GRAPH_PRIMARY
+        value: "true"
+      - key: PHASE1_GRAPH_CONFLICT_DETECTION
+        value: "true"
+      - key: PHASE1_CONSOLIDATED_REASONING_TRACE
+        value: "true"
+      - key: PHASE1_PROJECTION_FROM_GRAPH
+        value: "true"
+      # Phase 2 — gradual reasoning loop rollout (staging soak)
+      - key: PHASE2_ACTIVE_REASONING
+        value: "true"
+      - key: PHASE2_REASONING_STAGING_ONLY
+        value: "true"
+      - key: PHASE2_REASONING_ROLLOUT_PERCENT
+        value: "25"
+      - key: PHASE2_REASONING_TELEMETRY
+        value: "true"
+      - key: PHASE2_REASONING_STEP_LOG
+        value: "true"
       # Optional stream key for dashboard SSE (?key=). JWT (?token=) works without this.
       - key: SSE_STREAM_KEY
         sync: false

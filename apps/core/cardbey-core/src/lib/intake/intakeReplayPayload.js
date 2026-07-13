@@ -121,6 +121,15 @@ export function slimAttachmentAnalysisForReplay(analysis) {
  * @param {unknown} body
  * @returns {boolean}
  */
+const LOYALTY_REPLAY_TOOLS = new Set(['setup_loyalty_program', 'create_loyalty_program']);
+
+/**
+ * @param {unknown} tool
+ */
+function isLoyaltyReplayTool(tool) {
+  return LOYALTY_REPLAY_TOOLS.has(String(tool ?? '').trim());
+}
+
 export function isIntakeSelectionReplay(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
   const sel = body.intakeV2Selection;
@@ -128,6 +137,33 @@ export function isIntakeSelectionReplay(body) {
   const params = sel.selectedParameters;
   if (!params || typeof params !== 'object' || Array.isArray(params)) return false;
   return Boolean(String(params.storeId ?? params.activeStoreId ?? '').trim());
+}
+
+/**
+ * Skip upload-ask when resuming a clarify chip / store confirm (loyalty replay).
+ *
+ * @param {unknown} body
+ */
+export function shouldSkipUploadAskForIntakeSelectionReplay(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const sel = body.intakeV2Selection;
+  if (!sel || typeof sel !== 'object' || Array.isArray(sel)) return false;
+  const params =
+    sel.selectedParameters && typeof sel.selectedParameters === 'object' && !Array.isArray(sel.selectedParameters)
+      ? sel.selectedParameters
+      : {};
+  if (isLoyaltyReplayTool(sel.selectedTool)) return true;
+  if (params.confirmedActiveSpace === true) return true;
+  const selectionMethod = String(params.selectionMethod ?? '').trim();
+  if (selectionMethod === 'active-space' || selectionMethod === 'manual') return true;
+
+  const pending =
+    body.pendingIntent && typeof body.pendingIntent === 'object' && !Array.isArray(body.pendingIntent)
+      ? body.pendingIntent
+      : null;
+  if (isLoyaltyReplayTool(pending?.lockedTool ?? pending?.tool ?? pending?.originalTool)) return true;
+  if (String(pending?.clarifyType ?? '').trim() === 'active_space_confirm') return true;
+  return false;
 }
 
 /**

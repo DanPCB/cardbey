@@ -19,6 +19,10 @@ import { intakeMessage } from '../intake/performerIntakeMessageCatalog.js';
 import { RISK } from '../intake/intakeToolRegistry.js';
 
 import { emitSpinePathTelemetry } from '../intake/spinePathTelemetry.js';
+import {
+  buildLoyaltyMissingFieldsClarify,
+  formatAttachmentAnalysisMessage,
+} from '../intake/attachmentAnalysis.js';
 import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
 import { resolveRuntimePrincipal } from '../runtime/resolveRuntimePrincipal.js';
 import {
@@ -454,11 +458,9 @@ export async function runLoyaltyCompilerFromIntake(deps) {
 
     !Array.isArray(classification.parameters)
 
-      ? classification.parameters
+      ? { ...classification.parameters }
 
       : {};
-
-
 
   const tool = String(classification?.tool ?? 'setup_loyalty_program').trim();
 
@@ -1042,6 +1044,131 @@ export async function dispatchAndRespondLoyaltyCompile(req, res, deps, auditSour
 
   });
 
+}
+
+/**
+ * Clarify path for loyalty stamp-card attachments when spine compiler is off or intake
+ * would otherwise fall through to generic chat.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {{
+ *   classification?: Record<string, unknown> | null;
+ *   attachmentAnalysis?: import('../intake/attachmentAnalysis.js').AttachmentAnalysis | null;
+ *   actorId?: string | null;
+ *   locale?: string;
+ *   safeJson: Function;
+ *   storeId?: string | null;
+ *   auditSource?: string;
+ * }} deps
+ */
+export async function dispatchLoyaltyAttachmentClarify(req, res, deps) {
+  const classification = deps.classification ?? {};
+  const attachmentAnalysis = deps.attachmentAnalysis ?? null;
+  if (!isLoyaltyCompilerTool(classification) || attachmentAnalysis?.artifactType !== 'loyalty_card') {
+    return null;
+  }
+  if (shouldDispatchLoyaltyViaCompiler(classification)) {
+    return null;
+  }
+
+  const tool = String(classification.tool ?? 'setup_loyalty_program').trim();
+  const params =
+    classification.parameters &&
+    typeof classification.parameters === 'object' &&
+    !Array.isArray(classification.parameters)
+      ? classification.parameters
+      : {};
+  const lockedParams = {
+    ...params,
+    attachmentAnalysis,
+    ...(attachmentAnalysis.preseededDraft ? { preseededDraft: attachmentAnalysis.preseededDraft } : {}),
+  };
+  const storeId = pickString(deps.storeId, params.storeId, params.activeStoreId);
+  const perception = formatAttachmentAnalysisMessage(attachmentAnalysis);
+
+  emitSpinePathTelemetry({
+    pathId: 'loyalty_attachment_clarify',
+    source: deps.auditSource ?? 'intake_v2',
+    ok: true,
+    reason: 'spine_disabled_attachment_clarify',
+    tool,
+    storeId: storeId ?? null,
+    missingContext: storeId
+      ? attachmentAnalysis.missingFields?.length
+        ? attachmentAnalysis.missingFields
+        : []
+      : ['store'],
+    executionPath: storeId ? 'loyalty_attachment_clarify' : 'resolve_execution_context',
+    action: storeId ? 'clarify' : 'clarify_store',
+    spine: false,
+  });
+
+  if (!storeId) {
+    const clarify = await buildLoyaltyStoreClarifyWithCandidates({
+      actorId: deps.actorId ?? null,
+      tool,
+      lockedParams,
+    });
+    const combined = `${perception} ${clarify.response ?? clarify.message ?? ''}`.trim();
+    await deps.safeJson(
+      {
+        ...clarify,
+        response: combined,
+        message: combined,
+        attachmentAnalysis,
+        ocrWarning: attachmentAnalysis.ocrWarning,
+        perception,
+        missingFields: attachmentAnalysis.missingFields,
+      },
+      {
+        classification: {
+          ...classification,
+          tool,
+          lockedTool: tool,
+          _requiresStore: true,
+          requiresStore: true,
+          pathId: 'resolve_execution_context',
+          executionPath: 'resolve_execution_context',
+        },
+        validated: true,
+        downgraded: true,
+        downgradeReason: 'requires_store',
+        validationErrors: [],
+        riskLevel: RISK.STATE_CHANGE,
+        result: 'clarify_store',
+      },
+    );
+    return res;
+  }
+
+  const clarifyBody = buildLoyaltyMissingFieldsClarify(attachmentAnalysis, { storeId });
+  await deps.safeJson(
+    {
+      ...clarifyBody,
+      attachmentAnalysis,
+      ocrWarning: attachmentAnalysis.ocrWarning,
+      perception,
+      missingFields: attachmentAnalysis.missingFields,
+    },
+    {
+      classification: {
+        ...classification,
+        parameters: { ...lockedParams, storeId },
+        pathId: 'loyalty_attachment_clarify',
+        executionPath: 'loyalty_attachment_clarify',
+      },
+      validated: true,
+      downgraded: false,
+      validationErrors: [],
+      riskLevel: RISK.STATE_CHANGE,
+      result:
+        clarifyBody.clarifyType === 'loyalty_confirm_defaults'
+          ? 'confirm_defaults'
+          : 'clarify_loyalty_fields',
+    },
+  );
+  return res;
 }
 
 

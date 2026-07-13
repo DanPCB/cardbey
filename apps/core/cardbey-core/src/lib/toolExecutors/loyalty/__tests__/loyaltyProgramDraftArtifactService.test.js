@@ -80,6 +80,51 @@ describe('loyaltyProgramDraftArtifactService', () => {
     expect(artifact.payload.theme?.primaryColor).toBeTruthy();
   });
 
+  it('buildLoyaltyProgramDraftMissionArtifact includes rule and cardTopology in payload', async () => {
+    const rule = {
+      programType: 'STAMP_CARD',
+      purchaseItem: 'Coffee',
+      purchasesRequired: 7,
+      rewardQuantity: 1,
+      rewardItem: 'free coffee',
+      repeatMode: 'INDEFINITE',
+    };
+    const cardTopology = {
+      source: 'APPROVED',
+      documentType: 'LOYALTY_CARD',
+      rows: 4,
+      columns: 8,
+      cells: Array.from({ length: 32 }, (_, i) => ({
+        row: Math.floor(i / 8),
+        column: i % 8,
+        role: (i + 1) % 8 === 0 ? 'REWARD' : 'PURCHASE',
+      })),
+      cycles: [],
+      confidence: 0.9,
+      reviewRequired: false,
+    };
+    const artifact = await buildLoyaltyProgramDraftMissionArtifact({
+      missionId: 'mission_1',
+      storeId: 'store_1',
+      storeName: 'Bellamy Cafe',
+      draft: {
+        programName: 'Bellamy Rewards',
+        reward: 'free coffee',
+        stampThreshold: 7,
+        rule,
+        cardTopology,
+        cardFooterText: 'Buy 7 · GET 1 FREE COFFEE',
+      },
+    });
+    expect(artifact.payload.rule).toEqual(rule);
+    expect(artifact.payload.cardTopology).toEqual(cardTopology);
+    expect(artifact.payload.program?.rule).toEqual(rule);
+    expect(artifact.payload.program?.cardTopology).toEqual(cardTopology);
+    expect(artifact.payload.stampThreshold).toBe(7);
+    expect(artifact.payload.rules).toContain('7');
+    expect(artifact.payload.rules).not.toContain('Buy 20');
+  });
+
   it('persistAndEmitLoyaltyProgramDraftArtifact writes metadata and emits SSE', async () => {
     mocks.readMetadata.mockResolvedValue({ missionDeliveredArtifacts: [], userId: 'user_1' });
     const artifact = await persistAndEmitLoyaltyProgramDraftArtifact('mission_1', {

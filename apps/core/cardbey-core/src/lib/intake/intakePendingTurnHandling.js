@@ -20,6 +20,7 @@ import {
 import { isCasualChatTurn } from './intakeCasualChatTurn.js';
 import { isIntakeConfirmAffirmation } from './intakeConfirmIntercept.js';
 import { resolveUploadIntakePhase, UPLOAD_INTAKE_PHASE } from './uploadIntakePhase.js';
+import { shouldSkipUploadAskForIntakeSelectionReplay } from './intakeReplayPayload.js';
 
 /**
  * Clear stale lastUpload when user sends a new text-only message with explicit store/create intent.
@@ -54,6 +55,16 @@ export async function maybeClearStaleUploadOnTextOnlyIntent(opts = {}) {
 export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
   const userMessage = String(opts.userMessage ?? '').trim();
   if (!userMessage || isCasualChatTurn(userMessage) || isIntakeConfirmAffirmation(userMessage)) {
+    return null;
+  }
+
+  const replayBody =
+    opts.body && typeof opts.body === 'object' && !Array.isArray(opts.body)
+      ? opts.body
+      : opts.intakeV2Selection
+        ? { intakeV2Selection: opts.intakeV2Selection, pendingIntent: opts.pendingIntent ?? null }
+        : null;
+  if (replayBody && shouldSkipUploadAskForIntakeSelectionReplay(replayBody)) {
     return null;
   }
 

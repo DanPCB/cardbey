@@ -6,7 +6,11 @@
 import {
   buildAttachmentAnalysis,
   detectLoyaltyCardVisualHints,
+  inferLoyaltyStampGridFromOcr,
+  listMissingLoyaltyDraftFields,
 } from './attachmentAnalysis.js';
+import { enrichLoyaltyDraftWithMatrixTopology } from '../loyalty/loyaltyMatrixTopology.js';
+import { alignLegacyFieldsWithCanonicalRule } from '../loyalty/loyaltyContractDiagnostics.js';
 
 /**
  * @param {{
@@ -54,6 +58,45 @@ export async function softLoyaltyExtractCardFallback(input = {}) {
     analysis.ocrWarning =
       analysis.ocrWarning ||
       'OCR did not return usable business card text; continuing as loyalty stamp card.';
+  }
+
+  if (text) {
+    const gridInference = inferLoyaltyStampGridFromOcr(text);
+    if (gridInference && analysis.preseededDraft && typeof analysis.preseededDraft === 'object') {
+      const stamps = Number(analysis.preseededDraft.requiredStamps);
+      const reward = String(analysis.preseededDraft.reward ?? '').trim();
+      analysis.preseededDraft = {
+        ...analysis.preseededDraft,
+        requiredStamps:
+          Number.isFinite(stamps) && stamps >= 1
+            ? stamps
+            : Number(gridInference.requiredStamps) >= 1
+              ? Number(gridInference.requiredStamps)
+              : null,
+        reward: reward || String(gridInference.reward ?? '').trim() || null,
+        confidence: Math.max(
+          Number(analysis.preseededDraft.confidence) || 0,
+          Number(gridInference.confidence) || 0,
+        ),
+        inferredFrom: gridInference.inferredFrom ?? null,
+      };
+      const missing = [];
+      if (!Number.isFinite(Number(analysis.preseededDraft.requiredStamps)) || Number(analysis.preseededDraft.requiredStamps) < 1) {
+        missing.push('requiredStamps');
+      }
+      if (!String(analysis.preseededDraft.reward ?? '').trim()) missing.push('reward');
+      analysis.missingFields = missing;
+      if (
+        missing.length === 0 &&
+        Number(analysis.confidence) < Number(gridInference.confidence)
+      ) {
+        analysis.confidence = Number(gridInference.confidence);
+      }
+    }
+    if (analysis.preseededDraft && typeof analysis.preseededDraft === 'object') {
+      analysis.preseededDraft = alignLegacyFieldsWithCanonicalRule(analysis.preseededDraft);
+      analysis.missingFields = listMissingLoyaltyDraftFields(analysis.preseededDraft);
+    }
   }
 
   return {

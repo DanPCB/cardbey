@@ -46,6 +46,7 @@ import { handleAgentsV1MissionSpawn } from './agentsV1Routes.js';
 import { extractTextWithFallback } from '../lib/ocr/ocrFallback.js';
 import { parseBusinessCardOCR } from '../lib/businessCardParser.js';
 import { businessCardLooksLikeOcrText, isRefusalResponse } from '../modules/vision/runOcr.js';
+import { canSendResponse, safeJson } from '../middleware/requestResponseState.js';
 
 const router = Router();
 
@@ -261,17 +262,19 @@ router.post('/extract-card', requireAuth, async (req, res) => {
   try {
     const { cardImageDataUrl } = req.body ?? {};
     if (!cardImageDataUrl || typeof cardImageDataUrl !== 'string' || !cardImageDataUrl.startsWith('data:image/')) {
-      return res.status(400).json({
+      safeJson(res, 400, {
         ok: false,
         error: 'cardImageDataUrl is required (data:image/...)',
-      });
+      }, req);
+      return;
     }
     if (cardImageDataUrl.length > MAX_CARD_IMAGE_DATA_URL_LENGTH) {
-      return res.status(413).json({
+      safeJson(res, 413, {
         ok: false,
         error: 'IMAGE_TOO_LARGE',
         message: 'Image is too large for OCR. Please use a smaller image.',
-      });
+      }, req);
+      return;
     }
 
     const mimeMatch =
@@ -289,12 +292,15 @@ router.post('/extract-card', requireAuth, async (req, res) => {
       });
     } catch (ocrErr) {
       console.error('[extract-card] OCR error:', ocrErr?.message || ocrErr);
-      return res.status(502).json({
+      safeJson(res, 502, {
         ok: false,
         error: 'Card extraction failed',
         detail: ocrErr?.message || 'OCR failed',
-      });
+      }, req);
+      return;
     }
+
+    if (!canSendResponse(res, req)) return;
 
     const extractedText = ocrResult?.text ?? '';
     const rawTextLog =
@@ -316,18 +322,22 @@ router.post('/extract-card', requireAuth, async (req, res) => {
           cardImageDataUrl,
           filename: req.body?.filename ?? null,
         });
-        if (soft?.ok) {
-          return res.status(200).json(soft);
+        if (soft?.ok && canSendResponse(res, req)) {
+          safeJson(res, 200, soft, req);
+          return;
         }
       } catch (softErr) {
         console.warn('[extract-card] loyalty soft fallback failed:', softErr?.message ?? softErr);
       }
-      return res.status(502).json({
-        ok: false,
-        error: 'OCR_FAILED',
-        message: 'OCR did not return usable business card text.',
-        warning: 'ocr_failed_non_loyalty',
-      });
+      if (canSendResponse(res, req)) {
+        safeJson(res, 502, {
+          ok: false,
+          error: 'OCR_FAILED',
+          message: 'OCR did not return usable business card text.',
+          warning: 'ocr_failed_non_loyalty',
+        }, req);
+      }
+      return;
     }
 
     const parsed = parseBusinessCardOCR(extractedText, { country: 'AU' });
@@ -400,20 +410,24 @@ router.post('/extract-card', requireAuth, async (req, res) => {
           ? 0.8
           : 0.5;
 
-    return res.json({
+    if (!canSendResponse(res, req)) return;
+
+    safeJson(res, 200, {
       ok: true,
       businessName,
       location,
       vertical,
       confidence,
-    });
+    }, req);
   } catch (err) {
     console.error('[extract-card] failed:', err?.message || err);
-    return res.status(500).json({
-      ok: false,
-      error: 'Card extraction failed',
-      detail: err?.message || String(err),
-    });
+    if (canSendResponse(res, req)) {
+      safeJson(res, 500, {
+        ok: false,
+        error: 'Card extraction failed',
+        detail: err?.message || String(err),
+      }, req);
+    }
   }
 });
 
@@ -442,6 +456,162 @@ router.get('/:missionId/recovery-state', ...requireMissionReadAuth, async (req, 
     }
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ ok: true, ...recovery });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/missions/:missionId/evidence-graph/integrity
+ * Phase 1: graph integrity + projected evidence for loyalty missions.
+ */
+router.get('/:missionId/evidence-graph/integrity', ...requireMissionReadAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+    const access = await resolveAccessibleMission(req.user, missionId);
+    if (!access.ok) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found or access denied' });
+    }
+    const { getGraphIntegrityStatus } = await import('../lib/evidence/graphConflictService.js');
+    const { projectGraphForUi } = await import('../lib/evidence/missionEvidenceGraphService.js');
+    const { readMetadata } = await import('../lib/persistence/metadataWriter.js');
+    const integrity = await getGraphIntegrityStatus(missionId);
+    const meta = await readMetadata(missionId);
+    const evidenceGraph = projectGraphForUi(meta?.missionEvidenceGraph, meta);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ ok: true, integrity, evidenceGraph });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/missions/:missionId/evidence/reanalysis
+ * HITL confirm or dismiss post-freeze re-analysis prompt.
+ * Body: { action: 'confirm' | 'dismiss', note?: string, never?: boolean }
+ */
+router.post('/:missionId/evidence/reanalysis', requireAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+    const access = await resolveAccessibleMission(req.user, missionId);
+    if (!access.ok) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found or access denied' });
+    }
+
+    const action = String(req.body?.action ?? '').trim().toLowerCase();
+    if (action !== 'confirm' && action !== 'dismiss') {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_action',
+        message: "action must be 'confirm' or 'dismiss'",
+      });
+    }
+
+    const {
+      confirmEvidenceReanalysis,
+      dismissEvidenceReanalysis,
+    } = await import('../lib/evidence/graphReanalysisService.js');
+
+    const actorId = req.user?.id ?? null;
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : undefined;
+
+    const result =
+      action === 'confirm'
+        ? await confirmEvidenceReanalysis(missionId, { note, actorId })
+        : await dismissEvidenceReanalysis(missionId, {
+            note,
+            actorId,
+            never: req.body?.never === true,
+          });
+
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, ...result });
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/missions/:missionId/reasoning/status
+ * Phase 2 rollout cohort + graph phase + recent coordinator metrics for this mission.
+ */
+router.get('/:missionId/reasoning/status', ...requireMissionReadAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+    const access = await resolveAccessibleMission(req.user, missionId);
+    if (!access.ok) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found or access denied' });
+    }
+
+    const { getPhase2ReasoningSnapshot } = await import('../lib/reasoning/reasoningTelemetry.js');
+    const { loadGraphByMission, projectGraphForUi } = await import(
+      '../lib/evidence/missionEvidenceGraphService.js'
+    );
+    const { readMetadata } = await import('../lib/persistence/metadataWriter.js');
+    const { selectRankedCapabilities } = await import('../lib/reasoning/reasoningCapabilityRegistry.js');
+
+    const meta = await readMetadata(missionId);
+    const graph = await loadGraphByMission(missionId);
+    const ranked = graph
+      ? selectRankedCapabilities(graph, {
+          metadata: meta,
+          approvedTopology: meta?.approvedTopology ?? meta?.pendingTopology ?? null,
+        }).map((c) => c.id)
+      : [];
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      ok: true,
+      snapshot: getPhase2ReasoningSnapshot(missionId),
+      evidenceGraph: projectGraphForUi(meta?.missionEvidenceGraph, meta),
+      rankedCapabilities: ranked,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/missions/:missionId/reasoning/step
+ * Run one active reasoning loop iteration (Phase 2).
+ */
+router.post('/:missionId/reasoning/step', requireAuth, async (req, res, next) => {
+  try {
+    const missionId = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionId) {
+      return res.status(400).json({ ok: false, error: 'mission_id_required', message: 'missionId is required' });
+    }
+    const access = await resolveAccessibleMission(req.user, missionId);
+    if (!access.ok) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Mission not found or access denied' });
+    }
+
+    const { runReasoningStep } = await import('../lib/reasoning/reasoningCoordinator.js');
+    const result = await runReasoningStep(missionId, {
+      userId: req.user?.id ?? null,
+      storeId: req.body?.storeId ?? null,
+      goal: req.body?.goal ?? null,
+    });
+
+    if (result?.skipped) {
+      return res.status(400).json({ ok: false, ...result });
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ ok: true, result });
   } catch (err) {
     next(err);
   }
@@ -1627,10 +1797,62 @@ router.post('/:missionId/topology-decision', requireAuth, async (req, res, next)
           : undefined,
       userId,
       storeId: typeof req.body?.storeId === 'string' ? req.body.storeId.trim() : undefined,
+      requestId: typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined,
+      traceId: typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'] : undefined,
     });
 
     if (!result.ok) {
+      const code = result.error?.code;
+      if (code === 'MISSION_RECORD_NOT_FOUND') {
+        return res.status(404).json(result);
+      }
+      if (code === 'INVALID_MISSION_STATE' || code === 'MISSION_AUTHORITY_MISMATCH') {
+        return res.status(409).json(result);
+      }
+      if (code === 'LOYALTY_CREATION_CONTRACT_INCOMPLETE') {
+        return res.status(409).json(result);
+      }
       return res.status(400).json(result);
+    }
+
+    if (result.accepted === true && result.state === 'queued') {
+      return res.status(202).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/missions/:missionId/recover-loyalty-contract
+ * Dev-safe deterministic recovery from frozen mission evidence.
+ */
+router.post('/:missionId/recover-loyalty-contract', requireAuth, async (req, res, next) => {
+  try {
+    const missionIdTrimmed = typeof req.params.missionId === 'string' ? req.params.missionId.trim() : '';
+    if (!missionIdTrimmed) {
+      return res.status(400).json({ ok: false, error: 'validation', message: 'missionId is required' });
+    }
+
+    const access = await resolveAccessibleMission(req.user ?? {}, missionIdTrimmed);
+    if (!access.ok) {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Mission not found or access denied' });
+    }
+
+    const userId =
+      String(req.user?.id ?? req.user?.userId ?? req.guestId ?? req.guest?.id ?? '').trim() || null;
+
+    const { recoverLoyaltyCreationContract } = await import('../lib/loyalty/loyaltyContractRecovery.js');
+    const result = await recoverLoyaltyCreationContract(missionIdTrimmed, {
+      userId,
+      requestId: typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : undefined,
+    });
+
+    if (!result.ok) {
+      const status = result.code === 'MISSION_RECORD_NOT_FOUND' ? 404 : 409;
+      return res.status(status).json(result);
     }
 
     return res.status(200).json(result);

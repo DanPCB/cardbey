@@ -166,8 +166,58 @@ export const openaiVisionEngine = {
       // Build prompt based on task
       let prompt = 'Extract all text from this image. Return only the raw text, line by line, exactly as it appears.';
       
-      if (task === 'loyalty_card') {
-        prompt = 'Extract text from this loyalty card image. Focus on stamp count, reward description, and card title. Return the text exactly as it appears.';
+      if (task === 'loyalty_card' || task === 'loyalty_card_grid') {
+        prompt =
+          task === 'loyalty_card_grid'
+            ? 'Analyze this loyalty stamp card image. Identify the stamp GRID structure visually.\n\n' +
+              'Return ONLY valid JSON (no markdown fences):\n' +
+              '{\n' +
+              '  "rows": number,\n' +
+              '  "columns": number,\n' +
+              '  "cells": [\n' +
+              '    { "row": 0, "column": 0, "role": "PURCHASE"|"REWARD"|"DECORATIVE"|"EMPTY", "text": "optional label" }\n' +
+              '  ],\n' +
+              '  "repeatedPattern": {\n' +
+              '    "direction": "ROW",\n' +
+              '    "roles": ["PURCHASE", "PURCHASE", "REWARD"],\n' +
+              '    "repetitions": number,\n' +
+              '    "confidence": 0-1\n' +
+              '  },\n' +
+              '  "footerText": "text below grid or null",\n' +
+              '  "purchaseItemHint": "e.g. Coffee",\n' +
+              '  "rewardItemHint": "e.g. Free",\n' +
+              '  "overallConfidence": 0-1,\n' +
+              '  "ocrText": "optional footer and prominent text"\n' +
+              '}\n\n' +
+              'Rules:\n' +
+              '- Count EVERY stamp slot in the grid — including empty/unstamped boxes (row and column, 0-based indices).\n' +
+              '- Do not infer column count from footer marketing text; count the physical stamp boxes only.\n' +
+              '- Typical pattern: N-1 PURCHASE stamps + 1 REWARD per row (e.g. 7 Coffee + 1 Free = 8 columns).\n' +
+              '- purchases per row = PURCHASE cells in one row, NOT total columns.\n' +
+              '- repeatedPattern.roles must list every column in one row (e.g. 8 roles for 8 columns).\n' +
+              '- Include all cells even when stamp text is cursive/script — still mark as PURCHASE.\n' +
+              '- footerText is ONLY text below the grid (e.g. Catering Available).\n' +
+              '- If the grid is 4 rows × 8 columns, rows must be 4, columns must be 8, and roles length must be 8.'
+            : 'Extract text from this loyalty card image. Focus on stamp count, reward description, and card title. Return the text exactly as it appears.';
+      } else if (task === 'brand_signals') {
+        prompt =
+          'Analyze this business artifact image for BRAND IDENTITY signals only.\n\n' +
+          'Return ONLY valid JSON (no markdown fences):\n' +
+          '{\n' +
+          '  "brandName": "string or null",\n' +
+          '  "brandNameConfidence": 0-1,\n' +
+          '  "primaryColors": ["#hex"],\n' +
+          '  "colorConfidence": 0-1,\n' +
+          '  "typography": "short description",\n' +
+          '  "visualMood": ["warm", "local", "friendly"],\n' +
+          '  "moodConfidence": 0-1,\n' +
+          '  "iconStyle": "short description or null",\n' +
+          '  "backgroundTexture": "short description or null"\n' +
+          '}\n\n' +
+          'Rules:\n' +
+          '- Extract only what is visually observable.\n' +
+          '- Do not infer business rules or stamp counts.\n' +
+          '- Use null when uncertain.';
       } else if (task === 'menu') {
         prompt = 'Extract all text from this menu image. Return only the raw text, line by line, exactly as it appears. Do not add any formatting or interpretation.';
       } else if (task === 'business_card') {
@@ -225,7 +275,12 @@ export const openaiVisionEngine = {
       }
 
       // Build image content (high detail helps small text on flyers / multi-language posters)
-      const highDetailTask = task === 'intake_promo' || task === 'intake_preprocess';
+      const highDetailTask =
+        task === 'intake_promo' ||
+        task === 'intake_preprocess' ||
+        task === 'loyalty_card' ||
+        task === 'loyalty_card_grid' ||
+        task === 'brand_signals';
       const imageContent = {
         type: 'image_url',
         image_url: highDetailTask ? { url: finalImageUrl, detail: 'high' } : { url: finalImageUrl },
@@ -248,7 +303,11 @@ export const openaiVisionEngine = {
             ],
           },
         ],
-        max_tokens: task === 'intake_preprocess' ? 4096 : 2000,
+        ...(task === 'loyalty_card_grid' || task === 'brand_signals' ? { temperature: 0 } : {}),
+        max_tokens:
+          task === 'intake_preprocess' || task === 'loyalty_card_grid' || task === 'brand_signals'
+            ? 4096
+            : 2000,
       });
 
       const text = response.choices[0]?.message?.content || '';

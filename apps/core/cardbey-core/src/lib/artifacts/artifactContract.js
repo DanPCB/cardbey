@@ -31,6 +31,27 @@ import { randomUUID } from 'crypto';
  */
 
 const TERMINAL_FAILURE_STATUSES = new Set(['failed', 'unavailable', 'blocked']);
+const LOYALTY_ARTIFACT_TYPES = new Set([
+  'generated_loyalty_program',
+  'loyalty_program_draft',
+  'loyalty',
+]);
+const LOYALTY_REVIEW_STATUSES = new Set(['awaiting_owner_review']);
+
+function loyaltyArtifactPayload(artifact) {
+  if (!artifact || typeof artifact !== 'object') return null;
+  const row = /** @type {Record<string, unknown>} */ (artifact);
+  const direct = row.payload;
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct;
+  const meta = row.metadata;
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    const inline = /** @type {Record<string, unknown>} */ (meta).inlinePayload;
+    if (inline && typeof inline === 'object' && !Array.isArray(inline)) return inline;
+  }
+  const data = row.data;
+  if (data && typeof data === 'object' && !Array.isArray(data)) return data;
+  return null;
+}
 
 /**
  * @param {unknown} raw
@@ -40,6 +61,8 @@ export function normalizeArtifact(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const o = /** @type {Record<string, unknown>} */ (raw);
   const typeRaw = String(o.type ?? o.artifactType ?? 'unknown').trim().toLowerCase();
+  const loyaltySubtype =
+    typeRaw === 'generated_loyalty_program' || typeRaw === 'loyalty_program_draft' ? typeRaw : null;
   const type = /** @type {ArtifactType} */ (
     [
       'video',
@@ -52,11 +75,15 @@ export function normalizeArtifact(raw) {
       'smart_object',
     ].includes(typeRaw)
       ? typeRaw
-      : 'unknown'
+      : loyaltySubtype
+        ? 'text_asset'
+        : 'unknown'
   );
   const statusRaw = String(o.status ?? '').trim().toLowerCase();
   let status = /** @type {ArtifactStatus} */ (
-    ['requested', 'processing', 'ready', 'failed', 'unavailable', 'blocked'].includes(statusRaw)
+    ['requested', 'processing', 'ready', 'failed', 'unavailable', 'blocked', 'awaiting_owner_review'].includes(
+      statusRaw,
+    )
       ? statusRaw
       : o.url || o.previewUrl
         ? 'ready'
@@ -69,7 +96,11 @@ export function normalizeArtifact(raw) {
     id,
     missionId: typeof o.missionId === 'string' && o.missionId.trim() ? o.missionId.trim() : undefined,
     type,
-    subtype: typeof o.subtype === 'string' ? o.subtype : undefined,
+    subtype: loyaltySubtype
+      ? loyaltySubtype
+      : typeof o.subtype === 'string'
+        ? o.subtype
+        : undefined,
     title: typeof o.title === 'string' && o.title.trim() ? o.title.trim() : defaultTitle(type),
     status,
     url: typeof o.url === 'string' ? o.url : null,
@@ -90,7 +121,11 @@ export function normalizeArtifact(raw) {
     metadata:
       o.metadata && typeof o.metadata === 'object' && !Array.isArray(o.metadata)
         ? /** @type {Record<string, unknown>} */ (o.metadata)
-        : undefined,
+        : o.payload && typeof o.payload === 'object' && !Array.isArray(o.payload)
+          ? { inlinePayload: o.payload }
+          : o.data && typeof o.data === 'object' && !Array.isArray(o.data)
+            ? { inlinePayload: o.data }
+            : undefined,
   };
 }
 
@@ -152,6 +187,20 @@ export function createArtifact(fields) {
 export function isUsableArtifact(artifact) {
   if (!artifact || TERMINAL_FAILURE_STATUSES.has(artifact.status)) return false;
   if (artifact.status === 'processing' || artifact.status === 'requested') return false;
+
+  const typeKey = String(
+    artifact.type ?? /** @type {Record<string, unknown>} */ (artifact).artifactType ?? '',
+  ).trim();
+  const subtypeKey = String(
+    artifact.subtype ?? /** @type {Record<string, unknown>} */ (artifact).artifactType ?? '',
+  ).trim();
+  const isLoyaltyArtifact =
+    LOYALTY_ARTIFACT_TYPES.has(typeKey) || LOYALTY_ARTIFACT_TYPES.has(subtypeKey);
+
+  if (LOYALTY_REVIEW_STATUSES.has(artifact.status)) {
+    return isLoyaltyArtifact && Boolean(loyaltyArtifactPayload(artifact));
+  }
+
   if (artifact.status !== 'ready') return false;
   const url = String(artifact.url ?? artifact.previewUrl ?? '').trim();
   if (url) return true;

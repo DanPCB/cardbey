@@ -41,11 +41,20 @@ import {
   shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../lib/intake/createStoreCheckpointDispatch.js';
 import { applyIntakePayloadGuard } from '../lib/intake/intakePayloadGuard.js';
+import { shouldSkipUploadAskForIntakeSelectionReplay } from '../lib/intake/intakeReplayPayload.js';
+import { validateIntakeAttachmentPayload } from '../lib/intake/intakeAttachmentRef.js';
+import {
+  canSendResponse,
+  logLateCompletion,
+  safeJson as sendSafeJson,
+  throwIfRequestAborted,
+} from '../middleware/requestResponseState.js';
 import { handleFreshStoreCreationDraftSubmit } from '../lib/intake/freshStoreCreationFastPath.js';
 import { diagLog, isIntakeDiagEnabled } from '../lib/diagnostics/storeCreationDiagnostics.js';
 import { dispatchAndRespondCreateCampaign } from '../lib/mission/dispatchCreateCampaignFromIntake.js';
 import {
   dispatchAndRespondLoyaltyCompile,
+  dispatchLoyaltyAttachmentClarify,
   isLoyaltyCompilerTool,
   shouldDispatchLoyaltyViaCompiler,
 } from '../lib/mission/dispatchLoyaltyFromIntake.js';
@@ -63,6 +72,19 @@ import {
   formatAttachmentAnalysisMessage,
   isLoyaltyCardAttachment,
 } from '../lib/intake/attachmentAnalysis.js';
+import {
+  assertLoyaltyCardEvidenceBound,
+  bindFrozenEvidenceToPreseeded,
+  hydrateLoyaltyAttachmentEvidenceForFollowUp,
+  ensureLoyaltyAttachmentAnalysisWithTopology,
+  resolveIntakeHasAttachment,
+  userReferencesUploadedCard,
+} from '../lib/intake/intakeAttachmentBinding.js';
+import {
+  hydrateAttachmentAnalysisFromFrozenBundle,
+  shouldReuseFrozenEvidenceBundle,
+} from '../lib/intake/intakeFrozenEvidenceReplay.js';
+import { pickString } from '../lib/catalog/catalogScopeResolver.js';
 import { getIntakeEvidenceBundleByEvidenceId } from '../lib/kernel/ingress/evidenceStore.js';
 import { observeIntakeClassificationParity } from '../lib/kernel/passive/intakeParityObserver.js';
 import {
@@ -2221,6 +2243,22 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
   req.body = payloadGuard.body;
   const body = req.body;
+
+  const attachmentInvariant = validateIntakeAttachmentPayload(body);
+  if (!attachmentInvariant.ok) {
+    return sendSafeJson(
+      res,
+      400,
+      {
+        success: false,
+        error: attachmentInvariant.error,
+        message: attachmentInvariant.message,
+        canonicalRef: attachmentInvariant.canonicalRef,
+      },
+      req,
+    );
+  }
+
   const freshStoreMission = payloadGuard.freshStoreMission;
 
   const intakeDiag = isIntakeDiagEnabled();
@@ -2462,7 +2500,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       sessionId: earlySessionKey,
     });
     const earlyAttachmentOnly = isUploadOnlyAskTurn(userMessage, earlyUploadCtx);
-    const earlyHasAttachment = hasIntakeImageAttachment(body);
+    const earlyHasAttachment = resolveIntakeHasAttachment(body);
     const earlyFirstAtt = Array.isArray(body.attachments) ? body.attachments[0] : null;
     const earlyFilename =
       earlyFirstAtt && typeof earlyFirstAtt === 'object'
@@ -2472,6 +2510,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       earlyFirstAtt && typeof earlyFirstAtt === 'object' ? earlyFirstAtt.mimeType : null;
 
     if (earlyHasAttachment && !confirmInterceptApplied) {
+      const preEvidenceId = String(
+        body.evidenceId ?? body.intentSourceContext?.evidenceId ?? '',
+      ).trim();
+      if (!intakeEvidenceBundle && preEvidenceId) {
+        const replayBundle = getIntakeEvidenceBundleByEvidenceId(preEvidenceId);
+        const currentImageRef =
+          resolveIntakeImageRefForOcr(body) ?? earlyIntentSourceContext?.pendingImageDataUrl ?? null;
+        if (
+          replayBundle &&
+          shouldReuseFrozenEvidenceBundle({
+            bundle: replayBundle,
+            currentImageRef,
+            hasFreshImageAttachment: earlyHasAttachment,
+          })
+        ) {
+          const replayAnalysis = hydrateAttachmentAnalysisFromFrozenBundle(replayBundle);
+          intakeEvidenceBundle = replayBundle;
+          intakeEvidenceBarrierResult = {
+            status: 'ready',
+            bundle: replayBundle,
+            attachmentAnalysis: replayAnalysis,
+            imageContext: replayAnalysis
+              ? {
+                  extractedText: replayAnalysis.ocrText ?? '',
+                  hasText: Boolean(replayAnalysis.ocrText),
+                  evidenceId: replayBundle.evidenceView?.evidenceId ?? null,
+                  streamId: replayBundle.streamId ?? null,
+                  attachmentAnalysis: replayAnalysis,
+                }
+              : undefined,
+          };
+          body.__intakeEvidenceBarrier = intakeEvidenceBarrierResult;
+          if (replayAnalysis) body.__earlyAttachmentAnalysis = replayAnalysis;
+        }
+      }
+      if (!intakeEvidenceBundle) {
       intakeEvidenceBarrierResult = await runIntakeEvidenceBarrier({
         hasAttachment: true,
         imageRef:
@@ -2480,9 +2554,18 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         mimeType: earlyMime,
         userMessage,
         sessionId: earlySessionKey,
+        storeId:
+          pickString(
+            body.storeId,
+            body.currentContext && typeof body.currentContext === 'object'
+              ? body.currentContext.activeStoreId
+              : null,
+          ) || null,
         attachmentOnlyUpload: earlyAttachmentOnly === true,
-        runVisionEnrichment: false,
+        runVisionEnrichment: true,
+        abortSignal: req.abortSignal ?? null,
       });
+      }
       if (intakeEvidenceBarrierResult.status === 'awaiting_perception') {
         return res.json(buildAwaitingPerceptionIntakeResponse(intakeEvidenceBarrierResult));
       }
@@ -2521,7 +2604,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
 
     if (!confirmInterceptApplied) {
-      let skipUploadAskForLoyalty = false;
+      let skipUploadAskForLoyalty = shouldSkipUploadAskForIntakeSelectionReplay(body);
+      if (skipUploadAskForLoyalty) {
+        console.log('[INTAKE] Skipping upload-ask — intakeV2Selection loyalty replay');
+      }
       if (earlyHasAttachment) {
         try {
           const earlyAnalysis =
@@ -2560,6 +2646,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           intentSourceContext: earlyIntentSourceContext,
           beliefLoaderOpts: earlyBeliefLoaderOpts,
           advisorInput: earlyAdvisorInput,
+          body,
           attachmentAnalysis:
             intakeEvidenceBarrierResult?.status === 'ready'
               ? intakeEvidenceBarrierResult.attachmentAnalysis
@@ -3111,9 +3198,47 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       ? firstAttachmentMeta.mimeType
       : null) ?? null;
 
-  if (hasAnyImageEarly) {
+  if (hasAnyImageEarly && !intakeEvidenceBundle) {
+    const preEvidenceId = String(
+      body.evidenceId ?? body.intentSourceContext?.evidenceId ?? '',
+    ).trim();
+    if (preEvidenceId) {
+      const replayBundle = getIntakeEvidenceBundleByEvidenceId(preEvidenceId);
+      const currentImageRef = resolveIntakeImageRefForOcr(body);
+      if (
+        replayBundle &&
+        shouldReuseFrozenEvidenceBundle({
+          bundle: replayBundle,
+          currentImageRef,
+          hasFreshImageAttachment: hasAnyImageEarly,
+        })
+      ) {
+        const replayAnalysis = hydrateAttachmentAnalysisFromFrozenBundle(replayBundle);
+        intakeEvidenceBundle = replayBundle;
+        intakeEvidenceBarrierResult = {
+          status: 'ready',
+          bundle: replayBundle,
+          attachmentAnalysis: replayAnalysis,
+          imageContext: replayAnalysis
+            ? {
+                extractedText: replayAnalysis.ocrText ?? '',
+                hasText: Boolean(replayAnalysis.ocrText),
+                evidenceId: replayBundle.evidenceView?.evidenceId ?? null,
+                streamId: replayBundle.streamId ?? null,
+                attachmentAnalysis: replayAnalysis,
+              }
+            : undefined,
+        };
+        body.__intakeEvidenceBarrier = intakeEvidenceBarrierResult;
+        if (replayAnalysis) body.__earlyAttachmentAnalysis = replayAnalysis;
+      }
+    }
+  }
+
+  if (hasAnyImageEarly && !intakeEvidenceBundle) {
     let barrierResult = body.__intakeEvidenceBarrier ?? intakeEvidenceBarrierResult ?? null;
     if (!barrierResult || barrierResult.status === 'no_attachment') {
+      throwIfRequestAborted(req, 'intake_evidence_barrier');
       barrierResult = await runIntakeEvidenceBarrier({
         hasAttachment: true,
         imageRef: resolveIntakeImageRefForOcr(body),
@@ -3124,7 +3249,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         missionId,
         storeId: resolveIntakeStoreId(currentContext) ?? null,
         attachmentOnlyUpload: attachmentOnlyUpload === true,
-        runVisionEnrichment: false,
+        runVisionEnrichment: true,
+        abortSignal: req.abortSignal ?? null,
       });
     }
     if (barrierResult.status === 'awaiting_perception') {
@@ -3212,8 +3338,44 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         });
         uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
         attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
+      } else if (isLoyaltyCardAttachment(attachmentAnalysis)) {
+        const loyaltyEvidenceId = intakeEvidenceBundle?.evidenceView?.evidenceId ?? null;
+        stashIntakeWorkflowContext(intakeAssetSessionKey, {
+          activeWorkflow: {
+            type: 'loyalty_program',
+            source: 'uploaded_asset',
+            status: 'pending_confirmation',
+          },
+          uploadedAsset: {
+            attachmentAnalysis,
+            imageDataUrl: resolveIntakeImageRefForOcr(body),
+            intakeEvidenceId: loyaltyEvidenceId,
+            evidenceId: loyaltyEvidenceId,
+            documentType: attachmentAnalysis.artifactType,
+          },
+          pendingIntents: ['setup_loyalty', 'from_uploaded_card'],
+        });
+        uploadAttachmentGuardCtx = buildCurrentUploadAttachmentGuardCtx();
+        attachmentOnlyUpload = isUploadOnlyAskTurn(userMessage, uploadAttachmentGuardCtx);
       }
     }
+  } else if (hasAnyImageEarly && intakeEvidenceBundle && !attachmentAnalysis) {
+    const snapshot = intakeEvidenceBundle.snapshot;
+    attachmentAnalysis =
+      hydrateAttachmentAnalysisFromFrozenBundle(intakeEvidenceBundle) ??
+      body.__earlyAttachmentAnalysis ??
+      body.intentSourceContext?.attachmentAnalysis ??
+      null;
+    imageContext = {
+      extractedText: snapshot?.ocrText ?? '',
+      provider: snapshot?.ocrProvider ?? null,
+      hasText: Boolean(snapshot?.ocrText),
+      evidenceId: intakeEvidenceBundle.evidenceView?.evidenceId ?? null,
+      streamId: intakeEvidenceBundle.streamId ?? null,
+      attachmentAnalysis,
+      ocrWarning: attachmentAnalysis?.ocrWarning ?? null,
+      documentType: attachmentAnalysis?.artifactType ?? null,
+    };
   }
 
   const evidenceClassifierBase = intakeEvidenceBundle
@@ -3472,6 +3634,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   };
 
   const safeJson = async (payload, telExtra = {}) => {
+    if (!canSendResponse(res, req) || req.isRequestAborted?.()) {
+      logLateCompletion(req, 'intake_safe_json_blocked');
+      return false;
+    }
     const cls =
       telExtra.classification !== undefined && telExtra.classification !== null
         ? telExtra.classification
@@ -3803,9 +3969,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (intakeIdempotencyKey) {
       recordIntakeTurnIdempotentResponse(intakeIdempotencyKey, responsePayload);
     }
-    return res.json(withCanonicalRuntimeState(responsePayload, {
+    const responseBody = withCanonicalRuntimeState(responsePayload, {
       missionStatus: classification?.status ?? null,
-    }));
+    });
+    if (!sendSafeJson(res, 200, responseBody, req)) {
+      logLateCompletion(req, 'intake_safe_json_send_failed');
+      return false;
+    }
+    return true;
   };
 
   // Phase C.3 — execute a persisted dynamic plan via runtime orchestrator (explicit client flag).
@@ -5197,7 +5368,198 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   classification = normalizeClassificationForKernel(classification);
 
-  if (process.env.MULTI_AGENT_ENABLED === 'true') {
+  const skipDeepSeekForLoyaltySpine =
+    (isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification)) ||
+    (isLoyaltyCardAttachment(attachmentAnalysis) &&
+      (isLoyaltyIntent(userMessage) || isExplicitLoyaltyFromUploadContext({
+        userMessage,
+        intentSourceContext,
+        attachmentAnalysis,
+      })));
+
+  // ── HARD-ROUTE: loyalty → compiler spine (before DeepSeek / dynamic planner / proactive_plan) ──
+  if (isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification)) {
+    const frozenExecutionContext = Object.freeze({
+      storeId: hydrateLoyaltyStoreId({
+        body,
+        currentContext,
+        runway,
+        session: conversationState?.session ?? null,
+        selectionStoreId: selectionStoreId || null,
+        performeeStoreId,
+        dispatchStoreId,
+        effectiveStoreId,
+        storeId,
+      }),
+      spaceType: String(performeeContext?.spaceType ?? 'business').trim() || 'business',
+      userId: req.user?.id ?? performerIntakeV2ActorId(req) ?? null,
+      evidenceId:
+        pickString(
+          body.evidenceId,
+          body.intentSourceContext?.evidenceId,
+          intakeEvidenceBundle?.evidenceView?.evidenceId,
+          mergedForcedParams?.evidenceId,
+          mergedForcedParams?.attachmentAnalysis?.evidenceId,
+        ) || null,
+      missionFamily: 'LOYALTY_PROGRAM',
+    });
+    const loyaltyContextHint = frozenExecutionContext.storeId;
+
+    emitSpinePathTelemetry({
+      pathId: 'loyalty_proactive_bypass_prevented',
+      source: 'intake_v2_hard_route',
+      ok: true,
+      reason: 'skipped_deepseek_and_dynamic_planner',
+      tool: classification.tool,
+      storeId: loyaltyContextHint,
+      missingContext: loyaltyContextHint ? [] : ['store'],
+      executionPath: 'resolve_execution_context',
+      action: 'show_execution_plan',
+      spine: true,
+      evidenceId: frozenExecutionContext.evidenceId,
+    });
+
+    const loyaltyActorIdEarly = performerIntakeV2ActorId(req);
+    const loyaltyUserEarly = performerIntakeV2UserLike(req);
+
+    const loyaltyEvidenceHydrated = hydrateLoyaltyAttachmentEvidenceForFollowUp({
+      userMessage: originalGoal || userMessage,
+      body,
+      intakeAssetSessionKey,
+      intakeEvidenceBundle,
+      attachmentAnalysis,
+    });
+    intakeEvidenceBundle = loyaltyEvidenceHydrated.intakeEvidenceBundle;
+    attachmentAnalysis = loyaltyEvidenceHydrated.attachmentAnalysis;
+    if (intakeEvidenceBundle?.evidenceView?.evidenceId && !body.evidenceId) {
+      body.evidenceId = intakeEvidenceBundle.evidenceView.evidenceId;
+    }
+
+    attachmentAnalysis = await ensureLoyaltyAttachmentAnalysisWithTopology(attachmentAnalysis, {
+      evidenceId:
+        frozenExecutionContext.evidenceId ??
+        intakeEvidenceBundle?.evidenceView?.evidenceId ??
+        body.evidenceId ??
+        null,
+      missionId,
+      storeId: frozenExecutionContext.storeId,
+      imageRef:
+        resolveIntakeImageRefForOcr(body) ?? intakeEvidenceBundle?.imageRef ?? null,
+    });
+
+    const loyaltyParamsEarly = {
+      ...(classification.parameters && typeof classification.parameters === 'object'
+        ? classification.parameters
+        : {}),
+      ...(isSelectionConfirm && mergedForcedParams && typeof mergedForcedParams === 'object'
+        ? mergedForcedParams
+        : {}),
+      ...(attachmentAnalysis?.preseededDraft
+        ? {
+            preseededDraft: bindFrozenEvidenceToPreseeded(attachmentAnalysis.preseededDraft, {
+              evidenceId:
+                frozenExecutionContext.evidenceId ?? attachmentAnalysis.evidenceId ?? null,
+              attachmentId: attachmentAnalysis.attachmentId ?? null,
+              storeId: frozenExecutionContext.storeId,
+              missionId,
+              imageRef:
+                resolveIntakeImageRefForOcr(body) ?? intakeEvidenceBundle?.imageRef ?? null,
+            }),
+          }
+        : {}),
+      ...(attachmentAnalysis ? { attachmentAnalysis } : {}),
+      ...(attachmentAnalysis?.attachmentId ? { attachmentId: attachmentAnalysis.attachmentId } : {}),
+      ...(frozenExecutionContext.storeId ? { storeId: frozenExecutionContext.storeId } : {}),
+      ...(intakeEvidenceBundle
+        ? {
+            intakeEvidence: {
+              evidenceId: intakeEvidenceBundle.evidenceView?.evidenceId ?? null,
+              streamId: intakeEvidenceBundle.streamId ?? null,
+              imageRef: intakeEvidenceBundle.imageRef ?? null,
+              sessionId: intakeAssetSessionKey ?? null,
+            },
+          }
+        : {}),
+      ...(frozenExecutionContext.evidenceId ? { evidenceId: frozenExecutionContext.evidenceId } : {}),
+    };
+
+    classification = {
+      ...classification,
+      parameters: loyaltyParamsEarly,
+    };
+
+    const loyaltyEvidenceBound = assertLoyaltyCardEvidenceBound({
+      userMessage: originalGoal || userMessage,
+      body,
+      attachmentAnalysis,
+      intakeEvidenceBundle,
+    });
+    if (!loyaltyEvidenceBound.ok && userReferencesUploadedCard(originalGoal || userMessage)) {
+      return res.status(409).json({
+        ok: false,
+        success: false,
+        error: {
+          code: loyaltyEvidenceBound.code,
+          message: loyaltyEvidenceBound.message,
+        },
+      });
+    }
+
+    const loyaltyRespondedEarly = await dispatchAndRespondLoyaltyCompile(
+      req,
+      res,
+      {
+        res,
+        user: loyaltyUserEarly ?? req.user,
+        actorId: loyaltyActorIdEarly,
+        locale,
+        userMessage: originalGoal || userMessage,
+        classification: {
+          ...classification,
+          parameters: loyaltyParamsEarly,
+        },
+        storeId: pickStoreHintForIntakeTool(loyaltyParamsEarly, loyaltyContextHint),
+        missionId,
+        sessionId: conversationSessionIdHint ?? null,
+        safeJson: async (responseBody, telemetry) => {
+          const enriched = {
+            ...responseBody,
+            ...(attachmentAnalysis
+              ? {
+                  attachmentAnalysis,
+                  ocrWarning: attachmentAnalysis.ocrWarning,
+                  perception: formatAttachmentAnalysisMessage(attachmentAnalysis),
+                  missingFields: attachmentAnalysis.missingFields,
+                }
+              : {}),
+          };
+          return safeJson(enriched, telemetry);
+        },
+      },
+      'intake_v2_loyalty_hard_route',
+    );
+    if (loyaltyRespondedEarly) return loyaltyRespondedEarly;
+  }
+
+  if (isLoyaltyCompilerTool(classification) && isLoyaltyCardAttachment(attachmentAnalysis)) {
+    const loyaltyAttachmentClarify = await dispatchLoyaltyAttachmentClarify(req, res, {
+      classification,
+      attachmentAnalysis,
+      actorId: performerIntakeV2ActorId(req),
+      locale,
+      storeId: pickStoreHintForIntakeTool(
+        classification?.parameters && typeof classification.parameters === 'object'
+          ? classification.parameters
+          : {},
+        dispatchStoreId ?? effectiveStoreId ?? storeId ?? null,
+      ),
+      safeJson,
+      auditSource: 'intake_v2_loyalty_attachment_clarify',
+    });
+    if (loyaltyAttachmentClarify) return loyaltyAttachmentClarify;
+  }
+
+  if (process.env.MULTI_AGENT_ENABLED === 'true' && !skipDeepSeekForLoyaltySpine) {
     try {
       const { integrateDeepSeekMultiAgentIntake } = await import('../lib/multiAgent/deepseekIntakeBridge.ts');
       const deepSeekIntegration = await integrateDeepSeekMultiAgentIntake({
@@ -5238,89 +5600,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       draftId,
     });
     if (confirmCampaignRespondedEarly) return confirmCampaignRespondedEarly;
-  }
-
-  // ── HARD-ROUTE: loyalty → compiler spine (before dynamic planner / proactive_plan) ──
-  // Dynamic planner has no setup_loyalty template and falls back to general_chat
-  // ("Processing your message...") — must never rewrite loyalty when USE_LOYALTY_SPINE=true.
-  if (isLoyaltyCompilerTool(classification) && shouldDispatchLoyaltyViaCompiler(classification)) {
-    const loyaltyContextHint = hydrateLoyaltyStoreId({
-      body,
-      currentContext,
-      runway,
-      session: conversationState?.session ?? null,
-      selectionStoreId: selectionStoreId || null,
-      performeeStoreId,
-      dispatchStoreId,
-      effectiveStoreId,
-      storeId,
-    });
-
-    emitSpinePathTelemetry({
-      pathId: 'loyalty_proactive_bypass_prevented',
-      source: 'intake_v2_hard_route',
-      ok: true,
-      reason: 'skipped_dynamic_planner_and_proactive_plan',
-      tool: classification.tool,
-      storeId: loyaltyContextHint,
-      missingContext: loyaltyContextHint ? [] : ['store'],
-      executionPath: 'resolve_execution_context',
-      action: 'show_execution_plan',
-      spine: true,
-    });
-
-    const loyaltyActorIdEarly = performerIntakeV2ActorId(req);
-    const loyaltyUserEarly = performerIntakeV2UserLike(req);
-    // Do NOT inject session activeStoreId into classification.parameters as an explicit lock.
-    // Pass it only as hintedStoreId via deps.storeId so multi-store must confirm.
-    const loyaltyParamsEarly = {
-      ...(classification.parameters && typeof classification.parameters === 'object'
-        ? classification.parameters
-        : {}),
-      ...(isSelectionConfirm && mergedForcedParams && typeof mergedForcedParams === 'object'
-        ? mergedForcedParams
-        : {}),
-      ...(attachmentAnalysis?.preseededDraft
-        ? { preseededDraft: attachmentAnalysis.preseededDraft }
-        : {}),
-      ...(attachmentAnalysis ? { attachmentAnalysis } : {}),
-    };
-
-    const loyaltyRespondedEarly = await dispatchAndRespondLoyaltyCompile(
-      req,
-      res,
-      {
-        res,
-        user: loyaltyUserEarly ?? req.user,
-        actorId: loyaltyActorIdEarly,
-        locale,
-        userMessage: originalGoal || userMessage,
-        classification: {
-          ...classification,
-          parameters: loyaltyParamsEarly,
-        },
-        // Hint only — resolveStoreForIntakeTool will confirm when multi-store.
-        storeId: pickStoreHintForIntakeTool(loyaltyParamsEarly, loyaltyContextHint),
-        missionId,
-        sessionId: conversationSessionIdHint ?? null,
-        safeJson: async (responseBody, telemetry) => {
-          const enriched = {
-            ...responseBody,
-            ...(attachmentAnalysis
-              ? {
-                  attachmentAnalysis,
-                  ocrWarning: attachmentAnalysis.ocrWarning,
-                  perception: formatAttachmentAnalysisMessage(attachmentAnalysis),
-                  missingFields: attachmentAnalysis.missingFields,
-                }
-              : {}),
-          };
-          return safeJson(enriched, telemetry);
-        },
-      },
-      'intake_v2_loyalty_hard_route',
-    );
-    if (loyaltyRespondedEarly) return loyaltyRespondedEarly;
   }
 
   const skipDynamicPlannerForLoyaltySpine =
@@ -5573,6 +5852,19 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         !Array.isArray(classification.parameters)
           ? { ...classification.parameters }
           : {};
+      if (isLoyaltyCompilerTool(classification) && attachmentAnalysis) {
+        lockedParams.attachmentAnalysis = attachmentAnalysis;
+        if (attachmentAnalysis.preseededDraft) {
+          lockedParams.preseededDraft = attachmentAnalysis.preseededDraft;
+        }
+        const evidenceRef = pickString(
+          lockedParams.evidenceId,
+          attachmentAnalysis.evidenceId,
+          intakeEvidenceBundle?.evidenceView?.evidenceId,
+          body.evidenceId,
+        );
+        if (evidenceRef) lockedParams.evidenceId = evidenceRef;
+      }
       const resolution = await resolveStoreForIntakeTool({
         userId: intakeActorUserId,
         tool: classification.tool,
@@ -6854,15 +7146,59 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     const loyaltyActorId = performerIntakeV2ActorId(req);
     const loyaltyUser = performerIntakeV2UserLike(req);
     const resolvedLoyaltyStore = dispatchStoreId ?? effectiveStoreId ?? storeId ?? null;
+
+    const loyaltyEvidenceHydrated = hydrateLoyaltyAttachmentEvidenceForFollowUp({
+      userMessage: originalGoal || userMessage,
+      body,
+      intakeAssetSessionKey,
+      intakeEvidenceBundle,
+      attachmentAnalysis,
+    });
+    intakeEvidenceBundle = loyaltyEvidenceHydrated.intakeEvidenceBundle;
+    attachmentAnalysis = loyaltyEvidenceHydrated.attachmentAnalysis;
+
+    attachmentAnalysis = await ensureLoyaltyAttachmentAnalysisWithTopology(attachmentAnalysis, {
+      evidenceId:
+        body.evidenceId ??
+        intakeEvidenceBundle?.evidenceView?.evidenceId ??
+        attachmentAnalysis?.evidenceId ??
+        null,
+      missionId,
+      storeId: resolvedLoyaltyStore,
+      imageRef:
+        resolveIntakeImageRefForOcr(body) ?? intakeEvidenceBundle?.imageRef ?? null,
+    });
+
     const loyaltyParams = {
       ...(cleanedParams && typeof cleanedParams === 'object' ? cleanedParams : {}),
       ...(classification.parameters && typeof classification.parameters === 'object'
         ? classification.parameters
         : {}),
       ...(attachmentAnalysis?.preseededDraft
-        ? { preseededDraft: attachmentAnalysis.preseededDraft }
+        ? {
+            preseededDraft: bindFrozenEvidenceToPreseeded(attachmentAnalysis.preseededDraft, {
+              evidenceId: attachmentAnalysis.evidenceId ?? body.evidenceId ?? null,
+              attachmentId: attachmentAnalysis.attachmentId ?? null,
+              storeId: resolvedLoyaltyStore,
+              missionId,
+              imageRef:
+                resolveIntakeImageRefForOcr(body) ?? intakeEvidenceBundle?.imageRef ?? null,
+            }),
+          }
         : {}),
       ...(attachmentAnalysis ? { attachmentAnalysis } : {}),
+      ...(body.evidenceId ? { evidenceId: body.evidenceId } : {}),
+      ...(resolvedLoyaltyStore ? { storeId: resolvedLoyaltyStore } : {}),
+      ...(intakeEvidenceBundle
+        ? {
+            intakeEvidence: {
+              evidenceId: intakeEvidenceBundle.evidenceView?.evidenceId ?? null,
+              streamId: intakeEvidenceBundle.streamId ?? null,
+              imageRef: intakeEvidenceBundle.imageRef ?? null,
+              sessionId: intakeAssetSessionKey ?? null,
+            },
+          }
+        : {}),
     };
 
     // P1.5 — if store resolved but critical draft fields missing, clarify after locking loyalty
@@ -7443,6 +7779,22 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   }
 
 
+  if (isLoyaltyCompilerTool(classification) && isLoyaltyCardAttachment(attachmentAnalysis)) {
+    const loyaltyAttachmentFallback = await dispatchLoyaltyAttachmentClarify(req, res, {
+      classification,
+      attachmentAnalysis,
+      actorId: performerIntakeV2ActorId(req),
+      locale,
+      storeId: pickStoreHintForIntakeTool(
+        cleanedParams && typeof cleanedParams === 'object' ? cleanedParams : {},
+        dispatchStoreId ?? effectiveStoreId ?? storeId ?? null,
+      ),
+      safeJson,
+      auditSource: 'intake_v2_loyalty_attachment_fallback',
+    });
+    if (loyaltyAttachmentFallback) return loyaltyAttachmentFallback;
+  }
+
   return safeJson(
     {
       success: true,
@@ -7460,8 +7812,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     },
   );
   } catch (err) {
-    if (res.headersSent) {
-      console.error('[PerformerIntakeV2] error after response sent:', err?.message ?? err);
+    if (res.headersSent || res.writableEnded || req.isRequestAborted?.()) {
+      logLateCompletion(req, 'intake_route_late_error', { error: err?.message ?? String(err) });
       return;
     }
     if (isMissionCreateBusyError(err)) {
@@ -7471,11 +7823,16 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       return respondMissionCreateTimeout(res);
     }
     console.error('[PerformerIntakeV2] unhandled intake error:', err?.message ?? err);
-    return res.status(500).json({
-      ok: false,
-      error: 'intake_error',
-      message: 'Something went wrong. Please try again.',
-    });
+    return sendSafeJson(
+      res,
+      500,
+      {
+        ok: false,
+        error: 'intake_error',
+        message: 'Something went wrong. Please try again.',
+      },
+      req,
+    );
   }
 });
 

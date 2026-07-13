@@ -11,6 +11,15 @@ function pickString(...values) {
   return '';
 }
 
+function normalizeTopologyAction(raw) {
+  const action = String(raw ?? '')
+    .trim()
+    .toUpperCase();
+  if (!action) return null;
+  if (action === 'SIMPLIFIED') return 'USE_SIMPLIFIED';
+  return action;
+}
+
 /**
  * @param {Record<string, unknown> | null | undefined} ownerInput
  * @returns {Record<string, unknown>}
@@ -36,6 +45,10 @@ export function normalizeOwnerInputFields(ownerInput) {
   for (const [key, value] of Object.entries(owner)) {
     if (key in next) continue;
     if (value == null) continue;
+    if (key === 'rule' || key === 'cardTopology') {
+      if (value && typeof value === 'object') next[key] = value;
+      continue;
+    }
     if (typeof value === 'string' && value.trim()) next[key] = value.trim();
     else if (typeof value === 'number' || typeof value === 'boolean') next[key] = value;
   }
@@ -79,7 +92,16 @@ export function buildExecutionDraft(parts = {}) {
   const attachmentSeed = pickAttachmentSeed(parts.attachmentAnalysis);
   const preseeded =
     parts.preseededDraft && typeof parts.preseededDraft === 'object' ? parts.preseededDraft : {};
-  const owner = normalizeOwnerInputFields(parts.ownerInput);
+  const ownerRaw = parts.ownerInput && typeof parts.ownerInput === 'object' ? parts.ownerInput : {};
+  const topologyAction = normalizeTopologyAction(
+    ownerRaw.topologyAction ?? ownerRaw.loyaltyCreationAction,
+  );
+  const owner = normalizeOwnerInputFields(ownerRaw);
+  // Client approve payloads often still carry VISION_EXTRACTED cardTopology; merged preseed is authoritative.
+  if (topologyAction === 'APPROVE') {
+    delete owner.cardTopology;
+    delete owner.topologyReviewRequired;
+  }
   const runtime =
     parts.runtimeUpdates && typeof parts.runtimeUpdates === 'object' ? parts.runtimeUpdates : {};
   const requirements =
@@ -94,6 +116,18 @@ export function buildExecutionDraft(parts = {}) {
     ...runtime,
   };
 
+  if (topologyAction === 'APPROVE') {
+    draft.topologyReviewRequired = false;
+    if (preseeded.cardTopology && typeof preseeded.cardTopology === 'object') {
+      draft.cardTopology = preseeded.cardTopology;
+      draft.layoutSource =
+        preseeded.layoutSource ?? preseeded.cardTopology.source ?? draft.layoutSource ?? 'APPROVED';
+    } else if (draft.cardTopology && typeof draft.cardTopology === 'object') {
+      draft.cardTopology = { ...draft.cardTopology, reviewRequired: false, source: 'APPROVED' };
+      draft.layoutSource = 'APPROVED';
+    }
+  }
+
   if (requirements.reward != null) draft.reward = requirements.reward;
   if (requirements.stampThreshold != null) {
     draft.stampThreshold = requirements.stampThreshold;
@@ -107,6 +141,42 @@ export function buildExecutionDraft(parts = {}) {
   return draft;
 }
 
+const OWNER_APPROVED_TOPOLOGY_SOURCES = new Set([
+  'APPROVED',
+  'OWNER_DEFINED',
+  'OWNER_CONFIRMED',
+  'PUBLISHED',
+]);
+
+const EXTRACTED_TOPOLOGY_SOURCES_NEEDING_REVIEW = new Set([
+  'VISION_EXTRACTED',
+  'FUSION_VISUAL_OCR',
+  'MATRIX_SPEC',
+]);
+
+/**
+ * Vision-extracted topology must be owner-approved before draft generation.
+ * @param {Record<string, unknown> | null | undefined} executionDraft
+ */
+export function requiresTopologyOwnerReview(executionDraft) {
+  const draft = executionDraft && typeof executionDraft === 'object' ? executionDraft : null;
+  if (!draft) return false;
+  if (draft.topologyRejected === true) return false;
+  const topo = draft.cardTopology;
+  if (!topo || typeof topo !== 'object') return false;
+  const rows = Number(topo.rows);
+  const columns = Number(topo.columns);
+  if (!(rows > 0 && columns > 0)) return false;
+
+  const source = String(topo.source ?? draft.layoutSource ?? '').trim();
+  if (!source || source === 'DEFAULT_TEMPLATE') return false;
+  if (OWNER_APPROVED_TOPOLOGY_SOURCES.has(source)) return false;
+  if (draft.topologyReviewRequired === true || topo.reviewRequired === true) return true;
+  if (EXTRACTED_TOPOLOGY_SOURCES_NEEDING_REVIEW.has(source)) return true;
+  if (draft.extractedFromImage === true) return true;
+  return false;
+}
+
 /**
  * Recompute missing owner fields from canonical draft only.
  * @param {Record<string, unknown> | null | undefined} executionDraft
@@ -115,9 +185,14 @@ export function buildExecutionDraft(parts = {}) {
  */
 export function computeMissingFields(executionDraft, opts = {}) {
   const draft = executionDraft && typeof executionDraft === 'object' ? executionDraft : {};
+  const rule = draft.rule && typeof draft.rule === 'object' ? draft.rule : null;
   const missing = [];
-  const reward = pickString(draft.reward, draft.rewardRule, draft.rewardName);
-  const stamps = draft.stampThreshold ?? draft.requiredStamps ?? draft.stampsRequired;
+  const reward = pickString(draft.reward, draft.rewardRule, draft.rewardName, rule?.rewardItem);
+  const stamps =
+    draft.stampThreshold ??
+    draft.requiredStamps ??
+    draft.stampsRequired ??
+    rule?.purchasesRequired;
   const programName = pickString(draft.programName, draft.name);
   if (!reward) missing.push('reward');
   if (stamps == null || stamps === '' || Number(stamps) <= 0) missing.push('stampThreshold');
@@ -126,19 +201,41 @@ export function computeMissingFields(executionDraft, opts = {}) {
 }
 
 /**
+ * @param {Record<string, unknown> | null | undefined} executionDraft
+ * @param {{ requireProgramName?: boolean }} [opts]
+ */
+export function computeLoyaltyPauseFields(executionDraft, opts = {}) {
+  if (requiresTopologyOwnerReview(executionDraft)) {
+    const rule =
+      executionDraft?.rule && typeof executionDraft.rule === 'object' ? executionDraft.rule : null;
+    const reward = pickString(rule?.rewardItem, executionDraft?.reward, executionDraft?.rewardRule);
+    const stamps = rule?.purchasesRequired ?? executionDraft?.stampThreshold ?? executionDraft?.requiredStamps;
+    if (reward && stamps != null && Number(stamps) > 0) {
+      return ['topology_review'];
+    }
+    return ['topology_review', ...computeMissingFields(executionDraft, opts)];
+  }
+  return computeMissingFields(executionDraft, opts);
+}
+
+/**
  * Throw STALE_MISSING_FIELDS when draft has values but missingFields still lists them.
  * @param {Record<string, unknown>} executionDraft
  * @param {string[]} missingFields
  */
 export function assertNoStaleMissingFields(executionDraft, missingFields) {
-  const missing = Array.isArray(missingFields) ? missingFields : [];
+  const missing = (Array.isArray(missingFields) ? missingFields : []).filter((field) => {
+    if (field === 'topology_review' && !requiresTopologyOwnerReview(executionDraft)) return false;
+    return true;
+  });
   if (!missing.length) return;
 
-  const reward = pickString(executionDraft?.reward, executionDraft?.rewardRule);
+  const reward = pickString(executionDraft?.reward, executionDraft?.rewardRule, executionDraft?.rule?.rewardItem);
   const stamps =
     executionDraft?.stampThreshold ??
     executionDraft?.requiredStamps ??
-    executionDraft?.stampsRequired;
+    executionDraft?.stampsRequired ??
+    executionDraft?.rule?.purchasesRequired;
 
   if (reward && missing.includes('reward')) {
     const err = new Error(
@@ -185,7 +282,7 @@ export function logExecutionDraftMerge(stage, executionDraft, missingFields) {
  */
 export function buildAndValidateExecutionDraft(parts = {}) {
   const executionDraft = buildExecutionDraft(parts);
-  const missingFields = computeMissingFields(executionDraft);
+  const missingFields = computeLoyaltyPauseFields(executionDraft);
   const hasOwner =
     parts.ownerInput &&
     typeof parts.ownerInput === 'object' &&

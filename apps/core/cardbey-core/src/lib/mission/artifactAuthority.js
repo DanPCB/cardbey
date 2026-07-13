@@ -3,6 +3,7 @@
  */
 
 import { normalizeArtifact, isUsableArtifact } from '../artifacts/artifactContract.js';
+import { matchesArtifactFamily } from './artifactRegistry.js';
 import {
   normalizeCampaignPackageArtifact,
   synthesizeCampaignPackageFromToolOutputs,
@@ -16,16 +17,32 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-const EXPECTED_ASSET_TYPE_ALIASES = {
-  campaign_package: ['campaign_package', 'campaign'],
-  campaign: ['campaign_package', 'campaign'],
-};
-
 function matchesExpectedAssetType(artifact, expectedType) {
-  const subtype = String(artifact?.subtype ?? '').trim();
-  const type = String(artifact?.type ?? '').trim();
-  const aliases = EXPECTED_ASSET_TYPE_ALIASES[expectedType] ?? [expectedType];
-  return aliases.includes(subtype) || aliases.includes(type);
+  return matchesArtifactFamily(artifact, expectedType);
+}
+
+function collectLoyaltyArtifactCandidates({ meta, nodeOutputs, toolOutputs, outputsJson }) {
+  /** @type {unknown[]} */
+  const candidates = [];
+  const presentReview = toolOutputs['loyalty.present_review'];
+  if (presentReview && typeof presentReview === 'object') {
+    const row = /** @type {Record<string, unknown>} */ (presentReview);
+    if (row.artifact && typeof row.artifact === 'object') candidates.push(row.artifact);
+    if (row.ownerReviewArtifact && typeof row.ownerReviewArtifact === 'object') {
+      candidates.push(row.ownerReviewArtifact);
+    }
+    if (Array.isArray(row.artifacts)) candidates.push(...row.artifacts);
+  }
+  for (const key of [
+    'loyaltyProgramDraftArtifact',
+    'generatedLoyaltyProgram',
+    'loyaltyProgramDraft',
+  ]) {
+    if (nodeOutputs[key]) candidates.push(nodeOutputs[key]);
+    if (meta[key]) candidates.push(meta[key]);
+    if (outputsJson?.[key]) candidates.push(outputsJson[key]);
+  }
+  return candidates.filter(Boolean);
 }
 
 function collectCampaignPackageCandidates({ meta, nodeOutputs, toolOutputs, outputsJson }) {
@@ -56,10 +73,8 @@ export function listMissionArtifacts({ metadata, nodeRun, outputsJson } = {}) {
     ...asArray(nodeOutputs.artifacts),
     ...asArray(toolOutputs.artifacts),
     ...collectCampaignPackageCandidates({ meta, nodeOutputs, toolOutputs, outputsJson: outputs }),
+    ...collectLoyaltyArtifactCandidates({ meta, nodeOutputs, toolOutputs, outputsJson: outputs }),
   ];
-
-  if (nodeOutputs.loyaltyProgramDraftArtifact) all.push(nodeOutputs.loyaltyProgramDraftArtifact);
-  if (meta.loyaltyProgramDraftArtifact) all.push(meta.loyaltyProgramDraftArtifact);
 
   return all
     .map((row) =>

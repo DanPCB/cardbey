@@ -38,6 +38,8 @@ export type IntakeEvidenceBundle = {
   perceptionFrame: PerceptionFrame;
   snapshot: IntakeEvidenceSnapshot;
   timing: IntakeEvidenceTiming;
+  /** Original upload ref (data URL or CDN URL) for visual grid CV. */
+  imageRef?: string | null;
 };
 
 export type IntakeEvidenceBarrierResult =

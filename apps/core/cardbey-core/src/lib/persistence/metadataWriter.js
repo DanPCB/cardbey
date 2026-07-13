@@ -3,6 +3,33 @@
  */
 
 import { getPrismaClient } from '../prisma.js';
+import { Features } from '../../config/features.js';
+
+/** Deprecated when PHASE1_GRAPH_PRIMARY — graph is authoritative. */
+const DEPRECATED_GRAPH_METADATA_KEYS = Object.freeze([
+  'preseededDraft',
+  'attachmentAnalysis',
+  'loyaltyProgressiveArtifact',
+]);
+
+/**
+ * @param {Record<string, unknown>} updates
+ */
+function stripDeprecatedGraphMetadataKeys(updates) {
+  if (!Features.phase1.graphPrimary) return updates;
+  const blocked = DEPRECATED_GRAPH_METADATA_KEYS.filter((key) => key in updates);
+  if (blocked.length === 0) return updates;
+  const out = { ...updates };
+  for (const key of blocked) {
+    delete out[key];
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `[metadataWriter] PHASE1_GRAPH_PRIMARY stripped deprecated keys: ${blocked.join(', ')}`,
+    );
+  }
+  return out;
+}
 
 /** Keys written by the multi-agent compiler pipeline. */
 export const METADATA_KEYS = {
@@ -68,6 +95,8 @@ export async function writeMetadata(missionId, updates) {
     throw new Error('writeMetadata requires updates object');
   }
 
+  const sanitizedUpdates = stripDeprecatedGraphMetadataKeys(updates);
+
   const prisma = getPrismaClient();
   const row = await prisma.missionPipeline.findUnique({
     where: { id: mid },
@@ -78,7 +107,7 @@ export async function writeMetadata(missionId, updates) {
 
   const nextMeta = {
     ...asMetadataObject(row.metadataJson),
-    ...updates,
+    ...sanitizedUpdates,
     metadataUpdatedAt: new Date().toISOString(),
   };
 

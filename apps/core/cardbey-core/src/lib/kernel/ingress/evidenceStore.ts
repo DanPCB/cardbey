@@ -7,10 +7,20 @@ import type { IntakeEvidenceBundle } from './intakeEvidence.types.js';
 const byStreamId = new Map<string, IntakeEvidenceBundle>();
 const byEvidenceId = new Map<string, IntakeEvidenceBundle>();
 
+const MAX_BUNDLES = 128;
+
+function evictOldest(map: Map<string, IntakeEvidenceBundle>) {
+  if (map.size <= MAX_BUNDLES) return;
+  const oldest = map.keys().next().value;
+  if (oldest) map.delete(oldest);
+}
+
 export function saveIntakeEvidenceBundle(bundle: IntakeEvidenceBundle): IntakeEvidenceBundle {
   const frozen = deepFreeze(structuredClone(bundle)) as IntakeEvidenceBundle;
   byStreamId.set(frozen.streamId, frozen);
   byEvidenceId.set(frozen.evidenceView.evidenceId, frozen);
+  evictOldest(byStreamId);
+  evictOldest(byEvidenceId);
   return frozen;
 }
 

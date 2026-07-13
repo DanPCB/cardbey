@@ -85,6 +85,13 @@ export const Features = {
     get useSpine() {
       return parseBoolEnv(process.env.USE_LOYALTY_SPINE, false);
     },
+    /**
+     * When true: block synthetic DEFAULT_TEMPLATE topology (2×5 etc.) so missing topology surfaces loudly.
+     * Set LOYALTY_DISABLE_DEFAULT_TEMPLATE=true while debugging card extraction / graph handoff.
+     */
+    get disableDefaultTemplate() {
+      return parseBoolEnv(process.env.LOYALTY_DISABLE_DEFAULT_TEMPLATE, false);
+    },
   },
   multiAgent: {
     /** When true: multi_agent / campaign_orchestration missions require explicit confirmation before AUTO_RUN. */
@@ -99,6 +106,78 @@ export const Features = {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+    },
+  },
+  reasoningPhase0: {
+    get centralizedOutcome() {
+      return parseBoolEnv(process.env.PHASE0_CENTRALIZED_OUTCOME, true);
+    },
+    get explicitDefaultTemplate() {
+      return parseBoolEnv(process.env.PHASE0_EXPLICIT_DEFAULT_TEMPLATE, true);
+    },
+    get graphContractInvariant() {
+      return parseBoolEnv(process.env.PHASE0_GRAPH_CONTRACT_INVARIANT, true);
+    },
+    get missionProjectionPrimary() {
+      return parseBoolEnv(process.env.PHASE0_MISSION_PROJECTION_PRIMARY, true);
+    },
+  },
+  phase1: {
+    /** Write perceptions/decisions through MissionEvidenceGraph service. */
+    get graphWriteTarget() {
+      return parseBoolEnv(process.env.PHASE1_GRAPH_WRITE_TARGET, true);
+    },
+    /** Graph is primary; block deprecated metadata keys on new writes. */
+    get graphPrimary() {
+      return parseBoolEnv(process.env.PHASE1_GRAPH_PRIMARY, false);
+    },
+    /** Detect new evidence after freeze and surface re-analysis prompt. */
+    get graphConflictDetection() {
+      return parseBoolEnv(process.env.PHASE1_GRAPH_CONFLICT_DETECTION, true);
+    },
+    /** Append reasoning lines to graph.reasoningTrace. */
+    get consolidatedReasoningTrace() {
+      return parseBoolEnv(process.env.PHASE1_CONSOLIDATED_REASONING_TRACE, true);
+    },
+    /** Dashboard projection reads graph before legacy metadata. */
+    get projectionFromGraph() {
+      return parseBoolEnv(process.env.PHASE1_PROJECTION_FROM_GRAPH, true);
+    },
+    /** Log internal version bump traces (dev). */
+    get traceVersionBumps() {
+      return parseBoolEnv(process.env.PHASE1_TRACE_VERSION_BUMPS, false);
+    },
+  },
+  phase2: {
+    /** Active reasoning loop via ReasoningCoordinator (graph-driven capabilities). */
+    get activeReasoning() {
+      return parseBoolEnv(process.env.PHASE2_ACTIVE_REASONING, false);
+    },
+    /** Topology DAG is a snapshot; coordinator decides when to run/re-plan. */
+    get topologyAsSnapshot() {
+      return parseBoolEnv(process.env.PHASE2_TOPOLOGY_AS_SNAPSHOT, true);
+    },
+    /** Log reasoning step decisions in non-production. */
+    get reasoningStepLog() {
+      return parseBoolEnv(process.env.PHASE2_REASONING_STEP_LOG, false);
+    },
+    /** Only enable reasoning on CARDEY_DEPLOY_ENV=staging. */
+    get stagingOnly() {
+      return parseBoolEnv(process.env.PHASE2_REASONING_STAGING_ONLY, false);
+    },
+    /** 0–100 mission cohort rollout (hash-stable per missionId). */
+    get rolloutPercent() {
+      const value = parseFloat(process.env.PHASE2_REASONING_ROLLOUT_PERCENT ?? '0');
+      if (!Number.isFinite(value)) return 0;
+      return Math.max(0, Math.min(100, value));
+    },
+    /** In-process step metrics for soak monitoring. */
+    get telemetry() {
+      return parseBoolEnv(process.env.PHASE2_REASONING_TELEMETRY, true);
+    },
+    /** Coordinator owns full loop; DAG runs only when loyalty.run_topology_plan defers. */
+    get reasoningPrimary() {
+      return parseBoolEnv(process.env.PHASE2_REASONING_PRIMARY, false);
     },
   },
   uaf: {
@@ -135,6 +214,23 @@ export const Features = {
       return parseBoolEnv(
         process.env.INTENT_ENGINE_SHADOW_LOG,
         process.env.NODE_ENV === 'development',
+      );
+    },
+  },
+  businessUnderstanding: {
+    /** Run Business Understanding Engine after attachment analysis. */
+    get enabled() {
+      return parseBoolEnv(process.env.BUE_PIPELINE_ENABLED, false);
+    },
+    /** Optional vision enrich for brand signals (extra LLM call). */
+    get brandVision() {
+      return parseBoolEnv(process.env.BUE_BRAND_VISION_ENABLED, false);
+    },
+    /** Log BUE pipeline summaries in non-production. */
+    get telemetryLog() {
+      return parseBoolEnv(
+        process.env.BUE_TELEMETRY_LOG,
+        process.env.NODE_ENV !== 'production',
       );
     },
   },
@@ -182,6 +278,27 @@ export function snapshotFeatures() {
     multiAgent: {
       requireConfirmation: Features.multiAgent.requireConfirmation,
       skipConfirmationUsers: Features.multiAgent.skipConfirmationUsers,
+    },
+    reasoningPhase0: {
+      centralizedOutcome: Features.reasoningPhase0.centralizedOutcome,
+      explicitDefaultTemplate: Features.reasoningPhase0.explicitDefaultTemplate,
+      graphContractInvariant: Features.reasoningPhase0.graphContractInvariant,
+      missionProjectionPrimary: Features.reasoningPhase0.missionProjectionPrimary,
+    },
+    phase1: {
+      graphWriteTarget: Features.phase1.graphWriteTarget,
+      graphPrimary: Features.phase1.graphPrimary,
+      graphConflictDetection: Features.phase1.graphConflictDetection,
+      consolidatedReasoningTrace: Features.phase1.consolidatedReasoningTrace,
+      projectionFromGraph: Features.phase1.projectionFromGraph,
+    },
+    phase2: {
+      activeReasoning: Features.phase2.activeReasoning,
+      topologyAsSnapshot: Features.phase2.topologyAsSnapshot,
+      reasoningStepLog: Features.phase2.reasoningStepLog,
+      stagingOnly: Features.phase2.stagingOnly,
+      rolloutPercent: Features.phase2.rolloutPercent,
+      telemetry: Features.phase2.telemetry,
     },
     uaf: {
       enabled: Features.uaf.enabled,
