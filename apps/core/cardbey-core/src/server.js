@@ -95,6 +95,7 @@ import { initializeWebSocketServer, broadcastLog, broadcastEvent } from './realt
 import { initializeDeviceWebSocketServer } from './realtime/deviceWebSocketHub.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
+import { requestResponseStateMiddleware } from './middleware/requestResponseState.js';
 import { latencyGuard } from './middleware/latencyGuard.js';
 import compression from 'compression';
 import pairRouter from './routes/pair.js';
@@ -178,6 +179,8 @@ import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
 import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
+import activityMatrixRoutes from './routes/activityMatrixRoutes.js';
+import controlCenterActivityMatrixRoutes from './routes/controlCenterActivityMatrixRoutes.js';
 import { serviceCatalogPublicRoutes, quoteRequestOwnerRoutes } from './routes/serviceCatalogRoutes.js';
 import { bookingOwnerRoutes } from './routes/bookingOwnerRoutes.js';
 import { paymentRoutes, journeyPaymentRoutes, paymentOwnerRoutes } from './routes/paymentRoutes.js';
@@ -200,6 +203,7 @@ import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
+import templateLibraryRoutes from './routes/templateLibraryRoutes.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import creatorRoutes from './routes/creatorRoutes.js';
 import artifactRoutes from './routes/artifactRoutes.js';
@@ -719,6 +723,7 @@ app.use((req, res, next) => {
 
 // Request ID + latency SLO guard (skips SSE/long-lived routes)
 app.use(requestIdMiddleware);
+app.use(requestResponseStateMiddleware);
 app.use(latencyGuard);
 
 // EARLY request logger with SSE tap
@@ -1038,6 +1043,8 @@ app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first
 app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
+app.use('/api/business/insights', activityMatrixRoutes); // User Activity Matrix (store owner)
+app.use('/api/control-center/activity-matrix', controlCenterActivityMatrixRoutes); // Platform-wide matrix (admin)
 app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owner quote request management
 app.use('/api/stores/:storeId/bookings', bookingOwnerRoutes); // Owner bookings + payment status
 app.use('/api/stores/:storeId/payments', paymentOwnerRoutes); // Owner payment list
@@ -1051,6 +1058,7 @@ app.use('/api/automation', automationRoutes); // Headless automation: /api/autom
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
 app.use('/api/creative-templates', creativeTemplatesRoutes); // Creative template routes: /api/creative-templates
+app.use('/api', templateLibraryRoutes); // Template Library Platform: /api/template-libraries, /api/templates, /api/template-instances
 app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /api/greeting-cards
 app.use('/api/artifacts', artifactRoutes);
 app.use('/api', creatorRoutes); // Creator Foundation: /api/creators, /api/creator/*
