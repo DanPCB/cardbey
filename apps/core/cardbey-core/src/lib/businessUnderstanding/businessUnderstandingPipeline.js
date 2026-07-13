@@ -15,6 +15,8 @@ import { buildCanonicalContracts, summarizeCanonicalContracts } from './canonica
 import { resolveDefaultAdaptationMode } from './compositionModes.js';
 import { buildMerchantUnderstandingSummary } from './merchantUnderstandingSummary.js';
 import { persistUnderstandingToSuitcase } from './suitcaseContractBridge.js';
+import { interpretBueArtifactDocument } from './bueDocumentInterpretation.js';
+import { composeFromUnderstandingBundle } from './businessCompositionEngine.js';
 import { Features } from '../../config/features.js';
 
 /**
@@ -39,6 +41,7 @@ import { Features } from '../../config/features.js';
  *   persistToSuitcase?: boolean;
  *   enrichBrandFromVision?: boolean;
  *   digitizeExisting?: boolean;
+ *   documentExtraction?: Record<string, unknown> | null;
  * }} input
  */
 export async function runBusinessUnderstandingPipeline(input = {}) {
@@ -119,6 +122,15 @@ export async function runBusinessUnderstandingPipeline(input = {}) {
   const merchantSummary = buildMerchantUnderstandingSummary(bundle);
   const summary = summarizeCanonicalContracts(bundle);
 
+  const documentInterpretation = interpretBueArtifactDocument(bundle, {
+    ocrText: input.ocrText,
+    documentExtraction: input.documentExtraction ?? null,
+  });
+
+  const channelComposition = composeFromUnderstandingBundle(bundle, {
+    channel: 'desktop',
+  });
+
   let suitcase = null;
   if (input.persistToSuitcase === true && input.ownerId) {
     suitcase = await persistUnderstandingToSuitcase({
@@ -138,6 +150,8 @@ export async function runBusinessUnderstandingPipeline(input = {}) {
     bundle,
     merchantSummary,
     summary,
+    documentInterpretation,
+    channelComposition,
     suitcase,
   };
 }

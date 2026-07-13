@@ -641,10 +641,17 @@ export async function buildAttachmentAnalysis(input = {}) {
         cardTopology: preseededDraft?.cardTopology ?? null,
         rule: preseededDraft?.rule ?? null,
         digitizeExisting: artifactType === 'loyalty_card',
+        documentExtraction: input.documentExtraction ?? null,
       });
       if (bueResult?.ok && bueResult.bundle) {
         analysis.businessUnderstanding = bueResult.bundle;
         analysis.merchantUnderstandingSummary = bueResult.merchantSummary ?? null;
+        if (bueResult.documentInterpretation?.ok) {
+          analysis.documentTopology = bueResult.documentInterpretation.topology ?? null;
+        }
+        if (bueResult.channelComposition) {
+          analysis.channelComposition = bueResult.channelComposition;
+        }
       }
     } catch (bueErr) {
       console.warn(
