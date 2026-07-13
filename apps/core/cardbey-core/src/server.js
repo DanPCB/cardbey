@@ -203,7 +203,6 @@ import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
-import templateLibraryRoutes from './routes/templateLibraryRoutes.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import creatorRoutes from './routes/creatorRoutes.js';
 import artifactRoutes from './routes/artifactRoutes.js';
@@ -1058,7 +1057,6 @@ app.use('/api/automation', automationRoutes); // Headless automation: /api/autom
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
 app.use('/api/creative-templates', creativeTemplatesRoutes); // Creative template routes: /api/creative-templates
-app.use('/api', templateLibraryRoutes); // Template Library Platform: /api/template-libraries, /api/templates, /api/template-instances
 app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /api/greeting-cards
 app.use('/api/artifacts', artifactRoutes);
 app.use('/api', creatorRoutes); // Creator Foundation: /api/creators, /api/creator/*
