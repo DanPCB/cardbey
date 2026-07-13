@@ -109,6 +109,30 @@ describe('IntentOrchestrator', () => {
     expect(result.execution.clarifyType).toBe('execution_context_store_picker');
   });
 
+  it('shows store picker for multi-store loyalty intent', async () => {
+    vi.mocked(loadAccountStoreContext).mockResolvedValue({
+      accountHasStores: true,
+      storeCount: 3,
+      stores: [
+        { id: 's1', name: 'A' },
+        { id: 's2', name: 'B' },
+        { id: 's3', name: 'C' },
+      ],
+    });
+
+    const orchestrator = new IntentOrchestrator();
+    const result = await orchestrator.process({
+      message: 'create a loyalty program from this card',
+      userId: 'user_1',
+    });
+
+    expect(result.intent.type).toBe('setup_loyalty');
+    expect(result.context.status).toBe('needs_store_picker');
+    expect(result.execution.action).toBe('store_picker');
+    expect(result.execution.tool).toBe('setup_loyalty_program');
+    expect(result.execution.clarifyType).toBe('execution_context_store_picker');
+  });
+
   it('skips context load for capabilities with many stores', async () => {
     vi.mocked(loadAccountStoreContext).mockResolvedValue({
       accountHasStores: true,

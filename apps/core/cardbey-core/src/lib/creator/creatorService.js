@@ -3,7 +3,9 @@
  */
 
 import { getPrismaClient } from '../prisma.js';
+import { STUDIO_LIST_STATUSES } from './creatorContentService.js';
 import { toPublicCreator, toPublicCreatorContent } from './creatorTypes.js';
+import { normalizeUsername, validateUsernameFields } from './creatorProfileContract.js';
 
 /**
  * @param {string} base
@@ -61,6 +63,34 @@ export async function getCreatorByUsername(username) {
 }
 
 /**
+ * @param {string} username
+ * @param {{ userId?: string }} opts
+ */
+export async function checkUsernameAvailability(username, opts = {}) {
+  const normalized = normalizeUsername(username);
+  const fieldErrors = validateUsernameFields(normalized);
+  if (fieldErrors.username) {
+    return { available: false, username: normalized, reason: fieldErrors.username };
+  }
+
+  const prisma = getPrismaClient();
+  const existing = await prisma.creator.findUnique({
+    where: { username: normalized },
+    select: { id: true, userId: true },
+  });
+
+  if (existing && opts.userId && existing.userId === opts.userId) {
+    return { available: true, username: normalized, reason: null };
+  }
+
+  if (existing) {
+    return { available: false, username: normalized, reason: 'Choose another username.' };
+  }
+
+  return { available: true, username: normalized, reason: null };
+}
+
+/**
  * @param {string} creatorId
  * @returns {Promise<object|null>}
  */
@@ -112,12 +142,22 @@ export async function listCreatorContent(creatorId, opts = {}) {
   const prisma = getPrismaClient();
   const limit = Math.min(Math.max(Number(opts.limit) || 24, 1), 100);
   const where = { creatorId };
-  if (opts.status) where.status = opts.status;
-  else where.status = 'published';
+  const status = opts.status ? String(opts.status) : 'published';
+
+  if (status === 'all') {
+    where.status = { in: [...STUDIO_LIST_STATUSES] };
+  } else {
+    where.status = status;
+  }
+
+  const orderBy =
+    status === 'all' || status === 'draft' || status === 'owner_review'
+      ? { updatedAt: 'desc' }
+      : { publishedAt: 'desc' };
 
   const rows = await prisma.creatorContent.findMany({
     where,
-    orderBy: { publishedAt: 'desc' },
+    orderBy,
     take: limit,
   });
   return rows.map(toPublicCreatorContent);

@@ -95,6 +95,7 @@ import { initializeWebSocketServer, broadcastLog, broadcastEvent } from './realt
 import { initializeDeviceWebSocketServer } from './realtime/deviceWebSocketHub.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
+import { requestResponseStateMiddleware } from './middleware/requestResponseState.js';
 import { latencyGuard } from './middleware/latencyGuard.js';
 import compression from 'compression';
 import pairRouter from './routes/pair.js';
@@ -178,6 +179,8 @@ import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
 import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
+import activityMatrixRoutes from './routes/activityMatrixRoutes.js';
+import controlCenterActivityMatrixRoutes from './routes/controlCenterActivityMatrixRoutes.js';
 import { serviceCatalogPublicRoutes, quoteRequestOwnerRoutes } from './routes/serviceCatalogRoutes.js';
 import { bookingOwnerRoutes } from './routes/bookingOwnerRoutes.js';
 import { paymentRoutes, journeyPaymentRoutes, paymentOwnerRoutes } from './routes/paymentRoutes.js';
@@ -200,6 +203,7 @@ import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
+import templateLibraryRoutes from './routes/templateLibraryRoutes.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import creatorRoutes from './routes/creatorRoutes.js';
 import artifactRoutes from './routes/artifactRoutes.js';
@@ -256,10 +260,12 @@ import threadsRoutes from './routes/threadsRoutes.js';
 import contactsSyncRoutes from './routes/contactsSyncRoutes.js';
 import aiOperatorRoutes from './routes/aiOperatorRoutes.js';
 import missionsRoutes from './routes/missionsRoutes.js';
+import confirmationRoutes from './routes/confirmation.routes.js';
 import executionRoutes from './routes/executionRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import selfAuditRoutes from './routes/selfAudit.routes.js';
+import developmentRoutes from './routes/development.routes.js';
 import brokerRoutes from './routes/brokerRoutes.js';
 import performerRuntimeRoutes from './routes/performerRuntimeRoutes.js';
 import performerDispatchRoutes from './routes/performerDispatchRoutes.js';
@@ -717,6 +723,7 @@ app.use((req, res, next) => {
 
 // Request ID + latency SLO guard (skips SSE/long-lived routes)
 app.use(requestIdMiddleware);
+app.use(requestResponseStateMiddleware);
 app.use(latencyGuard);
 
 // EARLY request logger with SSE tap
@@ -990,6 +997,7 @@ app.use('/api/business-operations', businessOperationsRoutes);
 // Mount before /api/missions so unified execution checkpoint API is registered first.
 app.use('/api/execution', executionRoutes);
 app.use('/api/missions', missionsRoutes);
+app.use('/api', confirmationRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
@@ -1035,6 +1043,8 @@ app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first
 app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
+app.use('/api/business/insights', activityMatrixRoutes); // User Activity Matrix (store owner)
+app.use('/api/control-center/activity-matrix', controlCenterActivityMatrixRoutes); // Platform-wide matrix (admin)
 app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owner quote request management
 app.use('/api/stores/:storeId/bookings', bookingOwnerRoutes); // Owner bookings + payment status
 app.use('/api/stores/:storeId/payments', paymentOwnerRoutes); // Owner payment list
@@ -1048,6 +1058,7 @@ app.use('/api/automation', automationRoutes); // Headless automation: /api/autom
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
 app.use('/api/creative-templates', creativeTemplatesRoutes); // Creative template routes: /api/creative-templates
+app.use('/api', templateLibraryRoutes); // Template Library Platform: /api/template-libraries, /api/templates, /api/template-instances
 app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /api/greeting-cards
 app.use('/api/artifacts', artifactRoutes);
 app.use('/api', creatorRoutes); // Creator Foundation: /api/creators, /api/creator/*
@@ -1147,6 +1158,7 @@ app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
 app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
 app.use('/api/self-audit', selfAuditRoutes); // Self-audit: status, run, fix proposals (admin)
+app.use('/api', developmentRoutes); // Development Runtime: /api/development/*
 console.log('[CORE] mounted /api/telemetry (GET /summary, POST /code-fix-proposal)');
 console.log('[CORE] mounted /api/self-healing (GET /discovery-gaps, POST /propose-from-discovery)');
 console.log('[CORE] mounted /api/self-audit (GET /status, POST /run, POST /fix/:issueId)');

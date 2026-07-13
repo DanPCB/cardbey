@@ -76,5 +76,6 @@ const result = await orchestrator.processMission(userMessage);
 ## Documentation
 
 - [Installation Guide](../../docs/multiAgent/INSTALL.md)
+- [Governance & confirmation](../../docs/multiAgent/GOVERNANCE.md)
 - [Troubleshooting](../../docs/multiAgent/TROUBLESHOOTING.md)
 - [API Reference](../../docs/multiAgent/API_REFERENCE.md)

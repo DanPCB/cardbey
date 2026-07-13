@@ -86,6 +86,21 @@ export const Features = {
       return parseBoolEnv(process.env.USE_LOYALTY_SPINE, false);
     },
   },
+  multiAgent: {
+    /** When true: multi_agent / campaign_orchestration missions require explicit confirmation before AUTO_RUN. */
+    get requireConfirmation() {
+      return parseBoolEnv(process.env.MULTI_AGENT_REQUIRE_CONFIRMATION, true);
+    },
+    /** Internal user IDs allowed to bypass confirmation when skipConfirmation=true. */
+    get skipConfirmationUsers() {
+      const raw = String(process.env.MULTI_AGENT_SKIP_CONFIRMATION_USERS ?? '').trim();
+      if (!raw) return [];
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    },
+  },
   uaf: {
     get enabled() {
       const raw = String(process.env.ENABLE_UNIVERSAL_ARTIFACT_FACTORY ?? '').trim().toLowerCase();
@@ -163,6 +178,10 @@ export function snapshotFeatures() {
     },
     loyalty: {
       useSpine: Features.loyalty.useSpine,
+    },
+    multiAgent: {
+      requireConfirmation: Features.multiAgent.requireConfirmation,
+      skipConfirmationUsers: Features.multiAgent.skipConfirmationUsers,
     },
     uaf: {
       enabled: Features.uaf.enabled,

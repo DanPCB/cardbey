@@ -75,6 +75,8 @@ model User {
   smartDocuments             SmartDocument[]
   cards                      Card[]
   creator                    Creator?
+  accountProfile             AccountProfile?
+  userAccountEvents          UserAccountEvent[] @relation("UserAccountEventSubject")
   suitcaseItems              SuitcaseItem[]
   conversationSessions       ConversationSession[]
 
@@ -82,6 +84,44 @@ model User {
   @@index([handle])
   @@index([verificationToken])
   @@index([resetToken])
+}
+
+model AccountProfile {
+  id                          String   @id @default(cuid())
+  userId                      String   @unique
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  capabilities                Json     @default("[]")
+  primaryCapability           String?
+  accountStatus               String   @default("ACTIVE")
+  creatorPublishingRestricted Boolean  @default(false)
+  businessManagementRestricted Boolean @default(false)
+  internalNotes               Json?
+  languages                   Json?
+  lastActiveAt                DateTime?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  @@index([accountStatus])
+}
+
+model UserAccountEvent {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation("UserAccountEventSubject", fields: [userId], references: [id], onDelete: Cascade)
+  eventType         String
+  actorUserId       String?
+  actorRole         String?
+  reasonCode        String?
+  publicReason      String?
+  internalNote      String?
+  previousStateJson Json?
+  nextStateJson     Json?
+  requestId         String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
 }
 
 model TelemetryProbe {
@@ -2374,16 +2414,19 @@ model CreatorContent {
   id               String    @id @default(cuid())
   creatorId        String
   creator          Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
-  type             String // VIDEO | ARTICLE | LIVESTREAM
+  type             String // VIDEO | ARTICLE | LIVESTREAM | CREATOR_SERVICE | DIGITAL_PRODUCT
   title            String
   description      String?
   language         String?
   durationSeconds  Int?
   publishedAt      DateTime?
+  scheduledAt      DateTime?
   visibility       String    @default("public")
   thumbnail        String?
   mediaUrl         String?
-  status           String    @default("draft") // draft | owner_review | published | deleted | failed
+  status           String    @default("draft")
+  publishingDestinations Json?
+  creatorFeedback Json?
   views            Int       @default(0)
   likes            Int       @default(0)
   shares           Int       @default(0)
@@ -2393,10 +2436,87 @@ model CreatorContent {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  classifications CreatorClassification[]
+  decisions       CreatorPublishingDecision[]
+  events          CreatorPublishingEvent[]
+  appeals         CreatorAppeal[]
+
   @@index([creatorId])
   @@index([status])
   @@index([type])
   @@index([publishedAt])
+  @@index([scheduledAt])
+}
+
+model CreatorClassification {
+  id             String   @id @default(cuid())
+  contentId      String
+  content        CreatorContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  creatorId      String
+  modelVersion   String
+  policyVersion  String
+  resultJson     Json
+  recommendation String
+  confidence     Float
+  evidenceJson   Json?
+  createdAt      DateTime @default(now())
+
+  @@index([contentId])
+  @@index([creatorId])
+  @@index([createdAt])
+}
+
+model CreatorPublishingDecision {
+  id               String   @id @default(cuid())
+  contentId        String
+  content          CreatorContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  reviewerUserId   String?
+  action           String
+  reasonCode       String?
+  creatorFeedback  String?
+  internalNote     String?
+  destinationsJson Json?
+  classificationId String?
+  aiRecommendation String?
+  disagreementType String?
+  createdAt        DateTime @default(now())
+
+  @@index([contentId])
+  @@index([reviewerUserId])
+  @@index([createdAt])
+}
+
+model CreatorPublishingEvent {
+  id           String   @id @default(cuid())
+  contentId    String
+  content      CreatorContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  eventType    String
+  fromStatus   String?
+  toStatus     String?
+  actorType    String
+  actorId      String?
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+
+  @@index([contentId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model CreatorAppeal {
+  id              String    @id @default(cuid())
+  contentId       String
+  content         CreatorContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  creatorId       String
+  reason          String
+  status          String    @default("pending")
+  resolutionNote  String?
+  createdAt       DateTime  @default(now())
+  resolvedAt      DateTime?
+
+  @@index([contentId])
+  @@index([creatorId])
+  @@index([status])
 }
 
 // MI Video Templates - Video background templates for greeting cards

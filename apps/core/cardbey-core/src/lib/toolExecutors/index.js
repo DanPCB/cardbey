@@ -85,10 +85,18 @@ import * as propose_website_patch from '../../toolExecutors/store/propose_websit
 import * as consensus from './store/consensus.js';
 import * as content_creator from './content/content_creator.js';
 import * as create_creator_profile from './creator/create_creator_profile.js';
+import * as create_creator_content_draft from './creator/create_creator_content_draft.js';
 import * as publish_creator_content from './creator/publish_creator_content.js';
 import * as update_creator_content from './creator/update_creator_content.js';
 import * as delete_creator_content from './creator/delete_creator_content.js';
 import * as submit_creator_content_for_review from './creator/submit_creator_content_for_review.js';
+import * as return_creator_content_to_draft from './creator/return_creator_content_to_draft.js';
+import * as classify_creator_content from './creator/classify_creator_content.js';
+import * as approve_creator_content from './creator/approve_creator_content.js';
+import * as request_creator_content_changes from './creator/request_creator_content_changes.js';
+import * as reject_creator_content from './creator/reject_creator_content.js';
+import * as escalate_creator_content from './creator/escalate_creator_content.js';
+import * as schedule_creator_content from './creator/schedule_creator_content.js';
 import * as calculate_creator_progress from './creator/calculate_creator_progress.js';
 import * as generate_social_posts from './content/generate_social_posts.js';
 import * as crm from './crm/crm.js';
@@ -223,10 +231,18 @@ export const executors = {
   consensus,
   content_creator,
   create_creator_profile,
+  create_creator_content_draft,
   publish_creator_content,
   update_creator_content,
   delete_creator_content,
   submit_creator_content_for_review,
+  return_creator_content_to_draft,
+  classify_creator_content,
+  approve_creator_content,
+  request_creator_content_changes,
+  reject_creator_content,
+  escalate_creator_content,
+  schedule_creator_content,
   calculate_creator_progress,
   generate_social_posts,
   crm,

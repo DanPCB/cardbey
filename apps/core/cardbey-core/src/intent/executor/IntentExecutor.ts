@@ -68,6 +68,15 @@ function businessExecution(
         storeId,
         executionPath: 'proactive_plan',
       };
+    case 'setup_loyalty':
+      return {
+        action: 'proactive_plan',
+        response: 'Starting loyalty program setup.',
+        tool: 'setup_loyalty_program',
+        parameters: baseParams,
+        storeId,
+        executionPath: 'proactive_plan',
+      };
     case 'analytics':
       return {
         action: 'analytics',
@@ -172,6 +181,7 @@ export class IntentExecutor {
       context.status === 'ready' &&
       (intent.type === 'analytics' ||
         intent.type === 'create_campaign' ||
+        intent.type === 'setup_loyalty' ||
         intent.type === 'manage_catalog' ||
         intent.type === 'question');
 
@@ -192,7 +202,9 @@ export class IntentExecutor {
           ? ['get_store_metrics', 'fetch_campaign_analytics']
           : intent.type === 'create_campaign'
             ? ['create_campaign', 'fetch_campaign_analytics']
-            : intent.type === 'manage_catalog'
+            : intent.type === 'setup_loyalty'
+              ? ['setup_loyalty_program']
+              : intent.type === 'manage_catalog'
               ? ['update_product_catalog']
               : undefined,
     });

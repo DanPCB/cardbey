@@ -8,6 +8,7 @@ import type { ContextResult, Intent, IntentEngineInput } from '../intent.types.j
 const INTENT_TOOL_MAP: Record<string, string> = {
   create_store: 'create_store',
   create_campaign: 'create_campaign',
+  setup_loyalty: 'setup_loyalty_program',
   analytics: 'get_store_analytics',
   manage_catalog: 'replace_store_catalog',
 };

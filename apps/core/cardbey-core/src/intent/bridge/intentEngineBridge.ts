@@ -97,9 +97,11 @@ export function intentResultToIntakeResponse(result: IntentResult): Record<strin
         response: execution.response,
         message: execution.response,
         tool: execution.tool,
+        options: execution.clarifyOptions ?? [],
         clarifyOptions: execution.clarifyOptions ?? [],
         storeCandidates: execution.storeCandidates ?? [],
         pendingIntent: execution.pendingIntent,
+        lockedTool: execution.tool,
         executionPath: 'clarify',
       };
 

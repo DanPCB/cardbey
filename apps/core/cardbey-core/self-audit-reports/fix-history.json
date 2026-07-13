@@ -372,5 +372,37 @@
       "humanApprovalRequired": true
     },
     "playbookId": "telemetry_stream_missing"
+  },
+  {
+    "id": "fix_1783759058423_fizyr2",
+    "issueId": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1783759058420",
+    "status": "proposed",
+    "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPlaybook — constraints:\n - No PII in buffers\nPlaybook — validation steps (after manual patch):\n - Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-telemetry_stream_missing-telemetry_stream_missing:1783759058420\"\n}",
+    "proposedAt": "2026-07-11T08:37:38.423Z",
+    "guardrails": {
+      "proposalOnly": true,
+      "noFileWrites": true,
+      "noAutoApply": true,
+      "humanApprovalRequired": true
+    },
+    "playbookId": "telemetry_stream_missing"
+  },
+  {
+    "id": "fix_1783771200038_go2u4e",
+    "issueId": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1783771200035",
+    "status": "applied",
+    "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPlaybook — constraints:\n - No PII in buffers\nPlaybook — validation steps (after manual patch):\n - Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-telemetry_stream_missing-telemetry_stream_missing:1783771200035\"\n}",
+    "proposedAt": "2026-07-11T12:00:00.038Z",
+    "appliedAt": "2026-07-11T12:00:00.041Z",
+    "appliedBy": "self-audit-cli",
+    "guardrails": {
+      "proposalOnly": true,
+      "noFileWrites": true,
+      "noAutoApply": true,
+      "humanApprovalRequired": true
+    },
+    "playbookId": "telemetry_stream_missing",
+    "outcome": "worsening",
+    "updatedAt": "2026-07-11T12:00:00.042Z"
   }
 ]

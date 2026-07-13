@@ -11,6 +11,7 @@ export type IntentType =
   | 'clarify'
   | 'create_store'
   | 'create_campaign'
+  | 'setup_loyalty'
   | 'analytics'
   | 'manage_catalog';
 

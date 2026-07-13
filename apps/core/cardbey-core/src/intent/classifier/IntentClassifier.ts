@@ -20,7 +20,39 @@ const CREATE_STORE_RE =
   /\b(create|set\s*up|start|open|launch|build|make)\s+(a\s+)?(new\s+)?(store|business|shop)\b/i;
 
 const CREATE_CAMPAIGN_RE =
-  /\b(create|set\s*up|start|launch|run|make)\s+(a\s+)?(new\s+)?(campaign|promotion|promo)\b/i;
+  /\b(create|set\s*up|start|launch|run|make)\s+(?:a\s+)?(?:new\s+)?(?:[\w'-]+\s+){0,4}(campaign|promotion|promo)\b/i;
+
+const CREATE_LOYALTY_RE =
+  /\b(create|set\s*up|start|launch|make|build)\s+(?:a\s+)?(?:new\s+)?(?:[\w'-]+\s+){0,6}loyalty(?:\s+program)?\b/i;
+
+/** Explicit tool/action keys typed in chat or sent as manual actions. */
+const EXPLICIT_TOOL_INTENT: Record<string, IntentType> = {
+  create_store: 'create_store',
+  create_campaign: 'create_campaign',
+  launch_campaign: 'create_campaign',
+  get_store_analytics: 'analytics',
+  view_analytics: 'analytics',
+  replace_store_catalog: 'manage_catalog',
+  add_product: 'manage_catalog',
+  setup_loyalty_program: 'setup_loyalty',
+  setup_loyalty: 'setup_loyalty',
+  create_loyalty_program: 'setup_loyalty',
+};
+
+function normalizeExplicitToolKey(value: string): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_');
+}
+
+function intentFromExplicitToolKey(key: string): Intent | null {
+  const normalized = normalizeExplicitToolKey(key);
+  const type = EXPLICIT_TOOL_INTENT[normalized];
+  if (!type) return null;
+  return buildIntent(type, { confidence: 0.98, shouldExecute: true });
+}
 
 const ANALYTICS_RE =
   /\b(analytics|reports?|insights?|performance|metrics|dashboard)\b/i;
@@ -49,6 +81,7 @@ function buildIntent(
     opts.requiresBusiness ??
     (type === 'create_store' ||
       type === 'create_campaign' ||
+      type === 'setup_loyalty' ||
       type === 'analytics' ||
       type === 'manage_catalog');
 
@@ -77,6 +110,9 @@ export function classifyIntent(input: IntentEngineInput): Intent {
   const formStoreName = String(storeCreateForm?.storeName ?? '').trim();
 
   // Explicit entry points (form submit / action) — not message overrides.
+  const explicitFromAction = intentFromExplicitToolKey(action);
+  if (explicitFromAction) return explicitFromAction;
+
   if (action === 'create_store' || formStoreName.length >= 2) {
     return buildIntent('create_store', { confidence: 0.98, shouldExecute: true });
   }
@@ -99,6 +135,9 @@ export function classifyIntent(input: IntentEngineInput): Intent {
       shouldExecute: false,
     });
   }
+
+  const explicitFromMessage = intentFromExplicitToolKey(msg);
+  if (explicitFromMessage) return explicitFromMessage;
 
   if (GREETING_RE.test(msg)) {
     return buildIntent('greeting', {
@@ -132,6 +171,10 @@ export function classifyIntent(input: IntentEngineInput): Intent {
 
   if (CREATE_CAMPAIGN_RE.test(msg)) {
     return buildIntent('create_campaign', { shouldExecute: true });
+  }
+
+  if (CREATE_LOYALTY_RE.test(msg)) {
+    return buildIntent('setup_loyalty', { shouldExecute: true });
   }
 
   if (ANALYTICS_RE.test(msg)) {
