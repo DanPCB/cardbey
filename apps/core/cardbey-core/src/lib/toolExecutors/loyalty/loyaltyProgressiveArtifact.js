@@ -43,6 +43,10 @@ export function buildLoyaltyProgressiveArtifact(stage, partial = {}) {
     reward,
     stampThreshold,
     requiredStamps: stampThreshold,
+    rule: partial.rule && typeof partial.rule === 'object' ? partial.rule : null,
+    cardTopology:
+      partial.cardTopology && typeof partial.cardTopology === 'object' ? partial.cardTopology : null,
+    cardFooterText: pickString(partial.cardFooterText) || null,
     logoUrl,
     category,
     updatedAt: new Date().toISOString(),
@@ -116,14 +120,19 @@ export function progressivePartialFromStoreContext(storeContext, extra = {}) {
 export function progressivePartialFromDraft(draft, storeContext = null) {
   const d = asRecord(draft) ?? {};
   const fromStore = progressivePartialFromStoreContext(storeContext);
-  const stamps = d.stampThreshold ?? d.requiredStamps;
+  const stamps = d.stampThreshold ?? d.requiredStamps ?? d.rule?.purchasesRequired;
   return {
     ...fromStore,
     storeId: pickString(d.storeId, fromStore.storeId) || null,
     storeName: pickString(d.storeName, fromStore.storeName) || null,
     programName: pickString(d.programName, d.name) || null,
-    reward: pickString(d.reward, d.rewardRule) || null,
+    reward: pickString(d.reward, d.rewardRule, d.rule?.rewardItem) || null,
     stampThreshold: stamps,
     requiredStamps: stamps,
+    rule: d.rule && typeof d.rule === 'object' ? d.rule : null,
+    cardTopology: d.cardTopology && typeof d.cardTopology === 'object' ? d.cardTopology : null,
+    cardFooterText: pickString(d.cardFooterText, d.cardTopology?.footerText) || null,
+    layoutSource: pickString(d.layoutSource, d.cardTopology?.source) || null,
+    layoutConfidence: Number(d.layoutConfidence ?? d.cardTopology?.confidence) || null,
   };
 }

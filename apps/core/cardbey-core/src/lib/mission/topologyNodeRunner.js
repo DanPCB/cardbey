@@ -17,12 +17,17 @@ import {
   attachmentAnalysisAsEvidence,
   buildExecutionDraft,
   assertNoStaleMissingFields,
+  computeLoyaltyPauseFields,
   computeMissingFields,
 } from './topologyExecutionDraft.js';
 import {
   normalizeCampaignPackageArtifact,
   synthesizeCampaignPackageFromToolOutputs,
 } from './campaignPackageArtifact.js';
+import {
+  buildMissionEvidenceMetadataPatch,
+  extractMissionEvidenceGraphFromOutputs,
+} from './loyaltyMissionEvidence.js';
 
 /** Tools that may soft-fail without blocking downstream packaging. */
 const SOFT_FAIL_TOOLS = new Set(['generate_slideshow', 'generate_poster']);
@@ -631,7 +636,7 @@ export async function runTopologyNodes(missionId, topology, executionContext = {
           (input.executionDraft && typeof input.executionDraft === 'object'
             ? input.executionDraft
             : null) || executionContext.executionDraft;
-        const canonicalMissing = computeMissingFields(draft);
+        const canonicalMissing = computeLoyaltyPauseFields(draft);
         const handlerMissing = extractMissingFields(result);
         try {
           assertNoStaleMissingFields(draft ?? {}, handlerMissing);
@@ -668,6 +673,12 @@ export async function runTopologyNodes(missionId, topology, executionContext = {
           toolName,
           label,
         });
+        const evidencePatch = buildMissionEvidenceMetadataPatch(
+          extractMissionEvidenceGraphFromOutputs(output),
+        );
+        if (Object.keys(evidencePatch).length) {
+          await writeMetadata(mid, evidencePatch);
+        }
       } else if (status === 'skipped') {
         const partial = extractToolOutput(result);
         nodeStatus[nodeId] = 'skipped';
@@ -693,7 +704,7 @@ export async function runTopologyNodes(missionId, topology, executionContext = {
           (input.executionDraft && typeof input.executionDraft === 'object'
             ? input.executionDraft
             : null) || executionContext.executionDraft;
-        let missingFields = computeMissingFields(draft ?? {});
+        let missingFields = computeLoyaltyPauseFields(draft ?? {});
         if (!missingFields.length) {
           missingFields = extractMissingFields(result);
         }
@@ -959,6 +970,14 @@ export async function runTopologyNodes(missionId, topology, executionContext = {
 
   await emitTopologyBlackboardEvent(mid, 'topology.execution.finished', {
     status: finalStatus,
+    outcome:
+      finalStatus === 'completed'
+        ? 'succeeded'
+        : finalStatus === 'awaiting_owner_input'
+          ? 'blocked'
+          : finalStatus === 'failed'
+            ? 'failed'
+            : 'cancelled',
     completedCount,
     skippedCount,
     failedCount: failedNodeIds.length,

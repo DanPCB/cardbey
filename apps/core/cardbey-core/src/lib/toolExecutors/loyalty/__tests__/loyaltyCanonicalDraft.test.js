@@ -25,4 +25,33 @@ describe('applyCanonicalLoyaltyDraftFields', () => {
     );
     expect(draft.requiredStamps).toBe(8);
   });
+
+  it('preserves structured rule and topology from seed over legacy stamps', () => {
+    const rule = {
+      programType: 'STAMP_CARD',
+      purchaseItem: 'Coffee',
+      purchasesRequired: 7,
+      rewardQuantity: 1,
+      rewardItem: 'free coffee',
+      repeatMode: 'INDEFINITE',
+    };
+    const cardTopology = {
+      source: 'VISION_EXTRACTED',
+      rows: 4,
+      columns: 8,
+      cells: [{ row: 0, column: 0, role: 'PURCHASE' }],
+      reviewRequired: true,
+    };
+    const draft = applyCanonicalLoyaltyDraftFields(
+      { reward: 'old reward', stampThreshold: 20, requiredStamps: 20 },
+      { rule, cardTopology, topologyReviewRequired: true, layoutSource: 'VISION_EXTRACTED' },
+    );
+    expect(draft.rule).toEqual(rule);
+    expect(draft.cardTopology).toEqual(cardTopology);
+    expect(draft.topologyReviewRequired).toBe(true);
+    expect(resolveDraftStampThreshold(draft)).toBe(7);
+    expect(draft.stampThreshold).toBe(7);
+    expect(draft.rewardRule).toContain('7');
+    expect(draft.rewardRule).not.toContain('Buy 20');
+  });
 });

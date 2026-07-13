@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   maybeClearStaleUploadOnTextOnlyIntent,
+  maybeRespondUploadAskBeforeClassifier,
 } from '../intakePendingTurnHandling.js';
 import * as persistBeliefDelta from '../../decision/persistBeliefDelta.js';
 
@@ -35,5 +36,25 @@ describe('intakePendingTurnHandling', () => {
     });
 
     expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it('maybeRespondUploadAskBeforeClassifier skips loyalty selection replay', async () => {
+    const result = await maybeRespondUploadAskBeforeClassifier({
+      userMessage: '(Image attached)',
+      attachmentOnlyUpload: true,
+      hasAttachment: true,
+      body: {
+        intakeV2Selection: {
+          selectedTool: 'setup_loyalty_program',
+          selectedParameters: {
+            storeId: 'store_abc',
+            confirmedActiveSpace: true,
+            selectionMethod: 'active-space',
+            evidenceId: 'evidence_123',
+          },
+        },
+      },
+    });
+    expect(result).toBeNull();
   });
 });

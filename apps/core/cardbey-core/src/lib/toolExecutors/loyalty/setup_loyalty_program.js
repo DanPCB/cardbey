@@ -27,6 +27,7 @@ import {
 } from './loyaltyProgramDraft.js';
 
 import { emitLoyaltyProgramTelemetry, LOYALTY_TELEMETRY } from './loyaltyProgramTelemetry.js';
+import { logLoyaltyContractDiagnostic } from '../../loyalty/loyaltyContractDiagnostics.js';
 
 
 
@@ -282,6 +283,13 @@ export async function execute(input = {}, context = {}) {
 
   });
 
+  if (planned?.draft) {
+    logLoyaltyContractDiagnostic('setup_loyalty_program_input', planned.draft, {
+      missionId: context?.missionId ?? input?.missionId ?? null,
+      storeId,
+    });
+  }
+
 
 
   if (planned.blocked) {
@@ -371,6 +379,12 @@ export async function execute(input = {}, context = {}) {
       missingFields: planned.missingFields ?? [],
 
       loyaltyProgramDraft: draft,
+
+      creationContract: planned.creationContract ?? draft.creationContract ?? null,
+
+      sourceMode: planned.creationContract?.sourceMode ?? draft.sourceMode ?? null,
+
+      recommendations: planned.creationContract?.recommendations ?? draft.recommendations ?? null,
 
       artifacts: [artifact],
 

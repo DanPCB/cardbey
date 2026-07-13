@@ -7,10 +7,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const handleTopologyDecisionMock = vi.fn(async () => ({
   ok: true,
-  status: 'executing',
+  success: true,
+  accepted: true,
+  status: 'queued',
+  state: 'queued',
   executionMode: 'campaign',
   missionId: 'mission-topology-1',
-  execution: { status: 'executing', executionMode: 'campaign', nodeCount: 4 },
 }));
 
 vi.mock('../../middleware/auth.js', () => ({
@@ -45,10 +47,10 @@ describe('POST /api/missions/:missionId/topology-decision', () => {
       .post('/api/missions/mission-topology-1/topology-decision')
       .send({ decision: 'approve' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(res.body.ok).toBe(true);
-    expect(res.body.status).toBe('executing');
-    expect(res.body.executionMode).toBe('campaign');
+    expect(res.body.accepted).toBe(true);
+    expect(res.body.state).toBe('queued');
     expect(handleTopologyDecisionMock).toHaveBeenCalledWith(
       'mission-topology-1',
       expect.objectContaining({ decision: 'approve', userId: 'user_test_1' }),

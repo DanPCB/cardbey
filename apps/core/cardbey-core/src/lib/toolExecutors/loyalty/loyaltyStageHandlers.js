@@ -14,12 +14,28 @@ import {
   buildAttachmentAnalysis,
   detectLoyaltyCardVisualHints,
 } from '../../intake/attachmentAnalysis.js';
+import { ensureLoyaltyAttachmentAnalysisWithTopology } from '../../intake/intakeAttachmentBinding.js';
 import {
   buildExecutionDraft,
   computeMissingFields,
   assertNoStaleMissingFields,
+  computeLoyaltyPauseFields,
+  requiresTopologyOwnerReview,
 } from '../../mission/topologyExecutionDraft.js';
 import { persistAndEmitLoyaltyProgramDraftArtifact } from './loyaltyProgramDraftArtifactService.js';
+import { Features } from '../../../config/features.js';
+import { asMissionEvidenceGraph } from '../../mission/missionEvidenceGraph.js';
+import { validateGraphContractConsistency } from '../../mission/missionValidator.js';
+import { readMetadata } from '../../persistence/metadataWriter.js';
+import {
+  loadLoyaltyEvidenceContext,
+  mergeGraphPreseedIntoPriors,
+  syncLoyaltyStageToGraph,
+  graphToLegacyEvidenceView,
+  normalizeToUnifiedGraph,
+} from '../../evidence/missionEvidenceGraphService.js';
+import { buildLoyaltyCreationContract, loyaltyCreationContractToDraft } from '../../loyalty/loyaltyCreationContract.js';
+import { hasAuthoritativeLoyaltyTopology } from '../../loyalty/loyaltyContractDiagnostics.js';
 import {
   emitLoyaltyProgressiveArtifact,
   progressivePartialFromDraft,
@@ -49,6 +65,48 @@ function mergeFromPriors(toolOutputs, keys) {
     }
   }
   return out;
+}
+
+/**
+ * Phase 1: prefer graph-backed evidence when legacy priors are absent.
+ *
+ * @param {string | undefined} missionId
+ * @param {Record<string, unknown>} priors
+ */
+async function enrichPriorsFromGraph(missionId, priors = {}, context = {}) {
+  if (!Features.phase1.graphWriteTarget) return priors;
+  const mid = pickString(missionId);
+  if (!mid) return priors;
+  try {
+    const memoryGraph =
+      context.missionEvidenceGraph && typeof context.missionEvidenceGraph === 'object'
+        ? graphToLegacyEvidenceView(normalizeToUnifiedGraph(context.missionEvidenceGraph))
+        : null;
+    const graphCtx = memoryGraph ?? (await loadLoyaltyEvidenceContext(mid));
+    if (!graphCtx) return priors;
+    return {
+      ...priors,
+      preseededDraft: mergeGraphPreseedIntoPriors(priors.preseededDraft, graphCtx.preseededDraft),
+      attachmentAnalysis: (() => {
+        const fromGraph = graphCtx.attachmentAnalysis;
+        const fromPriors = priors.attachmentAnalysis;
+        if (!fromGraph && !fromPriors) return null;
+        if (!fromPriors) return fromGraph;
+        if (!fromGraph) return fromPriors;
+        return {
+          ...fromPriors,
+          ...fromGraph,
+          preseededDraft: mergeGraphPreseedIntoPriors(
+            fromPriors.preseededDraft,
+            fromGraph.preseededDraft ?? graphCtx.preseededDraft,
+          ),
+        };
+      })(),
+      missionEvidenceGraph: graphCtx.graph ?? context.missionEvidenceGraph ?? null,
+    };
+  } catch {
+    return priors;
+  }
 }
 
 function asRecord(value) {
@@ -107,7 +165,7 @@ export function resolveLoyaltyTopologyStoreId(args = {}) {
 }
 
 function listMissingOwnerFields(draftLike) {
-  return computeMissingFields(draftLike);
+  return computeLoyaltyPauseFields(draftLike);
 }
 
 /**
@@ -115,6 +173,8 @@ function listMissingOwnerFields(draftLike) {
  * Prefer confirmedFields; also accept a complete executionDraft with high confidence.
  */
 function executionDraftHasAttachmentConfirmedFields(executionDraft, attachmentAnalysis) {
+  if (requiresTopologyOwnerReview(executionDraft)) return false;
+
   const draft = executionDraft && typeof executionDraft === 'object' ? executionDraft : null;
   const analysis =
     attachmentAnalysis && typeof attachmentAnalysis === 'object' ? attachmentAnalysis : null;
@@ -178,6 +238,9 @@ function resolveExecutionDraft(input = {}, context = {}, priors = {}) {
  */
 function suggestOwnerQuestion(missingFields, fallback) {
   const missing = Array.isArray(missingFields) ? missingFields : [];
+  if (missing.includes('topology_review')) {
+    return 'Review the detected card structure and reward rule before we continue.';
+  }
   if (missing.includes('reward') && missing.includes('stampThreshold')) {
     return 'What reward should customers receive, and after how many stamps?';
   }
@@ -206,6 +269,13 @@ function buildNeedsInputExtras(missingFields, seed = {}) {
   }
   if (typeof seed.programName === 'string' && seed.programName.trim()) {
     prefilledValues.programName = seed.programName.trim();
+  }
+  if (seed.rule && typeof seed.rule === 'object') prefilledValues.rule = seed.rule;
+  if (seed.cardTopology && typeof seed.cardTopology === 'object') {
+    prefilledValues.cardTopology = seed.cardTopology;
+  }
+  if (typeof seed.cardFooterText === 'string' && seed.cardFooterText.trim()) {
+    prefilledValues.cardFooterText = seed.cardFooterText.trim();
   }
   return {
     suggestedQuestion: suggestOwnerQuestion(missingFields),
@@ -271,8 +341,15 @@ export async function executeLoadStoreContext(input = {}, context = {}) {
 
 /** loyalty.analyze_attachment */
 export async function executeAnalyzeAttachment(input = {}, context = {}) {
-  const priors = mergeFromPriors(priorOutputs(context), ['attachmentAnalysis', 'preseededDraft']);
-  const existing =
+  let priors = mergeFromPriors(priorOutputs(context), ['attachmentAnalysis', 'preseededDraft']);
+  priors = await enrichPriorsFromGraph(pickString(context.missionId), priors, context);
+  const missionId = pickString(context.missionId);
+  const meta =
+    context.metadata && typeof context.metadata === 'object' ? context.metadata : {};
+  const intakeEvidence =
+    meta.intakeEvidence && typeof meta.intakeEvidence === 'object' ? meta.intakeEvidence : null;
+
+  let existing =
     (input.attachmentAnalysis && typeof input.attachmentAnalysis === 'object'
       ? input.attachmentAnalysis
       : null) ||
@@ -281,31 +358,89 @@ export async function executeAnalyzeAttachment(input = {}, context = {}) {
       ? context.attachmentAnalysis
       : null);
 
+  existing = await ensureLoyaltyAttachmentAnalysisWithTopology(existing, {
+    evidenceId: pickString(
+      input.evidenceId,
+      meta.evidenceId,
+      intakeEvidence?.evidenceId,
+      existing?.evidenceId,
+      existing?.preseededDraft?.evidenceId,
+      priors.preseededDraft?.evidenceId,
+    ),
+    missionId,
+    storeId: pickString(context.storeId, meta.storeId, input.storeId),
+    imageRef: pickString(
+      input.imageUrl,
+      input.imageDataUrl,
+      existing?.imageUrl,
+      existing?.imageDataUrl,
+      existing?.preseededDraft?.imageAssetId,
+      intakeEvidence?.imageRef,
+      meta.imageRef,
+    ),
+    attachmentId: pickString(
+      input.attachmentId,
+      existing?.attachmentId,
+      existing?.preseededDraft?.attachmentId,
+    ),
+  });
+
   if (existing) {
-    return {
-      status: 'ok',
-      output: {
-        attachmentAnalysis: existing,
-        visualLoyaltyHints:
-          existing.visualHints ??
-          detectLoyaltyCardVisualHints({
-            filename: existing.filename,
-            ocrText: existing.ocrText,
-            userMessage: input.objective ?? context.goal,
-          }),
-      },
-    };
+    const existingTopology =
+      existing.preseededDraft?.cardTopology ?? existing.cardTopology ?? null;
+    if (hasAuthoritativeLoyaltyTopology(existingTopology)) {
+      if (missionId) {
+        try {
+          await syncLoyaltyStageToGraph(missionId, {
+            attachmentAnalysis: existing,
+            preseededDraft: existing.preseededDraft ?? priors.preseededDraft ?? null,
+            stage: 'loyalty.analyze_attachment',
+          });
+        } catch {
+          /* graph sync is best-effort */
+        }
+      }
+      return {
+        status: 'ok',
+        output: {
+          attachmentAnalysis: existing,
+          visualLoyaltyHints:
+            existing.visualHints ??
+            detectLoyaltyCardVisualHints({
+              filename: existing.filename,
+              ocrText: existing.ocrText,
+              userMessage: input.objective ?? context.goal,
+            }),
+        },
+      };
+    }
   }
 
   try {
     const analysis = await buildAttachmentAnalysis({
       filename: input.filename ?? input.name ?? null,
-      ocrText: input.ocrText ?? input.extractedText ?? null,
+      ocrText: input.ocrText ?? input.extractedText ?? existing?.ocrText ?? null,
       userMessage: pickString(input.objective, context.goal, input.text),
-      preseededDraft: input.preseededDraft ?? priors.preseededDraft ?? context.preseededDraft ?? null,
-      imageDataUrl: input.imageDataUrl ?? null,
+      preseededDraft:
+        input.preseededDraft ?? existing?.preseededDraft ?? priors.preseededDraft ?? context.preseededDraft ?? null,
+      imageDataUrl: input.imageDataUrl ?? existing?.imageDataUrl ?? null,
+      imageUrl: input.imageUrl ?? existing?.imageUrl ?? null,
       attachmentOnlyUpload: Boolean(input.attachmentOnlyUpload),
+      missionId,
+      storeId: pickString(context.storeId, input.storeId),
+      evidenceId: pickString(input.evidenceId, existing?.evidenceId, meta.evidenceId),
     });
+    if (missionId && analysis) {
+      try {
+        await syncLoyaltyStageToGraph(missionId, {
+          attachmentAnalysis: analysis,
+          preseededDraft: analysis.preseededDraft ?? priors.preseededDraft ?? null,
+          stage: 'loyalty.analyze_attachment',
+        });
+      } catch {
+        /* graph sync is best-effort */
+      }
+    }
     return {
       status: 'ok',
       output: {
@@ -342,7 +477,7 @@ function mergeSeedWithOwnerInput(preseeded, ownerInput) {
 
 /** loyalty.infer_requirements */
 export async function executeInferRequirements(input = {}, context = {}) {
-  const priors = mergeFromPriors(priorOutputs(context), [
+  let priors = mergeFromPriors(priorOutputs(context), [
     'storeContext',
     'attachmentAnalysis',
     'preseededDraft',
@@ -351,6 +486,7 @@ export async function executeInferRequirements(input = {}, context = {}) {
     'executionDraft',
     'loyaltyRequirements',
   ]);
+  priors = await enrichPriorsFromGraph(pickString(context.missionId), priors, context);
   const storeContext = input.storeContext ?? priors.storeContext ?? null;
   const attachmentAnalysis = input.attachmentAnalysis ?? priors.attachmentAnalysis ?? null;
   const executionDraft = resolveExecutionDraft(input, context, priors);
@@ -362,7 +498,7 @@ export async function executeInferRequirements(input = {}, context = {}) {
     };
   }
 
-  let missingFields = computeMissingFields(executionDraft);
+  let missingFields = computeLoyaltyPauseFields(executionDraft);
   assertNoStaleMissingFields(executionDraft, missingFields);
 
   const loyaltyRequirements = {
@@ -423,7 +559,7 @@ export async function executeInferRequirements(input = {}, context = {}) {
 
 /** loyalty.generate_draft */
 export async function executeGenerateDraft(input = {}, context = {}) {
-  const priors = mergeFromPriors(priorOutputs(context), [
+  let priors = mergeFromPriors(priorOutputs(context), [
     'storeContext',
     'loyaltyRequirements',
     'attachmentAnalysis',
@@ -431,6 +567,7 @@ export async function executeGenerateDraft(input = {}, context = {}) {
     'ownerInput',
     'executionDraft',
   ]);
+  priors = await enrichPriorsFromGraph(pickString(context.missionId), priors, context);
   const requirements = input.loyaltyRequirements ?? priors.loyaltyRequirements ?? {};
   const storeContext = input.storeContext ?? priors.storeContext ?? {};
   const executionDraft = resolveExecutionDraft(input, context, {
@@ -438,7 +575,7 @@ export async function executeGenerateDraft(input = {}, context = {}) {
     loyaltyRequirements: requirements,
   });
 
-  let missing = computeMissingFields(executionDraft);
+  let missing = computeLoyaltyPauseFields(executionDraft);
   assertNoStaleMissingFields(executionDraft, missing);
   const attachmentAnalysis = input.attachmentAnalysis ?? priors.attachmentAnalysis ?? null;
   if (
@@ -506,6 +643,7 @@ export async function executeGenerateDraft(input = {}, context = {}) {
       pipeline: {},
       preseededDraft: mergedSeed,
       requirements: pickString(input.objective, context.goal),
+      missionEvidenceGraph: priors.missionEvidenceGraph ?? null,
     });
 
     if (planned?.blocked) {
@@ -559,6 +697,13 @@ export async function executeGenerateDraft(input = {}, context = {}) {
     const missionId = pickString(context.missionId);
     if (missionId) {
       try {
+        await syncLoyaltyStageToGraph(missionId, {
+          preseededDraft: {
+            cardTopology: draft.cardTopology ?? mergedSeed.cardTopology ?? null,
+            rule: draft.rule ?? mergedSeed.rule ?? null,
+          },
+          stage: 'loyalty.generate_draft',
+        });
         await emitLoyaltyProgressiveArtifact(
           missionId,
           'draft_ready',
@@ -659,13 +804,42 @@ export async function executePersistDraft(input = {}, context = {}) {
     };
   }
 
-  const draft = applyCanonicalLoyaltyDraftFields(rawDraft, {
+  let draft = applyCanonicalLoyaltyDraftFields(rawDraft, {
     ...(priors.executionDraft && typeof priors.executionDraft === 'object' ? priors.executionDraft : {}),
     ...(priors.ownerInput && typeof priors.ownerInput === 'object' ? priors.ownerInput : {}),
     ...(priors.loyaltyRequirements && typeof priors.loyaltyRequirements === 'object'
       ? priors.loyaltyRequirements
       : {}),
   });
+
+  if (missionId) {
+    try {
+      const graphCtx = await loadLoyaltyEvidenceContext(missionId);
+      if (graphCtx?.preseededDraft) {
+        draft = mergeGraphPreseedIntoPriors(draft, graphCtx.preseededDraft);
+        if (
+          hasAuthoritativeLoyaltyTopology(draft.cardTopology) &&
+          !hasAuthoritativeLoyaltyTopology(
+            draft.creationContract && typeof draft.creationContract === 'object'
+              ? draft.creationContract.cardTopology
+              : null,
+          )
+        ) {
+          const refreshed = buildLoyaltyCreationContract({
+            storeId,
+            preseededDraft: draft,
+            hasAttachmentEvidence: true,
+            missionEvidenceGraph: graphCtx.graph ?? null,
+            storeContext: priors.storeContext ?? null,
+          });
+          const flattened = loyaltyCreationContractToDraft(refreshed);
+          draft = { ...draft, ...flattened, creationContract: refreshed };
+        }
+      }
+    } catch {
+      /* graph refresh is best-effort */
+    }
+  }
   const draftId = pickString(draft.draftId, draft.artifactId) || `loyalty-draft-${randomUUID().slice(0, 8)}`;
   const storeName =
     pickString(priors.storeContext?.name, priors.storeContext?.storeName, draft.storeName) || null;
@@ -682,6 +856,15 @@ export async function executePersistDraft(input = {}, context = {}) {
   };
 
   let storePersist = null;
+  if (Features.reasoningPhase0.graphContractInvariant && missionId) {
+    const meta = await readMetadata(missionId);
+    const missionContract =
+      input.missionContract ?? priors.missionContract ?? context.missionContract ?? meta?.missionContract ?? null;
+    const graph = asMissionEvidenceGraph(meta?.missionEvidenceGraph);
+    if (missionContract && graph) {
+      validateGraphContractConsistency(graph, missionContract);
+    }
+  }
   if (userId) {
     storePersist = await persistLoyaltyProgramDraftToStore({
       storeId,
@@ -772,12 +955,18 @@ export async function executePresentReview(input = {}, context = {}) {
     };
   }
 
-  const canonicalDraft = applyCanonicalLoyaltyDraftFields({
-    ...draft,
-    storeId,
-    storeName,
-    missionId,
-  });
+  const canonicalDraft = applyCanonicalLoyaltyDraftFields(
+    {
+      ...draft,
+      storeId,
+      storeName,
+      missionId,
+    },
+    {
+      ...(priors.executionDraft && typeof priors.executionDraft === 'object' ? priors.executionDraft : {}),
+      ...(priors.ownerInput && typeof priors.ownerInput === 'object' ? priors.ownerInput : {}),
+    },
+  );
   const artifact = await persistAndEmitLoyaltyProgramDraftArtifact(missionId, {
     storeId,
     storeName,

@@ -77,4 +77,48 @@ describe('artifactAuthority', () => {
 
     expect(result.satisfied).toBe(true);
   });
+
+  it('accepts loyalty draft awaiting owner review as satisfied artifact authority', () => {
+    const result = resolveMissionArtifactAuthority({
+      contract: { expectedAssetTypes: ['generated_loyalty_program'] },
+      metadata: {
+        missionDeliveredArtifacts: [
+          {
+            type: 'generated_loyalty_program',
+            artifactType: 'generated_loyalty_program',
+            status: 'awaiting_owner_review',
+            payload: { reward: 'Free coffee', program: { stampThreshold: 8 } },
+            title: 'Loyalty Program',
+          },
+        ],
+      },
+      nodeRun: { status: 'completed', outputs: {}, toolOutputs: {} },
+    });
+
+    expect(result.satisfied).toBe(true);
+  });
+
+  it('accepts generated_loyalty_program with subtype loyalty from present_review tool output', () => {
+    const artifact = {
+      id: 'a1',
+      type: 'generated_loyalty_program',
+      subtype: 'loyalty',
+      status: 'awaiting_owner_review',
+      payload: { reward: 'Free coffee', stampThreshold: 8 },
+    };
+    const result = resolveMissionArtifactAuthority({
+      contract: { expectedAssetTypes: ['generated_loyalty_program'] },
+      metadata: {},
+      nodeRun: {
+        status: 'completed',
+        outputs: { loyaltyProgramDraftArtifact: artifact, artifacts: [artifact] },
+        toolOutputs: {
+          'loyalty.present_review': { artifact, artifacts: [artifact] },
+        },
+      },
+    });
+
+    expect(result.satisfied).toBe(true);
+    expect(result.matchedArtifacts.length).toBeGreaterThan(0);
+  });
 });

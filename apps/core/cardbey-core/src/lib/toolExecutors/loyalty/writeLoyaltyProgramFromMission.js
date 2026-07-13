@@ -9,6 +9,7 @@ import { advanceProactivePipelineStep } from '../../orchestrator/advanceProactiv
 import scheduleLoyaltyCampaign from './schedule_loyalty_campaign.js';
 import { assertStoreOwnership, resolveDraftStampThreshold } from './loyaltyProgramDraft.js';
 import { emitLoyaltyProgramTelemetry, LOYALTY_TELEMETRY } from './loyaltyProgramTelemetry.js';
+import { resolveLoyaltyPersistencePayload } from './loyaltyPersistencePayload.js';
 
 function pickString(...values) {
   for (const value of values) {
@@ -79,9 +80,10 @@ export async function writeLoyaltyProgramFromMission(params) {
   }
 
   const prisma = getPrismaClient();
-  const programName = pickString(draft.programName, `${access.store.name} Rewards`);
-  const requiredStamps = Math.max(1, resolveDraftStampThreshold(draft) ?? 9);
-  const reward = pickString(draft.reward, '1 free item');
+  const persisted = resolveLoyaltyPersistencePayload(draft);
+  const programName = pickString(draft.programName, `${access.store.name} Rewards`, persisted.name);
+  const requiredStamps = persisted.stampsRequired;
+  const reward = persisted.reward;
 
   let program;
   let writeAction = 'create';
@@ -92,15 +94,27 @@ export async function writeLoyaltyProgramFromMission(params) {
       select: { id: true },
     });
 
+    const data = {
+      name: programName,
+      stampsRequired: requiredStamps,
+      reward,
+      ruleJson: persisted.ruleJson,
+      cardTopologyJson: persisted.cardTopologyJson,
+      layoutSource: persisted.layoutSource,
+      layoutConfidence: persisted.layoutConfidence,
+      layoutReviewedAt: persisted.layoutReviewedAt,
+      layoutReviewedBy: persisted.layoutReviewedBy,
+    };
+
     if (existing?.id) {
       writeAction = 'update';
       program = await prisma.loyaltyProgram.update({
         where: { id: existing.id },
-        data: { name: programName, stampsRequired: requiredStamps, reward },
+        data,
       });
     } else {
       program = await prisma.loyaltyProgram.create({
-        data: { tenantId, storeId, name: programName, stampsRequired: requiredStamps, reward },
+        data: { tenantId, storeId, ...data },
       });
     }
   } catch (err) {
@@ -134,6 +148,8 @@ export async function writeLoyaltyProgramFromMission(params) {
         reward,
         requiredStamps,
         stampThreshold: requiredStamps,
+        rule: persisted.ruleJson,
+        cardTopology: persisted.cardTopologyJson,
         loyaltyProgramId: program.id,
         phase: 'activated',
       },

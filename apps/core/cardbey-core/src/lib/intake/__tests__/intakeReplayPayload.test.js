@@ -3,6 +3,7 @@ import { applyIntakePayloadGuard } from '../intakePayloadGuard.js';
 import {
   buildIntakeReplayPayloadFromSelection,
   estimateIntakeReplayPayloadBytes,
+  shouldSkipUploadAskForIntakeSelectionReplay,
   stripHeavyUploadFieldsDeep,
 } from '../intakeReplayPayload.js';
 
@@ -69,6 +70,27 @@ describe('intakeReplayPayload', () => {
       payload.intakeV2Selection.selectedParameters.attachmentAnalysis.preseededDraft,
     ).not.toHaveProperty('imageAssetId');
     expect(estimateIntakeReplayPayloadBytes(payload)).toBeLessThan(50 * 1024);
+  });
+
+  it('shouldSkipUploadAskForIntakeSelectionReplay is true for loyalty store confirm', () => {
+    expect(
+      shouldSkipUploadAskForIntakeSelectionReplay({
+        intakeV2Selection: {
+          selectedTool: 'setup_loyalty_program',
+          selectedParameters: {
+            storeId: 'store_abc',
+            confirmedActiveSpace: true,
+            selectionMethod: 'active-space',
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipUploadAskForIntakeSelectionReplay({
+        text: '(Image attached)',
+        pendingIntent: { clarifyType: 'active_space_confirm', lockedTool: 'setup_loyalty_program' },
+      }),
+    ).toBe(false);
   });
 
   it('applyIntakePayloadGuard accepts replay payload after stripping heavy upload blobs', () => {

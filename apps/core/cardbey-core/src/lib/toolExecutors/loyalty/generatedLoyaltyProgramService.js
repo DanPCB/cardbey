@@ -5,6 +5,10 @@
 import { randomUUID } from 'node:crypto';
 import { getPrismaClient } from '../../prisma.js';
 import { applyCanonicalLoyaltyDraftFields, resolveDraftStampThreshold } from './loyaltyProgramDraft.js';
+import {
+  hasAuthoritativeLoyaltyTopology,
+  logLoyaltyContractDiagnostic,
+} from '../../loyalty/loyaltyContractDiagnostics.js';
 
 function pickString(...values) {
   for (const value of values) {
@@ -130,6 +134,14 @@ export async function buildGeneratedLoyaltyProgramArtifact(params) {
   const draft = applyCanonicalLoyaltyDraftFields(
     params.draft && typeof params.draft === 'object' ? params.draft : {},
   );
+  logLoyaltyContractDiagnostic('generated_loyalty_program_artifact', draft, {
+    missionId,
+    storeId,
+  });
+  const contractInvalid =
+    hasAuthoritativeLoyaltyTopology(draft.cardTopology) &&
+    !draft.rule &&
+    process.env.NODE_ENV !== 'production';
   const branding =
     params.branding && typeof params.branding === 'object'
       ? params.branding
@@ -140,16 +152,22 @@ export async function buildGeneratedLoyaltyProgramArtifact(params) {
   const artifactId =
     pickString(draft.artifactId, draft.draftId) || `loyalty-gen-${randomUUID().slice(0, 8)}`;
   const programId = pickString(draft.loyaltyProgramId, draft.draftId, artifactId);
-  const reward = pickString(draft.reward, draft.rewardRule, draft.rewardName);
+  const reward = pickString(draft.reward, draft.rewardRule, draft.rewardName, draft.rule?.rewardItem);
   const stampThreshold = resolveDraftStampThreshold(draft);
   const programName = pickString(draft.programName, draft.name, 'Loyalty Rewards');
   const storeName =
     pickString(params.storeName, branding?.storeName, draft.storeName) || 'Your Store';
+  const rule = draft.rule && typeof draft.rule === 'object' ? draft.rule : null;
+  const cardTopology =
+    draft.cardTopology && typeof draft.cardTopology === 'object' ? draft.cardTopology : null;
+  const cardFooterText = pickString(draft.cardFooterText, cardTopology?.footerText) || null;
   const rules =
     pickString(draft.rewardRule, draft.customerInstructions) ||
-    (reward && stampThreshold != null
-      ? `Buy ${stampThreshold}, get ${reward}`
-      : 'Collect stamps to earn your reward.');
+    (rule
+      ? `Collect ${rule.purchasesRequired} ${rule.purchaseItem} · Get ${rule.rewardQuantity} ${rule.rewardItem}`
+      : reward && stampThreshold != null
+        ? `Buy ${stampThreshold}, get ${reward}`
+        : 'Collect stamps to earn your reward.');
 
   const theme = buildLoyaltyCardTheme(
     branding ?? { businessCategory: draft.businessCategory ?? null },
@@ -197,7 +215,9 @@ export async function buildGeneratedLoyaltyProgramArtifact(params) {
     storeId: storeId || null,
     storeName,
     title: `${programName}`,
-    message: 'Loyalty program ready.',
+    message: contractInvalid
+      ? 'Loyalty draft created, but topology was lost before rendering.'
+      : 'Loyalty program ready.',
     payload: {
       store: {
         id: storeId,
@@ -222,6 +242,11 @@ export async function buildGeneratedLoyaltyProgramArtifact(params) {
         requiredStamps: stampThreshold,
         reward,
         rules,
+        rule,
+        cardTopology,
+        cardFooterText,
+        layoutSource: pickString(draft.layoutSource, cardTopology?.source) || null,
+        layoutConfidence: Number(draft.layoutConfidence ?? cardTopology?.confidence) || null,
         expiry: draft.expiryNote ?? null,
         memberLimit: null,
       },
@@ -229,6 +254,11 @@ export async function buildGeneratedLoyaltyProgramArtifact(params) {
       stampThreshold,
       programName,
       rules,
+      rule,
+      cardTopology,
+      cardFooterText,
+      layoutSource: pickString(draft.layoutSource, cardTopology?.source) || null,
+      layoutConfidence: Number(draft.layoutConfidence ?? cardTopology?.confidence) || null,
       qr: {
         url: joinUrl,
         label: 'Scan to Join',

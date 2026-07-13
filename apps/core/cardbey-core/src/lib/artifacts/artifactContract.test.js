@@ -5,6 +5,7 @@ import {
   artifactUnavailable,
   deriveIntakeSuccessFromToolResult,
   isUsableArtifact,
+  normalizeArtifact,
   resolveIntakeMessageFromToolResult,
 } from './artifactContract.js';
 
@@ -85,5 +86,16 @@ describe('artifactContract', () => {
     };
     expect(resolveIntakeMessageFromToolResult(toolResult)).toContain('Created 2 product(s)');
     expect(resolveIntakeMessageFromToolResult(toolResult)).not.toBe('Done.');
+  });
+
+  it('generated_loyalty_program with subtype loyalty is usable when awaiting_owner_review', () => {
+    const normalized = normalizeArtifact({
+      type: 'generated_loyalty_program',
+      subtype: 'loyalty',
+      status: 'awaiting_owner_review',
+      payload: { reward: 'Free coffee', stampThreshold: 8 },
+    });
+    expect(normalized?.subtype).toBe('generated_loyalty_program');
+    expect(isUsableArtifact(normalized)).toBe(true);
   });
 });

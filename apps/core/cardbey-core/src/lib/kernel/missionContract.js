@@ -5,6 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { readMetadata, writeMetadata } from '../persistence/metadataWriter.js';
+import { computeTopologyHash } from '../mission/topologyHash.js';
 
 export const MISSION_FAMILIES = new Set([
   'campaign',
@@ -120,6 +121,12 @@ export function buildMissionContract(input = {}) {
           ? 'publish_campaign'
           : `publish_${missionFamily}`),
     kernelVersion: pickString(input.kernelVersion) ?? '0.1.0',
+    evidenceGraphId: pickString(input.evidenceGraphId) ?? null,
+    evidenceGraphVersion:
+      typeof input.evidenceGraphVersion === 'number' && input.evidenceGraphVersion > 0
+        ? input.evidenceGraphVersion
+        : null,
+    topologyHash: pickString(input.topologyHash) ?? null,
   });
 }
 
@@ -174,4 +181,42 @@ export async function freezeMissionContract(missionId, input = {}) {
     expectedArtifactTypes: contract.expectedAssetTypes,
   });
   return contract;
+}
+
+/**
+ * Re-baseline frozen topologyHash after owner-approved loyalty topology is authoritative.
+ * Plan freeze may occur before vision extraction / HITL approval; persist must not drift-fail.
+ *
+ * @param {string} missionId
+ * @param {Record<string, unknown> | null | undefined} topology
+ * @param {{ evidenceGraphId?: string | null; evidenceGraphVersion?: number | null }} [graphMeta]
+ */
+export async function advanceFrozenMissionContractTopology(missionId, topology, graphMeta = {}) {
+  const mid = pickString(missionId);
+  if (!mid) return null;
+  const existing = await readMissionContract(mid);
+  if (!existing || !topology || typeof topology !== 'object') return existing;
+
+  const nextHash = computeTopologyHash(topology);
+  const graphId = pickString(graphMeta.evidenceGraphId);
+  const graphVersion =
+    typeof graphMeta.evidenceGraphVersion === 'number' && graphMeta.evidenceGraphVersion > 0
+      ? graphMeta.evidenceGraphVersion
+      : null;
+
+  const unchanged =
+    existing.topologyHash === nextHash &&
+    (!graphId || existing.evidenceGraphId === graphId) &&
+    (!graphVersion || existing.evidenceGraphVersion === graphVersion);
+  if (unchanged) return existing;
+
+  const patched = Object.freeze({
+    ...existing,
+    topologyHash: nextHash,
+    topologyApprovedAt: new Date().toISOString(),
+    ...(graphId ? { evidenceGraphId: graphId } : {}),
+    ...(graphVersion ? { evidenceGraphVersion: graphVersion } : {}),
+  });
+  await writeMetadata(mid, { missionContract: patched });
+  return patched;
 }

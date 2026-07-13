@@ -10,11 +10,49 @@ import { runTopologyNodes } from './topologyNodeRunner.js';
 import {
   buildAndValidateExecutionDraft,
   attachmentAnalysisAsEvidence,
+  requiresTopologyOwnerReview,
 } from './topologyExecutionDraft.js';
-import { extractLoyaltyDraftArtifactFromNodeRun } from '../toolExecutors/loyalty/loyaltyProgramDraftArtifactService.js';
-import { readMissionContract } from '../kernel/missionContract.js';
-import { resolveMissionArtifactAuthority } from './artifactAuthority.js';
+import { readMissionContract, advanceFrozenMissionContractTopology } from '../kernel/missionContract.js';
+import {
+  buildTopologyLifecycleTrace,
+  resolveTopologyExecutionOutcome,
+} from './topologyExecutionOutcome.js';
+import {
+  asMissionEvidenceGraph,
+  mergeMissionEvidenceGraphs,
+  summarizeMissionEvidenceGraph,
+} from './missionEvidenceGraph.js';
+import {
+  buildLoyaltyMissionEvidenceGraph,
+  recordLoyaltyMissionOutcomeEvidence,
+} from './loyaltyMissionEvidence.js';
+import {
+  normalizeToUnifiedGraph,
+  persistGraph,
+  seedMissionGraphFromLoyaltyMetadata,
+  setGraphPhase,
+  loadLoyaltyEvidenceContext,
+  syncLoyaltyStageToGraph,
+} from '../evidence/missionEvidenceGraphService.js';
+import { runReasoningStep } from '../reasoning/reasoningCoordinator.js';
+import {
+  isLoyaltyCardMission,
+  shouldSkipDagAfterReasoning,
+  writeReasoningPrimaryExecutionMetadata,
+} from '../reasoning/reasoningPrimaryExecution.js';
+import { Features } from '../../config/features.js';
 import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
+import { mergeOwnerTopologyIntoDraft } from '../documentTopology/documentTopologyOwnerInput.js';
+import { hasAuthoritativeLoyaltyTopology } from '../loyalty/loyaltyContractDiagnostics.js';
+import {
+  applyOwnerActionToCreationContract,
+  loyaltyCreationContractToDraft,
+} from '../loyalty/loyaltyCreationContract.js';
+import { MissionTransitionError } from './missionTransitionError.js';
+import { requireMissionPipelineAuthority } from './missionAuthority.js';
+import { emitTopologyBlackboardEvent } from './topologyExecutionTelemetry.js';
+
+/** @typedef {'campaign' | 'store' | 'loyalty' | 'generic'} TopologyExecutionMode */
 
 function pickString(...values) {
   for (const value of values) {
@@ -48,27 +86,6 @@ export function canReopenCompletedTopologyMission(meta) {
     approvalStatus === 'approved'
   );
 }
-
-/**
- * Loyalty topology must materialize a draft artifact before marking completed.
- * @param {TopologyExecutionMode} executionMode
- * @param {Record<string, unknown>} nodeRun
- * @returns {'completed' | 'failed'}
- */
-function resolveLoyaltyPipelineStatus(executionMode, nodeRun) {
-  if (executionMode !== 'loyalty' || nodeRun.status !== 'completed') {
-    return nodeRun.status === 'completed'
-      ? 'completed'
-      : nodeRun.status === 'awaiting_owner_input'
-        ? 'awaiting_owner_input'
-        : 'failed';
-  }
-  const artifact = extractLoyaltyDraftArtifactFromNodeRun(nodeRun);
-  return artifact ? 'completed' : 'failed';
-}
-import { emitTopologyBlackboardEvent } from './topologyExecutionTelemetry.js';
-
-/** @typedef {'campaign' | 'store' | 'loyalty' | 'generic'} TopologyExecutionMode */
 
 /**
  * @param {string | null | undefined} missionType
@@ -121,21 +138,59 @@ export function resolveTopologyExecutionMode(missionType, metadata = null) {
  * @param {string} fromStatus
  * @param {string} toStatus
  * @param {Record<string, unknown>} [extra]
+ * @param {{ persistenceKind?: string }} [ctx]
  */
-async function transitionMissionStatus(prisma, missionId, fromStatus, toStatus, extra = {}) {
-  if (!canTransitionMissionPipeline(fromStatus, toStatus)) return false;
-  const result = await safePipelineUpdate(
-    prisma,
-    {
-      where: { id: missionId, status: fromStatus },
-      data: { status: toStatus, ...extra },
-    },
-    { label: `topologyExecutor.${fromStatus}_to_${toStatus}`, missionId },
-  );
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[topologyExecutor] transition: ${fromStatus} -> ${toStatus} mission=${missionId}`);
+async function transitionMissionStatus(prisma, missionId, fromStatus, toStatus, extra = {}, ctx = {}) {
+  if (!canTransitionMissionPipeline(fromStatus, toStatus)) {
+    throw new MissionTransitionError({
+      code: 'INVALID_MISSION_STATE',
+      message: `Cannot transition mission ${missionId} from ${fromStatus} to ${toStatus}`,
+      missionId,
+      currentState: fromStatus,
+      requiredState: fromStatus,
+      failedTransition: `${fromStatus} -> ${toStatus}`,
+      persistenceKind: ctx.persistenceKind ?? 'mission_pipeline',
+    });
   }
-  return Boolean(result);
+
+  try {
+    const result = await safePipelineUpdate(
+      prisma,
+      {
+        where: { id: missionId, status: fromStatus },
+        data: { status: toStatus, ...extra },
+      },
+      { label: `topologyExecutor.${fromStatus}_to_${toStatus}`, missionId },
+    );
+    if (!result) {
+      throw new MissionTransitionError({
+        code: 'MISSION_RECORD_NOT_FOUND',
+        message: 'Authoritative mission record not found.',
+        missionId,
+        currentState: fromStatus,
+        failedTransition: `${fromStatus} -> ${toStatus}`,
+        persistenceKind: ctx.persistenceKind ?? 'mission_pipeline',
+      });
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[topologyExecutor] transition: ${fromStatus} -> ${toStatus} mission=${missionId}`);
+    }
+    return result;
+  } catch (err) {
+    if (err instanceof MissionTransitionError) throw err;
+    if (err?.code === 'P2025') {
+      throw new MissionTransitionError({
+        code: 'MISSION_RECORD_NOT_FOUND',
+        message: 'Authoritative mission record not found.',
+        missionId,
+        currentState: fromStatus,
+        failedTransition: `${fromStatus} -> ${toStatus}`,
+        persistenceKind: ctx.persistenceKind ?? 'mission_pipeline',
+        cause: err,
+      });
+    }
+    throw err;
+  }
 }
 
 /**
@@ -144,12 +199,19 @@ async function transitionMissionStatus(prisma, missionId, fromStatus, toStatus, 
  * @param {import('../lib/prisma.js').PrismaClient} prisma
  * @param {string} missionId
  */
-export async function ensureMissionReadyForTopologyExecution(prisma, missionId) {
+export async function ensureMissionReadyForTopologyExecution(prisma, missionId, ctx = {}) {
   const row = await prisma.missionPipeline.findUnique({
     where: { id: missionId },
     select: { status: true },
   });
-  if (!row) throw new Error(`MissionPipeline not found: ${missionId}`);
+  if (!row) {
+    throw new MissionTransitionError({
+      code: 'MISSION_RECORD_NOT_FOUND',
+      message: `MissionPipeline not found: ${missionId}`,
+      missionId,
+      persistenceKind: ctx.persistenceKind ?? 'mission_pipeline',
+    });
+  }
 
   let status = String(row.status ?? '').trim();
 
@@ -173,32 +235,23 @@ export async function ensureMissionReadyForTopologyExecution(prisma, missionId) 
   }
 
   if (status === 'awaiting_confirmation') {
-    const moved = await transitionMissionStatus(prisma, missionId, 'awaiting_confirmation', 'queued');
-    if (!moved) {
-      throw new Error(`Cannot transition mission ${missionId} from awaiting_confirmation to queued`);
-    }
+    await transitionMissionStatus(prisma, missionId, 'awaiting_confirmation', 'queued', {}, ctx);
     status = 'queued';
   }
 
   if (status === 'awaiting_owner_input') {
-    const moved = await transitionMissionStatus(prisma, missionId, 'awaiting_owner_input', 'executing', {
+    await transitionMissionStatus(prisma, missionId, 'awaiting_owner_input', 'executing', {
       runState: 'running',
       startedAt: new Date(),
-    });
-    if (!moved) {
-      throw new Error(`Cannot transition mission ${missionId} from awaiting_owner_input to executing`);
-    }
+    }, ctx);
     return 'executing';
   }
 
   if (status === 'queued') {
-    const moved = await transitionMissionStatus(prisma, missionId, 'queued', 'executing', {
+    await transitionMissionStatus(prisma, missionId, 'queued', 'executing', {
       runState: 'running',
       startedAt: new Date(),
-    });
-    if (!moved) {
-      throw new Error(`Cannot transition mission ${missionId} from queued to executing`);
-    }
+    }, ctx);
     return 'executing';
   }
 
@@ -215,21 +268,88 @@ export async function ensureMissionReadyForTopologyExecution(prisma, missionId) 
   }
 
   if (status === 'failed') {
-    const moved = await transitionMissionStatus(prisma, missionId, 'failed', 'queued');
-    if (!moved) {
-      throw new Error(`Cannot retry mission ${missionId} from failed`);
-    }
-    const executing = await transitionMissionStatus(prisma, missionId, 'queued', 'executing', {
+    await transitionMissionStatus(prisma, missionId, 'failed', 'queued', {}, ctx);
+    await transitionMissionStatus(prisma, missionId, 'queued', 'executing', {
       runState: 'running',
       startedAt: new Date(),
-    });
-    if (!executing) {
-      throw new Error(`Cannot transition retried mission ${missionId} to executing`);
-    }
+    }, ctx);
     return 'executing';
   }
 
-  throw new Error(`Mission ${missionId} is ${status}; cannot start topology execution`);
+  throw new MissionTransitionError({
+    code: 'INVALID_MISSION_STATE',
+    message: `Mission ${missionId} is ${status}; cannot start topology execution`,
+    missionId,
+    currentState: status,
+    requiredState: 'queued',
+    persistenceKind: ctx.persistenceKind ?? 'mission_pipeline',
+  });
+}
+
+/**
+ * Fast synchronous queue — awaiting_confirmation → queued only.
+ * @param {string} missionId
+ */
+export async function queueMissionForTopologyExecution(missionId) {
+  const authorityResult = await requireMissionPipelineAuthority(missionId);
+  if (!authorityResult.ok) {
+    throw new MissionTransitionError({
+      code: authorityResult.code,
+      message: authorityResult.message,
+      missionId,
+      persistenceKind: authorityResult.authority?.persistenceKind ?? null,
+    });
+  }
+
+  const prisma = getPrismaClient();
+  const { authority } = authorityResult;
+  let status = String(authority.currentState ?? '').trim();
+
+  if (status === 'completed') {
+    const meta = await readMetadata(missionId);
+    if (canReopenCompletedTopologyMission(meta)) {
+      await safePipelineUpdate(
+        prisma,
+        {
+          where: { id: missionId },
+          data: {
+            status: 'awaiting_confirmation',
+            completedAt: null,
+            runState: 'idle',
+          },
+        },
+        { label: 'topologyExecutor.reopen_completed_for_queue', missionId },
+      );
+      status = 'awaiting_confirmation';
+    }
+  }
+
+  if (status === 'awaiting_confirmation') {
+    await transitionMissionStatus(prisma, missionId, 'awaiting_confirmation', 'queued', {}, {
+      persistenceKind: authority.persistenceKind,
+    });
+    return 'queued';
+  }
+
+  if (status === 'queued' || status === 'executing' || status === 'awaiting_owner_input') {
+    return status;
+  }
+
+  if (status === 'failed') {
+    await transitionMissionStatus(prisma, missionId, 'failed', 'queued', {}, {
+      persistenceKind: authority.persistenceKind,
+    });
+    return 'queued';
+  }
+
+  throw new MissionTransitionError({
+    code: 'INVALID_MISSION_STATE',
+    message: `Mission ${missionId} is ${status}; cannot queue topology execution`,
+    missionId,
+    currentState: status,
+    requiredState: 'awaiting_confirmation',
+    persistenceKind: authority.persistenceKind,
+  });
 }
 
 /**
@@ -237,8 +357,9 @@ export async function ensureMissionReadyForTopologyExecution(prisma, missionId) 
  * @param {string} missionId
  * @param {'completed' | 'failed' | 'awaiting_owner_input'} finalStatus
  * @param {Record<string, unknown>} extra
+ * @param {{ failureReason?: string; failureMessage?: string; reconciled?: boolean }} [ctx]
  */
-async function finalizeMissionStatus(prisma, missionId, finalStatus, extra = {}) {
+async function finalizeMissionStatus(prisma, missionId, finalStatus, extra = {}, ctx = {}) {
   const fromStatus = 'executing';
   const runState =
     finalStatus === 'completed' ? 'done' : finalStatus === 'awaiting_owner_input' ? 'running' : 'failed';
@@ -276,6 +397,29 @@ async function finalizeMissionStatus(prisma, missionId, finalStatus, extra = {})
   await writeMetadata(missionId, {
     runtimeState,
     executionState: runtimeState,
+    ...(finalStatus === 'completed'
+      ? {
+          multiAgentStatus: 'completed',
+          executionFailureReason: null,
+          executionFailureMessage: null,
+        }
+      : finalStatus === 'failed'
+        ? {
+            multiAgentStatus: 'failed',
+            ...(ctx.failureReason ? { executionFailureReason: ctx.failureReason } : {}),
+            ...(ctx.failureMessage ? { executionFailureMessage: ctx.failureMessage } : {}),
+          }
+        : {}),
+    ...(ctx.reconciled
+      ? {
+          missionOutcomeReconciled: {
+            previousStatus: 'failed',
+            newStatus: 'completed',
+            reason: 'required outputs were completed before false terminal transition',
+            at: new Date().toISOString(),
+          },
+        }
+      : {}),
   });
 }
 
@@ -358,6 +502,16 @@ export async function executeApprovedTopology(missionId, topology, context = {})
   const mid = String(missionId ?? '').trim();
   if (!mid) throw new Error('topologyExecutor requires missionId');
 
+  const authorityResult = await requireMissionPipelineAuthority(mid);
+  if (!authorityResult.ok) {
+    throw new MissionTransitionError({
+      code: authorityResult.code,
+      message: authorityResult.message,
+      missionId: mid,
+      persistenceKind: authorityResult.authority?.persistenceKind ?? null,
+    });
+  }
+
   const nodes = Array.isArray(topology?.nodes) ? topology.nodes : [];
   if (!nodes.length) {
     throw new Error('topologyExecutor requires approved topology with nodes');
@@ -366,8 +520,17 @@ export async function executeApprovedTopology(missionId, topology, context = {})
   const prisma = getPrismaClient();
   const pipeline = await prisma.missionPipeline.findUnique({
     where: { id: mid },
-    select: { type: true, metadataJson: true, outputsJson: true, targetId: true, targetType: true },
+    select: { type: true, metadataJson: true, outputsJson: true, targetId: true, targetType: true, status: true },
   });
+
+  if (!pipeline) {
+    throw new MissionTransitionError({
+      code: 'MISSION_RECORD_NOT_FOUND',
+      message: 'Authoritative mission record not found.',
+      missionId: mid,
+      persistenceKind: authorityResult.authority.persistenceKind,
+    });
+  }
 
   const pipelineMeta =
     pipeline?.metadataJson && typeof pipeline.metadataJson === 'object' && !Array.isArray(pipeline.metadataJson)
@@ -384,11 +547,15 @@ export async function executeApprovedTopology(missionId, topology, context = {})
     (typeof pipelineMeta.storeId === 'string' ? pipelineMeta.storeId : null) ??
     (pipeline?.targetType === 'store' && pipeline?.targetId ? pipeline.targetId : null);
 
+  await ensureMissionReadyForTopologyExecution(prisma, mid, {
+    persistenceKind: authorityResult.authority.persistenceKind,
+  });
+
   await writeMetadata(mid, {
     multiAgentStatus: 'executing',
     approvalStatus: 'approved',
     executionStartedAt: new Date().toISOString(),
-    executionState: 'queued',
+    executionState: 'executing',
     runtimeState: 'executing',
     executionMode,
     executionNodeCount: nodes.length,
@@ -398,8 +565,6 @@ export async function executeApprovedTopology(missionId, topology, context = {})
       missionType: pipeline?.type ?? context.missionType ?? null,
     },
   });
-
-  await ensureMissionReadyForTopologyExecution(prisma, mid);
 
   if (executionMode !== 'campaign' && executionMode !== 'loyalty') {
     const metadata = await readMetadata(mid);
@@ -421,6 +586,112 @@ export async function executeApprovedTopology(missionId, topology, context = {})
     executionMode,
     missionType: pipeline?.type ?? context.missionType ?? null,
   });
+
+  if (Features.phase2.activeReasoning && executionMode === 'loyalty') {
+    try {
+      await seedMissionGraphFromLoyaltyMetadata(mid, {
+        ...pipelineMeta,
+        attachmentAnalysis: executionContext.attachmentAnalysis ?? null,
+        preseededDraft: executionContext.preseededDraft ?? null,
+        intakeEvidence: pipelineMeta.intakeEvidence ?? null,
+      });
+    } catch (seedErr) {
+      console.warn(
+        '[topologyExecutor] seedMissionGraphFromLoyaltyMetadata failed (non-fatal):',
+        seedErr instanceof Error ? seedErr.message : seedErr,
+      );
+    }
+    try {
+      const reasoningResult = await runReasoningStep(mid, {
+        ...executionContext,
+        userId: context.userId ?? null,
+        storeId: resolvedStoreId ?? null,
+        approvedTopology: topology,
+        metadata: pipelineMeta,
+        missionType: pipeline?.type ?? context.missionType ?? null,
+      });
+      if (reasoningResult?.deferTopology === false && reasoningResult?.actionResult?.status === 'needs_input') {
+        await writeMetadata(mid, {
+          executionState: 'awaiting_owner_input',
+          multiAgentStatus: 'awaiting_owner_input',
+          awaitingOwnerInput: true,
+          missingFields: reasoningResult.actionResult.missingFields ?? [],
+          suggestedQuestion: reasoningResult.actionResult.suggestedQuestion ?? null,
+        });
+        return {
+          ok: true,
+          status: 'awaiting_owner_input',
+          missionId: mid,
+          executionMode,
+          reasoning: reasoningResult,
+        };
+      }
+      if (
+        isLoyaltyCardMission(pipeline?.type ?? context.missionType, pipelineMeta) &&
+        shouldSkipDagAfterReasoning(reasoningResult)
+      ) {
+        const pipelineStatus =
+          reasoningResult.actionResult?.status === 'needs_input'
+            ? 'awaiting_owner_input'
+            : reasoningResult.terminalOutcome?.status === 'failed'
+              ? 'failed'
+              : 'completed';
+        await writeReasoningPrimaryExecutionMetadata(mid, reasoningResult, {
+          pipelineStatus,
+          multiAgentStatus: pipelineStatus,
+          executionState: pipelineStatus,
+        });
+        if (Features.phase1.graphWriteTarget && reasoningResult.graph) {
+          const unifiedGraph = normalizeToUnifiedGraph(reasoningResult.graph);
+          if (reasoningResult.terminalOutcome) {
+            unifiedGraph.outcome = reasoningResult.terminalOutcome;
+          }
+          setGraphPhase(
+            unifiedGraph,
+            pipelineStatus === 'completed' ? 'terminal' : 'verify',
+          );
+          await persistGraph(unifiedGraph, { missionId: mid });
+        }
+        await finalizeMissionStatus(prisma, mid, pipelineStatus, {
+          progressTotalSteps: nodes.length,
+          progressCompletedSteps: nodes.length,
+        });
+        const finalMetadata = await readMetadata(mid);
+        if (Features.phase2.reasoningStepLog && process.env.NODE_ENV !== 'production') {
+          console.info('[topologyExecutor] reasoning_primary_skipped_dag', {
+            missionId: mid,
+            pipelineStatus,
+            capabilityId: reasoningResult.actionResult?.capabilityId ?? null,
+          });
+        }
+        return withCanonicalRuntimeState({
+          ok: pipelineStatus !== 'failed',
+          status: pipelineStatus,
+          missionId: mid,
+          executionMode,
+          nodeCount: nodes.length,
+          metadata: finalMetadata,
+          reasoning: reasoningResult,
+          skippedDag: true,
+          multiAgentStatus: finalMetadata?.multiAgentStatus ?? pipelineStatus,
+        });
+      }
+      if (Features.phase2.reasoningStepLog && process.env.NODE_ENV !== 'production') {
+        console.info('[topologyExecutor] reasoning_step_before_dag', {
+          missionId: mid,
+          deferTopology: reasoningResult?.deferTopology,
+          capabilityId: reasoningResult?.nextPlan?.capabilityId ?? null,
+          phase: reasoningResult?.graph?.phase,
+          reasoningPrimary: reasoningResult?.reasoningPrimary === true,
+        });
+      }
+    } catch (reasoningErr) {
+      console.warn(
+        '[topologyExecutor] runReasoningStep failed (non-fatal):',
+        reasoningErr instanceof Error ? reasoningErr.message : reasoningErr,
+      );
+    }
+  }
 
   let nodeRun;
   try {
@@ -446,38 +717,147 @@ export async function executeApprovedTopology(missionId, topology, context = {})
       ? pipeline.outputsJson
       : {};
   const outputsJson = { ...priorOutputs, ...nodeRun.outputs };
-  let pipelineStatus = resolveLoyaltyPipelineStatus(executionMode, nodeRun);
-  const artifactAuthority = resolveMissionArtifactAuthority({
-    contract: missionContract,
-    metadata: pipelineMeta,
+  const freshMetadata = await readMetadata(mid);
+  const priorGraph = asMissionEvidenceGraph(
+    freshMetadata?.missionEvidenceGraph ?? pipelineMeta.missionEvidenceGraph ?? null,
+  );
+  const executionOutcome = resolveTopologyExecutionOutcome({
     nodeRun,
+    missionContract,
+    topology,
+    metadata: {
+      ...pipelineMeta,
+      ...(freshMetadata && typeof freshMetadata === 'object' ? freshMetadata : {}),
+    },
     outputsJson,
+    missionFamily: missionContract?.missionFamily ?? pipelineMeta.compilerTool ?? 'generic',
+    evidenceGraph: priorGraph,
   });
-  if (nodeRun.status === 'completed' && artifactAuthority.satisfied !== true) {
-    pipelineStatus = 'failed';
+  const pipelineStatus = executionOutcome.pipelineStatus;
+  const terminalPatch = executionOutcome.terminalOutcome
+    ? {
+        terminalMissionOutcome: executionOutcome.terminalOutcome,
+        missionExecutionOutcome: executionOutcome.missionOutcome,
+      }
+    : { missionExecutionOutcome: executionOutcome.missionOutcome };
+
+  if (pipelineStatus === 'failed' && nodeRun.status === 'completed') {
+    await writeMetadata(mid, {
+      multiAgentStatus: 'failed',
+      executionState: 'failed',
+      runtimeState: 'failed',
+      executionFailureReason: executionOutcome.failureReason ?? 'TOPOLOGY_EXECUTION_FAILED',
+      executionFailureMessage:
+        executionOutcome.failureMessage ?? 'Topology execution did not satisfy completion criteria.',
+      artifactAuthority: executionOutcome.artifactAuthority,
+      ...terminalPatch,
+    });
+  } else if (pipelineStatus === 'completed') {
+    await writeMetadata(mid, {
+      multiAgentStatus: 'completed',
+      executionState: 'completed',
+      runtimeState: 'completed',
+      phase: executionOutcome.missionOutcome?.artifacts?.length ? 'awaiting_owner_review' : undefined,
+      ...terminalPatch,
+      ...(executionOutcome.warnings?.length
+        ? { missionExecutionWarnings: executionOutcome.warnings }
+        : {}),
+      ...(executionOutcome.reconciled
+        ? {
+            missionOutcomeReconciled: {
+              previousStatus: 'failed',
+              newStatus: 'completed',
+              reason: 'required outputs were completed before false terminal transition',
+              at: new Date().toISOString(),
+            },
+          }
+        : {}),
+    });
   }
 
-  if (executionMode === 'loyalty' && pipelineStatus === 'failed' && nodeRun.status === 'completed') {
-    await writeMetadata(mid, {
-      multiAgentStatus: 'failed',
-      executionState: 'failed',
-      runtimeState: 'failed',
-      executionFailureReason: 'LOYALTY_ARTIFACT_MISSING',
-      executionFailureMessage:
-        'Loyalty topology finished without a draft artifact. Retry or contact support.',
-    });
+  const lifecycleTrace = buildTopologyLifecycleTrace({
+    traceId: pipelineMeta.traceId ?? freshMetadata?.traceId ?? null,
+    missionId: mid,
+    topologyId: topology?.id ?? null,
+    resultStatus: nodeRun.status,
+    artifactIds: (executionOutcome.missionOutcome?.artifacts ?? [])
+      .map((row) => row?.id)
+      .filter(Boolean),
+    persistedRecordIds: (executionOutcome.missionOutcome?.persistedEntities ?? [])
+      .map((row) => row?.id)
+      .filter(Boolean),
+    terminalSignal: `topology.execution.${pipelineStatus === 'completed' ? 'succeeded' : pipelineStatus}`,
+    previousMissionStatus: String(pipeline?.status ?? 'executing'),
+    nextMissionStatus: pipelineStatus,
+    failureCode: executionOutcome.failureReason ?? null,
+    failureSource: pipelineStatus === 'failed' ? 'topologyExecutor.finalize' : null,
+    errorPresent: pipelineStatus === 'failed',
+    reconciled: executionOutcome.reconciled === true,
+    warnings: executionOutcome.warnings ?? [],
+    outcomeStatus: executionOutcome.missionOutcome?.status ?? null,
+  });
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[topologyExecutor] lifecycle_trace', JSON.stringify(lifecycleTrace));
   }
-  if (pipelineStatus === 'failed' && nodeRun.status === 'completed' && artifactAuthority.satisfied !== true) {
-    await writeMetadata(mid, {
-      multiAgentStatus: 'failed',
-      executionState: 'failed',
-      runtimeState: 'failed',
-      executionFailureReason: 'EXPECTED_ARTIFACT_MISSING',
-      executionFailureMessage: `Mission completed its graph without expected artifact: ${
-        artifactAuthority.expectedAssetTypes.join(', ') || 'unknown'
-      }`,
-      artifactAuthority,
+
+  if (executionMode === 'loyalty') {
+    const priorGraph = asMissionEvidenceGraph(
+      freshMetadata?.missionEvidenceGraph ??
+        pipelineMeta.missionEvidenceGraph ??
+        null,
+    );
+    const draftForEvidence =
+      freshMetadata?.loyaltyProgramDraftArtifact ??
+      freshMetadata?.preseededDraft ??
+      nodeRun.outputs?.loyaltyProgramDraftArtifact ??
+      null;
+    let evidenceGraph = priorGraph
+      ? mergeMissionEvidenceGraphs(
+          priorGraph,
+          buildLoyaltyMissionEvidenceGraph({
+            missionId: mid,
+            evidenceId: pickString(freshMetadata?.evidenceId, pipelineMeta.evidenceId),
+            preseededDraft:
+              draftForEvidence && typeof draftForEvidence === 'object' ? draftForEvidence : null,
+            priorGraph,
+          }),
+        )
+      : buildLoyaltyMissionEvidenceGraph({
+          missionId: mid,
+          evidenceId: pickString(freshMetadata?.evidenceId, pipelineMeta.evidenceId),
+          preseededDraft:
+            draftForEvidence && typeof draftForEvidence === 'object' ? draftForEvidence : null,
+        });
+    evidenceGraph = recordLoyaltyMissionOutcomeEvidence(evidenceGraph, {
+      status:
+        pipelineStatus === 'completed'
+          ? 'completed'
+          : pipelineStatus === 'awaiting_owner_input'
+            ? 'blocked'
+            : 'failed',
+      missionId: mid,
+      artifactIds: (executionOutcome.missionOutcome?.artifacts ?? [])
+        .map((row) => row?.id)
+        .filter(Boolean),
+      failureCode: executionOutcome.failureReason ?? null,
+      reconciled: executionOutcome.reconciled === true,
     });
+    const unifiedGraph = normalizeToUnifiedGraph(evidenceGraph);
+    if (executionOutcome.terminalOutcome) {
+      unifiedGraph.outcome = executionOutcome.terminalOutcome;
+    }
+    setGraphPhase(
+      unifiedGraph,
+      pipelineStatus === 'completed' ? 'terminal' : pipelineStatus === 'awaiting_owner_input' ? 'verify' : 'verify',
+    );
+    if (Features.phase1.graphWriteTarget) {
+      await persistGraph(unifiedGraph, { missionId: mid });
+    } else {
+      await writeMetadata(mid, {
+        missionEvidenceGraph: unifiedGraph,
+        missionEvidenceSummary: summarizeMissionEvidenceGraph(unifiedGraph),
+      });
+    }
   }
 
   await finalizeMissionStatus(prisma, mid, pipelineStatus, {
@@ -520,7 +900,18 @@ export async function executeApprovedTopology(missionId, topology, context = {})
  * @param {Record<string, unknown> | null | undefined} existing
  * @param {Record<string, unknown>} ownerInput
  */
-function mergeOwnerInputIntoPreseeded(existing, ownerInput) {
+function normalizeCreationReviewAction(ownerInput) {
+  const raw = String(
+    ownerInput?.topologyAction ?? ownerInput?.loyaltyCreationAction ?? '',
+  )
+    .trim()
+    .toUpperCase();
+  if (!raw) return null;
+  if (raw === 'SIMPLIFIED') return 'USE_SIMPLIFIED';
+  return raw;
+}
+
+function mergeOwnerInputIntoPreseeded(existing, ownerInput, ctx = {}) {
   const base = existing && typeof existing === 'object' ? { ...existing } : {};
   const next = { ...base };
   for (const [key, value] of Object.entries(ownerInput)) {
@@ -538,6 +929,15 @@ function mergeOwnerInputIntoPreseeded(existing, ownerInput) {
       next.name = value.trim();
       continue;
     }
+    if (
+      key === 'topologyAction' ||
+      key === 'loyaltyCreationAction' ||
+      key === 'cardTopology' ||
+      key === 'selectedRecommendationId' ||
+      key === 'recommendationId'
+    ) {
+      continue;
+    }
     if (typeof value === 'string' && value.trim()) {
       next[key] = value.trim();
     } else if (typeof value === 'number' || typeof value === 'boolean') {
@@ -546,7 +946,38 @@ function mergeOwnerInputIntoPreseeded(existing, ownerInput) {
       next[key] = value;
     }
   }
-  return next;
+
+  const topologyMerged = mergeOwnerTopologyIntoDraft(next, ownerInput, ctx);
+  const action = normalizeCreationReviewAction(ownerInput);
+  const contract =
+    topologyMerged.creationContract && typeof topologyMerged.creationContract === 'object'
+      ? topologyMerged.creationContract
+      : null;
+
+  if (!contract || !action) return topologyMerged;
+
+  const updatedContract = applyOwnerActionToCreationContract(contract, action, {
+    rule:
+      ownerInput.rule && typeof ownerInput.rule === 'object'
+        ? ownerInput.rule
+        : topologyMerged.rule,
+    cardTopology:
+      topologyMerged.cardTopology && typeof topologyMerged.cardTopology === 'object'
+        ? topologyMerged.cardTopology
+        : ownerInput.cardTopology && typeof ownerInput.cardTopology === 'object'
+          ? ownerInput.cardTopology
+          : null,
+    recommendationId: pickString(ownerInput.selectedRecommendationId, ownerInput.recommendationId),
+  });
+
+  const flattened = loyaltyCreationContractToDraft(updatedContract);
+  return {
+    ...topologyMerged,
+    ...flattened,
+    creationContract: updatedContract,
+    evidence: topologyMerged.evidence ?? flattened.evidence,
+    ownerInstructions: topologyMerged.ownerInstructions ?? flattened.ownerInstructions,
+  };
 }
 
 /**
@@ -595,7 +1026,19 @@ export async function resumeTopologyFromOwnerInput(missionId, ownerInput, contex
   const priorOwner =
     meta.ownerInput && typeof meta.ownerInput === 'object' ? meta.ownerInput : {};
   const mergedOwnerInput = { ...priorOwner, ...fields };
-  const mergedPreseeded = mergeOwnerInputIntoPreseeded(meta.preseededDraft, mergedOwnerInput);
+  let preseedBase = meta.preseededDraft;
+  if (Features.phase1.graphWriteTarget) {
+    try {
+      const graphCtx = await loadLoyaltyEvidenceContext(mid);
+      if (graphCtx?.preseededDraft) preseedBase = graphCtx.preseededDraft;
+    } catch {
+      /* graph read is best-effort */
+    }
+  }
+  const mergedPreseeded = mergeOwnerInputIntoPreseeded(preseedBase, mergedOwnerInput, {
+    missionId: mid,
+    userId: context.userId ?? null,
+  });
   const attachmentRaw =
     meta.attachmentAnalysis && typeof meta.attachmentAnalysis === 'object'
       ? meta.attachmentAnalysis
@@ -608,19 +1051,50 @@ export async function resumeTopologyFromOwnerInput(missionId, ownerInput, contex
     runtimeUpdates: meta.executionDraft,
   });
 
+  const staleMissing = mergedMissing.filter((field) => {
+    if (field === 'topology_review' && !requiresTopologyOwnerReview(executionDraft)) return false;
+    return true;
+  });
   if (
     pickString(executionDraft.reward, executionDraft.rewardRule) &&
     (executionDraft.stampThreshold != null || executionDraft.requiredStamps != null) &&
-    mergedMissing.length > 0
+    staleMissing.length > 0
   ) {
     const err = new Error('STALE_MISSING_FIELDS: owner input merged but fields still missing');
     err.code = 'STALE_MISSING_FIELDS';
     throw err;
   }
 
+  if (Features.phase1.graphWriteTarget) {
+    try {
+      const syncedGraph = await syncLoyaltyStageToGraph(mid, {
+        preseededDraft: executionDraft,
+        stage: 'topology.owner_input_resume',
+      });
+      const approvedTopology =
+        syncedGraph?.topology ??
+        (hasAuthoritativeLoyaltyTopology(executionDraft.cardTopology)
+          ? executionDraft.cardTopology
+          : null);
+      if (approvedTopology) {
+        await advanceFrozenMissionContractTopology(mid, approvedTopology, {
+          evidenceGraphId: syncedGraph?.graphId ?? null,
+          evidenceGraphVersion: syncedGraph?.version ?? null,
+        });
+      }
+    } catch {
+      /* graph sync is best-effort */
+    }
+  } else if (hasAuthoritativeLoyaltyTopology(executionDraft.cardTopology)) {
+    try {
+      await advanceFrozenMissionContractTopology(mid, executionDraft.cardTopology);
+    } catch {
+      /* contract rebaseline is best-effort */
+    }
+  }
+
   await writeMetadata(mid, {
     ownerInput: mergedOwnerInput,
-    preseededDraft: executionDraft,
     executionDraft,
     awaitingOwnerInput: false,
     lastOwnerInputAt: new Date().toISOString(),
@@ -699,16 +1173,47 @@ export async function resumeTopologyFromOwnerInput(missionId, ownerInput, contex
       ? pipeline.outputsJson
       : {};
   const outputsJson = { ...priorOutputs, ...nodeRun.outputs };
+  const freshMetadata = await readMetadata(mid);
+  const missionContract = await readMissionContract(mid);
+  const priorGraph = asMissionEvidenceGraph(
+    freshMetadata?.missionEvidenceGraph ?? pipelineMeta.missionEvidenceGraph ?? meta.missionEvidenceGraph ?? null,
+  );
+  const executionOutcome = resolveTopologyExecutionOutcome({
+    nodeRun,
+    missionContract,
+    topology,
+    metadata: {
+      ...pipelineMeta,
+      ...meta,
+      ...(freshMetadata && typeof freshMetadata === 'object' ? freshMetadata : {}),
+    },
+    outputsJson,
+    missionFamily: missionContract?.missionFamily ?? 'generic',
+    evidenceGraph: priorGraph,
+  });
+  const pipelineStatus = executionOutcome.pipelineStatus;
+  const terminalPatch = executionOutcome.terminalOutcome
+    ? {
+        terminalMissionOutcome: executionOutcome.terminalOutcome,
+        missionExecutionOutcome: executionOutcome.missionOutcome,
+      }
+    : { missionExecutionOutcome: executionOutcome.missionOutcome };
 
-  const pipelineStatus = resolveLoyaltyPipelineStatus(executionMode, nodeRun);
-
-  if (executionMode === 'loyalty' && pipelineStatus === 'failed' && nodeRun.status === 'completed') {
+  if (pipelineStatus === 'failed' && nodeRun.status === 'completed') {
     await writeMetadata(mid, {
       multiAgentStatus: 'failed',
       executionState: 'failed',
-      executionFailureReason: 'LOYALTY_ARTIFACT_MISSING',
+      executionFailureReason: executionOutcome.failureReason ?? 'TOPOLOGY_EXECUTION_FAILED',
       executionFailureMessage:
-        'Loyalty topology finished without a draft artifact. Retry or contact support.',
+        executionOutcome.failureMessage ?? 'Topology execution did not satisfy completion criteria.',
+      ...terminalPatch,
+    });
+  } else if (pipelineStatus === 'completed') {
+    await writeMetadata(mid, {
+      multiAgentStatus: 'completed',
+      executionState: 'completed',
+      runtimeState: 'completed',
+      ...terminalPatch,
     });
   }
 
@@ -729,7 +1234,6 @@ export async function resumeTopologyFromOwnerInput(missionId, ownerInput, contex
       executionCursor: nodeRun.executionCursor ?? nodeRun.pendingNodeId ?? null,
       suggestedQuestion: nodeRun.suggestedQuestion ?? null,
       ownerInput: mergedOwnerInput,
-      preseededDraft: executionDraft,
       executionDraft,
     });
   }

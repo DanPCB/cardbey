@@ -19,6 +19,17 @@ import createLoyaltyOffer from './create_loyalty_offer.js';
 import { gatherLoyaltyProgramContext, inferRewardFromCatalog } from './loyaltyProgramContext.js';
 
 import { writeLoyaltyProgramFromMission } from './writeLoyaltyProgramFromMission.js';
+import { enrichLoyaltyDraftWithMatrixTopology, parseStampMatrixSpec } from '../../loyalty/loyaltyMatrixTopology.js';
+import {
+  alignLegacyFieldsWithCanonicalRule,
+  hasAuthoritativeLoyaltyTopology,
+  logLoyaltyContractDiagnostic,
+} from '../../loyalty/loyaltyContractDiagnostics.js';
+import {
+  buildLoyaltyCreationContract,
+  loyaltyCreationContractToDraft,
+} from '../../loyalty/loyaltyCreationContract.js';
+import { LoyaltyContractError } from '../../loyalty/loyaltyContractErrors.js';
 
 
 
@@ -68,9 +79,48 @@ export function buildLoyaltyProgramDraftData(params) {
 
   const requirements = pickString(params.requirements);
 
-  const preseeded =
+  let preseeded =
 
     params.preseededDraft && typeof params.preseededDraft === 'object' ? params.preseededDraft : null;
+
+  if (preseeded) {
+    if (!hasAuthoritativeLoyaltyTopology(preseeded.cardTopology)) {
+      const matrixSpec = parseStampMatrixSpec(requirements);
+      if (matrixSpec) {
+        preseeded = enrichLoyaltyDraftWithMatrixTopology(preseeded, {
+          userMessage: requirements,
+          purchaseItem: pickString(preseeded.purchaseItem, 'Coffee'),
+          rewardItem: pickString(preseeded.reward, preseeded.rewardRule, 'Reward'),
+          source: 'MATRIX_SPEC',
+          forceMatrix: matrixSpec,
+        });
+      }
+    } else {
+      preseeded = alignLegacyFieldsWithCanonicalRule(preseeded);
+    }
+    logLoyaltyContractDiagnostic('buildLoyaltyProgramDraftData_input', preseeded, {
+      missionId: params.missionId ?? null,
+      storeId: params.storeId ?? null,
+      evidenceId: preseeded.evidenceId ?? null,
+      attachmentId: preseeded.attachmentId ?? null,
+      sourceMode: preseeded.sourceMode ?? null,
+    });
+
+    const sourceBound =
+      Boolean(preseeded.evidenceId || preseeded.attachmentId || preseeded.extractedFromImage) &&
+      String(preseeded.sourceMode ?? '').toUpperCase() === 'SOURCE_DRIVEN';
+    if (sourceBound && !hasAuthoritativeLoyaltyTopology(preseeded.cardTopology)) {
+      throw new LoyaltyContractError(
+        'LOYALTY_EVIDENCE_LOST',
+        'Source-driven loyalty evidence exists but card topology was lost before draft build.',
+        {
+          missionId: params.missionId ?? null,
+          evidenceId: preseeded.evidenceId ?? null,
+          attachmentId: preseeded.attachmentId ?? null,
+        },
+      );
+    }
+  }
 
   const catalogReward = inferRewardFromCatalog({
 
@@ -117,19 +167,30 @@ export function buildLoyaltyProgramDraftData(params) {
     programName = pickString(preseeded.programName, programName);
 
     const seededStamps = preseeded.stampThreshold ?? preseeded.requiredStamps;
-    if (seededStamps != null) {
+    const ruleStamps =
+      preseeded.rule && typeof preseeded.rule === 'object'
+        ? Number(preseeded.rule.purchasesRequired)
+        : null;
+    if (Number.isFinite(ruleStamps) && ruleStamps > 0) {
+      requiredStamps = Math.max(1, Math.round(ruleStamps));
+    } else if (seededStamps != null) {
       requiredStamps = Math.max(1, Number(seededStamps) || requiredStamps);
     }
 
     reward = pickString(preseeded.reward, preseeded.rewardDescription, reward);
 
-    rewardRule = pickString(preseeded.rewardRule, `Buy ${requiredStamps}, get ${reward}`);
+    rewardRule = pickString(
+      preseeded.rewardRule,
+      preseeded.rule?.rewardItem ? `Collect ${requiredStamps} ${preseeded.rule.purchaseItem ?? 'stamps'}, receive ${preseeded.rule.rewardItem}` : null,
+      `Buy ${requiredStamps}, get ${reward}`,
+    );
 
     confidence = Math.max(confidence, Number(preseeded.confidence) || 0.85);
 
     evidence.push('preseeded_scanner_data');
 
     if (preseeded.extractedFromImage) evidence.push('loyalty_card_image');
+    if (preseeded.cardTopology) evidence.push('loyalty_card_topology');
 
   } else if (catalogReward?.rewardTemplate) {
 
@@ -155,7 +216,7 @@ export function buildLoyaltyProgramDraftData(params) {
 
 
 
-  return {
+  const draftShape = {
 
     programType: pickString(preseeded?.programType, 'stamp_card'),
 
@@ -221,8 +282,24 @@ export function buildLoyaltyProgramDraftData(params) {
 
     imageAssetId: pickString(preseeded?.imageAssetId) || null,
 
+    rule: preseeded?.rule && typeof preseeded.rule === 'object' ? preseeded.rule : null,
+
+    cardTopology:
+      preseeded?.cardTopology && typeof preseeded.cardTopology === 'object'
+        ? preseeded.cardTopology
+        : null,
+
+    cardFooterText: pickString(preseeded?.cardFooterText, preseeded?.cardTopology?.footerText) || null,
+
+    topologyReviewRequired: Boolean(preseeded?.topologyReviewRequired ?? preseeded?.cardTopology?.reviewRequired),
+
   };
 
+  const alignedDraft = alignLegacyFieldsWithCanonicalRule(draftShape);
+  logLoyaltyContractDiagnostic('loyalty_program_draft_artifact', alignedDraft, {
+    missionId: params.missionId ?? null,
+  });
+  return alignedDraft;
 }
 
 
@@ -240,6 +317,8 @@ export function buildLoyaltyProgramDraftData(params) {
  *   preseededDraft?: object | null;
 
  *   requirements?: string | null;
+
+ *   missionEvidenceGraph?: object | null;
 
  * }} params
 
@@ -373,19 +452,65 @@ export function planLoyaltyProgramDraft(params) {
 
   }
 
+  const creationContract = buildLoyaltyCreationContract({
+    storeId: store.id,
+    preseededDraft: { ...preseeded, ...draft },
+    userMessage: requirements,
+    requirements,
+    hasAttachmentEvidence:
+      Boolean(preseeded?.evidenceId || preseeded?.attachmentId) ||
+      preseeded?.extractedFromImage === true ||
+      Boolean(preseeded?.cardTopology) ||
+      Boolean(preseeded?.rule),
+    storeContext: context,
+    missionEvidenceGraph: params.missionEvidenceGraph ?? null,
+  });
 
+  if (
+    creationContract.sourceMode === 'SOURCE_DRIVEN' &&
+    (creationContract.sourceEvidence?.evidenceId || preseeded?.evidenceId) &&
+    !hasAuthoritativeLoyaltyTopology(creationContract.cardTopology)
+  ) {
+    throw new LoyaltyContractError(
+      'SOURCE_TOPOLOGY_MISSING',
+      'Card analysis completed, but its topology was not attached to this mission.',
+      {
+        missionId: params.missionId ?? null,
+        evidenceId: creationContract.sourceEvidence?.evidenceId ?? preseeded?.evidenceId ?? null,
+        storeId: store.id,
+      },
+    );
+  }
+
+  const unifiedDraft = loyaltyCreationContractToDraft(creationContract);
+  unifiedDraft.evidence = draft.evidence;
+  unifiedDraft.ownerInstructions = draft.ownerInstructions;
+  unifiedDraft.priorProgram = draft.priorProgram;
+  unifiedDraft.tiers = draft.tiers;
+  unifiedDraft.offers = draft.offers;
+  unifiedDraft.confidence = Math.max(draft.confidence, creationContract.sourceEvidence?.confidence ?? 0);
+
+  logLoyaltyContractDiagnostic('loyalty_creation_contract', unifiedDraft, {
+    missionId: params.missionId ?? null,
+    storeId: store.id,
+    evidenceId: creationContract.sourceEvidence?.evidenceId ?? preseeded?.evidenceId ?? null,
+    attachmentId: preseeded?.attachmentId ?? null,
+    sourceMode: creationContract.sourceMode ?? null,
+  });
 
   return {
 
     blocked: false,
 
-    draft,
+    draft: unifiedDraft,
 
-    confidence: draft.confidence,
+    creationContract,
 
-    evidence: draft.evidence,
+    confidence: unifiedDraft.confidence,
 
-    missingFields: draft.missingFields,
+    evidence: unifiedDraft.evidence,
+
+    missingFields: creationContract.missingFields ?? draft.missingFields,
 
     mode,
 
@@ -580,6 +705,9 @@ export async function applyLoyaltyProgramDraft(params) {
  * @returns {number | null}
  */
 export function resolveDraftStampThreshold(draft = {}) {
+  const rule = draft.rule && typeof draft.rule === 'object' ? draft.rule : null;
+  const fromRule = Number(rule?.purchasesRequired);
+  if (Number.isFinite(fromRule) && fromRule > 0) return Math.round(fromRule);
   const n = Number(draft.stampThreshold ?? draft.requiredStamps);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 }
@@ -592,23 +720,77 @@ export function resolveDraftStampThreshold(draft = {}) {
  * @param {Record<string, unknown>} [seed]
  */
 export function applyCanonicalLoyaltyDraftFields(draft = {}, seed = {}) {
+  const enrichedSeed = hasAuthoritativeLoyaltyTopology(seed.cardTopology)
+    ? alignLegacyFieldsWithCanonicalRule(
+        seed && typeof seed === 'object' ? { ...seed } : {},
+      )
+    : (() => {
+        const matrixSpec = parseStampMatrixSpec(seed.stampMatrix);
+        if (matrixSpec) {
+          return enrichLoyaltyDraftWithMatrixTopology(
+            seed && typeof seed === 'object' ? { ...seed } : {},
+            {
+              rewardItem: pickString(seed.reward, seed.rewardRule, 'Reward'),
+              purchaseItem: pickString(seed.purchaseItem, 'Coffee'),
+              source: 'MATRIX_SPEC',
+              forceMatrix: matrixSpec,
+            },
+          );
+        }
+        return alignLegacyFieldsWithCanonicalRule(
+          seed && typeof seed === 'object' ? { ...seed } : {},
+        );
+      })();
   const out = { ...(draft && typeof draft === 'object' ? draft : {}) };
-  const stamps = resolveDraftStampThreshold(seed) ?? resolveDraftStampThreshold(out);
-  const reward = pickString(seed.reward, seed.rewardRule, out.reward);
+
+  if (enrichedSeed.rule && typeof enrichedSeed.rule === 'object') {
+    out.rule = enrichedSeed.rule;
+  }
+  if (enrichedSeed.cardTopology && typeof enrichedSeed.cardTopology === 'object') {
+    out.cardTopology = enrichedSeed.cardTopology;
+  }
+  if (enrichedSeed.matrix && typeof enrichedSeed.matrix === 'object') {
+    out.matrix = enrichedSeed.matrix;
+  }
+  if (enrichedSeed.stampMatrix) out.stampMatrix = enrichedSeed.stampMatrix;
+  const footer = pickString(
+    seed.cardFooterText,
+    enrichedSeed.cardFooterText,
+    enrichedSeed.cardTopology?.footerText,
+  );
+  if (footer) out.cardFooterText = footer;
+  if (enrichedSeed.layoutSource || seed.layoutSource) {
+    out.layoutSource = pickString(enrichedSeed.layoutSource, seed.layoutSource);
+  }
+  if (enrichedSeed.layoutConfidence != null || seed.layoutConfidence != null) {
+    out.layoutConfidence = Number(enrichedSeed.layoutConfidence ?? seed.layoutConfidence);
+  }
+  if (seed.topologyReviewRequired != null) {
+    out.topologyReviewRequired = Boolean(seed.topologyReviewRequired);
+  }
+
+  const stamps = resolveDraftStampThreshold(enrichedSeed) ?? resolveDraftStampThreshold(out);
+  const reward = pickString(seed.reward, seed.rewardRule, out.reward, out.rule?.rewardItem);
   if (reward) {
     out.reward = reward;
   }
   if (stamps != null) {
     out.requiredStamps = stamps;
     out.stampThreshold = stamps;
+    const rule = out.rule && typeof out.rule === 'object' ? out.rule : null;
     out.rewardRule = pickString(
       seed.rewardRule,
+      rule
+        ? `Collect ${rule.purchasesRequired} ${rule.purchaseItem} · Get ${rule.rewardQuantity} ${rule.rewardItem}`
+        : null,
       out.rewardRule,
       reward ? `Buy ${stamps}, get ${reward}` : `Buy ${stamps}, get 1 free`,
     );
     out.customerInstructions = pickString(
       out.customerInstructions,
-      `Collect ${stamps} stamps to unlock your reward.`,
+      rule
+        ? `Collect ${rule.purchasesRequired} ${rule.purchaseItem} stamps to unlock your reward.`
+        : `Collect ${stamps} stamps to unlock your reward.`,
     );
   }
   const programName = pickString(seed.programName, out.programName);

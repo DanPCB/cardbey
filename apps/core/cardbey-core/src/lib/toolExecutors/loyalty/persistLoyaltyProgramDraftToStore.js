@@ -7,6 +7,9 @@ import { getPrismaClient } from '../../prisma.js';
 import { assertStoreOwnership, applyCanonicalLoyaltyDraftFields, resolveDraftStampThreshold } from './loyaltyProgramDraft.js';
 import scheduleLoyaltyCampaign from './schedule_loyalty_campaign.js';
 import { emitLoyaltyProgramTelemetry, LOYALTY_TELEMETRY } from './loyaltyProgramTelemetry.js';
+import { resolveLoyaltyPersistencePayload } from './loyaltyPersistencePayload.js';
+import { recordPublishedTopology } from '../../documentTopology/documentTopologyRevisionService.js';
+import { logLoyaltyContractDiagnostic } from '../../loyalty/loyaltyContractDiagnostics.js';
 
 function pickString(...values) {
   for (const value of values) {
@@ -57,9 +60,14 @@ export async function persistLoyaltyProgramDraftToStore(params) {
   }
 
   const prisma = getPrismaClient();
-  const programName = pickString(draft.programName, `${access.store.name} Rewards`);
-  const stampsRequired = Math.max(1, resolveDraftStampThreshold(draft) ?? 9);
-  const reward = pickString(draft.reward, '1 free item');
+  const persisted = resolveLoyaltyPersistencePayload(draft);
+  logLoyaltyContractDiagnostic('loyalty_persistence_payload', draft, {
+    missionId,
+    storeId,
+  });
+  const programName = pickString(draft.programName, `${access.store.name} Rewards`, persisted.name);
+  const stampsRequired = persisted.stampsRequired;
+  const reward = persisted.reward;
 
   let program;
   let writeAction = 'create';
@@ -69,15 +77,26 @@ export async function persistLoyaltyProgramDraftToStore(params) {
       orderBy: { createdAt: 'desc' },
       select: { id: true },
     });
+    const data = {
+      name: programName,
+      stampsRequired,
+      reward,
+      ruleJson: persisted.ruleJson,
+      cardTopologyJson: persisted.cardTopologyJson,
+      layoutSource: persisted.layoutSource,
+      layoutConfidence: persisted.layoutConfidence,
+      layoutReviewedAt: persisted.layoutReviewedAt,
+      layoutReviewedBy: persisted.layoutReviewedBy,
+    };
     if (existing?.id) {
       writeAction = 'update';
       program = await prisma.loyaltyProgram.update({
         where: { id: existing.id },
-        data: { name: programName, stampsRequired, reward },
+        data,
       });
     } else {
       program = await prisma.loyaltyProgram.create({
-        data: { tenantId, storeId, name: programName, stampsRequired, reward },
+        data: { tenantId, storeId, ...data },
       });
     }
   } catch (err) {
@@ -89,6 +108,37 @@ export async function persistLoyaltyProgramDraftToStore(params) {
         message: err instanceof Error ? err.message : 'Could not save loyalty program draft.',
       },
     };
+  }
+
+  const readBack = await prisma.loyaltyProgram.findUnique({
+    where: { id: program.id },
+    select: {
+      id: true,
+      ruleJson: true,
+      cardTopologyJson: true,
+      layoutSource: true,
+      layoutConfidence: true,
+      stampsRequired: true,
+      reward: true,
+    },
+  });
+  logLoyaltyContractDiagnostic(
+    'loyalty_persistence_read_back',
+    {
+      rule: readBack?.ruleJson ?? null,
+      cardTopology: readBack?.cardTopologyJson ?? null,
+      layoutSource: readBack?.layoutSource ?? null,
+      requiredStamps: readBack?.stampsRequired ?? null,
+      reward: readBack?.reward ?? null,
+    },
+    { missionId, storeId },
+  );
+
+  if (persisted.cardTopologyJson && program?.id) {
+    void recordPublishedTopology(program.id, persisted.cardTopologyJson, {
+      createdBy: persisted.layoutReviewedBy ?? null,
+      loyaltyProgramId: program.id,
+    }).catch(() => {});
   }
 
   let promoOut = null;
@@ -131,6 +181,8 @@ export async function persistLoyaltyProgramDraftToStore(params) {
       requiredStamps: stampsRequired,
       stampThreshold: stampsRequired,
       reward,
+      rule: persisted.ruleJson,
+      cardTopology: persisted.cardTopologyJson,
       storeId,
       loyaltyProgramId: program.id,
       phase: activate ? 'activated' : 'awaiting_owner_review',

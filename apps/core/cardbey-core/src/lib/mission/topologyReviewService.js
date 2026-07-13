@@ -1,10 +1,14 @@
 /**
  * Topology review service — compile plans and handle HITL approve/reject/modify decisions.
- * Approval triggers topologyExecutor node dispatch (Phase 4).
+ * Approval queues execution synchronously (<2s) and runs nodes asynchronously.
  */
 
 import { generateExecutionPlan } from './generateExecutionPlan.js';
-import { executeApprovedTopology } from './topologyExecutor.js';
+import {
+  executeApprovedTopology,
+  queueMissionForTopologyExecution,
+  resolveTopologyExecutionMode,
+} from './topologyExecutor.js';
 import {
   markTopologyRejected,
   promotePendingToApproved,
@@ -12,12 +16,48 @@ import {
   writeMetadata,
 } from '../persistence/metadataWriter.js';
 import { withCanonicalRuntimeState } from '../runtime/canonicalRuntimeState.js';
+import { requireMissionPipelineAuthority } from './missionAuthority.js';
+import { MissionTransitionError } from './missionTransitionError.js';
+import { recordMissionAuthorityDiagnostic } from './missionAuthorityDiagnostics.js';
+import { persistLoyaltyContractFromTopologyApproval } from '../loyalty/loyaltyContractApproval.js';
 
 export { generateExecutionPlan };
 
+const queuedExecutions = new Set();
+
 /**
- * Compile intent, persist pending artifacts, return UI-ready payload.
- *
+ * @param {string} missionId
+ * @param {import('../artifact/types.ts').TopologyArtifact | Record<string, unknown>} topology
+ * @param {Record<string, unknown>} context
+ */
+function scheduleTopologyExecution(missionId, topology, context) {
+  const key = String(missionId);
+  if (queuedExecutions.has(key)) return;
+  queuedExecutions.add(key);
+
+  setImmediate(() => {
+    executeApprovedTopology(key, topology, context)
+      .catch(async (err) => {
+        const authority = await requireMissionPipelineAuthority(key).catch(() => ({ ok: false }));
+        await recordMissionAuthorityDiagnostic(
+          key,
+          err instanceof MissionTransitionError
+            ? err
+            : new MissionTransitionError({
+                code: 'TOPOLOGY_EXECUTION_FAILED',
+                message: err instanceof Error ? err.message : String(err),
+                missionId: key,
+              }),
+          authority.ok ? authority.authority : null,
+        );
+      })
+      .finally(() => {
+        queuedExecutions.delete(key);
+      });
+  });
+}
+
+/**
  * @param {Parameters<typeof generateExecutionPlan>[0]} intent
  * @param {Parameters<typeof generateExecutionPlan>[1]} storeId
  * @param {Parameters<typeof generateExecutionPlan>[2]} sessionId
@@ -36,17 +76,35 @@ export async function compileAndPersistExecutionPlan(intent, storeId, sessionId,
  *   policy?: unknown;
  *   reasoning?: unknown;
  *   modifications?: Record<string, unknown>;
+ *   userId?: string;
+ *   storeId?: string;
+ *   requestId?: string;
+ *   traceId?: string;
  * }} input
  */
 export async function handleTopologyDecision(missionId, input) {
   const mid = String(missionId ?? '').trim();
   if (!mid) {
-    return { ok: false, message: 'missionId is required' };
+    return { ok: false, success: false, message: 'missionId is required' };
   }
 
   const decision = String(input?.decision ?? '').trim().toLowerCase();
   if (!['approve', 'reject', 'modify'].includes(decision)) {
-    return { ok: false, message: 'decision must be approve, reject, or modify' };
+    return { ok: false, success: false, message: 'decision must be approve, reject, or modify' };
+  }
+
+  const authorityResult = await requireMissionPipelineAuthority(mid);
+  if (!authorityResult.ok) {
+    return {
+      ok: false,
+      success: false,
+      error: {
+        code: authorityResult.code,
+        message: authorityResult.message,
+        missionId: mid,
+        persistenceKind: authorityResult.authority?.persistenceKind ?? null,
+      },
+    };
   }
 
   const current = await readMetadata(mid);
@@ -56,6 +114,7 @@ export async function handleTopologyDecision(missionId, input) {
     const metadata = await markTopologyRejected(mid, input.reason ?? 'User rejected plan');
     return withCanonicalRuntimeState({
       ok: true,
+      success: true,
       status: 'rejected',
       missionId: mid,
       metadata,
@@ -76,6 +135,7 @@ export async function handleTopologyDecision(missionId, input) {
     const metadata = await writeMetadata(mid, updates);
     return withCanonicalRuntimeState({
       ok: true,
+      success: true,
       status: 'pending_approval',
       missionId: mid,
       metadata,
@@ -85,98 +145,121 @@ export async function handleTopologyDecision(missionId, input) {
     });
   }
 
-  // approve
   if (!meta.pendingTopology && !meta.approvedTopology && !input.topology) {
-    return { ok: false, message: 'No pending topology to approve' };
+    return { ok: false, success: false, message: 'No pending topology to approve' };
   }
 
-  const metadata = await promotePendingToApproved(mid, {
+  let metadata = await promotePendingToApproved(mid, {
     topology: input.topology,
     policy: input.policy,
     reasoning: input.reasoning,
   });
 
-  const prisma = (await import('../prisma.js')).getPrismaClient();
-  const pipeline = await prisma.missionPipeline.findUnique({
-    where: { id: mid },
-    select: { targetId: true, targetType: true, metadataJson: true },
+  await writeMetadata(mid, {
+    topologyDecisionEvent: {
+      decision: 'approve',
+      at: new Date().toISOString(),
+      userId: input.userId ?? null,
+      requestId: input.requestId ?? null,
+      traceId: input.traceId ?? null,
+    },
   });
+
+  const pipeline = authorityResult.authority.record;
   const pipelineMeta =
     pipeline?.metadataJson && typeof pipeline.metadataJson === 'object' && !Array.isArray(pipeline.metadataJson)
       ? pipeline.metadataJson
-      : {};
+      : meta;
+
   const resolvedStoreId =
     (typeof input.storeId === 'string' && input.storeId.trim()) ||
     (typeof pipelineMeta.storeId === 'string' && pipelineMeta.storeId.trim()) ||
     (pipeline?.targetType === 'store' && typeof pipeline?.targetId === 'string' ? pipeline.targetId : null) ||
     undefined;
 
-  const topologyToRun = metadata.approvedTopology ?? meta.approvedTopology ?? meta.pendingTopology;
-  const execution = await executeApprovedTopology(mid, topologyToRun, {
-    userId: typeof input.userId === 'string' ? input.userId : undefined,
-    storeId: resolvedStoreId,
+  const executionMode = resolveTopologyExecutionMode(pipeline?.type ?? null, {
+    ...pipelineMeta,
+    ...metadata,
   });
 
-  const executionStatus = execution.status ?? 'executing';
-  const nodeRun = execution.nodeRun ?? null;
-  const nodes = Array.isArray(topologyToRun?.nodes) ? topologyToRun.nodes : [];
-
-  let failureSummary = null;
-  if (executionStatus === 'failed') {
-    const { buildTopologyFailureSummary } = await import('./topologyExecutionTelemetry.js');
-    failureSummary = buildTopologyFailureSummary(nodeRun ?? execution, nodes);
+  let creationContract = metadata.creationContract ?? null;
+  if (executionMode === 'loyalty') {
+    const contractResult = await persistLoyaltyContractFromTopologyApproval(mid, {
+      ...pipelineMeta,
+      ...metadata,
+    }, {
+      storeId: resolvedStoreId,
+      userMessage: pipelineMeta.goal,
+    });
+    if (!contractResult.ok) {
+      await recordMissionAuthorityDiagnostic(
+        mid,
+        new MissionTransitionError({
+          code: contractResult.code,
+          message: contractResult.message,
+          missionId: mid,
+        }),
+        authorityResult.authority,
+        { requestId: input.requestId, traceId: input.traceId },
+      );
+      return {
+        ok: false,
+        success: false,
+        error: {
+          code: contractResult.code,
+          message: contractResult.message,
+          missionId: mid,
+          missingFields: contractResult.missingFields,
+        },
+        contract: contractResult.contract ?? null,
+      };
+    }
+    creationContract = contractResult.contract;
+    metadata = contractResult.metadata ?? metadata;
   }
 
-  const failedMessage = failureSummary?.detail
-    ? `Execution plan approved — ${failureSummary.detail}`
-    : 'Execution plan approved — topology execution failed';
+  let queuedState;
+  try {
+    queuedState = await queueMissionForTopologyExecution(mid);
+  } catch (err) {
+    const diagnostic = await recordMissionAuthorityDiagnostic(
+      mid,
+      err instanceof MissionTransitionError
+        ? err
+        : new MissionTransitionError({
+            code: 'MISSION_RECORD_NOT_FOUND',
+            message: err instanceof Error ? err.message : String(err),
+            missionId: mid,
+          }),
+      authorityResult.authority,
+      { requestId: input.requestId, traceId: input.traceId },
+    );
+    if (err instanceof MissionTransitionError) {
+      return { ...err.toJSON(), diagnostic };
+    }
+    throw err;
+  }
 
-  const missingFields = Array.isArray(nodeRun?.missingFields)
-    ? nodeRun.missingFields
-    : Array.isArray(execution.metadata?.missingFields)
-      ? execution.metadata.missingFields
-      : [];
-
-  const awaitingMessage =
-    missingFields.length > 0
-      ? `I need one more detail before creating the loyalty program: What reward should customers receive after completing the card? (Missing: ${missingFields.join(', ')})`
-      : 'I need one more detail before creating the loyalty program: What reward should customers receive after completing the card?';
+  const topologyToRun = metadata.approvedTopology ?? meta.approvedTopology ?? meta.pendingTopology;
+  scheduleTopologyExecution(mid, topologyToRun, {
+    userId: typeof input.userId === 'string' ? input.userId : undefined,
+    storeId: resolvedStoreId,
+    executionMode,
+  });
 
   return withCanonicalRuntimeState({
-    // Plan was approved; execution failure / owner-input pause are soft results (HTTP 200).
     ok: true,
+    success: true,
+    accepted: true,
     approved: true,
-    status: executionStatus,
+    status: queuedState,
+    state: queuedState,
     missionId: mid,
-    executionMode: execution.executionMode ?? 'generic',
-    metadata: execution.metadata ?? {
-      ...(nodeRun?.nodeStatus ? { topologyNodeStatus: nodeRun.nodeStatus } : {}),
-      ...(nodeRun?.nodeOutputs ? { topologyNodeOutputs: nodeRun.nodeOutputs } : {}),
-      ...(nodeRun?.failedNodeIds ? { executionSummary: { failedNodeIds: nodeRun.failedNodeIds } } : {}),
-    },
-    missingFields,
-    message:
-      executionStatus === 'completed'
-        ? execution.executionMode === 'campaign'
-          ? 'Execution plan approved — campaign build completed'
-          : 'Execution plan approved — topology execution completed'
-        : executionStatus === 'awaiting_owner_input'
-          ? awaitingMessage
-          : executionStatus === 'failed'
-            ? failedMessage
-            : execution.executionMode === 'campaign'
-              ? 'Execution plan approved — campaign execution started'
-              : execution.executionMode === 'store'
-                ? 'Execution plan approved — store setup started'
-                : 'Execution plan approved — topology execution started',
-    failureSummary,
-    execution: {
-      ...execution,
-      nodeRun,
-      failureSummary,
-    },
-    action: executionStatus === 'awaiting_owner_input' ? 'awaiting_owner_input' : 'show_execution_plan',
-    multiAgentStatus: execution.metadata?.multiAgentStatus ?? metadata.multiAgentStatus ?? null,
+    executionMode,
+    creationContract,
+    message: 'Execution plan approved — queued for execution',
+    action: 'topology_execution_queued',
+    multiAgentStatus: 'approved',
   });
 }
 
@@ -200,5 +283,7 @@ export async function getTopologyReviewState(missionId) {
     approvedTopology: meta.approvedTopology ?? null,
     approvedPolicy: meta.approvedPolicy ?? null,
     approvedReasoning: meta.approvedReasoning ?? null,
+    creationContract: meta.creationContract ?? null,
+    missionAuthorityDiagnostic: meta.missionAuthorityDiagnostic ?? null,
   };
 }

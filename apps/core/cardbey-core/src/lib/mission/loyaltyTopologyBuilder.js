@@ -171,6 +171,10 @@ export function buildLoyaltyProgramTopology(opts = {}) {
     missionType: 'setup_loyalty_program',
     nodes,
     edges,
+    completionCriteria: {
+      requiredArtifacts: [{ type: 'generated_loyalty_program', mandatory: true }],
+      requiredPersistedRecords: [{ type: 'loyalty_program_draft', mandatory: true }],
+    },
   };
 
   const reasoning = {
