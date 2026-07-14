@@ -376,7 +376,7 @@ router.get('/list', requireAuth, async (req, res) => {
     });
 
     // Observability: device identity contract diagnostics for list visibility.
-    const [mismatchCountSameTenant, tempCount] = await Promise.all([
+    const [mismatchCountSameTenant, tempCount, otherStoreSamples] = await Promise.all([
       prisma.device.count({
         where: {
           tenantId: String(tenantId),
@@ -388,6 +388,21 @@ router.get('/list', requireAuth, async (req, res) => {
           tenantId: 'temp',
           storeId: 'temp',
         },
+      }),
+      prisma.device.findMany({
+        where: {
+          tenantId: String(tenantId),
+          storeId: { not: String(storeId) },
+        },
+        select: {
+          id: true,
+          name: true,
+          storeId: true,
+          platform: true,
+          lastSeenAt: true,
+        },
+        orderBy: { lastSeenAt: 'desc' },
+        take: 5,
       }),
     ]);
     console.log('[DEVICE LIST QUERY]', {
@@ -577,6 +592,18 @@ router.get('/list', requireAuth, async (req, res) => {
           status: listStatusFilter,
           includeArchived,
           heartbeatTimeoutSeconds: HEARTBEAT_TIMEOUT_MS / 1000,
+        },
+        visibility: {
+          matchedCount: formattedDevices.length,
+          sameTenantOtherStoreCount: mismatchCountSameTenant,
+          tempPendingCount: tempCount,
+          otherStores: otherStoreSamples.map((d) => ({
+            deviceId: d.id,
+            name: d.name,
+            storeId: d.storeId,
+            platform: d.platform,
+            lastSeenAt: d.lastSeenAt?.toISOString?.() || d.lastSeenAt || null,
+          })),
         },
       },
     };
