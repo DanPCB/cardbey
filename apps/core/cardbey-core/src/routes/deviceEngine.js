@@ -7,6 +7,7 @@
  *   * POST /api/device/request-pairing - Device requests pairing code (no auth)
  *   * POST /api/device/complete-pairing - Dashboard completes pairing (no auth)
  *   * POST /api/device/claim - Dashboard claims pairing session (auth required)
+ *   * GET /api/device/unpaired - Pending temp/pairingCode devices (auth required)
  *   * GET /api/device/pair-status/:sessionId - Tablet polls pairing status (no auth)
  * 
  * - Playlist fetch:
@@ -594,6 +595,107 @@ router.get('/list', requireAuth, async (req, res) => {
     res.status(500).json({
       ok: false,
       error: error.message || 'Failed to list devices',
+    });
+  }
+});
+
+/**
+ * GET /api/device/unpaired
+ * Pending device-initiated pairing sessions (temp tenant/store and/or active pairingCode).
+ * These never appear in GET /list until complete-pairing commits real identity.
+ */
+router.get('/unpaired', requireAuth, async (req, res) => {
+  try {
+    console.log('[HTTP] GET /api/device/unpaired');
+
+    const now = new Date();
+    const {
+      pairingExpiresAt,
+      loadPairingCodeIssuedAt,
+    } = await import('../engines/device/pairingSessionTiming.js');
+
+    const devices = await prisma.device.findMany({
+      where: {
+        OR: [
+          { tenantId: 'temp', storeId: 'temp' },
+          { pairingCode: { not: null } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        tenantId: true,
+        storeId: true,
+        name: true,
+        model: true,
+        location: true,
+        status: true,
+        type: true,
+        platform: true,
+        appVersion: true,
+        pairingCode: true,
+        lastSeenAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const formattedDevices = await Promise.all(
+      devices.map(async (device) => {
+        let expiresAtIso = null;
+        if (device.pairingCode) {
+          try {
+            const issuedAt = await loadPairingCodeIssuedAt(prisma, device.id);
+            expiresAtIso = pairingExpiresAt(device, issuedAt).toISOString();
+          } catch {
+            expiresAtIso = null;
+          }
+        }
+
+        const isOnline =
+          device.lastSeenAt &&
+          now.getTime() - new Date(device.lastSeenAt).getTime() < HEARTBEAT_TIMEOUT_MS;
+
+        return {
+          id: device.id,
+          tenantId: device.tenantId,
+          storeId: device.storeId,
+          name: device.name,
+          model: device.model,
+          location: device.location,
+          status: isOnline ? 'online' : 'offline',
+          isOnline: !!isOnline,
+          presenceTier: isOnline ? 'online' : 'offline',
+          type: device.type || 'screen',
+          platform: device.platform || null,
+          appVersion: device.appVersion,
+          pairingStatus: device.pairingCode ? 'waiting_for_pairing' : 'unpaired',
+          pairingCode: device.pairingCode || null,
+          pairingExpiresAt: expiresAtIso,
+          lastSeenAt: device.lastSeenAt,
+          createdAt: device.createdAt,
+          updatedAt: device.updatedAt,
+          playlist: null,
+          lastSnapshot: null,
+        };
+      })
+    );
+
+    console.log('[Device Engine] Unpaired devices:', {
+      count: formattedDevices.length,
+      withCode: formattedDevices.filter((d) => d.pairingCode).length,
+    });
+
+    res.json({
+      ok: true,
+      data: { devices: formattedDevices },
+    });
+  } catch (error) {
+    console.error('[Device Engine] Unpaired list error:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to list unpaired devices',
     });
   }
 });
