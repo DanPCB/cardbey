@@ -2802,6 +2802,166 @@ router.get('/pair-status/:deviceId/*', async (req, res) => {
 });
 
 /**
+ * POST /api/device/claim-pending
+ * Claim a pending unpaired Device V2 row (temp/temp) into the authenticated tenant + selected store.
+ * Used by the dashboard "Claim" button on New / Unpaired Devices — does not require a live pairing code
+ * (codes expire while the temp row can remain visible).
+ *
+ * Body: { deviceId: string, storeId: string, name?: string, location?: string }
+ */
+router.post('/claim-pending', requireAuth, async (req, res) => {
+  const requestId = Math.random().toString(36).slice(2, 9);
+  try {
+    const authTenantId = req.user?.id || null;
+    if (!authTenantId) {
+      return res.status(401).json({
+        ok: false,
+        error: 'unauthorized',
+        message: 'Authentication required to claim a device',
+      });
+    }
+
+    const deviceId = String(req.body?.deviceId || req.body?.sessionId || '').trim();
+    const storeId = String(req.body?.storeId || '').trim();
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const location = typeof req.body?.location === 'string' ? req.body.location.trim() : '';
+
+    if (!deviceId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'missing_fields',
+        message: 'deviceId is required',
+      });
+    }
+    if (!storeId || storeId === 'temp') {
+      return res.status(400).json({
+        ok: false,
+        error: 'missing_fields',
+        message: 'storeId is required (select a store in the dashboard)',
+      });
+    }
+
+    console.log(`[DeviceEngine V2] [${requestId}] claim-pending`, {
+      deviceId,
+      storeId,
+      tenantId: authTenantId,
+    });
+
+    const device = await prisma.device.findUnique({ where: { id: deviceId } });
+    if (!device) {
+      return res.status(404).json({
+        ok: false,
+        error: 'session_not_found',
+        message: 'Device not found',
+      });
+    }
+
+    const isPending =
+      device.tenantId === 'temp' ||
+      device.storeId === 'temp' ||
+      !!device.pairingCode;
+
+    if (!isPending) {
+      // Already claimed — idempotent success if same tenant/store
+      if (device.tenantId === authTenantId && device.storeId === storeId) {
+        return res.json({
+          ok: true,
+          alreadyPaired: true,
+          deviceId: device.id,
+          data: { device },
+        });
+      }
+      return res.status(400).json({
+        ok: false,
+        error: 'already_paired',
+        message: 'Device is already paired to another store. Use Repair / Unpair first.',
+      });
+    }
+
+    const now = new Date();
+    const updated = await prisma.device.update({
+      where: { id: device.id },
+      data: {
+        tenantId: authTenantId,
+        storeId,
+        name: name || device.name || null,
+        location: location || device.location || null,
+        pairingCode: null,
+        status: device.lastSeenAt ? device.status || 'online' : 'offline',
+        lastSeenAt: device.lastSeenAt || now,
+        appVersion: device.appVersion || 'DEVICE_V2',
+      },
+    });
+
+    if (
+      !updated.tenantId ||
+      updated.tenantId === 'temp' ||
+      !updated.storeId ||
+      updated.storeId === 'temp'
+    ) {
+      return res.status(500).json({
+        ok: false,
+        error: 'pairing_commit_failed',
+        message: 'Claim did not commit tenant/store identity',
+      });
+    }
+
+    console.log(`[DeviceEngine V2] [${requestId}] claim-pending OK`, {
+      deviceId: updated.id,
+      tenantId: updated.tenantId,
+      storeId: updated.storeId,
+    });
+
+    try {
+      broadcastSse('admin', 'device:paired', {
+        deviceId: updated.id,
+        name: updated.name,
+        platform: updated.platform || null,
+        type: updated.type || 'screen',
+        status: updated.status,
+        lastSeenAt: updated.lastSeenAt?.toISOString() || null,
+        tenantId: updated.tenantId,
+        storeId: updated.storeId,
+      });
+      broadcastSse('admin', 'device:update', {
+        deviceId: updated.id,
+        status: updated.status,
+        lastSeenAt: updated.lastSeenAt?.toISOString() || null,
+        tenantId: updated.tenantId,
+        storeId: updated.storeId,
+        name: updated.name,
+      });
+    } catch (sseErr) {
+      console.warn(`[DeviceEngine V2] [${requestId}] SSE emit failed (non-fatal):`, sseErr?.message);
+    }
+
+    res.json({
+      ok: true,
+      deviceId: updated.id,
+      data: {
+        device: {
+          id: updated.id,
+          tenantId: updated.tenantId,
+          storeId: updated.storeId,
+          name: updated.name,
+          status: updated.status,
+          platform: updated.platform,
+          type: updated.type || 'screen',
+          lastSeenAt: updated.lastSeenAt,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[Device Engine] claim-pending error:', error);
+    res.status(500).json({
+      ok: false,
+      error: error?.message || 'claim_failed',
+      message: error?.message || 'Failed to claim pending device',
+    });
+  }
+});
+
+/**
  * POST /api/device/claim
  * Claim a Device V2 pairing session (Dashboard-initiated, requires auth)
  * 
