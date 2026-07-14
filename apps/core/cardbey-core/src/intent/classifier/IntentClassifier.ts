@@ -4,6 +4,7 @@
  */
 
 import type { Intent, IntentEngineInput, IntentType } from '../intent.types.js';
+import { normalizeCreateStoreTypos } from '../../lib/intent/storeCreateFastPath.js';
 
 const GREETING_RE =
   /^(hi|hello|hey|thanks|thank you|yo|sup|good\s+(morning|afternoon|evening))$/i;
@@ -16,8 +17,9 @@ const CAPABILITIES_RE =
 const QUESTION_RE =
   /^(answer a question\.?|\.\.?|what is|what are|how does|why does|can you explain|tell me about)\b/i;
 
+/** Aligned with storeWebsiteRunwayClassifier STORE_SIGNALS (loose gap between verb and noun). */
 const CREATE_STORE_RE =
-  /\b(create|set\s*up|start|open|launch|build|make)\s+(a\s+)?(new\s+)?(store|business|shop)\b/i;
+  /\b(create|set\s*up|start|open|launch|build|make)\b.{0,20}\b(store|business|shop)\b/i;
 
 const CREATE_CAMPAIGN_RE =
   /\b(create|set\s*up|start|launch|run|make)\s+(?:a\s+)?(?:new\s+)?(?:[\w'-]+\s+){0,4}(campaign|promotion|promo)\b/i;
@@ -117,8 +119,10 @@ export function classifyIntent(input: IntentEngineInput): Intent {
     return buildIntent('create_store', { confidence: 0.98, shouldExecute: true });
   }
 
+  const storeCreateMsg = normalizeCreateStoreTypos(msg) || msg;
+
   if (primaryModeHint === 'store_setup' || primaryModeHint === 'store_creation') {
-    if (CREATE_STORE_RE.test(msg) || formStoreName.length >= 2) {
+    if (CREATE_STORE_RE.test(storeCreateMsg) || formStoreName.length >= 2) {
       return buildIntent('create_store', { confidence: 0.9, shouldExecute: true });
     }
   }
@@ -156,6 +160,11 @@ export function classifyIntent(input: IntentEngineInput): Intent {
     });
   }
 
+  // Create-store before capabilities: "how can I create a store?" is create_store, not a generic capabilities FAQ.
+  if (CREATE_STORE_RE.test(storeCreateMsg)) {
+    return buildIntent('create_store', { shouldExecute: true });
+  }
+
   if (CAPABILITIES_RE.test(msg)) {
     return buildIntent('capabilities', {
       requiresBusiness: false,
@@ -163,10 +172,6 @@ export function classifyIntent(input: IntentEngineInput): Intent {
         'I can help you create and manage businesses, launch campaigns, manage products and catalogs, set up loyalty programs, view analytics, and generate marketing content. What would you like to do?',
       shouldExecute: false,
     });
-  }
-
-  if (CREATE_STORE_RE.test(msg)) {
-    return buildIntent('create_store', { shouldExecute: true });
   }
 
   if (CREATE_CAMPAIGN_RE.test(msg)) {

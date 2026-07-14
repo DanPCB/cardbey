@@ -31,6 +31,7 @@ import {
 } from '../lib/intake/storeWebsiteRunwayClassifier.js';
 import {
   shouldBlockServiceRequestForStoreCreate,
+  tryStoreCreateFastPath,
 } from '../lib/intent/storeCreateFastPath.js';
 import { resolveIntakeShortcutContext } from '../lib/intake/intakeShortcutContext.js';
 import {
@@ -2875,35 +2876,52 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       intentEnginePrimaryClassification = engineClassification;
     }
     if (earlyResponse) {
-      if (earlyResponse.action === 'chat') {
-        const casualSessionId =
-          String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
-          null;
-        const casualSessionKey = resolveIntakeAssetSessionKey({
-          conversationSessionId: casualSessionId,
-          sessionId: casualSessionId,
-          userId: ownerUserId ?? (String(req.user?.id ?? body?.userId ?? '').trim() || null),
-          guestSessionId: req.guestSessionId ?? null,
+      // Safety net: do not bury create-store NL behind Intent Engine chat fallback.
+      if (
+        earlyResponse.action === 'chat' &&
+        tryStoreCreateFastPath(userMessage, {
+          storeCreateForm: body.storeCreateForm,
+          forceIntent: body.forceIntent,
+          currentFlow: body.currentFlow ?? currentContext?.currentFlow,
+          source: body.source ?? body.intentSource,
+          activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
+        })
+      ) {
+        console.log('[IntakeV2] routing:intent_engine_primary_chat_overridden_by_store_create_fast_path', {
+          intent: earlyResponse._intentEngine?.intent,
+          ownerUserId,
         });
-        if (casualSessionKey) {
-          try {
-            await clearStaleUploadBeliefContext(casualSessionKey);
-          } catch (clearErr) {
-            console.warn(
-              '[IntakeV2] intent-engine chat upload context clear failed:',
-              clearErr?.message ?? clearErr,
-            );
+      } else {
+        if (earlyResponse.action === 'chat') {
+          const casualSessionId =
+            String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+            null;
+          const casualSessionKey = resolveIntakeAssetSessionKey({
+            conversationSessionId: casualSessionId,
+            sessionId: casualSessionId,
+            userId: ownerUserId ?? (String(req.user?.id ?? body?.userId ?? '').trim() || null),
+            guestSessionId: req.guestSessionId ?? null,
+          });
+          if (casualSessionKey) {
+            try {
+              await clearStaleUploadBeliefContext(casualSessionKey);
+            } catch (clearErr) {
+              console.warn(
+                '[IntakeV2] intent-engine chat upload context clear failed:',
+                clearErr?.message ?? clearErr,
+              );
+            }
           }
         }
+        console.log('[IntakeV2] routing:intent_engine_primary', {
+          intent: earlyResponse._intentEngine?.intent,
+          action: earlyResponse.action,
+          ownerUserId,
+          contextStatus: earlyResponse._intentEngine?.contextStatus,
+          storeCount: earlyResponse._intentEngine?.storeCount,
+        });
+        return res.json(earlyResponse);
       }
-      console.log('[IntakeV2] routing:intent_engine_primary', {
-        intent: earlyResponse._intentEngine?.intent,
-        action: earlyResponse.action,
-        ownerUserId,
-        contextStatus: earlyResponse._intentEngine?.contextStatus,
-        storeCount: earlyResponse._intentEngine?.storeCount,
-      });
-      return res.json(earlyResponse);
     }
   }
 

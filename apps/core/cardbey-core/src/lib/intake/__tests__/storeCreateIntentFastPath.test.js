@@ -23,6 +23,11 @@ describe('storeCreateIntentFastPath', () => {
     expect(result?.parameters?._autoSubmit).toBe(true);
   });
 
+  it('fast-path classifies create-store typo "create as tore"', () => {
+    const result = tryStoreCreateFastPath('create as tore', {});
+    expect(result?.tool).toBe('create_store');
+  });
+
   it('parses structured pill submit Melbourne Flower · Other · Melbourne', () => {
     const pill = parseStructuredStoreCreatePillMessage('Melbourne Flower · Other · Melbourne');
     expect(pill).toEqual({

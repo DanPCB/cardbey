@@ -85,4 +85,30 @@ describe('ContextEvaluator', () => {
     expect(result.status).toBe('ready');
     expect(result.storeId).toBe('store-abc');
   });
+
+  it('create_store is ready without store picker even with multiple stores', async () => {
+    vi.mocked(loadAccountStoreContext).mockResolvedValue({
+      accountHasStores: true,
+      storeCount: 3,
+      stores: [
+        { id: 's1', name: 'A' },
+        { id: 's2', name: 'B' },
+        { id: 's3', name: 'C' },
+      ],
+    });
+
+    const result = await evaluateContext(
+      {
+        type: 'create_store',
+        requiresBusiness: true,
+        confidence: 0.9,
+        shouldExecute: true,
+      },
+      { message: 'create a store', ownerUserId: 'user-1' },
+    );
+
+    expect(result.status).toBe('ready');
+    expect(result.storeId).toBeUndefined();
+    expect(result.storeCount).toBe(3);
+  });
 });

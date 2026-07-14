@@ -44,6 +44,32 @@ export async function evaluateContext(intent: Intent, input: IntentEngineInput):
     return { status: 'not_required', storeCount: 0 };
   }
 
+  // Greenfield create: never require picking / attaching an existing store.
+  if (intent.type === 'create_store') {
+    const ownerUserId = resolveStoreOwnerUserId(input);
+    if (!ownerUserId) {
+      return {
+        status: 'ready',
+        storeCount: 0,
+        message: 'Ready to create a new business.',
+      };
+    }
+    console.log('[ContextEvaluator] loading stores for ownerUserId:', ownerUserId);
+    const account = await loadAccountStoreContext(ownerUserId);
+    const stores = Array.isArray(account.stores) ? account.stores : [];
+    console.log('[ContextEvaluator] store lookup result:', {
+      ownerUserId,
+      storeCount: stores.length,
+      intent: intent.type,
+    });
+    return {
+      status: 'ready',
+      storeCount: stores.length,
+      stores: stores.length > 0 ? stores : undefined,
+      message: 'Ready to create a new business.',
+    };
+  }
+
   const activeStoreId = String(input.activeStoreId ?? '').trim() || null;
   const ownerUserId = resolveStoreOwnerUserId(input);
 
@@ -70,13 +96,6 @@ export async function evaluateContext(intent: Intent, input: IntentEngineInput):
   }
 
   if (!ownerUserId) {
-    if (intent.type === 'create_store') {
-      return {
-        status: 'ready',
-        storeCount: 0,
-        message: 'Ready to create a new business.',
-      };
-    }
     return {
       status: 'needs_store_creation',
       storeCount: 0,
@@ -96,9 +115,6 @@ export async function evaluateContext(intent: Intent, input: IntentEngineInput):
   });
 
   if (storeCount === 0) {
-    if (intent.type === 'create_store') {
-      return { status: 'ready', storeCount: 0, message: 'Ready to create a new business.' };
-    }
     return {
       status: 'needs_store_creation',
       storeCount: 0,

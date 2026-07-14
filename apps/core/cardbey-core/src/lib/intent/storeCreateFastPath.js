@@ -85,14 +85,34 @@ export function isStructuredStoreCreatePillMessage(message) {
 }
 
 /**
+ * Repair common live typos for create-store phrases (e.g. "create as tore" → "create a store").
+ * Keep replacements narrow to avoid false positives on unrelated chat.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeCreateStoreTypos(text) {
+  let s = String(text ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!s) return s;
+
+  s = s.replace(/\bcreat\b/g, 'create');
+  // Space slip: "a store" → "as tore"
+  s = s.replace(/\bas\s+tore\b/g, 'a store');
+  s = s.replace(/\ba\s+tore\b/g, 'a store');
+  s = s.replace(/\bastore\b/g, 'a store');
+  s = s.replace(/\ba\s+stor\b/g, 'a store');
+  s = s.replace(/\b(stroe|strore|stoer)\b/g, 'store');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * @param {string} text
  */
 function normalizeExactPhrase(text) {
-  return String(text ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[.!?]+$/g, '');
+  return normalizeCreateStoreTypos(text).replace(/[.!?]+$/g, '');
 }
 
 /**
@@ -192,7 +212,8 @@ export function shouldBlockServiceRequestForStoreCreate(userMessage, opts = {}) 
  * @returns {object|null}
  */
 export function tryStoreCreateFastPath(userMessage, opts = {}) {
-  const msg = String(userMessage ?? '').trim();
+  const raw = String(userMessage ?? '').trim();
+  const msg = normalizeCreateStoreTypos(raw) || raw;
   if (!msg && !opts.storeCreateForm) return null;
 
   const form = opts.storeCreateForm;
@@ -230,7 +251,7 @@ export function tryStoreCreateFastPath(userMessage, opts = {}) {
     });
   }
 
-  const pill = parseStructuredStoreCreatePillMessage(msg);
+  const pill = parseStructuredStoreCreatePillMessage(raw);
   if (pill?.storeName && String(pill.storeName).trim().length >= 2) {
     return buildCreateStoreClassification({
       intentMode: pill.intentMode === 'website' ? 'website' : 'store',
@@ -242,7 +263,7 @@ export function tryStoreCreateFastPath(userMessage, opts = {}) {
     });
   }
 
-  const exact = matchExactStoreCreatePhrase(msg);
+  const exact = matchExactStoreCreatePhrase(raw);
   if (exact) {
     return buildCreateStoreClassification({
       intentMode: exact.intentMode,
