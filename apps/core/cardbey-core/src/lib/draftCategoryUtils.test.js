@@ -24,6 +24,22 @@ describe('draftCategoryUtils', () => {
     expect(categories.some((c) => /^cat_\d+$/.test(c.name))).toBe(false);
   });
 
+  it('recomputeDraftCategoriesFromItems preserves categoryPath hierarchy metadata', () => {
+    const { categories, items } = recomputeDraftCategoriesFromItems([
+      { id: 'a', name: 'Chả giò', categoryPath: ['Food', 'Entrées'] },
+      { id: 'b', name: 'Phở', categoryPath: ['Food', 'Mains'] },
+    ]);
+    expect(categories).toHaveLength(2);
+    expect(categories.every((c) => c.parentName === 'Food')).toBe(true);
+    expect(categories.map((c) => c.name).sort()).toEqual(['Entrées', 'Mains']);
+    expect(items[0].categoryPath).toEqual(['Food', 'Entrées']);
+    expect(items[0].categoryId).not.toBe(items[1].categoryId);
+  });
+
+  it('treats General as placeholder category name', () => {
+    expect(isPlaceholderCategoryName('General')).toBe(true);
+  });
+
   it('sanitizeDraftCategoryList remaps cat_N names to Other', () => {
     const out = sanitizeDraftCategoryList([
       { id: 'cat_0', name: 'cat_0' },

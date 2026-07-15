@@ -187,10 +187,13 @@ export function extractOffersFromBookwellNextData(html) {
   const seen = new Set();
 
   for (const heading of venue.headings) {
+    const category = stripTags(heading?.name ?? heading?.title ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
     for (const service of heading.services ?? []) {
-      const offer = mapBookwellServiceToOffer(service);
+      const offer = mapBookwellServiceToOffer(service, category);
       if (!offer) continue;
-      const key = offer.name.toLowerCase();
+      const key = `${String(offer.category || '').toLowerCase()}::${offer.name.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
       offers.push(offer);
@@ -263,7 +266,7 @@ function extractOffersFromBookwellHtmlBlocks(html) {
 /**
  * @param {unknown} service
  */
-function mapBookwellServiceToOffer(service) {
+function mapBookwellServiceToOffer(service, categoryName = '') {
   const name = stripTags(service?.name).replace(/\s+/g, ' ').trim();
   if (!name || name.length < 3 || name.length > 100) return null;
 
@@ -274,11 +277,15 @@ function mapBookwellServiceToOffer(service) {
 
   const duration = Number(service?.duration);
   const description = stripTags(service?.description).replace(/\s+/g, ' ').trim();
+  const category = String(categoryName || '').trim();
 
   return {
     name,
     price,
     durationMinutes: Number.isFinite(duration) && duration > 0 ? duration : null,
+    ...(category
+      ? { category, categoryPath: ['Business', category] }
+      : {}),
     description: description || '',
   };
 }
@@ -292,7 +299,7 @@ function mergeBookwellOffers(primary, secondary) {
   const seen = new Set();
 
   for (const offer of [...primary, ...secondary]) {
-    const key = offer.name.toLowerCase();
+    const key = `${String(offer.category || '').toLowerCase()}::${offer.name.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(offer);

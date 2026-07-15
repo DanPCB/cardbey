@@ -149,23 +149,52 @@ function flattenToPreviewShape(parsed, draftId) {
   const fallbackCategoryNames = ['Starters', 'Mains', 'Sides', 'Drinks', 'Desserts', 'Specials', 'Combos', 'Chef\'s Picks'];
   for (let ci = 0; ci < (parsed.categories || []).length; ci++) {
     const cat = parsed.categories[ci];
-    const subs = cat?.subcategories || [];
-    for (let si = 0; si < subs.length; si++) {
-      const sub = subs[si];
-      const catId = `cat_${ci}_${si}`;
-      const parentName = (cat?.name || '').toString().trim();
-      const subName = (sub?.name || '').toString().trim();
-      let displayName = subName || parentName;
+    const parentName = (cat?.name || '').toString().trim();
+    const subs = Array.isArray(cat?.subcategories) ? cat.subcategories : [];
+    // Category with items directly (no subcategory layer)
+    const directItems = Array.isArray(cat?.items) ? cat.items : [];
+    const sections =
+      subs.length > 0
+        ? subs.map((sub, si) => ({
+            sub,
+            si,
+            parentName,
+            subName: (sub?.name || '').toString().trim(),
+            sectionItems: Array.isArray(sub?.items) ? sub.items : [],
+          }))
+        : [
+            {
+              sub: cat,
+              si: 0,
+              parentName,
+              subName: '',
+              sectionItems: directItems,
+            },
+          ];
+
+    for (const section of sections) {
+      const catId = `cat_${ci}_${section.si}`;
+      let displayName = section.subName || parentName;
+      if (parentName && section.subName && parentName.toLowerCase() !== section.subName.toLowerCase()) {
+        displayName = `${parentName} · ${section.subName}`;
+      }
       if (/^cat[_\s-]?\d/i.test(displayName)) {
         displayName = parentName && !/^cat[_\s-]?\d/i.test(parentName)
           ? parentName
           : fallbackCategoryNames[ci % fallbackCategoryNames.length];
       }
+      if (!displayName) {
+        displayName = fallbackCategoryNames[ci % fallbackCategoryNames.length];
+      }
+      const categoryPath = [parentName, section.subName].filter(Boolean);
       categories.push({
         id: catId,
         name: displayName,
+        ...(parentName ? { parentName } : {}),
+        ...(section.subName ? { subcategoryName: section.subName } : {}),
+        level: section.subName ? 1 : 0,
       });
-      for (const it of sub?.items || []) {
+      for (const it of section.sectionItems) {
         const itemId = `item_${draftId}_${globalItemIndex}`;
         const priceStr = it?.price != null ? String(it.price).trim() : null;
         const amount = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null;
@@ -176,6 +205,9 @@ function flattenToPreviewShape(parsed, draftId) {
           price: priceStr || null,
           priceV1: amount != null && !Number.isNaN(amount) ? { amount } : undefined,
           categoryId: catId,
+          category: displayName,
+          categoryName: displayName,
+          categoryPath: categoryPath.length ? categoryPath : [displayName],
           imageUrl: null,
           isService: !!it?.isService,
           tags: Array.isArray(it?.tags) ? it.tags : undefined,

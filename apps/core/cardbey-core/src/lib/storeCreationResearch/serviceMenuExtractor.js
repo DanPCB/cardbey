@@ -3,6 +3,7 @@
  */
 
 import { inferServiceMode, normalizeServiceCatalogItem } from '../catalog/serviceCatalogNormalizer.js';
+import { CATALOG_IMPORT_SAFETY_CEILING } from '../../config/catalogLimits.js';
 import { summarizeDescription } from './researchSafety.js';
 
 const PRICE_RE = /(?:AUD|USD|\$)\s*(\d+(?:\.\d{2})?)|(\d+(?:\.\d{2})?)\s*(?:AUD|USD)/i;
@@ -69,12 +70,22 @@ function extractItemsFromOffers(raw, match, businessKind) {
     const item = offer?.itemOffered ?? offer;
     const name = cleanName(item?.name ?? offer?.name);
     if (!name) continue;
+    const categoryPath = Array.isArray(item?.categoryPath)
+      ? item.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean)
+      : Array.isArray(offer?.categoryPath)
+        ? offer.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean)
+        : [];
+    let category = cleanName(item?.category ?? offer?.category);
+    if ((!category || /^general$/i.test(category)) && categoryPath.length) {
+      category = categoryPath[categoryPath.length - 1];
+    }
     out.push({
       name,
       description: summarizeDescription(item?.description ?? offer?.description ?? ''),
       price: parsePrice(item?.price ?? offer?.price),
       durationMinutes: parseDuration(item?.durationMinutes ?? offer?.durationMinutes ?? ''),
-      category: cleanName(item?.category),
+      category,
+      ...(categoryPath.length ? { categoryPath } : category ? { categoryPath: [category] } : {}),
       sourceUrl: match.source.sourceUrl ?? undefined,
       sourceType: match.source.sourceType,
       confidence: match.confidence,
@@ -89,41 +100,73 @@ function extractItemsFromOcr(ocrText, match, businessKind) {
   if (!ocrText || typeof ocrText !== 'string') return [];
   const lines = ocrText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const out = [];
+  let currentCategory = '';
   for (const line of lines) {
-    if (line.length < 4 || line.length > 80) continue;
-    if (!/[a-z]/i.test(line)) continue;
+    if (line.length < 2 || line.length > 80) continue;
     if (/^(phone|email|www|http|tel|fax|abn)/i.test(line)) continue;
     const price = parsePrice(line);
     const duration = parseDuration(line);
     const name = line.replace(PRICE_RE, '').replace(DURATION_RE, '').trim();
-    if (!name || name.length < 3) continue;
+    if (!name || name.length < 2) continue;
+
+    // Conservative section heading: no price/duration, short, no digits.
+    const looksLikeHeading =
+      price == null &&
+      duration == null &&
+      name.length >= 3 &&
+      name.length <= 40 &&
+      !/[,.;:!?$]/.test(name) &&
+      !/\d/.test(name) &&
+      /^[\p{L}][\p{L}\s'’/-]*$/u.test(name);
+    if (looksLikeHeading) {
+      currentCategory = name;
+      continue;
+    }
+    if (!/[\p{L}]/u.test(name) || name.length < 3) continue;
+
     out.push({
       name,
       price,
       durationMinutes: duration,
+      ...(currentCategory
+        ? { category: currentCategory, categoryPath: [currentCategory] }
+        : {}),
       sourceType: 'uploaded_document',
       confidence: Math.min(0.65, match.confidence),
       needsOwnerReview: true,
       businessKind,
     });
   }
-  return out.slice(0, 24);
+  return out.slice(0, CATALOG_IMPORT_SAFETY_CEILING);
 }
 
 function classifyCatalogItem(item, businessKind, corpus) {
+  const path = Array.isArray(item.categoryPath)
+    ? item.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean)
+    : [];
+  const leaveCategory = (fallback) => {
+    if (item.category && !/^general$/i.test(String(item.category))) return item.category;
+    if (path.length) return path[path.length - 1];
+    return fallback;
+  };
+
   if (businessKind === 'food_menu') {
+    const category = leaveCategory('Menu');
     return {
       ...item,
       serviceMode: undefined,
       executionAction: 'add_to_cart',
-      category: item.category ?? 'Menu',
+      category,
+      ...(path.length ? { categoryPath: path } : category ? { categoryPath: [category] } : {}),
     };
   }
   if (businessKind === 'product_retail') {
+    const category = leaveCategory('Products');
     return {
       ...item,
       executionAction: 'add_to_cart',
-      category: item.category ?? 'Products',
+      category,
+      ...(path.length ? { categoryPath: path } : category ? { categoryPath: [category] } : {}),
     };
   }
 
@@ -135,11 +178,13 @@ function classifyCatalogItem(item, businessKind, corpus) {
       : inferServiceMode(item, { businessType: businessKind, businessName: corpus }) ?? 'fixed_booking';
 
   const executionAction = mode === 'quote_required' ? 'request_quote' : 'book';
+  const category = leaveCategory('Services');
   return {
     ...item,
     serviceMode: mode,
     executionAction,
-    category: item.category ?? 'Services',
+    category,
+    ...(path.length ? { categoryPath: path } : category ? { categoryPath: [category] } : {}),
     needsOwnerReview: item.needsOwnerReview || item.price == null,
   };
 }
@@ -175,8 +220,13 @@ function dedupeItems(items) {
   const seen = new Set();
   const out = [];
   for (const item of items) {
-    const key = String(item.name ?? '').toLowerCase();
-    if (!key || seen.has(key)) continue;
+    const name = String(item.name ?? '').toLowerCase().trim();
+    if (!name) continue;
+    const path = Array.isArray(item.categoryPath) && item.categoryPath.length
+      ? item.categoryPath.map((p) => String(p ?? '').toLowerCase().trim()).filter(Boolean).join('>')
+      : String(item.category ?? '').toLowerCase().trim();
+    const key = `${path}::${name}`;
+    if (seen.has(key)) continue;
     seen.add(key);
     out.push(item);
   }

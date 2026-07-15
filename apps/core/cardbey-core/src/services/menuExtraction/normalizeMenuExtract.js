@@ -2,7 +2,10 @@
  * Pure normalization for menu extraction (Phase 1). Used by extractMenuFromFile + unit tests.
  */
 
-export const MAX_MENU_ITEMS = 50;
+import { CATALOG_IMPORT_SAFETY_CEILING } from '../../config/catalogLimits.js';
+
+/** Safety ceiling for a single extract pass — not a “menu is only N items” product rule. */
+export const MAX_MENU_ITEMS = CATALOG_IMPORT_SAFETY_CEILING;
 export const MIN_ITEM_CONFIDENCE = 0.4;
 
 const ALLOWED_CURRENCIES = new Set(['AUD', 'VND', 'USD']);
@@ -117,8 +120,21 @@ function normalizeOneRawItem(raw) {
   let currency = typeof raw.currency === 'string' ? raw.currency.trim().toUpperCase() : 'AUD';
   if (!ALLOWED_CURRENCIES.has(currency)) currency = 'AUD';
   const description = typeof raw.description === 'string' ? raw.description.trim() : '';
-  const category =
-    typeof raw.category === 'string' && raw.category.trim() ? raw.category.trim() : 'General';
+  // Prefer explicit category / categoryPath; do not invent "General" (collapses real menus).
+  const categoryPath = Array.isArray(raw.categoryPath)
+    ? raw.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean)
+    : [];
+  let category =
+    typeof raw.category === 'string' && raw.category.trim() ? raw.category.trim() : '';
+  if ((!category || /^general$/i.test(category)) && categoryPath.length) {
+    category = categoryPath[categoryPath.length - 1];
+  }
+  if (!category && typeof raw.section === 'string' && raw.section.trim()) {
+    category = raw.section.trim();
+  }
+  if (!category && typeof raw.parentCategory === 'string' && raw.parentCategory.trim()) {
+    category = raw.parentCategory.trim();
+  }
   const confRaw = raw.confidence;
   const confidence =
     confRaw != null && Number.isFinite(Number(confRaw)) ? clamp01(Number(confRaw)) : 0.65;
@@ -141,7 +157,8 @@ function normalizeOneRawItem(raw) {
     price,
     currency,
     description,
-    category,
+    category: category || '',
+    ...(categoryPath.length ? { categoryPath } : {}),
     imageUrl: null,
     confidence,
     ...(durationMinutes != null ? { durationMinutes } : {}),

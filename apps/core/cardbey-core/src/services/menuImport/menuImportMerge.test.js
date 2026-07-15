@@ -63,4 +63,29 @@ describe('mergeMenuImportExtractions', () => {
     expect(catalog.filter((i) => i.category === 'Waxing')).toHaveLength(2);
     expect(catalog.filter((i) => /relaxation/i.test(i.name) || /deep tissue/i.test(i.name))).toHaveLength(1);
   });
+
+  it('keeps same item name in different category paths distinct', () => {
+    const merged = mergeMenuImportExtractions([
+      {
+        assetId: 'p1',
+        sourceOrder: 1,
+        items: [
+          { name: 'Spring Roll', price: 10, category: 'Entrées', categoryPath: ['Food', 'Entrées'], confidence: 0.9 },
+          {
+            name: 'Spring Roll',
+            price: 45,
+            category: 'Catering',
+            categoryPath: ['Food', 'Catering'],
+            confidence: 0.9,
+          },
+        ],
+      },
+    ]);
+    expect(merged.items).toHaveLength(2);
+    const catalog = toCatalogMenuItems(merged.items);
+    expect(catalog.map((i) => i.categoryPath?.join('>')).sort()).toEqual([
+      'Food>Catering',
+      'Food>Entrées',
+    ]);
+  });
 });

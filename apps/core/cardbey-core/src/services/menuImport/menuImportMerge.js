@@ -90,10 +90,30 @@ export function mergeMenuImportExtractions(perAsset) {
       if (!raw || typeof raw !== 'object') continue;
       const name = typeof raw.name === 'string' ? raw.name.trim() : '';
       if (!name) continue;
-      const category = typeof raw.category === 'string' ? raw.category.trim() : 'General';
-      categoriesSeen.add(category);
-      const key = `${normalizeKey(category)}::${normalizeKey(name)}`;
-      const stamped = withSourceRef(raw, { assetId, sourceOrder, page: 1 });
+      const category = typeof raw.category === 'string' ? raw.category.trim() : '';
+      const categoryPath = Array.isArray(raw.categoryPath)
+        ? raw.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean)
+        : [];
+      const pathKey = categoryPath.length
+        ? categoryPath.map((p) => normalizeKey(p)).join('>')
+        : normalizeKey(category);
+      if (categoryPath.length) {
+        for (const part of categoryPath) categoriesSeen.add(part);
+      } else if (category) {
+        categoriesSeen.add(category);
+      }
+      // Deduplicate by path + name (same name in different categories stays distinct).
+      const key = `${pathKey}::${normalizeKey(name)}`;
+      const stamped = withSourceRef(
+        {
+          ...raw,
+          ...(categoryPath.length ? { categoryPath } : {}),
+          ...(category || categoryPath.length
+            ? { category: category || categoryPath[categoryPath.length - 1] }
+            : {}),
+        },
+        { assetId, sourceOrder, page: 1 },
+      );
       const existing = byKey.get(key);
       if (!existing) {
         byKey.set(key, stamped);
@@ -106,6 +126,10 @@ export function mergeMenuImportExtractions(perAsset) {
       if (confB > confA) {
         Object.assign(next, stamped, {
           sourceRefs: [...(existing.sourceRefs || []), ...(stamped.sourceRefs || [])],
+          categoryPath:
+            (Array.isArray(stamped.categoryPath) && stamped.categoryPath.length
+              ? stamped.categoryPath
+              : existing.categoryPath) || categoryPath,
         });
       } else {
         if (next.price == null && stamped.price != null) next.price = stamped.price;
@@ -115,6 +139,9 @@ export function mergeMenuImportExtractions(perAsset) {
         }
         if ((!next.inclusions || !next.inclusions.length) && Array.isArray(stamped.inclusions)) {
           next.inclusions = stamped.inclusions;
+        }
+        if ((!next.categoryPath || !next.categoryPath.length) && categoryPath.length) {
+          next.categoryPath = categoryPath;
         }
         next.sourceRefs = [...(existing.sourceRefs || []), ...(stamped.sourceRefs || [])];
         warnings.push(`Possible duplicate kept merged: ${name}`);
@@ -178,7 +205,10 @@ export function toCatalogMenuItems(items) {
         price: it.price != null && Number.isFinite(Number(it.price)) ? Number(it.price) : null,
         currency: typeof it.currency === 'string' && it.currency ? it.currency : 'AUD',
         description,
-        category: typeof it.category === 'string' && it.category.trim() ? it.category.trim() : 'General',
+        category: typeof it.category === 'string' && it.category.trim() ? it.category.trim() : '',
+        ...(Array.isArray(it.categoryPath) && it.categoryPath.length
+          ? { categoryPath: it.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean) }
+          : {}),
         imageUrl: null,
         confidence: Number.isFinite(Number(it.confidence)) ? Number(it.confidence) : 0.7,
         durationMinutes: duration,

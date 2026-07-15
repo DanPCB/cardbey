@@ -15,17 +15,29 @@ export function isPlaceholderCategoryName(value) {
   if (PLACEHOLDER_CATEGORY_NAME_RE.test(s)) return true;
   if (PLACEHOLDER_CATEGORY_ID_RE.test(s)) return true;
   if (/^uncategorized$/i.test(s)) return true;
+  // Legacy flatten default — not a real menu section
+  if (/^general$/i.test(s)) return true;
   return false;
 }
 
 /**
  * Human-readable category label from an item row (never returns placeholder ids).
+ * Prefers categoryPath leaf / joined display over flat category when present.
  * @param {object | null | undefined} item
  * @returns {string | null}
  */
 export function resolveCategoryLabelFromItem(item) {
   if (!item || typeof item !== 'object') return null;
-  const candidates = [item.categoryName, item.category];
+  const path = Array.isArray(item.categoryPath)
+    ? item.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean)
+    : [];
+  if (path.length >= 2) {
+    const joined = path.join(' · ');
+    if (!isPlaceholderCategoryName(joined)) return joined;
+  }
+  if (path.length === 1 && !isPlaceholderCategoryName(path[0])) return path[0];
+
+  const candidates = [item.categoryName, item.category, item.parentCategory];
   for (const raw of candidates) {
     const s = String(raw ?? '').trim();
     if (s && !isPlaceholderCategoryName(s)) return s;
@@ -47,40 +59,88 @@ function slugifyCategoryId(name) {
 }
 
 /**
+ * Resolve a stable category path array from an item (never invents "General").
+ * @param {object | null | undefined} item
+ * @returns {string[]}
+ */
+export function resolveCategoryPathFromItem(item) {
+  if (!item || typeof item !== 'object') return [];
+  if (Array.isArray(item.categoryPath) && item.categoryPath.length) {
+    return item.categoryPath.map((p) => String(p ?? '').trim()).filter((p) => p && !isPlaceholderCategoryName(p));
+  }
+  const parent = String(item.parentCategory ?? '').trim();
+  const leaf = resolveCategoryLabelFromItem(item);
+  if (parent && leaf && !isPlaceholderCategoryName(parent) && parent.toLowerCase() !== leaf.toLowerCase()) {
+    if (leaf.includes(' · ')) {
+      const parts = leaf.split(/\s*·\s*/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length >= 2) return parts;
+    }
+    return [parent, leaf];
+  }
+  if (leaf && leaf.includes(' · ')) {
+    return leaf.split(/\s*·\s*/).map((s) => s.trim()).filter(Boolean);
+  }
+  return leaf ? [leaf] : [];
+}
+
+/**
  * Recompute draft.preview.categories from items grouped by real category names.
  * Items without a name merge into "Other". Never emits cat_N display names.
+ * Preserves parentName / path / level when categoryPath depth ≥ 2.
  * @param {object[]} items
- * @returns {{ categories: { id: string, name: string }[], items: object[] }}
+ * @returns {{ categories: { id: string, name: string, parentName?: string, level?: number, path?: string[] }[], items: object[] }}
  */
 export function recomputeDraftCategoriesFromItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
     return { categories: [], items: [] };
   }
 
-  const byName = new Map();
+  /** @type {Map<string, { name: string, parentName?: string, level: number, path: string[], productIds: string[] }>} */
+  const byKey = new Map();
   items.forEach((p, idx) => {
-    const label = resolveCategoryLabelFromItem(p) || 'Other';
-    if (!byName.has(label)) {
-      byName.set(label, { name: label, productIds: [] });
+    const path = resolveCategoryPathFromItem(p);
+    const leaf = path.length ? path[path.length - 1] : 'Other';
+    const key = path.length ? path.map((s) => s.toLowerCase()).join('>') : 'other';
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        name: leaf,
+        parentName: path.length >= 2 ? path[0] : undefined,
+        level: Math.max(0, path.length - 1),
+        path: path.length ? path : ['Other'],
+        productIds: [],
+      });
     }
-    byName.get(label).productIds.push(p.id || `item_${idx}`);
+    byKey.get(key).productIds.push(p.id || `item_${idx}`);
   });
 
-  const nameToId = new Map();
-  const categories = Array.from(byName.entries()).map(([name]) => {
-    const id = name.toLowerCase() === 'other' ? 'other' : `cat_${slugifyCategoryId(name)}`;
-    nameToId.set(name, id);
-    return { id, name };
+  const keyToId = new Map();
+  const categories = Array.from(byKey.entries()).map(([key, meta]) => {
+    const id =
+      key === 'other' || meta.name.toLowerCase() === 'other'
+        ? 'other'
+        : `cat_${slugifyCategoryId(meta.path.join('_'))}`;
+    keyToId.set(key, id);
+    return {
+      id,
+      name: meta.name,
+      ...(meta.parentName ? { parentName: meta.parentName } : {}),
+      level: meta.level,
+      path: meta.path,
+    };
   });
 
   const itemsWithCategoryId = items.map((p, idx) => {
-    const label = resolveCategoryLabelFromItem(p) || 'Other';
+    const path = resolveCategoryPathFromItem(p);
+    const key = path.length ? path.map((s) => s.toLowerCase()).join('>') : 'other';
+    const label = path.length ? path.join(' · ') : 'Other';
+    const leaf = path.length ? path[path.length - 1] : 'Other';
     return {
       ...p,
       id: p.id || `item_${idx}`,
-      categoryId: nameToId.get(label) || 'other',
-      ...(label !== 'Other' && !p.category ? { category: label } : {}),
-      ...(label !== 'Other' && !p.categoryName ? { categoryName: label } : {}),
+      categoryId: keyToId.get(key) || 'other',
+      ...(path.length ? { categoryPath: path } : {}),
+      ...(label !== 'Other' ? { category: leaf, categoryName: leaf } : {}),
+      ...(path.length >= 2 ? { parentCategory: path[0] } : {}),
     };
   });
 

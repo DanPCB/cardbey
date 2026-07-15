@@ -70,6 +70,7 @@ import {
 import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
+import { CATALOG_IMAGE_ENRICH_MAX } from '../config/catalogLimits.js';
 import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
 import {
   resolveBrandKitTarget,
@@ -443,7 +444,11 @@ async function resolveDraftForStoreAsset(req) {
     const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
     const allowed = await canAccessDraftStore(draft, {
       userId,
-      tenantKey: userId,
+      tenantKey: getTenantId(req.user) ?? userId ?? null,
+      missionId:
+        (typeof req.body?.missionId === 'string' && req.body.missionId.trim()) ||
+        (typeof req.query?.missionId === 'string' && req.query.missionId.trim()) ||
+        null,
       isSuperAdmin: req.user?.role === 'super_admin',
     });
     if (!allowed) {
@@ -2327,10 +2332,16 @@ async function enqueueCatalogItemImageFetch({ draftId, generationRunId }) {
     const itemIndicesNeeding = [];
     for (let i = 0; i < items.length; i++) {
       const u = items[i]?.imageUrl;
-      if (!u || !String(u).trim()) itemIndicesNeeding.push(i);
+      const src = String(items[i]?.imageSource ?? '').trim();
+      const status = String(items[i]?.imageStatus ?? '').trim();
+      const weakSeed =
+        src === 'seed_library' ||
+        src === 'menu_upload_seed' ||
+        status === 'needs_review' ||
+        status === 'fallback';
+      if (!u || !String(u).trim() || weakSeed) itemIndicesNeeding.push(i);
     }
-    const MAX_ITEMS = 30;
-    const idxList = itemIndicesNeeding.slice(0, MAX_ITEMS);
+    const idxList = itemIndicesNeeding.slice(0, CATALOG_IMAGE_ENRICH_MAX);
     if (!idxList.length) return;
 
     const draftInput = fresh.input && typeof fresh.input === 'object' ? fresh.input : {};
@@ -2587,7 +2598,25 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
       return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required' });
     }
 
-    const allowed = await isDraftOwnedByUser(generationRunId, userId);
+    const draftForAcl = await getDraftByGenerationRunId(generationRunId);
+    if (!draftForAcl) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft not found',
+      });
+    }
+
+    const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
+    const allowed = await canAccessDraftStore(draftForAcl, {
+      userId,
+      tenantKey: getTenantId(req.user) ?? userId ?? null,
+      missionId:
+        (typeof req.body?.missionId === 'string' && req.body.missionId.trim()) ||
+        (typeof req.query?.missionId === 'string' && req.query.missionId.trim()) ||
+        null,
+      isSuperAdmin: req.user?.role === 'super_admin',
+    });
     if (!allowed) {
       return res.status(403).json({
         ok: false,
@@ -2596,14 +2625,7 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
       });
     }
 
-    const draft = await getDraftByGenerationRunId(generationRunId);
-    if (!draft) {
-      return res.status(404).json({
-        ok: false,
-        error: 'draft_not_found',
-        message: 'Draft not found',
-      });
-    }
+    const draft = draftForAcl;
 
     const preview =
       typeof draft.preview === 'string'
@@ -2634,11 +2656,17 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
       (preview.meta && typeof preview.meta.storeType === 'string' && preview.meta.storeType) ||
       'cafe';
 
-    // Map MenuItemExtract[] → draft preview item schema (name/description/price/category/currency/imageUrl).
+    // Map MenuItemExtract[] → draft preview item schema (preserve categoryPath; never invent "General").
     const mappedBase = rawItems.map((it, idx) => {
       const name = typeof it?.name === 'string' ? it.name.trim() : '';
       const description = typeof it?.description === 'string' ? it.description.trim() : '';
-      const category = typeof it?.category === 'string' && it.category.trim() ? it.category.trim() : 'General';
+      const categoryPath = Array.isArray(it?.categoryPath)
+        ? it.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean)
+        : [];
+      let category = typeof it?.category === 'string' && it.category.trim() ? it.category.trim() : '';
+      if ((!category || /^general$/i.test(category)) && categoryPath.length) {
+        category = categoryPath[categoryPath.length - 1];
+      }
       const currency = typeof it?.currency === 'string' && it.currency.trim() ? it.currency.trim().toUpperCase() : 'AUD';
       const price = typeof it?.price === 'number' && Number.isFinite(it.price) ? it.price : null;
       const imageUrl = typeof it?.imageUrl === 'string' && it.imageUrl.trim() ? it.imageUrl.trim() : '';
@@ -2648,7 +2676,8 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
         description: description || null,
         price,
         currency,
-        category,
+        ...(category ? { category, categoryName: category } : {}),
+        ...(categoryPath.length ? { categoryPath } : {}),
       };
       if (imageUrl) out.imageUrl = imageUrl;
       return out;
@@ -2658,10 +2687,12 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
     let itemsForCatalog = mappedBase;
     if (applyMode === 'merge') {
       const existingItems = Array.isArray(preview.items) ? preview.items : [];
-      const keyOf = (it) =>
-        `${String(it?.category || 'General').trim().toLowerCase()}::${String(it?.name || it?.title || '')
-          .trim()
-          .toLowerCase()}`;
+      const keyOf = (it) => {
+        const path = Array.isArray(it?.categoryPath) && it.categoryPath.length
+          ? it.categoryPath.map((p) => String(p ?? '').trim().toLowerCase()).filter(Boolean).join('>')
+          : String(it?.category || '').trim().toLowerCase();
+        return `${path}::${String(it?.name || it?.title || '').trim().toLowerCase()}`;
+      };
       const existingKeys = new Set(existingItems.map(keyOf).filter((k) => !k.endsWith('::')));
       const toInsert = mappedBase.filter((it) => {
         const k = keyOf(it);
@@ -2733,7 +2764,17 @@ router.patch('/:storeId/draft/catalog', requireAuth, async (req, res, next) => {
     }, { allowCommitted: true });
 
     const fetchOn = body.fetchImages !== false;
-    const needsImages = itemsWithCategoryId.some((it) => !it?.imageUrl || !String(it.imageUrl).trim());
+    const needsImages = itemsWithCategoryId.some((it) => {
+      const src = String(it?.imageSource ?? '').trim();
+      const status = String(it?.imageStatus ?? '').trim();
+      if (!it?.imageUrl || !String(it.imageUrl).trim()) return true;
+      return (
+        src === 'seed_library' ||
+        src === 'menu_upload_seed' ||
+        status === 'needs_review' ||
+        status === 'fallback'
+      );
+    });
     const imagesFetching = fetchOn && needsImages;
     if (imagesFetching) {
       void enqueueCatalogItemImageFetch({ draftId: draft.id, generationRunId });
