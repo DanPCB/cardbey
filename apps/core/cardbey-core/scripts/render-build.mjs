@@ -54,6 +54,14 @@ function initDashboardSubmodule() {
     console.warn('[render-build] no .gitmodules at', monorepoRoot, '— skip submodule init');
     return;
   }
+  // Private submodule needs credentials Render core often lacks.
+  // Prefer committed language-seed; skip noisy git clone attempts unless explicitly enabled.
+  if (String(process.env.CARDBEY_INIT_DASHBOARD_SUBMODULE || '').toLowerCase() !== 'true') {
+    console.warn(
+      '[render-build] skip dashboard submodule init (set CARDBEY_INIT_DASHBOARD_SUBMODULE=true to enable); language-seed covers /api/language/scan',
+    );
+    return;
+  }
   try {
     console.log('[render-build] init dashboard submodule for language agent');
     execSync(`git submodule update --init --depth 1 ${submoduleRel}`, {
@@ -64,7 +72,7 @@ function initDashboardSubmodule() {
     });
   } catch (err) {
     console.warn(
-      '[render-build] dashboard submodule init failed (language agent may fetch at runtime):',
+      '[render-build] dashboard submodule init failed (language agent may use language-seed):',
       err?.message ?? err,
     );
   }
