@@ -11,6 +11,12 @@ export const PLACEHOLDER_MENU_ITEM_NAMES = new Set([
   'premium service',
   'add-on',
   'addon',
+  // Legacy spa→nails mock pack (Catalog (5) demos)
+  'classic manicure',
+  'gel manicure',
+  'spa pedicure',
+  'nail art (per nail)',
+  'gel removal',
 ]);
 
 export const MENU_VISION_EXTRACTION_PROMPT = `Extract ALL sellable services/products from this menu, spa package list, beauty price list, or restaurant menu image.

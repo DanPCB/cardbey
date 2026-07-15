@@ -1,0 +1,36 @@
+{
+  "store": { "vi": "cửa hàng" },
+  "mission": { "vi": "nhiệm vụ" },
+  "campaign": { "vi": "chiến dịch" },
+  "publish": { "vi": "xuất bản" },
+  "draft": { "vi": "bản nháp" },
+  "product": { "vi": "sản phẩm" },
+  "catalog": { "vi": "danh mục" },
+  "promotion": { "vi": "khuyến mãi" },
+  "customer": { "vi": "khách hàng" },
+  "dashboard": { "vi": "bảng điều khiển" },
+  "preview": { "vi": "xem trước" },
+  "settings": { "vi": "cài đặt" },
+  "save": { "vi": "lưu" },
+  "cancel": { "vi": "hủy" },
+  "confirm": { "vi": "xác nhận" },
+  "delete": { "vi": "xóa" },
+  "edit": { "vi": "chỉnh sửa" },
+  "loading": { "vi": "đang tải" },
+  "error": { "vi": "lỗi" },
+  "success": { "vi": "thành công" },
+  "performer": { "vi": "Performer" },
+  "cardbey": { "vi": "Cardbey" },
+  "Video Studio": { "vi": "Video Studio" },
+  "Chat Canvas": { "vi": "Chat Canvas" },
+  "Studio": { "vi": "studio" },
+  "Canvas": { "vi": "Canvas" },
+  "chat": { "vi": "trò chuyện" },
+  "video": { "vi": "video" },
+  "Faster access, full-screen, works like an app.": {
+    "vi": "Truy cập nhanh hơn, toàn màn hình, dùng như một ứng dụng."
+  },
+  "Complete the checkpoints in chat. The automated store build starts after you confirm your choices.": {
+    "vi": "Hoàn thành các bước kiểm tra trong chat. Quá trình tạo cửa hàng tự động bắt đầu sau khi bạn xác nhận."
+  }
+}

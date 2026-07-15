@@ -4,7 +4,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import groqAdapter from '../../lib/llm/groqAdapter.js';
-import { detectI18nGaps, getDashboardPackageRoot } from '../../lib/intake/i18nMaintenanceTools.js';
+import {
+  detectI18nGaps,
+  ensureDashboardI18nReady,
+  getDashboardPackageRoot,
+} from '../../lib/intake/i18nMaintenanceTools.js';
 import {
   validateKeyParity,
   validateVietnameseStrings,
@@ -72,8 +76,16 @@ export class LanguageAgent {
     this.isRunning = true;
 
     try {
+      const ready = await ensureDashboardI18nReady();
+      console.log('[LanguageAgent] i18n catalog source:', ready.source, ready.dashboardRoot);
+
+      const scanOpts = {
+        ...options,
+        i18nPath: options.i18nPath ?? path.join(ready.dashboardRoot, 'src/i18n.js'),
+      };
+
       const [vietnamese, gapsResult] = await Promise.all([
-        validateVietnameseStrings(options),
+        validateVietnameseStrings(scanOpts),
         detectI18nGaps().catch((err) => ({
           status: 'failed',
           count: 0,
@@ -83,7 +95,7 @@ export class LanguageAgent {
         })),
       ]);
 
-      const catalog = loadI18nCatalog(options);
+      const catalog = loadI18nCatalog(scanOpts);
       const keys = listAllKeys(catalog);
       const parity = validateKeyParity(keys.en, keys.vi);
 

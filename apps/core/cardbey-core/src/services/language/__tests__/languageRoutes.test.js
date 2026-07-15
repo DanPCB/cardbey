@@ -22,6 +22,10 @@ vi.mock('../../../lib/intake/i18nMaintenanceTools.js', () => ({
     exitCode: 0,
   })),
   getDashboardPackageRoot: vi.fn(() => dashboardRoot),
+  ensureDashboardI18nReady: vi.fn(async () => ({
+    dashboardRoot,
+    source: 'submodule',
+  })),
 }));
 
 vi.mock('../languageApply.js', () => ({

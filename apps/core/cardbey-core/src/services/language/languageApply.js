@@ -4,7 +4,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { getDashboardPackageRoot } from '../../lib/intake/i18nMaintenanceTools.js';
+import {
+  ensureDashboardI18nReady,
+  getDashboardPackageRoot,
+} from '../../lib/intake/i18nMaintenanceTools.js';
 import { appendLanguageAudit, getLanguageAuditHistory } from './languageExecutionAudit.js';
 import { loadI18nCatalog, mergeNamespaces } from './languageI18nReader.js';
 import { hasMixedLanguage, isValidVietnamese } from './languageValidator.js';
@@ -214,6 +217,11 @@ export class LanguageApply {
     }
     if (!fix.key || !fix.fixed) {
       throw new Error('Fix must include key and fixed value');
+    }
+
+    if (!opts.i18nPath && !opts.dashboardRoot) {
+      const ready = await ensureDashboardI18nReady();
+      opts = { ...opts, dashboardRoot: ready.dashboardRoot };
     }
 
     const paths = resolvePaths(opts);
