@@ -1,6 +1,6 @@
 /**
  * Shared implementation for dashboard-initiated playlist push (same behavior as
- * POST /api/device/push-playlist): load SIGNAGE playlist, push via engine, logs, SSE.
+ * POST /api/device/push-playlist): load SIGNAGE/MEDIA playlist, push via engine, logs, SSE.
  */
 
 import { getPrismaClient } from '../lib/prisma.js';
@@ -19,6 +19,23 @@ function createEngineContext() {
   };
 }
 
+function resolveItemPlaybackUrl(item) {
+  const assetUrl = item.asset?.url;
+  if (assetUrl && String(assetUrl).trim()) return String(assetUrl).trim();
+  const mediaUrl = item.media?.url;
+  if (mediaUrl && String(mediaUrl).trim()) return String(mediaUrl).trim();
+  return '';
+}
+
+function resolveItemType(item) {
+  if (item.asset?.type) return String(item.asset.type).toLowerCase();
+  const kind = String(item.media?.kind || '').toLowerCase();
+  if (kind === 'video') return 'video';
+  if (kind === 'image' || kind === 'img') return 'image';
+  if (item.mediaId) return 'image';
+  return 'image';
+}
+
 /**
  * @param {{ deviceId: string, playlistId: string, userId?: string | null }} args
  * @returns {Promise<{ ok: boolean, data?: { bindingId: string, status: string } }>}
@@ -26,7 +43,7 @@ function createEngineContext() {
 export async function runDashboardPlaylistPush({ deviceId, playlistId, userId = null }) {
   const prisma = getPrismaClient();
 
-  const device = await prisma.device.findUnique({
+  let device = await prisma.device.findUnique({
     where: { id: deviceId },
   });
 
@@ -45,16 +62,17 @@ export async function runDashboardPlaylistPush({ deviceId, playlistId, userId = 
     endpoint: 'runDashboardPlaylistPush',
   });
 
-  const playlist = await prisma.playlist.findFirst({
+  let playlist = await prisma.playlist.findFirst({
     where: {
       id: playlistId,
-      type: 'SIGNAGE',
+      type: { in: ['SIGNAGE', 'MEDIA'] },
     },
     include: {
       items: {
         orderBy: { orderIndex: 'asc' },
         include: {
           asset: true,
+          media: true,
         },
       },
     },
@@ -92,61 +110,115 @@ export async function runDashboardPlaylistPush({ deviceId, playlistId, userId = 
     throw err;
   }
 
-  if (playlist.tenantId !== device.tenantId) {
+  // Align tenant to store owner when store already matches — prevents blank assign after repair.
+  const business = await prisma.business.findUnique({
+    where: { id: device.storeId },
+    select: { userId: true },
+  });
+  const ownerUserId = business?.userId ? String(business.userId).trim() : null;
+  if (ownerUserId) {
     const { repairSignagePlaylistTenantForStore } = await import('../lib/playlistScope.js');
-    const business = await prisma.business.findUnique({
-      where: { id: device.storeId },
-      select: { userId: true },
-    });
-    const ownerUserId = business?.userId ? String(business.userId).trim() : device.tenantId;
-    if (ownerUserId) {
-      await repairSignagePlaylistTenantForStore(prisma, device.storeId, ownerUserId);
-      const repaired = await prisma.playlist.findFirst({
-        where: { id: playlistId, type: 'SIGNAGE' },
-        include: {
-          items: { orderBy: { orderIndex: 'asc' }, include: { asset: true } },
-        },
-      });
-      if (repaired && repaired.tenantId === device.tenantId) {
-        Object.assign(playlist, repaired);
+    await repairSignagePlaylistTenantForStore(prisma, device.storeId, ownerUserId);
+
+    if (device.tenantId !== ownerUserId && device.tenantId !== 'temp') {
+      try {
+        device = await prisma.device.update({
+          where: { id: device.id },
+          data: { tenantId: ownerUserId },
+        });
+        console.log('[PLAYLIST_ASSIGN] aligned device tenantId to store owner', {
+          deviceId,
+          ownerUserId,
+        });
+      } catch (alignErr) {
+        console.warn('[PLAYLIST_ASSIGN] device tenant align failed (non-fatal):', alignErr?.message);
       }
     }
+
+    const refreshed = await prisma.playlist.findFirst({
+      where: { id: playlistId, type: { in: ['SIGNAGE', 'MEDIA'] } },
+      include: {
+        items: { orderBy: { orderIndex: 'asc' }, include: { asset: true, media: true } },
+      },
+    });
+    if (refreshed) playlist = refreshed;
   }
 
   if (playlist.tenantId !== device.tenantId || playlist.storeId !== device.storeId) {
-    const { buildPlaylistAccessDeniedContext, logPlaylistAccessDenied } = await import(
-      '../lib/playlistScope.js'
-    );
-    const deniedCtx = await buildPlaylistAccessDeniedContext(
-      prisma,
-      playlist,
-      { tenantId: device.tenantId, storeId: device.storeId },
-      { userId, path: 'runDashboardPlaylistPush' },
-      { deviceId, sourceRoute: 'POST /api/device/push-playlist' },
-    );
-    logPlaylistAccessDenied(deniedCtx);
-    console.error('[PLAYLIST_ASSIGN_FAILED]', {
-      deviceId,
-      playlistId,
-      error: 'PLAYLIST_STORE_MISMATCH',
-      ...deniedCtx,
-    });
-    const err = new Error(
-      'Playlist does not belong to this device\'s store. Create or select a playlist for the same store as the device.',
-    );
-    err.code = 'PLAYLIST_STORE_MISMATCH';
-    throw err;
+    // Final soft allow: same store + playlist tenant is store owner
+    const sameStore = playlist.storeId === device.storeId;
+    const playlistOwned =
+      !ownerUserId || !playlist.tenantId || playlist.tenantId === ownerUserId;
+    if (!(sameStore && playlistOwned)) {
+      const { buildPlaylistAccessDeniedContext, logPlaylistAccessDenied } = await import(
+        '../lib/playlistScope.js'
+      );
+      const deniedCtx = await buildPlaylistAccessDeniedContext(
+        prisma,
+        playlist,
+        { tenantId: device.tenantId, storeId: device.storeId },
+        { userId, path: 'runDashboardPlaylistPush' },
+        { deviceId, sourceRoute: 'POST /api/device/push-playlist' },
+      );
+      logPlaylistAccessDenied(deniedCtx);
+      console.error('[PLAYLIST_ASSIGN_FAILED]', {
+        deviceId,
+        playlistId,
+        error: 'PLAYLIST_STORE_MISMATCH',
+        ...deniedCtx,
+      });
+      const err = new Error(
+        'Playlist does not belong to this device\'s store. Create or select a playlist for the same store as the device.',
+      );
+      err.code = 'PLAYLIST_STORE_MISMATCH';
+      throw err;
+    }
+  }
+
+  // Promote MEDIA → SIGNAGE when assigned to a TV so future list/filter stay consistent
+  if (String(playlist.type).toUpperCase() === 'MEDIA') {
+    try {
+      playlist = await prisma.playlist.update({
+        where: { id: playlist.id },
+        data: {
+          type: 'SIGNAGE',
+          tenantId: ownerUserId || playlist.tenantId || device.tenantId,
+          storeId: device.storeId,
+          active: true,
+        },
+        include: {
+          items: { orderBy: { orderIndex: 'asc' }, include: { asset: true, media: true } },
+        },
+      });
+      console.log('[PLAYLIST_ASSIGN] promoted MEDIA playlist to SIGNAGE', { playlistId });
+    } catch (promoteErr) {
+      console.warn('[PLAYLIST_ASSIGN] MEDIA→SIGNAGE promote failed (continuing):', promoteErr?.message);
+    }
   }
 
   const playlistData = {
-    items: playlist.items.map((item, index) => ({
-      assetId: item.assetId,
-      url: item.asset?.url || '',
-      type: item.asset?.type || 'image',
-      duration: item.durationS ?? item.asset?.durationS ?? 5,
-      order: item.orderIndex ?? index,
-    })),
+    items: playlist.items
+      .map((item, index) => {
+        const url = resolveItemPlaybackUrl(item);
+        return {
+          assetId: item.assetId || item.mediaId || null,
+          url,
+          type: resolveItemType(item),
+          duration: item.durationS ?? item.asset?.durationS ?? item.media?.durationS ?? 5,
+          order: item.orderIndex ?? index,
+        };
+      })
+      .filter((item) => Boolean(item.url)),
   };
+
+  if (playlist.items.length > 0 && playlistData.items.length === 0) {
+    const err = new Error(
+      'Playlist has items but no playable media URLs. Open the playlist editor and re-add your videos/images.',
+    );
+    err.code = 'PLAYLIST_EMPTY_URLS';
+    console.error('[PLAYLIST_ASSIGN_FAILED]', { deviceId, playlistId, error: 'PLAYLIST_EMPTY_URLS' });
+    throw err;
+  }
 
   const version = `${playlistId}:${Date.now()}`;
 
@@ -220,7 +292,7 @@ export async function runDashboardPlaylistPush({ deviceId, playlistId, userId = 
     deviceId,
     ...canonical,
     playlistItemCount: playlist.items?.length ?? 0,
-    itemsWithAsset: playlist.items?.filter((i) => i.assetId && i.asset?.url).length ?? 0,
+    itemsWithUrl: playlistData.items.length,
   });
 
   try {

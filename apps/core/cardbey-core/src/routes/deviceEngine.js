@@ -2491,6 +2491,13 @@ async function handlePushPlaylistAssign(req, res) {
         code: 'PLAYLIST_STORE_MISMATCH',
       });
     }
+    if (code === 'PLAYLIST_EMPTY_URLS') {
+      return res.status(400).json({
+        ok: false,
+        error: error.message || 'Playlist has no playable media URLs',
+        code: 'PLAYLIST_EMPTY_URLS',
+      });
+    }
     res.status(500).json({
       ok: false,
       error: error.message || 'Failed to push playlist',

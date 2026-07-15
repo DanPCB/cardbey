@@ -94,7 +94,7 @@ export async function repairSignagePlaylistTenantForStore(prisma, storeId, owner
   if (!storeId || !ownerUserId) return 0;
   const result = await prisma.playlist.updateMany({
     where: {
-      type: 'SIGNAGE',
+      type: { in: ['SIGNAGE', 'MEDIA'] },
       storeId,
       OR: [
         { tenantId: null },
@@ -306,7 +306,12 @@ export async function assertSignagePlaylistAccess(playlist, req, prisma, options
   };
 }
 
-export async function listSignagePlaylistsForStore(prisma, { tenantId, storeId, repair = true }) {
+/**
+ * List playlists available for signage / device assignment.
+ * @param {{ tenantId?: string, storeId?: string, repair?: boolean, forDeviceAssign?: boolean }} args
+ * forDeviceAssign: also include active MEDIA playlists for the same store (legacy screen content).
+ */
+export async function listSignagePlaylistsForStore(prisma, { tenantId, storeId, repair = true, forDeviceAssign = false }) {
   const scope = await resolvePlaylistTenantStore({ tenantId, storeId }, prisma);
   const effectiveTenantId = scope.tenantId;
   const effectiveStoreId = scope.storeId;
@@ -315,12 +320,25 @@ export async function listSignagePlaylistsForStore(prisma, { tenantId, storeId, 
     await repairSignagePlaylistTenantForStore(prisma, effectiveStoreId, effectiveTenantId);
   }
 
+  const typeFilter = forDeviceAssign
+    ? { in: ['SIGNAGE', 'MEDIA'] }
+    : 'SIGNAGE';
+
+  // Prefer exact tenant match; also include rows for this store whose tenant still drifts
+  // (repair should catch most of these, but assign dropdown must not go blank).
   return prisma.playlist.findMany({
     where: {
-      type: 'SIGNAGE',
+      type: typeFilter,
       storeId: effectiveStoreId,
-      tenantId: effectiveTenantId,
       active: true,
+      OR: [
+        { tenantId: effectiveTenantId },
+        { tenantId: null },
+        { tenantId: '' },
+        { tenantId: 'temp' },
+        { tenantId: 'missing' },
+        { tenantId: effectiveStoreId },
+      ],
     },
     include: {
       items: { select: { id: true } },
