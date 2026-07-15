@@ -1943,6 +1943,121 @@ router.get('/verify', async (req, res, next) => {
 });
 
 /**
+ * POST /api/auth/change-password
+ * Change password while authenticated. Requires current password.
+ *
+ * Request body:
+ *   - currentPassword: string (required)
+ *   - newPassword: string (required, min 8 chars)
+ *
+ * Response (200): { ok: true, message }
+ *
+ * Errors:
+ *   - 400: Missing fields, password too short, no usable password on account
+ *   - 401: Wrong current password / guest
+ *   - 403: Guest sessions cannot change password
+ */
+router.post('/change-password', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user?.role === 'guest') {
+      return res.status(403).json({
+        ok: false,
+        error: 'Guest not allowed',
+        message: 'Guest sessions cannot change a password. Create an account first.',
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body ?? {};
+
+    if (!currentPassword || typeof currentPassword !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Current password required',
+        message: 'Current password is required',
+      });
+    }
+    if (!newPassword || typeof newPassword !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'New password required',
+        message: 'New password is required',
+      });
+    }
+
+    const minLen = 8;
+    if (newPassword.length < minLen) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password too short',
+        message: `New password must be at least ${minLen} characters`,
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { id: true, email: true, passwordHash: true },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        ok: false,
+        error: 'User not found',
+        message: 'Authentication failed. Please log in again.',
+      });
+    }
+
+    const hash = user.passwordHash;
+    const usableHash = typeof hash === 'string' && /^\$2[aby]?\$/.test(hash);
+    if (!usableHash) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password not set',
+        message:
+          'This account has no password to change. Use “Forgot password” or set a password from sign-in options.',
+      });
+    }
+
+    let currentValid = false;
+    try {
+      currentValid = await bcrypt.compare(currentPassword, hash);
+    } catch {
+      currentValid = false;
+    }
+    if (!currentValid) {
+      return res.status(401).json({
+        ok: false,
+        error: 'Invalid current password',
+        message: 'Current password is incorrect',
+      });
+    }
+
+    if (await bcrypt.compare(newPassword, hash).catch(() => false)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password unchanged',
+        message: 'New password must be different from your current password',
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hashedPassword },
+    });
+
+    console.log('[Auth] Password changed', { userId: user.id, email: user.email });
+
+    res.json({
+      ok: true,
+      message: 'Password updated successfully',
+    });
+  } catch (error) {
+    console.error('[Auth] Change password error:', error);
+    next(error);
+  }
+});
+
+/**
  * POST /api/auth/request-reset
  * Request password reset token; sends reset email when MAIL_* is configured.
  * Rate limited per IP. Always returns generic success to prevent email enumeration.
