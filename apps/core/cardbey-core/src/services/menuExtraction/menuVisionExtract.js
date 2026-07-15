@@ -13,29 +13,42 @@ export const PLACEHOLDER_MENU_ITEM_NAMES = new Set([
   'addon',
 ]);
 
-export const MENU_VISION_EXTRACTION_PROMPT = `Extract ALL menu items from this restaurant/cafe menu image.
+export const MENU_VISION_EXTRACTION_PROMPT = `Extract ALL sellable services/products from this menu, spa package list, beauty price list, or restaurant menu image.
 
 For each item return:
-- name: exact item name as written on the menu
-- price: numeric value ONLY (e.g. 4.5 for $4.50 — no currency symbol in this field)
-- priceDisplay: price formatted exactly as printed on the menu (e.g. "$4.50" or "4.50")
-- category: Coffee, Food, Drinks, Desserts, etc.
-- description: any subtitle text, or "" if none
+- name: exact item name as written (e.g. Refresh, Express, Eyebrow)
+- price: numeric value ONLY (e.g. 69 for $69 — no currency symbol in this field)
+- priceDisplay: price formatted exactly as printed (e.g. "$69")
+- category: section heading (e.g. Spa Packages, Facial Treatment Packages, Massage, Waxing, Beauty Services)
+- description: short subtitle if any, else ""
+- durationMinutes: integer minutes when shown (30, 45, 60, 90), else null
+- inclusions: array of included bullets for packages (strings), else []
+- options: when one service offers variants with separate prices (e.g. duration tiers), list each { label, durationMinutes, price, priceText }; else []
+- addOns: optional add-ons with their own price (e.g. hot stone $10) as { name, price, priceText }; do NOT promote add-ons as primary items
+- confidence: 0-1 certainty for that row
 
 IMPORTANT:
-- Use the EXACT price shown beside each item on the image — every item may have a different price
+- Use the EXACT price shown beside each item — every item may have a different price
 - If a price is unclear, use null for price (not 0, not 15, not a guess)
 - Never use the same price for every item unless the menu truly shows one price for all
 - Never return placeholder items like "Standard Service", "Premium Service", or "Add-on"
+- Do NOT create separately priced services for mutually exclusive style choices that share one price table (e.g. "Relaxation or Deep Tissue" with shared duration prices) — one item with options or a clear name covering both
+- Do NOT extract business contact details, opening hours, or social handles as catalog items
+- Preserve package inclusion bullets on the matching package
 
 Return ONLY a JSON array, no other text:
 [
   {
-    "name": "Flat White",
+    "name": "Refresh",
     "description": "",
-    "price": 4.5,
-    "priceDisplay": "$4.50",
-    "category": "Coffee"
+    "price": 69,
+    "priceDisplay": "$69",
+    "category": "Spa Packages",
+    "durationMinutes": 30,
+    "inclusions": ["Herbal shampoo hair wash", "Conditioning treatment", "Head massage"],
+    "options": [],
+    "addOns": [],
+    "confidence": 0.9
   }
 ]`;
 
@@ -143,7 +156,7 @@ ${viNote}`;
         {
           role: 'system',
           content:
-            'You read menu photos and return structured JSON only. Extract every visible line item with accurate names and prices from the image.',
+            'You read service menus, spa packages, and restaurant menus and return structured JSON only. Extract every sellable item with accurate names, durations, prices, package inclusions, and add-ons. Never invent placeholder catalog rows.',
         },
         {
           role: 'user',

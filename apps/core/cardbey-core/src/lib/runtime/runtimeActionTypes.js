@@ -16,6 +16,7 @@ export const UPLOAD_ACTIONS = {
   UPLOAD_EXPLORE_VIDEO: 'upload_explore_video',
   UPLOAD_CREATOR_VIDEO: 'upload_creator_video',
   UPLOAD_CONTENT: 'upload_content',
+  IMPORT_MENU: 'import_menu',
 };
 
 /** Publish / lifecycle actions routed through unified intake dispatch. */
@@ -54,6 +55,7 @@ export const UPLOAD_CONFIG = {
   [UPLOAD_ACTIONS.UPLOAD_EXPLORE_VIDEO]: { requireConfirmation: false, risk: 'low' },
   [UPLOAD_ACTIONS.UPLOAD_CREATOR_VIDEO]: { requireConfirmation: false, risk: 'low' },
   [UPLOAD_ACTIONS.UPLOAD_CONTENT]: { requireConfirmation: false, risk: 'low' },
+  [UPLOAD_ACTIONS.IMPORT_MENU]: { requireConfirmation: false, risk: 'medium' },
   [DISPATCH_ACTIONS.PUBLISH_STORE]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.REPUBLISH_WEBSITE]: { requireConfirmation: true, risk: 'high' },
   [DISPATCH_ACTIONS.DELETE_STORE]: { requireConfirmation: true, risk: 'high' },

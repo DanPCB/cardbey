@@ -123,6 +123,19 @@ function normalizeOneRawItem(raw) {
   const confidence =
     confRaw != null && Number.isFinite(Number(confRaw)) ? clamp01(Number(confRaw)) : 0.65;
 
+  const durationRaw = raw.durationMinutes ?? raw.duration;
+  const durationMinutes =
+    durationRaw != null && Number.isFinite(Number(durationRaw)) ? Number(durationRaw) : null;
+  const inclusions = Array.isArray(raw.inclusions)
+    ? raw.inclusions.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
+    : [];
+  const addOns = Array.isArray(raw.addOns)
+    ? raw.addOns.filter((a) => a && typeof a === 'object' && typeof a.name === 'string')
+    : [];
+  const options = Array.isArray(raw.options)
+    ? raw.options.filter((o) => o && typeof o === 'object')
+    : [];
+
   return {
     name,
     price,
@@ -131,6 +144,10 @@ function normalizeOneRawItem(raw) {
     category,
     imageUrl: null,
     confidence,
+    ...(durationMinutes != null ? { durationMinutes } : {}),
+    ...(inclusions.length ? { inclusions } : {}),
+    ...(addOns.length ? { addOns } : {}),
+    ...(options.length ? { options } : {}),
   };
 }
 
