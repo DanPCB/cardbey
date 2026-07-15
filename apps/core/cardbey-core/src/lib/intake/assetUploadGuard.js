@@ -6,6 +6,7 @@ import { isGraphicOrPromotionIntent, isLoyaltyIntent, shouldPreferLoyaltyOverCam
 import { peekPendingDocumentExtraction } from './storeCandidate.js';
 import { isCasualChatTurn } from './intakeCasualChatTurn.js';
 import { isIntakeConfirmAffirmation } from './intakeConfirmIntercept.js';
+import { CREATE_STORE_LEGACY_REGEXES } from '../intent/createStoreIntentContract.js';
 
 /** Tools that require an existing store or draft — invalid for upload-only store creation. */
 export const STORE_CHECK_TOOLS_WITHOUT_CONTEXT = new Set([
@@ -75,18 +76,10 @@ export function detectExplicitAssetIntent(message) {
 
 /** Explicit create-store wording in the user's own message (not OCR placeholders). */
 const EXPLICIT_STORE_INTENT_PATTERNS = [
-  /create\s+(a\s+)?store/i,
-  /set\s+up\s+(a\s+)?store/i,
-  /make\s+(a\s+)?store/i,
-  /build\s+(a\s+)?store/i,
-  /build\s+my\s+store/i,
-  /start\s+(a\s+)?store/i,
-  /open\s+(a\s+)?store/i,
-  /new\s+store/i,
-  /store\s+creation/i,
-  /launch\s+store/i,
+  ...CREATE_STORE_LEGACY_REGEXES,
   /create\s+(a\s+)?(mini\s*)?(website|site)\b/i,
   /build\s+(a\s+)?(website|site)\b/i,
+  /store\s+creation/i,
 ];
 
 /**

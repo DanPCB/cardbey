@@ -6,12 +6,15 @@ import { detectExplicitStoreIntent } from './assetUploadGuard.js';
 import { isCasualChatTurn } from './intakeCasualChatTurn.js';
 import { fetchUserStoresForDisambiguation } from './resolveStoreAmbiguity.js';
 import { buildExecutionContextClarifyPayload } from '../mission/resolveExecutionContext.js';
+import { CREATE_STORE_LEGACY_REGEXES, matchCreateStoreIntent } from '../intent/createStoreIntentContract.js';
 
 const EXPLICIT_NEW_BUSINESS_PATTERNS = [
   /create\s+(another|a\s+new)\s+(store|business)/i,
   /add\s+(another|a\s+new)\s+(store|business)/i,
   /new\s+business/i,
   /another\s+store/i,
+  ...CREATE_STORE_LEGACY_REGEXES,
+  /^create\s+store$/i,
 ];
 
 /**
@@ -42,9 +45,12 @@ export async function loadAccountStoreContext(userId) {
  *   primaryModeHint?: string | null;
  *   primaryMode?: string | null;
  *   action?: string | null;
+ *   freshStoreMission?: boolean | null;
  * }} [opts]
  */
 export function isExplicitGreenfieldCreateStoreIntent(opts = {}) {
+  if (opts.freshStoreMission === true) return true;
+
   const userMessage = String(opts.userMessage ?? '').trim();
   const storeCreateForm =
     opts.storeCreateForm && typeof opts.storeCreateForm === 'object' && !Array.isArray(opts.storeCreateForm)
@@ -62,6 +68,7 @@ export function isExplicitGreenfieldCreateStoreIntent(opts = {}) {
   if (primaryMode === 'create' || primaryMode === 'website') return true;
 
   if (detectExplicitStoreIntent(userMessage)) return true;
+  if (matchCreateStoreIntent(userMessage).matched) return true;
   if (EXPLICIT_NEW_BUSINESS_PATTERNS.some((pattern) => pattern.test(userMessage))) return true;
 
   const classification =
