@@ -75,6 +75,7 @@ model User {
   smartDocuments             SmartDocument[]
   cards                      Card[]
   creator                    Creator?
+  creatorPayoutAccount       CreatorPayoutAccount?
   accountProfile             AccountProfile?
   userAccountEvents          UserAccountEvent[] @relation("UserAccountEventSubject")
   suitcaseItems              SuitcaseItem[]
@@ -1420,6 +1421,8 @@ model PlaylistSchedule {
 // Device Engine v1
 model Device {
   id                   String    @id @default(cuid())
+  /// Phase 1: nullable, non-unique. Unique constraint is Phase 3 after duplicate cleanup.
+  installationId       String?
   tenantId             String
   storeId              String
   pairingCode          String?   @unique
@@ -1453,6 +1456,7 @@ model Device {
   @@index([status])
   @@index([pairingCode])
   @@index([lastSeenAt])
+  @@index([installationId])
 }
 
 // Device Engine V2 Pairing - Dashboard-initiated pairing codes
@@ -2585,10 +2589,46 @@ model Creator {
   updatedAt             DateTime @updatedAt
 
   contents CreatorContent[]
+  payoutAccount CreatorPayoutAccount?
 
   @@index([username])
   @@index([creatorStatus])
   @@index([joinedAt])
+}
+
+/// Creator Rewards V1 — payout destination (Stripe Connect preferred; encrypted manual fallback).
+/// Never expose encryptedPayload or full bank/tax values via API.
+model CreatorPayoutAccount {
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creatorId          String    @unique
+  creator            Creator   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  provider           String // stripe_connect | manual | other
+  providerAccountId  String?
+  country            String
+  currency           String?
+  accountType        String    @default("individual") // individual | business
+  status             String    @default("not_started")
+  payoutsEnabled     Boolean   @default(false)
+  chargesEnabled     Boolean   @default(false)
+  requirementsDue    Json?
+  displayName        String?
+  /// Encrypted JSON of sensitive payout fields (manual provider only). Never return to clients.
+  encryptedPayload   String?
+  accountLast4       String?
+  bankNameMasked     String?
+  legalNameMasked    String?
+  taxIdLast4         String?
+  lastProviderEventId String?
+  submittedAt        DateTime?
+  verifiedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([providerAccountId])
+  @@index([status])
+  @@index([provider])
 }
 
 model CreatorContent {

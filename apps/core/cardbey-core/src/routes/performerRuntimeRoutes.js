@@ -28,6 +28,14 @@ import {
   executeCreatorVideoUpload,
 } from '../services/creator/creatorMediaUploadService.js';
 import { handleFactoryApprovalDecision } from '../lib/factoryRuntime/factoryApprovalService.js';
+import multer from 'multer';
+import {
+  startMenuImportFromUpload,
+  getMenuImportJobStatus,
+  MENU_IMPORT_CONTRACT_VERSION,
+} from '../services/menuImport/menuImportService.js';
+import { MENU_IMPORT_MIMES, MENU_IMPORT_LIMITS } from '../services/menuImport/menuImportLimits.js';
+import { MENU_IMPORT_FAILURE_CODES } from '../services/menuImport/menuImportContract.js';
 import {
   getRuntimeByMissionId,
   getRuntimeById,
@@ -52,6 +60,40 @@ import {
 import { getSkillContract, SKILL_CONTRACTS } from '../lib/runtime/performerRuntime/skillContracts.js';
 
 const router = Router();
+
+const menuImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: Math.max(MENU_IMPORT_LIMITS.maxImageBytes, MENU_IMPORT_LIMITS.maxPdfBytes),
+    files: MENU_IMPORT_LIMITS.maxFiles,
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && MENU_IMPORT_MIMES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type. Use JPG, PNG, WEBP, or PDF.'), false);
+    }
+  },
+});
+
+function menuImportUploadMany(req, res, next) {
+  menuImportUpload.array('files', MENU_IMPORT_LIMITS.maxFiles)(req, res, (err) => {
+    if (err) {
+      const isLimit = err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FILE_COUNT';
+      return res.status(400).json({
+        ok: false,
+        error: isLimit
+          ? MENU_IMPORT_FAILURE_CODES.MENU_UPLOAD_TOO_LARGE
+          : MENU_IMPORT_FAILURE_CODES.MENU_UPLOAD_UNSUPPORTED_TYPE,
+        message: isLimit
+          ? 'One or more files exceed the import size limit.'
+          : err.message || 'Invalid or missing file',
+        contractVersion: MENU_IMPORT_CONTRACT_VERSION,
+      });
+    }
+    next();
+  });
+}
 
 /**
  * POST /api/performer/runtime/ui-action — Sprint 2 UI write authority gateway.
@@ -350,6 +392,68 @@ router.post(
     }
   },
 );
+
+/**
+ * POST /api/performer/runtime/ui-action/upload-menu-import
+ * Multipart field "files" (1..N). Returns 202 + jobId; extraction runs in background.
+ */
+router.post('/ui-action/upload-menu-import', requireAuth, menuImportUploadMany, async (req, res) => {
+  const userId = req.userId ?? req.user?.id ?? null;
+  const missionId =
+    (typeof req.query.missionId === 'string' ? req.query.missionId.trim() : null) ||
+    (typeof req.body?.missionId === 'string' ? req.body.missionId.trim() : null) ||
+    null;
+  const source =
+    (typeof req.body?.source === 'string' ? req.body.source.trim() : null) || 'store_draft_preview';
+
+  recordRuntimeAuthorityPathUsed({
+    route: '/api/performer/runtime/ui-action/upload-menu-import',
+    toolName: UPLOAD_ACTIONS.IMPORT_MENU,
+    userId,
+    missionId,
+    source,
+  });
+
+  try {
+    const files = Array.isArray(req.files) ? req.files : req.file ? [req.file] : [];
+    const out = await startMenuImportFromUpload(req, files);
+    return res.status(202).json(
+      buildRuntimeUploadEnvelope(UPLOAD_ACTIONS.IMPORT_MENU, out, { missionId, source }),
+    );
+  } catch (err) {
+    const status = err?.statusCode || 500;
+    console.error('[performer/runtime/ui-action/upload-menu-import]', err?.message || err);
+    return res.status(status).json({
+      ok: false,
+      error: err?.code || MENU_IMPORT_FAILURE_CODES.MENU_IMPORT_EXTRACTION_FAILED,
+      message: err?.message || 'Menu import upload failed',
+      contractVersion: MENU_IMPORT_CONTRACT_VERSION,
+    });
+  }
+});
+
+/**
+ * GET /api/performer/runtime/menu-imports/:jobId?generationRunId=
+ * Mounted before /:missionId/* routes.
+ */
+router.get('/menu-imports/:jobId', requireAuth, async (req, res) => {
+  const userId = req.userId ?? req.user?.id ?? null;
+  const jobId = typeof req.params.jobId === 'string' ? req.params.jobId.trim() : '';
+  const generationRunId =
+    typeof req.query.generationRunId === 'string' ? req.query.generationRunId.trim() : '';
+  try {
+    const out = await getMenuImportJobStatus(jobId, userId, generationRunId || undefined);
+    return res.status(200).json(out);
+  } catch (err) {
+    const status = err?.statusCode || 500;
+    return res.status(status).json({
+      ok: false,
+      error: err?.code || MENU_IMPORT_FAILURE_CODES.MENU_IMPORT_JOB_NOT_FOUND,
+      message: err?.message || 'Menu import job not found',
+      contractVersion: MENU_IMPORT_CONTRACT_VERSION,
+    });
+  }
+});
 
 /**
  * POST /api/performer/runtime/run-factory — Factory Runtime V1 (no direct UI; API gateway only).

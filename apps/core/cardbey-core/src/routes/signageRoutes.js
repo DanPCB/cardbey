@@ -741,11 +741,17 @@ router.get('/signage-playlists', requireAuth, async (req, res) => {
     const { resolvePlaylistTenantStore, listSignagePlaylistsForStore } = await import('../lib/playlistScope.js');
     const queryTenant = req.query.tenantId ? String(req.query.tenantId).trim() : null;
     const queryStore = req.query.storeId ? String(req.query.storeId).trim() : null;
+    const forDeviceAssign =
+      req.query.forAssign === '1' ||
+      req.query.forAssign === 'true' ||
+      req.query.forDeviceAssign === '1' ||
+      req.query.forDeviceAssign === 'true';
 
     console.log('[SIGNAGE_PLAYLIST_LIST_START]', {
       tenantId: queryTenant,
       storeId: queryStore,
       userId: req.userId,
+      forDeviceAssign,
       endpoint: '/api/signage-playlists',
     });
 
@@ -776,12 +782,14 @@ router.get('/signage-playlists', requireAuth, async (req, res) => {
       tenantId,
       storeId,
       repair: true,
+      forDeviceAssign,
     });
 
     console.log('[SIGNAGE_PLAYLIST_LIST_SUCCESS]', {
       count: playlists.length,
       tenantId,
       storeId,
+      forDeviceAssign,
       endpoint: '/api/signage-playlists',
       playlistIds: playlists.map((p) => p.id),
     });
@@ -796,13 +804,14 @@ router.get('/signage-playlists', requireAuth, async (req, res) => {
         defaultDurationS = null;
       }
 
+      const type = String(playlist.type || 'SIGNAGE').toUpperCase();
       return {
         id: playlist.id,
         name: playlist.name,
         description: playlist.description || null,
         defaultDurationS,
         itemCount: playlist.items.length,
-        type: 'SIGNAGE',
+        type,
         updatedAt: playlist.updatedAt.toISOString(),
         createdAt: playlist.createdAt.toISOString(),
         active: playlist.active,
@@ -812,6 +821,8 @@ router.get('/signage-playlists', requireAuth, async (req, res) => {
     res.json({
       ok: true,
       items,
+      storeId,
+      tenantId,
     });
   } catch (err) {
     console.error('[SignageRoutes] List playlists error:', err);

@@ -1287,6 +1287,9 @@ model PlaylistSchedule {
 // Device Engine v1
 model Device {
   id                   String    @id @default(cuid())
+  /// Phase 1: nullable, non-unique. Prefer prisma/sqlite + prisma/postgres schemas for ops.
+  /// Unique constraint is Phase 3 after duplicate cleanup — do not add @unique here yet.
+  installationId       String?
   tenantId             String
   storeId              String
   pairingCode          String?   @unique
@@ -1320,6 +1323,7 @@ model Device {
   @@index([status])
   @@index([pairingCode])
   @@index([lastSeenAt])
+  @@index([installationId])
 }
 
 // Device Engine V2 Pairing - Dashboard-initiated pairing codes

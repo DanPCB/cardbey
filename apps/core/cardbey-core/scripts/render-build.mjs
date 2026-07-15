@@ -39,6 +39,38 @@ function run(cmd) {
 }
 
 purgeStaleEsbuild();
+
+// Language agent + i18n tools read dashboard src/i18n.js from the monorepo submodule.
+// Core deploys historically skipped submodule init → empty path → /api/language/scan 500.
+function initDashboardSubmodule() {
+  const monorepoRoot = path.resolve(projectRoot, '../../..');
+  const submoduleRel = 'apps/dashboard/cardbey-marketing-dashboard';
+  const i18nProbe = path.join(monorepoRoot, submoduleRel, 'src/i18n.js');
+  if (fs.existsSync(i18nProbe)) {
+    console.log('[render-build] dashboard submodule already present');
+    return;
+  }
+  if (!fs.existsSync(path.join(monorepoRoot, '.gitmodules'))) {
+    console.warn('[render-build] no .gitmodules at', monorepoRoot, '— skip submodule init');
+    return;
+  }
+  try {
+    console.log('[render-build] init dashboard submodule for language agent');
+    execSync(`git submodule update --init --depth 1 ${submoduleRel}`, {
+      cwd: monorepoRoot,
+      stdio: 'inherit',
+      env: process.env,
+      shell: true,
+    });
+  } catch (err) {
+    console.warn(
+      '[render-build] dashboard submodule init failed (language agent may fetch at runtime):',
+      err?.message ?? err,
+    );
+  }
+}
+
+initDashboardSubmodule();
 run('npm install --prefix ../../../packages/template-engine');
 run('npm run build --prefix ../../../packages/template-engine');
 run('npm ci');

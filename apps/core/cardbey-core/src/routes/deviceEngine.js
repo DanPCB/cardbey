@@ -7,6 +7,7 @@
  *   * POST /api/device/request-pairing - Device requests pairing code (no auth)
  *   * POST /api/device/complete-pairing - Dashboard completes pairing (no auth)
  *   * POST /api/device/claim - Dashboard claims pairing session (auth required)
+ *   * GET /api/device/unpaired - Pending temp/pairingCode devices (auth required)
  *   * GET /api/device/pair-status/:sessionId - Tablet polls pairing status (no auth)
  * 
  * - Playlist fetch:
@@ -64,6 +65,15 @@ import {
   upsertDeviceMetadata,
   buildProjectedDeviceFields,
 } from '../lib/deviceProjection.js';
+import {
+  resolveCanonicalDevice,
+  persistInstallationId,
+  logDeviceIdentityEvent,
+  isDeviceArchived,
+  hashInstallationId,
+  buildDuplicateReportEntry,
+  normalizeInstallationId,
+} from '../lib/deviceIdentity.js';
 import { preferTvSafeVideoPublicPath } from '../lib/videoIosSafe.js';
 // Also import from new mediaUrlNormalizer for additional normalization
 import { getTranslatedField } from '../services/i18n/translationUtils.js';
@@ -375,7 +385,7 @@ router.get('/list', requireAuth, async (req, res) => {
     });
 
     // Observability: device identity contract diagnostics for list visibility.
-    const [mismatchCountSameTenant, tempCount] = await Promise.all([
+    const [mismatchCountSameTenant, tempCount, otherStoreSamples] = await Promise.all([
       prisma.device.count({
         where: {
           tenantId: String(tenantId),
@@ -387,6 +397,21 @@ router.get('/list', requireAuth, async (req, res) => {
           tenantId: 'temp',
           storeId: 'temp',
         },
+      }),
+      prisma.device.findMany({
+        where: {
+          tenantId: String(tenantId),
+          storeId: { not: String(storeId) },
+        },
+        select: {
+          id: true,
+          name: true,
+          storeId: true,
+          platform: true,
+          lastSeenAt: true,
+        },
+        orderBy: { lastSeenAt: 'desc' },
+        take: 5,
       }),
     ]);
     console.log('[DEVICE LIST QUERY]', {
@@ -577,6 +602,18 @@ router.get('/list', requireAuth, async (req, res) => {
           includeArchived,
           heartbeatTimeoutSeconds: HEARTBEAT_TIMEOUT_MS / 1000,
         },
+        visibility: {
+          matchedCount: formattedDevices.length,
+          sameTenantOtherStoreCount: mismatchCountSameTenant,
+          tempPendingCount: tempCount,
+          otherStores: otherStoreSamples.map((d) => ({
+            deviceId: d.id,
+            name: d.name,
+            storeId: d.storeId,
+            platform: d.platform,
+            lastSeenAt: d.lastSeenAt?.toISOString?.() || d.lastSeenAt || null,
+          })),
+        },
       },
     };
 
@@ -594,6 +631,107 @@ router.get('/list', requireAuth, async (req, res) => {
     res.status(500).json({
       ok: false,
       error: error.message || 'Failed to list devices',
+    });
+  }
+});
+
+/**
+ * GET /api/device/unpaired
+ * Pending device-initiated pairing sessions (temp tenant/store and/or active pairingCode).
+ * These never appear in GET /list until complete-pairing commits real identity.
+ */
+router.get('/unpaired', requireAuth, async (req, res) => {
+  try {
+    console.log('[HTTP] GET /api/device/unpaired');
+
+    const now = new Date();
+    const {
+      pairingExpiresAt,
+      loadPairingCodeIssuedAt,
+    } = await import('../engines/device/pairingSessionTiming.js');
+
+    const devices = await prisma.device.findMany({
+      where: {
+        OR: [
+          { tenantId: 'temp', storeId: 'temp' },
+          { pairingCode: { not: null } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        tenantId: true,
+        storeId: true,
+        name: true,
+        model: true,
+        location: true,
+        status: true,
+        type: true,
+        platform: true,
+        appVersion: true,
+        pairingCode: true,
+        lastSeenAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const formattedDevices = await Promise.all(
+      devices.map(async (device) => {
+        let expiresAtIso = null;
+        if (device.pairingCode) {
+          try {
+            const issuedAt = await loadPairingCodeIssuedAt(prisma, device.id);
+            expiresAtIso = pairingExpiresAt(device, issuedAt).toISOString();
+          } catch {
+            expiresAtIso = null;
+          }
+        }
+
+        const isOnline =
+          device.lastSeenAt &&
+          now.getTime() - new Date(device.lastSeenAt).getTime() < HEARTBEAT_TIMEOUT_MS;
+
+        return {
+          id: device.id,
+          tenantId: device.tenantId,
+          storeId: device.storeId,
+          name: device.name,
+          model: device.model,
+          location: device.location,
+          status: isOnline ? 'online' : 'offline',
+          isOnline: !!isOnline,
+          presenceTier: isOnline ? 'online' : 'offline',
+          type: device.type || 'screen',
+          platform: device.platform || null,
+          appVersion: device.appVersion,
+          pairingStatus: device.pairingCode ? 'waiting_for_pairing' : 'unpaired',
+          pairingCode: device.pairingCode || null,
+          pairingExpiresAt: expiresAtIso,
+          lastSeenAt: device.lastSeenAt,
+          createdAt: device.createdAt,
+          updatedAt: device.updatedAt,
+          playlist: null,
+          lastSnapshot: null,
+        };
+      })
+    );
+
+    console.log('[Device Engine] Unpaired devices:', {
+      count: formattedDevices.length,
+      withCode: formattedDevices.filter((d) => d.pairingCode).length,
+    });
+
+    res.json({
+      ok: true,
+      data: { devices: formattedDevices },
+    });
+  } catch (error) {
+    console.error('[Device Engine] Unpaired list error:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to list unpaired devices',
     });
   }
 });
@@ -718,6 +856,265 @@ router.post('/:deviceId/unpair', requireAuth, async (req, res) => {
       ok: false,
       error: error.message || 'Failed to unpair device',
     });
+  }
+});
+
+/**
+ * POST /api/device/:deviceId/reassign-store
+ * Same-account store reassignment — updates existing device row; does not require re-pairing.
+ * Body: { tenantId, storeId? (current), newStoreId, playlistId? }
+ */
+router.post('/:deviceId/reassign-store', requireAuth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const tenantId = String(
+      req.body?.tenantId || req.query?.tenantId || req.userId || req.user?.tenantId || '',
+    ).trim();
+    const storeId = String(req.body?.storeId || req.query?.storeId || '').trim();
+    const newStoreId = String(req.body?.newStoreId || req.body?.targetStoreId || '').trim();
+    const playlistId = req.body?.playlistId
+      ? String(req.body.playlistId).trim()
+      : null;
+
+    if (!deviceId || !newStoreId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing required field',
+        message: 'deviceId and newStoreId are required',
+      });
+    }
+
+    const { reassignDeviceStore } = await import('../services/deviceReassignService.js');
+    const result = await reassignDeviceStore(prisma, {
+      deviceId,
+      tenantId,
+      storeId,
+      newStoreId,
+      playlistId,
+      userId: req.userId,
+      user: req.user,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    const status = error.status || 500;
+    console.error('[DEVICE_REASSIGN_FAILED]', error);
+    return res.status(status).json({
+      ok: false,
+      error: error.message || 'Failed to reassign device store',
+    });
+  }
+});
+
+/**
+ * GET /api/device/duplicates
+ * Admin/debug report of likely physical duplicates (installationId + weak signals).
+ * Query: tenantId (required), storeId? (optional filter)
+ */
+router.get('/duplicates', requireAuth, async (req, res) => {
+  try {
+    const tenantId = String(req.query?.tenantId || req.userId || '').trim();
+    const storeId = String(req.query?.storeId || '').trim();
+    if (!tenantId) {
+      return res.status(400).json({ ok: false, error: 'tenantId is required' });
+    }
+
+    const where = {
+      tenantId,
+      ...(storeId ? { storeId } : {}),
+    };
+    const devices = await prisma.device.findMany({
+      where,
+      include: {
+        capabilities: { take: 1 },
+        bindings: {
+          where: { status: { in: ['ready', 'pending', 'active', 'assigned'] } },
+          take: 1,
+          orderBy: { lastPushedAt: 'desc' },
+        },
+      },
+      orderBy: { lastSeenAt: 'desc' },
+      take: 500,
+    });
+
+    const byInstall = new Map();
+    const byFingerprint = new Map();
+
+    for (const d of devices) {
+      const caps =
+        d.capabilities?.[0]?.capabilities && typeof d.capabilities[0].capabilities === 'object'
+          ? d.capabilities[0].capabilities
+          : {};
+      if (caps.archivedAt) continue;
+
+      const installKey = String(d.installationId || caps.installationId || '').trim();
+      if (installKey) {
+        if (!byInstall.has(installKey)) byInstall.set(installKey, []);
+        byInstall.get(installKey).push(d);
+      }
+
+      const fp = [
+        d.tenantId,
+        d.type || 'screen',
+        d.platform || '',
+        d.model || '',
+      ].join('|').toLowerCase();
+      if (!byFingerprint.has(fp)) byFingerprint.set(fp, []);
+      byFingerprint.get(fp).push(d);
+    }
+
+    const reports = [];
+
+    for (const [installKey, members] of byInstall.entries()) {
+      if (members.length < 2) continue;
+      const sorted = [...members].sort((a, b) => {
+        const aT = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+        const bT = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+        return bT - aT;
+      });
+      const canonical = sorted[0];
+      const dups = sorted.slice(1);
+      const sameOwner = dups.every((d) => d.tenantId === canonical.tenantId);
+      reports.push(
+        buildDuplicateReportEntry({
+          canonicalDeviceId: canonical.id,
+          duplicateDeviceIds: dups.map((d) => d.id),
+          ownership: {
+            accountId: canonical.tenantId,
+            pairingStatus: readDeviceMetadata(canonical.capabilities?.[0])?.pairingStatus || null,
+          },
+          storeAssignment: canonical.storeId,
+          lastSeenAt: canonical.lastSeenAt?.toISOString?.() || null,
+          playlistAssignment: canonical.bindings?.[0]?.playlistId || null,
+          reason: 'shared_installationId',
+          installationIdHash: hashInstallationId(installKey),
+          safeMergeEligible: sameOwner,
+        }),
+      );
+      logDeviceIdentityEvent('DUPLICATE_DEVICE_DETECTED', {
+        deviceId: canonical.id,
+        canonicalDeviceId: canonical.id,
+        accountId: canonical.tenantId,
+        storeId: canonical.storeId,
+        reason: `installationId_group size=${members.length}`,
+      });
+    }
+
+    // Weak fingerprint groups only when installationId missing on all members.
+    for (const [, members] of byFingerprint.entries()) {
+      if (members.length < 2) continue;
+      const allMissingInstall = members.every((d) => {
+        const caps =
+          d.capabilities?.[0]?.capabilities && typeof d.capabilities[0].capabilities === 'object'
+            ? d.capabilities[0].capabilities
+            : {};
+        return !d.installationId && !caps.installationId;
+      });
+      if (!allMissingInstall) continue;
+      const sorted = [...members].sort((a, b) => {
+        const aT = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+        const bT = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+        return bT - aT;
+      });
+      const canonical = sorted[0];
+      reports.push(
+        buildDuplicateReportEntry({
+          canonicalDeviceId: canonical.id,
+          duplicateDeviceIds: sorted.slice(1).map((d) => d.id),
+          ownership: { accountId: canonical.tenantId },
+          storeAssignment: canonical.storeId,
+          lastSeenAt: canonical.lastSeenAt?.toISOString?.() || null,
+          playlistAssignment: canonical.bindings?.[0]?.playlistId || null,
+          reason: 'weak_model_platform_fingerprint_no_installationId',
+          safeMergeEligible: false,
+        }),
+      );
+    }
+
+    return res.json({ ok: true, tenantId, storeId: storeId || null, duplicates: reports });
+  } catch (error) {
+    console.error('[DEVICE_DUPLICATES_REPORT_FAILED]', error);
+    return res.status(500).json({ ok: false, error: error.message || 'Failed to build duplicate report' });
+  }
+});
+
+/**
+ * POST /api/device/duplicates/archive
+ * Soft-archive confirmed duplicate rows (same-account only unless admin).
+ * Body: { canonicalDeviceId, duplicateDeviceIds: string[], tenantId }
+ */
+router.post('/duplicates/archive', requireAuth, async (req, res) => {
+  try {
+    const canonicalDeviceId = String(req.body?.canonicalDeviceId || '').trim();
+    const duplicateDeviceIds = Array.isArray(req.body?.duplicateDeviceIds)
+      ? req.body.duplicateDeviceIds.map((id) => String(id).trim()).filter(Boolean)
+      : [];
+    const tenantId = String(req.body?.tenantId || req.userId || '').trim();
+
+    if (!canonicalDeviceId || duplicateDeviceIds.length === 0 || !tenantId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'canonicalDeviceId, duplicateDeviceIds, and tenantId are required',
+      });
+    }
+
+    const canonical = await prisma.device.findUnique({ where: { id: canonicalDeviceId } });
+    if (!canonical || canonical.tenantId !== tenantId) {
+      return res.status(403).json({ ok: false, error: 'Canonical device not owned by account' });
+    }
+
+    const archived = [];
+    for (const dupId of duplicateDeviceIds) {
+      if (dupId === canonicalDeviceId) continue;
+      const dup = await prisma.device.findUnique({
+        where: { id: dupId },
+        include: { capabilities: { take: 1 } },
+      });
+      if (!dup) continue;
+      if (dup.tenantId !== tenantId && dup.tenantId !== 'temp') {
+        // Never silently archive another account's device.
+        continue;
+      }
+      const prev =
+        dup.capabilities?.[0]?.capabilities && typeof dup.capabilities[0].capabilities === 'object'
+          ? dup.capabilities[0].capabilities
+          : {};
+      await prisma.deviceCapability.upsert({
+        where: { deviceId: dupId },
+        update: {
+          capabilities: {
+            ...prev,
+            archivedAt: new Date().toISOString(),
+            archiveReason: 'duplicate_merge',
+            canonicalDeviceId,
+          },
+        },
+        create: {
+          deviceId: dupId,
+          capabilities: {
+            archivedAt: new Date().toISOString(),
+            archiveReason: 'duplicate_merge',
+            canonicalDeviceId,
+          },
+        },
+      });
+      await prisma.device.update({
+        where: { id: dupId },
+        data: { pairingCode: null, status: 'offline' },
+      });
+      archived.push(dupId);
+      logDeviceIdentityEvent('DUPLICATE_DEVICE_ARCHIVED', {
+        deviceId: dupId,
+        canonicalDeviceId,
+        accountId: tenantId,
+        reason: 'duplicate_merge',
+      });
+    }
+
+    return res.json({ ok: true, canonicalDeviceId, archived });
+  } catch (error) {
+    console.error('[DEVICE_DUPLICATES_ARCHIVE_FAILED]', error);
+    return res.status(500).json({ ok: false, error: error.message || 'Failed to archive duplicates' });
   }
 });
 
@@ -1026,7 +1423,6 @@ router.post('/heartbeat', async (req, res) => {
   try {
     const body = req.body || {};
     const {
-      deviceId: providedDeviceId,
       engineVersion,
       platform,
       tenantId: bodyTenantId,
@@ -1036,6 +1432,9 @@ router.post('/heartbeat', async (req, res) => {
       playbackState,
       alert: alertPayload, // Optional alert payload
     } = body;
+    let providedDeviceId = body.deviceId ? String(body.deviceId).trim() : '';
+    const bodyInstallationId =
+      normalizeInstallationId(body.installationId || body.physicalInstallationId) || '';
 
     // Default status to "online" if not provided
     const status = bodyStatus || 'online';
@@ -1044,8 +1443,64 @@ router.post('/heartbeat', async (req, res) => {
     const heartbeatPlaylistIdHint =
       playbackState?.playlistId || body.currentPlaylistId || body.playlistId || null;
 
+    // Reconcile by stable installation identity before create-on-missing.
+    try {
+      const resolved = await resolveCanonicalDevice(prisma, {
+        deviceId: providedDeviceId,
+        installationId: bodyInstallationId,
+      });
+      if (resolved.device) {
+        const capRow = await prisma.deviceCapability.findUnique({
+          where: { deviceId: resolved.device.id },
+          select: { capabilities: true },
+        });
+        const meta = readDeviceMetadata(capRow);
+        if (isDeviceArchived(meta) || isDeviceArchived(capRow?.capabilities)) {
+          logDeviceIdentityEvent('HEARTBEAT_OWNER_MISMATCH', {
+            deviceId: resolved.device.id,
+            installationId: bodyInstallationId,
+            canonicalDeviceId: resolved.device.id,
+            reason: 'archived_device_rejected',
+          });
+          return res.status(409).json({
+            ok: false,
+            error: 'DEVICE_ARCHIVED',
+            message: 'This device installation is archived and cannot accept heartbeats',
+            deviceId: resolved.device.id,
+          });
+        }
+        if (providedDeviceId && providedDeviceId !== resolved.device.id) {
+          logDeviceIdentityEvent('DEVICE_RECORD_MATCHED', {
+            deviceId: providedDeviceId,
+            installationId: bodyInstallationId,
+            canonicalDeviceId: resolved.device.id,
+            reason: `heartbeat_remap:${resolved.matchReason}`,
+          });
+        } else {
+          logDeviceIdentityEvent('DEVICE_RECORD_MATCHED', {
+            deviceId: resolved.device.id,
+            installationId: bodyInstallationId,
+            canonicalDeviceId: resolved.device.id,
+            reason: resolved.matchReason || 'heartbeat',
+          });
+        }
+        providedDeviceId = resolved.device.id;
+      } else if (!providedDeviceId && bodyInstallationId) {
+        // Prefer installationId as the durable device record id for first-seen installs.
+        providedDeviceId = bodyInstallationId;
+        logDeviceIdentityEvent('DEVICE_RECORD_CREATED', {
+          deviceId: providedDeviceId,
+          installationId: bodyInstallationId,
+          reason: 'heartbeat_will_create_with_installation_id',
+        });
+      }
+    } catch (resolveErr) {
+      console.warn('[HEARTBEAT] identity resolve failed (non-fatal):', resolveErr?.message);
+    }
+
     console.log('[DEVICE_HEARTBEAT_RECEIVED]', {
       deviceId: providedDeviceId || null,
+      installationIdHash: hashInstallationId(bodyInstallationId),
       coreUrl: heartbeatCoreUrl,
       platform: platform || null,
       engineVersion: engineVersion || body.appVersion || null,
@@ -1486,6 +1941,35 @@ router.post('/heartbeat', async (req, res) => {
       console.log(`[HEARTBEAT] deviceId=${device.id} updated lastSeenAt=${ls}`);
     }
 
+    // Ensure pairingCode / installationId are available for CLAIMABLE response (selects often omit them).
+    if (device?.id) {
+      try {
+        const fresh = await prisma.device.findUnique({
+          where: { id: device.id },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            orientation: true,
+            tenantId: true,
+            storeId: true,
+            pairingCode: true,
+            lastSeenAt: true,
+            platform: true,
+            appVersion: true,
+            lastPlaybackReportAt: true,
+            playbackReportIsPlaying: true,
+            playbackReportState: true,
+          },
+        });
+        if (fresh) {
+          device = { ...device, ...fresh };
+        }
+      } catch (freshErr) {
+        console.warn('[HEARTBEAT] refresh device fields failed (non-fatal):', freshErr?.message);
+      }
+    }
+
     // Compute pairingStatus (align with playlist/full active binding rules)
     let pairingStatus = 'UNPAIRED';
 
@@ -1506,6 +1990,37 @@ router.post('/heartbeat', async (req, res) => {
       !device.pairingCode
     ) {
       pairingStatus = 'PAIRED_NO_PLAYLIST';
+    } else if (
+      device.pairingCode &&
+      (device.tenantId === 'temp' || device.storeId === 'temp')
+    ) {
+      pairingStatus = 'CLAIMABLE';
+    }
+
+    if (bodyInstallationId) {
+      try {
+        await persistInstallationId(prisma, device.id, bodyInstallationId, {
+          pairingStatus,
+        });
+      } catch (persistErr) {
+        console.warn('[HEARTBEAT] persistInstallationId failed (non-fatal):', persistErr?.message);
+      }
+    }
+
+    // If heartbeat carries owner context that does not match paired device, log (do not mutate).
+    if (
+      device.tenantId !== 'temp' &&
+      bodyTenantId &&
+      bodyTenantId !== 'temp' &&
+      bodyTenantId !== device.tenantId
+    ) {
+      logDeviceIdentityEvent('HEARTBEAT_OWNER_MISMATCH', {
+        deviceId: device.id,
+        accountId: device.tenantId,
+        storeId: device.storeId,
+        installationId: bodyInstallationId,
+        reason: `bodyTenant=${bodyTenantId}`,
+      });
     }
 
     try {
@@ -1515,7 +2030,7 @@ router.post('/heartbeat', async (req, res) => {
           ? { engineVersion: engineVersion || body.appVersion }
           : {}),
         ...(platform ? { platform } : {}),
-        pairingStatus: derivePairingStatus(device),
+        pairingStatus,
         ...(activeBinding?.playlistId || heartbeatPlaylistIdHint
           ? {
               currentPlaylistId:
@@ -1533,6 +2048,16 @@ router.post('/heartbeat', async (req, res) => {
     } catch (metaErr) {
       console.warn('[DEVICE_METADATA_UPDATED] failed (non-fatal):', metaErr?.message || metaErr);
     }
+
+    logDeviceIdentityEvent('HEARTBEAT_ACCEPTED', {
+      deviceId: device.id,
+      installationId: bodyInstallationId,
+      accountId: device.tenantId,
+      storeId: device.storeId,
+      playlistId: activeBinding?.playlistId || null,
+      pairingStatus,
+      canonicalDeviceId: device.id,
+    });
 
     // Get displayName (prefer name, fallback to "Unnamed Device")
     const displayName = device.name || 'Unnamed Device';
@@ -1597,6 +2122,14 @@ router.post('/heartbeat', async (req, res) => {
       orientation: deviceOrientation, // Include orientation in heartbeat response
       tenantId: device.tenantId ?? null,
       storeId: device.storeId ?? null,
+      currentPlaylistId: activeBinding?.playlistId || heartbeatPlaylistIdHint || null,
+      installationIdHash: hashInstallationId(
+        bodyInstallationId || device.installationId || null,
+      ),
+      // Expose pairing code only when claimable so TV can show it after release.
+      ...(pairingStatus === 'CLAIMABLE' && device.pairingCode
+        ? { pairingCode: device.pairingCode }
+        : {}),
       ...(repairStatus && { repairStatus }), // Include repair status if in repair state
       ...(pendingCommands.length > 0 && { commands: pendingCommands.map(cmd => ({
         id: cmd.id,
@@ -2362,6 +2895,13 @@ async function handlePushPlaylistAssign(req, res) {
         code: 'PLAYLIST_STORE_MISMATCH',
       });
     }
+    if (code === 'PLAYLIST_EMPTY_URLS') {
+      return res.status(400).json({
+        ok: false,
+        error: error.message || 'Playlist has no playable media URLs',
+        code: 'PLAYLIST_EMPTY_URLS',
+      });
+    }
     res.status(500).json({
       ok: false,
       error: error.message || 'Failed to push playlist',
@@ -2697,6 +3237,166 @@ router.get('/pair-status/:deviceId/*', async (req, res) => {
     message: 'The /api/device/pair-status/:deviceId/* endpoint does not exist. Use GET /api/device/pair-status/:sessionId instead.',
     deprecated: true,
   });
+});
+
+/**
+ * POST /api/device/claim-pending
+ * Claim a pending unpaired Device V2 row (temp/temp) into the authenticated tenant + selected store.
+ * Used by the dashboard "Claim" button on New / Unpaired Devices — does not require a live pairing code
+ * (codes expire while the temp row can remain visible).
+ *
+ * Body: { deviceId: string, storeId: string, name?: string, location?: string }
+ */
+router.post('/claim-pending', requireAuth, async (req, res) => {
+  const requestId = Math.random().toString(36).slice(2, 9);
+  try {
+    const authTenantId = req.user?.id || null;
+    if (!authTenantId) {
+      return res.status(401).json({
+        ok: false,
+        error: 'unauthorized',
+        message: 'Authentication required to claim a device',
+      });
+    }
+
+    const deviceId = String(req.body?.deviceId || req.body?.sessionId || '').trim();
+    const storeId = String(req.body?.storeId || '').trim();
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const location = typeof req.body?.location === 'string' ? req.body.location.trim() : '';
+
+    if (!deviceId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'missing_fields',
+        message: 'deviceId is required',
+      });
+    }
+    if (!storeId || storeId === 'temp') {
+      return res.status(400).json({
+        ok: false,
+        error: 'missing_fields',
+        message: 'storeId is required (select a store in the dashboard)',
+      });
+    }
+
+    console.log(`[DeviceEngine V2] [${requestId}] claim-pending`, {
+      deviceId,
+      storeId,
+      tenantId: authTenantId,
+    });
+
+    const device = await prisma.device.findUnique({ where: { id: deviceId } });
+    if (!device) {
+      return res.status(404).json({
+        ok: false,
+        error: 'session_not_found',
+        message: 'Device not found',
+      });
+    }
+
+    const isPending =
+      device.tenantId === 'temp' ||
+      device.storeId === 'temp' ||
+      !!device.pairingCode;
+
+    if (!isPending) {
+      // Already claimed — idempotent success if same tenant/store
+      if (device.tenantId === authTenantId && device.storeId === storeId) {
+        return res.json({
+          ok: true,
+          alreadyPaired: true,
+          deviceId: device.id,
+          data: { device },
+        });
+      }
+      return res.status(400).json({
+        ok: false,
+        error: 'already_paired',
+        message: 'Device is already paired to another store. Use Repair / Unpair first.',
+      });
+    }
+
+    const now = new Date();
+    const updated = await prisma.device.update({
+      where: { id: device.id },
+      data: {
+        tenantId: authTenantId,
+        storeId,
+        name: name || device.name || null,
+        location: location || device.location || null,
+        pairingCode: null,
+        status: device.lastSeenAt ? device.status || 'online' : 'offline',
+        lastSeenAt: device.lastSeenAt || now,
+        appVersion: device.appVersion || 'DEVICE_V2',
+      },
+    });
+
+    if (
+      !updated.tenantId ||
+      updated.tenantId === 'temp' ||
+      !updated.storeId ||
+      updated.storeId === 'temp'
+    ) {
+      return res.status(500).json({
+        ok: false,
+        error: 'pairing_commit_failed',
+        message: 'Claim did not commit tenant/store identity',
+      });
+    }
+
+    console.log(`[DeviceEngine V2] [${requestId}] claim-pending OK`, {
+      deviceId: updated.id,
+      tenantId: updated.tenantId,
+      storeId: updated.storeId,
+    });
+
+    try {
+      broadcastSse('admin', 'device:paired', {
+        deviceId: updated.id,
+        name: updated.name,
+        platform: updated.platform || null,
+        type: updated.type || 'screen',
+        status: updated.status,
+        lastSeenAt: updated.lastSeenAt?.toISOString() || null,
+        tenantId: updated.tenantId,
+        storeId: updated.storeId,
+      });
+      broadcastSse('admin', 'device:update', {
+        deviceId: updated.id,
+        status: updated.status,
+        lastSeenAt: updated.lastSeenAt?.toISOString() || null,
+        tenantId: updated.tenantId,
+        storeId: updated.storeId,
+        name: updated.name,
+      });
+    } catch (sseErr) {
+      console.warn(`[DeviceEngine V2] [${requestId}] SSE emit failed (non-fatal):`, sseErr?.message);
+    }
+
+    res.json({
+      ok: true,
+      deviceId: updated.id,
+      data: {
+        device: {
+          id: updated.id,
+          tenantId: updated.tenantId,
+          storeId: updated.storeId,
+          name: updated.name,
+          status: updated.status,
+          platform: updated.platform,
+          type: updated.type || 'screen',
+          lastSeenAt: updated.lastSeenAt,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[Device Engine] claim-pending error:', error);
+    res.status(500).json({
+      ok: false,
+      error: error?.message || 'claim_failed',
+      message: error?.message || 'Failed to claim pending device',
+    });
+  }
 });
 
 /**

@@ -23,6 +23,24 @@ describe('storeCreateIntentFastPath', () => {
     expect(result?.parameters?._autoSubmit).toBe(true);
   });
 
+  it('does not fast-path promotional video NL even with stale store_creation flow', () => {
+    const phrases = [
+      'create a promotion video for my store',
+      'create a video for my store',
+      'make a promo video for my café',
+    ];
+    for (const message of phrases) {
+      expect(tryStoreCreateFastPath(message, {})).toBeNull();
+      expect(tryStoreCreateFastPath(message, { currentFlow: 'store_creation' })).toBeNull();
+      expect(tryStoreCreateFastPath(message, { activeStoreId: 'store-1' })).toBeNull();
+    }
+  });
+
+  it('fast-path classifies create-store typo "create as tore"', () => {
+    const result = tryStoreCreateFastPath('create as tore', {});
+    expect(result?.tool).toBe('create_store');
+  });
+
   it('parses structured pill submit Melbourne Flower · Other · Melbourne', () => {
     const pill = parseStructuredStoreCreatePillMessage('Melbourne Flower · Other · Melbourne');
     expect(pill).toEqual({

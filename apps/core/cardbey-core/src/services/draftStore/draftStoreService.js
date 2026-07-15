@@ -31,6 +31,11 @@ import {
 } from '../../lib/draftCategoryUtils.js';
 import { resolveStoreCommerce, normalizeCatalogItem } from '../../lib/storeTransactionMode.js';
 import {
+  CATALOG_IMPORT_SAFETY_CEILING,
+  CATALOG_IMAGE_ENRICH_MAX,
+  CATALOG_IMAGE_FETCH_CONCURRENCY,
+} from '../../config/catalogLimits.js';
+import {
   applyCatalogProfileToItems,
   buildCatalogGenerationProfile,
   buildCategoriesFromProfile,
@@ -121,8 +126,18 @@ export function normalizePreviewCategories(preview) {
 export function buildCategoryIdToNameMap(categories) {
   const draftCatIdToName = new Map();
   for (const c of Array.isArray(categories) ? categories : []) {
-    if (c && c.id != null && (c.name != null || c.label != null)) {
-      draftCatIdToName.set(String(c.id).trim(), String(c.name ?? c.label ?? '').trim() || 'Other');
+    if (c && c.id != null && (c.name != null || c.label != null || (Array.isArray(c.path) && c.path.length))) {
+      const fromPath =
+        Array.isArray(c.path) && c.path.length
+          ? c.path.map((p) => String(p ?? '').trim()).filter(Boolean).join(' · ')
+          : '';
+      const display =
+        fromPath ||
+        (c.parentName
+          ? `${String(c.parentName).trim()} · ${String(c.name ?? c.label ?? '').trim()}`
+          : String(c.name ?? c.label ?? '').trim()) ||
+        'Other';
+      draftCatIdToName.set(String(c.id).trim(), display);
     }
   }
   if (!draftCatIdToName.has('other')) {
@@ -138,6 +153,11 @@ export function buildCategoryIdToNameMap(categories) {
  */
 export function resolveDraftProductCategoryName(item, draftCatIdToName, otherDefault = 'Other') {
   const map = draftCatIdToName instanceof Map ? draftCatIdToName : new Map();
+  // Prefer explicit path so published Product.category retains hierarchy for storefront re-nesting.
+  if (Array.isArray(item?.categoryPath) && item.categoryPath.length) {
+    const joined = item.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean).join(' · ');
+    if (joined) return joined;
+  }
   const draftCatId = item?.categoryId != null ? String(item.categoryId).trim() : null;
   const fromMap = draftCatId && map.get(draftCatId);
   if (fromMap) return fromMap;
@@ -1235,9 +1255,13 @@ async function finalizeDraft(draftId, {
       bar: 'warm', florist: 'vibrant', salon: 'modern', spa: 'modern', design: 'minimal', studio: 'minimal',
     };
     const styleName = businessTypeToStyle[businessType] || 'modern';
-    const MAX_ITEMS = 30;
-    const BATCH_SIZE = 5;
-    const toEnrich = items.slice(0, MAX_ITEMS);
+    const MAX_ITEMS = CATALOG_IMAGE_ENRICH_MAX;
+    const BATCH_SIZE = CATALOG_IMAGE_FETCH_CONCURRENCY;
+    const missingIdx = [];
+    for (let i = 0; i < items.length && missingIdx.length < MAX_ITEMS; i++) {
+      if (!resolveUsableDraftItemImageUrl(items[i])) missingIdx.push(i);
+    }
+    const toEnrich = missingIdx.map((i) => ({ item: items[i], originalIndex: i }));
     const usedUrls = new Set();
     let serviceImageRegistry = null;
     try {
@@ -1269,7 +1293,7 @@ async function finalizeDraft(draftId, {
         if (await isMissionPipelineCancelled(pipelineMissionId)) {
           break itemImages;
         }
-        const p = batch[batchIdx];
+        const p = batch[batchIdx].item;
         const existingImageUrl = resolveUsableDraftItemImageUrl(p);
         if (existingImageUrl) {
           settled.push({
@@ -1301,7 +1325,7 @@ async function finalizeDraft(draftId, {
           imageQueryHint = derivedHint || imageQueryHint;
         }
         const categoryHint = imageQueryHint || [deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType), catalogCategoryHint].filter(Boolean).join(' ').trim() || null;
-        const itemIndex = offset + batchIdx;
+        const itemIndex = batch[batchIdx].originalIndex;
         const opts = effectiveImageFillProfile
           ? {
               profile: effectiveImageFillProfile,
@@ -1353,7 +1377,8 @@ async function finalizeDraft(draftId, {
           settled.push({ status: 'rejected', reason: err });
         }
       }
-      batch.forEach((item, i) => {
+      batch.forEach((pair, i) => {
+        const item = pair.item;
         const result = settled[i];
         if (result?.status === 'fulfilled' && result.value && result.value.url && !item.imageUrl) {
           const img = result.value;
@@ -2474,9 +2499,9 @@ export async function generateDraft(draftId, options = {}) {
     // Step 3: Parse or generate products
     let usedAiMenuFallback = false; // set true when template missing and we use generateVerticalLockedMenu
     if (draft.mode === 'ocr' && ocrText) {
-      // Simple product extraction from OCR text (cap at 30 items)
+      // Simple product extraction from OCR text (import safety ceiling)
       const lines = ocrText.split('\n').filter(line => line.trim().length > 0);
-      products = lines.slice(0, 30).map((line, idx) => {
+      products = lines.slice(0, CATALOG_IMPORT_SAFETY_CEILING).map((line, idx) => {
         // Try to extract price (look for $, €, £, numbers)
         const priceMatch = line.match(/[\$€£¥]\s*[\d,]+\.?\d*/);
         const price = priceMatch ? priceMatch[0] : null;
@@ -2803,7 +2828,7 @@ export async function generateDraft(draftId, options = {}) {
         }
       }
       if (!usedAiMenuFallback) {
-        products = (Array.isArray(list) ? list : []).slice(0, 30);
+        products = (Array.isArray(list) ? list : []).slice(0, CATALOG_IMPORT_SAFETY_CEILING);
       }
     }
 
@@ -2812,8 +2837,11 @@ export async function generateDraft(draftId, options = {}) {
 
     // includeImages from persisted draft.input (set by /api/draft-store/generate and orchestra start)
     const includeImages = input.includeImages !== false;
-    const MAX_ITEMS_FOR_IMAGES = 30; // Cap so OCR/edge cases don't hammer Pexels/OpenAI
-    const itemsToEnrich = products.slice(0, MAX_ITEMS_FOR_IMAGES);
+    const MAX_ITEMS_FOR_IMAGES = CATALOG_IMAGE_ENRICH_MAX;
+    const itemsToEnrich = [];
+    for (let i = 0; i < products.length && itemsToEnrich.length < MAX_ITEMS_FOR_IMAGES; i++) {
+      if (!resolveUsableDraftItemImageUrl(products[i])) itemsToEnrich.push(products[i]);
+    }
     if (includeImages && itemsToEnrich.length > 0) {
       const menuModLegacy = await loadMenuVisualAgent();
       if (!menuModLegacy) throw tsModuleUnavailable('menuVisualAgent');
@@ -2965,9 +2993,12 @@ export async function generateDraft(draftId, options = {}) {
         bar: 'warm', florist: 'vibrant', salon: 'modern', spa: 'modern', design: 'minimal', studio: 'minimal',
       };
       const styleName = businessTypeToStyle[businessType] || 'modern';
-      const MAX_ITEMS = 30;
-      const BATCH_SIZE = 5;
-      const toEnrich = products.slice(0, MAX_ITEMS);
+      const MAX_ITEMS = CATALOG_IMAGE_ENRICH_MAX;
+      const BATCH_SIZE = CATALOG_IMAGE_FETCH_CONCURRENCY;
+      const toEnrich = [];
+      for (let i = 0; i < products.length && toEnrich.length < MAX_ITEMS; i++) {
+        if (!resolveUsableDraftItemImageUrl(products[i])) toEnrich.push(products[i]);
+      }
       const categoriesForHint = Array.isArray(categories) ? categories : [];
       menuFirstImages: for (let offset = 0; offset < toEnrich.length; offset += BATCH_SIZE) {
         if (isShutdownRequested()) {

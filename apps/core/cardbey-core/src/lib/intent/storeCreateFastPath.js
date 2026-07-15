@@ -2,27 +2,23 @@ import {
   classifyStoreWebsiteCreateIntent,
   messageLooksLikeStoreCreate,
   messageLooksLikeWebsiteCreate,
+  messageLooksLikeVideoCreate,
 } from '../intake/storeWebsiteRunwayClassifier.js';
 import { isCasualChatTurn } from '../intake/intakeCasualChatTurn.js';
+import { matchesCreateVideoOntology } from '../intake/createVideoOntology.js';
+import {
+  CREATE_STORE_EXACT_PHRASES,
+  matchCreateStoreIntent,
+  normalizeCreateStoreTypos,
+  normalizeIntentText,
+  emitCreateStoreDiag,
+} from './createStoreIntentContract.js';
 
 /** @typedef {'store'|'website'} CreateRunwayMode */
 
-const EXACT_STORE_PHRASES = [
-  'create a store',
-  'create store',
-  'new store',
-  'start business',
-  'start a business',
-  'open shop',
-  'open a shop',
-  'build store',
-  'build a store',
-  'make store',
-  'make a store',
-  'create a store for my business',
-  'set up a store',
-  'set up my store',
-];
+const EXACT_STORE_PHRASES = [...CREATE_STORE_EXACT_PHRASES];
+
+export { normalizeCreateStoreTypos, normalizeIntentText, matchCreateStoreIntent };
 
 const EXACT_WEBSITE_PHRASES = [
   'create a mini website for my business',
@@ -85,14 +81,19 @@ export function isStructuredStoreCreatePillMessage(message) {
 }
 
 /**
+ * Repair common live typos for create-store phrases (e.g. "create as tore" → "create a store").
+ * Keep replacements narrow to avoid false positives on unrelated chat.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+// normalizeCreateStoreTypos imported from createStoreIntentContract
+
+/**
  * @param {string} text
  */
 function normalizeExactPhrase(text) {
-  return String(text ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[.!?]+$/g, '');
+  return normalizeCreateStoreTypos(text).replace(/[.!?]+$/g, '');
 }
 
 /**
@@ -125,14 +126,13 @@ export function isBareStoreCreateRequest(userMessage) {
  * @param {string} userMessage
  */
 export function matchExactStoreCreatePhrase(userMessage) {
+  const matched = matchCreateStoreIntent(userMessage);
+  if (matched.matched) {
+    return { intentMode: /** @type {CreateRunwayMode} */ ('store'), phrase: matched.normalizedInput };
+  }
+
   const normalized = normalizeExactPhrase(userMessage);
   if (!normalized) return null;
-
-  for (const phrase of EXACT_STORE_PHRASES) {
-    if (normalized === phrase || normalized.includes(phrase)) {
-      return { intentMode: /** @type {CreateRunwayMode} */ ('store'), phrase };
-    }
-  }
 
   for (const phrase of EXACT_WEBSITE_PHRASES) {
     if (normalized === phrase || normalized.includes(phrase)) {
@@ -192,7 +192,8 @@ export function shouldBlockServiceRequestForStoreCreate(userMessage, opts = {}) 
  * @returns {object|null}
  */
 export function tryStoreCreateFastPath(userMessage, opts = {}) {
-  const msg = String(userMessage ?? '').trim();
+  const raw = String(userMessage ?? '').trim();
+  const msg = normalizeCreateStoreTypos(raw) || raw;
   if (!msg && !opts.storeCreateForm) return null;
 
   const form = opts.storeCreateForm;
@@ -223,6 +224,10 @@ export function tryStoreCreateFastPath(userMessage, opts = {}) {
   const flow = String(opts.currentFlow ?? '').trim().toLowerCase();
   const source = String(opts.source ?? '').trim().toLowerCase();
   if (flow === 'store_creation' || source === 'create_store_button' || source === 'create_store_pill') {
+    // Stale store_setup flow must not steal clear video/creative NL.
+    if (msg && (matchesCreateVideoOntology(msg) || messageLooksLikeVideoCreate(msg))) {
+      return null;
+    }
     return buildCreateStoreClassification({
       intentMode: 'store',
       reason: 'context_flow',
@@ -230,7 +235,12 @@ export function tryStoreCreateFastPath(userMessage, opts = {}) {
     });
   }
 
-  const pill = parseStructuredStoreCreatePillMessage(msg);
+  // Creative video/clip NL must never be forced onto create_store (after explicit form/force/button).
+  if (msg && (matchesCreateVideoOntology(msg) || messageLooksLikeVideoCreate(msg))) {
+    return null;
+  }
+
+  const pill = parseStructuredStoreCreatePillMessage(raw);
   if (pill?.storeName && String(pill.storeName).trim().length >= 2) {
     return buildCreateStoreClassification({
       intentMode: pill.intentMode === 'website' ? 'website' : 'store',
@@ -242,12 +252,33 @@ export function tryStoreCreateFastPath(userMessage, opts = {}) {
     });
   }
 
-  const exact = matchExactStoreCreatePhrase(msg);
+  const exact = matchExactStoreCreatePhrase(raw);
   if (exact) {
+    emitCreateStoreDiag('CREATE_STORE_RUNTIME_DISPATCHED', {
+      reason: `exact_match:${exact.phrase}`,
+      intentMode: exact.intentMode,
+      hasActiveStoreId: Boolean(opts.activeStoreId),
+    });
     return buildCreateStoreClassification({
       intentMode: exact.intentMode,
       reason: `exact_match:${exact.phrase}`,
       confidence: 1,
+    });
+  }
+
+  // Deterministic pattern match must win even when a store is already selected —
+  // "create my first store" is always greenfield, not chat about the current store.
+  const contract = matchCreateStoreIntent(raw);
+  if (contract.matched) {
+    emitCreateStoreDiag('CREATE_STORE_RUNTIME_DISPATCHED', {
+      reason: `contract:${contract.matchedBy}`,
+      hasActiveStoreId: Boolean(opts.activeStoreId),
+      confidence: contract.confidence,
+    });
+    return buildCreateStoreClassification({
+      intentMode: 'store',
+      reason: `contract:${contract.matchedBy}`,
+      confidence: contract.confidence,
     });
   }
 

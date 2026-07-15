@@ -12,6 +12,7 @@ const FRESHA_CATALOG_QUERY = `
       serviceCount
       serviceCatalog(context: BOOKING_FLOW) {
         ... on LocationServiceCatalogCategory {
+          name
           items {
             name
             caption
@@ -60,7 +61,7 @@ export function extractFreshaSlugFromHtml(html) {
 
 /**
  * @param {string} slug
- * @returns {Promise<Array<{ name: string; price: number|null; durationMinutes: number|null; description?: string }>>}
+ * @returns {Promise<Array<{ name: string; price: number|null; durationMinutes: number|null; description?: string; category?: string; categoryPath?: string[] }>>}
  */
 export async function fetchFreshaServiceCatalog(slug) {
   if (!slug) return [];
@@ -70,13 +71,19 @@ export async function fetchFreshaServiceCatalog(slug) {
   if (!location?.isBookable) return [];
 
   const categories = location.serviceCatalog ?? [];
-  const items = (Array.isArray(categories) ? categories : [categories]).flatMap((cat) => cat?.items ?? []);
-  return mapFreshaItemsToOffers(items);
+  const stamped = (Array.isArray(categories) ? categories : [categories]).flatMap((cat) => {
+    const categoryName = cleanOfferName(cat?.name) || '';
+    return (cat?.items ?? []).map((item) => ({
+      ...item,
+      __categoryName: categoryName,
+    }));
+  });
+  return mapFreshaItemsToOffers(stamped);
 }
 
 /**
  * @param {string} freshaUrl
- * @returns {Promise<Array<{ name: string; price: number|null; durationMinutes: number|null; description?: string }>>}
+ * @returns {Promise<Array<{ name: string; price: number|null; durationMinutes: number|null; description?: string; category?: string; categoryPath?: string[] }>>}
  */
 export async function discoverFreshaVenueOffers(freshaUrl) {
   const slug = await resolveFreshaSlugFromUrl(freshaUrl);
@@ -101,7 +108,8 @@ function mapFreshaItemsToOffers(items) {
     if (!Number.isFinite(price) || price <= 0) continue;
 
     const durationMinutes = parseDurationFromCaption(item?.caption);
-    const key = name.toLowerCase();
+    const category = cleanOfferName(item?.__categoryName) || '';
+    const key = `${category.toLowerCase()}::${name.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
@@ -110,6 +118,9 @@ function mapFreshaItemsToOffers(items) {
       price,
       durationMinutes,
       description: cleanOfferName(item?.caption) ?? '',
+      ...(category
+        ? { category, categoryPath: ['Services', category] }
+        : {}),
     });
     if (offers.length >= 120) break;
   }

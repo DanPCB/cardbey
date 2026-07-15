@@ -40,12 +40,23 @@ function guessCategory(name) {
 }
 
 /**
+ * Dev-only mock rows. NEVER invent catalog for production / spa (spa≠nails).
+ * Opt-in: ALLOW_MOCK_MENU_FALLBACK=true (local unit tests only).
  * @param {string} [businessType]
  * @param {string} [businessName]
  */
 function mockMenuRowsForContext(businessType, businessName) {
+  const allow =
+    String(process.env.ALLOW_MOCK_MENU_FALLBACK || '').toLowerCase() === 'true' ||
+    String(process.env.NODE_ENV || '').toLowerCase() === 'test';
+  if (!allow) {
+    // Empty extraction — preview/live must use Business products / Store Projection, not invented demos.
+    return [];
+  }
+
   const hint = `${String(businessType || '')} ${String(businessName || '')}`.toLowerCase();
-  if (/\b(nail|manicure|pedicure|beauty|salon|spa|lash|brow|wax|gel)\b/.test(hint)) {
+  // Nails-only keywords — DO NOT match bare "spa" (herbal head spa was polluted by manicure demos).
+  if (/\b(nail|manicure|pedicure|nail.?salon)\b/.test(hint)) {
     return [
       { name: 'Classic Manicure', price: 35 },
       { name: 'Gel Manicure', price: 45 },
@@ -63,7 +74,6 @@ function mockMenuRowsForContext(businessType, businessName) {
       { name: 'Batch Brew', price: 4.0 },
     ];
   }
-  // Never invent generic "services" rows when OCR/vision failed — caller should surface empty extraction.
   return [];
 }
 

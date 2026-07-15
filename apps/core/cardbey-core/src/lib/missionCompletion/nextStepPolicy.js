@@ -61,14 +61,15 @@ const RULES = [
   },
   {
     id: 'publish_store',
-    priority: 6,
-    condition: (f) => Boolean(f.storeId) && !f.isPublished,
+    // Draft-only missions (post create-store) must still offer publish; live storeId is not required yet.
+    priority: 7,
+    condition: (f) => Boolean(f.storeId || f.draftId) && !f.isPublished,
     step: {
       tool: 'publish_store',
       ui: null,
       label: 'Publish my store →',
       prompt: 'I want to publish my store',
-      rationale: 'Store is ready but not yet published',
+      rationale: 'Draft is ready but not yet published',
     },
   },
   {

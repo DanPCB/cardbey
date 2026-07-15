@@ -230,7 +230,10 @@ export async function extractMenuFromFile(input) {
           name: it?.name ?? '',
           price: it?.price ?? null,
           currency: it?.currency ?? 'AUD',
-          category: it?.category ?? 'General',
+          category: it?.category ?? '',
+          ...(Array.isArray(it?.categoryPath) && it.categoryPath.length
+            ? { categoryPath: it.categoryPath }
+            : {}),
           description: it?.description ?? '',
           confidence: 1.0,
         }));

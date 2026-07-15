@@ -1,13 +1,22 @@
 /**
  * Device Engine V2 — safe unpair (soft disconnect, preserve device row for history).
+ * Release marks the physical installation CLAIMABLE and issues a new pairing code
+ * without destroying installationId / device record identity.
  */
 
+import crypto from 'crypto';
 import { broadcastSse } from '../realtime/simpleSse.js';
 import { upsertDeviceMetadata, readDeviceMetadata } from '../lib/deviceProjection.js';
 import { enqueueDeviceCommand } from '../engines/device/commands.js';
 import { addDeviceLog } from '../engines/device/logs.js';
+import { logDeviceIdentityEvent } from '../lib/deviceIdentity.js';
+import { PAIRING_TTL_MS } from '../engines/device/pairingSessionTiming.js';
 
 const ACTIVE_BINDING_STATUSES = ['ready', 'pending', 'active', 'assigned'];
+
+function generatePairingCode() {
+  return crypto.randomBytes(3).toString('hex').toUpperCase().substring(0, 6);
+}
 
 /**
  * @param {{ role?: string | null }} user
@@ -88,6 +97,29 @@ export async function unpairDevice(prisma, options) {
 
   let bindingsCleared = 0;
   let commandId = null;
+  const previousAccountId = device.tenantId;
+  const previousStoreId = device.storeId;
+  const releasedAt = new Date().toISOString();
+  const releasedBy = String(userId || tenantId || '').trim() || null;
+
+  // Issue a fresh pairing code so the physical installation becomes CLAIMABLE
+  // without creating a new device record.
+  let claimPairingCode = null;
+  if (resetToTemp && !archive) {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const candidate = generatePairingCode();
+      const clash = await prisma.device.findUnique({ where: { pairingCode: candidate } });
+      if (!clash) {
+        claimPairingCode = candidate;
+        break;
+      }
+    }
+    if (!claimPairingCode) {
+      const err = new Error('Failed to generate claimable pairing code');
+      err.status = 500;
+      throw err;
+    }
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     if (clearBindings) {
@@ -105,7 +137,7 @@ export async function unpairDevice(prisma, options) {
     }
 
     const deviceUpdate = {
-      pairingCode: null,
+      pairingCode: claimPairingCode,
       playbackReportIsPlaying: null,
       playbackReportState: null,
       status: 'offline',
@@ -121,11 +153,19 @@ export async function unpairDevice(prisma, options) {
       data: deviceUpdate,
     });
 
+    const pairingStatus = archive ? 'UNPAIRED' : resetToTemp ? 'CLAIMABLE' : 'UNPAIRED';
+    const pairingCodeIssuedAt = claimPairingCode ? releasedAt : undefined;
+
     const metadataPatch = {
-      pairingStatus: 'UNPAIRED',
+      pairingStatus,
       currentPlaylistId: null,
-      unpairedAt: new Date().toISOString(),
+      unpairedAt: releasedAt,
       unpairReason: reason,
+      releasedBy,
+      releasedAt,
+      previousAccountId,
+      previousStoreId,
+      ...(pairingCodeIssuedAt ? { pairingCodeIssuedAt } : {}),
     };
 
     if (archive) {
@@ -134,6 +174,7 @@ export async function unpairDevice(prisma, options) {
         cap?.capabilities && typeof cap.capabilities === 'object' ? cap.capabilities : {};
       metadataPatch.archivedAt = new Date().toISOString();
       metadataPatch.archiveReason = reason || 'manual_unpair';
+      metadataPatch.pairingStatus = 'UNPAIRED';
       await tx.deviceCapability.upsert({
         where: { deviceId },
         update: {
@@ -162,10 +203,19 @@ export async function unpairDevice(prisma, options) {
       deviceId,
       tenantId: updatedDevice.tenantId,
       storeId: updatedDevice.storeId,
-      pairingStatus: 'UNPAIRED',
+      pairingStatus,
+      claimable: Boolean(claimPairingCode),
     });
 
     return updatedDevice;
+  });
+
+  logDeviceIdentityEvent('DEVICE_RELEASED', {
+    deviceId,
+    accountId: previousAccountId,
+    storeId: previousStoreId,
+    pairingStatus: archive ? 'UNPAIRED' : 'CLAIMABLE',
+    reason,
   });
 
   try {
@@ -190,9 +240,14 @@ export async function unpairDevice(prisma, options) {
   });
   const metadata = readDeviceMetadata(capRow);
 
+  const finalPairingStatus = metadata.pairingStatus || (claimPairingCode ? 'CLAIMABLE' : 'UNPAIRED');
+  const expiresAt = claimPairingCode
+    ? new Date(Date.now() + PAIRING_TTL_MS).toISOString()
+    : null;
+
   const ssePayload = {
     deviceId: result.id,
-    pairingStatus: metadata.pairingStatus || 'UNPAIRED',
+    pairingStatus: finalPairingStatus,
     tenantId: result.tenantId,
     storeId: result.storeId,
     playlistId: null,
@@ -201,6 +256,7 @@ export async function unpairDevice(prisma, options) {
     lastSeenAt: result.lastSeenAt?.toISOString?.() ?? null,
     reason,
     archived: archive,
+    // pairing code intentionally omitted from SSE (claim via dashboard / TV overlay)
     at: new Date().toISOString(),
   };
 
@@ -212,13 +268,19 @@ export async function unpairDevice(prisma, options) {
     deviceId,
     source: 'pairing',
     level: 'info',
-    message: 'Device unpaired',
+    message: 'Device released / unpaired',
     payload: {
       reason,
       resetToTemp,
       archive,
       bindingsCleared,
       commandId,
+      releasedBy,
+      releasedAt,
+      previousAccountId,
+      previousStoreId,
+      pairingStatus: finalPairingStatus,
+      // never log pairing code
     },
   });
 
@@ -228,12 +290,15 @@ export async function unpairDevice(prisma, options) {
     commandId,
     tenantId: result.tenantId,
     storeId: result.storeId,
+    pairingStatus: finalPairingStatus,
   });
 
   return {
     ok: true,
     deviceId: result.id,
-    pairingStatus: 'UNPAIRED',
+    pairingStatus: finalPairingStatus,
+    pairingCode: claimPairingCode,
+    expiresAt,
     tenantId: result.tenantId,
     storeId: result.storeId,
     playlistId: null,
@@ -241,5 +306,9 @@ export async function unpairDevice(prisma, options) {
     commandId,
     archived: archive,
     resetToTemp,
+    releasedBy,
+    releasedAt,
+    previousAccountId,
+    previousStoreId,
   };
 }

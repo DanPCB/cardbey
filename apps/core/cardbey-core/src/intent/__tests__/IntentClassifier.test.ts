@@ -34,6 +34,22 @@ describe('IntentClassifier', () => {
     expect(intent.shouldExecute).toBe(true);
   });
 
+  it('classifies create-store typo "create as tore"', () => {
+    const intent = classifyIntent({ message: 'create as tore' });
+    expect(intent.type).toBe('create_store');
+    expect(intent.shouldExecute).toBe(true);
+  });
+
+  it('classifies "how can I create a store?" as create_store not capabilities', () => {
+    const intent = classifyIntent({ message: 'how can I create a store?' });
+    expect(intent.type).toBe('create_store');
+  });
+
+  it('classifies looser phrasing make me a store', () => {
+    const intent = classifyIntent({ message: 'make me a store' });
+    expect(intent.type).toBe('create_store');
+  });
+
   it('classifies create campaign intent', () => {
     const intent = classifyIntent({ message: 'Create a campaign' });
     expect(intent.type).toBe('create_campaign');

@@ -39,6 +39,22 @@ describe('isExplicitGreenfieldCreateStoreIntent', () => {
       }),
     ).toBe(false);
   });
+  it('returns true for Create a store for my business', () => {
+    expect(
+      isExplicitGreenfieldCreateStoreIntent({
+        userMessage: 'Create a store for my business',
+      }),
+    ).toBe(true);
+  });
+
+  it('returns true when freshStoreMission is set', () => {
+    expect(
+      isExplicitGreenfieldCreateStoreIntent({
+        userMessage: 'hello',
+        freshStoreMission: true,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe('buildPerformerStoreSelectionClarify', () => {

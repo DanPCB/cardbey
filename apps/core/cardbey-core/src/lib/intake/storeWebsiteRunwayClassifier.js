@@ -36,11 +36,22 @@ const WEBSITE_SIGNALS = [
 ];
 
 const STORE_SIGNALS = [
-  { label: /** @type {CreateRunwayLabel} */ ('create_store'), re: /\b(create|build|make|set\s+up|open|start)\b.{0,20}\b(store|shop)\b/ },
-  { label: 'create_store', re: /\bnew\s+store\b|\bopen\s+store\b|\bcreate\s+my\s+store\b/ },
+  { label: /** @type {CreateRunwayLabel} */ ('create_store'), re: /\b(create|build|make|set\s+up|open|start)\b.{0,24}\b(store|shop|business)\b/ },
+  { label: 'create_store', re: /\bnew\s+store\b|\bopen\s+store\b|\bcreate\s+my\s+(?:first\s+)?store\b/ },
   { label: 'create_storefront', re: /\bproduct\s+catalog\b|\bonline\s+store\b|\bstorefront\b/ },
   { label: 'create_store', re: /\brefine\s*\(\s*store\s*\)\s*:/ },
 ];
+
+/** Video / clip creative requests must never count as store-create runway. */
+const VIDEO_CREATE_BLOCK_RE =
+  /\b(video|clip|tiktok|reels?|shorts?)\b|\banimate\b[\s\S]{0,24}\b(hero|banner|image)\b|\b\d+\s*(?:s|sec|second|seconds)\s+(?:ad|video|clip)\b/i;
+
+/**
+ * @param {string} userMessage
+ */
+export function messageLooksLikeVideoCreate(userMessage) {
+  return VIDEO_CREATE_BLOCK_RE.test(normalizeMessage(userMessage));
+}
 
 /**
  * @param {string} msg
@@ -80,6 +91,17 @@ function labelToMode(label) {
 export function classifyStoreWebsiteCreateIntent(userMessage) {
   const msg = normalizeMessage(userMessage);
   if (!msg) {
+    return {
+      label: null,
+      intentMode: null,
+      ambiguous: false,
+      websiteLabels: [],
+      storeLabels: [],
+    };
+  }
+
+  // Creative video / clip requests are not store or website create runways.
+  if (VIDEO_CREATE_BLOCK_RE.test(msg)) {
     return {
       label: null,
       intentMode: null,
