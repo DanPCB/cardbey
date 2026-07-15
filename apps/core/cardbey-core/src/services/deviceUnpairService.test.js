@@ -30,11 +30,15 @@ vi.mock('../lib/deviceProjection.js', async (importOriginal) => {
       currentPlaylistId: patch.currentPlaylistId ?? null,
     })),
     readDeviceMetadata: vi.fn(() => ({
-      pairingStatus: 'UNPAIRED',
+      pairingStatus: 'CLAIMABLE',
       currentPlaylistId: null,
     })),
   };
 });
+
+vi.mock('../lib/deviceIdentity.js', () => ({
+  logDeviceIdentityEvent: vi.fn(),
+}));
 
 import { broadcastSse } from '../realtime/simpleSse.js';
 import { enqueueDeviceCommand } from '../engines/device/commands.js';
@@ -76,10 +80,14 @@ function buildMockPrisma(deviceOverrides = {}) {
 
   const prisma = {
     device: {
-      findUnique: vi.fn(async () => device),
+      findUnique: vi.fn(async ({ where } = {}) => {
+        if (where?.pairingCode) return null; // new claimable code is unique
+        if (where?.id) return device;
+        return device;
+      }),
     },
     deviceCapability: {
-      findUnique: vi.fn(async () => ({ capabilities: { pairingStatus: 'UNPAIRED' } })),
+      findUnique: vi.fn(async () => ({ capabilities: { pairingStatus: 'CLAIMABLE' } })),
     },
     $transaction: vi.fn(async (fn) => fn(tx)),
   };
@@ -132,7 +140,8 @@ describe('deviceUnpairService unpairDevice', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.pairingStatus).toBe('UNPAIRED');
+    expect(result.pairingStatus).toBe('CLAIMABLE');
+    expect(result.pairingCode).toBeTruthy();
     expect(result.playlistId).toBeNull();
     expect(result.tenantId).toBe('temp');
     expect(result.storeId).toBe('temp');
@@ -155,7 +164,7 @@ describe('deviceUnpairService unpairDevice', () => {
       'device:unpaired',
       expect.objectContaining({
         deviceId: 'dev-1',
-        pairingStatus: 'UNPAIRED',
+        pairingStatus: 'CLAIMABLE',
         playlistId: null,
       }),
     );

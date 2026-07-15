@@ -105,8 +105,9 @@ function isWindowsPrismaGenerateEperm(text) {
   const s = String(text || "");
   return (
     s.includes("EPERM: operation not permitted, rename") &&
-    (s.includes("query_engine-windows.dll.node.tmp") ||
-      s.includes("query_engine-windows.dll.node"))
+    (s.includes("client-gen") ||
+      s.includes("query_engine-windows.dll.node") ||
+      s.includes("query-engine-windows.exe"))
   );
 }
 
@@ -643,7 +644,15 @@ if (!isPostgresForRestore) {
         );
         process.exit(1);
       }
-      console.log("[prisma] db push");
+      // Never use --accept-data-loss. Prefer committing migrations.
+      // Refuse push when ALLOW_PRISMA_DB_PUSH is not set (empty DBs only).
+      if (process.env.ALLOW_PRISMA_DB_PUSH !== "1") {
+        console.error(
+          "[prisma] SAFETY: no migrations found and ALLOW_PRISMA_DB_PUSH!=1 — refusing db push. Commit migrations under prisma/sqlite|postgres/migrations.",
+        );
+        process.exit(1);
+      }
+      console.log("[prisma] db push (no --accept-data-loss)");
       runPrisma(
         "db push",
         `npx prisma db push --schema=${schemaPath} --skip-generate`,

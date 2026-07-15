@@ -260,6 +260,30 @@ export const completePairing = async (input, ctx) => {
   });
 
   try {
+    const { upsertDeviceMetadata } = await import('../../lib/deviceProjection.js');
+    const { logDeviceIdentityEvent } = await import('../../lib/deviceIdentity.js');
+    const claimedAt = now.toISOString();
+    await upsertDeviceMetadata(db, updated.id, {
+      pairingStatus: 'PAIRED_NO_PLAYLIST',
+      claimedBy: tenantId,
+      claimedAt,
+      previousAccountId: oldTenantId === 'temp' ? null : oldTenantId,
+      previousStoreId: oldStoreId === 'temp' ? null : oldStoreId,
+      newAccountId: tenantId,
+      newStoreId: storeId,
+    });
+    logDeviceIdentityEvent('DEVICE_CLAIMED', {
+      deviceId: updated.id,
+      accountId: tenantId,
+      storeId,
+      pairingStatus: 'PAIRED_NO_PLAYLIST',
+      reason: `fromAccount=${oldTenantId}`,
+    });
+  } catch (metaErr) {
+    console.warn('[PAIRING_COMPLETE] claim metadata failed (non-fatal):', metaErr?.message);
+  }
+
+  try {
     emitDeviceEvent({
       type: DEVICE_ENGINE_EVENT_TYPES.PAIRING_CLAIMED,
       payload: {

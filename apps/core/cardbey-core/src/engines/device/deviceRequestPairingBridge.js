@@ -42,11 +42,15 @@ function normalizeIncomingBody(raw = {}) {
         ? String(body.sessionId).trim()
         : '';
 
+  // Normalized later in requestPairing via normalizeInstallationId (NULL, not "").
+  const installationIdRaw = body.installationId || body.physicalInstallationId || null;
+
   const engineVersion =
     body.engineVersion || body.engine || body.appVersion || 'DEVICE_V2';
 
   return {
     deviceId: deviceId || undefined,
+    installationId: installationIdRaw || undefined,
     deviceModel: body.deviceModel || body.model || 'unknown-model',
     platform: body.platform || 'android_tv',
     appVersion: engineVersion,

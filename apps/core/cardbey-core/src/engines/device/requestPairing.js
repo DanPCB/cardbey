@@ -12,6 +12,15 @@ import {
   pairingExpiresAt,
   pairingTtlLeftMs,
 } from './pairingSessionTiming.js';
+import {
+  logDeviceIdentityEvent,
+  persistInstallationId,
+  resolveCanonicalDevice,
+  isDeviceArchived,
+  hashInstallationId,
+  normalizeInstallationId,
+} from '../../lib/deviceIdentity.js';
+import { readDeviceMetadata } from '../../lib/deviceProjection.js';
 
 const prisma = getPrismaClient();
 
@@ -50,8 +59,17 @@ export const requestPairing = async (input, ctx) => {
       },
     });
 
-    const { deviceModel, platform, appVersion, capabilities, initialState, deviceId: inputDeviceId } = input;
+    const {
+      deviceModel,
+      platform,
+      appVersion,
+      capabilities,
+      initialState,
+      deviceId: inputDeviceId,
+      installationId: inputInstallationId,
+    } = input;
     const clientDeviceId = inputDeviceId ? String(inputDeviceId).trim() : '';
+    const clientInstallationId = normalizeInstallationId(inputInstallationId) || '';
 
     // Use provided context or create default
     const db = ctx?.services?.db || prisma;
@@ -113,6 +131,7 @@ export const requestPairing = async (input, ctx) => {
 
     console.log(`[DeviceEngine V2] [${requestId}] Creating or updating device record in DB`, {
       clientDeviceId: clientDeviceId || null,
+      installationIdHash: hashInstallationId(clientInstallationId),
     });
 
     const deviceData = {
@@ -124,14 +143,48 @@ export const requestPairing = async (input, ctx) => {
       appVersion: 'DEVICE_V2',
       platform: platform || null,
       type: deviceType,
+      ...(clientInstallationId ? { installationId: clientInstallationId } : {}),
     };
 
     let device;
     let effectiveDeviceId = clientDeviceId;
+    let matchReason = null;
 
-    // Reconcile: TV often heartbeats with a stable id before request-pairing omits deviceId.
-    // If exactly one recent temp orphan exists, attach pairing to that row (avoids duplicate devices).
-    if (!effectiveDeviceId) {
+    // Primary reconcile: stable physical installationId (must not create duplicates).
+    const resolved = await resolveCanonicalDevice(db, {
+      deviceId: clientDeviceId,
+      installationId: clientInstallationId,
+    });
+    if (resolved.device) {
+      const capRow = await db.deviceCapability.findUnique({
+        where: { deviceId: resolved.device.id },
+        select: { capabilities: true },
+      });
+      const meta = readDeviceMetadata(capRow);
+      if (isDeviceArchived(meta) || isDeviceArchived(capRow?.capabilities)) {
+        logDeviceIdentityEvent('DEVICE_RECORD_MATCHED', {
+          deviceId: resolved.device.id,
+          installationId: clientInstallationId,
+          canonicalDeviceId: resolved.device.id,
+          reason: 'archived_blocking_reuse',
+        });
+        const err = new Error('Device installation is archived; contact support');
+        err.code = 'DEVICE_ARCHIVED';
+        throw err;
+      }
+
+      effectiveDeviceId = resolved.device.id;
+      matchReason = resolved.matchReason;
+      logDeviceIdentityEvent('DEVICE_RECORD_MATCHED', {
+        deviceId: effectiveDeviceId,
+        installationId: clientInstallationId,
+        canonicalDeviceId: effectiveDeviceId,
+        reason: matchReason,
+      });
+    }
+
+    // Legacy orphan reconcile only when no installation/device identity is available.
+    if (!effectiveDeviceId && !clientInstallationId) {
       const recentCutoff = new Date(Date.now() - 2 * 60 * 1000);
       const orphans = await db.device.findMany({
         where: {
@@ -146,18 +199,18 @@ export const requestPairing = async (input, ctx) => {
       });
       if (orphans.length >= 1) {
         effectiveDeviceId = orphans[0].id;
+        matchReason = 'recent_temp_orphan';
         console.log(`[DeviceEngine V2] [${requestId}] Reconciled recent heartbeat row for pairing`, {
           deviceId: effectiveDeviceId,
           lastSeenAt: orphans[0].lastSeenAt?.toISOString?.(),
           orphanCount: orphans.length,
         });
-        if (orphans.length > 1) {
-          console.warn(`[DeviceEngine V2] [${requestId}] Multiple recent temp heartbeat rows; using most recent`, {
-            chosen: effectiveDeviceId,
-            alsoSeen: orphans.slice(1).map((o) => o.id),
-          });
-        }
       }
+    }
+
+    // Prefer client installationId as the durable row id when minting a new record.
+    if (!effectiveDeviceId && clientInstallationId) {
+      effectiveDeviceId = clientInstallationId;
     }
 
     if (effectiveDeviceId) {
@@ -173,6 +226,9 @@ export const requestPairing = async (input, ctx) => {
             tenantId: existing.tenantId,
             storeId: existing.storeId,
           });
+          if (clientInstallationId) {
+            await persistInstallationId(db, existing.id, clientInstallationId);
+          }
           return {
             alreadyPaired: true,
             id: existing.id,
@@ -180,6 +236,7 @@ export const requestPairing = async (input, ctx) => {
             tenantId: existing.tenantId,
             storeId: existing.storeId,
             status: 'claimed',
+            installationId: clientInstallationId || existing.installationId || null,
           };
         }
         if (
@@ -196,38 +253,97 @@ export const requestPairing = async (input, ctx) => {
               expiresAt: pendingExpiresAt.toISOString(),
               ttlLeftMs: ttlLeft,
             });
+            if (clientInstallationId) {
+              await persistInstallationId(db, existing.id, clientInstallationId, {
+                pairingStatus: 'CLAIMABLE',
+              });
+            }
             return {
               id: existing.id,
               code: existing.pairingCode,
               expiresAt: pendingExpiresAt.toISOString(),
               deviceId: existing.id,
               pairingCode: existing.pairingCode,
+              installationId: clientInstallationId || existing.installationId || null,
             };
           }
         }
-        device = await db.device.update({
-          where: { id: effectiveDeviceId },
-          data: {
-            ...deviceData,
-            status: existing.status === 'online' ? 'online' : deviceData.status,
-            model: deviceModel || existing.model,
-            platform: platform || existing.platform,
-            type: deviceType || existing.type,
-          },
-        });
-        console.log(`[DeviceEngine V2] [${requestId}] Reused heartbeat device row for pairing`, {
+        const updatePayload = {
+          ...deviceData,
+          status: existing.status === 'online' ? 'online' : deviceData.status,
+          model: deviceModel || existing.model,
+          platform: platform || existing.platform,
+          type: deviceType || existing.type,
+        };
+        // Never overwrite installationId with null; never use store/owner as identity.
+        if (!clientInstallationId) {
+          delete updatePayload.installationId;
+        }
+        try {
+          device = await db.device.update({
+            where: { id: effectiveDeviceId },
+            data: updatePayload,
+          });
+        } catch (updateErr) {
+          if (String(updateErr?.message || '').includes('installationId')) {
+            delete updatePayload.installationId;
+            device = await db.device.update({
+              where: { id: effectiveDeviceId },
+              data: updatePayload,
+            });
+          } else {
+            throw updateErr;
+          }
+        }
+        logDeviceIdentityEvent('DEVICE_RECORD_MATCHED', {
           deviceId: device.id,
+          installationId: clientInstallationId,
+          reason: matchReason || 'update_existing',
         });
       } else {
-        device = await db.device.create({
-          data: { id: effectiveDeviceId, ...deviceData },
-        });
-        console.log(`[DeviceEngine V2] [${requestId}] Created device with client-provided id`, {
+        try {
+          device = await db.device.create({
+            data: { id: effectiveDeviceId, ...deviceData },
+          });
+        } catch (createErr) {
+          if (String(createErr?.message || '').includes('installationId')) {
+            const { installationId: _omit, ...withoutInstall } = deviceData;
+            device = await db.device.create({
+              data: { id: effectiveDeviceId, ...withoutInstall },
+            });
+          } else {
+            throw createErr;
+          }
+        }
+        logDeviceIdentityEvent('DEVICE_RECORD_CREATED', {
           deviceId: device.id,
+          installationId: clientInstallationId,
+          reason: 'request_pairing_create',
         });
       }
     } else {
-      device = await db.device.create({ data: deviceData });
+      try {
+        device = await db.device.create({ data: deviceData });
+      } catch (createErr) {
+        if (String(createErr?.message || '').includes('installationId')) {
+          const { installationId: _omit, ...withoutInstall } = deviceData;
+          device = await db.device.create({ data: withoutInstall });
+        } else {
+          throw createErr;
+        }
+      }
+      logDeviceIdentityEvent('DEVICE_RECORD_CREATED', {
+        deviceId: device.id,
+        installationId: clientInstallationId,
+        reason: 'request_pairing_create_no_client_id',
+      });
+    }
+
+    if (clientInstallationId) {
+      await persistInstallationId(db, device.id, clientInstallationId, {
+        pairingStatus: 'CLAIMABLE',
+        pairingCodeIssuedAt,
+      });
     }
 
     console.log(`[DeviceEngine V2] [${requestId}] Created pair session`, {
