@@ -118,6 +118,50 @@ function checkMigrationHealthCheckTracked() {
   }
 }
 
+/**
+ * Dashboard static services must not use unauthenticated `git submodule update`.
+ * Nested HTTPS clones do not receive the Render GitHub App credential.
+ */
+function checkDashboardServicesAvoidUnauthSubmodule() {
+  const renderPath = path.join(repoRoot, 'render.yaml');
+  if (!fs.existsSync(renderPath)) {
+    fail('render.yaml missing at monorepo root');
+    return;
+  }
+  // Normalize CRLF so markers match Windows-checked-out blueprints.
+  const yaml = read(renderPath).replace(/\r\n/g, '\n');
+
+  for (const name of ['cardbey-dashboard-staging', 'cardbey-dashboard']) {
+    // Exact name line match (avoid cardbey-dashboard matching cardbey-dashboard-staging)
+    const marker = `\n    name: ${name}\n`;
+    const nameIdx = yaml.indexOf(marker);
+    if (nameIdx < 0) {
+      fail(`render.yaml missing service ${name}`);
+      continue;
+    }
+    const after = yaml.slice(nameIdx + 1);
+    const next = after.search(/\n  - type:/);
+    const block = next >= 0 ? after.slice(0, next) : after;
+
+    if (/git submodule update/.test(block)) {
+      fail(
+        `render.yaml ${name} must not run git submodule update in buildCommand (unauthenticated private clone)`,
+      );
+    }
+    if (!/repo:\s*https:\/\/github\.com\/DanPCB\/cardbey-marketing-dashboard/.test(block)) {
+      fail(
+        `render.yaml ${name} must set repo to https://github.com/DanPCB/cardbey-marketing-dashboard`,
+      );
+    }
+    if (!/staticPublishPath:\s*dist\b/.test(block)) {
+      fail(`render.yaml ${name} must use staticPublishPath: dist`);
+    }
+    if (!/scripts\/render-build\.mjs/.test(block)) {
+      fail(`render.yaml ${name} must use node scripts/render-build.mjs`);
+    }
+  }
+}
+
 function main() {
   console.log('🔍 Render deploy readiness\n');
   checkCoreServerImports();
@@ -126,6 +170,7 @@ function main() {
   checkCorsAllowlistSync();
   checkIntakeNoSessionHeader();
   checkMigrationHealthCheckTracked();
+  checkDashboardServicesAvoidUnauthSubmodule();
 
   if (failures.length) {
     console.error('❌ Deploy readiness FAILED:\n');
