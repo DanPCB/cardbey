@@ -399,6 +399,7 @@ router.get('/mine', requireAuth, async (req, res, next) => {
         status: true,
         committedAt: true,
         committedStoreId: true,
+        generationRunId: true,
         preview: true,
         input: true,
         updatedAt: true,
@@ -435,6 +436,7 @@ router.get('/mine', requireAuth, async (req, res, next) => {
           status: true,
           committedAt: true,
           committedStoreId: true,
+          generationRunId: true,
           preview: true,
           input: true,
           updatedAt: true,
@@ -473,6 +475,10 @@ router.get('/mine', requireAuth, async (req, res, next) => {
         preview.meta?.storeName ||
         input.businessName ||
         'Untitled draft';
+      const generationRunId =
+        (d.generationRunId && String(d.generationRunId).trim()) ||
+        (typeof input.generationRunId === 'string' && input.generationRunId.trim()) ||
+        null;
       drafts.push({
         draftId: d.id,
         storeId: d.committedStoreId || input.storeId || preview.meta?.storeId || null,
@@ -482,6 +488,7 @@ router.get('/mine', requireAuth, async (req, res, next) => {
         status: d.status,
         published: false,
         committed: false,
+        generationRunId,
         updatedAt: d.updatedAt,
       });
     }

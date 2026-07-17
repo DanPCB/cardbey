@@ -71,7 +71,8 @@ import { wrapHybridRoute } from '../lib/routing/wrapHybridRoute.js';
 import { extractMenuFromFile, MenuExtractionLlmError } from '../services/menuExtraction/extractMenuFromFile.js';
 import { seedMenuCatalogItemsImages } from '../services/menuExtraction/catalogItemImageSeed.js';
 import { CATALOG_IMAGE_ENRICH_MAX } from '../config/catalogLimits.js';
-import { listStoreProducts, parseProductPagination } from '../lib/listStoreProducts.js';
+import { listStoreProducts, mapProductToListDto, parseProductPagination } from '../lib/listStoreProducts.js';
+import { updateProduct } from '../lib/catalog/productCatalogService.js';
 import {
   resolveBrandKitTarget,
   updateBrandKitForStoreId,
@@ -1129,6 +1130,91 @@ router.get('/:storeId/products', requireAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * PATCH /api/stores/:storeId/products/:productId
+ * Owner quick-edit for catalog/menu/service inventory rows.
+ * Does not publish — isPublished is ignored on this path.
+ */
+router.patch('/:storeId/products/:productId', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = req.params.storeId?.trim();
+    const productId = req.params.productId?.trim();
+    if (!storeId || !productId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'validation_error',
+        message: 'storeId and productId are required',
+      });
+    }
+
+    const store = await prisma.business.findUnique({
+      where: { id: storeId },
+      select: { id: true, userId: true, type: true, name: true },
+    });
+    if (!store) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Store not found',
+        message: 'Store not found',
+      });
+    }
+
+    const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
+    if (!isDevAdmin && store.userId !== req.userId) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Forbidden',
+        message: 'You do not have permission to access this store',
+      });
+    }
+
+    const existing = await prisma.product.findFirst({
+      where: { id: productId, businessId: store.id, deletedAt: null },
+      select: { id: true, isPublished: true },
+    });
+    if (!existing) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Product not found',
+        message: 'Product not found',
+      });
+    }
+
+    const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    // Harden: quick-edit must never silently publish
+    delete body.isPublished;
+
+    let updated;
+    try {
+      updated = await updateProduct(prisma, productId, body, { allowPublish: false });
+    } catch (err) {
+      if (err?.code === 'validation_error') {
+        return res.status(400).json({
+          ok: false,
+          error: 'validation_error',
+          message: err.message || 'Invalid product update',
+        });
+      }
+      throw err;
+    }
+
+    return res.json({
+      ok: true,
+      storeId: store.id,
+      product: mapProductToListDto(updated, {
+        businessType: store.type,
+        businessName: store.name,
+      }),
+      // Explicit proof that draft/live was not mutated by this endpoint
+      isPublished: updated.isPublished === true,
+      publishedUnchanged: updated.isPublished === existing.isPublished,
+    });
+  } catch (error) {
+    console.error('[Stores] PATCH /:storeId/products/:productId error:', error);
+    next(error);
+  }
+});
+
 router.get('/:id/preview', async (req, res, next) => {
   try {
     const storeId = req.params.id;
@@ -1356,13 +1442,102 @@ router.get('/:id/promotions', async (req, res, next) => {
 });
 
 /**
- * GET /api/stores/temp/draft?generationRunId=...
- * Resolve temp guest draft by generationRunId (optionalAuth).
+ * GET /api/stores/temp/draft?generationRunId=...&draftId=...
+ * Resolve temp guest draft by generationRunId (preferred) or draftId (Continue editing / My Stores).
+ * optionalAuth.
  */
 router.get('/temp/draft', optionalAuth, async (req, res, next) => {
   try {
-    const generationRunId =
+    let generationRunId =
       typeof req.query?.generationRunId === 'string' ? req.query.generationRunId.trim() : '';
+    const draftIdQuery =
+      typeof req.query?.draftId === 'string' ? req.query.draftId.trim() : '';
+
+    let draftById = null;
+    if (draftIdQuery) {
+      try {
+        draftById = await getDraft(draftIdQuery);
+      } catch (_) {
+        draftById = null;
+      }
+    }
+
+    // Continue editing often has draftId only — resolve run id from DraftStore when possible.
+    if (!generationRunId && draftById) {
+      const inputParsed =
+        typeof draftById.input === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(draftById.input);
+              } catch {
+                return {};
+              }
+            })()
+          : draftById.input && typeof draftById.input === 'object'
+            ? draftById.input
+            : {};
+      generationRunId =
+        (draftById.generationRunId && String(draftById.generationRunId).trim()) ||
+        (inputParsed.generationRunId && String(inputParsed.generationRunId).trim()) ||
+        '';
+    }
+
+    // Draft exists but never had a generationRunId (unified / manual drafts): return store-shaped payload.
+    if (!generationRunId && draftById) {
+      const { canAccessDraftStore } = await import('../lib/draftOwnership.js');
+      const allowed = await canAccessDraftStore(draftById, {
+        userId: req.userId ?? null,
+        tenantKey: getTenantId(req.user) ?? req.userId ?? null,
+        isSuperAdmin: req.user?.role === 'super_admin',
+      });
+      if (!allowed) {
+        return res.status(403).json({ ok: false, error: 'forbidden', message: 'Draft not accessible' });
+      }
+      const preview =
+        typeof draftById.preview === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(draftById.preview);
+              } catch {
+                return {};
+              }
+            })()
+          : draftById.preview || {};
+      const products = (Array.isArray(preview.items) ? preview.items : preview.products || []).map((item) => ({
+        ...item,
+        description: item?.description ?? null,
+      }));
+      const categories = Array.isArray(preview.categories) ? preview.categories : [];
+      const committedStoreId =
+        typeof draftById.committedStoreId === 'string' && draftById.committedStoreId.trim()
+          ? draftById.committedStoreId.trim()
+          : null;
+      const uiStatus =
+        draftById.status === 'generating'
+          ? 'generating'
+          : draftById.status === 'committed' || draftById.status === 'ready' || draftById.status === 'draft'
+            ? 'ready'
+            : draftById.status;
+      return res.status(200).json({
+        ok: true,
+        storeId: committedStoreId || preview.meta?.storeId || 'temp',
+        generationRunId: null,
+        status: uiStatus,
+        draftId: draftById.id,
+        draft: draftById,
+        store: {
+          id: committedStoreId || preview.meta?.storeId || 'temp',
+          name: preview.storeName || preview.meta?.storeName || 'Untitled Store',
+          type: preview.storeType || preview.meta?.storeType || 'General',
+          userId: req.userId,
+        },
+        products,
+        categories,
+        preview,
+        qaReport: null,
+      });
+    }
+
     if (!generationRunId) {
       return res.status(400).json({
         ok: false,
