@@ -369,6 +369,131 @@ router.post('/generate', guestSessionId, optionalAuth, upload.single('photo'), a
 });
 
 /**
+ * GET /api/draft-store/mine
+ * List unpublished DraftStores the current user/guest can access (selector + My Stores).
+ * Registered before /:draftId so "mine" is not treated as an id.
+ */
+router.get('/mine', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.userId ?? req.user?.id ?? null;
+    if (!userId) {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Sign in required' });
+    }
+
+    const prisma = getPrismaClient();
+    const owned = await prisma.draftStore.findMany({
+      where: {
+        committedAt: null,
+        status: { notIn: ['committed', 'abandoned'] },
+        OR: [
+          { ownerUserId: userId },
+          ...(String(userId).startsWith('guest_')
+            ? [{ guestSessionId: String(userId).replace(/^guest_/, '') }, { guestSessionId: userId }]
+            : []),
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        status: true,
+        committedAt: true,
+        committedStoreId: true,
+        preview: true,
+        input: true,
+        updatedAt: true,
+      },
+    });
+
+    // Also include drafts linked from Store Missions owned by this actor
+    const missions = await prisma.missionPipeline.findMany({
+      where: {
+        type: 'store',
+        createdBy: userId,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 40,
+      select: { id: true, outputsJson: true, metadataJson: true },
+    });
+    const missionDraftIds = [];
+    for (const m of missions) {
+      const out = m.outputsJson && typeof m.outputsJson === 'object' ? m.outputsJson : {};
+      const did = typeof out.draftId === 'string' ? out.draftId.trim() : '';
+      if (did) missionDraftIds.push(did);
+    }
+    const missingIds = missionDraftIds.filter((id) => !owned.some((d) => d.id === id));
+    let fromMissions = [];
+    if (missingIds.length) {
+      fromMissions = await prisma.draftStore.findMany({
+        where: {
+          id: { in: missingIds },
+          committedAt: null,
+          status: { notIn: ['committed', 'abandoned'] },
+        },
+        select: {
+          id: true,
+          status: true,
+          committedAt: true,
+          committedStoreId: true,
+          preview: true,
+          input: true,
+          updatedAt: true,
+        },
+      });
+    }
+
+    const rows = [...owned, ...fromMissions];
+    const seen = new Set();
+    const drafts = [];
+    for (const d of rows) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      const allowed = await canAccessDraftStore(d, {
+        userId,
+        tenantKey: getTenantId(req.user) ?? userId,
+        isSuperAdmin: isSuperAdmin(req),
+      });
+      if (!allowed) continue;
+      const preview =
+        d.preview && typeof d.preview === 'object'
+          ? d.preview
+          : typeof d.preview === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(d.preview);
+                } catch {
+                  return {};
+                }
+              })()
+            : {};
+      const input =
+        d.input && typeof d.input === 'object' && !Array.isArray(d.input) ? d.input : {};
+      const name =
+        preview.storeName ||
+        preview.meta?.storeName ||
+        input.businessName ||
+        'Untitled draft';
+      drafts.push({
+        draftId: d.id,
+        storeId: d.committedStoreId || input.storeId || preview.meta?.storeId || null,
+        name: String(name),
+        businessType: input.businessType || input.storeType || preview.storeType || null,
+        location: input.location || null,
+        status: d.status,
+        published: false,
+        committed: false,
+        updatedAt: d.updatedAt,
+      });
+    }
+
+    return res.json({ ok: true, drafts });
+  } catch (err) {
+    console.error('[DraftStore] GET /mine error:', err);
+    next(err);
+  }
+});
+
+/**
  * GET /api/draft-store/by-store/:storeId
  * Get draft for an existing store. Requires auth; store must belong to user (tenant ownership).
  * Returns 404 when no draft exists for the store.
@@ -1334,10 +1459,13 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
 
     const userId = req.userId ?? req.user?.id ?? null;
     const tenantKey = getTenantId(req.user) ?? userId ?? null;
+    const missionIdQuery =
+      typeof req.query?.missionId === 'string' ? String(req.query.missionId).trim() : null;
     const allowed = await canAccessDraftStore(draft, {
       userId,
       tenantKey,
       isSuperAdmin: isSuperAdmin(req),
+      missionId: missionIdQuery || null,
     });
     if (!allowed) {
       if (process.env.NODE_ENV !== 'production') {
