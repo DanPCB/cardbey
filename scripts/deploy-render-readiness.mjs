@@ -118,6 +118,63 @@ function checkMigrationHealthCheckTracked() {
   }
 }
 
+/**
+ * Dashboard static services: Architecture A (parent monorepo) + relative submodule URL.
+ * Absolute HTTPS submodule URLs break Render auto-clone; Architecture B is blocked until
+ * service Git Credentials can clone the private dashboard as primary.
+ */
+function checkDashboardServicesAvoidUnauthSubmodule() {
+  const renderPath = path.join(repoRoot, 'render.yaml');
+  if (!fs.existsSync(renderPath)) {
+    fail('render.yaml missing at monorepo root');
+    return;
+  }
+  const yaml = read(renderPath).replace(/\r\n/g, '\n');
+  const gitmodulesPath = path.join(repoRoot, '.gitmodules');
+  if (!fs.existsSync(gitmodulesPath)) {
+    fail('.gitmodules missing');
+    return;
+  }
+  const gitmodules = read(gitmodulesPath).replace(/\r\n/g, '\n');
+  if (/url\s*=\s*https:\/\/github\.com\/DanPCB\/cardbey-marketing-dashboard/.test(gitmodules)) {
+    fail(
+      '.gitmodules must use relative url ../cardbey-marketing-dashboard.git (absolute HTTPS breaks Render private submodule auto-clone)',
+    );
+  }
+  if (!/url\s*=\s*\.\.\/cardbey-marketing-dashboard\.git/.test(gitmodules)) {
+    fail('.gitmodules dashboard submodule url must be ../cardbey-marketing-dashboard.git');
+  }
+
+  for (const name of ['cardbey-dashboard-staging', 'cardbey-dashboard']) {
+    const marker = `\n    name: ${name}\n`;
+    const nameIdx = yaml.indexOf(marker);
+    if (nameIdx < 0) {
+      fail(`render.yaml missing service ${name}`);
+      continue;
+    }
+    const after = yaml.slice(nameIdx + 1);
+    const next = after.search(/\n  - type:/);
+    const block = next >= 0 ? after.slice(0, next) : after;
+
+    if (/repo:\s*https:\/\/github\.com\/DanPCB\/cardbey-marketing-dashboard/.test(block)) {
+      fail(
+        `render.yaml ${name} must use primary repo DanPCB/cardbey until service Git Credentials can clone the private dashboard`,
+      );
+    }
+    if (!/repo:\s*https:\/\/github\.com\/DanPCB\/cardbey\b/.test(block)) {
+      fail(`render.yaml ${name} must set repo to https://github.com/DanPCB/cardbey`);
+    }
+    if (!/render-dashboard-static-build\.mjs/.test(block)) {
+      fail(`render.yaml ${name} must use node scripts/render-dashboard-static-build.mjs`);
+    }
+    if (!/staticPublishPath:\s*apps\/dashboard\/cardbey-marketing-dashboard\/dist/.test(block)) {
+      fail(
+        `render.yaml ${name} must use staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist`,
+      );
+    }
+  }
+}
+
 function main() {
   console.log('🔍 Render deploy readiness\n');
   checkCoreServerImports();
@@ -126,6 +183,7 @@ function main() {
   checkCorsAllowlistSync();
   checkIntakeNoSessionHeader();
   checkMigrationHealthCheckTracked();
+  checkDashboardServicesAvoidUnauthSubmodule();
 
   if (failures.length) {
     console.error('❌ Deploy readiness FAILED:\n');

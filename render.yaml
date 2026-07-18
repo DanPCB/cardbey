@@ -79,17 +79,17 @@ services:
       - key: PIXABAY_API_KEY
         sync: false
 
-  # Dashboard (staging) — static site build (Vite)
-  # rootDir MUST be monorepo root: Render runs "Installing dependencies with pnpm" before buildCommand
-  # from rootDir; only the repo-root pnpm-lock.yaml includes workspace importers (e.g. qrcode).
+  # Dashboard (staging) — Architecture A: primary repo = monorepo (clone works).
+  # Private dashboard is a submodule with RELATIVE url (../cardbey-marketing-dashboard.git)
+  # so Render's automatic submodule clone reuses parent GitHub credentials.
+  # Do NOT point this service at the dashboard repo until service Git Credentials can list it.
   - type: web
     name: cardbey-dashboard-staging
     runtime: static
     repo: https://github.com/DanPCB/cardbey
     branch: staging
     rootDir: .
-    # build:staging → vite build --mode staging → .env.staging + envVars below
-    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && git submodule update --init --recursive && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build:staging
+    buildCommand: node scripts/render-dashboard-static-build.mjs --mode=staging
     staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
     envVars:
       - key: VITE_INTAKE_V2
@@ -188,15 +188,17 @@ services:
       - key: EXPLORE_VIDEO_MAX_BYTES
         value: "52428800"
 
-  # Dashboard (production) — static site build (Vite)
-  # Reconcile with existing Render service before blueprint sync if cardbey-dashboard already exists.
+  # Dashboard (production) — Architecture A + relative submodule URL (see
+  # docs/IMPACT_REPORT_render_dashboard_submodule_relative_url.md).
+  # After deploy: set Repository back to DanPCB/cardbey if Blueprint left it on the
+  # dashboard repo, then Clear build cache & deploy.
   - type: web
     name: cardbey-dashboard
     runtime: static
     repo: https://github.com/DanPCB/cardbey
     branch: main
     rootDir: .
-    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && git submodule update --init --recursive && pnpm install --frozen-lockfile && pnpm --filter @cardbey/dashboard run build
+    buildCommand: node scripts/render-dashboard-static-build.mjs --mode=production
     staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
     envVars:
       - key: VITE_INTAKE_V2
