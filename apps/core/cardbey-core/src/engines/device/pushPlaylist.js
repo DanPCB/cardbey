@@ -51,7 +51,9 @@ export const pushPlaylist = async (input, ctx) => {
     lastPushedAt: binding.lastPushedAt,
   });
 
-  // Push playlist to device via device service
+  // Push playlist to device via device service (optional realtime channel).
+  // Do NOT mark binding failed on soft push errors — Device V2 TVs poll
+  // GET /api/device/:id/playlist/full and must still see the assignment.
   if (deviceService) {
     try {
       await deviceService.pushPlaylist(deviceId, {
@@ -60,12 +62,9 @@ export const pushPlaylist = async (input, ctx) => {
         ...playlistData,
       });
     } catch (error) {
-      // Update binding status to failed
-      await db.devicePlaylistBinding.update({
-        where: { id: binding.id },
-        data: { status: 'failed' },
-      });
-      throw error;
+      console.warn(
+        `[Device Engine] Realtime pushPlaylist failed (binding kept pending): ${error?.message || error}`,
+      );
     }
   } else {
     // Fallback: Log that playlist would be pushed
