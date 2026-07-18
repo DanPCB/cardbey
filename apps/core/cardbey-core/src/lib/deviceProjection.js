@@ -19,27 +19,53 @@ function isLoopbackHostname(hostname) {
  * @param {import('express').Request} [req]
  * @param {{ coreUrl?: string | null } | null} [deviceMeta]
  */
+/**
+ * Prefer a candidate that is reachable on the current LAN.
+ * When DEVICE_PUBLIC_BASE_URL still has a stale DHCP IP, fall through to the
+ * request host / LOCAL_NETWORK_HOST so local TV + dashboard previews keep working.
+ */
+function isLikelyStaleLanHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return false;
+  const configured = String(process.env.LOCAL_NETWORK_HOST || '').trim();
+  if (!configured) return false;
+  return host !== configured.toLowerCase();
+}
+
 export function resolvePlaylistMediaBaseUrl(req, deviceMeta = null) {
+  const localNetworkHost = String(process.env.LOCAL_NETWORK_HOST || '').trim();
+  const localNetworkBase = localNetworkHost
+    ? `http://${localNetworkHost}:${process.env.PORT || 3001}`
+    : null;
+
   const candidates = [
     process.env.DEVICE_PUBLIC_BASE_URL,
+    localNetworkBase,
     deviceMeta?.coreUrl,
     process.env.CORE_BASE_URL,
+    process.env.CORE_PUBLIC_URL,
     process.env.PUBLIC_API_BASE_URL,
     process.env.PUBLIC_BASE_URL,
     getRequestCoreBaseUrl(req),
   ];
 
+  let firstNonLoopback = null;
   for (const raw of candidates) {
     if (!raw || typeof raw !== 'string' || !String(raw).trim()) continue;
     try {
       const normalized = normalizeCoreUrlString(raw.trim());
       const host = new URL(normalized).hostname;
       if (isLoopbackHostname(host)) continue;
+      if (!firstNonLoopback) firstNonLoopback = normalized;
+      // Skip stale DHCP IPs when LOCAL_NETWORK_HOST is set to the current one.
+      if (isLikelyStaleLanHost(host)) continue;
       return normalized;
     } catch {
       continue;
     }
   }
+
+  if (firstNonLoopback) return firstNonLoopback;
 
   console.warn('[resolvePlaylistMediaBaseUrl] No non-loopback base URL; set DEVICE_PUBLIC_BASE_URL');
   return null;

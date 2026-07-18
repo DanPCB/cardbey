@@ -54,7 +54,11 @@ import { getEventEmitter } from '../engines/device/events.js';
 import { broadcastSse } from '../realtime/simpleSse.js';
 import { broadcast as broadcastWebsocket } from '../realtime/websocket.js';
 import { resolvePublicUrl, isCloudFrontUrl, buildMediaUrl } from '../utils/publicUrl.js';
-import { isActivePlaylistBindingStatus, applyAndroidPlaylistFullCompat } from '../utils/playlistFullAndroidCompat.js';
+import {
+  isActivePlaylistBindingStatus,
+  applyAndroidPlaylistFullCompat,
+  pickPlaylistBindingForPlayback,
+} from '../utils/playlistFullAndroidCompat.js';
 import {
   resolveCoreUrlFromHeartbeat,
   resolvePlaylistMediaBaseUrl,
@@ -3093,6 +3097,17 @@ router.post('/screenshot', async (req, res) => {
       lastScreenshotAt: updated.lastScreenshotAt?.getTime() || Date.now(),
     });
 
+    try {
+      const { verifyScreenshotCommands } = await import('../services/cnet/remoteCommandService.js');
+      await verifyScreenshotCommands(deviceId, updated.lastScreenshotAt);
+      broadcastSse('admin', 'DEVICE_SCREENSHOT_UPDATED', {
+        deviceId,
+        lastScreenshotAt: updated.lastScreenshotAt?.toISOString?.() || null,
+      });
+    } catch (verifyErr) {
+      console.warn('[Device Engine] screenshot verify remote cmds:', verifyErr?.message);
+    }
+
     res.json({
       ok: true,
     });
@@ -3761,8 +3776,37 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       orderBy: { lastPushedAt: 'desc' },
     });
 
-    const latestBinding =
-      allBindings.find((b) => isActivePlaylistBindingStatus(b.status)) || null;
+    let latestBinding = pickPlaylistBindingForPlayback(allBindings);
+
+    // Recover from capability metadata when DB binding rows were lost but device
+    // (or optimistic dashboard) still reports a playlist id.
+    if (!latestBinding) {
+      try {
+        const capRow = await prisma.deviceCapability.findUnique({
+          where: { deviceId: canonicalDeviceId },
+          select: { capabilities: true },
+        });
+        const meta = readDeviceMetadata(capRow);
+        if (meta.currentPlaylistId) {
+          latestBinding = {
+            id: null,
+            playlistId: meta.currentPlaylistId,
+            status: 'pending',
+            lastPushedAt: null,
+            version: '1',
+            _recoveredFromMetadata: true,
+          };
+          console.warn(`[Device Engine] [${requestId}] Recovered playlistId from device capability metadata`, {
+            deviceId: canonicalDeviceId,
+            playlistId: meta.currentPlaylistId,
+          });
+        }
+      } catch (metaErr) {
+        console.warn(`[Device Engine] [${requestId}] metadata recovery failed (non-fatal)`, {
+          error: metaErr?.message || String(metaErr),
+        });
+      }
+    }
 
     if (latestBinding) {
       console.log('[PLAYLIST_FULL_BINDING_FOUND]', {
@@ -3771,6 +3815,7 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
         bindingId: latestBinding.id,
         playlistId: latestBinding.playlistId,
         status: latestBinding.status,
+        recoveredFromMetadata: Boolean(latestBinding._recoveredFromMetadata),
         tenantId: device.tenantId,
         storeId: device.storeId,
       });
@@ -3827,6 +3872,28 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
         playlistId: null,
       });
       return res.json(noBindingBody);
+    }
+
+    // Heal failed / stale statuses so subsequent polls see an active binding
+    if (
+      latestBinding.id &&
+      !isActivePlaylistBindingStatus(latestBinding.status)
+    ) {
+      try {
+        await prisma.devicePlaylistBinding.update({
+          where: { id: latestBinding.id },
+          data: { status: 'pending', lastPushedAt: new Date() },
+        });
+        latestBinding = { ...latestBinding, status: 'pending' };
+        console.log(`[Device Engine] [${requestId}] Healed inactive binding → pending`, {
+          bindingId: latestBinding.id,
+          playlistId: latestBinding.playlistId,
+        });
+      } catch (healErr) {
+        console.warn(`[Device Engine] [${requestId}] Binding heal failed (non-fatal)`, {
+          error: healErr?.message || String(healErr),
+        });
+      }
     }
     
     // Binding exists — status is active (pending/ready); compare case-insensitively

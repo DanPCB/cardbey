@@ -3,6 +3,7 @@ import {
   applyAndroidPlaylistFullCompat,
   formatApkPlaylistItems,
   isActivePlaylistBindingStatus,
+  pickPlaylistBindingForPlayback,
 } from './playlistFullAndroidCompat.js';
 
 describe('isActivePlaylistBindingStatus', () => {
@@ -12,6 +13,32 @@ describe('isActivePlaylistBindingStatus', () => {
     expect(isActivePlaylistBindingStatus('active')).toBe(true);
     expect(isActivePlaylistBindingStatus('Assigned')).toBe(true);
     expect(isActivePlaylistBindingStatus('failed')).toBe(false);
+  });
+});
+
+describe('pickPlaylistBindingForPlayback', () => {
+  it('prefers active binding over failed', () => {
+    const picked = pickPlaylistBindingForPlayback([
+      { id: 'f', status: 'failed', playlistId: 'old', lastPushedAt: '2026-01-02T00:00:00Z' },
+      { id: 'a', status: 'ready', playlistId: 'new', lastPushedAt: '2026-01-01T00:00:00Z' },
+    ]);
+    expect(picked?.id).toBe('a');
+  });
+
+  it('falls back to newest failed binding so TV is not empty', () => {
+    const picked = pickPlaylistBindingForPlayback([
+      { id: 'f1', status: 'failed', playlistId: 'pl1', lastPushedAt: '2026-01-01T00:00:00Z' },
+      { id: 'f2', status: 'failed', playlistId: 'pl2', lastPushedAt: '2026-01-03T00:00:00Z' },
+    ]);
+    expect(picked?.playlistId).toBe('pl2');
+  });
+
+  it('ignores cleared bindings', () => {
+    const picked = pickPlaylistBindingForPlayback([
+      { id: 'c', status: 'cleared', playlistId: 'plx', lastPushedAt: '2026-01-04T00:00:00Z' },
+      { id: 'f', status: 'failed', playlistId: 'ply', lastPushedAt: '2026-01-01T00:00:00Z' },
+    ]);
+    expect(picked?.playlistId).toBe('ply');
   });
 });
 
