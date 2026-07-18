@@ -1,42 +1,35 @@
 /**
  * Query Menu State Tool
- * Get current menu items and categories for a store
+ * Get current menu items and categories for a store (product-backed).
  */
 
 import type { QueryMenuStateInput, QueryMenuStateOutput } from './types.js';
-
+import { normalizeCategoryName } from './categoryInference.js';
 import { prisma } from '../../lib/prisma.js';
 
-/**
- * Context interface for engine tools
- */
+type PrismaClient = typeof prisma;
+
 interface EngineContext {
   services: {
     db: PrismaClient;
   };
 }
 
-/**
- * Query menu state
- * Returns all menu items and categories for a store
- */
+function getCategoryId(storeId: string, categoryName: string | null | undefined) {
+  if (!categoryName) return `cat-${storeId}-uncategorized`;
+  const normalized = normalizeCategoryName(categoryName);
+  return `cat-${storeId}-${normalized}`;
+}
+
 export const queryMenuState = async (
   input: QueryMenuStateInput,
-  ctx?: EngineContext
+  ctx?: EngineContext,
 ): Promise<QueryMenuStateOutput> => {
   const { storeId } = input;
-
-  // Use provided context or create default
   const db = ctx?.services?.db || prisma;
 
-  // Query menu items
-  // Note: This assumes MenuItem model exists
-  // If not, we'll use Product model as fallback
   const products = await db.product.findMany({
-    where: {
-      businessId: storeId,
-      deletedAt: null,
-    },
+    where: { businessId: storeId, deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -44,31 +37,75 @@ export const queryMenuState = async (
       currency: true,
       category: true,
       description: true,
+      imageUrl: true,
+      images: true,
+      isPublished: true,
+      updatedAt: true,
+      purchaseEnabled: true,
+      serviceCatalog: true,
     },
+    orderBy: [{ category: 'asc' }, { name: 'asc' }],
   });
 
-  // Get unique categories from products
-  const categorySet = new Set<string>();
+  const categoryMap = new Map<
+    string,
+    { id: string; name: string; normalized: string; count: number }
+  >();
+  let uncategorizedCount = 0;
+
   products.forEach((product) => {
     if (product.category) {
-      categorySet.add(product.category);
+      const normalized = normalizeCategoryName(product.category);
+      if (!categoryMap.has(normalized)) {
+        categoryMap.set(normalized, {
+          id: getCategoryId(storeId, product.category),
+          name: product.category,
+          normalized,
+          count: 0,
+        });
+      }
+      categoryMap.get(normalized)!.count++;
+    } else {
+      uncategorizedCount++;
     }
   });
 
-  const categories = Array.from(categorySet).map((name) => ({
-    id: `cat-${storeId}-${name.toLowerCase().replace(/\s+/g, '-')}`,
-    name,
-  }));
+  const categories = Array.from(categoryMap.values());
+  if (uncategorizedCount > 0) {
+    categories.push({
+      id: `cat-${storeId}-uncategorized`,
+      name: 'Uncategorized',
+      normalized: 'uncategorized',
+      count: uncategorizedCount,
+    });
+  }
 
-  // Map products to menu items format
-  const items = products.map((product) => ({
-    id: product.id,
-    name: product.name,
-    price: product.price,
-    currency: product.currency,
-    category: product.category,
-    description: product.description,
-  }));
+  const items = products.map((product, index) => {
+    const serviceCatalog =
+      product.serviceCatalog && typeof product.serviceCatalog === 'object'
+        ? (product.serviceCatalog as Record<string, unknown>)
+        : null;
+    return {
+      id: product.id,
+      name: product.name,
+      price: product.price == null ? null : product.price,
+      currency: product.currency,
+      category: product.category,
+      categoryId: getCategoryId(storeId, product.category),
+      categoryPath: (serviceCatalog?.categoryPath as string[] | undefined) ??
+        (product.category ? [product.category] : null),
+      sourceOrder: (serviceCatalog?.sourceOrder as number | undefined) ?? index,
+      description: product.description ?? null,
+      imageUrl: product.imageUrl,
+      isPublished: product.isPublished === true,
+      active: product.purchaseEnabled !== false,
+      modifiers: Array.isArray(serviceCatalog?.modifiers) ? serviceCatalog.modifiers : undefined,
+      dietaryLabels: Array.isArray(serviceCatalog?.dietaryLabels)
+        ? serviceCatalog.dietaryLabels
+        : undefined,
+      provenance: serviceCatalog?.provenance ?? serviceCatalog?.priceProvenance ?? null,
+    };
+  });
 
   return {
     ok: true,
@@ -78,6 +115,3 @@ export const queryMenuState = async (
     },
   };
 };
-
-
-

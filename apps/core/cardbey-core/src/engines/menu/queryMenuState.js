@@ -3,7 +3,7 @@
  * Get current menu items and categories for a store
  */
 
-import { normalizeCategoryName, getCategoryDisplayNameFromKey } from './categoryInference.js';
+import { normalizeCategoryName } from './categoryInference.js';
 
 import { prisma } from '../../lib/prisma.js';
 
@@ -29,9 +29,7 @@ export const queryMenuState = async (input, ctx) => {
   // Use provided context or create default
   const db = ctx?.services?.db || prisma;
 
-  // Query menu items
-  // Note: This assumes MenuItem model exists
-  // If not, we'll use Product model as fallback
+  // Menu is product-backed — preserve null prices (unknown), draft/live, provenance pass-through.
   const products = await db.product.findMany({
     where: {
       businessId: storeId,
@@ -44,8 +42,15 @@ export const queryMenuState = async (input, ctx) => {
       currency: true,
       category: true,
       description: true,
-      imageUrl: true, // Include imageUrl for display
+      imageUrl: true,
+      images: true,
+      isPublished: true,
+      updatedAt: true,
+      itemType: true,
+      purchaseEnabled: true,
+      serviceCatalog: true,
     },
+    orderBy: [{ category: 'asc' }, { name: 'asc' }],
   });
 
   // Build category map: normalized -> { id, name, count }
@@ -71,7 +76,7 @@ export const queryMenuState = async (input, ctx) => {
     }
   });
 
-  // Build categories array
+  // Build categories array (stable order by first appearance / name)
   const categories = Array.from(categoryMap.values());
   
   // Add "Uncategorized" category if there are items without categories
@@ -85,20 +90,35 @@ export const queryMenuState = async (input, ctx) => {
   }
 
   // Map products to menu items format with categoryId
-  const items = products.map((product) => {
+  const items = products.map((product, index) => {
     const categoryId = getCategoryId(storeId, product.category);
     const normalized = normalizeCategoryName(product.category);
-    
+    const serviceCatalog =
+      product.serviceCatalog && typeof product.serviceCatalog === 'object'
+        ? product.serviceCatalog
+        : null;
+
     return {
       id: product.id,
       name: product.name,
-      price: product.price,
+      // Preserve unknown prices — do not coerce null to 0
+      price: product.price == null ? null : product.price,
       currency: product.currency,
-      category: product.category, // Display name
-      categoryId, // Normalized ID for grouping
-      normalizedCategory: normalized || 'uncategorized', // Normalized name for grouping
-      description: product.description,
-      imageUrl: product.imageUrl, // Include imageUrl
+      category: product.category,
+      categoryId,
+      // Pass-through when present on serviceCatalog / import metadata; do not invent
+      categoryPath: serviceCatalog?.categoryPath ?? (product.category ? [product.category] : null),
+      sourceOrder: serviceCatalog?.sourceOrder ?? index,
+      normalizedCategory: normalized || 'uncategorized',
+      description: product.description ?? null,
+      imageUrl: product.imageUrl,
+      images: product.images ?? null,
+      isPublished: product.isPublished === true,
+      active: product.purchaseEnabled !== false,
+      updatedAt: product.updatedAt ? product.updatedAt.toISOString?.() ?? String(product.updatedAt) : null,
+      modifiers: Array.isArray(serviceCatalog?.modifiers) ? serviceCatalog.modifiers : undefined,
+      dietaryLabels: Array.isArray(serviceCatalog?.dietaryLabels) ? serviceCatalog.dietaryLabels : undefined,
+      provenance: serviceCatalog?.provenance ?? serviceCatalog?.priceProvenance ?? null,
     };
   });
 
@@ -110,4 +130,3 @@ export const queryMenuState = async (input, ctx) => {
     },
   };
 };
-

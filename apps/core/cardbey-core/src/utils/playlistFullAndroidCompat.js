@@ -10,6 +10,37 @@ export function isActivePlaylistBindingStatus(status) {
   return s === 'ready' || s === 'pending' || s === 'active' || s === 'assigned';
 }
 
+/** Statuses that mean the owner cleared the assignment — never auto-serve. */
+export function isClearedPlaylistBindingStatus(status) {
+  const s = String(status ?? '').trim().toLowerCase();
+  return (
+    s === 'cleared' ||
+    s === 'unassigned' ||
+    s === 'released' ||
+    s === 'inactive' ||
+    s === 'deleted'
+  );
+}
+
+/**
+ * Pick a binding for playlist/full playback.
+ * Prefer active statuses; fall back to newest non-cleared row (e.g. failed push)
+ * so TVs are not stuck empty while the dashboard still shows an assignment.
+ *
+ * @param {Array<{ status?: string, lastPushedAt?: Date | string | null, playlistId?: string, id?: string }>} bindings
+ */
+export function pickPlaylistBindingForPlayback(bindings = []) {
+  if (!Array.isArray(bindings) || bindings.length === 0) return null;
+  const sorted = [...bindings].sort((a, b) => {
+    const ta = a.lastPushedAt ? new Date(a.lastPushedAt).getTime() : 0;
+    const tb = b.lastPushedAt ? new Date(b.lastPushedAt).getTime() : 0;
+    return tb - ta;
+  });
+  const active = sorted.find((b) => isActivePlaylistBindingStatus(b.status));
+  if (active) return active;
+  return sorted.find((b) => !isClearedPlaylistBindingStatus(b.status)) || null;
+}
+
 /**
  * @param {Array<{ id?: string, type?: string, url?: string, durationMs?: number, order?: number, [key: string]: unknown }>} items
  */
