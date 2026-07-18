@@ -13,6 +13,8 @@ import { extractMenuFromFile, MenuExtractionLlmError } from '../menuExtraction/e
 import { MENU_IMPORT_CONTRACT_VERSION, MENU_IMPORT_FAILURE_CODES } from './menuImportContract.js';
 import { MENU_IMPORT_LIMITS, validateMenuImportFiles } from './menuImportLimits.js';
 import { mergeMenuImportExtractions, toCatalogMenuItems } from './menuImportMerge.js';
+import { buildMenuDocument, summarizeMenuDocument } from './menuDocument.js';
+import { applyLayoutOrderToMenuDocument } from '../menuExtraction/menuLayoutStructureAgent.js';
 import {
   createMenuImportJobRecord,
   loadMenuImportJob,
@@ -274,6 +276,7 @@ export async function runMenuImportExtraction(jobId) {
         contact: result.contact || undefined,
         openingHours: result.openingHours || undefined,
         notes: result.notes || undefined,
+        ...(result.layoutStructure ? { layoutStructure: result.layoutStructure } : {}),
       });
     }
 
@@ -288,6 +291,17 @@ export async function runMenuImportExtraction(jobId) {
     const merged = mergeMenuImportExtractions(perAsset);
     const catalogItems = toCatalogMenuItems(merged.items);
     const lowConfidenceCount = catalogItems.filter((it) => (it.confidence ?? 1) < 0.7).length;
+    // Source-preserving Menu Document (sections/variants/add-ons/inclusions + evidence).
+    // Additive: sits alongside the flat catalog list; catalog apply path is unchanged.
+    const currencyHint = catalogItems.find((it) => it.currency)?.currency || null;
+    let menuDocument = buildMenuDocument(merged, { currency: currencyHint });
+    const primaryLayout =
+      perAsset.map((a) => a.layoutStructure).find((l) => l && Array.isArray(l.regions) && l.regions.length) ||
+      null;
+    if (primaryLayout) {
+      menuDocument = applyLayoutOrderToMenuDocument(menuDocument, primaryLayout);
+      menuDocument = { ...menuDocument, layout: primaryLayout };
+    }
 
     job.extractedResult = {
       perAssetCount: perAsset.length,
@@ -295,6 +309,7 @@ export async function runMenuImportExtraction(jobId) {
       contact: merged.contact,
       openingHours: merged.openingHours,
       notes: merged.notes,
+      menuDocument,
     };
     job.normalizedResult = {
       items: catalogItems,
@@ -305,6 +320,7 @@ export async function runMenuImportExtraction(jobId) {
       openingHours: merged.openingHours,
       warnings: merged.warnings,
       needsReview: catalogItems.length > 0,
+      menuDocument,
     };
     job.warnings = merged.warnings || [];
     job.status = catalogItems.length ? 'needs_review' : 'failed';
@@ -318,7 +334,7 @@ export async function runMenuImportExtraction(jobId) {
       total: buffers.length,
       message:
         job.status === 'needs_review'
-          ? `${catalogItems.length} services found · ${lowConfidenceCount} need review`
+          ? summarizeMenuDocument(menuDocument)
           : job.failureMessage,
     };
     job.completedAt = job.status === 'needs_review' ? null : new Date().toISOString();
