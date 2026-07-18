@@ -421,15 +421,35 @@ export async function publishDraft(prisma, {
 
     // Public /s/:slug prefers DB Product rows over projection. Without this, Republish
     // only refreshes theme/hero while live keeps the first-publish demo catalog.
-    const catalogItems =
-      Array.isArray(effectivePreview.items) && effectivePreview.items.length > 0
-        ? effectivePreview.items
-        : Array.isArray(effectivePreview.catalog?.products)
-          ? effectivePreview.catalog.products
-          : [];
-    const catalogCategories = Array.isArray(effectivePreview.categories)
-      ? effectivePreview.categories
-      : [];
+    // Prefer non-empty snapshot override over draft; never let empty override wipe items.
+    const overridePreview =
+      canonicalPreviewOverride && typeof canonicalPreviewOverride === 'object'
+        ? canonicalPreviewOverride
+        : null;
+    const firstNonEmptyCatalog = (...candidates) => {
+      for (const c of candidates) {
+        if (Array.isArray(c) && c.length > 0) return c;
+      }
+      return [];
+    };
+    const catalogItems = firstNonEmptyCatalog(
+      overridePreview?.items,
+      overridePreview?.catalog?.products,
+      basePreview.items,
+      basePreview.catalog?.products,
+      effectivePreview.items,
+      effectivePreview.catalog?.products,
+    );
+    const catalogCategories = firstNonEmptyCatalog(
+      overridePreview?.categories,
+      overridePreview?.catalog?.categories,
+      basePreview.categories,
+      effectivePreview.categories,
+    );
+    const catalogFirstNames = catalogItems
+      .map((p) => (typeof p?.name === 'string' ? p.name.trim() : ''))
+      .filter(Boolean)
+      .slice(0, 5);
     if (catalogItems.length > 0) {
       try {
         const { applyDraftCatalogToCommittedStore } = await import(
@@ -452,6 +472,12 @@ export async function publishDraft(prisma, {
           draftId: targetDraftRow.id,
           productCount: catalogResult?.productCount ?? null,
           itemCount: catalogItems.length,
+          firstNames: catalogFirstNames,
+          source: overridePreview?.items?.length
+            ? 'snapshot_override_items'
+            : overridePreview?.catalog?.products?.length
+              ? 'snapshot_override_catalog'
+              : 'draft_preview',
         });
       } catch (catalogErr) {
         const message = catalogErr?.message || String(catalogErr);
@@ -472,6 +498,9 @@ export async function publishDraft(prisma, {
       console.warn('[publishDraft] republish skipped catalog sync (no draft items)', {
         storeId: existingStoreId,
         draftId: targetDraftRow.id,
+        hasOverride: Boolean(overridePreview),
+        baseItemCount: Array.isArray(basePreview.items) ? basePreview.items.length : 0,
+        overrideItemCount: Array.isArray(overridePreview?.items) ? overridePreview.items.length : 0,
       });
     }
 
