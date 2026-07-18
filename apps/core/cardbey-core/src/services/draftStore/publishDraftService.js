@@ -406,11 +406,76 @@ export async function publishDraft(prisma, {
     logPublishRunway('STORE_CARD_SYNC', { businessId: id, slug: null, tagline, description });
   }
 
-  /** Committed draft republish: sync content, refresh auto slug from name, rebuild projection. */
+  /** Committed draft republish: sync catalog + content, refresh auto slug from name, rebuild projection. */
   async function finishCommittedDraftRepublish(existingStoreId, targetDraftRow, rawPreview) {
-    enforcePublishHeroCanonical(rawPreview, { source: 'finishCommittedDraftRepublish' });
-    const storeName = storeNameFromDraftPreview(rawPreview);
-    await syncPublishedStoreFromDraft(existingStoreId, rawPreview);
+    const basePreview =
+      rawPreview && typeof rawPreview === 'object' && !Array.isArray(rawPreview) ? rawPreview : {};
+    // Snapshot publish builds canonicalPreviewOverride after early returns would otherwise ignore it.
+    const effectivePreview =
+      canonicalPreviewOverride && typeof canonicalPreviewOverride === 'object'
+        ? { ...basePreview, ...canonicalPreviewOverride }
+        : basePreview;
+
+    enforcePublishHeroCanonical(effectivePreview, { source: 'finishCommittedDraftRepublish' });
+    const storeName = storeNameFromDraftPreview(effectivePreview);
+
+    // Public /s/:slug prefers DB Product rows over projection. Without this, Republish
+    // only refreshes theme/hero while live keeps the first-publish demo catalog.
+    const catalogItems =
+      Array.isArray(effectivePreview.items) && effectivePreview.items.length > 0
+        ? effectivePreview.items
+        : Array.isArray(effectivePreview.catalog?.products)
+          ? effectivePreview.catalog.products
+          : [];
+    const catalogCategories = Array.isArray(effectivePreview.categories)
+      ? effectivePreview.categories
+      : [];
+    if (catalogItems.length > 0) {
+      try {
+        const { applyDraftCatalogToCommittedStore } = await import(
+          '../menuImport/applyDraftCatalogToCommittedStore.js'
+        );
+        const catalogResult = await applyDraftCatalogToCommittedStore({
+          businessId: existingStoreId,
+          items: catalogItems,
+          categories: catalogCategories,
+          draftId: targetDraftRow.id,
+          businessName: storeName,
+          businessType:
+            effectivePreview.storeType ||
+            effectivePreview.meta?.storeType ||
+            effectivePreview.type ||
+            null,
+        });
+        console.log('[publishDraft] republish catalog synced to committed store', {
+          storeId: existingStoreId,
+          draftId: targetDraftRow.id,
+          productCount: catalogResult?.productCount ?? null,
+          itemCount: catalogItems.length,
+        });
+      } catch (catalogErr) {
+        const message = catalogErr?.message || String(catalogErr);
+        console.error('[publishDraft] republish catalog sync failed', {
+          storeId: existingStoreId,
+          draftId: targetDraftRow.id,
+          message,
+        });
+        throw new PublishDraftError(
+          'catalog_sync_failed',
+          `Failed to update live catalog on republish: ${message}`,
+          catalogErr?.statusCode && Number.isFinite(catalogErr.statusCode)
+            ? catalogErr.statusCode
+            : 500,
+        );
+      }
+    } else {
+      console.warn('[publishDraft] republish skipped catalog sync (no draft items)', {
+        storeId: existingStoreId,
+        draftId: targetDraftRow.id,
+      });
+    }
+
+    await syncPublishedStoreFromDraft(existingStoreId, effectivePreview);
     const applied = await applyCanonicalSlugOnPublish(prisma, {
       businessId: existingStoreId,
       storeName,
@@ -422,7 +487,7 @@ export async function publishDraft(prisma, {
         businessId: existingStoreId,
         tenantId: userId,
         draft: targetDraftRow,
-        draftPreview: rawPreview,
+        draftPreview: effectivePreview,
         publishRunId: targetDraftRow.id,
         source: entrypoint ?? 'publishDraft_republish',
       });
