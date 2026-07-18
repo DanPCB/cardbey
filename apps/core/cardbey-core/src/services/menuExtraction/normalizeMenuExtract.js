@@ -117,6 +117,9 @@ function normalizeOneRawItem(raw) {
   if (price == null && raw.priceDisplay != null) {
     price = parseMenuPrice(raw.priceDisplay);
   }
+  if (price == null && raw.priceText != null) {
+    price = parseMenuPrice(raw.priceText);
+  }
   let currency = typeof raw.currency === 'string' ? raw.currency.trim().toUpperCase() : 'AUD';
   if (!ALLOWED_CURRENCIES.has(currency)) currency = 'AUD';
   const description = typeof raw.description === 'string' ? raw.description.trim() : '';
@@ -146,11 +149,34 @@ function normalizeOneRawItem(raw) {
     ? raw.inclusions.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())
     : [];
   const addOns = Array.isArray(raw.addOns)
-    ? raw.addOns.filter((a) => a && typeof a === 'object' && typeof a.name === 'string')
+    ? raw.addOns
+        .filter((a) => a && typeof a === 'object' && typeof a.name === 'string')
+        .map((a) => ({
+          name: String(a.name).trim(),
+          price: parseMenuPrice(a.price ?? a.priceText ?? a.priceDisplay),
+          priceText:
+            typeof a.priceText === 'string'
+              ? a.priceText.trim()
+              : typeof a.priceDisplay === 'string'
+                ? a.priceDisplay.trim()
+                : null,
+        }))
+        .filter((a) => a.name)
     : [];
   const options = Array.isArray(raw.options)
-    ? raw.options.filter((o) => o && typeof o === 'object')
+    ? raw.options
+        .filter((o) => o && typeof o === 'object')
+        .map((o) => normalizeOptionRow(o))
+        .filter(Boolean)
     : [];
+
+  // Duration×price tables often omit a top-level price — use the lowest option.
+  if (price == null && options.length) {
+    const optionPrices = options
+      .map((o) => o.price)
+      .filter((p) => p != null && Number.isFinite(p));
+    if (optionPrices.length) price = Math.min(...optionPrices);
+  }
 
   return {
     name,
@@ -165,6 +191,42 @@ function normalizeOneRawItem(raw) {
     ...(inclusions.length ? { inclusions } : {}),
     ...(addOns.length ? { addOns } : {}),
     ...(options.length ? { options } : {}),
+  };
+}
+
+/**
+ * @param {object} raw
+ * @returns {{ label: string, durationMinutes: number | null, price: number | null, priceText: string | null } | null}
+ */
+function normalizeOptionRow(raw) {
+  const durationRaw = raw.durationMinutes ?? raw.duration ?? raw.mins;
+  let durationMinutes =
+    durationRaw != null && Number.isFinite(Number(durationRaw)) ? Number(durationRaw) : null;
+  if (durationMinutes == null && typeof raw.label === 'string') {
+    const m = raw.label.match(/(\d+)\s*(?:min|mins|minutes)?/i);
+    if (m) durationMinutes = Number(m[1]);
+  }
+  let price = parseMenuPrice(raw.price);
+  if (price == null) price = parseMenuPrice(raw.priceText ?? raw.priceDisplay);
+  const priceText =
+    typeof raw.priceText === 'string' && raw.priceText.trim()
+      ? raw.priceText.trim()
+      : typeof raw.priceDisplay === 'string' && raw.priceDisplay.trim()
+        ? raw.priceDisplay.trim()
+        : price != null
+          ? `$${price}`
+          : null;
+  const label =
+    (typeof raw.label === 'string' && raw.label.trim()) ||
+    (typeof raw.name === 'string' && raw.name.trim()) ||
+    (durationMinutes != null ? `${durationMinutes} Mins` : '') ||
+    (priceText || '');
+  if (!label && price == null && durationMinutes == null) return null;
+  return {
+    label: label || (price != null ? `$${price}` : 'Option'),
+    durationMinutes,
+    price,
+    priceText,
   };
 }
 

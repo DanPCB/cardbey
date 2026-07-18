@@ -47,6 +47,7 @@ function publicJobView(job) {
     sourceAssets: Array.isArray(job.sourceAssets) ? job.sourceAssets : [],
     extractedResult: job.extractedResult ?? null,
     normalizedResult: job.normalizedResult ?? null,
+    menuDocument: job.normalizedResult?.menuDocument ?? job.extractedResult?.menuDocument ?? null,
     warnings: Array.isArray(job.warnings) ? job.warnings : [],
     failureCode: job.failureCode ?? null,
     failureMessage: job.failureMessage ?? null,

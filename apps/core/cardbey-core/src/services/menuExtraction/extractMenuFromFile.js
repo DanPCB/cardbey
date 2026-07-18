@@ -16,6 +16,7 @@ import {
   extractMenuItemsFromImageBuffer,
   isPlaceholderMenuExtraction,
 } from './menuVisionExtract.js';
+import { analyzeMenuLayoutFromImageBuffer } from './menuLayoutStructureAgent.js';
 
 export { MenuExtractionLlmError } from './menuExtractionLlmError.js';
 
@@ -175,6 +176,8 @@ export async function extractMenuFromFile(input) {
   let rawText = '';
   /** @type {unknown[]} */
   let rawItems = [];
+  /** @type {object | null} */
+  let layoutStructure = null;
 
   if (fileType === 'image') {
     console.log('[menu-extract] starting extraction', {
@@ -184,12 +187,24 @@ export async function extractMenuFromFile(input) {
       businessType: ctx.businessType,
     });
 
+    // Specialist layout pass (soft-fail): columns/bands/reading order for organize + visual overlays
+    try {
+      layoutStructure = await analyzeMenuLayoutFromImageBuffer(fileBuffer, mimeType, {
+        businessName: ctx.businessName,
+        businessType: ctx.businessType,
+      });
+    } catch (e) {
+      warnings.push(`Layout structure agent skipped: ${e?.message || String(e)}`);
+      layoutStructure = null;
+    }
+
     let visionItems = [];
     try {
       visionItems = await extractMenuItemsFromImageBuffer(fileBuffer, mimeType, {
         businessName: ctx.businessName,
         businessType: ctx.businessType,
         language,
+        layoutStructure,
       });
     } catch (e) {
       if (e instanceof MenuExtractionLlmError) throw e;
@@ -309,6 +324,7 @@ export async function extractMenuFromFile(input) {
     usedFallback: isPlaceholderMenuExtraction(items),
     priceWarning: priceCheck.priceWarning,
     withImages: items.filter((i) => i.imageUrl).length,
+    layoutRegions: layoutStructure?.regions?.length ?? 0,
   });
 
   const nullPrices = items.filter((i) => i.price == null).length;
@@ -324,5 +340,6 @@ export async function extractMenuFromFile(input) {
     rawText,
     priceWarning: priceCheck.priceWarning,
     uniformPrice: priceCheck.uniformPrice,
+    ...(layoutStructure ? { layoutStructure } : {}),
   };
 }

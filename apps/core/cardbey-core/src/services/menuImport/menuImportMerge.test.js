@@ -61,7 +61,27 @@ describe('mergeMenuImportExtractions', () => {
     expect(catalog.find((i) => i.name === 'Refresh')?.description).toMatch(/Includes:/);
     expect(catalog.some((i) => /hot stone/i.test(i.description || ''))).toBe(true);
     expect(catalog.filter((i) => i.category === 'Waxing')).toHaveLength(2);
-    expect(catalog.filter((i) => /relaxation/i.test(i.name) || /deep tissue/i.test(i.name))).toHaveLength(1);
+    const massageRows = catalog.filter((i) => /relaxation/i.test(i.name) || /deep tissue/i.test(i.name));
+    expect(massageRows.length).toBeGreaterThanOrEqual(2);
+    expect(massageRows.every((r) => r.price != null)).toBe(true);
+  });
+
+  it('expands duration options that only have priceText', () => {
+    const catalog = toCatalogMenuItems([
+      {
+        name: 'Deep Tissue Full Body',
+        category: 'Deep Tissue Full Body',
+        price: null,
+        confidence: 0.9,
+        options: [
+          { label: '30 Mins', durationMinutes: 30, priceText: '$70' },
+          { label: '60 Mins', durationMinutes: 60, priceText: '$120' },
+        ],
+      },
+    ]);
+    expect(catalog).toHaveLength(2);
+    expect(catalog.map((c) => c.price).sort((a, b) => a - b)).toEqual([70, 120]);
+    expect(catalog.every((c) => /Deep Tissue/i.test(c.name))).toBe(true);
   });
 
   it('keeps same item name in different category paths distinct', () => {
