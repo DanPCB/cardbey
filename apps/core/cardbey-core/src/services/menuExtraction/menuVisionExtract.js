@@ -4,6 +4,7 @@
 
 import OpenAI from 'openai';
 import { MenuExtractionLlmError } from './menuExtractionLlmError.js';
+import { formatLayoutHintsForExtraction } from './menuLayoutStructureAgent.js';
 
 /** Placeholder rows from extractMenu.js mock fallback — never treat as real extraction. */
 export const PLACEHOLDER_MENU_ITEM_NAMES = new Set([
@@ -11,6 +12,12 @@ export const PLACEHOLDER_MENU_ITEM_NAMES = new Set([
   'premium service',
   'add-on',
   'addon',
+  // Legacy spa→nails mock pack (Catalog (5) demos)
+  'classic manicure',
+  'gel manicure',
+  'spa pedicure',
+  'nail art (per nail)',
+  'gel removal',
 ]);
 
 export const MENU_VISION_EXTRACTION_PROMPT = `Extract ALL sellable services/products from this menu, spa package list, beauty price list, or restaurant menu image.
@@ -32,9 +39,30 @@ IMPORTANT:
 - If a price is unclear, use null for price (not 0, not 15, not a guess)
 - Never use the same price for every item unless the menu truly shows one price for all
 - Never return placeholder items like "Standard Service", "Premium Service", or "Add-on"
-- Do NOT create separately priced services for mutually exclusive style choices that share one price table (e.g. "Relaxation or Deep Tissue" with shared duration prices) — one item with options or a clear name covering both
+- Side-by-side columns with DIFFERENT price lists are SEPARATE services/categories (e.g. RELAXATION vs DEEP TISSUE) — do NOT merge them
+- Only merge style names into one item when they clearly share ONE identical price table (same durations AND same prices)
+- A full-width band under columns (e.g. DOUBLE / 2x Staff) is its own category/section
+- When a section is a duration×price table under one heading, use that heading as name AND category, set price to the lowest duration price, and put EVERY duration row in options: [{ label: "30 Mins", durationMinutes: 30, price: 60, priceText: "$60" }, ...]
+- Never return a duration-table service with empty options or null prices when durations and dollar amounts are visible
 - Do NOT extract business contact details, opening hours, or social handles as catalog items
 - Preserve package inclusion bullets on the matching package
+
+Example for a duration price board section:
+{
+  "name": "Relaxation",
+  "category": "Relaxation",
+  "price": 60,
+  "priceDisplay": "$60",
+  "durationMinutes": 30,
+  "options": [
+    { "label": "30 Mins", "durationMinutes": 30, "price": 60, "priceText": "$60" },
+    { "label": "45 Mins", "durationMinutes": 45, "price": 75, "priceText": "$75" },
+    { "label": "60 Mins", "durationMinutes": 60, "price": 90, "priceText": "$90" }
+  ],
+  "inclusions": [],
+  "addOns": [],
+  "confidence": 0.92
+}
 
 Return ONLY a JSON array, no other text:
 [
@@ -119,7 +147,7 @@ function parseItemsArrayFromVisionJson(text) {
 /**
  * @param {Buffer} fileBuffer
  * @param {string} mimeType
- * @param {{ businessName?: string; businessType?: string; language?: 'en' | 'vi' }} [ctx]
+ * @param {{ businessName?: string; businessType?: string; language?: 'en' | 'vi'; layoutStructure?: object | null }} [ctx]
  * @returns {Promise<unknown[]>}
  */
 export async function extractMenuItemsFromImageBuffer(fileBuffer, mimeType, ctx = {}) {
@@ -143,11 +171,13 @@ export async function extractMenuItemsFromImageBuffer(fileBuffer, mimeType, ctx 
     ctx.language === 'vi'
       ? 'Keep Vietnamese item names as shown; add English gloss in description when helpful.'
       : '';
+  const layoutBlock = formatLayoutHintsForExtraction(ctx.layoutStructure);
 
   const userText = `${MENU_VISION_EXTRACTION_PROMPT}
 
 Store context: ${businessName} (${businessType}).
-${viNote}`;
+${viNote}
+${layoutBlock ? `\n${layoutBlock}\n` : ''}`;
 
   try {
     const completion = await openai.chat.completions.create({
@@ -156,7 +186,7 @@ ${viNote}`;
         {
           role: 'system',
           content:
-            'You read service menus, spa packages, and restaurant menus and return structured JSON only. Extract every sellable item with accurate names, durations, prices, package inclusions, and add-ons. Never invent placeholder catalog rows.',
+            'You read service menus, spa packages, and restaurant menus and return structured JSON only. Extract every sellable item with accurate names, durations, prices, package inclusions, and add-ons. When a layout structure is provided, follow its sections, columns, and reading order. Never invent placeholder catalog rows.',
         },
         {
           role: 'user',

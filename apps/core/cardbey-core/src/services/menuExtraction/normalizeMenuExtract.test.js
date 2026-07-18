@@ -25,16 +25,27 @@ describe('normalizeMenuExtractItems', () => {
     expect(items.map((i) => i.name)).toEqual(['Keep']);
   });
 
-  it('caps at 50 items and keeps highest confidence first', () => {
-    const raw = Array.from({ length: 60 }, (_, i) => ({
+  it('keeps all items under import safety ceiling, highest confidence first', () => {
+    const raw = Array.from({ length: 80 }, (_, i) => ({
       name: `Item ${i}`,
       price: 1,
-      confidence: 0.4 + i * 0.01,
+      confidence: 0.4 + (i % 50) * 0.01,
+    }));
+    const items = normalizeMenuExtractItems(raw);
+    expect(items).toHaveLength(80);
+    expect(items.length).toBeLessThanOrEqual(MAX_MENU_ITEMS);
+    expect(items[0].confidence).toBeGreaterThanOrEqual(items[items.length - 1].confidence);
+  });
+
+  it('caps only at import safety ceiling when over limit', () => {
+    const n = MAX_MENU_ITEMS + 25;
+    const raw = Array.from({ length: n }, (_, i) => ({
+      name: `Item ${i}`,
+      price: 1,
+      confidence: 0.5,
     }));
     const items = normalizeMenuExtractItems(raw);
     expect(items).toHaveLength(MAX_MENU_ITEMS);
-    expect(items[0].name).toBe('Item 59');
-    expect(items[MAX_MENU_ITEMS - 1].name).toBe('Item 10');
   });
 
   it('parses price from priceDisplay when price is missing', () => {
@@ -42,6 +53,26 @@ describe('normalizeMenuExtractItems', () => {
       { name: 'Cafe Latte', price: null, priceDisplay: '$4.50', confidence: 0.9 },
     ]);
     expect(items[0].price).toBe(4.5);
+  });
+
+  it('normalizes duration options and fills parent price from cheapest option', () => {
+    const items = normalizeMenuExtractItems([
+      {
+        name: 'Relaxation',
+        category: 'Relaxation',
+        price: null,
+        confidence: 0.9,
+        options: [
+          { label: '30 Mins', durationMinutes: 30, priceText: '$60' },
+          { label: '45 Mins', durationMinutes: 45, price: '75' },
+          { label: '60 Mins', durationMinutes: 60, priceDisplay: '$90' },
+        ],
+      },
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].price).toBe(60);
+    expect(items[0].options).toHaveLength(3);
+    expect(items[0].options.map((o) => o.price)).toEqual([60, 75, 90]);
   });
 
   it('preserves Vietnamese dish names', () => {

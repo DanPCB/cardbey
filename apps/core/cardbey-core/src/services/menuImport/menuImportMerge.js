@@ -163,60 +163,122 @@ export function mergeMenuImportExtractions(perAsset) {
 
 /**
  * Flatten richer extract rows into catalog MenuItemExtract shape.
+ * Duration/price options become separate sellable rows when present.
  * @param {object[]} items
  */
 export function toCatalogMenuItems(items) {
-  return (items || [])
-    .map((it) => {
-      if (!it || typeof it !== 'object') return null;
-      const name = String(it.name || it.normalizedName || it.sourceName || '').trim();
-      if (!name) return null;
-      const inclusions = Array.isArray(it.inclusions)
-        ? it.inclusions.filter((s) => typeof s === 'string' && s.trim())
-        : [];
-      const duration =
-        typeof it.durationMinutes === 'number' && Number.isFinite(it.durationMinutes)
-          ? it.durationMinutes
-          : null;
-      let description = typeof it.description === 'string' ? it.description.trim() : '';
-      if (inclusions.length) {
-        const inc = inclusions.join('; ');
-        description = description ? `${description}\nIncludes: ${inc}` : `Includes: ${inc}`;
+  const flattened = [];
+  for (const it of items || []) {
+    if (!it || typeof it !== 'object') continue;
+    const name = String(it.name || it.normalizedName || it.sourceName || '').trim();
+    if (!name) continue;
+    const inclusions = Array.isArray(it.inclusions)
+      ? it.inclusions.filter((s) => typeof s === 'string' && s.trim())
+      : [];
+    const duration =
+      typeof it.durationMinutes === 'number' && Number.isFinite(it.durationMinutes)
+        ? it.durationMinutes
+        : null;
+    let description = typeof it.description === 'string' ? it.description.trim() : '';
+    if (inclusions.length) {
+      const inc = inclusions.join('; ');
+      description = description ? `${description}\nIncludes: ${inc}` : `Includes: ${inc}`;
+    }
+    if (duration != null && duration > 0 && !/\d+\s*min/i.test(description)) {
+      description = description ? `${duration} mins. ${description}` : `${duration} mins`;
+    }
+    const addOns = Array.isArray(it.addOns) ? it.addOns : [];
+    if (addOns.length) {
+      const addonText = addOns
+        .map((a) => {
+          const n = typeof a?.name === 'string' ? a.name : '';
+          const p = a?.price != null ? ` $${a.price}` : a?.priceText ? ` ${a.priceText}` : '';
+          return n ? `${n}${p}` : '';
+        })
+        .filter(Boolean)
+        .join('; ');
+      if (addonText) {
+        description = description ? `${description}\nAdd-ons: ${addonText}` : `Add-ons: ${addonText}`;
       }
-      if (duration != null && duration > 0 && !/\d+\s*min/i.test(description)) {
-        description = description ? `${duration} mins. ${description}` : `${duration} mins`;
+    }
+    const base = {
+      name,
+      price: it.price != null && Number.isFinite(Number(it.price)) ? Number(it.price) : null,
+      currency: typeof it.currency === 'string' && it.currency ? it.currency : 'AUD',
+      description,
+      category: typeof it.category === 'string' && it.category.trim() ? it.category.trim() : '',
+      ...(Array.isArray(it.categoryPath) && it.categoryPath.length
+        ? { categoryPath: it.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean) }
+        : {}),
+      imageUrl: null,
+      confidence: Number.isFinite(Number(it.confidence)) ? Number(it.confidence) : 0.7,
+      durationMinutes: duration,
+      inclusions,
+      sourceRefs: Array.isArray(it.sourceRefs) ? it.sourceRefs : [],
+      options: Array.isArray(it.options) ? it.options : undefined,
+      addOns: addOns.length ? addOns : undefined,
+    };
+
+    const options = Array.isArray(it.options) ? it.options : [];
+    const pricedOptions = [];
+    for (const o of options) {
+      if (!o || typeof o !== 'object') continue;
+      let optPrice =
+        o.price != null && Number.isFinite(Number(o.price)) ? Number(o.price) : null;
+      if (optPrice == null) {
+        const parsed = parseMenuPriceLoose(o.priceText ?? o.priceDisplay ?? o.price);
+        if (parsed != null) optPrice = parsed;
       }
-      const addOns = Array.isArray(it.addOns) ? it.addOns : [];
-      if (addOns.length) {
-        const addonText = addOns
-          .map((a) => {
-            const n = typeof a?.name === 'string' ? a.name : '';
-            const p = a?.price != null ? ` $${a.price}` : a?.priceText ? ` ${a.priceText}` : '';
-            return n ? `${n}${p}` : '';
-          })
-          .filter(Boolean)
-          .join('; ');
-        if (addonText) {
-          description = description ? `${description}\nAdd-ons: ${addonText}` : `Add-ons: ${addonText}`;
-        }
+      if (optPrice == null) continue;
+      pricedOptions.push({ ...o, price: optPrice });
+    }
+    if (pricedOptions.length > 0) {
+      for (const opt of pricedOptions) {
+        const optPrice = opt.price;
+        const optDur =
+          opt.durationMinutes != null && Number.isFinite(Number(opt.durationMinutes))
+            ? Number(opt.durationMinutes)
+            : null;
+        const label =
+          (typeof opt.label === 'string' && opt.label.trim()) ||
+          (optDur != null ? `${optDur} Mins` : '');
+        flattened.push({
+          ...base,
+          name: label && !name.toLowerCase().includes(label.toLowerCase()) ? `${name} — ${label}` : name,
+          price: optPrice,
+          durationMinutes: optDur ?? duration,
+          description:
+            optDur != null && !/\d+\s*min/i.test(base.description || '')
+              ? `${optDur} mins${base.description ? `. ${base.description}` : ''}`
+              : base.description,
+          options: undefined,
+        });
       }
-      return {
-        name,
-        price: it.price != null && Number.isFinite(Number(it.price)) ? Number(it.price) : null,
-        currency: typeof it.currency === 'string' && it.currency ? it.currency : 'AUD',
-        description,
-        category: typeof it.category === 'string' && it.category.trim() ? it.category.trim() : '',
-        ...(Array.isArray(it.categoryPath) && it.categoryPath.length
-          ? { categoryPath: it.categoryPath.map((p) => String(p ?? '').trim()).filter(Boolean) }
-          : {}),
-        imageUrl: null,
-        confidence: Number.isFinite(Number(it.confidence)) ? Number(it.confidence) : 0.7,
-        durationMinutes: duration,
-        inclusions,
-        sourceRefs: Array.isArray(it.sourceRefs) ? it.sourceRefs : [],
-        options: Array.isArray(it.options) ? it.options : undefined,
-        addOns: addOns.length ? addOns : undefined,
-      };
-    })
-    .filter(Boolean);
+    } else {
+      // No expandable options — keep shell but surface a price when we can.
+      if (base.price == null) {
+        const fromText = parseMenuPriceLoose(it.priceText ?? it.priceDisplay);
+        if (fromText != null) base.price = fromText;
+      }
+      flattened.push(base);
+    }
+  }
+  return flattened;
+}
+
+/**
+ * Local price parse for catalog flatten (avoids circular import weight).
+ * @param {unknown} v
+ * @returns {number | null}
+ */
+function parseMenuPriceLoose(v) {
+  if (v == null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const s = v.replace(/[^\d.,-]/g, '').replace(',', '.');
+    if (!s) return null;
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
