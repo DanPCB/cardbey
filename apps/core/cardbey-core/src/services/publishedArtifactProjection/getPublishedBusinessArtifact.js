@@ -79,15 +79,22 @@ export async function resolvePublicStoreFromArtifact(prisma, business, options =
   });
 
   if (projection) {
+    const store = publishedBusinessArtifactToPublicStore(projection, { business, ...options });
+    const { attachPublicStoreAwarenessSignals } = await import(
+      '../../utils/attachPublicStoreAwarenessSignals.js'
+    );
     return {
-      store: publishedBusinessArtifactToPublicStore(projection, { business, ...options }),
+      store: await attachPublicStoreAwarenessSignals(prisma, store),
       projection,
       usedFallback,
     };
   }
 
+  const { attachPublicStoreAwarenessSignals } = await import(
+    '../../utils/attachPublicStoreAwarenessSignals.js'
+  );
   return {
-    store: toPublicStore(business, options),
+    store: await attachPublicStoreAwarenessSignals(prisma, toPublicStore(business, options)),
     projection: null,
     usedFallback: true,
   };
