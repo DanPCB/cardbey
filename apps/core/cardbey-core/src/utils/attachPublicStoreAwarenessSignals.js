@@ -1,8 +1,14 @@
 /**
  * Attach visitor-safe awareness signals onto a public store DTO.
- * Observe-only: active loyalty programs, live campaigns, active promotions.
+ * Observe-only: active loyalty/campaigns/promotions + recent lifecycle events.
  * Never includes owner analytics, drafts, or private membership data.
  */
+
+import {
+  PUBLIC_LIFECYCLE_EVENT_TYPES,
+  listPublicStoreLifecycleEvents,
+  synthesizeLifecycleFromCreatedAt,
+} from '../lib/publicStoreLifecycle/publicStoreLifecycleEvents.js';
 
 const LIVE_CAMPAIGN_STATUSES = new Set(['RUNNING', 'SCHEDULED', 'ACTIVE', 'LIVE']);
 const LIVE_PROMOTION_STATUSES = new Set(['active', 'ACTIVE']);
@@ -17,13 +23,15 @@ export async function attachPublicStoreAwarenessSignals(prisma, storeDto) {
 
   const storeId = String(storeDto.id);
   const now = new Date();
+  const nowMs = now.getTime();
 
   let loyaltyPrograms = [];
   let campaigns = [];
   let promotions = [];
+  let recentActivity = [];
 
   try {
-    const [loyaltyRows, campaignRows, promotionRows] = await Promise.all([
+    const [loyaltyRows, campaignRows, promotionRows, lifecycleEvents] = await Promise.all([
       prisma.loyaltyProgram
         .findMany({
           where: {
@@ -85,6 +93,7 @@ export async function attachPublicStoreAwarenessSignals(prisma, storeDto) {
           },
         })
         .catch(() => []),
+      listPublicStoreLifecycleEvents(prisma, storeId, { now: nowMs }).catch(() => []),
     ]);
 
     loyaltyPrograms = (loyaltyRows || []).map((row) => ({
@@ -117,6 +126,32 @@ export async function attachPublicStoreAwarenessSignals(prisma, storeDto) {
       priorityKey: 'promotion',
       createdAt: row.createdAt ? row.createdAt.toISOString() : null,
     }));
+
+    const emitted = Array.isArray(lifecycleEvents) ? lifecycleEvents : [];
+    const emittedKeys = new Set(
+      emitted.map((e) => `${e.type}:${e.entityId || e.id}`),
+    );
+    const synth = [
+      ...synthesizeLifecycleFromCreatedAt(
+        loyaltyPrograms,
+        PUBLIC_LIFECYCLE_EVENT_TYPES.LOYALTY_PROGRAM_PUBLISHED,
+        nowMs,
+      ),
+      ...synthesizeLifecycleFromCreatedAt(
+        campaigns,
+        PUBLIC_LIFECYCLE_EVENT_TYPES.CAMPAIGN_LAUNCHED,
+        nowMs,
+      ),
+      ...synthesizeLifecycleFromCreatedAt(
+        promotions,
+        PUBLIC_LIFECYCLE_EVENT_TYPES.PROMOTION_ACTIVATED,
+        nowMs,
+      ),
+    ].filter((e) => !emittedKeys.has(`${e.type}:${e.entityId || e.id}`));
+
+    recentActivity = [...emitted, ...synth]
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(0, 20);
   } catch (err) {
     console.warn(
       '[attachPublicStoreAwarenessSignals] failed',
@@ -128,10 +163,11 @@ export async function attachPublicStoreAwarenessSignals(prisma, storeDto) {
 
   return {
     ...storeDto,
-    ...(loyaltyPrograms.length ? { loyaltyPrograms } : { loyaltyPrograms: [] }),
-    ...(campaigns.length ? { campaigns, activeCampaigns: campaigns } : { campaigns: [], activeCampaigns: [] }),
-    ...(promotions.length
-      ? { promotions, activeOffers: promotions }
-      : { promotions: [], activeOffers: [] }),
+    loyaltyPrograms,
+    campaigns,
+    activeCampaigns: campaigns,
+    promotions,
+    activeOffers: promotions,
+    recentActivity,
   };
 }

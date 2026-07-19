@@ -4,6 +4,15 @@
 **Status:** Proposed (awaiting approval before code)  
 **Related:** Context-Aware Store Assistant V1 (`contextResolver/`) is **greeting composition**, not live awareness.
 
+## Phase B — Shipped (2026-07-19)
+
+Approved slice: **emit on publish + project on public store GET**, reusing `StoreActivityEvent`.
+
+1. **Core** `publicStoreLifecycleEvents` — event types `LOYALTY_PROGRAM_PUBLISHED`, `CAMPAIGN_LAUNCHED`, `OFFER_ACTIVATED`, `PROMOTION_ACTIVATED` (`source: public_lifecycle`).
+2. **Emit hooks** — loyalty activate/write, promotion activate/deploy, campaign create-from-plan when SCHEDULED/RUNNING.
+3. **Project** — `attachPublicStoreAwarenessSignals` adds `recentActivity` (emitted + soft createdAt backfill, 14d).
+4. **Dashboard** — lifecycle tips outrank live inventory; copy uses **“Just launched”** when `freshness === just_launched` (≤7d).
+
 ## Phase A — Shipped (2026-07-19)
 
 Approved and implemented:

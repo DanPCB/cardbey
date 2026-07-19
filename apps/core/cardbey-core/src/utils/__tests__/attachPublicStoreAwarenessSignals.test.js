@@ -52,6 +52,9 @@ describe('attachPublicStoreAwarenessSignals', () => {
           },
         ]),
       },
+      storeActivityEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
     };
 
     const out = await attachPublicStoreAwarenessSignals(prisma, {
@@ -63,5 +66,6 @@ describe('attachPublicStoreAwarenessSignals', () => {
     expect(out.loyaltyPrograms[0].name).toBe('Coffee Club');
     expect(out.campaigns[0].title).toBe('Summer renovation package');
     expect(out.promotions[0].title).toBe('10% off');
+    expect(Array.isArray(out.recentActivity)).toBe(true);
   });
 });
