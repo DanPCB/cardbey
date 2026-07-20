@@ -13,7 +13,23 @@ docs/db/baseline-acceptance.local.json
 models/
 *.pt
 
+# --- Runtime boundary safety net (locator owns policy; ignore is not the architecture) ---
 uploads/
+logs/
+self-audit-reports/
+patches.audit.json
+.development-runtime/
+.cache/
+src/.cache/
+data/platformActivity/
+data/language-runtime/
+data/performerRequests/
+data/recommendationEvidence/
+data/consolidatedFailureSnapshots/
+coverage/
+
+# Ephemeral language-agent materialisation (seed under data/language-seed is committed)
+# (data/language-runtime/ listed above)
 
 # Maintenance patch backups — for local recovery only
 *.patch.bak

@@ -23,3 +23,26 @@ apps/core/cardbey-core/.env.local
 apps/core/cardbey-core/test-body.json
 
 apps/dashboard/cardbey frontend copy/
+
+# --- Runtime boundary safety net (see apps/core/cardbey-core/docs/RUNTIME_BOUNDARY_PLAN.md) ---
+# Development mission worktrees, check output, diffs (not source)
+.development-workspaces/
+
+# Build / test noise
+coverage/
+**/.vite/
+packages/**/dist/
+
+# Core runtime (also listed under apps/core/cardbey-core/.gitignore; repeated for monorepo clarity)
+apps/core/cardbey-core/uploads/
+apps/core/cardbey-core/logs/
+apps/core/cardbey-core/self-audit-reports/
+apps/core/cardbey-core/patches.audit.json
+apps/core/cardbey-core/.development-runtime/
+apps/core/cardbey-core/.cache/
+apps/core/cardbey-core/src/.cache/
+apps/core/cardbey-core/data/platformActivity/
+apps/core/cardbey-core/data/language-runtime/
+apps/core/cardbey-core/data/performerRequests/
+apps/core/cardbey-core/data/recommendationEvidence/
+apps/core/cardbey-core/data/consolidatedFailureSnapshots/

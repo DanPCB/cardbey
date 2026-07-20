@@ -1,6 +1,0 @@
- WARN  Unsupported engine: wanted: {"node":"20.x"} (current: {"node":"v22.22.0","pnpm":"10.25.0"})
-[proxy] using target=http://127.0.0.1:3001 source=default
-[vite] Dev server host=all interfaces. HMR uses page host unless VITE_HMR_FORCE_LOCALHOST=1.
-vite v6.4.3 building for production...
-transforming...
-✓ 7 modules transformed.
