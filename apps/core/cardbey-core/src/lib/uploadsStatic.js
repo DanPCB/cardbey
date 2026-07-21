@@ -53,6 +53,9 @@ export function applyUploadsMediaHeaders(res, contentType) {
   if (contentType) {
     res.setHeader('Content-Type', contentType);
   }
+  if (contentType && String(contentType).startsWith('video/')) {
+    res.setHeader('Content-Disposition', 'inline');
+  }
 }
 
 /**
