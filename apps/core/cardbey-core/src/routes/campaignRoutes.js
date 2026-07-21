@@ -1375,6 +1375,33 @@ router.post('/create-from-plan', requireAuth, async (req, res) => {
       data: { status: finalStatus, allowedChannels: channelsToDeploy, updatedAt: new Date() },
     });
 
+    if ((finalStatus === 'SCHEDULED' || finalStatus === 'RUNNING') && plan.storeId) {
+      try {
+        const { emitPublicStoreLifecycleEvent, PUBLIC_LIFECYCLE_EVENT_TYPES } = await import(
+          '../lib/publicStoreLifecycle/publicStoreLifecycleEvents.js'
+        );
+        await emitPublicStoreLifecycleEvent(prisma, {
+          storeId: plan.storeId,
+          eventType: PUBLIC_LIFECYCLE_EVENT_TYPES.CAMPAIGN_LAUNCHED,
+          title: title || plan.objective || 'Campaign',
+          entityId: campaignId,
+          actorUserId: userId ?? null,
+          description: plan.objective ?? null,
+        });
+        if (offerRow?.id) {
+          await emitPublicStoreLifecycleEvent(prisma, {
+            storeId: plan.storeId,
+            eventType: PUBLIC_LIFECYCLE_EVENT_TYPES.OFFER_ACTIVATED,
+            title: title || 'Offer',
+            entityId: offerRow.id,
+            actorUserId: userId ?? null,
+          });
+        }
+      } catch {
+        /* public awareness emit is best-effort */
+      }
+    }
+
     return res.status(200).json({
       ok: true,
       campaignId,

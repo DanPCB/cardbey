@@ -192,6 +192,7 @@ import passiveGenerationRoutes from './routes/passiveGenerationRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
+import publicHeroPlaybackRoutes from './routes/publicHeroPlaybackRoutes.js';
 import publicDiscoveryRoutes from './routes/publicDiscoveryRoutes.js';
 import publicFeedRoutes from './routes/publicFeedRoutes.js';
 import publicContentInteractionRoutes from './routes/publicContentInteractionRoutes.js';
@@ -812,6 +813,8 @@ app.all(['/uploads/media/:filename', '/uploads/media/:filename/*'], (req, res, n
     res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     res.setHeader('Accept-Ranges', 'bytes');
+    // Inline required for iOS Safari <video>; "attachment" breaks playsInline playback.
+    res.setHeader('Content-Disposition', 'inline');
 
     const contentTypeInfo = resolveUploadContentType(filePath, req.path);
     res.setHeader('Content-Type', contentTypeInfo?.type || 'video/mp4');
@@ -1115,6 +1118,7 @@ app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public/store-engagement', storeEngagementRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
+app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)

@@ -7,7 +7,11 @@ import { Router } from 'express';
 import { toPublicUserProfile } from '../utils/publicProfileMapper.js';
 import { resolvePublicStoreFromArtifact } from '../services/publishedArtifactProjection/getPublishedBusinessArtifact.js';
 import { enrichStoreHeroVideoUrls } from '../lib/videoIosSafe.js';
-import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
+import { getBaseUrlFromRequest, resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
+import {
+  needsDurableHeroVideoIngest,
+  rewriteHotlinkHeroVideoForPlayback,
+} from '../lib/media/externalHeroVideoPlayback.js';
 import {
   resolvePublicStoresForList,
 } from '../services/publishedArtifactProjection/resolvePublicStoreList.js';
@@ -632,6 +636,21 @@ router.get('/stores/:slug', async (req, res, next) => {
         req,
       ),
     );
+
+    // Hotlinked stock videos (e.g. Pexels) often send Content-Disposition: attachment,
+    // which breaks iOS Safari inline playback. Serve via Cardbey caching proxy instead.
+    const absolutize = (p) => {
+      if (!p) return p;
+      if (/^https?:\/\//i.test(p)) return p;
+      const base = getBaseUrlFromRequest(req).replace(/\/$/, '');
+      return `${base}${p.startsWith('/') ? p : `/${p}`}`;
+    };
+    for (const key of ['heroVideoUrl', 'heroVideo', 'heroUrl', 'bannerUrl', 'heroVideoUrlOriginal']) {
+      const cur = publicStore[key];
+      if (typeof cur === 'string' && needsDurableHeroVideoIngest(cur)) {
+        publicStore[key] = rewriteHotlinkHeroVideoForPlayback(cur, absolutize);
+      }
+    }
 
     // Always emit socialLinks on slug route (parity with frontscreen card mapping).
     const mappedSocialLinks =

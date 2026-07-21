@@ -3,21 +3,22 @@
  * Never creates Store. Optional dryRun. batchId required.
  */
 
-import { isGooglePlacesConfigured } from '../businessDiscovery/businessDiscoverySources.js';
-import { osmDiscoveryProvider } from '../discoveryEngine/providers/OsmDiscoveryProvider.js';
-import { googlePlacesDiscoveryProvider } from '../discoveryEngine/providers/GooglePlacesDiscoveryProvider.js';
-import type { BusinessCandidate as DiscoveryBusinessCandidate } from '../discoveryEngine/types/index.js';
 import {
   BATCH001_SUBURBS,
   MELBOURNE_BATCH001_REAL_LOCAL_ID,
-  REAL_LOCAL_CATEGORY_KEYWORDS,
   REAL_LOCAL_PILOT_CATEGORIES,
   REAL_LOCAL_PILOT_TARGET_COUNT,
 } from './batch001Config.js';
 import { ingestDiscoveredCandidates } from './candidateIngestionPipeline.js';
 import type { BusinessCandidateRecord, CandidateIngestionResult } from './types.js';
+import type { BusinessCandidate as DiscoveryBusinessCandidate } from '../discoveryEngine/types/index.js';
+import {
+  discoveryProviderManager,
+  type DiscoveryProviderMode,
+} from '../discoveryEngine/providers/DiscoveryProviderManager.js';
+import type { DiscoveryProviderError } from '../discoveryEngine/providers/discoveryProviderErrors.js';
 
-export type RealLocalProviderMode = 'auto' | 'google_places' | 'osm';
+export type RealLocalProviderMode = DiscoveryProviderMode;
 
 export interface RealLocalDiscoveryParams {
   batchId: string;
@@ -26,6 +27,8 @@ export interface RealLocalDiscoveryParams {
   maxResults?: number;
   dryRun?: boolean;
   provider?: RealLocalProviderMode;
+  slowMode?: boolean;
+  retryRateLimited?: Array<{ suburb: string; category: string }>;
   createdBy?: string | null;
 }
 
@@ -33,13 +36,29 @@ export interface RealLocalDiscoveryResult {
   batchId: string;
   dryRun: boolean;
   providerUsed: 'google_places' | 'osm';
+  provider: 'google_places' | 'osm';
+  status: 'success' | 'partial' | 'rate_limited' | 'failed';
   suburbsSearched: string[];
   categoriesSearched: string[];
   fetchLimit: number;
   candidatesFound: number;
   candidatesAccepted: number;
   duplicatesSkipped: number;
+  /** @deprecated use providerErrors + technicalErrors */
   errors: string[];
+  technicalErrors: string[];
+  providerErrors: DiscoveryProviderError[];
+  usedFallback: boolean;
+  usedCache: boolean;
+  rateLimitedSearches: number;
+  rateLimitedCount: number;
+  successfulSearches: number;
+  skippedSearches: number;
+  retryCount: number;
+  overpassRequestCount: number;
+  requestsPerMinute: number;
+  rateLimitedCategories: Array<{ suburb: string; category: string }>;
+  skippedCategories: string[];
   preview: Array<{
     name: string | null;
     category: string | null;
@@ -54,18 +73,14 @@ export interface RealLocalDiscoveryResult {
   ingestion?: CandidateIngestionResult;
 }
 
-function resolveProvider(mode: RealLocalProviderMode): 'google_places' | 'osm' {
-  if (mode === 'osm') return 'osm';
-  if (mode === 'google_places') return 'google_places';
-  return isGooglePlacesConfigured() ? 'google_places' : 'osm';
-}
-
 function candidatePreview(c: DiscoveryBusinessCandidate) {
   const placeId =
     typeof c.metadata.placeId === 'string' ? c.metadata.placeId : c.externalId ?? null;
+  const pilotCategory =
+    typeof c.metadata.pilotCategory === 'string' ? c.metadata.pilotCategory : c.category;
   return {
     name: c.businessName,
-    category: c.category,
+    category: pilotCategory,
     suburb: c.city ?? (typeof c.metadata.suburb === 'string' ? c.metadata.suburb : null),
     address: c.address,
     phone: c.phone,
@@ -93,78 +108,51 @@ export async function runRealLocalDiscovery(
     100,
   );
   const dryRun = params.dryRun === true;
-  const providerUsed = resolveProvider(params.provider ?? 'auto');
 
-  const errors: string[] = [];
-  const collected: DiscoveryBusinessCandidate[] = [];
-  const seenKeys = new Set<string>();
+  const batch = await discoveryProviderManager.runBatch({
+    suburbs,
+    categories,
+    maxResults,
+    dryRun,
+    provider: params.provider ?? 'auto',
+    slowMode: params.slowMode === true,
+    retryRateLimited: params.retryRateLimited,
+  });
 
-  for (const suburb of suburbs) {
-    if (collected.length >= maxResults) break;
-    for (const category of categories) {
-      if (collected.length >= maxResults) break;
-      const keyword = REAL_LOCAL_CATEGORY_KEYWORDS[category] ?? category;
-      const perQueryLimit = Math.min(10, maxResults - collected.length);
-
-      try {
-        let batch: DiscoveryBusinessCandidate[] = [];
-        if (providerUsed === 'google_places') {
-          batch = await googlePlacesDiscoveryProvider.discover({
-            provider: 'google_places',
-            city: suburb,
-            category: keyword,
-            limit: perQueryLimit,
-            region: 'Melbourne VIC',
-          });
-        } else {
-          batch = await osmDiscoveryProvider.discover({
-            provider: 'osm',
-            city: suburb,
-            category: keyword.split(' ')[0],
-            limit: perQueryLimit,
-            region: 'Melbourne VIC',
-          });
-          for (const row of batch) {
-            row.metadata = { ...row.metadata, suburb, pilotCategory: category };
-            if (!row.city) row.city = suburb;
-          }
-        }
-
-        for (const row of batch) {
-          const key = [
-            (row.businessName ?? '').toLowerCase(),
-            row.city ?? suburb,
-            row.metadata.placeId ?? row.externalId,
-          ].join('|');
-          if (seenKeys.has(key)) continue;
-          seenKeys.add(key);
-          collected.push(row);
-          if (collected.length >= maxResults) break;
-        }
-      } catch (err: unknown) {
-        errors.push(
-          `${suburb}/${category}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-  }
-
+  const collected = batch.candidates;
   const preview = collected.map(candidatePreview);
 
+  const baseResult: RealLocalDiscoveryResult = {
+    batchId,
+    dryRun,
+    providerUsed: batch.provider,
+    provider: batch.provider,
+    status: batch.status,
+    suburbsSearched: suburbs,
+    categoriesSearched: categories,
+    fetchLimit: maxResults,
+    candidatesFound: collected.length,
+    candidatesAccepted: 0,
+    duplicatesSkipped: 0,
+    errors: batch.technicalErrors,
+    technicalErrors: batch.technicalErrors,
+    providerErrors: batch.providerErrors,
+    usedFallback: batch.usedFallback,
+    usedCache: batch.usedCache,
+    rateLimitedSearches: batch.rateLimitedSearches,
+    rateLimitedCount: batch.rateLimitedCount,
+    successfulSearches: batch.successfulSearches,
+    skippedSearches: batch.skippedSearches,
+    retryCount: batch.retryCount,
+    overpassRequestCount: batch.overpassRequestCount,
+    requestsPerMinute: batch.requestsPerMinute,
+    rateLimitedCategories: batch.rateLimitedCategories,
+    skippedCategories: batch.skippedCategories,
+    preview,
+  };
+
   if (dryRun) {
-    return {
-      batchId,
-      dryRun: true,
-      providerUsed,
-      suburbsSearched: suburbs,
-      categoriesSearched: categories,
-      fetchLimit: maxResults,
-      candidatesFound: collected.length,
-      candidatesAccepted: 0,
-      duplicatesSkipped: 0,
-      errors,
-      preview,
-    };
+    return baseResult;
   }
 
   const ingestion = await ingestDiscoveredCandidates(collected, {
@@ -176,17 +164,9 @@ export async function runRealLocalDiscovery(
   });
 
   return {
-    batchId,
-    dryRun: false,
-    providerUsed,
-    suburbsSearched: suburbs,
-    categoriesSearched: categories,
-    fetchLimit: maxResults,
-    candidatesFound: collected.length,
+    ...baseResult,
     candidatesAccepted: ingestion.accepted.length,
     duplicatesSkipped: ingestion.duplicatesRejected,
-    errors,
-    preview,
     accepted: ingestion.accepted,
     ingestion,
   };

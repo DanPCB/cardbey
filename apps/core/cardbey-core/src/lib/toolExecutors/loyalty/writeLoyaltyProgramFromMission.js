@@ -228,6 +228,22 @@ export async function writeLoyaltyProgramFromMission(params) {
 
   emitLoyaltyProgramTelemetry(LOYALTY_TELEMETRY.APPLY_SUCCESS, writeResult);
 
+  try {
+    const { emitPublicStoreLifecycleEvent, PUBLIC_LIFECYCLE_EVENT_TYPES } = await import(
+      '../../publicStoreLifecycle/publicStoreLifecycleEvents.js'
+    );
+    await emitPublicStoreLifecycleEvent(prisma, {
+      storeId,
+      eventType: PUBLIC_LIFECYCLE_EVENT_TYPES.LOYALTY_PROGRAM_PUBLISHED,
+      title: programName,
+      entityId: program.id,
+      actorUserId: userId ?? null,
+      description: reward ? `Reward: ${reward}` : null,
+    });
+  } catch {
+    /* public awareness emit is best-effort */
+  }
+
   return {
     ok: true,
     status: 'completed',

@@ -57,6 +57,59 @@ export const REAL_LOCAL_CATEGORY_KEYWORDS: Record<string, string> = {
   'Home services': 'plumber electrician home services',
 };
 
+/** OSM Overpass tag filters per pilot category — used for grouped suburb queries. */
+export const REAL_LOCAL_CATEGORY_OSM_TAGS: Record<string, string[]> = {
+  Bakery: ['shop=bakery'],
+  Cafe: ['amenity=cafe'],
+  Restaurant: ['amenity=restaurant', 'amenity=fast_food'],
+  'Nail salon': ['shop=beauty', 'shop=nails'],
+  'Hair salon': ['shop=hairdresser'],
+  Grocery: ['shop=supermarket', 'shop=convenience', 'shop=grocery'],
+  'Local retail': ['shop=clothes', 'shop=department_store', 'shop=variety_store', 'shop=general'],
+  'Home services': ['craft=plumber', 'craft=electrician', 'craft=carpenter', 'shop=trade'],
+};
+
+/** Map OSM element tags back to a pilot category label. */
+export function inferPilotCategoryFromOsmTags(tags: Record<string, string>): string | null {
+  const amenity = String(tags.amenity ?? '').toLowerCase();
+  const shop = String(tags.shop ?? '').toLowerCase();
+  const craft = String(tags.craft ?? '').toLowerCase();
+
+  if (shop === 'bakery') return 'Bakery';
+  if (amenity === 'cafe') return 'Cafe';
+  if (amenity === 'restaurant' || amenity === 'fast_food') return 'Restaurant';
+  if (shop === 'nails' || (shop === 'beauty' && tags.beauty === 'nails')) return 'Nail salon';
+  if (shop === 'hairdresser') return 'Hair salon';
+  if (shop === 'beauty') return 'Nail salon';
+  if (shop === 'supermarket' || shop === 'convenience' || shop === 'grocery') return 'Grocery';
+  if (
+    shop === 'clothes' ||
+    shop === 'department_store' ||
+    shop === 'variety_store' ||
+    shop === 'general'
+  ) {
+    return 'Local retail';
+  }
+  if (craft === 'plumber' || craft === 'electrician' || craft === 'carpenter' || shop === 'trade') {
+    return 'Home services';
+  }
+  return null;
+}
+
+export function osmTagsForPilotCategories(categories: string[]): string[] {
+  const tags = new Set<string>();
+  for (const category of categories) {
+    const mapped = REAL_LOCAL_CATEGORY_OSM_TAGS[category];
+    if (mapped?.length) {
+      for (const tag of mapped) tags.add(tag);
+    } else {
+      const keyword = REAL_LOCAL_CATEGORY_KEYWORDS[category] ?? category;
+      tags.add(`amenity=${keyword.split(' ')[0]}`);
+    }
+  }
+  return [...tags];
+}
+
 export function isProtectedBatch0(batchId: string | null | undefined): boolean {
   if (!batchId) return false;
   return batchId.includes('BATCH0') && !batchId.includes('BATCH001');
