@@ -30,6 +30,23 @@ export async function execute(input = {}) {
       data: { status: 'active' },
     });
 
+    try {
+      if (promotion.storeId) {
+        const { emitPublicStoreLifecycleEvent, PUBLIC_LIFECYCLE_EVENT_TYPES } = await import(
+          '../../publicStoreLifecycle/publicStoreLifecycleEvents.js'
+        );
+        await emitPublicStoreLifecycleEvent(prisma, {
+          storeId: promotion.storeId,
+          eventType: PUBLIC_LIFECYCLE_EVENT_TYPES.PROMOTION_ACTIVATED,
+          title: promotion.title,
+          entityId: promotion.id,
+          description: promotion.message ?? null,
+        });
+      }
+    } catch {
+      /* public awareness emit is best-effort */
+    }
+
     return {
       status: 'ok',
       output: {

@@ -2,44 +2,63 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { resetBusinessCandidatesForTests } from '../candidateRepository.js';
 import { runRealLocalDiscovery, MELBOURNE_BATCH001_REAL_LOCAL_ID } from '../realLocalDiscoveryService.js';
 
-vi.mock('../../discoveryEngine/providers/GooglePlacesDiscoveryProvider.js', () => ({
-  googlePlacesDiscoveryProvider: {
-    discover: vi.fn(async () => []),
+const mockRunBatch = vi.fn();
+
+vi.mock('../../discoveryEngine/providers/DiscoveryProviderManager.js', () => ({
+  discoveryProviderManager: {
+    runBatch: (...args: unknown[]) => mockRunBatch(...args),
   },
 }));
 
-vi.mock('../../discoveryEngine/providers/OsmDiscoveryProvider.js', () => ({
-  osmDiscoveryProvider: {
-    discover: vi.fn(async (params: { city?: string; category?: string }) => [
-      {
-        providerId: 'osm',
-        externalId: `osm-${params.city}-${params.category}`,
-        businessName: `${params.category} Shop ${params.city}`,
-        category: params.category ?? null,
-        address: `1 Test St, ${params.city ?? 'Melbourne'} VIC`,
-        city: params.city ?? null,
-        state: 'VIC',
-        postcode: '3011',
-        country: 'AU',
-        latitude: -37.8,
-        longitude: 144.9,
-        phone: null,
-        email: null,
-        website: null,
-        socialProfiles: [],
-        sourceUrl: null,
-        discoveredAt: new Date().toISOString(),
-        confidence: 0.7,
-        metadata: { suburb: params.city },
-      },
-    ]),
-  },
-}));
+function sampleCandidate(city: string, name: string) {
+  return {
+    providerId: 'osm' as const,
+    externalId: `osm-${city}-${name}`,
+    businessName: name,
+    category: 'cafe',
+    address: `1 Test St, ${city} VIC`,
+    city,
+    state: 'VIC',
+    postcode: '3011',
+    country: 'AU',
+    latitude: -37.8,
+    longitude: 144.9,
+    phone: null,
+    email: null,
+    website: null,
+    socialProfiles: [],
+    sourceUrl: null,
+    discoveredAt: new Date().toISOString(),
+    confidence: 0.7,
+    metadata: { suburb: city, pilotCategory: 'Cafe' },
+  };
+}
 
 describe('runRealLocalDiscovery', () => {
   beforeEach(async () => {
     await resetBusinessCandidatesForTests();
     vi.clearAllMocks();
+    mockRunBatch.mockResolvedValue({
+      provider: 'osm',
+      status: 'success',
+      fetchedCount: 1,
+      savedCount: 0,
+      duplicatesSkipped: 0,
+      rateLimitedCount: 0,
+      providerErrors: [],
+      usedFallback: false,
+      usedCache: false,
+      retryCount: 0,
+      successfulSearches: 1,
+      skippedSearches: 0,
+      rateLimitedSearches: 0,
+      rateLimitedCategories: [],
+      skippedCategories: [],
+      overpassRequestCount: 1,
+      requestsPerMinute: 50,
+      candidates: [sampleCandidate('Footscray', 'Test Cafe')],
+      technicalErrors: [],
+    });
   });
 
   it('dry run returns preview without persisting candidates', async () => {
@@ -88,4 +107,55 @@ describe('runRealLocalDiscovery', () => {
       }),
     ).rejects.toThrow(/Cannot overwrite Batch 0/);
   });
+
+  it('surfaces partial success metrics when provider rate limits', async () => {
+    mockRunBatch.mockResolvedValue({
+      provider: 'osm',
+      status: 'partial',
+      fetchedCount: 10,
+      savedCount: 0,
+      duplicatesSkipped: 0,
+      rateLimitedCount: 4,
+      providerErrors: [
+        {
+          code: 'RATE_LIMITED',
+          provider: 'osm_overpass',
+          message: 'Overpass HTTP 429',
+          suburb: 'Braybrook',
+          categories: ['Restaurant', 'Nail salon'],
+        },
+      ],
+      usedFallback: false,
+      usedCache: false,
+      retryCount: 2,
+      successfulSearches: 1,
+      skippedSearches: 4,
+      rateLimitedSearches: 1,
+      rateLimitedCategories: [
+        { suburb: 'Braybrook', category: 'Restaurant' },
+        { suburb: 'Braybrook', category: 'Nail salon' },
+      ],
+      skippedCategories: ['Restaurant', 'Nail salon'],
+      overpassRequestCount: 5,
+      requestsPerMinute: 50,
+      candidates: Array.from({ length: 10 }, (_, i) => sampleCandidate('Sunshine', `Biz ${i}`)),
+      technicalErrors: ['Braybrook: Overpass HTTP 429'],
+    });
+
+    const result = await runRealLocalDiscovery({
+      batchId: MELBOURNE_BATCH001_REAL_LOCAL_ID,
+      suburbs: REAL_LOCAL_SUBURBS,
+      categories: ['Restaurant'],
+      maxResults: 25,
+      dryRun: true,
+      provider: 'osm',
+    });
+
+    expect(result.status).toBe('partial');
+    expect(result.candidatesFound).toBe(10);
+    expect(result.rateLimitedCount).toBe(4);
+    expect(result.providerErrors?.[0]?.code).toBe('RATE_LIMITED');
+  });
 });
+
+const REAL_LOCAL_SUBURBS = ['Braybrook', 'Sunshine', 'St Albans', 'Footscray', 'Sunshine North'];

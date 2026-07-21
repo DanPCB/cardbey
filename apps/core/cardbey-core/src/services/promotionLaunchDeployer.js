@@ -212,6 +212,24 @@ Return plain text only, no quotes.`;
     },
   });
 
+  try {
+    const storeId = fresh?.storeId || promotion.storeId;
+    if (storeId) {
+      const { emitPublicStoreLifecycleEvent, PUBLIC_LIFECYCLE_EVENT_TYPES } = await import(
+        '../lib/publicStoreLifecycle/publicStoreLifecycleEvents.js'
+      );
+      await emitPublicStoreLifecycleEvent(prisma, {
+        storeId,
+        eventType: PUBLIC_LIFECYCLE_EVENT_TYPES.PROMOTION_ACTIVATED,
+        title: fresh?.title || promotion.title || 'Offer',
+        entityId: promotionId,
+        description: fresh?.message || promotion.message || null,
+      });
+    }
+  } catch {
+    /* public awareness emit is best-effort */
+  }
+
   const deployedAt = new Date().toISOString();
 
   return {

@@ -5,16 +5,21 @@
 
 import { randomUUID } from 'node:crypto';
 import type { BusinessCandidate, DiscoveryDiscoverParams, DiscoveryProvider } from '../types/index.js';
+import { getDiscoveryProviderConfig } from '../config/discoveryProviderConfig.js';
+import {
+  DiscoveryProviderRateLimitError,
+  toDiscoveryProviderError,
+} from './discoveryProviderErrors.js';
+import { logDiscoveryProviderEvent } from './discoveryProviderLogger.js';
 
 const DEFAULT_OVERPASS = 'https://overpass-api.de/api/interpreter';
 const DEFAULT_NOMINATIM = 'https://nominatim.openstreetmap.org';
-/** Nominatim usage policy: max 1 req/s — https://operations.osmfoundation.org/policies/nominatim/ */
+/** Nominatim usage policy: max 1 req/s */
 const NOMINATIM_MIN_INTERVAL_MS = 1100;
-/** Overpass courtesy delay between chained requests */
-const OVERPASS_MIN_INTERVAL_MS = 2000;
 
 let lastNominatimAt = 0;
 let lastOverpassAt = 0;
+let overpassRequestDelayOverride: number | null = null;
 
 async function throttleNominatim(): Promise<void> {
   const now = Date.now();
@@ -23,9 +28,16 @@ async function throttleNominatim(): Promise<void> {
   lastNominatimAt = Date.now();
 }
 
-async function throttleOverpass(): Promise<void> {
+function resolveOverpassDelay(slowMode = false): number {
+  const cfg = getDiscoveryProviderConfig();
+  const base = overpassRequestDelayOverride ?? cfg.overpassRequestDelayMs;
+  return slowMode ? base * cfg.overpassSlowModeMultiplier : base;
+}
+
+async function throttleOverpass(slowMode = false): Promise<void> {
+  const delay = resolveOverpassDelay(slowMode);
   const now = Date.now();
-  const wait = OVERPASS_MIN_INTERVAL_MS - (now - lastOverpassAt);
+  const wait = delay - (now - lastOverpassAt);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastOverpassAt = Date.now();
 }
@@ -34,6 +46,11 @@ async function throttleOverpass(): Promise<void> {
 export function resetOsmThrottleForTests(): void {
   lastNominatimAt = 0;
   lastOverpassAt = 0;
+  overpassRequestDelayOverride = null;
+}
+
+export function setOverpassRequestDelayForTests(ms: number | null): void {
+  overpassRequestDelayOverride = ms;
 }
 
 const CATEGORY_FILTERS: Record<string, string[]> = {
@@ -53,6 +70,15 @@ export interface OsmDiscoveryProviderOptions {
   userAgent?: string;
 }
 
+export type OsmDiscoverGroupedParams = {
+  city: string;
+  tags: string[];
+  limit: number;
+  slowMode?: boolean;
+  suburb?: string;
+  categories?: string[];
+};
+
 function trim(value: unknown): string | null {
   if (value == null) return null;
   const s = String(value).trim();
@@ -67,7 +93,7 @@ function categoryTags(category?: string): string[] {
   return CATEGORY_FILTERS[key] ?? [`amenity=${key}`, `shop=${key}`];
 }
 
-function buildOverpassQuery(
+export function buildOverpassQuery(
   bbox: { south: number; west: number; north: number; east: number },
   tags: string[],
   limit: number,
@@ -165,6 +191,15 @@ function mapOverpassElement(el: Record<string, unknown>, discoveredAt: string): 
   };
 }
 
+function parseRetryAfterSeconds(res: Response): number {
+  const header = res.headers.get('retry-after');
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds)) return Math.max(1, Math.ceil(seconds));
+  }
+  return 30;
+}
+
 export class OsmDiscoveryProvider implements DiscoveryProvider {
   readonly providerId = 'osm' as const;
   private readonly fetchImpl: OsmFetchImpl;
@@ -182,9 +217,103 @@ export class OsmDiscoveryProvider implements DiscoveryProvider {
       'CardbeyDiscoveryEngine/1.0 (contact@cardbey.com)';
   }
 
-  async discover(params: DiscoveryDiscoverParams): Promise<BusinessCandidate[]> {
+  async fetchOverpassWithRetry(
+    query: string,
+    context: { suburb?: string; category?: string; categories?: string[]; slowMode?: boolean },
+  ): Promise<{ elements: Record<string, unknown>[]; retryCount: number }> {
+    const cfg = getDiscoveryProviderConfig();
+    const backoffs = [cfg.overpassBackoffMs, 5000];
+    let retryCount = 0;
+
+    for (let attempt = 0; attempt <= cfg.overpassMaxRetries; attempt++) {
+      await throttleOverpass(context.slowMode === true);
+
+      const res = await this.fetchImpl(this.overpassUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': this.userAgent,
+        },
+        body: `data=${encodeURIComponent(query)}`,
+      });
+
+      if (res.status === 429) {
+        const retryAfterSeconds = parseRetryAfterSeconds(res);
+        logDiscoveryProviderEvent('discovery_provider_rate_limited', {
+          provider: 'osm_overpass',
+          suburb: context.suburb ?? null,
+          category: context.category ?? null,
+          categories: context.categories ?? null,
+          attempt,
+          retryAfterSeconds,
+        });
+
+        if (attempt < cfg.overpassMaxRetries) {
+          const waitMs = backoffs[attempt] ?? cfg.overpassBackoffMs;
+          retryCount += 1;
+          logDiscoveryProviderEvent('discovery_provider_retry', {
+            provider: 'osm_overpass',
+            suburb: context.suburb ?? null,
+            attempt: attempt + 1,
+            waitMs,
+          });
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+
+        throw new DiscoveryProviderRateLimitError({
+          provider: 'osm_overpass',
+          retryAfterSeconds,
+          suburb: context.suburb,
+          category: context.category,
+          categories: context.categories,
+          message: `Overpass HTTP 429 — public map provider rate limited${context.suburb ? ` (${context.suburb})` : ''}`,
+        });
+      }
+
+      if (!res.ok) {
+        throw new Error(`Overpass HTTP ${res.status}`);
+      }
+
+      const payload = (await res.json()) as { elements?: Record<string, unknown>[] };
+      return { elements: payload.elements ?? [], retryCount };
+    }
+
+    throw new Error('Overpass request failed after retries');
+  }
+
+  async discoverGrouped(params: OsmDiscoverGroupedParams): Promise<{
+    candidates: BusinessCandidate[];
+    retryCount: number;
+  }> {
     const limit = Math.min(params.limit ?? 100, 500);
     const discoveredAt = new Date().toISOString();
+    const bbox =
+      (await geocodeArea(params.city, this.fetchImpl, this.nominatimUrl, this.userAgent)) ?? null;
+
+    if (!bbox) {
+      throw new Error('OSM discovery requires city, postcode, or bbox');
+    }
+
+    const query = buildOverpassQuery(bbox, params.tags, limit);
+    const { elements, retryCount } = await this.fetchOverpassWithRetry(query, {
+      suburb: params.suburb ?? params.city,
+      categories: params.categories,
+      slowMode: params.slowMode,
+    });
+
+    const candidates: BusinessCandidate[] = [];
+    for (const el of elements) {
+      const mapped = mapOverpassElement(el, discoveredAt);
+      if (mapped) candidates.push(mapped);
+      if (candidates.length >= limit) break;
+    }
+
+    return { candidates, retryCount };
+  }
+
+  async discover(params: DiscoveryDiscoverParams): Promise<BusinessCandidate[]> {
+    const limit = Math.min(params.limit ?? 100, 500);
     let bbox = params.bbox ?? null;
 
     if (!bbox) {
@@ -205,31 +334,29 @@ export class OsmDiscoveryProvider implements DiscoveryProvider {
     const tags = categoryTags(params.category);
     const query = buildOverpassQuery(bbox, tags, limit);
 
-    await throttleOverpass();
-    const res = await this.fetchImpl(this.overpassUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': this.userAgent,
-      },
-      body: `data=${encodeURIComponent(query)}`,
-    });
+    try {
+      const { elements } = await this.fetchOverpassWithRetry(query, {
+        suburb: params.city,
+        category: params.category,
+      });
+      const discoveredAt = new Date().toISOString();
+      const candidates: BusinessCandidate[] = [];
 
-    if (!res.ok) {
-      throw new Error(`Overpass HTTP ${res.status}`);
+      for (const el of elements) {
+        const mapped = mapOverpassElement(el, discoveredAt);
+        if (mapped) candidates.push(mapped);
+        if (candidates.length >= limit) break;
+      }
+
+      return candidates;
+    } catch (err) {
+      if (err instanceof DiscoveryProviderRateLimitError) throw err;
+      throw toDiscoveryProviderError(err, {
+        provider: 'osm_overpass',
+        suburb: params.city,
+        category: params.category,
+      });
     }
-
-    const payload = (await res.json()) as { elements?: Record<string, unknown>[] };
-    const elements = payload.elements ?? [];
-    const candidates: BusinessCandidate[] = [];
-
-    for (const el of elements) {
-      const mapped = mapOverpassElement(el, discoveredAt);
-      if (mapped) candidates.push(mapped);
-      if (candidates.length >= limit) break;
-    }
-
-    return candidates;
   }
 }
 
