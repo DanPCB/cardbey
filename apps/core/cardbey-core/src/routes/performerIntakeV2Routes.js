@@ -51,6 +51,11 @@ import {
   throwIfRequestAborted,
 } from '../middleware/requestResponseState.js';
 import { handleFreshStoreCreationDraftSubmit } from '../lib/intake/freshStoreCreationFastPath.js';
+import {
+  isStartBusinessDiscoveryIntent,
+  buildOpenBusinessDiscoveryResponse,
+} from '../lib/intake/businessDiscoveryRouting.js';
+import { coordinateIntakeToolIntent } from '../lib/intentRuntime/intentRuntimeShell.js';
 import { diagLog, isIntakeDiagEnabled } from '../lib/diagnostics/storeCreationDiagnostics.js';
 import { dispatchAndRespondCreateCampaign } from '../lib/mission/dispatchCreateCampaignFromIntake.js';
 import {
@@ -2282,6 +2287,58 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   // Accept both legacy keys (text/goal/message) and the newer client contract key (userMessage).
   const userMessage = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const locale = resolveIntakeLocale(body.locale ?? req.headers?.['x-locale'], userMessage);
+
+  // Legacy Business Import / Discovery Studio phrases → Performer create_store / draft resume.
+  // Never navigate to /app/business-import-studio (SME UI deprecated).
+  const actionHint = String(body.action ?? body.intent ?? '').trim().toLowerCase();
+  const wantsExplicitDiscovery =
+    isStartBusinessDiscoveryIntent(userMessage) ||
+    actionHint === 'start_business_discovery' ||
+    actionHint === 'open_business_discovery_studio';
+  if (wantsExplicitDiscovery) {
+    console.log('[INTAKE] classified legacy_studio_compat → performer business setup');
+    diagLog(intakeDiag, '→ legacy Studio intent normalized to Performer create_store/resume');
+    const conversationSessionId =
+      String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+      null;
+    const earlyCtx =
+      body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
+    const performerMissionId =
+      String(body.missionId ?? body.existingMissionId ?? earlyCtx.missionId ?? '').trim() || null;
+    const draftId =
+      String(body.draftId ?? earlyCtx.draftId ?? earlyCtx.activeDraftId ?? '').trim() || null;
+    const jobId = String(body.jobId ?? earlyCtx.jobId ?? '').trim() || null;
+    const generationRunId =
+      String(body.generationRunId ?? earlyCtx.generationRunId ?? '').trim() || null;
+    const storeId =
+      String(body.storeId ?? earlyCtx.storeId ?? earlyCtx.activeStoreId ?? '').trim() || null;
+    coordinateIntakeToolIntent(req, {
+      tool: 'create_store',
+      goal: userMessage || 'Create a store',
+      missionId: performerMissionId,
+      actorId: req.user?.id ?? req.guestSessionId ?? null,
+      sessionId: conversationSessionId,
+      source: 'legacy_studio_compat_performer',
+    });
+    const payload = buildOpenBusinessDiscoveryResponse({
+      entrySource: 'performer',
+      conversationSessionId,
+      performerMissionId,
+      userMessage,
+      draftId,
+      jobId,
+      generationRunId,
+      storeId,
+      spaceId: body.spaceId ?? earlyCtx.spaceId ?? null,
+      requestId: body.requestId ?? body.clientRequestId ?? null,
+    });
+    console.log('[BUSINESS_DISCOVERY] performer handoff prepared', {
+      action: payload.action,
+      hasDraftId: Boolean(payload.draftId),
+      hasNavigateToStudio: String(payload.navigateTo || '').includes('business-import-studio'),
+    });
+    return res.json(payload);
+  }
 
   /** Set when NL confirm intercept resolves a pending plan before classification. */
   let confirmInterceptClassification = null;
