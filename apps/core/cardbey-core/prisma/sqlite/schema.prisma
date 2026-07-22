@@ -241,7 +241,7 @@ model Business {
   catalogLabel    String   @default("Products")
   ctaLabel        String   @default("Order now")
   stylePreferences Json? // Style preferences: { style: "modern", mood: "warm", etc. }
-  storefrontSettings Json? // { defaultView: "list"|"grid", allowUserToggle: boolean }; default grid, true
+  storefrontSettings Json? // { catalogDisplayPreference: "auto"|"list"|"grid", defaultView: "list"|"grid", allowUserToggle: boolean }
   socialLinks      Json? // { instagram?, facebook?, tiktok?, x?, youtube?, linkedin?, whatsapp? }
   brandTone        String? // e.g. luxury, friendly, minimal, bold
   brandStyle       String? // e.g. modern, vintage, playful

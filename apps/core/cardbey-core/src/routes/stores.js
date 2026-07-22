@@ -1333,12 +1333,23 @@ router.get('/:id/preview', async (req, res, next) => {
     const resolvedAvatarUrl = (business.avatarImageUrl && String(business.avatarImageUrl).trim()) ||
       avatarUrl ||
       null;
-    // Storefront view: defaultView "list"|"grid" (default "grid"), allowUserToggle (default true)
-    let storefront = { defaultView: 'grid', allowUserToggle: true };
+    // Storefront view: catalogDisplayPreference auto|list|grid; defaultView list|grid (legacy); allowUserToggle
+    let storefront = {
+      defaultView: 'list',
+      allowUserToggle: true,
+      catalogDisplayPreference: 'auto',
+    };
     if (business.storefrontSettings && typeof business.storefrontSettings === 'object') {
       const s = business.storefrontSettings;
       if (s.defaultView === 'list' || s.defaultView === 'grid') storefront.defaultView = s.defaultView;
       if (typeof s.allowUserToggle === 'boolean') storefront.allowUserToggle = s.allowUserToggle;
+      if (
+        s.catalogDisplayPreference === 'auto' ||
+        s.catalogDisplayPreference === 'list' ||
+        s.catalogDisplayPreference === 'grid'
+      ) {
+        storefront.catalogDisplayPreference = s.catalogDisplayPreference;
+      }
     }
     if (process.env.NODE_ENV !== 'production') {
       console.log('[Stores:preview] storefront config', { storeId, storefront, hasStorefrontSettings: !!business.storefrontSettings });
@@ -3905,6 +3916,8 @@ const StoreUpdateSchema = z.object({
   storefrontSettings: z.object({
     defaultView: z.enum(['list', 'grid']).optional(),
     allowUserToggle: z.boolean().optional(),
+    /** Merchant catalog layout preference; auto resolves from store type. */
+    catalogDisplayPreference: z.enum(['auto', 'list', 'grid']).optional(),
   }).optional(),
   socialLinks: z.record(z.string()).nullable().optional(),
 }).refine(
@@ -4108,6 +4121,17 @@ router.patch('/:id', requireAuth, requireOwner, async (req, res, next) => {
         : { defaultView: 'grid', allowUserToggle: true };
       if (s.defaultView === 'list' || s.defaultView === 'grid') merged.defaultView = s.defaultView;
       if (typeof s.allowUserToggle === 'boolean') merged.allowUserToggle = s.allowUserToggle;
+      if (
+        s.catalogDisplayPreference === 'auto' ||
+        s.catalogDisplayPreference === 'list' ||
+        s.catalogDisplayPreference === 'grid'
+      ) {
+        merged.catalogDisplayPreference = s.catalogDisplayPreference;
+        // Keep legacy defaultView aligned when merchant forces a concrete mode.
+        if (s.catalogDisplayPreference === 'list' || s.catalogDisplayPreference === 'grid') {
+          merged.defaultView = s.catalogDisplayPreference;
+        }
+      }
       prismaUpdateData.storefrontSettings = merged;
     }
     if (updateData.socialLinks !== undefined) {
