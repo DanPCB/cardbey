@@ -732,6 +732,16 @@ router.post('/claim', guestSessionId, requireAuth, async (req, res, next) => {
           message: 'You do not have access to this draft.',
         });
       }
+      // Idempotent: already owned by this user (retry / double-submit) — no duplicate business.
+      if (draft.ownerUserId === req.userId) {
+        return res.json({
+          ok: true,
+          claimedCount: 0,
+          draftIds: [draft.id],
+          storeId: draft.committedStoreId ?? null,
+          alreadyOwned: true,
+        });
+      }
       await prisma.draftStore.update({
         where: { id: draft.id },
         data: { ownerUserId: req.userId },
