@@ -88,6 +88,7 @@ const banned = [
   { name: 'structuredClone', re: /structuredClone\s*\(/ },
   { name: 'crypto.randomUUID', re: /crypto\.randomUUID/ },
   { name: 'Array.prototype.at call', re: /\.at\s*\(\s*-?\d/ },
+  { name: 'replaceChildren(', re: /\.replaceChildren\s*\(/ },
 ];
 
 for (const file of jsFiles) {

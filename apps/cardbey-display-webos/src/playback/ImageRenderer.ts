@@ -1,4 +1,5 @@
 import type { DisplayFit, DisplayManifestItem } from '@cardbey/display-runtime';
+import { clearElementChildren } from './domClear.js';
 import { mediaError, type MediaPlaybackError } from './mediaErrors.js';
 
 export type ImageRendererCallbacks = {
@@ -68,7 +69,7 @@ export class ImageRenderer {
       this.layer.remove();
       this.layer = null;
     }
-    this.host.replaceChildren();
+    clearElementChildren(this.host);
   }
 
   getElement(): HTMLImageElement | null {

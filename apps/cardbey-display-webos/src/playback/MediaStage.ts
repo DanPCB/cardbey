@@ -1,4 +1,5 @@
 import type { DisplayFit, DisplayManifestItem, DisplayTransition } from '@cardbey/display-runtime';
+import { clearElementChildren } from './domClear.js';
 import { ImageRenderer } from './ImageRenderer.js';
 import { VideoRenderer } from './VideoRenderer.js';
 import { TransitionController } from './TransitionController.js';
@@ -29,7 +30,7 @@ export class MediaStage {
   constructor(private readonly stage: HTMLElement) {
     this.stage.classList.add('stage', 'is-active');
     this.stage.setAttribute('aria-hidden', 'false');
-    this.stage.replaceChildren();
+    clearElementChildren(this.stage);
     this.surface = document.createElement('div');
     this.surface.className = 'media-surface';
     this.stage.appendChild(this.surface);
@@ -119,6 +120,6 @@ export class MediaStage {
 
   destroy(): void {
     this.clear();
-    this.stage.replaceChildren();
+    clearElementChildren(this.stage);
   }
 }

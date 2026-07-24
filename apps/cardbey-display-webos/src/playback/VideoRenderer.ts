@@ -1,4 +1,5 @@
 import type { DisplayFit, DisplayManifestItem } from '@cardbey/display-runtime';
+import { clearElementChildren } from './domClear.js';
 import { mediaError, type MediaPlaybackError } from './mediaErrors.js';
 
 export type VideoRendererCallbacks = {
@@ -161,7 +162,7 @@ export class VideoRenderer {
       this.video.remove();
       this.video = null;
     }
-    this.host.replaceChildren();
+    clearElementChildren(this.host);
   }
 
   private on(
