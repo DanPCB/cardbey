@@ -1,3 +1,12 @@
+import {
+  browserFetch,
+  browserSetTimeout,
+  browserClearTimeout,
+  isIllegalInvocationError,
+  normalizeFetchImpl,
+  type BrowserFetch,
+} from '../platform/browserHost.js';
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export type HttpRequest = {
@@ -20,19 +29,21 @@ export interface HttpTransport {
 }
 
 /**
- * Optional fetch-based transport. Uses globalThis.fetch when available.
- * Shells may inject a custom transport instead.
+ * Optional fetch-based transport.
+ * Always invokes browser fetch with the window receiver on legacy webOS.
  */
-export function createFetchTransport(
-  fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
-): HttpTransport {
+export function createFetchTransport(fetchImpl?: BrowserFetch | null): HttpTransport {
+  const runFetch = normalizeFetchImpl(fetchImpl ?? null);
+
   return {
     async request<T>(req: HttpRequest): Promise<HttpResponse<T>> {
       const controller = new AbortController();
       const timeout = req.timeoutMs ?? 15_000;
-      const timer = setTimeout(() => controller.abort(), timeout);
+      const timer = browserSetTimeout(() => controller.abort(), timeout);
       const onAbort = () => controller.abort();
-      req.signal?.addEventListener('abort', onAbort);
+      if (req.signal) {
+        req.signal.addEventListener('abort', onAbort);
+      }
 
       try {
         const init: RequestInit = {
@@ -48,12 +59,27 @@ export function createFetchTransport(
           init.body = JSON.stringify(req.body);
         }
 
-        const res = await fetchImpl(req.url, init);
-        const headerMap: Record<string, string> = {};
-        res.headers.forEach((value, key) => {
-          headerMap[key.toLowerCase()] = value;
-        });
+        let res: Response;
+        try {
+          res = await runFetch(req.url, init);
+        } catch (cause) {
+          if (isIllegalInvocationError(cause)) {
+            const err = new Error('MANIFEST_FETCH_INVOCATION_FAILED');
+            (err as Error & { cause?: unknown; code?: string }).cause = cause;
+            (err as Error & { code?: string }).code = 'MANIFEST_FETCH_INVOCATION_FAILED';
+            throw err;
+          }
+          throw cause;
+        }
 
+        const headerMap: Record<string, string> = {};
+        if (res.headers && typeof res.headers.forEach === 'function') {
+          res.headers.forEach((value, key) => {
+            headerMap[key.toLowerCase()] = value;
+          });
+        }
+
+        // Keep Response#text / #json on the response receiver (do not detach).
         const text = await res.text();
         let data: T;
         if (!text) {
@@ -71,9 +97,14 @@ export function createFetchTransport(
 
         return { status: res.status, headers: headerMap, data };
       } finally {
-        clearTimeout(timer);
-        req.signal?.removeEventListener('abort', onAbort);
+        browserClearTimeout(timer);
+        if (req.signal) {
+          req.signal.removeEventListener('abort', onAbort);
+        }
       }
     },
   };
 }
+
+/** Re-export for shells that want the canonical wrapper directly. */
+export { browserFetch, normalizeFetchImpl };

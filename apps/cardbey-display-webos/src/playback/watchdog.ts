@@ -1,3 +1,4 @@
+import { browserClearTimeout, browserSetTimeout } from '@cardbey/display-runtime';
 import type { WatchdogKind } from './playbackState.js';
 
 export type WatchdogOptions = {
@@ -5,8 +6,8 @@ export type WatchdogOptions = {
   kind: WatchdogKind;
   timeoutMs: number;
   onFire: (kind: WatchdogKind, generation: number) => void;
-  setTimeoutFn?: typeof setTimeout;
-  clearTimeoutFn?: typeof clearTimeout;
+  setTimeoutFn?: (handler: () => void, timeout?: number) => ReturnType<typeof setTimeout>;
+  clearTimeoutFn?: (id: ReturnType<typeof setTimeout>) => void;
 };
 
 /**
@@ -14,8 +15,11 @@ export type WatchdogOptions = {
  */
 export class ItemWatchdog {
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private readonly setTimeoutFn: typeof setTimeout;
-  private readonly clearTimeoutFn: typeof clearTimeout;
+  private readonly setTimeoutFn: (
+    handler: () => void,
+    timeout?: number,
+  ) => ReturnType<typeof setTimeout>;
+  private readonly clearTimeoutFn: (id: ReturnType<typeof setTimeout>) => void;
   private pausedRemainingMs: number | null = null;
   private startedAt = 0;
   readonly kind: WatchdogKind;
@@ -28,8 +32,10 @@ export class ItemWatchdog {
     this.generation = options.generation;
     this.timeoutMs = options.timeoutMs;
     this.onFire = options.onFire;
-    this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
-    this.clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
+    this.setTimeoutFn =
+      options.setTimeoutFn ?? ((handler, timeout) => browserSetTimeout(handler, timeout));
+    this.clearTimeoutFn =
+      options.clearTimeoutFn ?? ((id) => browserClearTimeout(id));
   }
 
   start(): void {

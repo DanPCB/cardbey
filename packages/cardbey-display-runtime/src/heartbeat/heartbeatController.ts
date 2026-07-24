@@ -1,6 +1,11 @@
 import type { DeviceApiClient } from '../api/deviceApiClient.js';
 import type { DisplayRuntimeConfig } from '../config/runtimeConfig.js';
 import type { DeviceIdentity } from '../identity/deviceIdentity.js';
+import {
+  browserClearInterval,
+  browserSetInterval,
+  isIllegalInvocationError,
+} from '../platform/browserHost.js';
 import type { Clock } from '../platform/clock.js';
 import type {
   HeartbeatControllerSnapshot,
@@ -26,8 +31,10 @@ export class HeartbeatController {
   private readonly clearIntervalFn: typeof clearInterval;
 
   constructor(private readonly deps: HeartbeatControllerDeps) {
-    this.setIntervalFn = deps.setIntervalFn ?? setInterval;
-    this.clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
+    // Never store unbound window.setInterval — Chrome 68 throws Illegal invocation.
+    this.setIntervalFn = deps.setIntervalFn ?? (browserSetInterval as unknown as typeof setInterval);
+    this.clearIntervalFn =
+      deps.clearIntervalFn ?? (browserClearInterval as unknown as typeof clearInterval);
   }
 
   getSnapshot(): HeartbeatControllerSnapshot {
@@ -108,11 +115,16 @@ export class HeartbeatController {
       };
       this.deps.onHeartbeat?.(this.getSnapshot());
     } catch (err) {
+      const message = isIllegalInvocationError(err)
+        ? 'HEARTBEAT_INVOCATION_FAILED'
+        : err instanceof Error
+          ? err.message
+          : 'Heartbeat failed';
       this.snapshot = {
         ...this.snapshot,
         inFlight: false,
         lastFailureAt: this.deps.clock.now().toISOString(),
-        lastFailureMessage: err instanceof Error ? err.message : 'Heartbeat failed',
+        lastFailureMessage: message,
       };
       this.deps.onHeartbeat?.(this.getSnapshot());
     } finally {

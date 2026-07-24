@@ -1,6 +1,12 @@
 import type { DeviceApiClient } from '../api/deviceApiClient.js';
 import type { DisplayRuntimeConfig } from '../config/runtimeConfig.js';
 import { DisplayError, displayError } from '../errors/displayError.js';
+import {
+  browserClearInterval,
+  browserSetInterval,
+  browserSleep,
+  isIllegalInvocationError,
+} from '../platform/browserHost.js';
 import type { Clock } from '../platform/clock.js';
 import { mapPlaylistFullStateToContentCode } from '../platform/platformLabels.js';
 import { normalizePlaylist } from '../playlist/normalizePlaylist.js';
@@ -32,6 +38,7 @@ export type SyncControllerSnapshot = {
   lastHttpStatus?: number;
   lastErrorCode?: string;
   lastErrorMessage?: string;
+  lastOperation?: string;
   offline: boolean;
   activeManifest: DisplayManifest | null;
   deviceId: string;
@@ -62,6 +69,7 @@ export class SyncController {
   private lastHttpStatus?: number;
   private lastErrorCode?: string;
   private lastErrorMessage?: string;
+  private lastOperation?: string;
   private deviceId: string;
   private readonly backoff: BackoffTracker;
   private readonly setIntervalFn: typeof setInterval;
@@ -71,9 +79,10 @@ export class SyncController {
   constructor(private readonly deps: SyncControllerDeps) {
     this.deviceId = deps.deviceId;
     this.backoff = new BackoffTracker(deps.config.retry);
-    this.setIntervalFn = deps.setIntervalFn ?? setInterval;
-    this.clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
-    this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.setIntervalFn = deps.setIntervalFn ?? (browserSetInterval as unknown as typeof setInterval);
+    this.clearIntervalFn =
+      deps.clearIntervalFn ?? (browserClearInterval as unknown as typeof clearInterval);
+    this.sleep = deps.sleep ?? browserSleep;
   }
 
   getSnapshot(): SyncControllerSnapshot {
@@ -87,6 +96,7 @@ export class SyncController {
       lastHttpStatus: this.lastHttpStatus,
       lastErrorCode: this.lastErrorCode,
       lastErrorMessage: this.lastErrorMessage,
+      lastOperation: this.lastOperation,
       offline: this.offline,
       activeManifest: this.activeManifest,
       deviceId: this.deviceId,
@@ -108,6 +118,7 @@ export class SyncController {
   }
 
   async restoreCachedManifest(): Promise<DisplayManifest | null> {
+    this.lastOperation = 'STORAGE_RESTORE_MANIFEST';
     const cached = await this.deps.storage.get<DisplayManifest>(STORAGE_KEYS.lastValidManifest);
     if (cached) this.activeManifest = cached;
     this.emit();
@@ -142,15 +153,40 @@ export class SyncController {
     }
     this.inFlight = true;
     this.abort = new AbortController();
+    this.lastOperation = 'MANIFEST_REQUEST_STARTED';
     this.emit();
 
     try {
-      const raw = await this.deps.api.fetchFullPlaylist(this.deviceId, this.abort.signal);
-      const normalized = normalizePlaylist(raw, {
-        apiBaseUrl: this.deps.config.apiBaseUrl,
-        allowInsecureLocalHttp: this.deps.config.allowInsecureLocalHttp,
-        defaultImageDurationMs: this.deps.config.defaultImageDurationMs,
-      });
+      let raw;
+      try {
+        raw = await this.deps.api.fetchFullPlaylist(this.deviceId, this.abort.signal);
+        this.lastOperation = 'MANIFEST_RESPONSE_RECEIVED';
+      } catch (fetchErr) {
+        if (isIllegalInvocationError(fetchErr)) {
+          throw displayError('DISPLAY_NETWORK_ERROR', 'MANIFEST_FETCH_INVOCATION_FAILED', {
+            retryable: true,
+            cause: fetchErr,
+            context: { operation: 'MANIFEST_FETCH_INVOCATION_FAILED' },
+          });
+        }
+        throw fetchErr;
+      }
+
+      let normalized;
+      try {
+        this.lastOperation = 'MANIFEST_PARSED';
+        normalized = normalizePlaylist(raw, {
+          apiBaseUrl: this.deps.config.apiBaseUrl,
+          allowInsecureLocalHttp: this.deps.config.allowInsecureLocalHttp,
+          defaultImageDurationMs: this.deps.config.defaultImageDurationMs,
+        });
+      } catch (normErr) {
+        throw displayError('DISPLAY_PLAYLIST_INVALID', 'MANIFEST_NORMALIZATION_FAILED', {
+          retryable: false,
+          cause: normErr,
+          context: { operation: 'MANIFEST_NORMALIZATION_FAILED' },
+        });
+      }
 
       this.offline = false;
       this.backoff.reset();
@@ -169,6 +205,7 @@ export class SyncController {
         this.lastOutcome = 'empty';
         this.lastEmptyState = normalized.state;
         this.lastContentCode = contentCode;
+        this.lastOperation = 'ASSIGNMENT_FOUND';
         const outcome: SyncOutcome = {
           kind: 'empty',
           state: normalized.state,
@@ -179,6 +216,7 @@ export class SyncController {
         return outcome;
       }
 
+      this.lastOperation = 'DEVICE_RESOLVED';
       const manifest = validateManifest(normalized.manifest);
       if (
         this.activeManifest &&
@@ -187,6 +225,7 @@ export class SyncController {
       ) {
         this.lastOutcome = 'unchanged';
         this.lastContentCode = 'MANIFEST_READY';
+        this.lastOperation = 'MANIFEST_READY';
         const outcome: SyncOutcome = { kind: 'unchanged', revision: manifest.revision };
         this.emit();
         return outcome;
@@ -197,6 +236,7 @@ export class SyncController {
       this.lastOutcome = 'updated';
       this.lastEmptyState = undefined;
       this.lastContentCode = 'MANIFEST_READY';
+      this.lastOperation = 'MANIFEST_READY';
       const outcome: SyncOutcome = { kind: 'updated', manifest };
       this.emit();
       return outcome;
@@ -212,6 +252,36 @@ export class SyncController {
       this.lastErrorMessage = error.message;
       this.lastHttpStatus = error.httpStatus;
 
+      if (isIllegalInvocationError(err) || /INVOCATION_FAILED/i.test(error.message)) {
+        this.offline = true;
+        this.lastOutcome = 'network';
+        this.lastContentCode = 'MANIFEST_FETCH_INVOCATION_FAILED';
+        this.lastOperation = 'MANIFEST_FETCH_INVOCATION_FAILED';
+        const outcome: SyncOutcome = {
+          kind: 'network',
+          error,
+          preserved: this.activeManifest,
+        };
+        this.emit();
+        if (this.timer) {
+          await this.sleep(this.backoff.nextDelayMs());
+        }
+        return outcome;
+      }
+
+      if (error.message === 'MANIFEST_NORMALIZATION_FAILED') {
+        this.lastOutcome = 'rejected';
+        this.lastContentCode = 'MANIFEST_NORMALIZATION_FAILED';
+        this.lastOperation = 'MANIFEST_NORMALIZATION_FAILED';
+        const outcome: SyncOutcome = {
+          kind: 'rejected',
+          error,
+          preserved: this.activeManifest,
+        };
+        this.emit();
+        return outcome;
+      }
+
       if (
         error.code === 'DISPLAY_PLAYLIST_INVALID' ||
         error.code === 'DISPLAY_RESPONSE_INVALID' ||
@@ -225,6 +295,7 @@ export class SyncController {
               });
         this.lastOutcome = 'rejected';
         this.lastContentCode = contentCode;
+        this.lastOperation = 'MANIFEST_HTTP_ERROR';
         const outcome: SyncOutcome = {
           kind: 'rejected',
           error,
@@ -236,7 +307,8 @@ export class SyncController {
 
       this.offline = true;
       this.lastOutcome = 'network';
-      this.lastContentCode = 'MANIFEST_ERROR';
+      this.lastContentCode = 'MANIFEST_NETWORK_FAILED';
+      this.lastOperation = 'MANIFEST_NETWORK_FAILED';
       const delay = this.backoff.nextDelayMs();
       const outcome: SyncOutcome = {
         kind: 'network',

@@ -1,5 +1,7 @@
 import {
   TelemetryQueue,
+  browserClearTimeout,
+  browserSetTimeout,
   createPlaylistSequencer,
   filterManifestBySchedule,
   isItemActiveAt,
@@ -49,8 +51,8 @@ export type PlaybackCoordinatorDeps = {
       | { type: 'RECOVERY_STARTED' }
       | { type: 'RECOVERY_SUCCEEDED' },
   ) => void;
-  setTimeoutFn?: typeof setTimeout;
-  clearTimeoutFn?: typeof clearTimeout;
+  setTimeoutFn?: (handler: () => void, timeout?: number) => ReturnType<typeof setTimeout>;
+  clearTimeoutFn?: (id: ReturnType<typeof setTimeout>) => void;
 };
 
 type ItemFingerprint = string;
@@ -71,8 +73,11 @@ export class PlaybackCoordinator {
   private readonly allFailedRetryMs: number;
   private readonly scheduleRefreshMaxMs: number;
   private readonly telemetry: TelemetryQueue;
-  private readonly setTimeoutFn: typeof setTimeout;
-  private readonly clearTimeoutFn: typeof clearTimeout;
+  private readonly setTimeoutFn: (
+    handler: () => void,
+    timeout?: number,
+  ) => ReturnType<typeof setTimeout>;
+  private readonly clearTimeoutFn: (id: ReturnType<typeof setTimeout>) => void;
 
   private rawManifest: DisplayManifest | null = null;
   private eligibleManifest: DisplayManifest | null = null;
@@ -115,8 +120,11 @@ export class PlaybackCoordinator {
       clock: deps.clock,
       maxQueueSize: 100,
     });
-    this.setTimeoutFn = deps.setTimeoutFn ?? setTimeout;
-    this.clearTimeoutFn = deps.clearTimeoutFn ?? clearTimeout;
+    this.setTimeoutFn =
+      deps.setTimeoutFn ??
+      ((handler, timeout) => browserSetTimeout(handler, timeout));
+    this.clearTimeoutFn =
+      deps.clearTimeoutFn ?? ((id) => browserClearTimeout(id));
   }
 
   getState(): PlaybackState {

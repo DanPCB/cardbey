@@ -1,4 +1,4 @@
-import type { DisplayTransition } from '@cardbey/display-runtime';
+import { browserClearTimeout, browserSetTimeout, type DisplayTransition } from '@cardbey/display-runtime';
 
 export type TransitionCallbacks = {
   generation: number;
@@ -40,7 +40,7 @@ export class TransitionController {
     this.host.style.transition = `opacity ${ms}ms ease`;
     this.host.style.opacity = '1';
 
-    this.timer = setTimeout(() => {
+    this.timer = browserSetTimeout(() => {
       this.timer = null;
       this.host.classList.remove('is-fading');
       this.host.style.transition = '';
@@ -50,7 +50,7 @@ export class TransitionController {
   }
 
   clear(): void {
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) browserClearTimeout(this.timer);
     this.timer = null;
     this.host.classList.remove('is-fading');
     this.host.style.transition = '';

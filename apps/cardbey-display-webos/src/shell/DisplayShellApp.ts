@@ -11,6 +11,8 @@ import {
   platformDisplayLabel,
   resolveDevicePresentationName,
   secondsRemainingUntil,
+  browserClearInterval,
+  browserSetInterval,
   type Clock,
   type DeviceApiClient,
   type DeviceIdentity,
@@ -47,6 +49,12 @@ import {
 } from '../playback/index.js';
 import { SessionActivation } from '../runtime/SessionActivation.js';
 import { createFixtureTransport } from '../runtime/fixtureTransport.js';
+import {
+  formatFailureForUi,
+  reportRuntimeFailure,
+  safeRuntimeLog,
+  type RuntimeFailureReport,
+} from '../runtime/runtimeErrorReport.js';
 import { ensureShellDom, renderShell, type ShellViewModel } from './renderStatus.js';
 
 export type DisplayShellAppOptions = {
@@ -96,6 +104,9 @@ export class DisplayShellApp {
   private lastSync?: SyncControllerSnapshot;
   private lastSyncOutcome?: SyncOutcome['kind'];
   private lastContentCode?: string;
+  private lastRuntimeFailure?: RuntimeFailureReport;
+  private lastSyncOperation?: string;
+  private lastSyncHttpStatus?: number;
   private playback: PlaybackCoordinator | null = null;
   private playbackState: PlaybackState = { status: 'IDLE' };
   private playbackDiagnostics?: PlaybackDiagnostics;
@@ -183,6 +194,8 @@ export class DisplayShellApp {
           this.lastSync = snap;
           this.lastSyncOutcome = snap.lastOutcome;
           this.lastContentCode = snap.lastContentCode;
+          this.lastSyncOperation = snap.lastOperation;
+          this.lastSyncHttpStatus = snap.lastHttpStatus;
           if (snap.activeManifest && snap.activeManifest.playlist.items.length > 0) {
             this.dispatch({ type: 'MANIFEST_RECEIVED', manifest: snap.activeManifest });
             this.applyManifestToPlayback(snap.activeManifest);
@@ -194,7 +207,16 @@ export class DisplayShellApp {
               (snap.lastContentCode as ManifestContentCode) || 'NOT_ASSIGNED',
             );
           } else if (snap.lastOutcome === 'network') {
-            this.bootMessage = contentCodeUserMessage('MANIFEST_ERROR');
+            this.bootMessage = contentCodeUserMessage(
+              (snap.lastContentCode as ManifestContentCode) || 'MANIFEST_NETWORK_FAILED',
+            );
+            if (snap.lastErrorMessage) {
+              this.lastRuntimeFailure = reportRuntimeFailure(
+                snap.lastOperation || 'MANIFEST_NETWORK_FAILED',
+                new Error(snap.lastErrorMessage),
+                { lifecycleStage: 'SYNC' },
+              );
+            }
           }
           this.playback?.setNetworkOnline(!snap.offline && this.state.networkOnline);
           this.render();
@@ -204,7 +226,7 @@ export class DisplayShellApp {
           this.render();
         },
         onCanonicalDeviceRemap: (fromId, toId) => {
-          console.log('[Cardbey webOS boot]', 'DEVICE_IDENTITY_REMAP', {
+          safeRuntimeLog('DEVICE_IDENTITY_REMAP', {
             fromHost: maskId(fromId),
             toHost: maskId(toId),
           });
@@ -328,10 +350,13 @@ export class DisplayShellApp {
     this.bootMessage = 'Connected. Checking playlist assignment…';
     this.render();
     try {
+      safeRuntimeLog('ACTIVATION_STARTED', { deviceHost: maskId(session.deviceId) });
       await this.activation.activatePairedSession(session);
       const manifest = this.activation.getActiveManifest();
       const syncSnap = this.activation.getSync()?.getSnapshot();
       this.lastContentCode = syncSnap?.lastContentCode;
+      this.lastSyncOperation = syncSnap?.lastOperation;
+      this.lastSyncHttpStatus = syncSnap?.lastHttpStatus;
       if (manifest && manifest.playlist.items.length > 0) {
         this.dispatch({ type: 'MANIFEST_RECEIVED', manifest });
         this.applyManifestToPlayback(manifest);
@@ -346,8 +371,12 @@ export class DisplayShellApp {
         );
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Activation failed';
-      this.bootMessage = message;
+      const report = reportRuntimeFailure('MANIFEST_ACTIVATION_FAILED', err, {
+        lifecycleStage: 'ACTIVATION',
+      });
+      this.lastRuntimeFailure = report;
+      this.lastContentCode = 'MANIFEST_ACTIVATION_FAILED';
+      this.bootMessage = formatFailureForUi(report);
       // Keep paired — do not unpair on heartbeat/sync failure
       this.dispatch({ type: 'MANIFEST_EMPTY' });
     }
@@ -482,7 +511,7 @@ export class DisplayShellApp {
   private startCountdown(expiresAt?: string): void {
     this.clearCountdown();
     this.refreshCountdown(expiresAt);
-    this.countdownTimer = setInterval(() => this.refreshCountdown(expiresAt), 1000);
+    this.countdownTimer = browserSetInterval(() => this.refreshCountdown(expiresAt), 1000);
   }
 
   private refreshCountdown(expiresAt?: string): void {
@@ -492,7 +521,7 @@ export class DisplayShellApp {
   }
 
   private clearCountdown(): void {
-    if (this.countdownTimer) clearInterval(this.countdownTimer);
+    if (this.countdownTimer) browserClearInterval(this.countdownTimer);
     this.countdownTimer = null;
     this.secondsRemaining = undefined;
   }
@@ -639,6 +668,9 @@ export class DisplayShellApp {
       lastHeartbeatError: this.lastHeartbeat?.lastFailureMessage,
       lastSyncAt: this.lastSync?.lastSyncAt || this.state.lastSyncAt,
       lastSyncOutcome: this.lastSyncOutcome,
+      lastSyncOperation: this.lastSyncOperation || this.lastSync?.lastOperation,
+      lastSyncHttpStatus: this.lastSyncHttpStatus ?? this.lastSync?.lastHttpStatus,
+      lastRuntimeFailure: this.lastRuntimeFailure,
       fixtureMode: this.config.featureFlags.useFixtureTransport,
       playback: this.playbackState,
       playbackDiagnostics: this.playbackDiagnostics,

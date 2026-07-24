@@ -69,6 +69,10 @@ export type ManifestContentCode =
   | 'STORE_NOT_ASSIGNED'
   | 'MANIFEST_UNAUTHORIZED'
   | 'MANIFEST_ERROR'
+  | 'MANIFEST_FETCH_INVOCATION_FAILED'
+  | 'MANIFEST_NETWORK_FAILED'
+  | 'MANIFEST_NORMALIZATION_FAILED'
+  | 'MANIFEST_ACTIVATION_FAILED'
   | 'DEVICE_IDENTITY_MISMATCH'
   | 'DEVICE_NOT_FOUND'
   | 'UNKNOWN';
@@ -118,6 +122,14 @@ export function contentCodeUserMessage(code: ManifestContentCode): string {
       return 'Connected, but the content service cannot find this screen.';
     case 'MANIFEST_ERROR':
       return 'Connected, but content could not be loaded.';
+    case 'MANIFEST_FETCH_INVOCATION_FAILED':
+      return 'Connected, but a browser API call failed (Illegal invocation). Check diagnostics.';
+    case 'MANIFEST_NETWORK_FAILED':
+      return 'Connected, but the content request could not reach Cardbey.';
+    case 'MANIFEST_NORMALIZATION_FAILED':
+      return 'Connected, but the playlist response could not be understood.';
+    case 'MANIFEST_ACTIVATION_FAILED':
+      return 'Connected, but playlist activation failed. Check diagnostics.';
     case 'MANIFEST_READY':
       return 'Playlist ready.';
     default:

@@ -40,6 +40,18 @@ export type ShellViewModel = {
   lastHeartbeatError?: string;
   lastSyncAt?: string;
   lastSyncOutcome?: string;
+  lastSyncOperation?: string;
+  lastSyncHttpStatus?: number;
+  lastRuntimeFailure?: {
+    operation: string;
+    name: string;
+    message: string;
+    stackTruncated: string;
+    sourceFile?: string;
+    line?: number;
+    column?: number;
+    lifecycleStage?: string;
+  };
   fixtureMode: boolean;
   playback?: PlaybackState;
   playbackDiagnostics?: PlaybackDiagnostics;
@@ -299,6 +311,23 @@ function renderDiagnosticsInner(vm: ShellViewModel): string {
         <dt>Device ID</dt><dd>${escapeHtml(maskId(vm.canonicalDeviceId || vm.state.session?.deviceId))}</dd>
         <dt>Content code</dt><dd>${escapeHtml(vm.contentCode || '—')}</dd>
         <dt>Sync</dt><dd>${escapeHtml(vm.lastSyncOutcome || '—')} @ ${escapeHtml(vm.lastSyncAt || '—')}</dd>
+        <dt>Sync op</dt><dd>${escapeHtml(vm.lastSyncOperation || '—')}</dd>
+        <dt>HTTP</dt><dd>${escapeHtml(
+          vm.lastSyncHttpStatus != null ? String(vm.lastSyncHttpStatus) : '—',
+        )}</dd>
+        <dt>Failure</dt><dd>${escapeHtml(
+          vm.lastRuntimeFailure
+            ? `${vm.lastRuntimeFailure.operation} · ${vm.lastRuntimeFailure.name}: ${vm.lastRuntimeFailure.message}`
+            : '—',
+        )}</dd>
+        <dt>Fail loc</dt><dd>${escapeHtml(
+          vm.lastRuntimeFailure?.sourceFile
+            ? `${vm.lastRuntimeFailure.sourceFile}:${vm.lastRuntimeFailure.line ?? '?'}:${vm.lastRuntimeFailure.column ?? '?'}`
+            : '—',
+        )}</dd>
+        <dt>Stack</dt><dd class="diag-stack">${escapeHtml(
+          vm.lastRuntimeFailure?.stackTruncated || '—',
+        )}</dd>
         <dt>Runtime</dt><dd>${escapeHtml(vm.state.status)}</dd>
         <dt>Playback</dt><dd>${escapeHtml(vm.playback?.status || pb?.playbackStatus || '—')}</dd>
         <dt>Manifest</dt><dd>${escapeHtml(

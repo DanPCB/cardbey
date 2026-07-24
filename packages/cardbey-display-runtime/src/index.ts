@@ -134,3 +134,14 @@ export type {
 } from './telemetry/telemetryTypes.js';
 export { FakeClock, SystemClock, type Clock } from './platform/clock.js';
 export { createId, type PlatformAdapter } from './platform/platformAdapter.js';
+export {
+  browserClearInterval,
+  browserClearTimeout,
+  browserFetch,
+  browserSetInterval,
+  browserSetTimeout,
+  browserSleep,
+  isIllegalInvocationError,
+  normalizeFetchImpl,
+  type BrowserFetch,
+} from './platform/browserHost.js';

@@ -4,6 +4,10 @@ import { DisplayError, displayError } from '../errors/displayError.js';
 import type { DeviceIdentity } from '../identity/deviceIdentity.js';
 import { createPairedSession, type DeviceSession } from '../identity/deviceSession.js';
 import { persistDeviceSession } from '../identity/sessionPersistence.js';
+import {
+  browserClearTimeout,
+  browserSetTimeout,
+} from '../platform/browserHost.js';
 import type { Clock } from '../platform/clock.js';
 import type { DisplayStorage } from '../storage/displayStorage.js';
 import { resolvePairingExpiresAt } from './expiresAt.js';
@@ -25,16 +29,16 @@ export type PairingControllerDeps = {
 async function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return;
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
+    const timer = browserSetTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
       resolve();
     }, ms);
     const onAbort = () => {
-      clearTimeout(timer);
+      browserClearTimeout(timer);
       reject(displayError('DISPLAY_REQUEST_TIMEOUT', 'Pairing cancelled', { retryable: false }));
     };
     if (signal?.aborted) {
-      clearTimeout(timer);
+      browserClearTimeout(timer);
       onAbort();
       return;
     }
