@@ -62,6 +62,23 @@ describe('playback basics', () => {
 });
 
 describe('PlaybackCoordinator', () => {
+  const passProbe = async (input: {
+    itemId: string;
+    mediaType: 'IMAGE' | 'VIDEO';
+    url: string;
+  }) => ({
+    itemId: input.itemId,
+    mediaType: input.mediaType,
+    originalUrl: input.url,
+    resolvedUrl: input.url,
+    ok: true as const,
+    httpStatus: 200,
+    mimeType: input.mediaType === 'VIDEO' ? 'video/mp4' : 'image/jpeg',
+    contentLength: 1000,
+    redirectChain: [] as string[],
+    probeMethod: 'HEAD' as const,
+  });
+
   it('plays image fixture and rejects stale ended', async () => {
     vi.useFakeTimers();
     const stage = document.createElement('div');
@@ -81,6 +98,7 @@ describe('PlaybackCoordinator', () => {
       defaultImageDurationMs: 8_000,
       mediaTimeoutMs: 5_000,
       scheduleRefreshMaxMs: 60_000,
+      probeMedia: passProbe,
       onStateChange: (s) => states.push(s.status),
     });
 
@@ -109,6 +127,7 @@ describe('PlaybackCoordinator', () => {
     const coordinator = new PlaybackCoordinator({
       stage,
       clock: new FakeClock(),
+      probeMedia: passProbe,
     });
     coordinator.setManifest(getPlaybackFixture('empty'));
     expect(coordinator.getState()).toMatchObject({
@@ -145,6 +164,7 @@ describe('PlaybackCoordinator', () => {
       mediaTimeoutMs: 5_000,
       scheduleRefreshMaxMs: 60_000,
       allFailedRetryMs: 60_000,
+      probeMedia: passProbe,
     });
     coordinator.setManifest(getPlaybackFixture('first_fails_second_ok'));
     await coordinator.play();
@@ -158,5 +178,37 @@ describe('PlaybackCoordinator', () => {
     coordinator.destroy();
     window.Image = OriginalImage;
     vi.useRealTimers();
+  });
+
+  it('surfaces MEDIA_HTTP_404 from media probe before renderer', async () => {
+    const stage = document.createElement('div');
+    const coordinator = new PlaybackCoordinator({
+      stage,
+      clock: new FakeClock(),
+      allFailedRetryMs: 60_000,
+      probeMedia: async (input) => ({
+        itemId: input.itemId,
+        mediaType: input.mediaType,
+        originalUrl: input.url,
+        resolvedUrl: input.url,
+        ok: false,
+        httpStatus: 404,
+        mimeType: 'text/plain;charset=UTF-8',
+        contentLength: null,
+        redirectChain: [],
+        probeMethod: 'HEAD',
+        failureCode: 'MEDIA_HTTP_404',
+        failureMessage: 'HTTP 404',
+      }),
+    });
+    coordinator.setManifest(getPlaybackFixture('one_image'));
+    await coordinator.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    const diag = coordinator.getDiagnostics();
+    expect(diag.lastFailureCode).toBe('MEDIA_HTTP_404');
+    expect(diag.lastFailureDetail?.httpStatus).toBe(404);
+    expect(coordinator.getState().status).toBe('FAILED');
+    coordinator.destroy();
   });
 });

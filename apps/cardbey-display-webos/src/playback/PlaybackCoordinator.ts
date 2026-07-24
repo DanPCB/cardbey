@@ -20,6 +20,9 @@ import {
 } from './duration.js';
 import { maskMediaUrl } from './maskMediaUrl.js';
 import type { MediaPlaybackError } from './mediaErrors.js';
+import type { MediaPlaybackFailureDetail } from './mediaFailureCodes.js';
+import { probeMediaItem } from './mediaProbe.js';
+import type { MediaItemProbeResult } from './mediaFailureCodes.js';
 import { MediaStage } from './MediaStage.js';
 import {
   type NoContentReason,
@@ -29,6 +32,7 @@ import {
   type WatchdogKind,
 } from './playbackState.js';
 import { ItemWatchdog } from './watchdog.js';
+import { safeRuntimeLog } from '../runtime/runtimeErrorReport.js';
 
 export type PlaybackCoordinatorDeps = {
   stage: HTMLElement;
@@ -53,6 +57,12 @@ export type PlaybackCoordinatorDeps = {
   ) => void;
   setTimeoutFn?: (handler: () => void, timeout?: number) => ReturnType<typeof setTimeout>;
   clearTimeoutFn?: (id: ReturnType<typeof setTimeout>) => void;
+  /** Injected for tests — defaults to live HEAD/GET media probe. */
+  probeMedia?: (input: {
+    itemId: string;
+    mediaType: 'IMAGE' | 'VIDEO';
+    url: string;
+  }) => Promise<MediaItemProbeResult>;
 };
 
 type ItemFingerprint = string;
@@ -78,6 +88,7 @@ export class PlaybackCoordinator {
     timeout?: number,
   ) => ReturnType<typeof setTimeout>;
   private readonly clearTimeoutFn: (id: ReturnType<typeof setTimeout>) => void;
+  private readonly probeMedia: NonNullable<PlaybackCoordinatorDeps['probeMedia']>;
 
   private rawManifest: DisplayManifest | null = null;
   private eligibleManifest: DisplayManifest | null = null;
@@ -91,6 +102,8 @@ export class PlaybackCoordinator {
   private lastManifestReplace = 'none';
   private lastMediaEvent?: string;
   private lastMediaError?: string;
+  private lastFailureCode?: string;
+  private lastFailureDetail?: MediaPlaybackFailureDetail;
   private activeWatchdog: ItemWatchdog | null = null;
   private imageTimer: ReturnType<typeof setTimeout> | null = null;
   private imageRemainingMs: number | null = null;
@@ -125,6 +138,7 @@ export class PlaybackCoordinator {
       ((handler, timeout) => browserSetTimeout(handler, timeout));
     this.clearTimeoutFn =
       deps.clearTimeoutFn ?? ((id) => browserClearTimeout(id));
+    this.probeMedia = deps.probeMedia ?? probeMediaItem;
   }
 
   getState(): PlaybackState {
@@ -167,6 +181,8 @@ export class PlaybackCoordinator {
       activeWatchdog: this.activeWatchdog?.kind,
       lastMediaEvent: this.lastMediaEvent,
       lastMediaError: this.lastMediaError,
+      lastFailureCode: this.lastFailureCode,
+      lastFailureDetail: this.lastFailureDetail,
       failedItemIds: [...this.failedIds],
       recoveryAttemptCount: this.recoveryAttemptCount,
       staleEventCount: this.staleEventCount,
@@ -374,10 +390,40 @@ export class PlaybackCoordinator {
     }
     this.lastMediaEvent = 'error';
     this.lastMediaError = error.code;
+    this.lastFailureCode = error.failureCode || error.code;
+    if (error.detail) {
+      this.lastFailureDetail = {
+        itemId: error.detail.itemId || itemId,
+        mediaType: error.detail.mediaType || error.mediaType,
+        originalUrl: error.detail.originalUrl || '',
+        resolvedUrl: error.detail.resolvedUrl,
+        mimeType: error.detail.mimeType,
+        httpStatus: error.detail.httpStatus,
+        redirectChain: error.detail.redirectChain,
+        contentLength: error.detail.contentLength,
+        renderer: error.detail.renderer || error.mediaType,
+        failureCode: error.failureCode || 'MEDIA_UNKNOWN',
+        htmlMediaErrorCode: error.detail.htmlMediaErrorCode,
+        htmlMediaErrorMessage: error.detail.htmlMediaErrorMessage,
+        naturalWidth: error.detail.naturalWidth,
+        naturalHeight: error.detail.naturalHeight,
+        watchdogStage: error.detail.watchdogStage,
+        lastMediaEvent: error.detail.lastMediaEvent || 'error',
+        playRejection: error.detail.playRejection,
+        at: error.detail.at || this.clock.now().toISOString(),
+      };
+    }
+    safeRuntimeLog('MEDIA_ITEM_FAILED', {
+      itemId,
+      failureCode: this.lastFailureCode,
+      httpStatus: this.lastFailureDetail?.httpStatus,
+      mimeType: this.lastFailureDetail?.mimeType,
+      htmlMediaErrorCode: this.lastFailureDetail?.htmlMediaErrorCode,
+    });
     this.failedIds.add(itemId);
     this.telemetry.enqueue('ITEM_FAILED', {
       itemId,
-      metadata: { code: error.code },
+      metadata: { code: error.code, failureCode: this.lastFailureCode },
     });
     this.skip('media_error');
   }
@@ -446,6 +492,54 @@ export class PlaybackCoordinator {
 
     this.telemetry.enqueue('ITEM_PREPARING', { itemId: item.id,
       playlistId });
+
+    safeRuntimeLog('MEDIA_ITEM_ACTIVATE', {
+      itemId: item.id,
+      mediaType: item.type,
+      urlHostPath: maskMediaUrl(item.url),
+      generation,
+    });
+
+    const probe = await this.probeMedia({
+      itemId: item.id,
+      mediaType: item.type,
+      url: item.url,
+    });
+    if (generation !== this.generation || this.destroyed) return;
+
+    if (!probe.ok) {
+      const failureCode = probe.failureCode || 'MEDIA_UNKNOWN';
+      this.lastMediaEvent = 'probe_failed';
+      this.lastMediaError = failureCode;
+      this.lastFailureCode = failureCode;
+      this.lastFailureDetail = {
+        itemId: item.id,
+        mediaType: item.type,
+        originalUrl: probe.originalUrl,
+        resolvedUrl: probe.resolvedUrl,
+        mimeType: probe.mimeType,
+        httpStatus: probe.httpStatus,
+        redirectChain: probe.redirectChain,
+        contentLength: probe.contentLength,
+        renderer: 'NONE',
+        failureCode,
+        lastMediaEvent: 'probe_failed',
+        at: this.clock.now().toISOString(),
+      };
+      safeRuntimeLog('MEDIA_PROBE_REJECTED_ITEM', {
+        itemId: item.id,
+        failureCode,
+        httpStatus: probe.httpStatus,
+        mimeType: probe.mimeType,
+      });
+      this.failedIds.add(item.id);
+      this.telemetry.enqueue('ITEM_FAILED', {
+        itemId: item.id,
+        metadata: { code: failureCode, httpStatus: probe.httpStatus },
+      });
+      this.skip('media_error');
+      return;
+    }
 
     this.armWatchdog('LOAD_TIMEOUT', generation, this.mediaTimeoutMs);
     if (item.type === 'VIDEO') {
@@ -635,15 +729,33 @@ export class PlaybackCoordinator {
   private enterAllFailed(): void {
     this.stopMediaTimers();
     this.media.clear();
+    // Preserve the first/last concrete media failure code — do not erase it.
+    const concrete = this.lastFailureCode || this.lastMediaError || 'MEDIA_UNKNOWN';
     this.setState({
       status: 'FAILED',
-      errorCode: 'DISPLAY_MEDIA_ALL_ITEMS_FAILED',
+      errorCode: concrete,
+      itemId: this.lastFailureDetail?.itemId,
       recoverable: true,
       reason: 'ALL_ITEMS_FAILED',
     });
     this.updateHeartbeat('RECOVERING');
     this.deps.onRuntimeEvent?.({ type: 'RECOVERY_STARTED' });
-    this.telemetry.enqueue('ALL_ITEMS_FAILED');
+    this.telemetry.enqueue('ALL_ITEMS_FAILED', {
+      metadata: {
+        failureCode: concrete,
+        httpStatus: this.lastFailureDetail?.httpStatus,
+        itemId: this.lastFailureDetail?.itemId,
+      },
+    });
+    safeRuntimeLog('MEDIA_ALL_ITEMS_FAILED', {
+      failureCode: concrete,
+      itemId: this.lastFailureDetail?.itemId,
+      httpStatus: this.lastFailureDetail?.httpStatus,
+      mimeType: this.lastFailureDetail?.mimeType,
+      urlHostPath: this.lastFailureDetail
+        ? maskMediaUrl(this.lastFailureDetail.originalUrl)
+        : null,
+    });
 
     if (this.allFailedTimer) this.clearTimeoutFn(this.allFailedTimer);
     this.allFailedTimer = this.setTimeoutFn(() => {
@@ -761,6 +873,24 @@ export class PlaybackCoordinator {
           ? 'DISPLAY_MEDIA_START_TIMEOUT'
           : 'DISPLAY_MEDIA_STALL_TIMEOUT';
     this.lastMediaError = code;
+    this.lastFailureCode = 'MEDIA_TIMEOUT';
+    this.lastFailureDetail = {
+      itemId: item.id,
+      mediaType: item.type,
+      originalUrl: item.url,
+      resolvedUrl: item.url,
+      renderer: item.type,
+      failureCode: 'MEDIA_TIMEOUT',
+      watchdogStage: kind,
+      lastMediaEvent: 'watchdog',
+      at: this.clock.now().toISOString(),
+    };
+    safeRuntimeLog('MEDIA_WATCHDOG_TIMEOUT', {
+      itemId: item.id,
+      kind,
+      failureCode: 'MEDIA_TIMEOUT',
+      urlHostPath: maskMediaUrl(item.url),
+    });
     this.telemetry.enqueue('MEDIA_LOAD_TIMEOUT', {
       itemId: item.id,
       metadata: { kind },

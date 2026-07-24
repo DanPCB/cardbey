@@ -86,6 +86,17 @@ function maskId(id?: string): string {
   return `${id.slice(0, 8)}…${id.slice(-4)}`;
 }
 
+function maskUrl(url?: string): string {
+  if (!url) return '—';
+  try {
+    const u = new URL(url);
+    const path = u.pathname.length > 36 ? `${u.pathname.slice(0, 32)}…` : u.pathname;
+    return `${u.host}${path}`;
+  } catch {
+    return url.length > 48 ? `${url.slice(0, 45)}…` : url;
+  }
+}
+
 /** Preserve #playback-stage across re-renders so media elements survive. */
 export function ensureShellDom(root: HTMLElement): ShellDomParts {
   root.classList.add('shell');
@@ -184,6 +195,10 @@ function renderMain(vm: ShellViewModel): string {
       vm.playback.status === 'WAITING_FOR_CONTENT'
         ? vm.playback.reason
         : vm.playback.reason || vm.playback.errorCode;
+    const failure = vm.playbackDiagnostics?.lastFailureDetail;
+    const failureCode =
+      vm.playbackDiagnostics?.lastFailureCode ||
+      (vm.playback.status === 'FAILED' ? vm.playback.errorCode : undefined);
     const headline =
       reason === 'ALL_ITEMS_FAILED'
         ? 'Unable to play content'
@@ -192,18 +207,28 @@ function renderMain(vm: ShellViewModel): string {
           : 'This screen is connected';
     const support =
       reason === 'ALL_ITEMS_FAILED'
-        ? 'Every media item failed. Retrying shortly…'
+        ? failureCode
+          ? `${failureCode}: HTTP ${failure?.httpStatus ?? '—'} · ${maskUrl(failure?.originalUrl)}`
+          : 'Every media item failed. Retrying shortly…'
         : reason === 'ALL_ITEMS_OUTSIDE_SCHEDULE'
           ? 'Playlist connected. No content is scheduled for the current time.'
-          : escapeHtml(vm.bootMessage || 'Waiting for content from Cardbey.');
+          : vm.bootMessage || 'Waiting for content from Cardbey.';
+    const chipReason = failureCode || String(vm.contentCode || reason);
     return `
       <div class="shell-safe">
         <p class="brand">Cardbey <span>Display</span></p>
         <h1 class="headline">${escapeHtml(headline)}</h1>
-        <p class="support">${support}</p>
-        <div class="status-chip">${escapeHtml(vm.state.status)} · ${escapeHtml(
-          String(vm.contentCode || reason),
-        )}</div>
+        <p class="support">${escapeHtml(support)}</p>
+        ${
+          failure
+            ? `<p class="support subtle">Item ${escapeHtml(
+                maskId(failure.itemId),
+              )} · ${escapeHtml(failure.mediaType)} · MIME ${escapeHtml(
+                failure.mimeType || '—',
+              )}</p>`
+            : ''
+        }
+        <div class="status-chip">${escapeHtml(vm.state.status)} · ${escapeHtml(chipReason)}</div>
         <p class="support subtle">${escapeHtml(connectedSubtitle(vm))}</p>
         <p class="hint">Info opens diagnostics.</p>
       </div>
@@ -345,6 +370,29 @@ function renderDiagnosticsInner(vm: ShellViewModel): string {
         <dt>Stale events</dt><dd>${pb?.staleEventCount ?? 0}</dd>
         <dt>Last media</dt><dd>${escapeHtml(pb?.lastMediaEvent || '—')} / ${escapeHtml(
           pb?.lastMediaError || '—',
+        )}</dd>
+        <dt>Fail code</dt><dd>${escapeHtml(pb?.lastFailureCode || '—')}</dd>
+        <dt>Fail item</dt><dd>${escapeHtml(
+          pb?.lastFailureDetail
+            ? `${maskId(pb.lastFailureDetail.itemId)} · ${pb.lastFailureDetail.mediaType}`
+            : '—',
+        )}</dd>
+        <dt>Fail URL</dt><dd>${escapeHtml(
+          pb?.lastFailureDetail ? maskUrl(pb.lastFailureDetail.originalUrl) : '—',
+        )}</dd>
+        <dt>Fail HTTP</dt><dd>${escapeHtml(
+          pb?.lastFailureDetail?.httpStatus != null
+            ? String(pb.lastFailureDetail.httpStatus)
+            : '—',
+        )}</dd>
+        <dt>Fail MIME</dt><dd>${escapeHtml(pb?.lastFailureDetail?.mimeType || '—')}</dd>
+        <dt>HTML err</dt><dd>${escapeHtml(
+          pb?.lastFailureDetail?.htmlMediaErrorCode != null
+            ? String(pb.lastFailureDetail.htmlMediaErrorCode)
+            : '—',
+        )}</dd>
+        <dt>Watchdog</dt><dd>${escapeHtml(
+          pb?.lastFailureDetail?.watchdogStage || pb?.activeWatchdog || '—',
         )}</dd>
         <dt>Replace</dt><dd>${escapeHtml(pb?.lastManifestReplace || '—')}</dd>
         <dt>Pairing UI</dt><dd>${escapeHtml(vm.pairing.status)}</dd>

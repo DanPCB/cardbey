@@ -1,4 +1,5 @@
 import type { DisplayManifestItem } from '@cardbey/display-runtime';
+import type { MediaPlaybackFailureDetail } from './mediaFailureCodes.js';
 
 export type NoContentReason =
   | 'PAIRED_NO_PLAYLIST'
@@ -84,6 +85,9 @@ export type PlaybackDiagnostics = {
   activeWatchdog?: WatchdogKind;
   lastMediaEvent?: string;
   lastMediaError?: string;
+  /** Stable per-item failure code (not collapsed to ALL_ITEMS_FAILED). */
+  lastFailureCode?: string;
+  lastFailureDetail?: MediaPlaybackFailureDetail;
   failedItemIds: string[];
   recoveryAttemptCount: number;
   staleEventCount: number;
