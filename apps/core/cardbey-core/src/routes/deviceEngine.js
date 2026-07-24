@@ -3717,28 +3717,73 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       host: req.get?.('host') || null,
     });
     
-    // Verify device exists and get device details (lookup by trimmed id)
-    const device = await prisma.device.findUnique({
-      where: { id: normalizedDeviceId },
-      select: {
-        id: true,
-        tenantId: true,
-        storeId: true,
-        name: true,
-        location: true,
-        orientation: true, // Device orientation field
-      },
+    // Verify device exists and get device details.
+    // Prefer installation identity (same as heartbeat) so remapped claimed devices
+    // still resolve when the path id is a stale local/session id.
+    const headerInstallId = normalizeInstallationId(
+      req.get?.('x-installation-id') || req.get?.('X-Installation-Id'),
+    );
+    const headerDeviceId = String(req.get?.('x-device-id') || req.get?.('X-Device-Id') || '')
+      .trim();
+
+    const resolved = await resolveCanonicalDevice(prisma, {
+      deviceId: normalizedDeviceId || headerDeviceId,
+      installationId: headerInstallId || undefined,
     });
+
+    let device = resolved.device
+      ? await prisma.device.findUnique({
+          where: { id: resolved.device.id },
+          select: {
+            id: true,
+            tenantId: true,
+            storeId: true,
+            name: true,
+            location: true,
+            orientation: true,
+          },
+        })
+      : null;
+
+    if (!device && normalizedDeviceId) {
+      device = await prisma.device.findUnique({
+        where: { id: normalizedDeviceId },
+        select: {
+          id: true,
+          tenantId: true,
+          storeId: true,
+          name: true,
+          location: true,
+          orientation: true,
+        },
+      });
+    }
     
     if (!device) {
       console.log(`[Device Engine] [${requestId}] Device not found after normalize`, {
         deviceIdParamRaw: rawDeviceId,
         deviceIdNormalized: normalizedDeviceId,
+        headerDeviceId: headerDeviceId || null,
+        installationIdHash: hashInstallationId(headerInstallId),
+        matchReason: resolved.matchReason,
       });
+      res.set('Cache-Control', 'no-store');
       return res.status(404).json({
         ok: false,
         error: 'device_not_found',
         message: 'Device not found',
+      });
+    }
+
+    if (
+      resolved.requestedDeviceId &&
+      resolved.device &&
+      resolved.requestedDeviceId !== resolved.device.id
+    ) {
+      console.warn(`[Device Engine] [${requestId}] playlist/full identity remap`, {
+        requestedDeviceId: resolved.requestedDeviceId,
+        canonicalDeviceId: resolved.device.id,
+        matchReason: resolved.matchReason,
       });
     }
 
@@ -3871,6 +3916,7 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
         itemCount: 0,
         playlistId: null,
       });
+      res.set('Cache-Control', 'no-store');
       return res.json(noBindingBody);
     }
 
@@ -4432,6 +4478,7 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       itemCount: compatItems.length,
     });
     
+    res.set('Cache-Control', 'no-store');
     res.json(response);
   } catch (error) {
     console.error(`[Device Engine] [${requestId}] Playlist/full error:`, {
@@ -4440,6 +4487,7 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       stack: error.stack,
     });
     
+    res.set('Cache-Control', 'no-store');
     res.status(500).json({
       ok: false,
       error: 'internal_error',

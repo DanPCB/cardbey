@@ -4,6 +4,7 @@ packages:
   - apps/core/cardbey-core/packages/*
   - apps/dashboard/cardbey-marketing-dashboard
   - apps/dashboard/cardbey-marketing-dashboard/packages/*
+  - apps/cardbey-display-webos
   - packages/*
 
 onlyBuiltDependencies:

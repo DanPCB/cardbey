@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Cardbey Display</title>
+    <style>
+      html,
+      body,
+      #app {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: #0b0b0c;
+        color: #f4f4f5;
+        font-family: "Segoe UI", Candara, Calibri, sans-serif;
+        overflow: hidden;
+      }
+      #cardbey-boot {
+        position: fixed;
+        left: 0;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 99999;
+        box-sizing: border-box;
+        padding: 48px;
+        background: #0b0b0c;
+        color: #f4f4f5;
+      }
+      #cardbey-boot h1 {
+        margin: 0 0 12px 0;
+        font-size: 42px;
+      }
+      #cardbey-boot .accent {
+        color: #e82b2b;
+      }
+      #cardbey-boot .stage-line,
+      #cardbey-boot .meta,
+      #cardbey-boot .err {
+        font-size: 22px;
+        line-height: 1.4;
+        margin: 8px 0;
+      }
+      #cardbey-boot .err {
+        color: #ffb4b4;
+        white-space: pre-wrap;
+        max-width: 90%;
+      }
+      #cardbey-boot.hidden {
+        display: none;
+      }
+    </style>
+    <!--CARDBEY_INJECT_CONFIG-->
+    <script>
+      (function () {
+        function escapeHtml(value) {
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        }
+
+        var boot = document.createElement("div");
+        boot.id = "cardbey-boot";
+        boot.innerHTML =
+          "<h1>Cardbey <span class=\"accent\">Display</span></h1>" +
+          "<p class=\"stage-line\" id=\"cardbey-boot-stage\">Cardbey Player starting</p>" +
+          "<p class=\"meta\" id=\"boot-stage\">Boot stage: HTML</p>" +
+          "<p class=\"meta\" id=\"cardbey-boot-meta\"></p>" +
+          "<p class=\"err\" id=\"cardbey-boot-err\"></p>";
+
+        function ensureBootMounted() {
+          if (!document.body) return;
+          if (!document.getElementById("cardbey-boot")) {
+            document.body.appendChild(boot);
+          }
+          var meta = document.getElementById("cardbey-boot-meta");
+          var cfg = window.__CARDBEY_DISPLAY_CONFIG__ || {};
+          var buildId = window.__CARDBEY_BUILD_ID__ || "unknown";
+          if (meta && !meta.getAttribute("data-filled")) {
+            meta.setAttribute("data-filled", "1");
+            meta.innerHTML =
+              "App version: 0.1.0<br/>" +
+              "Build: " +
+              escapeHtml(buildId) +
+              "<br/>" +
+              "API: " +
+              escapeHtml(cfg.apiBaseUrl || "(missing)") +
+              "<br/>" +
+              "UA: " +
+              escapeHtml(navigator.userAgent || "");
+          }
+        }
+
+        window.__cardbeyBootStage = function (stage, detail) {
+          ensureBootMounted();
+          var element = document.getElementById("boot-stage");
+          var headline = document.getElementById("cardbey-boot-stage");
+          var detailText = detail ? String(detail) : "";
+          if (element) {
+            element.innerHTML =
+              "Boot stage: " +
+              escapeHtml(stage) +
+              (detailText
+                ? "<br/>Detail: " + escapeHtml(detailText)
+                : "");
+          }
+          if (headline && stage !== "SHELL_VISIBLE") {
+            headline.innerHTML = "Cardbey Player starting";
+          }
+          if (window.console && console.log) {
+            console.log("[Cardbey webOS boot]", stage, detailText || "");
+          }
+        };
+
+        window.__cardbeyBoot = {
+          setStage: function (text) {
+            window.__cardbeyBootStage(String(text || "UNKNOWN"));
+          },
+          hide: function () {
+            var el = document.getElementById("cardbey-boot");
+            if (el) el.className = "hidden";
+          },
+          fail: function (err) {
+            var msg =
+              err && err.message ? err.message : String(err || "unknown");
+            window.__cardbeyBootStage("BOOT_FAILURE", msg);
+            var el = document.getElementById("cardbey-boot-err");
+            if (el) {
+              el.innerHTML =
+                (el.innerHTML ? el.innerHTML + "<br/>" : "") +
+                escapeHtml(msg);
+            }
+          }
+        };
+
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = event.target;
+            if (target && target !== window) {
+              var source =
+                target.src ||
+                target.href ||
+                target.nodeName ||
+                "unknown resource";
+              window.__cardbeyBootStage("RESOURCE_LOAD_ERROR", source);
+              return;
+            }
+            window.__cardbeyBootStage(
+              "RUNTIME_ERROR",
+              String(
+                (event && event.message) ||
+                  (event && event.error && event.error.message) ||
+                  "Unknown runtime error"
+              )
+            );
+          },
+          true
+        );
+
+        window.addEventListener("unhandledrejection", function (event) {
+          var reason = event && event.reason;
+          var msg =
+            reason && reason.message
+              ? reason.message
+              : String(reason || "rejection");
+          window.__cardbeyBootStage("UNHANDLED_REJECTION", msg);
+        });
+
+        function onDomReady() {
+          ensureBootMounted();
+          window.__cardbeyBootStage("DOM_READY");
+        }
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", onDomReady);
+        } else {
+          onDomReady();
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <!--CARDBEY_ENTRY_SCRIPT-->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
