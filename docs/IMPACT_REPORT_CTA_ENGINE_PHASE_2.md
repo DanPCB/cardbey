@@ -36,8 +36,10 @@
 | Flag | Owner | Default |
 |------|--------|---------|
 | `ENABLE_CTA_ENGINE_V1` | Core library | on |
-| `ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | Core (API gate) | off in production; on when `NODE_ENV!=='production'` unless explicitly false |
-| `VITE_ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | Dashboard consumer | off unless `true`/`1`; in Vite `dev` mode defaults **on** for local testing |
+| `ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | Core (API gate) | off in live production; on for `CARDEY_DEPLOY_ENV=staging` or non-prod `NODE_ENV` unless explicitly false |
+| `VITE_ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | Dashboard consumer | **build-time**; off in staging/prod MODE unless set; on in Vite `dev`; staging `.env.staging` sets `true` |
+
+**Phase 2B status:** `PHASE_2_PARTIAL` — see `docs/IMPACT_REPORT_CTA_ENGINE_PHASE_2B.md`.
 
 Rollback: set Vite/env flag to `false` — previous runway UI (no engine floating CTA).
 
