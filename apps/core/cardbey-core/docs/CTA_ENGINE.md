@@ -100,10 +100,12 @@ Route, page kind, scroll/section, mission, store state, auth, business type, rec
 | Flag | Default |
 |------|---------|
 | `ENABLE_CTA_ENGINE_V1` | on |
-| `ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | on non-prod / off production |
-| `VITE_ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | on in Vite `dev`; off in prod builds unless set |
+| `ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | on when `CARDEY_DEPLOY_ENV` includes `staging` or `NODE_ENV!=='production'`; **off** in live production unless explicitly set |
+| `VITE_ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1` | on in Vite `dev`; **off** in staging/prod builds unless set (`true` in dashboard `.env.staging`) |
 
-Rollback: set Vite/core Phase 2 flags to `false` — hero Start with AI unchanged; floating engine CTA unmounts.
+Rollback: Vite flag = **build-time** (rebuild required). Core flag = **runtime**. Hero Start with AI unchanged; floating engine CTA unmounts.
+
+Phase 2B validation: see `docs/IMPACT_REPORT_CTA_ENGINE_PHASE_2B.md` and `docs/CTA_ENGINE_PHASE_2_STAGING_RUNBOOK.md`.
 
 ### Analytics
 
