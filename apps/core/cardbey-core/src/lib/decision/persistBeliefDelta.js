@@ -131,6 +131,10 @@ export async function persistBeliefDelta(delta = {}) {
       uploadedAsset: {
         imageDataUrl: delta.lastUpload.imageRef,
         rawOcrText: delta.lastUpload.ocrText ?? null,
+        evidenceId: delta.lastUpload.evidenceId ?? null,
+        attachmentId: delta.lastUpload.attachmentId ?? null,
+        contentHash: delta.lastUpload.contentHash ?? null,
+        sourceMessageId: delta.lastUpload.sourceMessageId ?? null,
       },
       entities: delta.lastUpload.businessName
         ? { businessName: delta.lastUpload.businessName, storeName: delta.lastUpload.businessName }

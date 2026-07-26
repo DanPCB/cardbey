@@ -94,13 +94,33 @@ function lastUploadFromSources(opts) {
     strip(entityObj.storeName) ??
     strip(pending?.storeCandidate?.extractedFields?.businessName?.value);
 
-  if (!imageRef && !ocrText && !businessName) return null;
+  const evidenceId =
+    strip(isc.evidenceId) ??
+    strip(uploadedObj?.evidenceId) ??
+    strip(client.evidenceId);
+  const attachmentId =
+    strip(isc.attachmentId) ??
+    strip(uploadedObj?.attachmentId) ??
+    strip(client.attachmentId);
+  const contentHash =
+    strip(isc.contentHash) ??
+    strip(uploadedObj?.contentHash) ??
+    strip(client.contentHash);
+  const sourceMessageId =
+    strip(isc.sourceMessageId) ??
+    strip(client.sourceMessageId);
+
+  if (!imageRef && !ocrText && !businessName && !evidenceId && !attachmentId) return null;
 
   return {
     imageRef,
     ocrText,
     documentType,
     businessName,
+    evidenceId,
+    attachmentId,
+    contentHash,
+    sourceMessageId,
     sessionKey: strip(opts.sessionKey),
     at: strip(workflowCtx?.updatedAt) ?? new Date().toISOString(),
   };
