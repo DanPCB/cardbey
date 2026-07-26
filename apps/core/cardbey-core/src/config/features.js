@@ -247,6 +247,14 @@ export const Features = {
         .toLowerCase();
       if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
       if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      // Staging Render uses NODE_ENV=production + CARDEY_DEPLOY_ENV=staging — treat as non-prod.
+      // Live production stays off until ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1 is set explicitly.
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
       return process.env.NODE_ENV !== 'production';
     },
   },
