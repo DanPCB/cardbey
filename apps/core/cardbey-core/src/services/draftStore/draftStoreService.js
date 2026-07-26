@@ -30,6 +30,7 @@ import {
   validateCategoriesForPublish,
 } from '../../lib/draftCategoryUtils.js';
 import { resolveStoreCommerce, normalizeCatalogItem } from '../../lib/storeTransactionMode.js';
+import { resolveStorefrontPrimaryCta } from '../../lib/ctaEngine/resolveStorefrontPrimaryCta.js';
 import {
   CATALOG_IMPORT_SAFETY_CEILING,
   CATALOG_IMAGE_ENRICH_MAX,
@@ -219,12 +220,13 @@ export function normalizeDraftProductPrice(item) {
  * @returns {{ label: string, action: string }}
  */
 export function resolveGeneratedCTA(context) {
-  const commerce = resolveStoreCommerce({
+  // CTA Engine — parity wrap over commerce SSOT (see lib/ctaEngine).
+  const primary = resolveStorefrontPrimaryCta({
     storeType: context?.storeType,
     businessType: context?.businessType,
     items: context?.items,
   });
-  return { label: commerce.ctaLabel, action: commerce.ctaAction };
+  return { label: primary.label, action: primary.action };
 }
 
 /**

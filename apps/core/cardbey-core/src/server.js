@@ -290,6 +290,7 @@ import toolsRoutes from './routes/toolsRoutes.js';
 import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import learningRoutes from './lib/learning/learningRoutes.js';
+import ctaEngineRoutes from './routes/ctaEngineRoutes.js';
 import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import visionIntakeRoutes from './routes/visionIntake.js';
 import visionDiscoveryRoutes from './routes/visionDiscoveryRoutes.js';
@@ -1001,6 +1002,7 @@ app.use('/api/execution', executionRoutes);
 app.use('/api/missions', missionsRoutes);
 app.use('/api', confirmationRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
+app.use('/api/cta', ctaEngineRoutes); // CTA Engine Phase 2: evaluate / dismiss / events
 app.use('/api/learning', learningRoutes);
 app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
 app.use('/api/vision', visionIntakeRoutes);
