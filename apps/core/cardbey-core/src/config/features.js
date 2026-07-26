@@ -234,6 +234,22 @@ export const Features = {
       );
     },
   },
+  ctaEngine: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_CTA_ENGINE_V1, true);
+    },
+    /**
+     * Phase 2 platform marketing consumer. Default on non-prod, off production.
+     */
+    get platformMarketingV1() {
+      const raw = String(process.env.ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1 ?? '')
+        .trim()
+        .toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      return process.env.NODE_ENV !== 'production';
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -307,6 +323,10 @@ export function snapshotFeatures() {
       shadow: Features.intentEngine.shadow,
       primary: Features.intentEngine.primary,
       shadowLog: Features.intentEngine.shadowLog,
+    },
+    ctaEngine: {
+      v1: Features.ctaEngine.v1,
+      platformMarketingV1: Features.ctaEngine.platformMarketingV1,
     },
   };
 }
