@@ -27,3 +27,6 @@ apps/dashboard/cardbey frontend copy/
 # Local agent development workspaces (must not be gitlinked)
 .development-workspaces/
 
+
+llama.cpp/
+
