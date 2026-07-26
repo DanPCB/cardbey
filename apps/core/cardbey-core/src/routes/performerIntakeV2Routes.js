@@ -881,6 +881,43 @@ function resolveIntakeImageRefForOcr(body) {
   return null;
 }
 
+/**
+ * Recover upload pixels for create_store-from-upload when the client only sent evidence refs.
+ * Prefers request body → intentSourceContext → session workflow uploadedAsset.
+ * @param {Record<string, unknown>} body
+ * @param {Record<string, unknown> | null | undefined} intentSourceContext
+ * @param {string | null | undefined} sessionKey
+ */
+async function resolveCreateStoreUploadImageRef(body, intentSourceContext, sessionKey) {
+  const fromBody = resolveIntakeImageRefForOcr(body);
+  if (fromBody) return fromBody;
+  const isc =
+    intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {};
+  const fromCtx = [isc.pendingImageDataUrl, isc.imageDataUrl]
+    .map((v) => (typeof v === 'string' ? v.trim() : ''))
+    .find((v) => v.length > 20);
+  if (fromCtx) return fromCtx;
+  try {
+    const { peekIntakeWorkflowContext } = await import('../lib/intake/intakeWorkflowContext.js');
+    const wf = peekIntakeWorkflowContext(sessionKey);
+    const uploaded = wf?.uploadedAsset && typeof wf.uploadedAsset === 'object' ? wf.uploadedAsset : null;
+    const fromWf =
+      typeof uploaded?.imageDataUrl === 'string' && uploaded.imageDataUrl.trim().length > 20
+        ? uploaded.imageDataUrl.trim()
+        : null;
+    if (fromWf) {
+      console.log('[INTAKE] create_store upload image recovered from session workflow', {
+        sessionKey: sessionKey ? String(sessionKey).slice(0, 12) : null,
+        bytes: fromWf.length,
+      });
+      return fromWf;
+    }
+  } catch (err) {
+    console.warn('[INTAKE] session workflow image recover failed:', err?.message || err);
+  }
+  return null;
+}
+
 function buildTelemetryBase({
   userMessage,
   missionId,
@@ -7374,11 +7411,46 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     !forceCreateStoreCheckpoint &&
     isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
   ) {
+    const recoveredUploadImage = await resolveCreateStoreUploadImageRef(
+      body,
+      intentSourceContext,
+      intakeAssetSessionKey,
+    );
+    let hasWorkflowIdentity = Boolean(
+      intentSourceContext?.cardExtraction || intentSourceContext?.storeCandidate,
+    );
+    if (!recoveredUploadImage && !hasWorkflowIdentity) {
+      try {
+        const { peekIntakeWorkflowContext } = await import('../lib/intake/intakeWorkflowContext.js');
+        const wf = peekIntakeWorkflowContext(intakeAssetSessionKey);
+        const uploaded = wf?.uploadedAsset && typeof wf.uploadedAsset === 'object' ? wf.uploadedAsset : null;
+        hasWorkflowIdentity = Boolean(uploaded?.storeCandidate || uploaded?.documentExtraction || uploaded?.rawOcrText);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!recoveredUploadImage && !hasWorkflowIdentity) {
+      console.warn('[INTAKE] ATTACHMENT_NOT_READY create_store from upload without resolvable image', {
+        sessionKey: intakeAssetSessionKey ? String(intakeAssetSessionKey).slice(0, 12) : null,
+        hasEvidenceId: Boolean(body?.evidenceId || intentSourceContext?.evidenceId),
+        hasAttachmentId: Boolean(body?.attachmentId || intentSourceContext?.attachmentId),
+      });
+      return res.status(409).json({
+        ok: false,
+        success: false,
+        error: 'ATTACHMENT_NOT_READY',
+        code: 'ATTACHMENT_NOT_READY',
+        message:
+          'We still have your upload request, but the image is not ready to read. Please tap Create store again, or re-attach the image.',
+        action: 'clarify',
+        retryable: true,
+      });
+    }
     const uploadDraftBody = await buildCreateStoreDraftIntakeResponseFromUpload({
       userMessage,
       intentSourceContext,
       imageContext,
-      imageDataUrl: resolveIntakeImageRefForOcr(body) ?? body.imageDataUrl ?? null,
+      imageDataUrl: recoveredUploadImage,
       classification: { ...classification, parameters: cleanedParams },
       storeCreateForm: storeCreateFormPayload,
       memoryContext: contextEngineUserContext,

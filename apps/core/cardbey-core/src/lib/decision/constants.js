@@ -53,6 +53,10 @@ export function isIntakeAdvisorShadowEnabled() {
  * @property {string | null} documentType
  * @property {string | null} businessName
  * @property {string | null} sessionKey
+ * @property {string | null} [evidenceId]
+ * @property {string | null} [attachmentId]
+ * @property {string | null} [contentHash]
+ * @property {string | null} [sourceMessageId]
  * @property {string} [at]
  */
 
