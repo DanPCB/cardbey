@@ -105,7 +105,9 @@ Route, page kind, scroll/section, mission, store state, auth, business type, rec
 
 Rollback: Vite flag = **build-time** (rebuild required). Core flag = **runtime**. Hero Start with AI unchanged; floating engine CTA unmounts.
 
-Phase 2B validation: see `docs/IMPACT_REPORT_CTA_ENGINE_PHASE_2B.md` and `docs/CTA_ENGINE_PHASE_2_STAGING_RUNBOOK.md`.
+Phase 2B/2C validation: see `docs/IMPACT_REPORT_CTA_ENGINE_PHASE_2C.md` and `docs/CTA_ENGINE_PHASE_2_STAGING_RUNBOOK.md`.
+
+Overlay: `BottomOverlayRegistry` CSS vars coordinate platform CTA + Need help orb (stack ≤390px; side-by-side with reserved gutter otherwise).
 
 ### Analytics
 
