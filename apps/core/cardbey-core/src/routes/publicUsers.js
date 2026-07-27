@@ -37,6 +37,7 @@ import { optionalAuth } from '../middleware/auth.js';
 import { attachStoreEngagementToPublicStores } from '../services/storeEngagement/attachStoreEngagementToPublicStores.js';
 import { isGhostStoreRemoved, isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 import { filterBusinessesForFeedCategory } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
+import { getRelatedBusinessesForSlug } from '../lib/relatedBusinesses/relatedBusinessService.js';
 
 const router = Router();
 /**
@@ -463,6 +464,33 @@ router.get('/profile/:slug', async (req, res, next) => {
     });
   } catch (error) {
     console.error('[PublicProfile] GET /profile/:slug error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/public/stores/:slug/related
+ * Category-relevant Related on Cardbey recommendations (deterministic ranking).
+ *
+ * Query: limit (default 8, max 24), diagnostics=1 (dev ranking reasons)
+ */
+router.get('/stores/:slug/related', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.floor(limitRaw), 1), 24) : 8;
+    const diagnostics =
+      String(req.query.diagnostics ?? '') === '1' ||
+      String(process.env.NODE_ENV || '') === 'development';
+
+    const result = await getRelatedBusinessesForSlug(prisma, slug, { limit, diagnostics });
+    if (!result.ok) {
+      const status = result.error === 'store_not_found' ? 404 : 400;
+      return res.status(status).json(result);
+    }
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[PublicStores] GET /stores/:slug/related error:', error);
     next(error);
   }
 });
