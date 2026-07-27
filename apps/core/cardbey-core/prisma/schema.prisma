@@ -1300,7 +1300,8 @@ model Device {
   location             String?
   appVersion           String?
   platform             String? // Platform identifier (e.g., "browser-player", "android_tv")
-  orientation          String?   @default("horizontal") // "horizontal" | "vertical" - Display orientation for Device V2
+  orientation          String?   @default("horizontal") // legacy dual-wire: "horizontal" | "vertical" — prefer rotationDegrees
+  rotationDegrees      Int       @default(0) // Device mount angle 0–359; UI initially 0/90/180/270
   lastSeenAt           DateTime?
   lastScreenshotBase64 String? // Base64 encoded screenshot (dev only, will migrate to S3 URL)
   lastScreenshotAt     DateTime? // When screenshot was taken
