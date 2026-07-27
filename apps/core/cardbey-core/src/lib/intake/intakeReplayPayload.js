@@ -140,12 +140,15 @@ export function isIntakeSelectionReplay(body) {
 }
 
 /**
- * Skip upload-ask when resuming a clarify chip / store confirm (loyalty replay).
+ * Skip upload-ask when resuming a clarify chip / store confirm
+ * (loyalty replay or Ask → Create store — user already chose a goal).
  *
  * @param {unknown} body
  */
 export function shouldSkipUploadAskForIntakeSelectionReplay(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  // Ask → Create store re-sends pixels; without this skip, early gate re-shows Ask forever.
+  if (isCreateStoreFromUploadTurn(body)) return true;
   const sel = body.intakeV2Selection;
   if (!sel || typeof sel !== 'object' || Array.isArray(sel)) return false;
   const params =
