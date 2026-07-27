@@ -29,4 +29,17 @@ describe('isGuestRateLimitExemptRequest', () => {
       isGuestRateLimitExemptRequest({ method: 'GET', path: '/m1/approve' }),
     ).toBe(false);
   });
+
+  it('exempts Performer intake v2 POST (guest draft-store runway)', () => {
+    expect(
+      isGuestRateLimitExemptRequest({ method: 'POST', path: '/intake/v2' }),
+    ).toBe(true);
+    expect(
+      isGuestRateLimitExemptRequest({
+        method: 'POST',
+        path: '/v2',
+        originalUrl: '/api/performer/intake/v2',
+      }),
+    ).toBe(true);
+  });
 });

@@ -8,6 +8,7 @@ import {
   isFreshStoreCreationMission,
   normalizeFreshStoreCreationBody,
 } from '../intakePayloadGuard.js';
+import { shouldSkipUploadAskForIntakeSelectionReplay } from '../intakeReplayPayload.js';
 
 describe('intakePayloadGuard', () => {
   it('detects fresh store creation mission', () => {
@@ -117,5 +118,37 @@ describe('intakePayloadGuard', () => {
     };
     const guard = applyIntakePayloadGuard(heavy, { maxBytes: 256 * 1024 });
     expect(guard.rejected).toBe(true);
+  });
+
+  it('keeps Ask Create store selection under freshStoreMission normalize', () => {
+    const image = `data:image/png;base64,${'B'.repeat(120)}`;
+    const body = {
+      text: 'Create store from uploaded card',
+      freshStoreMission: true,
+      imageDataUrl: image,
+      unifiedMemory: { blob: 'x'.repeat(50_000) },
+      history: [{ role: 'user', content: 'prior' }],
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        assetAction: 'create_store',
+        type: 'CREATE_STORE_FROM_UPLOAD',
+      },
+      intakeV2Selection: {
+        selectedTool: 'create_store',
+        selectedParameters: {
+          source: 'upload_ask_selection',
+          type: 'CREATE_STORE_FROM_UPLOAD',
+          evidenceId: 'ev_ask',
+        },
+      },
+    };
+    const guard = applyIntakePayloadGuard(body);
+    expect(guard.freshStoreMission).toBe(true);
+    expect(guard.body.history).toBeUndefined();
+    expect(guard.body.unifiedMemory).toBeUndefined();
+    expect(guard.body.imageDataUrl).toBe(image);
+    expect(guard.body.intentSourceContext?.fromAskSelection).toBe('create_store');
+    expect(guard.body.intakeV2Selection?.selectedTool).toBe('create_store');
+    expect(shouldSkipUploadAskForIntakeSelectionReplay(guard.body)).toBe(true);
   });
 });
