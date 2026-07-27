@@ -29,6 +29,7 @@ const SLIM_INTENT_SOURCE_KEYS = [
   'uploadedAssetPending',
   'assetAction',
   'fromAskSelection',
+  'type',
   'storeCandidate',
   'documentExtraction',
   'workflowContext',
@@ -175,6 +176,15 @@ export function normalizeFreshStoreCreationBody(body) {
   const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
   if (imageDataUrl && imageDataUrl.length > 0 && imageDataUrl.length <= 400_000) {
     normalized.imageDataUrl = imageDataUrl;
+  }
+  // Ask → Create store sends freshStoreMission + selection. Keep skip-Ask signals;
+  // stripping them re-opens Upload Ask and stalls the draft runway.
+  if (body.intakeV2Selection && typeof body.intakeV2Selection === 'object' && !Array.isArray(body.intakeV2Selection)) {
+    normalized.intakeV2Selection = stripHeavyUploadFieldsDeep(body.intakeV2Selection);
+  }
+  const intentSourceContext = slimIntentSourceContextForLoop(body.intentSourceContext);
+  if (intentSourceContext) {
+    normalized.intentSourceContext = intentSourceContext;
   }
   return normalized;
 }
