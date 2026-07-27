@@ -57,4 +57,28 @@ describe('intakePendingTurnHandling', () => {
     });
     expect(result).toBeNull();
   });
+
+  it('maybeRespondUploadAskBeforeClassifier skips Ask Create store selection', async () => {
+    const result = await maybeRespondUploadAskBeforeClassifier({
+      userMessage: 'Create store from uploaded card',
+      attachmentOnlyUpload: false,
+      hasAttachment: true,
+      imageDataUrl: `data:image/png;base64,${'C'.repeat(120)}`,
+      body: {
+        intentSourceContext: {
+          fromAskSelection: 'create_store',
+          assetAction: 'create_store',
+          type: 'CREATE_STORE_FROM_UPLOAD',
+        },
+        intakeV2Selection: {
+          selectedTool: 'create_store',
+          selectedParameters: {
+            source: 'upload_ask_selection',
+            type: 'CREATE_STORE_FROM_UPLOAD',
+          },
+        },
+      },
+    });
+    expect(result).toBeNull();
+  });
 });

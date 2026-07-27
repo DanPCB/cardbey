@@ -95,6 +95,61 @@ describe('intakeReplayPayload', () => {
     ).toBe(false);
   });
 
+  it('shouldSkipUploadAskForIntakeSelectionReplay is true for Ask Create store', () => {
+    expect(
+      shouldSkipUploadAskForIntakeSelectionReplay({
+        text: 'Create store from uploaded card',
+        imageDataUrl: `data:image/png;base64,${'B'.repeat(120)}`,
+        intentSourceContext: {
+          fromAskSelection: 'create_store',
+          assetAction: 'create_store',
+          type: 'CREATE_STORE_FROM_UPLOAD',
+        },
+        intakeV2Selection: {
+          selectedTool: 'create_store',
+          selectedParameters: {
+            source: 'upload_ask_selection',
+            type: 'CREATE_STORE_FROM_UPLOAD',
+            evidenceId: 'ev_ask',
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipUploadAskForIntakeSelectionReplay({
+        text: '(Image attached)',
+        imageDataUrl: `data:image/png;base64,${'B'.repeat(120)}`,
+      }),
+    ).toBe(false);
+  });
+
+  it('shouldSkipUploadAskForIntakeSelectionReplay is true for Ask Create store', () => {
+    expect(
+      shouldSkipUploadAskForIntakeSelectionReplay({
+        text: 'Create store from uploaded card',
+        imageDataUrl: `data:image/png;base64,${'B'.repeat(120)}`,
+        intentSourceContext: {
+          fromAskSelection: 'create_store',
+          assetAction: 'create_store',
+          type: 'CREATE_STORE_FROM_UPLOAD',
+        },
+        intakeV2Selection: {
+          selectedTool: 'create_store',
+          selectedParameters: {
+            source: 'upload_ask_selection',
+            type: 'CREATE_STORE_FROM_UPLOAD',
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      shouldSkipUploadAskForIntakeSelectionReplay({
+        text: '(Image attached)',
+        imageDataUrl: `data:image/png;base64,${'B'.repeat(120)}`,
+      }),
+    ).toBe(false);
+  });
+
   it('does not freeze-strip imageDataUrl on Ask Create store (selection evidenceId present)', () => {
     const image = `data:image/png;base64,${'B'.repeat(120)}`;
     const body = {
