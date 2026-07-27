@@ -1663,8 +1663,21 @@ const POST_BUILD_CHIP_HANDLERS = {
   improve_hero: handleUpdateStoreHero,
 };
 
-async function guardClassificationAgainstCompletedCreateStore(classification, missionId) {
+async function guardClassificationAgainstCompletedCreateStore(
+  classification,
+  missionId,
+  { userMessage, intentSourceContext } = {},
+) {
   if (!classification || classification.tool !== 'create_store') return classification;
+  // New store from upload Ask / card must not inherit a completed prior create_store mission.
+  if (
+    isExplicitCreateStoreFromUploadContext({
+      userMessage,
+      intentSourceContext,
+    })
+  ) {
+    return classification;
+  }
   const mid = typeof missionId === 'string' ? missionId.trim() : '';
   if (!mid) return classification;
   const prisma = getPrismaClient();
@@ -5335,6 +5348,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const guardedCompletedCreateStore = await guardClassificationAgainstCompletedCreateStore(
     classification,
     missionId,
+    { userMessage, intentSourceContext },
   );
   classification = guardedCompletedCreateStore;
   const guardedActiveMission = guardClassificationForActiveMission(classification, {
@@ -5614,7 +5628,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (loyaltyAttachmentClarify) return loyaltyAttachmentClarify;
   }
 
-  if (process.env.MULTI_AGENT_ENABLED === 'true' && !skipDeepSeekForLoyaltySpine) {
+  const skipDeepSeekForUploadCreateStore = isExplicitCreateStoreFromUploadContext({
+    userMessage,
+    intentSourceContext,
+  });
+
+  if (
+    process.env.MULTI_AGENT_ENABLED === 'true' &&
+    !skipDeepSeekForLoyaltySpine &&
+    !skipDeepSeekForUploadCreateStore &&
+    classification?.tool !== 'create_store'
+  ) {
     try {
       const { integrateDeepSeekMultiAgentIntake } = await import('../lib/multiAgent/deepseekIntakeBridge.ts');
       const deepSeekIntegration = await integrateDeepSeekMultiAgentIntake({

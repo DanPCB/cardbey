@@ -179,6 +179,10 @@ import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
 import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
+import {
+  createStoreReadinessRouter,
+  createBusinessStudioReadinessRouter,
+} from './routes/storeReadinessRoutes.js';
 import activityMatrixRoutes from './routes/activityMatrixRoutes.js';
 import controlCenterActivityMatrixRoutes from './routes/controlCenterActivityMatrixRoutes.js';
 import { serviceCatalogPublicRoutes, quoteRequestOwnerRoutes } from './routes/serviceCatalogRoutes.js';
@@ -1047,6 +1051,8 @@ app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first
 app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
+app.use('/api/stores/:storeId/readiness', createStoreReadinessRouter()); // Store Readiness V1 (owner; ENABLE_STORE_READINESS_V1)
+app.use('/api/business-studio/stores/:storeId/readiness', createBusinessStudioReadinessRouter());
 app.use('/api/business/insights', activityMatrixRoutes); // User Activity Matrix (store owner)
 app.use('/api/control-center/activity-matrix', controlCenterActivityMatrixRoutes); // Platform-wide matrix (admin)
 app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owner quote request management

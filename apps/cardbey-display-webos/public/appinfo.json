@@ -1,0 +1,19 @@
+{
+  "id": "com.cardbey.display",
+  "version": "0.1.0",
+  "vendor": "Cardbey",
+  "type": "web",
+  "main": "index.html",
+  "title": "Cardbey Display",
+  "appDescription": "Cardbey store display player for LG webOS TVs",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#111111",
+  "bgColor": "#0b0b0c",
+  "splashColor": "#0b0b0c",
+  "resolution": "1920x1080",
+  "uiRevision": 2,
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true,
+  "requiredPermissions": ["time.query", "activity.operation"]
+}
