@@ -5,6 +5,7 @@
 import { getBaseUrlFromRequest, isCloudFrontUrl } from '../utils/publicUrl.js';
 import { getCoreBaseUrl as getRequestCoreBaseUrl } from '../utils/mediaUrlNormalizer.js';
 import { isActivePlaylistBindingStatus } from '../utils/playlistFullAndroidCompat.js';
+import { resolveDeviceRotation } from './deviceRotation.js';
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -296,14 +297,17 @@ export function buildProjectedDeviceFields({
   const playlistId =
     latestBinding?.playlistId || metadata?.currentPlaylistId || null;
 
+  const rotation = resolveDeviceRotation({
+    rotationDegrees: device?.rotationDegrees,
+    orientation: device?.orientation,
+  });
+
   return {
     coreUrl: metadata?.coreUrl || null,
     engineVersion: metadata?.engineVersion || device.appVersion || null,
     pairingStatus,
-    orientation:
-      device?.orientation === 'vertical' || device?.orientation === 'horizontal'
-        ? device.orientation
-        : 'horizontal',
+    rotationDegrees: rotation.rotationDegrees,
+    orientation: rotation.orientation,
     currentPlaylistId: playlistId,
     playlistId,
     playlistName: playlistName || null,

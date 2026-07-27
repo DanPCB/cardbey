@@ -922,7 +922,15 @@ router.get('/:deviceId/status', requireAuth, async (req, res, next) => {
         model: device.model,
         location: device.location,
         status: device.status,
-        orientation: device.orientation || 'horizontal', // Include orientation (defaults to horizontal)
+        rotationDegrees:
+          typeof device.rotationDegrees === 'number' &&
+          device.rotationDegrees >= 0 &&
+          device.rotationDegrees <= 359
+            ? device.rotationDegrees
+            : device.orientation === 'vertical'
+              ? 90
+              : 0,
+        orientation: device.orientation || 'horizontal',
         appVersion: device.appVersion,
         lastSeenAt: device.lastSeenAt,
         isConnected,
