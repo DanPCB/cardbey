@@ -897,6 +897,42 @@ async function resolveCreateStoreUploadImageRef(body, intentSourceContext, sessi
     .map((v) => (typeof v === 'string' ? v.trim() : ''))
     .find((v) => v.length > 20);
   if (fromCtx) return fromCtx;
+
+  const selectionParams =
+    body?.intakeV2Selection &&
+    typeof body.intakeV2Selection === 'object' &&
+    body.intakeV2Selection.selectedParameters &&
+    typeof body.intakeV2Selection.selectedParameters === 'object'
+      ? body.intakeV2Selection.selectedParameters
+      : {};
+  const evidenceCandidates = [
+    body?.evidenceId,
+    body?.intakeEvidenceId,
+    isc.evidenceId,
+    selectionParams.evidenceId,
+    selectionParams.attachmentAnalysis?.evidenceId,
+  ]
+    .map((v) => (typeof v === 'string' ? v.trim() : ''))
+    .filter(Boolean);
+  for (const evidenceId of evidenceCandidates) {
+    try {
+      const bundle = getIntakeEvidenceBundleByEvidenceId(evidenceId);
+      const fromBundle =
+        typeof bundle?.imageRef === 'string' && bundle.imageRef.trim().length > 20
+          ? bundle.imageRef.trim()
+          : '';
+      if (fromBundle) {
+        console.log('[INTAKE] create_store upload image recovered from evidence bundle', {
+          evidenceId: evidenceId.slice(0, 12),
+          bytes: fromBundle.length,
+        });
+        return fromBundle;
+      }
+    } catch (err) {
+      console.warn('[INTAKE] evidence bundle image recover failed:', err?.message || err);
+    }
+  }
+
   try {
     const { peekIntakeWorkflowContext } = await import('../lib/intake/intakeWorkflowContext.js');
     const wf = peekIntakeWorkflowContext(sessionKey);

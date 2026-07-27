@@ -167,11 +167,59 @@ export function shouldSkipUploadAskForIntakeSelectionReplay(body) {
 }
 
 /**
+ * Usable top-level pixels — freeze/replay must not strip these on create_store-from-upload.
+ * @param {unknown} body
+ * @returns {boolean}
+ */
+export function hasUsableTopLevelUploadImage(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const image = String(/** @type {Record<string, unknown>} */ (body).imageDataUrl ?? '').trim();
+  return image.length > 50;
+}
+
+/**
+ * Ask → Create store / prefer-pixels turn. Selection may still carry evidenceId for audit;
+ * that must not trigger frozen-evidence strip of imageDataUrl.
+ * @param {unknown} body
+ * @returns {boolean}
+ */
+export function isCreateStoreFromUploadTurn(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const b = /** @type {Record<string, unknown>} */ (body);
+  const isc =
+    b.intentSourceContext && typeof b.intentSourceContext === 'object' && !Array.isArray(b.intentSourceContext)
+      ? /** @type {Record<string, unknown>} */ (b.intentSourceContext)
+      : null;
+  const selection =
+    b.intakeV2Selection && typeof b.intakeV2Selection === 'object' && !Array.isArray(b.intakeV2Selection)
+      ? /** @type {Record<string, unknown>} */ (b.intakeV2Selection)
+      : null;
+  const params =
+    selection?.selectedParameters &&
+    typeof selection.selectedParameters === 'object' &&
+    !Array.isArray(selection.selectedParameters)
+      ? /** @type {Record<string, unknown>} */ (selection.selectedParameters)
+      : null;
+  if (String(isc?.fromAskSelection ?? '').trim() === 'create_store') return true;
+  if (String(isc?.assetAction ?? '').trim() === 'create_store') return true;
+  if (String(isc?.type ?? params?.type ?? '').trim() === 'CREATE_STORE_FROM_UPLOAD') return true;
+  const tool = String(selection?.selectedTool ?? b.action ?? b.tool ?? '').trim();
+  if (tool === 'create_store' && String(params?.source ?? '').trim() === 'upload_ask_selection') {
+    return true;
+  }
+  return false;
+}
+
+/**
  * @param {unknown} body
  * @returns {boolean}
  */
 export function hasFrozenUploadEvidenceRef(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  // Prefer-pixels create_store-from-upload: keep imageDataUrl through payload guard.
+  if (hasUsableTopLevelUploadImage(body) || isCreateStoreFromUploadTurn(body)) {
+    return false;
+  }
   if (String(body.evidenceId ?? body.intakeEvidenceId ?? '').trim()) return true;
   const isc =
     body.intentSourceContext && typeof body.intentSourceContext === 'object' && !Array.isArray(body.intentSourceContext)

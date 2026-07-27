@@ -3,6 +3,8 @@ import { applyIntakePayloadGuard } from '../intakePayloadGuard.js';
 import {
   buildIntakeReplayPayloadFromSelection,
   estimateIntakeReplayPayloadBytes,
+  hasFrozenUploadEvidenceRef,
+  normalizeIntakeReplayBody,
   shouldSkipUploadAskForIntakeSelectionReplay,
   stripHeavyUploadFieldsDeep,
 } from '../intakeReplayPayload.js';
@@ -91,6 +93,51 @@ describe('intakeReplayPayload', () => {
         pendingIntent: { clarifyType: 'active_space_confirm', lockedTool: 'setup_loyalty_program' },
       }),
     ).toBe(false);
+  });
+
+  it('does not freeze-strip imageDataUrl on Ask Create store (selection evidenceId present)', () => {
+    const image = `data:image/png;base64,${'B'.repeat(120)}`;
+    const body = {
+      text: 'Create store from uploaded card',
+      imageDataUrl: image,
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        assetAction: 'create_store',
+        type: 'CREATE_STORE_FROM_UPLOAD',
+      },
+      intakeV2Selection: {
+        selectedTool: 'create_store',
+        selectedParameters: {
+          evidenceId: 'ev_ask',
+          source: 'upload_ask_selection',
+          type: 'CREATE_STORE_FROM_UPLOAD',
+        },
+      },
+    };
+    expect(hasFrozenUploadEvidenceRef(body)).toBe(false);
+    const normalized = normalizeIntakeReplayBody(body);
+    expect(normalized.applied).toBe(false);
+    expect(normalized.body.imageDataUrl).toBe(image);
+    const guard = applyIntakePayloadGuard(body);
+    expect(guard.rejected).toBe(false);
+    expect(guard.body.imageDataUrl).toBe(image);
+  });
+
+  it('still strips heavy upload blobs for store-selection loyalty replay', () => {
+    const heavy = {
+      text: 'create a loyalty program from this card',
+      imageDataUrl: heavyImage,
+      intakeV2Selection: {
+        selectedTool: 'setup_loyalty_program',
+        selectedParameters: {
+          storeId: 'store_abc',
+          evidenceId: 'evidence_123',
+        },
+      },
+    };
+    const guard = applyIntakePayloadGuard(heavy);
+    expect(guard.body.imageDataUrl).toBeUndefined();
+    expect(guard.body.evidenceId).toBe('evidence_123');
   });
 
   it('applyIntakePayloadGuard accepts replay payload after stripping heavy upload blobs', () => {
