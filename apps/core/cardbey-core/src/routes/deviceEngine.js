@@ -549,6 +549,11 @@ router.get('/list', requireAuth, async (req, res) => {
         name: device.name,
         model: device.model,
         location: device.location,
+        // Device V2 display orientation — required so Dashboard preview/state survive list refetch
+        orientation:
+          device.orientation === 'vertical' || device.orientation === 'horizontal'
+            ? device.orientation
+            : 'horizontal',
         status: heartbeatOnline ? 'online' : 'offline',
         isOnline: heartbeatOnline,
         presenceTier: projected.presenceTier,
@@ -5252,15 +5257,14 @@ router.post('/update', requireAuth, async (req, res) => {
     // Orientation is now stored directly on Device model, so no need to update Screen
     // (Screen orientation is kept for backward compatibility with legacy screens)
     
-    // Emit device update event
+    // Emit device update event (orientation lives on Device; do not reference undefined Screen fields)
     try {
       broadcastSse('admin', 'device.updated', {
         deviceId: updatedDevice.id,
         name: updatedDevice.name,
         location: updatedDevice.location,
         model: updatedDevice.model,
-        screenId,
-        orientation: screenOrientation,
+        orientation: updatedDevice.orientation || 'horizontal',
       });
     } catch (eventError) {
       // Non-fatal: log but continue

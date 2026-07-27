@@ -300,6 +300,10 @@ export function buildProjectedDeviceFields({
     coreUrl: metadata?.coreUrl || null,
     engineVersion: metadata?.engineVersion || device.appVersion || null,
     pairingStatus,
+    orientation:
+      device?.orientation === 'vertical' || device?.orientation === 'horizontal'
+        ? device.orientation
+        : 'horizontal',
     currentPlaylistId: playlistId,
     playlistId,
     playlistName: playlistName || null,
