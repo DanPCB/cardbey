@@ -50,19 +50,31 @@ cardbey/
 
 ## Quick Start
 
-### Backend
+Install once from the **repo root**, then use the canonical two-terminal flow.
+
 ```bash
-cd apps/core/cardbey-core
 pnpm install
-pnpm dev
+pnpm dev:doctor --probe   # optional: diagnose ports/processes/DB target
 ```
 
-### Frontend
+**Terminal 1 — Core API (port 3001):**
+
 ```bash
-cd apps/dashboard/cardbey-marketing-dashboard
-pnpm install
-pnpm dev
+pnpm dev:core
 ```
+
+**Terminal 2 — Dashboard (port 5174):**
+
+```bash
+pnpm dev:dashboard
+```
+
+- Core health: http://127.0.0.1:3001/api/health  
+- Dashboard UI: http://127.0.0.1:5174/
+
+If ports are stuck or Prisma reports `EPERM`, see **[docs/LOCAL_DEV.md](./docs/LOCAL_DEV.md)** (`pnpm dev:cleanup`, `pnpm dev:prisma`).
+
+Print startup help anytime: `pnpm dev`
 
 ## Development Workflow
 

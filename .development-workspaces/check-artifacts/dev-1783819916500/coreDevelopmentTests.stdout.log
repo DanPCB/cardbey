@@ -1,0 +1,13 @@
+
+ RUN  v1.6.1 C:/Projects/cardbey/apps/core/cardbey-core
+
+stdout | src\test\setupEnv.js:53:9
+[TestEnv] DATABASE_URL=file:C:/Projects/cardbey/apps/core/cardbey-core/prisma/test.db NODE_ENV=test JWT_SECRET=set
+
+ ✓ src/development/__tests__/developmentPhase2.test.ts  (13 tests) 61ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  11:33:21
+   Duration  863ms (transform 131ms, setup 36ms, collect 150ms, tests 61ms, environment 0ms, prepare 157ms)
+

@@ -1,0 +1,40 @@
+[
+  {
+    "id": "linked-seed-1",
+    "normalized": {
+      "id": "linked-seed-1",
+      "businessName": "Brunetti Carlton",
+      "legalName": null,
+      "address": "380 Lygon St, Carlton, VIC, Australia",
+      "phone": "+61393471200",
+      "website": "https://brunetti.example.com",
+      "category": "cafe",
+      "categoryConfidence": 0.9,
+      "registrationNumber": null,
+      "email": "info@brunetti.example.com",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 0.9,
+      "sourceType": "open_data_url",
+      "sourceReference": "MELBOURNE_BATCH0_20260617",
+      "sourceRowId": "1",
+      "ingestedAt": "2026-06-20T14:00:35.294Z"
+    },
+    "resolution": "unique",
+    "matchEvidence": [],
+    "qualityScore": 90,
+    "qualityTier": "high_quality",
+    "verificationStatus": "seeded_claimable",
+    "claimable": false,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": "store-existing",
+    "draftId": "draft-existing",
+    "createdAt": "2026-06-20T14:00:35.294Z",
+    "updatedAt": "2026-06-20T14:00:35.294Z",
+    "batchId": null,
+    "campaignId": null
+  }
+]

@@ -1,0 +1,1176 @@
+{
+  "key": "golden-nails-care-melbourne-189-clarendon-street-qpy9go5m",
+  "locationSlug": "golden-nails-care-melbourne-189-clarendon-street-qpy9go5m",
+  "data": {
+    "location": {
+      "allowSeoIndex": false,
+      "fallbackImage": {
+        "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=fallback"
+      },
+      "id": "595594",
+      "name": "Golden Nails Care",
+      "slug": "golden-nails-care-melbourne-189-clarendon-street-qpy9go5m",
+      "description": "For all your nail, lash, brow and waxing needs in South Melbourne, look no further than Golden Nails Care. Centrally located on Clarendon Street, this lively salon is as fun as it is convenient. Whether your nails are in dire need of a mani/pedi, or perhaps you are eager to try a new look with vibrant nail art; the fantastic team at Golden Nails Care will make you feel comfortable and relaxed while they work their magic on your nails. ",
+      "isBookable": false,
+      "serviceCount": 101,
+      "allowChoosePreferableEmployee": true,
+      "contactNumber": "+61 431 891 895",
+      "galleryModalDesktopLargeImages": [
+        {
+          "height": 786,
+          "width": 1398,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-large&watermark=true"
+        },
+        {
+          "height": 786,
+          "width": 1398,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-large&watermark=true"
+        },
+        {
+          "height": 786,
+          "width": 1398,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-large&watermark=true"
+        },
+        {
+          "height": 786,
+          "width": 1398,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-large&watermark=true"
+        },
+        {
+          "height": 786,
+          "width": 1398,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-large&watermark=true"
+        }
+      ],
+      "galleryModalDesktopSmallImages": [
+        {
+          "height": 386,
+          "width": 687,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-small&watermark=true"
+        },
+        {
+          "height": 386,
+          "width": 687,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-small&watermark=true"
+        },
+        {
+          "height": 386,
+          "width": 687,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-small&watermark=true"
+        },
+        {
+          "height": 386,
+          "width": 687,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-small&watermark=true"
+        },
+        {
+          "height": 386,
+          "width": 687,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=gallery-modal-small&watermark=true"
+        }
+      ],
+      "galleryModalMobileImages": [
+        {
+          "height": 280,
+          "width": 390,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile&watermark=true"
+        },
+        {
+          "height": 280,
+          "width": 390,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile&watermark=true"
+        },
+        {
+          "height": 280,
+          "width": 390,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile&watermark=true"
+        },
+        {
+          "height": 280,
+          "width": 390,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile&watermark=true"
+        },
+        {
+          "height": 280,
+          "width": 390,
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile&watermark=true"
+        }
+      ],
+      "rating": 4.8,
+      "reviewsCount": 31,
+      "coverImage": {
+        "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg"
+      },
+      "shareLabel": "Hey, I found this venue on Fresha.com, the world's #1 self-care marketplace. Check it out",
+      "ratingSummary": {
+        "level": "BEST_IN_CLASS",
+        "subtitle": "Based on 31 outstanding reviews from clients",
+        "title": "Best in class",
+        "valueFormatted": "5.0"
+      },
+      "featured": false,
+      "isNew": false,
+      "countryCode": "AU",
+      "venueLogo": {
+        "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=fallback"
+      },
+      "currency": "AUD",
+      "venueSnippetImages": [
+        {
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small"
+        },
+        {
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small"
+        },
+        {
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small"
+        },
+        {
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small"
+        },
+        {
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null,
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small"
+        }
+      ],
+      "priceMax": 180,
+      "galleryDesktopLargeImages": [
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-large",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-large",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-large",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-large",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-large",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        }
+      ],
+      "galleryDesktopSecondaryImages": [
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-secondary",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-secondary",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-secondary",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-secondary",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-secondary",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        }
+      ],
+      "galleryDesktopSmallImages": [
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        }
+      ],
+      "galleryMobileImages": [
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108205/e89314a3-7ccb-4856-a9eb-fdfb5686b001-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108206/4da995b3-6281-4498-9a6a-bcf1dbbee08a-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108207/2a76b33f-0dcc-4199-89ce-cef98975bc4c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108208/a99b2f78-50aa-4b92-852c-b1b7862a74eb-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        },
+        {
+          "url": "https://images.fresha.com/locations/location-profile-images/557609/2108209/7399b108-6b93-44f9-8f83-5a02f4b0e42c-GoldenNailsCare-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-mobile",
+          "blurHash": null,
+          "keywords": [],
+          "longDescription": null,
+          "shortDescription": null
+        }
+      ],
+      "isFreshaVerified": false,
+      "isEmployeeProfileDiscoverable": true,
+      "employeeProfiles": {
+        "edges": []
+      },
+      "desktopMap": "https://api.mapbox.com/styles/v1/mattydyer/cltpzx1v200ah01qwe36zhw6c/static/url-https%3A%2F%2Fimages.fresha.com%2Fb2c-api-gateway-static%2Fuploads%2Fmap-pins%2Fc21bc4a832ff3825_pin-4.8.png(144.95948791503906,-37.830081939697266)/144.95948791503906,-37.830081939697266,13,0/884x472@2x?access_token=pk.eyJ1IjoibWF0dHlkeWVyIiwiYSI6ImNsdmtvdWE0ajF4Mjcya2w5MnFwb3Jvam0ifQ.YP-jDX5s2VDiYSP_HVjb2A",
+      "mobileMap": "https://api.mapbox.com/styles/v1/mattydyer/cltpzx1v200ah01qwe36zhw6c/static/url-https%3A%2F%2Fimages.fresha.com%2Fb2c-api-gateway-static%2Fuploads%2Fmap-pins%2Fc21bc4a832ff3825_pin-4.8.png(144.95948791503906,-37.830081939697266)/144.95948791503906,-37.830081939697266,13,0/350x197@2x?access_token=pk.eyJ1IjoibWF0dHlkeWVyIiwiYSI6ImNsdmtvdWE0ajF4Mjcya2w5MnFwb3Jvam0ifQ.YP-jDX5s2VDiYSP_HVjb2A",
+      "favourite": null,
+      "features": {
+        "edges": []
+      },
+      "primaryBusinessType": {
+        "name": "Nails",
+        "englishName": "Nails"
+      },
+      "owner": {
+        "id": "557609",
+        "slug": "golden-nails-care-nxdqxtsf",
+        "loyaltyScheme": null
+      },
+      "additionalLocations": [],
+      "address": {
+        "directionsUrl": "https://maps.google.com/?daddr=189%20Clarendon%20Street%2C%20Melbourne%2C%203205%2C%20Victoria",
+        "distance": null,
+        "mapsUrl": "https://www.google.com/maps/search/?api=1&query=189%20Clarendon%20Street%2C%20Melbourne%2C%203205%2C%20Victoria",
+        "shortFormatted": "189 Clarendon Street, South Melbourne, Melbourne, Victoria",
+        "cityName": "Melbourne",
+        "postalCode": "3205",
+        "region1": "Victoria",
+        "streetAddress": "189 Clarendon Street",
+        "apartmentSuite": null,
+        "countryCode": "AU",
+        "latitude": -37.830081939697266,
+        "longitude": 144.95948791503906,
+        "simpleFormatted": "South Melbourne, Melbourne",
+        "servicingAreas": [],
+        "simpleFormattedWithContext": "South Melbourne, Melbourne",
+        "nearbyServicingAreas": []
+      },
+      "breadcrumbs": null,
+      "relatedLandingPages": null,
+      "hasGiftCards": false,
+      "hasPackages": false,
+      "hasDeals": null,
+      "services": null,
+      "paymentConfiguration": {
+        "hasFreshaPayEnabled": true
+      },
+      "hasProductStore": false,
+      "portfolioGallery": null,
+      "workingTime": {
+        "status": {
+          "name": "Closed",
+          "state": "CLOSED",
+          "stateDetails": "- opens on Saturday at 9:30 AM"
+        },
+        "days": [
+          {
+            "__typename": "LocationWorkingTimeDay",
+            "dayName": "Monday",
+            "isClosed": false,
+            "isToday": false,
+            "values": [
+              {
+                "value": "9:30 AM - 6:00 PM"
+              }
+            ]
+          },
+          {
+            "__typename": "LocationWorkingTimeDay",
+            "dayName": "Tuesday",
+            "isClosed": false,
+            "isToday": false,
+            "values": [
+              {
+                "value": "9:30 AM - 6:00 PM"
+              }
+            ]
+          },
+          {
+            "__typename": "LocationWorkingTimeDay",
+            "dayName": "Wednesday",
+            "isClosed": false,
+            "isToday": false,
+            "values": [
+              {
+                "value": "9:30 AM - 6:00 PM"
+              }
+            ]
+          },
+          {
+            "__typename": "LocationWorkingTimeDay",
+            "dayName": "Thursday",
+            "isClosed": false,
+            "isToday": false,
+            "values": [
+              {
+                "value": "9:30 AM - 7:00 PM"
+              }
+            ]
+          },
+          {
+            "__typename": "LocationWorkingTimeDay",
+            "dayName": "Friday",
+            "isClosed": false,
+            "isToday": true,
+            "values": [
+              {
+                "value": "9:30 AM - 7:00 PM"
+              }
+            ]
+          },
+          {
+            "__typename": "LocationWorkingTimeDay",
+            "dayName": "Saturday",
+            "isClosed": false,
+            "isToday": false,
+            "values": [
+              {
+                "value": "9:30 AM - 6:00 PM"
+              }
+            ]
+          },
+          {
+            "__typename": "LocationWorkingTimeDay",
+            "dayName": "Sunday",
+            "isClosed": false,
+            "isToday": false,
+            "values": [
+              {
+                "value": "10:00 AM - 5:00 PM"
+              }
+            ]
+          }
+        ],
+        "meta": {
+          "openingHours": [
+            "Mo 09:30-18:00",
+            "Tu 09:30-18:00",
+            "We 09:30-18:00",
+            "Th 09:30-19:00",
+            "Fr 09:30-19:00",
+            "Sa 09:30-18:00",
+            "Su 10:00-17:00"
+          ],
+          "specialOpeningHoursSpecification": null
+        }
+      },
+      "hasGroupAppointments": true,
+      "offers": {
+        "hasMembershipTypes": false,
+        "hasVouchers": false
+      },
+      "reviews": {
+        "pageInfo": {
+          "hasNextPage": true
+        },
+        "totalCount": 31,
+        "rating1Count": 0,
+        "rating2Count": 0,
+        "rating3Count": 2,
+        "rating4Count": 1,
+        "rating5Count": 28,
+        "edges": [
+          {
+            "cursor": "MTczNDY5NzI5MTEzNzEwODE1MTQ5NDAxMzk=",
+            "node": {
+              "id": "14940139",
+              "rating": 5,
+              "text": null,
+              "reply": null,
+              "date": {
+                "formattedDateWithTime": "Fri, Dec 20, 2024 at 10:21 PM",
+                "iso": "2024-12-20T22:21:31.137Z"
+              },
+              "footer": {
+                "fallbackText": "1 year ago  •  2 services  •  with Ivan",
+                "interpolations": [
+                  {
+                    "action": {
+                      "employeeId": "1873",
+                      "type": "OPEN_PROFILE"
+                    },
+                    "id": "member",
+                    "text": "Ivan",
+                    "textAccent": "ACCENT"
+                  }
+                ],
+                "text": "1 year ago  •  2 services  •  with &{member}",
+                "version": 1
+              },
+              "author": {
+                "avatar": {
+                  "url": "https://cdn-gatekeeper-uploads.fresha.com/avatars/36524321/medium/profilepic?v=63885528777"
+                },
+                "name": "Aisling C"
+              },
+              "images": {
+                "edges": [
+                  {
+                    "node": {
+                      "id": "14940139:3591737350",
+                      "image": {
+                        "url": "https://placehold.co/480x480/ebe4d8/3a2f28.png"
+                      }
+                    }
+                  },
+                  {
+                    "node": {
+                      "id": "14940139:1951205815",
+                      "image": {
+                        "url": "https://placehold.co/480x480/ebe4d8/3a2f28.png"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "cursor": "MTczNDM0MjYxMDc5MzYwNzE1MTQ4MDU5OTc=",
+            "node": {
+              "id": "14805997",
+              "rating": 5,
+              "text": null,
+              "reply": null,
+              "date": {
+                "formattedDateWithTime": "Mon, Dec 16, 2024 at 7:50 PM",
+                "iso": "2024-12-16T19:50:10.793Z"
+              },
+              "footer": {
+                "fallbackText": "1 year ago  •  2 services  •  with Ivan",
+                "interpolations": [
+                  {
+                    "action": {
+                      "employeeId": "1873",
+                      "type": "OPEN_PROFILE"
+                    },
+                    "id": "member",
+                    "text": "Ivan",
+                    "textAccent": "ACCENT"
+                  }
+                ],
+                "text": "1 year ago  •  2 services  •  with &{member}",
+                "version": 1
+              },
+              "author": {
+                "avatar": null,
+                "name": "Chloe R"
+              },
+              "images": {
+                "edges": [
+                  {
+                    "node": {
+                      "id": "14805997:920413170",
+                      "image": {
+                        "url": "https://placehold.co/480x480/ebe4d8/3a2f28.png"
+                      }
+                    }
+                  },
+                  {
+                    "node": {
+                      "id": "14805997:3574848931",
+                      "image": {
+                        "url": "https://placehold.co/480x480/d8c4a8/2e3a34.png"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "cursor": "MTczMzY4NTMxOTgyMjU5NzA1MTQ2NTMwNzg=",
+            "node": {
+              "id": "14653078",
+              "rating": 5,
+              "text": "Beautiful manicure. Thank you.",
+              "reply": null,
+              "date": {
+                "formattedDateWithTime": "Mon, Dec 9, 2024 at 5:15 AM",
+                "iso": "2024-12-09T05:15:19.822Z"
+              },
+              "footer": {
+                "fallbackText": "1 year ago  •  2 services  •  with Ivan",
+                "interpolations": [
+                  {
+                    "action": {
+                      "employeeId": "1873",
+                      "type": "OPEN_PROFILE"
+                    },
+                    "id": "member",
+                    "text": "Ivan",
+                    "textAccent": "ACCENT"
+                  }
+                ],
+                "text": "1 year ago  •  2 services  •  with &{member}",
+                "version": 1
+              },
+              "author": {
+                "avatar": null,
+                "name": "Lisa B"
+              },
+              "images": {
+                "edges": [
+                  {
+                    "node": {
+                      "id": "14653078:909932849",
+                      "image": {
+                        "url": "https://placehold.co/480x480/c99b8f/33302a.png"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "cursor": "MTczMzM0MTQzMDE5MTk0MTE0MTQ1Njg1Njg=",
+            "node": {
+              "id": "14568568",
+              "rating": 4,
+              "text": null,
+              "reply": null,
+              "date": {
+                "formattedDateWithTime": "Thu, Dec 5, 2024 at 5:43 AM",
+                "iso": "2024-12-05T05:43:50.191Z"
+              },
+              "footer": {
+                "fallbackText": "1 year ago  •  Balayage  •  with Ivan",
+                "interpolations": [
+                  {
+                    "action": {
+                      "employeeId": "1873",
+                      "type": "OPEN_PROFILE"
+                    },
+                    "id": "member",
+                    "text": "Ivan",
+                    "textAccent": "ACCENT"
+                  }
+                ],
+                "text": "1 year ago  •  Balayage  •  with &{member}",
+                "version": 1
+              },
+              "author": {
+                "avatar": {
+                  "url": "https://cdn-gatekeeper-uploads.fresha.com/avatars/36991826/medium/profilepic?v=63887191355"
+                },
+                "name": "Tara B"
+              },
+              "images": {
+                "edges": []
+              }
+            }
+          },
+          {
+            "cursor": "MTczMjkyNTY0ODYyMzEyMDA1MTQ0ODcwOTQ=",
+            "node": {
+              "id": "14487094",
+              "rating": 5,
+              "text": "Lovely lashes, Nancy is the best!",
+              "reply": null,
+              "date": {
+                "formattedDateWithTime": "Sat, Nov 30, 2024 at 10:14 AM",
+                "iso": "2024-11-30T10:14:08.623Z"
+              },
+              "footer": {
+                "fallbackText": "1 year ago  •  Gel Manicure  •  with Ivan",
+                "interpolations": [
+                  {
+                    "action": {
+                      "employeeId": "1873",
+                      "type": "OPEN_PROFILE"
+                    },
+                    "id": "member",
+                    "text": "Ivan",
+                    "textAccent": "ACCENT"
+                  }
+                ],
+                "text": "1 year ago  •  Gel Manicure  •  with &{member}",
+                "version": 1
+              },
+              "author": {
+                "avatar": null,
+                "name": "Sharon L"
+              },
+              "images": {
+                "edges": []
+              }
+            }
+          },
+          {
+            "cursor": "MTczMjg1MzIxMDc1NDc2MzA1MTQ0Njc1NjE=",
+            "node": {
+              "id": "14467561",
+              "rating": 5,
+              "text": "Khloe did such a fab job on my nails! And Alina did a great pedicure. Definitely go here but ensure you pick these girls. Because I did have a not so good experience before.",
+              "reply": null,
+              "date": {
+                "formattedDateWithTime": "Fri, Nov 29, 2024 at 2:06 PM",
+                "iso": "2024-11-29T14:06:50.754Z"
+              },
+              "footer": {
+                "fallbackText": "1 year ago  •  Men's Cut & Beard Trim  •  with 3 professionals",
+                "interpolations": [],
+                "text": "1 year ago  •  Men's Cut & Beard Trim  •  with 3 professionals",
+                "version": 1
+              },
+              "author": {
+                "avatar": null,
+                "name": "Ritika A"
+              },
+              "images": {
+                "edges": []
+              }
+            }
+          }
+        ]
+      },
+      "nearbyLocations": [
+        {
+          "id": "351134",
+          "name": "Queen B Skin and Beauty",
+          "coverImage": {
+            "blurHash": "eME{UwnLEkNIn3?wMwxvRjIU%hMxEOR-s8o~V@kDt7nhtSn$oIozV@",
+            "keywords": [
+              "Queen B Skin and Beauty",
+              "Melbourne salon",
+              "beauty wellness",
+              "nail salon interior",
+              "Victoria beauty"
+            ],
+            "longDescription": "Elegant interior of Queen B Skin and Beauty in Melbourne, Victoria, AU showcasing manicure and pedicure stations.",
+            "shortDescription": "Serene Salon Vibe",
+            "url": "https://images.fresha.com/locations/location-profile-images/327162/4987191/3ae28cee-e8ea-47c2-9c27-1d5d98286650-QueenB-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": null,
+          "reviewsCount": 0,
+          "slug": "queen-b-skin-and-beauty-melbourne-237-and-250-clarendon-st-nc8j68w0",
+          "image": {
+            "blurHash": "eME{UwnLEkNIn3?wMwxvRjIU%hMxEOR-s8o~V@kDt7nhtSn$oIozV@",
+            "keywords": [
+              "Queen B Skin and Beauty",
+              "Melbourne salon",
+              "beauty wellness",
+              "nail salon interior",
+              "Victoria beauty"
+            ],
+            "longDescription": "Elegant interior of Queen B Skin and Beauty in Melbourne, Victoria, AU showcasing manicure and pedicure stations.",
+            "shortDescription": "Serene Salon Vibe",
+            "url": "https://images.fresha.com/locations/location-profile-images/327162/4987191/3ae28cee-e8ea-47c2-9c27-1d5d98286650-QueenB-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Beauty Salon"
+          },
+          "address": {
+            "shortFormatted": "237 and, 250 Clarendon St, South Melbourne, Melbourne, Victoria",
+            "distance": null,
+            "simpleFormatted": "South Melbourne, Melbourne"
+          },
+          "hasDeals": false,
+          "isFreshaVerified": true
+        },
+        {
+          "id": "2641069",
+          "name": "SINA BLENDZ",
+          "coverImage": {
+            "blurHash": "ecEyxiNHMyM|Wr?^WBM{WCV@krV@Rjs:kCoKRjt7kCkCn~WBaebIs.",
+            "keywords": [
+              "SINA BLENDZ",
+              "Melbourne",
+              "barber chairs",
+              "stylish interior",
+              "Victoria AU"
+            ],
+            "longDescription": "Elegant barber chairs at SINA BLENDZ, Melbourne, Victoria, AU, showcasing a modern and stylish interior.",
+            "shortDescription": "Luxury Barbershop",
+            "url": "https://images.fresha.com/locations/location-profile-images/1435206/5866703/c275fda7-8b68-4b60-a7ad-70cc926978ef-SINABLENDZONCITYRD-AU-Victoria-Melbourne-Southbank-Fresha.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": 4.9,
+          "reviewsCount": 22,
+          "slug": "sina-blendz-melbourne-243-city-road-jlpir6pg",
+          "image": {
+            "blurHash": "ecEyxiNHMyM|Wr?^WBM{WCV@krV@Rjs:kCoKRjt7kCkCn~WBaebIs.",
+            "keywords": [
+              "SINA BLENDZ",
+              "Melbourne",
+              "barber chairs",
+              "stylish interior",
+              "Victoria AU"
+            ],
+            "longDescription": "Elegant barber chairs at SINA BLENDZ, Melbourne, Victoria, AU, showcasing a modern and stylish interior.",
+            "shortDescription": "Luxury Barbershop",
+            "url": "https://images.fresha.com/locations/location-profile-images/1435206/5866703/c275fda7-8b68-4b60-a7ad-70cc926978ef-SINABLENDZONCITYRD-AU-Victoria-Melbourne-Southbank-Fresha.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Barber"
+          },
+          "address": {
+            "shortFormatted": "243 City Road, Southbank, Melbourne, Victoria",
+            "distance": null,
+            "simpleFormatted": "Southbank, Melbourne"
+          },
+          "hasDeals": true,
+          "isFreshaVerified": true
+        },
+        {
+          "id": "696278",
+          "name": "MARIS BEAUTY - PROFESSIONAL NAILS LASHES WAXING BEAUTY SALON",
+          "coverImage": {
+            "blurHash": null,
+            "keywords": [],
+            "longDescription": null,
+            "shortDescription": null,
+            "url": "https://images.fresha.com/locations/location-profile-images/653753/1942738/d947a176-5cbb-4306-8b08-9808a56e9e1b.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": 4.7,
+          "reviewsCount": 3,
+          "slug": "maris-beauty-professional-nails-lashes-waxing-beauty-salon-melbourne-320-clarendon-street-hw1fakj8",
+          "image": {
+            "blurHash": null,
+            "keywords": [],
+            "longDescription": null,
+            "shortDescription": null,
+            "url": "https://images.fresha.com/locations/location-profile-images/653753/1942738/d947a176-5cbb-4306-8b08-9808a56e9e1b.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Eyebrows & Lashes"
+          },
+          "address": {
+            "shortFormatted": "320 Clarendon Street, South Melbourne, Melbourne, Victoria",
+            "distance": null,
+            "simpleFormatted": "South Melbourne, Melbourne"
+          },
+          "hasDeals": false,
+          "isFreshaVerified": true
+        },
+        {
+          "id": "3104206",
+          "name": "Hermit Nails",
+          "coverImage": {
+            "blurHash": "eHF~mn9Z4TM|IV_NRjIU%MWCDitRxvV@kBX9xuxuM{bGtRj[ofWqaf",
+            "keywords": [
+              "Hermit Nails",
+              "Melbourne",
+              "nail salon",
+              "beauty",
+              "Victoria"
+            ],
+            "longDescription": "Cozy Hermit Nails interior with neon art in Melbourne, Victoria, AU, showcasing beauty and comfort.",
+            "shortDescription": "Chic Haven",
+            "url": "https://images.fresha.com/locations/location-profile-images/3003908/6207682/f26154f1-fa2b-4899-801b-d84d6ecbaa98-HermitNails-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": null,
+          "reviewsCount": 0,
+          "slug": "hermit-nails-melbourne-181-cecil-street-qu57odkp",
+          "image": {
+            "blurHash": "eHF~mn9Z4TM|IV_NRjIU%MWCDitRxvV@kBX9xuxuM{bGtRj[ofWqaf",
+            "keywords": [
+              "Hermit Nails",
+              "Melbourne",
+              "nail salon",
+              "beauty",
+              "Victoria"
+            ],
+            "longDescription": "Cozy Hermit Nails interior with neon art in Melbourne, Victoria, AU, showcasing beauty and comfort.",
+            "shortDescription": "Chic Haven",
+            "url": "https://images.fresha.com/locations/location-profile-images/3003908/6207682/f26154f1-fa2b-4899-801b-d84d6ecbaa98-HermitNails-AU-Victoria-Melbourne-SouthMelbourne-Fresha.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Nails"
+          },
+          "address": {
+            "shortFormatted": "181 Cecil Street, South Melbourne, Melbourne, Victoria",
+            "distance": null,
+            "simpleFormatted": "South Melbourne, Melbourne"
+          },
+          "hasDeals": false,
+          "isFreshaVerified": false
+        },
+        {
+          "id": "1511102",
+          "name": "SINA BLENDZ BARBERSHOP",
+          "coverImage": {
+            "blurHash": null,
+            "keywords": [],
+            "longDescription": null,
+            "shortDescription": null,
+            "url": "https://images.fresha.com/locations/location-profile-images/1435206/2722938/48bf81f6-fad7-45f5-a322-f7182e9c4faf-SINABLENDZBARBERSHOP-AU-Victoria-Melbourne-Southbank-Fresha.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": 4.9,
+          "reviewsCount": 26,
+          "slug": "sina-blendz-barbershop-melbourne-81-power-street-u8jkbx7l",
+          "image": {
+            "blurHash": null,
+            "keywords": [],
+            "longDescription": null,
+            "shortDescription": null,
+            "url": "https://images.fresha.com/locations/location-profile-images/1435206/2722938/48bf81f6-fad7-45f5-a322-f7182e9c4faf-SINABLENDZBARBERSHOP-AU-Victoria-Melbourne-Southbank-Fresha.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Barber"
+          },
+          "address": {
+            "shortFormatted": "81 Power Street, Southbank, Melbourne, Victoria",
+            "distance": null,
+            "simpleFormatted": "Southbank, Melbourne"
+          },
+          "hasDeals": true,
+          "isFreshaVerified": true
+        },
+        {
+          "id": "1066089",
+          "name": "About U Nails & Beauty Studio",
+          "coverImage": {
+            "blurHash": null,
+            "keywords": [
+              "beauty studio",
+              "nail salon",
+              "South Melbourne",
+              "stylish decor",
+              "salon interior"
+            ],
+            "longDescription": "Chic reception area at About U Nails & Beauty Studio, South Melbourne, Victoria, AU, with modern decor.",
+            "shortDescription": "Stylish Studio Entry",
+            "url": "https://images.fresha.com/locations/location-profile-images/1010681/4514260/4848e5c3-695a-4473-b811-414c059ee9c6-AboutUNailsBeautyStudio-AU-Victoria-SouthMelbourne-Fresha.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": 5,
+          "reviewsCount": 803,
+          "slug": "about-u-nails-beauty-studio-south-melbourne-102-87-gladstone-street-ml6oabh2",
+          "image": {
+            "blurHash": null,
+            "keywords": [
+              "beauty studio",
+              "nail salon",
+              "South Melbourne",
+              "stylish decor",
+              "salon interior"
+            ],
+            "longDescription": "Chic reception area at About U Nails & Beauty Studio, South Melbourne, Victoria, AU, with modern decor.",
+            "shortDescription": "Stylish Studio Entry",
+            "url": "https://images.fresha.com/locations/location-profile-images/1010681/4514260/4848e5c3-695a-4473-b811-414c059ee9c6-AboutUNailsBeautyStudio-AU-Victoria-SouthMelbourne-Fresha.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Nails"
+          },
+          "address": {
+            "shortFormatted": "102/87 Gladstone Street, South Melbourne, Victoria",
+            "distance": null,
+            "simpleFormatted": "South Melbourne, Melbourne"
+          },
+          "hasDeals": false,
+          "isFreshaVerified": true
+        },
+        {
+          "id": "1532873",
+          "name": "Freshwater Barbers",
+          "coverImage": {
+            "blurHash": "eJH2ZeWA?H%Mof_N%ME1xv%M?b-;RjRjogj]RjV[bIM{tRo1RjxuRj",
+            "keywords": [
+              "Freshwater Barbers",
+              "Southbank",
+              "Victoria",
+              "barber chair",
+              "modern salon"
+            ],
+            "longDescription": "Stylish barber chair at Freshwater Barbers, Southbank, Victoria, AU. Sleek design in a modern, clean setting.",
+            "shortDescription": "Modern Barber Chair",
+            "url": "https://images.fresha.com/locations/location-profile-images/1455649/6202853/124c840e-3caf-4e57-a719-fec319134967-FreshwaterBarbers-AU-Victoria-Southbank-Fresha.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": 5,
+          "reviewsCount": 687,
+          "slug": "freshwater-barbers-southbank-ground-shop-19r-3-freshwater-place-bjata3tc",
+          "image": {
+            "blurHash": "eJH2ZeWA?H%Mof_N%ME1xv%M?b-;RjRjogj]RjV[bIM{tRo1RjxuRj",
+            "keywords": [
+              "Freshwater Barbers",
+              "Southbank",
+              "Victoria",
+              "barber chair",
+              "modern salon"
+            ],
+            "longDescription": "Stylish barber chair at Freshwater Barbers, Southbank, Victoria, AU. Sleek design in a modern, clean setting.",
+            "shortDescription": "Modern Barber Chair",
+            "url": "https://images.fresha.com/locations/location-profile-images/1455649/6202853/124c840e-3caf-4e57-a719-fec319134967-FreshwaterBarbers-AU-Victoria-Southbank-Fresha.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Barber"
+          },
+          "address": {
+            "shortFormatted": "Ground Shop 19R 3 Freshwater Place, Southbank, Victoria",
+            "distance": null,
+            "simpleFormatted": "Southbank, Melbourne"
+          },
+          "hasDeals": false,
+          "isFreshaVerified": true
+        },
+        {
+          "id": "3107791",
+          "name": "Melbourne - Inner Melbourne & Bayside",
+          "coverImage": {
+            "blurHash": "eUMP:rIU4TMc%#x^WAt6V?xugOWBbIT0RjkCkCbbbGayozRjt7xuad",
+            "keywords": [
+              "makeup",
+              "beauty",
+              "Melbourne",
+              "studio",
+              "brush"
+            ],
+            "longDescription": "Makeup artist applying palette blush at Melbourne - Inner Melbourne & Bayside, AU beauty studio.",
+            "shortDescription": "Glam Grace",
+            "url": "https://images.fresha.com/locations/location-profile-images/2699664/6296418/8b390f2f-b6af-4bf0-85fc-4d08f1153bbe-Melbourne-InnerMelbourneBayside-AU-Melbourne-InnerMelbourneBayside-Fresha.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": null,
+          "reviewsCount": 0,
+          "slug": "melbourne-inner-melbourne-bayside-melbourne-inner-melbourne-bayside-south-yarra-prahran-st-kilda-elwood-brighton-fitzroy-collingwood-brunswick-northcote-richmond-hawthorn-camberwell-kew-c478uv05",
+          "image": {
+            "blurHash": "eUMP:rIU4TMc%#x^WAt6V?xugOWBbIT0RjkCkCbbbGayozRjt7xuad",
+            "keywords": [
+              "makeup",
+              "beauty",
+              "Melbourne",
+              "studio",
+              "brush"
+            ],
+            "longDescription": "Makeup artist applying palette blush at Melbourne - Inner Melbourne & Bayside, AU beauty studio.",
+            "shortDescription": "Glam Grace",
+            "url": "https://images.fresha.com/locations/location-profile-images/2699664/6296418/8b390f2f-b6af-4bf0-85fc-4d08f1153bbe-Melbourne-InnerMelbourneBayside-AU-Melbourne-InnerMelbourneBayside-Fresha.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Beauty Salon"
+          },
+          "address": {
+            "shortFormatted": "South Yarra, Prahran, St Kilda, Elwood, Brighton, Fitzroy, Collingwood, Brunswick, Northcote, Richmond, Hawthorn, Camberwell, Kew, Melbourne - Inner Melbourne & Bayside",
+            "distance": null,
+            "simpleFormatted": "South Yarra, Prahran, St Kilda, Elwood, Brighton, Fitzroy, Collingwood, Brunswick, Northcote, Richmond, Hawthorn, Camberwell, Kew, Melbourne"
+          },
+          "hasDeals": false,
+          "isFreshaVerified": true
+        },
+        {
+          "id": "1083640",
+          "name": "Skin by KAMÉ",
+          "coverImage": {
+            "blurHash": "eaKnMAD*IVozx]~VjFt7R%WBMxt7t7aeaxt7R+RkofWWt7RjV@kCoe",
+            "keywords": [
+              "Skin by KAMÉ",
+              "Melbourne spa",
+              "treatment room",
+              "wellness",
+              "beauty"
+            ],
+            "longDescription": "Relaxing treatment room at Skin by KAMÉ in Melbourne, Victoria, AU with a cozy massage table and modern equipment.",
+            "shortDescription": "Serene Treatment Room",
+            "url": "https://images.fresha.com/locations/location-profile-images/1027470/6219310/50f64351-196d-4909-88e8-c530e5756427.jpg?class=venue-gallery-small&f_noindex=t"
+          },
+          "rating": 5,
+          "reviewsCount": 568,
+          "slug": "skin-by-kame-melbourne-51-cardigan-place-s7rzmgtu",
+          "image": {
+            "blurHash": "eaKnMAD*IVozx]~VjFt7R%WBMxt7t7aeaxt7R+RkofWWt7RjV@kCoe",
+            "keywords": [
+              "Skin by KAMÉ",
+              "Melbourne spa",
+              "treatment room",
+              "wellness",
+              "beauty"
+            ],
+            "longDescription": "Relaxing treatment room at Skin by KAMÉ in Melbourne, Victoria, AU with a cozy massage table and modern equipment.",
+            "shortDescription": "Serene Treatment Room",
+            "url": "https://images.fresha.com/locations/location-profile-images/1027470/6219310/50f64351-196d-4909-88e8-c530e5756427.jpg?f_noindex=t"
+          },
+          "featured": false,
+          "isNew": false,
+          "favourite": null,
+          "primaryBusinessType": {
+            "name": "Beauty Salon"
+          },
+          "address": {
+            "shortFormatted": "51 Cardigan Place, Albert Park, Melbourne, Victoria",
+            "distance": null,
+            "simpleFormatted": "Albert Park, Melbourne"
+          },
+          "hasDeals": false,
+          "isFreshaVerified": true
+        }
+      ]
+    }
+  },
+  "providersProps": {
+    "basicProfile": null,
+    "fallback": {}
+  }
+}

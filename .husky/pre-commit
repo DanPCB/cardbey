@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+echo "🔍 Running Cardbey Truth Enforcer..."
+
+pnpm run truth:check
+TRUTH_EXIT=$?
+
+if [ $TRUTH_EXIT -ne 0 ]; then
+  echo ""
+  echo "❌ Truth violations detected. Commit blocked."
+  echo ""
+  echo "To auto-fix issues:"
+  echo "  pnpm run truth:fix"
+  echo ""
+  echo "To bypass (not recommended):"
+  echo "  git commit --no-verify"
+  exit 1
+fi
+
+echo "✅ Truth check passed. Committing..."
+exit 0

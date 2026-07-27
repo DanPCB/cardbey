@@ -1,0 +1,49 @@
+/**
+ * Canonical account capabilities and status.
+ */
+
+export const ACCOUNT_CAPABILITY = Object.freeze({
+  PERSONAL: 'PERSONAL',
+  BUSINESS_OWNER: 'BUSINESS_OWNER',
+  CREATOR: 'CREATOR',
+  BUSINESS_STAFF: 'BUSINESS_STAFF',
+  CREATOR_SERVICE_PROVIDER: 'CREATOR_SERVICE_PROVIDER',
+  ADMIN: 'ADMIN',
+});
+
+export const ACCOUNT_STATUS = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  LIMITED: 'LIMITED',
+  SUSPENDED: 'SUSPENDED',
+  LOCKED: 'LOCKED',
+  CLOSED: 'CLOSED',
+  DELETION_PENDING: 'DELETION_PENDING',
+});
+
+const ALLOWED_STATUS_TRANSITIONS = Object.freeze({
+  [ACCOUNT_STATUS.ACTIVE]: [ACCOUNT_STATUS.LIMITED, ACCOUNT_STATUS.SUSPENDED, ACCOUNT_STATUS.LOCKED, ACCOUNT_STATUS.DELETION_PENDING],
+  [ACCOUNT_STATUS.LIMITED]: [ACCOUNT_STATUS.ACTIVE, ACCOUNT_STATUS.SUSPENDED],
+  [ACCOUNT_STATUS.SUSPENDED]: [ACCOUNT_STATUS.ACTIVE, ACCOUNT_STATUS.LOCKED],
+  [ACCOUNT_STATUS.LOCKED]: [ACCOUNT_STATUS.ACTIVE, ACCOUNT_STATUS.SUSPENDED],
+  [ACCOUNT_STATUS.DELETION_PENDING]: [ACCOUNT_STATUS.CLOSED, ACCOUNT_STATUS.ACTIVE],
+  [ACCOUNT_STATUS.CLOSED]: [],
+});
+
+/**
+ * @param {string} from
+ * @param {string} to
+ */
+export function canTransitionAccountStatus(from, to) {
+  if (from === to) return true;
+  const allowed = ALLOWED_STATUS_TRANSITIONS[from];
+  return Array.isArray(allowed) && allowed.includes(to);
+}
+
+export const ADMIN_PLATFORM_ROLES = new Set(['platform_admin', 'admin', 'super_admin']);
+
+export default {
+  ACCOUNT_CAPABILITY,
+  ACCOUNT_STATUS,
+  canTransitionAccountStatus,
+  ADMIN_PLATFORM_ROLES,
+};

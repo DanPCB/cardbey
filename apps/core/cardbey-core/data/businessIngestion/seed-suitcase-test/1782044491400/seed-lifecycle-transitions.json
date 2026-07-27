@@ -1,0 +1,16 @@
+[
+  {
+    "id": "3c50f18c-e9c8-4775-b699-d6b6bdea5967",
+    "seedId": "suitcase-seed-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-1",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-21T12:21:31.422Z"
+  }
+]

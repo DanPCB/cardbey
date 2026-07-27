@@ -1,0 +1,102 @@
+{
+  "id": "launch_campaign",
+  "name": "Campaign launch workflow",
+  "version": "1.0.0",
+  "missionType": "launch_campaign",
+  "metadata": {
+    "description": "Structured campaign: research → product checkpoint → creative → launch review → conditional publish"
+  },
+  "steps": [
+    {
+      "id": "research",
+      "orderIndex": 0,
+      "stepKind": "action",
+      "toolName": "market_research",
+      "labels": { "en": "Research", "vi": "Nghiên cứu" }
+    },
+    {
+      "id": "featured_product",
+      "orderIndex": 1,
+      "stepKind": "checkpoint",
+      "toolName": "mission.checkpoint",
+      "labels": { "en": "Featured product", "vi": "Sản phẩm nổi bật" },
+      "config": {
+        "type": "checkpoint",
+        "outputKey": "featuredProductId",
+        "dynamicOptions": "store.getProducts",
+        "prompts": {
+          "en": "Which product would you like to feature?",
+          "vi": "Bạn muốn giới thiệu sản phẩm nào?"
+        },
+        "optionItems": [
+          {
+            "value": "Top seller",
+            "displayLabel": { "en": "Top seller", "vi": "Bán chạy nhất" }
+          },
+          {
+            "value": "New arrival",
+            "displayLabel": { "en": "New arrival", "vi": "Hàng mới" }
+          },
+          {
+            "value": "Custom — pick in catalog",
+            "displayLabel": {
+              "en": "Custom — pick in catalog",
+              "vi": "Tùy chọn — chọn trong danh mục"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "create_creative",
+      "orderIndex": 2,
+      "stepKind": "action",
+      "toolName": "create_promotion",
+      "labels": { "en": "Create creative", "vi": "Tạo nội dung sáng tạo" }
+    },
+    {
+      "id": "launch_review",
+      "orderIndex": 3,
+      "stepKind": "checkpoint",
+      "toolName": "mission.checkpoint",
+      "labels": { "en": "Launch review", "vi": "Xem lại trước khi ra mắt" },
+      "config": {
+        "type": "checkpoint",
+        "outputKey": "launchDecision",
+        "prompts": {
+          "en": "Review your campaign creative. Ready to launch?",
+          "vi": "Xem lại nội dung chiến dịch. Sẵn sàng ra mắt chưa?"
+        },
+        "optionItems": [
+          {
+            "value": "Launch now",
+            "displayLabel": { "en": "Launch now", "vi": "Ra mắt ngay" }
+          },
+          {
+            "value": "Edit first",
+            "displayLabel": { "en": "Edit first", "vi": "Chỉnh sửa trước" }
+          },
+          {
+            "value": "Cancel",
+            "displayLabel": { "en": "Cancel", "vi": "Hủy" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "launch_or_save",
+      "orderIndex": 4,
+      "stepKind": "conditional",
+      "toolName": "mission.conditional",
+      "labels": { "en": "Launch or save", "vi": "Ra mắt hoặc lưu" },
+      "config": {
+        "type": "conditional",
+        "condition": "launchDecision === \"Launch now\"",
+        "ifTrueTool": "mission_conditional_branch",
+        "ifFalseTool": "mission_conditional_branch",
+        "ifTrueInput": { "branch": "launch", "label": "campaign_publish" },
+        "ifFalseInput": { "branch": "draft", "label": "campaign_save_draft" }
+      }
+    }
+  ]
+}

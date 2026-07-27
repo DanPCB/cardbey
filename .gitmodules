@@ -1,9 +1,8 @@
 [submodule "apps/dashboard/cardbey-marketing-dashboard"]
-path = apps/dashboard/cardbey-marketing-dashboard
-url = https://github.com/DanPCB/cardbey-marketing-dashboard.git
-branch = main
+	path = apps/dashboard/cardbey-marketing-dashboard
+	# Relative to parent remote so Render's automatic submodule clone reuses the
+	# primary-repo GitHub credentials (absolute HTTPS does not get the App token).
+	url = ../cardbey-marketing-dashboard.git
+	branch = main
 
-[submodule "apps/core/cardbey-core"]
-	path = apps/core/cardbey-core
-	url = https://github.com/DanPCB/cardbey-core.git
-branch = main
+

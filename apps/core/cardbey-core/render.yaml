@@ -1,0 +1,115 @@
+# Render Blueprint (optional): create a Web Service from this repo with root
+# apps/core/cardbey-core or paste build/start into the dashboard.
+# DATABASE_URL and other secrets should be set in the Render dashboard (not committed).
+#
+# Pre-deploy checklist (dashboard env vars — do not commit secrets):
+#   Required: NODE_ENV, DATABASE_URL, JWT_SECRET, PUBLIC_BASE_URL, FRONTEND_URL, OPENAI_API_KEY, XAI_API_KEY
+#   LLM routing: AGENT_LLM_PROVIDER, AGENT_LLM_MODEL, PERFORMER_INTAKE_LLM_MODEL, PERFORMER_INTAKE_PLANNER_MODEL,
+#                PLANNER_TIMEOUT_MS (see .env.production.example)
+#   Feature flags: USE_LLM_TASK_PLANNER, ENABLE_OPENCLAW_AGENT_RUNTIME, OPENCLAW_MISSION_STEPS, LANGCHAIN_ENABLED,
+#                  ENABLE_PROACTIVE_CAMPAIGN_RUNWAY, ENABLE_OPENCLAW_REAL_CAMPAIGN_APIS, ALLOW_CONCURRENT_MISSION_STEPS
+#   CrewAI: CREWAI_ENABLED=false until Python/pip is available on the build image; pip step below is non-fatal.
+#
+# Post-deploy verification (includes temp draft 202 — commit b02d47d):
+#   1) Render logs — server started cleanly:
+#        [SERVER] PUBLIC_BASE_URL: https://your-dashboard-domain.com
+#        [ProactiveStep] agent dispatch mode: OpenClaw (OPENCLAW_MISSION_STEPS=true)
+#        or [ProactiveStep] agent dispatch mode: dispatchTool if OpenClaw not enabled
+#   2) Health: curl https://your-api-domain.onrender.com/health
+#   3) Intake: curl -X POST https://your-api-domain.onrender.com/api/performer/intake \
+#        -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+#        -d '{"message": "Launch a marketing campaign"}'
+
+services:
+  - type: web
+    name: cardbey-core
+    env: node
+    buildCommand: node scripts/render-build.mjs
+    # Runs with DATABASE_URL set (unlike build). Resolves prisma/postgres vs sqlite from env; generate + migrate deploy.
+    # Pre-deploy on Render often fails with no log output. DB bootstrap runs at container start (npm prestart → Logs tab).
+    preDeployCommand: 'echo "[render] bootstrap deferred to npm prestart — see Logs tab"'
+    # prestart also runs render-predeploy (idempotent migrate deploy) then the server.
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_LLM_TASK_PLANNER
+        value: "true"
+      - key: ENABLE_OPENCLAW_AGENT_RUNTIME
+        value: "true"
+      - key: OPENCLAW_MISSION_STEPS
+        value: "true"
+      - key: LANGCHAIN_ENABLED
+        value: "true"
+      - key: CREWAI_ENABLED
+        value: "false"
+
+  - type: web
+    name: cardbey-core-staging
+    env: node
+    plan: standard
+    branch: staging
+    buildCommand: node scripts/render-build.mjs
+    preDeployCommand: npm ci && node scripts/resolve-postgres-failed-migration.mjs && node scripts/prisma-bootstrap.js
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CARDEY_DEPLOY_ENV
+        value: staging
+      # Phase 2 — platform marketing CTA API (staging only; production service omits this)
+      - key: ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1
+        value: "true"
+      - key: GUEST_COOKIE_SAMESITE
+        value: none
+      - key: AGENT_HEARTBEAT_INTERVAL_MS
+        value: "15000"
+      - key: CIRCUIT_BREAKER_THRESHOLD
+        value: "12"
+      - key: SLO_MIN_SAMPLE_SIZE
+        value: "50"
+      - key: USE_LLM_TASK_PLANNER
+        value: "true"
+      - key: ENABLE_OPENCLAW_AGENT_RUNTIME
+        value: "true"
+      - key: OPENCLAW_MISSION_STEPS
+        value: "true"
+      - key: LANGCHAIN_ENABLED
+        value: "true"
+      - key: CREWAI_ENABLED
+        value: "false"
+      # Phase 1 — MissionEvidenceGraph as write target (staging soak)
+      - key: PHASE1_GRAPH_WRITE_TARGET
+        value: "true"
+      - key: PHASE1_GRAPH_PRIMARY
+        value: "true"
+      - key: PHASE1_GRAPH_CONFLICT_DETECTION
+        value: "true"
+      - key: PHASE1_CONSOLIDATED_REASONING_TRACE
+        value: "true"
+      - key: PHASE1_PROJECTION_FROM_GRAPH
+        value: "true"
+      # Phase 2 — gradual reasoning loop rollout (staging soak)
+      - key: PHASE2_ACTIVE_REASONING
+        value: "true"
+      - key: PHASE2_REASONING_STAGING_ONLY
+        value: "true"
+      - key: PHASE2_REASONING_ROLLOUT_PERCENT
+        value: "25"
+      - key: PHASE2_REASONING_TELEMETRY
+        value: "true"
+      - key: PHASE2_REASONING_STEP_LOG
+        value: "true"
+      # Optional stream key for dashboard SSE (?key=). JWT (?token=) works without this.
+      - key: SSE_STREAM_KEY
+        sync: false
+
+  # Prevent 15-minute spin-down cold starts (CORS null on first request after idle).
+  - type: cron
+    name: cardbey-core-keepalive
+    schedule: "*/9 * * * *"
+    region: singapore
+    env: shell
+    startCommand: >
+      curl -sf https://cardbey-core.onrender.com/api/health
+      || echo "keepalive ping failed"

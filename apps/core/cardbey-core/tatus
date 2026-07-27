@@ -1,0 +1,122 @@
+[1mdiff --git a/src/utils/publicUrl.js b/src/utils/publicUrl.js[m
+[1mindex e36b8f0..4a111c2 100644[m
+[1m--- a/src/utils/publicUrl.js[m
+[1m+++ b/src/utils/publicUrl.js[m
+[36m@@ -32,9 +32,11 @@[m [mexport function buildPublicUrl(path, req = null) {[m
+   }[m
+   [m
+   // Fallback: use request protocol and host (development)[m
+[32m+[m[32m  // Respect X-Forwarded-Host if available (from Render proxy)[m
+   if (req) {[m
+     const protocol = req.protocol || 'http';[m
+[31m-    const host = req.get('host') || req.headers.host || 'localhost:3001';[m
+[32m+[m[32m    // Prefer X-Forwarded-Host (from proxy) over Host header[m
+[32m+[m[32m    const host = req.get('X-Forwarded-Host') || req.get('host') || req.headers.host || 'localhost:3001';[m
+     return `${protocol}://${host}${normalizedPath}`;[m
+   }[m
+   [m
+[36m@@ -47,10 +49,13 @@[m [mexport function buildPublicUrl(path, req = null) {[m
+  * Resolve a relative or absolute URL to a full public URL[m
+  * [m
+  * If the URL is already absolute:[m
+[31m- * - If PUBLIC_BASE_URL is set and the URL matches the base domain, normalize to HTTPS[m
+[31m- * - Otherwise return as-is[m
+[32m+[m[32m * - If PUBLIC_BASE_URL is not set, return url unchanged[m
+[32m+[m[32m * - If PUBLIC_BASE_URL is set and the origin matches the base's origin, return url unchanged (do not reconstruct)[m
+[32m+[m[32m * - Otherwise, return url unchanged (do not normalize across different domains)[m
+  * [m
+[31m- * If the URL is relative, treat it as a relative path and build a public URL.[m
+[32m+[m[32m * If the URL is NOT a valid absolute URL, treat it as a relative path:[m
+[32m+[m[32m * - Build base from PUBLIC_BASE_URL or request headers[m
+[32m+[m[32m * - Ensure path starts with /, then return base + path[m
+  * [m
+  * @param {string} url - Relative path or absolute URL[m
+  * @param {object} req - Express request object (optional)[m
+[36m@@ -59,36 +64,60 @@[m [mexport function buildPublicUrl(path, req = null) {[m
+ export function resolvePublicUrl(url, req = null) {[m
+   if (!url) return url;[m
+   [m
+[31m-  // If already absolute, check if we need to normalize to HTTPS[m
+[31m-  if (url.toLowerCase().startsWith('http://') || url.toLowerCase().startsWith('https://')) {[m
+[31m-    // If PUBLIC_BASE_URL is set, normalize HTTP URLs to HTTPS for the same domain[m
+[31m-    if (process.env.PUBLIC_BASE_URL) {[m
+[31m-      const baseUrl = process.env.PUBLIC_BASE_URL.trim().toLowerCase();[m
+[31m-      const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;[m
+[31m-      const urlLower = url.toLowerCase();[m
+[31m-      [m
+[31m-      // Extract domain from base URL (remove protocol)[m
+[31m-      const baseDomain = cleanBase.replace(/^https?:\/\//, '');[m
+[31m-      [m
+[31m-      // If URL is HTTP and matches our base domain, convert to HTTPS[m
+[31m-      if (urlLower.startsWith('http://') && urlLower.includes(baseDomain)) {[m
+[31m-        return url.replace(/^http:\/\//i, 'https://');[m
+[31m-      }[m
+[31m-      [m
+[31m-      // If URL is HTTPS and matches our base domain, ensure it uses PUBLIC_BASE_URL[m
+[31m-      if (urlLower.startsWith('https://') && urlLower.includes(baseDomain)) {[m
+[31m-        // Extract path from URL[m
+[31m-        const urlObj = new URL(url);[m
+[31m-        const path = urlObj.pathname + urlObj.search + urlObj.hash;[m
+[31m-        return `${cleanBase}${path}`;[m
+[31m-      }[m
+[32m+[m[32m  // Try to parse as absolute URL[m
+[32m+[m[32m  let urlObj;[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    urlObj = new URL(url);[m
+[32m+[m[32m    // Successfully parsed as absolute URL[m
+[32m+[m[41m    [m
+[32m+[m[32m    // If PUBLIC_BASE_URL is not set, return url unchanged[m
+[32m+[m[32m    if (!process.env.PUBLIC_BASE_URL) {[m
+[32m+[m[32m      return url;[m
+     }[m
+     [m
+[31m-    // Return as-is if no normalization needed[m
+[32m+[m[32m    // If PUBLIC_BASE_URL is set, check if origins match[m
+[32m+[m[32m    const baseUrl = process.env.PUBLIC_BASE_URL.trim();[m
+[32m+[m[32m    const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;[m
+[32m+[m[32m    let baseObj;[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      baseObj = new URL(cleanBase);[m
+[32m+[m[32m    } catch (e) {[m
+[32m+[m[32m      // Invalid PUBLIC_BASE_URL, return url unchanged[m
+[32m+[m[32m      console.warn('[publicUrl] Invalid PUBLIC_BASE_URL:', cleanBase);[m
+[32m+[m[32m      return url;[m
+[32m+[m[32m    }[m
+[32m+[m[41m    [m
+[32m+[m[32m    // Compare origins (scheme + host + port)[m
+[32m+[m[32m    const urlOrigin = `${urlObj.protocol}//${urlObj.host}`;[m
+[32m+[m[32m    const baseOrigin = `${baseObj.protocol}//${baseObj.host}`;[m
+[32m+[m[41m    [m
+[32m+[m[32m    // If origins match, return url unchanged (do not reconstruct)[m
+[32m+[m[32m    if (urlOrigin === baseOrigin) {[m
+[32m+[m[32m      return url;[m
+[32m+[m[32m    }[m
+[32m+[m[41m    [m
+[32m+[m[32m    // Origins don't match - return url unchanged (do not normalize across different domains)[m
+     return url;[m
+[32m+[m[32m  } catch (e) {[m
+[32m+[m[32m    // Not a valid absolute URL - treat as relative path[m
+[32m+[m[32m    // Build base from PUBLIC_BASE_URL or request headers[m
+[32m+[m[32m    let base;[m
+[32m+[m[32m    if (process.env.PUBLIC_BASE_URL) {[m
+[32m+[m[32m      const baseUrl = process.env.PUBLIC_BASE_URL.trim();[m
+[32m+[m[32m      base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;[m
+[32m+[m[32m    } else if (req) {[m
+[32m+[m[32m      const protocol = req.protocol || 'http';[m
+[32m+[m[32m      // Prefer X-Forwarded-Host (from proxy) over Host header[m
+[32m+[m[32m      const host = req.get('X-Forwarded-Host') || req.get('host') || req.headers.host || 'localhost:3001';[m
+[32m+[m[32m      base = `${protocol}://${host}`;[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      console.warn('[publicUrl] Cannot resolve relative URL: no PUBLIC_BASE_URL and no req object');[m
+[32m+[m[32m      return url; // Return as-is if we can't build a base[m
+[32m+[m[32m    }[m
+[32m+[m[41m    [m
+[32m+[m[32m    // Ensure path starts with /[m
+[32m+[m[32m    const normalizedPath = url.startsWith('/') ? url : `/${url}`;[m
+[32m+[m[32m    return `${base}${normalizedPath}`;[m
+   }[m
+[31m-  [m
+[31m-  // Treat as relative path and build public URL[m
+[31m-  return buildPublicUrl(url, req);[m
+ }[m
+ [m

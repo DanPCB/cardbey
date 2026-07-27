@@ -1,0 +1,25 @@
+#!/bin/sh
+# .husky/pre-commit
+
+echo "🔍 Running Cardbey Truth Enforcer..."
+
+# Run the truth enforcer
+node ../../../scripts/truth-enforcer/index.mjs
+
+# Capture exit code
+TRUTH_EXIT=$?
+
+if [ $TRUTH_EXIT -ne 0 ]; then
+    echo ""
+    echo "❌ Truth violations detected. Commit blocked."
+    echo ""
+    echo "To auto-fix issues:"
+    echo "  npm run truth:fix"
+    echo ""
+    echo "To bypass (not recommended):"
+    echo "  git commit --no-verify"
+    exit 1
+fi
+
+echo "✅ Truth check passed. Committing..."
+exit 0

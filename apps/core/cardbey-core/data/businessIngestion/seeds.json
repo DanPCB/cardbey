@@ -1,0 +1,37 @@
+[
+  {
+    "id": "gen-store-1",
+    "normalized": {
+      "id": "gen-store-1",
+      "businessName": "Brunetti Carlton",
+      "legalName": null,
+      "address": "380 Lygon St, Carlton, VIC",
+      "phone": "+61393495200",
+      "website": "https://brunetti.com.au",
+      "category": "cafe",
+      "categoryConfidence": 0.9,
+      "registrationNumber": null,
+      "email": "carlton@brunetti.com.au",
+      "operatingRegion": "AU-VIC",
+      "country": "Australia",
+      "state": "VIC",
+      "city": "Melbourne",
+      "confidenceScore": 0.9,
+      "sourceType": "csv",
+      "sourceReference": "MELBOURNE_BATCH0_20260617",
+      "sourceRowId": "1",
+      "ingestedAt": "2026-06-29T04:56:32.604Z"
+    },
+    "verificationStatus": "seeded_claimable",
+    "claimable": true,
+    "publicVisibility": "limited",
+    "ownerUserId": null,
+    "storeId": null,
+    "draftId": null,
+    "createdAt": "2026-06-29T04:56:32.604Z",
+    "updatedAt": "2026-06-29T04:56:32.616Z",
+    "batchId": "MELBOURNE_BATCH0_20260617",
+    "campaignId": null,
+    "firstSeenAt": "2026-06-29T04:56:32.616Z"
+  }
+]

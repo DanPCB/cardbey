@@ -1,6 +1,9 @@
 {
   "name": "cardbey-monorepo",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -13,21 +16,67 @@
   },
   "scripts": {
     "check:runway": "node scripts/check-single-runway.js",
-    "dev:core": "yarn workspace @cardbey/core dev",
-    "dev:dashboard": "yarn workspace @cardbey/dashboard dev",
-    "build:core": "yarn workspace @cardbey/core build",
-    "build:dashboard": "yarn workspace @cardbey/dashboard build",
-    "build:api-client": "yarn workspace @cardbey/api-client build",
-    "e2e:french-baguette": "node scripts/e2e-french-baguette.js"
+    "dev": "node scripts/print-dev-help.mjs",
+    "dev:doctor": "node scripts/dev-doctor.mjs",
+    "dev:doctor:probe": "node scripts/dev-doctor.mjs --probe",
+    "dev:cleanup": "node scripts/dev-cleanup.mjs",
+    "dev:prisma": "node scripts/dev-prisma-generate.mjs",
+    "dev:core": "pnpm --filter @cardbey/core run dev",
+    "dev:dashboard": "pnpm --filter @cardbey/dashboard run dev",
+    "build:core": "pnpm --filter @cardbey/core run build",
+    "build:dashboard": "pnpm -C apps/dashboard/cardbey-marketing-dashboard run build:dashboard",
+    "build:api-client": "pnpm --filter @cardbey/api-client run build",
+    "e2e:french-baguette": "node scripts/e2e-french-baguette.js",
+    "regression:preflight": "node scripts/scan-secrets.mjs",
+    "regression:deploy": "node scripts/deploy-render-readiness.mjs",
+    "smoke:live-prod-cors": "node scripts/live-prod-cors-smoke.mjs",
+    "regression:contracts": "pnpm --filter @cardbey/core exec vitest run src/routes/__tests__/runwayRouteContract.test.js src/routes/__tests__/healthRoute.contract.test.js src/routes/__tests__/journeysTemplates.smoke.test.js src/realtime/simpleSse.streamPolicy.test.js",
+    "regression:core": "node scripts/dev-prisma-generate.mjs && pnpm --filter @cardbey/core run test",
+    "regression:dashboard": "pnpm --filter @cardbey/dashboard exec vitest run",
+    "regression:smoke": "node scripts/regression-smoke.mjs",
+    "regression:smoke:offline": "node scripts/regression-smoke.mjs --offline",
+    "regression": "pnpm regression:preflight && pnpm regression:deploy && pnpm regression:contracts && pnpm regression:core && pnpm regression:dashboard",
+    "regression:preflight:staged": "node scripts/scan-secrets.mjs --staged",
+    "truth:check": "node scripts/truth-enforcer/index.mjs",
+    "truth:check:file": "node scripts/truth-enforcer/index.mjs --file",
+    "truth:audit": "node scripts/truth-enforcer/audit-repo.mjs",
+    "truth:fix": "node scripts/truth-enforcer/index.mjs --fix",
+    "truth:strict": "node scripts/truth-enforcer/index.mjs --strict",
+    "audit:discovery": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-discovery-data.ts",
+    "audit:discovery:readiness": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-discovery-data.ts -- --readiness",
+    "cleanup:discovery:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-discovery-dry-run.ts",
+    "cleanup:discovery": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-discovery-data.ts",
+    "cleanup:fixture-seeds:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-fixture-seeds-dry-run.ts",
+    "cleanup:fixture-seeds": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/cleanup-fixture-seeds.ts",
+    "test:fixture-seed-cleanup": "pnpm exec vitest run --root scripts/lib fixture-seed-cleanup.test.ts",
+    "import:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/import-melbourne-batch0.ts",
+    "restore:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/restore-melbourne-batch0.ts",
+    "test:melbourne-batch0-restore": "pnpm exec vitest run --root scripts/lib melbourne-batch0-restore.test.ts",
+    "audit:business-classification": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-business-classification.ts",
+    "repair:business-classification:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-business-classification.ts",
+    "repair:business-classification": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-business-classification.ts -- --apply",
+    "repair:seed-store-links:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-seed-store-links.ts",
+    "repair:seed-store-links": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-seed-store-links.ts -- --apply",
+    "test:seed-store-link-repair": "pnpm exec vitest run --root scripts/lib seed-store-link-repair.test.ts",
+    "audit:location-accuracy": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-location-accuracy.ts",
+    "repair:location-accuracy:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-location-accuracy.ts",
+    "repair:location-accuracy": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-location-accuracy.ts -- --apply",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@babel/generator": "^7.29.7",
+    "@babel/parser": "^7.29.7",
+    "@babel/traverse": "^7.29.7",
+    "@babel/types": "^7.29.7",
     "@typescript-eslint/eslint-plugin": "^8.52.0",
-    "@typescript-eslint/parser": "^8.52.0"
+    "@typescript-eslint/parser": "^8.52.0",
+    "chalk": "^5.6.2",
+    "husky": "^9.1.7"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.4.0",
     "@prisma/client": "^6.18.0",
     "prisma": "^6.18.0"
   },
-  "packageManager": "pnpm@10.25.0+sha512.5e82639027af37cf832061bcc6d639c219634488e0f2baebe785028a793de7b525ffcd3f7ff574f5e9860654e098fe852ba8ac5dd5cefe1767d23a020a92f501"
+  "packageManager": "pnpm@10.25.0"
 }

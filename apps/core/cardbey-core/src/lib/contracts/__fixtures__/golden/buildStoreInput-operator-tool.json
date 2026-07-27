@@ -1,0 +1,14 @@
+{
+  "runway": "R5b_operator_start_build_store",
+  "description": "Target after Phase 1: operator must pass location + intentMode when provided",
+  "buildStoreInput": {
+    "schemaVersion": 1,
+    "businessName": "Northside Coffee",
+    "businessType": "cafe",
+    "storeType": "cafe",
+    "location": "Melbourne",
+    "intentMode": "store",
+    "rawUserText": "Create my store",
+    "currencyCode": "AUD"
+  }
+}

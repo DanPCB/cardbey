@@ -1,0 +1,55 @@
+[
+  {
+    "id": "caba6147-ca59-4753-a107-51a4e2ceb45f",
+    "seedId": "start-1",
+    "claimRequestId": "b182bb67-97ac-4a4e-85af-99703b8ab688",
+    "action": "claim_started",
+    "actorId": "user-owner-1",
+    "previousStatus": "seeded_claimable",
+    "nextStatus": "pending",
+    "reason": null,
+    "timestamp": "2026-06-29T04:55:55.342Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  },
+  {
+    "id": "09be5123-c482-46f5-964e-680a142cbca3",
+    "seedId": "start-1",
+    "claimRequestId": "b182bb67-97ac-4a4e-85af-99703b8ab688",
+    "action": "proof_submitted",
+    "actorId": "user-owner-1",
+    "previousStatus": "pending",
+    "nextStatus": "proof_submitted",
+    "reason": null,
+    "timestamp": "2026-06-29T04:55:55.345Z",
+    "metadata": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    },
+    "details": {
+      "proofType": "email",
+      "proofStatus": "pending"
+    }
+  },
+  {
+    "id": "70fb77c6-4034-4bfc-b7d2-7f9100c7c165",
+    "seedId": "start-1",
+    "claimRequestId": "b182bb67-97ac-4a4e-85af-99703b8ab688",
+    "action": "otp_sent",
+    "actorId": "user-owner-1",
+    "previousStatus": "proof_submitted",
+    "nextStatus": "otp_sent",
+    "reason": null,
+    "timestamp": "2026-06-29T04:55:55.359Z",
+    "metadata": {
+      "proofType": "email"
+    },
+    "details": {
+      "proofType": "email"
+    }
+  }
+]

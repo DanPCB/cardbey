@@ -1,1 +1,32 @@
-node_modules
+﻿node_modules/
+**/node_modules/
+
+.cardbey/
+
+.claude/
+.claude/worktrees/
+
+.env
+.env.*
+!.env.example
+
+# Backend secrets
+apps/core/cardbey-core/.env
+apps/core/cardbey-core/.env.*
+!apps/core/cardbey-core/.env.example
+
+# Frontend has no secrets, but keep example
+apps/dashboard/cardbey-marketing-dashboard/.env
+!apps/dashboard/cardbey-marketing-dashboard/.env.example
+
+apps/core/cardbey-core/.env.local
+apps/core/cardbey-core/test-body.json
+
+apps/dashboard/cardbey frontend copy/
+
+# Local agent development workspaces (must not be gitlinked)
+.development-workspaces/
+
+
+llama.cpp/
+

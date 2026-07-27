@@ -1,0 +1,118 @@
+name: Foundation Regression
+
+on:
+  pull_request:
+    paths:
+      - 'apps/core/cardbey-core/**'
+      - 'apps/dashboard/cardbey-marketing-dashboard/**'
+      - 'scripts/**'
+      - 'docs/CI_REGRESSION.md'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/foundation-regression.yml'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'apps/core/cardbey-core/**'
+      - 'apps/dashboard/cardbey-marketing-dashboard/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+
+env:
+  NODE_ENV: test
+
+jobs:
+  preflight:
+    name: Secret preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile || pnpm install
+      - name: Scan for leaked secrets
+        run: node scripts/scan-secrets.mjs
+      - name: Render deploy readiness (CORS, imports, workspace deps)
+        run: node scripts/deploy-render-readiness.mjs
+
+  core-contracts:
+    name: Core route contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/core/cardbey-core
+    env:
+      DATABASE_URL: file:./prisma/test.db
+      PRISMA_CLIENT_ENGINE_TYPE: binary
+      ROLE: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile || pnpm install
+        working-directory: .
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/sqlite/schema.prisma
+      - name: Route & SSE contract tests
+        run: pnpm run test:contracts
+
+  core-tests:
+    name: Core unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/core/cardbey-core
+    env:
+      DATABASE_URL: file:./prisma/test.db
+      PRISMA_CLIENT_ENGINE_TYPE: binary
+      ROLE: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile || pnpm install
+        working-directory: .
+      - name: Prisma generate + test DB
+        run: npm run pretest
+      - name: Vitest
+        run: npm run test
+
+  dashboard-tests:
+    name: Dashboard unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard/cardbey-marketing-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile || pnpm install
+        working-directory: .
+      - name: Check i18n coverage (no new gap regressions)
+        run: pnpm run i18n:check
+      - name: Vitest run
+        run: pnpm exec vitest run

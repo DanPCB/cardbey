@@ -1,0 +1,26 @@
+{
+  "locationSlug": "golden-nails-care-melbourne-189-clarendon-street-qpy9go5m",
+  "data": {
+    "isBookable": false,
+    "slug": "golden-nails-care-melbourne-189-clarendon-street-qpy9go5m",
+    "name": "Golden Nails Care",
+    "employeeProfiles": {
+      "edges": []
+    },
+    "similarSearchQuery": {
+      "geocode": {
+        "latitude": -37.830081939697266,
+        "longitude": 144.95948791503906
+      },
+      "treatmentTag": null,
+      "treatmentCategory": {
+        "id": "category:nails",
+        "name": "Nails"
+      }
+    }
+  },
+  "providersProps": {
+    "basicProfile": null,
+    "fallback": {}
+  }
+}

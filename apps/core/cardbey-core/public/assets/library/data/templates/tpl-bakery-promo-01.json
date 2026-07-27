@@ -1,0 +1,73 @@
+{
+  "id": "tpl-bakery-promo-01",
+  "width": 1080,
+  "height": 1920,
+  "background": {
+    "type": "image",
+    "src": "/assets/library/templates/posters/tpl-bakery-promo-01-bg.jpg",
+    "fit": "cover"
+  },
+  "layers": [
+    {
+      "id": "headline",
+      "type": "text",
+      "content": "Freshly Baked Today",
+      "x": 80,
+      "y": 220,
+      "width": 920,
+      "fontFamily": "Inter",
+      "fontSize": 82,
+      "fontWeight": "700",
+      "color": "#ffffff",
+      "align": "center"
+    },
+    {
+      "id": "subhead",
+      "type": "text",
+      "content": "Get 20% OFF all breads & pastries",
+      "x": 120,
+      "y": 340,
+      "width": 840,
+      "fontFamily": "Inter",
+      "fontSize": 40,
+      "fontWeight": "500",
+      "color": "#ffe9c4",
+      "align": "center"
+    },
+    {
+      "id": "cta",
+      "type": "text",
+      "content": "Today Only \u00b7 8am \u2013 3pm",
+      "x": 120,
+      "y": 430,
+      "width": 840,
+      "fontFamily": "Inter",
+      "fontSize": 32,
+      "fontWeight": "500",
+      "color": "#ffffff",
+      "align": "center"
+    },
+    {
+      "id": "badge",
+      "type": "image",
+      "src": "/assets/library/elements/stickers/el-sale-badge-01.png",
+      "x": 70,
+      "y": 1280,
+      "width": 260,
+      "height": 260
+    },
+    {
+      "id": "footer",
+      "type": "text",
+      "content": "Bakery Name \u00b7 Address \u00b7 Phone",
+      "x": 120,
+      "y": 1700,
+      "width": 840,
+      "fontFamily": "Inter",
+      "fontSize": 26,
+      "fontWeight": "400",
+      "color": "#ffffff",
+      "align": "center"
+    }
+  ]
+}

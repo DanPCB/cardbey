@@ -1,0 +1,28 @@
+{
+  "name": "@cardbey/ai-types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for AI results and orchestrator outputs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "cardbey",
+    "ai",
+    "types"
+  ],
+  "author": "Cardbey Team",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "zod": "^3.22.0"
+  },
+  "dependencies": {
+    "zod": "^3.22.0"
+  }
+}
+
+

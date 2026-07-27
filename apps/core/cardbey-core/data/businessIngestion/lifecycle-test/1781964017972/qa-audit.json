@@ -1,0 +1,13 @@
+[
+  {
+    "id": "50e693dd-fcd6-4916-aa82-8c7fcb108538",
+    "seedId": "claim-flow-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-1",
+    "timestamp": "2026-06-20T14:00:17.997Z",
+    "reason": "ok",
+    "canonicalSeedId": null
+  }
+]

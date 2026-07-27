@@ -1,0 +1,157 @@
+@startuml cardbey_system_architecture
+!theme plain
+skinparam componentStyle rectangle
+skinparam defaultFontSize 11
+skinparam packageStyle rectangle
+
+title Cardbey System Architecture\n(status as of codebase audit)
+
+legend right
+  |= Color |= Status |
+  | <#22C55E> | Running / Implemented |
+  | <#F59E0B> | Freezing / Partial / Flag-gated |
+  | <#EF4444> | Placeholder / Not implemented |
+endlegend
+
+package "Frontend (cardbey-marketing-dashboard)" #1E293B {
+  component [Performer Console\n/app · intake v2] as PUI #22C55E
+  component [Control Center\n/marketing] as CC #22C55E
+  component [BI Governance\n/control-center/*] as CCGov #22C55E
+  component [PIL Assistant\nfeed · discover · storefront] as PIL #22C55E
+  component [Ask Cardbey\nRAG panel] as AC #22C55E
+  component [Layout Studio] as LS #22C55E
+  component [Storefront\n/s/:slug] as SF #22C55E
+  component [Control Tower] as CT #F59E0B
+  component [Console stubs\nstores · products] as Stub #EF4444
+}
+
+package "Integration" #334155 {
+  component [REST /api/*\nVite proxy] as REST #22C55E
+  component [SSE streams\nactivity · blackboard] as SSE #22C55E
+  component [Safe Execution\nGovernance] as GOV #22C55E
+}
+
+package "Backend Intake (cardbey-core)" #0F172A {
+  component [Intake V2\nprimary API] as IV2 #22C55E
+  component [Intake V1 shim\ndeprecated] as IV1 #F59E0B
+  component [LLMReasoner\nflag-off default] as LLMR #F59E0B
+  component [IntentReasoner\ndeterministic] as IR #22C55E
+  component [ReactPlanner\nask/confirm] as RP #22C55E
+}
+
+package "Backend Planning" #0F172A {
+  component [Dynamic Planner\nflag-off] as DP #F59E0B
+  component [Capability Proposal] as CP #F59E0B
+}
+
+package "Backend Execution" #0F172A {
+  component [Runtime Kernel\nEXECUTION_MODE=kernel] as RK #22C55E
+  component [Performer Runtime] as PR #22C55E
+  component [Tool Dispatcher] as TD #22C55E
+  component [Mission Orchestrator\nflag-off] as RMO #F59E0B
+  component [Legacy Orchestrator\ncreative API] as ORCH #F59E0B
+}
+
+package "Backend Memory" #0F172A {
+  component [Context Engine] as CE #22C55E
+  component [Episodic Memory\nblackboard] as EM #22C55E
+  component [Memory Facade\n/api/memory/bundle] as MF #22C55E
+  component [RAG Service\npartial usage] as RAG #F59E0B
+  component [Semantic Memory\ndistributed] as SM #F59E0B
+}
+
+package "Backend Learning" #0F172A {
+  component [Feedback Capture] as FB #22C55E
+  component [Behavior Analysis] as BA #22C55E
+  component [Confidence Calibration] as CAL #22C55E
+  component [Personalization] as PER #22C55E
+}
+
+package "Tools & Skills" #0F172A {
+  component [Store Tools] as ST #22C55E
+  component [Campaign Tools] as CT2 #22C55E
+  component [Product Tools] as PT #22C55E
+  component [Graphic Tools] as GT #22C55E
+  component [Skills API] as SK #22C55E
+}
+
+package "Database" #172554 {
+  database [SQLite / Postgres\nPrisma] as DB #22C55E
+  database [Memory Store] as MS #22C55E
+  database [RAG Store\nRagChunk] as RS #F59E0B
+}
+
+' Frontend → Integration
+PUI --> REST
+PUI --> SSE
+CC --> REST
+CC --> SSE
+CC --> GOV
+CCGov --> REST
+PIL --> GOV
+AC --> REST
+LS --> REST
+SF --> REST
+CT --> REST
+GOV --> PUI
+
+' Integration → Backend
+REST --> IV2
+IV1 ..> IV2 : shim
+
+' Intake pipeline
+IV2 --> CE
+IV2 --> LLMR
+LLMR --> IR
+IV2 --> IR
+IR --> RP
+IR --> FB
+RP --> DP
+RP --> PR
+DP --> PR
+PR --> RK
+RMO --> RK
+RK --> TD
+SK --> TD
+TD --> ST
+TD --> CT2
+TD --> PT
+TD --> GT
+
+' Memory
+CE --> IR
+CE --> RP
+EM --> RP
+MF --> CE
+RAG --> LLMR
+LLMR --> RAG
+
+' Learning loop
+FB --> BA
+BA --> CAL
+CAL --> PER
+PER --> IR
+
+' Persistence
+IV2 --> DB
+CE --> MS
+EM --> MS
+FB --> MS
+RAG --> RS
+
+note bottom of PUI
+  Primary operator surface.
+  Single runway: intake v2 only.
+end note
+
+note bottom of CC
+  Platform admin ops.
+  Hero briefing + attention queue.
+end note
+
+note bottom of RK
+  Default execution authority.
+  Legacy mode available via flag.
+end note
+
+@enduml

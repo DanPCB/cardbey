@@ -1,0 +1,58 @@
+{
+  "id": "store",
+  "name": "Store creation workflow",
+  "version": "1.0.0",
+  "missionType": "store",
+  "metadata": {
+    "description": "Structured store build: draft generation → brand assets checkpoint → review"
+  },
+  "steps": [
+    {
+      "id": "generate_store_draft",
+      "orderIndex": 0,
+      "stepKind": "action",
+      "toolName": "structured_store_build",
+      "labels": { "en": "Generate store draft", "vi": "Tạo bản nháp cửa hàng" }
+    },
+    {
+      "id": "brand_assets",
+      "orderIndex": 1,
+      "stepKind": "checkpoint",
+      "toolName": "mission.checkpoint",
+      "labels": { "en": "Brand assets", "vi": "Tài sản thương hiệu" },
+      "config": {
+        "type": "checkpoint",
+        "outputKey": "brandAssetsChoice",
+        "prompts": {
+          "en": "Your store draft is ready. You can personalise it now by adding your branding.",
+          "vi": "Bản nháp cửa hàng đã sẵn sàng. Bạn có thể cá nhân hóa bằng cách thêm thương hiệu."
+        },
+        "optionItems": [
+          {
+            "value": "Upload logo",
+            "displayLabel": { "en": "Upload logo", "vi": "Tải logo lên" }
+          },
+          {
+            "value": "Upload hero video",
+            "displayLabel": { "en": "Upload hero video", "vi": "Tải video hero lên" }
+          },
+          {
+            "value": "Choose from library",
+            "displayLabel": { "en": "Choose from library", "vi": "Chọn từ thư viện" }
+          },
+          {
+            "value": "Skip",
+            "displayLabel": { "en": "Skip for now", "vi": "Bỏ qua" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "review_store",
+      "orderIndex": 2,
+      "stepKind": "action",
+      "toolName": "analyze_store",
+      "labels": { "en": "Review store", "vi": "Xem lại cửa hàng" }
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+import { describe, expect, it } from 'vitest';
+import {
+  isBareStoreCreateRequest,
+  isStructuredStoreCreatePillMessage,
+  matchExactStoreCreatePhrase,
+  parseStructuredStoreCreatePillMessage,
+  shouldBlockServiceRequestForStoreCreate,
+  tryStoreCreateFastPath,
+} from '../../intent/storeCreateFastPath.js';
+import { signalsServiceRequest } from '../../capabilityResolver/resolveCapability.js';
+
+describe('storeCreateIntentFastPath', () => {
+  it('matches exact create-a-store phrase', () => {
+    const match = matchExactStoreCreatePhrase('Create a store for my business');
+    expect(match?.intentMode).toBe('store');
+    expect(match?.phrase).toBeTruthy();
+  });
+
+  it('fast-path classifies create a store for my business', () => {
+    const result = tryStoreCreateFastPath('Create a store for my business', {});
+    expect(result?.tool).toBe('create_store');
+    expect(result?.executionPath).toBe('proactive_plan');
+    expect(result?.parameters?._autoSubmit).toBe(true);
+  });
+
+  it('does not fast-path promotional video NL even with stale store_creation flow', () => {
+    const phrases = [
+      'create a promotion video for my store',
+      'create a video for my store',
+      'make a promo video for my café',
+    ];
+    for (const message of phrases) {
+      expect(tryStoreCreateFastPath(message, {})).toBeNull();
+      expect(tryStoreCreateFastPath(message, { currentFlow: 'store_creation' })).toBeNull();
+      expect(tryStoreCreateFastPath(message, { activeStoreId: 'store-1' })).toBeNull();
+    }
+  });
+
+  it('fast-path classifies create-store typo "create as tore"', () => {
+    const result = tryStoreCreateFastPath('create as tore', {});
+    expect(result?.tool).toBe('create_store');
+  });
+
+  it('parses structured pill submit Melbourne Flower · Other · Melbourne', () => {
+    const pill = parseStructuredStoreCreatePillMessage('Melbourne Flower · Other · Melbourne');
+    expect(pill).toEqual({
+      storeName: 'Melbourne Flower',
+      category: 'Other',
+      location: 'Melbourne',
+      intentMode: 'store',
+    });
+    expect(isStructuredStoreCreatePillMessage('Melbourne Flower · Other · Melbourne')).toBe(true);
+  });
+
+  it('fast-path classifies structured pill message as create_store', () => {
+    const result = tryStoreCreateFastPath('Melbourne Flower · Other · Melbourne', {});
+    expect(result?.tool).toBe('create_store');
+    expect(result?.parameters?.storeName).toBe('Melbourne Flower');
+    expect(result?.parameters?.storeType).toBe('Other');
+    expect(result?.parameters?.location).toBe('Melbourne');
+  });
+
+  it('fast-path classifies storeCreateForm envelope', () => {
+    const result = tryStoreCreateFastPath('', {
+      storeCreateForm: {
+        storeName: 'Melbourne Flower',
+        storeType: 'Other',
+        location: 'Melbourne',
+        intentMode: 'store',
+      },
+    });
+    expect(result?.tool).toBe('create_store');
+    expect(result?.parameters?.storeName).toBe('Melbourne Flower');
+  });
+
+  it('blocks service_request override for store creation phrases', () => {
+    expect(
+      shouldBlockServiceRequestForStoreCreate('Create a store for my business', {}),
+    ).toBe(true);
+    expect(
+      shouldBlockServiceRequestForStoreCreate('Melbourne Flower · Other · Melbourne', {}),
+    ).toBe(true);
+    expect(
+      shouldBlockServiceRequestForStoreCreate('help me book a haircut in Melbourne', {}),
+    ).toBe(false);
+  });
+
+  it('signalsServiceRequest stays false for store creation', () => {
+    expect(signalsServiceRequest('Create a store for my business')).toBe(false);
+    expect(signalsServiceRequest('Melbourne Flower · Other · Melbourne')).toBe(false);
+    expect(signalsServiceRequest('help me book a haircut this Sunday')).toBe(true);
+  });
+
+  it('isBareStoreCreateRequest is false when a specific name is embedded', () => {
+    expect(isBareStoreCreateRequest('Create a store called ABC Bakery in Melbourne')).toBe(false);
+    expect(isBareStoreCreateRequest("Create a store for Joe's Deli")).toBe(false);
+  });
+
+  it('isBareStoreCreateRequest is true for generic phrases only', () => {
+    expect(isBareStoreCreateRequest('Create a store for my business')).toBe(true);
+    expect(isBareStoreCreateRequest('Create a store for my business in Melbourne')).toBe(true);
+    expect(matchExactStoreCreatePhrase('Create a store called ABC Bakery')?.intentMode).toBe('store');
+  });
+});

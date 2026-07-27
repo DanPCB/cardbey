@@ -1,0 +1,16 @@
+node_modules
+.git
+.github
+*.log
+npm-debug.log*
+# Local SQLite databases must never be baked into an image.
+prisma/*.db
+prisma/**/*.db
+*.db
+*.sqlite
+.env
+.env.*
+!.env.production.example
+test-results
+coverage
+dist

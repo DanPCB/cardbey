@@ -1,0 +1,13 @@
+[
+  {
+    "id": "50d1de3c-93af-4acd-aba8-7e31e7639d83",
+    "seedId": "activate-guard-1",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "admin-qa",
+    "timestamp": "2026-06-20T14:20:23.630Z",
+    "reason": null,
+    "canonicalSeedId": null
+  }
+]

@@ -1,0 +1,2292 @@
+/**
+ * Authentication Routes
+ * POST /api/auth/register
+ * POST /api/auth/login
+ * GET  /api/auth/me
+ */
+
+import express from 'express';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import { prisma } from '../lib/prisma.js';
+import { generateToken, generateGuestToken, requireAuth, optionalAuth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
+import { sendMail } from '../services/email/mailer.js';
+import { getVerifyEmailContent } from '../services/email/templates/verifyEmail.js';
+import { getResetPasswordContent } from '../services/email/templates/resetPasswordEmail.js';
+import { registerWithEmailPassword, loginWithEmailPassword } from '../services/auth/authService.js';
+import { getPersonalPresenceLinkFields } from '../services/personalPresence/personalPresenceQr.js';
+import { publicWebBase } from '../utils/publicWebBase.js';
+import { filterOwnerVisibleStores } from '../utils/publicStoreVisibility.js';
+import { INVALIDATION_TRIGGERS } from '../services/memory/memoryCache.js';
+import {
+  getVerificationLinkBaseUrl,
+  VERIFICATION_CONFIRM_PATH,
+  VERIFICATION_EMAIL_PATH,
+  verificationTokenLogFields,
+  logVerificationEmailDispatch,
+} from '../utils/verificationLinkBase.js';
+import {
+  normalizeVerificationToken,
+  hashVerificationToken,
+  verificationConfirmLogFields,
+} from '../utils/verificationToken.js';
+
+/** Post-verify SPA path — landing page after one-tap email verification. */
+const EMAIL_VERIFIED_PATH = '/email-verified';
+/** Legacy post-verify path (still used by POST /verify/confirm). */
+const DEFAULT_VERIFY_REDIRECT_URI = '/app?verified=1';
+import { normalizeSocialLinks, parseSocialLinks } from '../lib/socialLinks.js';
+import { resolvePersistableMediaUrl, normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
+import { normalizeLocale } from '../lib/localePrompt.js';
+
+const router = express.Router();
+
+function resolveRequestIp(req) {
+  return (
+    req.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ??
+    req.socket?.remoteAddress ??
+    ''
+  );
+}
+
+function assertMaintenanceIpAllowlistIfConfigured(req) {
+  const rawAllowlist = process.env.PERFORMER_MAINTENANCE_IP_ALLOWLIST ?? '';
+  if (!rawAllowlist.trim()) return;
+  const allowedIps = rawAllowlist
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter(Boolean);
+  const requestIp = resolveRequestIp(req);
+  if (!allowedIps.includes(requestIp)) {
+    const err = new Error('MAINTENANCE_IP_DENIED');
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+/** Rate limit: 3 verification requests per 15 minutes per user (skipped in test) */
+const verificationRequestLimiter = (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 3,
+    keyGenerator: (req) => `verify-req-user:${req.userId || req.user?.id || 'unknown'}`,
+    message: 'You can request another verification email in {retryAfter} seconds. Limit is {max} requests per {windowMinutes} minutes.',
+    code: 'RATE_LIMITED',
+  })(req, res, next);
+};
+
+/** Rate limit: 10 verification requests per hour per IP (skipped in test) */
+const verificationRequestLimiterIP = (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
+  return rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => `verify-req-ip:${req.ip || 'unknown'}`,
+    message: 'Too many verification requests from this network. Try again in {retryAfter} seconds.',
+    code: 'RATE_LIMITED',
+  })(req, res, next);
+};
+
+/** Unauthenticated resend from verify failure page — IP rate limit only. */
+const verificationResendLimiter = (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
+  return rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => `verify-resend-ip:${req.ip || 'unknown'}`,
+    message: 'Too many resend requests. Try again later.',
+    code: 'RATE_LIMITED',
+  })(req, res, next);
+};
+
+const GENERIC_VERIFY_RESEND_MESSAGE =
+  'If an account exists for that email, we sent a verification link.';
+
+/** 60s cooldown per user between successful sends (in-memory; resets on restart) */
+const verificationSendCooldownMs = 60 * 1000;
+const lastVerificationSendByUser = new Map();
+
+/** Rate limit: 5 password reset requests per 15 minutes per IP (skipped in test) */
+const passwordResetRequestLimiter = (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => `pwd-reset:${req.ip || 'unknown'}`,
+    message: 'Too many reset requests. Try again in {retryAfter} seconds.',
+  })(req, res, next);
+};
+function normalizeIdentifier(value) {
+  if (!value) return '';
+  return value.toString().trim().toLowerCase();
+}
+
+function isValidHttpUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  try {
+    const u = new URL(value.trim());
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Optional string fields: return JSON null (not the string "null", not undefined).
+ * Handles DB/legacy values where the literal "null" was stored as text.
+ */
+function jsonNullIfUnset(value) {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const t = value.trim();
+    if (t === '' || t.toLowerCase() === 'null') return null;
+    return t;
+  }
+  return value;
+}
+
+function buildPatchProfileUserResponse(updatedUser) {
+  const { passwordHash: _, personalPresenceStore, ...userWithoutPassword } = updatedUser;
+  return {
+    ...userWithoutPassword,
+    roles: JSON.parse(userWithoutPassword.roles || '["viewer"]'),
+    onboarding: userWithoutPassword.onboarding ? JSON.parse(userWithoutPassword.onboarding) : null,
+    stores: filterOwnerVisibleStores(updatedUser.businesses),
+    hasStore: filterOwnerVisibleStores(updatedUser.businesses).length > 0,
+    handle: updatedUser.handle,
+    displayName: jsonNullIfUnset(updatedUser.displayName),
+    tagline: updatedUser.tagline,
+    avatarUrl: updatedUser.avatarUrl,
+    profilePhoto: jsonNullIfUnset(updatedUser.profilePhoto),
+    bio: jsonNullIfUnset(updatedUser.bio),
+    qrCodeUrl: jsonNullIfUnset(updatedUser.qrCodeUrl),
+    personalPresenceStoreId: updatedUser.personalPresenceStoreId ?? null,
+    personalPresenceStoreSlug: personalPresenceStore?.slug ?? null,
+    phone: jsonNullIfUnset(updatedUser.phone),
+    addressLine1: jsonNullIfUnset(updatedUser.addressLine1),
+    addressLine2: jsonNullIfUnset(updatedUser.addressLine2),
+    city: jsonNullIfUnset(updatedUser.city),
+    country: jsonNullIfUnset(updatedUser.country),
+    postcode: jsonNullIfUnset(updatedUser.postcode),
+    socialLinks: parseSocialLinks(updatedUser.socialLinks),
+  };
+}
+
+/**
+ * PATCH /api/auth/profile, PATCH /api/users/me, and PATCH /api/users/me/profile (mounted in server.js).
+ * Client cannot set qrCodeUrl; it is ignored if sent.
+ */
+export async function patchCurrentUserProfile(req, res, next) {
+  try {
+    const body = req.body ?? {};
+    const {
+      displayName,
+      fullName,
+      email,
+      accountType,
+      avatarUrl,
+      tagline,
+      profilePhoto,
+      bio,
+      personalPresenceStoreId,
+      phone,
+      addressLine1,
+      addressLine2,
+      city,
+      country,
+      postcode,
+      socialLinks,
+    } = body;
+    const hasPresenceKey = Object.prototype.hasOwnProperty.call(body, 'personalPresenceStoreId');
+    const hasSocialLinksKey = Object.prototype.hasOwnProperty.call(body, 'socialLinks');
+    const hasContactKey =
+      Object.prototype.hasOwnProperty.call(body, 'phone') ||
+      Object.prototype.hasOwnProperty.call(body, 'addressLine1') ||
+      Object.prototype.hasOwnProperty.call(body, 'addressLine2') ||
+      Object.prototype.hasOwnProperty.call(body, 'city') ||
+      Object.prototype.hasOwnProperty.call(body, 'country') ||
+      Object.prototype.hasOwnProperty.call(body, 'postcode');
+
+    if (
+      displayName === undefined &&
+      fullName === undefined &&
+      email === undefined &&
+      accountType === undefined &&
+      avatarUrl === undefined &&
+      tagline === undefined &&
+      profilePhoto === undefined &&
+      bio === undefined &&
+      !hasPresenceKey &&
+      !hasSocialLinksKey &&
+      !hasContactKey
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: 'No fields to update',
+        message: 'At least one field must be provided',
+      });
+    }
+
+    if (displayName !== undefined) {
+      if (typeof displayName !== 'string' || displayName.trim().length === 0) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid display name',
+          message: 'Display name must be a non-empty string',
+        });
+      }
+      if (displayName.trim().length > 100) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid display name',
+          message: 'Display name must be at most 100 characters',
+        });
+      }
+    }
+
+    if (email !== undefined) {
+      const normalizedEmail = normalizeIdentifier(email);
+      if (!normalizedEmail || !normalizedEmail.includes('@')) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid email',
+          message: 'Email must be a valid email address',
+        });
+      }
+
+      const existing = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+      if (existing && existing.id !== req.userId) {
+        return res.status(409).json({
+          ok: false,
+          error: 'Email already in use',
+          message: 'This email is already registered to another account',
+        });
+      }
+    }
+
+    if (accountType !== undefined) {
+      const validTypes = ['personal', 'business', 'both'];
+      if (!validTypes.includes(accountType)) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid account type',
+          message: `Account type must be one of: ${validTypes.join(', ')}`,
+        });
+      }
+    }
+
+    if (profilePhoto !== undefined && profilePhoto !== null && typeof profilePhoto !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Invalid profile photo',
+        message: 'profilePhoto must be a string URL or null',
+      });
+    }
+
+    let resolvedProfilePhoto = null;
+    if (profilePhoto !== undefined && typeof profilePhoto === 'string') {
+      const trimmed = profilePhoto.trim();
+      if (trimmed.length > 0) {
+        resolvedProfilePhoto = resolvePersistableMediaUrl(trimmed, req);
+        if (!resolvedProfilePhoto) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Invalid profile photo',
+            message: 'profilePhoto must be a valid http(s) URL or /uploads path',
+          });
+        }
+      }
+    }
+
+    if (bio !== undefined && bio !== null && typeof bio !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Invalid bio',
+        message: 'bio must be a string or null',
+      });
+    }
+    if (bio !== undefined && typeof bio === 'string' && bio.length > 500) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Invalid bio',
+        message: 'bio must be at most 500 characters',
+      });
+    }
+
+    if (hasPresenceKey && personalPresenceStoreId !== null && personalPresenceStoreId !== undefined) {
+      if (typeof personalPresenceStoreId !== 'string') {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid personalPresenceStoreId',
+          message: 'personalPresenceStoreId must be a string or null',
+        });
+      }
+      const id = personalPresenceStoreId.trim();
+      if (!id) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid personalPresenceStoreId',
+          message: 'personalPresenceStoreId cannot be empty',
+        });
+      }
+    }
+
+    const contactStr = (val, label, maxLen = 255) => {
+      if (val === null) return { ok: true, v: null };
+      if (val === undefined) return { ok: true, v: null };
+      if (typeof val !== 'string') {
+        return { ok: false, message: `${label} must be a string or null` };
+      }
+      const t = val.trim();
+      if (t.length > maxLen) {
+        return { ok: false, message: `${label} must be at most ${maxLen} characters` };
+      }
+      return { ok: true, v: t.length ? t : null };
+    };
+
+    const updateData = {};
+    if (displayName !== undefined) {
+      updateData.displayName = displayName.trim();
+    }
+    if (fullName !== undefined) {
+      updateData.fullName = fullName.trim() || null;
+    }
+    if (email !== undefined) {
+      updateData.email = normalizeIdentifier(email);
+    }
+    if (accountType !== undefined) {
+      updateData.accountType = accountType;
+    }
+    if (avatarUrl !== undefined) {
+      updateData.avatarUrl = avatarUrl?.trim() || null;
+    }
+    if (tagline !== undefined) {
+      updateData.tagline = tagline?.trim() || null;
+    }
+    if (profilePhoto !== undefined) {
+      if (profilePhoto === null) {
+        updateData.profilePhoto = null;
+      } else if (resolvedProfilePhoto) {
+        updateData.profilePhoto = normalizeMediaUrlForStorage(resolvedProfilePhoto, req);
+      } else {
+        updateData.profilePhoto = null;
+      }
+    }
+    if (bio !== undefined) {
+      updateData.bio = bio === null ? null : bio.trim() || null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'phone')) {
+      const r = contactStr(phone, 'phone', 40);
+      if (!r.ok) {
+        return res.status(400).json({ ok: false, error: 'Invalid phone', message: r.message });
+      }
+      updateData.phone = r.v;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'addressLine1')) {
+      const r = contactStr(addressLine1, 'addressLine1', 255);
+      if (!r.ok) {
+        return res.status(400).json({ ok: false, error: 'Invalid address', message: r.message });
+      }
+      updateData.addressLine1 = r.v;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'addressLine2')) {
+      const r = contactStr(addressLine2, 'addressLine2', 255);
+      if (!r.ok) {
+        return res.status(400).json({ ok: false, error: 'Invalid address', message: r.message });
+      }
+      updateData.addressLine2 = r.v;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'city')) {
+      const r = contactStr(city, 'city', 120);
+      if (!r.ok) {
+        return res.status(400).json({ ok: false, error: 'Invalid city', message: r.message });
+      }
+      updateData.city = r.v;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'country')) {
+      const r = contactStr(country, 'country', 120);
+      if (!r.ok) {
+        return res.status(400).json({ ok: false, error: 'Invalid country', message: r.message });
+      }
+      updateData.country = r.v;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'postcode')) {
+      const r = contactStr(postcode, 'postcode', 32);
+      if (!r.ok) {
+        return res.status(400).json({ ok: false, error: 'Invalid postcode', message: r.message });
+      }
+      updateData.postcode = r.v;
+    }
+
+    if (hasSocialLinksKey) {
+      const normalized = normalizeSocialLinks(socialLinks);
+      if (!normalized.ok) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid socialLinks',
+          message: normalized.message,
+        });
+      }
+      updateData.socialLinks = normalized.value;
+    }
+
+    if (hasPresenceKey) {
+      if (personalPresenceStoreId === null) {
+        updateData.personalPresenceStoreId = null;
+        updateData.qrCodeUrl = null;
+      } else {
+        const id = String(personalPresenceStoreId).trim();
+        const linkFields = await getPersonalPresenceLinkFields(prisma, req.userId, id);
+        if (!linkFields) {
+          return res.status(403).json({
+            ok: false,
+            error: 'Forbidden',
+            message: 'You do not own this store or it does not exist',
+          });
+        }
+        Object.assign(updateData, linkFields);
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.userId },
+      data: updateData,
+      include: {
+        businesses: { select: { id: true, name: true, slug: true } },
+        personalPresenceStore: { select: { slug: true } },
+      },
+    });
+
+    console.log(`[Auth] ✅ Profile updated for user ${req.userId}`);
+
+    res.json({
+      ok: true,
+      user: buildPatchProfileUserResponse(updatedUser),
+    });
+  } catch (error) {
+    console.error('[Auth] Update profile error:', error);
+    next(error);
+  }
+}
+
+// Test route to verify auth router is accessible
+router.get('/test', (req, res) => {
+  res.json({ ok: true, message: 'Auth router is working', path: req.path, originalUrl: req.originalUrl });
+});
+
+/**
+ * POST /api/auth/register
+ * Register a new user (delegates to authService; same response shape).
+ */
+router.post('/register', async (req, res, next) => {
+  console.log('[AUTH] Register endpoint hit', {
+    method: req.method,
+    path: req.path,
+    originalUrl: req.originalUrl,
+    bodyKeys: req.body ? Object.keys(req.body) : [],
+    hasBody: !!req.body
+  });
+  try {
+    const { email, password, fullName, displayName } = req.body ?? {};
+    const name = fullName?.trim() || displayName?.trim() || undefined;
+    const { user, token } = await registerWithEmailPassword({ email, password, name });
+
+    // Dev-only convenience: allow skipping email verification entirely for local development.
+    const skipEmailVerification =
+      process.env.NODE_ENV !== 'production' &&
+      (process.env.SKIP_EMAIL_VERIFICATION === 'true' || process.env.SKIP_EMAIL_VERIFICATION === '1');
+    if (skipEmailVerification && user?.id) {
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: true },
+        });
+        user.emailVerified = true;
+        user.emailVerificationRequired = false;
+        user.allowUnverifiedPublish = true;
+        user.verificationToken = null;
+        user.verificationTokenRaw = null;
+        user.verificationExpires = null;
+      } catch (e) {
+        console.warn('[Auth] SKIP_EMAIL_VERIFICATION update failed (non-fatal):', e?.message || e);
+      }
+    }
+
+    // When email verification is enabled, send verification email on signup (fire-and-forget; do not block 201)
+    const verificationEnabled = process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1';
+    if (!skipEmailVerification && verificationEnabled && user?.id && user?.email) {
+      const rawToken = generateVerificationRawToken();
+      const hashedToken = hashVerificationToken(rawToken);
+      const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { verificationToken: hashedToken, verificationTokenRaw: rawToken, verificationExpires: expiresAt },
+      });
+      try {
+        await sendVerificationEmail({
+          to: user.email,
+          rawToken,
+          displayName: user.displayName || user.fullName || undefined,
+        });
+      } catch (err) {
+        console.error('[Auth] Register verification email send failed', { userId: user.id, error: err?.message });
+      }
+    }
+
+    try {
+      const { emitPlatformActivity } = await import('../lib/platformActivity/platformActivityEmitter.js');
+      emitPlatformActivity({
+        type: 'user_registered',
+        severity: 'success',
+        actorType: 'user',
+        actorId: user?.id ?? null,
+        entityType: 'user',
+        entityId: user?.id ?? null,
+        title: 'New user registered',
+        message: 'A new account joined the platform.',
+        route: '/admin/accounts',
+      });
+    } catch {
+      /* non-fatal */
+    }
+
+    res.status(201).json({ ok: true, token, user });
+  } catch (error) {
+    if (error.code === 'EMAIL_EXISTS') {
+      return res.status(409).json({
+        ok: false,
+        error: 'Email already registered',
+        message: 'This email is already registered. Please use a different email or log in.'
+      });
+    }
+    if (error.code === 'MISSING_FIELDS') {
+      return res.status(400).json({ ok: false, error: error.message, message: error.message });
+    }
+    if (error.code === 'PASSWORD_TOO_SHORT') {
+      return res.status(400).json({ ok: false, error: error.message, message: error.message });
+    }
+    console.error('[Auth] Register error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/login
+ * Login existing user (delegates to authService; same response shape).
+ */
+router.post('/login', async (req, res, next) => {
+  try {
+    console.info('[AUTH] Login request received', {
+      method: req.method,
+      path: req.path,
+      bodyKeys: req.body ? Object.keys(req.body) : [],
+    });
+    const identifierRaw = (req.body?.username ?? req.body?.email ?? '').toString().trim();
+    const { password } = req.body ?? {};
+    const { user, token } = await loginWithEmailPassword({
+      emailOrUsername: identifierRaw,
+      password,
+    });
+
+    // Dev-only convenience: if SKIP_EMAIL_VERIFICATION is enabled, auto-verify legacy unverified accounts on login.
+    const skipEmailVerification =
+      process.env.NODE_ENV !== 'production' &&
+      (process.env.SKIP_EMAIL_VERIFICATION === 'true' || process.env.SKIP_EMAIL_VERIFICATION === '1');
+    if (skipEmailVerification && user?.id && user.emailVerified === false) {
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: true },
+        });
+        user.emailVerified = true;
+        user.emailVerificationRequired = false;
+        user.allowUnverifiedPublish = true;
+      } catch (e) {
+        console.warn('[Auth] SKIP_EMAIL_VERIFICATION login update failed (non-fatal):', e?.message || e);
+      }
+    }
+    res.json({
+      ok: true,
+      token,
+      accessToken: token,
+      user,
+    });
+  } catch (error) {
+    if (error.code === 'MISSING_FIELDS') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Email/username and password are required',
+        message: error.message,
+      });
+    }
+    if (error.code === 'INVALID_CREDENTIALS') {
+      return res.status(401).json({
+        ok: false,
+        error: 'Invalid credentials',
+        message: error.message || 'Invalid email or password',
+      });
+    }
+    console.error('[Auth] Login error:', error);
+    next(error);
+  }
+});
+
+router.post('/logout', optionalAuth, (req, res) => {
+  const userId = req.user?.id ? String(req.user.id) : null;
+  if (userId) {
+    INVALIDATION_TRIGGERS.LOGOUT(userId);
+  }
+
+  res.clearCookie('accessToken', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+  });
+
+  res.clearCookie('performer_role', {
+    httpOnly: true,
+    sameSite: 'strict',
+  });
+
+  return res.json({ success: true });
+});
+
+/**
+ * POST /api/auth/maintenance-session
+ * Body: { maintenanceToken: string }
+ *
+ * Creates a first-class operator maintenance session (super_admin role) for 8 hours.
+ * - IP allowlist is enforced first (if configured)
+ * - Token comparison uses timingSafeEqual (length mismatch handled safely)
+ * - Always returns 401 { error: 'INVALID_TOKEN' } for missing/wrong/unset token
+ */
+router.post('/maintenance-session', async (req, res) => {
+  try {
+    assertMaintenanceIpAllowlistIfConfigured(req);
+  } catch (err) {
+    if (err?.message === 'MAINTENANCE_IP_DENIED') {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
+  const expected = String(process.env.PERFORMER_MAINTENANCE_SECRET || '');
+  const provided = String(req.body?.maintenanceToken || '');
+
+  // Fail closed without revealing configuration state.
+  if (!expected || !provided) {
+    return res.status(401).json({ error: 'INVALID_TOKEN' });
+  }
+
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  const providedBuf = Buffer.from(provided, 'utf8');
+  if (expectedBuf.length !== providedBuf.length) {
+    return res.status(401).json({ error: 'INVALID_TOKEN' });
+  }
+
+  let ok = false;
+  try {
+    ok = crypto.timingSafeEqual(expectedBuf, providedBuf);
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    return res.status(401).json({ error: 'INVALID_TOKEN' });
+  }
+
+  const maxAgeMs = 8 * 60 * 60 * 1000;
+  res.cookie('performer_role', 'super_admin', {
+    httpOnly: true,
+    sameSite: 'strict',
+    maxAge: maxAgeMs,
+  });
+
+  return res.json({
+    role: 'super_admin',
+    expiresAt: Date.now() + maxAgeMs,
+    token: provided,
+  });
+});
+
+/**
+ * GET /api/auth/me
+ * Get current user info
+ * 
+ * Headers:
+ *   - Authorization: Bearer <token> (required)
+ * 
+ * Response (200):
+ *   - ok: true
+ *   - user: User object with stores array
+ * 
+ * Errors:
+ *   - 401: No token provided, invalid token, or expired token
+ */
+router.get('/me', requireAuth, async (req, res, next) => {
+  try {
+    // Guest tokens: no DB user; requireAuth already set req.user = { id, role: 'guest' }
+    if (req.user?.role === 'guest') {
+      return res.json({
+        ok: true,
+        user: { id: req.user.id, role: 'guest' }
+      });
+    }
+
+    // DATA ISOLATION: Use only req.userId from JWT (set by requireAuth). Do not use client params.
+    // Schema has businesses[], not business; include only minimal fields needed for /me response.
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      include: {
+        businesses: { select: { id: true, name: true, slug: true } },
+        personalPresenceStore: { select: { slug: true } },
+      },
+    });
+    
+    if (!user) {
+      // This should rarely happen since requireAuth validates the user exists
+      // But if it does, return 401 (not 404) since it's an auth issue
+      return res.status(401).json({ 
+        ok: false,
+        error: 'User not found',
+        message: 'Authentication failed. Please log in again.'
+      });
+    }
+    
+    // User is already attached by requireAuth middleware
+    const { passwordHash: _, personalPresenceStore, ...userWithoutPassword } = user;
+    
+    // Parse JSON fields for response
+    const userResponse = {
+      ...userWithoutPassword,
+      roles: JSON.parse(userWithoutPassword.roles || '["viewer"]'),
+      onboarding: userWithoutPassword.onboarding ? JSON.parse(userWithoutPassword.onboarding) : null,
+      stores: filterOwnerVisibleStores(user.businesses),
+      hasStore: filterOwnerVisibleStores(user.businesses).length > 0,
+      handle: user.handle,
+      displayName: jsonNullIfUnset(user.displayName),
+      tagline: user.tagline,
+      avatarUrl: user.avatarUrl,
+      profilePhoto: jsonNullIfUnset(user.profilePhoto),
+      bio: jsonNullIfUnset(user.bio),
+      qrCodeUrl: jsonNullIfUnset(user.qrCodeUrl),
+      personalPresenceStoreId: user.personalPresenceStoreId ?? null,
+      personalPresenceStoreSlug: personalPresenceStore?.slug ?? null,
+      phone: jsonNullIfUnset(user.phone),
+      addressLine1: jsonNullIfUnset(user.addressLine1),
+      addressLine2: jsonNullIfUnset(user.addressLine2),
+      city: jsonNullIfUnset(user.city),
+      country: jsonNullIfUnset(user.country),
+      postcode: jsonNullIfUnset(user.postcode),
+      socialLinks: parseSocialLinks(user.socialLinks),
+      // Email verification status (additive; does not change existing response shape)
+      emailVerified: user.emailVerified ?? false,
+      // When true, frontend should gate "Publish store" until user verifies email
+      emailVerificationRequired: process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1',
+      // Only when verification gate is on: allow "Publish anyway" in UI (e.g. dev). Prod: do not set CARD_BEY_ALLOW_UNVERIFIED_PUBLISH.
+      allowUnverifiedPublish: (process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1') &&
+        (process.env.CARD_BEY_ALLOW_UNVERIFIED_PUBLISH === 'true' || process.env.CARD_BEY_ALLOW_UNVERIFIED_PUBLISH === '1'),
+    };
+    
+    res.json({
+      ok: true,
+      user: userResponse
+    });
+  } catch (error) {
+    console.error('[Auth] Get me error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/profile
+ * Get current user profile (alias of /api/auth/me)
+ * 
+ * Headers:
+ *   - Authorization: Bearer <token> (required)
+ * 
+ * Response (200):
+ *   - ok: true
+ *   - user: User object with stores array
+ * 
+ * Errors:
+ *   - 401: No token provided, invalid token, or expired token
+ */
+router.get('/profile', requireAuth, async (req, res, next) => {
+  try {
+    // Fetch user with businesses relation (schema: businesses Business[])
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      include: {
+        businesses: { select: { id: true, name: true, slug: true } },
+        personalPresenceStore: { select: { slug: true } },
+      },
+    });
+    
+    if (!user) {
+      return res.status(401).json({ 
+        ok: false,
+        error: 'User not found',
+        message: 'Authentication failed. Please log in again.'
+      });
+    }
+    
+    const { passwordHash: _, personalPresenceStore, ...userWithoutPassword } = user;
+    
+    const userResponse = {
+      ...userWithoutPassword,
+      roles: JSON.parse(userWithoutPassword.roles || '["viewer"]'),
+      onboarding: userWithoutPassword.onboarding ? JSON.parse(userWithoutPassword.onboarding) : null,
+      stores: filterOwnerVisibleStores(user.businesses),
+      hasStore: filterOwnerVisibleStores(user.businesses).length > 0,
+      // Ensure handle, displayName, tagline, avatarUrl are included
+      handle: user.handle,
+      displayName: jsonNullIfUnset(user.displayName),
+      tagline: user.tagline,
+      avatarUrl: user.avatarUrl,
+      profilePhoto: jsonNullIfUnset(user.profilePhoto),
+      bio: jsonNullIfUnset(user.bio),
+      qrCodeUrl: jsonNullIfUnset(user.qrCodeUrl),
+      personalPresenceStoreId: user.personalPresenceStoreId ?? null,
+      personalPresenceStoreSlug: personalPresenceStore?.slug ?? null,
+      phone: jsonNullIfUnset(user.phone),
+      addressLine1: jsonNullIfUnset(user.addressLine1),
+      addressLine2: jsonNullIfUnset(user.addressLine2),
+      city: jsonNullIfUnset(user.city),
+      country: jsonNullIfUnset(user.country),
+      postcode: jsonNullIfUnset(user.postcode),
+      // Email verification status (additive)
+      emailVerified: user.emailVerified ?? false,
+      emailVerificationRequired: process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1',
+      allowUnverifiedPublish: (process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1') &&
+        (process.env.CARD_BEY_ALLOW_UNVERIFIED_PUBLISH === 'true' || process.env.CARD_BEY_ALLOW_UNVERIFIED_PUBLISH === '1'),
+    };
+    
+    res.json({
+      ok: true,
+      user: userResponse
+    });
+  } catch (error) {
+    console.error('[Auth] Get profile error:', error);
+    next(error);
+  }
+});
+
+/**
+ * PATCH /api/profile
+ * Update user profile (name, email, personal profile fields)
+ * 
+ * Headers:
+ *   - Authorization: Bearer <token> (required)
+ * 
+ * Request body:
+ *   - displayName?: string (max 100 chars)
+ *   - profilePhoto?: string | null (http(s) URL)
+ *   - bio?: string | null (max 500 chars)
+ *   - personalPresenceStoreId?: string | null (must be a Business/store owned by the user; sets server-generated qrCodeUrl)
+ *   - qrCodeUrl: ignored if sent (server-only)
+ *   - email?: string (if email updates are allowed)
+ * 
+ * Response (200):
+ *   - ok: true
+ *   - user: Updated User object
+ * 
+ * Errors:
+ *   - 400: Invalid input
+ *   - 401: Not authenticated
+ *   - 409: Email already in use (if updating email)
+ */
+router.patch('/profile', requireAuth, patchCurrentUserProfile);
+
+/**
+ * GET /api/auth/profile/media — list current user's personal media (images/videos).
+ */
+router.get('/profile/media', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user?.role === 'guest') {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required.' });
+    }
+    const media = await prisma.personalMedia.findMany({
+      where: { userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ ok: true, media });
+  } catch (error) {
+    console.error('[Auth] GET profile/media error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/profile/media — register an uploaded asset URL after POST /api/uploads/create.
+ * Body: { url: string, type: "image" | "video" }
+ */
+router.post('/profile/media', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user?.role === 'guest') {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required.' });
+    }
+    const { url, type } = req.body ?? {};
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      return res.status(400).json({ ok: false, error: 'invalid_url', message: 'url is required' });
+    }
+    const trimmed = url.trim();
+    const resolvedUrl = resolvePersistableMediaUrl(trimmed, req);
+    if (!resolvedUrl) {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_url',
+        message: 'url must be a valid http(s) URL or /uploads path',
+      });
+    }
+    const t = type === 'video' ? 'video' : type === 'image' ? 'image' : null;
+    if (!t) {
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid_type',
+        message: 'type must be "image" or "video"',
+      });
+    }
+    const row = await prisma.personalMedia.create({
+      data: {
+        userId: req.userId,
+        url: normalizeMediaUrlForStorage(resolvedUrl, req),
+        type: t,
+      },
+    });
+    res.status(201).json({ ok: true, media: row });
+  } catch (error) {
+    console.error('[Auth] POST profile/media error:', error);
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/auth/profile/media/:id — remove a personal media row (does not delete remote file).
+ */
+router.delete('/profile/media/:id', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user?.role === 'guest') {
+      return res.status(401).json({ ok: false, error: 'unauthorized', message: 'Authentication required.' });
+    }
+    const { id } = req.params;
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ ok: false, error: 'invalid_id', message: 'Invalid id' });
+    }
+    const existing = await prisma.personalMedia.findFirst({
+      where: { id, userId: req.userId },
+    });
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: 'Media not found' });
+    }
+    await prisma.personalMedia.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[Auth] DELETE profile/media error:', error);
+    next(error);
+  }
+});
+
+/**
+ * Generate a secure random token (32 bytes = 64 hex chars)
+ * Uses crypto.randomBytes for cryptographically secure randomness
+ */
+function generateSecureToken(length = 32) {
+  return crypto.randomBytes(length).toString('hex');
+}
+
+/** Verification raw tokens use base64url so they are not confused with sha256 hex hashes. */
+function generateVerificationRawToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function resolveVerificationExpiryMs() {
+  const raw = String(process.env.VERIFICATION_EXPIRY_MS || '').trim();
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return 24 * 60 * 60 * 1000;
+}
+
+const VERIFICATION_EXPIRY_MS = resolveVerificationExpiryMs();
+
+/**
+ * Absolute origin for post-verification browser redirects (SPA).
+ * Never emit a relative Location header — clients resolve it against the API host and users land on the wrong origin.
+ * Dev fallback matches password-reset link default.
+ */
+function resolvePublicWebBaseForBrowserRedirect() {
+  return publicWebBase({ emptyInProductionIfUnset: true });
+}
+
+function buildEmailVerifiedRedirectUrl(status) {
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
+  if (!webBase) return null;
+  const normalized = ['success', 'invalid', 'expired'].includes(status) ? status : 'invalid';
+  const params = new URLSearchParams({ status: normalized });
+  return `${webBase}${EMAIL_VERIFIED_PATH}?${params.toString()}`;
+}
+
+function redirectEmailVerifiedOrJson(res, status, jsonBody = null) {
+  const location = buildEmailVerifiedRedirectUrl(status);
+  if (location) {
+    return res.redirect(302, location);
+  }
+  if (jsonBody) {
+    return res.status(jsonBody.statusCode || 200).json(jsonBody.body);
+  }
+  return res.status(400).json({
+    ok: false,
+    code: 'VERIFY_REDIRECT_UNCONFIGURED',
+    error: 'Verification redirect URL not configured',
+    message: 'Set PUBLIC_APP_URL or DASHBOARD_URL for post-verify redirect.',
+  });
+}
+
+/** Shared success response after email is verified (redirect to SPA, HTML, or JSON). */
+function respondAfterEmailVerified(res, redirect_uri, req = null) {
+  const safeRedirect = safeVerifyRedirectUri(redirect_uri);
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
+  if (webBase && !(req && wantsVerifyJsonOnly(req))) {
+    return res.redirect(302, `${webBase}${safeRedirect}`);
+  }
+  if (req && wantsVerifyBrowserResponse(req)) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[Auth] verify: set PUBLIC_APP_URL or DASHBOARD_URL for post-verify browser redirect');
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(
+      renderVerifyResultPage({
+        title: 'Email verified',
+        message: 'Your email has been verified. You can return to the app.',
+      }),
+    );
+  }
+  return res.json({
+    ok: true,
+    verified: true,
+    message: 'Email verified. Open the app in your browser to continue.',
+  });
+}
+
+function prefersHtml(req) {
+  const accept = String(req.headers?.accept || '');
+  return accept.includes('text/html') || accept.includes('application/xhtml+xml');
+}
+
+function verifyDebugEnabled() {
+  if (process.env.NODE_ENV === 'production') return false;
+  return String(process.env.DEBUG_VERIFY_EMAIL || '').trim() === '1';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function safeVerifyRedirectUri(redirectUri) {
+  if (typeof redirectUri !== 'string') return DEFAULT_VERIFY_REDIRECT_URI;
+  const trimmed = redirectUri.trim();
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return DEFAULT_VERIFY_REDIRECT_URI;
+  return trimmed;
+}
+
+function wantsVerifyJsonOnly(req) {
+  const accept = String(req.headers?.accept || '*/*');
+  return accept.includes('application/json') && !accept.includes('text/html');
+}
+
+/** Email link GET /verify/confirm always returns HTML; POST from form may redirect. */
+function wantsVerifyBrowserResponse(req) {
+  const path = String(req.path || '');
+  if (req.method === 'GET' && path.endsWith('/verify/confirm')) return true;
+  if (wantsVerifyJsonOnly(req)) return false;
+  if (req.method === 'POST' && (path.endsWith('/verify/confirm') || path.endsWith('/verify/resend'))) {
+    return true;
+  }
+  return prefersHtml(req);
+}
+
+function renderVerifyResultPage({ title, message, retryUrl, debugLines = [], extraHtml = '' }) {
+  const safeTitle = escapeHtml(title || 'Email verification');
+  const safeMessage = escapeHtml(message || '');
+  const debugHtml =
+    Array.isArray(debugLines) && debugLines.length
+      ? `<details style="margin-top:16px"><summary style="cursor:pointer">Debug</summary><pre style="white-space:pre-wrap;word-break:break-word;margin-top:8px">${debugLines
+          .map((l) => escapeHtml(l))
+          .join('\n')}</pre></details>`
+      : '';
+  const retryBtn = retryUrl
+    ? `<p style="margin-top:18px"><a href="${escapeHtml(retryUrl)}" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#111;color:#fff;text-decoration:none">Open app</a></p>`
+    : '';
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px 18px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { margin: 0; color: #374151; line-height: 1.45; }
+    button { padding: 10px 14px; border-radius: 10px; background: #111; color: #fff; border: 0; cursor: pointer; font-size: 14px; }
+    input[type="email"] { display: block; margin: 8px 0 12px; padding: 8px; width: 100%; max-width: 320px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${safeTitle}</h1>
+    <p>${safeMessage}</p>
+    ${retryBtn}
+    ${extraHtml}
+    ${debugHtml}
+  </div>
+</body>
+</html>`;
+}
+
+function renderVerifyFailurePage({ title, message, emailPrefill = '', debugLines = [] }) {
+  const email = escapeHtml(emailPrefill);
+  const resendForm = `<form method="POST" action="/api/auth/verify/resend" style="margin-top:18px">
+    <label for="verify-resend-email">Email</label>
+    <input id="verify-resend-email" type="email" name="email" value="${email}" required autocomplete="email" />
+    <button type="submit">Resend verification email</button>
+  </form>`;
+  return renderVerifyResultPage({
+    title,
+    message,
+    debugLines,
+    extraHtml: resendForm,
+  });
+}
+
+function renderVerifyConfirmInterstitialPage({ token, redirectUri }) {
+  const safeToken = escapeHtml(token);
+  const safeRedirect = escapeHtml(safeVerifyRedirectUri(redirectUri));
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Confirm your email</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; max-width: 720px; margin: 0 auto; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px 18px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { margin: 0 0 16px; color: #374151; line-height: 1.45; }
+    button { padding: 10px 14px; border-radius: 10px; background: #111; color: #fff; border: 0; cursor: pointer; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Confirm your email</h1>
+    <p>Click the button below to verify your Cardbey account. This step protects your account from automated link scanners.</p>
+    <form method="POST" action="${escapeHtml(VERIFICATION_CONFIRM_PATH)}">
+      <input type="hidden" name="token" value="${safeToken}" />
+      <input type="hidden" name="redirect_uri" value="${safeRedirect}" />
+      <button type="submit">Verify email</button>
+    </form>
+  </div>
+</body>
+</html>`;
+}
+
+function verifyFailureReasonParam(code) {
+  if (code === 'TOKEN_EXPIRED') return 'token_expired';
+  if (code === 'TOKEN_ALREADY_USED') return 'token_used';
+  return 'token_invalid';
+}
+
+function buildVerifyFailureRedirectUrl(code, redirectUri) {
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
+  if (!webBase) return null;
+  const safeRedirect = safeVerifyRedirectUri(redirectUri);
+  const basePath = safeRedirect.split('?')[0] || '/app';
+  const reason = verifyFailureReasonParam(code);
+  const params = new URLSearchParams({ verified: '0', reason });
+  return `${webBase}${basePath}?${params.toString()}`;
+}
+
+function logVerifyConfirmAttempt(req, { token, redirect_uri, state }) {
+  const fields = verificationConfirmLogFields(token);
+  const recordFound = Boolean(state?.user);
+  const expired = state?.status === 'EXPIRED';
+  const alreadyVerified = state?.status === 'ALREADY_VERIFIED';
+  const pending = state?.status === 'PENDING';
+  console.log('[Auth] verify/confirm attempt', {
+    method: req.method,
+    ...fields,
+    recordFound,
+    expired,
+    consumed: alreadyVerified,
+    alreadyVerified,
+    pending,
+    invalid: state?.status === 'INVALID' || state?.status === 'MISSING',
+    userId: state?.user?.id ?? null,
+    email: state?.user?.email ? `${String(state.user.email).slice(0, 3)}***` : null,
+    redirect_uri: safeVerifyRedirectUri(redirect_uri),
+  });
+}
+
+function respondVerifyError(req, res, { code, error, message, emailPrefill = '', redirect_uri }) {
+  if (wantsVerifyJsonOnly(req)) {
+    return res.status(400).json({ ok: false, code, error, message });
+  }
+
+  const failureRedirect = buildVerifyFailureRedirectUrl(code, redirect_uri);
+  if (failureRedirect) {
+    return res.redirect(302, failureRedirect);
+  }
+
+  if (wantsVerifyBrowserResponse(req)) {
+    const debugLines = verifyDebugEnabled()
+      ? [
+          `env=${process.env.NODE_ENV}`,
+          `host=${String(req.get?.('host') || '')}`,
+          `apiBase=${getVerificationLinkBaseUrl().base}`,
+          `code=${code}`,
+        ]
+      : [];
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(400).send(
+      renderVerifyFailurePage({
+        title: code === 'TOKEN_EXPIRED' ? 'Verification link expired' : 'Verification link invalid',
+        message,
+        emailPrefill,
+        debugLines,
+      }),
+    );
+  }
+  return res.status(400).json({ ok: false, code, error, message });
+}
+
+/**
+ * True when verification email can be sent: ENABLE_EMAIL_VERIFICATION, MAIL_HOST set, and in production a non-fallback base URL.
+ * Used to return 503 EMAIL_NOT_CONFIGURED instead of 200 when no email will be sent.
+ */
+function isVerificationEmailConfigured() {
+  const enabled = process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1';
+  const hasMailHost = (process.env.MAIL_HOST || '').trim().length > 0;
+  if (!enabled || !hasMailHost) return false;
+  const { isFallback } = getVerificationLinkBaseUrl();
+  if (process.env.NODE_ENV === 'production' && isFallback) return false;
+  return true;
+}
+
+/**
+ * Send verification email. When configured, awaits sendMail and returns { sent, code?, error? }.
+ * Never logs raw token. Used by handleRequestVerification (await) and register (fire-and-forget).
+ * @returns {Promise<{ sent: boolean, code?: string, error?: string }>}
+ */
+async function sendVerificationEmail({ to, rawToken, displayName, redirectUri = DEFAULT_VERIFY_REDIRECT_URI }) {
+  const { base: apiBase, isFallback, source } = getVerificationLinkBaseUrl();
+  const query = new URLSearchParams({ token: rawToken });
+  const fullLink = `${apiBase}${VERIFICATION_EMAIL_PATH}?${query.toString()}`;
+  const storedHash = hashVerificationToken(rawToken);
+  const webBase = resolvePublicWebBaseForBrowserRedirect();
+
+  logVerificationEmailDispatch({
+    to: to ? `${String(to).slice(0, 3)}***` : null,
+    apiBase,
+    linkSource: source,
+    isFallback,
+    confirmPath: VERIFICATION_EMAIL_PATH,
+    legacyConfirmPath: VERIFICATION_CONFIRM_PATH,
+    redirectUri,
+    postVerifyRedirect: webBase ? buildEmailVerifiedRedirectUrl('success') : null,
+    ...verificationTokenLogFields(rawToken),
+    storedHashPrefix: String(storedHash).slice(0, 10),
+  });
+
+  if (verifyDebugEnabled()) {
+    const rawLooksSha256Hex = /^[a-f0-9]{64}$/i.test(String(rawToken));
+    const linkToken = query.get('token') || '';
+    const linkLooksSha256Hex = /^[a-f0-9]{64}$/i.test(String(linkToken));
+    console.log('[Auth] verify/email prepare', {
+      to: to ? `${String(to).slice(0, 3)}***` : null,
+      rawTokenLength: String(rawToken).length,
+      rawTokenLooksSha256Hex: rawLooksSha256Hex,
+      storedHashPrefix: String(storedHash).slice(0, 10),
+      linkTokenLength: String(linkToken).length,
+      linkTokenLooksSha256Hex: linkLooksSha256Hex,
+      apiBase,
+    });
+  }
+
+  const enabled = process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1';
+  const hasMailHost = (process.env.MAIL_HOST || '').trim().length > 0;
+
+  if (!enabled || !hasMailHost) {
+    return { sent: false, code: 'EMAIL_NOT_CONFIGURED', error: 'Email provider not configured' };
+  }
+
+  if (process.env.NODE_ENV === 'production' && isFallback) {
+    return { sent: false, code: 'EMAIL_NOT_CONFIGURED', error: 'Verification link base URL not set for production' };
+  }
+
+  const { subject, html } = getVerifyEmailContent({ verifyLink: fullLink, displayName: displayName || undefined });
+  const result = await sendMail({ to, subject, html });
+
+  if (result.ok) {
+    return { sent: true };
+  }
+  if (result.skipped) {
+    return { sent: false, code: 'EMAIL_NOT_CONFIGURED', error: result.error || 'Mail skipped' };
+  }
+  return { sent: false, code: 'EMAIL_SEND_FAILED', error: result.error || 'Send failed' };
+}
+
+/**
+ * Shared handler: request email verification (requireAuth, store hashed token, send email).
+ * Used by POST /api/auth/verify/request and POST /api/auth/request-verification.
+ * Returns 503 with EMAIL_NOT_CONFIGURED or EMAIL_SEND_FAILED when email cannot be sent.
+ */
+async function handleRequestVerification(req, res, next) {
+  try {
+    res.setHeader('X-Verify-Handler', 'honest-status');
+    console.log('[EMAIL_VERIFY_REQUEST]', { userId: req.user?.id ?? null, path: req.path });
+    console.log('[Auth] verify/request received', { userId: req.user?.id ?? null });
+
+    if (req.user?.role === 'guest') {
+      return res.status(401).json({
+        ok: false,
+        error: 'unauthorized',
+        message: 'Guest users cannot request email verification.'
+      });
+    }
+    const user = req.user;
+    if (!user || !user.id) {
+      return res.status(401).json({
+        ok: false,
+        error: 'unauthorized',
+        message: 'Authentication required.'
+      });
+    }
+
+    console.log('[Auth] verify/request user resolved', { userId: user.id, email: user.email ? `${user.email.slice(0, 3)}***` : null });
+
+    if (user.emailVerified) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Email already verified',
+        message: 'This email is already verified'
+      });
+    }
+
+    const configOk = isVerificationEmailConfigured();
+    const verificationEnabled =
+      process.env.ENABLE_EMAIL_VERIFICATION === 'true' || process.env.ENABLE_EMAIL_VERIFICATION === '1';
+    console.log('[Auth] verify/request config validation', { configOk });
+    // Vitest: when gate is off, still mint a token so API tests don't require MAIL_* (no email sent).
+    if (!configOk && process.env.NODE_ENV === 'test' && !verificationEnabled) {
+      const rawToken = generateVerificationRawToken();
+      const hashedToken = hashVerificationToken(rawToken);
+      const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          verificationToken: hashedToken,
+          verificationTokenRaw: rawToken,
+          verificationExpires: expiresAt,
+        },
+      });
+      return res.json({ ok: true, token: rawToken });
+    }
+    if (!configOk) {
+      return res.status(503).json({
+        ok: false,
+        code: 'EMAIL_NOT_CONFIGURED',
+        message: 'Email verification is not configured. Please set ENABLE_EMAIL_VERIFICATION, MAIL_HOST, and in production PUBLIC_API_BASE_URL.'
+      });
+    }
+
+    const now = Date.now();
+    if (process.env.NODE_ENV !== 'test') {
+      const lastSend = lastVerificationSendByUser.get(user.id);
+      if (lastSend != null && (now - lastSend) < verificationSendCooldownMs) {
+        const retryAfter = Math.ceil((verificationSendCooldownMs - (now - lastSend)) / 1000);
+        res.setHeader('Retry-After', retryAfter);
+        console.log('[Auth] verify/request rate limited (cooldown)', { userId: user.id, retryAfter });
+        return res.status(429).json({
+          ok: false,
+          code: 'RATE_LIMITED',
+          message: `Please wait ${retryAfter} seconds before requesting another verification email.`,
+          retryAfter,
+        });
+      }
+    }
+
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { verificationToken: true, verificationExpires: true, verificationTokenRaw: true },
+    });
+    const hasValidToken = dbUser?.verificationToken != null &&
+      dbUser?.verificationExpires != null &&
+      new Date(dbUser.verificationExpires) > new Date();
+    const canReuseRaw =
+      hasValidToken &&
+      typeof dbUser?.verificationTokenRaw === 'string' &&
+      dbUser.verificationTokenRaw.length > 0;
+
+    let rawToken;
+    let rotated = false;
+    let expiresAt;
+
+    if (canReuseRaw) {
+      rawToken = dbUser.verificationTokenRaw;
+      expiresAt = new Date(dbUser.verificationExpires);
+    } else {
+      rawToken = generateVerificationRawToken();
+      const hashedToken = hashVerificationToken(rawToken);
+      expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
+      rotated = true;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          verificationToken: hashedToken,
+          verificationTokenRaw: rawToken,
+          verificationExpires: expiresAt,
+        },
+      });
+    }
+
+    console.log('[Auth] verify/request token created', {
+      userId: user.id,
+      rotated,
+      reusedToken: !rotated,
+      expiresAt: expiresAt.toISOString(),
+      ...(verifyDebugEnabled()
+        ? {
+            tokenLen: String(rawToken).length,
+            hashPrefix: hashVerificationToken(rawToken).slice(0, 10),
+            apiBase: getVerificationLinkBaseUrl().base,
+          }
+        : {}),
+    });
+
+    const sendResult = await sendVerificationEmail({
+      to: user.email,
+      rawToken,
+      displayName: user.displayName || user.fullName || undefined
+    });
+
+    if (!sendResult.sent) {
+      console.error('[Auth] verify/request provider send failed', { userId: user.id, code: sendResult.code, error: sendResult.error });
+      return res.status(503).json({
+        ok: false,
+        code: sendResult.code || 'EMAIL_SEND_FAILED',
+        message: sendResult.error || 'Failed to send verification email. Please try again later.'
+      });
+    }
+
+    console.log('[Auth] verify/request provider send success', { userId: user.id });
+    lastVerificationSendByUser.set(user.id, Date.now());
+
+    res.json({
+      ok: true,
+      reusedToken: !rotated,
+      alreadySent: !rotated,
+      resent: true,
+      ...(process.env.NODE_ENV !== 'production' && { token: rawToken }),
+    });
+  } catch (error) {
+    console.error('[Auth] Request verification error:', error?.message ?? error);
+    next(error);
+  }
+}
+
+/** GET /api/auth/verify/status - deploy verification: returns whether email is configured (no auth) */
+router.get('/verify/status', (req, res) => {
+  const configured = isVerificationEmailConfigured();
+  res.json({
+    ok: true,
+    emailConfigured: configured,
+    handlerVersion: 'honest-status',
+  });
+});
+
+/** POST /api/auth/verify/request (requireAuth) - 60s cooldown, 3/15min per user, 10/hour per IP */
+router.post('/verify/request', requireAuth, verificationRequestLimiter, verificationRequestLimiterIP, handleRequestVerification);
+
+/** POST /api/auth/request-verification - legacy path, same behavior */
+router.post('/request-verification', requireAuth, verificationRequestLimiter, verificationRequestLimiterIP, handleRequestVerification);
+
+/**
+ * Find user by verification token hash only (any expiry). Used to distinguish TOKEN_INVALID vs TOKEN_EXPIRED vs TOKEN_ALREADY_USED.
+ */
+async function findUserByVerificationTokenHash(hashed) {
+  if (!hashed || typeof hashed !== 'string') return null;
+  return prisma.user.findFirst({ where: { verificationToken: hashed } });
+}
+
+/**
+ * Shared: validate token by hash (must be non-expired). In non-production only, also allow plain token match (backward compat).
+ */
+async function findUserByVerificationToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const hashed = hashVerificationToken(token);
+  const now = new Date();
+  const where = {
+    verificationExpires: { gt: now },
+    ...(process.env.NODE_ENV === 'production'
+      ? { verificationToken: hashed }
+      : { OR: [{ verificationToken: hashed }, { verificationToken: token }] }),
+  };
+  const user = await prisma.user.findFirst({ where });
+  return user;
+}
+
+/**
+ * Resolve verification token state without consuming (GET landing / pre-check).
+ * @returns {Promise<{ status: string, user?: object, hashed?: string, token?: string }>}
+ */
+async function resolveVerificationFromToken(token) {
+  const trimmed = normalizeVerificationToken(token);
+  if (!trimmed) return { status: 'MISSING' };
+
+  const hashed = hashVerificationToken(trimmed);
+  let user = await findUserByVerificationTokenHash(hashed);
+  if (!user && process.env.NODE_ENV !== 'production') {
+    user = await prisma.user.findFirst({ where: { verificationToken: trimmed } });
+    if (user && verifyDebugEnabled()) {
+      console.warn('[Auth] verify non-prod accepted stored token from link', {
+        userId: user.id,
+        tokenLen: trimmed.length,
+      });
+    }
+  }
+  if (!user) return { status: 'INVALID', hashed };
+
+  if (user.emailVerified) return { status: 'ALREADY_VERIFIED', user, hashed, token: trimmed };
+
+  const now = new Date();
+  if (user.verificationExpires == null || new Date(user.verificationExpires) <= now) {
+    return { status: 'EXPIRED', user, hashed, token: trimmed };
+  }
+
+  return { status: 'PENDING', user, hashed, token: trimmed };
+}
+
+function parseVerifyRequestFields(req) {
+  const rawToken = req.body?.token ?? req.query?.token;
+  const redirect_uri = req.body?.redirect_uri ?? req.query?.redirect_uri;
+  const token = normalizeVerificationToken(rawToken);
+  return {
+    token,
+    redirect_uri: typeof redirect_uri === 'string' ? redirect_uri : undefined,
+  };
+}
+
+/**
+ * Atomically consume a pending verification token (POST only).
+ */
+async function consumeEmailVerification({ user, hashed, now = new Date() }) {
+  const result = await prisma.user.updateMany({
+    where: {
+      id: user.id,
+      verificationToken: hashed,
+      verificationExpires: { gt: now },
+      emailVerified: false,
+    },
+    data: {
+      emailVerified: true,
+      verificationTokenRaw: null,
+      verificationExpires: null,
+    },
+  });
+
+  if (result.count > 0) return { ok: true, consumed: true };
+
+  const fresh = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { emailVerified: true },
+  });
+  if (fresh?.emailVerified) return { ok: true, consumed: false, alreadyVerified: true };
+
+  return { ok: false, code: 'TOKEN_ALREADY_USED' };
+}
+
+/**
+ * GET /api/auth/verify-email?token=...
+ * One-tap verification for mobile email clients: validate, consume token, redirect to SPA.
+ */
+async function handleVerifyEmailGet(req, res, next) {
+  try {
+    const { token } = parseVerifyRequestFields(req);
+    const fields = verificationConfirmLogFields(token);
+    console.log('[EMAIL_VERIFY_REQUEST]', {
+      method: 'GET',
+      path: '/verify-email',
+      ...fields,
+    });
+
+    if (!token) {
+      console.log('[EMAIL_VERIFY_FAILED]', { reason: 'missing_token' });
+      return redirectEmailVerifiedOrJson(res, 'invalid', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: 'TOKEN_INVALID',
+          error: 'Token required',
+          message: 'Verification token is required',
+        },
+      });
+    }
+
+    const state = await resolveVerificationFromToken(token);
+
+    if (state.status === 'INVALID') {
+      console.log('[EMAIL_VERIFY_FAILED]', { reason: 'invalid_token', ...fields });
+      return redirectEmailVerifiedOrJson(res, 'invalid', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: 'TOKEN_INVALID',
+          error: 'Invalid token',
+          message: 'This verification token is invalid. Please request a new one.',
+        },
+      });
+    }
+
+    if (state.status === 'EXPIRED') {
+      console.log('[EMAIL_VERIFY_FAILED]', {
+        reason: 'expired_token',
+        userId: state.user?.id ?? null,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'expired', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: 'TOKEN_EXPIRED',
+          error: 'Token expired',
+          message: 'This verification token has expired. Please request a new one.',
+        },
+      });
+    }
+
+    if (state.status === 'ALREADY_VERIFIED') {
+      console.log('[EMAIL_VERIFY_SUCCESS]', {
+        userId: state.user?.id ?? null,
+        alreadyVerified: true,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'success', {
+        statusCode: 200,
+        body: { ok: true, verified: true, message: 'Email already verified' },
+      });
+    }
+
+    const consume = await consumeEmailVerification({
+      user: state.user,
+      hashed: state.hashed,
+    });
+
+    if (consume.ok && consume.alreadyVerified) {
+      console.log('[EMAIL_VERIFY_SUCCESS]', {
+        userId: state.user?.id ?? null,
+        alreadyVerified: true,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'success', {
+        statusCode: 200,
+        body: { ok: true, verified: true, message: 'Email already verified' },
+      });
+    }
+
+    if (!consume.ok) {
+      console.log('[EMAIL_VERIFY_FAILED]', {
+        reason: consume.code || 'token_already_used',
+        userId: state.user?.id ?? null,
+        ...fields,
+      });
+      return redirectEmailVerifiedOrJson(res, 'invalid', {
+        statusCode: 400,
+        body: {
+          ok: false,
+          code: consume.code || 'TOKEN_ALREADY_USED',
+          error: 'Email already verified',
+          message: 'This email is already verified.',
+        },
+      });
+    }
+
+    try {
+      const { completePendingGhostClaimsForUser } = await import('../lib/ghostStore/ghostStoreService.js');
+      await completePendingGhostClaimsForUser(state.user.id);
+    } catch (ghostErr) {
+      console.warn('[Auth] ghost claim transfer after verify (non-fatal):', ghostErr?.message ?? ghostErr);
+    }
+
+    console.log('[EMAIL_VERIFY_SUCCESS]', { userId: state.user?.id ?? null, ...fields });
+    return redirectEmailVerifiedOrJson(res, 'success', {
+      statusCode: 200,
+      body: { ok: true, verified: true, message: 'Email verified successfully' },
+    });
+  } catch (error) {
+    console.error('[EMAIL_VERIFY_FAILED]', { reason: 'server_error', error: error?.message ?? error });
+    next(error);
+  }
+}
+
+/**
+ * POST /api/auth/verify/confirm — single-use consumption (form POST from email landing page).
+ */
+async function handleVerifyConfirmPost(req, res, next) {
+  try {
+    const { token, redirect_uri } = parseVerifyRequestFields(req);
+    const safeRedirect = safeVerifyRedirectUri(redirect_uri);
+
+    if (!token) {
+      return respondVerifyError(req, res, {
+        code: 'TOKEN_INVALID',
+        error: 'Token required',
+        message: 'Verification token is required',
+        redirect_uri,
+      });
+    }
+
+    const state = await resolveVerificationFromToken(token);
+    logVerifyConfirmAttempt(req, { token, redirect_uri, state });
+    if (state.status === 'INVALID') {
+      return respondVerifyError(req, res, {
+        code: 'TOKEN_INVALID',
+        error: 'Invalid token',
+        message: 'This verification token is invalid. Please request a new one.',
+        redirect_uri,
+      });
+    }
+    if (state.status === 'EXPIRED') {
+      return respondVerifyError(req, res, {
+        code: 'TOKEN_EXPIRED',
+        error: 'Token expired',
+        message: 'This verification token has expired. Please request a new one.',
+        emailPrefill: state.user?.email || '',
+        redirect_uri,
+      });
+    }
+    if (state.status === 'ALREADY_VERIFIED') {
+      return respondAfterEmailVerified(res, safeRedirect, req);
+    }
+
+    const consume = await consumeEmailVerification({
+      user: state.user,
+      hashed: state.hashed,
+    });
+
+    if (consume.ok && consume.alreadyVerified) {
+      return respondAfterEmailVerified(res, safeRedirect, req);
+    }
+    if (!consume.ok) {
+      return respondVerifyError(req, res, {
+        code: consume.code || 'TOKEN_ALREADY_USED',
+        error: 'Email already verified',
+        message: 'This email is already verified.',
+        emailPrefill: state.user?.email || '',
+        redirect_uri,
+      });
+    }
+
+    try {
+      const { completePendingGhostClaimsForUser } = await import('../lib/ghostStore/ghostStoreService.js');
+      await completePendingGhostClaimsForUser(state.user.id);
+    } catch (ghostErr) {
+      console.warn('[Auth] ghost claim transfer after verify (non-fatal):', ghostErr?.message ?? ghostErr);
+    }
+
+    return respondAfterEmailVerified(res, safeRedirect, req);
+  } catch (error) {
+    console.error('[Auth] Verify confirm POST error:', error?.message ?? error);
+    next(error);
+  }
+}
+
+/**
+ * GET /api/auth/verify/confirm?token=...
+ * Legacy email links — redirect to one-tap verify-email handler.
+ */
+router.get('/verify/confirm', async (req, res, next) => {
+  try {
+    const { token } = parseVerifyRequestFields(req);
+    if (token) {
+      const q = new URLSearchParams({ token });
+      return res.redirect(302, `${VERIFICATION_EMAIL_PATH}?${q.toString()}`);
+    }
+    return respondVerifyError(req, res, {
+      code: 'TOKEN_INVALID',
+      error: 'Token required',
+      message: 'Verification token is required',
+      redirect_uri: req.query?.redirect_uri,
+    });
+  } catch (error) {
+    console.error('[Auth] Verify confirm GET redirect error:', error?.message ?? error);
+    next(error);
+  }
+});
+
+router.get('/verify-email', handleVerifyEmailGet);
+
+router.post('/verify/confirm', handleVerifyConfirmPost);
+
+/**
+ * POST /api/auth/verify/resend — rate-limited, invalidates prior token, generic response (no enumeration).
+ */
+async function handleResendVerification(req, res, next) {
+  try {
+    const emailRaw = req.body?.email;
+    const normalizedEmail =
+      typeof emailRaw === 'string' && emailRaw.trim() ? normalizeIdentifier(emailRaw) : null;
+
+    let user = null;
+    if (req.user?.id && req.user?.role !== 'guest') {
+      user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    } else if (normalizedEmail) {
+      user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    }
+
+    if (user && !user.emailVerified && isVerificationEmailConfigured()) {
+      const rawToken = generateVerificationRawToken();
+      const hashedToken = hashVerificationToken(rawToken);
+      const expiresAt = new Date(Date.now() + VERIFICATION_EXPIRY_MS);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          verificationToken: hashedToken,
+          verificationTokenRaw: rawToken,
+          verificationExpires: expiresAt,
+        },
+      });
+      const sendResult = await sendVerificationEmail({
+        to: user.email,
+        rawToken,
+        displayName: user.displayName || user.fullName || undefined,
+      });
+      if (sendResult.sent) {
+        lastVerificationSendByUser.set(user.id, Date.now());
+      }
+    }
+
+    if (wantsVerifyBrowserResponse(req)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(
+        renderVerifyResultPage({
+          title: 'Check your email',
+          message: GENERIC_VERIFY_RESEND_MESSAGE,
+        }),
+      );
+    }
+    return res.json({ ok: true, message: GENERIC_VERIFY_RESEND_MESSAGE });
+  } catch (error) {
+    console.error('[Auth] Verify resend error:', error?.message ?? error);
+    next(error);
+  }
+}
+
+router.post('/verify/resend', verificationResendLimiter, handleResendVerification);
+router.post('/resend-verification', verificationResendLimiter, handleResendVerification);
+
+/**
+ * GET /api/auth/verify?token=...
+ * JSON API — delegates consumption to POST /verify/confirm.
+ */
+router.get('/verify', async (req, res, next) => {
+  try {
+    const { token } = req.query;
+
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        code: 'TOKEN_INVALID',
+        error: 'Token required',
+        message: 'Verification token is required',
+      });
+    }
+
+    const state = await resolveVerificationFromToken(token);
+    if (state.status === 'INVALID') {
+      return res.status(400).json({
+        ok: false,
+        code: 'TOKEN_INVALID',
+        error: 'Invalid token',
+        message: 'This verification token is invalid. Please request a new one.',
+      });
+    }
+    if (state.status === 'ALREADY_VERIFIED') {
+      return res.json({ ok: true, message: 'Email verified successfully' });
+    }
+    if (state.status === 'EXPIRED') {
+      return res.status(400).json({
+        ok: false,
+        code: 'TOKEN_EXPIRED',
+        error: 'Token expired',
+        message: 'This verification token has expired. Please request a new one.',
+      });
+    }
+
+    return res.status(400).json({
+      ok: false,
+      code: 'CONFIRMATION_REQUIRED',
+      error: 'Confirmation required',
+      message: 'POST /api/auth/verify/confirm to complete email verification.',
+    });
+  } catch (error) {
+    console.error('[Auth] Verify error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/change-password
+ * Change password while authenticated. Requires current password.
+ *
+ * Request body:
+ *   - currentPassword: string (required)
+ *   - newPassword: string (required, min 8 chars)
+ *
+ * Response (200): { ok: true, message }
+ *
+ * Errors:
+ *   - 400: Missing fields, password too short, no usable password on account
+ *   - 401: Wrong current password / guest
+ *   - 403: Guest sessions cannot change password
+ */
+router.post('/change-password', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user?.role === 'guest') {
+      return res.status(403).json({
+        ok: false,
+        error: 'Guest not allowed',
+        message: 'Guest sessions cannot change a password. Create an account first.',
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body ?? {};
+
+    if (!currentPassword || typeof currentPassword !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Current password required',
+        message: 'Current password is required',
+      });
+    }
+    if (!newPassword || typeof newPassword !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'New password required',
+        message: 'New password is required',
+      });
+    }
+
+    const minLen = 8;
+    if (newPassword.length < minLen) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password too short',
+        message: `New password must be at least ${minLen} characters`,
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { id: true, email: true, passwordHash: true },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        ok: false,
+        error: 'User not found',
+        message: 'Authentication failed. Please log in again.',
+      });
+    }
+
+    const hash = user.passwordHash;
+    const usableHash = typeof hash === 'string' && /^\$2[aby]?\$/.test(hash);
+    if (!usableHash) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password not set',
+        message:
+          'This account has no password to change. Use “Forgot password” or set a password from sign-in options.',
+      });
+    }
+
+    let currentValid = false;
+    try {
+      currentValid = await bcrypt.compare(currentPassword, hash);
+    } catch {
+      currentValid = false;
+    }
+    if (!currentValid) {
+      return res.status(401).json({
+        ok: false,
+        error: 'Invalid current password',
+        message: 'Current password is incorrect',
+      });
+    }
+
+    if (await bcrypt.compare(newPassword, hash).catch(() => false)) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password unchanged',
+        message: 'New password must be different from your current password',
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hashedPassword },
+    });
+
+    console.log('[Auth] Password changed', { userId: user.id, email: user.email });
+
+    res.json({
+      ok: true,
+      message: 'Password updated successfully',
+    });
+  } catch (error) {
+    console.error('[Auth] Change password error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/request-reset
+ * Request password reset token; sends reset email when MAIL_* is configured.
+ * Rate limited per IP. Always returns generic success to prevent email enumeration.
+ */
+router.post('/request-reset', passwordResetRequestLimiter, async (req, res, next) => {
+  try {
+    const { email } = req.body ?? {};
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Email required',
+        message: 'Email is required'
+      });
+    }
+
+    const normalizedEmail = normalizeIdentifier(email);
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail }
+    });
+
+    if (user) {
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetToken: hashedToken,
+          resetExpires: expiresAt
+        }
+      });
+
+      const webBase = publicWebBase();
+      const resetPath = '/reset';
+      const resetLink = `${webBase}${resetPath}?token=${encodeURIComponent(rawToken)}`;
+
+      const hasMail = (process.env.MAIL_HOST || '').trim().length > 0;
+      if (hasMail) {
+        const { subject, html } = getResetPasswordContent({
+          resetLink,
+          displayName: user.displayName || user.fullName || undefined
+        });
+        sendMail({ to: user.email, subject, html }).then((result) => {
+          if (result.ok) {
+            if (process.env.NODE_ENV !== 'production') console.log('[Auth] Password reset email sent', { to: user.email });
+          } else if (!result.skipped) {
+            console.error('[Auth] Password reset email failed', { to: user.email, error: result.error });
+          }
+        }).catch((err) => console.error('[Auth] Password reset email error', { to: user.email, error: err?.message }));
+      }
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Auth] Password reset token generated', { userId: user.id, email: user.email, expiresAt: expiresAt.toISOString() });
+        if (!hasMail) console.log('[Auth] Reset link (no MAIL_HOST):', resetLink);
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: 'If an account exists with this email, a password reset link has been sent.'
+    });
+  } catch (error) {
+    console.error('[Auth] Request reset error:', error);
+    next(error);
+  }
+});
+
+/**
+ * POST /api/auth/reset
+ * Reset password with token
+ * 
+ * Request body:
+ *   - token: string (required) - Reset token
+ *   - password: string (required, min 6 chars) - New password
+ * 
+ * Response (200):
+ *   - ok: true
+ *   - message: "Password reset successfully"
+ * 
+ * Errors:
+ *   - 400: Invalid or expired token
+ *   - 400: Password too short
+ */
+router.post('/reset', async (req, res, next) => {
+  try {
+    const { token, password } = req.body ?? {};
+
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Token required',
+        message: 'Reset token is required'
+      });
+    }
+
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password required',
+        message: 'New password is required'
+      });
+    }
+
+    const minLen = 8;
+    if (password.length < minLen) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Password too short',
+        message: `Password must be at least ${minLen} characters`
+      });
+    }
+
+    const hashed = crypto.createHash('sha256').update(token).digest('hex');
+    // Find user by reset token (prefer hashed; fallback to legacy plaintext tokens)
+    let user = await prisma.user.findFirst({
+      where: {
+        resetToken: hashed,
+        resetExpires: { gt: new Date() },
+      },
+    });
+    if (!user) {
+      user = await prisma.user.findFirst({
+        where: {
+          resetToken: token,
+          resetExpires: { gt: new Date() },
+        },
+      });
+    }
+
+    if (!user) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Invalid or expired token',
+        message: 'This reset token is invalid or has expired. Please request a new one.'
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: hashedPassword,
+        resetToken: null,
+        resetExpires: null
+      }
+    });
+
+    console.log('[Auth] Password reset successful', { userId: user.id, email: user.email });
+
+    const fullUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { id: true },
+    });
+    const authToken = fullUser ? generateToken(fullUser.id) : null;
+
+    res.json({
+      ok: true,
+      message: 'Password reset successfully. You can now log in with your new password.',
+      ...(authToken && { token: authToken })
+    });
+  } catch (error) {
+    console.error('[Auth] Reset error:', error);
+    next(error);
+  }
+});
+
+function envTrue(v) { return String(v || '').toLowerCase() === 'true' || v === '1'; }
+
+/** Guest JWT issuance — dev always; production unless explicitly disabled (performer guest store flows). */
+function isGuestAuthEnabled() {
+  if (process.env.NODE_ENV !== 'production') return true;
+  if (
+    process.env.GUEST_AUTH_ENABLED === '0' ||
+    String(process.env.GUEST_AUTH_ENABLED ?? '').toLowerCase() === 'false' ||
+    process.env.ALLOW_GUEST_AUTH === '0' ||
+    String(process.env.ALLOW_GUEST_AUTH ?? '').toLowerCase() === 'false'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Rate limit: 5/min per IP for guest auth */
+const guestAuthLimiter = (req, res, next) => {
+  if (process.env.NODE_ENV === 'test') return next();
+  const max = parseInt(process.env.GUEST_RATE_LIMIT_PER_MIN || '5', 10) || 5;
+  return rateLimit({ windowMs: 60 * 1000, max, keyGenerator: (r) => `guest:${r.ip || 'unknown'}` })(req, res, next);
+};
+
+/**
+ * POST /api/auth/guest
+ * Create a minimal guest session (no account, no DB user). JWT payload: { userId, role: 'guest', auth: 'guest' }.
+ * - Dev/test: always allowed.
+ * - Production: when GUEST_AUTH_* env is true/1, or CARDBEY_ENV=staging|preview, or RENDER_SERVICE_NAME contains "staging"; otherwise 410.
+ *
+ * Response (200): { ok: true, token, user: { id, role: 'guest' } }
+ */
+router.post('/guest', guestAuthLimiter, (req, res, next) => {
+  try {
+    const guestEnabled = isGuestAuthEnabled();
+    console.log('[guest] enabled=', guestEnabled, 'GUEST_AUTH_ENABLED=', process.env.GUEST_AUTH_ENABLED);
+    if (!guestEnabled) {
+      return res.status(410).json({
+        ok: false,
+        error: 'guest_disabled',
+        message: 'Guest auth is not enabled in this environment.',
+      });
+    }
+    const locale = normalizeLocale(
+      req.body?.locale ?? req.headers['x-locale'] ?? req.get?.('accept-language'),
+    );
+    const { token, userId, locale: guestLocale } = generateGuestToken({ locale });
+    res.json({
+      ok: true,
+      token,
+      locale: guestLocale,
+      user: { id: userId, role: 'guest', locale: guestLocale },
+    });
+  } catch (error) {
+    console.error('[Auth] Guest token error:', error);
+    next(error);
+  }
+});
+
+export default router;
+

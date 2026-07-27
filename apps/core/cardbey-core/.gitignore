@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+.env
+*.db
+*.db-journal
+*.db*
+# Ghost SQLite paths (Prisma CLI mis-resolution); canonical DB is prisma/dev.db only
+prisma/sqlite/prisma/
+prisma/prisma/
+test.db
+docs/db/baseline-acceptance.local.json
+models/
+*.pt
+
+uploads/
+
+# Ephemeral language-agent materialisation (seed under data/language-seed is committed)
+data/language-runtime/
+
+# Maintenance patch backups — for local recovery only
+*.patch.bak

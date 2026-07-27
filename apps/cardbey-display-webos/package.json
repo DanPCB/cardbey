@@ -1,0 +1,30 @@
+{
+  "name": "@cardbey/display-webos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cardbey Display LG webOS shell (thin host for @cardbey/display-runtime)",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/generate-icons.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/generate-icons.mjs && pnpm --filter @cardbey/display-runtime build",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && node scripts/copy-webos-assets.mjs && node scripts/validate-dist.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "validate:dist": "node scripts/validate-dist.mjs",
+    "package": "pnpm run build && node scripts/package-ipk.mjs",
+    "package:staged": "pnpm run build && node scripts/package-ipk.mjs --staged-only",
+    "package:minimal": "pnpm run prebuild && tsc -p tsconfig.json --noEmit && vite build && node scripts/copy-webos-assets.mjs && node scripts/validate-dist.mjs && node scripts/package-ipk.mjs"
+  },
+  "dependencies": {
+    "@cardbey/display-runtime": "workspace:*",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "happy-dom": "^20.11.1",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

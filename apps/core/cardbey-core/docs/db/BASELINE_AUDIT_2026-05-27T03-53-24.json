@@ -1,0 +1,119 @@
+{
+  "generatedAt": "2026-05-27T03:53:24.437Z",
+  "status": "unsafe",
+  "statusReason": "Ghost DB files and/or severe migration history mismatch.",
+  "database": {
+    "DATABASE_URL": "file:../dev.db",
+    "resolvedDbPath": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\prisma\\dev.db",
+    "canonicalDevDb": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\prisma\\dev.db",
+    "canonicalTestDb": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\prisma\\test.db",
+    "isCanonical": true,
+    "provider": "sqlite",
+    "prismaClientVersion": "6.18.0",
+    "prismaVersion": "6.18.0"
+  },
+  "schema": {
+    "schemaPath": "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\prisma\\sqlite\\schema.prisma",
+    "schemaPrismaHash": "0a8fae9b1fe503ac",
+    "migrationFolderCount": 118,
+    "migrationFoldersHash": "ecc622bf9ea45136",
+    "latestMigrationFolders": [
+      "20260407140000_add_oauth_connection_clean",
+      "20260409120000_add_contact_sync_phase1",
+      "20260412064553_default_currency_aud",
+      "20260414123150_add_telemetry_probe",
+      "20260414145434_add_card_system",
+      "20260419120000_add_content_library_asset",
+      "20260419180000_mission_pipeline_step_checkpoint_fields",
+      "20260419233000_add_checkpoint_step_fields",
+      "20260524120000_add_social_links",
+      "20260527120000_add_publish_snapshot"
+    ]
+  },
+  "migrations": {
+    "appliedRowCount": 111,
+    "latestApplied": [
+      "20260524120000_add_social_links",
+      "20260524120000_add_social_links",
+      "20260309234049_init",
+      "20260405120000_add_mission_context",
+      "20260327082730_add_mini_website_publishing",
+      "20260314143642_add_user_verification_token_raw",
+      "20260228180000_add_workflow_phase1_store_creation",
+      "20260227220000_conversation_thread_kind_scope_indexes",
+      "20260227000000_add_conversation_thread_kind_scope",
+      "20260226230000_add_bidding_learning_models"
+    ],
+    "missingApplied": [
+      "20260407140000_add_oauth_connection_clean",
+      "20260409120000_add_contact_sync_phase1",
+      "20260412064553_default_currency_aud",
+      "20260414123150_add_telemetry_probe",
+      "20260414145434_add_card_system",
+      "20260419120000_add_content_library_asset",
+      "20260419180000_mission_pipeline_step_checkpoint_fields",
+      "20260419233000_add_checkpoint_step_fields",
+      "20260527120000_add_publish_snapshot"
+    ],
+    "unappliedInDb": [
+      "20260309234049_init"
+    ],
+    "migrationHealth": "unsafe"
+  },
+  "tables": {
+    "tableCount": 141,
+    "tableColumnHash": "9b3dca5ba6126be0",
+    "draftStore": {
+      "columns": [
+        "id",
+        "createdAt",
+        "updatedAt",
+        "expiresAt",
+        "mode",
+        "status",
+        "generationRunId",
+        "input",
+        "preview",
+        "error",
+        "errorCode",
+        "recommendedAction",
+        "committedAt",
+        "committedStoreId",
+        "committedUserId",
+        "ownerUserId",
+        "guestSessionId",
+        "ipHash",
+        "userAgent",
+        "publishSnapshot",
+        "publishSnapshotVersion"
+      ],
+      "hasPublishSnapshot": true,
+      "hasPublishSnapshotVersion": true
+    },
+    "creativeAsset": {
+      "exists": true,
+      "campaignIdNotNull": false,
+      "nullCampaignIdRows": 5,
+      "totalRows": 5,
+      "driftBlocksDbPush": false
+    }
+  },
+  "ghostDbFiles": [
+    "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\prisma\\prisma\\test.db",
+    "C:\\Projects\\cardbey\\apps\\core\\cardbey-core\\prisma\\sqlite\\prisma\\test.db"
+  ],
+  "fingerprint": {
+    "requiredColumnsOk": true,
+    "requiredColumnStatus": {
+      "DraftStore": {
+        "publishSnapshot": true,
+        "publishSnapshotVersion": true
+      }
+    },
+    "committed": {
+      "schemaPrismaHash": "0a8fae9b1fe503ac",
+      "tableColumnHash": "9b3dca5ba6126be0",
+      "generatedAt": "2026-05-27T03:52:54.723Z"
+    }
+  }
+}

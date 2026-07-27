@@ -1,0 +1,113 @@
+/**
+ * PIL — Proactive Intelligence Layer event ingestion (observe only).
+ * POST /api/pil/events
+ * POST /api/pil/events/batch
+ * GET  /api/pil/events/health (public ping)
+ */
+import express from 'express';
+import { z } from 'zod';
+import { optionalAuth } from '../middleware/auth.js';
+import { guestSessionId } from '../middleware/guestSession.js';
+import {
+  recordPilEvent,
+  recordPilEventBatch,
+  getPilEventVolumeSummary,
+} from '../services/pilEventsService.js';
+
+const router = express.Router();
+
+const eventSchema = z.object({
+  type: z.string().min(1).max(120),
+  timestamp: z.string().optional(),
+  sessionId: z.string().optional(),
+  userId: z.string().optional(),
+  entityType: z.string().optional(),
+  entityId: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+function resolveUserId(req, bodyUserId) {
+  if (req.user?.id) return String(req.user.id);
+  if (bodyUserId) return String(bodyUserId);
+  if (req.guestSessionId) return `guest_${req.guestSessionId}`;
+  return null;
+}
+
+router.get('/events/health', (_req, res) => {
+  res.json({ ok: true, service: 'pil-events' });
+});
+
+router.post('/events', guestSessionId, optionalAuth, async (req, res, next) => {
+  try {
+    const input = eventSchema.parse(req.body);
+    const row = await recordPilEvent({
+      ...input,
+      userId: resolveUserId(req, input.userId),
+      sessionId: input.sessionId ?? (req.guestSessionId ? `guest_${req.guestSessionId}` : undefined),
+    });
+    if (row.persisted === false) {
+      return res.status(200).json({ ok: true, persisted: false, reason: row.reason ?? 'PIL_EVENT_TABLE_MISSING' });
+    }
+    res.status(201).json({ ok: true, id: row.id, persisted: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ ok: false, error: 'Validation error', details: error.errors });
+    }
+    next(error);
+  }
+});
+
+router.post('/events/batch', guestSessionId, optionalAuth, async (req, res, next) => {
+  try {
+    const schema = z.object({ events: z.array(eventSchema).min(1).max(50) });
+    const { events } = schema.parse(req.body);
+    const sessionFallback = req.guestSessionId ? `guest_${req.guestSessionId}` : undefined;
+    const normalized = events.map((e) => ({
+      ...e,
+      userId: resolveUserId(req, e.userId),
+      sessionId: e.sessionId ?? sessionFallback,
+    }));
+    const result = await recordPilEventBatch(normalized);
+    if (result.persisted === false) {
+      return res.status(200).json({ ok: true, persisted: false, reason: result.reason ?? 'PIL_EVENT_TABLE_MISSING', count: 0 });
+    }
+    res.status(201).json({ ok: true, ...result, persisted: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ ok: false, error: 'Validation error', details: error.errors });
+    }
+    next(error);
+  }
+});
+
+router.get('/events/volume', optionalAuth, async (req, res, next) => {
+  try {
+    const storeId = req.query.storeId ? String(req.query.storeId) : undefined;
+    const summary = await getPilEventVolumeSummary(storeId);
+    res.json({ ok: true, ...summary });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/pil/concierge/interpret
+ * Body: { context: PILContext }
+ * Optional LLM interpretation — returns null interpretation on failure (client uses fallback).
+ */
+router.post('/concierge/interpret', guestSessionId, optionalAuth, async (req, res) => {
+  try {
+    const context = req.body?.context;
+    if (!context || typeof context !== 'object') {
+      return res.status(400).json({ ok: false, error: 'context_required' });
+    }
+    const { interpretPilConciergeWithLlm } = await import('../lib/pil/interpretPilConciergeWithLlm.js');
+    const interpretation = await interpretPilConciergeWithLlm(context);
+    return res.json({ ok: true, interpretation: interpretation ?? null });
+  } catch (err) {
+    console.warn('[PIL] concierge/interpret error:', err?.message);
+    return res.json({ ok: true, interpretation: null });
+  }
+});
+
+export default router;

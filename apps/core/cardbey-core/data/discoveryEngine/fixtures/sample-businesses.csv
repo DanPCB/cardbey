@@ -1,0 +1,3 @@
+business_name,category,address,city,phone,website,email
+Staging Test Cafe,food,100 Collins St,Melbourne,0390001000,https://staging-test-cafe.example.com,hello@staging-test-cafe.example.com
+Another Valid Row,retail,200 Bourke St,Melbourne,0390002000,,contact@another-valid.example.com

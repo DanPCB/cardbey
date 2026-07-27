@@ -1,0 +1,33 @@
+---
+description: LOCKED — Proactive Intelligence Layer (PIL). Observe → Infer → Suggest → Confirm → Execute. No autonomous business actions.
+alwaysApply: true
+---
+
+# Proactive Intelligence Layer (PIL)
+
+## Execution model
+
+Observe → Infer → Suggest → **Confirm** → Execute
+
+## Performer may
+
+Observe, analyze, infer, recommend, prepare missions, build plans, create drafts.
+
+## Performer may NOT (without user confirmation)
+
+Purchase, claim offers, launch campaigns, publish content, modify stores, redeem rewards, or execute business operations.
+
+## Code contract
+
+- Use `src/lib/pil/` — attention graph, intent enrichment, observation engine, opportunity generator.
+- All proactive CTAs → `openProactiveIntelligenceIntent` or governed BI/Discover handoffs.
+- **`autoSubmit: false`** always for proactive recommendations.
+- Observation engine and opportunity generator **never** call execution APIs.
+
+## Instrumentation
+
+Record attention via `instrumentAttention.ts` / `recordAttentionSignal` from feed, store, show, discover, social surfaces.
+
+## Admin
+
+`IntelligenceDiagnosticsPanel` + `buildPilDiagnostics()` — `platform_admin` / legacy `admin` only.

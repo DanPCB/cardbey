@@ -1,0 +1,40 @@
+name: Promotion Guard
+
+# Enforces the cardbey promotion flow: dev -> staging -> main (live).
+# Production (main) should only receive merges that already passed through staging.
+# This protects the "promote, don't rebuild from a random branch" intent.
+#
+# Override for genuine hotfixes: add the label `promotion-override` to the PR.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  guard:
+    name: Verify source branch for live promotion
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check head branch and labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const head = context.payload.pull_request.head.ref;
+            const labels = (context.payload.pull_request.labels || []).map(l => l.name);
+            const allowedHeads = ['staging'];
+            const allowedPrefixes = ['release/', 'rollback/', 'hotfix/'];
+            const hasOverride = labels.includes('promotion-override');
+
+            const isAllowed =
+              allowedHeads.includes(head) ||
+              allowedPrefixes.some(p => head.startsWith(p)) ||
+              hasOverride;
+
+            if (!isAllowed) {
+              core.setFailed(
+                `PR into main must come from 'staging' (promotion), or a release/rollback/hotfix branch.\n` +
+                `Head branch is '${head}'. Promote dev -> staging -> main, or add the 'promotion-override' label for an approved hotfix.`
+              );
+            } else {
+              core.info(`Promotion source '${head}' accepted${hasOverride ? ' (override label present)' : ''}.`);
+            }

@@ -1,0 +1,11 @@
+ WARN  Unsupported engine: wanted: {"node":"20.x"} (current: {"node":"v22.22.0","pnpm":"10.25.0"})
+
+ RUN  v1.6.1 C:/Projects/cardbey/apps/dashboard/cardbey-marketing-dashboard
+
+ ✓ src/components/development/developmentConsoleRouting.test.tsx  (2 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  11:29:09
+   Duration  1.24s (transform 32ms, setup 147ms, collect 11ms, tests 2ms, environment 0ms, prepare 158ms)
+

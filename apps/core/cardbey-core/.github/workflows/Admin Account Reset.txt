@@ -1,0 +1,13 @@
+cd c:\Projects\cardbey\apps\core\cardbey-core
+$env:ADMIN_EMAIL="admin@cardbey.com"
+$env:ADMIN_PASSWORD="SuperSecret123!"
+pnpm create:admin
+
+
+
+
+
+
+
+cd apps/core/cardbey-core
+$env:ADMIN_EMAIL="admin@cardbey.com"; $env:ADMIN_PASSWORD="YourNewPass"; pnpm create:admin

@@ -1,0 +1,122 @@
+[
+  {
+    "scanEventId": "scan-1",
+    "entityContextId": "64e8bd5f-c818-4ada-a49a-b729c9101559",
+    "userId": null,
+    "sessionId": null,
+    "intentId": "_suggestions_shown",
+    "selected": false,
+    "agentType": "PerformerAgent",
+    "missionId": null,
+    "outcome": "completed",
+    "feedback": null,
+    "suggestionsShown": [
+      "open_website",
+      "save_store",
+      "save_to_suitcase",
+      "share_store",
+      "ask_about_store",
+      "create_prestore_candidate",
+      "check_if_on_cardbey",
+      "report_wrong_result"
+    ],
+    "id": "5cc65e9f-5239-4fed-811c-a6084ec7d3ef",
+    "createdAt": "2026-06-29T05:00:23.100Z"
+  },
+  {
+    "scanEventId": "scan-1",
+    "entityContextId": "872360af-0e48-416b-9990-4dfbc5ca0329",
+    "userId": null,
+    "sessionId": null,
+    "intentId": "_suggestions_shown",
+    "selected": false,
+    "agentType": "PerformerAgent",
+    "missionId": null,
+    "outcome": "completed",
+    "feedback": null,
+    "suggestionsShown": [
+      "open_website",
+      "save_store",
+      "save_to_suitcase",
+      "share_store",
+      "ask_about_store",
+      "create_prestore_candidate",
+      "check_if_on_cardbey",
+      "report_wrong_result"
+    ],
+    "id": "07330a37-32fa-417d-a1f2-b7f703824dcc",
+    "createdAt": "2026-06-20T14:31:42.797Z"
+  },
+  {
+    "scanEventId": "scan-1",
+    "entityContextId": "834843ab-8c06-4641-bae7-f581be2bb49e",
+    "userId": null,
+    "sessionId": null,
+    "intentId": "_suggestions_shown",
+    "selected": false,
+    "agentType": "PerformerAgent",
+    "missionId": null,
+    "outcome": "completed",
+    "feedback": null,
+    "suggestionsShown": [
+      "open_website",
+      "save_store",
+      "save_to_suitcase",
+      "share_store",
+      "ask_about_store",
+      "create_prestore_candidate",
+      "check_if_on_cardbey",
+      "report_wrong_result"
+    ],
+    "id": "aee6e49e-805c-4168-827a-1a716b9bbe58",
+    "createdAt": "2026-06-20T14:23:55.226Z"
+  },
+  {
+    "scanEventId": "scan-1",
+    "entityContextId": "7bdbbfe3-d3e9-48b9-ab6a-72312bc93163",
+    "userId": null,
+    "sessionId": null,
+    "intentId": "_suggestions_shown",
+    "selected": false,
+    "agentType": "PerformerAgent",
+    "missionId": null,
+    "outcome": "completed",
+    "feedback": null,
+    "suggestionsShown": [
+      "open_website",
+      "save_store",
+      "save_to_suitcase",
+      "share_store",
+      "ask_about_store",
+      "create_prestore_candidate",
+      "check_if_on_cardbey",
+      "report_wrong_result"
+    ],
+    "id": "b013df23-c758-42c9-b4bf-1e756eb54ff6",
+    "createdAt": "2026-06-20T14:15:26.606Z"
+  },
+  {
+    "scanEventId": "scan-1",
+    "entityContextId": "3e3b4a39-87f4-42d6-8adf-33d629a51389",
+    "userId": null,
+    "sessionId": null,
+    "intentId": "_suggestions_shown",
+    "selected": false,
+    "agentType": "PerformerAgent",
+    "missionId": null,
+    "outcome": "completed",
+    "feedback": null,
+    "suggestionsShown": [
+      "open_website",
+      "save_store",
+      "save_to_suitcase",
+      "share_store",
+      "ask_about_store",
+      "create_prestore_candidate",
+      "check_if_on_cardbey",
+      "report_wrong_result"
+    ],
+    "id": "ca359278-ae51-4e7f-bbbe-c19e799c736b",
+    "createdAt": "2026-06-20T14:03:31.340Z"
+  }
+]

@@ -1,0 +1,325 @@
+/**
+ * Intent ontology for Performer Intake V2 — families, subtypes, registry-aligned candidates.
+ * Used only for resolution + clarify shaping; does not execute tools.
+ */
+
+export const INTENT_FAMILIES = [
+  'store_setup',
+  'store_improvement',
+  'content_edit',
+  'promotion_campaign',
+  'analytics_reporting',
+  'website_edit',
+  'devices_signage',
+  'general_help',
+];
+
+/**
+ * @typedef {object} IntentSubtypeDef
+ * @property {string} family
+ * @property {string} subtype
+ * @property {string} description
+ * @property {string[]} candidateTools
+ * @property {string} defaultTool
+ * @property {('store'|'draft')[]} requiredContext
+ * @property {string} clarifyStrategy
+ * @property {RegExp[]} matchPatterns — any match scores this subtype
+ */
+
+/** @type {IntentSubtypeDef[]} */
+export const INTENT_SUBTYPES = [
+  {
+    family: 'store_setup',
+    subtype: 'create_store_flow',
+    description: 'User wants to create or open a new store or mini-site.',
+    candidateTools: ['create_store'],
+    defaultTool: 'create_store',
+    requiredContext: [],
+    clarifyStrategy: 'store_setup_entry',
+    matchPatterns: [
+      /\b(create|build|set\s+up|make|start|open|launch)\b.{0,24}\b(store|shop|business)\b/i,
+      /\bcreate\s+(?:my\s+)?(?:first\s+)?(?:a\s+|new\s+)?(store|shop|business)\b/i,
+      /\bopen\s+a\s+(new\s+)?(store|shop)\b/i,
+      /\bcreate\s+(a\s+|my\s+|my\s+first\s+)?(store|shop)\s+for\b/i,
+      /\bbuild\s+(a\s+|my\s+)?(store|shop)\s+for\b/i,
+      /\bset\s+up\s+(a\s+|my\s+)?(store|shop)\s+for\b/i,
+      /\bmake\s+(a\s+|my\s+)?(store|shop)\s+for\b/i,
+      /\bstart\s+(a\s+|my\s+)?(store|shop|business)\b/i,
+      /\bi\s+want\s+to\s+create\s+(a\s+|my\s+)?(store|shop|business)\b/i,
+      /\bnew\s+(store|shop)\s+for\b/i,
+      /\bmini\s*(website|site)\b/i,
+      /\bcreate\s+(a\s+)?(store|shop)\s+called\b/i,
+      /\bbuild\s+(a\s+)?(store|shop)\s+called\b/i,
+    ],
+  },
+  {
+    family: 'store_improvement',
+    subtype: 'improve_store_general',
+    description: 'Broad request to improve, fix, or optimize the store experience.',
+    candidateTools: ['analyze_store', 'generate_tags', 'rewrite_descriptions', 'improve_hero'],
+    defaultTool: 'analyze_store',
+    requiredContext: ['store'],
+    clarifyStrategy: 'improvement_menu',
+    matchPatterns: [
+      /\bimprove\s+(my\s+)?store\b/i,
+      /\bbetter\s+(my\s+)?store\b/i,
+      /\boptimize\s+(my\s+)?store\b/i,
+      /\bfix\s+(my\s+)?store\b/i,
+    ],
+  },
+  {
+    family: 'store_improvement',
+    subtype: 'fix_store_issues',
+    description: 'Find and fix store profile, catalog, or checkout gaps.',
+    candidateTools: ['audit_store_completeness', 'generate_health_report', 'code_fix', 'analyze_store'],
+    defaultTool: 'audit_store_completeness',
+    requiredContext: ['store'],
+    clarifyStrategy: 'improvement_menu',
+    matchPatterns: [
+      /\bfix\s+issues?\b/i,
+      /\bfind\s+and\s+fix\s+issues?\b/i,
+      /\bdiagnose\s+store\b/i,
+      /\bfix\s+issues?\s+with\s+my\s+store\b/i,
+      /\bcompleteness\s+audit\b/i,
+      /\bwhat(?:'s|\s+is)\s+missing\b/i,
+    ],
+  },
+  {
+    family: 'store_improvement',
+    subtype: 'scan_card_to_product',
+    description: 'Scan a business card or product tag to create a catalog item.',
+    candidateTools: ['extract_card_data', 'create_product_from_card'],
+    defaultTool: 'extract_card_data',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /\bscan\s+card\b/i,
+      /\bscan\s+card\s+to\s+create\b/i,
+      /\bbusiness\s+card\s+scan\b/i,
+      /\bscan\s+this\s+card\b/i,
+    ],
+  },
+  {
+    family: 'store_improvement',
+    subtype: 'review_management',
+    description: 'Customer reviews, ratings, feedback, or drafting replies.',
+    candidateTools: ['get_review_summary', 'draft_review_response'],
+    defaultTool: 'get_review_summary',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /show.*review/i,
+      /my.*review/i,
+      /customer.*feedback/i,
+      /respond.*review/i,
+      /reply.*review/i,
+      /what.*customer.*say/i,
+    ],
+  },
+  {
+    family: 'content_edit',
+    subtype: 'change_headline',
+    description: 'Text, headline, hero copy, or wording change (not image-only).',
+    candidateTools: ['code_fix', 'improve_hero', 'rewrite_descriptions'],
+    defaultTool: 'code_fix',
+    requiredContext: [],
+    clarifyStrategy: 'text_vs_hero',
+    matchPatterns: [
+      /\b(headline|hero\s*title|tagline|subtitle|wording|copy)\b/i,
+      /\bfix\s+(the\s+)?(headline|title|text)\b/i,
+      /\bchange\s+(the\s+)?(headline|title|text)\b/i,
+      /\brewrite\s+(the\s+)?(headline|title)\b/i,
+    ],
+  },
+  {
+    family: 'content_edit',
+    subtype: 'generate_social_content',
+    description: 'Generate social media posts, captions, or hashtags for the store.',
+    candidateTools: ['generate_social_posts', 'content_creator'],
+    defaultTool: 'generate_social_posts',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /\bgenerate\s+social\s+content\b/i,
+      /\bsocial\s+media\s+posts?\b/i,
+      /\bcreate\s+social\s+posts?\b/i,
+      /\bwrite\s+(instagram|facebook|social)\s+captions?\b/i,
+      /\bsocial\s+content\s+(for|plan)\b/i,
+    ],
+  },
+  // DANH: fix-video-routing
+  {
+    family: 'content_edit',
+    subtype: 'video_creation',
+    description: 'Create or generate AI video content for the store.',
+    candidateTools: ['create_video'],
+    defaultTool: 'create_video',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /create.*video/i,
+      /generate.*video/i,
+      /make.*video/i,
+      /produce.*video/i,
+      /video.*store/i,
+      /promotional?\s*video/i,
+      /promo(?:tion)?\s+video/i,
+      /store.*video/i,
+      /video.*content/i,
+      /short\s+social\s+video/i,
+      /\b\d+\s*(?:s|sec|second|seconds)\s+(?:ad|video|clip)\b/i,
+      /(?:ad|advert(?:isement)?)\s+for\s+(?:this\s+|my\s+)?(?:store|shop|cafe|café)/i,
+      /(?:create|make|generate|produce).{0,40}\b(?:ad|clip)\b/i,
+      /video\s+using\s+(?:my\s+)?store/i,
+      /animate\s+(?:my\s+)?(?:store\s+)?(?:hero|banner|image)/i,
+      /promotional\s+clip/i,
+      /(?:tiktok|reels?|shorts?)\b/i,
+      /\b(?:promo|promotional|marketing)\s+clip\b/i,
+    ],
+  },
+  // DANH: skill-round6-document
+  {
+    family: 'promotion_campaign',
+    subtype: 'document_ingestion',
+    description: 'Import products and promotions from uploaded flyer, brochure, or document image.',
+    candidateTools: ['scan_document'],
+    defaultTool: 'scan_document',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /scan.*(document|flyer|brochure|poster)/i,
+      /upload.*(flyer|brochure|document|poster)/i,
+      /import.*(document|flyer|brochure|from.*image)/i,
+      /read.*(flyer|brochure|poster|document)/i,
+      /extract.*(from.*document|from.*flyer|from.*brochure|from.*image)/i,
+      /(flyer|brochure|poster).*(import|scan|read|extract)/i,
+    ],
+  },
+  {
+    family: 'promotion_campaign',
+    subtype: 'set_discount',
+    description: 'Discounts, offers, coupons, sale targets, or percent-off.',
+    candidateTools: ['create_offer', 'create_promotion', 'launch_campaign'],
+    defaultTool: 'create_offer',
+    requiredContext: ['store'],
+    clarifyStrategy: 'offer_vs_campaign_plan',
+    matchPatterns: [
+      // "promo" alone matches "promo video" — video_creation demotes this subtype when film signals present
+      /\b(sale|discount|offer|promo|coupon|markdown)\b/i,
+      /%/,
+      /\bpercent(age)?\b/i,
+      /\btarget\b.*\d/,
+    ],
+  },
+  {
+    family: 'analytics_reporting',
+    subtype: 'sales_orders_report',
+    description: 'Sales, orders, revenue, KPIs, or reporting.',
+    candidateTools: ['orders_report', 'analyze_store'],
+    defaultTool: 'orders_report',
+    requiredContext: ['store'],
+    clarifyStrategy: 'report_vs_analyze',
+    matchPatterns: [
+      /\b(report|reports|sales|revenue|orders|analytics|kpi|metric)\b/i,
+      /\bhow\s+(many|much)\b/i,
+    ],
+  },
+  // DANH: skill-runtime-phase7
+  {
+    family: 'analytics_reporting',
+    subtype: 'store_performance_report',
+    description: 'Store performance overview, stats, and metrics (not sales/orders detail).',
+    candidateTools: ['get_store_analytics', 'orders_report'],
+    defaultTool: 'get_store_analytics',
+    requiredContext: ['store'],
+    clarifyStrategy: 'report_vs_analyze',
+    matchPatterns: [
+      /\bhow\s+is\s+my\s+store/i,
+      /\bstore\s+perform/i,
+      /\bstore\s+stats/i,
+      /\bstore\s+health\s+report/i,
+    ],
+  },
+  {
+    family: 'website_edit',
+    subtype: 'website_content',
+    description: 'Website or microsite content (overlaps code_fix; prefer when “website” explicit).',
+    candidateTools: ['code_fix', 'improve_hero'],
+    defaultTool: 'code_fix',
+    requiredContext: [],
+    clarifyStrategy: 'website_text',
+    matchPatterns: [/\b(website|microsite|site)\b.*\b(text|copy|headline|title)\b/i],
+  },
+  {
+    family: 'website_edit',
+    subtype: 'change_hero_image',
+    description: 'User wants to update hero or banner image (not text-only).',
+    candidateTools: ['improve_hero', 'smart_visual'],
+    defaultTool: 'improve_hero',
+    requiredContext: ['store'],
+    clarifyStrategy: 'missing_param',
+    matchPatterns: [
+      /\b(hero|banner)\s+image\b/i,
+      /\bhero\s+photo\b/i,
+      /\bbanner\s+photo\b/i,
+      /\bcover\s+image\b/i,
+      /\bbackground\s+image\b/i,
+      /\bchange\s+(the\s+)?(hero|banner)\s+image\b/i,
+      /\bupdate\s+(the\s+)?hero\b/i,
+      /\breplace\s+(the\s+)?banner\b/i,
+      /\breplace\s+(the\s+)?(hero\s+)?(image|photo|picture)\b/i,
+      /\bchange\s+(the\s+)?(hero|banner)\b/i,
+      /\bchange\s+(the\s+)?(photo|picture)\b.*\b(hero|banner|homepage|home\s*page|store\s*front)\b/i,
+      /\b(hero|banner|homepage)\b.*\bchange\s+(the\s+)?(photo|picture)\b/i,
+      /\b(different|another|other)\s+photo\b.*\b(hero|banner)\b/i,
+    ],
+  },
+  {
+    family: 'devices_signage',
+    subtype: 'screens_devices',
+    description: 'In-store screens, playlists, device push.',
+    candidateTools: ['signage.list-devices', 'signage.publish-to-devices'],
+    defaultTool: 'signage.list-devices',
+    requiredContext: ['store'],
+    clarifyStrategy: 'list_vs_push',
+    matchPatterns: [/\b(screen|screens|display|signage|tv|playlist|device)\b/i],
+  },
+  {
+    family: 'general_help',
+    subtype: 'capabilities',
+    description: 'What can you do, help, unclear ask.',
+    candidateTools: ['general_chat', 'analyze_store'],
+    defaultTool: 'general_chat',
+    requiredContext: [],
+    clarifyStrategy: 'open_help',
+    matchPatterns: [/\bwhat\s+can\s+you\s+do\b/i, /\bhelp\b/i, /\bhow\s+do\s+i\b/i],
+  },
+];
+
+/** @param {string} toolName */
+export function inferFamilyFromTool(toolName) {
+  const t = String(toolName ?? '').trim();
+  const map = {
+    create_store: 'store_setup',
+    analyze_store: 'store_improvement',
+    generate_tags: 'store_improvement',
+    rewrite_descriptions: 'store_improvement',
+    improve_hero: 'store_improvement',
+    get_review_summary: 'store_improvement',
+    draft_review_response: 'store_improvement',
+    code_fix: 'content_edit',
+    create_offer: 'promotion_campaign',
+    create_promotion: 'promotion_campaign',
+    launch_campaign: 'promotion_campaign',
+    market_research: 'promotion_campaign',
+    orders_report: 'analytics_reporting',
+    get_store_analytics: 'analytics_reporting',
+    'signage.list-devices': 'devices_signage',
+    'signage.publish-to-devices': 'devices_signage',
+    smart_visual: 'content_edit',
+    create_video: 'content_edit',
+    scan_document: 'promotion_campaign',
+    general_chat: 'general_help',
+  };
+  return map[t] ?? null;
+}

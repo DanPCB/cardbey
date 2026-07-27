@@ -1,0 +1,10 @@
+# Core protected areas
+/apps/core/ @DanPCB
+/packages/orchestrator/ @DanPCB
+/packages/auth/ @DanPCB
+
+# Mobile lane
+/apps/mobile/ @DanPCB
+
+# Frontend support lane
+/apps/dashboard/ @DanPCB

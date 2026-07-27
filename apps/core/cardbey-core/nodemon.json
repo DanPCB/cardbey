@@ -1,0 +1,21 @@
+{
+  "restartable": "rs",
+  "ignore": [
+    "node_modules/**",
+    "**/*.test.js",
+    "**/*.test.ts",
+    "logs/**",
+    "**/*.log",
+    "data/**",
+    "prisma/test.db",
+    "prisma/dev.db"
+  ],
+  "watch": ["src"],
+  "ext": "js,mjs,cjs,json,ts",
+  "delay": 2500,
+  "signal": "SIGTERM",
+  "env": {
+    "NODE_ENV": "development",
+    "NODE_OPTIONS": "--max-old-space-size=8192 --trace-warnings"
+  }
+}

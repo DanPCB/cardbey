@@ -1,0 +1,74 @@
+{
+  "seedId": "slug-1",
+  "createdAt": "2026-06-20T14:31:39.414Z",
+  "updatedAt": "2026-06-20T14:31:39.414Z",
+  "discoveryEvidence": {
+    "sourceType": "open_data_url",
+    "sourceReference": "fixture",
+    "ingestedAt": "2026-06-20T14:31:39.388Z",
+    "matchEvidenceCount": 0
+  },
+  "enrichmentCandidateIds": [],
+  "biSnapshot": {
+    "snapshotId": "9d09e23f-941d-4149-8dc4-4385549e7ded",
+    "seedId": "slug-1",
+    "createdAt": "2026-06-20T14:31:39.414Z",
+    "version": "v1",
+    "visibilityScore": 73,
+    "completenessScore": 85,
+    "engagementReadinessScore": 45,
+    "strengths": [
+      "Website present",
+      "Complete contact details",
+      "Category identified",
+      "Visual presence on file"
+    ],
+    "weaknesses": [
+      "No promotional description",
+      "No social presence detected",
+      "Opening hours not available"
+    ],
+    "opportunities": [
+      "Launch welcome offer",
+      "Enable AI Performer",
+      "Publish first promotion",
+      "Review AI recommendations"
+    ],
+    "risks": [],
+    "recommendedActions": [
+      {
+        "rank": 1,
+        "label": "Activate Business Space",
+        "proposedAction": "activate_business_space"
+      },
+      {
+        "rank": 2,
+        "label": "Review AI recommendations",
+        "proposedAction": "review_bi_recommendations"
+      },
+      {
+        "rank": 3,
+        "label": "Publish first promotion",
+        "proposedAction": "create_first_offer"
+      }
+    ],
+    "confidenceScore": 83,
+    "summary": "We analyzed Harbour Cafe. Visibility 73/100, completeness 85/100, engagement readiness 45/100. 4 strengths and 4 opportunities identified."
+  },
+  "opportunityAnalysis": [
+    "Opportunity: Launch welcome offer",
+    "Opportunity: Enable AI Performer",
+    "Opportunity: Publish first promotion",
+    "Opportunity: Review AI recommendations"
+  ],
+  "activationNarrative": {
+    "headline": "Cardbey prepared a Business Snapshot for Harbour Cafe.",
+    "body": "We identified 4 strengths, 4 opportunities, and 3 improvement areas. Review your report and activate your Business Space.",
+    "ctaLabel": "Review your report",
+    "activationPath": "/activate-business/slug-1"
+  },
+  "reportViewedAt": null,
+  "reportViewCount": 0,
+  "migratedToStoreId": null,
+  "migratedAt": null
+}

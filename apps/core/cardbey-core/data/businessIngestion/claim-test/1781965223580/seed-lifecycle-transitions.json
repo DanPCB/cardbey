@@ -1,0 +1,16 @@
+[
+  {
+    "id": "9e0d9088-ae45-474a-950e-d849c36d02f4",
+    "seedId": "activate-guard-1",
+    "fromStatus": "seeded_pending_qa",
+    "toStatus": "seeded_claimable",
+    "lifecycleStage": "qa_approved",
+    "action": "qa_approve",
+    "actorId": "admin-qa",
+    "actorType": "admin",
+    "reason": null,
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-06-20T14:20:23.631Z"
+  }
+]

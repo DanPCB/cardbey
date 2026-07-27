@@ -1,0 +1,386 @@
+/**
+ * Creator Foundation Phase 1 — REST API routes.
+ * Reads: direct service calls. Writes: Runtime Authority dispatch only.
+ * Showcase: GET /api/creators/showcase, /api/creators/search, /api/creators/content/:contentId
+ */
+
+import { Router } from 'express';
+import { requireAuth, optionalAuth } from '../middleware/auth.js';
+import { dispatchTool } from '../lib/toolDispatcher.js';
+import { markRuntimeOwnedContext } from '../lib/runtime/performerRuntime/runtimeOwnership.js';
+import {
+  getCreatorByUserId,
+  getCreatorByUsername,
+  listPublicCreators,
+  listCreatorContent,
+  listLatestOriginalContent,
+  getCreatorAnalytics,
+  listCreatorFeedArtifacts,
+  checkUsernameAvailability,
+} from '../lib/creator/creatorService.js';
+import {
+  getPublicCreatorContent,
+  listCreatorShowcase,
+  searchCreatorsShowcase,
+} from '../lib/creator/creatorShowcaseService.js';
+import {
+  validateCreateCreatorProfileInput,
+} from '../lib/creator/creatorProfileContract.js';
+import {
+  calculateCreatorProgress,
+  QUALIFICATION_MINUTES,
+  QUALIFICATION_SECONDS,
+} from '../lib/creator/creatorProgressService.js';
+import { getPrismaClient } from '../lib/prisma.js';
+import { isPlatformAdmin } from '../lib/authorization.js';
+
+const router = Router();
+
+function buildRuntimeContext(req, body = {}) {
+  return markRuntimeOwnedContext(
+    {
+      userId: req.user?.id ?? req.userId ?? null,
+      creatorId: body.creatorId ?? null,
+      missionId: body.missionId ?? req.headers['x-mission-id'] ?? null,
+      runtimeExecutionId:
+        body.runtimeExecutionId ??
+        req.headers['x-runtime-execution-id'] ??
+        req.headers['x-cardbey-trace-id'] ??
+        null,
+      source: req.headers['x-creator-source'] === 'creator_studio' ? 'creator_studio' : 'creator_api',
+      route: req.originalUrl,
+      role: req.user?.role ?? null,
+    },
+    body.runtimeExecutionId ?? req.headers['x-cardbey-trace-id'] ?? 'creator-api',
+  );
+}
+
+async function dispatchCreatorTool(req, res, toolName, input) {
+  const context = buildRuntimeContext(req, input);
+  const result = await dispatchTool(toolName, input, context);
+  const statusCode =
+    result.status === 'ok' ? 200 : result.status === 'blocked' ? 403 : 422;
+  return res.status(statusCode).json({
+    ok: result.status === 'ok',
+    status: result.status,
+    toolName,
+    output: result.output ?? null,
+    blocker: result.blocker ?? null,
+    error: result.error ?? null,
+  });
+}
+
+/**
+ * GET /api/creators/showcase — published creator content for Creator Showcase grid
+ */
+router.get('/creators/showcase', optionalAuth, async (req, res, next) => {
+  try {
+    const limit = Number(req.query.limit) || 24;
+    const type = req.query.type ? String(req.query.type) : undefined;
+    const category = req.query.category ? String(req.query.category) : undefined;
+    const q = req.query.q ? String(req.query.q) : undefined;
+    const cursor = req.query.cursor ? String(req.query.cursor) : undefined;
+    const result = await listCreatorShowcase({ limit, type, category, q, cursor });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creators/search — search creators and published content
+ */
+router.get('/creators/search', optionalAuth, async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const limit = Number(req.query.limit) || 8;
+    const result = await searchCreatorsShowcase({ q, limit });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creators/content/:contentId — public content detail
+ */
+router.get('/creators/content/:contentId', optionalAuth, async (req, res, next) => {
+  try {
+    const contentId = String(req.params.contentId || '').trim();
+    const result = await getPublicCreatorContent(contentId);
+    if (!result) {
+      return res.status(404).json({ ok: false, error: 'content_not_found' });
+    }
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /api/creators/feed — published creator content for public marketplace feed
+ */
+router.get('/creators/feed', optionalAuth, async (req, res, next) => {
+  try {
+    const limit = Number(req.query.limit) || 24;
+    const items = await listCreatorFeedArtifacts(limit);
+    res.json({ ok: true, items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creators — public listing (deterministic ordering)
+ */
+router.get('/creators', optionalAuth, async (req, res, next) => {
+  try {
+    const section = String(req.query.section || 'featured');
+    const limit = Number(req.query.limit) || 12;
+    const creators = await listPublicCreators({ section, limit });
+    const latestContent = await listLatestOriginalContent(12);
+    res.json({ ok: true, creators, latestContent, section });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creator/me — authenticated creator profile
+ */
+router.get('/creator/me', requireAuth, async (req, res, next) => {
+  try {
+    const creator = await getCreatorByUserId(req.userId);
+    res.json({ ok: true, creator });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creator/progress — qualification progress
+ */
+router.get('/creator/progress', requireAuth, async (req, res, next) => {
+  try {
+    const prisma = getPrismaClient();
+    const creator = await prisma.creator.findUnique({ where: { userId: req.userId } });
+    if (!creator) {
+      return res.json({
+        ok: true,
+        progress: {
+          totalPublishedMinutes: 0,
+          totalPublishedSeconds: 0,
+          qualificationProgress: 0,
+          isQualified: false,
+          targetMinutes: QUALIFICATION_MINUTES,
+          qualificationTargetSeconds: QUALIFICATION_SECONDS,
+        },
+      });
+    }
+    const progress = await calculateCreatorProgress(creator.id);
+    res.json({
+      ok: true,
+      progress: {
+        ...progress,
+        targetMinutes: QUALIFICATION_MINUTES,
+        qualificationTargetSeconds: QUALIFICATION_SECONDS,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creator/analytics — foundation analytics (store only)
+ */
+router.get('/creator/analytics', requireAuth, async (req, res, next) => {
+  try {
+    const analytics = await getCreatorAnalytics(req.userId);
+    res.json({ ok: true, analytics });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creator/username-availability — debounced username check (auth)
+ */
+router.get('/creator/username-availability', requireAuth, async (req, res, next) => {
+  try {
+    const result = await checkUsernameAvailability(String(req.query.username || ''), {
+      userId: req.userId,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creator/:username — public profile
+ */
+router.get('/creator/:username', optionalAuth, async (req, res, next) => {
+  try {
+    const username = String(req.params.username || '').toLowerCase();
+    if (['me', 'progress', 'analytics', 'content'].includes(username)) {
+      return res.status(404).json({ ok: false, error: 'not_found' });
+    }
+    const creator = await getCreatorByUsername(username);
+    if (!creator) {
+      return res.status(404).json({ ok: false, error: 'creator_not_found' });
+    }
+    const content = await listCreatorContent(creator.creatorId, { status: 'published' });
+    res.json({ ok: true, creator, content });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/creator/content — list own content (auth)
+ */
+router.get('/creator/content/list', requireAuth, async (req, res, next) => {
+  try {
+    const prisma = getPrismaClient();
+    const creator = await prisma.creator.findUnique({ where: { userId: req.userId } });
+    if (!creator) {
+      return res.json({ ok: true, content: [] });
+    }
+    const status = req.query.status ? String(req.query.status) : 'all';
+    const content = await listCreatorContent(creator.id, { status, limit: 100 });
+    res.json({ ok: true, content });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/creator/profile — create creator profile (runtime)
+ */
+router.post('/creator/profile', requireAuth, async (req, res, next) => {
+  try {
+    const preflight = validateCreateCreatorProfileInput(req.body);
+    if (!preflight.ok) {
+      return res.status(422).json({
+        ok: false,
+        error: preflight.error,
+      });
+    }
+    const input = {
+      ...preflight.data,
+      userId: req.userId,
+      source: 'creator_studio',
+    };
+    return dispatchCreatorTool(req, res, 'create_creator_profile', input);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/creator/content — create/publish content (runtime)
+ */
+router.post('/creator/content', requireAuth, async (req, res, next) => {
+  try {
+    const input = { ...req.body, userId: req.userId };
+    const action = req.body?.action || 'publish';
+    if (action === 'draft') {
+      return dispatchCreatorTool(req, res, 'create_creator_content_draft', {
+        ...input,
+        publish: false,
+        action: 'draft',
+      });
+    }
+    if (action === 'submit_review') {
+      return dispatchCreatorTool(req, res, 'submit_creator_content_for_review', input);
+    }
+    return dispatchCreatorTool(req, res, 'publish_creator_content', { ...input, action: 'publish' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/creator/content/:contentId/submit-review — owner review gate (runtime)
+ */
+router.post('/creator/content/:contentId/submit-review', requireAuth, async (req, res, next) => {
+  try {
+    const input = { ...req.body, contentId: req.params.contentId, userId: req.userId };
+    return dispatchCreatorTool(req, res, 'submit_creator_content_for_review', input);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/creator/content/:contentId/publish — publish after owner review (runtime)
+ */
+router.post('/creator/content/:contentId/publish', requireAuth, async (req, res, next) => {
+  try {
+    if (!isPlatformAdmin(req.user)) {
+      return res.status(403).json({
+        ok: false,
+        error: {
+          code: 'ADMIN_APPROVAL_REQUIRED',
+          message:
+            'Creator content must be approved by Cardbey before it can go public. It is now in the moderation queue.',
+        },
+      });
+    }
+    const input = { ...req.body, contentId: req.params.contentId, userId: req.userId, action: 'publish' };
+    return dispatchCreatorTool(req, res, 'publish_creator_content', input);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/creator/content/:contentId/return-to-draft — owner review → draft (runtime)
+ */
+router.post('/creator/content/:contentId/return-to-draft', requireAuth, async (req, res, next) => {
+  try {
+    const input = { ...req.body, contentId: req.params.contentId, userId: req.userId };
+    return dispatchCreatorTool(req, res, 'return_creator_content_to_draft', input);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /api/creator/content/:contentId — update content (runtime)
+ */
+router.patch('/creator/content/:contentId', requireAuth, async (req, res, next) => {
+  try {
+    const input = { ...req.body, contentId: req.params.contentId, userId: req.userId };
+    return dispatchCreatorTool(req, res, 'update_creator_content', input);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/creator/content/:contentId — delete content (runtime)
+ */
+router.delete('/creator/content/:contentId', requireAuth, async (req, res, next) => {
+  try {
+    const input = { contentId: req.params.contentId, userId: req.userId };
+    return dispatchCreatorTool(req, res, 'delete_creator_content', input);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/creator/progress/recalculate — sync progress (runtime)
+ */
+router.post('/creator/progress/recalculate', requireAuth, async (req, res, next) => {
+  try {
+    const input = { ...req.body, userId: req.userId };
+    return dispatchCreatorTool(req, res, 'calculate_creator_progress', input);
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

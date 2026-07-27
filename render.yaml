@@ -6,18 +6,216 @@ services:
     repo: https://github.com/DanPCB/cardbey
     branch: staging
     rootDir: apps/core/cardbey-core
-    buildCommand: npm install && npx prisma generate --schema prisma/postgres/schema.prisma && (pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled")
+    # DATABASE_URL must be Postgres; applies prisma/postgres/migrations before generate (belt + suspenders with preDeploy/prestart bootstrap).
+    # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
+    buildCommand: node scripts/render-build.mjs
+    # DATABASE_URL must be postgresql://... (not file:). Bootstrap picks prisma/postgres/schema.prisma + migrate deploy.
+    # Pre-deploy on Render often fails with no log output. DB bootstrap runs at container start (npm prestart → Logs tab).
+    preDeployCommand: 'echo "[render] bootstrap deferred to npm prestart — see Logs tab"'
     startCommand: npm start
+    # GET /api/performer/intake/v2 → JSON { status, version, env } (not dashboard SPA HTML)
+    healthCheckPath: /api/performer/intake/v2
     envVars:
       - key: NODE_ENV
         value: production
+      # Runtime Kernel — Foundation + Phase B (C–E remain OFF until soak passes each phase)
+      - key: ENABLE_PERFORMER_RUNTIME_KERNEL
+        value: "true"
+      - key: ENABLE_RUNTIME_STEP_EXECUTION
+        value: "true"
+      - key: ENABLE_SHARED_RUNTIME_TOOL_REGISTRY
+        value: "true"
+      - key: ENABLE_PROACTIVE_CAMPAIGN_RUNWAY
+        value: "true"
+      - key: ENABLE_RUNTIME_SESSION_REHYDRATION
+        value: "true"
+      - key: ENABLE_RUNTIME_STORE_FALLBACK
+        value: "true"
+      - key: PERFORMER_RUNTIME_UNIFIED_STREAM
+        value: "true"
+      # Phase B — mission orchestrator (run-next / run-all on staging only)
+      - key: ENABLE_RUNTIME_MISSION_ORCHESTRATOR
+        value: "true"
+      # Phase F Step 1 — orchestra/start + missionId bypass closure (lowest-risk; rollback = unset flag)
+      - key: PHASE_F_BYPASS_TELEMETRY
+        value: "true"
+      - key: BROKER_BLOCK_ORCHESTRA_WITH_MISSION
+        value: "true"
+      # V1 — verification email hits Core API; post-verify redirect opens dashboard staging SPA
+      - key: EMAIL_VERIFICATION_BASE_URL
+        value: https://cardbey-core-staging.onrender.com
+      - key: PUBLIC_APP_URL
+        value: https://cardbey-dashboard-staging.onrender.com
+      - key: DASHBOARD_URL
+        value: https://cardbey-dashboard-staging.onrender.com
+      - key: DISCOVERY_ENABLED
+        value: "false"
+      - key: DISCOVERY_CRON
+        value: "0 */6 * * *"
+      - key: DISCOVERY_MAX_PER_RUN
+        value: "20"
+      - key: DISCOVERY_CONCURRENCY
+        value: "3"
+      - key: DISCOVERY_DELAY_MS
+        value: "2000"
+      - key: DISCOVERY_SYSTEM_USER_ID
+        sync: false
+      - key: DISCOVERY_INSTANCE_LOCK
+        value: "false"
+      - key: INSIGHT_JOB_ENABLED
+        value: "false"
+      # Loyalty card upload → multi-agent compile → TopologyReview (not legacy proactive preview)
+      - key: USE_LOYALTY_SPINE
+        value: "true"
+      # Hero/explore video upload: skip ffmpeg on Render (OOM → instance exit 1)
+      - key: VIDEO_UPLOAD_SKIP_TRANSCODE
+        value: "true"
+      - key: VIDEO_UPLOAD_MAX_TRANSCODE_MB
+        value: "20"
+      - key: EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"
+      - key: ENABLE_PIXABAY_MUSIC
+        value: "true"
+      - key: PIXABAY_API_KEY
+        sync: false
 
-  # Dashboard (staging) — static site build (Vite)
+  # Dashboard (staging) — Architecture A: primary repo = monorepo (clone works).
+  # Private dashboard is a submodule with RELATIVE url (../cardbey-marketing-dashboard.git)
+  # so Render's automatic submodule clone reuses parent GitHub credentials.
+  # Do NOT point this service at the dashboard repo until service Git Credentials can list it.
   - type: web
     name: cardbey-dashboard-staging
     runtime: static
     repo: https://github.com/DanPCB/cardbey
     branch: staging
-    rootDir: apps/dashboard/cardbey-marketing-dashboard
-    buildCommand: npm i -g pnpm@10.25.0 && pnpm -v && pnpm install && pnpm run build:staging
-    staticPublishPath: dist
+    rootDir: .
+    buildCommand: node scripts/render-dashboard-static-build.mjs --mode=staging
+    staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
+    envVars:
+      - key: VITE_INTAKE_V2
+        value: "true"
+      - key: VITE_ENV
+        value: staging
+      - key: VITE_CORE_BASE_URL
+        value: https://cardbey-core-staging.onrender.com
+      - key: VITE_CORE_ORIGIN
+        value: https://cardbey-core-staging.onrender.com
+      - key: VITE_PERFORMER_EXECUTION_INTENTS
+        value: "1"
+      - key: VITE_PERFORMER_EXECUTION_PLANNER
+        value: "1"
+      - key: VITE_PERFORMER_EXECUTION_SERVER_BRIDGE
+        value: "1"
+      - key: VITE_PERFORMER_EXECUTION_REAL_CAPABILITIES
+        value: "1"
+      - key: VITE_EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"
+      - key: VITE_PIL_ACTIVITY_AWARE
+        value: "true"
+      - key: VITE_ENABLE_ORB_COPILOT
+        value: "true"
+      - key: VITE_INTELLIGENCE_FOUNDATION
+        value: "true"
+      - key: VITE_INTELLIGENCE_SURFACE_BRIEFING
+        value: "true"
+      - key: VITE_INTELLIGENCE_SURFACE_PIL
+        value: "true"
+      - key: VITE_PIL_CONCIERGE_LLM
+        value: "true"
+
+  # Core API (production / live) — same build + health probe as staging; branch main tracks staging merges.
+  - type: web
+    name: cardbey-core
+    runtime: node
+    repo: https://github.com/DanPCB/cardbey
+    branch: main
+    rootDir: apps/core/cardbey-core
+    # npm ci (not npm install): install from package-lock.json so staging and live resolve identical dependency versions (no drift). Matches CI (.github/workflows/tests.yml uses npm ci).
+    buildCommand: node scripts/render-build.mjs
+    # Pre-deploy on Render often fails with no log output. DB bootstrap runs at container start (npm prestart → Logs tab).
+    preDeployCommand: 'echo "[render] bootstrap deferred to npm prestart — see Logs tab"'
+    startCommand: npm start
+    healthCheckPath: /api/performer/intake/v2
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_PERFORMER_RUNTIME_KERNEL
+        value: "true"
+      - key: ENABLE_RUNTIME_STEP_EXECUTION
+        value: "true"
+      - key: ENABLE_SHARED_RUNTIME_TOOL_REGISTRY
+        value: "true"
+      - key: ENABLE_PROACTIVE_CAMPAIGN_RUNWAY
+        value: "true"
+      - key: ENABLE_RUNTIME_SESSION_REHYDRATION
+        value: "true"
+      - key: ENABLE_RUNTIME_STORE_FALLBACK
+        value: "true"
+      - key: PERFORMER_RUNTIME_UNIFIED_STREAM
+        value: "true"
+      - key: ENABLE_RUNTIME_MISSION_ORCHESTRATOR
+        value: "true"
+      - key: EMAIL_VERIFICATION_BASE_URL
+        value: https://cardbey-core.onrender.com
+      - key: PUBLIC_APP_URL
+        value: https://cardbey.com
+      - key: DASHBOARD_URL
+        value: https://cardbey.com
+      - key: DISCOVERY_ENABLED
+        value: "false"
+      - key: DISCOVERY_CRON
+        value: "0 */6 * * *"
+      - key: DISCOVERY_MAX_PER_RUN
+        value: "20"
+      - key: DISCOVERY_CONCURRENCY
+        value: "3"
+      - key: DISCOVERY_DELAY_MS
+        value: "2000"
+      - key: DISCOVERY_SYSTEM_USER_ID
+        sync: false
+      - key: DISCOVERY_INSTANCE_LOCK
+        value: "false"
+      - key: INSIGHT_JOB_ENABLED
+        value: "false"
+      # Loyalty card upload → multi-agent compile → TopologyReview (not legacy proactive preview)
+      - key: USE_LOYALTY_SPINE
+        value: "true"
+      # Hero video upload: skip ffmpeg on Render (OOM → instance exit 1)
+      - key: VIDEO_UPLOAD_SKIP_TRANSCODE
+        value: "true"
+      - key: VIDEO_UPLOAD_MAX_TRANSCODE_MB
+        value: "20"
+      - key: EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"
+
+  # Dashboard (production) — Architecture A + relative submodule URL (see
+  # docs/IMPACT_REPORT_render_dashboard_submodule_relative_url.md).
+  # After deploy: set Repository back to DanPCB/cardbey if Blueprint left it on the
+  # dashboard repo, then Clear build cache & deploy.
+  - type: web
+    name: cardbey-dashboard
+    runtime: static
+    repo: https://github.com/DanPCB/cardbey
+    branch: main
+    rootDir: .
+    buildCommand: node scripts/render-dashboard-static-build.mjs --mode=production
+    staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
+    envVars:
+      - key: VITE_INTAKE_V2
+        value: "true"
+      - key: VITE_ENV
+        value: production
+      - key: VITE_CORE_BASE_URL
+        value: https://cardbey-core.onrender.com
+      - key: VITE_CORE_ORIGIN
+        value: https://cardbey-core.onrender.com
+      - key: VITE_PERFORMER_EXECUTION_INTENTS
+        value: "1"
+      - key: VITE_PERFORMER_EXECUTION_PLANNER
+        value: "1"
+      - key: VITE_PERFORMER_EXECUTION_SERVER_BRIDGE
+        value: "1"
+      - key: VITE_PERFORMER_EXECUTION_REAL_CAPABILITIES
+        value: "1"
+      - key: VITE_EXPLORE_VIDEO_MAX_BYTES
+        value: "52428800"

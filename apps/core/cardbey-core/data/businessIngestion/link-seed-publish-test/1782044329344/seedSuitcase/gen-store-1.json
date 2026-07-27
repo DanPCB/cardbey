@@ -1,0 +1,74 @@
+{
+  "seedId": "gen-store-1",
+  "createdAt": "2026-06-21T12:18:49.381Z",
+  "updatedAt": "2026-06-21T12:18:49.381Z",
+  "discoveryEvidence": {
+    "sourceType": "open_data_url",
+    "sourceReference": "MELBOURNE_BATCH0_20260617",
+    "ingestedAt": "2026-06-21T12:18:49.354Z",
+    "matchEvidenceCount": 0
+  },
+  "enrichmentCandidateIds": [],
+  "biSnapshot": {
+    "snapshotId": "592f76d5-9c12-40a8-93fa-160d5b1d0c39",
+    "seedId": "gen-store-1",
+    "createdAt": "2026-06-21T12:18:49.381Z",
+    "version": "v1",
+    "visibilityScore": 73,
+    "completenessScore": 85,
+    "engagementReadinessScore": 45,
+    "strengths": [
+      "Website present",
+      "Complete contact details",
+      "Category identified",
+      "Visual presence on file"
+    ],
+    "weaknesses": [
+      "No promotional description",
+      "No social presence detected",
+      "Opening hours not available"
+    ],
+    "opportunities": [
+      "Launch welcome offer",
+      "Enable AI Performer",
+      "Publish first promotion",
+      "Review AI recommendations"
+    ],
+    "risks": [],
+    "recommendedActions": [
+      {
+        "rank": 1,
+        "label": "Activate Business Space",
+        "proposedAction": "activate_business_space"
+      },
+      {
+        "rank": 2,
+        "label": "Review AI recommendations",
+        "proposedAction": "review_bi_recommendations"
+      },
+      {
+        "rank": 3,
+        "label": "Publish first promotion",
+        "proposedAction": "create_first_offer"
+      }
+    ],
+    "confidenceScore": 87,
+    "summary": "We analyzed Brunetti Carlton. Visibility 73/100, completeness 85/100, engagement readiness 45/100. 4 strengths and 4 opportunities identified."
+  },
+  "opportunityAnalysis": [
+    "Opportunity: Launch welcome offer",
+    "Opportunity: Enable AI Performer",
+    "Opportunity: Publish first promotion",
+    "Opportunity: Review AI recommendations"
+  ],
+  "activationNarrative": {
+    "headline": "Cardbey prepared a Business Snapshot for Brunetti Carlton.",
+    "body": "We identified 4 strengths, 4 opportunities, and 3 improvement areas. Review your report and activate your Business Space.",
+    "ctaLabel": "Review your report",
+    "activationPath": "/activate-business/gen-store-1"
+  },
+  "reportViewedAt": null,
+  "reportViewCount": 0,
+  "migratedToStoreId": null,
+  "migratedAt": null
+}

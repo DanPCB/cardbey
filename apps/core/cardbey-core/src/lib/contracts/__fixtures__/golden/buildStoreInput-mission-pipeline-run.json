@@ -1,0 +1,14 @@
+{
+  "runway": "R3_missions_store_run",
+  "description": "Target body shape passed to executeStoreMissionPipelineRun (store mission)",
+  "buildStoreInput": {
+    "schemaVersion": 1,
+    "businessName": "Northside Coffee",
+    "businessType": "cafe",
+    "storeType": "cafe",
+    "location": "Melbourne",
+    "intentMode": "store",
+    "rawUserText": "Create a store for Northside Coffee in Melbourne",
+    "currencyCode": "AUD"
+  }
+}
