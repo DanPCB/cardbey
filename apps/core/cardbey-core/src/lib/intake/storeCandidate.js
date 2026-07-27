@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { parseBusinessCardOCR } from '../businessCardParser.js';
 import { inferStoreCategoryFromHint } from './storeCreationDraft.js';
 import { mapVerticalSlugToCategory } from './storeCreationDraftAssetBridge.js';
+import { canonicalizeCreateStoreCategory } from './intakeErrorTypes.js';
 
 /** @typedef {'business_card'|'menu'|'flyer'|'brochure'|'poster'|'storefront_photo'|'logo'|'invoice'|'receipt'|'unknown'} DocumentType */
 
@@ -181,7 +182,9 @@ export function buildStoreCandidateFromOcr(rawOcrText, meta = {}) {
   if (addrF) extractedFields.address = addrF;
 
   const vertical = strip(meta.vertical ?? entities.vertical ?? entities.category ?? entities.businessType);
-  const catLabel = mapVerticalSlugToCategory(vertical) ?? vertical;
+  const catLabel = canonicalizeCreateStoreCategory(
+    mapVerticalSlugToCategory(vertical) ?? vertical,
+  );
   const catF = field(catLabel, 0.7, 'inference', 'category_hint');
   if (catF && catLabel) extractedFields.category = catF;
 
@@ -407,6 +410,36 @@ export function peekPendingDocumentExtraction(sessionId) {
 }
 
 /**
+ * @param {string | null | undefined} sessionId
+ */
+export function clearPendingDocumentExtraction(sessionId) {
+  const sid = strip(sessionId);
+  if (!sid) return;
+  pendingBySession.delete(sid);
+}
+
+/**
+ * True when pending artifact is for the same upload pixels (or pending has no image to compare).
+ * @param {DocumentExtractionArtifact | null | undefined} pending
+ * @param {string | null | undefined} currentImageDataUrl
+ */
+export function pendingExtractionMatchesCurrentImage(pending, currentImageDataUrl) {
+  const current = String(currentImageDataUrl ?? '').trim();
+  if (!current) return true;
+  const pendingImg = String(
+    pending?.imageDataUrl ?? pending?.storeCandidate?.imageDataUrl ?? '',
+  ).trim();
+  if (!pendingImg) return false;
+  if (pendingImg === current) return true;
+  // Cheap fingerprint for large data URLs
+  return (
+    pendingImg.length === current.length &&
+    pendingImg.slice(0, 96) === current.slice(0, 96) &&
+    pendingImg.slice(-48) === current.slice(-48)
+  );
+}
+
+/**
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} missionId
  * @param {DocumentExtractionArtifact} artifact
@@ -537,8 +570,13 @@ export function resolveStoreCandidateForHandoff(input = {}) {
   candidate = mergeStoreCandidates(candidate, fromMeta);
 
   const pending = peekPendingDocumentExtraction(input.sessionId);
-  if (pending?.storeCandidate) {
-    candidate = mergeStoreCandidates(candidate, pending.storeCandidate);
+  if (pending?.storeCandidate && input.skipPending !== true) {
+    if (pendingExtractionMatchesCurrentImage(pending, input.currentImageDataUrl)) {
+      candidate = mergeStoreCandidates(candidate, pending.storeCandidate);
+    } else if (String(input.currentImageDataUrl ?? '').trim()) {
+      // Different upload in this session — drop stale Construct Corp / prior card.
+      clearPendingDocumentExtraction(input.sessionId);
+    }
   }
 
   return candidate;

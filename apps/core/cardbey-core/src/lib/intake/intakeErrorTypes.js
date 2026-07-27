@@ -100,7 +100,7 @@ export const StoreCreationError = {
   },
 };
 
-const VALID_CATEGORIES = new Set([
+export const VALID_CREATE_STORE_CATEGORIES = [
   'Fashion',
   'Food & drink',
   'Beauty',
@@ -110,7 +110,83 @@ const VALID_CATEGORIES = new Set([
   'Health',
   'Arts & crafts',
   'Other',
-]);
+];
+
+const VALID_CATEGORIES = new Set(VALID_CREATE_STORE_CATEGORIES);
+
+/** Exact / alias → picker label (case-insensitive keys). */
+const CREATE_STORE_CATEGORY_ALIASES = {
+  fashion: 'Fashion',
+  'food & drink': 'Food & drink',
+  'food and drink': 'Food & drink',
+  food: 'Food & drink',
+  food_beverage: 'Food & drink',
+  food_drink: 'Food & drink',
+  beauty: 'Beauty',
+  'home & garden': 'Home & garden',
+  'home and garden': 'Home & garden',
+  home_garden: 'Home & garden',
+  electronics: 'Electronics',
+  sports: 'Sports',
+  health: 'Health',
+  'arts & crafts': 'Arts & crafts',
+  'arts and crafts': 'Arts & crafts',
+  arts_crafts: 'Arts & crafts',
+  other: 'Other',
+  // Legacy inference labels that were never picker-valid
+  construction: 'Home & garden',
+  automotive: 'Other',
+  signage: 'Other',
+  technology: 'Electronics',
+  furniture: 'Home & garden',
+  handyman: 'Home & garden',
+  bakery: 'Food & drink',
+  cafe: 'Food & drink',
+  restaurant: 'Food & drink',
+  vietnamese: 'Food & drink',
+  'beauty salon': 'Beauty',
+  salon: 'Beauty',
+  spa: 'Beauty',
+  massage: 'Beauty',
+  'thai massage': 'Beauty',
+  'thai massage spa': 'Beauty',
+};
+
+/**
+ * Map OCR / free-text business type to a create_store picker category.
+ * Never returns a non-picker label (avoids silent INVALID_CATEGORY on draft confirm).
+ *
+ * @param {string | null | undefined} raw
+ * @returns {string} Empty string when raw is empty; otherwise a VALID_CREATE_STORE_CATEGORIES entry.
+ */
+export function canonicalizeCreateStoreCategory(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  if (VALID_CATEGORIES.has(s)) return s;
+  const lower = s.toLowerCase();
+  if (CREATE_STORE_CATEGORY_ALIASES[lower]) return CREATE_STORE_CATEGORY_ALIASES[lower];
+  if (
+    /food|greek|cafe|coffee|restaurant|bakery|pizza|sushi|street\s*food|drink|bar\b|bistro|diner|vietnamese|thai\s*food/i.test(
+      s,
+    )
+  ) {
+    return 'Food & drink';
+  }
+  if (/beauty|hair|salon|spa|nail|barber|makeup|massage/i.test(s)) return 'Beauty';
+  if (
+    /handyman|trade|plumb|electric|renovat|builder|construction|home|garden|furniture|decor|interior|contractor/i.test(
+      s,
+    )
+  ) {
+    return 'Home & garden';
+  }
+  if (/fashion|cloth|apparel|boutique|wear|dress/i.test(s)) return 'Fashion';
+  if (/sport|gym|fitness|yoga|pilates|training/i.test(s)) return 'Sports';
+  if (/health|clinic|dental|pharmacy|medical|wellness/i.test(s)) return 'Health';
+  if (/electronic|tech|computer|phone|gadget|software|digital|\bit\b/i.test(s)) return 'Electronics';
+  if (/art|craft|gift|gallery/i.test(s)) return 'Arts & crafts';
+  return 'Other';
+}
 
 /**
  * @param {keyof typeof StoreCreationError | { code?: string }} error
@@ -223,7 +299,7 @@ export function validateStoreCreationFields(payload = {}) {
     envelope && typeof envelope === 'object' && !Array.isArray(envelope)
       ? envelope.category ?? envelope.storeType ?? envelope.businessType
       : payload?.category ?? payload?.storeType ?? payload?.businessType;
-  const category = categoryRaw != null ? String(categoryRaw).trim() : '';
+  const category = canonicalizeCreateStoreCategory(categoryRaw);
 
   if (!name || name.length < 2) {
     const cfg = StoreCreationError.MISSING_NAME;
