@@ -14,11 +14,28 @@ const JWT_SECRET = requireJwtSecret();
 // In-memory rate limiting (use Redis in production)
 const guestRateLimits = new Map();
 
-/** Read-only mission hydration — must not consume the tight guest daily cap (state polling). */
+/**
+ * Read-only mission hydration — must not consume the tight guest daily cap (state polling).
+ * Also exempt Performer intake v2 POST: guests may finish Ask → Create store → unpublished draft
+ * without hitting the signup-wall 429 (“Create an account to continue using Cardbey Assistant”).
+ */
 export function isGuestRateLimitExemptRequest(req) {
-  if (!req || String(req.method || '').toUpperCase() !== 'GET') return false;
+  if (!req) return false;
+  const method = String(req.method || '').toUpperCase();
   const path = String(req.path || req.url || '').split('?')[0];
   const original = String(req.originalUrl || '').split('?')[0];
+
+  if (method === 'POST') {
+    // Mounted at /api/performer → path is often /intake/v2; originalUrl keeps full prefix.
+    const intakeV2 =
+      path === '/intake/v2' ||
+      path.endsWith('/intake/v2') ||
+      /\/performer\/intake\/v2\/?$/.test(original);
+    if (intakeV2) return true;
+    return false;
+  }
+
+  if (method !== 'GET') return false;
   const relative = /^\/[^/]+\/(state|recovery-state|blackboard)$/.test(path);
   const absolute = /\/missions\/[^/]+\/(state|recovery-state|blackboard)$/.test(original);
   return relative || absolute;
