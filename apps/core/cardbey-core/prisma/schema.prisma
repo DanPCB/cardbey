@@ -139,6 +139,33 @@ model TelemetryNavigation {
   @@index([userRole])
 }
 
+/// Create-store understanding audit (Phase 4 CanonicalUnderstanding observability).
+model PerformerAuditLog {
+  id                String   @id @default(cuid())
+  sessionId         String
+  userId            String?
+  step              String
+  imageHash         String
+  understandingId   String?
+  source            String?
+  confidence        Float?
+  fields            Json?
+  validationResult  Json?
+  userAction        String?
+  userEdits         Json?
+  error             String?
+  metadata          Json?
+  environment       String?
+  createdAt         DateTime @default(now())
+
+  @@index([imageHash])
+  @@index([createdAt])
+  @@index([sessionId])
+  @@index([step, source])
+  @@index([confidence])
+  @@index([userId, createdAt])
+}
+
 model PersonalMedia {
   id        String   @id @default(cuid())
   userId    String

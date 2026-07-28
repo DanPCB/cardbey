@@ -267,6 +267,7 @@ import missionsRoutes from './routes/missionsRoutes.js';
 import confirmationRoutes from './routes/confirmation.routes.js';
 import executionRoutes from './routes/executionRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
+import performerAuditRoutes from './routes/performerAuditRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import selfAuditRoutes from './routes/selfAudit.routes.js';
 import developmentRoutes from './routes/development.routes.js';
@@ -1166,6 +1167,7 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 }
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
+app.use('/api/performer/audit', performerAuditRoutes); // Create-store understanding audit (Phase 4)
 app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
 app.use('/api/self-audit', selfAuditRoutes); // Self-audit: status, run, fix proposals (admin)
 app.use('/api', developmentRoutes); // Development Runtime: /api/development/*
