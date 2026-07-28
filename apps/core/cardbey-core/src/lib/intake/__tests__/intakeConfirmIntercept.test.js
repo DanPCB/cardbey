@@ -47,6 +47,15 @@ describe('intakeConfirmIntercept', () => {
     ).toBe('I need a store to run that safely.');
   });
 
+  it('does not phrase unknown_field spillover as I need source type / client request id', () => {
+    const msg = formatIntakeValidationClarifyMessage([
+      { field: 'sourceType', reason: 'unknown_field' },
+      { field: 'clientRequestId', reason: 'unknown_field' },
+    ]);
+    expect(msg).not.toMatch(/source type/i);
+    expect(msg).not.toMatch(/client request id/i);
+  });
+
   it('normalizes confirm intercept executionPath from tool registry', () => {
     const normalized = normalizeConfirmInterceptClassification({
       tool: 'create_campaign',

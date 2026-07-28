@@ -20,6 +20,7 @@ export const CREATE_STORE_INTAKE_SOURCE_VALUES = new Set([
  */
 export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'source',
+  'sourceType',
   'intent',
   'message',
   'intentLabel',
@@ -41,6 +42,15 @@ export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'pipelineId',
   'stepId',
   'draftId',
+  'clientRequestId',
+  'requestId',
+  'evidenceId',
+  'attachmentId',
+  'attachmentIds',
+  'contentHash',
+  'fromAskSelection',
+  'cardExtraction',
+  'storeCandidate',
   '_performerMode',
   '_performerSource',
   '_manualAction',
