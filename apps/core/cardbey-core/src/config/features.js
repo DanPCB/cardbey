@@ -218,13 +218,19 @@ export const Features = {
     },
   },
   businessUnderstanding: {
-    /** Run Business Understanding Engine after attachment analysis. */
+    /**
+     * Run Business Understanding Engine after attachment analysis.
+     * Default ON (create-store / loyalty understanding). Set BUE_PIPELINE_ENABLED=false to kill.
+     */
     get enabled() {
-      return parseBoolEnv(process.env.BUE_PIPELINE_ENABLED, false);
+      return parseBoolEnv(process.env.BUE_PIPELINE_ENABLED, true);
     },
-    /** Optional vision enrich for brand signals (extra LLM call). */
+    /**
+     * Optional vision enrich for brand signals (extra LLM call).
+     * Default ON with BUE; set BUE_BRAND_VISION_ENABLED=false to disable vision enrich only.
+     */
     get brandVision() {
-      return parseBoolEnv(process.env.BUE_BRAND_VISION_ENABLED, false);
+      return parseBoolEnv(process.env.BUE_BRAND_VISION_ENABLED, true);
     },
     /** Log BUE pipeline summaries in non-production. */
     get telemetryLog() {

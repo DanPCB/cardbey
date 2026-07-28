@@ -33,6 +33,7 @@ import { FactBuilder } from '../response/factBuilder.js';
 import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
 import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
+import { resolveBueForCreateStoreDraft } from './createStoreBueProjection.js';
 
 const INTAKE_ASYNC_PIPELINE_SOURCES = new Set([
   'intake_v2_fresh_store_draft',
@@ -308,6 +309,38 @@ export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) 
         ? intentSourceContext.documentExtraction
         : null;
 
+  const ocrText =
+    (storeCandidate && typeof storeCandidate.rawOcrText === 'string'
+      ? storeCandidate.rawOcrText
+      : null) ||
+    (typeof input.imageContext?.extractedText === 'string'
+      ? input.imageContext.extractedText
+      : null) ||
+    null;
+
+  const bue = await resolveBueForCreateStoreDraft({
+    attachmentAnalysis: input.attachmentAnalysis ?? null,
+    imageDataUrl:
+      input.imageDataUrl ??
+      (storeCandidate && typeof storeCandidate.imageDataUrl === 'string'
+        ? storeCandidate.imageDataUrl
+        : null),
+    ocrText,
+    userMessage,
+    storeName: bundle.draft?.name ?? null,
+    missionId: input.missionId ?? null,
+    evidenceId:
+      intentSourceContext?.evidenceId ??
+      input.attachmentAnalysis?.evidenceId ??
+      null,
+  });
+
+  if (bue.failed) {
+    console.warn('[CreateStoreDraft] BUE unavailable; continuing with OCR/StoreCandidate only', {
+      reason: bue.reason ?? 'unknown',
+    });
+  }
+
   return {
     success: true,
     action: 'create_store',
@@ -328,6 +361,16 @@ export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) 
         : undefined),
     ...(storeCandidate ? { storeCandidate } : {}),
     ...(documentExtractionArtifact ? { documentExtraction: documentExtractionArtifact } : {}),
+    ...(bue.bundle ? { businessUnderstanding: bue.bundle } : {}),
+    ...(bue.merchantSummary ? { merchantUnderstandingSummary: bue.merchantSummary } : {}),
+    bueStatus: {
+      ok: bue.ok,
+      reused: bue.reused,
+      failed: bue.failed,
+      reason: bue.reason ?? null,
+      projectedBusinessName: bue.projected?.businessName ?? null,
+      projectedConfidence: bue.projected?.confidence ?? null,
+    },
   };
 }
 
