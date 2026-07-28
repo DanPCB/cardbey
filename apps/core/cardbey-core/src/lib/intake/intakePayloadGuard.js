@@ -138,24 +138,40 @@ export function seedStoreCreateFormFromUploadContext(body) {
     body.intentSourceContext && typeof body.intentSourceContext === 'object' && !Array.isArray(body.intentSourceContext)
       ? /** @type {Record<string, unknown>} */ (body.intentSourceContext)
       : {};
-  const card =
-    isc.cardExtraction && typeof isc.cardExtraction === 'object' && !Array.isArray(isc.cardExtraction)
-      ? /** @type {Record<string, unknown>} */ (isc.cardExtraction)
-      : {};
+  const currentImage = typeof body.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
+  const ctxImage = String(isc.pendingImageDataUrl ?? isc.imageDataUrl ?? '').trim();
   const candidate =
     isc.storeCandidate && typeof isc.storeCandidate === 'object' && !Array.isArray(isc.storeCandidate)
       ? /** @type {Record<string, unknown>} */ (isc.storeCandidate)
       : {};
+  const candidateImage = String(candidate.imageDataUrl ?? '').trim();
+  // Reject unscoped / mismatched OCR handoff when this turn has upload pixels.
+  // No context image fingerprint ⇒ do not trust cardExtraction (may be prior PTH).
+  const identityImage = candidateImage || ctxImage;
+  const identityOk =
+    !currentImage ||
+    (Boolean(identityImage) &&
+      identityImage.length === currentImage.length &&
+      identityImage.slice(0, 96) === currentImage.slice(0, 96) &&
+      identityImage.slice(-48) === currentImage.slice(-48));
+  const card =
+    identityOk &&
+    isc.cardExtraction &&
+    typeof isc.cardExtraction === 'object' &&
+    !Array.isArray(isc.cardExtraction)
+      ? /** @type {Record<string, unknown>} */ (isc.cardExtraction)
+      : {};
+  const safeCandidate = identityOk ? candidate : {};
   return {
     storeName:
       base.storeName ||
-      String(card.businessName ?? card.name ?? candidate.businessName ?? candidate.name ?? '').trim(),
+      String(card.businessName ?? card.name ?? safeCandidate.businessName ?? safeCandidate.name ?? '').trim(),
     location:
       base.location ||
-      String(card.location ?? candidate.location ?? candidate.city ?? candidate.suburb ?? '').trim(),
+      String(card.location ?? safeCandidate.location ?? safeCandidate.city ?? safeCandidate.suburb ?? '').trim(),
     storeType:
       base.storeType ||
-      String(card.vertical ?? card.category ?? candidate.category ?? candidate.businessType ?? '').trim(),
+      String(card.vertical ?? card.category ?? safeCandidate.category ?? safeCandidate.businessType ?? '').trim(),
     intentMode: base.intentMode,
   };
 }

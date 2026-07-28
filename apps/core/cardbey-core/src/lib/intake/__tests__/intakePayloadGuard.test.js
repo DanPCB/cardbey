@@ -174,14 +174,16 @@ describe('intakePayloadGuard', () => {
   });
 
   it('B: upload create_store normalize does not force empty draft confirmation', () => {
+    const image = `data:image/png;base64,${'C'.repeat(80)}`;
     const normalized = normalizeCreateStoreFromUploadBody({
       text: 'Create store from uploaded card',
       freshStoreMission: true,
       intentSource: 'business_card',
-      imageDataUrl: `data:image/png;base64,${'C'.repeat(80)}`,
+      imageDataUrl: image,
       intentSourceContext: {
         fromAskSelection: 'create_store',
         type: 'CREATE_STORE_FROM_UPLOAD',
+        pendingImageDataUrl: image,
         cardExtraction: { businessName: 'PTH International Furniture' },
       },
       intakeV2Selection: {
@@ -192,6 +194,21 @@ describe('intakePayloadGuard', () => {
     expect(normalized._autoSubmit).toBeUndefined();
     expect(normalized.storeCreateForm?.storeName).toBe('PTH International Furniture');
     expect(normalized.intentSource).toBe('business_card');
+  });
+
+  it('D: mismatched upload pixels do not seed prior cardExtraction name', () => {
+    const seeded = seedStoreCreateFormFromUploadContext({
+      imageDataUrl: `data:image/png;base64,${'H'.repeat(80)}`,
+      intentSourceContext: {
+        pendingImageDataUrl: `data:image/png;base64,${'P'.repeat(80)}`,
+        cardExtraction: {
+          businessName: 'PTH International Furniture',
+          location: 'VIC 3026',
+        },
+      },
+    });
+    expect(seeded.storeName).toBe('');
+    expect(seeded.location).toBe('');
   });
 
   it('E: explicit storeCreateForm overrides cardExtraction', () => {
