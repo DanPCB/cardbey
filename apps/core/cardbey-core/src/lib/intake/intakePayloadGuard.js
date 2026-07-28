@@ -4,6 +4,7 @@
 import { isDecisionLoopEnabled } from '../../config/features.js';
 import { isStoreCreationDraftConfirmationSubmit } from './storeCreationDraft.js';
 import {
+  isCreateStoreFromUploadTurn,
   normalizeIntakeReplayBody,
   stripHeavyUploadFieldsDeep,
 } from './intakeReplayPayload.js';
@@ -127,6 +128,39 @@ function pickStoreCreateForm(body) {
 }
 
 /**
+ * Prefer explicit form fields, then client OCR / storeCandidate handoff.
+ * @param {Record<string, unknown>} body
+ * @returns {Record<string, unknown>}
+ */
+export function seedStoreCreateFormFromUploadContext(body) {
+  const base = pickStoreCreateForm(body);
+  const isc =
+    body.intentSourceContext && typeof body.intentSourceContext === 'object' && !Array.isArray(body.intentSourceContext)
+      ? /** @type {Record<string, unknown>} */ (body.intentSourceContext)
+      : {};
+  const card =
+    isc.cardExtraction && typeof isc.cardExtraction === 'object' && !Array.isArray(isc.cardExtraction)
+      ? /** @type {Record<string, unknown>} */ (isc.cardExtraction)
+      : {};
+  const candidate =
+    isc.storeCandidate && typeof isc.storeCandidate === 'object' && !Array.isArray(isc.storeCandidate)
+      ? /** @type {Record<string, unknown>} */ (isc.storeCandidate)
+      : {};
+  return {
+    storeName:
+      base.storeName ||
+      String(card.businessName ?? card.name ?? candidate.businessName ?? candidate.name ?? '').trim(),
+    location:
+      base.location ||
+      String(card.location ?? candidate.location ?? candidate.city ?? candidate.suburb ?? '').trim(),
+    storeType:
+      base.storeType ||
+      String(card.vertical ?? card.category ?? candidate.category ?? candidate.businessType ?? '').trim(),
+    intentMode: base.intentMode,
+  };
+}
+
+/**
  * @param {Record<string, unknown>} body
  * @returns {Record<string, unknown>}
  */
@@ -153,7 +187,53 @@ function pickStoreCreationDraft(body) {
  * @param {Record<string, unknown>} body
  * @returns {Record<string, unknown>}
  */
+/**
+ * Ask → Create store: keep upload runway markers. Do not force hollow draft confirmation
+ * (`_autoSubmit` + empty storeCreateForm) — that 400s MISSING_* before OCR/draft projection.
+ *
+ * @param {Record<string, unknown>} body
+ * @returns {Record<string, unknown>}
+ */
+export function normalizeCreateStoreFromUploadBody(body) {
+  const message = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
+  const sessionId = String(body.conversationSessionId ?? body.sessionId ?? '').trim();
+  const traceId = String(body.traceId ?? body.cardbeyTraceId ?? '').trim();
+  const seeded = seedStoreCreateFormFromUploadContext(body);
+  const hasSeed = Boolean(seeded.storeName || seeded.location || seeded.storeType);
+  const normalized = {
+    message,
+    text: message,
+    goal: message,
+    userMessage: message,
+    intent: 'create_store',
+    action: 'create_store',
+    source: String(body.source ?? 'performer').trim() || 'performer',
+    intentSource: String(body.intentSource ?? 'business_card').trim() || 'business_card',
+    freshStoreMission: true,
+    ...(hasSeed ? { storeCreateForm: seeded } : {}),
+    ...(sessionId ? { conversationSessionId: sessionId, sessionId } : {}),
+    ...(traceId ? { traceId } : {}),
+    ...(body.locale != null ? { locale: body.locale } : {}),
+  };
+  const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
+  if (imageDataUrl && imageDataUrl.length > 0 && imageDataUrl.length <= 400_000) {
+    normalized.imageDataUrl = imageDataUrl;
+  }
+  if (body.intakeV2Selection && typeof body.intakeV2Selection === 'object' && !Array.isArray(body.intakeV2Selection)) {
+    normalized.intakeV2Selection = stripHeavyUploadFieldsDeep(body.intakeV2Selection);
+  }
+  const intentSourceContext = slimIntentSourceContextForLoop(body.intentSourceContext);
+  if (intentSourceContext) {
+    normalized.intentSourceContext = intentSourceContext;
+  }
+  return normalized;
+}
+
 export function normalizeFreshStoreCreationBody(body) {
+  // Upload Ask → Create store must not become an empty draft confirmation.
+  if (isCreateStoreFromUploadTurn(body)) {
+    return normalizeCreateStoreFromUploadBody(body);
+  }
   const message = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const sessionId = String(body.conversationSessionId ?? body.sessionId ?? '').trim();
   const traceId = String(body.traceId ?? body.cardbeyTraceId ?? '').trim();
@@ -351,7 +431,9 @@ export function applyIntakePayloadGuard(body, options = {}) {
 
   if (!replayNormalized.applied) {
     if (freshStoreMission) {
-      normalized = normalizeFreshStoreCreationBody(input);
+      normalized = isCreateStoreFromUploadTurn(input)
+        ? normalizeCreateStoreFromUploadBody(input)
+        : normalizeFreshStoreCreationBody(input);
       for (const key of Object.keys(input)) {
         if (!(key in normalized)) stripped.push(key);
       }

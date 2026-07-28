@@ -158,6 +158,24 @@ describe('buildCreateStoreDraftIntakeResponseFromUpload', () => {
     expect(body?.missingFields).toBeDefined();
     expect(typeof body?.response).toBe('string');
   });
+
+  it('C: name from cardExtraction does not leave name missing; location can remain missing', async () => {
+    const body = await buildCreateStoreDraftIntakeResponseFromUpload({
+      userMessage: 'Create store from uploaded card',
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        type: 'CREATE_STORE_FROM_UPLOAD',
+        cardExtraction: {
+          businessName: 'PTH International Furniture',
+        },
+      },
+    });
+    expect(body?.success).toBe(true);
+    expect(body?.action).toBe('create_store');
+    expect(body?.storeCreationDraft?.draft?.name).toBe('PTH International Furniture');
+    const missing = body?.missingFields ?? body?.storeCreationDraft?.missingFields ?? [];
+    expect(missing).not.toContain('name');
+  });
 });
 
 describe('dispatchCreateStoreCheckpointPipeline account store gate', () => {

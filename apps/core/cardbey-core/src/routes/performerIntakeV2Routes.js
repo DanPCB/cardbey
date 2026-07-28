@@ -42,7 +42,10 @@ import {
   shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../lib/intake/createStoreCheckpointDispatch.js';
 import { applyIntakePayloadGuard } from '../lib/intake/intakePayloadGuard.js';
-import { shouldSkipUploadAskForIntakeSelectionReplay } from '../lib/intake/intakeReplayPayload.js';
+import {
+  isCreateStoreFromUploadTurn,
+  shouldSkipUploadAskForIntakeSelectionReplay,
+} from '../lib/intake/intakeReplayPayload.js';
 import { validateIntakeAttachmentPayload } from '../lib/intake/intakeAttachmentRef.js';
 import {
   canSendResponse,
@@ -4289,7 +4292,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if ((draftConfirmationSubmit || body._autoSubmit === true) && storeCreateFormPayload) {
+  // Upload Ask → Create store: defer field completeness to draft projection / checkpoint.
+  // Early validateCreateStorePayload here 400s MISSING_NAME before OCR/cardExtraction runs.
+  if (
+    (draftConfirmationSubmit || body._autoSubmit === true) &&
+    storeCreateFormPayload &&
+    !isCreateStoreFromUploadTurn(body)
+  ) {
     const formValidationErrors = validateCreateStorePayload({
       storeCreateForm: storeCreateFormPayload,
       storeName: storeCreateFormPayload.storeName,
@@ -4917,7 +4926,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           : undefined,
       };
 
-      if (storeCreateFormPayload) {
+      if (storeCreateFormPayload && !isCreateStoreFromUploadTurn(body)) {
         const validationErrors = validateCreateStorePayload({
           storeCreateForm: storeCreateFormPayload,
           storeName: storeCreateFormPayload.storeName,
