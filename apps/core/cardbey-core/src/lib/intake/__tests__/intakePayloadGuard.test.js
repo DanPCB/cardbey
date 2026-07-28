@@ -6,7 +6,9 @@ import {
   applyIntakePayloadGuard,
   estimateJsonBytes,
   isFreshStoreCreationMission,
+  normalizeCreateStoreFromUploadBody,
   normalizeFreshStoreCreationBody,
+  seedStoreCreateFormFromUploadContext,
 } from '../intakePayloadGuard.js';
 import { shouldSkipUploadAskForIntakeSelectionReplay } from '../intakeReplayPayload.js';
 
@@ -150,5 +152,56 @@ describe('intakePayloadGuard', () => {
     expect(guard.body.intentSourceContext?.fromAskSelection).toBe('create_store');
     expect(guard.body.intakeV2Selection?.selectedTool).toBe('create_store');
     expect(shouldSkipUploadAskForIntakeSelectionReplay(guard.body)).toBe(true);
+    // Must not coerce into hollow draft confirmation (triggers early MISSING_NAME).
+    expect(guard.body._autoSubmit).not.toBe(true);
+    expect(guard.body.source).not.toBe('store_creation_draft');
+  });
+
+  it('A: verified cardExtraction.businessName projects into storeName', () => {
+    const seeded = seedStoreCreateFormFromUploadContext({
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        cardExtraction: {
+          businessName: 'PTH International Furniture',
+          location: 'Derrimut',
+          vertical: 'Furniture',
+        },
+      },
+    });
+    expect(seeded.storeName).toBe('PTH International Furniture');
+    expect(seeded.location).toBe('Derrimut');
+    expect(seeded.storeType).toBe('Furniture');
+  });
+
+  it('B: upload create_store normalize does not force empty draft confirmation', () => {
+    const normalized = normalizeCreateStoreFromUploadBody({
+      text: 'Create store from uploaded card',
+      freshStoreMission: true,
+      intentSource: 'business_card',
+      imageDataUrl: `data:image/png;base64,${'C'.repeat(80)}`,
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        type: 'CREATE_STORE_FROM_UPLOAD',
+        cardExtraction: { businessName: 'PTH International Furniture' },
+      },
+      intakeV2Selection: {
+        selectedTool: 'create_store',
+        selectedParameters: { source: 'upload_ask_selection', type: 'CREATE_STORE_FROM_UPLOAD' },
+      },
+    });
+    expect(normalized._autoSubmit).toBeUndefined();
+    expect(normalized.storeCreateForm?.storeName).toBe('PTH International Furniture');
+    expect(normalized.intentSource).toBe('business_card');
+  });
+
+  it('E: explicit storeCreateForm overrides cardExtraction', () => {
+    const seeded = seedStoreCreateFormFromUploadContext({
+      storeCreateForm: { storeName: 'Owner Chosen Name', location: 'Sydney', storeType: 'Retail' },
+      intentSourceContext: {
+        cardExtraction: { businessName: 'PTH International Furniture', location: 'Derrimut' },
+      },
+    });
+    expect(seeded.storeName).toBe('Owner Chosen Name');
+    expect(seeded.location).toBe('Sydney');
   });
 });
