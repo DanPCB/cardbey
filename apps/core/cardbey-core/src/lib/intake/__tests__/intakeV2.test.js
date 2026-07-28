@@ -174,6 +174,43 @@ describe('create_store parameter normalization', () => {
     expect(v.ok).toBe(true);
   });
 
+  it('normalizeCreateStoreToolParameters strips upload-Ask spillover (sourceType, clientRequestId)', () => {
+    const n = normalizeCreateStoreToolParameters({
+      storeName: 'PTH International Furniture',
+      source: 'upload_ask_selection',
+      type: 'CREATE_STORE_FROM_UPLOAD',
+      intent: 'create_store',
+      sourceType: 'business_card',
+      clientRequestId: 'req-upload-ask-1',
+      evidenceId: 'ev-1',
+      attachmentId: 'att-1',
+      contentHash: 'hash-1',
+      attachmentIds: ['att-1', 'ev-1'],
+      _autoSubmit: true,
+    });
+    expect(n.sourceType).toBeUndefined();
+    expect(n.clientRequestId).toBeUndefined();
+    expect(n.evidenceId).toBeUndefined();
+    expect(n.storeName).toBe('PTH International Furniture');
+    const v = validateIntakeClassification(
+      {
+        executionPath: 'proactive_plan',
+        tool: 'create_store',
+        parameters: {
+          storeName: 'PTH International Furniture',
+          sourceType: 'business_card',
+          clientRequestId: 'req-upload-ask-1',
+          source: 'upload_ask_selection',
+          type: 'CREATE_STORE_FROM_UPLOAD',
+          intent: 'create_store',
+        },
+      },
+      null,
+    );
+    expect(v.ok).toBe(true);
+    expect(v.errors ?? []).toEqual([]);
+  });
+
   it('mergeStoreCreateFormIntoParameters overlays form onto classifier params', () => {
     const m = mergeStoreCreateFormIntoParameters(
       { name: 'LLM', _autoSubmit: true },
