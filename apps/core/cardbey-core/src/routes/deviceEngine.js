@@ -545,6 +545,20 @@ router.get('/list', requireAuth, async (req, res) => {
         metadata,
       });
 
+      const capsInstallId =
+        metadata && typeof metadata === 'object' && typeof metadata.installationId === 'string'
+          ? metadata.installationId.trim()
+          : '';
+      const rawCaps =
+        (Array.isArray(device.capabilities) ? device.capabilities[0] : device.capabilities)
+          ?.capabilities;
+      const rawCapsInstallId =
+        rawCaps && typeof rawCaps === 'object' && typeof rawCaps.installationId === 'string'
+          ? String(rawCaps.installationId).trim()
+          : '';
+      const columnInstallId =
+        typeof device.installationId === 'string' ? device.installationId.trim() : '';
+
       return {
         id: device.id,
         tenantId: device.tenantId,
@@ -552,6 +566,8 @@ router.get('/list', requireAuth, async (req, res) => {
         name: device.name,
         model: device.model,
         location: device.location,
+        // Used by markDuplicateDevicesInList (shared install = true duplicate).
+        installationId: columnInstallId || capsInstallId || rawCapsInstallId || null,
         rotationDegrees: projected.rotationDegrees,
         orientation: projected.orientation,
         status: heartbeatOnline ? 'online' : 'offline',
