@@ -7526,6 +7526,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       sessionId: intakeAssetSessionKey,
       missionId,
       ocrExtractFn: ocrExtractText,
+      attachmentAnalysis,
       persistedIngest: await resolveAssetIngestContextForStoreDraft({
         intentSourceContext,
         missionId,
