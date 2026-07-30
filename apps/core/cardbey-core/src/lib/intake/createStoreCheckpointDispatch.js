@@ -33,6 +33,28 @@ import { FactBuilder } from '../response/factBuilder.js';
 import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
 import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
+import {
+  cleanString,
+  normalizePhone,
+  normalizeWebsite,
+} from '../businessDiscovery/businessDataNormalizer.js';
+
+/**
+ * Optional research contact fields for mission metadata / run body (additive).
+ * @param {{ websiteUrl?: string, phone?: string, email?: string, ocrText?: string }} fields
+ */
+export function researchContactFieldsForMissionBody(fields = {}) {
+  const websiteUrl = normalizeWebsite(fields.websiteUrl) || cleanString(fields.websiteUrl) || '';
+  const phone = normalizePhone(fields.phone) || cleanString(fields.phone) || '';
+  const email = cleanString(fields.email) || '';
+  const ocrText = cleanString(fields.ocrText) || '';
+  return {
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(ocrText ? { ocrText, ocrRawText: ocrText } : {}),
+  };
+}
 
 const INTAKE_ASYNC_PIPELINE_SOURCES = new Set([
   'intake_v2_fresh_store_draft',
@@ -146,12 +168,19 @@ export function resolveCreateStoreHandoffFields(input = {}) {
   let businessType = 'Other';
   let locationTrim = '';
   let intentMode = 'store';
+  let websiteUrl = '';
+  let phone = '';
+  let email = '';
+  let ocrText = '';
 
   if (form) {
     businessName = stripQuotes(form.storeName);
     businessType = stripQuotes(form.storeType ?? form.category ?? form.businessType) || 'Other';
     locationTrim = stripQuotes(form.location);
     if (String(form.intentMode ?? '').trim().toLowerCase() === 'website') intentMode = 'website';
+    websiteUrl = stripQuotes(form.websiteUrl ?? form.website);
+    phone = stripQuotes(form.phone);
+    email = stripQuotes(form.email);
   }
 
   if (!businessName) {
@@ -165,6 +194,15 @@ export function resolveCreateStoreHandoffFields(input = {}) {
   }
   if (String(params.intentMode ?? '').trim().toLowerCase() === 'website') {
     intentMode = 'website';
+  }
+  if (!websiteUrl) {
+    websiteUrl = stripQuotes(params.websiteUrl ?? params.website);
+  }
+  if (!phone) {
+    phone = stripQuotes(params.phone);
+  }
+  if (!email) {
+    email = stripQuotes(params.email);
   }
 
   if (!businessName) {
@@ -193,6 +231,15 @@ export function resolveCreateStoreHandoffFields(input = {}) {
     if (!locationTrim && card) {
       locationTrim = stripQuotes(card.location);
     }
+    if (!websiteUrl && card) {
+      websiteUrl = stripQuotes(card.website ?? card.websiteUrl);
+    }
+    if (!phone && card) {
+      phone = stripQuotes(card.phone);
+    }
+    if (!email && card) {
+      email = stripQuotes(card.email);
+    }
 
     const storeCandidate =
       (isc.storeCandidate && typeof isc.storeCandidate === 'object' ? isc.storeCandidate : null) ??
@@ -213,6 +260,15 @@ export function resolveCreateStoreHandoffFields(input = {}) {
         businessType =
           stripQuotes(storeCandidate.category ?? storeCandidate.vertical) || businessType;
       }
+      if (!websiteUrl) {
+        websiteUrl = stripQuotes(storeCandidate.website ?? storeCandidate.websiteUrl);
+      }
+      if (!phone) {
+        phone = stripQuotes(storeCandidate.phone);
+      }
+      if (!email) {
+        email = stripQuotes(storeCandidate.email);
+      }
     }
   }
 
@@ -225,7 +281,59 @@ export function resolveCreateStoreHandoffFields(input = {}) {
     if (!locationTrim && hints?.location) locationTrim = stripQuotes(hints.location);
   }
 
-  return { businessName, businessType, locationTrim, intentMode };
+  if (!ocrText && input.imageContext?.extractedText) {
+    ocrText = cleanString(input.imageContext.extractedText) || '';
+  }
+  if (!ocrText && isc?.documentExtraction && typeof isc.documentExtraction === 'object') {
+    const de = isc.documentExtraction;
+    ocrText =
+      cleanString(de.ocrText ?? de.ocrRawText ?? de.rawText ?? de.extractedText) || '';
+  }
+
+  // Phase 2: STORE_WEBSITE template id (Adaptive = empty)
+  let websiteTemplateId = stripQuotes(
+    params.websiteTemplateId ?? params.baseWebsiteTemplate ?? input.websiteTemplateId,
+  );
+  let websiteTemplateSlug = stripQuotes(
+    params.baseWebsiteTemplateSlug ?? params.websiteTemplateSlug ?? input.websiteTemplateSlug,
+  );
+  if (isc) {
+    if (!websiteTemplateId) {
+      websiteTemplateId = stripQuotes(isc.websiteTemplateId);
+      if (!websiteTemplateId && isc.baseWebsiteTemplate && typeof isc.baseWebsiteTemplate === 'object') {
+        websiteTemplateId = stripQuotes(isc.baseWebsiteTemplate.id);
+      } else if (!websiteTemplateId) {
+        websiteTemplateId = stripQuotes(isc.baseWebsiteTemplate);
+      }
+    }
+    if (!websiteTemplateSlug) {
+      websiteTemplateSlug = stripQuotes(isc.websiteTemplateSlug);
+      if (
+        !websiteTemplateSlug &&
+        isc.baseWebsiteTemplate &&
+        typeof isc.baseWebsiteTemplate === 'object'
+      ) {
+        websiteTemplateSlug = stripQuotes(isc.baseWebsiteTemplate.slug);
+      }
+    }
+  }
+
+  const normalizedWebsite = normalizeWebsite(websiteUrl) || cleanString(websiteUrl) || '';
+  const normalizedPhone = normalizePhone(phone) || cleanString(phone) || '';
+  const normalizedEmail = cleanString(email) || '';
+
+  return {
+    businessName,
+    businessType,
+    locationTrim,
+    intentMode,
+    websiteTemplateId: websiteTemplateId || '',
+    websiteTemplateSlug: websiteTemplateSlug || '',
+    websiteUrl: normalizedWebsite,
+    phone: normalizedPhone,
+    email: normalizedEmail,
+    ocrText: ocrText || '',
+  };
 }
 
 /**
@@ -441,14 +549,33 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
   } = deps;
 
   const diag = isKernelDispatchDiagEnabled();
-  const { businessName, businessType, locationTrim, intentMode } = resolveCreateStoreHandoffFields({
+  const {
+    businessName,
+    businessType,
+    locationTrim,
+    intentMode,
+    websiteTemplateId,
+    websiteTemplateSlug,
+    websiteUrl,
+    phone,
+    email,
+    ocrText,
+  } = resolveCreateStoreHandoffFields({
     storeCreateForm,
     classification,
     userMessage,
     intentSourceContext: deps.intentSourceContext,
     imageContext: deps.imageContext,
+    websiteTemplateId: deps.websiteTemplateId,
+    websiteTemplateSlug: deps.websiteTemplateSlug,
   });
   const ctxIntentMode = intentMode === 'website' ? 'website' : 'store';
+  const researchContact = researchContactFieldsForMissionBody({
+    websiteUrl,
+    phone,
+    email,
+    ocrText,
+  });
 
   diagLog(diag, '===== Create Store Checkpoint Dispatch =====');
   diagLog(diag, 'Handoff fields:', {
@@ -456,6 +583,12 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     businessType,
     location: locationTrim,
     intentMode: ctxIntentMode,
+    websiteTemplateId: websiteTemplateId || null,
+    websiteTemplateSlug: websiteTemplateSlug || null,
+    hasWebsiteUrl: Boolean(researchContact.websiteUrl),
+    hasPhone: Boolean(researchContact.phone),
+    hasEmail: Boolean(researchContact.email),
+    hasOcrText: Boolean(researchContact.ocrText),
     auditSource,
     actorId: actorId ?? null,
     userId: user?.id ?? null,
@@ -542,6 +675,13 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
       intentMode: ctxIntentMode,
       source: auditSource,
       cardbeyTraceId,
+      ...researchContact,
+      ...(websiteTemplateId
+        ? {
+            websiteTemplateId,
+            ...(websiteTemplateSlug ? { websiteTemplateSlug } : {}),
+          }
+        : {}),
       ...(deps.documentExtraction && typeof deps.documentExtraction === 'object'
         ? {
             documentExtraction: deps.documentExtraction,
@@ -602,6 +742,13 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     intentMode: ctxIntentMode,
     rawUserText: userMessage,
     cardbeyTraceId,
+    ...researchContact,
+    ...(websiteTemplateId
+      ? {
+          websiteTemplateId,
+          ...(websiteTemplateSlug ? { websiteTemplateSlug } : {}),
+        }
+      : {}),
   };
 
   if (shouldDeferStorePipelineExecutionForIntake(auditSource)) {

@@ -65,6 +65,9 @@ export const STORE_CREATE_FORM_ALLOWED_KEYS = new Set([
   'location',
   'intentMode',
   'websiteUrl',
+  'website',
+  'phone',
+  'email',
 ]);
 
 /**

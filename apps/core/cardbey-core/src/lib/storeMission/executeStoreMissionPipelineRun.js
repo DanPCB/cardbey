@@ -436,6 +436,35 @@ async function executeStoreMissionPipelineRunCore({
   const cardbeyTraceId =
     typeof body.cardbeyTraceId === 'string' && body.cardbeyTraceId.trim() ? body.cardbeyTraceId.trim() : null;
 
+  const websiteTemplateId =
+    (typeof body.websiteTemplateId === 'string' && body.websiteTemplateId.trim()) ||
+    (typeof meta.websiteTemplateId === 'string' && meta.websiteTemplateId.trim()) ||
+    '';
+  const websiteTemplateSlug =
+    (typeof body.websiteTemplateSlug === 'string' && body.websiteTemplateSlug.trim()) ||
+    (typeof meta.websiteTemplateSlug === 'string' && meta.websiteTemplateSlug.trim()) ||
+    '';
+  const websiteUrl =
+    (typeof body.websiteUrl === 'string' && body.websiteUrl.trim()) ||
+    (typeof body.website === 'string' && body.website.trim()) ||
+    (typeof meta.websiteUrl === 'string' && meta.websiteUrl.trim()) ||
+    (typeof meta.website === 'string' && meta.website.trim()) ||
+    '';
+  const phone =
+    (typeof body.phone === 'string' && body.phone.trim()) ||
+    (typeof meta.phone === 'string' && meta.phone.trim()) ||
+    '';
+  const email =
+    (typeof body.email === 'string' && body.email.trim()) ||
+    (typeof meta.email === 'string' && meta.email.trim()) ||
+    '';
+  const ocrRawText =
+    (typeof body.ocrRawText === 'string' && body.ocrRawText.trim()) ||
+    (typeof body.ocrText === 'string' && body.ocrText.trim()) ||
+    (typeof meta.ocrRawText === 'string' && meta.ocrRawText.trim()) ||
+    (typeof meta.ocrText === 'string' && meta.ocrText.trim()) ||
+    '';
+
   const syntheticRaw = `Create a store for ${effectiveBusinessName || 'my business'}${effectiveLocation ? ` in ${effectiveLocation}` : ''}`.trim();
   const effectiveRawInput = rawUserTextFromBody || syntheticRaw;
 
@@ -453,6 +482,16 @@ async function executeStoreMissionPipelineRunCore({
     currencyCode,
     intentMode,
     ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(ocrRawText ? { ocrRawText } : {}),
+    ...(websiteTemplateId
+      ? {
+          websiteTemplateId,
+          ...(websiteTemplateSlug ? { websiteTemplateSlug } : {}),
+        }
+      : {}),
   };
 
   const created = await createBuildStoreJob(prisma, {
@@ -582,6 +621,16 @@ async function executeStoreMissionPipelineRunCore({
           prompt: body.rawUserText ?? body.userMessage ?? jobRequest.rawInput ?? '',
           ...(sanitizedPreloaded?.length ? { preloadedCatalogItems: sanitizedPreloaded } : {}),
           ...(cardbeyTraceId ? { cardbeyTraceId } : {}),
+          ...(websiteUrl ? { websiteUrl } : {}),
+          ...(phone ? { phone } : {}),
+          ...(email ? { email } : {}),
+          ...(ocrRawText ? { ocrRawText, ocrText: ocrRawText } : {}),
+          ...(websiteTemplateId
+            ? {
+                websiteTemplateId,
+                ...(websiteTemplateSlug ? { websiteTemplateSlug } : {}),
+              }
+            : {}),
         },
       },
     });

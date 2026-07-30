@@ -33,6 +33,11 @@ const SLIM_INTENT_SOURCE_KEYS = [
   'storeCandidate',
   'documentExtraction',
   'workflowContext',
+  // Phase 2: STORE_WEBSITE template selection → generation foundation
+  'websiteTemplateId',
+  'websiteTemplateSlug',
+  'websiteTemplateName',
+  'baseWebsiteTemplate',
 ];
 
 /** Fields required for upload → Ask panel when decision-loop authority is on. */
@@ -123,6 +128,73 @@ function pickStoreCreateForm(body) {
     storeType: String(raw.storeType ?? raw.category ?? raw.businessType ?? '').trim(),
     location: String(raw.location ?? '').trim(),
     intentMode,
+    websiteUrl: String(raw.websiteUrl ?? raw.website ?? '').trim(),
+    phone: String(raw.phone ?? '').trim(),
+    email: String(raw.email ?? '').trim(),
+  };
+}
+
+/**
+ * Prefer explicit form fields, then client OCR / storeCandidate handoff.
+ * @param {Record<string, unknown>} body
+ * @returns {Record<string, unknown>}
+ */
+export function seedStoreCreateFormFromUploadContext(body) {
+  const base = pickStoreCreateForm(body);
+  const isc =
+    body.intentSourceContext && typeof body.intentSourceContext === 'object' && !Array.isArray(body.intentSourceContext)
+      ? /** @type {Record<string, unknown>} */ (body.intentSourceContext)
+      : {};
+  const currentImage = typeof body.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
+  const ctxImage = String(isc.pendingImageDataUrl ?? isc.imageDataUrl ?? '').trim();
+  const candidate =
+    isc.storeCandidate && typeof isc.storeCandidate === 'object' && !Array.isArray(isc.storeCandidate)
+      ? /** @type {Record<string, unknown>} */ (isc.storeCandidate)
+      : {};
+  const candidateImage = String(candidate.imageDataUrl ?? '').trim();
+  // Reject unscoped / mismatched OCR handoff when this turn has upload pixels.
+  // No context image fingerprint ⇒ do not trust cardExtraction (may be prior PTH).
+  const identityImage = candidateImage || ctxImage;
+  const identityOk =
+    !currentImage ||
+    (Boolean(identityImage) &&
+      identityImage.length === currentImage.length &&
+      identityImage.slice(0, 96) === currentImage.slice(0, 96) &&
+      identityImage.slice(-48) === currentImage.slice(-48));
+  const card =
+    identityOk &&
+    isc.cardExtraction &&
+    typeof isc.cardExtraction === 'object' &&
+    !Array.isArray(isc.cardExtraction)
+      ? /** @type {Record<string, unknown>} */ (isc.cardExtraction)
+      : {};
+  const safeCandidate = identityOk ? candidate : {};
+  return {
+    storeName:
+      base.storeName ||
+      String(card.businessName ?? card.name ?? safeCandidate.businessName ?? safeCandidate.name ?? '').trim(),
+    location:
+      base.location ||
+      String(card.location ?? safeCandidate.location ?? safeCandidate.city ?? safeCandidate.suburb ?? '').trim(),
+    storeType:
+      base.storeType ||
+      String(card.vertical ?? card.category ?? safeCandidate.category ?? safeCandidate.businessType ?? '').trim(),
+    intentMode: base.intentMode,
+    websiteUrl:
+      base.websiteUrl ||
+      String(
+        card.website ??
+          card.websiteUrl ??
+          safeCandidate.website ??
+          safeCandidate.websiteUrl ??
+          '',
+      ).trim(),
+    phone:
+      base.phone ||
+      String(card.phone ?? safeCandidate.phone ?? '').trim(),
+    email:
+      base.email ||
+      String(card.email ?? safeCandidate.email ?? '').trim(),
   };
 }
 
@@ -153,10 +225,95 @@ function pickStoreCreationDraft(body) {
  * @param {Record<string, unknown>} body
  * @returns {Record<string, unknown>}
  */
+/**
+ * Ask → Create store: keep upload runway markers. Do not force hollow draft confirmation
+ * (`_autoSubmit` + empty storeCreateForm) — that 400s MISSING_* before OCR/draft projection.
+ *
+ * @param {Record<string, unknown>} body
+ * @returns {Record<string, unknown>}
+ */
+export function normalizeCreateStoreFromUploadBody(body) {
+  const message = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
+  const sessionId = String(body.conversationSessionId ?? body.sessionId ?? '').trim();
+  const traceId = String(body.traceId ?? body.cardbeyTraceId ?? '').trim();
+  const seeded = seedStoreCreateFormFromUploadContext(body);
+  const hasSeed = Boolean(seeded.storeName || seeded.location || seeded.storeType);
+  const normalized = {
+    message,
+    text: message,
+    goal: message,
+    userMessage: message,
+    intent: 'create_store',
+    action: 'create_store',
+    source: String(body.source ?? 'performer').trim() || 'performer',
+    intentSource: String(body.intentSource ?? 'business_card').trim() || 'business_card',
+    freshStoreMission: true,
+    ...(hasSeed ? { storeCreateForm: seeded } : {}),
+    ...(sessionId ? { conversationSessionId: sessionId, sessionId } : {}),
+    ...(traceId ? { traceId } : {}),
+    ...(body.locale != null ? { locale: body.locale } : {}),
+  };
+  const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
+  if (imageDataUrl && imageDataUrl.length > 0 && imageDataUrl.length <= 400_000) {
+    normalized.imageDataUrl = imageDataUrl;
+  }
+  if (body.intakeV2Selection && typeof body.intakeV2Selection === 'object' && !Array.isArray(body.intakeV2Selection)) {
+    normalized.intakeV2Selection = stripHeavyUploadFieldsDeep(body.intakeV2Selection);
+  }
+  const intentSourceContext = slimIntentSourceContextForLoop(body.intentSourceContext);
+  if (intentSourceContext) {
+    normalized.intentSourceContext = intentSourceContext;
+  }
+  Object.assign(normalized, pickWebsiteTemplateFields(body));
+  return normalized;
+}
+
+/**
+ * Preserve selected STORE_WEBSITE template through fresh-store slim body.
+ * Adaptive path: no websiteTemplateId → empty object (unchanged behaviour).
+ *
+ * @param {Record<string, unknown>} body
+ * @returns {Record<string, unknown>}
+ */
+function pickWebsiteTemplateFields(body) {
+  const params =
+    body.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
+      ? /** @type {Record<string, unknown>} */ (body.parameters)
+      : {};
+  const isc =
+    body.intentSourceContext &&
+    typeof body.intentSourceContext === 'object' &&
+    !Array.isArray(body.intentSourceContext)
+      ? /** @type {Record<string, unknown>} */ (body.intentSourceContext)
+      : {};
+  const id = String(
+    body.websiteTemplateId ?? params.websiteTemplateId ?? isc.websiteTemplateId ?? '',
+  ).trim();
+  if (!id) return {};
+  const slug = String(
+    body.websiteTemplateSlug ??
+      params.baseWebsiteTemplateSlug ??
+      isc.websiteTemplateSlug ??
+      '',
+  ).trim();
+  const name = String(isc.websiteTemplateName ?? body.websiteTemplateName ?? '').trim();
+  return {
+    websiteTemplateId: id,
+    ...(slug ? { websiteTemplateSlug: slug } : {}),
+    ...(name ? { websiteTemplateName: name } : {}),
+    parameters: {
+      websiteTemplateId: id,
+      baseWebsiteTemplate: id,
+      ...(slug ? { baseWebsiteTemplateSlug: slug } : {}),
+    },
+  };
+}
+
 export function normalizeFreshStoreCreationBody(body) {
   const message = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const sessionId = String(body.conversationSessionId ?? body.sessionId ?? '').trim();
   const traceId = String(body.traceId ?? body.cardbeyTraceId ?? '').trim();
+  const websiteTpl = pickWebsiteTemplateFields(body);
   const normalized = {
     message,
     text: message,
@@ -172,6 +329,7 @@ export function normalizeFreshStoreCreationBody(body) {
     ...(sessionId ? { conversationSessionId: sessionId, sessionId } : {}),
     ...(traceId ? { traceId } : {}),
     ...(body.locale != null ? { locale: body.locale } : {}),
+    ...websiteTpl,
   };
   const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
   if (imageDataUrl && imageDataUrl.length > 0 && imageDataUrl.length <= 400_000) {

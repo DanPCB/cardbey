@@ -26,14 +26,125 @@ export function isResearchCatalogPendingOwnerReview(research) {
   return Boolean(research.ownerReviewRequired);
 }
 
+function envTruthy(name, defaultValue = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === '') return defaultValue;
+  const v = String(raw).trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+/**
+ * Phase 2A: stage sourced catalog on draft while owner review is pending.
+ * Default on in non-production; off in production until soak
+ * (`PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW`).
+ */
+export function isStageSourcedCatalogPendingReviewEnabled() {
+  if (process.env.PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW !== undefined) {
+    return envTruthy('PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW', false);
+  }
+  return process.env.NODE_ENV !== 'production';
+}
+
+/**
+ * @param {import('../../lib/storeCreationResearch/types.js').BusinessResearchResult | null | undefined} research
+ */
+export function researchHasCatalogItems(research) {
+  if (!research) return false;
+  if (Array.isArray(research.catalog?.products) && research.catalog.products.length > 0) return true;
+  if (Array.isArray(research.extractedItems) && research.extractedItems.length > 0) return true;
+  const facts = research.facts;
+  if (!facts || typeof facts !== 'object') return false;
+  for (const key of ['services', 'menuItems', 'products']) {
+    if (Array.isArray(facts[key]) && facts[key].length > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Stage sourced research catalog into draft while awaiting owner confirmation.
+ * @param {import('../../lib/storeCreationResearch/types.js').BusinessResearchResult | null | undefined} research
+ */
+export function shouldStageResearchCatalogPendingReview(research) {
+  if (!isStageSourcedCatalogPendingReviewEnabled()) return false;
+  if (!research?.researchRan || research.fallbackToGenerated) return false;
+  if (!isResearchCatalogPendingOwnerReview(research)) return false;
+  return researchHasCatalogItems(research);
+}
+
 /**
  * Whether sourced research catalog may be written into the draft preview.
+ * When staging is enabled, pending-review catalogs with items are applied
+ * (labelled sourced + needsOwnerReview); otherwise pending review blocks apply.
  * @param {import('../../lib/storeCreationResearch/types.js').BusinessResearchResult | null | undefined} research
  */
 export function shouldApplyResearchCatalogToDraft(research) {
   if (!research?.researchRan || research.fallbackToGenerated) return false;
-  if (isResearchCatalogPendingOwnerReview(research)) return false;
+  if (isResearchCatalogPendingOwnerReview(research)) {
+    return shouldStageResearchCatalogPendingReview(research);
+  }
   return true;
+}
+
+/**
+ * Stamp research products as sourced; mark pending owner review when applicable.
+ * @param {object} catalog
+ * @param {{ pendingOwnerReview?: boolean }} [opts]
+ */
+export function stampSourcedCatalogOrigin(catalog, opts = {}) {
+  if (!catalog || typeof catalog !== 'object') return catalog;
+  const pending = Boolean(opts.pendingOwnerReview);
+  const products = Array.isArray(catalog.products)
+    ? catalog.products.map((item) => {
+        if (!item || typeof item !== 'object') return item;
+        return {
+          ...item,
+          contentOrigin: item.contentOrigin === 'suggested' ? 'suggested' : 'sourced',
+          needsOwnerReview: pending || Boolean(item.needsOwnerReview),
+          catalogSource: item.catalogSource ?? 'research',
+        };
+      })
+    : catalog.products;
+  return {
+    ...catalog,
+    products,
+    meta: {
+      ...(catalog.meta && typeof catalog.meta === 'object' ? catalog.meta : {}),
+      catalogSource: 'research',
+      contentOrigin: 'sourced',
+      aiGenerated: false,
+      pendingOwnerReview: pending,
+      needsOwnerReview: pending,
+    },
+  };
+}
+
+/**
+ * Label AI/template filler items as suggested (never sourced).
+ * @param {object} catalog
+ */
+export function stampSuggestedCatalogOrigin(catalog) {
+  if (!catalog || typeof catalog !== 'object') return catalog;
+  const products = Array.isArray(catalog.products)
+    ? catalog.products.map((item) => {
+        if (!item || typeof item !== 'object') return item;
+        return {
+          ...item,
+          contentOrigin: 'suggested',
+          status: item.status ?? 'suggested',
+          catalogSource: item.catalogSource ?? 'generated',
+        };
+      })
+    : catalog.products;
+  return {
+    ...catalog,
+    products,
+    meta: {
+      ...(catalog.meta && typeof catalog.meta === 'object' ? catalog.meta : {}),
+      catalogSource: catalog.meta?.catalogSource ?? 'generated',
+      contentOrigin: 'suggested',
+      aiGenerated: true,
+    },
+  };
 }
 
 /**
@@ -134,10 +245,12 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     businessType: bp?.businessType,
     businessName,
   });
+  const pendingOwnerReview = isResearchCatalogPendingOwnerReview(research);
 
   const meta = {
     ...(catalog.meta ?? {}),
     catalogSource: 'research',
+    contentOrigin: 'sourced',
     researchConfidence: research?.confidence ?? catalog.meta?.researchConfidence,
     aiGenerated: false,
     businessProfile: bp ?? catalog.meta?.businessProfile ?? null,
@@ -145,19 +258,33 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     catalogLabel: bp?.presentation?.catalogLabel ?? catalog.meta?.catalogLabel,
     primaryCTA: bp?.presentation?.primaryCTA ?? catalog.meta?.primaryCTA,
     businessType: bp?.businessType ?? catalog.meta?.businessType,
+    pendingOwnerReview,
+    needsOwnerReview: pendingOwnerReview,
   };
 
-  return {
-    ...catalog,
-    products,
-    profile: {
-      ...(catalog.profile ?? {}),
-      name: catalog.profile?.name ?? businessName,
-      type: bp?.businessType ?? catalog.profile?.type,
-      businessProfile: bp ?? catalog.profile?.businessProfile,
+  const stampedProducts = products.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    return {
+      ...item,
+      contentOrigin: item.contentOrigin === 'suggested' ? 'suggested' : 'sourced',
+      needsOwnerReview: pendingOwnerReview || Boolean(item.needsOwnerReview),
+    };
+  });
+
+  return stampSourcedCatalogOrigin(
+    {
+      ...catalog,
+      products: stampedProducts,
+      profile: {
+        ...(catalog.profile ?? {}),
+        name: catalog.profile?.name ?? businessName,
+        type: bp?.businessType ?? catalog.profile?.type,
+        businessProfile: bp ?? catalog.profile?.businessProfile,
+      },
+      meta,
     },
-    meta,
-  };
+    { pendingOwnerReview },
+  );
 }
 
 /**
