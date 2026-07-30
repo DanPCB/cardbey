@@ -34,11 +34,40 @@ import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
 import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
 import { resolveBueForCreateStoreDraft } from './createStoreBueProjection.js';
-import {
-  cleanString,
-  normalizePhone,
-  normalizeWebsite,
-} from '../businessDiscovery/businessDataNormalizer.js';
+
+/** Local pure helpers — avoid boot-time dependency on businessDataNormalizer.ts resolution. */
+function cleanString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  return trimmed.length ? trimmed : null;
+}
+
+function normalizePhone(value) {
+  const s = cleanString(value);
+  if (!s) return null;
+  const hasPlus = s.trim().startsWith('+');
+  const digits = s.replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  return (hasPlus ? '+' : '') + digits;
+}
+
+function normalizeWebsite(value) {
+  const s = cleanString(value);
+  if (!s) return null;
+  let candidate = s;
+  if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`;
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    u.hash = '';
+    const host = u.host.toLowerCase().replace(/^www\./, '');
+    const path = u.pathname.replace(/\/+$/, '');
+    const query = u.search || '';
+    return `${u.protocol}//${host}${path}${query}`;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Optional research contact fields for mission metadata / run body (additive).
