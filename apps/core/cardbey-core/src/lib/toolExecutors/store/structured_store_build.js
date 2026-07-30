@@ -67,6 +67,16 @@ export async function execute(_input = {}, context = {}) {
     (typeof meta.storeType === 'string' && meta.storeType.trim()) ||
     '';
   const location = (typeof meta.location === 'string' && meta.location.trim()) || '';
+  const websiteUrl =
+    (typeof meta.websiteUrl === 'string' && meta.websiteUrl.trim()) ||
+    (typeof meta.website === 'string' && meta.website.trim()) ||
+    '';
+  const phone = (typeof meta.phone === 'string' && meta.phone.trim()) || '';
+  const email = (typeof meta.email === 'string' && meta.email.trim()) || '';
+  const ocrRawText =
+    (typeof meta.ocrRawText === 'string' && meta.ocrRawText.trim()) ||
+    (typeof meta.ocrText === 'string' && meta.ocrText.trim()) ||
+    '';
   const metaWebsite =
     meta.websiteMode === true ||
     meta.generateWebsite === true ||
@@ -140,6 +150,18 @@ export async function execute(_input = {}, context = {}) {
     ...(logoChoice ? { logoChoice } : {}),
     ...(heroImageChoice ? { heroImageChoice } : {}),
     ...(checkpointLogoUrl ? { logoUrl: checkpointLogoUrl, userUploadedLogo: true } : {}),
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(ocrRawText ? { ocrRawText, ocrText: ocrRawText } : {}),
+    ...(typeof meta.websiteTemplateId === 'string' && meta.websiteTemplateId.trim()
+      ? {
+          websiteTemplateId: meta.websiteTemplateId.trim(),
+          ...(typeof meta.websiteTemplateSlug === 'string' && meta.websiteTemplateSlug.trim()
+            ? { websiteTemplateSlug: meta.websiteTemplateSlug.trim() }
+            : {}),
+        }
+      : {}),
   };
 
   const jobRequest = {
@@ -156,7 +178,19 @@ export async function execute(_input = {}, context = {}) {
     currencyCode,
     intentMode,
     user: userRow ?? undefined,
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(ocrRawText ? { ocrRawText } : {}),
     ...(Object.keys(draftInputPatch).length > 0 ? { draftInput: draftInputPatch } : {}),
+    ...(typeof meta.websiteTemplateId === 'string' && meta.websiteTemplateId.trim()
+      ? {
+          websiteTemplateId: meta.websiteTemplateId.trim(),
+          ...(typeof meta.websiteTemplateSlug === 'string' && meta.websiteTemplateSlug.trim()
+            ? { websiteTemplateSlug: meta.websiteTemplateSlug.trim() }
+            : {}),
+        }
+      : {}),
   };
 
   const created = await createBuildStoreJob(prisma, {
