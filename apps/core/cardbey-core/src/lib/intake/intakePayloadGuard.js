@@ -34,6 +34,11 @@ const SLIM_INTENT_SOURCE_KEYS = [
   'storeCandidate',
   'documentExtraction',
   'workflowContext',
+  // Phase 2: STORE_WEBSITE template selection → generation foundation
+  'websiteTemplateId',
+  'websiteTemplateSlug',
+  'websiteTemplateName',
+  'baseWebsiteTemplate',
 ];
 
 /** Fields required for upload → Ask panel when decision-loop authority is on. */
@@ -124,6 +129,9 @@ function pickStoreCreateForm(body) {
     storeType: String(raw.storeType ?? raw.category ?? raw.businessType ?? '').trim(),
     location: String(raw.location ?? '').trim(),
     intentMode,
+    websiteUrl: String(raw.websiteUrl ?? raw.website ?? '').trim(),
+    phone: String(raw.phone ?? '').trim(),
+    email: String(raw.email ?? '').trim(),
   };
 }
 
@@ -173,6 +181,21 @@ export function seedStoreCreateFormFromUploadContext(body) {
       base.storeType ||
       String(card.vertical ?? card.category ?? safeCandidate.category ?? safeCandidate.businessType ?? '').trim(),
     intentMode: base.intentMode,
+    websiteUrl:
+      base.websiteUrl ||
+      String(
+        card.website ??
+          card.websiteUrl ??
+          safeCandidate.website ??
+          safeCandidate.websiteUrl ??
+          '',
+      ).trim(),
+    phone:
+      base.phone ||
+      String(card.phone ?? safeCandidate.phone ?? '').trim(),
+    email:
+      base.email ||
+      String(card.email ?? safeCandidate.email ?? '').trim(),
   };
 }
 
@@ -242,7 +265,49 @@ export function normalizeCreateStoreFromUploadBody(body) {
   if (intentSourceContext) {
     normalized.intentSourceContext = intentSourceContext;
   }
+  Object.assign(normalized, pickWebsiteTemplateFields(body));
   return normalized;
+}
+
+/**
+ * Preserve selected STORE_WEBSITE template through fresh-store slim body.
+ * Adaptive path: no websiteTemplateId → empty object (unchanged behaviour).
+ *
+ * @param {Record<string, unknown>} body
+ * @returns {Record<string, unknown>}
+ */
+function pickWebsiteTemplateFields(body) {
+  const params =
+    body.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
+      ? /** @type {Record<string, unknown>} */ (body.parameters)
+      : {};
+  const isc =
+    body.intentSourceContext &&
+    typeof body.intentSourceContext === 'object' &&
+    !Array.isArray(body.intentSourceContext)
+      ? /** @type {Record<string, unknown>} */ (body.intentSourceContext)
+      : {};
+  const id = String(
+    body.websiteTemplateId ?? params.websiteTemplateId ?? isc.websiteTemplateId ?? '',
+  ).trim();
+  if (!id) return {};
+  const slug = String(
+    body.websiteTemplateSlug ??
+      params.baseWebsiteTemplateSlug ??
+      isc.websiteTemplateSlug ??
+      '',
+  ).trim();
+  const name = String(isc.websiteTemplateName ?? body.websiteTemplateName ?? '').trim();
+  return {
+    websiteTemplateId: id,
+    ...(slug ? { websiteTemplateSlug: slug } : {}),
+    ...(name ? { websiteTemplateName: name } : {}),
+    parameters: {
+      websiteTemplateId: id,
+      baseWebsiteTemplate: id,
+      ...(slug ? { baseWebsiteTemplateSlug: slug } : {}),
+    },
+  };
 }
 
 export function normalizeFreshStoreCreationBody(body) {
@@ -253,6 +318,7 @@ export function normalizeFreshStoreCreationBody(body) {
   const message = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const sessionId = String(body.conversationSessionId ?? body.sessionId ?? '').trim();
   const traceId = String(body.traceId ?? body.cardbeyTraceId ?? '').trim();
+  const websiteTpl = pickWebsiteTemplateFields(body);
   const normalized = {
     message,
     text: message,
@@ -268,6 +334,7 @@ export function normalizeFreshStoreCreationBody(body) {
     ...(sessionId ? { conversationSessionId: sessionId, sessionId } : {}),
     ...(traceId ? { traceId } : {}),
     ...(body.locale != null ? { locale: body.locale } : {}),
+    ...websiteTpl,
   };
   const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '';
   if (imageDataUrl && imageDataUrl.length > 0 && imageDataUrl.length <= 400_000) {

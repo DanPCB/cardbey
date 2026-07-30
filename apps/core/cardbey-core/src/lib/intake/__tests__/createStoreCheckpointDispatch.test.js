@@ -40,7 +40,47 @@ describe('resolveCreateStoreHandoffFields', () => {
       businessType: 'Beauty',
       locationTrim: 'Melbourne',
       intentMode: 'store',
+      websiteTemplateId: '',
+      websiteTemplateSlug: '',
+      websiteUrl: '',
+      phone: '',
+      email: '',
+      ocrText: '',
     });
+  });
+
+  it('forwards website/phone/email from storeCandidate', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from upload',
+      intentSourceContext: {
+        storeCandidate: {
+          businessName: 'Glamshell Beauty',
+          location: 'Melbourne',
+          category: 'Beauty',
+          website: 'https://glamshell.example',
+          phone: '+61 400 000 000',
+          email: 'hello@glamshell.example',
+        },
+      },
+    });
+    expect(fields.businessName).toBe('Glamshell Beauty');
+    expect(fields.websiteUrl).toBe('https://glamshell.example');
+    expect(fields.phone).toMatch(/61400000000|\+61400000000/);
+    expect(fields.email).toBe('hello@glamshell.example');
+  });
+
+  it('forwards websiteUrl from storeCreateForm', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      storeCreateForm: {
+        storeName: 'Cafe Co',
+        storeType: 'Cafe',
+        location: 'Sydney',
+        websiteUrl: 'cafeco.example',
+        phone: '0299998888',
+      },
+    });
+    expect(fields.websiteUrl).toBe('https://cafeco.example');
+    expect(fields.phone).toBeTruthy();
   });
 
   it('parses pill message when form absent', () => {
@@ -49,6 +89,24 @@ describe('resolveCreateStoreHandoffFields', () => {
     });
     expect(fields.businessName).toBe('Melbourne Flower');
     expect(fields.locationTrim).toBe('Melbourne');
+  });
+
+  it('reads websiteTemplateId from classification parameters', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      storeCreateForm: {
+        storeName: 'Spa Co',
+        storeType: 'Beauty',
+        location: 'Melbourne',
+      },
+      classification: {
+        parameters: {
+          websiteTemplateId: 'tpl_beauty_1',
+          baseWebsiteTemplateSlug: 'beauty-wellness-website',
+        },
+      },
+    });
+    expect(fields.websiteTemplateId).toBe('tpl_beauty_1');
+    expect(fields.websiteTemplateSlug).toBe('beauty-wellness-website');
   });
 
   it('reads client cardExtraction from intentSourceContext', () => {
