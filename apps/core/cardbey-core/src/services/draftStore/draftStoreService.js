@@ -50,6 +50,7 @@ import {
   isResearchCatalogSource,
   mergeResearchBusinessProfileIntoParams,
   shouldApplyResearchCatalogToDraft,
+  stampSuggestedCatalogOrigin,
 } from './researchCatalogDraft.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
@@ -478,6 +479,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       const researchCatalog = resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems);
       if (researchCatalog) {
         const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
+        const pendingOwnerReview = isResearchCatalogPendingOwnerReview(research);
         if (process.env.NODE_ENV !== 'production') {
           console.log('[buildCatalogForStoreReactStep] using research catalog', {
             missionId,
@@ -485,9 +487,17 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
             confidence: research.confidence,
             businessType: research.businessProfile?.businessType,
             fallbackToGenerated: research.fallbackToGenerated,
+            pendingOwnerReview,
+            stagedPendingReview: pendingOwnerReview,
           });
         }
-        return { catalog: finalized, fromPreload: false, fromResearch: true, research };
+        return {
+          catalog: finalized,
+          fromPreload: false,
+          fromResearch: true,
+          research,
+          pendingOwnerReview,
+        };
       }
       if (process.env.NODE_ENV !== 'production' && research.researchRan) {
         console.log('[STORE_RESEARCH_FALLBACK_USED]', {
@@ -495,7 +505,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
           reason: research.fallbackToGenerated
             ? 'fallback_flag'
             : isResearchCatalogPendingOwnerReview(research)
-              ? 'owner_review_pending'
+              ? 'owner_review_pending_no_stage'
               : 'no_catalog_products',
           confidence: research.confidence,
           sourceCount: research.sourcesUsed?.length ?? 0,
@@ -587,7 +597,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     return { catalog, fromPreload: true, fromResearch: false };
   }
 
-  const catalog = await buildCatalog(params);
+  const catalog = stampSuggestedCatalogOrigin(await buildCatalog(params));
   if (deferredResearch) {
     return {
       catalog,
@@ -1500,7 +1510,11 @@ async function finalizeDraft(draftId, {
   }
   preview.avatar = { imageUrl: avatarImageUrl };
   preview.avatarUrl = avatarImageUrl ?? null;
-  mergeWebsiteIntoPreview(preview, draft.input || {});
+  {
+    const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
+    const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(draft.input || {});
+    mergeWebsiteIntoPreview(preview, inputWithTpl);
+  }
 
   normalizePreviewCategories(preview);
   applyCommerceFieldsToPreview(preview);
@@ -3085,7 +3099,11 @@ export async function generateDraft(draftId, options = {}) {
       preview.avatar = { imageUrl: avatarImageUrl };
       preview.avatarUrl = avatarImageUrl ?? null;
     }
-    mergeWebsiteIntoPreview(preview, input);
+    {
+      const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
+      const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(input);
+      mergeWebsiteIntoPreview(preview, inputWithTpl);
+    }
 
     normalizePreviewCategories(preview);
     applyCommerceFieldsToPreview(preview);
@@ -3647,9 +3665,11 @@ export async function patchDraftPreview(draftId, incomingPreview, options = {}) 
   if (incoming.items !== undefined && !isPartialItemUpdate) {
     try {
       const { mergeWebsiteIntoPreview } = await import('./websiteSectionsGenerator.js');
+      const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
       const input =
         draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input) ? draft.input : {};
-      mergeWebsiteIntoPreview(merged, input);
+      const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(input);
+      mergeWebsiteIntoPreview(merged, inputWithTpl);
     } catch (e) {
       console.warn('[patchDraftPreview] mergeWebsiteIntoPreview failed (non-fatal):', e?.message || e);
     }

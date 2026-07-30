@@ -7,6 +7,7 @@ import {
   estimateJsonBytes,
   isFreshStoreCreationMission,
   normalizeFreshStoreCreationBody,
+  seedStoreCreateFormFromUploadContext,
 } from '../intakePayloadGuard.js';
 import { shouldSkipUploadAskForIntakeSelectionReplay } from '../intakeReplayPayload.js';
 
@@ -37,6 +38,8 @@ describe('intakePayloadGuard', () => {
         storeType: 'Food',
         location: 'Melbourne',
         intentMode: 'store',
+        websiteUrl: 'https://abc.example',
+        phone: '0399991111',
       },
       storeCreationDraft: {
         name: 'ABC',
@@ -53,9 +56,74 @@ describe('intakePayloadGuard', () => {
     expect(normalized.history).toBeUndefined();
     expect(normalized.currentContext).toBeUndefined();
     expect(normalized.storeCreateForm.storeName).toBe('ABC');
+    expect(normalized.storeCreateForm.websiteUrl).toBe('https://abc.example');
+    expect(normalized.storeCreateForm.phone).toBe('0399991111');
     expect(normalized.conversationSessionId).toBe('sess-1');
     expect(normalized.traceId).toBe('trace-1');
     expect(estimateJsonBytes(normalized)).toBeLessThan(estimateJsonBytes(heavy) / 10);
+  });
+
+  it('seeds website/phone from storeCandidate when image identity matches', () => {
+    const image = `data:image/png;base64,${'C'.repeat(120)}`;
+    const seeded = seedStoreCreateFormFromUploadContext({
+      imageDataUrl: image,
+      storeCreateForm: { storeName: '', storeType: '', location: '', intentMode: 'store' },
+      intentSourceContext: {
+        pendingImageDataUrl: image,
+        storeCandidate: {
+          businessName: 'Nail Bar',
+          location: 'Richmond',
+          category: 'Beauty',
+          website: 'https://nailbar.example',
+          phone: '0411222333',
+          email: 'hi@nailbar.example',
+          imageDataUrl: image,
+        },
+      },
+    });
+    expect(seeded.storeName).toBe('Nail Bar');
+    expect(seeded.websiteUrl).toBe('https://nailbar.example');
+    expect(seeded.phone).toBe('0411222333');
+    expect(seeded.email).toBe('hi@nailbar.example');
+  });
+
+  it('preserves websiteTemplateId on fresh store body', () => {
+    const normalized = normalizeFreshStoreCreationBody({
+      message: 'Create store: Glow · Beauty · Melbourne',
+      intent: 'create_store',
+      source: 'store_creation_draft',
+      _autoSubmit: true,
+      freshStoreMission: true,
+      storeCreateForm: {
+        storeName: 'Glow',
+        storeType: 'Beauty',
+        location: 'Melbourne',
+        intentMode: 'store',
+      },
+      storeCreationDraft: {
+        name: 'Glow',
+        category: 'Beauty',
+        location: 'Melbourne',
+        missingFields: [],
+        source: 'chat',
+      },
+      websiteTemplateId: 'tpl_1',
+      websiteTemplateSlug: 'beauty-wellness-website',
+      parameters: {
+        websiteTemplateId: 'tpl_1',
+        baseWebsiteTemplate: 'tpl_1',
+        baseWebsiteTemplateSlug: 'beauty-wellness-website',
+      },
+      intentSourceContext: {
+        websiteTemplateId: 'tpl_1',
+        websiteTemplateSlug: 'beauty-wellness-website',
+        websiteTemplateName: 'Beauty',
+      },
+    });
+    expect(normalized.websiteTemplateId).toBe('tpl_1');
+    expect(normalized.websiteTemplateSlug).toBe('beauty-wellness-website');
+    expect(normalized.parameters?.websiteTemplateId).toBe('tpl_1');
+    expect(normalized.intentSourceContext?.websiteTemplateId).toBe('tpl_1');
   });
 
   it('strips heavy fields from oversized non-fresh payloads', () => {
