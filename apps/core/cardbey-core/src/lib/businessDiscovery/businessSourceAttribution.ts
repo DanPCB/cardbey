@@ -1,5 +1,5 @@
 /**
- * TypeScript facade — canonical runtime is businessSourceAttribution.js
+ * TypeScript facade — canonical runtime is businessSourceAttribution.runtime.js
  */
 
 import type { DiscoverySource, SourceAttribution } from './businessDiscoveryTypes.js';
@@ -9,6 +9,6 @@ export {
   createAttribution,
   mergeAttributions,
   describeAttribution,
-} from './businessSourceAttribution.js';
+} from './businessSourceAttribution.runtime.js';
 
 export type { DiscoverySource, SourceAttribution };

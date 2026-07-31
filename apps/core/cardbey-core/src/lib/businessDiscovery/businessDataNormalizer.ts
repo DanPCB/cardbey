@@ -1,6 +1,6 @@
 /**
- * TypeScript facade — canonical runtime is businessDataNormalizer.js
- * (plain Node ESM / production create-store path).
+ * TypeScript facade — canonical runtime is businessDataNormalizer.runtime.js
+ * (must not re-export ./businessDataNormalizer.js — tsx remaps that to this .ts and cycles).
  */
 
 import type {
@@ -19,7 +19,7 @@ export {
   clampConfidence,
   computeConfidence,
   normalizeFacts,
-} from './businessDataNormalizer.js';
+} from './businessDataNormalizer.runtime.js';
 
 export type NormalizedFacts = Pick<
   BusinessDiscoveryCandidate,

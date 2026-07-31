@@ -1,5 +1,5 @@
 /**
- * TypeScript facade — canonical runtime is applyCanonicalLocation.js
+ * TypeScript facade — canonical runtime is applyCanonicalLocation.runtime.js
  */
 
 export type {
@@ -14,4 +14,4 @@ export {
   businessColumnPatchFromCanonical,
   resolveAndApplyCanonicalLocationForDraft,
   mergeCanonicalContactForPublish,
-} from './applyCanonicalLocation.js';
+} from './applyCanonicalLocation.runtime.js';
