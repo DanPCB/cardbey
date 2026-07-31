@@ -12,10 +12,12 @@ import { fileURLToPath } from 'url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const targets = [
+  'src/lib/businessDiscovery/businessDataNormalizer.runtime.js',
   'src/lib/businessDiscovery/businessDataNormalizer.js',
   'src/lib/businessDiscovery/businessEntityResolver.js',
   'src/lib/businessDiscovery/businessDiscoverySources.js',
   'src/lib/businessDiscovery/businessSourceAttribution.js',
+  'src/lib/location/resolveCanonicalBusinessLocation.runtime.js',
   'src/lib/location/resolveCanonicalBusinessLocation.js',
   'src/lib/location/applyCanonicalLocation.js',
   'src/lib/storeCreationResearch/index.js',
