@@ -160,7 +160,7 @@ export function toPublicStore(business, options = {}) {
     heroVideoUrl: heroVideo ?? null,
     heroMediaType: heroVideo ? 'video' : resolvedHeroImage || resolvedHeroUrl ? 'image' : null,
     heroImage: resolvedHeroImage ?? (resolvedHeroUrl && !heroVideo ? resolvedHeroUrl : null),
-    city: locationLabel,
+    city: locationFields.city,
     country: locationFields.country,
     locationLabel,
     formattedAddress: locationFields.formattedAddressDisplay ?? locationFields.formattedAddress,
