@@ -9,6 +9,10 @@ import {
   applyPipelineGeneratedHeroImage,
   getExistingVideoUrlFromPreview,
 } from './draftPreviewHeroSync.js';
+import {
+  applyFoundationToSectionsAndPreview,
+  themePatchFromFoundation,
+} from './websiteTemplateFoundation.js';
 
 /**
  * @param {string} storeType
@@ -36,6 +40,9 @@ function stableItemKey(item, index) {
 /**
  * @param {object} preview - draft preview object (mutated: heroImageUrl, avatarUrl, website)
  * @param {object} [input] - draft.input
+ *   When `input.websiteTemplateFoundation` is set (from ensureWebsiteTemplateFoundationOnInput),
+ *   theme tokens + section order come from the selected STORE_WEBSITE template.
+ *   Adaptive path: no foundation → same heuristic layout as pre–Phase 2.
  */
 export function mergeWebsiteIntoPreview(preview, input = {}) {
   if (!preview || typeof preview !== 'object') return;
@@ -154,13 +161,20 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
     },
   ];
 
-  const templateId = templateIdForStoreType(storeType);
+  const foundation =
+    input?.websiteTemplateFoundation && typeof input.websiteTemplateFoundation === 'object'
+      ? input.websiteTemplateFoundation
+      : null;
+  const orderedSections = applyFoundationToSectionsAndPreview(preview, sections, foundation);
+
+  const fallbackTemplateId = templateIdForStoreType(storeType);
+  const themePatch = themePatchFromFoundation(foundation, fallbackTemplateId);
   preview.website = {
     ...(preview.website && typeof preview.website === 'object' ? preview.website : {}),
-    sections,
+    sections: orderedSections,
     theme: {
       ...(preview.website?.theme && typeof preview.website.theme === 'object' ? preview.website.theme : {}),
-      templateId,
+      ...themePatch,
     },
     generatedAt: new Date().toISOString(),
   };
