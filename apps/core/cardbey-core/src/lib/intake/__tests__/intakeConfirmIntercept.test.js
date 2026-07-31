@@ -47,6 +47,21 @@ describe('intakeConfirmIntercept', () => {
     ).toBe('I need a store to run that safely.');
   });
 
+  it('does not ask for unknown_field transport metadata as required slots', () => {
+    expect(
+      formatIntakeValidationClarifyMessage([
+        { field: 'sourceType', reason: 'unknown_field' },
+        { field: 'clientRequestId', reason: 'unknown_field' },
+      ]),
+    ).toMatch(/more detail/i);
+    expect(
+      formatIntakeValidationClarifyMessage([
+        { field: 'sourceType', reason: 'unknown_field' },
+        { field: 'clientRequestId', reason: 'unknown_field' },
+      ]),
+    ).not.toMatch(/source type|client request id/i);
+  });
+
   it('normalizes confirm intercept executionPath from tool registry', () => {
     const normalized = normalizeConfirmInterceptClassification({
       tool: 'create_campaign',

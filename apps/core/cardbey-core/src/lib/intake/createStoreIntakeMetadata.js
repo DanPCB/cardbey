@@ -12,6 +12,8 @@ export const CREATE_STORE_INTAKE_SOURCE_VALUES = new Set([
   'chat',
   'performer_pill',
   'manual',
+  'upload_ask_selection',
+  'new_store_url',
 ]);
 
 /**
@@ -53,6 +55,14 @@ export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'city',
   'address',
   'region',
+  // Upload Ask / create-from-card transport (must not fail strict tool schema)
+  'sourceType',
+  'clientRequestId',
+  'evidenceId',
+  'attachmentId',
+  'contentHash',
+  'attachmentIds',
+  'fromAskSelection',
 ];
 
 /** @type {ReadonlySet<string>} */
