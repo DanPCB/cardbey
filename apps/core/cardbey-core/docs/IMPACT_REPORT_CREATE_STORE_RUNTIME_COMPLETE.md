@@ -29,9 +29,16 @@ Prior PR #33 missing modules (also real, earlier in the graph):
 
 | Module | Strategy |
 |--------|----------|
-| `businessDiscovery/*` helpers | **Canonical `.js`**, TypeScript facades re-export |
-| `location/resolveCanonicalBusinessLocation` | **Canonical `.js`** (esbuild from prior TS), TS facade types |
-| `location/applyCanonicalLocation` | **Canonical `.js`**, TS facade; draftStore imports `.js` |
+| `businessDiscovery/*` helpers | **Canonical `*.runtime.js`**, thin `*.js` + TS facades re-export runtime |
+| `location/*` | Same (`*.runtime.js` + facades) |
+
+### Deploy failure after #35 (tsx cycle)
+
+`tsx/esm` remaps `import './foo.js'` → `foo.ts`. Facades that re-exported `./foo.js` created:
+
+`foo.ts → foo.js → foo.ts` → `SyntaxError: Detected cycle while resolving name …`
+
+Fix: facades/entries re-export `./foo.runtime.js` only (different basename).
 
 ## Imports corrected
 
