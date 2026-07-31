@@ -654,7 +654,7 @@ export async function createBuildStoreJob(
 
   if (needDraft) {
     const { createDraftStoreForUser, createDraft } = await import('./draftStoreService.js');
-    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.ts');
+    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.js');
     const { lockCanonicalLocationForMission } = await import('../../lib/location/lockCanonicalLocationForMission.ts');
     const resolvedDraftMode = draftMode ?? 'ai';
     const useGuestDraft =
