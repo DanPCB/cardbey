@@ -822,9 +822,9 @@ export async function publishDraft(prisma, {
     previewMeta.canonicalLocation ??
     null;
   if (!canonicalForPublish) {
-    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.ts');
+    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.js');
     const { buildResolveInputFromDraftInput, mergeCanonicalContactForPublish } = await import(
-      '../../lib/location/applyCanonicalLocation.ts'
+      '../../lib/location/applyCanonicalLocation.js'
     );
     canonicalForPublish = resolveCanonicalBusinessLocation(buildResolveInputFromDraftInput(draftInput));
     if (typeof mergeCanonicalContactForPublish === 'function') {
@@ -834,7 +834,7 @@ export async function publishDraft(prisma, {
       );
     }
   } else {
-    const { mergeCanonicalContactForPublish } = await import('../../lib/location/applyCanonicalLocation.ts');
+    const { mergeCanonicalContactForPublish } = await import('../../lib/location/applyCanonicalLocation.js');
     Object.assign(
       contactFieldsForPublish,
       mergeCanonicalContactForPublish(contactFieldsForPublish, canonicalForPublish),
