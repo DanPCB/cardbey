@@ -22,6 +22,8 @@ const targets = [
   'src/lib/location/applyCanonicalLocation.js',
   'src/lib/storeCreationResearch/index.js',
   'src/lib/storeResearch/index.js',
+  'src/services/draftStore/websiteTemplateFoundation.js',
+  'src/services/draftStore/websiteSectionsGenerator.js',
 ];
 
 let failed = 0;
@@ -45,8 +47,10 @@ try {
   const msg = err?.message || String(err);
   // Local workspaces may lack bcryptjs/prisma client; research/location graph is the production defect.
   if (
-    /bcryptjs|@prisma\/client|\.prisma\/client/i.test(msg) &&
-    !/businessDiscovery|storeCreationResearch|applyCanonicalLocation|resolveCanonicalBusinessLocation/i.test(msg)
+    /bcryptjs|@prisma\/client|\.prisma\/client|client-gen/i.test(msg) &&
+    !/businessDiscovery|storeCreationResearch|applyCanonicalLocation|resolveCanonicalBusinessLocation|websiteTemplateFoundation/i.test(
+      msg,
+    )
   ) {
     console.log(
       'SKIP structured_store_build (env dependency missing, not research graph):',
