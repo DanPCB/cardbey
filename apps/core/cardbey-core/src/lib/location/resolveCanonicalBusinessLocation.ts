@@ -1,5 +1,5 @@
 /**
- * TypeScript facade — canonical runtime is resolveCanonicalBusinessLocation.js
+ * TypeScript facade — canonical runtime is resolveCanonicalBusinessLocation.runtime.js
  */
 
 export type CanonicalLocationSource =
@@ -94,4 +94,4 @@ export {
   logLocationCanonicalized,
   logLocationGenerationMismatch,
   logLocationRepairCandidate,
-} from './resolveCanonicalBusinessLocation.js';
+} from './resolveCanonicalBusinessLocation.runtime.js';

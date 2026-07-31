@@ -1,5 +1,5 @@
 /**
- * TypeScript facade — canonical runtime is businessEntityResolver.js
+ * TypeScript facade — canonical runtime is businessEntityResolver.runtime.js
  */
 
 import type { BusinessDiscoveryCandidate } from './businessDiscoveryTypes.js';
@@ -8,7 +8,7 @@ export {
   buildDedupeKey,
   matchCandidates,
   findDuplicate,
-} from './businessEntityResolver.js';
+} from './businessEntityResolver.runtime.js';
 
 export interface DedupeFields {
   name: string | null;

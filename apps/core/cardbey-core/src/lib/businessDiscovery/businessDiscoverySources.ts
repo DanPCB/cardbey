@@ -1,5 +1,5 @@
 /**
- * TypeScript facade — canonical runtime is businessDiscoverySources.js
+ * TypeScript facade — canonical runtime is businessDiscoverySources.runtime.js
  */
 
 import type { DiscoverySource, SourceAttribution } from './businessDiscoveryTypes.js';
@@ -12,7 +12,7 @@ export {
   fetchGooglePlaceDetails,
   extractFromWebsite,
   fromManualInput,
-} from './businessDiscoverySources.js';
+} from './businessDiscoverySources.runtime.js';
 
 export interface RawDiscoveryResult {
   raw: Record<string, unknown>;
