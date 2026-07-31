@@ -1511,9 +1511,14 @@ async function finalizeDraft(draftId, {
   preview.avatar = { imageUrl: avatarImageUrl };
   preview.avatarUrl = avatarImageUrl ?? null;
   {
-    const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
-    const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(draft.input || {});
-    mergeWebsiteIntoPreview(preview, inputWithTpl);
+    try {
+      const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
+      const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(draft.input || {});
+      mergeWebsiteIntoPreview(preview, inputWithTpl);
+    } catch (e) {
+      console.warn('[finalizeDraft] website template foundation failed (Adaptive fallback):', e?.message || e);
+      mergeWebsiteIntoPreview(preview, draft.input || {});
+    }
   }
 
   normalizePreviewCategories(preview);
@@ -3100,9 +3105,14 @@ export async function generateDraft(draftId, options = {}) {
       preview.avatarUrl = avatarImageUrl ?? null;
     }
     {
-      const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
-      const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(input);
-      mergeWebsiteIntoPreview(preview, inputWithTpl);
+      try {
+        const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
+        const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(input);
+        mergeWebsiteIntoPreview(preview, inputWithTpl);
+      } catch (e) {
+        console.warn('[DraftStore] website template foundation failed (Adaptive fallback):', e?.message || e);
+        mergeWebsiteIntoPreview(preview, input);
+      }
     }
 
     normalizePreviewCategories(preview);
