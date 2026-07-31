@@ -361,7 +361,7 @@ export async function executeGenerateFullStoreFromSeedRunway(params: {
     });
 
     if (baselinePreview) {
-      const { applyCanonicalLocationToPreview } = await import('../location/applyCanonicalLocation.ts');
+      const { applyCanonicalLocationToPreview } = await import('../location/applyCanonicalLocation.js');
       const lockedPreview = applyCanonicalLocationToPreview(
         baselinePreview as Record<string, unknown>,
         canonicalLocation,

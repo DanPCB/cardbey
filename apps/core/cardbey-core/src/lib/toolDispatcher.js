@@ -223,6 +223,14 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
     }
     const status = result?.status === 'blocked' ? 'blocked' : result?.status === 'failed' ? 'failed' : 'ok';
     dispatchSuccess = status === 'ok';
+    if (status === 'failed' && missionId) {
+      await appendBlackboardEvent(missionId, 'tool.dispatch.failed', {
+        tool: name,
+        durationMs: Date.now() - startTs,
+        failureCode: result?.error?.code ?? result?.blocker?.code ?? 'TOOL_FAILED',
+        message: result?.error?.message ?? result?.blocker?.message ?? null,
+      }).catch(() => {});
+    }
     if (episodicUserId) {
       const outStoreId =
         (result?.output && typeof result.output === 'object' && result.output.storeId) ||
@@ -248,6 +256,10 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
     };
   } catch (err) {
     const message = err?.message || String(err);
+    const failureCode =
+      err?.code === 'ERR_MODULE_NOT_FOUND' || err?.code === 'MODULE_NOT_FOUND'
+        ? 'STORE_BUILD_RUNTIME_DEPENDENCY_MISSING'
+        : err?.code || 'EXECUTION_ERROR';
     if (episodicUserId) {
       writeEpisodicEventAsync({
         userId: episodicUserId,
@@ -259,6 +271,16 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
         errorMsg: message,
       });
     }
+    if (missionId) {
+      await appendBlackboardEvent(missionId, 'tool.dispatch.failed', {
+        tool: name,
+        durationMs: Date.now() - startTs,
+        failureCode: String(failureCode),
+        message: /Cannot find (package|module)/i.test(message)
+          ? "We couldn't finish preparing your store draft."
+          : message,
+      }).catch(() => {});
+    }
     if (name === 'create_store') {
       console.error('[create_store] FAILED:', message, err?.stack);
       throw err;
@@ -268,7 +290,17 @@ export async function dispatchTool(toolName, input = {}, context = undefined) {
     }
     return {
       status: 'failed',
-      error: { code: 'EXECUTION_ERROR', message },
+      error: {
+        code:
+          /Cannot find (package|module)/i.test(message) ||
+          err?.code === 'ERR_MODULE_NOT_FOUND' ||
+          err?.code === 'MODULE_NOT_FOUND'
+            ? 'STORE_BUILD_RUNTIME_DEPENDENCY_MISSING'
+            : 'EXECUTION_ERROR',
+        message: /Cannot find (package|module)/i.test(message)
+          ? "We couldn't finish preparing your store draft."
+          : message,
+      },
     };
   } finally {
     if (missionId) {

@@ -1103,7 +1103,7 @@ async function persistCanonicalLocationForDraft(draftId, trace = {}) {
         })();
 
   const { resolveAndApplyCanonicalLocationForDraft } = await import(
-    '../../lib/location/applyCanonicalLocation.ts'
+    '../../lib/location/applyCanonicalLocation.js'
   );
   const applied = resolveAndApplyCanonicalLocationForDraft({
     draftInput,
@@ -2384,7 +2384,7 @@ export async function generateDraft(draftId, options = {}) {
           '../../lib/location/lockCanonicalLocationForMission.ts'
         );
         const { buildResolveInputFromDraftInput } = await import(
-          '../../lib/location/applyCanonicalLocation.ts'
+          '../../lib/location/applyCanonicalLocation.js'
         );
         const canonical = await lockCanonicalLocationForMission(
           pipelineMissionId,

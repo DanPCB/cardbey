@@ -17,6 +17,9 @@ import { safeMissionPipelineUpdate } from '../../safePipelineUpdate.js';
 import { shouldBlockStoreBuildForMissingArtifact } from '../../artifactCheckpointAuthority.js';
 import { guestDraftOptsForActor } from '../../storeMission/guestDraftOpts.js';
 import { countCatalogItemsByKind } from '../../commerce/assertCatalogKindConsistency.js';
+import { classifyGenerateDraftFailure } from './classifyGenerateDraftFailure.js';
+
+export { classifyGenerateDraftFailure } from './classifyGenerateDraftFailure.js';
 
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
@@ -303,14 +306,16 @@ export async function execute(_input = {}, context = {}) {
       emitContextUpdate: createEmitContextUpdate(missionId, 'orchestra', { prisma, mergeMissionContext }),
     });
   } catch (err) {
-    const message = err?.message || String(err);
+    const classified = classifyGenerateDraftFailure(err);
     console.error('[structured_store_build] GENERATE_DRAFT_FAILED:', {
       missionId,
       storeName: businessName || null,
       draftStoreId: draftIdForRun,
       generationRunId: created.generationRunId,
       stepStatus: 'failed',
-      error: message,
+      error: classified.developerMessage,
+      failureCode: classified.code,
+      developerCode: classified.developerCode,
       stack: err?.stack,
     });
     await transitionOrchestratorTaskStatus({
@@ -321,11 +326,23 @@ export async function execute(_input = {}, context = {}) {
       actorType: 'worker',
       correlationId: created.generationRunId,
       reason: 'STRUCTURED_STORE_BUILD',
-      result: { ok: false, error: message, generationRunId: created.generationRunId, draftId: draftIdForRun },
+      result: {
+        ok: false,
+        error: classified.message,
+        failureCode: classified.code,
+        developerMessage: classified.developerMessage,
+        generationRunId: created.generationRunId,
+        draftId: draftIdForRun,
+      },
     }).catch(() => {});
     return {
       status: 'failed',
-      error: { code: 'GENERATE_DRAFT_FAILED', message },
+      error: {
+        code: classified.code,
+        message: classified.message,
+        developerMessage: classified.developerMessage,
+        developerCode: classified.developerCode,
+      },
     };
   }
 
