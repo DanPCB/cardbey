@@ -264,6 +264,24 @@ export const Features = {
       return process.env.NODE_ENV !== 'production';
     },
   },
+  /**
+   * Storefront Design Library Phase 1 — contracts/registries/adapters only.
+   * Never authoritative for generation/render in Phase 1 (see isDesignLibraryAuthoritative).
+   */
+  designLibrary: {
+    get v1() {
+      const raw = String(process.env.ENABLE_DESIGN_LIBRARY_V1 ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
+      return process.env.NODE_ENV !== 'production';
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -341,6 +359,9 @@ export function snapshotFeatures() {
     ctaEngine: {
       v1: Features.ctaEngine.v1,
       platformMarketingV1: Features.ctaEngine.platformMarketingV1,
+    },
+    designLibrary: {
+      v1: Features.designLibrary.v1,
     },
   };
 }

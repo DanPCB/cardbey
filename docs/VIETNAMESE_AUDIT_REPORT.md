@@ -1,6 +1,6 @@
 # Vietnamese Language Audit Report
 
-**Date:** 2026-06-19  
+**Date:** 2026-07-31 (updated)  
 **Scope:** `apps/dashboard/cardbey-marketing-dashboard`  
 **Locale storage:** `localStorage` key `cardbey.lang` (`en` | `vi`)
 
@@ -17,57 +17,41 @@
 
 | Page | Status | Notes |
 |------|--------|-------|
-| Homepage / Explore | Partial | Explore capabilities vi fixed; some landing strings remain in English modules |
+| Homepage / Explore | **Fixed** | Hero chrome + primary mission chip labels |
 | Pricing / About | OK | Keys exist in `i18n.js` |
 | Control Center | OK | Sidebar/control labels translated |
-| Performer Console | OK | Contract-tested console keys |
+| Performer Console | **Fixed** | Home idle chips/hints localized; intents stay EN |
+| Console sections | **Fixed** | Creatives / Insights / Devices section copy |
 | Store Creation | OK | Business Builder vi block present |
-| **Activation Runway** | **Fixed** | Wired to `activation.*` keys |
-| **Business Discovery** | **Fixed** | Wired to `discovery.*` keys |
-| Devices | **Fixed** | Table chrome + toasts use `devices.*` |
-| Suitcase / Account | Partial | Sidebar label fixed; some admin labels remain |
+| Activation Runway | **Fixed** | Wired to `activation.*` keys |
+| Business Discovery | **Fixed** | Wired to `discovery.*` keys |
+| Devices table | **Fixed** | Table chrome + toasts use `devices.*` |
+| Pair Device modal (dashboard-init) | **Fixed** | `devices.modal.*` |
+| **Screens Pair Device modal** | **Fixed** | Enter-code / QR / repair (`screens.pairModal.*`) |
+| **Pair Alert popup** | **Fixed** | Device-initiated alert chrome (`devices.pairAlert.*`) |
+| Suitcase vault | **Fixed** | `dashboard:suitcase.vault.*` |
+| Account profile | **Fixed** | `dashboard:account.*` |
 | Login / Signup | OK | Auth contract tests pass |
 | Dashboard Home | OK | `dashboard.home.*` vi present |
-
-## Fixes Applied (this pass)
-
-1. **New module** `src/i18n/activationDiscoveryResources.js` — 80+ activation + discovery keys (en/vi)
-2. **Activation runway** — `ActivateBusinessPage.tsx`, `ActivationExperienceSections.tsx` use `useTranslation()`
-3. **Business discovery** — `BusinessDiscoveryPage.tsx` fully wired
-4. **Vi copy corrections** — nav, sidebar, MI panel, explore capability titles
-5. **Device toasts** — hardcoded English toasts → `devices.toast.*`
-6. **Tests** — `activationDiscovery.i18n.test.tsx`, extended `i18nContract.test.ts`
 
 ## Remaining Gaps (follow-up)
 
 | Area | Issue | Priority |
 |------|-------|----------|
-| Console section subtitles | Creatives/Insights/Devices section pages | Medium |
-| Homepage | `"Discover"`, slideshow aria-labels | Medium |
+| Screens page delete confirm | `Screens.jsx` delete dialog still English | Medium |
+| Account country names | Country labels may remain EN | Low |
 | `mapGenerateStoreError.ts` | English error strings from API layer | Low |
 | CI baseline | ~1,213 allowed hardcoded strings in `i18n-ci-baseline.json` | Low (incremental) |
-| Product names | Performer, Cardbey, C-Net kept as brand terms by design | N/A |
+| Product names | Performer, Cardbey, C-Net, Cardbey Player kept as brand terms | N/A |
 
-## Vietnamese Guidelines
+## Next
 
-- **Terminology:** Store → *Cửa hàng*, Device → *Thiết bị*, Campaign → *Chiến dịch*
-- **Brand terms:** Keep *Cardbey*, *Performer*, *C-Net* untranslated; translate surrounding words
-- **Dates:** Use `vi-VN` locale (`toLocaleDateString('vi-VN')`)
-- **Currency:** `Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' })`
+**Screens page chrome** (`src/pages/Screens.jsx`) — delete confirm / remaining page strings.
 
 ## Verification
 
 ```bash
 cd apps/dashboard/cardbey-marketing-dashboard
-npm test -- --run i18n
-npm test -- --run activationDiscovery
-npm test -- --run i18nContract
+npm test -- --run screensPairDeviceModal.i18n
+npm test -- --run pairAlertPopup.i18n
 ```
-
-## Success Criteria
-
-- [x] Activation + discovery pages display Vietnamese in vi mode
-- [x] Nav/sidebar mixed English reduced
-- [x] Device toasts translated
-- [x] Contract tests for new keys
-- [ ] Full zero-hardcoded-English pass (requires incremental CI baseline reduction)

@@ -7,6 +7,14 @@ import {
   normalizeServiceCatalogItem,
   toServiceCatalogJson,
 } from '../../lib/catalog/serviceCatalogNormalizer.js';
+import { isDesignLibraryV1Enabled } from '../../lib/storefrontDesignLibrary/flags.js';
+import {
+  classifyResearchCatalogProducts,
+  emitClassificationCompleted,
+} from '../../lib/storefrontDesignLibrary/classification/classifyResearchCatalog.js';
+import { applyDesignLibraryCommercePolicy } from '../../lib/storefrontDesignLibrary/policy/applyDesignLibraryCommercePolicy.js';
+import { applyDesignLibraryBlueprintRecommendation } from '../../lib/storefrontDesignLibrary/scoring/recommendBlueprintsForDraft.js';
+import { applyDesignLibraryStorefrontProjection } from '../../lib/storefrontDesignLibrary/projection/projectStorefrontForDraft.js';
 
 export function isResearchCatalogSource(meta) {
   return meta?.catalogSource === 'research';
@@ -124,7 +132,7 @@ export function stampSourcedCatalogOrigin(catalog, opts = {}) {
  */
 export function stampSuggestedCatalogOrigin(catalog) {
   if (!catalog || typeof catalog !== 'object') return catalog;
-  const products = Array.isArray(catalog.products)
+  let products = Array.isArray(catalog.products)
     ? catalog.products.map((item) => {
         if (!item || typeof item !== 'object') return item;
         const explicitPrice =
@@ -150,7 +158,16 @@ export function stampSuggestedCatalogOrigin(catalog) {
         return next;
       })
     : catalog.products;
-  return {
+
+  // Phase 2: additive semantic roles only (flagged; never authoritative for render).
+  let classificationMeta = null;
+  if (isDesignLibraryV1Enabled() && Array.isArray(products)) {
+    const classified = classifyResearchCatalogProducts(products, { contentOrigin: 'suggested' });
+    products = classified.products;
+    classificationMeta = classified.summary;
+  }
+
+  let next = {
     ...catalog,
     products,
     meta: {
@@ -158,8 +175,30 @@ export function stampSuggestedCatalogOrigin(catalog) {
       catalogSource: catalog.meta?.catalogSource ?? 'generated',
       contentOrigin: 'suggested',
       aiGenerated: true,
+      ...(classificationMeta
+        ? { contentClassification: { classifierVersion: classificationMeta.classifierVersion, ...classificationMeta } }
+        : {}),
     },
   };
+
+  // Phase 3: advisory business-model + CTA policy (flagged; never live CTA authority).
+  if (isDesignLibraryV1Enabled()) {
+    const ctx = {
+      businessType: catalog?.meta?.businessType ?? catalog?.profile?.type,
+      businessProfile: catalog?.profile?.businessProfile ?? catalog?.meta?.businessProfile,
+      phone: catalog?.profile?.phone ?? catalog?.meta?.phone,
+      businessName: catalog?.profile?.name,
+      preferredBlueprintId: catalog?.meta?.preferredBlueprintId,
+      preferredPreviewSampleId: catalog?.meta?.preferredPreviewSampleId ?? catalog?.meta?.previewSampleId,
+    };
+    next = applyDesignLibraryCommercePolicy(next, ctx).catalog;
+    // Phase 4: advisory blueprint scoring (never applies structure to public site).
+    next = applyDesignLibraryBlueprintRecommendation(next, ctx).catalog;
+    // Phase 5: advisory section projection (never cuts over React renderer).
+    next = applyDesignLibraryStorefrontProjection(next, ctx).catalog;
+  }
+
+  return next;
 }
 
 /**
@@ -255,7 +294,21 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
 
   const bp = research?.businessProfile ?? catalog.profile?.businessProfile ?? null;
   const businessName = params.businessName ?? catalog.profile?.name ?? '';
-  const products = enrichResearchCatalogProducts(catalog.products, {
+
+  // Phase 2: classify BEFORE enrich overwrites extract `type: service_category`.
+  let productsForEnrich = catalog.products;
+  let classificationMeta = null;
+  if (isDesignLibraryV1Enabled()) {
+    const classified = classifyResearchCatalogProducts(catalog.products, {
+      businessType: bp?.businessType,
+      businessName,
+      contentOrigin: 'sourced',
+    });
+    productsForEnrich = classified.products;
+    classificationMeta = classified.summary;
+  }
+
+  const products = enrichResearchCatalogProducts(productsForEnrich, {
     businessProfile: bp,
     businessType: bp?.businessType,
     businessName,
@@ -275,6 +328,14 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     businessType: bp?.businessType ?? catalog.meta?.businessType,
     pendingOwnerReview,
     needsOwnerReview: pendingOwnerReview,
+    ...(classificationMeta
+      ? {
+          contentClassification: {
+            classifierVersion: classificationMeta.classifierVersion,
+            ...classificationMeta,
+          },
+        }
+      : {}),
   };
 
   const stampedProducts = products.map((item) => {
@@ -283,10 +344,25 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
       ...item,
       contentOrigin: item.contentOrigin === 'suggested' ? 'suggested' : 'sourced',
       needsOwnerReview: pendingOwnerReview || Boolean(item.needsOwnerReview),
+      // Preserve Phase 2 classification through enrich/stamp
+      contentRole: item.contentRole,
+      roleConfidence: item.roleConfidence,
+      roleReason: item.roleReason,
+      roleClassifierVersion: item.roleClassifierVersion,
+      roleEvidence: item.roleEvidence,
     };
   });
 
-  return stampSourcedCatalogOrigin(
+  if (classificationMeta) {
+    emitClassificationCompleted({
+      missionId: params.missionId ?? research?.missionId ?? null,
+      draftStoreId: params.draftId ?? params.draftStoreId ?? null,
+      summary: classificationMeta,
+    });
+  }
+
+  // stampSourcedCatalogOrigin must not strip classification fields.
+  const stamped = stampSourcedCatalogOrigin(
     {
       ...catalog,
       products: stampedProducts,
@@ -300,6 +376,49 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     },
     { pendingOwnerReview },
   );
+
+  // Avoid double-classification inside stampSuggested path; restore meta classification.
+  if (classificationMeta && stamped?.meta) {
+    stamped.meta.contentClassification = {
+      classifierVersion: classificationMeta.classifierVersion,
+      ...classificationMeta,
+    };
+  }
+
+  // Phase 3–5: advisory commerce policy + blueprint scoring + section projection.
+  if (isDesignLibraryV1Enabled()) {
+    const facts = research?.facts && typeof research.facts === 'object' ? research.facts : {};
+    const ctx = {
+      research,
+      businessProfile: bp,
+      businessType: bp?.businessType,
+      businessName,
+      phone: facts.phone ?? research?.phone ?? params.phone,
+      bookingUrl: facts.bookingUrl ?? research?.bookingUrl ?? params.bookingUrl,
+      bookingProvider: research?.bookingProvider ?? params.bookingProvider,
+      deliveryUrl: facts.deliveryUrl,
+      reservationUrl: facts.reservationUrl,
+      sourcesUsed: research?.sourcesUsed,
+      preferredBlueprintId: params.preferredBlueprintId ?? stamped?.meta?.preferredBlueprintId,
+      preferredPreviewSampleId:
+        params.preferredPreviewSampleId ??
+        params.previewSampleId ??
+        stamped?.meta?.preferredPreviewSampleId ??
+        stamped?.meta?.previewSampleId,
+      themeId: params.themeId ?? stamped?.meta?.themeId,
+      facts,
+    };
+    const opts = {
+      missionId: params.missionId ?? research?.missionId ?? null,
+      draftStoreId: params.draftId ?? params.draftStoreId ?? null,
+    };
+    let next = applyDesignLibraryCommercePolicy(stamped, ctx, opts).catalog;
+    next = applyDesignLibraryBlueprintRecommendation(next, ctx, opts).catalog;
+    next = applyDesignLibraryStorefrontProjection(next, ctx, opts).catalog;
+    return next;
+  }
+
+  return stamped;
 }
 
 /**
