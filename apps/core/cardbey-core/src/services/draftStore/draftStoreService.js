@@ -455,10 +455,18 @@ function resolveCatalogItemTarget(params) {
  */
 async function buildCatalogForStoreReactStep(missionId, params, input) {
   const { buildCatalogFromPreloadedItems, sanitizePreloadedCatalogItems } = await import('./preloadedCatalogFromItems.js');
+  const {
+    resolveCatalogAuthorityDecision,
+    attachCatalogGrounding,
+  } = await import('../../lib/storeCreationResearch/catalogAuthorityDecision.js');
   let deferredResearch = null;
+  let researchAttempted = false;
+  let researchException = false;
+  let lastResearch = null;
 
   if (shouldRunStoreCreationResearch(params, input)) {
     try {
+      researchAttempted = true;
       const researchFields = (
         await import('../../lib/storeCreationResearch/researchInputFields.js')
       ).resolveStoreResearchInputFields(
@@ -473,6 +481,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         },
         { prisma },
       );
+      lastResearch = research;
       if (isResearchCatalogPendingOwnerReview(research)) {
         deferredResearch = research;
       }
@@ -480,6 +489,12 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       if (researchCatalog) {
         const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
         const pendingOwnerReview = isResearchCatalogPendingOwnerReview(research);
+        const decision = resolveCatalogAuthorityDecision({
+          params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
+          input,
+          research,
+          researchAttempted: true,
+        });
         if (process.env.NODE_ENV !== 'production') {
           console.log('[buildCatalogForStoreReactStep] using research catalog', {
             missionId,
@@ -492,11 +507,12 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
           });
         }
         return {
-          catalog: finalized,
+          catalog: attachCatalogGrounding(finalized, decision),
           fromPreload: false,
           fromResearch: true,
           research,
           pendingOwnerReview,
+          catalogAuthority: decision,
         };
       }
       if (process.env.NODE_ENV !== 'production' && research.researchRan) {
@@ -512,6 +528,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         });
       }
     } catch (err) {
+      researchException = true;
       // Research must never abort store creation — fall through to template/preloaded catalog.
       console.warn('[buildCatalogForStoreReactStep] research failed; continuing without research catalog', {
         missionId,
@@ -576,38 +593,72 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       const researchStub = {
         businessProfile: missionResearch.businessProfile ?? null,
         confidence: missionResearch.confidence,
+        researchRan: true,
+        fallbackToGenerated: false,
+        ownerReviewRequired: Boolean(missionResearch.ownerReviewRequired),
+        extractedItems: missionResearch.extractedServices,
       };
-      return {
-        catalog: finalizeResearchCatalogForDraft(
-          {
-            ...catalog,
-            profile: {
-              ...(catalog.profile ?? {}),
-              businessProfile: missionResearch.businessProfile ?? catalog.profile?.businessProfile,
-            },
+      const finalized = finalizeResearchCatalogForDraft(
+        {
+          ...catalog,
+          profile: {
+            ...(catalog.profile ?? {}),
+            businessProfile: missionResearch.businessProfile ?? catalog.profile?.businessProfile,
           },
-          researchStub,
-          params,
-        ),
+        },
+        researchStub,
+        params,
+      );
+      const decision = resolveCatalogAuthorityDecision({
+        params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
+        input,
+        research: researchStub,
+        researchAttempted: true,
+      });
+      return {
+        catalog: attachCatalogGrounding(finalized, decision),
         fromPreload: true,
         fromResearch: true,
         research: researchStub,
+        catalogAuthority: decision,
       };
     }
-    return { catalog, fromPreload: true, fromResearch: false };
+    const decision = resolveCatalogAuthorityDecision({
+      params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
+      input,
+      research: lastResearch,
+      researchAttempted,
+      researchException,
+      fromPreload: true,
+    });
+    return {
+      catalog: attachCatalogGrounding(catalog, decision),
+      fromPreload: true,
+      fromResearch: false,
+      catalogAuthority: decision,
+    };
   }
 
   const catalog = stampSuggestedCatalogOrigin(await buildCatalog(params));
+  const decision = resolveCatalogAuthorityDecision({
+    params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
+    input,
+    research: deferredResearch || lastResearch,
+    researchAttempted,
+    researchException,
+  });
+  const grounded = attachCatalogGrounding(catalog, decision);
   if (deferredResearch) {
     return {
-      catalog,
+      catalog: grounded,
       fromPreload: false,
       fromResearch: false,
       pendingOwnerReview: true,
       research: deferredResearch,
+      catalogAuthority: decision,
     };
   }
-  return { catalog, fromPreload: false };
+  return { catalog: grounded, fromPreload: false, catalogAuthority: decision };
 }
 
 function resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems) {

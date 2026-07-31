@@ -12,6 +12,10 @@ const DURATION_RE = /(\d+)\s*(?:min|mins|minutes|hr|hours)/i;
 const SKIP_LINE_RE =
   /^(home|about|contact|gallery|blog|book now|book online|services|menu|pricing|faq|privacy|terms|copyright|follow us|opening hours|hours|phone|email|address|instagram|facebook)/i;
 
+/** Exact nav chrome labels — not service categories. */
+const SKIP_NAV_LABEL_RE =
+  /^(home|about|about us|contact|contact us|gallery|blog|book now|book online|services|products|product categories|menu|pricing|faq|privacy|privacy policy|terms|warranty|login|sign in|search|cart|checkout|follow us|instagram|facebook|youtube|linkedin|hotline)$/i;
+
 function stripHtmlToText(fragment) {
   return String(fragment ?? '')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -99,6 +103,79 @@ export function extractMenuLinesFromHtml(html) {
     if (out.length >= 48) break;
   }
 
+  return out;
+}
+
+/**
+ * Extract service/product category labels from navigation / category menus
+ * without requiring price markup (quote-based service businesses).
+ *
+ * @param {string} html
+ * @returns {Array<{ name: string; price: null; description?: string; type: 'service_category'; contentOrigin: 'sourced' }>}
+ */
+export function extractServiceCategoryLinksFromHtml(html) {
+  if (!html || typeof html !== 'string') return [];
+
+  const labels = [];
+  const pushLabel = (raw) => {
+    const name = stripHtmlToText(raw)
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!name || name.length < 3 || name.length > 72) return;
+    if (SKIP_NAV_LABEL_RE.test(name)) return;
+    if (!/[a-z]/i.test(name)) return;
+    if (/^\d+$/.test(name)) return;
+    labels.push(name);
+  };
+
+  // Prefer explicit category menus / dropdowns / sidebars.
+  const sectionRes = [
+    /product\s*categor(?:y|ies)[\s\S]{0,4000}?(<\/(?:ul|nav|div)>)/gi,
+    /<(?:nav|ul)[^>]*(?:dropdown|menu|categor)[^>]*>[\s\S]*?<\/(?:nav|ul)>/gi,
+    /<(?:ul|nav)[^>]*>[\s\S]*?<\/(?:ul|nav)>/gi,
+  ];
+  for (const re of sectionRes) {
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const chunk = m[0];
+      const aRe = /<a\b[^>]*>([\s\S]*?)<\/a>/gi;
+      let a;
+      while ((a = aRe.exec(chunk)) !== null) pushLabel(a[1]);
+      const liRe = /<li\b[^>]*>([\s\S]*?)<\/li>/gi;
+      let li;
+      while ((li = liRe.exec(chunk)) !== null) {
+        if (!/<a\b/i.test(li[1])) pushLabel(li[1]);
+      }
+    }
+  }
+
+  // Fallback: all internal-looking anchors with category-ish text.
+  if (labels.length < 3) {
+    const aRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let a;
+    while ((a = aRe.exec(html)) !== null) {
+      const href = String(a[1] || '');
+      if (/^(mailto:|tel:|#|javascript:)/i.test(href)) continue;
+      pushLabel(a[2]);
+    }
+  }
+
+  const out = [];
+  const seen = new Set();
+  for (const name of labels) {
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      name,
+      price: null,
+      description: '',
+      type: 'service_category',
+      contentOrigin: 'sourced',
+      priceWasNotExplicitlyProvided: true,
+    });
+    if (out.length >= 24) break;
+  }
   return out;
 }
 
