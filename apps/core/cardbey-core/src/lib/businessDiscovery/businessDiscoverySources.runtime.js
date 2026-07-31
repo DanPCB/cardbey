@@ -12,6 +12,7 @@ import { cleanString, normalizeWebsite } from './businessDataNormalizer.runtime.
 import {
   extractMenuLinesFromHtml,
   extractOffersFromSchemaBlocks,
+  extractServiceCategoryLinksFromHtml,
 } from '../storeCreationResearch/websiteMenuHtmlExtract.js';
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -442,6 +443,22 @@ export async function extractFromWebsite(websiteUrl) {
   const node = pickLocalBusinessNode(blocks);
   const schemaOffers = extractOffersFromSchemaBlocks(blocks);
   const htmlMenuLines = extractMenuLinesFromHtml(html);
+  const categoryLinks = extractServiceCategoryLinksFromHtml(html);
+  const pricedNames = new Set(
+    [...schemaOffers, ...htmlMenuLines]
+      .map((o) => String(o?.name ?? '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const categoryOffers = categoryLinks
+    .filter((c) => !pricedNames.has(String(c.name).trim().toLowerCase()))
+    .map((line) => ({
+      name: line.name,
+      price: null,
+      description: line.description,
+      type: 'service_category',
+      contentOrigin: 'sourced',
+      priceWasNotExplicitlyProvided: true,
+    }));
   const mergedOffers = [
     ...schemaOffers,
     ...htmlMenuLines.map((line) => ({
@@ -450,6 +467,7 @@ export async function extractFromWebsite(websiteUrl) {
       description: line.description,
       durationMinutes: line.durationMinutes,
     })),
+    ...categoryOffers,
   ];
 
   if (node) {

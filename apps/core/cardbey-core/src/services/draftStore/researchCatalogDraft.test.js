@@ -175,10 +175,12 @@ describe('researchCatalogDraft — owner review gate', () => {
 
   it('stamps AI/template filler as suggested', () => {
     const stamped = stampSuggestedCatalogOrigin({
-      products: [{ name: 'Featured Latte' }],
+      products: [{ name: 'Featured Latte', price: 40 }],
       meta: {},
     });
     expect(stamped.meta.contentOrigin).toBe('suggested');
     expect(stamped.products[0].contentOrigin).toBe('suggested');
+    expect(stamped.products[0].price).toBeNull();
+    expect(stamped.products[0].priceWasNotExplicitlyProvided).toBe(true);
   });
 });

@@ -113,27 +113,44 @@ export async function discoverSources(input, log = defaultLog) {
         if (details) {
           raw = { ...raw, ...details };
           if (details.website && !website) {
-            const webResults = await extractFromWebsite(String(details.website));
-            for (const r of webResults) {
-              const mergedRaw = { ...(r.raw ?? {}), ...details };
+            const websiteUrl = String(details.website);
+            const webResults = await extractFromWebsite(websiteUrl);
+            if (webResults.length) {
+              for (const r of webResults) {
+                const mergedRaw = { ...(r.raw ?? {}), ...details };
+                discovered.push({
+                  sourceType: 'official_website',
+                  sourceUrl: websiteUrl,
+                  raw: mergedRaw,
+                  priority: priority++,
+                });
+                log(RESEARCH_LOG.SOURCE_DISCOVERED, {
+                  sourceType: 'official_website',
+                  sourceUrl: websiteUrl,
+                  via: 'google_place_details',
+                });
+                priority = pushDiscoveredSocialLinks(
+                  discovered,
+                  mergedRaw.socialLinks,
+                  name,
+                  priority,
+                  log,
+                );
+              }
+            } else {
+              // Still register the official URL so authority + crawl retry can see it
+              // even when HTML has categories without priced menu lines.
               discovered.push({
                 sourceType: 'official_website',
-                sourceUrl: String(details.website),
-                raw: mergedRaw,
+                sourceUrl: websiteUrl,
+                raw: { ...details, website: websiteUrl, name, offers: [] },
                 priority: priority++,
               });
               log(RESEARCH_LOG.SOURCE_DISCOVERED, {
                 sourceType: 'official_website',
-                sourceUrl: details.website,
-                via: 'google_place_details',
+                sourceUrl: websiteUrl,
+                via: 'google_place_details_url_only',
               });
-              priority = pushDiscoveredSocialLinks(
-                discovered,
-                mergedRaw.socialLinks,
-                name,
-                priority,
-                log,
-              );
             }
           }
         }

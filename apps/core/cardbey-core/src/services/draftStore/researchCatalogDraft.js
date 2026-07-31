@@ -127,12 +127,27 @@ export function stampSuggestedCatalogOrigin(catalog) {
   const products = Array.isArray(catalog.products)
     ? catalog.products.map((item) => {
         if (!item || typeof item !== 'object') return item;
-        return {
+        const explicitPrice =
+          item.priceWasNotExplicitlyProvided === false ||
+          item.priceOrigin === 'sourced' ||
+          item.priceSource === 'sourced';
+        const next = {
           ...item,
           contentOrigin: 'suggested',
           status: item.status ?? 'suggested',
           catalogSource: item.catalogSource ?? 'generated',
         };
+        // Hard invariant: never invent purchasable prices for suggested items.
+        if (!explicitPrice) {
+          next.priceWasNotExplicitlyProvided = true;
+          next.price = null;
+          if (next.priceMin != null) next.priceMin = null;
+          if (next.priceMax != null) next.priceMax = null;
+          if (next.amount != null) next.amount = null;
+          next.pricingMode = next.pricingMode ?? 'quote';
+          next.ctaLabel = next.ctaLabel ?? 'Request a quote';
+        }
+        return next;
       })
     : catalog.products;
   return {
