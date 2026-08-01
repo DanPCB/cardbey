@@ -111,6 +111,20 @@ describe('Monitoring System Integration', () => {
     expect(mission?.status).toBe('failed');
   });
 
+  it('does not bridge browser unhandledrejection / createParser noise into mission history', async () => {
+    await notifyRuntimeDiagnostic({
+      id: 'diag-client-1',
+      severity: 'error',
+      category: 'unknown',
+      eventName: 'unhandledrejection',
+      message:
+        "`config` must be an object, got a function instead. Did you mean `createParser({onEvent: fn})`?",
+      missionId: 'mission-client-noise',
+    });
+
+    expect(multiAgentMetricsStore.getMissionMetrics('mission-client-noise')).toBeUndefined();
+  });
+
   it('updates process memory metrics for alert evaluation', async () => {
     const { alertManager } = initMultiAgentMonitoring();
     await notifyProcessMemory({ rssMb: 3200, heapUsedMb: 180 });

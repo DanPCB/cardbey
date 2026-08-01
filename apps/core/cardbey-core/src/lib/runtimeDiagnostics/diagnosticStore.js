@@ -153,6 +153,7 @@ export function ingestRuntimeDiagnostic(payload, ctx = {}) {
         category: record.category,
         message: record.message,
         missionId: record.missionId,
+        eventName: record.eventName,
       }),
     )
     .catch(() => {
