@@ -7437,11 +7437,19 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     imageContext,
   });
 
+  const createStoreUploadContextOpts = {
+    userMessage,
+    intentSourceContext,
+    imageDataUrl: resolveIntakeImageRefForOcr(body),
+    attachments: Array.isArray(body?.attachments) ? body.attachments : undefined,
+    sessionId: intakeAssetSessionKey,
+  };
+
   if (
     classification.tool === 'create_store' &&
     !forceCreateStoreCheckpoint &&
     isAttachmentOnlyPlaceholderMessage(userMessage) &&
-    !isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
+    !isExplicitCreateStoreFromUploadContext(createStoreUploadContextOpts)
   ) {
     const uploadAskSafety = await buildUploadAskClarifyFallback({
       attachmentOnlyUpload: attachmentOnlyUpload === true,
@@ -7469,22 +7477,37 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (
     classification.tool === 'create_store' &&
     !forceCreateStoreCheckpoint &&
-    isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
+    isExplicitCreateStoreFromUploadContext(createStoreUploadContextOpts)
   ) {
     const recoveredUploadImage = await resolveCreateStoreUploadImageRef(
       body,
       intentSourceContext,
       intakeAssetSessionKey,
     );
+    const selectionParamsForIdentity =
+      body?.intakeV2Selection &&
+      typeof body.intakeV2Selection === 'object' &&
+      body.intakeV2Selection.selectedParameters &&
+      typeof body.intakeV2Selection.selectedParameters === 'object'
+        ? body.intakeV2Selection.selectedParameters
+        : {};
     let hasWorkflowIdentity = Boolean(
-      intentSourceContext?.cardExtraction || intentSourceContext?.storeCandidate,
+      intentSourceContext?.cardExtraction ||
+        intentSourceContext?.storeCandidate ||
+        intentSourceContext?.documentExtraction ||
+        intentSourceContext?.assetIngestResult ||
+        selectionParamsForIdentity.cardExtraction ||
+        selectionParamsForIdentity.storeCandidate ||
+        selectionParamsForIdentity.documentExtraction,
     );
     if (!recoveredUploadImage && !hasWorkflowIdentity) {
       try {
         const { peekIntakeWorkflowContext } = await import('../lib/intake/intakeWorkflowContext.js');
         const wf = peekIntakeWorkflowContext(intakeAssetSessionKey);
         const uploaded = wf?.uploadedAsset && typeof wf.uploadedAsset === 'object' ? wf.uploadedAsset : null;
-        hasWorkflowIdentity = Boolean(uploaded?.storeCandidate || uploaded?.documentExtraction || uploaded?.rawOcrText);
+        hasWorkflowIdentity = Boolean(
+          uploaded?.storeCandidate || uploaded?.documentExtraction || uploaded?.rawOcrText || uploaded?.imageDataUrl,
+        );
       } catch {
         /* ignore */
       }
@@ -7494,6 +7517,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         sessionKey: intakeAssetSessionKey ? String(intakeAssetSessionKey).slice(0, 12) : null,
         hasEvidenceId: Boolean(body?.evidenceId || intentSourceContext?.evidenceId),
         hasAttachmentId: Boolean(body?.attachmentId || intentSourceContext?.attachmentId),
+        assetAction: intentSourceContext?.assetAction ?? null,
+        fromAskSelection: intentSourceContext?.fromAskSelection ?? null,
       });
       return res.status(409).json({
         ok: false,

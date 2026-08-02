@@ -383,6 +383,7 @@ export function shouldSkipDynamicPlannerForUploadCreateStore(input = {}) {
     !isExplicitCreateStoreFromUploadContext({
       userMessage: input.userMessage,
       intentSourceContext: input.intentSourceContext,
+      imageDataUrl: input.imageDataUrl ?? input.imageContext?.imageDataUrl ?? null,
     })
   ) {
     return false;
@@ -407,6 +408,8 @@ export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) 
     !isExplicitCreateStoreFromUploadContext({
       userMessage,
       intentSourceContext,
+      imageDataUrl: input.imageDataUrl ?? null,
+      sessionId: input.sessionId ?? null,
     })
   ) {
     return null;
