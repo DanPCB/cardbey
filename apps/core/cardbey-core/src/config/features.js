@@ -258,6 +258,51 @@ export const Features = {
       return process.env.NODE_ENV !== 'production';
     },
   },
+  /**
+   * Grounded store creation V1 — stop silent product invention + weak stock media.
+   * Default OFF. Set ENABLE_GROUNDED_STORE_CREATION_V1=true to enable.
+   */
+  groundedStoreCreation: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_GROUNDED_STORE_CREATION_V1, false);
+    },
+    get minMediaMatchScore() {
+      return parseThreshold(process.env.GROUNDED_MIN_MEDIA_MATCH_SCORE, 0.55);
+    },
+  },
+  /**
+   * Storefront Design Library — advisory contracts/projection (see storefrontDesignLibrary/flags.js).
+   * Mirrored here for health snapshots; DL modules also read env directly.
+   */
+  designLibrary: {
+    get v1() {
+      const raw = String(process.env.ENABLE_DESIGN_LIBRARY_V1 ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
+      return process.env.NODE_ENV !== 'production';
+    },
+    get projectionRenderCutoverV1() {
+      if (!Features.designLibrary.v1) return false;
+      const raw = String(process.env.ENABLE_STOREFRONT_PROJECTION_RENDER_CUTOVER_V1 ?? '')
+        .trim()
+        .toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
+      return process.env.NODE_ENV !== 'production';
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -335,6 +380,14 @@ export function snapshotFeatures() {
     ctaEngine: {
       v1: Features.ctaEngine.v1,
       platformMarketingV1: Features.ctaEngine.platformMarketingV1,
+    },
+    groundedStoreCreation: {
+      v1: Features.groundedStoreCreation.v1,
+      minMediaMatchScore: Features.groundedStoreCreation.minMediaMatchScore,
+    },
+    designLibrary: {
+      v1: Features.designLibrary.v1,
+      projectionRenderCutoverV1: Features.designLibrary.projectionRenderCutoverV1,
     },
   };
 }

@@ -17,6 +17,46 @@ import { runDraftQa } from './draftQaAgent.js';
 import { mergeMissionContext } from '../../lib/mission.js';
 import { hasUserUploadedLogo } from '../draftStore/logoUpdateService.js';
 import { catalogItemRef, repairSemanticImageMismatches } from './catalogRepairHelpers.js';
+import { isGroundedStoreCreationEnabled, markItemNeedsMedia } from '../draftStore/groundedStoreCreation.js';
+import {
+  isNonOfferingContentRole,
+  resolveItemContentRole,
+} from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
+
+/**
+ * Grounded-safe QA: mark missing / needs_media; never invent stock hero/avatar/seed images.
+ * @param {object} preview
+ * @param {string[]} autoFixed
+ */
+function runGroundedQaRepair(preview, autoFixed) {
+  const items = Array.isArray(preview.items) ? preview.items : [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const role = resolveItemContentRole(item);
+    if (item.contentRole && isNonOfferingContentRole(role)) {
+      item.skipCatalogImageGeneration = true;
+      continue;
+    }
+    if (!resolveUsableDraftItemImageUrl(item)) {
+      markItemNeedsMedia(item, 'grounded_qa_no_invent');
+      autoFixed.push('imageUrl_needs_media');
+    }
+  }
+  if (!preview.heroImageUrl && !preview.hero?.imageUrl) {
+    preview.hero = {
+      ...(preview.hero && typeof preview.hero === 'object' ? preview.hero : {}),
+      status: 'needs_media',
+      contentOrigin: preview.hero?.contentOrigin ?? null,
+      reviewStatus: 'needs_media',
+    };
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      heroNeedsMedia: true,
+    };
+    autoFixed.push('hero_needs_media');
+  }
+  return preview;
+}
 
 /** @typedef {'vertical' | 'tagline' | 'description' | 'imageUrl' | 'hero' | 'avatar' | 'product_description'} FixableIssueKey */
 
@@ -833,7 +873,11 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
   autoFixed.push(...tier1CatalogFixed);
 
   const items = Array.isArray(preview.items) ? preview.items : [];
-  if (fixable.has('imageUrl') && items.length > 0) {
+  const groundedQa = isGroundedStoreCreationEnabled();
+
+  if (groundedQa) {
+    preview = runGroundedQaRepair(preview, autoFixed);
+  } else if (fixable.has('imageUrl') && items.length > 0) {
     const imgFixed = await fixMissingProductImages(
       items,
       verticalSlug,
@@ -865,7 +909,7 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
     }
   }
 
-  if (fixable.has('hero')) {
+  if (!groundedQa && fixable.has('hero')) {
     const vertical =
       effectiveVertical(preview.storeType, preview.meta?.storeType) ||
       (verticalSlug && verticalSlug.split('.')[0]) ||
@@ -903,7 +947,7 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
     }
   }
 
-  if (fixable.has('avatar') && !hasUserUploadedLogo(preview)) {
+  if (!groundedQa && fixable.has('avatar') && !hasUserUploadedLogo(preview)) {
     const firstWithImage = items.find((it) => resolveDraftItemImageUrl(it));
     const av = firstWithImage ? resolveDraftItemImageUrl(firstWithImage) : preview.heroImageUrl;
     if (av) {
