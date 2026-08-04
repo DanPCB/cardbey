@@ -711,8 +711,14 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
         };
       }
     }
-    diagLog(diag, '→ needs_form (missing businessName)');
-    return { kind: 'needs_form', intentMode: ctxIntentMode };
+    diagLog(diag, '→ needs_form (missing businessName)', {
+      fallbackReason: 'CREATE_STORE_PREFLIGHT_MISSING_FIELDS',
+    });
+    return {
+      kind: 'needs_form',
+      intentMode: ctxIntentMode,
+      fallbackReason: 'CREATE_STORE_PREFLIGHT_MISSING_FIELDS',
+    };
   }
 
   if (!actorId || !user?.id) {
@@ -931,6 +937,10 @@ export function buildNeedsFormCreateStoreIntakeBody(input = {}) {
     storeCreateForm: input.storeCreateForm ?? null,
     memoryContext: input.memoryContext ?? null,
   });
+  const fallbackReason =
+    typeof input.fallbackReason === 'string' && input.fallbackReason.trim()
+      ? input.fallbackReason.trim()
+      : 'CREATE_STORE_PREFLIGHT_MISSING_FIELDS';
   return {
     success: true,
     action: 'create_store',
@@ -942,6 +952,7 @@ export function buildNeedsFormCreateStoreIntakeBody(input = {}) {
     }),
     businessName: bundle.draft.name ?? undefined,
     businessType: bundle.draft.category ?? undefined,
+    fallbackReason,
   };
 }
 
@@ -1027,6 +1038,10 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
           classification: draftContext.classification,
           storeCreateForm: draftContext.storeCreateForm,
           memoryContext: draftContext.memoryContext,
+          fallbackReason:
+            result.fallbackReason ||
+            draftContext.fallbackReason ||
+            'CREATE_STORE_PREFLIGHT_MISSING_FIELDS',
         }),
       {
         classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },
