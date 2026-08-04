@@ -1,5 +1,6 @@
 /**
  * Intent classification agent — routes user messages to mission handlers.
+ * Phase 2: LLM calls via BaseAgent → llmGateway; emits unifiedIntent (canonical taxonomy).
  */
 
 import { BaseAgent } from './base.agent.js';
@@ -16,6 +17,7 @@ import {
   safeParseJson,
 } from '../utils/validation.js';
 import { enrichIntentWithMultiStore } from '../../lib/multiAgent/multiStorePlanHelpers.js';
+import { fromMultiAgentIntent } from '../../lib/intent/unifiedIntent.ts';
 
 export class IntentClassifier extends BaseAgent {
   constructor(config?: Partial<AgentConfig>) {
@@ -36,12 +38,12 @@ export class IntentClassifier extends BaseAgent {
     return this.executeWithTrace(async () => {
       const systemPrompt = `You are an intent classifier for Cardbey Performer.
 Classify user requests into exactly one of these categories:
-- STORE_SETUP: Creating a new store (e.g., "I want to open a store", "Create a new store")
-- STORE_UPDATE: Updating existing store (e.g., "Change my store location", "Update store name")
-- STORE_QUERY: Asking about store details (e.g., "What's my store ID?", "Show me store info")
-- MISSION_PLANNING: Complex multi-step mission (e.g., "Set up 3 stores in different cities")
-- GENERAL_QUERY: General questions (e.g., "What categories do you have?")
-- SUPPORT: Help requests (e.g., "I need help", "I'm stuck")
+- STORE_SETUP: Creating a new store (e.g., "I want to open a store", "Create a new store") → unified: create_store
+- STORE_UPDATE: Updating existing store (e.g., "Change my store location", "Update store name") → unified: update_store
+- STORE_QUERY: Asking about store details (e.g., "What's my store ID?", "Show me store info") → unified: view_store
+- MISSION_PLANNING: Complex multi-step mission (e.g., "Set up 3 stores in different cities") → unified: create_store
+- GENERAL_QUERY: General questions (e.g., "What categories do you have?") → unified: general_chat
+- SUPPORT: Help requests (e.g., "I need help", "I'm stuck") → unified: get_help
 
 For multi-store requests, classify as MISSION_PLANNING and extract:
 1. Number of stores (store_count)
@@ -67,13 +69,18 @@ Respond with JSON only:
       const content = extractJsonFromContent(this.extractContent(response));
       const parsed = safeParseJson(content, IntentSchema, 'IntentClassifier');
 
-      return enrichIntentWithMultiStore(userMessage, {
+      const enriched = enrichIntentWithMultiStore(userMessage, {
         intent: parsed.intent,
         confidence: parsed.confidence,
         entities: parsed.entities,
         needsClarification: parsed.needs_clarification,
         missingFields: parsed.missing_fields,
       });
+
+      return {
+        ...enriched,
+        unifiedIntent: fromMultiAgentIntent(enriched.intent),
+      };
     }, 'classify_intent');
   }
 }

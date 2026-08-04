@@ -2,8 +2,19 @@ import deepseekAdapter from './deepseekAdapter.js';
 import cloudAdapter from './cloudAdapter.js';
 import groqAdapter from './groqAdapter.js';
 
+let warnedHybridRouter = false;
+function warnHybridRouterDeprecated() {
+  if (warnedHybridRouter) return;
+  warnedHybridRouter = true;
+  console.warn(
+    '[DEPRECATED] lib/llm/hybridRouter is deprecated. Use llmGateway instead ' +
+      '(providers: anthropic|openai|deepseek|xai|kimi|groq).',
+  );
+}
+
 export class HybridRouter {
   constructor() {
+    warnHybridRouterDeprecated();
     this.thresholds = {
       deepseekOnly: 0.85,
       ensemble: 0.65,
@@ -12,6 +23,7 @@ export class HybridRouter {
   }
 
   async route(intent, context, memoryBundle) {
+    warnHybridRouterDeprecated();
     const startTime = Date.now();
     
     // Step 1: Try Groq first (fast, free, no GPU)
