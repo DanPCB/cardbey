@@ -76,4 +76,47 @@ describe('config/features', () => {
     expect(Features.multiAgent.useGateway).toBe(true);
     expect(Features.intent.provider).toBe('deepseek');
   });
+
+  it('defaults Phase 3 multimodal / embeddings facades to on', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    delete process.env.VISION_ENABLED;
+    delete process.env.EMBEDDING_ENABLED;
+    delete process.env.IMAGE_GEN_ENABLED;
+    delete process.env.VIDEO_GEN_ENABLED;
+    delete process.env.VISION_PROVIDER;
+    delete process.env.EMBEDDING_PROVIDER;
+    delete process.env.IMAGE_PROVIDER;
+    delete process.env.VIDEO_PROVIDER;
+    expect(Features.vision.useGateway).toBe(true);
+    expect(Features.embeddings.useGateway).toBe(true);
+    expect(Features.image.useGateway).toBe(true);
+    expect(Features.video.useGateway).toBe(true);
+    expect(Features.vision.defaultProvider).toBe('anthropic');
+    expect(Features.embeddings.defaultProvider).toBe('openai');
+    expect(Features.image.defaultProvider).toBe('dalle');
+    expect(Features.video.defaultProvider).toBe('openai');
+  });
+
+  it('allows Phase 3 surface rollbacks and full USE_LLM_GATEWAY=false', () => {
+    process.env.VISION_ENABLED = 'false';
+    expect(Features.vision.useGateway).toBe(false);
+    process.env.EMBEDDING_ENABLED = 'false';
+    expect(Features.embeddings.useGateway).toBe(false);
+    process.env.USE_LLM_GATEWAY = 'false';
+    delete process.env.VISION_ENABLED;
+    delete process.env.EMBEDDING_ENABLED;
+    expect(Features.vision.useGateway).toBe(false);
+    expect(Features.embeddings.useGateway).toBe(false);
+    expect(Features.image.useGateway).toBe(false);
+    expect(Features.video.useGateway).toBe(false);
+  });
+
+  it('includes Phase 3 multimodal flags in snapshotFeatures', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    const snap = snapshotFeatures();
+    expect(snap.vision.useGateway).toBe(true);
+    expect(snap.embeddings.defaultProvider).toBeTruthy();
+    expect(snap.image.defaultProvider).toBeTruthy();
+    expect(snap.video.defaultProvider).toBeTruthy();
+  });
 });

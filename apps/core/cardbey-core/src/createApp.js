@@ -114,6 +114,9 @@ export function logDevProviderEnvHints() {
     console.log(
       `[cardbey-core] USE_LLM_GATEWAY=on (default) provider=${process.env.LLM_DEFAULT_PROVIDER || 'anthropic'}`,
     );
+    console.log(
+      `[cardbey-core] Phase3 multimodal: vision=${process.env.VISION_PROVIDER || 'anthropic'} embed=${process.env.EMBEDDING_PROVIDER || 'openai'} image=${process.env.IMAGE_PROVIDER || 'dalle'} video=${process.env.VIDEO_PROVIDER || 'openai'}`,
+    );
   } else {
     console.warn(
       '[cardbey-core] USE_LLM_GATEWAY=false — direct provider SDK paths enabled (rollback mode)',

@@ -6,8 +6,10 @@
 
 import OpenAI from 'openai';
 import fetch from 'node-fetch';
+import { Features } from '../../config/features.js';
 import { postAnthropicMessages } from '../../lib/llm/anthropicProvider.js';
 import { generateText } from '../../lib/llm/anthropicProvider.js';
+import { analyzeVision } from '../../lib/llm/llmGateway.ts';
 import { runOcr } from '../../modules/vision/runOcr.js';
 import { parseIntakePreprocessVisionOutput } from '../../lib/ocr/intakeImagePreprocess.js';
 
@@ -361,6 +363,37 @@ async function extractViaOpenAiVision(dataUrl, prompt) {
 }
 
 /**
+ * Phase 3 gateway path for document vision.
+ * @param {{ base64: string, mediaType: string }} media
+ * @param {string} prompt
+ * @param {string} [provider]
+ */
+async function extractViaGatewayVision(media, prompt, provider) {
+  try {
+    const response = await analyzeVision({
+      image: media.base64,
+      mediaType: media.mediaType,
+      prompt,
+      system: 'You read business flyers and documents. Return structured JSON only — no prose.',
+      provider: provider || Features.vision.defaultProvider,
+      model:
+        provider === 'openai'
+          ? process.env.DOCUMENT_VISION_MODEL?.trim() || 'gpt-4o'
+          : undefined,
+      maxTokens: 4096,
+      detail: 'high',
+      purpose: 'document_vision_extract',
+    });
+    return {
+      text: (response.content || '').trim() || null,
+      provider: response.provider,
+    };
+  } catch {
+    return { text: null, provider: '' };
+  }
+}
+
+/**
  * @param {string} ocrText
  */
 export async function extractStructuredDocumentFromText(ocrText) {
@@ -401,12 +434,33 @@ export async function extractStructuredDocumentFromImage(imageUrl, ctx = {}) {
     ? `${DOCUMENT_BUSINESS_EXTRACTION_PROMPT}\n\nStore context: ${businessName}.`
     : DOCUMENT_BUSINESS_EXTRACTION_PROMPT;
 
-  let raw = await extractViaAnthropicVision(media, prompt);
-  let provider = raw ? 'anthropic' : '';
+  let raw = null;
+  let provider = '';
 
-  if (!raw) {
-    raw = await extractViaOpenAiVision(dataUrl, prompt);
-    provider = raw ? 'openai' : '';
+  if (Features.vision.useGateway) {
+    const primary = await extractViaGatewayVision(
+      media,
+      prompt,
+      Features.vision.defaultProvider,
+    );
+    raw = primary.text;
+    provider = primary.provider || '';
+    if (!raw && Features.vision.fallbackProvider !== Features.vision.defaultProvider) {
+      const fallback = await extractViaGatewayVision(
+        media,
+        prompt,
+        Features.vision.fallbackProvider,
+      );
+      raw = fallback.text;
+      provider = fallback.provider || '';
+    }
+  } else {
+    raw = await extractViaAnthropicVision(media, prompt);
+    provider = raw ? 'anthropic' : '';
+    if (!raw) {
+      raw = await extractViaOpenAiVision(dataUrl, prompt);
+      provider = raw ? 'openai' : '';
+    }
   }
 
   if (!raw) {

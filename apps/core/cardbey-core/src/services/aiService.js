@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
-import { llmGateway } from '../lib/llm/llmGateway.ts';
+import { generateImage as gatewayGenerateImage, llmGateway } from '../lib/llm/llmGateway.ts';
 import { deprecatedOpenAIChatCompletion } from '../lib/llm/directOpenAICall.js';
 import { Features } from '../config/features.js';
 
@@ -582,10 +582,10 @@ export async function generateTextWithSystemPrompt(options = {}) {
 }
 
 /**
- * Generate image using DALL-E
+ * Generate image using DALL-E (Phase 3: llmGateway.generateImage when enabled).
  */
 export async function generateImage(options = {}) {
-  if (!HAS_AI) {
+  if (!HAS_AI && !Features.image.useGateway) {
     throw new Error('AI service is not available. Please configure OPENAI_API_KEY.');
   }
 
@@ -621,12 +621,40 @@ export async function generateImage(options = {}) {
       enhancedPrompt = `High-quality photograph, ${prompt}, professional lighting, sharp focus`;
     }
 
+    if (Features.image.useGateway) {
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout')), AI_TIMEOUT_MS);
+      });
+      const result = await Promise.race([
+        gatewayGenerateImage({
+          prompt: enhancedPrompt,
+          provider: Features.image.defaultProvider,
+          model: 'dall-e-3',
+          size,
+          count: 1,
+          purpose: 'ai_service_image',
+        }),
+        timeoutPromise,
+      ]);
+      const imageUrl = result.images?.[0];
+      if (!imageUrl) {
+        throw new Error('AI service did not return an image URL');
+      }
+      return {
+        url: imageUrl,
+        prompt,
+        style,
+        aspectRatio,
+        size,
+      };
+    }
+
     // Create timeout promise
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('Request timeout')), AI_TIMEOUT_MS);
     });
 
-    // Generate image
+    // Generate image (direct OpenAI rollback path)
     const apiCall = openai.images.generate({
       model: 'dall-e-3',
       prompt: enhancedPrompt,
