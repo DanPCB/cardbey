@@ -67,4 +67,13 @@ describe('config/features', () => {
     expect(Features.llm.providers.groq.enabled).toBe(true);
     expect(Features.llm.providers.kimi.defaultModel).toContain('kimi');
   });
+
+  it('defaults multiAgent gateway provider to deepseek (Phase 2)', () => {
+    delete process.env.MULTIAGENT_PROVIDER;
+    delete process.env.MULTIAGENT_USE_GATEWAY;
+    delete process.env.USE_LLM_GATEWAY;
+    expect(Features.multiAgent.provider).toBe('deepseek');
+    expect(Features.multiAgent.useGateway).toBe(true);
+    expect(Features.intent.provider).toBe('deepseek');
+  });
 });

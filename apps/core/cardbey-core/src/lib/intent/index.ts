@@ -57,6 +57,16 @@ export {
   WORKFLOW_TYPE_LIST,
 } from './constants.js';
 
+export {
+  INTENT_TAXONOMY,
+  fromIntentFirstType,
+  fromMultiAgentIntent,
+  intentTypePromptList,
+  isKnownIntentType,
+  normalizeIntentType,
+  toMultiAgentIntent,
+} from './intentTaxonomy.js';
+
 export { IntentReasoner } from './intentReasoner.js';
 export { IntentIntegration, getIntentIntegration, resetIntentIntegrationForTests } from './intentIntegration.js';
 

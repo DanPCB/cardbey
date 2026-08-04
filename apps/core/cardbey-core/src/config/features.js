@@ -169,6 +169,45 @@ export const Features = {
         .map((s) => s.trim())
         .filter(Boolean);
     },
+    /** Phase 2: default LLM provider for multiAgent BaseAgent (via llmGateway). */
+    get provider() {
+      const raw = String(process.env.MULTIAGENT_PROVIDER || 'deepseek').trim().toLowerCase();
+      return raw || 'deepseek';
+    },
+    get fallbackProvider() {
+      const raw = String(
+        process.env.MULTIAGENT_FALLBACK_PROVIDER ||
+          process.env.LLM_FALLBACK_PROVIDER ||
+          'anthropic',
+      )
+        .trim()
+        .toLowerCase();
+      return raw || 'anthropic';
+    },
+    /** Route multiAgent LLM through llmGateway. Rollback: MULTIAGENT_USE_GATEWAY=false */
+    get useGateway() {
+      if (!Features.llm.useGateway) return false;
+      return parseBoolEnv(process.env.MULTIAGENT_USE_GATEWAY, true);
+    },
+    get enabled() {
+      return parseBoolEnv(process.env.MULTI_AGENT_ENABLED, true);
+    },
+  },
+  /** Phase 2: intent classification / reasoner provider hints. */
+  intent: {
+    get provider() {
+      const raw = String(
+        process.env.INTENT_PROVIDER ||
+          process.env.MULTIAGENT_PROVIDER ||
+          'deepseek',
+      )
+        .trim()
+        .toLowerCase();
+      return raw || 'deepseek';
+    },
+    get useRegex() {
+      return parseBoolEnv(process.env.INTENT_USE_REGEX, true);
+    },
   },
   reasoningPhase0: {
     get centralizedOutcome() {
@@ -427,6 +466,14 @@ export function snapshotFeatures() {
     multiAgent: {
       requireConfirmation: Features.multiAgent.requireConfirmation,
       skipConfirmationUsers: Features.multiAgent.skipConfirmationUsers,
+      provider: Features.multiAgent.provider,
+      fallbackProvider: Features.multiAgent.fallbackProvider,
+      useGateway: Features.multiAgent.useGateway,
+      enabled: Features.multiAgent.enabled,
+    },
+    intent: {
+      provider: Features.intent.provider,
+      useRegex: Features.intent.useRegex,
     },
     reasoningPhase0: {
       centralizedOutcome: Features.reasoningPhase0.centralizedOutcome,
