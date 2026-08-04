@@ -116,6 +116,11 @@ import {
   isAttachmentOnlyPlaceholderMessage,
 } from '../lib/intake/assetUploadGuard.js';
 import {
+  resolveCreateStoreAttachmentContext,
+  emitCreateStoreCardContextResolved,
+  emitCreateStoreCardContextFailed,
+} from '../lib/intake/resolveCreateStoreAttachmentContext.js';
+import {
   buildAssetIntentDetectionClassification,
   buildAnalyzeUploadedAssetForStoreCreationClassification,
 } from '../lib/intake/assetIntentIngestService.js';
@@ -7479,11 +7484,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     !forceCreateStoreCheckpoint &&
     isExplicitCreateStoreFromUploadContext(createStoreUploadContextOpts)
   ) {
-    const recoveredUploadImage = await resolveCreateStoreUploadImageRef(
-      body,
+    const cardAttachmentCtx = resolveCreateStoreAttachmentContext({
+      conversationId: conversationSessionIdHint ?? null,
+      missionId: body?.missionId ?? null,
+      sessionKey: intakeAssetSessionKey,
+      currentImageDataUrl: resolveIntakeImageRefForOcr(body),
+      currentAttachments: Array.isArray(body?.attachments) ? body.attachments : [],
       intentSourceContext,
-      intakeAssetSessionKey,
-    );
+    });
+    emitCreateStoreCardContextResolved(cardAttachmentCtx, {
+      conversationId: conversationSessionIdHint ?? null,
+      missionId: body?.missionId ?? null,
+      preflightStatus: 'upload_create_store',
+      extractedFields: [
+        ...(cardAttachmentCtx.cardExtraction?.businessName ? ['businessName'] : []),
+        ...(cardAttachmentCtx.cardExtraction?.location ? ['location'] : []),
+        ...(cardAttachmentCtx.cardExtraction?.vertical || cardAttachmentCtx.cardExtraction?.category
+          ? ['category']
+          : []),
+      ],
+    });
+    if (cardAttachmentCtx.cardExtraction) {
+      intentSourceContext = {
+        ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+        cardExtraction: intentSourceContext?.cardExtraction || cardAttachmentCtx.cardExtraction,
+        ...(cardAttachmentCtx.storeCandidate && !intentSourceContext?.storeCandidate
+          ? { storeCandidate: cardAttachmentCtx.storeCandidate }
+          : {}),
+      };
+      body.intentSourceContext = intentSourceContext;
+    }
+    const recoveredUploadImage =
+      (await resolveCreateStoreUploadImageRef(
+        body,
+        intentSourceContext,
+        intakeAssetSessionKey,
+      )) || cardAttachmentCtx.mediaUrlOrRef;
     const selectionParamsForIdentity =
       body?.intakeV2Selection &&
       typeof body.intakeV2Selection === 'object' &&
@@ -7498,7 +7534,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         intentSourceContext?.assetIngestResult ||
         selectionParamsForIdentity.cardExtraction ||
         selectionParamsForIdentity.storeCandidate ||
-        selectionParamsForIdentity.documentExtraction,
+        selectionParamsForIdentity.documentExtraction ||
+        cardAttachmentCtx.extractionStatus === 'ready',
     );
     if (!recoveredUploadImage && !hasWorkflowIdentity) {
       try {
@@ -7513,22 +7550,32 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       }
     }
     if (!recoveredUploadImage && !hasWorkflowIdentity) {
+      emitCreateStoreCardContextFailed(
+        cardAttachmentCtx.fallbackReason || 'ATTACHMENT_NOT_READY',
+        {
+          conversationId: conversationSessionIdHint ?? null,
+          missionId: body?.missionId ?? null,
+          attachmentSource: cardAttachmentCtx.attachmentSource,
+        },
+      );
       console.warn('[INTAKE] ATTACHMENT_NOT_READY create_store from upload without resolvable image', {
         sessionKey: intakeAssetSessionKey ? String(intakeAssetSessionKey).slice(0, 12) : null,
         hasEvidenceId: Boolean(body?.evidenceId || intentSourceContext?.evidenceId),
         hasAttachmentId: Boolean(body?.attachmentId || intentSourceContext?.attachmentId),
         assetAction: intentSourceContext?.assetAction ?? null,
         fromAskSelection: intentSourceContext?.fromAskSelection ?? null,
+        fallbackReason: cardAttachmentCtx.fallbackReason,
       });
       return res.status(409).json({
         ok: false,
         success: false,
         error: 'ATTACHMENT_NOT_READY',
-        code: 'ATTACHMENT_NOT_READY',
+        code: cardAttachmentCtx.fallbackReason || 'ATTACHMENT_NOT_READY',
         message:
           'We still have your upload request, but the image is not ready to read. Please tap Create store again, or re-attach the image.',
         action: 'clarify',
         retryable: true,
+        fallbackReason: cardAttachmentCtx.fallbackReason || 'ATTACHMENT_NOT_READY',
       });
     }
     const uploadDraftBody = await buildCreateStoreDraftIntakeResponseFromUpload({
