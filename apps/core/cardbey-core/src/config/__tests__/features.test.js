@@ -119,4 +119,12 @@ describe('config/features', () => {
     expect(snap.image.defaultProvider).toBeTruthy();
     expect(snap.video.defaultProvider).toBeTruthy();
   });
+
+  it('defaults LLM fallbackModel (Phase 4)', () => {
+    delete process.env.LLM_FALLBACK_MODEL;
+    delete process.env.OPENAI_CHAT_MODEL;
+    expect(Features.llm.fallbackModel).toBe('gpt-4o-mini');
+    process.env.LLM_FALLBACK_MODEL = 'gpt-4o';
+    expect(Features.llm.fallbackModel).toBe('gpt-4o');
+  });
 });
