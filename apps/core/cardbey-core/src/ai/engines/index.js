@@ -1,8 +1,23 @@
 /**
- * AI Engine Registry
- * Central registry for all AI engine implementations
- * Provides getter functions to retrieve engines by name
+ * AI Engine Registry (legacy compatibility facade)
+ *
+ * Phase 4: Do not add new callers. Prefer llmGateway
+ * (complete / analyzeVision / generateImage / generateVideo).
+ * Engines remain as thin adapters for loyalty/OCR/template paths until those
+ * call sites migrate. lib/routing/hybridRouter is unrelated and stays.
+ *
+ * Deleted in Phase 4: lib/llm/hybridRouter.js, lib/llm/cloudAdapter.js
  */
+
+let warnedEnginesDeprecated = false;
+function warnEnginesDeprecated() {
+  if (warnedEnginesDeprecated) return;
+  warnedEnginesDeprecated = true;
+  console.warn(
+    '[DEPRECATED] ai/engines registry is a legacy facade. Prefer llmGateway. ' +
+      'Text/vision/image engines route through the gateway when enabled.',
+  );
+}
 
 import { openaiVisionEngine } from './openaiVisionEngine.js';
 import { openaiTextEngine } from './openaiTextEngine.js';
@@ -19,6 +34,7 @@ export const visionEngines = {
 };
 
 export function getVisionEngine(name = 'default') {
+  warnEnginesDeprecated();
   const engine = visionEngines[name];
   if (!engine) {
     console.warn(`[AI Engines] Vision engine "${name}" not found, using default`);
@@ -37,6 +53,7 @@ export const textEngines = {
 };
 
 export function getTextEngine(name = 'default') {
+  warnEnginesDeprecated();
   const engine = textEngines[name];
   if (!engine) {
     console.warn(`[AI Engines] Text engine "${name}" not found, using default`);
@@ -55,6 +72,7 @@ export const contentEngines = {
 };
 
 export function getContentEngine(name = 'default') {
+  warnEnginesDeprecated();
   const engine = contentEngines[name];
   if (!engine) {
     console.warn(`[AI Engines] Content engine "${name}" not found, using default`);

@@ -53,6 +53,13 @@ export const Features = {
       const raw = String(process.env.LLM_DEFAULT_MODEL || '').trim();
       return raw || undefined;
     },
+    /** OpenAI-family fallback model for engines / gateway fallback path. */
+    get fallbackModel() {
+      const raw = String(
+        process.env.LLM_FALLBACK_MODEL || process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
+      ).trim();
+      return raw || 'gpt-4o-mini';
+    },
     /** Phase 1: strip PII before external provider calls. Rollback: ENABLE_PII_REDACTION=false */
     get piiRedaction() {
       return parseBoolEnv(process.env.ENABLE_PII_REDACTION, true);
@@ -449,6 +456,7 @@ export function snapshotFeatures() {
       defaultProvider: Features.llm.defaultProvider,
       fallbackProvider: Features.llm.fallbackProvider,
       defaultModel: Features.llm.defaultModel ?? null,
+      fallbackModel: Features.llm.fallbackModel,
       piiRedaction: Features.llm.piiRedaction,
       available: Features.llm.available,
       providers: {
