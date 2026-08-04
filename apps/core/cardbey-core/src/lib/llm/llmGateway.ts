@@ -1,13 +1,17 @@
 /**
  * LLM Gateway — multi-message chat + native tool calling with cache and usage tracking.
+ * Phase 1: kimi + groq providers; PII redaction before provider calls.
  */
 
 import crypto from 'node:crypto';
 import { getPrismaClient } from '../../lib/prisma.js';
+import { redactChatMessages } from '../privacy/redactionMiddleware.ts';
 import { resolveAnthropicModel } from './anthropicModelConfig.js';
 import { buildChatMessages, capChatMessages, hashChatPayload } from './llmMessageBuilder.js';
 import { callAnthropicChat } from './providers/anthropicChat.js';
 import { callDeepSeekChat } from './providers/deepseekChat.js';
+import { callGroqChat, resolveGroqModel } from './providers/groqChat.js';
+import { callKimiChat, resolveKimiModel } from './providers/kimiChat.js';
 import { callOpenAIChat, callXaiChat } from './providers/openaiChat.js';
 import type {
   LLMGatewayOptions,
@@ -26,14 +30,40 @@ const DEFAULT_MAX_TOKENS = 1000;
 const DEFAULT_TEMPERATURE = 0.3;
 const CACHE_TTL_DAYS = 7;
 
+/** Phase 1 provider registry — Anthropic → Kimi/Groq via config / x-provider. */
+export const PROVIDER_NAMES = [
+  'anthropic',
+  'openai',
+  'deepseek',
+  'xai',
+  'kimi',
+  'groq',
+] as const;
+
+export type GatewayProviderName = (typeof PROVIDER_NAMES)[number];
+
 const DEFAULT_PROVIDER_ENV = process.env.LLM_DEFAULT_PROVIDER;
 const DEFAULT_PROVIDER =
   DEFAULT_PROVIDER_ENV ??
   (process.env.ANTHROPIC_API_KEY ? 'anthropic' : OPENAI_PROVIDER);
 
+export function validateProvider(provider: string): asserts provider is GatewayProviderName {
+  if (!(PROVIDER_NAMES as readonly string[]).includes(provider)) {
+    throw new Error(
+      `Unsupported provider: ${provider}. Supported: ${PROVIDER_NAMES.join(', ')}`,
+    );
+  }
+}
+
 function resolveModel(providerName: string, explicit?: string): string {
   const trimmed =
     typeof explicit === 'string' && explicit.trim() ? explicit.trim() : '';
+  if (providerName === 'kimi') {
+    return resolveKimiModel(trimmed || undefined);
+  }
+  if (providerName === 'groq') {
+    return resolveGroqModel(trimmed || undefined);
+  }
   if (trimmed) {
     if (providerName === 'anthropic' && /^gpt-/i.test(trimmed)) {
       console.warn(
@@ -47,20 +77,38 @@ function resolveModel(providerName: string, explicit?: string): string {
 }
 
 function selectProvider(explicit?: string, model?: string): string {
-  if (explicit?.trim()) return explicit.trim().toLowerCase();
+  if (explicit?.trim()) {
+    const name = explicit.trim().toLowerCase();
+    validateProvider(name);
+    return name;
+  }
   if (model?.startsWith('claude')) return 'anthropic';
   if (model?.startsWith('gpt')) return OPENAI_PROVIDER;
   if (model?.startsWith('deepseek')) return 'deepseek';
+  if (model?.startsWith('kimi') || model?.startsWith('moonshot')) return 'kimi';
+  if (model?.startsWith('llama') || model?.startsWith('mixtral') || model?.startsWith('groq')) {
+    return 'groq';
+  }
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
   if (process.env.OPENAI_API_KEY) return OPENAI_PROVIDER;
+  if (process.env.KIMI_API_KEY) return 'kimi';
+  if (process.env.GROQ_API_KEY) return 'groq';
   return DEFAULT_PROVIDER;
 }
 
 function getFallbackProvider(primary: string): string | null {
   const configured = String(process.env.LLM_FALLBACK_PROVIDER ?? '').trim().toLowerCase();
-  if (configured && configured !== primary) return configured;
+  if (configured && configured !== primary) {
+    if ((PROVIDER_NAMES as readonly string[]).includes(configured)) return configured;
+  }
   if (primary === 'anthropic' && process.env.OPENAI_API_KEY) return OPENAI_PROVIDER;
   if (primary === OPENAI_PROVIDER && process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  if ((primary === 'kimi' || primary === 'groq') && process.env.OPENAI_API_KEY) {
+    return OPENAI_PROVIDER;
+  }
+  if ((primary === 'kimi' || primary === 'groq') && process.env.ANTHROPIC_API_KEY) {
+    return 'anthropic';
+  }
   return null;
 }
 
@@ -85,6 +133,7 @@ async function callProviderChat(
   providerName: string,
   request: LLMProviderChatRequest,
 ): Promise<LLMProviderChatResponse> {
+  validateProvider(providerName);
   switch (providerName) {
     case 'anthropic':
       return callAnthropicChat(request);
@@ -92,6 +141,10 @@ async function callProviderChat(
       return callDeepSeekChat(request);
     case 'xai':
       return callXaiChat(request);
+    case 'kimi':
+      return callKimiChat(request);
+    case 'groq':
+      return callGroqChat(request);
     case 'openai':
     default:
       return callOpenAIChat(request);
@@ -178,6 +231,8 @@ export async function complete(options: LLMGatewayOptions): Promise<LLMResult> {
     tool_results,
   });
   builtMessages = capChatMessages(builtMessages, maxMessagesLimit());
+  // Phase 1: strip PII before cache key + external provider (ENABLE_PII_REDACTION=false to skip)
+  builtMessages = redactChatMessages(builtMessages, purpose);
 
   const effectiveTools = toolCallingEnabled() && tools.length > 0 ? tools : undefined;
 
