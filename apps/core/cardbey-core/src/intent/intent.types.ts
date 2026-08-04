@@ -22,6 +22,8 @@ export interface Intent {
   response?: string;
   entities?: Record<string, unknown>;
   shouldExecute: boolean;
+  /** Canonical IntentType from lib/intent (Phase 2 unified taxonomy). */
+  unifiedIntent?: string;
 }
 
 export type ContextStatus = 'not_required' | 'ready' | 'needs_store_creation' | 'needs_store_picker';

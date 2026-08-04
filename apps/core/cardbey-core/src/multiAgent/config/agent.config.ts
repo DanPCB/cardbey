@@ -93,6 +93,7 @@ export function loadAgentConfig(
   const provider =
     overrides?.provider ||
     process.env[keys.provider]?.trim() ||
+    process.env.MULTIAGENT_PROVIDER?.trim() ||
     'deepseek';
 
   return {

@@ -1,10 +1,13 @@
 /**
  * OpenAI Vision Engine Adapter
- * Implements VisionEngine interface using OpenAI Vision API
+ * Phase 4: routes through llmGateway.analyzeVision when vision gateway is on.
+ * Implements VisionEngine interface using OpenAI Vision API (rollback path).
  */
 
 import OpenAI from 'openai';
 import fetch from 'node-fetch';
+import { Features } from '../../config/features.js';
+import { analyzeVision } from '../../lib/llm/llmGateway.ts';
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
@@ -15,6 +18,11 @@ const openai = process.env.OPENAI_API_KEY
   : null;
 
 const HAS_AI = Boolean(openai);
+
+const VISION_MODEL =
+  process.env.OPENAI_VISION_MODEL?.trim() ||
+  process.env.OPENAI_CHAT_MODEL?.trim() ||
+  'gpt-4o';
 
 // Debug logging helper (gated by environment variable)
 const DEBUG_VISION = process.env.DEBUG_VISION === 'true' || process.env.DEBUG_VISION === '1';
@@ -154,12 +162,12 @@ export const openaiVisionEngine = {
   name: 'openai-vision-v1',
 
   async analyzeImage({ imageUrl, imageBase64, task }) {
-    if (!HAS_AI) {
-      throw new Error('OpenAI API key not configured');
-    }
-
     if (!imageUrl && !imageBase64) {
       throw new Error('Either imageUrl or imageBase64 must be provided');
+    }
+
+    if (!Features.vision.useGateway && !HAS_AI) {
+      throw new Error('OpenAI API key not configured');
     }
 
     try {
@@ -286,6 +294,37 @@ export const openaiVisionEngine = {
         image_url: highDetailTask ? { url: finalImageUrl, detail: 'high' } : { url: finalImageUrl },
       };
 
+      const maxTokens =
+        task === 'intake_preprocess' || task === 'loyalty_card_grid' || task === 'brand_signals'
+          ? 4096
+          : 2000;
+
+      // Phase 4: prefer gateway (needs base64 / data URL — fetch private/public URLs first)
+      if (Features.vision.useGateway) {
+        let imagePayload = finalImageUrl;
+        if (!useDataUrl && finalImageUrl && !String(finalImageUrl).startsWith('data:')) {
+          imagePayload = await fetchImageAsDataUrl(finalImageUrl);
+        }
+        debugLog('Sending via llmGateway.analyzeVision:', { task });
+        const gatewayResult = await analyzeVision({
+          image: imagePayload,
+          prompt,
+          provider: 'openai',
+          model: VISION_MODEL,
+          maxTokens,
+          detail: highDetailTask ? 'high' : 'auto',
+          purpose: `openai_vision_engine:${task || 'default'}`,
+        });
+        return {
+          text: gatewayResult.content || '',
+          raw: {
+            model: gatewayResult.model || VISION_MODEL,
+            usage: gatewayResult.usage,
+            provider: gatewayResult.provider,
+          },
+        };
+      }
+
       debugLog('Sending to OpenAI:', {
         method: useDataUrl ? 'data_url' : 'image_url',
         task,
@@ -293,7 +332,7 @@ export const openaiVisionEngine = {
       });
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o', // Vision-capable model
+        model: VISION_MODEL,
         messages: [
           {
             role: 'user',
@@ -304,10 +343,7 @@ export const openaiVisionEngine = {
           },
         ],
         ...(task === 'loyalty_card_grid' || task === 'brand_signals' ? { temperature: 0 } : {}),
-        max_tokens:
-          task === 'intake_preprocess' || task === 'loyalty_card_grid' || task === 'brand_signals'
-            ? 4096
-            : 2000,
+        max_tokens: maxTokens,
       });
 
       const text = response.choices[0]?.message?.content || '';
@@ -317,7 +353,7 @@ export const openaiVisionEngine = {
       return {
         text,
         raw: {
-          model: 'gpt-4o',
+          model: VISION_MODEL,
           usage: response.usage,
           responseId: response.id,
         },

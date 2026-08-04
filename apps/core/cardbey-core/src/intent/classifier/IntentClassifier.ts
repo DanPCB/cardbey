@@ -1,10 +1,12 @@
 /**
  * Pure intent classification — message content only.
  * No context, routing, or guard patches.
+ * Phase 2: attaches unifiedIntent (canonical lib/intent IntentType).
  */
 
 import type { Intent, IntentEngineInput, IntentType } from '../intent.types.js';
 import { normalizeCreateStoreTypos } from '../../lib/intent/storeCreateFastPath.js';
+import { fromIntentFirstType } from '../../lib/intent/unifiedIntent.ts';
 
 const GREETING_RE =
   /^(hi|hello|hey|thanks|thank you|yo|sup|good\s+(morning|afternoon|evening))$/i;
@@ -94,6 +96,7 @@ function buildIntent(
     response: opts.response,
     entities: opts.entities,
     shouldExecute: opts.shouldExecute ?? (requiresBusiness || type === 'question'),
+    unifiedIntent: fromIntentFirstType(type),
   };
 }
 
