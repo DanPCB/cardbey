@@ -13,6 +13,12 @@ import { callDeepSeekChat } from './providers/deepseekChat.js';
 import { callGroqChat, resolveGroqModel } from './providers/groqChat.js';
 import { callKimiChat, resolveKimiModel } from './providers/kimiChat.js';
 import { callOpenAIChat, callXaiChat } from './providers/openaiChat.js';
+import {
+  analyzeVision,
+  embed,
+  generateImage,
+  generateVideo,
+} from './multimodalGateway.js';
 import type {
   LLMGatewayOptions,
   LLMProviderChatRequest,
@@ -21,6 +27,17 @@ import type {
 } from './llmGatewayTypes.js';
 
 export type { LLMGatewayOptions, LLMResult, LLMChatMessage, LLMToolDefinition, LLMToolCall } from './llmGatewayTypes.js';
+export type {
+  VisionRequest,
+  VisionResponse,
+  EmbeddingRequest,
+  EmbeddingResponse,
+  ImageGenerationRequest,
+  ImageGenerationResponse,
+  VideoGenerationRequest,
+  VideoGenerationResponse,
+} from './multimodalTypes.js';
+export { analyzeVision, embed, generateImage, generateVideo };
 
 const OPENAI_PROVIDER = 'openai';
 const DEFAULT_MODEL =
@@ -461,4 +478,12 @@ export async function completeAnthropicVisionMessages(opts: {
   return { ...raw, text };
 }
 
-export const llmGateway = { generate, complete, completeAnthropicVisionMessages };
+export const llmGateway = {
+  generate,
+  complete,
+  completeAnthropicVisionMessages,
+  analyzeVision,
+  embed,
+  generateImage,
+  generateVideo,
+};

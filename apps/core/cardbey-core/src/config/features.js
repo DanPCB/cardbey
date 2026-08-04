@@ -209,6 +209,75 @@ export const Features = {
       return parseBoolEnv(process.env.INTENT_USE_REGEX, true);
     },
   },
+  /**
+   * Phase 3: multimodal + embeddings facades (via llmGateway).
+   * Rollback per surface: VISION_ENABLED / EMBEDDING_ENABLED / IMAGE_GEN_ENABLED / VIDEO_GEN_ENABLED=false
+   * Full rollback: USE_LLM_GATEWAY=false
+   */
+  vision: {
+    get enabled() {
+      return parseBoolEnv(process.env.VISION_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.vision.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.VISION_PROVIDER || 'anthropic').trim().toLowerCase();
+      return raw || 'anthropic';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.VISION_FALLBACK_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+  },
+  embeddings: {
+    get enabled() {
+      return parseBoolEnv(process.env.EMBEDDING_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.embeddings.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.EMBEDDING_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.EMBEDDING_FALLBACK_PROVIDER || 'voyage').trim().toLowerCase();
+      return raw || 'voyage';
+    },
+  },
+  image: {
+    get enabled() {
+      return parseBoolEnv(process.env.IMAGE_GEN_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.image.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.IMAGE_PROVIDER || 'dalle').trim().toLowerCase();
+      return raw || 'dalle';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.IMAGE_FALLBACK_PROVIDER || 'ideogram').trim().toLowerCase();
+      return raw || 'ideogram';
+    },
+  },
+  video: {
+    get enabled() {
+      return parseBoolEnv(process.env.VIDEO_GEN_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.video.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.VIDEO_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.VIDEO_FALLBACK_PROVIDER || 'kling').trim().toLowerCase();
+      return raw || 'kling';
+    },
+  },
   reasoningPhase0: {
     get centralizedOutcome() {
       return parseBoolEnv(process.env.PHASE0_CENTRALIZED_OUTCOME, true);
@@ -474,6 +543,30 @@ export function snapshotFeatures() {
     intent: {
       provider: Features.intent.provider,
       useRegex: Features.intent.useRegex,
+    },
+    vision: {
+      enabled: Features.vision.enabled,
+      useGateway: Features.vision.useGateway,
+      defaultProvider: Features.vision.defaultProvider,
+      fallbackProvider: Features.vision.fallbackProvider,
+    },
+    embeddings: {
+      enabled: Features.embeddings.enabled,
+      useGateway: Features.embeddings.useGateway,
+      defaultProvider: Features.embeddings.defaultProvider,
+      fallbackProvider: Features.embeddings.fallbackProvider,
+    },
+    image: {
+      enabled: Features.image.enabled,
+      useGateway: Features.image.useGateway,
+      defaultProvider: Features.image.defaultProvider,
+      fallbackProvider: Features.image.fallbackProvider,
+    },
+    video: {
+      enabled: Features.video.enabled,
+      useGateway: Features.video.useGateway,
+      defaultProvider: Features.video.defaultProvider,
+      fallbackProvider: Features.video.fallbackProvider,
     },
     reasoningPhase0: {
       centralizedOutcome: Features.reasoningPhase0.centralizedOutcome,

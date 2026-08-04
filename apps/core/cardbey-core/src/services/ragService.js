@@ -2,18 +2,18 @@
  * RAG (Retrieval-Augmented Generation) Service
  * 
  * Provides retrieval and answer generation using knowledge base chunks.
- * Phase 0: answer generation routes through llmGateway; embeddings remain OpenAI until Phase 3.
+ * Phase 0: answer generation routes through llmGateway.
+ * Phase 3: embeddings route through llmGateway.embed (OpenAI / Voyage / Cohere).
  */
 
 import OpenAI from 'openai';
 
 import { prisma } from '../lib/prisma.js';
-import { llmGateway } from '../lib/llm/llmGateway.ts';
+import { embed, llmGateway } from '../lib/llm/llmGateway.ts';
 import { deprecatedOpenAIChatCompletion } from '../lib/llm/directOpenAICall.js';
 import { Features } from '../config/features.js';
 
-// Embeddings still require OpenAI (Phase 3 will add gateway.embed)
-if (!process.env.OPENAI_API_KEY) {
+if (!process.env.OPENAI_API_KEY && !Features.embeddings.useGateway) {
   console.warn('[RAG Service] WARNING: OPENAI_API_KEY not configured. Embeddings / ingestion will not work.');
 }
 
@@ -105,7 +105,28 @@ async function generateEmbedding(text) {
     return mockEmbedding;
   }
 
-  // In production, require OpenAI
+  // Phase 3: embeddings via llmGateway (rollback: EMBEDDING_ENABLED=false or USE_LLM_GATEWAY=false)
+  if (Features.embeddings.useGateway) {
+    try {
+      const result = await embed({
+        text,
+        provider: Features.embeddings.defaultProvider,
+        purpose: 'rag_embedding',
+      });
+      const embedding = result.embeddings?.[0];
+      if (!embedding) {
+        const err = new Error('No embedding returned from gateway');
+        err.code = 'EMBEDDING_EMPTY';
+        throw err;
+      }
+      return embedding;
+    } catch (error) {
+      const err = new Error(`Failed to generate embedding: ${error.message}`, { cause: error });
+      err.code = error?.code || 'EMBEDDING_FAILED';
+      throw err;
+    }
+  }
+
   if (!HAS_OPENAI) {
     const error = new Error('OpenAI API key not configured');
     error.code = 'OPENAI_NOT_CONFIGURED';
@@ -127,7 +148,6 @@ async function generateEmbedding(text) {
 
     return embedding;
   } catch (error) {
-    // Preserve code + attach original error for debugging
     const err = new Error(`Failed to generate embedding: ${error.message}`, { cause: error });
     err.code = error?.code || 'OPENAI_EMBEDDING_FAILED';
     throw err;
