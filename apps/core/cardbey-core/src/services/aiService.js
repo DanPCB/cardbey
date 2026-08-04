@@ -1,12 +1,15 @@
 /**
- * AI Service - OpenAI Integration
- * Provides AI-powered content generation for the studio
+ * AI Service - content generation for the studio
+ * Phase 0: text generation routes through llmGateway by default.
  */
 
 import OpenAI from 'openai';
 import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
+import { generateImage as gatewayGenerateImage, llmGateway } from '../lib/llm/llmGateway.ts';
+import { deprecatedOpenAIChatCompletion } from '../lib/llm/directOpenAICall.js';
+import { Features } from '../config/features.js';
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ 
@@ -16,7 +19,75 @@ const openai = process.env.OPENAI_API_KEY
     })
   : null;
 
-const HAS_AI = Boolean(openai);
+const HAS_OPENAI = Boolean(openai);
+/** Text/LLM availability (gateway can use Anthropic/DeepSeek/xAI without OpenAI). */
+function hasAiText() {
+  return Features.llm.useGateway ? Features.llm.available : HAS_OPENAI;
+}
+/** Image generation still requires OpenAI. */
+const HAS_AI = HAS_OPENAI;
+
+/**
+ * Shared text completion — gateway by default, deprecated direct OpenAI on rollback.
+ * @param {object} opts
+ * @param {string} opts.purpose
+ * @param {string} opts.system
+ * @param {string} opts.user
+ * @param {number} [opts.temperature]
+ * @param {number} [opts.maxTokens]
+ * @param {'text'|'json'} [opts.responseFormat]
+ * @param {number} [opts.timeoutMs]
+ * @param {string} [opts.caller]
+ */
+async function completeText({
+  purpose,
+  system,
+  user,
+  temperature = 0.7,
+  maxTokens = 500,
+  responseFormat = 'text',
+  timeoutMs,
+  caller = 'aiService',
+}) {
+  if (Features.llm.useGateway) {
+    if (!Features.llm.available) {
+      throw new Error('AI service is not available. Configure ANTHROPIC_API_KEY or OPENAI_API_KEY.');
+    }
+    const result = await llmGateway.complete({
+      purpose,
+      tenantKey: 'ai-service',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      provider: Features.llm.defaultProvider,
+      model: Features.llm.defaultModel,
+      temperature,
+      maxTokens,
+      responseFormat,
+      ...(timeoutMs ? { timeoutMs } : {}),
+    });
+    return (result.text ?? result.content ?? '').trim();
+  }
+
+  if (!HAS_OPENAI) {
+    throw new Error('AI service is not available. Please configure OPENAI_API_KEY.');
+  }
+  const response = await deprecatedOpenAIChatCompletion(
+    openai,
+    {
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    },
+    caller,
+  );
+  return response.choices[0]?.message?.content?.trim() || '';
+}
 
 // Constants
 const MAX_PROMPT_LENGTH = 2000; // Maximum prompt length for safety
@@ -27,7 +98,7 @@ const IMAGE_DOWNLOAD_TIMEOUT_MS = 60000; // 60 seconds for image downloads
  * Generate design suggestions based on studio snapshot
  */
 export async function generateDesignSuggestions(snapshot, lastEvent) {
-  if (!HAS_AI) {
+  if (!hasAiText()) {
     return null; // Fallback to mock suggestions
   }
 
@@ -82,23 +153,15 @@ Focus on:
 
 Return ONLY valid JSON, no markdown formatting.`;
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a professional design assistant. Always return valid JSON only, no markdown or code blocks.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
+    const content = await completeText({
+      purpose: 'ai_design_suggestions',
+      system: 'You are a professional design assistant. Always return valid JSON only, no markdown or code blocks.',
+      user: prompt,
       temperature: 0.7,
-      max_tokens: 500,
+      maxTokens: 500,
+      responseFormat: 'json',
+      caller: 'aiService.generateDesignSuggestions',
     });
-
-    const content = response.choices[0]?.message?.content?.trim();
     if (!content) return null;
 
     // Parse JSON (handle markdown code blocks if present)
@@ -120,7 +183,7 @@ Return ONLY valid JSON, no markdown formatting.`;
  * Generate caption variants for an element
  */
 export async function generateCaptions(element, tone = 'Fresh', context = {}) {
-  if (!HAS_AI) {
+  if (!hasAiText()) {
     return null; // Fallback to mock captions
   }
 
@@ -147,23 +210,15 @@ Requirements:
 Return ONLY a JSON array of strings:
 ["caption 1", "caption 2", "caption 3"]`;
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a creative copywriter. Return only valid JSON arrays, no markdown.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
+    const content = await completeText({
+      purpose: 'ai_captions',
+      system: 'You are a creative copywriter. Return only valid JSON arrays, no markdown.',
+      user: prompt,
       temperature: 0.8,
-      max_tokens: 200,
+      maxTokens: 200,
+      responseFormat: 'json',
+      caller: 'aiService.generateCaptions',
     });
-
-    const content = response.choices[0]?.message?.content?.trim();
     if (!content) return null;
 
     let jsonContent = content;
@@ -184,7 +239,7 @@ Return ONLY a JSON array of strings:
  * Generate color palette suggestions
  */
 export async function generatePalette(theme = 'modern', mood = 'uplifting', context = {}) {
-  if (!HAS_AI) {
+  if (!hasAiText()) {
     return null; // Fallback to mock palette
   }
 
@@ -207,23 +262,15 @@ Return ONLY a JSON object:
   "description": "Brief description of the palette"
 }`;
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a color design expert. Return only valid JSON, no markdown.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
+    const content = await completeText({
+      purpose: 'ai_palette',
+      system: 'You are a color design expert. Return only valid JSON, no markdown.',
+      user: prompt,
       temperature: 0.7,
-      max_tokens: 200,
+      maxTokens: 200,
+      responseFormat: 'json',
+      caller: 'aiService.generatePalette',
     });
-
-    const content = response.choices[0]?.message?.content?.trim();
     if (!content) return null;
 
     let jsonContent = content;
@@ -244,7 +291,7 @@ Return ONLY a JSON object:
  * Generate design layout from prompt
  */
 export async function generateDesignLayout(prompt, options = {}) {
-  if (!HAS_AI) {
+  if (!hasAiText()) {
     return null; // Fallback to mock layout
   }
 
@@ -310,17 +357,15 @@ Generate:
 - Layout style recommendation${trendProfile?.data?.layout_patterns ? ' - use one of the trend layout patterns' : ''}
 - Design style recommendation${trendProfile?.data?.prompt_tags ? ' - incorporate trend style tags' : ''}`;
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
+    const content = await completeText({
+      purpose: 'ai_design_layout',
+      system: systemPrompt,
+      user: userPrompt,
       temperature: 0.8,
-      max_tokens: 400,
+      maxTokens: 400,
+      responseFormat: 'json',
+      caller: 'aiService.generateDesignLayout',
     });
-
-    const content = response.choices[0]?.message?.content?.trim();
     if (!content) return null;
 
     let jsonContent = content;
@@ -398,11 +443,15 @@ function handleAIError(error) {
 }
 
 /**
- * Generate text content using AI
+ * Generate text content using AI (via llmGateway by default).
  */
 export async function generateText(options = {}) {
-  if (!HAS_AI) {
-    throw new Error('AI service is not available. Please configure OPENAI_API_KEY.');
+  if (!hasAiText()) {
+    throw new Error(
+      Features.llm.useGateway
+        ? 'AI service is not available. Configure ANTHROPIC_API_KEY or OPENAI_API_KEY.'
+        : 'AI service is not available. Please configure OPENAI_API_KEY.',
+    );
   }
 
   try {
@@ -413,10 +462,8 @@ export async function generateText(options = {}) {
       context = {},
     } = options;
 
-    // Sanitize prompt
     const prompt = sanitizePrompt(rawPrompt);
 
-    // Build system message based on context
     const section = context.section || 'generic';
     const templateName = context.templateName || '';
     const brandNotes = context.brandNotes || '';
@@ -449,30 +496,30 @@ export async function generateText(options = {}) {
 
     systemMessage += 'Return only the generated text, no explanations or markdown.';
 
-    // Build user prompt
     let userPrompt = prompt;
     if (templateName) {
       userPrompt = `Template: ${templateName}. ${userPrompt}`;
     }
 
-    // Create timeout promise
+    const temperature = tone === 'professional' ? 0.5 : tone === 'playful' ? 0.9 : 0.7;
+    const maxTokens = section === 'cta' ? 50 : section === 'headline' ? 100 : 200;
+
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('Request timeout')), AI_TIMEOUT_MS);
     });
 
-    // Make API call with timeout
-    const apiCall = openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemMessage },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: tone === 'professional' ? 0.5 : tone === 'playful' ? 0.9 : 0.7,
-      max_tokens: section === 'cta' ? 50 : section === 'headline' ? 100 : 200,
-    });
-
-    const response = await Promise.race([apiCall, timeoutPromise]);
-    const content = response.choices[0]?.message?.content?.trim();
+    const content = await Promise.race([
+      completeText({
+        purpose: 'ai_generate_text',
+        system: systemMessage,
+        user: userPrompt,
+        temperature,
+        maxTokens,
+        timeoutMs: AI_TIMEOUT_MS,
+        caller: 'aiService.generateText',
+      }),
+      timeoutPromise,
+    ]);
 
     if (!content) {
       throw new Error('AI service returned empty response');
@@ -493,11 +540,15 @@ export async function generateText(options = {}) {
 
 /**
  * Generate text with explicit system and user prompts (e.g. for JSON menu generation).
- * Uses a client with the requested timeout so the SDK does not abort before our race (default client is 30s).
+ * Routes through llmGateway by default (Phase 0).
  */
 export async function generateTextWithSystemPrompt(options = {}) {
-  if (!HAS_AI) {
-    throw new Error('AI service is not available. Please configure OPENAI_API_KEY.');
+  if (!hasAiText()) {
+    throw new Error(
+      Features.llm.useGateway
+        ? 'AI service is not available. Configure ANTHROPIC_API_KEY or OPENAI_API_KEY.'
+        : 'AI service is not available. Please configure OPENAI_API_KEY.',
+    );
   }
   const {
     systemPrompt = '',
@@ -506,26 +557,24 @@ export async function generateTextWithSystemPrompt(options = {}) {
     maxTokens = 4000,
     timeoutMs = 60000,
   } = options;
-  // Use a client with matching timeout; default openai has 30s and would abort before our race.
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: Math.max(timeoutMs, 60000),
-    maxRetries: 1,
-  });
-  const apiCall = client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    temperature,
-    max_tokens: maxTokens,
-  });
+
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => reject(new Error('Request timeout')), timeoutMs);
   });
-  const response = await Promise.race([apiCall, timeoutPromise]);
-  const content = response.choices[0]?.message?.content?.trim();
+
+  const content = await Promise.race([
+    completeText({
+      purpose: 'ai_generate_text_system',
+      system: systemPrompt,
+      user: userPrompt,
+      temperature,
+      maxTokens,
+      timeoutMs,
+      caller: 'aiService.generateTextWithSystemPrompt',
+    }),
+    timeoutPromise,
+  ]);
+
   if (!content) {
     throw new Error('AI service returned empty response');
   }
@@ -533,10 +582,10 @@ export async function generateTextWithSystemPrompt(options = {}) {
 }
 
 /**
- * Generate image using DALL-E
+ * Generate image using DALL-E (Phase 3: llmGateway.generateImage when enabled).
  */
 export async function generateImage(options = {}) {
-  if (!HAS_AI) {
+  if (!HAS_AI && !Features.image.useGateway) {
     throw new Error('AI service is not available. Please configure OPENAI_API_KEY.');
   }
 
@@ -572,12 +621,40 @@ export async function generateImage(options = {}) {
       enhancedPrompt = `High-quality photograph, ${prompt}, professional lighting, sharp focus`;
     }
 
+    if (Features.image.useGateway) {
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout')), AI_TIMEOUT_MS);
+      });
+      const result = await Promise.race([
+        gatewayGenerateImage({
+          prompt: enhancedPrompt,
+          provider: Features.image.defaultProvider,
+          model: 'dall-e-3',
+          size,
+          count: 1,
+          purpose: 'ai_service_image',
+        }),
+        timeoutPromise,
+      ]);
+      const imageUrl = result.images?.[0];
+      if (!imageUrl) {
+        throw new Error('AI service did not return an image URL');
+      }
+      return {
+        url: imageUrl,
+        prompt,
+        style,
+        aspectRatio,
+        size,
+      };
+    }
+
     // Create timeout promise
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('Request timeout')), AI_TIMEOUT_MS);
     });
 
-    // Generate image
+    // Generate image (direct OpenAI rollback path)
     const apiCall = openai.images.generate({
       model: 'dall-e-3',
       prompt: enhancedPrompt,

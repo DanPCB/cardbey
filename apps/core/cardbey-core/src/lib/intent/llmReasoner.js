@@ -21,6 +21,7 @@ import {
   resolveMaxToolLoopResultSize,
 } from './llmReasonerPromptUtils.js';
 import { INTENT_TYPE_LIST } from './constants.js';
+import { normalizeIntentType } from './unifiedIntent.ts';
 
 export const LLM_REASONER_VERSION = '1.0.0';
 
@@ -267,7 +268,10 @@ function attachPromptTelemetry(result, promptMetrics, memoryAllocatedMB, extra =
 
 function llmParsedToReasoningResult(parsed, input, { minConfidence, reasoningTimeMs }) {
   const rawIntent = cleanString(parsed?.intent) || 'unknown';
-  const intent = INTENT_TYPE_LIST.includes(rawIntent) ? rawIntent : 'general_chat';
+  // Phase 2: canonicalize via unified taxonomy (unknown → general_chat)
+  const intent = INTENT_TYPE_LIST.includes(rawIntent)
+    ? rawIntent
+    : normalizeIntentType(rawIntent);
   const confidence = clampConfidence(parsed?.confidence);
   const reasoningText = cleanString(parsed?.reasoning) || 'LLM reasoning completed.';
 

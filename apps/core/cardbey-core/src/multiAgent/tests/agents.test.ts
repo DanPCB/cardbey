@@ -47,6 +47,7 @@ describe('IntentClassifier', () => {
     );
 
     expect(result.intent).toBe(Intent.STORE_SETUP);
+    expect(result.unifiedIntent).toBe('create_store');
     expect(result.confidence).toBeGreaterThan(0.9);
     expect(result.entities?.storeName).toBe('Glow Beauty');
   });

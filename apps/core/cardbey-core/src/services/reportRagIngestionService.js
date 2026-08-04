@@ -13,9 +13,11 @@ import OpenAI from 'openai';
 import { chunkText } from './ragChunkUtils.js';
 
 import { prisma } from '../lib/prisma.js';
+import { Features } from '../config/features.js';
+import { embed } from '../lib/llm/llmGateway.ts';
 
-// Initialize OpenAI client
-if (!process.env.OPENAI_API_KEY) {
+// Initialize OpenAI client (direct path when gateway embeddings disabled)
+if (!process.env.OPENAI_API_KEY && !Features.embeddings.useGateway) {
   console.warn('[ReportRAG] WARNING: OPENAI_API_KEY not configured. Report RAG ingestion will not work.');
 }
 
@@ -28,6 +30,10 @@ const openai = process.env.OPENAI_API_KEY
   : null;
 
 const HAS_OPENAI = Boolean(openai);
+
+function hasEmbeddingProvider() {
+  return Features.embeddings.useGateway || HAS_OPENAI;
+}
 
 /**
  * Map report kind to RAG scope
@@ -79,27 +85,36 @@ export function mapReportToRagMeta(report) {
 }
 
 /**
- * Generate embedding for text using OpenAI
+ * Generate embedding for text (Phase 3: llmGateway.embed; rollback to OpenAI direct).
  * @param {string} text - Text to embed
  * @returns {Promise<Buffer>} Embedding as Buffer
  */
 async function generateEmbedding(text) {
-  if (!HAS_OPENAI) {
+  if (!hasEmbeddingProvider()) {
     throw new Error('OpenAI API key not configured');
   }
 
   try {
-    const response = await openai.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: text,
-    });
-
-    const embedding = response.data[0]?.embedding;
-    if (!embedding) {
-      throw new Error('No embedding returned from OpenAI');
+    let embedding;
+    if (Features.embeddings.useGateway) {
+      const result = await embed({
+        text,
+        provider: Features.embeddings.defaultProvider,
+        purpose: 'report_rag_embedding',
+      });
+      embedding = result.embeddings?.[0];
+    } else {
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: text,
+      });
+      embedding = response.data[0]?.embedding;
     }
 
-    // Convert array to Buffer for storage
+    if (!embedding) {
+      throw new Error('No embedding returned from provider');
+    }
+
     return Buffer.from(new Float32Array(embedding).buffer);
   } catch (error) {
     console.error(`[ReportRAG] Error generating embedding:`, error.message);
@@ -115,7 +130,7 @@ async function generateEmbedding(text) {
  * @returns {Promise<{ ok: boolean, chunks: number, error?: string }>}
  */
 export async function indexSingleReportToRag(report, { overwrite = true } = {}) {
-  if (!HAS_OPENAI) {
+  if (!hasEmbeddingProvider()) {
     throw new Error('OpenAI API key not configured');
   }
 
@@ -220,7 +235,7 @@ export async function indexSingleReportToRag(report, { overwrite = true } = {}) 
 export async function ingestReportIntoRag(report, options = {}) {
   const { force = false } = options;
   
-  if (!HAS_OPENAI) {
+  if (!hasEmbeddingProvider()) {
     throw new Error('OpenAI API key not configured');
   }
 
@@ -281,7 +296,7 @@ export async function ingestReportIntoRag(report, options = {}) {
  * @returns {Promise<{ indexed: number, skipped: number, failed: number, errors: Array }>}
  */
 export async function indexReportsToRag({ tenantId, kinds, from, to, limit } = {}) {
-  if (!HAS_OPENAI) {
+  if (!hasEmbeddingProvider()) {
     throw new Error('OpenAI API key not configured');
   }
 

@@ -1,11 +1,13 @@
 /**
- * Vision intent classifier — QR fast path or single Claude vision call.
+ * Vision intent classifier — QR fast path or single vision call via llmGateway.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { Features } from '../../config/features.js';
 import { postAnthropicMessages } from '../llm/anthropicProvider.js';
 import { resolveAnthropicModel } from '../llm/anthropicModelConfig.js';
+import { analyzeVision } from '../llm/llmGateway.ts';
 import {
   normalizeVisionExtraction,
   normalizeVisionIntent,
@@ -205,6 +207,32 @@ export async function classifyVisionIntent({
     };
   }
 
+  const prompt = buildClassifierPrompt(surface, defaultIntentHint);
+
+  // Phase 3: route through llmGateway.analyzeVision (rollback: VISION_ENABLED=false or USE_LLM_GATEWAY=false)
+  if (Features.vision.useGateway) {
+    try {
+      const response = await analyzeVision({
+        image: media.base64,
+        mediaType: media.mediaType,
+        prompt,
+        provider: Features.vision.defaultProvider,
+        maxTokens: 1024,
+        purpose: 'vision_intent_classifier',
+      });
+      const parsed = parseVisionIntentJson(response.content);
+      return { ...parsed, provider: response.provider || Features.vision.defaultProvider };
+    } catch (err) {
+      return {
+        intent: 'unknown',
+        confidence: 0,
+        extraction: normalizeVisionExtraction({}),
+        provider: Features.vision.defaultProvider,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   if (!anthropicEnabled()) {
     return {
       intent: 'unknown',
@@ -215,7 +243,6 @@ export async function classifyVisionIntent({
   }
 
   const model = resolveAnthropicModel(process.env.ANTHROPIC_MODEL);
-  const prompt = buildClassifierPrompt(surface, defaultIntentHint);
   const r = await postAnthropicMessages({
     model,
     max_tokens: 1024,

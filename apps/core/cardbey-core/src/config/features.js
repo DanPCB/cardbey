@@ -32,6 +32,75 @@ function readAdvisorShadowEnabled() {
 }
 
 export const Features = {
+  /**
+   * LLM Gateway — Integrate, Don't Build (Phase 0–1).
+   * Default ON: all text-gen should go through llmGateway.
+   * Rollback: USE_LLM_GATEWAY=false
+   */
+  llm: {
+    get useGateway() {
+      return parseBoolEnv(process.env.USE_LLM_GATEWAY, true);
+    },
+    get defaultProvider() {
+      const raw = String(process.env.LLM_DEFAULT_PROVIDER || 'anthropic').trim().toLowerCase();
+      return raw || 'anthropic';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.LLM_FALLBACK_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+    get defaultModel() {
+      const raw = String(process.env.LLM_DEFAULT_MODEL || '').trim();
+      return raw || undefined;
+    },
+    /** OpenAI-family fallback model for engines / gateway fallback path. */
+    get fallbackModel() {
+      const raw = String(
+        process.env.LLM_FALLBACK_MODEL || process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
+      ).trim();
+      return raw || 'gpt-4o-mini';
+    },
+    /** Phase 1: strip PII before external provider calls. Rollback: ENABLE_PII_REDACTION=false */
+    get piiRedaction() {
+      return parseBoolEnv(process.env.ENABLE_PII_REDACTION, true);
+    },
+    providers: {
+      kimi: {
+        get enabled() {
+          if (parseBoolEnv(process.env.KIMI_DISABLED, false)) return false;
+          return parseBoolEnv(process.env.KIMI_ENABLED, true);
+        },
+        get defaultModel() {
+          return (
+            String(process.env.KIMI_DEFAULT_MODEL || process.env.KIMI_MODEL || 'kimi-k2.5').trim() ||
+            'kimi-k2.5'
+          );
+        },
+      },
+      groq: {
+        get enabled() {
+          return parseBoolEnv(process.env.GROQ_ENABLED, true);
+        },
+        get defaultModel() {
+          return (
+            String(process.env.GROQ_DEFAULT_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant').trim() ||
+            'llama-3.1-8b-instant'
+          );
+        },
+      },
+    },
+    /** True when any gateway-backed provider key is configured. */
+    get available() {
+      return Boolean(
+        String(process.env.ANTHROPIC_API_KEY || '').trim() ||
+          String(process.env.OPENAI_API_KEY || '').trim() ||
+          String(process.env.DEEPSEEK_API_KEY || '').trim() ||
+          String(process.env.XAI_API_KEY || '').trim() ||
+          String(process.env.KIMI_API_KEY || '').trim() ||
+          String(process.env.GROQ_API_KEY || '').trim(),
+      );
+    },
+  },
   decisionLoop: {
     get enabled() {
       return readDecisionLoopEnabled();
@@ -106,6 +175,114 @@ export const Features = {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+    },
+    /** Phase 2: default LLM provider for multiAgent BaseAgent (via llmGateway). */
+    get provider() {
+      const raw = String(process.env.MULTIAGENT_PROVIDER || 'deepseek').trim().toLowerCase();
+      return raw || 'deepseek';
+    },
+    get fallbackProvider() {
+      const raw = String(
+        process.env.MULTIAGENT_FALLBACK_PROVIDER ||
+          process.env.LLM_FALLBACK_PROVIDER ||
+          'anthropic',
+      )
+        .trim()
+        .toLowerCase();
+      return raw || 'anthropic';
+    },
+    /** Route multiAgent LLM through llmGateway. Rollback: MULTIAGENT_USE_GATEWAY=false */
+    get useGateway() {
+      if (!Features.llm.useGateway) return false;
+      return parseBoolEnv(process.env.MULTIAGENT_USE_GATEWAY, true);
+    },
+    get enabled() {
+      return parseBoolEnv(process.env.MULTI_AGENT_ENABLED, true);
+    },
+  },
+  /** Phase 2: intent classification / reasoner provider hints. */
+  intent: {
+    get provider() {
+      const raw = String(
+        process.env.INTENT_PROVIDER ||
+          process.env.MULTIAGENT_PROVIDER ||
+          'deepseek',
+      )
+        .trim()
+        .toLowerCase();
+      return raw || 'deepseek';
+    },
+    get useRegex() {
+      return parseBoolEnv(process.env.INTENT_USE_REGEX, true);
+    },
+  },
+  /**
+   * Phase 3: multimodal + embeddings facades (via llmGateway).
+   * Rollback per surface: VISION_ENABLED / EMBEDDING_ENABLED / IMAGE_GEN_ENABLED / VIDEO_GEN_ENABLED=false
+   * Full rollback: USE_LLM_GATEWAY=false
+   */
+  vision: {
+    get enabled() {
+      return parseBoolEnv(process.env.VISION_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.vision.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.VISION_PROVIDER || 'anthropic').trim().toLowerCase();
+      return raw || 'anthropic';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.VISION_FALLBACK_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+  },
+  embeddings: {
+    get enabled() {
+      return parseBoolEnv(process.env.EMBEDDING_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.embeddings.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.EMBEDDING_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.EMBEDDING_FALLBACK_PROVIDER || 'voyage').trim().toLowerCase();
+      return raw || 'voyage';
+    },
+  },
+  image: {
+    get enabled() {
+      return parseBoolEnv(process.env.IMAGE_GEN_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.image.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.IMAGE_PROVIDER || 'dalle').trim().toLowerCase();
+      return raw || 'dalle';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.IMAGE_FALLBACK_PROVIDER || 'ideogram').trim().toLowerCase();
+      return raw || 'ideogram';
+    },
+  },
+  video: {
+    get enabled() {
+      return parseBoolEnv(process.env.VIDEO_GEN_ENABLED, true);
+    },
+    get useGateway() {
+      return Features.llm.useGateway && Features.video.enabled;
+    },
+    get defaultProvider() {
+      const raw = String(process.env.VIDEO_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.VIDEO_FALLBACK_PROVIDER || 'kling').trim().toLowerCase();
+      return raw || 'kling';
     },
   },
   reasoningPhase0: {
@@ -313,6 +490,25 @@ export function isDecisionLoopEnabled() {
 
 export function snapshotFeatures() {
   return {
+    llm: {
+      useGateway: Features.llm.useGateway,
+      defaultProvider: Features.llm.defaultProvider,
+      fallbackProvider: Features.llm.fallbackProvider,
+      defaultModel: Features.llm.defaultModel ?? null,
+      fallbackModel: Features.llm.fallbackModel,
+      piiRedaction: Features.llm.piiRedaction,
+      available: Features.llm.available,
+      providers: {
+        kimi: {
+          enabled: Features.llm.providers.kimi.enabled,
+          defaultModel: Features.llm.providers.kimi.defaultModel,
+        },
+        groq: {
+          enabled: Features.llm.providers.groq.enabled,
+          defaultModel: Features.llm.providers.groq.defaultModel,
+        },
+      },
+    },
     decisionLoop: {
       enabled: Features.decisionLoop.enabled,
       shadow: Features.decisionLoop.shadow,
@@ -347,6 +543,38 @@ export function snapshotFeatures() {
     multiAgent: {
       requireConfirmation: Features.multiAgent.requireConfirmation,
       skipConfirmationUsers: Features.multiAgent.skipConfirmationUsers,
+      provider: Features.multiAgent.provider,
+      fallbackProvider: Features.multiAgent.fallbackProvider,
+      useGateway: Features.multiAgent.useGateway,
+      enabled: Features.multiAgent.enabled,
+    },
+    intent: {
+      provider: Features.intent.provider,
+      useRegex: Features.intent.useRegex,
+    },
+    vision: {
+      enabled: Features.vision.enabled,
+      useGateway: Features.vision.useGateway,
+      defaultProvider: Features.vision.defaultProvider,
+      fallbackProvider: Features.vision.fallbackProvider,
+    },
+    embeddings: {
+      enabled: Features.embeddings.enabled,
+      useGateway: Features.embeddings.useGateway,
+      defaultProvider: Features.embeddings.defaultProvider,
+      fallbackProvider: Features.embeddings.fallbackProvider,
+    },
+    image: {
+      enabled: Features.image.enabled,
+      useGateway: Features.image.useGateway,
+      defaultProvider: Features.image.defaultProvider,
+      fallbackProvider: Features.image.fallbackProvider,
+    },
+    video: {
+      enabled: Features.video.enabled,
+      useGateway: Features.video.useGateway,
+      defaultProvider: Features.video.defaultProvider,
+      fallbackProvider: Features.video.fallbackProvider,
     },
     reasoningPhase0: {
       centralizedOutcome: Features.reasoningPhase0.centralizedOutcome,

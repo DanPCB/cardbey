@@ -16,6 +16,8 @@ import { createMissionPipeline } from '../lib/missionPipelineService.js';
 import { runMissionUntilBlocked } from '../lib/missionPipelineOrchestrator.js';
 import { getTenantId } from '../lib/missionAccess.js';
 import { llmGateway } from '../lib/llm/llmGateway.ts';
+import { deprecatedOpenAIChatCompletion } from '../lib/llm/directOpenAICall.js';
+import { Features } from '../config/features.js';
 import { canAccessMission } from './agentMessagesRoutes.js';
 import { createAgentMessage } from '../orchestrator/lib/agentMessage.js';
 import { resolveMissionState } from '../lib/missionPipelineResolver.js';
@@ -23,10 +25,11 @@ import { resolveMissionState } from '../lib/missionPipelineResolver.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
-const USE_LLM_GATEWAY = process.env.USE_LLM_GATEWAY === 'true';
+/** Phase 0: gateway ON by default. Rollback: USE_LLM_GATEWAY=false */
+const useLlmGateway = () => Features.llm.useGateway;
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 
-// Initialize OpenAI client if API key is available
+// Initialize OpenAI client if API key is available (rollback / image paths)
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -36,6 +39,13 @@ const openai = process.env.OPENAI_API_KEY
   : null;
 
 const HAS_OPENAI = Boolean(openai);
+const HAS_LLM = () => Features.llm.available || HAS_OPENAI;
+
+function resolveAssistantProvider(req) {
+  const headerProvider = String(req?.headers?.['x-provider'] || '').trim().toLowerCase();
+  if (headerProvider) return headerProvider;
+  return Features.llm.defaultProvider;
+}
 
 // Apply logging and rate limiting to all assistant routes
 router.use(requestLog);
@@ -658,31 +668,38 @@ router.post('/chat', requireUserOrGuest, async (req, res, next) => {
       });
 
       let text = "I'm here to help. Use the context above to answer.";
-      if (HAS_OPENAI || USE_LLM_GATEWAY) {
+      if (HAS_LLM()) {
         try {
           const userPrompt = message.trim();
-          if (USE_LLM_GATEWAY) {
-            const promptForGateway = `${systemPrompt}\n\n---\n\nUser: ${userPrompt}`;
-            const result = await llmGateway.generate({
+          if (useLlmGateway()) {
+            const result = await llmGateway.complete({
               purpose: 'assistant_chat',
-              prompt: promptForGateway,
               tenantKey: req.user?.id ?? 'guest',
-              model: 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+              provider: resolveAssistantProvider(req),
+              model: Features.llm.defaultModel,
               maxTokens: 400,
               responseFormat: 'text',
               temperature: 0.3,
             });
             text = result.text ?? text;
-          } else {
-            const completion = await openai.chat.completions.create({
-              model: 'gpt-4o-mini',
-              temperature: 0.3,
-              max_tokens: 400,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-              ],
-            });
+          } else if (HAS_OPENAI) {
+            const completion = await deprecatedOpenAIChatCompletion(
+              openai,
+              {
+                model: 'gpt-4o-mini',
+                temperature: 0.3,
+                max_tokens: 400,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+              },
+              'routes/assistant.js#missionChat',
+            );
             text = completion.choices[0]?.message?.content?.trim() || text;
           }
         } catch (err) {
@@ -858,11 +875,11 @@ router.post('/chat', requireUserOrGuest, async (req, res, next) => {
       }
     }
     
-    // Try OpenAI if available, otherwise fall back to mock
+    // Try LLM gateway (default) or OpenAI rollback; otherwise fall back to mock
     let reply;
     let aiResponseRaw = null;
     
-    if (HAS_OPENAI) {
+    if (HAS_LLM()) {
       try {
         let systemPrompt;
         let openaiConfig = {
@@ -872,8 +889,7 @@ router.post('/chat', requireUserOrGuest, async (req, res, next) => {
         };
 
         if (isBusinessBuilder && requiresJson) {
-          // Business builder mode: use structured outputs with JSON schema
-          // Enhance context with request body info for better prompts
+          // Business builder mode: structured JSON (gateway json mode; OpenAI schema on rollback)
           const enhancedContext = {
             ...context,
             requestField: req.body?.context?.field,
@@ -883,41 +899,42 @@ router.post('/chat', requireUserOrGuest, async (req, res, next) => {
           };
           systemPrompt = buildBusinessBuilderSystemPrompt(enhancedContext, req.isGuest, false);
           
-          // Use structured outputs with JSON schema (supported by gpt-4o-mini and newer models)
-          // This ensures the model returns valid JSON matching our schema
-          try {
-            openaiConfig.response_format = {
-              type: 'json_schema',
-              json_schema: {
-                name: 'business_builder_response',
-                strict: true,
-                schema: BUSINESS_BUILDER_STRUCTURED_SCHEMA,
-              },
-            };
-            console.log('[Assistant] Using structured output with JSON schema');
-          } catch (schemaError) {
-            // Fallback to json_object if schema format not supported
-            console.warn('[Assistant] Structured output schema not supported, falling back to json_object');
-            openaiConfig.response_format = { type: 'json_object' };
+          if (!useLlmGateway()) {
+            // Rollback path: OpenAI structured outputs with JSON schema
+            try {
+              openaiConfig.response_format = {
+                type: 'json_schema',
+                json_schema: {
+                  name: 'business_builder_response',
+                  strict: true,
+                  schema: BUSINESS_BUILDER_STRUCTURED_SCHEMA,
+                },
+              };
+              console.log('[Assistant] Using structured output with JSON schema (direct OpenAI rollback)');
+            } catch (schemaError) {
+              console.warn('[Assistant] Structured output schema not supported, falling back to json_object');
+              openaiConfig.response_format = { type: 'json_object' };
+            }
+          } else {
+            console.log('[Assistant] Using llmGateway with responseFormat=json');
           }
-          openaiConfig.temperature = 0.2; // Lower temperature for more consistent structured output
+          openaiConfig.temperature = 0.2;
         } else {
-          // Regular chat mode
           systemPrompt = buildSystemPrompt(context, req.isGuest, false);
         }
         
         const userPrompt = message;
         
-        console.log('[Assistant] Calling OpenAI with context:', { 
+        console.log('[Assistant] Calling LLM with context:', { 
           mode: req.body?.mode || context?.mode, 
           task: req.body?.task,
           isGuest: req.isGuest,
           isBusinessBuilder,
           requiresJson,
-          usesStructuredOutput: isBusinessBuilder
+          useGateway: useLlmGateway(),
+          provider: resolveAssistantProvider(req),
         });
         
-        // Attempt OpenAI call with retry logic for business builder
         let completion;
         let attemptCount = 0;
         const maxAttempts = isBusinessBuilder ? 2 : 1;
@@ -925,7 +942,6 @@ router.post('/chat', requireUserOrGuest, async (req, res, next) => {
         
         while (attemptCount < maxAttempts) {
           try {
-            // On retry, use stricter prompt
             if (attemptCount > 0 && isBusinessBuilder) {
               const enhancedContext = {
                 ...context,
@@ -938,27 +954,36 @@ router.post('/chat', requireUserOrGuest, async (req, res, next) => {
               console.log('[Assistant] Retrying with stricter prompt (attempt', attemptCount + 1, ')');
             }
 
-            if (USE_LLM_GATEWAY) {
-              const promptForGateway = `${systemPrompt}\n\n---\n\nUser: ${userPrompt}`;
-              const result = await llmGateway.generate({
+            if (useLlmGateway()) {
+              const result = await llmGateway.complete({
                 purpose: 'assistant_chat',
-                prompt: promptForGateway,
                 tenantKey: req.user?.id ?? 'guest',
-                model: 'gpt-4o-mini',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+                provider: resolveAssistantProvider(req),
+                model: Features.llm.defaultModel,
                 maxTokens: openaiConfig.max_tokens ?? 1000,
                 responseFormat: isBusinessBuilder && requiresJson ? 'json' : 'text',
                 temperature: openaiConfig.temperature ?? 0.3,
               });
               aiResponseRaw = result.text ?? '';
-            } else {
-              completion = await openai.chat.completions.create({
-                ...openaiConfig,
-                messages: [
-                  { role: 'system', content: systemPrompt },
-                  { role: 'user', content: userPrompt },
-                ],
-              });
+            } else if (HAS_OPENAI) {
+              completion = await deprecatedOpenAIChatCompletion(
+                openai,
+                {
+                  ...openaiConfig,
+                  messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+                },
+                'routes/assistant.js#chat',
+              );
               aiResponseRaw = completion.choices[0]?.message?.content || '';
+            } else {
+              throw new Error('No LLM provider available');
             }
             
             // Log raw response in dev mode (truncated to 500 chars)
