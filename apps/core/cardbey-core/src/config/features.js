@@ -32,6 +32,68 @@ function readAdvisorShadowEnabled() {
 }
 
 export const Features = {
+  /**
+   * LLM Gateway — Integrate, Don't Build (Phase 0–1).
+   * Default ON: all text-gen should go through llmGateway.
+   * Rollback: USE_LLM_GATEWAY=false
+   */
+  llm: {
+    get useGateway() {
+      return parseBoolEnv(process.env.USE_LLM_GATEWAY, true);
+    },
+    get defaultProvider() {
+      const raw = String(process.env.LLM_DEFAULT_PROVIDER || 'anthropic').trim().toLowerCase();
+      return raw || 'anthropic';
+    },
+    get fallbackProvider() {
+      const raw = String(process.env.LLM_FALLBACK_PROVIDER || 'openai').trim().toLowerCase();
+      return raw || 'openai';
+    },
+    get defaultModel() {
+      const raw = String(process.env.LLM_DEFAULT_MODEL || '').trim();
+      return raw || undefined;
+    },
+    /** Phase 1: strip PII before external provider calls. Rollback: ENABLE_PII_REDACTION=false */
+    get piiRedaction() {
+      return parseBoolEnv(process.env.ENABLE_PII_REDACTION, true);
+    },
+    providers: {
+      kimi: {
+        get enabled() {
+          if (parseBoolEnv(process.env.KIMI_DISABLED, false)) return false;
+          return parseBoolEnv(process.env.KIMI_ENABLED, true);
+        },
+        get defaultModel() {
+          return (
+            String(process.env.KIMI_DEFAULT_MODEL || process.env.KIMI_MODEL || 'kimi-k2.5').trim() ||
+            'kimi-k2.5'
+          );
+        },
+      },
+      groq: {
+        get enabled() {
+          return parseBoolEnv(process.env.GROQ_ENABLED, true);
+        },
+        get defaultModel() {
+          return (
+            String(process.env.GROQ_DEFAULT_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant').trim() ||
+            'llama-3.1-8b-instant'
+          );
+        },
+      },
+    },
+    /** True when any gateway-backed provider key is configured. */
+    get available() {
+      return Boolean(
+        String(process.env.ANTHROPIC_API_KEY || '').trim() ||
+          String(process.env.OPENAI_API_KEY || '').trim() ||
+          String(process.env.DEEPSEEK_API_KEY || '').trim() ||
+          String(process.env.XAI_API_KEY || '').trim() ||
+          String(process.env.KIMI_API_KEY || '').trim() ||
+          String(process.env.GROQ_API_KEY || '').trim(),
+      );
+    },
+  },
   decisionLoop: {
     get enabled() {
       return readDecisionLoopEnabled();
@@ -274,6 +336,24 @@ export function isDecisionLoopEnabled() {
 
 export function snapshotFeatures() {
   return {
+    llm: {
+      useGateway: Features.llm.useGateway,
+      defaultProvider: Features.llm.defaultProvider,
+      fallbackProvider: Features.llm.fallbackProvider,
+      defaultModel: Features.llm.defaultModel ?? null,
+      piiRedaction: Features.llm.piiRedaction,
+      available: Features.llm.available,
+      providers: {
+        kimi: {
+          enabled: Features.llm.providers.kimi.enabled,
+          defaultModel: Features.llm.providers.kimi.defaultModel,
+        },
+        groq: {
+          enabled: Features.llm.providers.groq.enabled,
+          defaultModel: Features.llm.providers.groq.defaultModel,
+        },
+      },
+    },
     decisionLoop: {
       enabled: Features.decisionLoop.enabled,
       shadow: Features.decisionLoop.shadow,

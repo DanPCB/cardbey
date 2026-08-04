@@ -33,4 +33,38 @@ describe('config/features', () => {
     expect(snap.decisionLoop.enabled).toBe(true);
     expect(typeof snap.decisionLoop.thresholds.low).toBe('number');
   });
+
+  it('defaults USE_LLM_GATEWAY to on (Phase 0)', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    expect(Features.llm.useGateway).toBe(true);
+  });
+
+  it('allows USE_LLM_GATEWAY=false rollback', () => {
+    process.env.USE_LLM_GATEWAY = 'false';
+    expect(Features.llm.useGateway).toBe(false);
+  });
+
+  it('defaults LLM provider to anthropic with openai fallback', () => {
+    delete process.env.LLM_DEFAULT_PROVIDER;
+    delete process.env.LLM_FALLBACK_PROVIDER;
+    expect(Features.llm.defaultProvider).toBe('anthropic');
+    expect(Features.llm.fallbackProvider).toBe('openai');
+  });
+
+  it('includes llm in snapshotFeatures', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    const snap = snapshotFeatures();
+    expect(snap.llm.useGateway).toBe(true);
+    expect(snap.llm.defaultProvider).toBeTruthy();
+  });
+
+  it('defaults PII redaction and kimi/groq provider config (Phase 1)', () => {
+    delete process.env.ENABLE_PII_REDACTION;
+    delete process.env.KIMI_ENABLED;
+    delete process.env.GROQ_ENABLED;
+    expect(Features.llm.piiRedaction).toBe(true);
+    expect(Features.llm.providers.kimi.enabled).toBe(true);
+    expect(Features.llm.providers.groq.enabled).toBe(true);
+    expect(Features.llm.providers.kimi.defaultModel).toContain('kimi');
+  });
 });

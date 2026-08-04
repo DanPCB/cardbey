@@ -14,6 +14,14 @@ vi.mock('../providers/openaiChat.ts', () => ({
 vi.mock('../providers/deepseekChat.ts', () => ({
   callDeepSeekChat: vi.fn(),
 }));
+vi.mock('../providers/kimiChat.ts', () => ({
+  callKimiChat: vi.fn(),
+  resolveKimiModel: vi.fn((m) => m || 'kimi-k2.5'),
+}));
+vi.mock('../providers/groqChat.ts', () => ({
+  callGroqChat: vi.fn(),
+  resolveGroqModel: vi.fn((m) => m || 'llama-3.1-8b-instant'),
+}));
 
 vi.mock('../../lib/prisma.js', () => ({
   getPrismaClient: vi.fn(() => ({
@@ -29,7 +37,8 @@ vi.mock('../../lib/prisma.js', () => ({
 }));
 
 import { callOpenAIChat } from '../providers/openaiChat.ts';
-import { llmGateway } from '../llmGateway.ts';
+import { callKimiChat } from '../providers/kimiChat.ts';
+import { PROVIDER_NAMES, llmGateway, validateProvider } from '../llmGateway.ts';
 
 describe('llmGateway complete/generate', () => {
   /** @type {Record<string, string | undefined>} */
@@ -139,6 +148,67 @@ describe('llmGateway complete/generate', () => {
           { role: 'system', content: 'You are Performer.' },
           { role: 'user', content: 'Hello' },
         ],
+      }),
+    );
+  });
+
+  it('includes kimi and groq in PROVIDER_NAMES (Phase 1)', () => {
+    expect(PROVIDER_NAMES).toEqual(
+      expect.arrayContaining(['anthropic', 'openai', 'deepseek', 'xai', 'kimi', 'groq']),
+    );
+    expect(() => validateProvider('kimi')).not.toThrow();
+    expect(() => validateProvider('groq')).not.toThrow();
+    expect(() => validateProvider('unknown-vendor')).toThrow(/Unsupported provider/);
+  });
+
+  it('routes provider=kimi to callKimiChat', async () => {
+    callKimiChat.mockResolvedValue({
+      content: 'Kimi reply',
+      tool_calls: null,
+      inputTokens: 3,
+      outputTokens: 2,
+      model: 'kimi-k2.5',
+    });
+
+    const result = await llmGateway.complete({
+      purpose: 'test:kimi',
+      tenantKey: 'tenant_1',
+      messages: [{ role: 'user', content: 'Hi Kimi' }],
+      provider: 'kimi',
+      model: 'kimi-k2.5',
+    });
+
+    expect(result.text).toBe('Kimi reply');
+    expect(callKimiChat).toHaveBeenCalled();
+    expect(callOpenAIChat).not.toHaveBeenCalled();
+  });
+
+  it('redacts PII in messages before calling provider', async () => {
+    delete process.env.ENABLE_PII_REDACTION;
+    callOpenAIChat.mockResolvedValue({
+      content: 'ok',
+      tool_calls: null,
+      inputTokens: 1,
+      outputTokens: 1,
+      model: 'gpt-4o',
+    });
+
+    await llmGateway.complete({
+      purpose: 'test:redaction',
+      tenantKey: 'tenant_1',
+      messages: [{ role: 'user', content: 'Email me at owner@example.com' }],
+      provider: 'openai',
+      model: 'gpt-4o',
+    });
+
+    expect(callOpenAIChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: expect.stringContaining('[EMAIL_REDACTED]'),
+          }),
+        ]),
       }),
     );
   });
