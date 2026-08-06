@@ -201,16 +201,23 @@ import publicDiscoveryRoutes from './routes/publicDiscoveryRoutes.js';
 import publicFeedRoutes from './routes/publicFeedRoutes.js';
 import publicContentInteractionRoutes from './routes/publicContentInteractionRoutes.js';
 import storeEngagementRoutes from './routes/storeEngagementRoutes.js';
+import storeReviewRoutes from './routes/storeReviewRoutes.js';
+import universalLibraryRoutes from './routes/universalLibraryRoutes.js';
 import publicStoreRoutes from './routes/publicStoreRoutes.js';
 import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
+import languageIntelligenceLocalizeRoutes from './routes/i18n/languageIntelligenceLocalize.js';
+import languageIntelligencePreferencesRoutes from './routes/i18n/languageIntelligencePreferences.js';
+import languageIntelligenceResolveRoutes from './routes/i18n/languageIntelligenceResolve.js';
+import languageStorefrontOwnerControlsRoutes from './routes/i18n/languageStorefrontOwnerControls.js';
 import creativeTemplatesRoutes from './routes/creativeTemplates.js';
 import templateLibraryRoutes from './routes/templateLibraryRoutes.js';
 import greetingCardsRoutes from './routes/greetingCards.js';
 import creatorRoutes from './routes/creatorRoutes.js';
+import marketplaceRoutes from './routes/marketplaceRoutes.js';
 import artifactRoutes from './routes/artifactRoutes.js';
 import smartDocumentRoutes from './routes/smartDocumentRoutes.js';
 import skillSuitcaseRoutes from './routes/skillSuitcaseRoutes.js';
@@ -1068,6 +1075,10 @@ app.use('/api/explore', exploreRoutes); // Featured explore videos: GET/POST/PAT
 app.use('/api/passive-generation', passiveGenerationRoutes); // Passive intent-to-artifact pipeline (foundation)
 app.use('/api/automation', automationRoutes); // Headless automation: /api/automation/store-from-input
 app.use('/api', autoTranslateStoreRoutes); // Auto-translate routes: /api/stores/:storeId/translate
+app.use('/api', languageIntelligenceLocalizeRoutes); // Opt-in LI localize: conversation + storefront
+app.use('/api', languageIntelligencePreferencesRoutes); // Opt-in LI preferences + glossary + cultural
+app.use('/api', languageIntelligenceResolveRoutes); // Stage 0–2 auto resolve + guest cookie
+app.use('/api', languageStorefrontOwnerControlsRoutes); // Stage 5A owner language settings + pilot admin
 app.use('/api/products', productsRoutes); // Product management routes: /api/products
 app.use('/api/creative-templates', creativeTemplatesRoutes); // Creative template routes: /api/creative-templates
 // Template Library Platform: /api/template-libraries, /api/templates, /api/template-instances
@@ -1075,6 +1086,7 @@ app.use('/api', templateLibraryRoutes);
 app.use('/api/greeting-cards', greetingCardsRoutes); // Greeting card routes: /api/greeting-cards
 app.use('/api/artifacts', artifactRoutes);
 app.use('/api', creatorRoutes); // Creator Foundation: /api/creators, /api/creator/*
+app.use('/api', marketplaceRoutes); // Creator Marketplace Phase 1C: seller, listings, public library
 app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/programs, /api/loyalty/stamp/*
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.
 app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/event, /api/watcher/insights, /api/watcher/chat
@@ -1128,6 +1140,8 @@ app.use('/api/public/stores', journeyPaymentRoutes); // Journey submit + payment
 app.use('/api/payments', paymentRoutes); // Stripe PaymentIntent, checkout, status
 app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public/store-engagement', storeEngagementRoutes);
+app.use('/api/public/store-reviews', storeReviewRoutes);
+app.use('/api/universal-library', universalLibraryRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token

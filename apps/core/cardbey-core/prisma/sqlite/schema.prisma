@@ -80,6 +80,7 @@ model User {
   userAccountEvents          UserAccountEvent[] @relation("UserAccountEventSubject")
   suitcaseItems              SuitcaseItem[]
   conversationSessions       ConversationSession[]
+  marketplaceSellerProfile   MarketplaceSellerProfile?
 
   @@index([email])
   @@index([handle])
@@ -320,6 +321,8 @@ model Business {
   storeSaves              StoreSave[]
   storeShares             StoreShare[]
   offerClaims             OfferClaim[]
+  storeReviews            StoreReview[]
+  storeReviewAggregate    StoreReviewAggregate?
 
   @@index([userId])
   @@index([slug])
@@ -2616,8 +2619,10 @@ model Creator {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  contents CreatorContent[]
-  payoutAccount CreatorPayoutAccount?
+  contents                 CreatorContent[]
+  payoutAccount            CreatorPayoutAccount?
+  marketplaceSellerProfile MarketplaceSellerProfile? @relation("MarketplaceCreatorSellerProfile")
+  marketplaceListings      MarketplaceListing[]      @relation("MarketplaceCreatorListings")
 
   @@index([username])
   @@index([creatorStatus])
@@ -2689,12 +2694,168 @@ model CreatorContent {
   decisions       CreatorPublishingDecision[]
   events          CreatorPublishingEvent[]
   appeals         CreatorAppeal[]
+  marketplaceListings MarketplaceListing[] @relation("MarketplaceSourceContentListings")
 
   @@index([creatorId])
   @@index([status])
   @@index([type])
   @@index([publishedAt])
   @@index([scheduledAt])
+}
+
+model MarketplaceSellerProfile {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creatorId               String   @unique
+  creator                 Creator  @relation("MarketplaceCreatorSellerProfile", fields: [creatorId], references: [id], onDelete: Cascade)
+  displayName             String
+  countryCode             String
+  defaultCurrency         String   @default("AUD")
+  status                  String   @default("PENDING")
+  applicationVersion      String   @default("1")
+  termsAcceptedAt         DateTime?
+  rightsPolicyAcceptedAt  DateTime?
+  applicationBio          String?
+  applicationMotivation   String?
+  applicationPortfolioUrl String?
+  applicationLanguages    Json?
+  applicationNotes        String?
+  reviewReason            String?
+  restrictionReason       String?
+  adminNotes              String?
+  reviewedByUserId        String?
+  reviewedAt              DateTime?
+  approvedAt              DateTime?
+  restrictedAt            DateTime?
+  suspendedAt             DateTime?
+  restoredAt              DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  statusEvents MarketplaceSellerStatusEvent[]
+  listings     MarketplaceListing[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([reviewedAt])
+}
+
+model MarketplaceSellerStatusEvent {
+  id             String   @id @default(cuid())
+  sellerId       String
+  seller         MarketplaceSellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  eventType      String
+  previousStatus String?
+  newStatus      String
+  actorUserId    String?
+  actorRole      String?
+  reason         String?
+  metadataJson   Json?
+  createdAt      DateTime @default(now())
+
+  @@index([sellerId])
+  @@index([newStatus])
+  @@index([createdAt])
+}
+
+model MarketplaceListing {
+  id                 String   @id @default(cuid())
+  sellerId           String
+  seller             MarketplaceSellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  creatorId          String
+  creator            Creator  @relation("MarketplaceCreatorListings", fields: [creatorId], references: [id], onDelete: Cascade)
+  sourceContentId    String
+  sourceContent      CreatorContent @relation("MarketplaceSourceContentListings", fields: [sourceContentId], references: [id], onDelete: Cascade)
+  sourceContentType  String
+  activeSourceKey    String?  @unique
+  title              String
+  description        String?
+  language           String?
+  thumbnailUrl       String?
+  accessType         String   @default("FREE")
+  priceAmount        Int      @default(0)
+  currencyCode       String   @default("AUD")
+  licenceCode        String
+  licenceVersion     String?
+  customLicenceText  String?
+  ownershipType      String
+  sellerNotes        String?
+  adminFeedbackJson  Json?
+  reviewReason       String?
+  listingStatus      String   @default("DRAFT")
+  availabilityStatus String   @default("AVAILABLE")
+  restorableStatus   String?
+  submittedAt        DateTime?
+  approvedAt         DateTime?
+  approvedByUserId   String?
+  publishedAt        DateTime?
+  publishedByUserId  String?
+  unpublishedAt      DateTime?
+  suspendedAt        DateTime?
+  archivedAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  ownershipDeclaration MarketplaceOwnershipDeclaration?
+  assetProvenance      MarketplaceAssetProvenance?
+  events               MarketplaceListingEvent[]
+
+  @@index([sellerId])
+  @@index([creatorId])
+  @@index([sourceContentId])
+  @@index([listingStatus])
+  @@index([availabilityStatus])
+  @@index([publishedAt])
+}
+
+model MarketplaceOwnershipDeclaration {
+  id                        String   @id @default(cuid())
+  listingId                 String   @unique
+  listing                   MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  ownershipType             String
+  rightsConfirmed           Boolean  @default(false)
+  commercialRightsConfirmed Boolean  @default(false)
+  creatorAuthoredWork       Boolean  @default(false)
+  declarationText           String?
+  evidenceJson              Json?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  @@index([ownershipType])
+}
+
+model MarketplaceAssetProvenance {
+  id                   String   @id @default(cuid())
+  listingId            String   @unique
+  listing              MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sourceKind           String
+  sourceLabel          String?
+  sourceUrl            String?
+  derivativeDisclosure String?
+  evidenceJson         Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([sourceKind])
+}
+
+model MarketplaceListingEvent {
+  id             String   @id @default(cuid())
+  listingId      String
+  listing        MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  eventType      String
+  previousStatus String?
+  newStatus      String?
+  actorUserId    String?
+  actorRole      String?
+  reason         String?
+  metadataJson   Json?
+  createdAt      DateTime @default(now())
+
+  @@index([listingId])
+  @@index([eventType])
+  @@index([createdAt])
 }
 
 model CreatorClassification {
@@ -3218,6 +3379,84 @@ model OfferClaim {
   @@index([storeId])
   @@index([offerId])
   @@index([storeId, offerId])
+}
+
+// Canonical store reviews (Business = store). Aggregates + moderation + owner reply.
+model StoreReview {
+  id                        String    @id @default(cuid())
+  storeId                   String
+  businessId                String
+  authorUserId              String
+  authorDisplayNameSnapshot String?
+  rating                    Int
+  title                     String?
+  body                      String
+  sourceType                String
+  sourceReferenceId         String?
+  verificationStatus        String    @default("UNVERIFIED") // VERIFIED | UNVERIFIED | PENDING | REJECTED
+  publicationStatus         String    @default("DRAFT") // DRAFT | SUBMITTED | PUBLISHED | HIDDEN | REMOVED
+  moderationStatus          String    @default("PENDING") // PENDING | APPROVED | FLAGGED | REJECTED
+  languageCode              String?
+  originalLanguage          String?
+  originalText              String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  publishedAt               DateTime?
+  removedAt                 DateTime?
+
+  business    Business                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  reply       StoreReviewReply?
+  moderations StoreReviewModeration[]
+
+  @@index([storeId, publicationStatus, moderationStatus])
+  @@index([authorUserId])
+  @@index([sourceType, sourceReferenceId])
+  @@index([storeId, authorUserId])
+}
+
+model StoreReviewAggregate {
+  storeId               String    @id
+  publishedReviewCount  Int       @default(0)
+  averageRating         Float     @default(0)
+  averageRatingInternal Float     @default(0)
+  rating1Count          Int       @default(0)
+  rating2Count          Int       @default(0)
+  rating3Count          Int       @default(0)
+  rating4Count          Int       @default(0)
+  rating5Count          Int       @default(0)
+  verifiedReviewCount   Int       @default(0)
+  latestReviewAt        DateTime?
+  lastCalculatedAt      DateTime  @default(now())
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model StoreReviewReply {
+  id                String   @id @default(cuid())
+  reviewId          String   @unique
+  storeId           String
+  authorUserId      String
+  body              String
+  publicationStatus String   @default("PUBLISHED")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  review StoreReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+}
+
+model StoreReviewModeration {
+  id             String   @id @default(cuid())
+  reviewId       String
+  actorUserId    String
+  action         String
+  reason         String?
+  previousStatus String?
+  newStatus      String?
+  createdAt      DateTime @default(now())
+
+  review StoreReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
 }
 
 // IntentOpportunity v0: derived from IntentSignal; accepted -> IntentRequest (single runway).
@@ -5098,4 +5337,135 @@ model ArtifactLearning {
 
   @@index([artifactId, createdAt])
   @@index([missionId])
+}
+
+// Universal Library — canonical platform assets (not store ContentLibraryAsset)
+model UniversalAsset {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  type          String
+  provider      String
+  sourceUrl     String?
+  license       String?
+  categories    Json?
+  tags          Json?
+  language      String?
+  country       String?
+  ownerId       String?
+  creatorId     String?
+  thumbnail     String?
+  preview       String?
+  metadata      Json?
+  rightsStatus  String   @default("UNKNOWN")
+  hostingMode   String   @default("REFERENCE")
+  qualityScore  Float    @default(0)
+  status        String   @default("DISCOVERED")
+  duplicateOfId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  duplicateOf    UniversalAsset?           @relation("UniversalAssetDuplicate", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates     UniversalAsset[]          @relation("UniversalAssetDuplicate")
+  relationsFrom  UniversalAssetRelation[]  @relation("UniversalAssetRelationFrom")
+  relationsTo    UniversalAssetRelation[]  @relation("UniversalAssetRelationTo")
+  discoveryScore UniversalDiscoveryScore?
+
+  @@index([status])
+  @@index([provider])
+  @@index([type])
+  @@index([rightsStatus])
+}
+
+model UniversalAssetRelation {
+  id           String   @id @default(cuid())
+  fromAssetId  String
+  toAssetId    String
+  relationType String
+  weight       Float?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  fromAsset UniversalAsset @relation("UniversalAssetRelationFrom", fields: [fromAssetId], references: [id], onDelete: Cascade)
+  toAsset   UniversalAsset @relation("UniversalAssetRelationTo", fields: [toAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([fromAssetId, toAssetId, relationType])
+  @@index([fromAssetId])
+  @@index([toAssetId])
+}
+
+model ContentPopulationJob {
+  id          String    @id @default(cuid())
+  kind        String
+  provider    String?
+  status      String
+  attempt     Int       @default(0)
+  maxAttempts Int       @default(3)
+  payload     Json?
+  result      Json?
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([kind])
+}
+
+model UniversalEntity {
+  id        String   @id @default(cuid())
+  kind      String
+  name      String
+  slug      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  relationsFrom UniversalEntityRelation[] @relation("UniversalEntityRelationFrom")
+  relationsTo   UniversalEntityRelation[] @relation("UniversalEntityRelationTo")
+
+  @@unique([kind, slug])
+  @@index([kind])
+}
+
+model UniversalEntityRelation {
+  id           String   @id @default(cuid())
+  fromEntityId String
+  toEntityId   String
+  relationType String
+  weight       Float?
+  createdAt    DateTime @default(now())
+
+  fromEntity UniversalEntity @relation("UniversalEntityRelationFrom", fields: [fromEntityId], references: [id], onDelete: Cascade)
+  toEntity   UniversalEntity @relation("UniversalEntityRelationTo", fields: [toEntityId], references: [id], onDelete: Cascade)
+
+  @@unique([fromEntityId, toEntityId, relationType])
+}
+
+model MarketplacePurchase {
+  id          String   @id @default(cuid())
+  listingId   String
+  buyerUserId String
+  amountCents Int      @default(0)
+  currency    String   @default("AUD")
+  licenseCode String?
+  status      String   @default("COMPLETED")
+  createdAt   DateTime @default(now())
+
+  @@index([buyerUserId])
+  @@index([listingId])
+}
+
+model UniversalDiscoveryScore {
+  assetId         String   @id
+  discoveryScore  Float    @default(0)
+  trendingScore   Float    @default(0)
+  qualityScore    Float    @default(0)
+  trustScore      Float    @default(0)
+  popularityScore Float    @default(0)
+  signals         Json?
+  updatedAt       DateTime @updatedAt
+
+  asset UniversalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 }

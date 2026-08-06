@@ -95,6 +95,8 @@ export const MOUNT_PREFIX_RULES = [
   // Read-only public
   { prefix: '/api/public-feed', category: 'READ_ONLY' },
   { prefix: '/api/public/store-engagement', category: 'SOCIAL' },
+  { prefix: '/api/public/store-reviews', category: 'SOCIAL' },
+  { prefix: '/api/universal-library', category: 'SOCIAL', note: 'Universal Library reads + governed writes' },
   { prefix: '/api/public/content-interactions', category: 'SOCIAL' },
   { prefix: '/api/public', category: 'READ_ONLY' },
   { prefix: '/api/storefront', category: 'READ_ONLY' },
