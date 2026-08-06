@@ -26,6 +26,7 @@ import { resolvePublicStoreMediaUrls } from '../utils/publicUrl.js';
 import { isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { attachStoreEngagementToPublicStores } from '../services/storeEngagement/attachStoreEngagementToPublicStores.js';
+import { attachStoreReviewsToPublicStores } from '../services/storeReview/attachStoreReviewsToPublicStores.js';
 
 const router = express.Router();
 
@@ -132,7 +133,8 @@ router.get('/frontscreen', optionalAuth, async (req, res, next) => {
       );
     });
 
-    const storesWithEngagement = await attachStoreEngagementToPublicStores(prisma, mapped, req);
+    let storesWithEngagement = await attachStoreEngagementToPublicStores(prisma, mapped, req);
+    storesWithEngagement = await attachStoreReviewsToPublicStores(prisma, storesWithEngagement, req);
 
     return res.json({
       ok: true,

@@ -35,6 +35,7 @@ import { parseDocumentIngestionContext } from '../lib/documentIngestion/document
 import { prisma } from '../lib/prisma.js';
 import { optionalAuth } from '../middleware/auth.js';
 import { attachStoreEngagementToPublicStores } from '../services/storeEngagement/attachStoreEngagementToPublicStores.js';
+import { attachStoreReviewsToPublicStores } from '../services/storeReview/attachStoreReviewsToPublicStores.js';
 import { isGhostStoreRemoved, isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 import { filterBusinessesForFeedCategory } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
 import { getRelatedBusinessesForSlug } from '../lib/relatedBusinesses/relatedBusinessService.js';
@@ -213,6 +214,7 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
     logPublicFeedAssembly(feedItems, { route: 'GET /api/public/stores/feed' });
     let items = feedItems.map(({ store }) => store);
     items = await attachStoreEngagementToPublicStores(prisma, items, req);
+    items = await attachStoreReviewsToPublicStores(prisma, items, req);
     const last = items[items.length - 1];
     let nextCursor = null;
     if (hasMore && last) {
@@ -567,7 +569,7 @@ router.get('/stores/:slug/products', async (req, res, next) => {
  * Errors:
  *   - 404: Store not found or not active
  */
-router.get('/stores/:slug', async (req, res, next) => {
+router.get('/stores/:slug', optionalAuth, async (req, res, next) => {
   try {
     const { slug } = req.params;
 
@@ -756,6 +758,92 @@ router.get('/stores/:slug', async (req, res, next) => {
     const ingestionContext = parseDocumentIngestionContext(store.storefrontSettings);
     if (ingestionContext) {
       publicStore.documentContext = ingestionContext;
+    }
+
+    // Stage 4 — Language Intelligence storefront consumption cutover (fail closed).
+    // Never blank the page on localization failure; always return a store DTO.
+    try {
+      const {
+        isLanguageStorefrontConsumptionCutoverV1Enabled,
+        isLanguageResolveApiV1Enabled,
+        resolveAutoLanguage,
+        readGuestLanguageCookie,
+        getUserLocalePreference,
+        applyStorefrontConsumptionCutover,
+        attachStorefrontLocalizationMeta,
+        getStorefrontLanguagePolicyFromBusiness,
+      } = await import('../lib/languageIntelligence/index.js');
+
+      const cutoverOn = isLanguageStorefrontConsumptionCutoverV1Enabled();
+      const policyPreview = getStorefrontLanguagePolicyFromBusiness(store);
+
+      if (cutoverOn) {
+        const explicit =
+          (typeof req.query.lang === 'string' && req.query.lang.trim()) ||
+          (typeof req.query.language === 'string' && req.query.language.trim()) ||
+          null;
+        const displayModeRaw =
+          typeof req.query.displayMode === 'string' ? req.query.displayMode.trim() : '';
+        const shadowOnly =
+          String(req.query.languageShadow || '') === '1' ||
+          !policyPreview.publicLocalizationEnabled;
+
+        let accountPreference = null;
+        if (req.userId) {
+          try {
+            accountPreference = await getUserLocalePreference(req.userId);
+          } catch {
+            accountPreference = null;
+          }
+        }
+
+        const guestLanguage = readGuestLanguageCookie(req);
+        const resolution = resolveAutoLanguage({
+          explicitSessionLanguage: explicit,
+          accountPreference,
+          guestLanguage,
+          acceptLanguageHeader: req.headers['accept-language'],
+          region: store.region || store.country || null,
+          storeDefaultLanguage: policyPreview.canonicalLanguage,
+          authenticated: Boolean(req.userId),
+          context: 'public_storefront',
+          emitTelemetry: true,
+          force: true,
+        });
+
+        const displayMode =
+          displayModeRaw === 'original' ||
+          displayModeRaw === 'translated' ||
+          displayModeRaw === 'both'
+            ? displayModeRaw
+            : policyPreview.defaultDisplayMode;
+
+        const cutover = applyStorefrontConsumptionCutover({
+          publicStore,
+          business: store,
+          products: store.products,
+          requestedLanguage: resolution.displayLanguage,
+          interfaceLanguage: resolution.interfaceLanguage,
+          regionalLocale: resolution.regionalLocale,
+          displayMode,
+          resolutionSource: resolution.source,
+          shadowOnly,
+        });
+
+        const rendered =
+          cutover.applied && !shadowOnly ? cutover.localizedStore : publicStore;
+        const withMeta = attachStorefrontLocalizationMeta(rendered, cutover);
+        if (withMeta.languageIntelligence && typeof withMeta.languageIntelligence === 'object') {
+          withMeta.languageIntelligence = Object.freeze({
+            ...withMeta.languageIntelligence,
+            resolveApiAvailable: isLanguageResolveApiV1Enabled(),
+          });
+        }
+
+        return res.json({ ok: true, store: withMeta });
+      }
+    } catch (liErr) {
+      console.warn('[PublicStores] LI cutover skipped (canonical fallback):', liErr?.message || liErr);
     }
 
     res.json({
