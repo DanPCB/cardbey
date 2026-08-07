@@ -203,6 +203,50 @@ function requiredMissing(intent, facts) {
   return missing;
 }
 
+/** Models often wrap JSON in ```json fences — parse fail must not silently drop LLM turns. */
+function parseStructuredLlmJson(raw) {
+  const t = String(raw ?? '').trim();
+  if (!t) return null;
+  const stripped = t
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  const start = stripped.indexOf('{');
+  const end = stripped.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(stripped.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+const REDACTED_VALUE = /\[?(EMAIL|PHONE|PII)[_ ]?REDACTED\]?/i;
+
+/**
+ * llmGateway redacts PII in outbound prompts. Recover contact facts from the
+ * original (unredacted) message + prior so enquiry submission stays usable.
+ */
+function restoreContactFacts(facts, prior, originalMessage) {
+  const out = { ...facts };
+  const msg = String(originalMessage || '');
+  const emailMatch = msg.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const phoneMatch = msg.match(/(?:\+?\d[\d\s().-]{7,}\d)/);
+
+  if (!out.email || REDACTED_VALUE.test(String(out.email))) {
+    out.email = (prior.email && !REDACTED_VALUE.test(String(prior.email)) ? prior.email : null)
+      || (emailMatch ? emailMatch[0] : null);
+  }
+  if (!out.phone || REDACTED_VALUE.test(String(out.phone))) {
+    out.phone = (prior.phone && !REDACTED_VALUE.test(String(prior.phone)) ? prior.phone : null)
+      || (phoneMatch ? phoneMatch[0].trim() : null);
+  }
+  if (!out.name || REDACTED_VALUE.test(String(out.name))) {
+    if (prior.name && !REDACTED_VALUE.test(String(prior.name))) out.name = prior.name;
+  }
+  return out;
+}
+
 /**
  * @returns {Promise<object|null>} dashboard PerformerTurnApiResponse or null (client fallback)
  */
@@ -281,7 +325,14 @@ export async function runPerformerTurnWithLlm(input) {
       recordFoundationMetric('performer_turn_total', { source: 'fallback', reason: 'empty_llm' });
       return null;
     }
-    llmRaw = JSON.parse(text);
+    llmRaw = parseStructuredLlmJson(text);
+    if (!llmRaw || typeof llmRaw !== 'object') {
+      recordFoundationMetric('performer_turn_total', {
+        source: 'fallback',
+        reason: 'malformed_llm_json',
+      });
+      return null;
+    }
     provider = Features.llm.defaultProvider;
     model = Features.llm.defaultModel || result?.model || 'gateway';
   } catch (err) {
@@ -295,6 +346,7 @@ export async function runPerformerTurnWithLlm(input) {
 
   let intent = INTENTS.has(llmRaw?.intent) ? llmRaw.intent : 'general';
   let facts = mergeFacts(prior, llmRaw?.collectedFacts, listedServices);
+  facts = restoreContactFacts(facts, prior, message);
   facts = enforceGrounding(facts, message, listedServices);
 
   if (asksPrice) {
