@@ -623,6 +623,17 @@ export const Features = {
     },
   },
   /**
+   * Performer turn V1 — POST /api/performer/turn (reason-only LLM via llmGateway).
+   * Default ON outside production; set ENABLE_PERFORMER_TURN_V1=false to disable.
+   * Does not execute CRM/booking; dashboard structured planner remains fallback.
+   */
+  performerTurn: {
+    get v1() {
+      return readNonProductionFlag('ENABLE_PERFORMER_TURN_V1');
+    },
+  },
+
+  /**
    * Language Intelligence — Phase 1 contracts + Phase 2 TranslationEngine.
    * Never authoritative for storefront/chat cutover (see isLanguageIntelligenceAuthoritative).
    * Overwrite-elimination on store translate is unconditional (bug fix).
