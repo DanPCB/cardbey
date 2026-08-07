@@ -290,6 +290,7 @@ import audioLibraryRoutes from './routes/audioLibraryRoutes.js';
 import locationRoutes from './routes/locationRoutes.js';
 import rewardRoutes from './routes/reward.js';
 import performerRoutes from './routes/performer.js';
+import performerTurnRoutes from './routes/performerTurnRoutes.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
 import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
@@ -1035,6 +1036,7 @@ app.use('/api/dev', devSystemMissionsRoutes);
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev/broker', devBrokerRuntimeProofRoutes);
 }
+app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
