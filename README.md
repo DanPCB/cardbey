@@ -1,10 +1,14 @@
 # Cardbey
 
+> **North star:** [The Cardbey Philosophy](./docs/CARDBEY_PHILOSOPHY.md) — Independence · Opportunity · Capability (*Build → Share → Multiply*).
+>
 > **⚠️ CRITICAL: All developers must read [DEVELOPMENT_PRINCIPLES.md](./docs/DEVELOPMENT_PRINCIPLES.md) before making any changes.**
 
 ## Foundation Rules
 
-This project follows **system-wide development principles** that prevent workflow and logic breaking:
+Cardbey is built toward three product principles—**Independence**, **Opportunity**, and **Capability**. Every major feature should advance at least one. See [CARDBEY_PHILOSOPHY.md](./docs/CARDBEY_PHILOSOPHY.md).
+
+This project also follows **system-wide development principles** that prevent workflow and logic breaking:
 
 ### 🤖 AI-First Development Rule
 
@@ -41,7 +45,9 @@ User journeys are intentional sequences. Each step serves a purpose. Breaking th
 ```
 cardbey/
 ├── docs/
-│   └── DEVELOPMENT_PRINCIPLES.md     # ⭐ Foundation rules (READ FIRST)
+│   ├── CARDBEY_PHILOSOPHY.md         # ⭐ Product north star (READ FIRST)
+│   ├── IMPACT_REPORT_TEMPLATE.md     # Major design doc contract
+│   └── DEVELOPMENT_PRINCIPLES.md     # ⭐ Development foundation rules
 ├── apps/
 │   ├── core/cardbey-core/            # Backend API
 │   └── dashboard/cardbey-marketing-dashboard/  # Frontend dashboard

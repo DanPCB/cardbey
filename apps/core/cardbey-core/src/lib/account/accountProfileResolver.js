@@ -7,6 +7,7 @@ import {
   ACCOUNT_STATUS,
   ADMIN_PLATFORM_ROLES,
 } from './accountProfileTypes.js';
+import { spokenLanguagesFromField } from '../languageIntelligence/preferences/languagesField.js';
 
 /**
  * @param {object|null} user
@@ -14,6 +15,7 @@ import {
  */
 export function resolveCanonicalIdentity(user, creator = null) {
   if (!user) return null;
+  const fromProfile = spokenLanguagesFromField(user.accountProfile?.languages);
   return {
     userId: user.id,
     displayName: user.displayName ?? user.fullName ?? creator?.displayName ?? null,
@@ -23,11 +25,12 @@ export function resolveCanonicalIdentity(user, creator = null) {
     bannerUrl: creator?.banner ?? null,
     bio: user.bio ?? user.tagline ?? creator?.bio ?? null,
     country: user.country ?? creator?.country ?? null,
-    languages: Array.isArray(user.accountProfile?.languages)
-      ? user.accountProfile.languages
-      : Array.isArray(creator?.languages)
-        ? creator.languages
-        : [],
+    languages:
+      fromProfile.length > 0
+        ? fromProfile
+        : Array.isArray(creator?.languages)
+          ? creator.languages
+          : [],
   };
 }
 

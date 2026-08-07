@@ -39,7 +39,20 @@ export function toPublicAssetView(asset, opts = {}) {
   }
   // Public consumers see licence label only — not clearance internals.
   out.license = asset.license ?? null;
-  // Explicitly omit: sourceUrl, metadata (may contain evidence), rightsStatus, duplicateOfId, raw discovery signals
+  // Safe discovery presentation fields (no rights evidence / source refs).
+  const meta = asset.metadata && typeof asset.metadata === 'object' ? asset.metadata : {};
+  out.industry = meta.industry ?? null;
+  out.assetRole = meta.assetRole ?? null;
+  out.premium = Boolean(meta.premium);
+  out.openLicense = meta.openLicense !== false;
+  out.creatorLabel = meta.creatorLabel ?? null;
+  out.creatorVerified = Boolean(meta.creatorVerified);
+  out.views = Number(meta.views || 0);
+  out.downloads = Number(meta.downloads || 0);
+  out.rating = Number(meta.rating || 0);
+  out.collections = Array.isArray(meta.collections) ? meta.collections : [];
+  out.useCases = Array.isArray(meta.useCases) ? meta.useCases : [];
+  // Explicitly omit: sourceUrl, raw metadata, rightsStatus, duplicateOfId, discovery evidence
   if (asset.discoveryScore && typeof asset.discoveryScore === 'object') {
     out.discoveryScore = {
       discoveryScore: asset.discoveryScore.discoveryScore,

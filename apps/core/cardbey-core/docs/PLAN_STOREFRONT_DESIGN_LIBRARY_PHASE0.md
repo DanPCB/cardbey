@@ -327,8 +327,52 @@ See: `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE4_BLUEPRINT_SCORING.md`.
 
 **Authority:** Advisory only (`authoritative: false`). Does not cut over React renderer, live CTAs, or publish snapshots.
 
-**Out of scope (still deferred):** shadow render comparison, projection-to-render adapter, theme scoring, owner layout editor.
+**Out of scope (still deferred at Phase 5):** shadow render comparison, projection-to-render adapter, theme scoring, owner layout editor.
 
 See: `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE5_PROJECTION.md`.
 
-**Recommended Phase 6 boundary:** shadow renderer comparison + controlled projection-to-render adapter behind a separate cutover flag (no immediate production replace).
+## 17. Phase 6 boundary (implemented)
+
+**In scope:** `rendering/` module — capability contract, projection→render adapter, legacy extractor, shadow comparison, `meta.designLibraryRenderShadow`; flags `ENABLE_STOREFRONT_PROJECTION_SHADOW_V1` + `ENABLE_STOREFRONT_PROJECTION_PREVIEW_V1`; authorised `GET /api/draft-store/:draftId/projection-preview`.
+
+**Authority:** Advisory only. Public production storefront remains legacy. `isDesignLibraryAuthoritative() === false`.
+
+**Out of scope (still deferred at Phase 6):** public cutover, owner acceptance workflow, layout editor, theme scoring, legacy field removal.
+
+See: `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE6_SHADOW_RENDER.md`.
+
+## 18. Phase 7 boundary (implemented)
+
+**In scope:** `acceptance/` module — Current vs Recommended comparison, accept/reject with `confirm: true`, per-draft `meta.designLibraryProjectionAcceptance`, fingerprint stale fallback; flags `ENABLE_STOREFRONT_PROJECTION_ACCEPTANCE_V1`; `GET …/projection-comparison`, `POST …/projection-acceptance`; accepted source for authorised `GET …/projection-preview` only.
+
+**Authority:** Per-draft preview preference only. `isDesignLibraryAuthoritative() === false`. No public production cutover. No publish mutation.
+
+**Out of scope (still deferred at Phase 7):** public cutover, layout editor, theme scoring, mandatory dashboard wizard, global authority.
+
+See: `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE7_ACCEPTANCE.md`.
+
+## 19. Phase 8 split
+
+### 8A-Core — Accepted Draft Preview Rendering (implemented)
+
+**In scope:** Flag `ENABLE_STOREFRONT_PROJECTION_PREVIEW_RENDER_V1`; module `previewRendering/` with `resolvePreviewRenderSource` + dual packages; enriched auth `GET …/projection-preview` (`primarySource`, `packages.legacy|projection`, `Cache-Control: private, no-store`); honesty fix (legacy primary never returns projection-only VM); import-isolation tests.
+
+**Authority:** Preview only. Public visitors stay on legacy. `isDesignLibraryAuthoritative() === false`. No publish branching.
+
+**Out of scope for 8A-Core:** thin owner UI (8A-UI), public cutover, publish snapshots (8B), layout editor.
+
+See: `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE8A_PREVIEW_RENDER.md`.
+
+### 8A-UI — Thin owner comparison surface (implemented)
+
+Current / Recommended + Preview Current / Preview Recommended + Differences + Accept / Reject + acceptance status + fallback reason. Mounted on create-store inline website preview (`ProjectionAcceptancePanel`). Soft-hides when APIs disabled. No layout editor.
+
+See: `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE8A_UI.md`.
+
+### 8B-Core — Controlled Publish Cutover (implemented)
+
+**In scope:** Flag `ENABLE_STOREFRONT_PROJECTION_PUBLISH_V1`; `publishCutover/` (package + publish validator + resolver + immutable `meta.designLibraryPublish` provenance + `storefront.publish.completed`); wired only on `POST …/draft-store/:draftId/publish`; fail closed → legacy; no draft section mutate-in-place; `isDesignLibraryAuthoritative() === false`.
+
+**Out of scope:** UI, global authority, other publish entrypoints, layout editor, Phase 9 canonical cutover.
+
+See: `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE8B_PUBLISH_CUTOVER.md`.

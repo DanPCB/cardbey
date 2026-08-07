@@ -43,4 +43,31 @@ describe('storeDuplicateDetection', () => {
     });
     expect(dup).toBeNull();
   });
+
+  it('finds inactive guest draft duplicates for the same owner', async () => {
+    const prisma = {
+      business: {
+        findMany: async (args) => {
+          expect(args?.where?.OR).toEqual([{ isActive: true }, { isGuestDraft: true }]);
+          return [
+            {
+              id: 'guest-store-1',
+              name: 'Chicken Food',
+              city: null,
+              suburb: null,
+              region: null,
+              formattedAddress: null,
+              isGuestDraft: true,
+              isActive: false,
+            },
+          ];
+        },
+      },
+    };
+    const dup = await findDuplicateStoreForUser(prisma, {
+      userId: 'guest_abc',
+      businessName: 'chicken food',
+    });
+    expect(dup?.id).toBe('guest-store-1');
+  });
 });

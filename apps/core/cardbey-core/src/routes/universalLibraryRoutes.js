@@ -30,21 +30,30 @@ import {
   getDiscoveryFeed,
   recalculateDiscoveryScore,
 } from '../services/universalLibrary/discoveryScoreService.js';
-import { seedCuratedCatalog } from '../services/universalLibrary/seedProvider.js';
+import { runRichLibrarySeed } from '../services/universalLibrary/seedProvider.js';
 import { toPublicAssetList, toPublicAssetView } from '../services/universalLibrary/publicAssetView.js';
-import { PIPELINE_STAGE } from '../services/universalLibrary/universalAssetTypes.js';
+import { getJobMetrics } from '../services/universalLibrary/jobMetricsService.js';
+import { browseDiscovery } from '../services/universalLibrary/discoveryBrowseService.js';
+import { getRelatedAssets, listCollections } from '../services/universalLibrary/collectionService.js';
+import { importCardbeyOriginals } from '../services/universalLibrary/cardbeyOriginalsImport.js';
+import {
+  projectCreatorContentToLibrary,
+  withdrawCreatorLibraryProjection,
+} from '../services/universalLibrary/creatorLibraryProjection.js';
+import {
+  auditRealContentReadiness,
+  reconcileDevelopmentFixtures,
+} from '../services/universalLibrary/reconcileFixtures.js';
+import { fixturesEnabled, isDevelopmentFixture, getContentOrigin } from '../services/universalLibrary/contentOrigin.js';
+import { JOB_KIND, JOB_STATUS, ASSET_PROVIDER, HOSTING_MODE } from '../services/universalLibrary/universalAssetTypes.js';
+import {
+  runPexelsLibrarySync,
+  isPexelsLibraryConfigured,
+  pexelsLibraryEnabled,
+} from '../services/universalLibrary/pexelsLibrarySync.js';
+import { publishRealCollections } from '../services/universalLibrary/realCollections.js';
 
 const router = Router();
-
-const FULL_PIPELINE = [
-  PIPELINE_STAGE.DISCOVER,
-  PIPELINE_STAGE.NORMALIZE,
-  PIPELINE_STAGE.CLASSIFY,
-  PIPELINE_STAGE.RIGHTS,
-  PIPELINE_STAGE.DEDUPE,
-  PIPELINE_STAGE.MODERATION,
-  PIPELINE_STAGE.PUBLISH,
-];
 
 function failClosed(res, code = 'feature_disabled') {
   return res.status(404).json({ ok: false, error: code });
@@ -86,6 +95,9 @@ router.use(requireUniversalLibraryV1);
 router.get('/assets', optionalAuth, async (req, res, next) => {
   try {
     const isAdmin = isPlatformAdmin(req.user);
+    const includeFixtures =
+      isAdmin &&
+      (req.query.includeFixtures === 'true' || fixturesEnabled());
     const result = await listUniversalAssets(prisma, {
       status: req.query.status,
       provider: req.query.provider,
@@ -94,11 +106,32 @@ router.get('/assets', optionalAuth, async (req, res, next) => {
       offset: req.query.offset,
       publishedOnly: !isAdmin,
     });
-    const items = toPublicAssetList(result.items, { admin: isAdmin });
+    const filtered = (result.items || []).filter((a) => {
+      if (includeFixtures) return true;
+      return !isDevelopmentFixture(a);
+    });
+    const items = toPublicAssetList(filtered, { admin: isAdmin });
     return res.json({
       ...result,
+      total: filtered.length,
       items,
-      assets: items, // dashboard alias
+      assets: items,
+      fixturesExcluded: !includeFixtures,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /assets/:id/related — must register before /assets/:id */
+router.get('/assets/:id/related', optionalAuth, async (req, res, next) => {
+  try {
+    const result = await getRelatedAssets(prisma, req.params.id);
+    const admin = isPlatformAdmin(req.user);
+    return res.json({
+      ok: true,
+      assets: toPublicAssetList(result.assets || [], { admin }),
+      relations: result.relations,
     });
   } catch (err) {
     next(err);
@@ -289,6 +322,54 @@ router.get('/discovery/feed', optionalAuth, requireDiscoveryV1, async (req, res,
   }
 });
 
+/** GET /discovery/browse — industry × type discovery (Phase 2F) */
+router.get('/discovery/browse', optionalAuth, requireDiscoveryV1, async (req, res, next) => {
+  try {
+    const result = await browseDiscovery(prisma, {
+      industry: req.query.industry,
+      subCategory: req.query.subCategory,
+      type: req.query.type,
+      role: req.query.role,
+      openLicense: req.query.openLicense,
+      premium: req.query.premium,
+      creator: req.query.creator,
+      q: req.query.q,
+      limit: req.query.limit,
+      admin: isPlatformAdmin(req.user),
+    });
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /collections */
+router.get('/collections', optionalAuth, requireDiscoveryV1, async (req, res, next) => {
+  try {
+    const result = await listCollections(prisma);
+    const admin = isPlatformAdmin(req.user);
+    return res.json({
+      ok: true,
+      collections: (result.collections || []).map((c) => ({
+        ...c,
+        assets: toPublicAssetList(c.assets || [], { admin }),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /admin/job-metrics */
+router.get('/admin/job-metrics', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const result = await getJobMetrics(prisma);
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** POST /discovery/recalculate/:assetId */
 router.post(
   '/discovery/recalculate/:assetId',
@@ -334,8 +415,8 @@ router.get('/admin/pipeline-summary', requireAuth, requireAdmin, async (req, res
 });
 
 /**
- * POST /admin/seed-run — Core-authoritative seed + pipeline + publish.
- * Dashboard may request this; Core owns rights, dedupe, and publication.
+ * POST /admin/seed-run — DEVELOPMENT FIXTURES ONLY.
+ * Does not populate the public real catalogue. Requires fixtures flag.
  */
 router.post(
   '/admin/seed-run',
@@ -344,42 +425,269 @@ router.post(
   requirePopulationV1,
   async (req, res, next) => {
     try {
-      const seeded = await seedCuratedCatalog(prisma, {
-        ownerId: req.body?.ownerId || 'cardbey_platform',
-        skipExisting: req.body?.skipExisting !== false,
-      });
-
-      const pipelineResults = [];
-      for (const row of seeded.results || []) {
-        if (!row.created || !row.assetId) {
-          pipelineResults.push({ assetId: row.assetId, skipped: true, reason: row.skipped ? 'exists' : row.error });
-          continue;
-        }
-        let last = null;
-        for (const stage of FULL_PIPELINE) {
-          last = await runAndPersistPipelineStage(prisma, row.assetId, stage, {});
-          if (!last?.ok && stage !== PIPELINE_STAGE.RIGHTS) break;
-        }
-        pipelineResults.push({
-          assetId: row.assetId,
-          ok: Boolean(last?.ok),
-          status: last?.asset?.status,
-          error: last?.error,
+      if (!fixturesEnabled() && req.body?.forceFixtures !== true) {
+        return res.status(400).json({
+          ok: false,
+          error: 'fixtures_disabled',
+          message:
+            'Rich seed creates DEVELOPMENT_FIXTURE records only. Set ENABLE_UNIVERSAL_LIBRARY_FIXTURES_V1=true or use Import Cardbey Originals.',
         });
       }
+      const startedAt = new Date();
+      const richResult = await runRichLibrarySeed(prisma, {
+        ownerId: req.body?.ownerId || 'cardbey_platform',
+        skipExisting: req.body?.skipExisting !== false,
+        rich: req.body?.rich !== false,
+        targetMin: req.body?.targetMin,
+        targetMax: req.body?.targetMax,
+        runPipeline: req.body?.runPipeline !== false,
+        maxPipeline: req.body?.maxPipeline,
+      });
+      await reconcileDevelopmentFixtures(prisma, {});
 
-      const summary = await getPipelineSummary(prisma);
+      const createdCount = (richResult.seeded?.results || []).filter((r) => r.created).length;
+      const skippedCount = (richResult.seeded?.results || []).filter((r) => r.skipped).length;
+      const completedAt = new Date();
+
+      const job = await prisma.contentPopulationJob.create({
+        data: {
+          kind: JOB_KIND.DISCOVERY,
+          provider: 'development_fixture',
+          status: JOB_STATUS.COMPLETED,
+          attempt: 1,
+          maxAttempts: 1,
+          payload: { source: 'admin_fixture_seed', phase: '3' },
+          result: {
+            seeded: createdCount,
+            skipped: skippedCount,
+            contentOrigin: 'DEVELOPMENT_FIXTURE',
+            note: 'Fixtures excluded from public Library unless fixtures flag is on.',
+          },
+          startedAt,
+          completedAt,
+        },
+      });
+
       return res.json({
         ok: true,
-        seeded,
-        pipelineResults,
-        summary,
+        ...richResult,
+        job,
         authority: 'core',
+        fixtureMode: true,
+        message: 'Development fixtures seeded — excluded from public Library by default.',
       });
     } catch (err) {
       next(err);
     }
   },
 );
+
+/** POST /admin/reconcile-fixtures */
+router.post('/admin/reconcile-fixtures', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const result = await reconcileDevelopmentFixtures(prisma, req.body || {});
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /admin/content-audit */
+router.get('/admin/content-audit', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const result = await auditRealContentReadiness(prisma);
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /admin/import-originals — Cardbey Originals from approved manifest */
+router.post('/admin/import-originals', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!Features.universalLibrary?.cardbeyOriginalsV1 && !Features.universalLibrary?.realPopulationV1) {
+      return failClosed(res, 'originals_disabled');
+    }
+    const startedAt = new Date();
+    const imported = await importCardbeyOriginals(prisma, {
+      skipExisting: req.body?.skipExisting !== false,
+    });
+    const job = await prisma.contentPopulationJob.create({
+      data: {
+        kind: JOB_KIND.DISCOVERY,
+        provider: 'cardbey.originals',
+        status: JOB_STATUS.COMPLETED,
+        attempt: 1,
+        maxAttempts: 1,
+        payload: { source: 'cardbey.originals', phase: '3' },
+        result: imported,
+        startedAt,
+        completedAt: new Date(),
+      },
+    });
+    return res.json({ ok: true, ...imported, job, authority: 'core' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /admin/project-creator-asset — explicit Creator Studio → Library projection */
+router.post('/admin/project-creator-asset', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!Features.universalLibrary?.creatorLibraryPublicationV1 && req.body?.allowPilot !== true) {
+      return failClosed(res, 'creator_library_publication_disabled');
+    }
+    const result = await projectCreatorContentToLibrary(prisma, req.body || {});
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    return res.status(201).json({ ...result, authority: 'core' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /admin/withdraw-creator-asset — remove Library projection; preserve audit */
+router.post('/admin/withdraw-creator-asset', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!Features.universalLibrary?.creatorLibraryPublicationV1 && req.body?.allowPilot !== true) {
+      return failClosed(res, 'creator_library_publication_disabled');
+    }
+    const result = await withdrawCreatorLibraryProjection(prisma, req.body || {});
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    return res.json({ ...result, authority: 'core' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /admin/sync-pexels — curated Pexels open-content sync (REFERENCE hosting) */
+router.post('/admin/sync-pexels', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!Features.universalLibrary?.externalOpenProviderV1 && req.body?.force !== true) {
+      return failClosed(res, 'external_provider_disabled');
+    }
+    const result = await runPexelsLibrarySync(prisma, {
+      maxPublish: req.body?.maxPublish,
+      force: req.body?.force === true,
+      queries: req.body?.queries,
+    });
+    if (!result.ok) return res.status(result.status === 'DISABLED' ? 403 : 502).json(result);
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /admin/publish-real-collections — curated real-only collections */
+router.post('/admin/publish-real-collections', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (
+      !Features.universalLibrary?.realLibraryCollectionsV1 &&
+      !Features.universalLibrary?.realPopulationV1
+    ) {
+      return failClosed(res, 'real_collections_disabled');
+    }
+    const result = await publishRealCollections(prisma);
+    return res.json({ ...result, authority: 'core' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /admin/library-ops-summary — real vs fixture split + source health */
+router.get('/admin/library-ops-summary', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const assets = await prisma.universalAsset.findMany({ take: 5000 });
+    /** @type {Record<string, number>} */
+    const byOrigin = {};
+    /** @type {Record<string, number>} */
+    const byIndustry = {};
+    /** @type {Record<string, number>} */
+    const byType = {};
+    /** @type {Record<string, number>} */
+    const byProvider = {};
+    let fixtures = 0;
+    let realPublished = 0;
+    let underReview = 0;
+    let rightsIssues = 0;
+    let referenceOnly = 0;
+    for (const a of assets) {
+      const origin = getContentOrigin(a);
+      const meta = a.metadata && typeof a.metadata === 'object' ? a.metadata : {};
+      byOrigin[origin] = (byOrigin[origin] || 0) + 1;
+      byProvider[a.provider || 'unknown'] = (byProvider[a.provider || 'unknown'] || 0) + 1;
+      byType[a.type || 'unknown'] = (byType[a.type || 'unknown'] || 0) + 1;
+      const industry = String(meta.industry || (Array.isArray(a.categories) ? a.categories[0] : '') || 'unset');
+      if (!isDevelopmentFixture(a) && a.status === 'PUBLISHED') {
+        byIndustry[industry] = (byIndustry[industry] || 0) + 1;
+      }
+      if (isDevelopmentFixture(a)) fixtures += 1;
+      else if (a.status === 'PUBLISHED') realPublished += 1;
+      if (String(meta.catalogueQualityStatus || '') === 'NEEDS_REVIEW') underReview += 1;
+      if (['UNKNOWN', 'RESTRICTED'].includes(String(a.rightsStatus || '').toUpperCase())) {
+        rightsIssues += 1;
+      }
+      if (a.hostingMode === HOSTING_MODE.REFERENCE || origin === 'REFERENCE_ONLY') referenceOnly += 1;
+    }
+    const collections = await prisma.universalEntity.count({ where: { kind: 'Collection' } });
+    const lastSync = await prisma.contentPopulationJob.findFirst({
+      where: { kind: JOB_KIND.PROVIDER_SYNC, provider: ASSET_PROVIDER.PEXELS },
+      orderBy: { completedAt: 'desc' },
+    });
+    return res.json({
+      ok: true,
+      fixturesEnabled: fixturesEnabled(),
+      overview: {
+        realPublishedAssets: realPublished,
+        developmentFixtures: fixtures,
+        assetsUnderReview: underReview,
+        rightsIssues,
+        cardbeyOriginals: byOrigin.REAL_FIRST_PARTY || 0,
+        creatorAssets: byOrigin.REAL_CREATOR || 0,
+        businessDerived: byOrigin.REAL_BUSINESS || 0,
+        providerAssets: byOrigin.REAL_PROVIDER || 0,
+        referenceOnly,
+        collections,
+        byOrigin,
+        byIndustry,
+        byType,
+        byProvider,
+      },
+      sources: [
+        {
+          id: 'cardbey.originals',
+          status: 'ACTIVE',
+          termsReviewStatus: 'N/A_FIRST_PARTY',
+          hostingMode: 'HOSTED',
+          published: byOrigin.REAL_FIRST_PARTY || 0,
+        },
+        {
+          id: 'creator_studio',
+          status: Features.universalLibrary?.creatorLibraryPublicationV1 ? 'ACTIVE' : 'PAUSED',
+          termsReviewStatus: 'CREATOR_DECLARATION',
+          hostingMode: 'HOSTED',
+          published: byOrigin.REAL_CREATOR || 0,
+        },
+        {
+          id: 'pexels',
+          status: !isPexelsLibraryConfigured()
+            ? 'DISABLED'
+            : pexelsLibraryEnabled()
+              ? 'ACTIVE'
+              : 'PAUSED',
+          termsReviewStatus: 'APPROVED_FOR_PILOT',
+          hostingMode: 'REFERENCE',
+          lastSync: lastSync?.completedAt || null,
+          lastSyncResult: lastSync?.result || null,
+          published: byProvider[ASSET_PROVIDER.PEXELS] || 0,
+          configured: isPexelsLibraryConfigured(),
+          flagEnabled: Boolean(Features.universalLibrary?.externalOpenProviderV1),
+        },
+      ],
+      lastSuccessfulSync: lastSync?.status === JOB_STATUS.COMPLETED ? lastSync.completedAt : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

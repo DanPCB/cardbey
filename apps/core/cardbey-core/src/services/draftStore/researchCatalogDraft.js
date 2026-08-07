@@ -15,6 +15,18 @@ import {
 import { applyDesignLibraryCommercePolicy } from '../../lib/storefrontDesignLibrary/policy/applyDesignLibraryCommercePolicy.js';
 import { applyDesignLibraryBlueprintRecommendation } from '../../lib/storefrontDesignLibrary/scoring/recommendBlueprintsForDraft.js';
 import { applyDesignLibraryStorefrontProjection } from '../../lib/storefrontDesignLibrary/projection/projectStorefrontForDraft.js';
+import { applyDesignLibraryRenderShadow } from '../../lib/storefrontDesignLibrary/rendering/applyDesignLibraryRenderShadow.js';
+import { isGroundedStoreCreationEnabled } from './groundedStoreCreation.js';
+import { applyContentReadinessToCatalog } from './contentReadinessModel.js';
+import {
+  assertNoNonOfferingRolesInCatalog,
+  emitStoreCreationAuthorityTrace,
+  isNonOfferingContentRole,
+  isOfferingContentRole,
+  resolveItemContentRole,
+  splitSourcedProductsByRole,
+  syncCategoriesFromSourcedItems,
+} from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
 
 export function isResearchCatalogSource(meta) {
   return meta?.catalogSource === 'research';
@@ -101,7 +113,7 @@ export function shouldApplyResearchCatalogToDraft(research) {
 export function stampSourcedCatalogOrigin(catalog, opts = {}) {
   if (!catalog || typeof catalog !== 'object') return catalog;
   const pending = Boolean(opts.pendingOwnerReview);
-  const products = Array.isArray(catalog.products)
+  let products = Array.isArray(catalog.products)
     ? catalog.products.map((item) => {
         if (!item || typeof item !== 'object') return item;
         return {
@@ -112,7 +124,7 @@ export function stampSourcedCatalogOrigin(catalog, opts = {}) {
         };
       })
     : catalog.products;
-  return {
+  let next = {
     ...catalog,
     products,
     meta: {
@@ -124,6 +136,10 @@ export function stampSourcedCatalogOrigin(catalog, opts = {}) {
       needsOwnerReview: pending,
     },
   };
+  if (isGroundedStoreCreationEnabled()) {
+    next = applyContentReadinessToCatalog(next);
+  }
+  return next;
 }
 
 /**
@@ -196,6 +212,12 @@ export function stampSuggestedCatalogOrigin(catalog) {
     next = applyDesignLibraryBlueprintRecommendation(next, ctx).catalog;
     // Phase 5: advisory section projection (never cuts over React renderer).
     next = applyDesignLibraryStorefrontProjection(next, ctx).catalog;
+    // Phase 6: shadow comparison (flagged separately; no public UI change).
+    next = applyDesignLibraryRenderShadow(next, ctx).catalog;
+  }
+
+  if (isGroundedStoreCreationEnabled()) {
+    next = applyContentReadinessToCatalog(next);
   }
 
   return next;
@@ -242,6 +264,16 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
   const businessProfile = opts.businessProfile ?? null;
   const businessType = businessProfile?.businessType ?? opts.businessType ?? 'service_fixed_booking';
   const businessName = opts.businessName ?? '';
+  const commercePrimary =
+    opts.primaryAction ??
+    businessProfile?.presentation?.primaryCTA ??
+    opts.commercePrimaryAction ??
+    null;
+  const isQuoteBusiness =
+    businessType === 'service_quote_required' ||
+    businessType === 'service_quote' ||
+    commercePrimary === 'request_quote' ||
+    String(businessProfile?.commerceMode ?? '').toLowerCase() === 'quote';
 
   return (Array.isArray(products) ? products : []).map((item) => {
     if (!item || typeof item !== 'object') return item;
@@ -251,33 +283,75 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
       item.researchMeta?.sourceType ??
       item.sourceType ??
       'research';
+    const contentRole = resolveItemContentRole(item);
+
+    // Non-offering rows must never become bookable catalog services.
+    if (item.contentRole && isNonOfferingContentRole(contentRole)) {
+      return {
+        ...item,
+        name: name || item.name,
+        title: name || item.title,
+        contentRole,
+        itemType: contentRole,
+        type: contentRole,
+        kind: contentRole,
+        bookingEnabled: false,
+        purchaseEnabled: false,
+        primaryAction: null,
+        executionAction: null,
+        catalogEligible: false,
+      };
+    }
+
+    const preferQuote =
+      isQuoteBusiness ||
+      item.serviceMode === 'quote_required' ||
+      item.executionAction === 'request_quote' ||
+      item.primaryAction === 'request_quote';
+    const executionAction = preferQuote
+      ? 'request_quote'
+      : item.executionAction ?? (isQuoteBusiness ? 'request_quote' : 'book');
+    const primaryAction = preferQuote ? 'request_quote' : executionAction === 'book' ? 'book' : executionAction;
+    const serviceMode = preferQuote
+      ? 'quote_required'
+      : item.serviceMode ?? (isQuoteBusiness ? 'quote_required' : 'fixed_booking');
 
     const base = {
       ...item,
       name: name || item.name,
       title: name || item.title,
-      itemType: 'service',
-      type: 'service',
-      kind: 'service',
-      serviceMode: item.serviceMode ?? 'fixed_booking',
-      executionAction: item.executionAction ?? 'book',
-      primaryAction: 'book',
-      bookingEnabled: true,
+      itemType: contentRole === 'product' || contentRole === 'product_category' ? 'product' : 'service',
+      type: contentRole === 'service_category' ? 'service_category' : contentRole === 'product' ? 'product' : 'service',
+      kind: contentRole === 'product' || contentRole === 'product_category' ? 'product' : 'service',
+      serviceMode,
+      executionAction,
+      primaryAction,
+      bookingEnabled: !preferQuote && executionAction === 'book',
       purchaseEnabled: false,
       catalogSource: 'research',
       sourceEvidence,
-      isService: true,
+      isService: contentRole === 'service' || contentRole === 'service_category' || contentRole === 'unknown',
+      contentRole: item.contentRole ?? contentRole,
+      catalogEligible: true,
     };
 
     const enriched = normalizeServiceCatalogItem(base, {
       businessType,
       businessName,
-      itemType: 'service',
+      itemType: base.itemType === 'product' ? 'product' : 'service',
     });
 
     return {
       ...base,
       ...enriched,
+      // Preserve semantic role — normalizer must not flatten to generic service.
+      contentRole: item.contentRole ?? base.contentRole,
+      roleConfidence: item.roleConfidence,
+      roleReason: item.roleReason,
+      executionAction: preferQuote ? 'request_quote' : enriched.executionAction ?? executionAction,
+      primaryAction: preferQuote ? 'request_quote' : primaryAction,
+      bookingEnabled: preferQuote ? false : base.bookingEnabled,
+      serviceMode: preferQuote ? 'quote_required' : enriched.serviceMode ?? serviceMode,
       serviceCatalog: item.serviceCatalog ?? toServiceCatalogJson(enriched),
     };
   });
@@ -312,8 +386,16 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     businessProfile: bp,
     businessType: bp?.businessType,
     businessName,
+    primaryAction: bp?.presentation?.primaryCTA,
   });
   const pendingOwnerReview = isResearchCatalogPendingOwnerReview(research);
+
+  const facts = research?.facts && typeof research.facts === 'object' ? research.facts : {};
+  const split = splitSourcedProductsByRole(products, {
+    facts,
+    research,
+    profile: catalog.profile,
+  });
 
   const meta = {
     ...(catalog.meta ?? {}),
@@ -328,6 +410,13 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     businessType: bp?.businessType ?? catalog.meta?.businessType,
     pendingOwnerReview,
     needsOwnerReview: pendingOwnerReview,
+    bypassLegacyCategoryNormalization: true,
+    canonicalSourcedContent: {
+      ...split.envelope,
+      // Drop raw item payloads from meta (keep refs + offerings summary).
+      offerings: split.envelope.offerings.map(({ _raw, ...rest }) => rest),
+    },
+    sourcedCatalogSplit: split.diagnostics,
     ...(classificationMeta
       ? {
           contentClassification: {
@@ -386,8 +475,9 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
   }
 
   // Phase 3–5: advisory commerce policy + blueprint scoring + section projection.
+  // Projection runs on the FULL classified set (offerings + non-offerings).
+  let next = stamped;
   if (isDesignLibraryV1Enabled()) {
-    const facts = research?.facts && typeof research.facts === 'object' ? research.facts : {};
     const ctx = {
       research,
       businessProfile: bp,
@@ -412,13 +502,82 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
       missionId: params.missionId ?? research?.missionId ?? null,
       draftStoreId: params.draftId ?? params.draftStoreId ?? null,
     };
-    let next = applyDesignLibraryCommercePolicy(stamped, ctx, opts).catalog;
+    next = applyDesignLibraryCommercePolicy(stamped, ctx, opts).catalog;
     next = applyDesignLibraryBlueprintRecommendation(next, ctx, opts).catalog;
     next = applyDesignLibraryStorefrontProjection(next, ctx, opts).catalog;
-    return next;
+    next = applyDesignLibraryRenderShadow(next, ctx, opts).catalog;
   }
 
-  return stamped;
+  // Preserve full classified set for projection adapter lookups; mark non-offerings
+  // ineligible for catalog/image generation. Sync categories so Other-flatten cannot run.
+  if (next?.products && Array.isArray(next.products)) {
+    next.products = next.products.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const role = resolveItemContentRole(item);
+      if (item.contentRole && isNonOfferingContentRole(role)) {
+        return {
+          ...item,
+          catalogEligible: false,
+          skipCatalogImageGeneration: true,
+          bookingEnabled: false,
+          purchaseEnabled: false,
+        };
+      }
+      return { ...item, catalogEligible: item.catalogEligible !== false };
+    });
+    // Keep a parallel offerings-only list for grounded media/QA authority.
+    const offeringOnly = assertNoNonOfferingRolesInCatalog(
+      next.products.filter((p) => p?.catalogEligible !== false && isOfferingContentRole(resolveItemContentRole(p))),
+    );
+    next.meta = {
+      ...(next.meta && typeof next.meta === 'object' ? next.meta : {}),
+      bypassLegacyCategoryNormalization: true,
+      canonicalSourcedContent: next.meta?.canonicalSourcedContent ?? meta.canonicalSourcedContent,
+      sourcedOfferingProductIds: offeringOnly.items.map((p) => p.id).filter(Boolean),
+    };
+    const catPreview = { items: next.products.filter((p) => p?.catalogEligible !== false), categories: next.categories };
+    syncCategoriesFromSourcedItems(catPreview);
+    next.categories = catPreview.categories;
+    // Re-apply synced categoryIds onto matching products
+    const byId = new Map(catPreview.items.map((p) => [p.id, p]));
+    next.products = next.products.map((p) => {
+      const synced = p?.id != null ? byId.get(p.id) : null;
+      return synced ? { ...p, categoryId: synced.categoryId, category: synced.category, categoryName: synced.categoryName } : p;
+    });
+  }
+
+  emitStoreCreationAuthorityTrace({
+    missionId: params.missionId ?? research?.missionId ?? null,
+    draftId: params.draftId ?? params.draftStoreId ?? null,
+    discovery: {
+      websiteResolved: Boolean(facts.website || research?.sourcesUsed?.length),
+      sourceCount: Array.isArray(research?.sourcesUsed) ? research.sourcesUsed.length : 0,
+      offeringCount: split.diagnostics.offeringCount,
+      nonOfferingCount: split.diagnostics.nonOfferingCount,
+    },
+    truth: {
+      canonicalEnvelopeBuilt: Boolean(next?.meta?.canonicalSourcedContent?.version),
+      sourcedOfferingCount: split.diagnostics.offeringCount,
+      testimonialCount: split.envelope.sections.testimonial?.length ?? 0,
+      policyCount: split.envelope.sections.policy?.length ?? 0,
+      careerCount: split.envelope.sections.career?.length ?? 0,
+    },
+    catalog: {
+      authority: pendingOwnerReview ? 'sourced_pending_review' : 'sourced',
+      suggestedCount: 0,
+      fallbackReason: null,
+    },
+    projection: {
+      blueprintId: next?.meta?.designLibraryBlueprintRecommendation?.selectedBlueprintId ?? null,
+      sectionCount: next?.meta?.designLibraryStorefrontProjection?.sections?.length ?? null,
+      primaryAction: next?.meta?.designLibraryCommercePolicy?.primaryAction ?? null,
+    },
+    renderer: {
+      legacyNormalizerBypassed: true,
+    },
+  });
+
+  return next;
 }
 
 /**
@@ -439,9 +598,23 @@ export function applyResearchProfileToPreview(preview) {
   preview.primaryCTA = bp.presentation?.primaryCTA ?? preview.primaryCTA ?? legacy.primaryCTA;
   preview.businessProfile = bp;
   preview.generatedContentProfile = legacy.generatedContentProfile;
-  preview.commerceMode = bp.commerceMode ?? preview.commerceMode ?? 'booking';
-  preview.transactionMode = 'booking';
-  preview.ctaLabel = preview.ctaLabel ?? legacy.ctaLabel ?? 'Book';
+  const commercePolicy = preview.meta?.designLibraryCommercePolicy;
+  const policyPrimary = commercePolicy?.primaryAction ?? null;
+  const isQuote =
+    bp.businessType === 'service_quote_required' ||
+    bp.businessType === 'service_quote' ||
+    policyPrimary === 'request_quote' ||
+    String(bp.presentation?.primaryCTA ?? '').toLowerCase().includes('quote');
+  preview.commerceMode = isQuote
+    ? 'quote'
+    : bp.commerceMode ?? preview.commerceMode ?? 'booking';
+  preview.transactionMode = isQuote ? 'quote' : 'booking';
+  preview.ctaLabel = isQuote
+    ? 'Request a quote'
+    : preview.ctaLabel ?? legacy.ctaLabel ?? (policyPrimary === 'request_quote' ? 'Request a quote' : 'Book');
+  if (isQuote) {
+    preview.primaryCTA = 'Request a quote';
+  }
   preview.meta = {
     ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
     catalogSource: 'research',
@@ -450,6 +623,7 @@ export function applyResearchProfileToPreview(preview) {
     catalogMode: preview.catalogMode,
     catalogLabel: preview.catalogLabel,
     primaryCTA: preview.primaryCTA,
+    bypassLegacyCategoryNormalization: true,
   };
   preview.storefrontSettings = {
     ...(preview.storefrontSettings && typeof preview.storefrontSettings === 'object'

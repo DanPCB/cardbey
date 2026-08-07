@@ -1,0 +1,72 @@
+export const MARKETPLACE_SELLER_STATUS = Object.freeze({
+  NOT_APPLIED: 'NOT_APPLIED',
+  PENDING: 'PENDING',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  RESTRICTED: 'RESTRICTED',
+  SUSPENDED: 'SUSPENDED',
+});
+
+export const MARKETPLACE_LISTING_STATUS = Object.freeze({
+  DRAFT: 'DRAFT',
+  SUBMITTED: 'SUBMITTED',
+  APPROVED: 'APPROVED',
+  CHANGES_REQUESTED: 'CHANGES_REQUESTED',
+  REJECTED: 'REJECTED',
+  PUBLISHED: 'PUBLISHED',
+  UNPUBLISHED: 'UNPUBLISHED',
+  SUSPENDED: 'SUSPENDED',
+  ARCHIVED: 'ARCHIVED',
+});
+
+export const MARKETPLACE_AVAILABILITY_STATUS = Object.freeze({
+  AVAILABLE: 'AVAILABLE',
+  UNAVAILABLE: 'UNAVAILABLE',
+});
+
+export const MARKETPLACE_OWNERSHIP_TYPES = Object.freeze({
+  CREATED_BY_ME: 'CREATED_BY_ME',
+  CREATED_FOR_ME_WITH_FULL_RIGHTS: 'CREATED_FOR_ME_WITH_FULL_RIGHTS',
+  LICENSED_WITH_RESALE_RIGHTS: 'LICENSED_WITH_RESALE_RIGHTS',
+  AI_GENERATED_WITH_COMMERCIAL_RIGHTS: 'AI_GENERATED_WITH_COMMERCIAL_RIGHTS',
+  OTHER_REVIEW_REQUIRED: 'OTHER_REVIEW_REQUIRED',
+  /** @deprecated Prefer CREATED_BY_ME */
+  SELF_CREATED: 'CREATED_BY_ME',
+  /** @deprecated Prefer LICENSED_WITH_RESALE_RIGHTS */
+  LICENSED: 'LICENSED_WITH_RESALE_RIGHTS',
+  /** @deprecated Prefer OTHER_REVIEW_REQUIRED */
+  COLLABORATIVE: 'OTHER_REVIEW_REQUIRED',
+});
+
+export const MARKETPLACE_ACCESS_TYPES = Object.freeze({
+  FREE: 'FREE',
+  PREMIUM: 'PREMIUM',
+});
+
+export const MARKETPLACE_SUPPORTED_CURRENCIES = Object.freeze(['AUD', 'USD', 'EUR', 'VND']);
+
+export const MARKETPLACE_SUPPORTED_SOURCE_TYPES = Object.freeze(['VIDEO', 'ARTICLE', 'LIVESTREAM']);
+
+/** Statuses that occupy the unique activeSourceKey (blocks a second live listing). */
+export const MARKETPLACE_ACTIVE_LISTING_STATUSES = new Set([
+  MARKETPLACE_LISTING_STATUS.DRAFT,
+  MARKETPLACE_LISTING_STATUS.SUBMITTED,
+  MARKETPLACE_LISTING_STATUS.APPROVED,
+  MARKETPLACE_LISTING_STATUS.CHANGES_REQUESTED,
+  MARKETPLACE_LISTING_STATUS.PUBLISHED,
+  MARKETPLACE_LISTING_STATUS.UNPUBLISHED,
+  MARKETPLACE_LISTING_STATUS.SUSPENDED,
+]);
+
+export function isMarketplaceListingActiveStatus(status) {
+  return MARKETPLACE_ACTIVE_LISTING_STATUSES.has(String(status || '').toUpperCase());
+}
+
+export function buildMarketplaceActiveSourceKey(sellerId, sourceContentType, sourceContentId) {
+  if (!sellerId || !sourceContentType || !sourceContentId) return null;
+  return [
+    String(sellerId).trim(),
+    String(sourceContentType).trim().toUpperCase(),
+    String(sourceContentId).trim(),
+  ].join(':');
+}

@@ -1,8 +1,11 @@
 # Cardbey Architecture Documentation
 
+> **North star:** [The Cardbey Philosophy](../../../../docs/CARDBEY_PHILOSOPHY.md) — Independence, Opportunity, Capability.
+> Major features should state which principle(s) they advance.
+
 ## Overview
 
-Cardbey is a modular, AI-first platform for managing loyalty programs, menus, signage, and device displays. This document describes the current architecture and the target modular architecture.
+Cardbey is infrastructure for people to create value (Independence), exchange it (Opportunity), and multiply reusable knowledge (Capability)—delivered today as a modular, AI-first platform spanning stores, websites, loyalty, menus, signage, devices, and assistants. This document describes the current architecture and the target modular architecture.
 
 ## Current Structure
 

@@ -384,6 +384,7 @@ export function shouldSkipDynamicPlannerForUploadCreateStore(input = {}) {
     !isExplicitCreateStoreFromUploadContext({
       userMessage: input.userMessage,
       intentSourceContext: input.intentSourceContext,
+      imageDataUrl: input.imageDataUrl ?? input.imageContext?.imageDataUrl ?? null,
     })
   ) {
     return false;
@@ -408,6 +409,8 @@ export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) 
     !isExplicitCreateStoreFromUploadContext({
       userMessage,
       intentSourceContext,
+      imageDataUrl: input.imageDataUrl ?? null,
+      sessionId: input.sessionId ?? null,
     })
   ) {
     return null;
@@ -711,8 +714,20 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
         };
       }
     }
-    diagLog(diag, '→ needs_form (missing businessName)');
-    return { kind: 'needs_form', intentMode: ctxIntentMode };
+    const uploadCtx = isExplicitCreateStoreFromUploadContext({
+      userMessage,
+      intentSourceContext: deps.intentSourceContext,
+      imageDataUrl: deps.imageDataUrl ?? null,
+    });
+    diagLog(diag, '→ needs_form (missing businessName)', {
+      fallbackReason: 'CREATE_STORE_PREFLIGHT_MISSING_FIELDS',
+      uploadCreateStore: uploadCtx,
+    });
+    return {
+      kind: 'needs_form',
+      intentMode: ctxIntentMode,
+      fallbackReason: 'CREATE_STORE_PREFLIGHT_MISSING_FIELDS',
+    };
   }
 
   if (!actorId || !user?.id) {
@@ -931,6 +946,10 @@ export function buildNeedsFormCreateStoreIntakeBody(input = {}) {
     storeCreateForm: input.storeCreateForm ?? null,
     memoryContext: input.memoryContext ?? null,
   });
+  const fallbackReason =
+    typeof input.fallbackReason === 'string' && input.fallbackReason.trim()
+      ? input.fallbackReason.trim()
+      : 'CREATE_STORE_PREFLIGHT_MISSING_FIELDS';
   return {
     success: true,
     action: 'create_store',
@@ -942,6 +961,7 @@ export function buildNeedsFormCreateStoreIntakeBody(input = {}) {
     }),
     businessName: bundle.draft.name ?? undefined,
     businessType: bundle.draft.category ?? undefined,
+    fallbackReason,
   };
 }
 
@@ -1027,6 +1047,11 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
           classification: draftContext.classification,
           storeCreateForm: draftContext.storeCreateForm,
           memoryContext: draftContext.memoryContext,
+          intentSourceContext: draftContext.intentSourceContext ?? ctx.intentSourceContext,
+          fallbackReason:
+            result.fallbackReason ||
+            draftContext.fallbackReason ||
+            'CREATE_STORE_PREFLIGHT_MISSING_FIELDS',
         }),
       {
         classification: { executionPath: 'direct_action', tool: 'create_store', confidence: 1 },

@@ -7,6 +7,8 @@
 import OpenAI from 'openai';
 import { chunkText } from './ragChunkUtils.js';
 import { prisma } from '../lib/prisma.js';
+import { Features } from '../config/features.js';
+import { embed } from '../lib/llm/llmGateway.ts';
 import {
   buildInsightAction,
   inferEntryPointFromInsight,
@@ -289,8 +291,8 @@ Generate insights now:`;
  * @returns {Promise<void>}
  */
 async function indexInsightToRag(insight) {
-  if (!HAS_OPENAI) {
-    return; // Skip if OpenAI not configured
+  if (!HAS_OPENAI && !Features.embeddings.useGateway) {
+    return; // Skip if no embedding provider configured
   }
 
   const { id, tenantId, title, summaryMd } = insight;
@@ -326,13 +328,21 @@ async function indexInsightToRag(insight) {
       const chunk = chunks[i];
 
       try {
-        // Generate embedding
-        const response = await openai.embeddings.create({
-          model: 'text-embedding-3-small',
-          input: chunk,
-        });
-
-        const embedding = response.data[0]?.embedding;
+        let embedding;
+        if (Features.embeddings.useGateway) {
+          const result = await embed({
+            text: chunk,
+            provider: Features.embeddings.defaultProvider,
+            purpose: 'insight_rag_embedding',
+          });
+          embedding = result.embeddings?.[0];
+        } else {
+          const response = await openai.embeddings.create({
+            model: 'text-embedding-3-small',
+            input: chunk,
+          });
+          embedding = response.data[0]?.embedding;
+        }
         if (!embedding) {
           continue;
         }

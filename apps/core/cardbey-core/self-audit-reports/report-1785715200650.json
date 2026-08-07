@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-08-03T00:00:00.649Z",
+  "issuesFound": 1,
+  "fixesProposed": 1,
+  "success": true,
+  "issues": [
+    {
+      "id": "telemetry-planner_missing_context-planner_missing_context:4",
+      "category": "agent",
+      "severity": "high",
+      "title": "Planner shadow missing for pipeline writes",
+      "description": "4 writes without planner shadow events",
+      "location": "telemetry:planner_missing_context",
+      "evidence": {
+        "evidence": [
+          "Pipeline writes without planner shadow events"
+        ],
+        "confidence": 0.87
+      },
+      "suggestedFix": "Apply telemetry playbook: planner_missing_context",
+      "autoFixable": true,
+      "timestamp": "2026-08-03T00:00:00.520Z",
+      "telemetryId": "planner_missing_context:4"
+    }
+  ],
+  "fixes": [
+    {
+      "issueId": "telemetry-planner_missing_context-planner_missing_context:4",
+      "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: planner_missing_context\nTitle: Planner shadow missing for pipeline writes\nSeverity: high\nTelemetry heuristic confidence: 0.87\nSummary: 4 writes without planner shadow events\nEvidence:\n - Pipeline writes without planner shadow events\nPlaybook — likely files:\n - apps/core/cardbey-core/src/multiAgent/agents/planner.agent.ts\n - apps/core/cardbey-core/src/lib/multiAgent/deepseekIntakeBridge.ts\nPlaybook — constraints:\n - Preserve HITL gate\n - No auto-apply\nPlaybook — validation steps (after manual patch):\n - Confirm planner shadow events after pipeline writes\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-planner_missing_context-planner_missing_context:4\"\n}",
+      "guardrails": {
+        "proposalOnly": true,
+        "noFileWrites": true,
+        "noAutoApply": true,
+        "humanApprovalRequired": true
+      },
+      "status": "proposed",
+      "files": [
+        {
+          "path": "apps/core/cardbey-core/src/multiAgent/agents/planner.agent.ts",
+          "content": "",
+          "patch": "# Governed proposal for Planner shadow missing for pipeline writes\n# [PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: planner_missing_context\nTitle: Planner shadow missing for pipeline writes\nSeverity: high\nTelemetry heuristic confidence: 0.87\nSummary: 4 writes without planner shadow events\nEvidence:\n - Pipeline writes without planner shadow events\nPlaybook — likely files:\n - apps/core/cardbey-core/src/multiAgent/agents/planner.agent.ts\n - apps/core/cardbey-core/"
+        },
+        {
+          "path": "apps/core/cardbey-core/src/lib/multiAgent/deepseekIntakeBridge.ts",
+          "content": "",
+          "patch": "# Governed proposal for Planner shadow missing for pipeline writes\n# [PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: planner_missing_context\nTitle: Planner shadow missing for pipeline writes\nSeverity: high\nTelemetry heuristic confidence: 0.87\nSummary: 4 writes without planner shadow events\nEvidence:\n - Pipeline writes without planner shadow events\nPlaybook — likely files:\n - apps/core/cardbey-core/src/multiAgent/agents/planner.agent.ts\n - apps/core/cardbey-core/"
+        }
+      ],
+      "tests": [
+        "Confirm planner shadow events after pipeline writes"
+      ],
+      "playbookId": "planner_missing_context"
+    }
+  ]
+}

@@ -20,6 +20,27 @@
       "approvedDesignVersion": 1,
       "approvedBy": "calibration-owner",
       "workspaceId": "ws-dev-1783820026186"
+    },
+    {
+      "id": "dev-1785819587749",
+      "type": "BUG_FIX",
+      "repositoryId": "cardbey",
+      "baseBranch": "main",
+      "title": "AUDIT DEMO Remove duplicate sidebar on Development Runtime page",
+      "request": "Fix duplicate console sidebar on /app/development",
+      "expectedOutcome": "/app/development renders one Console sidebar only",
+      "observedBehaviour": "Two vertical sidebar rails visible on /app/development",
+      "riskLevel": "LOW",
+      "state": "IMPLEMENTING",
+      "requestedBy": "audit-demo",
+      "executionMode": "MANUAL",
+      "createdAt": "2026-08-04T04:59:47.750Z",
+      "updatedAt": "2026-08-04T05:01:23.891Z",
+      "evidenceSnapshotId": "ev-dev-1785819587749",
+      "approvedDesignId": "design-dev-1785819587749-v1",
+      "approvedDesignVersion": 1,
+      "approvedBy": "audit-demo",
+      "workspaceId": "ws-dev-1785819587749"
     }
   ],
   "evidence": {
@@ -57,6 +78,33 @@
       },
       "frozenAt": "2026-07-12T01:33:46.192Z",
       "frozenBy": "calibration-runner"
+    },
+    "dev-1785819587749": {
+      "id": "ev-dev-1785819587749",
+      "missionId": "dev-1785819587749",
+      "logs": [],
+      "screenshots": [],
+      "requestIds": [],
+      "affectedRoutes": [
+        "/app/development"
+      ],
+      "suspectedFiles": [
+        "apps/dashboard/cardbey-marketing-dashboard/src/App.jsx"
+      ],
+      "reproductionSteps": [
+        "Open /app/development",
+        "Count ConsoleSidebar rails"
+      ],
+      "expectedBehaviour": "One Console sidebar",
+      "currentBehaviour": "Duplicate rails hypothesized",
+      "environment": {
+        "appVersions": {},
+        "commitHash": "unknown",
+        "databaseProvider": "unknown",
+        "nodeVersion": "v24.18.0"
+      },
+      "frozenAt": "2026-08-04T04:59:48.049Z",
+      "frozenBy": "audit-demo"
     }
   },
   "impactReports": {
@@ -103,6 +151,45 @@
       ],
       "generatedAt": "2026-07-12T01:33:46.194Z",
       "generatedBy": "calibration-runner"
+    },
+    "dev-1785819587749": {
+      "id": "imp-dev-1785819587749",
+      "missionId": "dev-1785819587749",
+      "affectedSystems": [
+        "frontend",
+        "routing",
+        "console",
+        "navigation"
+      ],
+      "canonicalPath": "/app/development",
+      "legacyPaths": [],
+      "proposedFiles": [
+        "apps/dashboard/cardbey-marketing-dashboard/src/App.jsx"
+      ],
+      "migrationRequired": false,
+      "securityReviewRequired": false,
+      "performanceReviewRequired": false,
+      "estimatedRisk": "LOW",
+      "estimatedEffort": "SMALL",
+      "acceptanceCriteria": [
+        "/app/development renders one Console sidebar only",
+        "/app/development renders one Console sidebar only",
+        "No CSS hiding of duplicate rails"
+      ],
+      "findings": [
+        {
+          "severity": "WARNING",
+          "message": "Duplicate sidebar may be caused by nested shell or missing console route classification",
+          "location": "App.jsx / ConsoleShell"
+        }
+      ],
+      "recommendations": [
+        "Inspect ConsoleShell vs PageShell layout ownership",
+        "Verify /app/development is classified as console route",
+        "Keep DevelopmentCenterPage content-only"
+      ],
+      "generatedAt": "2026-08-04T05:00:03.132Z",
+      "generatedBy": "audit-demo"
     }
   },
   "designs": [
@@ -159,6 +246,50 @@
       "createdAt": "2026-07-12T01:33:46.196Z",
       "approvedBy": "calibration-owner",
       "approvedAt": "2026-07-12T01:33:46.198Z"
+    },
+    {
+      "id": "design-dev-1785819587749-v1",
+      "missionId": "dev-1785819587749",
+      "version": 1,
+      "summary": "Remove duplicate console sidebar on Development Runtime routes",
+      "diagnosis": "The duplicated rail may come from either:\n1. a second shell mounted inside the Development page, or\n2. the outer AppShell/PageShell wrapping /app/development while ConsoleShell also renders its own rail.\n\nRepository inspection is required before implementation. Hypothesis only — root cause must be verified in workspace.",
+      "proposedChanges": [
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/App.jsx",
+          "purpose": "Classify /app/development as console layout; add nested route under ConsoleShell",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/pages/development/DevelopmentCenterPage.tsx",
+          "purpose": "Keep page content-only — no nested ConsoleShell or Sidebar",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/components/development/DevelopmentTab.tsx",
+          "purpose": "State-specific review cards; no layout shell imports",
+          "changeType": "MODIFY"
+        },
+        {
+          "file": "apps/dashboard/cardbey-marketing-dashboard/src/components/development/developmentConsoleRouting.test.tsx",
+          "purpose": "Regression: single canonical console sidebar owner for /app/development",
+          "changeType": "CREATE"
+        }
+      ],
+      "testPlan": [
+        "Regression test: /app/development uses console layout without nested sidebar",
+        "Verify /app, /app/missions, /app/development each render one ConsoleSidebar",
+        "dashboard vitest targeted test passes",
+        "dashboard vite build (no minify) passes"
+      ],
+      "rollbackPlan": "Revert branch; remove /app/development console classification if regression detected",
+      "risks": [
+        "Console route classification may affect guest auth paths",
+        "Must not fix with CSS hiding — structural layout only"
+      ],
+      "proposedBy": "system",
+      "createdAt": "2026-08-04T05:00:03.692Z",
+      "approvedBy": "audit-demo",
+      "approvedAt": "2026-08-04T05:00:03.985Z"
     }
   ],
   "workspaces": [
@@ -171,6 +302,16 @@
       "status": "READY",
       "createdAt": "2026-07-12T01:33:46.203Z",
       "preparedAt": "2026-07-12T01:33:46.203Z"
+    },
+    {
+      "id": "ws-dev-1785819587749",
+      "missionId": "dev-1785819587749",
+      "path": "C:\\Projects\\cardbey\\.development-workspaces\\dev-1785819587749",
+      "repository": "cardbey",
+      "branch": "fix/dev-785819587749-audit-demo-remove-duplicate-sidebar-on-d",
+      "status": "READY",
+      "createdAt": "2026-08-04T05:01:23.890Z",
+      "preparedAt": "2026-08-04T05:01:23.890Z"
     }
   ],
   "patches": [
@@ -277,6 +418,15 @@
       "status": "APPROVED",
       "comments": "Calibration patch approval",
       "approvedAt": "2026-07-12T01:35:26.980Z"
+    },
+    {
+      "id": "rev-design-dev-1785819587749-1",
+      "missionId": "dev-1785819587749",
+      "type": "DESIGN",
+      "reviewer": "audit-demo",
+      "status": "APPROVED",
+      "comments": "audit stop after workspace",
+      "approvedAt": "2026-08-04T05:00:03.986Z"
     }
   ],
   "pullRequests": [],
@@ -441,6 +591,82 @@
       "repositoryId": "cardbey",
       "id": "evt-b8c29534-c146-408c-be9a-be363c9ad576",
       "timestamp": "2026-07-12T01:35:26.976Z"
+    },
+    {
+      "type": "MISSION_CREATED",
+      "missionId": "dev-1785819587749",
+      "actorType": "user",
+      "actorId": "audit-demo",
+      "repositoryId": "cardbey",
+      "id": "evt-b63fa0d5-272b-4039-bb26-e06abecdd765",
+      "timestamp": "2026-08-04T04:59:47.756Z"
+    },
+    {
+      "type": "EVIDENCE_FROZEN",
+      "missionId": "dev-1785819587749",
+      "actorType": "user",
+      "actorId": "audit-demo",
+      "repositoryId": "cardbey",
+      "id": "evt-4069e509-b048-4cdb-baed-060e98273d4c",
+      "timestamp": "2026-08-04T04:59:48.054Z"
+    },
+    {
+      "type": "development_impact_analysed",
+      "missionId": "dev-1785819587749",
+      "actorType": "agent",
+      "actorId": "audit-demo",
+      "repositoryId": "cardbey",
+      "id": "evt-a3dfe78f-29a1-4b57-8bf8-a7a97cef4407",
+      "timestamp": "2026-08-04T05:00:03.134Z"
+    },
+    {
+      "type": "development_design_proposed",
+      "missionId": "dev-1785819587749",
+      "designId": "design-dev-1785819587749-v1",
+      "actorType": "agent",
+      "actorId": "system",
+      "repositoryId": "cardbey",
+      "id": "evt-cd65d85c-f912-4ed7-8fca-416d23b9fe31",
+      "timestamp": "2026-08-04T05:00:03.696Z"
+    },
+    {
+      "type": "development_design_approved",
+      "missionId": "dev-1785819587749",
+      "designId": "design-dev-1785819587749-v1",
+      "actorType": "user",
+      "actorId": "audit-demo",
+      "repositoryId": "cardbey",
+      "id": "evt-0023b407-8677-45a1-9f62-9362648f27e3",
+      "timestamp": "2026-08-04T05:00:03.988Z"
+    },
+    {
+      "type": "development_workspace_prepare_started",
+      "missionId": "dev-1785819587749",
+      "actorType": "system",
+      "actorId": "audit-demo",
+      "repositoryId": "cardbey",
+      "id": "evt-244310af-ddd5-442c-80cc-f65964b14805",
+      "timestamp": "2026-08-04T05:00:04.252Z"
+    },
+    {
+      "type": "development_workspace_prepare_started",
+      "missionId": "dev-1785819587749",
+      "actorType": "system",
+      "actorId": "audit-demo",
+      "repositoryId": "cardbey",
+      "id": "evt-f7c60157-3b45-4852-bdea-146512541e38",
+      "timestamp": "2026-08-04T05:00:24.253Z"
+    },
+    {
+      "type": "development_workspace_prepared",
+      "missionId": "dev-1785819587749",
+      "workspaceId": "ws-dev-1785819587749",
+      "actorType": "system",
+      "actorId": "audit-demo",
+      "repositoryId": "cardbey",
+      "branchName": "fix/dev-785819587749-audit-demo-remove-duplicate-sidebar-on-d",
+      "id": "evt-7781d290-550e-4b81-aaca-23781804f14f",
+      "timestamp": "2026-08-04T05:01:23.918Z"
     }
   ]
 }

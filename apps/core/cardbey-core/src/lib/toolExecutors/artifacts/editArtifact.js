@@ -528,6 +528,35 @@ export async function execute(input = {}, context = {}) {
     };
   }
 
+  // Stage 5A — block translate intents that would overwrite canonical Business fields.
+  // Safe path: POST /api/stores/:storeId/translate (translations JSON only).
+  try {
+    const { isLanguageBlockEditArtifactTranslateEnabled } = await import(
+      '../../languageIntelligence/flags.js'
+    );
+    const translateIntent =
+      /\b(translate|translation|localize|localisation|localization)\b/i.test(instruction) &&
+      /\b(store|business|name|description|tagline|product|catalog|about)\b/i.test(instruction);
+    if (translateIntent && isLanguageBlockEditArtifactTranslateEnabled()) {
+      return {
+        status: 'failed',
+        error: {
+          code: 'TRANSLATE_VIA_TRANSLATIONS_LAYER',
+          message:
+            'Translate actions must not overwrite canonical store fields. Use POST /api/stores/:storeId/translate or the Languages and Localization review workflow.',
+        },
+        output: {
+          tool: 'edit_artifact',
+          phase: 'blocked',
+          reason: 'canonical_overwrite_guard',
+          safePath: 'POST /api/stores/:storeId/translate',
+        },
+      };
+    }
+  } catch {
+    /* if LI flags unavailable, continue — overwrite guard is best-effort */
+  }
+
   let artifactType = String(input?.artifactType ?? input?.targetScope ?? '').trim().toLowerCase();
   if (artifactType === 'business') {
     artifactType = 'store';

@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-08-01T12:00:00.063Z",
+  "issuesFound": 1,
+  "fixesProposed": 1,
+  "success": true,
+  "issues": [
+    {
+      "id": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1785585600027",
+      "category": "performance",
+      "severity": "high",
+      "title": "Telemetry stream missing or inactive",
+      "description": "All Mission Console telemetry buffers are empty",
+      "location": "telemetry:telemetry_stream_missing",
+      "evidence": {
+        "evidence": [
+          "All telemetry buffers empty — stream may be missing"
+        ],
+        "confidence": 0.88
+      },
+      "suggestedFix": "Apply telemetry playbook: telemetry_stream_missing",
+      "autoFixable": true,
+      "timestamp": "2026-08-01T12:00:00.027Z",
+      "telemetryId": "telemetry_stream_missing:1785585600027"
+    }
+  ],
+  "fixes": [
+    {
+      "issueId": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1785585600027",
+      "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPlaybook — constraints:\n - No PII in buffers\nPlaybook — validation steps (after manual patch):\n - Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-telemetry_stream_missing-telemetry_stream_missing:1785585600027\"\n}",
+      "guardrails": {
+        "proposalOnly": true,
+        "noFileWrites": true,
+        "noAutoApply": true,
+        "humanApprovalRequired": true
+      },
+      "status": "proposed",
+      "files": [
+        {
+          "path": "apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js",
+          "content": "",
+          "patch": "# Governed proposal for Telemetry stream missing or inactive\n# [PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPl"
+        }
+      ],
+      "tests": [
+        "Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled"
+      ],
+      "playbookId": "telemetry_stream_missing"
+    }
+  ]
+}

@@ -422,5 +422,95 @@
     "playbookId": "telemetry_stream_missing",
     "outcome": "worsening",
     "updatedAt": "2026-07-31T12:00:00.041Z"
+  },
+  {
+    "id": "fix_1785585600038_71dt0z",
+    "issueId": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1785585600027",
+    "status": "applied",
+    "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPlaybook — constraints:\n - No PII in buffers\nPlaybook — validation steps (after manual patch):\n - Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-telemetry_stream_missing-telemetry_stream_missing:1785585600027\"\n}",
+    "proposedAt": "2026-08-01T12:00:00.038Z",
+    "appliedAt": "2026-08-01T12:00:00.047Z",
+    "appliedBy": "self-audit-cli",
+    "guardrails": {
+      "proposalOnly": true,
+      "noFileWrites": true,
+      "noAutoApply": true,
+      "humanApprovalRequired": true
+    },
+    "playbookId": "telemetry_stream_missing",
+    "outcome": "worsening",
+    "updatedAt": "2026-08-01T12:00:00.054Z"
+  },
+  {
+    "id": "fix_1785715200603_t1djbh",
+    "issueId": "telemetry-planner_missing_context-planner_missing_context:4",
+    "status": "applied",
+    "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: planner_missing_context\nTitle: Planner shadow missing for pipeline writes\nSeverity: high\nTelemetry heuristic confidence: 0.87\nSummary: 4 writes without planner shadow events\nEvidence:\n - Pipeline writes without planner shadow events\nPlaybook — likely files:\n - apps/core/cardbey-core/src/multiAgent/agents/planner.agent.ts\n - apps/core/cardbey-core/src/lib/multiAgent/deepseekIntakeBridge.ts\nPlaybook — constraints:\n - Preserve HITL gate\n - No auto-apply\nPlaybook — validation steps (after manual patch):\n - Confirm planner shadow events after pipeline writes\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-planner_missing_context-planner_missing_context:4\"\n}",
+    "proposedAt": "2026-08-03T00:00:00.603Z",
+    "appliedAt": "2026-08-03T00:00:00.630Z",
+    "appliedBy": "self-audit-cli",
+    "guardrails": {
+      "proposalOnly": true,
+      "noFileWrites": true,
+      "noAutoApply": true,
+      "humanApprovalRequired": true
+    },
+    "playbookId": "planner_missing_context",
+    "outcome": "worsening",
+    "updatedAt": "2026-08-03T00:00:00.636Z"
+  },
+  {
+    "id": "fix_1785909600185_ih10hi",
+    "issueId": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1785909600156",
+    "status": "applied",
+    "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPlaybook — constraints:\n - No PII in buffers\nPlaybook — validation steps (after manual patch):\n - Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-telemetry_stream_missing-telemetry_stream_missing:1785909600156\"\n}",
+    "proposedAt": "2026-08-05T06:00:00.185Z",
+    "appliedAt": "2026-08-05T06:00:00.222Z",
+    "appliedBy": "self-audit-cli",
+    "guardrails": {
+      "proposalOnly": true,
+      "noFileWrites": true,
+      "noAutoApply": true,
+      "humanApprovalRequired": true
+    },
+    "playbookId": "telemetry_stream_missing",
+    "outcome": "worsening",
+    "updatedAt": "2026-08-05T06:00:00.229Z"
+  },
+  {
+    "id": "fix_1786017600039_o6lddc",
+    "issueId": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1786017600033",
+    "status": "applied",
+    "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPlaybook — constraints:\n - No PII in buffers\nPlaybook — validation steps (after manual patch):\n - Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-telemetry_stream_missing-telemetry_stream_missing:1786017600033\"\n}",
+    "proposedAt": "2026-08-06T12:00:00.039Z",
+    "appliedAt": "2026-08-06T12:00:00.042Z",
+    "appliedBy": "self-audit-cli",
+    "guardrails": {
+      "proposalOnly": true,
+      "noFileWrites": true,
+      "noAutoApply": true,
+      "humanApprovalRequired": true
+    },
+    "playbookId": "telemetry_stream_missing",
+    "outcome": "worsening",
+    "updatedAt": "2026-08-06T12:00:00.045Z"
+  },
+  {
+    "id": "fix_1786060800029_ra010n",
+    "issueId": "telemetry-telemetry_stream_missing-telemetry_stream_missing:1786060800026",
+    "status": "applied",
+    "description": "[PATH_A_TELEMETRY_CODE_FIX] Proposal only. Human approval required before any edit. No API auto-apply and no file writes from this endpoint.\nCategory: telemetry_stream_missing\nTitle: Telemetry stream missing or inactive\nSeverity: high\nTelemetry heuristic confidence: 0.88\nSummary: All Mission Console telemetry buffers are empty\nEvidence:\n - All telemetry buffers empty — stream may be missing\nPlaybook — likely files:\n - apps/core/cardbey-core/src/lib/orchestrator/missionConsoleTelemetryStore.js\nPlaybook — constraints:\n - No PII in buffers\nPlaybook — validation steps (after manual patch):\n - Confirm MISSION_CONSOLE_TELEMETRY_STORE enabled\nTelemetry context (JSON):\n{\n  \"source\": \"self_audit\",\n  \"issueId\": \"telemetry-telemetry_stream_missing-telemetry_stream_missing:1786060800026\"\n}",
+    "proposedAt": "2026-08-07T00:00:00.029Z",
+    "appliedAt": "2026-08-07T00:00:00.032Z",
+    "appliedBy": "self-audit-cli",
+    "guardrails": {
+      "proposalOnly": true,
+      "noFileWrites": true,
+      "noAutoApply": true,
+      "humanApprovalRequired": true
+    },
+    "playbookId": "telemetry_stream_missing",
+    "outcome": "worsening",
+    "updatedAt": "2026-08-07T00:00:00.034Z"
   }
 ]

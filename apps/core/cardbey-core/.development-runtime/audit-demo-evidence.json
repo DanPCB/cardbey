@@ -1,0 +1,10 @@
+{
+  "frozenBy": "audit-demo",
+  "affectedRoutes": ["/app/development"],
+  "suspectedFiles": ["apps/dashboard/cardbey-marketing-dashboard/src/App.jsx"],
+  "reproductionSteps": ["Open /app/development", "Count ConsoleSidebar rails"],
+  "expectedBehaviour": "One Console sidebar",
+  "currentBehaviour": "Duplicate rails hypothesized",
+  "logs": [],
+  "screenshots": []
+}

@@ -1,5 +1,11 @@
 # Cardbey System Architecture
 
+> **North star:** [The Cardbey Philosophy](./CARDBEY_PHILOSOPHY.md) — Independence, Opportunity, Capability.
+> Major features should state which principle(s) they advance. Filter: *Build → Share → Multiply*.
+> Design contract: [IMPACT_REPORT_TEMPLATE.md](./IMPACT_REPORT_TEMPLATE.md) — Principles Advanced, Trade-offs, Platform Capability Added.
+>
+> **Layers:** Philosophy (stable) → Platform (years) → Applications (continuous).
+
 Visual map of frontend, backend, integration points, and component maturity.
 
 > **Status legend:** 🟢 Running · 🟡 Freezing / Partial · 🔴 Placeholder / Not implemented

@@ -727,6 +727,31 @@ export async function publishDraft(prisma, {
     throw new PublishDraftError('invalid_preview', 'Draft preview failed validation. Cannot publish.', 400);
   }
 
+  // Phase 5 — Grounded publish validator (flagged; fail closed on blocking issues only).
+  try {
+    const { assertGroundedPublishAllowed } = await import('./groundedPublishValidator.js');
+    const groundedValidation = assertGroundedPublishAllowed(rawPreview?.items ? rawPreview : { ...rawPreview, items: preview.items });
+    if (groundedValidation && process.env.NODE_ENV !== 'production') {
+      console.log('[PublishDraft] grounded validation', {
+        status: groundedValidation.status,
+        blocking: groundedValidation.blockingIssues.length,
+        warnings: groundedValidation.warnings.length,
+      });
+    }
+  } catch (groundedErr) {
+    if (groundedErr?.code === 'grounded_publish_blocked') {
+      throw new PublishDraftError(
+        'grounded_publish_blocked',
+        groundedErr.message || 'Draft needs attention before publishing.',
+        409,
+      );
+    }
+    // Flag off or unexpected — do not block legacy publish paths.
+    if (groundedErr?.code !== 'grounded_publish_blocked' && process.env.NODE_ENV !== 'production') {
+      console.warn('[PublishDraft] grounded validator skipped:', groundedErr?.message ?? groundedErr);
+    }
+  }
+
   // Use items first; fallback to catalog.products (frontend may store products there)
   const products = (Array.isArray(preview.items) && preview.items.length > 0)
     ? preview.items

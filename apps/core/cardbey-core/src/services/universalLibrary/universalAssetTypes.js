@@ -9,6 +9,8 @@ export const ASSET_TYPE = Object.freeze({
   TEMPLATE: 'template',
   ARTICLE: 'article',
   DOCUMENT: 'document',
+  ICON: 'icon',
+  ANIMATION: 'animation',
   BUNDLE: 'bundle',
   OTHER: 'other',
 });
@@ -17,8 +19,13 @@ export const ASSET_PROVIDER = Object.freeze({
   CARDBEY_INTERNAL: 'cardbey_internal',
   CREATOR_STUDIO: 'creator_studio',
   SEED: 'seed',
-  YOUTUBE: 'youtube',
+  YOUTUBE: 'youtube', // reference metadata only — no ingest without rights
   PEXELS: 'pexels',
+  PIXABAY: 'pixabay',
+  UNSPLASH: 'unsplash',
+  WIKIMEDIA: 'wikimedia',
+  INTERNET_ARCHIVE: 'internet_archive',
+  OPENVERSE: 'openverse',
 });
 
 export const RIGHTS_STATUS = Object.freeze({
@@ -45,6 +52,8 @@ export const ASSET_STATUS = Object.freeze({
   FAILED: 'FAILED',
   REJECTED: 'REJECTED',
   ARCHIVED: 'ARCHIVED',
+  /** Library projection withdrawn by creator — preserves provenance in metadata. */
+  WITHDRAWN: 'WITHDRAWN',
 });
 
 export const ASSET_RELATION_TYPE = Object.freeze({

@@ -1,88 +1,69 @@
 /**
  * Auto-Translate Store Route
- * 
+ *
  * POST /api/stores/:storeId/translate
- * 
- * Triggers AI-powered translation of store and menu items to target language.
- * 
- * TODO: Consider moving this into the Orchestrator job queue for async processing
- * TODO: Support more languages beyond EN/VI (currently hardcoded to these two)
+ *
+ * AI-powered translation of store + products into the translations JSON layer.
+ * NEVER overwrites canonical name/description/category fields.
+ *
+ * Persistence path:
+ *   Canonical Product → TranslationEngine → TranslationRecord → translations[lang]
  */
 
 import express from 'express';
 import { requireAuth } from '../../middleware/auth.js';
-import { translateBatch } from '../../services/i18n/aiTranslationService.js';
-
 import { prisma } from '../../lib/prisma.js';
+import {
+  translateCatalogBatch,
+  wouldOverwriteCanonical,
+  isLanguageCode,
+  detectLegacyMessageLocale,
+  setTranslationProvider,
+  createOpenAiTranslationProvider,
+  ensureDefaultTranslationProvider,
+} from '../../lib/languageIntelligence/index.js';
 
 const router = express.Router();
-/**
- * Helper function to set translated fields for Product model
- * Returns an object mapping only to real columns: name, description, and category
- * Falls back to existing values if a translated field is missing
- * 
- * @param product - The original product object
- * @param targetLang - Target language ('en' | 'vi')
- * @param translated - Translated object with optional name, description, category
- * @returns Object with name, description, category fields ready for Prisma update
- */
-function setTranslatedFields(
-  product: { name: string; description: string | null; category: string | null },
-  targetLang: 'en' | 'vi',
-  translated: { name?: string; description?: string; category?: string }
-): { name: string; description?: string | null; category?: string | null } {
-  return {
-    name: translated.name ?? product.name,
-    description: translated.description !== undefined ? (translated.description || null) : product.description,
-    category: translated.category !== undefined ? (translated.category || null) : product.category,
-  };
+
+function inferSourceLanguage(texts: string[]): string {
+  const joined = texts.filter(Boolean).join(' ');
+  return detectLegacyMessageLocale(joined);
 }
 
 /**
  * POST /api/stores/:storeId/translate
- * 
- * Translate store and all its products to target language
- * 
- * Headers:
- *   - Authorization: Bearer <token> (required)
- * 
- * Request body:
- *   - targetLang: 'en' | 'vi' (required)
- * 
- * Response (200):
+ *
+ * Body: { targetLang: string }  — Language Intelligence language code (e.g. en, vi, ja)
+ *
+ * Response:
  *   {
- *     "ok": true,
- *     "targetLang": "vi",
- *     "counts": { "stores": 1, "products": 24 },
- *     "skipped": 0
+ *     ok: true,
+ *     targetLang,
+ *     mode: "translations_layer",
+ *     canonicalPreserved: true,
+ *     counts: { stores, products },
+ *     skipped,
+ *     summary: { productsUpdated }  // dashboard toast compat
  *   }
- * 
- * Errors:
- *   - 400: Invalid targetLang or missing store
- *   - 401: Not authenticated
- *   - 403: User doesn't own this store
- *   - 500: Translation service error
  */
 router.post('/stores/:storeId/translate', requireAuth, async (req, res, next) => {
   try {
     const { storeId } = req.params;
     const { targetLang } = req.body;
 
-    // Validate targetLang
-    if (!targetLang || (targetLang !== 'en' && targetLang !== 'vi')) {
+    if (!targetLang || !isLanguageCode(targetLang)) {
       return res.status(400).json({
         ok: false,
         error: 'invalid_target_lang',
-        message: 'targetLang must be "en" or "vi"',
+        message: 'targetLang must be a supported Language Intelligence code (e.g. en, vi, ja)',
       });
     }
 
-    // Load store with products
     const store = await prisma.business.findUnique({
       where: { id: storeId },
       include: {
         products: {
-          where: { deletedAt: null }, // Only non-deleted products
+          where: { deletedAt: null },
         },
       },
     });
@@ -95,7 +76,6 @@ router.post('/stores/:storeId/translate', requireAuth, async (req, res, next) =>
       });
     }
 
-    // Verify user owns this store
     if (store.userId !== req.userId) {
       return res.status(403).json({
         ok: false,
@@ -104,43 +84,58 @@ router.post('/stores/:storeId/translate', requireAuth, async (req, res, next) =>
       });
     }
 
-    // Build translation items array
-    const translationItems: Array<{
+    const sampleTexts: string[] = [];
+    if (store.name) sampleTexts.push(store.name);
+    if (store.description) sampleTexts.push(store.description);
+    for (const p of store.products.slice(0, 20)) {
+      if (p.name) sampleTexts.push(p.name);
+    }
+    const sourceLanguage = inferSourceLanguage(sampleTexts);
+
+    /** @type {Array<{ id: string, type: string, model: object, fields: Record<string, string>, sourceLanguage: string, revision: string|number, contentClass: string }>} */
+    const items: Array<{
       id: string;
-      type: 'store' | 'category' | 'product';
+      type: string;
+      model: object;
       fields: Record<string, string>;
+      sourceLanguage: string;
+      revision: string | number;
+      contentClass: string;
     }> = [];
 
-    // Add store fields
     const storeFields: Record<string, string> = {};
     if (store.name) storeFields.name = store.name;
     if (store.description) storeFields.description = store.description;
-    
     if (Object.keys(storeFields).length > 0) {
-      translationItems.push({
+      items.push({
         id: store.id,
         type: 'store',
+        model: store,
         fields: storeFields,
+        sourceLanguage,
+        revision: store.updatedAt?.toISOString?.() ?? String(store.updatedAt ?? 0),
+        contentClass: 'product',
       });
     }
 
-    // Add product fields
     for (const product of store.products) {
       const productFields: Record<string, string> = {};
       if (product.name) productFields.name = product.name;
       if (product.description) productFields.description = product.description;
       if (product.category) productFields.category = product.category;
-
-      if (Object.keys(productFields).length > 0) {
-        translationItems.push({
-          id: product.id,
-          type: 'product',
-          fields: productFields,
-        });
-      }
+      if (Object.keys(productFields).length === 0) continue;
+      items.push({
+        id: product.id,
+        type: 'product',
+        model: product,
+        fields: productFields,
+        sourceLanguage,
+        revision: product.updatedAt?.toISOString?.() ?? String(product.updatedAt ?? 0),
+        contentClass: 'product',
+      });
     }
 
-    if (translationItems.length === 0) {
+    if (items.length === 0) {
       return res.status(400).json({
         ok: false,
         error: 'no_content_to_translate',
@@ -148,14 +143,30 @@ router.post('/stores/:storeId/translate', requireAuth, async (req, res, next) =>
       });
     }
 
-    console.log(`[Auto Translate] Translating ${translationItems.length} items for store ${storeId} to ${targetLang}`);
+    console.log(
+      `[Auto Translate] Engine translating ${items.length} items for store ${storeId} → ${targetLang} (source=${sourceLanguage})`,
+    );
 
-    // Call translation service
-    let translationResults;
+    // Prefer OpenAI when configured; engine falls back to stub only in test.
     try {
-      translationResults = await translateBatch(translationItems, targetLang);
+      if (process.env.OPENAI_API_KEY) {
+        setTranslationProvider(createOpenAiTranslationProvider());
+      } else {
+        ensureDefaultTranslationProvider();
+      }
+    } catch {
+      ensureDefaultTranslationProvider();
+    }
+
+    let batchResult;
+    try {
+      batchResult = await translateCatalogBatch({
+        items,
+        targetLanguage: targetLang,
+        forceRefresh: Boolean(req.body?.forceRefresh),
+      });
     } catch (error: any) {
-      console.error('[Auto Translate] Translation service error:', error);
+      console.error('[Auto Translate] Translation engine error:', error);
       return res.status(500).json({
         ok: false,
         error: 'translation_failed',
@@ -163,40 +174,32 @@ router.post('/stores/:storeId/translate', requireAuth, async (req, res, next) =>
       });
     }
 
-    // Update store and products with translations
     let storeUpdated = false;
     let productsUpdated = 0;
     let skipped = 0;
 
-    for (const result of translationResults) {
+    for (const result of batchResult.results) {
       try {
+        if (wouldOverwriteCanonical(result.patch)) {
+          console.error('[Auto Translate] Refused canonical overwrite patch', result.id);
+          skipped++;
+          continue;
+        }
+
         if (result.type === 'store') {
-          // Update store with translated fields
-          const updateData: { name?: string; description?: string } = {};
-          if (result.translated.name) updateData.name = result.translated.name;
-          if (result.translated.description !== undefined) {
-            updateData.description = result.translated.description || null;
-          }
-          
           await prisma.business.update({
             where: { id: result.id },
-            data: updateData,
+            data: result.patch,
           });
           storeUpdated = true;
         } else if (result.type === 'product') {
-          // Find the product to get current field values
-          const product = store.products.find(p => p.id === result.id);
-          if (product) {
-            const updateData = setTranslatedFields(product, targetLang, result.translated);
-            await prisma.product.update({
-              where: { id: result.id },
-              data: updateData,
-            });
-            productsUpdated++;
-          } else {
-            console.warn(`[Auto Translate] Product ${result.id} not found in store`);
-            skipped++;
-          }
+          await prisma.product.update({
+            where: { id: result.id },
+            data: result.patch,
+          });
+          productsUpdated++;
+        } else {
+          skipped++;
         }
       } catch (error: any) {
         console.error(`[Auto Translate] Failed to update ${result.type} ${result.id}:`, error);
@@ -204,18 +207,24 @@ router.post('/stores/:storeId/translate', requireAuth, async (req, res, next) =>
       }
     }
 
-    // Count skipped items (items that weren't in translation results)
-    const translatedIds = new Set(translationResults.map(r => r.id));
-    skipped += translationItems.filter(item => !translatedIds.has(item.id)).length;
-
-    console.log(`[Auto Translate] Completed: store=${storeUpdated ? 1 : 0}, products=${productsUpdated}, skipped=${skipped}`);
+    console.log(
+      `[Auto Translate] Completed (translations_layer): store=${storeUpdated ? 1 : 0}, products=${productsUpdated}, skipped=${skipped}`,
+    );
 
     res.json({
       ok: true,
       targetLang,
+      mode: 'translations_layer',
+      canonicalPreserved: true,
+      sourceLanguage,
       counts: {
         stores: storeUpdated ? 1 : 0,
         products: productsUpdated,
+      },
+      // Dashboard StoreTranslationsSection historically read summary.productsUpdated
+      summary: {
+        storesUpdated: storeUpdated ? 1 : 0,
+        productsUpdated,
       },
       skipped,
     });
@@ -226,4 +235,3 @@ router.post('/stores/:storeId/translate', requireAuth, async (req, res, next) =>
 });
 
 export default router;
-

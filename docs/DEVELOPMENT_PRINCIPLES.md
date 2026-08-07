@@ -1,5 +1,9 @@
 # Cardbey Development Principles
 
+> **Product north star:** [The Cardbey Philosophy](./CARDBEY_PHILOSOPHY.md) — Independence, Opportunity, Capability.
+> This file covers *how* we build safely. The philosophy covers *why* and *what* we build toward.
+> Major design docs: [IMPACT_REPORT_TEMPLATE.md](./IMPACT_REPORT_TEMPLATE.md) (Principles Advanced, Trade-offs, Platform Capability Added).
+
 ## 🚀 AI-First Development Rule
 
 **Core Principle:** If anything can be done by AI, we will find and integrate the APIs. Manual is just an option.

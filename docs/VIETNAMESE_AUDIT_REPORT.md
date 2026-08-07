@@ -1,6 +1,6 @@
 # Vietnamese Language Audit Report
 
-**Date:** 2026-07-31 (updated)  
+**Date:** 2026-08-01 (updated)  
 **Scope:** `apps/dashboard/cardbey-marketing-dashboard`  
 **Locale storage:** `localStorage` key `cardbey.lang` (`en` | `vi`)
 
@@ -27,8 +27,12 @@
 | Business Discovery | **Fixed** | Wired to `discovery.*` keys |
 | Devices table | **Fixed** | Table chrome + toasts use `devices.*` |
 | Pair Device modal (dashboard-init) | **Fixed** | `devices.modal.*` |
-| **Screens Pair Device modal** | **Fixed** | Enter-code / QR / repair (`screens.pairModal.*`) |
-| **Pair Alert popup** | **Fixed** | Device-initiated alert chrome (`devices.pairAlert.*`) |
+| Screens Pair Device modal | **Fixed** | `screens.pairModal.*` |
+| Pair Alert popup | **Fixed** | `devices.pairAlert.*` |
+| Screens page | **Fixed** | `signage.page.*` |
+| **ScreenCard** | **Fixed** | Card actions/status (`signage.card.*`) |
+| Feed rail / engagement | **Fixed** | `feedRail.*` + known CTA remap (`frontscreen.*`) |
+| Store preview / mini-website CTAs | **Fixed** | `websiteChrome.*` + display remap |
 | Suitcase vault | **Fixed** | `dashboard:suitcase.vault.*` |
 | Account profile | **Fixed** | `dashboard:account.*` |
 | Login / Signup | OK | Auth contract tests pass |
@@ -38,20 +42,19 @@
 
 | Area | Issue | Priority |
 |------|-------|----------|
-| Screens page delete confirm | `Screens.jsx` delete dialog still English | Medium |
 | Account country names | Country labels may remain EN | Low |
 | `mapGenerateStoreError.ts` | English error strings from API layer | Low |
+| Store preview chrome extras | Live/Draft badges, dismiss, breadcrumb still EN | Low |
 | CI baseline | ~1,213 allowed hardcoded strings in `i18n-ci-baseline.json` | Low (incremental) |
-| Product names | Performer, Cardbey, C-Net, Cardbey Player kept as brand terms | N/A |
+| Product names | Performer, Cardbey, C-Net kept as brand terms | N/A |
 
 ## Next
 
-**Screens page chrome** (`src/pages/Screens.jsx`) — delete confirm / remaining page strings.
+**Store preview chrome extras** — Live/Draft badges, dismiss, breadcrumb labels (optional polish).
 
 ## Verification
 
 ```bash
 cd apps/dashboard/cardbey-marketing-dashboard
-npm test -- --run screensPairDeviceModal.i18n
-npm test -- --run pairAlertPopup.i18n
+npm test -- --run miniWebsiteNav.i18n
 ```

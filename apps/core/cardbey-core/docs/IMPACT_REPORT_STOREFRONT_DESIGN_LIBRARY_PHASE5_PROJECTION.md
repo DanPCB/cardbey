@@ -184,8 +184,6 @@ pnpm exec vitest run src/lib/storefrontDesignLibrary
 node -e "import('./src/lib/storefrontDesignLibrary/projection/index.js')" → ok
 ```
 
-## Recommended Phase 6
+## Phase 6 status
 
-**Shadow renderer comparison + controlled projection-to-render adapter**
-
-Compare legacy rendered structure vs advisory projection, and introduce an adapter behind a **separate cutover flag**, without immediately replacing production rendering.
+Implemented — see `docs/IMPACT_REPORT_STOREFRONT_DESIGN_LIBRARY_PHASE6_SHADOW_RENDER.md`.

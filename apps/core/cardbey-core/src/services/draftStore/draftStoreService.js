@@ -52,6 +52,10 @@ import {
   shouldApplyResearchCatalogToDraft,
   stampSuggestedCatalogOrigin,
 } from './researchCatalogDraft.js';
+import {
+  shouldBypassLegacyCategoryNormalization,
+  syncCategoriesFromSourcedItems,
+} from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -70,6 +74,15 @@ async function isMissionPipelineCancelled(pipelineMissionId) {
  */
 export function normalizePreviewCategories(preview) {
   if (!preview || typeof preview !== 'object') return preview;
+  // Projection / sourced authority: never flatten semantic roles into Other.
+  if (shouldBypassLegacyCategoryNormalization(preview)) {
+    syncCategoriesFromSourcedItems(preview);
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      legacyCategoryNormalizerBypassed: true,
+    };
+    return preview;
+  }
   let categories = Array.isArray(preview.categories) ? [...preview.categories] : [];
   const items = Array.isArray(preview.items) ? preview.items : [];
 
@@ -1529,23 +1542,39 @@ async function finalizeDraft(draftId, {
       console.warn(`[DraftStore] Hero generation failed for draft ${draftId}:`, heroErr?.message || heroErr);
     }
     if (!heroImageUrl) {
+      let groundedHero = false;
       try {
-        const { getSeedImageForCategory } = await import('../../lib/seedLibrary/getSeedImageForCategory.js');
-        const vertical = effectiveVertical(preview.storeType, preview.meta?.storeType) || null;
-        const fallback = await getSeedImageForCategory({
-          vertical,
-          categoryKey: preview.storeType || null,
-          businessName: preview.storeName || null,
-          orientation: 'landscape',
-        });
-        if (fallback) {
-          heroImageUrl = fallback;
-          if (process.env.cardbey_debugImageSource === '1' || process.env.CARDBEY_DEBUG_IMAGE_SOURCE === '1') {
-            console.log('[DraftStore] hero fallback from Seed Library', { draftId, vertical, categoryKey: preview.storeType });
-          }
+        const { isGroundedStoreCreationEnabled } = await import('./groundedStoreCreation.js');
+        groundedHero = isGroundedStoreCreationEnabled();
+      } catch {
+        groundedHero = false;
+      }
+      if (groundedHero) {
+        // Grounded V1: never fill hero with unrelated Seed Library stock.
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[DraftStore] grounded: skipped Seed Library hero fallback', { draftId });
         }
-      } catch (e) {
-        // non-blocking: leave hero null
+        preview.meta = preview.meta || {};
+        preview.meta.heroMediaStatus = 'needs_media';
+      } else {
+        try {
+          const { getSeedImageForCategory } = await import('../../lib/seedLibrary/getSeedImageForCategory.js');
+          const vertical = effectiveVertical(preview.storeType, preview.meta?.storeType) || null;
+          const fallback = await getSeedImageForCategory({
+            vertical,
+            categoryKey: preview.storeType || null,
+            businessName: preview.storeName || null,
+            orientation: 'landscape',
+          });
+          if (fallback) {
+            heroImageUrl = fallback;
+            if (process.env.cardbey_debugImageSource === '1' || process.env.CARDBEY_DEBUG_IMAGE_SOURCE === '1') {
+              console.log('[DraftStore] hero fallback from Seed Library', { draftId, vertical, categoryKey: preview.storeType });
+            }
+          }
+        } catch (e) {
+          // non-blocking: leave hero null
+        }
       }
     }
     if (!importedAvatarUrl) {

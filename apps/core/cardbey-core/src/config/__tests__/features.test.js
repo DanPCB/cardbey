@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { Features, snapshotFeatures } from '../features.js';
+import { Features, snapshotFeatures, isMarketplaceListingPilotEnabled } from '../features.js';
 
 describe('config/features', () => {
   const envBackup = { ...process.env };
@@ -17,9 +17,9 @@ describe('config/features', () => {
     expect(Features.decisionLoop.enabled).toBe(false);
   });
 
-  it('enables decision loop when INTAKE_DECISION_LOOP_AUTHORITY=true', () => {
+  it('keeps decision loop authority off even when legacy env is set', () => {
     process.env.INTAKE_DECISION_LOOP_AUTHORITY = 'true';
-    expect(Features.decisionLoop.enabled).toBe(true);
+    expect(Features.decisionLoop.enabled).toBe(false);
   });
 
   it('defaults belief shadow to on', () => {
@@ -30,7 +30,139 @@ describe('config/features', () => {
   it('snapshotFeatures returns plain values', () => {
     process.env.INTAKE_DECISION_LOOP_AUTHORITY = 'true';
     const snap = snapshotFeatures();
-    expect(snap.decisionLoop.enabled).toBe(true);
+    expect(snap.decisionLoop.enabled).toBe(false);
     expect(typeof snap.decisionLoop.thresholds.low).toBe('number');
+  });
+
+  it('defaults USE_LLM_GATEWAY to on (Phase 0)', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    expect(Features.llm.useGateway).toBe(true);
+  });
+
+  it('allows USE_LLM_GATEWAY=false rollback', () => {
+    process.env.USE_LLM_GATEWAY = 'false';
+    expect(Features.llm.useGateway).toBe(false);
+  });
+
+  it('defaults LLM provider to anthropic with openai fallback', () => {
+    delete process.env.LLM_DEFAULT_PROVIDER;
+    delete process.env.LLM_FALLBACK_PROVIDER;
+    expect(Features.llm.defaultProvider).toBe('anthropic');
+    expect(Features.llm.fallbackProvider).toBe('openai');
+  });
+
+  it('includes llm in snapshotFeatures', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    const snap = snapshotFeatures();
+    expect(snap.llm.useGateway).toBe(true);
+    expect(snap.llm.defaultProvider).toBeTruthy();
+  });
+
+  it('defaults PII redaction and kimi/groq provider config (Phase 1)', () => {
+    delete process.env.ENABLE_PII_REDACTION;
+    delete process.env.KIMI_ENABLED;
+    delete process.env.GROQ_ENABLED;
+    expect(Features.llm.piiRedaction).toBe(true);
+    expect(Features.llm.providers.kimi.enabled).toBe(true);
+    expect(Features.llm.providers.groq.enabled).toBe(true);
+    expect(Features.llm.providers.kimi.defaultModel).toContain('kimi');
+  });
+
+  it('defaults multiAgent gateway provider to deepseek (Phase 2)', () => {
+    delete process.env.MULTIAGENT_PROVIDER;
+    delete process.env.MULTIAGENT_USE_GATEWAY;
+    delete process.env.USE_LLM_GATEWAY;
+    expect(Features.multiAgent.provider).toBe('deepseek');
+    expect(Features.multiAgent.useGateway).toBe(true);
+    expect(Features.intent.provider).toBe('deepseek');
+  });
+
+  it('defaults Phase 3 multimodal / embeddings facades to on', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    delete process.env.VISION_ENABLED;
+    delete process.env.EMBEDDING_ENABLED;
+    delete process.env.IMAGE_GEN_ENABLED;
+    delete process.env.VIDEO_GEN_ENABLED;
+    delete process.env.VISION_PROVIDER;
+    delete process.env.EMBEDDING_PROVIDER;
+    delete process.env.IMAGE_PROVIDER;
+    delete process.env.VIDEO_PROVIDER;
+    expect(Features.vision.useGateway).toBe(true);
+    expect(Features.embeddings.useGateway).toBe(true);
+    expect(Features.image.useGateway).toBe(true);
+    expect(Features.video.useGateway).toBe(true);
+    expect(Features.vision.defaultProvider).toBe('anthropic');
+    expect(Features.embeddings.defaultProvider).toBe('openai');
+    expect(Features.image.defaultProvider).toBe('dalle');
+    expect(Features.video.defaultProvider).toBe('openai');
+  });
+
+  it('allows Phase 3 surface rollbacks and full USE_LLM_GATEWAY=false', () => {
+    process.env.VISION_ENABLED = 'false';
+    expect(Features.vision.useGateway).toBe(false);
+    process.env.EMBEDDING_ENABLED = 'false';
+    expect(Features.embeddings.useGateway).toBe(false);
+    process.env.USE_LLM_GATEWAY = 'false';
+    delete process.env.VISION_ENABLED;
+    delete process.env.EMBEDDING_ENABLED;
+    expect(Features.vision.useGateway).toBe(false);
+    expect(Features.embeddings.useGateway).toBe(false);
+    expect(Features.image.useGateway).toBe(false);
+    expect(Features.video.useGateway).toBe(false);
+  });
+
+  it('includes Phase 3 multimodal flags in snapshotFeatures', () => {
+    delete process.env.USE_LLM_GATEWAY;
+    const snap = snapshotFeatures();
+    expect(snap.vision.useGateway).toBe(true);
+    expect(snap.embeddings.defaultProvider).toBeTruthy();
+    expect(snap.image.defaultProvider).toBeTruthy();
+    expect(snap.video.defaultProvider).toBeTruthy();
+  });
+
+  it('defaults LLM fallbackModel (Phase 4)', () => {
+    delete process.env.LLM_FALLBACK_MODEL;
+    delete process.env.OPENAI_CHAT_MODEL;
+    expect(Features.llm.fallbackModel).toBe('gpt-4o-mini');
+    process.env.LLM_FALLBACK_MODEL = 'gpt-4o';
+    expect(Features.llm.fallbackModel).toBe('gpt-4o');
+  });
+
+  it('fails marketplace closed when content marketplace flag is off', () => {
+    delete process.env.ENABLE_CONTENT_MARKETPLACE_V1;
+    delete process.env.ENABLE_MARKETPLACE_SELLER_V1;
+    delete process.env.ENABLE_CREATOR_MARKETPLACE_LISTING_V1;
+    expect(Features.marketplace.contentMarketplaceV1).toBe(false);
+    expect(Features.marketplace.sellerV1).toBe(false);
+    expect(Features.marketplace.listingV1).toBe(false);
+    expect(isMarketplaceListingPilotEnabled()).toBe(false);
+  });
+
+  it('defaults marketplace seller/listing/moderation on in staging or development when enabled', () => {
+    process.env.ENABLE_CONTENT_MARKETPLACE_V1 = 'true';
+    process.env.NODE_ENV = 'development';
+    delete process.env.ENABLE_MARKETPLACE_SELLER_V1;
+    delete process.env.ENABLE_CREATOR_MARKETPLACE_LISTING_V1;
+    delete process.env.ENABLE_MARKETPLACE_MODERATION_V1;
+    expect(Features.marketplace.sellerV1).toBe(true);
+    expect(Features.marketplace.listingV1).toBe(true);
+    expect(Features.marketplace.moderationV1).toBe(true);
+    expect(isMarketplaceListingPilotEnabled()).toBe(true);
+  });
+
+  it('keeps premium purchase and creator earnings off by default', () => {
+    delete process.env.ENABLE_PREMIUM_CONTENT_PURCHASE_V1;
+    delete process.env.ENABLE_CREATOR_EARNINGS_V1;
+    expect(Features.marketplace.premiumPurchaseV1).toBe(false);
+    expect(Features.marketplace.creatorEarningsV1).toBe(false);
+  });
+
+  it('includes marketplace flags in snapshotFeatures', () => {
+    process.env.ENABLE_CONTENT_MARKETPLACE_V1 = 'true';
+    process.env.NODE_ENV = 'development';
+    const snap = snapshotFeatures();
+    expect(snap.marketplace.contentMarketplaceV1).toBe(true);
+    expect(snap.marketplace.listingPilotEnabled).toBe(true);
+    expect(snap.marketplace.premiumPurchaseV1).toBe(false);
   });
 });

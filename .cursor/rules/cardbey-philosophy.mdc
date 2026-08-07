@@ -1,0 +1,73 @@
+---
+description: Cardbey product north star — Independence, Opportunity, Capability. Major design docs must include Principles Advanced, Trade-offs, and Platform Capability Added.
+alwaysApply: true
+---
+
+# The Cardbey Philosophy (LOCKED) – Entire Project
+
+Canonical doc: `docs/CARDBEY_PHILOSOPHY.md`.  
+Design template: `docs/IMPACT_REPORT_TEMPLATE.md`.
+
+Cardbey is infrastructure for people to **create value, exchange it, and multiply reusable knowledge**—not merely an e-commerce platform, social network, or AI tool.
+
+Philosophy is an **active engineering constraint**: evaluate proposals against it; do not treat it as one-time vision reading.
+
+## Three principles
+
+1. **Independence** — Give everyone the tools to build and control their own digital world.
+   - Filter: Does this make people more independent?
+   - Leads to: AI Assistant, Business tools, Store/Website builder, Digital presence, Automation
+
+2. **Opportunity** — Give everyone a stage to create, share, exchange and grow.
+   - Filter: Does this create more opportunities for people?
+   - Leads to: Marketplace, Social commerce, Universal Library, Discovery, Community, Creator ecosystem
+
+3. **Capability** — Help everyone turn knowledge, creativity and experience into reusable capabilities others can discover, use and build upon (creators retain ownership / recognition / compensation where appropriate).
+   - Filter: Does this help people multiply the value of what they know?
+   - Leads to: AI agents, Templates, Workflows, Content Engine, Universal Library, Licensing, Knowledge sharing
+
+## Three layers
+
+| Layer | Change rate | Examples |
+|---|---|---|
+| Philosophy | Stable | Independence, Opportunity, Capability |
+| Platform | Years | Universal Library, Performer, Business Engine, Marketplace, Content Engine |
+| Applications | Continuous | Store builder, Creator Studio, Signage, Websites, Marketing, AI tools |
+
+Prefer enduring platform concepts over transient application wiring when designing shared systems.
+
+## Progression
+
+Independence (individual / **Build**) → Opportunity (community & market / **Share**) → Capability (compounding value / **Multiply**) → Collective Intelligence.
+
+## Required sections on major design docs
+
+For every major `PLAN_*`, phase architecture map, or major capability `IMPACT_REPORT_*`, include **near the top** (after summary):
+
+### Principles Advanced
+- Independence — ✔ how it helps, or explicitly “not addressed”
+- Opportunity — ✔ how it creates opportunity, or “not addressed”
+- Capability — ✔ how it multiplies reusable knowledge, or “not addressed”
+- **Trade-offs** — which principles are intentionally skipped; whether anything reduces/conflicts with existing capability
+
+### Platform Capability Added
+- What new **platform** capability exists now (not only what files changed)
+- What future phases this enables
+
+Copy skeleton from `docs/IMPACT_REPORT_TEMPLATE.md`.
+
+## Architecture review questions (major features)
+
+1. Which principle(s) does this advance?
+2. Is this a platform capability or just an application feature?
+3. Can other parts of Cardbey reuse it?
+4. Will this still make sense in five years if today's AI models, UI frameworks, or APIs change?
+
+## Agent / developer checklist
+
+- [ ] State which principle(s) it advances; complete Principles Advanced + Trade-offs.
+- [ ] State Platform Capability Added and future phases enabled.
+- [ ] Answer the four architecture review questions for major work.
+- [ ] If **no** to all three principle filters, challenge whether it is central to Cardbey.
+- [ ] Do not invent a separate “mission” for a subsystem when it already maps cleanly to these principles.
+- [ ] Prefer designs that let people act independently, open opportunity for others, and package knowledge as reusable capability.

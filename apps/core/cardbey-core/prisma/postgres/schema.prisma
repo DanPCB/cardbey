@@ -5510,3 +5510,290 @@ model UniversalDiscoveryScore {
 
   asset UniversalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 }
+
+// ---------------------------------------------------------------------------
+// Capability Engine (Phase 4A)
+// ---------------------------------------------------------------------------
+
+model Capability {
+  id               String    @id @default(cuid())
+  ownerType        String    @default("platform")
+  ownerId          String
+  creatorId        String?
+  slug             String    @unique
+  name             String
+  summary          String?
+  description      String?
+  capabilityType   String
+  industry         String?
+  status           String    @default("DRAFT")
+  visibility       String    @default("private")
+  currentVersionId String?
+  defaultLicenceCode String?
+  iconAssetId      String?
+  coverAssetId     String?
+  previewAssetIds  Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  publishedAt      DateTime?
+  archivedAt       DateTime?
+
+  versions       CapabilityVersion[]
+  installations  CapabilityInstallation[]
+
+  @@index([status])
+  @@index([capabilityType])
+  @@index([industry])
+}
+
+model CapabilityVersion {
+  id                     String    @id @default(cuid())
+  capabilityId           String
+  versionNumber          Int
+  versionLabel           String?
+  inputSchema            Json?
+  outputSchema           Json?
+  executionDefinition    Json?
+  dependencyDefinition   Json?
+  compatibilityDefinition Json?
+  changelog              String?
+  status                 String    @default("DRAFT")
+  createdByUserId        String?
+  createdAt              DateTime  @default(now())
+  approvedAt             DateTime?
+  publishedAt            DateTime?
+
+  capability    Capability                 @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  components    CapabilityComponent[]
+  installations CapabilityInstallation[]
+
+  @@unique([capabilityId, versionNumber])
+  @@index([status])
+}
+
+model CapabilityComponent {
+  id                  String   @id @default(cuid())
+  capabilityVersionId String
+  componentType       String
+  referenceType       String?
+  referenceId         String?
+  configuration       Json?
+  sortOrder           Int      @default(0)
+  required            Boolean  @default(true)
+
+  version CapabilityVersion @relation(fields: [capabilityVersionId], references: [id], onDelete: Cascade)
+
+  @@index([capabilityVersionId])
+}
+
+model CapabilityInstallation {
+  id                  String    @id @default(cuid())
+  capabilityId        String
+  capabilityVersionId String
+  targetType          String
+  targetId            String
+  installedByUserId   String?
+  status              String    @default("PLANNED")
+  inputSnapshot       Json?
+  executionPlanSnapshot Json?
+  resultSnapshot      Json?
+  beforeSnapshot      Json?
+  failureCode         String?
+  installedAt         DateTime?
+  updatedAt           DateTime  @updatedAt
+  rolledBackAt        DateTime?
+  createdAt           DateTime  @default(now())
+
+  capability Capability                @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  version    CapabilityVersion         @relation(fields: [capabilityVersionId], references: [id], onDelete: Restrict)
+  events     CapabilityExecutionEvent[]
+
+  @@index([capabilityId])
+  @@index([targetType, targetId])
+  @@index([status])
+}
+
+model CapabilityExecutionEvent {
+  id              String   @id @default(cuid())
+  installationId  String
+  stepId          String?
+  eventType       String
+  status          String
+  beforeReference Json?
+  afterReference  Json?
+  errorCode       String?
+  createdAt       DateTime @default(now())
+
+  installation CapabilityInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+
+  @@index([installationId])
+}
+
+// --- Universal Resource Intelligence Phase 2 (reuse pilot) ---
+// Runtime bootstrap: scripts/ensure-uri-reuse-tables.mjs (avoid destructive db push)
+
+model ResourceSearchSession {
+  id             String   @id @default(cuid())
+  userId         String?
+  utterance      String?
+  intentJson     String
+  searchPlanJson String?
+  status         String   @default("COMPLETED")
+  jobId          String?
+  consumer       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  candidates ResourceCandidateSnapshot[]
+  selections ResourceSelection[]
+
+  @@index([userId])
+}
+
+model ResourceCandidateSnapshot {
+  id               String   @id @default(cuid())
+  sessionId        String
+  resourceId       String
+  rank             Int      @default(0)
+  fingerprint      String?
+  payloadJson      String
+  explanationJson  String?
+  rightsJson       String?
+  createdAt        DateTime @default(now())
+
+  session ResourceSearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model ResourceSelection {
+  id                   String   @id @default(cuid())
+  sessionId            String
+  candidateSnapshotId  String
+  resourceId           String
+  userId               String?
+  status               String   @default("SELECTED")
+  createdAt            DateTime @default(now())
+
+  session ResourceSearchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  intents ReuseIntent[]
+
+  @@index([sessionId])
+}
+
+model ReuseIntent {
+  id                   String   @id @default(cuid())
+  selectionId          String
+  sessionId            String
+  resourceId           String
+  intendedPurpose      String?
+  targetType           String?
+  targetId             String?
+  preferredCustodyMode String?
+  payloadJson          String?
+  status               String   @default("DRAFT")
+  createdAt            DateTime @default(now())
+
+  selection ResourceSelection @relation(fields: [selectionId], references: [id], onDelete: Cascade)
+  decisions ReuseDecision[]
+
+  @@index([sessionId])
+}
+
+model ReuseDecision {
+  id                 String    @id @default(cuid())
+  reuseIntentId      String
+  reusePlanJson      String
+  custodyMode        String
+  rightsDecisionJson String
+  policyVersion      String
+  userConfirmed      Boolean   @default(false)
+  status             String    @default("AWAITING_CONFIRMATION")
+  confirmedAt        DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  reuseIntent ReuseIntent            @relation(fields: [reuseIntentId], references: [id], onDelete: Cascade)
+  retrievals  ResourceRetrievalJob[]
+
+  @@index([reuseIntentId])
+}
+
+model ResourceAttributionSnapshot {
+  id                     String   @id @default(cuid())
+  externalResourceUseId  String?
+  reuseDecisionId        String?
+  text                   String
+  creator                String?
+  provider               String?
+  license                String?
+  sourceUrl              String?
+  payloadJson            String?
+  createdAt              DateTime @default(now())
+}
+
+model ResourceRetrievalJob {
+  id              String   @id @default(cuid())
+  reuseDecisionId String
+  custodyMode     String
+  status          String   @default("QUEUED")
+  attempt         Int      @default(0)
+  maxAttempts     Int      @default(3)
+  errorCode       String?
+  resultJson      String?
+  binaryStored    Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  reuseDecision ReuseDecision @relation(fields: [reuseDecisionId], references: [id], onDelete: Cascade)
+
+  @@index([reuseDecisionId])
+}
+
+model ExternalResourceUse {
+  id                     String   @id @default(cuid())
+  userId                 String?
+  sessionId              String?
+  selectionId            String?
+  reuseIntentId          String?
+  reuseDecisionId        String?
+  resourceId             String
+  intendedPurpose        String?
+  sourceMetadataJson     String
+  rightsDecisionJson     String
+  policyVersion          String
+  attributionSnapshotId  String?
+  custodyMode            String
+  targetType             String?
+  targetId               String?
+  playlistId             String?
+  suitcaseItemId         String?
+  signageAssetId         String?
+  retrievalJobId         String?
+  retrievalResultJson    String?
+  binaryStored           Boolean  @default(false)
+  status                 String   @default("ACTIVE")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([userId])
+  @@index([playlistId])
+}
+
+// URI Phase 3 — multimodal resource workspace
+model ResourceWorkspace {
+  id              String   @id @default(cuid())
+  userId          String?
+  searchSessionId String?
+  status          String   @default("ACTIVE")
+  intentJson      String?
+  searchPlanJson  String?
+  stateJson       String
+  evaluationJson  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([searchSessionId])
+}

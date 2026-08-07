@@ -1,0 +1,178 @@
+{
+  "verdict": "PARTIALLY_OPERATIONAL_EXTERNAL_AGENT_DEPENDENT",
+  "externalAgentDependency": true,
+  "verticalSliceOperational": false,
+  "auditedAt": "2026-08-04T05:05:00.000Z",
+  "localApi": {
+    "ping": "http://localhost:3001/api/development/ping",
+    "missions": "http://localhost:3001/api/development/missions",
+    "pingOk": true
+  },
+  "storage": {
+    "type": "file_json",
+    "path": "apps/core/cardbey-core/.development-runtime/store.json",
+    "database": false,
+    "survivesRestart": true
+  },
+  "authOnDevelopmentRoutes": false,
+  "ui": {
+    "appDevelopmentRoute": false,
+    "operatorConsole": false
+  },
+  "capabilities": [
+    {
+      "id": "mission_intake_persistence",
+      "status": "PRODUCTION_IMPLEMENTED",
+      "notes": "File-backed store; unauthenticated HTTP create/list"
+    },
+    {
+      "id": "state_machine",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "Enforced through AWAITING_CODE_REVIEW/READY_FOR_PR; CI/staging/prod states have no executors"
+    },
+    {
+      "id": "repository_registry",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "entry": "cardbeyRepositoryManifest.ts",
+      "notes": "Single monorepo cardbey; no staging/prod promotion policy"
+    },
+    {
+      "id": "workspace_isolation",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "Real git worktree possible; calibration used repo root; demo orphaned worktree after timeout"
+    },
+    {
+      "id": "repository_inspection",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "searchRepository + pathSecurity reads; no general LLM tools"
+    },
+    {
+      "id": "reproduction",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "Evidence records exist; screenshots/logs empty on calibration mission"
+    },
+    {
+      "id": "diagnosis",
+      "status": "MOCK_ONLY",
+      "notes": "Heuristic templates in designPlanner/analyseImpact"
+    },
+    {
+      "id": "patch_creation",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "Hardcoded duplicate-sidebar fixer only; else empty patch; EXTERNAL_AGENT_DEPENDENT for general bugs"
+    },
+    {
+      "id": "command_execution",
+      "status": "PRODUCTION_IMPLEMENTED",
+      "notes": "Allowlisted pnpm checks via spawn; CommandPolicy unwired"
+    },
+    {
+      "id": "test_execution",
+      "status": "PRODUCTION_IMPLEMENTED",
+      "notes": "Real exit codes for allowlisted checks"
+    },
+    {
+      "id": "independent_review",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "Human API approve only; no independent model reviewer; no UI"
+    },
+    {
+      "id": "github_publication",
+      "status": "MOCK_ONLY",
+      "notes": "openPullRequest stub; GitHubClient IMPLEMENTED_BUT_NOT_CONNECTED"
+    },
+    {
+      "id": "branch_promotion_policy",
+      "status": "MISSING"
+    },
+    {
+      "id": "ci_monitoring",
+      "status": "MOCK_ONLY",
+      "notes": "observeCIResult simulates; updateState missing"
+    },
+    {
+      "id": "deployment",
+      "status": "MISSING"
+    },
+    {
+      "id": "functional_verification",
+      "status": "MISSING"
+    },
+    {
+      "id": "production_safety_gates",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "Design/patch gates exist; no roles; prod safe by missing deploy"
+    },
+    {
+      "id": "auditability",
+      "status": "PARTIALLY_IMPLEMENTED"
+    },
+    {
+      "id": "failure_recovery",
+      "status": "PARTIALLY_IMPLEMENTED",
+      "notes": "Workspace prepare timeout leaves inconsistent FAILED state"
+    }
+  ],
+  "missionTrace": {
+    "missionId": "dev-1783820026186",
+    "finalState": "AWAITING_CODE_REVIEW",
+    "workspacePath": "C:\\Projects\\cardbey",
+    "isolatedWorktree": false,
+    "patchLinesChanged": 0,
+    "diffBytes": 0,
+    "checks": [
+      { "name": "dashboardTests", "exitCode": 0, "status": "PASSED" },
+      { "name": "dashboardTypecheck", "exitCode": 0, "status": "PASSED" },
+      { "name": "dashboardBuild", "exitCode": 0, "status": "PASSED" },
+      { "name": "coreDevelopmentTests", "exitCode": 0, "status": "PASSED" }
+    ],
+    "gitCommit": null,
+    "remoteBranch": null,
+    "pullRequest": null,
+    "ci": null,
+    "stagingDeploy": null,
+    "pageVerified": false,
+    "appDevelopmentRouteExistsToday": false,
+    "whyAwaitingCodeReview": "checks_passed; patch approve did not advance state despite CODE review row",
+    "nextAction": "POST /api/development/mission/:id/patch/approve then POST .../pull-request",
+    "resumingWorker": null,
+    "classification": "calibration_driven_partial_pipeline_empty_patch"
+  },
+  "demoMission": {
+    "missionId": "dev-1785819587749",
+    "executionMode": "MANUAL",
+    "finalState": "FAILED",
+    "failureReason": "Workspace already exists for mission",
+    "worktreeCreatedOnDisk": true,
+    "worktreePath": "C:\\Projects\\cardbey\\.development-workspaces\\dev-1785819587749",
+    "storeWorkspaceRecord": null,
+    "stoppedAt": "workspace_prepare",
+    "externalAgentCompletedMissingStages": false
+  },
+  "blockingGaps": [
+    "general_code_modification",
+    "reliable_workspace_prepare_persist",
+    "real_github_pr",
+    "ci_observation",
+    "staging_deploy_and_verify",
+    "functional_verification",
+    "development_ui_route"
+  ],
+  "safetyGaps": [
+    "unauthenticated_mutating_api",
+    "repo_root_fallback",
+    "fake_pr_created_transition"
+  ],
+  "productionSafetyStatus": "UNSAFE",
+  "productionSafetyNotes": "No production deploy executor (safe by absence) but unauthenticated mutating API and repo-root writes make the surface unsafe to expose",
+  "recommendedNextStep": "Fix prepareWorkspace reliability: adopt existing worktree after timeout, persist workspace before response, fail closed on repo-root fallback outside tests",
+  "documents": [
+    "docs/development-runtime/CURRENT_IMPLEMENTATION_AUDIT.md",
+    "docs/development-runtime/CAPABILITY_EVIDENCE_MATRIX.md",
+    "docs/development-runtime/MISSION_TRACE_DEV_1783820026186.md",
+    "docs/development-runtime/SECURITY_REVIEW.md",
+    "docs/development-runtime/AUTONOMY_GAP_ANALYSIS.md",
+    "docs/development-runtime/VERTICAL_SLICE_ACCEPTANCE_TEST.md",
+    "docs/development-runtime/IMPLEMENTATION_SEQUENCE.md"
+  ]
+}

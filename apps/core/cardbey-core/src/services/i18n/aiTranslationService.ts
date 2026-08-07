@@ -42,20 +42,43 @@ export interface TranslationResult {
   translated: Record<string, string>;
 }
 
+const LANG_NAMES: Record<string, string> = {
+  en: 'English',
+  vi: 'Vietnamese',
+  zh: 'Chinese (Simplified)',
+  ja: 'Japanese',
+  ko: 'Korean',
+  th: 'Thai',
+  fr: 'French',
+  de: 'German',
+  es: 'Spanish',
+  pt: 'Portuguese',
+  ar: 'Arabic',
+  ru: 'Russian',
+};
+
+export type TranslateBatchOptions = {
+  /** Human language name for prompts (overrides code map). */
+  languageName?: string;
+};
+
 /**
  * Translate a batch of items to the target language
  * 
  * Uses a single batched prompt to reduce API calls and improve consistency.
+ * Does not write to the database — callers must persist via translations layer only.
  * 
  * @param items - Array of items to translate, each with id, type, and fields
- * @param targetLang - Target language code ('en' or 'vi')
+ * @param targetLang - Target language code (BCP-47 primary, e.g. en, vi, ja)
+ * @param options - Optional prompt overrides
  * @returns Array of translation results with translated fields
  * 
  * @throws Error if OpenAI is not configured or translation fails
  */
 export async function translateBatch(
   items: TranslationItem[],
-  targetLang: 'en' | 'vi'
+  targetLang: string,
+  options: TranslateBatchOptions = {}
 ): Promise<TranslationResult[]> {
   if (!HAS_AI) {
     throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY environment variable.');
@@ -65,14 +88,18 @@ export async function translateBatch(
     return [];
   }
 
+  const code = String(targetLang || '').trim().toLowerCase().split('-')[0];
+  const langLabel = options.languageName || LANG_NAMES[code] || code || 'English';
+
   // Build the prompt with all items
   const systemPrompt = `You are a professional translator for an e-commerce/menus app. 
-Translate the following objects into ${targetLang === 'en' ? 'English' : 'Vietnamese'}. 
+Translate the following objects into ${langLabel}. 
 Preserve meaning, keep it concise for UI, don't add new information.
+Preserve brand names and industry terms that should not be literal-translated (e.g. Cardbey, Bánh mì as Vietnamese Bánh Mì).
 Return JSON only, as an object with a "results" array containing objects with "id", "type", and "translated" fields.
 The "translated" field should contain the translated version of each field from the input.`;
 
-  const userPrompt = `Translate the following items to ${targetLang === 'en' ? 'English' : 'Vietnamese'}:
+  const userPrompt = `Translate the following items to ${langLabel}:
 
 ${JSON.stringify(items, null, 2)}
 
@@ -90,7 +117,7 @@ Example response format:
 }`;
 
   try {
-    console.log(`[AI Translation] Translating ${items.length} items to ${targetLang}...`);
+    console.log(`[AI Translation] Translating ${items.length} items to ${code} (${langLabel})...`);
 
     const response = await openai!.chat.completions.create({
       model: TRANSLATION_MODEL,
@@ -192,7 +219,7 @@ Example response format:
       console.warn(`[AI Translation] ${skipped.length} items were not translated:`, skipped.map(s => s.id));
     }
 
-    console.log(`[AI Translation] Successfully translated ${validatedResults.length}/${items.length} items to ${targetLang}`);
+    console.log(`[AI Translation] Successfully translated ${validatedResults.length}/${items.length} items to ${code}`);
 
     return validatedResults;
   } catch (error: any) {
@@ -202,10 +229,11 @@ Example response format:
 }
 
 /**
- * Helper to determine source language from target language
- * (For now, we assume EN <-> VI bidirectional translation)
+ * Helper to determine a plausible opposite source language (legacy EN ↔ VI).
+ * Prefer explicit sourceLanguage from Language Intelligence when available.
  */
-export function getSourceLanguage(targetLang: 'en' | 'vi'): 'en' | 'vi' {
-  return targetLang === 'en' ? 'vi' : 'en';
+export function getSourceLanguage(targetLang: string): string {
+  const code = String(targetLang || '').trim().toLowerCase().split('-')[0];
+  return code === 'en' ? 'vi' : 'en';
 }
 

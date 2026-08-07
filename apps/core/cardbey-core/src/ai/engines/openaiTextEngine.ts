@@ -1,10 +1,12 @@
 /**
  * OpenAI Text Engine Adapter
- * Implements TextEngine interface using OpenAI Chat Completions API
+ * Phase 4: routes through llmGateway when USE_LLM_GATEWAY is on.
  */
 
 import OpenAI from 'openai';
 import type { TextEngine } from './types.js';
+import { Features } from '../../config/features.js';
+import { llmGateway } from '../../lib/llm/llmGateway.ts';
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
@@ -16,25 +18,63 @@ const openai = process.env.OPENAI_API_KEY
 
 const HAS_AI = Boolean(openai);
 
+function resolveTextModel(): string {
+  return (
+    process.env.OPENAI_TEXT_ENGINE_MODEL?.trim() ||
+    Features.llm.fallbackModel ||
+    'gpt-4o-mini'
+  );
+}
+
 export const openaiTextEngine: TextEngine = {
   name: 'openai-text-v1',
 
   async generateText({ systemPrompt, userPrompt, temperature = 0.7, maxTokens = 1000 }) {
+    const model = resolveTextModel();
+
+    if (Features.llm.useGateway) {
+      if (!Features.llm.available) {
+        throw new Error('No LLM provider configured for text engine');
+      }
+      try {
+        const result = await llmGateway.complete({
+          purpose: 'openai_text_engine',
+          tenantKey: 'ai_engines',
+          system: systemPrompt,
+          prompt: userPrompt,
+          provider: Features.llm.fallbackProvider || 'openai',
+          model,
+          temperature,
+          maxTokens,
+          responseFormat: 'text',
+        });
+        return {
+          text: result.text || '',
+          raw: {
+            model: result.model || model,
+            usage: result.usage,
+            provider: result.provider,
+          },
+        };
+      } catch (error: any) {
+        console.error('[OpenAI Text Engine] Gateway error:', error);
+        throw new Error(`Text generation failed: ${error.message}`);
+      }
+    }
+
     if (!HAS_AI) {
       throw new Error('OpenAI API key not configured');
     }
 
     try {
-      const messages: any[] = [];
-      
+      const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
       if (systemPrompt) {
         messages.push({ role: 'system', content: systemPrompt });
       }
-      
       messages.push({ role: 'user', content: userPrompt });
 
       const response = await openai!.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model,
         messages,
         temperature,
         max_tokens: maxTokens,
@@ -45,7 +85,7 @@ export const openaiTextEngine: TextEngine = {
       return {
         text,
         raw: {
-          model: 'gpt-4o-mini',
+          model,
           usage: response.usage,
           responseId: response.id,
         },
@@ -56,5 +96,3 @@ export const openaiTextEngine: TextEngine = {
     }
   },
 };
-
-

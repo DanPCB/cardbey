@@ -1,0 +1,11 @@
+{
+  "type": "BUG_FIX",
+  "repositoryId": "cardbey",
+  "baseBranch": "main",
+  "title": "AUDIT DEMO Remove duplicate sidebar on Development Runtime page",
+  "request": "Fix duplicate console sidebar on /app/development",
+  "expectedOutcome": "/app/development renders one Console sidebar only",
+  "observedBehaviour": "Two vertical sidebar rails visible on /app/development",
+  "requestedBy": "audit-demo",
+  "executionMode": "MANUAL"
+}

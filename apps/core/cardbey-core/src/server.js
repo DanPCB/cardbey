@@ -203,6 +203,8 @@ import publicContentInteractionRoutes from './routes/publicContentInteractionRou
 import storeEngagementRoutes from './routes/storeEngagementRoutes.js';
 import storeReviewRoutes from './routes/storeReviewRoutes.js';
 import universalLibraryRoutes from './routes/universalLibraryRoutes.js';
+import capabilityEngineRoutes from './routes/capabilityEngineRoutes.js';
+import universalResourceIntelligenceRoutes from './routes/universalResourceIntelligenceRoutes.js';
 import publicStoreRoutes from './routes/publicStoreRoutes.js';
 import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
@@ -1142,6 +1144,8 @@ app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public/store-engagement', storeEngagementRoutes);
 app.use('/api/public/store-reviews', storeReviewRoutes);
 app.use('/api/universal-library', universalLibraryRoutes);
+app.use('/api/capability-engine', capabilityEngineRoutes);
+app.use('/api/resource-intelligence', universalResourceIntelligenceRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token

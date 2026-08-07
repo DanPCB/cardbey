@@ -5,6 +5,7 @@
 
 import { prisma } from '../../lib/prisma.js';
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
+import { normalizeStoreNameForDuplicateCheck } from '../../lib/intake/storeDuplicateDetection.js';
 import { generateUniqueStoreSlug } from '../../utils/slug.js';
 import {
   buildCategoryIdToNameMap,
@@ -76,6 +77,11 @@ export async function createGuestTempStoreFromDraft(draftId, opts = {}) {
     throw new Error(`Draft not ready: ${draft.status}`);
   }
 
+  const preview = parseJsonField(draft.preview, {});
+  const draftInput = parseJsonField(draft.input, {});
+  const meta = preview.meta && typeof preview.meta === 'object' ? { ...preview.meta } : {};
+  const runIdEarly = opts.generationRunId || draft.generationRunId || draftInput.generationRunId || null;
+
   if (draft.committedStoreId) {
     const existing = await prisma.business.findUnique({
       where: { id: draft.committedStoreId },
@@ -88,21 +94,129 @@ export async function createGuestTempStoreFromDraft(draftId, opts = {}) {
         guestTempStore: true,
         guestSkippedCommit: false,
         draftId: did,
-        generationRunId: opts.generationRunId || draft.generationRunId || draftInput.generationRunId || null,
+        generationRunId: runIdEarly,
+        reusedExisting: true,
       };
     }
   }
 
   await ensureGuestUserRow(uid);
 
-  const preview = parseJsonField(draft.preview, {});
-  const draftInput = parseJsonField(draft.input, {});
-  const meta = preview.meta && typeof preview.meta === 'object' ? { ...preview.meta } : {};
-
   const businessName =
     preview.storeName || meta.storeName || draftInput.businessName || draftInput.storeName || 'My Store';
   const businessType = preview.storeType || meta.storeType || draftInput.businessType || 'General';
   const location = draftInput.location || draftInput.suburb || '';
+  const normalizedName = normalizeStoreNameForDuplicateCheck(businessName);
+
+  // Reuse this guest's existing draft Business for the same store name (prevents chicken-food-2/-3).
+  if (normalizedName) {
+    const guestRows = await prisma.business.findMany({
+      where: { userId: uid, isGuestDraft: true },
+      select: { id: true, slug: true, name: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    });
+    const reusable = guestRows.find(
+      (row) => normalizeStoreNameForDuplicateCheck(row?.name) === normalizedName,
+    );
+    if (reusable) {
+      await prisma.business.update({
+        where: { id: reusable.id },
+        data: {
+          name: String(businessName).slice(0, 200),
+          type: String(businessType).slice(0, 80) || 'General',
+          description: preview.heroText || preview.description || null,
+          suburb: location ? String(location).slice(0, 120) : null,
+          heroImageUrl: meta.profileHeroUrl || preview.heroImageUrl || null,
+          avatarImageUrl: meta.profileAvatarUrl || preview.avatarImageUrl || null,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+      const business = { id: reusable.id, slug: reusable.slug };
+
+      const commitItemsReuse = Array.isArray(preview.items)
+        ? preview.items
+        : Array.isArray(preview.catalog?.products)
+          ? preview.catalog.products
+          : [];
+      const commitCategoryMapReuse = buildCategoryIdToNameMap(preview.categories ?? []);
+      const otherCategoryNameReuse = commitCategoryMapReuse.get('other') ?? 'Other';
+      const commitProductCurrencyReuse =
+        (draftInput.currency != null && String(draftInput.currency).trim()
+          ? String(draftInput.currency).trim().toUpperCase()
+          : null) || 'AUD';
+
+      await prisma.product.deleteMany({ where: { businessId: business.id } });
+      for (const item of commitItemsReuse.slice(0, 100)) {
+        if (!item || typeof item !== 'object') continue;
+        const nameTrim = typeof item.name === 'string' ? item.name.trim() : '';
+        if (!nameTrim) continue;
+        try {
+          const imageUrl = resolveDraftItemImageUrl(item);
+          const categoryName = resolveDraftProductCategoryName(
+            item,
+            commitCategoryMapReuse,
+            otherCategoryNameReuse,
+          );
+          const price = normalizeDraftProductPrice(item);
+          await prisma.product.create({
+            data: {
+              businessId: business.id,
+              name: nameTrim,
+              description: item.description || null,
+              price,
+              currency:
+                (item.currency != null && String(item.currency).trim()
+                  ? String(item.currency).trim().toUpperCase()
+                  : null) || commitProductCurrencyReuse,
+              category: categoryName || otherCategoryNameReuse,
+              imageUrl,
+              isPublished: true,
+              viewCount: 0,
+              likeCount: 0,
+            },
+          });
+        } catch (productError) {
+          console.warn(
+            `[guestTempStore] product refresh failed "${nameTrim}":`,
+            productError?.message ?? productError,
+          );
+        }
+      }
+
+      await prisma.draftStore.update({
+        where: { id: did },
+        data: { committedStoreId: business.id },
+      });
+      await patchDraftPreview(did, {
+        meta: {
+          ...meta,
+          guestTempStore: true,
+          generationRunId: runIdEarly,
+          storeId: business.id,
+          storeSlug: business.slug,
+          reusedGuestTempStore: true,
+        },
+      });
+
+      console.log('[guestTempStore] reused existing guest temp business', {
+        storeId: business.id,
+        slug: business.slug,
+        draftId: did,
+        generationRunId: runIdEarly,
+      });
+
+      return {
+        storeId: business.id,
+        storeSlug: business.slug,
+        guestTempStore: true,
+        guestSkippedCommit: false,
+        draftId: did,
+        generationRunId: runIdEarly,
+        reusedExisting: true,
+      };
+    }
+  }
 
   const slugBase =
     opts.slugNameBase != null && String(opts.slugNameBase).trim()
