@@ -25,8 +25,7 @@
 
 import express from 'express';
 import cuid from 'cuid';
-import { requireAuth, optionalAuth } from '../middleware/auth.js';
-import { requireSuperAdmin } from '../lib/authorization.js';
+import { requireAuth, optionalAuth, requireAdmin } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
 import * as UnclaimedStoreService from '../lib/discovery/UnclaimedStoreService.js';
 import * as PreBuiltStoreService from '../lib/discovery/PreBuiltStoreService.js';
@@ -329,7 +328,7 @@ router.get('/stores/:slug', optionalAuth, async (req, res, next) => {
   }
 });
 
-// ── Admin routes (super_admin) ──
+// ── Admin routes (platform_admin / super_admin / legacy admin) ──
 
 function parseBatchRow(batch) {
   let configSnapshot = null;
@@ -344,7 +343,7 @@ function parseBatchRow(batch) {
 }
 
 /** GET /api/discovery/config */
-router.get('/config', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/config', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const config = await DiscoveryConfigService.getConfig();
     const runnable = await DiscoveryConfigService.isRunnable();
@@ -363,7 +362,7 @@ router.get('/config', requireAuth, requireSuperAdmin, async (req, res, next) => 
 });
 
 /** PATCH /api/discovery/config */
-router.patch('/config', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.patch('/config', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const result = await DiscoveryConfigService.updateConfig(req.body ?? {}, req.userId);
     if (!result.ok) {
@@ -378,7 +377,7 @@ router.patch('/config', requireAuth, requireSuperAdmin, async (req, res, next) =
 });
 
 /** POST /api/discovery/config/enable */
-router.post('/config/enable', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/config/enable', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const result = await DiscoveryConfigService.setEnabled(true, req.userId);
     if (!result.ok) {
@@ -393,7 +392,7 @@ router.post('/config/enable', requireAuth, requireSuperAdmin, async (req, res, n
 });
 
 /** POST /api/discovery/config/disable */
-router.post('/config/disable', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/config/disable', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const result = await DiscoveryConfigService.setEnabled(false, req.userId);
     if (!result.ok) {
@@ -408,7 +407,7 @@ router.post('/config/disable', requireAuth, requireSuperAdmin, async (req, res, 
 });
 
 /** POST /api/discovery/config/pause */
-router.post('/config/pause', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/config/pause', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const hours = Number(req.body?.hours);
     const result = await DiscoveryConfigService.pauseUntil(hours, req.userId);
@@ -424,7 +423,7 @@ router.post('/config/pause', requireAuth, requireSuperAdmin, async (req, res, ne
 });
 
 /** POST /api/discovery/config/resume */
-router.post('/config/resume', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/config/resume', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const result = await DiscoveryConfigService.resume(req.userId);
     if (!result.ok) {
@@ -439,7 +438,7 @@ router.post('/config/resume', requireAuth, requireSuperAdmin, async (req, res, n
 });
 
 /** GET /api/discovery/seeds */
-router.get('/seeds', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/seeds', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const seeds = await prisma.discoverySeedSource.findMany({
       orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
@@ -452,7 +451,7 @@ router.get('/seeds', requireAuth, requireSuperAdmin, async (req, res, next) => {
 });
 
 /** POST /api/discovery/seeds */
-router.post('/seeds', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/seeds', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const body = req.body ?? {};
     if (!body.type || !body.platform || !body.value) {
@@ -486,7 +485,7 @@ router.post('/seeds', requireAuth, requireSuperAdmin, async (req, res, next) => 
 });
 
 /** PATCH /api/discovery/seeds/:id */
-router.patch('/seeds/:id', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.patch('/seeds/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const body = req.body ?? {};
     const data = {};
@@ -511,7 +510,7 @@ router.patch('/seeds/:id', requireAuth, requireSuperAdmin, async (req, res, next
 });
 
 /** DELETE /api/discovery/seeds/:id */
-router.delete('/seeds/:id', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.delete('/seeds/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const seed = await prisma.discoverySeedSource.findUnique({ where: { id: req.params.id } });
     if (!seed) {
@@ -533,7 +532,7 @@ router.delete('/seeds/:id', requireAuth, requireSuperAdmin, async (req, res, nex
 });
 
 /** GET /api/discovery/batches */
-router.get('/batches', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/batches', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
@@ -559,7 +558,7 @@ router.get('/batches', requireAuth, requireSuperAdmin, async (req, res, next) =>
 });
 
 /** GET /api/discovery/batches/:id */
-router.get('/batches/:id', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/batches/:id', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const batch = await prisma.discoveryBatchRun.findUnique({ where: { id: req.params.id } });
     if (!batch) {
@@ -573,7 +572,7 @@ router.get('/batches/:id', requireAuth, requireSuperAdmin, async (req, res, next
 });
 
 /** POST /api/discovery/run */
-router.post('/run', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.post('/run', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     if (isDiscoveryRunning()) {
       return res.status(409).json({ ok: false, error: 'ALREADY_RUNNING' });
@@ -614,7 +613,7 @@ router.post('/run', requireAuth, requireSuperAdmin, async (req, res, next) => {
 });
 
 /** GET /api/discovery/stats */
-router.get('/stats', requireAuth, requireSuperAdmin, async (req, res, next) => {
+router.get('/stats', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const startOfDay = new Date();
