@@ -41,6 +41,8 @@ async function onTick() {
     const batchSummaries = await runAllActive('cron');
     if (batchSummaries.length > 0) {
       await appendDiscoveryReport(batchSummaries);
+    } else {
+      console.log('[Discovery] Scheduled tick found no active seeds — nothing to crawl');
     }
     console.log(`[Discovery] Completed ${batchSummaries.length} batch(es)`);
   } catch (error) {
