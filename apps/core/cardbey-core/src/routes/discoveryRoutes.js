@@ -591,6 +591,20 @@ router.post('/run', requireAuth, requireAdmin, async (req, res, next) => {
       });
     }
 
+    const activeSeeds = await prisma.discoverySeedSource.count({
+      where: {
+        isActive: true,
+        NOT: { value: '' },
+      },
+    });
+    if (!activeSeeds) {
+      return res.status(409).json({
+        ok: false,
+        error: 'NO_ACTIVE_SEEDS',
+        message: 'Add a seed with a Value and turn Active on before running',
+      });
+    }
+
     const runId = cuid();
 
     setImmediate(() => {
@@ -605,7 +619,7 @@ router.post('/run', requireAuth, requireAdmin, async (req, res, next) => {
         });
     });
 
-    return res.status(202).json({ ok: true, runId, message: 'Batch started' });
+    return res.status(202).json({ ok: true, runId, message: 'Batch started', activeSeeds });
   } catch (error) {
     console.error('[discovery] manual run error:', error);
     next(error);
