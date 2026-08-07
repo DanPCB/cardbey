@@ -4,7 +4,7 @@
 
 import { prisma } from '../prisma.js';
 import { scrapeAndNormalize } from '../social-import/SocialImportService.js';
-import { fetchHtml } from '../social-import/scrapeUtils.js';
+import { fetchHtml, renderHtmlWithBrowser } from '../social-import/scrapeUtils.js';
 import { extractBusinessUrls } from './sources/DirectoryCrawler.js';
 import { buildClaimAuthority } from './ClaimAuthorityBuilder.js';
 import * as UnclaimedStoreService from './UnclaimedStoreService.js';
@@ -56,9 +56,14 @@ export async function resolveUrlsFromSeed(seed, maxUrls) {
   if (type === 'tiktok_hashtag') {
     const tag = value.replace(/^#/, '');
     const tagUrl = `https://www.tiktok.com/tag/${encodeURIComponent(tag)}`;
-    const html = await fetchHtml(tagUrl);
-    if (!html) return [];
-    return extractTikTokProfileUrls(html).slice(0, maxUrls);
+    let html = await fetchHtml(tagUrl);
+    let urls = html ? extractTikTokProfileUrls(html) : [];
+    // TikTok often returns empty/shell HTML to datacenter IPs — optional headless retry.
+    if (!urls.length) {
+      html = await renderHtmlWithBrowser(tagUrl, { timeoutMs: 25_000 });
+      urls = html ? extractTikTokProfileUrls(html) : [];
+    }
+    return urls.slice(0, maxUrls);
   }
 
   if (type === 'google_maps') {
