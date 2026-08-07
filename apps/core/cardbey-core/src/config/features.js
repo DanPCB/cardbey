@@ -480,6 +480,26 @@ export const Features = {
       return process.env.NODE_ENV !== 'production';
     },
   },
+
+  /**
+   * Performer turn V1 — POST /api/performer/turn (reason-only LLM via llmGateway).
+   * Default ON outside production; set ENABLE_PERFORMER_TURN_V1=false to disable.
+   * Does not execute CRM/booking; dashboard structured planner remains fallback.
+   */
+  performerTurn: {
+    get v1() {
+      const raw = String(process.env.ENABLE_PERFORMER_TURN_V1 ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
+      return process.env.NODE_ENV !== 'production';
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
