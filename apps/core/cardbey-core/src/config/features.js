@@ -449,7 +449,16 @@ export const Features = {
    */
   performerTurn: {
     get v1() {
-      return readNonProductionFlag('ENABLE_PERFORMER_TURN_V1');
+      const raw = String(process.env.ENABLE_PERFORMER_TURN_V1 ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
+      return process.env.NODE_ENV !== 'production';
     },
   },
 };
