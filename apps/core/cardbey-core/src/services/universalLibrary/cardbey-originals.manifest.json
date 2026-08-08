@@ -1,0 +1,1357 @@
+{
+  "source": "cardbey.originals",
+  "version": 3,
+  "rightsDefault": {
+    "rightsStatus": "CLEARED",
+    "license": "cardbey-internal",
+    "hostingMode": "HOSTED",
+    "ownerId": "cardbey_platform",
+    "creatorId": "cardbey_originals",
+    "creatorLabel": "Cardbey Originals",
+    "verifiedType": "FIRST_PARTY_VERIFIED"
+  },
+  "items": [
+    {
+      "id": "originals-assets-template-preview-retail-store-website-jpg",
+      "title": "Retail Storefront Hero",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "image",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "marketing",
+        "image"
+      ],
+      "preview": "/assets/template-preview/retail-store-website.jpg",
+      "sourceFile": "/assets/template-preview/retail-store-website.jpg",
+      "sourceChecksum": "6c049025d7d6062591e57f2abdbaef539328751d41ab6bc176cd36f211f5fdd3",
+      "previewChecksum": "6c049025d7d6062591e57f2abdbaef539328751d41ab6bc176cd36f211f5fdd3",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-template-preview-restaurant-cafe-website-jpg",
+      "title": "Restaurant & Cafe Hero",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "image",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "marketing",
+        "image"
+      ],
+      "preview": "/assets/template-preview/restaurant-cafe-website.jpg",
+      "sourceFile": "/assets/template-preview/restaurant-cafe-website.jpg",
+      "sourceChecksum": "40a8f07a41bb6b9debc65d54ee63635b85c836523a542c026fefc9357e00b148",
+      "previewChecksum": "40a8f07a41bb6b9debc65d54ee63635b85c836523a542c026fefc9357e00b148",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-template-preview-minimal-seller-storefront-jpg",
+      "title": "Minimal Seller Storefront Template",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "marketing",
+        "template"
+      ],
+      "preview": "/assets/template-preview/minimal-seller-storefront.jpg",
+      "sourceFile": "/assets/template-preview/minimal-seller-storefront.jpg",
+      "sourceChecksum": "407d457fa8578d847e672a8b1f1ffd4cbdd17448073a963e50d56b636d2901b5",
+      "previewChecksum": "407d457fa8578d847e672a8b1f1ffd4cbdd17448073a963e50d56b636d2901b5",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-template-preview-beauty-wellness-website-jpg",
+      "title": "Beauty & Wellness Storefront Template",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "beauty",
+      "categories": [
+        "beauty"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "marketing",
+        "template"
+      ],
+      "preview": "/assets/template-preview/beauty-wellness-website.jpg",
+      "sourceFile": "/assets/template-preview/beauty-wellness-website.jpg",
+      "sourceChecksum": "a1dc0dbfd8dfa9efce5a4a09541a119b02d03fa6dfc5aebf8c0a3bd740b143c6",
+      "previewChecksum": "a1dc0dbfd8dfa9efce5a4a09541a119b02d03fa6dfc5aebf8c0a3bd740b143c6",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-template-preview-professional-services-website-jpg",
+      "title": "Professional Services Website Template",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "home-services",
+      "categories": [
+        "home-services"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "marketing",
+        "template"
+      ],
+      "preview": "/assets/template-preview/professional-services-website.jpg",
+      "sourceFile": "/assets/template-preview/professional-services-website.jpg",
+      "sourceChecksum": "a560386f9d1172831dd2f2575f5b6279b898c5270e2b9f692860c0a8263b2301",
+      "previewChecksum": "a560386f9d1172831dd2f2575f5b6279b898c5270e2b9f692860c0a8263b2301",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-template-preview-trades-home-services-website-jpg",
+      "title": "Trades & Home Services Template",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "home-services",
+      "categories": [
+        "home-services"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "marketing",
+        "template"
+      ],
+      "preview": "/assets/template-preview/trades-home-services-website.jpg",
+      "sourceFile": "/assets/template-preview/trades-home-services-website.jpg",
+      "sourceChecksum": "d1627ff0ebc536a76b9cf7b3a637bea2d460106cfbfb8ee03c92f912cf9af335",
+      "previewChecksum": "d1627ff0ebc536a76b9cf7b3a637bea2d460106cfbfb8ee03c92f912cf9af335",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-template-preview-travel-business-website-png",
+      "title": "Travel Business Website Template",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "travel",
+      "categories": [
+        "travel"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "marketing",
+        "template"
+      ],
+      "preview": "/assets/template-preview/travel-business-website.png",
+      "sourceFile": "/assets/template-preview/travel-business-website.png",
+      "sourceChecksum": "6435bf253dc5aaab7434a64ccdf2358acf2ce4f4c536af2472d2fd79c22ae046",
+      "previewChecksum": "6435bf253dc5aaab7434a64ccdf2358acf2ce4f4c536af2472d2fd79c22ae046",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-videos-cardbey-bg-mp4",
+      "title": "Cardbey Brand Atmosphere Video",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "video",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "video",
+        "video"
+      ],
+      "preview": "/assets/template-preview/minimal-seller-storefront.jpg",
+      "sourceFile": "/videos/cardbey-bg.mp4",
+      "sourceChecksum": "d61a6818aa81b6b88c9f6a2b6bb07d24dbfa562d1baa348184e400ae4d9b6aa9",
+      "previewChecksum": "407d457fa8578d847e672a8b1f1ffd4cbdd17448073a963e50d56b636d2901b5",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-videos-christmas-cozy-fireplace-mp4",
+      "title": "Cozy Fireplace Atmosphere Video",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "video",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "video",
+        "video"
+      ],
+      "preview": "/assets/template-preview/restaurant-cafe-website.jpg",
+      "sourceFile": "/videos/christmas-cozy-fireplace.mp4",
+      "sourceChecksum": "7026db9a899b27b12c45c6bc902ef367ff389e86829751e901d445dc5665570c",
+      "previewChecksum": "40a8f07a41bb6b9debc65d54ee63635b85c836523a542c026fefc9357e00b148",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-videos-christmas-cute-santa-gif",
+      "title": "Cute Santa Seasonal Animation",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "animation",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "video",
+        "animation"
+      ],
+      "preview": "/assets/template-preview/retail-store-website.jpg",
+      "sourceFile": "/videos/christmas-cute-santa.gif",
+      "sourceChecksum": "1274938235365ff2b8693445cdaa0244de85ea40f860580beaba1ef68e66a3ed",
+      "previewChecksum": "6c049025d7d6062591e57f2abdbaef539328751d41ab6bc176cd36f211f5fdd3",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-videos-w-mp4",
+      "title": "Cardbey Motion Atmosphere Clip",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "video",
+      "industry": "fashion",
+      "categories": [
+        "fashion"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "video",
+        "video"
+      ],
+      "preview": "/assets/template-preview/beauty-wellness-website.jpg",
+      "sourceFile": "/videos/w.mp4",
+      "sourceChecksum": "d53cf82e2ef3b5ab22ab6949b775844730e8c8fd1d1208d457e5f6c2409fff15",
+      "previewChecksum": "a1dc0dbfd8dfa9efce5a4a09541a119b02d03fa6dfc5aebf8c0a3bd740b143c6",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-elements-backgrounds-bg-gradient-soft-01-jpg",
+      "title": "Soft Gradient Background",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "image",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "image"
+      ],
+      "preview": "/assets/library/elements/backgrounds/bg-gradient-soft-01.jpg",
+      "sourceFile": "/assets/library/elements/backgrounds/bg-gradient-soft-01.jpg",
+      "sourceChecksum": "803dc430e401600fb5a835be0c83dc378ca3ffbd6c06079ae96bed1f82857b4e",
+      "previewChecksum": "803dc430e401600fb5a835be0c83dc378ca3ffbd6c06079ae96bed1f82857b4e",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-elements-backgrounds-bg-paper-texture-01-jpg",
+      "title": "Paper Texture Background",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "image",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "image"
+      ],
+      "preview": "/assets/library/elements/backgrounds/bg-paper-texture-01.jpg",
+      "sourceFile": "/assets/library/elements/backgrounds/bg-paper-texture-01.jpg",
+      "sourceChecksum": "33164b5ad28574e893fa52318ed432c7c85cce840a7e2b26e4bf4418144a5a0f",
+      "previewChecksum": "33164b5ad28574e893fa52318ed432c7c85cce840a7e2b26e4bf4418144a5a0f",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-elements-stickers-el-sale-badge-01-png",
+      "title": "Sale Badge Sticker",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "icon",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "icon"
+      ],
+      "preview": "/assets/library/elements/stickers/el-sale-badge-01.png",
+      "sourceFile": "/assets/library/elements/stickers/el-sale-badge-01.png",
+      "sourceChecksum": "c1dc9e1f7e281b13e3c1829d34a5d02394cbad516aa4184827fb0df801e0d5ce",
+      "previewChecksum": "c1dc9e1f7e281b13e3c1829d34a5d02394cbad516aa4184827fb0df801e0d5ce",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-icons-line-ic-coffee-01-svg",
+      "title": "Coffee Line Icon",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "icon",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "icon"
+      ],
+      "preview": "/assets/library/icons/line/ic-coffee-01.svg",
+      "sourceFile": "/assets/library/icons/line/ic-coffee-01.svg",
+      "sourceChecksum": "cde324da554da356552e68fd877769f606c148c6d2e57444f461d52e0c40472a",
+      "previewChecksum": "cde324da554da356552e68fd877769f606c148c6d2e57444f461d52e0c40472a",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-icons-line-ic-scissors-01-svg",
+      "title": "Scissors Line Icon",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "icon",
+      "industry": "hair",
+      "categories": [
+        "hair"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "icon"
+      ],
+      "preview": "/assets/library/icons/line/ic-scissors-01.svg",
+      "sourceFile": "/assets/library/icons/line/ic-scissors-01.svg",
+      "sourceChecksum": "88c28d0051b99398e8306024130220f2c606541d41a345443f1edce31dcefa10",
+      "previewChecksum": "88c28d0051b99398e8306024130220f2c606541d41a345443f1edce31dcefa10",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-icons-solid-ic-bread-01-svg",
+      "title": "Bread Solid Icon",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "icon",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "icon"
+      ],
+      "preview": "/assets/library/icons/solid/ic-bread-01.svg",
+      "sourceFile": "/assets/library/icons/solid/ic-bread-01.svg",
+      "sourceChecksum": "90eef1578e3e3896e3b7549b2df85c39d1814d52baf5a12400453cf918619463",
+      "previewChecksum": "90eef1578e3e3896e3b7549b2df85c39d1814d52baf5a12400453cf918619463",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-templates-menus-tpl-cafe-menu-01-preview-jpg",
+      "title": "Café Menu Template Preview",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "template"
+      ],
+      "preview": "/assets/library/templates/menus/tpl-cafe-menu-01-preview.jpg",
+      "sourceFile": "/assets/library/templates/menus/tpl-cafe-menu-01-preview.jpg",
+      "sourceChecksum": "65a68cfad1f6a87a8e111c5e15267abc74331df8683779c426da8c862f892c5b",
+      "previewChecksum": "65a68cfad1f6a87a8e111c5e15267abc74331df8683779c426da8c862f892c5b",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-templates-posters-tpl-bakery-promo-01-preview-jpg",
+      "title": "Bakery Promo Poster Preview",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "template"
+      ],
+      "preview": "/assets/library/templates/posters/tpl-bakery-promo-01-preview.jpg",
+      "sourceFile": "/assets/library/templates/posters/tpl-bakery-promo-01-preview.jpg",
+      "sourceChecksum": "820ee0de182d47f8afe20772b013d9aa1ea742d68a6ae1b3e74068d1f446adcc",
+      "previewChecksum": "820ee0de182d47f8afe20772b013d9aa1ea742d68a6ae1b3e74068d1f446adcc",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-templates-posters-tpl-salon-price-01-preview-jpg",
+      "title": "Salon Price List Poster",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "beauty",
+      "categories": [
+        "beauty"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "template"
+      ],
+      "preview": "/assets/library/templates/posters/tpl-salon-price-01-preview.jpg",
+      "sourceFile": "/assets/library/templates/posters/tpl-salon-price-01-preview.jpg",
+      "sourceChecksum": "0d34baa9dbd03d7958a7ccb73fcea1b67fe39c7246449e9d58a7066a82464354",
+      "previewChecksum": "0d34baa9dbd03d7958a7ccb73fcea1b67fe39c7246449e9d58a7066a82464354",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-templates-social-tpl-social-square-01-preview-jpg",
+      "title": "Social Square Template",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "fashion",
+      "categories": [
+        "fashion"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "template"
+      ],
+      "preview": "/assets/library/templates/social/tpl-social-square-01-preview.jpg",
+      "sourceFile": "/assets/library/templates/social/tpl-social-square-01-preview.jpg",
+      "sourceChecksum": "ddf8b83ff2f54f40ed73e0299c0d869ef55ea5d4918a017a6e0affdd497f7f63",
+      "previewChecksum": "ddf8b83ff2f54f40ed73e0299c0d869ef55ea5d4918a017a6e0affdd497f7f63",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-library-templates-social-tpl-social-story-01-preview-jpg",
+      "title": "Social Story Template",
+      "description": "First-party Cardbey owned media for Universal Library.",
+      "assetType": "template",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "library",
+        "template"
+      ],
+      "preview": "/assets/library/templates/social/tpl-social-story-01-preview.jpg",
+      "sourceFile": "/assets/library/templates/social/tpl-social-story-01-preview.jpg",
+      "sourceChecksum": "9e8c0d5e29df8f69a3b4a458db0745d536567cfd3417aa048dfeb23e6ab84700",
+      "previewChecksum": "9e8c0d5e29df8f69a3b4a458db0745d536567cfd3417aa048dfeb23e6ab84700",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "OWNED_MEDIA",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763471904262-png",
+      "title": "Cardbey AI Atmosphere 01 (food-drink)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763471904262.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763471904262.png",
+      "sourceChecksum": "70e124c5f9cd3c46d901b183840dc766193e70fbe03932e8d35ace93bdca7797",
+      "previewChecksum": "70e124c5f9cd3c46d901b183840dc766193e70fbe03932e8d35ace93bdca7797",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763532907504-png",
+      "title": "Cardbey AI Atmosphere 02 (beauty)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "beauty",
+      "categories": [
+        "beauty"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763532907504.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763532907504.png",
+      "sourceChecksum": "08833930984343b9e52c277a51a85ae96dff8412f8913879fca3a708742d608b",
+      "previewChecksum": "08833930984343b9e52c277a51a85ae96dff8412f8913879fca3a708742d608b",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763533068409-png",
+      "title": "Cardbey AI Atmosphere 03 (hair)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "hair",
+      "categories": [
+        "hair"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763533068409.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763533068409.png",
+      "sourceChecksum": "64ab6f79929fc75f2420099abcfa2955c355b85a868faadbabed1f1b07c5d56d",
+      "previewChecksum": "64ab6f79929fc75f2420099abcfa2955c355b85a868faadbabed1f1b07c5d56d",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763533531070-png",
+      "title": "Cardbey AI Atmosphere 04 (retail)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763533531070.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763533531070.png",
+      "sourceChecksum": "f8fed6bfe523e28b88d3149343484592f4d2807ab8530a6d092ea5e5b7776c2f",
+      "previewChecksum": "f8fed6bfe523e28b88d3149343484592f4d2807ab8530a6d092ea5e5b7776c2f",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763533557542-png",
+      "title": "Cardbey AI Atmosphere 05 (fashion)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "fashion",
+      "categories": [
+        "fashion"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763533557542.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763533557542.png",
+      "sourceChecksum": "68993e6bcc106c4bc5942536e956d18b64b316e9c9dd7ca3df72713ebd3f5cf7",
+      "previewChecksum": "68993e6bcc106c4bc5942536e956d18b64b316e9c9dd7ca3df72713ebd3f5cf7",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763533605047-png",
+      "title": "Cardbey AI Atmosphere 06 (home-services)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "home-services",
+      "categories": [
+        "home-services"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763533605047.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763533605047.png",
+      "sourceChecksum": "1afc5d76eea7090d13edc51f95860d94d60d5fc88d0fe54159e532c39892a16b",
+      "previewChecksum": "1afc5d76eea7090d13edc51f95860d94d60d5fc88d0fe54159e532c39892a16b",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763534154638-png",
+      "title": "Cardbey AI Atmosphere 07 (travel)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "travel",
+      "categories": [
+        "travel"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763534154638.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763534154638.png",
+      "sourceChecksum": "2446e06d0008cdaa7c356741738935ecdd4aca0ba0713e2a057f21903fdfc647",
+      "previewChecksum": "2446e06d0008cdaa7c356741738935ecdd4aca0ba0713e2a057f21903fdfc647",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763534189140-png",
+      "title": "Cardbey AI Atmosphere 08 (food-drink)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763534189140.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763534189140.png",
+      "sourceChecksum": "7e80762ebab7075b50a20e7bb2c5a6a0eb4231f98c4833b188ad42b2c7aa57d8",
+      "previewChecksum": "7e80762ebab7075b50a20e7bb2c5a6a0eb4231f98c4833b188ad42b2c7aa57d8",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763534194280-png",
+      "title": "Cardbey AI Atmosphere 09 (beauty)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "beauty",
+      "categories": [
+        "beauty"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763534194280.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763534194280.png",
+      "sourceChecksum": "758a99a838b4691929c29c1637386207972254ef0f15c6f5aca382e296d33ef0",
+      "previewChecksum": "758a99a838b4691929c29c1637386207972254ef0f15c6f5aca382e296d33ef0",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763535092010-png",
+      "title": "Cardbey AI Atmosphere 10 (hair)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "hair",
+      "categories": [
+        "hair"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763535092010.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763535092010.png",
+      "sourceChecksum": "1cf4fb5c2c359fd2e87d908138be8d959ff672bfa131b392632741a851c49da6",
+      "previewChecksum": "1cf4fb5c2c359fd2e87d908138be8d959ff672bfa131b392632741a851c49da6",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763535281357-png",
+      "title": "Cardbey AI Atmosphere 11 (retail)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763535281357.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763535281357.png",
+      "sourceChecksum": "b9c012237277c923f44e9cff4a55249e02707c321fa5a7a49620a15ef24e0221",
+      "previewChecksum": "b9c012237277c923f44e9cff4a55249e02707c321fa5a7a49620a15ef24e0221",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763535834514-png",
+      "title": "Cardbey AI Atmosphere 12 (fashion)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "fashion",
+      "categories": [
+        "fashion"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763535834514.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763535834514.png",
+      "sourceChecksum": "1a187bc732804876feb35d7c39393fd91e10a1a7caa1e4b49a986ce9d43136ad",
+      "previewChecksum": "1a187bc732804876feb35d7c39393fd91e10a1a7caa1e4b49a986ce9d43136ad",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763535982506-png",
+      "title": "Cardbey AI Atmosphere 13 (home-services)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "home-services",
+      "categories": [
+        "home-services"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763535982506.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763535982506.png",
+      "sourceChecksum": "819ac15989dfdaad52cda1e7c1bd1dea9ae2705abebf08d0bfc02e64c1a790d9",
+      "previewChecksum": "819ac15989dfdaad52cda1e7c1bd1dea9ae2705abebf08d0bfc02e64c1a790d9",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763543479270-png",
+      "title": "Cardbey AI Atmosphere 14 (travel)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "travel",
+      "categories": [
+        "travel"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763543479270.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763543479270.png",
+      "sourceChecksum": "05fa0c2c16e9bf7baf3ad9e93fdc827e8c321bdaecfc98103286523e2867f9eb",
+      "previewChecksum": "05fa0c2c16e9bf7baf3ad9e93fdc827e8c321bdaecfc98103286523e2867f9eb",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763543935147-png",
+      "title": "Cardbey AI Atmosphere 15 (food-drink)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763543935147.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763543935147.png",
+      "sourceChecksum": "a02421cc8b68c6814f543260f7192d0b69d09deb9c5f59de4a7f95b77eaf4349",
+      "previewChecksum": "a02421cc8b68c6814f543260f7192d0b69d09deb9c5f59de4a7f95b77eaf4349",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763544110450-png",
+      "title": "Cardbey AI Atmosphere 16 (beauty)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "beauty",
+      "categories": [
+        "beauty"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763544110450.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763544110450.png",
+      "sourceChecksum": "a550fdea69d370a2610881c84204ab2476737cf564ccd0cb2c5d9d184034d347",
+      "previewChecksum": "a550fdea69d370a2610881c84204ab2476737cf564ccd0cb2c5d9d184034d347",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763545200056-png",
+      "title": "Cardbey AI Atmosphere 17 (hair)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "hair",
+      "categories": [
+        "hair"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763545200056.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763545200056.png",
+      "sourceChecksum": "d576108f06c0d97e8c82df080836651617a921e2adf5b539f7b63f1aed9ed6d2",
+      "previewChecksum": "d576108f06c0d97e8c82df080836651617a921e2adf5b539f7b63f1aed9ed6d2",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763545270361-png",
+      "title": "Cardbey AI Atmosphere 18 (retail)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "retail",
+      "categories": [
+        "retail"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763545270361.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763545270361.png",
+      "sourceChecksum": "8356cdb7ddef5f5bda52f4df8a5d8f39a5116ad09c4d5b9f6fd7fde0237ede45",
+      "previewChecksum": "8356cdb7ddef5f5bda52f4df8a5d8f39a5116ad09c4d5b9f6fd7fde0237ede45",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763547697389-png",
+      "title": "Cardbey AI Atmosphere 19 (fashion)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "fashion",
+      "categories": [
+        "fashion"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763547697389.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763547697389.png",
+      "sourceChecksum": "53f78975becfeb787ed6ec7ea9eed5bec48f58cd1414c24a201cb2e08fc1d7a2",
+      "previewChecksum": "53f78975becfeb787ed6ec7ea9eed5bec48f58cd1414c24a201cb2e08fc1d7a2",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763548205097-png",
+      "title": "Cardbey AI Atmosphere 20 (home-services)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "home-services",
+      "categories": [
+        "home-services"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763548205097.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763548205097.png",
+      "sourceChecksum": "768439fa8b7930b7a772bf5fc5164645b68672a0ed9c5d2c6092ef80fe0efc4d",
+      "previewChecksum": "768439fa8b7930b7a772bf5fc5164645b68672a0ed9c5d2c6092ef80fe0efc4d",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763548544542-png",
+      "title": "Cardbey AI Atmosphere 21 (travel)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "travel",
+      "categories": [
+        "travel"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763548544542.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763548544542.png",
+      "sourceChecksum": "4a1b9945999a01b61fae149031a5f9ef3c710df4842a179390853f5520690a45",
+      "previewChecksum": "4a1b9945999a01b61fae149031a5f9ef3c710df4842a179390853f5520690a45",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    },
+    {
+      "id": "originals-assets-ai-backgrounds-bg-1763549031996-png",
+      "title": "Cardbey AI Atmosphere 22 (food-drink)",
+      "description": "First-party Cardbey AI-generated atmosphere background. Platform-owned; AI-generated disclosure applies.",
+      "assetType": "image",
+      "industry": "food-drink",
+      "categories": [
+        "food-drink"
+      ],
+      "tags": [
+        "cardbey-originals",
+        "ai",
+        "image",
+        "ai-generated"
+      ],
+      "preview": "/assets/ai-backgrounds/bg-1763549031996.png",
+      "sourceFile": "/assets/ai-backgrounds/bg-1763549031996.png",
+      "sourceChecksum": "0d45ab9a226bfba2e20e5957346d4b8eee4bcce7283de9e61540208e241feaae",
+      "previewChecksum": "0d45ab9a226bfba2e20e5957346d4b8eee4bcce7283de9e61540208e241feaae",
+      "rightsRecordId": "cb-rights-originals-v1",
+      "contentOrigin": "REAL_FIRST_PARTY",
+      "qualityStatus": "APPROVED",
+      "approvedBy": "library-editorial",
+      "approvedAt": "2026-08-06",
+      "contentOriginNote": "AI_GENERATED_FIRST_PARTY",
+      "useCases": [
+        "Library catalogue",
+        "Industry starter packs"
+      ],
+      "intendedUse": "First-party Cardbey catalogue media."
+    }
+  ]
+}

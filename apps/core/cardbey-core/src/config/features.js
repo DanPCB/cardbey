@@ -10,6 +10,25 @@ function parseBoolEnv(raw, defaultValue) {
   return defaultValue;
 }
 
+/** Staging/dev default-on for non-production library flags when env unset. */
+function isNonProductionDeploy() {
+  const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+    .trim()
+    .toLowerCase();
+  if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+    return true;
+  }
+  return process.env.NODE_ENV !== 'production';
+}
+
+function readNonProductionFlag(envName, parentEnabled = true) {
+  if (!parentEnabled) return false;
+  const raw = String(process.env[envName] ?? '').trim().toLowerCase();
+  if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+  if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+  return isNonProductionDeploy();
+}
+
 function parseThreshold(raw, fallback) {
   const value = parseFloat(raw);
   return Number.isFinite(value) ? value : fallback;
@@ -461,6 +480,77 @@ export const Features = {
       return process.env.NODE_ENV !== 'production';
     },
   },
+
+  /**
+   * Universal Library — catalogue, population, Pexels REFERENCE sync.
+   * Non-prod defaults ON via readNonProductionFlag when unset.
+   * Fixtures and scheduled provider sync stay fail-closed (explicit opt-in).
+   */
+  universalLibrary: {
+    get v1() {
+      return readNonProductionFlag('ENABLE_UNIVERSAL_LIBRARY_V1');
+    },
+    get populationV1() {
+      return readNonProductionFlag('ENABLE_CONTENT_POPULATION_V1', Features.universalLibrary.v1);
+    },
+    get taxonomyV1() {
+      return readNonProductionFlag('ENABLE_CONTENT_TAXONOMY_V1', Features.universalLibrary.v1);
+    },
+    get discoveryV1() {
+      return readNonProductionFlag('ENABLE_UNIVERSAL_DISCOVERY_V1', Features.universalLibrary.v1);
+    },
+    get reputationV1() {
+      return parseBoolEnv(process.env.ENABLE_UNIVERSAL_REPUTATION_V1, false);
+    },
+    get realPopulationV1() {
+      return readNonProductionFlag('ENABLE_REAL_LIBRARY_POPULATION_V1', Features.universalLibrary.v1);
+    },
+    get cardbeyOriginalsV1() {
+      return readNonProductionFlag(
+        'ENABLE_CARDBEY_ORIGINALS_SOURCE_V1',
+        Features.universalLibrary.realPopulationV1,
+      );
+    },
+    get originalsExpansionV1() {
+      return readNonProductionFlag(
+        'ENABLE_CARDBEY_ORIGINALS_EXPANSION_V1',
+        Features.universalLibrary.cardbeyOriginalsV1,
+      );
+    },
+    get realLibraryExpansionV1() {
+      return readNonProductionFlag(
+        'ENABLE_REAL_LIBRARY_EXPANSION_V1',
+        Features.universalLibrary.realPopulationV1,
+      );
+    },
+    get creatorLibraryPublicationV1() {
+      return parseBoolEnv(process.env.ENABLE_CREATOR_LIBRARY_PUBLICATION_V1, false);
+    },
+    get businessAssetDerivationV1() {
+      return parseBoolEnv(process.env.ENABLE_BUSINESS_ASSET_DERIVATION_V1, false);
+    },
+    get libraryOperationsV1() {
+      return readNonProductionFlag('ENABLE_LIBRARY_OPERATIONS_V1', Features.universalLibrary.v1);
+    },
+    get fixturesV1() {
+      return parseBoolEnv(process.env.ENABLE_UNIVERSAL_LIBRARY_FIXTURES_V1, false);
+    },
+    get externalOpenProviderV1() {
+      return (
+        parseBoolEnv(process.env.ENABLE_FIRST_EXTERNAL_PROVIDER_V1, false) ||
+        parseBoolEnv(process.env.ENABLE_EXTERNAL_OPEN_PROVIDER_V1, false)
+      );
+    },
+    get providerScheduledSyncV1() {
+      return parseBoolEnv(process.env.ENABLE_PROVIDER_SCHEDULED_SYNC_V1, false);
+    },
+    get realLibraryCollectionsV1() {
+      return readNonProductionFlag(
+        'ENABLE_REAL_LIBRARY_COLLECTIONS_V1',
+        Features.universalLibrary.realPopulationV1,
+      );
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -589,6 +679,24 @@ export function snapshotFeatures() {
     ctaEngine: {
       v1: Features.ctaEngine.v1,
       platformMarketingV1: Features.ctaEngine.platformMarketingV1,
+    },
+    universalLibrary: {
+      v1: Features.universalLibrary.v1,
+      populationV1: Features.universalLibrary.populationV1,
+      taxonomyV1: Features.universalLibrary.taxonomyV1,
+      discoveryV1: Features.universalLibrary.discoveryV1,
+      reputationV1: Features.universalLibrary.reputationV1,
+      realPopulationV1: Features.universalLibrary.realPopulationV1,
+      cardbeyOriginalsV1: Features.universalLibrary.cardbeyOriginalsV1,
+      originalsExpansionV1: Features.universalLibrary.originalsExpansionV1,
+      realLibraryExpansionV1: Features.universalLibrary.realLibraryExpansionV1,
+      creatorLibraryPublicationV1: Features.universalLibrary.creatorLibraryPublicationV1,
+      businessAssetDerivationV1: Features.universalLibrary.businessAssetDerivationV1,
+      libraryOperationsV1: Features.universalLibrary.libraryOperationsV1,
+      fixturesV1: Features.universalLibrary.fixturesV1,
+      externalOpenProviderV1: Features.universalLibrary.externalOpenProviderV1,
+      providerScheduledSyncV1: Features.universalLibrary.providerScheduledSyncV1,
+      realLibraryCollectionsV1: Features.universalLibrary.realLibraryCollectionsV1,
     },
   };
 }
