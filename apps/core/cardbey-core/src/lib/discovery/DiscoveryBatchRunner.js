@@ -10,10 +10,7 @@ import { buildClaimAuthority } from './ClaimAuthorityBuilder.js';
 import * as UnclaimedStoreService from './UnclaimedStoreService.js';
 import * as PreBuiltStoreService from './PreBuiltStoreService.js';
 import * as DiscoveryConfigService from './DiscoveryConfigService.js';
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+import { executeWithConcurrency } from './runtime/executeWithConcurrency.js';
 
 /**
  * Check if another instance is already running a batch (multi-instance guard).
@@ -172,24 +169,17 @@ async function processUrl(url, batchRun, seedId, errors) {
 
 async function runWithConcurrency(urls, batchRun, seedId, concurrency, delayMs) {
   const errors = [];
-  const chunkSize = Math.max(1, concurrency);
 
-  for (let i = 0; i < urls.length; i += chunkSize) {
-    const chunk = urls.slice(i, i + chunkSize);
-    await Promise.all(chunk.map(async (url) => {
-      try {
-        await processUrl(url, batchRun, seedId, errors);
-      } catch (error) {
-        batchRun.failed += 1;
-        const msg = error?.message || String(error);
-        errors.push({ url, error: msg });
-        await recordSeedError(seedId, msg);
-      }
-    }));
-    if (delayMs > 0 && i + chunkSize < urls.length) {
-      await sleep(delayMs);
+  await executeWithConcurrency(urls, { concurrency, delayMs }, async (url) => {
+    try {
+      await processUrl(url, batchRun, seedId, errors);
+    } catch (error) {
+      batchRun.failed += 1;
+      const msg = error?.message || String(error);
+      errors.push({ url, error: msg });
+      await recordSeedError(seedId, msg);
     }
-  }
+  });
 
   return errors;
 }
