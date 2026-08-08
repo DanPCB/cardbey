@@ -16,6 +16,18 @@ It is not a collection of business workflows connected by a large intake router.
 
 Cardbey observes reality, understands it, executes certified missions through a stable kernel, produces durable business assets, and records what happened so the next mission can build on truth.
 
+### Product spaces (LOCKED)
+
+Cardbey’s **user-facing product ontology** is three primary spaces—not a growing list of peer products:
+
+| Space | Role |
+|-------|------|
+| **Marketplace** | Exchange |
+| **Performer** | Intelligence + work + execution (canonical work runway) |
+| **Resources** | Supply, ownership, reusable value |
+
+Everything else is a capability, object, view, or workflow within/between those spaces. Full freeze: [`docs/PRODUCT_ONTOLOGY_THREE_SPACES.md`](./PRODUCT_ONTOLOGY_THREE_SPACES.md). Cursor rule: `.cursor/rules/three-primary-spaces.mdc`.
+
 ---
 
 ## The architectural shift
