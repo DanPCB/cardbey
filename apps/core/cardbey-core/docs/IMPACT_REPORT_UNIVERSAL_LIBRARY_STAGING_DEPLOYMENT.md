@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-08  
 **Branch:** `feat/ul-core-staging-deploy` (focused port from `feat/universal-library-staging-milestone`)  
-**Status:** In progress — Core deploy + Gate A pending
+**Status:** Gate A **PASSED**. Population blocked on staging flag hygiene + operator bootstrap.
 
 ## Pre-merge audit
 
@@ -67,25 +67,52 @@
 | B | Bootstrap Originals + ≤20 Pexels → public count > 0 |
 | C | Staging `/library` shows real cards |
 
-## Results (fill after deploy)
+## Results
 
 | Field | Value |
 |-------|-------|
-| CORE DEPLOY | pending |
-| MIGRATIONS | pending |
-| FLAGS | pending |
-| PEXELS CONFIG | pending |
-| ORIGINALS IMPORT | pending |
-| PROVIDER PILOT | pending |
-| PUBLIC ASSETS | pending |
-| FIXTURES | pending |
-| RIGHTS | pending |
-| API | pending |
-| DASHBOARD | pending |
-| DESKTOP / MOBILE | pending |
-| RESTART PERSISTENCE | pending |
-| Deployed commit | pending |
+| CORE DEPLOY | **YES** — Render staging healthy after merge of PR #82 |
+| MIGRATIONS | **Applied** (API returns catalogue shape; tables usable) |
+| FLAGS | See below — **fixturesV1=true and providerScheduledSyncV1=true are unsafe for this milestone** |
+| PEXELS CONFIG | `externalOpenProviderV1=true`; **PEXELS_API_KEY** not observable via health → treat as **UNKNOWN** until ops confirm PRESENT |
+| ORIGINALS IMPORT | **Not run** (blocked pending flag fix + admin/shell bootstrap) |
+| PROVIDER PILOT | **Not run** |
+| PUBLIC ASSETS | **0** (empty catalogue, expected pre-bootstrap) |
+| FIXTURES | Flag currently **ON** on staging — must set `ENABLE_UNIVERSAL_LIBRARY_FIXTURES_V1=false` before any seed-run |
+| RIGHTS | N/A until pilot |
+| API | Gate A: `GET .../assets?status=PUBLISHED` → **200** `{ total: 0, fixturesExcluded: true }` |
+| DASHBOARD | Still empty until population (expected) |
+| DESKTOP / MOBILE | Pending population |
+| RESTART PERSISTENCE | Pending population |
+| Deployed commit | `49650125d9bfca96b563b18def5c37692fdf9d56` (merge PR #82) |
+
+### Staging health `features.universalLibrary` (observed)
+
+```
+v1=true populationV1=true discoveryV1=true realPopulationV1=true
+externalOpenProviderV1=true
+fixturesV1=true                 ← MUST BE false
+providerScheduledSyncV1=true    ← MUST BE false for this milestone
+creatorLibraryPublicationV1=true
+```
+
+### Remaining blockers (stop before population)
+
+1. Set on **cardbey-core-staging** Render env then redeploy/restart:
+   - `ENABLE_UNIVERSAL_LIBRARY_FIXTURES_V1=false`
+   - `ENABLE_PROVIDER_SCHEDULED_SYNC_V1=false`
+2. Confirm `PEXELS_API_KEY` = **PRESENT** (do not invent).
+3. Run staging-safe bootstrap on Core host/DB:
+   ```bash
+   node scripts/staging-ul-bootstrap.mjs --provider=pexels --limit=16
+   ```
+   Or authenticated admin:
+   - `POST /api/universal-library/admin/import-originals`
+   - `POST /api/universal-library/admin/sync-pexels` `{ "maxPublish": 16 }`
+   - `POST /api/universal-library/admin/publish-real-collections`
 
 ## Verdict
 
-Pending Gate A+.
+**UNIVERSAL_LIBRARY_STAGING_BLOCKED**
+
+Blocker: Gate A complete; population not executed because staging currently has **fixtures enabled** and **scheduled provider sync enabled**, and this agent cannot confirm/set `PEXELS_API_KEY` or run authenticated admin bootstrap against staging from this environment.
