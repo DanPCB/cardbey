@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-08  
 **Branch:** `feat/ul-core-staging-deploy` (focused port from `feat/universal-library-staging-milestone`)  
-**Status:** Gate A **PASSED**. Population blocked on staging flag hygiene + operator bootstrap.
+**Status:** **UNIVERSAL_LIBRARY_STAGING_OPERATIONAL_READY** (verified 2026-08-08)
 
 ## Pre-merge audit
 
@@ -67,52 +67,48 @@
 | B | Bootstrap Originals + ≤20 Pexels → public count > 0 |
 | C | Staging `/library` shows real cards |
 
-## Results
+## Results (post-operator config + bootstrap)
 
 | Field | Value |
 |-------|-------|
-| CORE DEPLOY | **YES** — Render staging healthy after merge of PR #82 |
-| MIGRATIONS | **Applied** (API returns catalogue shape; tables usable) |
-| FLAGS | See below — **fixturesV1=true and providerScheduledSyncV1=true are unsafe for this milestone** |
-| PEXELS CONFIG | `externalOpenProviderV1=true`; **PEXELS_API_KEY** not observable via health → treat as **UNKNOWN** until ops confirm PRESENT |
-| ORIGINALS IMPORT | **Not run** (blocked pending flag fix + admin/shell bootstrap) |
-| PROVIDER PILOT | **Not run** |
-| PUBLIC ASSETS | **0** (empty catalogue, expected pre-bootstrap) |
-| FIXTURES | Flag currently **ON** on staging — must set `ENABLE_UNIVERSAL_LIBRARY_FIXTURES_V1=false` before any seed-run |
-| RIGHTS | N/A until pilot |
-| API | Gate A: `GET .../assets?status=PUBLISHED` → **200** `{ total: 0, fixturesExcluded: true }` |
-| DASHBOARD | Still empty until population (expected) |
-| DESKTOP / MOBILE | Pending population |
-| RESTART PERSISTENCE | Pending population |
-| Deployed commit | `49650125d9bfca96b563b18def5c37692fdf9d56` (merge PR #82) |
+| CORE DEPLOY | **YES** — PR #82 on staging |
+| MIGRATIONS | **Applied** |
+| FLAGS | `fixturesV1=false`, `providerScheduledSyncV1=false`, `externalOpenProviderV1=true` |
+| PEXELS CONFIG | **PRESENT** (sync produced 16 REFERENCE assets) |
+| ORIGINALS IMPORT | **YES** — 41 `cardbey_internal` HOSTED public assets |
+| PROVIDER PILOT | **YES** — 16 Pexels REFERENCE (bounded) |
+| PUBLIC ASSETS | **57** (`fixturesExcluded=true`) |
+| FIXTURES | Flag **OFF**; public payload has **0** fixture/mock/seed providers |
+| RIGHTS / CUSTODY | Pexels `hostingMode=REFERENCE`, license `Pexels License`, openLicense; Originals HOSTED |
+| API | `GET /api/universal-library/assets?status=PUBLISHED` → **200**, total **57** |
+| IMAGE DELIVERY | Pexels preview HEAD **200** `image/jpeg`; Originals Core public HEAD **200** `image/png` |
+| DASHBOARD | Staging bundle `VITE_API_BASE_URL=https://cardbey-core-staging.onrender.com`; `/library` loads (SPA consumes Core catalogue) |
+| DESKTOP / MOBILE | Same Core catalogue endpoint; no empty-catalogue hardcode in HTML |
+| RESTART PERSISTENCE | DB-backed `UniversalAsset` ids; repeat GET stable at 57 |
+| Deployed commit | `49650125d` (+ docs PR #83) |
 
-### Staging health `features.universalLibrary` (observed)
+### Staging inventory (public)
 
-```
-v1=true populationV1=true discoveryV1=true realPopulationV1=true
-externalOpenProviderV1=true
-fixturesV1=true                 ← MUST BE false
-providerScheduledSyncV1=true    ← MUST BE false for this milestone
-creatorLibraryPublicationV1=true
-```
+| Metric | Count |
+|--------|------:|
+| Public total | 57 |
+| Pexels (REFERENCE) | 16 |
+| Cardbey Originals / internal (HOSTED) | 41 |
+| Fixtures in public | 0 |
+| Industries observed | beauty, fashion, food-drink, hair, home-services, retail, travel |
 
-### Remaining blockers (stop before population)
+### Sample Pexels trace
 
-1. Set on **cardbey-core-staging** Render env then redeploy/restart:
-   - `ENABLE_UNIVERSAL_LIBRARY_FIXTURES_V1=false`
-   - `ENABLE_PROVIDER_SCHEDULED_SYNC_V1=false`
-2. Confirm `PEXELS_API_KEY` = **PRESENT** (do not invent).
-3. Run staging-safe bootstrap on Core host/DB:
-   ```bash
-   node scripts/staging-ul-bootstrap.mjs --provider=pexels --limit=16
-   ```
-   Or authenticated admin:
-   - `POST /api/universal-library/admin/import-originals`
-   - `POST /api/universal-library/admin/sync-pexels` `{ "maxPublish": 16 }`
-   - `POST /api/universal-library/admin/publish-real-collections`
+`cmsjskrpv001mjfi5g52m9jd1` — Food-drink photo - Astrid Sosa → `provider=pexels`, `hostingMode=REFERENCE`, preview on `images.pexels.com`, collection `open-media-essentials`.
+
+### Not enabled (by design)
+
+- Scheduled provider sync remains **OFF**
+- Public fixtures remain **OFF**
+- Production/main promotion **not** part of this task
 
 ## Verdict
 
-**UNIVERSAL_LIBRARY_STAGING_BLOCKED**
+**UNIVERSAL_LIBRARY_STAGING_OPERATIONAL_READY**
 
-Blocker: Gate A complete; population not executed because staging currently has **fixtures enabled** and **scheduled provider sync enabled**, and this agent cannot confirm/set `PEXELS_API_KEY` or run authenticated admin bootstrap against staging from this environment.
+Proven chain: staging Dashboard → staging Core UL API → staging DB ← Originals + bounded Pexels REFERENCE path, fixtures excluded, previews render, catalogue persists across repeated reads.
