@@ -590,6 +590,71 @@ export const Features = {
       );
     },
   },
+
+  /**
+   * Universal Resource Intelligence (URI) — rights-aware reuse / federation.
+   * Restored for Library “Use this” (select → revalidate → confirm → draft).
+   * Fixtures/scheduled sync stay unrelated; publication remains fail-closed.
+   */
+  universalResourceIntelligence: {
+    get v1() {
+      return readNonProductionFlag('ENABLE_UNIVERSAL_RESOURCE_INTELLIGENCE_V1');
+    },
+    get searchV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_SEARCH_V1',
+        Features.universalResourceIntelligence.v1,
+      );
+    },
+    get federationV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_FEDERATION_V1',
+        Features.universalResourceIntelligence.v1,
+      );
+    },
+    get opsCopilotV1() {
+      return parseBoolEnv(process.env.ENABLE_URI_OPS_COPILOT_V1, false);
+    },
+    get learningV1() {
+      return parseBoolEnv(process.env.ENABLE_URI_LEARNING_V1, false);
+    },
+    get reusePilotV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_REUSE_PILOT_V1',
+        Features.universalResourceIntelligence.v1,
+      );
+    },
+    get workspaceV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_WORKSPACE_V1',
+        Features.universalResourceIntelligence.reusePilotV1,
+      );
+    },
+    get productIntegrationV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_PRODUCT_INTEGRATION_V1',
+        Features.universalResourceIntelligence.workspaceV1,
+      );
+    },
+    get providerSdkV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_PROVIDER_SDK_V1',
+        Features.universalResourceIntelligence.federationV1,
+      );
+    },
+    get federationPlannerV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_FEDERATION_PLANNER_V1',
+        Features.universalResourceIntelligence.providerSdkV1,
+      );
+    },
+    get resourceGraphV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_RESOURCE_GRAPH_V1',
+        Features.universalResourceIntelligence.providerSdkV1,
+      );
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -744,6 +809,19 @@ export function snapshotFeatures() {
       externalOpenProviderV1: Features.universalLibrary.externalOpenProviderV1,
       providerScheduledSyncV1: Features.universalLibrary.providerScheduledSyncV1,
       realLibraryCollectionsV1: Features.universalLibrary.realLibraryCollectionsV1,
+    },
+    universalResourceIntelligence: {
+      v1: Features.universalResourceIntelligence.v1,
+      searchV1: Features.universalResourceIntelligence.searchV1,
+      federationV1: Features.universalResourceIntelligence.federationV1,
+      opsCopilotV1: Features.universalResourceIntelligence.opsCopilotV1,
+      learningV1: Features.universalResourceIntelligence.learningV1,
+      reusePilotV1: Features.universalResourceIntelligence.reusePilotV1,
+      workspaceV1: Features.universalResourceIntelligence.workspaceV1,
+      productIntegrationV1: Features.universalResourceIntelligence.productIntegrationV1,
+      providerSdkV1: Features.universalResourceIntelligence.providerSdkV1,
+      federationPlannerV1: Features.universalResourceIntelligence.federationPlannerV1,
+      resourceGraphV1: Features.universalResourceIntelligence.resourceGraphV1,
     },
   };
 }
