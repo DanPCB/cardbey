@@ -1,12 +1,16 @@
 /**
  * DiscoveryScheduler — meta-scheduler with live config reload from DB.
  * Runs inside the API web process (ROLE !== worker).
+ *
+ * Phase 1: cron registration stays here; tick body goes through Shared Discovery
+ * Runtime + the registered Business Discovery Pipeline (zero behaviour change).
  */
 
 import cron from 'node-cron';
-import { runAllActive, isDiscoveryLocked } from './DiscoveryBatchRunner.js';
 import * as DiscoveryConfigService from './DiscoveryConfigService.js';
 import { appendDiscoveryReport } from '../../scheduler/reportScheduler.js';
+import { runScheduledSession } from './runtime/SharedDiscoveryRuntime.js';
+import { businessDiscoveryPipeline } from './pipelines/business/BusinessDiscoveryPipeline.js';
 
 let currentTask = null;
 let currentCron = null;
@@ -19,37 +23,17 @@ export function isDiscoveryRunning() {
 }
 
 async function onTick() {
-  const runnable = await DiscoveryConfigService.isRunnable();
-  if (!runnable.ok) {
-    console.log(`[Discovery] Skipping tick: ${runnable.reason}`);
-    return;
-  }
-
-  if (isRunning) {
-    console.log('[Discovery] Already running, skipping tick');
-    return;
-  }
-
-  if (await isDiscoveryLocked()) {
-    console.log('[Discovery] Discovery already running on another instance, skipping');
-    return;
-  }
-
-  isRunning = true;
-  try {
-    console.log('[Discovery] Starting scheduled discovery run');
-    const batchSummaries = await runAllActive('cron');
-    if (batchSummaries.length > 0) {
+  await runScheduledSession({
+    pipeline: businessDiscoveryPipeline,
+    isRunnable: () => DiscoveryConfigService.isRunnable(),
+    isInProcessRunning: () => isRunning,
+    setInProcessRunning: (running) => {
+      isRunning = running;
+    },
+    onComplete: async (batchSummaries) => {
       await appendDiscoveryReport(batchSummaries);
-    } else {
-      console.log('[Discovery] Scheduled tick found no active seeds — nothing to crawl');
-    }
-    console.log(`[Discovery] Completed ${batchSummaries.length} batch(es)`);
-  } catch (error) {
-    console.error('[Discovery] Batch failed:', error?.message || error);
-  } finally {
-    isRunning = false;
-  }
+    },
+  });
 }
 
 async function applySchedule() {
