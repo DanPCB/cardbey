@@ -1,0 +1,102 @@
+---
+description: Cardbey has three primary product spaces (Marketplace, Performer, Resources). Everything else is a capability, object, view, or workflow within/between them. Performer owns the canonical work runway.
+alwaysApply: true
+---
+
+# Three Primary Spaces (LOCKED) – Entire Project
+
+**Canonical doc:** `docs/PRODUCT_ONTOLOGY_THREE_SPACES.md`
+
+## Locked product ontology
+
+Cardbey has **three primary product spaces**:
+
+| Space | Fundamental question | Role |
+|-------|----------------------|------|
+| **Marketplace** | What can I get, offer, or exchange? | Commercial / network layer |
+| **Performer** | What do I want to accomplish? | Intelligence + work + execution |
+| **Resources** | What can be used to accomplish it? | Supply, ownership, reusable value |
+
+```
+                     CARDBEY
+
+        MARKETPLACE ↔ PERFORMER ↔ RESOURCES
+            ↑             ↕             ↑
+            └──────────── USER ─────────┘
+```
+
+**Account / identity / membership** anchors the user under this triangle. It is **not** a fourth product space.
+
+## Design constraint (not merely navigation)
+
+This is a **platform design constraint**, not a sidebar redesign.
+
+Every other feature must exist as a:
+
+- **capability**, **object**, **view**, or **workflow** within one space, **or**
+- a **connection** between spaces
+
+It must **not** ship as another top-level product competing for attention.
+
+### Classification examples
+
+| Existing module | Classification |
+|-----------------|----------------|
+| Universal Library | Content layer of **Resources** (visual beginning of Resources) |
+| Suitcase | Trends toward **My Resources** |
+| Content Studio | Creative capability for Performer (+ optional Resources access) |
+| Creator Studio | Creator management around Resources → Marketplace |
+| Store Builder / promotions / campaigns | Performer jobs / capabilities |
+| Display, Website, Social | Destinations Performer can operate |
+| CRM, Orders, Loyalty, Catalog | Business state / capabilities |
+| URI, PIL, CBOS, MI, LLM providers | Internal intelligence — never primary nav products |
+
+## Canonical work runway (locked)
+
+1. **Performer owns the canonical work runway.**
+2. **Resources supplies the work** (material, assets, reusable value).
+3. **Marketplace exchanges** resulting or available value.
+
+**No supporting capability may take over the Performer runway** unless the user **explicitly** chooses a specialized / manual / advanced view.
+
+```
+RESOURCES (e.g. Universal Library)
+      │ supplies
+      ▼
+PERFORMER  understand → select resources → create
+      │ produces
+      ▼
+DRAFT / ARTIFACT
+      ├── refine with Performer
+      ├── manual edit (optional capability)
+      ├── save → Resources
+      └── confirm → execute → Display / Website / Social / …
+                                    │
+                                    ▼
+                               Marketplace (when exchangeable)
+```
+
+## Agent / developer checklist
+
+Before adding a surface, route, nav item, or “product”:
+
+- [ ] Which of the three spaces does this belong to?
+- [ ] Or which **edge** between spaces (supply / produce / list / acquire / task)?
+- [ ] If the answer is “its own top-level product” → **reject or demote**.
+- [ ] Does this steal the Performer runway without an explicit advanced entry? → **forbidden**.
+- [ ] Universal Library / Content work: strengthen **Resources for Performer**, not a standalone content app.
+
+## Migration policy
+
+**Do not** collapse today’s UI in one rewrite.
+
+1. Ontology is locked in docs + this rule **now**.
+2. Guide each new implementation and each touched workflow.
+3. Migrate existing surfaces **incrementally** when those workflows are already being changed.
+
+## Related locks
+
+- Agent-first / Automation by Default — Performer as operational center
+- Safe execution governance — confirm before material external effects
+- PIL / Intent Runtime — invisible intelligence under Performer, not products
+- Invisible Assistance — resolve before asking; Resources and profile feed Performer
