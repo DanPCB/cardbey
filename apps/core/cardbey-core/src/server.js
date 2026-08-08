@@ -152,6 +152,7 @@ import assistantRouter from './routes/assistant.js';
 import contentsRouter from './routes/contents.js';
 import contentLibraryRoutes from './routes/contentLibraryRoutes.js';
 import universalLibraryRoutes from './routes/universalLibraryRoutes.js';
+import universalResourceIntelligenceRoutes from './routes/universalResourceIntelligenceRoutes.js';
 import internalRoutes from './routes/internal.js';
 import opsRoutes from './routes/opsRoutes.js';
 import controlTowerRoutes from './routes/controlTowerRoutes.js';
@@ -1192,6 +1193,7 @@ app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards,
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
 app.use('/api/universal-library', universalLibraryRoutes); // Universal Library catalogue + population
+app.use('/api/resource-intelligence', universalResourceIntelligenceRoutes); // URI reuse / federation
 app.use('/api/assets', assetsRouter);
 app.use('/api/media', mediaVideoRouter); // Multi-source video search: GET /api/media/video/search (Pexels, Pixabay, Coverr, Mixkit)
 app.use('/api/media', mediaLogoRouter); // Logo search + generation: GET /api/media/logo/search, POST /api/media/logo/generate

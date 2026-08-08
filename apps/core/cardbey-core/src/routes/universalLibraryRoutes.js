@@ -52,6 +52,7 @@ import {
   pexelsLibraryEnabled,
 } from '../services/universalLibrary/pexelsLibrarySync.js';
 import { publishRealCollections } from '../services/universalLibrary/realCollections.js';
+import { useUniversalLibraryAsset } from '../services/universalLibrary/libraryUseBridge.js';
 
 const router = Router();
 
@@ -151,6 +152,40 @@ router.get('/assets/:id', optionalAuth, async (req, res, next) => {
       ...result,
       asset: toPublicAssetView(result.asset, { admin: isAdmin }),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /assets/:id/use
+ * Library “Use this” → URI reuse gate → draft destination (confirm required).
+ * Never publishes live playlists/campaigns/stores.
+ */
+router.post('/assets/:id/use', optionalAuth, async (req, res, next) => {
+  try {
+    const result = await useUniversalLibraryAsset(prisma, {
+      assetId: req.params.id,
+      destination: req.body?.destination,
+      confirm: req.body?.confirm === true,
+      userId: userIdFromReq(req),
+      storeId: req.body?.storeId || null,
+      tenantId: req.body?.tenantId || null,
+      draftStoreId: req.body?.draftStoreId || null,
+      playlistName: req.body?.playlistName || null,
+      websitePlacement: req.body?.websitePlacement || null,
+    });
+    if (!result.ok) {
+      const status = result.awaitingConfirmation
+        ? 409
+        : result.blocked
+          ? 403
+          : result.error === 'uri_reuse_unavailable'
+            ? 503
+            : 400;
+      return res.status(status).json(result);
+    }
+    return res.json(result);
   } catch (err) {
     next(err);
   }
