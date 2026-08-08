@@ -5,7 +5,7 @@ import {
 } from '../cardbeyOriginalsImport.js';
 import { LIBRARY_ACCESS_MODE } from '../creatorLibraryProjection.js';
 import { isKnownAssetType, ASSET_TYPE } from '../universalAssetTypes.js';
-import { PEXELS_CURATED_QUERIES } from '../pexelsLibrarySync.js';
+import { PEXELS_CURATED_QUERIES, buildBoundedPexelsQueries } from '../pexelsLibrarySync.js';
 import { REAL_COLLECTION_DEFS } from '../realCollections.js';
 
 describe('Phase 3B Universal Library', () => {
@@ -38,6 +38,20 @@ describe('Phase 3B Universal Library', () => {
     const total = PEXELS_CURATED_QUERIES.reduce((n, q) => n + (q.limit || 0), 0);
     expect(PEXELS_CURATED_QUERIES.length).toBeGreaterThanOrEqual(5);
     expect(total).toBeLessThanOrEqual(80);
+  });
+
+  it('buildBoundedPexelsQueries reserves video slots before images', () => {
+    const queries = buildBoundedPexelsQueries({ maxPublish: 16, videoReserve: 6 });
+    expect(queries[0]?.type).toBe('video');
+    const videoSlots = queries
+      .filter((q) => q.type === 'video')
+      .reduce((n, q) => n + (q.limit || 0), 0);
+    const imageSlots = queries
+      .filter((q) => q.type !== 'video')
+      .reduce((n, q) => n + (q.limit || 0), 0);
+    expect(videoSlots).toBe(6);
+    expect(imageSlots).toBe(10);
+    expect(videoSlots + imageSlots).toBe(16);
   });
 
   it('defines at least five real collections', () => {

@@ -34,6 +34,42 @@ export const PEXELS_CURATED_QUERIES = Object.freeze([
   { q: 'fashion runway', industry: 'fashion', type: 'video', limit: 4 },
 ]);
 
+/**
+ * Staging-safe query plan: reserve video slots first so image queries cannot starve video.
+ * Does not mutate PEXELS_CURATED_QUERIES (phase3b / other callers keep default order).
+ *
+ * @param {{ maxPublish?: number, videoReserve?: number }} [options]
+ * @returns {Array<{ q: string, industry: string, type: string, limit: number }>}
+ */
+export function buildBoundedPexelsQueries(options = {}) {
+  const maxPublish = Math.min(Math.max(Number(options.maxPublish) || 16, 1), 80);
+  const videoReserve = Math.min(Math.max(Number(options.videoReserve) || 0, 0), maxPublish);
+  const videos = PEXELS_CURATED_QUERIES.filter((q) => q.type === 'video');
+  const images = PEXELS_CURATED_QUERIES.filter((q) => q.type !== 'video');
+  /** @type {Array<{ q: string, industry: string, type: string, limit: number }>} */
+  const out = [];
+  let videoLeft = videoReserve;
+  for (const q of videos) {
+    if (videoLeft <= 0) break;
+    const lim = Math.min(Number(q.limit) || 4, videoLeft, 4);
+    if (lim > 0) {
+      out.push({ ...q, limit: lim });
+      videoLeft -= lim;
+    }
+  }
+  // Unused video reserve rolls into images (still within maxPublish).
+  let imageLeft = maxPublish - videoReserve + videoLeft;
+  for (const q of images) {
+    if (imageLeft <= 0) break;
+    const lim = Math.min(Number(q.limit) || 6, imageLeft, 8);
+    if (lim > 0) {
+      out.push({ ...q, limit: lim });
+      imageLeft -= lim;
+    }
+  }
+  return out;
+}
+
 export function isPexelsLibraryConfigured() {
   return Boolean(process.env.PEXELS_API_KEY?.trim());
 }

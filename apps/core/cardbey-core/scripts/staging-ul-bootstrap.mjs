@@ -8,16 +8,23 @@
  *
  * Usage:
  *   node scripts/staging-ul-bootstrap.mjs
- *   node scripts/staging-ul-bootstrap.mjs --provider=pexels --limit=16
+ *   node scripts/staging-ul-bootstrap.mjs --provider=pexels --limit=24 --video-reserve=6
  *   node scripts/staging-ul-bootstrap.mjs --skip-pexels
  *   node scripts/staging-ul-bootstrap.mjs --force   # only when ops explicitly need flag bypass
+ *
+ * Video: default plan reserves Pexels video slots first (images no longer starve video).
+ * Audio: not supported here — no UL audio provider sync yet (fixtures stay OFF).
+ * Originals HOSTED mp4: imported only when files exist under Core/Dashboard public/videos.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prisma, ensurePrismaConnection } from '../src/lib/prisma.js';
 import { importCardbeyOriginals } from '../src/services/universalLibrary/cardbeyOriginalsImport.js';
-import { runPexelsLibrarySync } from '../src/services/universalLibrary/pexelsLibrarySync.js';
+import {
+  buildBoundedPexelsQueries,
+  runPexelsLibrarySync,
+} from '../src/services/universalLibrary/pexelsLibrarySync.js';
 import { publishRealCollections } from '../src/services/universalLibrary/realCollections.js';
 import { isDevelopmentFixture, getContentOrigin } from '../src/services/universalLibrary/contentOrigin.js';
 import { ASSET_STATUS } from '../src/services/universalLibrary/universalAssetTypes.js';
@@ -36,7 +43,8 @@ if (fs.existsSync(envPath)) {
 function parseArgs(argv) {
   const out = {
     provider: 'pexels',
-    limit: 16,
+    limit: 24,
+    videoReserve: 6,
     skipPexels: false,
     skipOriginals: false,
     skipCollections: false,
@@ -51,6 +59,9 @@ function parseArgs(argv) {
     else if (a.startsWith('--limit=')) {
       const n = Number(a.slice('--limit='.length));
       if (Number.isFinite(n)) out.limit = Math.min(Math.max(Math.trunc(n), 1), 40);
+    } else if (a.startsWith('--video-reserve=')) {
+      const n = Number(a.slice('--video-reserve='.length));
+      if (Number.isFinite(n)) out.videoReserve = Math.min(Math.max(Math.trunc(n), 0), 40);
     }
   }
   return out;
@@ -66,11 +77,15 @@ async function catalogueSnapshot() {
   const byOrigin = {};
   /** @type {Record<string, number>} */
   const byProvider = {};
+  /** @type {Record<string, number>} */
+  const byType = {};
   for (const a of real) {
     const o = getContentOrigin(a);
     byOrigin[o] = (byOrigin[o] || 0) + 1;
     const p = String(a.provider || 'unknown');
     byProvider[p] = (byProvider[p] || 0) + 1;
+    const t = String(a.type || 'unknown');
+    byType[t] = (byType[t] || 0) + 1;
   }
   return {
     totalPublished: published.length,
@@ -78,6 +93,7 @@ async function catalogueSnapshot() {
     fixtures: published.length - real.length,
     byOrigin,
     byProvider,
+    byType,
   };
 }
 
@@ -137,9 +153,27 @@ async function main() {
         'ENABLE_FIRST_EXTERNAL_PROVIDER_V1 is off. Set it on staging, or pass --force only for explicit ops bypass.',
       );
     }
-    console.log('=== Bounded Pexels pilot ===');
+    const queries = buildBoundedPexelsQueries({
+      maxPublish: args.limit,
+      videoReserve: args.videoReserve,
+    });
+    const videoSlots = queries
+      .filter((q) => q.type === 'video')
+      .reduce((n, q) => n + (q.limit || 0), 0);
+    const imageSlots = queries
+      .filter((q) => q.type !== 'video')
+      .reduce((n, q) => n + (q.limit || 0), 0);
+    console.log('=== Bounded Pexels pilot (video-reserved) ===');
+    console.log({
+      maxPublish: args.limit,
+      videoReserve: args.videoReserve,
+      plannedVideoSlots: videoSlots,
+      plannedImageSlots: imageSlots,
+      queries: queries.map((q) => `${q.type}:${q.q}:${q.limit}`),
+    });
     const pexels = await runPexelsLibrarySync(prisma, {
       maxPublish: args.limit,
+      queries,
       force: args.force === true,
     });
     console.log({
