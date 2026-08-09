@@ -152,6 +152,7 @@ import assistantRouter from './routes/assistant.js';
 import contentsRouter from './routes/contents.js';
 import contentLibraryRoutes from './routes/contentLibraryRoutes.js';
 import universalLibraryRoutes from './routes/universalLibraryRoutes.js';
+import universalResourceIntelligenceRoutes from './routes/universalResourceIntelligenceRoutes.js';
 import internalRoutes from './routes/internal.js';
 import opsRoutes from './routes/opsRoutes.js';
 import controlTowerRoutes from './routes/controlTowerRoutes.js';
@@ -268,7 +269,6 @@ import missionsRoutes from './routes/missionsRoutes.js';
 import confirmationRoutes from './routes/confirmation.routes.js';
 import executionRoutes from './routes/executionRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
-import performerAuditRoutes from './routes/performerAuditRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import selfAuditRoutes from './routes/selfAudit.routes.js';
 import developmentRoutes from './routes/development.routes.js';
@@ -1190,7 +1190,6 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 }
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
-app.use('/api/performer/audit', performerAuditRoutes); // Create-store understanding audit (Phase 4)
 app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
 app.use('/api/self-audit', selfAuditRoutes); // Self-audit: status, run, fix proposals (admin)
 app.use('/api', developmentRoutes); // Development Runtime: /api/development/*
@@ -1214,6 +1213,7 @@ app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards,
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
 app.use('/api/universal-library', universalLibraryRoutes); // Universal Library catalogue + population
+app.use('/api/resource-intelligence', universalResourceIntelligenceRoutes); // URI reuse / federation
 app.use('/api/assets', assetsRouter);
 app.use('/api/media', mediaVideoRouter); // Multi-source video search: GET /api/media/video/search (Pexels, Pixabay, Coverr, Mixkit)
 app.use('/api/media', mediaLogoRouter); // Logo search + generation: GET /api/media/logo/search, POST /api/media/logo/generate

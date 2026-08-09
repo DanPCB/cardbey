@@ -1,0 +1,266 @@
+/**
+ * Universal Resource Intelligence — shared types (Phase 1 + Phase 2 reuse pilot).
+ */
+
+export const URI_JOB_KIND = Object.freeze({
+  SEARCH: 'SEARCH',
+  DISCOVER: 'DISCOVER',
+  PLAN: 'PLAN',
+  REUSE: 'REUSE',
+  EXPLAIN: 'EXPLAIN',
+  RETRIEVE: 'RETRIEVE',
+  SELECT: 'SELECT',
+});
+
+export const URI_JOB_STATUS = Object.freeze({
+  QUEUED: 'QUEUED',
+  RUNNING: 'RUNNING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+  AWAITING_CONFIRMATION: 'AWAITING_CONFIRMATION',
+  CANCELLED: 'CANCELLED',
+  BLOCKED: 'BLOCKED',
+});
+
+/**
+ * Custody modes — Phase 2 activates only REFERENCE_ONLY, PROVIDER_HOSTED, PULL_ON_USE.
+ */
+export const CUSTODY_MODE = Object.freeze({
+  REFERENCE_ONLY: 'REFERENCE_ONLY',
+  PROVIDER_HOSTED: 'PROVIDER_HOSTED',
+  PULL_ON_USE: 'PULL_ON_USE',
+  PERMANENT_CARDBEY_HOSTING: 'PERMANENT_CARDBEY_HOSTING',
+  AUTOMATIC_TRANSFORM: 'AUTOMATIC_TRANSFORM',
+  MARKETPLACE_RESALE: 'MARKETPLACE_RESALE',
+  AUTONOMOUS_PUBLICATION: 'AUTONOMOUS_PUBLICATION',
+});
+
+export const CUSTODY_MODE_PHASE2_ENABLED = Object.freeze([
+  CUSTODY_MODE.REFERENCE_ONLY,
+  CUSTODY_MODE.PROVIDER_HOSTED,
+  CUSTODY_MODE.PULL_ON_USE,
+]);
+
+export const CUSTODY_MODE_DISABLED = Object.freeze([
+  CUSTODY_MODE.PERMANENT_CARDBEY_HOSTING,
+  CUSTODY_MODE.AUTOMATIC_TRANSFORM,
+  CUSTODY_MODE.MARKETPLACE_RESALE,
+  CUSTODY_MODE.AUTONOMOUS_PUBLICATION,
+]);
+
+export const POLICY_VERSION = 'uri-rights-policy-v1';
+
+/** Phase 3 multimodal input kinds */
+export const MULTIMODAL_INPUT = Object.freeze({
+  NATURAL_LANGUAGE: 'NATURAL_LANGUAGE',
+  REFERENCE_IMAGE: 'REFERENCE_IMAGE',
+  SOURCE_URL: 'SOURCE_URL',
+  CARDBEY_ASSET: 'CARDBEY_ASSET',
+  STORE_CONTEXT: 'STORE_CONTEXT',
+  PROJECT_CONTEXT: 'PROJECT_CONTEXT',
+});
+
+/** Allowlisted draft destinations — never live publish */
+export const DESTINATION_ADAPTER = Object.freeze({
+  DISPLAY_PLAYLIST_DRAFT: 'display_playlist_draft',
+  PROMOTION_DRAFT: 'promotion_draft',
+  STOREFRONT_HERO_DRAFT: 'storefront_hero_draft',
+  SOCIAL_CONTENT_DRAFT: 'social_content_draft',
+  SUITCASE_REFERENCE_COLLECTION: 'suitcase_reference_collection',
+});
+
+export const DESTINATION_ADAPTERS_PHASE3 = Object.freeze([
+  DESTINATION_ADAPTER.DISPLAY_PLAYLIST_DRAFT,
+  DESTINATION_ADAPTER.PROMOTION_DRAFT,
+  DESTINATION_ADAPTER.STOREFRONT_HERO_DRAFT,
+  DESTINATION_ADAPTER.SOCIAL_CONTENT_DRAFT,
+  DESTINATION_ADAPTER.SUITCASE_REFERENCE_COLLECTION,
+]);
+
+export const SUBSTITUTION_ACTION = Object.freeze({
+  FIND_SAFER_ALTERNATIVE: 'FIND_SAFER_ALTERNATIVE',
+  FIND_CARDBEY_HOSTED_EQUIVALENT: 'FIND_CARDBEY_HOSTED_EQUIVALENT',
+  FIND_NO_ATTRIBUTION_OPTION: 'FIND_NO_ATTRIBUTION_OPTION',
+  USE_AS_REFERENCE_ONLY: 'USE_AS_REFERENCE_ONLY',
+  REQUEST_PERMISSION: 'REQUEST_PERMISSION',
+  GENERATE_ORIGINAL_ALTERNATIVE: 'GENERATE_ORIGINAL_ALTERNATIVE',
+});
+
+export const WORKSPACE_STATUS = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  PAUSED: 'PAUSED',
+  COMPLETED: 'COMPLETED',
+  ARCHIVED: 'ARCHIVED',
+});
+
+/** Phase 4 — business tasks (users never “search resources”) */
+export const BUSINESS_TASK = Object.freeze({
+  CREATE_DISPLAY_PLAYLIST: 'CREATE_DISPLAY_PLAYLIST',
+  CREATE_PROMOTION: 'CREATE_PROMOTION',
+  CREATE_STOREFRONT_HERO: 'CREATE_STOREFRONT_HERO',
+  CREATE_SOCIAL_POST: 'CREATE_SOCIAL_POST',
+  CREATE_LANDING_HERO: 'CREATE_LANDING_HERO',
+  ASSEMBLE_CREATOR_PACK: 'ASSEMBLE_CREATOR_PACK',
+  ASSISTANT_ASSEMBLE_DRAFT: 'ASSISTANT_ASSEMBLE_DRAFT',
+});
+
+export const BUSINESS_TASK_DESTINATION = Object.freeze({
+  [BUSINESS_TASK.CREATE_DISPLAY_PLAYLIST]: 'display_playlist_draft',
+  [BUSINESS_TASK.CREATE_PROMOTION]: 'promotion_draft',
+  [BUSINESS_TASK.CREATE_STOREFRONT_HERO]: 'storefront_hero_draft',
+  [BUSINESS_TASK.CREATE_LANDING_HERO]: 'storefront_hero_draft',
+  [BUSINESS_TASK.CREATE_SOCIAL_POST]: 'social_content_draft',
+  [BUSINESS_TASK.ASSEMBLE_CREATOR_PACK]: 'suitcase_reference_collection',
+  [BUSINESS_TASK.ASSISTANT_ASSEMBLE_DRAFT]: 'promotion_draft',
+});
+
+export const CANDIDATE_ACTION = Object.freeze({
+  USE_IN_WEBSITE: 'USE_IN_WEBSITE',
+  USE_IN_DISPLAY: 'USE_IN_DISPLAY',
+  USE_IN_SOCIAL: 'USE_IN_SOCIAL',
+  USE_IN_CAMPAIGN: 'USE_IN_CAMPAIGN',
+  USE_IN_CREATOR_STUDIO: 'USE_IN_CREATOR_STUDIO',
+  SAVE_COLLECTION: 'SAVE_COLLECTION',
+  COMPARE_ALTERNATIVES: 'COMPARE_ALTERNATIVES',
+  VIEW_RIGHTS: 'VIEW_RIGHTS',
+  EXPLAIN_RECOMMENDATION: 'EXPLAIN_RECOMMENDATION',
+  SHORTLIST: 'SHORTLIST',
+});
+
+export const KIT_STATUS = Object.freeze({
+  DRAFT: 'DRAFT',
+  SAVED: 'SAVED',
+  SHARED: 'SHARED',
+  PUBLISHED: 'PUBLISHED',
+});
+
+export const SOURCE_KIND = Object.freeze({
+  API: 'API',
+  RSS: 'RSS',
+  JSON_FEED: 'JSON_FEED',
+  SITEMAP: 'SITEMAP',
+  CREATOR: 'CREATOR',
+  PARTNER: 'PARTNER',
+  BUSINESS: 'BUSINESS',
+  GOVERNMENT: 'GOVERNMENT',
+  REPOSITORY: 'REPOSITORY',
+  INSTITUTION: 'INSTITUTION',
+  MANUAL: 'MANUAL',
+  AI: 'AI',
+  CARDBEY: 'CARDBEY',
+});
+
+export const SOURCE_STATUS = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  PAUSED: 'PAUSED',
+  DEGRADED: 'DEGRADED',
+  DISABLED: 'DISABLED',
+});
+
+export const REUSE_MODE = Object.freeze({
+  REFERENCE: 'REFERENCE',
+  PULL: 'PULL',
+  CACHE: 'CACHE',
+  HOST: 'HOST',
+  TRANSFORM: 'TRANSFORM',
+  GENERATE_ALTERNATIVE: 'GENERATE_ALTERNATIVE',
+  PURCHASE: 'PURCHASE',
+  REQUEST_PERMISSION: 'REQUEST_PERMISSION',
+});
+
+export const RIGHTS_DECISION = Object.freeze({
+  UNKNOWN: 'UNKNOWN',
+  SUGGESTED: 'SUGGESTED',
+  CLEARED: 'CLEARED',
+  RESTRICTED: 'RESTRICTED',
+  REJECTED: 'REJECTED',
+  NEEDS_REVIEW: 'NEEDS_REVIEW',
+});
+
+export const ANALYSIS_TIER = Object.freeze({
+  METADATA: 'METADATA',
+  LIGHT_AI: 'LIGHT_AI',
+  PREVIEW_AI: 'PREVIEW_AI',
+  FULL_AI: 'FULL_AI',
+  DEEP: 'DEEP',
+  CAPABILITY_EXTRACTION: 'CAPABILITY_EXTRACTION',
+});
+
+export const AI_MODALITY = Object.freeze({
+  VISION: 'VISION',
+  TEXT: 'TEXT',
+  EMBEDDING: 'EMBEDDING',
+  SPEECH: 'SPEECH',
+  TRANSLATION: 'TRANSLATION',
+  REASONING: 'REASONING',
+  CLASSIFICATION: 'CLASSIFICATION',
+});
+
+export const PROTOCOL = Object.freeze({
+  CARDBEY_LIBRARY: 'CARDBEY_LIBRARY',
+  CARDBEY_CAPABILITY: 'CARDBEY_CAPABILITY',
+  PEXELS_API: 'PEXELS_API',
+  CREATOR_STUDIO: 'CREATOR_STUDIO',
+  MANUAL: 'MANUAL',
+  /** Phase 5 — generic adapter protocol (preferred over per-vendor protocols) */
+  PROVIDER_ADAPTER: 'PROVIDER_ADAPTER',
+  OPENVERSE_API: 'OPENVERSE_API',
+  PIXABAY_API: 'PIXABAY_API',
+  UNSPLASH_API: 'UNSPLASH_API',
+  WIKIMEDIA_COMMONS_API: 'WIKIMEDIA_COMMONS_API',
+});
+
+/** Phase 5 — five resource classes in the Global Resource Environment */
+export const RESOURCE_CLASS = Object.freeze({
+  OPEN_MEDIA: 'OPEN_MEDIA',
+  PUBLIC_KNOWLEDGE: 'PUBLIC_KNOWLEDGE',
+  BUSINESS: 'BUSINESS',
+  CREATIVE_PLATFORM: 'CREATIVE_PLATFORM',
+  COMMERCIAL: 'COMMERCIAL',
+  /** First-party Cardbey catalogue / originals / capabilities */
+  CARDBEY: 'CARDBEY',
+});
+
+/** Unified resource kinds — open set; kind is a property, not a product stack */
+export const RESOURCE_KIND = Object.freeze({
+  PHOTO: 'photo',
+  IMAGE: 'image',
+  VIDEO: 'video',
+  AUDIO: 'audio',
+  ILLUSTRATION: 'illustration',
+  PDF: 'pdf',
+  DOCUMENT: 'document',
+  TEMPLATE: 'template',
+  PROMPT: 'prompt',
+  DATASET: 'dataset',
+  LOGO: 'logo',
+  FONT: 'font',
+  COLOR_PALETTE: 'color_palette',
+  ICON: 'icon',
+  WORKFLOW: 'workflow',
+  CAPABILITY: 'capability',
+  KNOWLEDGE: 'knowledge',
+  OTHER: 'other',
+});
+
+/** Commercial license surface states (Class 5) — never pretend free */
+export const COMMERCIAL_LICENSE_STATE = Object.freeze({
+  AVAILABLE: 'available',
+  NOT_LICENSED: 'not_licensed',
+  LICENSED: 'licensed',
+  SUBSCRIPTION_REQUIRED: 'subscription_required',
+  PURCHASE_REQUIRED: 'purchase_required',
+  UNKNOWN: 'unknown',
+  NOT_APPLICABLE: 'not_applicable',
+});
+
+/** Adapter method names — Provider SDK contract */
+export const PROVIDER_ADAPTER_METHODS = Object.freeze([
+  'search',
+  'fetchMetadata',
+  'checkRights',
+  'reusePolicy',
+  'preview',
+  'retrieve',
+  'health',
+]);

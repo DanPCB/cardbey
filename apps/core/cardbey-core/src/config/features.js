@@ -414,19 +414,13 @@ export const Features = {
     },
   },
   businessUnderstanding: {
-    /**
-     * Run Business Understanding Engine after attachment analysis.
-     * Default ON (create-store / loyalty understanding). Set BUE_PIPELINE_ENABLED=false to kill.
-     */
+    /** Run Business Understanding Engine after attachment analysis. */
     get enabled() {
-      return parseBoolEnv(process.env.BUE_PIPELINE_ENABLED, true);
+      return parseBoolEnv(process.env.BUE_PIPELINE_ENABLED, false);
     },
-    /**
-     * Optional vision enrich for brand signals (extra LLM call).
-     * Default ON with BUE; set BUE_BRAND_VISION_ENABLED=false to disable vision enrich only.
-     */
+    /** Optional vision enrich for brand signals (extra LLM call). */
     get brandVision() {
-      return parseBoolEnv(process.env.BUE_BRAND_VISION_ENABLED, true);
+      return parseBoolEnv(process.env.BUE_BRAND_VISION_ENABLED, false);
     },
     /** Log BUE pipeline summaries in non-production. */
     get telemetryLog() {
@@ -451,6 +445,51 @@ export const Features = {
       if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
       // Staging Render uses NODE_ENV=production + CARDEY_DEPLOY_ENV=staging — treat as non-prod.
       // Live production stays off until ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1 is set explicitly.
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
+      return process.env.NODE_ENV !== 'production';
+    },
+  },
+  /**
+   * Grounded store creation V1 — stop silent product invention + weak stock media.
+   * Default OFF. Set ENABLE_GROUNDED_STORE_CREATION_V1=true to enable.
+   */
+  groundedStoreCreation: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_GROUNDED_STORE_CREATION_V1, false);
+    },
+    get minMediaMatchScore() {
+      return parseThreshold(process.env.GROUNDED_MIN_MEDIA_MATCH_SCORE, 0.55);
+    },
+  },
+  /**
+   * Storefront Design Library — advisory contracts/projection (see storefrontDesignLibrary/flags.js).
+   * Mirrored here for health snapshots; DL modules also read env directly.
+   */
+  designLibrary: {
+    get v1() {
+      const raw = String(process.env.ENABLE_DESIGN_LIBRARY_V1 ?? '').trim().toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
+      const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
+        .trim()
+        .toLowerCase();
+      if (deployEnv.includes('staging') || deployEnv === 'development' || deployEnv === 'dev') {
+        return true;
+      }
+      return process.env.NODE_ENV !== 'production';
+    },
+    get projectionRenderCutoverV1() {
+      if (!Features.designLibrary.v1) return false;
+      const raw = String(process.env.ENABLE_STOREFRONT_PROJECTION_RENDER_CUTOVER_V1 ?? '')
+        .trim()
+        .toLowerCase();
+      if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
+      if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
       const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
         .trim()
         .toLowerCase();
@@ -548,6 +587,71 @@ export const Features = {
       return readNonProductionFlag(
         'ENABLE_REAL_LIBRARY_COLLECTIONS_V1',
         Features.universalLibrary.realPopulationV1,
+      );
+    },
+  },
+
+  /**
+   * Universal Resource Intelligence (URI) — rights-aware reuse / federation.
+   * Restored for Library “Use this” (select → revalidate → confirm → draft).
+   * Fixtures/scheduled sync stay unrelated; publication remains fail-closed.
+   */
+  universalResourceIntelligence: {
+    get v1() {
+      return readNonProductionFlag('ENABLE_UNIVERSAL_RESOURCE_INTELLIGENCE_V1');
+    },
+    get searchV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_SEARCH_V1',
+        Features.universalResourceIntelligence.v1,
+      );
+    },
+    get federationV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_FEDERATION_V1',
+        Features.universalResourceIntelligence.v1,
+      );
+    },
+    get opsCopilotV1() {
+      return parseBoolEnv(process.env.ENABLE_URI_OPS_COPILOT_V1, false);
+    },
+    get learningV1() {
+      return parseBoolEnv(process.env.ENABLE_URI_LEARNING_V1, false);
+    },
+    get reusePilotV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_REUSE_PILOT_V1',
+        Features.universalResourceIntelligence.v1,
+      );
+    },
+    get workspaceV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_WORKSPACE_V1',
+        Features.universalResourceIntelligence.reusePilotV1,
+      );
+    },
+    get productIntegrationV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_PRODUCT_INTEGRATION_V1',
+        Features.universalResourceIntelligence.workspaceV1,
+      );
+    },
+    get providerSdkV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_PROVIDER_SDK_V1',
+        Features.universalResourceIntelligence.federationV1,
+      );
+    },
+    get federationPlannerV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_FEDERATION_PLANNER_V1',
+        Features.universalResourceIntelligence.providerSdkV1,
+      );
+    },
+    get resourceGraphV1() {
+      return readNonProductionFlag(
+        'ENABLE_URI_RESOURCE_GRAPH_V1',
+        Features.universalResourceIntelligence.providerSdkV1,
       );
     },
   },
@@ -680,6 +784,14 @@ export function snapshotFeatures() {
       v1: Features.ctaEngine.v1,
       platformMarketingV1: Features.ctaEngine.platformMarketingV1,
     },
+    groundedStoreCreation: {
+      v1: Features.groundedStoreCreation.v1,
+      minMediaMatchScore: Features.groundedStoreCreation.minMediaMatchScore,
+    },
+    designLibrary: {
+      v1: Features.designLibrary.v1,
+      projectionRenderCutoverV1: Features.designLibrary.projectionRenderCutoverV1,
+    },
     universalLibrary: {
       v1: Features.universalLibrary.v1,
       populationV1: Features.universalLibrary.populationV1,
@@ -697,6 +809,19 @@ export function snapshotFeatures() {
       externalOpenProviderV1: Features.universalLibrary.externalOpenProviderV1,
       providerScheduledSyncV1: Features.universalLibrary.providerScheduledSyncV1,
       realLibraryCollectionsV1: Features.universalLibrary.realLibraryCollectionsV1,
+    },
+    universalResourceIntelligence: {
+      v1: Features.universalResourceIntelligence.v1,
+      searchV1: Features.universalResourceIntelligence.searchV1,
+      federationV1: Features.universalResourceIntelligence.federationV1,
+      opsCopilotV1: Features.universalResourceIntelligence.opsCopilotV1,
+      learningV1: Features.universalResourceIntelligence.learningV1,
+      reusePilotV1: Features.universalResourceIntelligence.reusePilotV1,
+      workspaceV1: Features.universalResourceIntelligence.workspaceV1,
+      productIntegrationV1: Features.universalResourceIntelligence.productIntegrationV1,
+      providerSdkV1: Features.universalResourceIntelligence.providerSdkV1,
+      federationPlannerV1: Features.universalResourceIntelligence.federationPlannerV1,
+      resourceGraphV1: Features.universalResourceIntelligence.resourceGraphV1,
     },
   };
 }

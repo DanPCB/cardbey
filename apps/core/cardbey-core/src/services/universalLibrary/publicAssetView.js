@@ -191,6 +191,8 @@ export function toPublicAssetView(asset, opts = {}) {
   out.rating = Number(meta.rating || 0);
   out.collections = Array.isArray(meta.collections) ? meta.collections : [];
   out.useCases = Array.isArray(meta.useCases) ? meta.useCases : [];
+  // Public reuse gate (enum only — not clearance evidence / discovery docs).
+  if (asset.rightsStatus != null) out.rightsStatus = asset.rightsStatus;
 
   // HOSTED relative paths must resolve to Core (not the dashboard host).
   const thumbAbs = absolutizeHostedMediaUrl(asset.thumbnail);
@@ -214,7 +216,7 @@ export function toPublicAssetView(asset, opts = {}) {
     streamUrl: out.streamUrl,
   });
 
-  // Explicitly omit: raw metadata, rightsStatus, duplicateOfId, discovery evidence
+  // Explicitly omit: raw metadata, duplicateOfId, discovery evidence
   if (asset.discoveryScore && typeof asset.discoveryScore === 'object') {
     out.discoveryScore = {
       discoveryScore: asset.discoveryScore.discoveryScore,
