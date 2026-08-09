@@ -973,6 +973,26 @@ app.use('/assets', express.static(publicAssetsDir, {
   }
 }));
 
+// Cardbey Originals HOSTED video/audio under public/videos (same CORS as /assets)
+const publicVideosDir = path.join(process.cwd(), 'public', 'videos');
+if (!fs.existsSync(publicVideosDir)) fs.mkdirSync(publicVideosDir, { recursive: true });
+app.use('/videos', express.static(publicVideosDir, {
+  fallthrough: true,
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (filePath) {
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext === '.mp4') res.setHeader('Content-Type', 'video/mp4');
+      else if (ext === '.webm') res.setHeader('Content-Type', 'video/webm');
+      else if (ext === '.mp3') res.setHeader('Content-Type', 'audio/mpeg');
+      else if (ext === '.wav') res.setHeader('Content-Type', 'audio/wav');
+    }
+  },
+}));
+
 const autoLayoutToolPath = path.join(process.cwd(), 'public', 'auto-layout-tool.html');
 app.get('/tools/auto-layout', (_req, res) => {
   if (fs.existsSync(autoLayoutToolPath)) {
