@@ -16,6 +16,7 @@ import {
 import { createUniversalAsset, publishUniversalAsset } from './universalAssetService.js';
 import { CATALOGUE_QUALITY, CONTENT_ORIGIN } from './contentOrigin.js';
 import { upsertTaxonomyEntity } from './taxonomyService.js';
+import { resolveOriginalsMediaUrl } from './originalsDurableMedia.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MANIFEST = path.join(__dirname, 'cardbey-originals.manifest.json');
@@ -168,13 +169,35 @@ export async function importCardbeyOriginals(prisma, options = {}) {
       collections: ['cardbey-originals'],
     };
 
+    const previewMedia = await resolveOriginalsMediaUrl({
+      absPath: previewResolved.ok && !previewResolved.virtual ? previewResolved.path : null,
+      relativePublicPath: item.preview || item.sourceFile,
+      logicalName: `${item.id}-preview${path.extname(item.preview || item.sourceFile || '')}`,
+    });
+    const sourceMedia = await resolveOriginalsMediaUrl({
+      absPath: !resolved.virtual ? resolved.path : null,
+      relativePublicPath: item.sourceFile,
+      logicalName: `${item.id}-source${path.extname(item.sourceFile || '')}`,
+    });
+    const previewUrl = previewMedia.url || item.preview || null;
+    const sourcePublicPath = sourceMedia.url || item.sourceFile;
+    if (sourceMedia.durable || previewMedia.durable) {
+      metaBase.durableMedia = {
+        previewUrl: previewMedia.durable ? previewMedia.url : null,
+        sourceUrl: sourceMedia.durable ? sourceMedia.url : null,
+        previewKey: previewMedia.key || null,
+        sourceKey: sourceMedia.key || null,
+      };
+      if (sourceMedia.durable) metaBase.sourceFile = sourcePublicPath;
+    }
+
     if (matched && skipExisting) {
       const prev = matched.metadata && typeof matched.metadata === 'object' ? matched.metadata : {};
       await prisma.universalAsset.update({
         where: { id: matched.id },
         data: {
-          thumbnail: item.preview || matched.thumbnail,
-          preview: item.preview || matched.preview,
+          thumbnail: previewUrl || matched.thumbnail,
+          preview: previewUrl || matched.preview,
           description: item.description || matched.description,
           categories: item.categories || matched.categories,
           tags: item.tags || matched.tags,
@@ -184,6 +207,7 @@ export async function importCardbeyOriginals(prisma, options = {}) {
           metadata: {
             ...prev,
             ...metaBase,
+            sourceFile: sourcePublicPath,
             collections: [
               'cardbey-originals',
               ...(Array.isArray(prev.collections)
@@ -196,7 +220,13 @@ export async function importCardbeyOriginals(prisma, options = {}) {
       if (matched.status !== ASSET_STATUS.PUBLISHED) {
         await publishUniversalAsset(prisma, matched.id);
       }
-      results.push({ id: item.id, skipped: true, upgraded: true, assetId: matched.id });
+      results.push({
+        id: item.id,
+        skipped: true,
+        upgraded: true,
+        assetId: matched.id,
+        durable: Boolean(previewMedia.durable || sourceMedia.durable),
+      });
       continue;
     }
 
@@ -213,15 +243,15 @@ export async function importCardbeyOriginals(prisma, options = {}) {
       categories: item.categories,
       tags: item.tags,
       license: rights.license || 'cardbey-internal',
-      thumbnail: item.preview,
-      preview: item.preview,
+      thumbnail: previewUrl,
+      preview: previewUrl,
       ownerId: rights.ownerId || 'cardbey_platform',
       creatorId: rights.creatorId || 'cardbey_originals',
       rightsStatus: RIGHTS_STATUS.CLEARED,
       hostingMode: rights.hostingMode || 'HOSTED',
       status: ASSET_STATUS.NORMALIZED,
       qualityScore: 85,
-      metadata: metaBase,
+      metadata: { ...metaBase, sourceFile: sourcePublicPath },
     });
 
     if (!created.ok) {
