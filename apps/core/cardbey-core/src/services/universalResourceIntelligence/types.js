@@ -207,6 +207,7 @@ export const PROTOCOL = Object.freeze({
   OPENVERSE_API: 'OPENVERSE_API',
   PIXABAY_API: 'PIXABAY_API',
   UNSPLASH_API: 'UNSPLASH_API',
+  WIKIMEDIA_COMMONS_API: 'WIKIMEDIA_COMMONS_API',
 });
 
 /** Phase 5 — five resource classes in the Global Resource Environment */

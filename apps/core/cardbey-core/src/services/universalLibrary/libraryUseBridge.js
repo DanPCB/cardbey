@@ -48,6 +48,7 @@ function mapProviderToSourceId(provider) {
   if (p === 'pixabay') return 'src_pixabay';
   if (p === 'unsplash') return 'src_unsplash';
   if (p === 'openverse') return 'src_openverse';
+  if (p === 'wikimedia' || p === 'wikimedia_commons') return 'src_wikimedia';
   return `src_${p || 'unknown'}`;
 }
 

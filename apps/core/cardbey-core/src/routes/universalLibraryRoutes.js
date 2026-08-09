@@ -53,6 +53,12 @@ import {
 } from '../services/universalLibrary/pexelsLibrarySync.js';
 import { publishRealCollections } from '../services/universalLibrary/realCollections.js';
 import { useUniversalLibraryAsset } from '../services/universalLibrary/libraryUseBridge.js';
+import { findResources } from '../services/universalLibrary/findResources.js';
+import {
+  listFederationProviderStatus,
+  testFederationProvider,
+} from '../services/universalResourceIntelligence/federationProviderStatus.js';
+import { runFederationOpsIntake } from '../services/universalResourceIntelligence/opsIntake.js';
 
 const router = Router();
 
@@ -606,6 +612,74 @@ router.post('/admin/sync-pexels', requireAuth, requireAdmin, async (req, res, ne
       queries: req.body?.queries,
     });
     if (!result.ok) return res.status(result.status === 'DISABLED' ? 403 : 502).json(result);
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /admin/federation-providers — authoritative external provider status
+ * (URI Provider SDK — not dashboard Content Acquisition stubs).
+ */
+router.get('/admin/federation-providers', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const result = await listFederationProviderStatus(prisma);
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /admin/federation-providers/:sourceId/test — lightweight health probe */
+router.post('/admin/federation-providers/:sourceId/test', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const sourceId = String(req.params.sourceId || '');
+    const result = await testFederationProvider(sourceId);
+    return res.status(result.ok ? 200 : 502).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /admin/federation-providers/:sourceId/sync — governed ops intake → UL index
+ * sourceId: src_pexels | src_openverse | src_wikimedia
+ */
+router.post('/admin/federation-providers/:sourceId/sync', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!Features.universalLibrary?.externalOpenProviderV1 && req.body?.force !== true) {
+      return failClosed(res, 'external_provider_disabled');
+    }
+    const sourceId = String(req.params.sourceId || '');
+    const result = await runFederationOpsIntake(prisma, {
+      sourceId,
+      force: req.body?.force === true,
+      maxPublish: req.body?.maxPublish,
+      queries: req.body?.queries,
+    });
+    if (!result.ok) {
+      const syncStatus = result.sync?.status;
+      return res.status(syncStatus === 'DISABLED' ? 403 : 502).json(result);
+    }
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /find-resources — Performer/index-first resource discovery (proposals only)
+ */
+router.post('/find-resources', requireAuth, async (req, res, next) => {
+  try {
+    const result = await findResources(prisma, {
+      query: req.body?.query,
+      type: req.body?.type,
+      limit: req.body?.limit,
+      purpose: req.body?.purpose,
+      allowFederation: req.body?.allowFederation !== false,
+    });
     return res.json(result);
   } catch (err) {
     next(err);
