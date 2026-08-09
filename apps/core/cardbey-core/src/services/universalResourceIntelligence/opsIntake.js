@@ -1,10 +1,12 @@
 /**
  * Phase 5 — Federation ops intake.
- * Path A: UL Pexels sync is invoked as an ops job behind Federation, not product discovery.
+ * Path A: curated UL sync jobs behind Federation (not product discovery).
  */
 
 import { ensureFederationReady, getAdapter, getSourceNode } from './sourceFederation.js';
 import { runPexelsLibrarySync } from '../universalLibrary/pexelsLibrarySync.js';
+import { runOpenverseLibrarySync } from '../universalLibrary/openverseLibrarySync.js';
+import { runWikimediaLibrarySync } from '../universalLibrary/wikimediaLibrarySync.js';
 
 /**
  * Run curated open-media intake for a federation source (ops only).
@@ -15,28 +17,29 @@ export async function runFederationOpsIntake(prisma, options = {}) {
   await ensureFederationReady();
   const sourceId = options.sourceId || 'src_pexels';
   const node = getSourceNode(sourceId);
-  if (!node) return { ok: false, error: 'source_not_found', sourceId };
+  if (!node && !['src_pexels', 'src_openverse', 'src_wikimedia'].includes(sourceId)) {
+    return { ok: false, error: 'source_not_found', sourceId };
+  }
 
   const adapter = getAdapter(sourceId);
   const health = adapter?.health ? await adapter.health() : null;
+  const syncOpts = {
+    force: options.force === true,
+    maxPublish: options.maxPublish,
+    queries: options.queries,
+  };
 
-  // Pexels: reuse existing curated UL sync pipeline, attributed to Federation
   if (sourceId === 'src_pexels') {
-    const sync = await runPexelsLibrarySync(prisma, {
-      force: options.force === true,
-      maxPublish: options.maxPublish,
-      queries: options.queries,
-    });
-    return {
-      ok: Boolean(sync?.ok),
-      mode: 'federation_ops_intake',
-      sourceId,
-      adapterPresent: Boolean(adapter),
-      adapterHealth: health,
-      sync,
-      note: 'Ops intake only — not a consumer discovery path. Product UIs must use URI search/tasks.',
-      authority: 'provider_federation',
-    };
+    const sync = await runPexelsLibrarySync(prisma, syncOpts);
+    return wrap(sourceId, adapter, health, sync);
+  }
+  if (sourceId === 'src_openverse') {
+    const sync = await runOpenverseLibrarySync(prisma, syncOpts);
+    return wrap(sourceId, adapter, health, sync);
+  }
+  if (sourceId === 'src_wikimedia') {
+    const sync = await runWikimediaLibrarySync(prisma, syncOpts);
+    return wrap(sourceId, adapter, health, sync);
   }
 
   return {
@@ -44,6 +47,19 @@ export async function runFederationOpsIntake(prisma, options = {}) {
     error: 'ops_intake_not_implemented_for_source',
     sourceId,
     adapterHealth: health,
-    note: 'Add intake job per adapter; discovery remains separate',
+    note: 'V1 activates Pexels, Openverse, Wikimedia only',
+  };
+}
+
+function wrap(sourceId, adapter, health, sync) {
+  return {
+    ok: Boolean(sync?.ok),
+    mode: 'federation_ops_intake',
+    sourceId,
+    adapterPresent: Boolean(adapter),
+    adapterHealth: health,
+    sync,
+    note: 'Ops intake only — not a consumer discovery path. Product UIs use Library index + URI search.',
+    authority: 'provider_federation',
   };
 }
