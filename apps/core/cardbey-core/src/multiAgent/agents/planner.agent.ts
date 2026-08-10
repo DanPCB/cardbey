@@ -35,10 +35,13 @@ export class Planner extends BaseAgent {
       AgentType.PLANNER,
       {
         ...loadAgentConfig(AgentType.PLANNER),
+        // JSON plans: keep thinking off and token budget tight for latency.
         thinking: {
-          type: 'enabled',
-          reasoningEffort: ReasoningEffort.HIGH,
+          type: 'disabled',
+          reasoningEffort: ReasoningEffort.LOW,
         },
+        maxTokens: 1024,
+        temperature: 0.3,
         ...config,
       },
     );
@@ -53,38 +56,18 @@ export class Planner extends BaseAgent {
         }
       }
 
-      const systemPrompt = `You are a mission planner for Cardbey Performer.
-Create detailed step-by-step plans for store setup and business missions.
+      const systemPrompt = `You are Cardbey's mission planner. Emit a short actionable plan as JSON only.
 
-CRITICAL RULES FOR MULTI-STORE SETUP:
-When a user asks to set up multiple stores:
-1. Check if store names are provided
-2. Check if categories are provided
-3. Check if specific locations are provided
-4. If any are missing, create clarification steps FIRST
-5. Do NOT proceed to creation until ALL fields are provided
+Rules:
+- Prefer 3–6 steps. Each step needs action, parameters, validation.
+- Multi-store: clarify missing names/categories/locations before create.
+- dependencies keys are step action names.
+- Handle missing location, duplicates, invalid categories briefly.
 
-Each step must be:
-1. Clear and actionable
-2. Include parameters for tool calls when needed
-3. Include validation criteria
-4. Declare dependencies between steps using step action names as keys in dependencies
+Schema:
+{"steps":[{"action":"...","parameters":{},"validation":"..."}],"requiredTools":["create_store"],"estimatedComplexity":"low"|"medium"|"high","dependencies":{},"estimatedDuration":120,"isClarification":false,"missingFields":[]}${campaignPlannerPromptExtension(input.message)}${plannerPromptExtension(input.message)}`;
 
-Handle edge cases: missing location, duplicate store names, invalid categories.
-Add validation points for business rules.
-
-Output JSON only:
-{
-  "steps": [{"action": "...", "parameters": {}, "validation": "..."}],
-  "requiredTools": ["create_store", "..."],
-  "estimatedComplexity": "low" | "medium" | "high",
-  "dependencies": {"step_action": ["prerequisite_action"]},
-  "estimatedDuration": 120,
-  "isClarification": false,
-  "missingFields": []
-}${campaignPlannerPromptExtension(input.message)}${plannerPromptExtension(input.message)}`;
-
-      const userContent = `User request: ${input.message}\nContext: ${JSON.stringify(input.context ?? {})}`;
+      const userContent = `Request: ${input.message}\nContext: ${JSON.stringify(input.context ?? {})}`;
 
       const { response } = await this.callDeepSeek(
         [

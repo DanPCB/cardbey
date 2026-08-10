@@ -29,10 +29,13 @@ export class Critic extends BaseAgent {
       AgentType.CRITIC,
       {
         ...loadAgentConfig(AgentType.CRITIC),
+        // JSON reviews: keep thinking off and token budget tight for latency.
         thinking: {
-          type: 'enabled',
-          reasoningEffort: ReasoningEffort.HIGH,
+          type: 'disabled',
+          reasoningEffort: ReasoningEffort.LOW,
         },
+        maxTokens: 768,
+        temperature: 0.2,
         ...config,
       },
     );
@@ -40,23 +43,13 @@ export class Critic extends BaseAgent {
 
   async process(input: CriticInput): Promise<ReviewResult> {
     return this.executeWithTrace(async () => {
-      const systemPrompt = `You are a mission plan critic for Cardbey Performer.
-Review plans thoroughly for:
-- Missing steps (verification, publishing, error handling)
-- Risks (data loss, invalid parameters, compliance)
-- Optimization opportunities (parallelization, redundant steps)
-- Validation completeness
+      const systemPrompt = `You are Cardbey's plan critic. Return concise JSON only.
 
-Be strict on invalid or incomplete plans (e.g., missing location, empty store name).
+Check for blocking gaps only: missing required fields, unsafe/invalid params, no create/confirm path.
+Approve when the plan is executable; list at most 3 issues and 3 risks.
+Do not invent long essays.
 
-Respond with JSON only:
-{
-  "approved": true,
-  "issues": ["..."],
-  "suggestions": ["..."],
-  "confidence": 0.9,
-  "risks": ["..."]
-}${campaignCriticPromptExtension(input.originalMessage ?? '')}`;
+{"approved":true,"issues":[],"suggestions":[],"confidence":0.9,"risks":[]}${campaignCriticPromptExtension(input.originalMessage ?? '')}`;
 
       const userContent = JSON.stringify({
         plan: input.plan,

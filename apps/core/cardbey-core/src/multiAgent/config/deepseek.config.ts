@@ -4,6 +4,19 @@
 
 import type { ThinkingConfig } from '../types/agent.types.js';
 import { ReasoningEffort } from '../types/agent.types.js';
+import {
+  isDeepSeekCloudConfigured,
+  resolveDeepSeekApiKey,
+  resolveDeepSeekBaseUrl,
+  resolveDeepSeekModel,
+} from '../../lib/llm/deepseekEnv.js';
+
+export {
+  isDeepSeekCloudConfigured,
+  resolveDeepSeekApiKey,
+  resolveDeepSeekBaseUrl,
+  resolveDeepSeekModel,
+} from '../../lib/llm/deepseekEnv.js';
 
 function parseBool(value: string | undefined, fallback = false): boolean {
   if (value == null || value.trim() === '') return fallback;
@@ -41,11 +54,13 @@ export function loadDeepSeekConfig(): DeepSeekConfig {
         ? ReasoningEffort.HIGH
         : ReasoningEffort.MEDIUM;
 
+  const apiKey = resolveDeepSeekApiKey();
+
   return {
-    apiKey: process.env.DEEPSEEK_API_KEY?.trim() || '',
-    baseUrl: process.env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com',
-    model: process.env.DEEPSEEK_MODEL?.trim() || 'deepseek-v4-flash',
-    enabled: parseBool(process.env.DEEPSEEK_ENABLED, true),
+    apiKey,
+    baseUrl: resolveDeepSeekBaseUrl(),
+    model: resolveDeepSeekModel(),
+    enabled: isDeepSeekCloudConfigured(),
     thinking: {
       type: thinkingMode,
       reasoningEffort,
