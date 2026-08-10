@@ -19,7 +19,7 @@ const RETAIL_RE =
 const EXPERIENCE_RE =
   /\b(travel|tour|golf tour|itinerary|tourism|adventure|experience|agency)\b/i;
 const SERVICE_RE =
-  /\b(service|services|booking|appointment|consulting|coaching|cleaning|repair|class|classes|lesson|workshop|studio|fitness|gym|event|venue)\b/i;
+  /\b(service|services|booking|appointment|consulting|consultant|advisory|coaching|cleaning|repair|class|classes|lesson|workshop|studio|fitness|gym|event|venue|capital|finance|financial|wealth|mortgage|insurance|investment|accounting|accountant)\b/i;
 
 /**
  * @param {string | null | undefined} value
