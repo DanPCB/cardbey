@@ -3,6 +3,8 @@
  * All store/website publish flows should call publishDraft() with a known entrypoint.
  */
 
+import { sanitizeStoreSlogan } from '../../lib/contentResolution/sanitizeStoreSlogan.js';
+
 const RUNWAY_ENTRYPOINTS = new Set([
   'performer_tool',
   'mini_website_modal',
@@ -55,11 +57,13 @@ export function resolvePublishedStoreCopyFromPreview(rawPreview, preview = null)
   const meta =
     rawPreview?.meta && typeof rawPreview.meta === 'object' ? rawPreview.meta : {};
   const p = preview || rawPreview || {};
-  const tagline =
+  const rawTagline =
     (typeof p.tagline === 'string' && p.tagline.trim()) ||
     (typeof p.slogan === 'string' && p.slogan.trim()) ||
     (typeof meta.tagline === 'string' && meta.tagline.trim()) ||
-    null;
+    '';
+  const cleaned = sanitizeStoreSlogan(rawTagline, 160);
+  const tagline = cleaned || null;
   const description =
     (typeof p.description === 'string' && p.description.trim()) ||
     (typeof p.heroText === 'string' && p.heroText.trim()) ||

@@ -8,6 +8,7 @@ import { getPrismaClient } from '../../../lib/prisma.js';
 import { llmGateway } from '../../llm/llmGateway.ts';
 import { syncMiniWebsiteHeroSectionInPreview } from '../../../services/storeContentPatchService.js';
 import { searchPexelsImages, isPexelsAvailable } from '../../../services/menuVisualAgent/pexelsService.ts';
+import { sanitizeStoreSlogan } from '../../contentResolution/sanitizeStoreSlogan.js';
 
 /** @typedef {'promotion' | 'store' | 'website' | 'hero' | 'sweep'} ArtifactKind */
 
@@ -305,7 +306,7 @@ const ARTIFACT_HANDLERS = {
       const data = {};
       if (patch.storeName) data.name = patch.storeName;
       if (patch.description) data.description = patch.description;
-      if (patch.tagline) data.tagline = patch.tagline;
+      if (patch.tagline) data.tagline = sanitizeStoreSlogan(patch.tagline, 160) || patch.tagline;
       if (Object.keys(data).length === 0) return;
       await prisma.business.update({ where: { id: row.id }, data });
     },
@@ -329,7 +330,9 @@ const ARTIFACT_HANDLERS = {
     async apply({ prisma }, row, patch) {
       const data = {};
       if (patch.headline) data.heroText = patch.headline;
-      if (patch.subheadline) data.tagline = patch.subheadline;
+      if (patch.subheadline) {
+        data.tagline = sanitizeStoreSlogan(patch.subheadline, 160) || patch.subheadline;
+      }
       if (Object.keys(data).length === 0) return;
       await prisma.business.update({ where: { id: row.id }, data });
     },
@@ -358,13 +361,17 @@ const ARTIFACT_HANDLERS = {
       let next = { ...preview };
       if (patch.storeName) next.storeName = patch.storeName;
       if (patch.slogan) {
-        next.slogan = patch.slogan;
-        next.tagline = patch.slogan;
+        const slogan = sanitizeStoreSlogan(patch.slogan, 160) || patch.slogan;
+        next.slogan = slogan;
+        next.tagline = slogan;
       }
       if (patch.headline || patch.subheadline) {
+        const sub = patch.subheadline
+          ? sanitizeStoreSlogan(patch.subheadline, 160) || patch.subheadline
+          : patch.subheadline;
         next = syncMiniWebsiteHeroSectionInPreview(next, {
           headline: patch.headline,
-          subheadline: patch.subheadline,
+          subheadline: sub,
         });
       }
       if (patch.ctaText) {

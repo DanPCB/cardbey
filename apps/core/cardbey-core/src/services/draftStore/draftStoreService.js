@@ -12,6 +12,7 @@ import { safeDraftStoreCreate } from '../../lib/safeDraftStoreCreate.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
+import { syncMiniWebsiteHeroSectionInPreview } from '../storeContentPatchService.js';
 import {
   syncHeroFieldsIntoPreviewWebsite,
   applyPipelineGeneratedHeroImage,
@@ -873,15 +874,22 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
     const row = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
     if (row) {
       const prev = parseDraftJsonField(row.preview);
+      const slogan = sloganResult.content;
+      const tagline = taglineResult.content || slogan;
+      let nextPreview = {
+        ...prev,
+        slogan,
+        heroText: heroTextResult.content,
+        tagline,
+      };
+      // Keep website hero subheadline in sync so sections don't show unsanitized copy.
+      nextPreview = syncMiniWebsiteHeroSectionInPreview(nextPreview, {
+        subheadline: slogan || tagline,
+      });
       await prisma.draftStore.update({
         where: { id: draftId },
         data: {
-          preview: {
-            ...prev,
-            slogan: sloganResult.content,
-            heroText: heroTextResult.content,
-            tagline: taglineResult.content,
-          },
+          preview: nextPreview,
           updatedAt: new Date(),
         },
       }).catch(() => {});
