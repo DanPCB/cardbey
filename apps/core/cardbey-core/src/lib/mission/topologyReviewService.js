@@ -38,6 +38,7 @@ function scheduleTopologyExecution(missionId, topology, context) {
   setImmediate(() => {
     executeApprovedTopology(key, topology, context)
       .catch(async (err) => {
+        const message = err instanceof Error ? err.message : String(err);
         const authority = await requireMissionPipelineAuthority(key).catch(() => ({ ok: false }));
         await recordMissionAuthorityDiagnostic(
           key,
@@ -45,11 +46,23 @@ function scheduleTopologyExecution(missionId, topology, context) {
             ? err
             : new MissionTransitionError({
                 code: 'TOPOLOGY_EXECUTION_FAILED',
-                message: err instanceof Error ? err.message : String(err),
+                message,
                 missionId: key,
               }),
           authority.ok ? authority.authority : null,
         );
+        // Surface failure for TopologyReview Retry chrome (do not leave UI on “Executing…”).
+        try {
+          await writeMetadata(key, {
+            multiAgentStatus: 'failed',
+            executionState: 'failed',
+            runtimeState: 'failed',
+            executionFailureReason: 'TOPOLOGY_EXECUTION_FAILED',
+            executionFailureMessage: message,
+          });
+        } catch {
+          /* best-effort */
+        }
       })
       .finally(() => {
         queuedExecutions.delete(key);

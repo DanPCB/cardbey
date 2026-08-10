@@ -59,16 +59,18 @@ describe('canReopenCompletedTopologyMission', () => {
       canReopenCompletedTopologyMission({
         multiAgentStatus: 'approved',
         approvalStatus: 'approved',
-        pendingTopology: { nodes: [{ id: 'n1' }] },
+        pendingTopology: null,
+        approvedTopology: { nodes: [{ id: 'n1' }] },
       }),
     ).toBe(true);
   });
 
-  it('returns false for completed missions without pending topology', () => {
+  it('returns false for completed missions without pending or approved topology', () => {
     expect(
       canReopenCompletedTopologyMission({
         multiAgentStatus: 'completed',
         pendingTopology: null,
+        approvedTopology: null,
       }),
     ).toBe(false);
   });
