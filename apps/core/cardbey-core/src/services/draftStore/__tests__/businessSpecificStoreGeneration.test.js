@@ -52,6 +52,30 @@ describe('business-specific store generation V1', () => {
     expect(names.length).toBeLessThanOrEqual(12);
   });
 
+  it('seeds investment/capital offerings — not tax/BAS/bookkeeping — for Anison Capital Group', () => {
+    const catalog = buildSeedCatalog({
+      businessName: 'Anison Capital Group',
+      businessType: '',
+      verticalSlug: '',
+    });
+    const names = (catalog.items || []).map((i) => i.name);
+    expect(names.some((n) => /tax return|bas lodgement|bookkeeping|payroll/i.test(n))).toBe(false);
+    expect(
+      names.some((n) => /investment|portfolio|capital|wealth|advisory|consultation/i.test(n)),
+    ).toBe(true);
+  });
+
+  it('still seeds accounting catalog for explicit accounting firms', () => {
+    const catalog = buildSeedCatalog({
+      businessName: 'Smith & Co Accountants',
+      businessType: 'accounting',
+      verticalSlug: '',
+    });
+    const names = (catalog.items || []).map((i) => i.name);
+    expect(names.some((n) => /tax return|bas|bookkeeping/i.test(n))).toBe(true);
+    expect(names.some((n) => /capital raising|portfolio review/i.test(n))).toBe(false);
+  });
+
   it('omits Shows and fake reviews for finance storefront merge', () => {
     const preview = {
       storeName: 'Anison Capital Group',
