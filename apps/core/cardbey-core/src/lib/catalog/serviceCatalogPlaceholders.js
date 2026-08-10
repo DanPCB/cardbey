@@ -66,14 +66,41 @@ export function isNonServiceCatalogVertical(profile = {}) {
   );
 }
 
+/** Professional/finance stores must not keep trade/generic scaffolds (Core Service, Emergency Call-out, …). */
+export function isProfessionalServiceVertical(profile = {}) {
+  const slug = String(profile.verticalSlug ?? '').toLowerCase();
+  const blob = [
+    profile.businessType,
+    profile.storeType,
+    profile.category,
+    profile.businessName,
+    profile.storeName,
+    profile.catalogLabel,
+    slug,
+  ]
+    .map((v) => String(v ?? '').toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+  if (slug.startsWith('services.finance') || slug.startsWith('services.accounting') || slug.startsWith('services.legal')) {
+    return true;
+  }
+  return /\b(capital|finance|financial|investment|wealth|accounting|lawyer|legal|solicitor|consulting|advisory|professional)\b/.test(
+    blob,
+  );
+}
+
 /**
  * @param {object[]} products
  * @param {object} profile
  */
 export function shouldRepairServiceCatalogLeak(products, profile = {}) {
   if (!Array.isArray(products) || products.length === 0) return false;
-  if (!isNonServiceCatalogVertical(profile)) return false;
-  return countServiceCatalogPlaceholderHits(products) >= 1;
+  const hits = countServiceCatalogPlaceholderHits(products);
+  if (hits < 1) return false;
+  // Food/retail: remove leaked trade scaffolds. Professional: replace generic scaffolds with blueprint offerings.
+  if (isNonServiceCatalogVertical(profile)) return true;
+  if (isProfessionalServiceVertical(profile)) return true;
+  return false;
 }
 
 /**

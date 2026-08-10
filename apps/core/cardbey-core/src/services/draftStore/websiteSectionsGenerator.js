@@ -76,36 +76,55 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
 
   const firstItemImage = items.find((it) => it?.imageUrl)?.imageUrl ?? null;
 
+  const verticalSlug = preview.meta?.verticalSlug ?? input?.verticalSlug ?? null;
+  const verticalGroup = preview.meta?.verticalGroup ?? input?.verticalGroup ?? null;
   const industryCopy = getIndustryWebsiteCopy({
     businessName: storeName,
     storeName,
     businessType: storeType,
     storeType,
-    verticalSlug: preview.meta?.verticalSlug ?? input?.verticalSlug ?? null,
-    verticalGroup: preview.meta?.verticalGroup ?? null,
+    verticalSlug,
+    verticalGroup,
   });
+  const professionalContext = /\b(capital|finance|financial|investment|wealth|accounting|legal|lawyer|consulting|advisory|professional)\b/i.test(
+    `${storeName} ${storeType} ${verticalSlug || ''} ${verticalGroup || ''}`,
+  );
+  const entertainmentShows =
+    /\b(show|shows|entertainment|game|arcade|cinema|theatre|theater|venue|performance)\b/i.test(
+      `${storeType} ${verticalSlug || ''}`,
+    );
   const uspItems =
     industryCopy?.uspItems ??
     [
       {
         icon: '✦',
-        label: commerce.transactionMode === 'booking' ? 'Expert care' : 'Curated quality',
+        label: commerce.transactionMode === 'booking' || professionalContext ? 'Expert advice' : 'Curated quality',
         description:
-          commerce.transactionMode === 'booking'
+          commerce.transactionMode === 'booking' || professionalContext
             ? 'Professional services tailored to you.'
             : 'Hand-picked products you will love.',
       },
       {
         icon: '⚡',
-        label: 'Fast service',
+        label: professionalContext ? 'Clear next steps' : 'Fast service',
         description:
-          commerce.transactionMode === 'booking'
-            ? 'Easy booking from browse to appointment.'
-            : 'A smooth experience from browse to checkout.',
+          professionalContext
+            ? 'Book a consultation when you are ready.'
+            : commerce.transactionMode === 'booking'
+              ? 'Easy booking from browse to appointment.'
+              : 'A smooth experience from browse to checkout.',
       },
-      { icon: '♥', label: 'Made for you', description: `${storeType} essentials with personality.` },
+      {
+        icon: '♥',
+        label: professionalContext ? 'Client focused' : 'Made for you',
+        description: professionalContext
+          ? 'Practical guidance with transparent expectations.'
+          : `${storeType} essentials with personality.`,
+      },
     ];
-  const heroCtaLabel = industryCopy?.ctaLabel ?? commerce.ctaLabel;
+  const heroCtaLabel =
+    industryCopy?.ctaLabel ??
+    (professionalContext ? 'Book consultation' : commerce.ctaLabel);
 
   /** @type {Array<{ type: string, content: Record<string, unknown> }>} */
   const sections = [
@@ -124,14 +143,22 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
         items: uspItems,
       },
     },
-    {
+  ];
+
+  // Shows only when the business model supports intentional rich media — not a catalog dump.
+  if (entertainmentShows && featuredIds.length > 0) {
+    sections.push({
       type: 'show',
       content: {
         heading: 'Shows',
         productIds: featuredIds,
       },
-    },
-    {
+    });
+  }
+
+  // Fake invented reviews are not truthful business content — omit for professional verticals.
+  if (!professionalContext) {
+    sections.push({
       type: 'social_proof',
       content: {
         heading: 'What customers say',
@@ -141,7 +168,10 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
           { text: 'Easy to shop and beautiful presentation. Highly recommend.', author: 'Sam R.', rating: 4 },
         ],
       },
-    },
+    });
+  }
+
+  sections.push(
     {
       type: 'about',
       content: {
@@ -153,13 +183,13 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
     {
       type: 'contact',
       content: {
-        heading: 'Visit us',
+        heading: professionalContext ? 'Contact us' : 'Visit us',
         address: location || null,
-        hours: 'Open daily — hours on request',
-        cta: 'Get directions',
+        hours: professionalContext ? 'By appointment' : 'Open daily — hours on request',
+        cta: professionalContext ? 'Book consultation' : 'Get directions',
       },
     },
-  ];
+  );
 
   const foundation =
     input?.websiteTemplateFoundation && typeof input.websiteTemplateFoundation === 'object'

@@ -34,6 +34,25 @@ describe('resolveHeroQuery', () => {
   it('uses bakery category key when category mentions bakery', () => {
     expect(resolveHeroQuery('Corner Shop', 'Bakery')).toBe('bakery pastry shop');
   });
+
+  it('maps capital/finance business names to corporate finance hero query', () => {
+    expect(resolveHeroQuery('Anison Capital Group', 'general')).toBe(
+      'corporate finance office modern skyline',
+    );
+    expect(businessNameOverridesHeroCategory('Anison Capital Group', 'general')).toBe(true);
+  });
+
+  it('does not fall back to retail storefront for unmapped types', () => {
+    const q = resolveHeroQuery('Sunrise Partners', 'consulting');
+    expect(q).toBe('business consulting meeting modern office');
+    expect(q.toLowerCase()).not.toContain('storefront');
+  });
+
+  it('derives a type-aware default instead of small business storefront', () => {
+    const q = resolveHeroQuery('Northwind Analytics', 'general');
+    expect(q.toLowerCase()).not.toContain('storefront');
+    expect(q).toMatch(/professional business office/i);
+  });
 });
 
 describe('getSeedImageForCategory', () => {
