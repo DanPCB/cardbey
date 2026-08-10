@@ -115,8 +115,9 @@ export async function resolvePerformerIntakeContext(opts = {}) {
 
   if (!activeStoreId) {
     const clientStoreId = resolveIntakeStoreId(currentContext);
-    const isPersonalSpace = space.spaceType === 'personal';
-    if (clientStoreId && !isPersonalSpace) {
+    // Honor an explicit client activeStoreId even if spaceType was wrongly marked personal
+    // (dashboard Space switcher historically set storeId while entryContext only read spaceId).
+    if (clientStoreId) {
       const validated = await tryValidateStore(userId, clientStoreId);
       if (validated) {
         activeStoreId = validated;

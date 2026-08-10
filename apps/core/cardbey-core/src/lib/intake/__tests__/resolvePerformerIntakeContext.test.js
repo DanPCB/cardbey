@@ -114,6 +114,33 @@ describe('resolvePerformerIntakeContext', () => {
     expect(resolveLatestStoreTargetForUser).not.toHaveBeenCalled();
   });
 
+  it('honors explicit client activeStoreId even when spaceType is personal', async () => {
+    vi.mocked(loadAccountStoreContext).mockResolvedValue({
+      accountHasStores: true,
+      storeCount: 2,
+      stores: [{ id: 'abc-fashion' }, { id: 'other' }],
+    });
+    vi.mocked(resolveIntakeStoreId).mockReturnValue('abc-fashion');
+    vi.mocked(resolveLatestStoreTargetForUser).mockResolvedValue({
+      storeId: 'other',
+      draftId: null,
+      source: 'latest_store_mission',
+    });
+
+    const result = await resolvePerformerIntakeContext({
+      userId: 'user-1',
+      currentContext: {
+        spaceType: 'personal',
+        spaceId: 'personal',
+        activeStoreId: 'abc-fashion',
+      },
+    });
+
+    expect(result.activeStoreId).toBe('abc-fashion');
+    expect(result.selectionMethod).toBe('client_context');
+    expect(resolveLatestStoreTargetForUser).not.toHaveBeenCalled();
+  });
+
   it('merges resolved context into currentContext', () => {
     const merged = mergePerformerIntakeContextIntoCurrentContext(
       { spaceType: 'personal' },
