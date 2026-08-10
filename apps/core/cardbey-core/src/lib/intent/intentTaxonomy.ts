@@ -48,7 +48,8 @@ export type IntentFirstTypeName =
   | 'create_campaign'
   | 'setup_loyalty'
   | 'analytics'
-  | 'manage_catalog';
+  | 'manage_catalog'
+  | 'content_edit';
 
 const MULTI_AGENT_TO_UNIFIED: Record<MultiAgentIntentName, IntentType> = {
   STORE_SETUP: 'create_store',
@@ -70,6 +71,7 @@ const INTENT_FIRST_TO_UNIFIED: Record<IntentFirstTypeName, IntentType> = {
   setup_loyalty: 'setup_loyalty',
   analytics: 'view_analytics',
   manage_catalog: 'list_products',
+  content_edit: 'update_store',
 };
 
 function entry(
