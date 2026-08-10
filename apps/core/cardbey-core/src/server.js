@@ -133,6 +133,7 @@ import adminPlatformRoutes from './routes/admin/platformOverview.js';
 import adminPlatformActivityRoutes from './routes/admin/platformActivityRoutes.js';
 import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
 import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoringRoutes.js';
+import adminDeepseekDiagnosticRoutes from './routes/admin/deepseekDiagnosticRoutes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
@@ -1260,6 +1261,7 @@ app.use('/api/admin', adminPlatformRoutes);
 app.use('/api/admin', adminPlatformActivityRoutes);
 app.use('/api/admin', adminPlatformSearchRoutes);
 app.use('/api/admin', adminMultiAgentMonitoringRoutes);
+app.use('/api/admin', adminDeepseekDiagnosticRoutes); // Admin: GET /api/admin/deepseek-diagnostic
 app.use('/api/admin', adminAccountManagementRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 
