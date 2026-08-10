@@ -240,20 +240,37 @@ export function applyCommerceFieldsToPreview(preview) {
   if (isResearchBackedPreview(preview)) {
     return applyResearchProfileToPreview(preview);
   }
+  const lockedCtx =
+    preview.meta?.storeGenerationBusinessContext ||
+    preview.storeGenerationBusinessContext ||
+    null;
   const catalogProfile = buildCatalogGenerationProfile({
     businessName: preview.storeName ?? preview.name,
-    businessType: preview.storeType ?? preview.meta?.storeType,
-    category: preview.businessCategory ?? preview.meta?.storeType,
+    businessType: preview.storeType ?? preview.meta?.storeType ?? lockedCtx?.primaryCategory,
+    category: preview.businessCategory ?? preview.meta?.storeType ?? lockedCtx?.primaryCategory,
     description: preview.description,
     items: preview.items,
   });
+  // Locked BusinessContext wins over re-inference that defaults finance → Add to cart.
+  if (lockedCtx?.primaryCTA) {
+    catalogProfile.primaryCTA = lockedCtx.primaryCTA;
+    catalogProfile.businessType = lockedCtx.businessType || catalogProfile.businessType;
+    catalogProfile.catalogMode = lockedCtx.catalogMode || catalogProfile.catalogMode;
+    catalogProfile.generatedContentProfile =
+      lockedCtx.generatedContentProfile || catalogProfile.generatedContentProfile;
+    if (/book consultation|request quote|contact|enquire/i.test(String(lockedCtx.primaryCTA))) {
+      catalogProfile.ctaLabel = lockedCtx.primaryCTA;
+      catalogProfile.commerceMode = 'services';
+      catalogProfile.transactionMode = 'booking';
+    }
+  }
   const commerce = resolveStoreCommerce({
     storeType: preview.storeType,
     businessType: preview.meta?.storeType ?? preview.storeType,
     commerceMode: preview.commerceMode ?? catalogProfile.commerceMode,
     transactionMode: preview.transactionMode ?? catalogProfile.transactionMode,
     items: preview.items,
-    ctaLabel: preview.ctaLabel ?? catalogProfile.ctaLabel,
+    ctaLabel: preview.ctaLabel ?? catalogProfile.ctaLabel ?? lockedCtx?.primaryCTA,
     catalogLabel: preview.catalogLabel ?? catalogProfile.catalogLabel,
     ctaAction: preview.storefront?.cta?.action ?? catalogProfile.ctaAction,
   });
@@ -1574,6 +1591,65 @@ async function finalizeDraft(draftId, {
 
   normalizePreviewCategories(preview);
   applyCommerceFieldsToPreview(preview);
+  try {
+    const { repairServiceCatalogPlaceholderProducts, buildServiceCatalogPlaceholderSeed } =
+      await import('../../lib/catalog/serviceCatalogPlaceholders.js');
+    const { validateStoreCoherence } = await import('./storeCoherenceValidator.js');
+    const ctx =
+      draft.input?.storeGenerationBusinessContext ||
+      preview.meta?.storeGenerationBusinessContext ||
+      null;
+    const leakProfile = {
+      businessName: preview.storeName,
+      storeName: preview.storeName,
+      businessType: preview.storeType,
+      storeType: preview.storeType,
+      verticalSlug: preview.meta?.verticalSlug ?? draft.input?.verticalSlug ?? ctx?.verticalSlug,
+      verticalGroup: preview.meta?.verticalGroup ?? draft.input?.verticalGroup ?? ctx?.verticalGroup,
+    };
+    const repaired = repairServiceCatalogPlaceholderProducts(
+      preview.items || [],
+      leakProfile,
+      () => buildServiceCatalogPlaceholderSeed(preview.items || [], leakProfile),
+    );
+    if (repaired.repaired && Array.isArray(repaired.products)) {
+      preview.items = repaired.products;
+      if (Array.isArray(repaired.categories) && repaired.categories.length) {
+        preview.categories = repaired.categories;
+      }
+      console.warn('[DraftStore] repaired generic catalog scaffolds', {
+        draftId,
+        repairedCount: repaired.repairedCount,
+      });
+    }
+    // Re-merge website after catalog repair so Shows/CTA follow professional rules.
+    try {
+      const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
+      const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(draft.input || {});
+      mergeWebsiteIntoPreview(preview, inputWithTpl);
+    } catch {
+      mergeWebsiteIntoPreview(preview, draft.input || {});
+    }
+    applyCommerceFieldsToPreview(preview);
+    if (ctx?.primaryCTA && /add to cart/i.test(String(preview.primaryCTA || ''))) {
+      preview.primaryCTA = ctx.primaryCTA;
+    }
+    const coherence = validateStoreCoherence(preview, ctx);
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      storeCoherence: coherence,
+      ...(ctx ? { storeGenerationBusinessContext: ctx } : {}),
+    };
+    if (!coherence.ok) {
+      console.warn('[DraftStore] store coherence critical warnings', {
+        draftId,
+        critical: coherence.critical,
+        warnings: coherence.warnings,
+      });
+    }
+  } catch (coherenceErr) {
+    console.warn('[DraftStore] store coherence pass failed (non-fatal):', coherenceErr?.message || coherenceErr);
+  }
   const schemaMod = await loadDraftPreviewSchema();
   if (schemaMod) {
     const parseDraftPreview = schemaMod.parseDraftPreview ?? schemaMod.default?.parseDraftPreview;

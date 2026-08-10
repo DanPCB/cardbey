@@ -120,8 +120,82 @@ function buildRetailSeed(profile, targetCount) {
   return { categories, items, imageQueryHints, meta: { catalogSource: 'seed', vertical: profile?.verticalSlug } };
 }
 
+/**
+ * Prefer few specific professional offerings over 30 generic scaffolds.
+ * Used when industry blueprint did not resolve but name/type is finance/legal/consulting.
+ */
+function buildMinimalProfessionalSeed(profile, targetCount) {
+  const categories = [
+    { id: 'cat_prof_0', name: 'Advisory' },
+    { id: 'cat_prof_1', name: 'Consultations' },
+  ];
+  const offerings = [
+    {
+      name: 'Initial Consultation',
+      description: 'Discovery conversation to understand your goals and next steps.',
+      categoryId: 'cat_prof_1',
+      imageQueryHint: 'professional business consultation meeting',
+    },
+    {
+      name: 'Business Advisory Session',
+      description: 'Focused advisory session with written follow-up.',
+      categoryId: 'cat_prof_0',
+      imageQueryHint: 'corporate finance advisory office',
+    },
+    {
+      name: 'Strategy Review',
+      description: 'Review of priorities and recommended actions.',
+      categoryId: 'cat_prof_0',
+      imageQueryHint: 'business strategy meeting modern office',
+    },
+  ];
+  const count = Math.min(Math.max(3, targetCount), offerings.length);
+  const items = offerings.slice(0, count).map((row, i) => ({
+    id: `item_seed_prof_${i}`,
+    name: row.name,
+    description: row.description,
+    price: null,
+    categoryId: row.categoryId,
+    serviceMode: 'fixed_booking',
+    provenance: 'GENERATED',
+    imageQueryHint: row.imageQueryHint,
+  }));
+  return {
+    categories,
+    items,
+    imageQueryHints: {
+      cat_prof_0: ['corporate finance office', 'advisory'],
+      cat_prof_1: ['professional consultation', 'meeting'],
+    },
+    meta: {
+      catalogSource: 'professional_minimal_seed',
+      vertical: profile?.verticalSlug || 'services.finance',
+      offeringProvenance: 'GENERATED',
+    },
+  };
+}
+
+function isProfessionalSeedProfile(profile) {
+  const blob = [
+    profile?.businessName,
+    profile?.storeName,
+    profile?.businessType,
+    profile?.storeType,
+    profile?.verticalSlug,
+    profile?.verticalGroup,
+  ]
+    .map((v) => String(v ?? '').toLowerCase())
+    .join(' ');
+  return /\b(capital|finance|financial|investment|wealth|accounting|legal|lawyer|solicitor|consulting|advisory|professional)\b/.test(
+    blob,
+  );
+}
+
 /** Services / unknown: 30 items – tiers, packages, quotes. No coffee. */
 function buildServicesSeed(profile, targetCount) {
+  if (isProfessionalSeedProfile(profile)) {
+    return buildMinimalProfessionalSeed(profile, targetCount);
+  }
   const categories = [
     { id: 'cat_svc_0', name: 'Core Services' },
     { id: 'cat_svc_1', name: 'Packages' },
@@ -170,6 +244,28 @@ export function buildSeedCatalog(profile, opts = {}) {
       imageQueryHints: industryCatalog.imageQueryHints ?? {},
       meta: industryCatalog.meta ?? { catalogSource: 'industry_blueprint', vertical: slug },
     };
+  }
+
+  // Finance/capital names often lack verticalSlug early — force industry catalog once more.
+  if (isProfessionalSeedProfile(profile)) {
+    const forced = buildIndustryCatalog(
+      {
+        ...profile,
+        verticalSlug: slug || 'services.finance',
+        verticalGroup: group || 'services',
+        businessName: profile?.businessName || profile?.storeName,
+      },
+      Math.min(targetCount, 8),
+    );
+    if (forced?.items?.length) {
+      return {
+        categories: forced.categories,
+        items: forced.items,
+        imageQueryHints: forced.imageQueryHints ?? {},
+        meta: forced.meta ?? { catalogSource: 'industry_blueprint_forced', vertical: 'services.finance' },
+      };
+    }
+    return buildMinimalProfessionalSeed(profile, Math.min(targetCount, 5));
   }
 
   if (group === 'food' || model === 'food') {
