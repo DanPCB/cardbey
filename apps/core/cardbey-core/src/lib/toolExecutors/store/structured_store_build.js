@@ -68,6 +68,8 @@ export async function execute(_input = {}, context = {}) {
   const businessType =
     (typeof meta.businessType === 'string' && meta.businessType.trim()) ||
     (typeof meta.storeType === 'string' && meta.storeType.trim()) ||
+    (typeof meta.category === 'string' && meta.category.trim()) ||
+    (typeof meta.industry === 'string' && meta.industry.trim()) ||
     '';
   const location = (typeof meta.location === 'string' && meta.location.trim()) || '';
   const websiteUrl =

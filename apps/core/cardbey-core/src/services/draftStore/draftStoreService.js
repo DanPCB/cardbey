@@ -3032,10 +3032,17 @@ export async function generateDraft(draftId, options = {}) {
         if (!heroMod2) throw tsModuleUnavailable('heroGenerationService');
         const generateHeroForDraftFn = heroMod2.generateHeroForDraft ?? heroMod2.default?.generateHeroForDraft;
         if (typeof generateHeroForDraftFn !== 'function') throw tsModuleUnavailable('heroGenerationService');
+        const genProfileForHero = input.generationProfile ?? input.classificationProfile ?? null;
         const { hero } = await generateHeroForDraftFn({
           storeName: profile.name,
           businessType: profile.type,
           storeType: profile.type,
+          verticalSlug: genProfileForHero?.verticalSlug ?? profile.verticalSlug ?? null,
+          verticalGroup:
+            genProfileForHero?.verticalGroup ??
+            profile.verticalGroup ??
+            (genProfileForHero?.verticalSlug || profile.verticalSlug || '').split('.')[0] ||
+            null,
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {
@@ -3105,10 +3112,17 @@ export async function generateDraft(draftId, options = {}) {
         if (!heroMod3) throw tsModuleUnavailable('heroGenerationService');
         const generateHeroForDraftFn3 = heroMod3.generateHeroForDraft ?? heroMod3.default?.generateHeroForDraft;
         if (typeof generateHeroForDraftFn3 !== 'function') throw tsModuleUnavailable('heroGenerationService');
+        const genProfileForHeroMenu = input.generationProfile ?? input.classificationProfile ?? null;
         const { hero } = await generateHeroForDraftFn3({
           storeName: profile.name,
           businessType: profile.type,
           storeType: profile.type,
+          verticalSlug: genProfileForHeroMenu?.verticalSlug ?? profile.verticalSlug ?? null,
+          verticalGroup:
+            genProfileForHeroMenu?.verticalGroup ??
+            profile.verticalGroup ??
+            (genProfileForHeroMenu?.verticalSlug || profile.verticalSlug || '').split('.')[0] ||
+            null,
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {

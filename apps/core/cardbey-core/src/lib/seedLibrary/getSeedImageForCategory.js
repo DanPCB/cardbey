@@ -70,6 +70,49 @@ export const BUSINESS_NAME_OVERRIDES = [
     categoryKey: 'professional',
   },
   {
+    keywords: [
+      ' capital ',
+      'capital group',
+      'capital partners',
+      'finance',
+      'financial',
+      'investment',
+      'private equity',
+      'wealth',
+      'asset management',
+      'venture capital',
+      'hedge fund',
+      'banking',
+    ],
+    query: 'corporate finance office modern skyline',
+    vertical: 'services',
+    categoryKey: 'finance',
+  },
+  {
+    keywords: ['consulting', 'consultant', 'advisory', 'strategy firm'],
+    query: 'business consulting meeting modern office',
+    vertical: 'services',
+    categoryKey: 'consulting',
+  },
+  {
+    keywords: ['accountant', 'accounting', 'bookkeep', 'tax'],
+    query: 'accounting office professional desk',
+    vertical: 'services',
+    categoryKey: 'finance',
+  },
+  {
+    keywords: ['real estate', 'realty', 'property agent', 'realtor'],
+    query: 'real estate office modern property',
+    vertical: 'home',
+    categoryKey: 'real_estate',
+  },
+  {
+    keywords: ['clinic', 'medical', 'doctor', 'dental', 'dentist', 'physio'],
+    query: 'modern medical clinic reception',
+    vertical: 'health',
+    categoryKey: 'health',
+  },
+  {
     keywords: ['fashion', 'boutique', 'apparel', 'clothing', 'wear'],
     query: 'fashion boutique clothing store',
     vertical: 'products',
@@ -90,8 +133,61 @@ const CATEGORY_HERO_QUERIES = {
   beauty: 'hair salon beauty spa',
   services: 'professional services office',
   retail: 'retail store interior',
-  default: 'small business storefront',
+  finance: 'corporate finance office modern skyline',
+  capital: 'corporate finance office modern skyline',
+  investment: 'investment firm modern office',
+  consulting: 'business consulting meeting modern office',
+  professional: 'professional services modern office',
+  general: 'modern professional business office',
+  other: 'modern professional business office',
+  health: 'modern medical clinic reception',
+  real_estate: 'real estate office modern property',
+  'real estate': 'real estate office modern property',
+  // Legacy key kept for callers; never use retail storefront as the catch-all.
+  default: 'modern professional business office',
 };
+
+const GENERIC_NAME_TOKENS = new Set([
+  'group',
+  'pty',
+  'ltd',
+  'llc',
+  'inc',
+  'co',
+  'company',
+  'the',
+  'and',
+  'of',
+  'my',
+  'our',
+  'a',
+  'an',
+  'business',
+  'store',
+  'shop',
+]);
+
+/**
+ * When category/name are unmapped, derive a search subject instead of one retail fallback.
+ * @param {string | null | undefined} businessName
+ * @param {string | null | undefined} category
+ * @returns {string}
+ */
+function deriveDefaultHeroQuery(businessName, category) {
+  const key = normalizeCategoryKey(category);
+  if (key && key !== 'general' && key !== 'other' && key !== 'default') {
+    return `${key} professional business office`;
+  }
+  const words = String(businessName ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !GENERIC_NAME_TOKENS.has(w));
+  if (words.length > 0) {
+    return `${words.slice(0, 3).join(' ')} professional business office`;
+  }
+  return CATEGORY_HERO_QUERIES.default;
+}
 
 function normalizeCategoryKey(category) {
   return String(category ?? '')
@@ -105,11 +201,22 @@ function normalizeCategoryKey(category) {
  * @param {string | null | undefined} category
  * @returns {boolean}
  */
+function businessNameMatchesOverride(nameLower, override) {
+  const hay = ` ${String(nameLower ?? '').toLowerCase()} `;
+  return (override.keywords ?? []).some((kw) => {
+    const needle = String(kw ?? '').toLowerCase();
+    if (!needle) return false;
+    // Spaced needles (` capital `) require word-ish boundaries via padded hay.
+    if (needle.startsWith(' ') || needle.endsWith(' ')) return hay.includes(needle);
+    return hay.includes(needle) || String(nameLower ?? '').toLowerCase().includes(needle);
+  });
+}
+
 export function businessNameOverridesHeroCategory(businessName, category) {
   const nameLower = String(businessName ?? '').toLowerCase();
   if (!nameLower.trim()) return false;
   for (const override of BUSINESS_NAME_OVERRIDES) {
-    if (override.keywords.some((kw) => nameLower.includes(kw))) return true;
+    if (businessNameMatchesOverride(nameLower, override)) return true;
   }
   return false;
 }
@@ -124,7 +231,7 @@ export function businessNameOverridesHeroCategory(businessName, category) {
 export function resolveHeroQuery(businessName, category) {
   const nameLower = String(businessName ?? '').toLowerCase();
   for (const override of BUSINESS_NAME_OVERRIDES) {
-    if (override.keywords.some((kw) => nameLower.includes(kw))) {
+    if (businessNameMatchesOverride(nameLower, override)) {
       return override.query;
     }
   }
@@ -144,7 +251,24 @@ export function resolveHeroQuery(businessName, category) {
   if (key === 'food & drink' || key === 'food and drink') {
     return CATEGORY_HERO_QUERIES.food;
   }
-  return CATEGORY_HERO_QUERIES.default;
+  if (
+    key &&
+    (key.includes('finance') ||
+      key.includes('capital') ||
+      key.includes('invest') ||
+      key.includes('wealth') ||
+      key.includes('accounting') ||
+      key.includes('bookkeep'))
+  ) {
+    return CATEGORY_HERO_QUERIES.finance;
+  }
+  if (key && (key.includes('consult') || key.includes('advisor') || key.includes('advisory'))) {
+    return CATEGORY_HERO_QUERIES.consulting;
+  }
+  if (key && (key.includes('law') || key.includes('legal') || key.includes('solicitor'))) {
+    return 'law office professional';
+  }
+  return deriveDefaultHeroQuery(businessName, category);
 }
 
 /**
@@ -260,7 +384,7 @@ export async function getSeedImageForMenuItem(item) {
 export function resolveSeedImageCategoryKeys(businessName, categoryKey) {
   const nameLower = String(businessName ?? '').toLowerCase();
   for (const override of BUSINESS_NAME_OVERRIDES) {
-    if (override.keywords.some((kw) => nameLower.includes(kw))) {
+    if (businessNameMatchesOverride(nameLower, override)) {
       return {
         vertical: override.vertical ?? null,
         categoryKey: override.categoryKey ?? null,
