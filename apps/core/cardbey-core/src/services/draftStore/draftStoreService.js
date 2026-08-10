@@ -3117,8 +3117,7 @@ export async function generateDraft(draftId, options = {}) {
           verticalGroup:
             genProfileForHero?.verticalGroup ??
             profile.verticalGroup ??
-            (genProfileForHero?.verticalSlug || profile.verticalSlug || '').split('.')[0] ||
-            null,
+            ((genProfileForHero?.verticalSlug || profile.verticalSlug || '').split('.')[0] || null),
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {
@@ -3197,8 +3196,7 @@ export async function generateDraft(draftId, options = {}) {
           verticalGroup:
             genProfileForHeroMenu?.verticalGroup ??
             profile.verticalGroup ??
-            (genProfileForHeroMenu?.verticalSlug || profile.verticalSlug || '').split('.')[0] ||
-            null,
+            ((genProfileForHeroMenu?.verticalSlug || profile.verticalSlug || '').split('.')[0] || null),
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {
