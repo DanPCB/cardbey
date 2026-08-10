@@ -13,7 +13,8 @@ export type IntentType =
   | 'create_campaign'
   | 'setup_loyalty'
   | 'analytics'
-  | 'manage_catalog';
+  | 'manage_catalog'
+  | 'content_edit';
 
 export interface Intent {
   type: IntentType;
