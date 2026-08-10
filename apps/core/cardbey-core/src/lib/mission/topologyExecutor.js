@@ -68,14 +68,18 @@ function pickString(...values) {
  */
 export function canReopenCompletedTopologyMission(meta) {
   if (!meta || typeof meta !== 'object') return false;
-  const pending = meta.pendingTopology;
-  const hasPending =
-    pending &&
-    typeof pending === 'object' &&
-    !Array.isArray(pending) &&
-    Array.isArray(pending.nodes) &&
-    pending.nodes.length > 0;
-  if (!hasPending) return false;
+  const hasTopologyNodes = (value) =>
+    Boolean(
+      value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        Array.isArray(value.nodes) &&
+        value.nodes.length > 0,
+    );
+  // After promote, pendingTopology is cleared; approvedTopology is the reopen source.
+  if (!hasTopologyNodes(meta.pendingTopology) && !hasTopologyNodes(meta.approvedTopology)) {
+    return false;
+  }
 
   const multiStatus = String(meta.multiAgentStatus ?? '').trim().toLowerCase();
   const approvalStatus = String(meta.approvalStatus ?? '').trim().toLowerCase();

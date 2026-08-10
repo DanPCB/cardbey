@@ -159,6 +159,10 @@ export async function promotePendingToApproved(missionId, overrides = {}) {
     [METADATA_KEYS.APPROVED_TOPOLOGY]: overrides.topology ?? meta.pendingTopology,
     [METADATA_KEYS.APPROVED_POLICY]: overrides.policy ?? meta.pendingPolicy,
     [METADATA_KEYS.APPROVED_REASONING]: overrides.reasoning ?? meta.pendingReasoning,
+    // Clear pending mirrors so remount/HITL detection cannot re-open Approve after promote.
+    [METADATA_KEYS.PENDING_TOPOLOGY]: null,
+    [METADATA_KEYS.PENDING_POLICY]: null,
+    [METADATA_KEYS.PENDING_REASONING]: null,
     [METADATA_KEYS.MULTI_AGENT_STATUS]: 'approved',
     [METADATA_KEYS.APPROVAL_STATUS]: 'approved',
     approvedAt: new Date().toISOString(),
