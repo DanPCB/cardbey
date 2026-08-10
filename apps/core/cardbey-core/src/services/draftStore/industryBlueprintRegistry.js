@@ -179,7 +179,169 @@ function formatBlueprintPrice(item, currencyCode = 'AUD') {
   return 'Quote required';
 }
 
+/**
+ * Positive price from a catalog item, or null.
+ * @param {object} item
+ * @returns {number|null}
+ */
+export function extractCatalogItemPriceNumber(item) {
+  if (!item || typeof item !== 'object') return null;
+  for (const key of ['fromPrice', 'basePrice', 'priceMin', 'amount']) {
+    const n = Number(item[key]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const raw = item.price ?? item.displayPrice;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    if (/quote\s*required|on\s*request|contact\s*us/i.test(raw)) return null;
+    const m = raw.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return null;
+}
+
+/**
+ * True when items look like a real price list (scanned/uploaded/sourced), not invented scaffolding.
+ * @param {object[]|null|undefined} items
+ * @returns {boolean}
+ */
+export function catalogHasMeaningfulPriceList(items) {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  let strong = 0;
+  let weak = 0;
+  for (const it of items) {
+    const n = extractCatalogItemPriceNumber(it);
+    if (n == null) continue;
+    const prov = String(it.priceProvenance || it.priceOrigin || it.priceSource || it.catalogSource || '').toLowerCase();
+    const sourced =
+      prov.includes('owner') ||
+      prov.includes('research') ||
+      prov.includes('ocr') ||
+      prov.includes('preload') ||
+      prov.includes('sourced');
+    if (sourced && n > 0) strong += 1;
+    else if (n >= 10) weak += 1;
+  }
+  return strong >= 1 || weak >= 2;
+}
+
+/**
+ * General unpriced consultation booking for professional stores without a price list.
+ * @param {object} [profile]
+ * @param {IndustryBlueprint|null} [bank]
+ */
+export function buildProfessionalConsultationBookingCatalog(profile = {}, bank = null) {
+  const vertical = bank?.verticalSlugs?.[0] || profile.verticalSlug || 'services.finance';
+  const categories = [{ id: 'cat_consult_0', name: 'Consultations' }];
+  const items = [
+    {
+      id: 'item_consult_0',
+      name: 'Book our consultations',
+      description: 'Book a consultation to discuss your needs and next steps.',
+      price: null,
+      categoryId: 'cat_consult_0',
+      serviceMode: 'fixed_booking',
+      pricingModel: 'custom',
+      priceProvenance: null,
+      executionAction: 'book',
+      imageQueryHint: 'professional consultation meeting modern office',
+    },
+  ];
+  return {
+    categories,
+    items,
+    imageQueryHints: {
+      cat_consult_0: ['professional consultation', 'advisory meeting'],
+    },
+    meta: {
+      catalogSource: 'professional_consultation_booking',
+      vertical,
+      industryLabel: bank?.label || 'Professional',
+      offeringProvenance: 'GENERATED',
+      bookingMode: 'consultation_only',
+    },
+  };
+}
+
+/**
+ * @param {object} [profile]
+ * @param {IndustryBlueprint|null} [bank]
+ * @returns {boolean}
+ */
+export function isProfessionalIndustryContext(profile = {}, bank = null) {
+  if (bank?.industry === 'professional') return true;
+  const key = resolveIndustryBlueprintKey(profile);
+  if (key && INDUSTRY_BLUEPRINTS[key]?.industry === 'professional') return true;
+  const slug = String(profile.verticalSlug ?? '').toLowerCase();
+  if (/^services\.(finance|accounting|legal)/.test(slug)) return true;
+  const blob = profileBlob(profile);
+  return FINANCE_SIGNAL_RE.test(blob) || ACCOUNTING_SIGNAL_RE.test(blob) || /\b(lawyer|legal|solicitor|attorney)\b/i.test(blob);
+}
+
+/**
+ * If professional + no meaningful price list → consultation booking catalog.
+ * Keeps priced menus from OCR/upload/research when evidence exists.
+ * @param {object} catalog
+ * @param {object} [profile]
+ */
+export function collapseProfessionalCatalogWithoutPriceList(catalog, profile = {}) {
+  if (!catalog || typeof catalog !== 'object') return catalog;
+  const items = Array.isArray(catalog.items)
+    ? catalog.items
+    : Array.isArray(catalog.products)
+      ? catalog.products
+      : [];
+  const mergedProfile = {
+    ...profile,
+    businessName: profile.businessName || catalog.profile?.name || catalog.storeName,
+    businessType: profile.businessType || catalog.profile?.type || catalog.storeType,
+    verticalSlug: profile.verticalSlug || catalog.meta?.vertical || catalog.profile?.verticalSlug,
+  };
+  if (!isProfessionalIndustryContext(mergedProfile)) return catalog;
+  if (profile.hasPriceList === true || profile.allowBlueprintPrices === true) return catalog;
+  if (catalogHasMeaningfulPriceList(items)) return catalog;
+
+  const key = resolveIndustryBlueprintKey(mergedProfile);
+  const bank = key ? INDUSTRY_BLUEPRINTS[key] : null;
+  const consultation = buildProfessionalConsultationBookingCatalog(mergedProfile, bank);
+
+  if (Array.isArray(catalog.products) && !Array.isArray(catalog.items)) {
+    return {
+      ...catalog,
+      products: consultation.items,
+      categories: consultation.categories,
+      imageQueryHints: consultation.imageQueryHints,
+      meta: { ...(catalog.meta || {}), ...consultation.meta },
+    };
+  }
+
+  return {
+    ...catalog,
+    categories: consultation.categories,
+    items: consultation.items,
+    products: Array.isArray(catalog.products) ? consultation.items : catalog.products,
+    imageQueryHints: consultation.imageQueryHints,
+    meta: { ...(catalog.meta || {}), ...consultation.meta },
+  };
+}
+
 function buildFromBlueprint(bank, key, targetCount, profile = {}) {
+  // Professional stores without a real price list → general consultation booking only.
+  if (
+    bank.industry === 'professional' &&
+    profile.allowBlueprintPrices !== true &&
+    profile.hasPriceList !== true
+  ) {
+    const evidence =
+      profile.items || profile.products || profile.detectedServices || profile.preloadedCatalogItems || [];
+    if (!catalogHasMeaningfulPriceList(evidence)) {
+      return buildProfessionalConsultationBookingCatalog(profile, bank);
+    }
+  }
+
   const currencyCode = profile.currencyCode ?? 'AUD';
   const cap = Math.max(CATALOG_ITEM_MIN, Math.min(CATALOG_ITEM_LIMIT, targetCount));
   const categories = bank.categories.map((c) => ({

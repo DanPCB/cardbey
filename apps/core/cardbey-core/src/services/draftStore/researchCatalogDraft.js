@@ -144,6 +144,8 @@ export function stampSuggestedCatalogOrigin(catalog) {
           if (next.priceMin != null) next.priceMin = null;
           if (next.priceMax != null) next.priceMax = null;
           if (next.amount != null) next.amount = null;
+          if (next.fromPrice != null) next.fromPrice = null;
+          if (next.basePrice != null) next.basePrice = null;
           next.pricingMode = next.pricingMode ?? 'quote';
           next.ctaLabel = next.ctaLabel ?? 'Request a quote';
         }
