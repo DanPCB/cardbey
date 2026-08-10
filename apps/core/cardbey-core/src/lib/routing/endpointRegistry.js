@@ -63,6 +63,8 @@ export const MOUNT_PREFIX_RULES = [
   { prefix: '/api/products', category: 'CONTENT_CRUD' },
   { prefix: '/api/contents', category: 'CONTENT_CRUD' },
   { prefix: '/api/content-library', category: 'CONTENT_CRUD' },
+  { prefix: '/api/universal-library', category: 'SOCIAL', note: 'Universal Library reads + governed writes' },
+  { prefix: '/api/resource-intelligence', category: 'SOCIAL', note: 'URI rights-aware reuse + draft destinations' },
   { prefix: '/api/assets', category: 'CONTENT_CRUD' },
   { prefix: '/api/docs', category: 'CONTENT_CRUD' },
   { prefix: '/api/suitcase', category: 'CONTENT_CRUD' },

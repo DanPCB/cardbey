@@ -6,8 +6,11 @@ import {
   enrichResearchCatalogProducts,
   finalizeResearchCatalogForDraft,
   isResearchCatalogPendingOwnerReview,
+  isStageSourcedCatalogPendingReviewEnabled,
   mergeResearchBusinessProfileIntoParams,
   shouldApplyResearchCatalogToDraft,
+  shouldStageResearchCatalogPendingReview,
+  stampSuggestedCatalogOrigin,
 } from './researchCatalogDraft.js';
 import { applyCommerceFieldsToPreview } from './draftStoreService.js';
 import { applyDraftCatalogQaTier2Fixes } from '../qa/draftCatalogQa.js';
@@ -105,15 +108,58 @@ describe('researchCatalogDraft — Glamshell Beauty acceptance', () => {
 });
 
 describe('researchCatalogDraft — owner review gate', () => {
-  it('defers research catalog until owner confirms', () => {
+  it('stages sourced research catalog while owner review pending (Phase 2A)', () => {
     const pending = {
       researchRan: true,
       ownerReviewRequired: true,
       ownerConfirmed: false,
+      fallbackToGenerated: false,
       catalog: { products: [{ name: 'Sourdough' }] },
     };
     expect(isResearchCatalogPendingOwnerReview(pending)).toBe(true);
-    expect(shouldApplyResearchCatalogToDraft(pending)).toBe(false);
+    expect(isStageSourcedCatalogPendingReviewEnabled()).toBe(true);
+    expect(shouldStageResearchCatalogPendingReview(pending)).toBe(true);
+    expect(shouldApplyResearchCatalogToDraft(pending)).toBe(true);
+
+    const finalized = finalizeResearchCatalogForDraft(pending.catalog, pending, {
+      businessName: 'Bakery',
+    });
+    expect(finalized.meta.contentOrigin).toBe('sourced');
+    expect(finalized.meta.pendingOwnerReview).toBe(true);
+    expect(finalized.products[0].contentOrigin).toBe('sourced');
+    expect(finalized.products[0].needsOwnerReview).toBe(true);
+  });
+
+  it('does not stage when pending review has no catalog items', () => {
+    const pendingEmpty = {
+      researchRan: true,
+      ownerReviewRequired: true,
+      ownerConfirmed: false,
+      fallbackToGenerated: false,
+      catalog: { products: [] },
+    };
+    expect(shouldStageResearchCatalogPendingReview(pendingEmpty)).toBe(false);
+    expect(shouldApplyResearchCatalogToDraft(pendingEmpty)).toBe(false);
+  });
+
+  it('respects PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW=0', () => {
+    const prev = process.env.PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW;
+    process.env.PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW = '0';
+    try {
+      const pending = {
+        researchRan: true,
+        ownerReviewRequired: true,
+        ownerConfirmed: false,
+        fallbackToGenerated: false,
+        catalog: { products: [{ name: 'Sourdough' }] },
+      };
+      expect(isStageSourcedCatalogPendingReviewEnabled()).toBe(false);
+      expect(shouldStageResearchCatalogPendingReview(pending)).toBe(false);
+      expect(shouldApplyResearchCatalogToDraft(pending)).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW;
+      else process.env.PERFORMER_STAGE_SOURCED_CATALOG_PENDING_REVIEW = prev;
+    }
   });
 
   it('applies research catalog after owner confirmation', () => {
@@ -125,5 +171,16 @@ describe('researchCatalogDraft — owner review gate', () => {
     };
     expect(isResearchCatalogPendingOwnerReview(confirmed)).toBe(false);
     expect(shouldApplyResearchCatalogToDraft(confirmed)).toBe(true);
+  });
+
+  it('stamps AI/template filler as suggested', () => {
+    const stamped = stampSuggestedCatalogOrigin({
+      products: [{ name: 'Featured Latte', price: 40 }],
+      meta: {},
+    });
+    expect(stamped.meta.contentOrigin).toBe('suggested');
+    expect(stamped.products[0].contentOrigin).toBe('suggested');
+    expect(stamped.products[0].price).toBeNull();
+    expect(stamped.products[0].priceWasNotExplicitlyProvided).toBe(true);
   });
 });

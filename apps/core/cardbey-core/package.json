@@ -8,6 +8,7 @@
   "scripts": {
     "test": "cross-env PRISMA_CLIENT_ENGINE_TYPE=binary NODE_ENV=test ROLE=test DATABASE_URL=file:../test.db vitest run",
     "audit:performer-mission": "node scripts/audit-performer-mission-startup.mjs",
+    "smoke:create-store-runtime": "node scripts/smoke-create-store-runtime-graph.mjs",
     "test:intent": "vitest run src/intent/__tests__/*.test.ts",
     "test:intent:unit": "vitest run src/intent/__tests__/*.test.ts",
     "test:intent:shadow": "vitest run src/intent/__tests__/shadow/*.test.ts 2>/dev/null || echo 'No shadow tests yet'",

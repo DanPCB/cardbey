@@ -162,7 +162,7 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
     heroVideoUrl: heroVideo,
     heroMediaType,
     heroImage: heroImage && !heroVideo ? heroImage : hero.posterUrl ?? heroImage,
-    city: locationFields.locationLabel,
+    city: locationFields.city,
     country: locationFields.country,
     locationLabel: locationFields.locationLabel,
     address: locationFields.address,

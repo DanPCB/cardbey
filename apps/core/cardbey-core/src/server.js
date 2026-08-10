@@ -151,6 +151,8 @@ import { createDebugRoutesLite } from './routes/debugRoutesLite.js';
 import assistantRouter from './routes/assistant.js';
 import contentsRouter from './routes/contents.js';
 import contentLibraryRoutes from './routes/contentLibraryRoutes.js';
+import universalLibraryRoutes from './routes/universalLibraryRoutes.js';
+import universalResourceIntelligenceRoutes from './routes/universalResourceIntelligenceRoutes.js';
 import internalRoutes from './routes/internal.js';
 import opsRoutes from './routes/opsRoutes.js';
 import controlTowerRoutes from './routes/controlTowerRoutes.js';
@@ -267,7 +269,6 @@ import missionsRoutes from './routes/missionsRoutes.js';
 import confirmationRoutes from './routes/confirmation.routes.js';
 import executionRoutes from './routes/executionRoutes.js';
 import telemetryRoutes from './routes/telemetryRoutes.js';
-import performerAuditRoutes from './routes/performerAuditRoutes.js';
 import selfHealingRoutes from './routes/selfHealingRoutes.js';
 import selfAuditRoutes from './routes/selfAudit.routes.js';
 import developmentRoutes from './routes/development.routes.js';
@@ -290,6 +291,7 @@ import audioLibraryRoutes from './routes/audioLibraryRoutes.js';
 import locationRoutes from './routes/locationRoutes.js';
 import rewardRoutes from './routes/reward.js';
 import performerRoutes from './routes/performer.js';
+import performerTurnRoutes from './routes/performerTurnRoutes.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
 import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
@@ -971,6 +973,26 @@ app.use('/assets', express.static(publicAssetsDir, {
   }
 }));
 
+// Cardbey Originals HOSTED video/audio under public/videos (same CORS as /assets)
+const publicVideosDir = path.join(process.cwd(), 'public', 'videos');
+if (!fs.existsSync(publicVideosDir)) fs.mkdirSync(publicVideosDir, { recursive: true });
+app.use('/videos', express.static(publicVideosDir, {
+  fallthrough: true,
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (filePath) {
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext === '.mp4') res.setHeader('Content-Type', 'video/mp4');
+      else if (ext === '.webm') res.setHeader('Content-Type', 'video/webm');
+      else if (ext === '.mp3') res.setHeader('Content-Type', 'audio/mpeg');
+      else if (ext === '.wav') res.setHeader('Content-Type', 'audio/wav');
+    }
+  },
+}));
+
 const autoLayoutToolPath = path.join(process.cwd(), 'public', 'auto-layout-tool.html');
 app.get('/tools/auto-layout', (_req, res) => {
   if (fs.existsSync(autoLayoutToolPath)) {
@@ -1035,6 +1057,7 @@ app.use('/api/dev', devSystemMissionsRoutes);
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev/broker', devBrokerRuntimeProofRoutes);
 }
+app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
@@ -1167,7 +1190,6 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 }
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
-app.use('/api/performer/audit', performerAuditRoutes); // Create-store understanding audit (Phase 4)
 app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
 app.use('/api/self-audit', selfAuditRoutes); // Self-audit: status, run, fix proposals (admin)
 app.use('/api', developmentRoutes); // Development Runtime: /api/development/*
@@ -1190,6 +1212,8 @@ app.use('/api/suitcase', suitcaseItemRoutes); // Phase 10 — account knowledge 
 app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards, visitor chat, etc.
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
+app.use('/api/universal-library', universalLibraryRoutes); // Universal Library catalogue + population
+app.use('/api/resource-intelligence', universalResourceIntelligenceRoutes); // URI reuse / federation
 app.use('/api/assets', assetsRouter);
 app.use('/api/media', mediaVideoRouter); // Multi-source video search: GET /api/media/video/search (Pexels, Pixabay, Coverr, Mixkit)
 app.use('/api/media', mediaLogoRouter); // Logo search + generation: GET /api/media/logo/search, POST /api/media/logo/generate

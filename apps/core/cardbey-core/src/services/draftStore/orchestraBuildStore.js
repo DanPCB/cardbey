@@ -518,6 +518,9 @@ export async function createBuildStoreJob(
     cardbeyTraceId = null,
     sourceType = null,
     websiteUrl = null,
+    phone = null,
+    email = null,
+    ocrRawText = null,
     /** Merged onto `request` after base BuildStore fields (e.g. MI orchestra goal, templateKey, intent). */
     requestExtras = null,
     /** When true, only create the orchestrator task; caller creates the draft (e.g. MI orchestra rich baseInput). */
@@ -527,6 +530,8 @@ export async function createBuildStoreJob(
     draftInput = null,
     existingJobId = null,
     user = null,
+    websiteTemplateId = null,
+    websiteTemplateSlug = null,
   },
 ) {
   const { isExplicitStoreId } = await import('../store/storeIdentity.js');
@@ -547,6 +552,14 @@ export async function createBuildStoreJob(
       : inferCurrencyFromLocationText(locStr || '') ||
         inferCurrencyFromLocationText(typeof businessName === 'string' ? businessName : '') ||
         'AUD';
+  const tplId =
+    websiteTemplateId != null && String(websiteTemplateId).trim()
+      ? String(websiteTemplateId).trim()
+      : null;
+  const tplSlug =
+    websiteTemplateSlug != null && String(websiteTemplateSlug).trim()
+      ? String(websiteTemplateSlug).trim()
+      : null;
   const requestPayload = {
     schemaVersion: 1,
     goal: 'build_store',
@@ -564,7 +577,13 @@ export async function createBuildStoreJob(
     currencyCode: currencyUpper,
     ...(sourceType != null && String(sourceType).trim() ? { sourceType: String(sourceType).trim() } : {}),
     ...(websiteUrl != null && String(websiteUrl).trim() ? { websiteUrl: String(websiteUrl).trim() } : {}),
+    ...(phone != null && String(phone).trim() ? { phone: String(phone).trim() } : {}),
+    ...(email != null && String(email).trim() ? { email: String(email).trim() } : {}),
+    ...(ocrRawText != null && String(ocrRawText).trim()
+      ? { ocrRawText: String(ocrRawText).trim(), ocrText: String(ocrRawText).trim() }
+      : {}),
     ...(trace ? { cardbeyTraceId: trace } : {}),
+    ...(tplId ? { websiteTemplateId: tplId, ...(tplSlug ? { websiteTemplateSlug: tplSlug } : {}) } : {}),
     ...(requestExtras && typeof requestExtras === 'object' && !Array.isArray(requestExtras) ? requestExtras : {}),
   };
 
@@ -635,7 +654,7 @@ export async function createBuildStoreJob(
 
   if (needDraft) {
     const { createDraftStoreForUser, createDraft } = await import('./draftStoreService.js');
-    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.ts');
+    const { resolveCanonicalBusinessLocation } = await import('../../lib/location/resolveCanonicalBusinessLocation.js');
     const { lockCanonicalLocationForMission } = await import('../../lib/location/lockCanonicalLocationForMission.ts');
     const resolvedDraftMode = draftMode ?? 'ai';
     const useGuestDraft =
@@ -661,7 +680,13 @@ export async function createBuildStoreJob(
       currencyCode: currencyUpper,
       ...(sourceType != null && String(sourceType).trim() ? { sourceType: String(sourceType).trim() } : {}),
       ...(websiteUrl != null && String(websiteUrl).trim() ? { websiteUrl: String(websiteUrl).trim() } : {}),
+      ...(phone != null && String(phone).trim() ? { phone: String(phone).trim() } : {}),
+      ...(email != null && String(email).trim() ? { email: String(email).trim() } : {}),
+      ...(ocrRawText != null && String(ocrRawText).trim()
+        ? { ocrRawText: String(ocrRawText).trim(), ocrText: String(ocrRawText).trim() }
+        : {}),
       ...(trace ? { cardbeyTraceId: trace } : {}),
+      ...(tplId ? { websiteTemplateId: tplId, ...(tplSlug ? { websiteTemplateSlug: tplSlug } : {}) } : {}),
     };
 
     const missionIdForLock =

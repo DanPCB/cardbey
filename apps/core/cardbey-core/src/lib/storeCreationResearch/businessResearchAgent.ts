@@ -15,7 +15,7 @@ import { resolveStoreResearchInputFields, shouldRunStoreCreationResearchFromFiel
 import {
     isGooglePlacesConfigured,
     getGooglePlacesApiMode,
-} from '../../lib/businessDiscovery/businessDiscoverySources';
+} from '../../lib/businessDiscovery/businessDiscoverySources.js';
 import { CONFIDENCE, RESEARCH_LOG } from './types.js';
 import { buildResearchEvidenceSnapshot } from '../researchEvidence/researchEvidenceRepository.js';
 import { normalizeLegacyMatchToProviderResult } from '../researchEvidence/providerResultNormalizer.js';

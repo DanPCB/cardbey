@@ -53,6 +53,8 @@ export type MultiStoreExtractedSummary = {
 
 export interface IntentResult {
   intent: Intent;
+  /** Canonical IntentType from lib/intent (Phase 2 unified taxonomy). */
+  unifiedIntent?: string;
   confidence: number;
   entities?: Record<string, unknown>;
   needsClarification?: boolean;

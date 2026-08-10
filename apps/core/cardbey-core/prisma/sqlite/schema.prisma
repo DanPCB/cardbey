@@ -5099,3 +5099,136 @@ model ArtifactLearning {
   @@index([artifactId, createdAt])
   @@index([missionId])
 }
+
+// --- Universal Library Population (ported for staging) ---
+
+model UniversalAsset {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  type          String
+  provider      String
+  sourceUrl     String?
+  license       String?
+  categories    Json?
+  tags          Json?
+  language      String?
+  country       String?
+  ownerId       String?
+  creatorId     String?
+  thumbnail     String?
+  preview       String?
+  metadata      Json?
+  rightsStatus  String   @default("UNKNOWN")
+  hostingMode   String   @default("REFERENCE")
+  qualityScore  Float    @default(0)
+  status        String   @default("DISCOVERED")
+  duplicateOfId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  duplicateOf    UniversalAsset?           @relation("UniversalAssetDuplicate", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates     UniversalAsset[]          @relation("UniversalAssetDuplicate")
+  relationsFrom  UniversalAssetRelation[]  @relation("UniversalAssetRelationFrom")
+  relationsTo    UniversalAssetRelation[]  @relation("UniversalAssetRelationTo")
+  discoveryScore UniversalDiscoveryScore?
+
+  @@index([status])
+  @@index([provider])
+  @@index([type])
+  @@index([rightsStatus])
+}
+
+model UniversalAssetRelation {
+  id           String   @id @default(cuid())
+  fromAssetId  String
+  toAssetId    String
+  relationType String
+  weight       Float?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  fromAsset UniversalAsset @relation("UniversalAssetRelationFrom", fields: [fromAssetId], references: [id], onDelete: Cascade)
+  toAsset   UniversalAsset @relation("UniversalAssetRelationTo", fields: [toAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([fromAssetId, toAssetId, relationType])
+  @@index([fromAssetId])
+  @@index([toAssetId])
+}
+
+model ContentPopulationJob {
+  id          String    @id @default(cuid())
+  kind        String
+  provider    String?
+  status      String
+  attempt     Int       @default(0)
+  maxAttempts Int       @default(3)
+  payload     Json?
+  result      Json?
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([kind])
+}
+
+model UniversalEntity {
+  id        String   @id @default(cuid())
+  kind      String
+  name      String
+  slug      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  relationsFrom UniversalEntityRelation[] @relation("UniversalEntityRelationFrom")
+  relationsTo   UniversalEntityRelation[] @relation("UniversalEntityRelationTo")
+
+  @@unique([kind, slug])
+  @@index([kind])
+}
+
+model UniversalEntityRelation {
+  id           String   @id @default(cuid())
+  fromEntityId String
+  toEntityId   String
+  relationType String
+  weight       Float?
+  createdAt    DateTime @default(now())
+
+  fromEntity UniversalEntity @relation("UniversalEntityRelationFrom", fields: [fromEntityId], references: [id], onDelete: Cascade)
+  toEntity   UniversalEntity @relation("UniversalEntityRelationTo", fields: [toEntityId], references: [id], onDelete: Cascade)
+
+  @@unique([fromEntityId, toEntityId, relationType])
+}
+
+model MarketplacePurchase {
+  id          String   @id @default(cuid())
+  listingId   String
+  buyerUserId String
+  amountCents Int      @default(0)
+  currency    String   @default("AUD")
+  licenseCode String?
+  status      String   @default("COMPLETED")
+  createdAt   DateTime @default(now())
+
+  @@index([buyerUserId])
+  @@index([listingId])
+}
+
+model UniversalDiscoveryScore {
+  assetId         String   @id
+  discoveryScore  Float    @default(0)
+  trendingScore   Float    @default(0)
+  qualityScore    Float    @default(0)
+  trustScore      Float    @default(0)
+  popularityScore Float    @default(0)
+  signals         Json?
+  updatedAt       DateTime @updatedAt
+
+  asset UniversalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+

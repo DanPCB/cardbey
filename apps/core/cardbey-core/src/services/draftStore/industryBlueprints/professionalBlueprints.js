@@ -5,7 +5,10 @@ export const PROFESSIONAL_BLUEPRINTS = {
     industry: 'professional',
     label: 'Accounting',
     verticalSlugs: ['services.accounting'],
-    matchPatterns: [/\b(accountant|accounting|bookkeep|tax return|bas|payroll|financial advisor)\b/i],
+    matchPatterns: [
+      /\b(accountant|accounting|bookkeep|tax return|bas|payroll|financial advisor)\b/i,
+      /\b(finance|financial|capital|investment|investments|private equity|wealth|asset management|venture capital|fund manager)\b/i,
+    ],
     templateKey: 'professional_services',
     categories: [
       { key: 'tax', label: 'Tax & Compliance' },

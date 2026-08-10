@@ -9,6 +9,8 @@ import {
   artifactUnavailable,
   createArtifact,
 } from '../artifacts/artifactContract.js';
+import { Features } from '../../config/features.js';
+import { generateVideo } from '../llm/llmGateway.ts';
 import { resolveVideoProvider, isVideoGenerationProviderAvailable } from './videoProvider.js';
 
 export { resolveVideoProvider, isVideoGenerationProviderAvailable } from './videoProvider.js';
@@ -79,7 +81,6 @@ export async function generateVideoViaProvider(input = {}, context = {}, options
     undefined;
 
   if (provider === 'kling') {
-    const { generateVideoViaKling } = await import('./generateVideoViaKling.js');
     const prompt = await resolveGenerationPrompt(input, context);
 
     const emitProcessing = async (info) => {
@@ -99,12 +100,34 @@ export async function generateVideoViaProvider(input = {}, context = {}, options
       );
     };
 
-    const result = await generateVideoViaKling({
-      prompt,
-      duration: input?.lengthSeconds ?? input?.duration,
-      aspectRatio: input?.aspectRatio,
-      onPoll: emitProcessing,
-    });
+    let result;
+    if (Features.video.useGateway) {
+      const gatewayResult = await generateVideo({
+        prompt,
+        provider: 'kling',
+        duration: input?.lengthSeconds ?? input?.duration,
+        purpose: 'video_artifact',
+        input: {
+          aspectRatio: input?.aspectRatio,
+          onPoll: emitProcessing,
+        },
+      });
+      result = {
+        videoUrl: gatewayResult.videoUrl,
+        thumbnailUrl: gatewayResult.raw?.thumbnailUrl ?? null,
+        taskId: gatewayResult.raw?.taskId,
+        cdnUrl: gatewayResult.raw?.cdnUrl,
+        heroVideoUrlIosSafe: gatewayResult.raw?.heroVideoUrlIosSafe,
+      };
+    } else {
+      const { generateVideoViaKling } = await import('./generateVideoViaKling.js');
+      result = await generateVideoViaKling({
+        prompt,
+        duration: input?.lengthSeconds ?? input?.duration,
+        aspectRatio: input?.aspectRatio,
+        onPoll: emitProcessing,
+      });
+    }
 
     return artifactReady({
       id: options.artifactId,
