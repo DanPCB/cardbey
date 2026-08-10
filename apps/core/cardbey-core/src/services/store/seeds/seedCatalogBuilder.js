@@ -129,37 +129,20 @@ function buildMinimalProfessionalSeed(profile, targetCount) {
     { id: 'cat_prof_0', name: 'Advisory' },
     { id: 'cat_prof_1', name: 'Consultations' },
   ];
-  const offerings = [
+  // No invented price list — one general consultation booking.
+  const items = [
     {
-      name: 'Initial Consultation',
-      description: 'Discovery conversation to understand your goals and next steps.',
+      id: 'item_seed_prof_0',
+      name: 'Book our consultations',
+      description: 'Book a consultation to discuss your needs and next steps.',
+      price: null,
       categoryId: 'cat_prof_1',
+      serviceMode: 'fixed_booking',
+      pricingModel: 'custom',
+      provenance: 'GENERATED',
       imageQueryHint: 'professional business consultation meeting',
     },
-    {
-      name: 'Business Advisory Session',
-      description: 'Focused advisory session with written follow-up.',
-      categoryId: 'cat_prof_0',
-      imageQueryHint: 'corporate finance advisory office',
-    },
-    {
-      name: 'Strategy Review',
-      description: 'Review of priorities and recommended actions.',
-      categoryId: 'cat_prof_0',
-      imageQueryHint: 'business strategy meeting modern office',
-    },
   ];
-  const count = Math.min(Math.max(3, targetCount), offerings.length);
-  const items = offerings.slice(0, count).map((row, i) => ({
-    id: `item_seed_prof_${i}`,
-    name: row.name,
-    description: row.description,
-    price: null,
-    categoryId: row.categoryId,
-    serviceMode: 'fixed_booking',
-    provenance: 'GENERATED',
-    imageQueryHint: row.imageQueryHint,
-  }));
   return {
     categories,
     items,
@@ -171,6 +154,7 @@ function buildMinimalProfessionalSeed(profile, targetCount) {
       catalogSource: 'professional_minimal_seed',
       vertical: profile?.verticalSlug || 'services.finance',
       offeringProvenance: 'GENERATED',
+      bookingMode: 'consultation_only',
     },
   };
 }

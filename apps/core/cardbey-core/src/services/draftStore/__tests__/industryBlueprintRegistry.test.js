@@ -37,7 +37,8 @@ describe('industryBlueprintRegistry', () => {
     );
     const names = catalog.items.map((i) => i.name);
     expect(names.some((n) => /tax return|bas|bookkeeping/i.test(n))).toBe(false);
-    expect(names.some((n) => /investment|portfolio|capital|wealth/i.test(n))).toBe(true);
+    expect(names).toContain('Book our consultations');
+    expect(catalog.meta?.bookingMode).toBe('consultation_only');
   });
 
   it('resolves accountant names to accounting blueprint', () => {

@@ -9,6 +9,7 @@ import { mergeWebsiteIntoPreview } from '../websiteSectionsGenerator.js';
 import { buildStoreGenerationBusinessContext } from '../storeGenerationBusinessContext.js';
 import { validateStoreCoherence } from '../storeCoherenceValidator.js';
 import { isServiceCatalogPlaceholderName } from '../../../lib/catalog/serviceCatalogPlaceholders.js';
+import { extractCatalogItemPriceNumber } from '../industryBlueprintRegistry.js';
 
 const MATRIX = [
   { name: 'Le Petit Four Bakery', type: 'bakery', expectType: 'food_menu' },
@@ -49,10 +50,10 @@ describe('business-specific store generation V1', () => {
       false,
     );
     expect(names.length).toBeGreaterThan(0);
-    expect(names.length).toBeLessThanOrEqual(12);
+    expect(names.length).toBeLessThanOrEqual(3);
   });
 
-  it('seeds investment/capital offerings — not tax/BAS/bookkeeping — for Anison Capital Group', () => {
+  it('seeds consultation booking without fake prices for Anison Capital Group (no price list)', () => {
     const catalog = buildSeedCatalog({
       businessName: 'Anison Capital Group',
       businessType: '',
@@ -60,20 +61,56 @@ describe('business-specific store generation V1', () => {
     });
     const names = (catalog.items || []).map((i) => i.name);
     expect(names.some((n) => /tax return|bas lodgement|bookkeeping|payroll/i.test(n))).toBe(false);
-    expect(
-      names.some((n) => /investment|portfolio|capital|wealth|advisory|consultation/i.test(n)),
-    ).toBe(true);
+    expect(names).toContain('Book our consultations');
+    expect(catalog.items.length).toBe(1);
+    expect(catalog.items[0].price == null || catalog.items[0].price === '').toBe(true);
+    expect(catalog.items[0].fromPrice == null).toBe(true);
+    expect(catalog.meta?.bookingMode).toBe('consultation_only');
   });
 
-  it('still seeds accounting catalog for explicit accounting firms', () => {
+  it('keeps priced booking items when a real price list is provided', () => {
+    const catalog = buildSeedCatalog({
+      businessName: 'Anison Capital Group',
+      businessType: 'finance',
+      verticalSlug: 'services.finance',
+      hasPriceList: true,
+      allowBlueprintPrices: true,
+      items: [
+        { name: 'Portfolio Review', price: 350, priceProvenance: 'owner' },
+        { name: 'Strategy Session', price: 450, priceProvenance: 'owner' },
+      ],
+    });
+    expect(catalog.items.length).toBeGreaterThan(1);
+    expect(catalog.meta?.bookingMode).not.toBe('consultation_only');
+    expect(catalog.items.some((i) => extractCatalogItemPriceNumber(i) != null)).toBe(true);
+  });
+
+  it('still seeds consultation booking for accounting names without a price list', () => {
     const catalog = buildSeedCatalog({
       businessName: 'Smith & Co Accountants',
       businessType: 'accounting',
       verticalSlug: '',
     });
     const names = (catalog.items || []).map((i) => i.name);
-    expect(names.some((n) => /tax return|bas|bookkeeping/i.test(n))).toBe(true);
-    expect(names.some((n) => /capital raising|portfolio review/i.test(n))).toBe(false);
+    expect(names).toContain('Book our consultations');
+    expect(names.some((n) => /tax return|bas lodgement/i.test(n))).toBe(false);
+  });
+
+  it('keeps accounting fee schedule when price list evidence is present', () => {
+    const catalog = buildSeedCatalog({
+      businessName: 'Smith & Co Accountants',
+      businessType: 'accounting',
+      verticalSlug: 'services.accounting',
+      hasPriceList: true,
+      allowBlueprintPrices: true,
+      items: [
+        { name: 'Individual Tax Return', price: 180, priceProvenance: 'ocr' },
+        { name: 'BAS Lodgement', price: 120, priceProvenance: 'ocr' },
+      ],
+    });
+    const names = (catalog.items || []).map((i) => i.name);
+    expect(names.some((n) => /tax return|bas/i.test(n))).toBe(true);
+    expect(catalog.meta?.bookingMode).not.toBe('consultation_only');
   });
 
   it('omits Shows and fake reviews for finance storefront merge', () => {
