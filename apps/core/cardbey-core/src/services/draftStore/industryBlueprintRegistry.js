@@ -86,12 +86,40 @@ function profileBlob(profile = {}) {
     .join(' ');
 }
 
+const ACCOUNTING_SIGNAL_RE =
+  /\b(accountant|accounting|bookkeep|bookkeeper|tax return|tax agent|bas|payroll|stp reporting)\b/i;
+const FINANCE_SIGNAL_RE =
+  /\b(capital group|capital partners|capital management|private equity|venture capital|asset management|wealth management|investment advice|investment advisory|capital|investment|investments|wealth|finance|financial)\b/i;
+
+/**
+ * Prefer capital/investment blueprints over accounting when the name is finance-shaped
+ * and there is no explicit tax/bookkeeping signal (e.g. "Anison Capital Group").
+ * @param {string} blob
+ * @returns {string | null}
+ */
+function resolveFinanceVsAccountingBlueprint(blob) {
+  if (!blob) return null;
+  const hasAccounting = ACCOUNTING_SIGNAL_RE.test(blob);
+  const hasFinance = FINANCE_SIGNAL_RE.test(blob);
+  if (hasFinance && !hasAccounting) return 'services.finance';
+  if (hasAccounting && !hasFinance) return 'services.accounting';
+  if (hasAccounting && hasFinance) return 'services.accounting';
+  return null;
+}
+
 /**
  * @param {object} profile
  * @returns {string | null}
  */
 export function resolveIndustryBlueprintKey(profile = {}) {
   const blob = profileBlob(profile);
+
+  // Explicit finance vs accounting disambiguation before generic pattern scan.
+  const financeOrAccounting = resolveFinanceVsAccountingBlueprint(blob);
+  if (financeOrAccounting && INDUSTRY_BLUEPRINTS[financeOrAccounting]) {
+    return financeOrAccounting;
+  }
+
   if (blob) {
     for (const bp of Object.values(INDUSTRY_BLUEPRINTS)) {
       if (bp.matchPatterns?.some((re) => re.test(blob))) return bp.id;

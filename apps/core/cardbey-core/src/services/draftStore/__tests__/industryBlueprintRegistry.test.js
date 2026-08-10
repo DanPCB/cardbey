@@ -21,6 +21,29 @@ describe('industryBlueprintRegistry', () => {
     expect(ids).toContain('auto.repair');
     expect(ids).toContain('services.plumbing');
     expect(ids).toContain('services.accounting');
+    expect(ids).toContain('services.finance');
+  });
+
+  it('resolves Anison Capital Group to finance — not accounting', () => {
+    expect(resolveIndustryBlueprintKey({ businessName: 'Anison Capital Group' })).toBe(
+      'services.finance',
+    );
+    expect(resolveIndustryBlueprintKey({ businessName: 'Anision Capital Group' })).toBe(
+      'services.finance',
+    );
+    const catalog = buildIndustryCatalog(
+      { businessName: 'Anison Capital Group', businessType: '', verticalSlug: '' },
+      12,
+    );
+    const names = catalog.items.map((i) => i.name);
+    expect(names.some((n) => /tax return|bas|bookkeeping/i.test(n))).toBe(false);
+    expect(names.some((n) => /investment|portfolio|capital|wealth/i.test(n))).toBe(true);
+  });
+
+  it('resolves accountant names to accounting blueprint', () => {
+    expect(
+      resolveIndustryBlueprintKey({ businessName: 'Braybrook Tax & Accounting' }),
+    ).toBe('services.accounting');
   });
 
   it('resolves handyman blueprint from business name', () => {
