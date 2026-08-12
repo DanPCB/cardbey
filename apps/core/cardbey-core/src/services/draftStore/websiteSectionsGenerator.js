@@ -13,6 +13,7 @@ import {
   applyFoundationToSectionsAndPreview,
   themePatchFromFoundation,
 } from './websiteTemplateFoundation.js';
+import { toDisplayReadyCopy } from '../../lib/storeGeneration/businessUnderstanding.js';
 
 /**
  * @param {string} storeType
@@ -38,14 +39,199 @@ function stableItemKey(item, index) {
 }
 
 /**
+ * Sanitize public display strings (Phase 1 contract helper; safe no-op if import fails).
+ * @param {unknown} raw
+ */
+function sanitizeDisplay(raw) {
+  return toDisplayReadyCopy(raw);
+}
+
+/**
+ * Business-aware website sections when ENABLE_GROUNDED_STORE_CREATION_V1 composition is present.
+ * @param {object} preview
+ * @param {object} input
+ * @param {object} composition
+ */
+function mergeGroundedWebsiteIntoPreview(preview, input, composition) {
+  const heroUrl = preview.heroImageUrl ?? preview.hero?.imageUrl ?? preview.hero?.url ?? null;
+  if (heroUrl && !preview.heroImageUrl && !getExistingVideoUrlFromPreview(preview)) {
+    applyPipelineGeneratedHeroImage(preview, heroUrl, { writer: 'mergeWebsiteIntoPreview' });
+  }
+  const avUrl = preview.avatarUrl ?? preview.avatar?.imageUrl ?? preview.avatar?.url ?? null;
+  if (avUrl && !preview.avatarUrl) preview.avatarUrl = avUrl;
+
+  const storeName = preview.storeName || 'Your store';
+  const storeType = preview.storeType || composition.archetype || 'Store';
+  const slogan = sanitizeDisplay(preview.slogan || preview.tagline || preview.heroText || '');
+  const location = (input.location && String(input.location).trim()) || '';
+  const blurb =
+    sanitizeDisplay(input.businessDescription) ||
+    sanitizeDisplay(input.prompt) ||
+    '';
+  const items = Array.isArray(preview.items) ? preview.items : [];
+  const featuredIds = items.slice(0, 6).map((it, i) => stableItemKey(it, i));
+  const firstItemImage = items.find((it) => it?.imageUrl)?.imageUrl ?? null;
+  const themeSpec = composition.themeSpec || {};
+  const primaryCta = composition.primaryCTA || preview.primaryCTA || 'Learn More';
+  const secondaryCta = composition.secondaryCTA || 'Contact';
+  const offeringHeading =
+    composition.offeringPresentation === 'menu'
+      ? 'Menu'
+      : composition.offeringPresentation === 'product_grid'
+        ? 'Products'
+        : 'Services';
+  const aboutBody =
+    blurb ||
+    (composition.offeringPresentation === 'menu'
+      ? `${storeName} serves fresh favourites. ${location ? `Find us in ${location}.` : ''}`.trim()
+      : composition.archetype === 'FINANCIAL_SERVICE' || composition.archetype === 'PROFESSIONAL_SERVICE'
+        ? `${storeName} helps you understand your options and take the next step with confidence.`
+        : `${storeName} — ${storeType}.`);
+
+  /** @type {Array<{ type: string, content: Record<string, unknown> }>} */
+  const sections = [];
+  const types = Array.isArray(composition.websiteSectionTypes)
+    ? composition.websiteSectionTypes
+    : ['hero', 'show', 'about', 'contact'];
+
+  for (const type of types) {
+    if (type === 'hero') {
+      sections.push({
+        type: 'hero',
+        content: {
+          headline: storeName,
+          subheadline: slogan || aboutBody.slice(0, 120),
+          ctaLabel: primaryCta,
+          ctaSecondary: secondaryCta,
+        },
+      });
+    } else if (type === 'show') {
+      sections.push({
+        type: 'show',
+        content: {
+          heading: offeringHeading,
+          productIds: featuredIds,
+        },
+      });
+    } else if (type === 'about') {
+      sections.push({
+        type: 'about',
+        content: {
+          heading:
+            composition.archetype === 'FINANCIAL_SERVICE' || composition.archetype === 'PROFESSIONAL_SERVICE'
+              ? 'How we help'
+              : 'Our story',
+          body: aboutBody,
+          imageUrl: firstItemImage || heroUrl || null,
+        },
+      });
+    } else if (type === 'contact') {
+      sections.push({
+        type: 'contact',
+        content: {
+          heading:
+            composition.archetype === 'FINANCIAL_SERVICE'
+              ? 'Book a consultation'
+              : composition.offeringPresentation === 'menu'
+                ? 'Visit & hours'
+                : 'Contact',
+          address: location || null,
+          hours: input.hours || input.openingHours || null,
+          cta: secondaryCta || primaryCta,
+        },
+      });
+    } else if (type === 'trust_block' && !composition.skipFabricatedReviews) {
+      sections.push({
+        type: 'social_proof',
+        content: {
+          heading: 'What customers say',
+          reviews: [],
+        },
+      });
+    } else if (type === 'gallery') {
+      // Renderer may ignore unknown types; keep as about image emphasis via show if needed
+      continue;
+    } else if (type === 'usp_bar' && !composition.skipGenericUsp) {
+      sections.push({
+        type: 'usp_bar',
+        content: { items: [] },
+      });
+    }
+  }
+
+  if (!sections.some((s) => s.type === 'hero')) {
+    sections.unshift({
+      type: 'hero',
+      content: {
+        headline: storeName,
+        subheadline: slogan || '',
+        ctaLabel: primaryCta,
+        ctaSecondary: secondaryCta,
+      },
+    });
+  }
+
+  preview.primaryCTA = primaryCta;
+  preview.meta = {
+    ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+    businessArchetype: composition.archetype,
+    groundedStoreCreation: true,
+    groundedComposition: {
+      archetype: composition.archetype,
+      primaryCTA: primaryCta,
+      offeringPresentation: composition.offeringPresentation,
+      gate: composition.gate || null,
+    },
+  };
+
+  const foundation =
+    input?.websiteTemplateFoundation && typeof input.websiteTemplateFoundation === 'object'
+      ? input.websiteTemplateFoundation
+      : null;
+  const orderedSections = applyFoundationToSectionsAndPreview(preview, sections, foundation);
+  const fallbackTemplateId = templateIdForStoreType(storeType);
+  const themePatch = themePatchFromFoundation(foundation, fallbackTemplateId);
+
+  preview.website = {
+    ...(preview.website && typeof preview.website === 'object' ? preview.website : {}),
+    sections: orderedSections,
+    theme: {
+      ...(preview.website?.theme && typeof preview.website.theme === 'object' ? preview.website.theme : {}),
+      ...themePatch,
+      ...(themeSpec.primary ? { primary: themeSpec.primary, primaryColor: themeSpec.primary } : {}),
+      ...(themeSpec.secondary ? { secondary: themeSpec.secondary, secondaryColor: themeSpec.secondary } : {}),
+      ...(themeSpec.accent ? { accent: themeSpec.accent } : {}),
+      ...(themeSpec.background ? { background: themeSpec.background } : {}),
+      ...(themeSpec.typographyDirection ? { typographyDirection: themeSpec.typographyDirection } : {}),
+      groundedTheme: true,
+    },
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * @param {object} preview - draft preview object (mutated: heroImageUrl, avatarUrl, website)
  * @param {object} [input] - draft.input
  *   When `input.websiteTemplateFoundation` is set (from ensureWebsiteTemplateFoundationOnInput),
  *   theme tokens + section order come from the selected STORE_WEBSITE template.
  *   Adaptive path: no foundation → same heuristic layout as pre–Phase 2.
+ *   Grounded path: `input.groundedComposition` from ENABLE_GROUNDED_STORE_CREATION_V1.
  */
 export function mergeWebsiteIntoPreview(preview, input = {}) {
   if (!preview || typeof preview !== 'object') return;
+
+  const composition =
+    (input.groundedComposition && typeof input.groundedComposition === 'object'
+      ? input.groundedComposition
+      : null) ||
+    (preview.meta?.groundedComposition && typeof preview.meta.groundedComposition === 'object'
+      ? preview.meta.groundedComposition
+      : null);
+
+  if (composition && composition.archetype) {
+    mergeGroundedWebsiteIntoPreview(preview, input, composition);
+    return;
+  }
 
   const heroUrl = preview.heroImageUrl ?? preview.hero?.imageUrl ?? preview.hero?.url ?? null;
   if (heroUrl && !preview.heroImageUrl && !getExistingVideoUrlFromPreview(preview)) {

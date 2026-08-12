@@ -53,6 +53,10 @@ import {
   shouldApplyResearchCatalogToDraft,
   stampSuggestedCatalogOrigin,
 } from './researchCatalogDraft.js';
+import {
+  shouldBypassLegacyCategoryNormalization,
+  syncCategoriesFromSourcedItems,
+} from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -71,6 +75,15 @@ async function isMissionPipelineCancelled(pipelineMissionId) {
  */
 export function normalizePreviewCategories(preview) {
   if (!preview || typeof preview !== 'object') return preview;
+  // Projection / sourced authority: never flatten semantic roles into Other.
+  if (shouldBypassLegacyCategoryNormalization(preview)) {
+    syncCategoriesFromSourcedItems(preview);
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      legacyCategoryNormalizerBypassed: true,
+    };
+    return preview;
+  }
   let categories = Array.isArray(preview.categories) ? [...preview.categories] : [];
   const items = Array.isArray(preview.items) ? preview.items : [];
 
@@ -301,8 +314,13 @@ export function applyCommerceFieldsToPreview(preview) {
   preview.commerceMode = commerce.commerceMode;
   preview.transactionMode = commerce.transactionMode;
   preview.catalogLabel = presentation.catalogLabel;
-  preview.ctaLabel = commerce.ctaLabel;
-  preview.primaryCTA = catalogProfile.primaryCTA;
+  // Grounded composition CTA wins over retail classifier defaults.
+  const groundedCta =
+    (preview.meta?.groundedComposition && preview.meta.groundedComposition.primaryCTA) ||
+    (preview.groundedComposition && preview.groundedComposition.primaryCTA) ||
+    null;
+  preview.ctaLabel = groundedCta || commerce.ctaLabel;
+  preview.primaryCTA = groundedCta || catalogProfile.primaryCTA;
   if (Array.isArray(preview.items)) {
     const businessType = preview.storeType ?? preview.meta?.storeType ?? null;
     const businessName = preview.storeName ?? preview.name ?? null;
@@ -880,16 +898,31 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
       }, resolveOpts),
     ]);
 
+    let slogan = sloganResult.content;
+    let heroText = heroTextResult.content;
+    let tagline = taglineResult.content || slogan;
+    try {
+      const { isGroundedStoreCreationEnabled } = await import('./groundedStoreCreation.js');
+      if (isGroundedStoreCreationEnabled()) {
+        const { toDisplayReadyCopy } = await import(
+          '../../lib/storeGeneration/businessUnderstanding.js'
+        );
+        slogan = toDisplayReadyCopy(slogan);
+        heroText = toDisplayReadyCopy(heroText);
+        tagline = toDisplayReadyCopy(tagline);
+      }
+    } catch {
+      /* non-fatal */
+    }
+
     // Merge copy fields into existing preview — never use Prisma JSON `{ update: ... }` (wipes items/categories).
     const row = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
     if (row) {
       const prev = parseDraftJsonField(row.preview);
-      const slogan = sloganResult.content;
-      const tagline = taglineResult.content || slogan;
       let nextPreview = {
         ...prev,
         slogan,
-        heroText: heroTextResult.content,
+        heroText,
         tagline,
       };
       // Keep website hero subheadline in sync so sections don't show unsanitized copy.
@@ -1866,6 +1899,56 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
 
   const params = resolveGenerationParams(input, { draftMode: draft.mode });
   params.draftId = draftId;
+
+  // Phase 2: Evidence → Understanding → Composition (flag-gated; no-op when OFF).
+  let groundedCompositionPayload = null;
+  try {
+    const { isGroundedStoreCreationEnabled } = await import('./groundedStoreCreation.js');
+    if (isGroundedStoreCreationEnabled()) {
+      const {
+        composeGroundedStoreIntelligence,
+        applyCompositionToGenerationParams,
+      } = await import('../../lib/storeGeneration/buildGroundedComposition.js');
+      const composition = composeGroundedStoreIntelligence({ ...input, ...params });
+      applyCompositionToGenerationParams(params, composition);
+      groundedCompositionPayload = params.groundedComposition || null;
+      // Persist on draft.input so finalizeDraft → mergeWebsiteIntoPreview sees it.
+      const nextInput = {
+        ...(draft.input && typeof draft.input === 'object' ? draft.input : {}),
+        ...input,
+        groundedComposition: groundedCompositionPayload,
+        businessArchetype: composition.plan?.archetype,
+        brandStyleProfile: composition.brand,
+        groundedOfferings: composition.groundedOfferings,
+      };
+      await prisma.draftStore
+        .update({
+          where: { id: draftId },
+          data: { input: nextInput, updatedAt: new Date() },
+        })
+        .catch(() => {});
+      // Keep local input in sync for this run
+      Object.assign(input, {
+        groundedComposition: groundedCompositionPayload,
+        groundedOfferings: composition.groundedOfferings,
+      });
+      console.log('[generateDraftTwoModes] grounded composition', {
+        draftId,
+        archetype: composition.plan?.archetype,
+        primaryCTA: composition.plan?.primaryCTA,
+        offerings: composition.groundedOfferings?.length ?? 0,
+        gateOk: composition.gate?.ok,
+        gateReasons: composition.gate?.reasons,
+        mode: params.mode,
+      });
+    }
+  } catch (groundedErr) {
+    console.warn(
+      '[generateDraftTwoModes] grounded composition skipped:',
+      groundedErr?.message || groundedErr,
+    );
+  }
+
   const userId = options.userId ?? draft.ownerUserId ?? null;
   const useReact = process.env.USE_REACT_REFLECTION === 'true';
   const missionId = options.reactMissionId ?? null;

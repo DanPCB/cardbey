@@ -41,6 +41,12 @@ import {
 } from './industryBlueprintRegistry.js';
 import { maybeCompileTypedCatalog } from '../../lib/catalog/catalogCompiler.js';
 import { resolveCommerceProfile } from '../../lib/commerce/resolveCommerceProfile.js';
+import {
+  applyGroundedCatalogPolicy,
+  buildGroundedEmptyCatalogResult,
+  isGroundedStoreCreationEnabled,
+  stripInventedGenericProducts,
+} from './groundedStoreCreation.js';
 import { countCatalogItemsByKind } from '../../lib/commerce/assertCatalogKindConsistency.js';
 
 function tsModuleUnavailable(name) {
@@ -710,33 +716,88 @@ export async function buildCatalog(params) {
     });
   }
 
+  const grounded = isGroundedStoreCreationEnabled();
+  /** @type {{ skippedAiExpansion?: boolean, skippedSeedPad?: boolean, skippedAiTemplateFallback?: boolean }} */
+  const groundedFlags = {};
+
   let result;
-  if (mode === 'template') result = await buildFromTemplate(paramsWithVertical);
-  else if (mode === 'seed') result = await buildFromSeed(paramsWithVertical);
-  else if (mode === 'ai') {
+  // Phase 2: evidence offerings → seed catalog (no invented packages).
+  if (
+    grounded &&
+    Array.isArray(params.seedItems) &&
+    params.seedItems.length > 0 &&
+    (mode === 'seed' || params.groundedForcedSeedFromEvidence)
+  ) {
+    try {
+      const { buildCatalogFromGroundedOfferings } = await import(
+        '../../lib/storeGeneration/buildGroundedComposition.js'
+      );
+      const names = params.seedItems
+        .map((it) => (typeof it === 'string' ? it : it?.name))
+        .filter(Boolean);
+      if (names.length > 0) {
+        result = buildCatalogFromGroundedOfferings(names, {
+          draftId: params.draftId,
+          currencyCode: params.currencyCode,
+        });
+        result.profile = {
+          ...(result.profile || {}),
+          name: params.businessName || 'Store',
+          type: params.businessType || params.storeType || 'general',
+          primaryColor: params.primaryColor || params.brandColors?.primary || null,
+          secondaryColor: params.brandColors?.secondary || null,
+        };
+        groundedFlags.skippedSeedPad = true;
+        groundedFlags.skippedAiExpansion = true;
+      }
+    } catch (e) {
+      console.warn('[buildCatalog] grounded evidence catalog failed; falling through', e?.message || e);
+    }
+  }
+  if (!result && mode === 'template') result = await buildFromTemplate(paramsWithVertical);
+  else if (!result && mode === 'seed') result = await buildFromSeed(paramsWithVertical);
+  else if (!result && mode === 'ai') {
     try {
       result = await buildFromAi(paramsWithVertical);
+      if (grounded) groundedFlags.skippedAiExpansion = true;
     } catch (aiErr) {
-      const templateId = selectTemplateId(verticalSlug, paramsWithVertical.audience);
-      console.warn('[buildCatalog] AI catalog failed; falling back to template catalog', {
-        draftId: params.draftId ?? null,
-        verticalSlug,
-        templateId,
-        message: aiErr?.message ?? String(aiErr),
-        code: aiErr?.code ?? null,
-      });
-      result = await buildFromTemplate({ ...paramsWithVertical, templateId });
-      result.meta = {
-        ...(result.meta ?? {}),
-        catalogSource: 'template',
-        aiFallback: true,
-        aiFallbackReason: typeof aiErr?.message === 'string' ? aiErr.message.slice(0, 240) : 'ai_catalog_failed',
-      };
+      if (grounded) {
+        groundedFlags.skippedAiTemplateFallback = true;
+        console.warn('[buildCatalog] grounded: AI catalog failed; incomplete offering (no template invent)', {
+          draftId: params.draftId ?? null,
+          verticalSlug,
+          message: aiErr?.message ?? String(aiErr),
+          code: aiErr?.code ?? null,
+        });
+        result = buildGroundedEmptyCatalogResult({
+          draftId: params.draftId,
+          businessName: params.businessName,
+          businessType: params.businessType ?? params.storeType,
+          storeType: params.storeType,
+          aiErrorMessage: aiErr?.message ?? String(aiErr),
+        });
+      } else {
+        const templateId = selectTemplateId(verticalSlug, paramsWithVertical.audience);
+        console.warn('[buildCatalog] AI catalog failed; falling back to template catalog', {
+          draftId: params.draftId ?? null,
+          verticalSlug,
+          templateId,
+          message: aiErr?.message ?? String(aiErr),
+          code: aiErr?.code ?? null,
+        });
+        result = await buildFromTemplate({ ...paramsWithVertical, templateId });
+        result.meta = {
+          ...(result.meta ?? {}),
+          catalogSource: 'template',
+          aiFallback: true,
+          aiFallbackReason: typeof aiErr?.message === 'string' ? aiErr.message.slice(0, 240) : 'ai_catalog_failed',
+        };
+      }
     }
-  } else if (mode === 'ocr') result = await buildFromOcr(paramsWithVertical);
-  else throw new Error(`Unsupported mode: ${mode}. Use "template", "seed", "ai", or "ocr".`);
+  } else if (!result && mode === 'ocr') result = await buildFromOcr(paramsWithVertical);
+  else if (!result) throw new Error(`Unsupported mode: ${mode}. Use "template", "seed", "ai", or "ocr".`);
 
-  if (result?.products && result.products.length < MIN_ITEM_COUNT) {
+  if (!grounded && result?.products && result.products.length < MIN_ITEM_COUNT) {
     const seedProfile = {
       verticalGroup: (verticalSlug || '').split('.')[0] || profile.verticalGroup || 'services',
       verticalSlug: verticalSlug || profile.verticalSlug || 'services.generic',
@@ -985,5 +1046,15 @@ export async function buildCatalog(params) {
       reasons: catalogValidated.reasons,
     });
   }
+  if (grounded && result) {
+    result = applyGroundedCatalogPolicy(result, {
+      draftId: params.draftId,
+      businessName: params.businessName,
+      businessType: params.businessType ?? params.storeType,
+      storeType: params.storeType,
+      ...groundedFlags,
+    });
+  }
+
   return result;
 }

@@ -1,0 +1,132 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Phase 2 Pilot — Structural Render Evidence</title><style>
+  :root { font-family: Georgia, 'Times New Roman', serif; }
+  body { margin: 0; padding: 24px; background: linear-gradient(160deg,#e8e4dc,#f4f6f8 40%,#dce3ea); color: #1a1a1a; }
+  h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 8px; }
+  .sub { margin: 0 0 28px; max-width: 52rem; color: #444; font-size: 0.95rem; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+  @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+  .card { min-height: 420px; display: flex; flex-direction: column; border: 1px solid rgba(0,0,0,.08); overflow: hidden; }
+  .hero { padding: 28px 22px 22px; color: #fff; flex: 0 0 auto; }
+  .hero .brand { font-size: 1.35rem; letter-spacing: .02em; margin: 0 0 6px; }
+  .hero .cta { display: inline-block; margin-top: 14px; padding: 8px 14px; background: rgba(255,255,255,.92); color: #111; font-size: .8rem; text-decoration: none; font-family: system-ui,sans-serif; }
+  .body { padding: 16px 18px 20px; background: #fff; flex: 1; font-family: system-ui,sans-serif; font-size: .82rem; }
+  .label { text-transform: uppercase; letter-spacing: .08em; font-size: .65rem; color: #666; margin: 12px 0 4px; }
+  .label:first-child { margin-top: 0; }
+  ul { margin: 0; padding-left: 1.1rem; }
+  .meta { color: #555; }
+  .sections { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { background: #f0f0f0; padding: 2px 7px; font-size: .7rem; }
+</style></head><body>
+<h1>Phase 2 pilot — six business compositions</h1>
+<p class="sub">Structural render evidence (not live storefront screenshots). Differentiate by layout hierarchy, CTA, offerings, and theme.</p>
+<div class="grid">
+<article class="card">
+    <header class="hero" style="background:linear-gradient(145deg,#0B1F3A,#FFFFFF)">
+      <p class="brand">AWE Financial</p>
+      <div class="meta">FINANCIAL_SERVICE · professional</div>
+      <a class="cta" href="#">Discuss Your Options</a>
+    </header>
+    <div class="body">
+      <div class="label">Offerings</div>
+      <ul><li>Home loans</li><li>Debt consolidation</li><li>Low-doc loans</li><li>Property investment</li><li>Refinancing</li></ul>
+      <div class="label">Section hierarchy</div>
+      <div class="sections"><span class="chip">hero</span><span class="chip">value_proposition</span><span class="chip">adviser</span><span class="chip">services</span><span class="chip">why_us</span><span class="chip">trust</span><span class="chip">process</span></div>
+      <div class="label">Presentation / secondary CTA</div>
+      <div class="meta">service_list · Call Adviser</div>
+      <div class="label">Theme</div>
+      <div class="meta">#0B1F3A / structured</div>
+      <div class="label">Gate</div>
+      <div class="meta">ok</div>
+    </div>
+  </article><article class="card">
+    <header class="hero" style="background:linear-gradient(145deg,#5C4033,#FFFFFF)">
+      <p class="brand">Country Cafe</p>
+      <div class="meta">CAFE · warm</div>
+      <a class="cta" href="#">View Menu</a>
+    </header>
+    <div class="body">
+      <div class="label">Offerings</div>
+      <ul><li>Eggs Your Way</li><li>Eggs Benedict</li><li>Spicy Chorizo &amp; Eggs</li><li>Smashed Avo</li><li>Flat White</li></ul>
+      <div class="label">Section hierarchy</div>
+      <div class="sections"><span class="chip">hero</span><span class="chip">menu</span><span class="chip">featured_dishes</span><span class="chip">hours</span><span class="chip">location</span><span class="chip">gallery</span><span class="chip">about</span></div>
+      <div class="label">Presentation / secondary CTA</div>
+      <div class="meta">menu · Call</div>
+      <div class="label">Theme</div>
+      <div class="meta">#5C4033 / rustic</div>
+      <div class="label">Gate</div>
+      <div class="meta">ok</div>
+    </div>
+  </article><article class="card">
+    <header class="hero" style="background:linear-gradient(145deg,#E85D04,#FFFFFF)">
+      <p class="brand">Noodle Hut</p>
+      <div class="meta">FOOD_TAKEAWAY · bold</div>
+      <a class="cta" href="#">Order Now</a>
+    </header>
+    <div class="body">
+      <div class="label">Offerings</div>
+      <ul><li>Beef Pho</li><li>Chicken Laksa</li><li>Pad Thai</li><li>Spring Rolls</li></ul>
+      <div class="label">Section hierarchy</div>
+      <div class="sections"><span class="chip">hero</span><span class="chip">menu</span><span class="chip">hours</span><span class="chip">location</span><span class="chip">order</span><span class="chip">about</span><span class="chip">contact</span></div>
+      <div class="label">Presentation / secondary CTA</div>
+      <div class="meta">menu · Call</div>
+      <div class="label">Theme</div>
+      <div class="meta">#E85D04 / simple</div>
+      <div class="label">Gate</div>
+      <div class="meta">ok</div>
+    </div>
+  </article><article class="card">
+    <header class="hero" style="background:linear-gradient(145deg,#1F2937,#FFFFFF)">
+      <p class="brand">Harbour Plumbing</p>
+      <div class="meta">HOME_SERVICE · practical</div>
+      <a class="cta" href="#">Request a Quote</a>
+    </header>
+    <div class="body">
+      <div class="label">Offerings</div>
+      <ul><li>Blocked drains</li><li>Hot water systems</li><li>Bathroom plumbing</li><li>Emergency call-out</li></ul>
+      <div class="label">Section hierarchy</div>
+      <div class="sections"><span class="chip">hero</span><span class="chip">services</span><span class="chip">service_areas</span><span class="chip">past_work</span><span class="chip">trust</span><span class="chip">quote_cta</span><span class="chip">contact</span></div>
+      <div class="label">Presentation / secondary CTA</div>
+      <div class="meta">service_list · View Services</div>
+      <div class="label">Theme</div>
+      <div class="meta">#1F2937 / utilitarian</div>
+      <div class="label">Gate</div>
+      <div class="meta">ok</div>
+    </div>
+  </article><article class="card">
+    <header class="hero" style="background:linear-gradient(145deg,#831843,#FFFFFF)">
+      <p class="brand">Luna Hair Studio</p>
+      <div class="meta">APPOINTMENT_SERVICE · polished</div>
+      <a class="cta" href="#">Book Now</a>
+    </header>
+    <div class="body">
+      <div class="label">Offerings</div>
+      <ul><li class="meta">(sparse — none invented)</li></ul>
+      <div class="label">Section hierarchy</div>
+      <div class="sections"><span class="chip">hero</span><span class="chip">services</span><span class="chip">pricing</span><span class="chip">gallery</span><span class="chip">hours</span><span class="chip">booking_cta</span><span class="chip">about</span></div>
+      <div class="label">Presentation / secondary CTA</div>
+      <div class="meta">service_list · Call</div>
+      <div class="label">Theme</div>
+      <div class="meta">#831843 / soft</div>
+      <div class="label">Gate</div>
+      <div class="meta">ok</div>
+    </div>
+  </article><article class="card">
+    <header class="hero" style="background:linear-gradient(145deg,#111827,#FFFFFF)">
+      <p class="brand">Northside Outfitters</p>
+      <div class="meta">RETAIL · editorial</div>
+      <a class="cta" href="#">Shop</a>
+    </header>
+    <div class="body">
+      <div class="label">Offerings</div>
+      <ul><li>Linen Shirt</li><li>Canvas Tote</li><li>Wool Beanie</li><li>Everyday Sneakers</li></ul>
+      <div class="label">Section hierarchy</div>
+      <div class="sections"><span class="chip">hero</span><span class="chip">featured_products</span><span class="chip">categories</span><span class="chip">about</span><span class="chip">location</span><span class="chip">contact</span></div>
+      <div class="label">Presentation / secondary CTA</div>
+      <div class="meta">product_grid · Get Directions</div>
+      <div class="label">Theme</div>
+      <div class="meta">#111827 / clean</div>
+      <div class="label">Gate</div>
+      <div class="meta">ok</div>
+    </div>
+  </article>
+</div></body></html>

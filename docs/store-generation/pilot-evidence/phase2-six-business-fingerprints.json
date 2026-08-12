@@ -1,0 +1,331 @@
+[
+  {
+    "id": "finance",
+    "name": "AWE Financial",
+    "archetype": "FINANCIAL_SERVICE",
+    "primaryCTA": "Discuss Your Options",
+    "secondaryCTA": "Call Adviser",
+    "sectionPriority": [
+      "hero",
+      "value_proposition",
+      "adviser",
+      "services",
+      "why_us",
+      "trust",
+      "process",
+      "consultation_cta",
+      "contact"
+    ],
+    "offeringPresentation": "service_list",
+    "offerings": [
+      "Home loans",
+      "Debt consolidation",
+      "Low-doc loans",
+      "Property investment",
+      "Refinancing"
+    ],
+    "theme": {
+      "primary": "#0B1F3A",
+      "secondary": "#FFFFFF",
+      "accent": "#1B4F8A",
+      "background": null,
+      "text": null,
+      "typographyDirection": "clean sans, structured",
+      "spacing": null,
+      "cardTreatment": null,
+      "borderRadius": null,
+      "sectionRhythm": null,
+      "heroPresentation": "structured",
+      "navigationTreatment": null,
+      "imageRatio": null,
+      "CTATreatment": "Discuss Your Options",
+      "backgroundTreatment": null,
+      "density": "medium",
+      "motion": null,
+      "priorityTier": "business_owned"
+    },
+    "brandTone": "professional",
+    "gate": {
+      "ok": true,
+      "reasons": []
+    },
+    "resourceNeeds": [
+      "heroImageNeed",
+      "serviceImageNeeds",
+      "productImageNeeds",
+      "backgroundNeed",
+      "galleryNeeds"
+    ]
+  },
+  {
+    "id": "cafe",
+    "name": "Country Cafe",
+    "archetype": "CAFE",
+    "primaryCTA": "View Menu",
+    "secondaryCTA": "Call",
+    "sectionPriority": [
+      "hero",
+      "menu",
+      "featured_dishes",
+      "hours",
+      "location",
+      "gallery",
+      "about"
+    ],
+    "offeringPresentation": "menu",
+    "offerings": [
+      "Eggs Your Way",
+      "Eggs Benedict",
+      "Spicy Chorizo & Eggs",
+      "Smashed Avo",
+      "Flat White"
+    ],
+    "theme": {
+      "primary": "#5C4033",
+      "secondary": "#FFFFFF",
+      "accent": null,
+      "background": null,
+      "text": null,
+      "typographyDirection": "warm readable",
+      "spacing": null,
+      "cardTreatment": null,
+      "borderRadius": null,
+      "sectionRhythm": null,
+      "heroPresentation": "rustic",
+      "navigationTreatment": null,
+      "imageRatio": null,
+      "CTATreatment": "View Menu",
+      "backgroundTreatment": null,
+      "density": "medium",
+      "motion": null,
+      "priorityTier": "business_owned"
+    },
+    "brandTone": "warm",
+    "gate": {
+      "ok": true,
+      "reasons": []
+    },
+    "resourceNeeds": [
+      "heroImageNeed",
+      "serviceImageNeeds",
+      "productImageNeeds",
+      "backgroundNeed",
+      "galleryNeeds"
+    ]
+  },
+  {
+    "id": "takeaway",
+    "name": "Noodle Hut",
+    "archetype": "FOOD_TAKEAWAY",
+    "primaryCTA": "Order Now",
+    "secondaryCTA": "Call",
+    "sectionPriority": [
+      "hero",
+      "menu",
+      "hours",
+      "location",
+      "order",
+      "about",
+      "contact"
+    ],
+    "offeringPresentation": "menu",
+    "offerings": [
+      "Beef Pho",
+      "Chicken Laksa",
+      "Pad Thai",
+      "Spring Rolls"
+    ],
+    "theme": {
+      "primary": "#E85D04",
+      "secondary": "#FFFFFF",
+      "accent": "#111111",
+      "background": null,
+      "text": null,
+      "typographyDirection": null,
+      "spacing": null,
+      "cardTreatment": null,
+      "borderRadius": null,
+      "sectionRhythm": null,
+      "heroPresentation": "simple",
+      "navigationTreatment": null,
+      "imageRatio": null,
+      "CTATreatment": "Order Now",
+      "backgroundTreatment": null,
+      "density": "medium",
+      "motion": null,
+      "priorityTier": "business_owned"
+    },
+    "brandTone": "bold",
+    "gate": {
+      "ok": true,
+      "reasons": []
+    },
+    "resourceNeeds": [
+      "heroImageNeed",
+      "serviceImageNeeds",
+      "productImageNeeds",
+      "backgroundNeed",
+      "galleryNeeds"
+    ]
+  },
+  {
+    "id": "home",
+    "name": "Harbour Plumbing",
+    "archetype": "HOME_SERVICE",
+    "primaryCTA": "Request a Quote",
+    "secondaryCTA": "View Services",
+    "sectionPriority": [
+      "hero",
+      "services",
+      "service_areas",
+      "past_work",
+      "trust",
+      "quote_cta",
+      "contact"
+    ],
+    "offeringPresentation": "service_list",
+    "offerings": [
+      "Blocked drains",
+      "Hot water systems",
+      "Bathroom plumbing",
+      "Emergency call-out"
+    ],
+    "theme": {
+      "primary": "#1F2937",
+      "secondary": "#FFFFFF",
+      "accent": "#F59E0B",
+      "background": null,
+      "text": null,
+      "typographyDirection": null,
+      "spacing": null,
+      "cardTreatment": null,
+      "borderRadius": null,
+      "sectionRhythm": null,
+      "heroPresentation": "utilitarian",
+      "navigationTreatment": null,
+      "imageRatio": null,
+      "CTATreatment": "Request a Quote",
+      "backgroundTreatment": null,
+      "density": "medium",
+      "motion": null,
+      "priorityTier": "strong_inference"
+    },
+    "brandTone": "practical",
+    "gate": {
+      "ok": true,
+      "reasons": []
+    },
+    "resourceNeeds": [
+      "heroImageNeed",
+      "serviceImageNeeds",
+      "productImageNeeds",
+      "backgroundNeed",
+      "galleryNeeds"
+    ]
+  },
+  {
+    "id": "beauty",
+    "name": "Luna Hair Studio",
+    "archetype": "APPOINTMENT_SERVICE",
+    "primaryCTA": "Book Now",
+    "secondaryCTA": "Call",
+    "sectionPriority": [
+      "hero",
+      "services",
+      "pricing",
+      "gallery",
+      "hours",
+      "booking_cta",
+      "about",
+      "contact"
+    ],
+    "offeringPresentation": "service_list",
+    "offerings": [],
+    "theme": {
+      "primary": "#831843",
+      "secondary": "#FFFFFF",
+      "accent": "#FDF2F8",
+      "background": null,
+      "text": null,
+      "typographyDirection": null,
+      "spacing": null,
+      "cardTreatment": null,
+      "borderRadius": null,
+      "sectionRhythm": null,
+      "heroPresentation": "soft",
+      "navigationTreatment": null,
+      "imageRatio": null,
+      "CTATreatment": "Book Now",
+      "backgroundTreatment": null,
+      "density": "medium",
+      "motion": null,
+      "priorityTier": "strong_inference"
+    },
+    "brandTone": "polished",
+    "gate": {
+      "ok": true,
+      "reasons": []
+    },
+    "resourceNeeds": [
+      "heroImageNeed",
+      "serviceImageNeeds",
+      "productImageNeeds",
+      "backgroundNeed",
+      "galleryNeeds"
+    ]
+  },
+  {
+    "id": "retail",
+    "name": "Northside Outfitters",
+    "archetype": "RETAIL",
+    "primaryCTA": "Shop",
+    "secondaryCTA": "Get Directions",
+    "sectionPriority": [
+      "hero",
+      "featured_products",
+      "categories",
+      "about",
+      "location",
+      "contact"
+    ],
+    "offeringPresentation": "product_grid",
+    "offerings": [
+      "Linen Shirt",
+      "Canvas Tote",
+      "Wool Beanie",
+      "Everyday Sneakers"
+    ],
+    "theme": {
+      "primary": "#111827",
+      "secondary": "#FFFFFF",
+      "accent": null,
+      "background": null,
+      "text": null,
+      "typographyDirection": null,
+      "spacing": null,
+      "cardTreatment": null,
+      "borderRadius": null,
+      "sectionRhythm": null,
+      "heroPresentation": "clean",
+      "navigationTreatment": null,
+      "imageRatio": null,
+      "CTATreatment": "Shop",
+      "backgroundTreatment": null,
+      "density": "medium",
+      "motion": null,
+      "priorityTier": "business_owned"
+    },
+    "brandTone": "editorial",
+    "gate": {
+      "ok": true,
+      "reasons": []
+    },
+    "resourceNeeds": [
+      "heroImageNeed",
+      "serviceImageNeeds",
+      "productImageNeeds",
+      "backgroundNeed",
+      "galleryNeeds"
+    ]
+  }
+]
