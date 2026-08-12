@@ -11,7 +11,7 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/truth-enforcement.yml'
   push:
-    branches: [main, develop]
+    branches: [main, staging, develop]
     paths:
       - 'apps/**'
       - 'packages/**'
