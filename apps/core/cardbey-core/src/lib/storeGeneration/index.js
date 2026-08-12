@@ -49,3 +49,19 @@ export {
   buildResourceNeeds,
   buildCatalogFromGroundedOfferings,
 } from './buildGroundedComposition.js';
+
+export {
+  createEmptyGroundedResourceBundle,
+  flattenResourceNeeds,
+  RESOURCE_SOURCE_PRIORITY,
+  preferCandidateBySourcePriority,
+  isAssetSuitableForNeed,
+} from './groundedResourceBundle.js';
+
+export {
+  isResourceGroundedStoreGenerationEnabled,
+  resolveResourceNeedsToBundle,
+  attachGroundedResourceBundleToPreview,
+  collectOwnerProvidedCandidates,
+  buildNeedSearchUtterance,
+} from './resolveGroundedResources.js';

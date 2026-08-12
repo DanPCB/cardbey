@@ -1305,6 +1305,37 @@ async function finalizeDraft(draftId, {
   const effectiveVerticalType = guardsEnabled ? effectiveVertical(preview.storeType, preview.meta?.storeType) : null;
 
   const draftInput = draft.input && typeof draft.input === 'object' ? draft.input : {};
+  // Phase 3: satisfy Phase 2 resourceNeeds before legacy media invent/fill.
+  try {
+    const { isResourceGroundedStoreGenerationEnabled, resolveResourceNeedsToBundle, attachGroundedResourceBundleToPreview } =
+      await import('../../lib/storeGeneration/resolveGroundedResources.js');
+    if (isResourceGroundedStoreGenerationEnabled()) {
+      const composition =
+        (draftInput.groundedComposition && typeof draftInput.groundedComposition === 'object'
+          ? draftInput.groundedComposition
+          : null) ||
+        (preview.meta?.groundedComposition && typeof preview.meta.groundedComposition === 'object'
+          ? preview.meta.groundedComposition
+          : null);
+      if (composition?.resourceNeeds) {
+        const bundle = await resolveResourceNeedsToBundle({
+          resourceNeeds: composition.resourceNeeds,
+          composition,
+          input: draftInput,
+          preview,
+          prisma,
+        });
+        attachGroundedResourceBundleToPreview(preview, bundle);
+        console.log('[DraftStore] finalizeDraft grounded resources', {
+          draftId,
+          filled: bundle.diagnostics?.filled,
+          unresolved: bundle.unresolvedNeeds?.length,
+        });
+      }
+    }
+  } catch (resErr) {
+    console.warn('[DraftStore] Phase 3 resource grounding skipped:', resErr?.message || resErr);
+  }
   const locationStr =
     draftInput.location != null && String(draftInput.location).trim()
       ? String(draftInput.location).trim()

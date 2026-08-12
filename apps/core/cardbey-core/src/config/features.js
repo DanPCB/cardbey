@@ -467,6 +467,16 @@ export const Features = {
     },
   },
   /**
+   * Phase 3 — fulfill Phase 2 resourceNeeds via owner → Library → URI.
+   * Requires ENABLE_GROUNDED_STORE_CREATION_V1. Default OFF.
+   * Set ENABLE_RESOURCE_GROUNDED_STORE_GENERATION_V1=true to enable.
+   */
+  resourceGroundedStoreGeneration: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_RESOURCE_GROUNDED_STORE_GENERATION_V1, false);
+    },
+  },
+  /**
    * Storefront Design Library — advisory contracts/projection (see storefrontDesignLibrary/flags.js).
    * Mirrored here for health snapshots; DL modules also read env directly.
    */
@@ -787,6 +797,9 @@ export function snapshotFeatures() {
     groundedStoreCreation: {
       v1: Features.groundedStoreCreation.v1,
       minMediaMatchScore: Features.groundedStoreCreation.minMediaMatchScore,
+    },
+    resourceGroundedStoreGeneration: {
+      v1: Features.resourceGroundedStoreGeneration.v1,
     },
     designLibrary: {
       v1: Features.designLibrary.v1,
