@@ -12,6 +12,8 @@ export const CREATE_STORE_INTAKE_SOURCE_VALUES = new Set([
   'chat',
   'performer_pill',
   'manual',
+  'upload_ask_selection',
+  'new_store_url',
 ]);
 
 /**
@@ -51,6 +53,12 @@ export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'fromAskSelection',
   'cardExtraction',
   'storeCandidate',
+  // Ask chip / belief attachment context — must not become unknown_field clarify
+  'conversationId',
+  'sessionKey',
+  'sourceMessageId',
+  'observeFirstAsk',
+  'resolveConflict',
   '_performerMode',
   '_performerSource',
   '_manualAction',
