@@ -174,6 +174,57 @@ describe('create_store parameter normalization', () => {
     expect(v.ok).toBe(true);
   });
 
+  it('normalizeCreateStoreToolParameters strips upload-Ask spillover (sourceType, clientRequestId)', () => {
+    const n = normalizeCreateStoreToolParameters({
+      storeName: 'CELLARBRATIONS DEER PARK',
+      source: 'upload_ask_selection',
+      type: 'CREATE_STORE_FROM_UPLOAD',
+      intent: 'create_store',
+      sourceType: 'business_card',
+      clientRequestId: 'req-upload-ask-1',
+      evidenceId: 'ev-1',
+      attachmentId: 'att-1',
+      contentHash: 'hash-1',
+      attachmentIds: ['att-1', 'ev-1'],
+      conversationId: 'sess-1',
+      sessionKey: 'key-1',
+      sourceMessageId: 'msg-1',
+      observeFirstAsk: true,
+      resolveConflict: 'use_evidence',
+      _autoSubmit: true,
+    });
+    expect(n.sourceType).toBeUndefined();
+    expect(n.clientRequestId).toBeUndefined();
+    expect(n.evidenceId).toBeUndefined();
+    expect(n.conversationId).toBeUndefined();
+    expect(n.sessionKey).toBeUndefined();
+    expect(n.sourceMessageId).toBeUndefined();
+    expect(n.observeFirstAsk).toBeUndefined();
+    expect(n.resolveConflict).toBeUndefined();
+    expect(n.storeName).toBe('CELLARBRATIONS DEER PARK');
+    const v = validateIntakeClassification(
+      {
+        executionPath: 'proactive_plan',
+        tool: 'create_store',
+        parameters: {
+          storeName: 'CELLARBRATIONS DEER PARK',
+          sourceType: 'business_card',
+          clientRequestId: 'req-upload-ask-1',
+          source: 'upload_ask_selection',
+          type: 'CREATE_STORE_FROM_UPLOAD',
+          intent: 'create_store',
+          conversationId: 'sess-1',
+          sessionKey: 'key-1',
+          sourceMessageId: 'msg-1',
+          observeFirstAsk: true,
+        },
+      },
+      null,
+    );
+    expect(v.ok).toBe(true);
+    expect(v.errors ?? []).toEqual([]);
+  });
+
   it('mergeStoreCreateFormIntoParameters overlays form onto classifier params', () => {
     const m = mergeStoreCreateFormIntoParameters(
       { name: 'LLM', _autoSubmit: true },

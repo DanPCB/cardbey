@@ -5,20 +5,28 @@
 import type { PerceptionFrame, RealityStreamEvent } from '../types.js';
 import type { IntakeEvidenceSnapshot } from './intakeEvidence.types.js';
 
+/** Latest matching event — session streams accumulate uploads; first-match freezes stale OCR. */
+function findLastEvent(events: RealityStreamEvent[], kind: RealityStreamEvent['kind']) {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i]?.kind === kind) return events[i];
+  }
+  return undefined;
+}
+
 function findOcrPayload(events: RealityStreamEvent[]) {
-  const event = events.find((e) => e.kind === 'ocr_output');
+  const event = findLastEvent(events, 'ocr_output');
   const obs = event?.observations?.find((o) => o.kind === 'ocr_text');
   return obs?.payload ?? null;
 }
 
 function findVisionPayload(events: RealityStreamEvent[]) {
-  const event = events.find((e) => e.kind === 'vision_output');
+  const event = findLastEvent(events, 'vision_output');
   const obs = event?.observations?.find((o) => o.kind === 'vision_extract');
   return obs?.payload ?? null;
 }
 
 function findUploadMetadata(events: RealityStreamEvent[]) {
-  const event = events.find((e) => e.kind === 'user_upload');
+  const event = findLastEvent(events, 'user_upload');
   const obs = event?.observations?.find((o) => o.kind === 'file_metadata');
   return obs?.payload ?? null;
 }
