@@ -22,6 +22,7 @@ export const CREATE_STORE_INTAKE_SOURCE_VALUES = new Set([
  */
 export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'source',
+  'sourceType',
   'intent',
   'message',
   'intentLabel',
@@ -43,6 +44,21 @@ export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'pipelineId',
   'stepId',
   'draftId',
+  'clientRequestId',
+  'requestId',
+  'evidenceId',
+  'attachmentId',
+  'attachmentIds',
+  'contentHash',
+  'fromAskSelection',
+  'cardExtraction',
+  'storeCandidate',
+  // Ask chip / belief attachment context — must not become unknown_field clarify
+  'conversationId',
+  'sessionKey',
+  'sourceMessageId',
+  'observeFirstAsk',
+  'resolveConflict',
   '_performerMode',
   '_performerSource',
   '_manualAction',
@@ -55,14 +71,6 @@ export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'city',
   'address',
   'region',
-  // Upload Ask / create-from-card transport (must not fail strict tool schema)
-  'sourceType',
-  'clientRequestId',
-  'evidenceId',
-  'attachmentId',
-  'contentHash',
-  'attachmentIds',
-  'fromAskSelection',
 ];
 
 /** @type {ReadonlySet<string>} */

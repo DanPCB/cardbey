@@ -239,13 +239,15 @@ export async function runIntakeEvidenceBarrier(
   } else {
     try {
       abortIfNeeded();
+      // Prefer this-turn live OCR — snapshot historically used first session ocr_output (stale).
+      const turnOcrText = String(ocrText ?? '').trim() || snapshot.ocrText;
       attachmentAnalysis = await buildAttachmentAnalysis({
         filename: input.filename ?? null,
         mimeType: input.mimeType ?? null,
         imageDataUrl: imageRef,
-        ocrText: snapshot.ocrText,
-        ocrFailed: snapshot.ocrStatus === 'failed',
-        ocrProvider: snapshot.ocrProvider,
+        ocrText: turnOcrText,
+        ocrFailed: turnOcrText ? false : snapshot.ocrStatus === 'failed',
+        ocrProvider: ocrProvider ?? snapshot.ocrProvider,
         userMessage: input.userMessage ?? null,
         storeId: input.storeId ?? null,
         sessionId: input.sessionId ?? null,
@@ -291,7 +293,7 @@ export async function runIntakeEvidenceBarrier(
   if (cacheKey && attachmentAnalysis) {
     setCachedAttachmentAnalysis(cacheKey, {
       evidenceId: passiveRun.evidenceView.evidenceId,
-      ocrTextRef: snapshot.ocrText ?? null,
+      ocrTextRef: (String(ocrText ?? '').trim() || snapshot.ocrText) ?? null,
       documentType: attachmentAnalysis.artifactType ?? null,
       topologyResult: (attachmentAnalysis as { cardTopology?: unknown }).cardTopology ?? null,
       confidence: Number(attachmentAnalysis.confidence) || 0,
@@ -320,10 +322,10 @@ export async function runIntakeEvidenceBarrier(
   });
 
   const imageContext = {
-    extractedText: snapshot.ocrText ?? '',
-    provider: snapshot.ocrProvider,
-    hasText: Boolean(snapshot.ocrText),
-    ocrError: snapshot.ocrError,
+    extractedText: (String(ocrText ?? '').trim() || snapshot.ocrText) ?? '',
+    provider: ocrProvider ?? snapshot.ocrProvider,
+    hasText: Boolean(String(ocrText ?? '').trim() || snapshot.ocrText),
+    ocrError: ocrError ?? snapshot.ocrError,
     evidenceId: passiveRun.evidenceView.evidenceId,
     attachmentId: ingestion?.attachmentId ?? null,
     contentHash: ingestion?.contentHash ?? null,
