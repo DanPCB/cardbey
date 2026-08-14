@@ -297,6 +297,18 @@ import toolsRoutes from './routes/toolsRoutes.js';
 import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import learningRoutes from './lib/learning/learningRoutes.js';
+import {
+  liveMarketOwnerRoutes,
+  liveMarketAdminRoutes,
+  liveMarketPublicRoutes,
+  liveMarketParticipantRoutes,
+  liveMarketMeRoutes,
+} from './lib/liveMarket/routes.js';
+import {
+  globalLiveEoiPublicRoutes,
+  globalLiveEoiAdminRoutes,
+  globalLiveEoiMeRoutes,
+} from './lib/globalLiveEoi/routes.js';
 import ctaEngineRoutes from './routes/ctaEngineRoutes.js';
 import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import visionIntakeRoutes from './routes/visionIntake.js';
@@ -1060,6 +1072,10 @@ if (process.env.NODE_ENV !== 'production') {
 app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
+app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
+app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
+app.use('/api/me/live-market', liveMarketMeRoutes); // Live Market my registrations (flag-gated)
+app.use('/api/me/global-live', globalLiveEoiMeRoutes); // Global Live EOI applicant applications (flag-gated)
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
 app.use('/api/store', storesRoutes); // Store context routes: /api/store/context, /api/store/:id/context
 app.use('/api/storefront', storefrontRoutes); // Published store feed: GET /api/storefront/frontscreen (no draft dependency)
@@ -1152,6 +1168,8 @@ app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
+app.use('/api/public/live-market', liveMarketPublicRoutes); // Live Market public session read (flag-gated)
+app.use('/api/public/global-live', globalLiveEoiPublicRoutes); // Global Live pilot EOI (flag-gated; default OFF)
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
 const miOpenApiPath = fromRoot('..', 'openapi', 'mi-tools.v1.yaml');
@@ -1282,6 +1300,8 @@ app.get('/metrics', async (_req, res) => {
 app.use('/api/language', languageRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
+app.use('/api/admin/live-market', liveMarketAdminRoutes); // Admin: Live Market pilot (flag-gated)
+app.use('/api/admin/global-live', globalLiveEoiAdminRoutes); // Admin: Global Live pilot EOI (flag-gated)
 
 // Internal API routes (for Lambda callbacks, workers, etc.)
 app.use('/api/internal', internalRoutes);
