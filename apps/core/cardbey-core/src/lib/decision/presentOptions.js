@@ -50,7 +50,10 @@ export function buildUploadGoalOptions(belief) {
         id: 'create_store',
         label: 'Create store',
         tool: 'create_store',
-        parameters: { ...attachmentCtx },
+        parameters: {
+          ...attachmentCtx,
+          ...(typeof name === 'string' && name.trim() ? { storeName: name.trim() } : {}),
+        },
       },
       {
         id: 'import_catalog',
