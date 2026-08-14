@@ -110,7 +110,7 @@
     "test:e2e:foundation3": "cross-env NODE_ENV=test DATABASE_URL=file:../test.db vitest run src/test/e2e/foundation3-closeout.e2e.test.js",
     "test:business-ingestion": "vitest run src/lib/businessIngestion/__tests__",
     "test:discovery-engine": "vitest run src/lib/discoveryEngine/__tests__",
-    "test:live-market": "node ./node_modules/vitest/vitest.mjs run src/lib/liveMarket/domain.test.js src/lib/liveMarket/registration.domain.test.js src/lib/liveMarket/hostParticipants.test.js src/lib/liveMarket/service.test.js src/lib/liveMarket/liveMarket.integration.test.js src/lib/liveMarket/providers/cloudflareStreamProvider.test.js src/lib/liveMarket/attachLiveMarketToPublicStores.test.js --pool=forks --no-file-parallelism",
+    "test:live-market": "node ./node_modules/vitest/vitest.mjs run src/lib/liveMarket/domain.test.js src/lib/liveMarket/registration.domain.test.js src/lib/liveMarket/hostParticipants.test.js src/lib/liveMarket/service.test.js src/lib/liveMarket/liveMarket.integration.test.js src/lib/liveMarket/providers/cloudflareStreamProvider.test.js src/lib/liveMarket/attachLiveMarketToPublicStores.test.js src/lib/liveMarket/rtmpsLifecycle.test.js --pool=forks --no-file-parallelism",
     "test:live-market:integration": "node ./node_modules/vitest/vitest.mjs run src/lib/liveMarket/liveMarket.integration.test.js --pool=forks --no-file-parallelism",
     "test:global-live-eoi": "node ./node_modules/vitest/vitest.mjs run src/lib/globalLiveEoi/domain.test.js src/lib/globalLiveEoi/routes.test.js src/lib/globalLiveEoi/consentEvidence.test.js src/lib/globalLiveEoi/sendEoiConfirmation.test.js --pool=forks --no-file-parallelism",
     "live-market:migrate-proof": "node scripts/live-market-migrate-from-zero.mjs",

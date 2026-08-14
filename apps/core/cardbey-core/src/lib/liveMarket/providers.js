@@ -51,7 +51,7 @@ import { createCloudflareStreamLiveVideoProvider } from './providers/cloudflareS
 /**
  * @typedef {object} VideoSessionState
  * @property {string} sessionId
- * @property {'idle'|'prepared'|'live'|'ended'|'failed'|'unknown'} status
+ * @property {'idle'|'prepared'|'connecting'|'live'|'ended'|'failed'|'unknown'} status
  * @property {string} [externalRef]
  */
 
@@ -154,12 +154,28 @@ export class FakeLiveVideoProvider {
 
   async startSession(input) {
     const sessionId = String(input.sessionId);
+    // Start-intent only — never returns live. LIVE requires confirmConnected / webhook / reconcile.
     const state = {
       sessionId,
-      status: 'live',
+      status: 'connecting',
       externalRef: this.#states.get(sessionId)?.externalRef ?? `fake:${sessionId}`,
     };
     this.#states.set(sessionId, state);
+    return state;
+  }
+
+  /**
+   * Test-only helper to simulate provider-confirmed connection.
+   * @param {string} sessionId
+   */
+  confirmConnected(sessionId) {
+    const id = String(sessionId);
+    const state = {
+      sessionId: id,
+      status: 'live',
+      externalRef: this.#states.get(id)?.externalRef ?? `fake:${id}`,
+    };
+    this.#states.set(id, state);
     return state;
   }
 
@@ -197,14 +213,13 @@ export class FakeLiveVideoProvider {
 }
 
 /**
- * Slice A: Cloudflare may be resolved for adapter readiness, but must not unlock
- * owner canPrepare / canStart until Slice B lifecycle APIs are approved.
+ * Owner prepare/start readiness remains provider-specific.
+ * Cloudflare RTMPS may unlock prepare/start, but never authorizes LIVE without provider evidence.
  * @param {LiveVideoProvider | null | undefined} provider
  */
 export function isOwnerCapabilityProviderReady(provider) {
   if (!provider || provider.name === 'not_configured') return false;
   if (provider.unlocksOwnerPrepareStart === false) return false;
-  if (provider.name === 'cloudflare_stream') return false;
   return provider.name === 'fake_live_video' || provider.unlocksOwnerPrepareStart === true;
 }
 
@@ -240,18 +255,17 @@ export function resolveLiveVideoProvider(options = {}) {
     (options.env != null
       ? String(env.ENABLE_LIVE_CLOUDFLARE_STREAM_V1 || '').toLowerCase() === 'true'
       : Features.liveMarket.cloudflareStreamV1);
-  const cloudflareWebRtcV1 =
+  const rtmpsHostV1 =
     broadcastV1 &&
     cloudflareStreamV1 &&
     (options.env != null
-      ? String(env.ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1 || '').toLowerCase() === 'true'
-      : Features.liveMarket.cloudflareWebRtcV1);
+      ? String(env.ENABLE_LIVE_RTMPS_HOST_V1 || '').toLowerCase() === 'true'
+      : Features.liveMarket.rtmpsHostV1);
 
   const selected = isCloudflareStreamProviderSelected(env, {
     liveMarketV1,
     broadcastV1,
     cloudflareStreamV1,
-    cloudflareWebRtcV1,
   });
 
   if (selected) {
@@ -260,7 +274,10 @@ export function resolveLiveVideoProvider(options = {}) {
       return new NotConfiguredLiveVideoProvider();
     }
     try {
-      return createCloudflareStreamLiveVideoProvider({ config: cfg.config });
+      return createCloudflareStreamLiveVideoProvider({
+        config: cfg.config,
+        rtmpsHostEnabled: rtmpsHostV1,
+      });
     } catch {
       return new NotConfiguredLiveVideoProvider();
     }
