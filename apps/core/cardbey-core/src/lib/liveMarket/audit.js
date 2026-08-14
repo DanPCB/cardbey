@@ -7,7 +7,7 @@ import { getPrismaClient } from '../prisma.js';
 import { LIVE_MARKET_AUDIT_REASONS } from './domain.js';
 
 const SECRET_KEY_RE =
-  /(access[_-]?token|refresh[_-]?token|secret|password|authorization|bearer|api[_-]?key|providerExternalRef|webhook)/i;
+  /(access[_-]?token|refresh[_-]?token|secret|password|authorization|bearer|api[_-]?key|providerExternalRef|webhook|stream[_-]?key|rtmps|whip|whep)/i;
 
 /**
  * @param {unknown} value

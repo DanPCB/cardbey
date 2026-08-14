@@ -4,7 +4,7 @@
  */
 
 /** @typedef {'INVITED'|'APPROVED'|'ONBOARDING'|'ACTIVE'|'PAUSED'|'REMOVED'} EnrollmentState */
-/** @typedef {'DRAFT'|'SCHEDULED'|'READY'|'LIVE'|'ENDED'|'PROCESSING'|'REPLAY_READY'|'FAILED'|'CANCELLED'} SessionState */
+/** @typedef {'DRAFT'|'SCHEDULED'|'READY'|'CONNECTING'|'LIVE'|'ENDING'|'ENDED'|'PROCESSING'|'REPLAY_READY'|'FAILED'|'CANCELLED'} SessionState */
 /** @typedef {'PRODUCT'|'SERVICE'} SubjectType */
 
 export const LIVE_MARKET_ERROR_CODES = Object.freeze({
@@ -49,7 +49,9 @@ export const SESSION_STATES = Object.freeze([
   'DRAFT',
   'SCHEDULED',
   'READY',
+  'CONNECTING',
   'LIVE',
+  'ENDING',
   'ENDED',
   'PROCESSING',
   'REPLAY_READY',
@@ -100,6 +102,14 @@ export const LIVE_MARKET_AUDIT_REASONS = Object.freeze({
   SUBJECTS_SET: 'LIVE_SUBJECTS_SET',
   PROVIDER_PREPARE_BLOCKED: 'LIVE_PROVIDER_PREPARE_BLOCKED',
   PROVIDER_START_BLOCKED: 'LIVE_PROVIDER_START_BLOCKED',
+  BROADCAST_PREPARED: 'LIVE_BROADCAST_PREPARED',
+  BROADCAST_CREDENTIALS_ISSUED: 'LIVE_BROADCAST_CREDENTIALS_ISSUED',
+  BROADCAST_START_INTENT: 'LIVE_BROADCAST_START_INTENT',
+  PROVIDER_CONNECTED: 'LIVE_PROVIDER_CONNECTED',
+  PROVIDER_DISCONNECTED: 'LIVE_PROVIDER_DISCONNECTED',
+  PROVIDER_ERROR: 'LIVE_PROVIDER_ERROR',
+  BROADCAST_ENDED: 'LIVE_BROADCAST_ENDED',
+  PROVIDER_RECONCILED: 'LIVE_PROVIDER_RECONCILED',
   STOREFRONT_PUBLISHED: 'LIVE_SESSION_STOREFRONT_PUBLISHED',
   STOREFRONT_UPDATED: 'LIVE_SESSION_STOREFRONT_UPDATED',
   STOREFRONT_WITHDRAWN: 'LIVE_SESSION_STOREFRONT_WITHDRAWN',
@@ -162,10 +172,25 @@ export const STOREFRONT_PUBLICATION_STATUS = Object.freeze({
 export const PUBLIC_STOREFRONT_LIVE_STATE = Object.freeze({
   UPCOMING: 'upcoming',
   WAITING_FOR_HOST: 'waiting_for_host',
+  CONNECTING: 'connecting',
   LIVE: 'live',
   ENDED: 'ended',
   CANCELLED: 'cancelled',
   UNAVAILABLE: 'unavailable',
+});
+
+/**
+ * Canonical public playback DTO states for storefront / global players.
+ * Player media activates only for LIVE (with consume flags + PUBLISHED + confirmed).
+ */
+export const PUBLIC_PLAYBACK_STATE = Object.freeze({
+  WAITING: 'WAITING',
+  CONNECTING: 'CONNECTING',
+  LIVE: 'LIVE',
+  ENDED: 'ENDED',
+  REPLAY_PROCESSING: 'REPLAY_PROCESSING',
+  REPLAY_READY: 'REPLAY_READY',
+  UNAVAILABLE: 'UNAVAILABLE',
 });
 
 /**
@@ -182,15 +207,17 @@ const ENROLLMENT_TRANSITIONS = Object.freeze({
 });
 
 /**
- * Phase 1 truthful session graph.
- * LIVE / PROCESSING / REPLAY_READY / FAILED only via explicit FakeLiveVideoProvider in tests/dev —
- * never implied by missing production provider.
+ * RTMPS pilot session graph.
+ * READY = prepared (alias PREPARED). LIVE only via provider-connected evidence (never owner click).
+ * PROCESSING remains the stored alias for public REPLAY_PROCESSING.
  */
 const SESSION_TRANSITIONS = Object.freeze({
   DRAFT: Object.freeze(['SCHEDULED', 'CANCELLED']),
   SCHEDULED: Object.freeze(['READY', 'CANCELLED']),
-  READY: Object.freeze(['LIVE', 'CANCELLED']),
-  LIVE: Object.freeze(['ENDED', 'FAILED', 'CANCELLED']),
+  READY: Object.freeze(['CONNECTING', 'CANCELLED']),
+  CONNECTING: Object.freeze(['LIVE', 'ENDING', 'FAILED', 'CANCELLED', 'READY']),
+  LIVE: Object.freeze(['ENDING', 'FAILED', 'CANCELLED']),
+  ENDING: Object.freeze(['ENDED', 'FAILED']),
   ENDED: Object.freeze(['PROCESSING', 'FAILED']),
   PROCESSING: Object.freeze(['REPLAY_READY', 'FAILED']),
   REPLAY_READY: Object.freeze([]),
@@ -622,9 +649,16 @@ export function normalizeSubjectInputs(subjects) {
  * @param {SessionState|string} state
  */
 export function isSessionPubliclyVisible(state) {
-  return ['SCHEDULED', 'READY', 'LIVE', 'ENDED', 'PROCESSING', 'REPLAY_READY'].includes(
-    String(state || ''),
-  );
+  return [
+    'SCHEDULED',
+    'READY',
+    'CONNECTING',
+    'LIVE',
+    'ENDING',
+    'ENDED',
+    'PROCESSING',
+    'REPLAY_READY',
+  ].includes(String(state || ''));
 }
 
 /**
@@ -719,6 +753,9 @@ export function normalizePublicStorefrontLiveState(session, opts = {}) {
     }
   }
   if (providerConfirmedLive && state === 'LIVE') return PUBLIC_STOREFRONT_LIVE_STATE.LIVE;
+  if (state === 'CONNECTING' || state === 'ENDING') {
+    return PUBLIC_STOREFRONT_LIVE_STATE.CONNECTING;
+  }
   if (['ENDED', 'PROCESSING', 'REPLAY_READY'].includes(state)) {
     return PUBLIC_STOREFRONT_LIVE_STATE.ENDED;
   }
@@ -727,6 +764,36 @@ export function normalizePublicStorefrontLiveState(session, opts = {}) {
     return PUBLIC_STOREFRONT_LIVE_STATE.WAITING_FOR_HOST;
   }
   return PUBLIC_STOREFRONT_LIVE_STATE.UPCOMING;
+}
+
+/**
+ * Map stored session + confirmation into canonical public playback state.
+ * @param {object} session
+ * @param {{
+ *   now?: Date,
+ *   providerConfirmedLive?: boolean,
+ *   published?: boolean,
+ *   playerEnabled?: boolean,
+ * }} [opts]
+ */
+export function toPublicPlaybackState(session, opts = {}) {
+  const published =
+    opts.published !== undefined
+      ? Boolean(opts.published)
+      : normalizeStorefrontPublicationStatus(session?.storefrontPublicationStatus) ===
+        STOREFRONT_PUBLICATION_STATUS.PUBLISHED;
+  if (!published || opts.playerEnabled === false) {
+    return PUBLIC_PLAYBACK_STATE.UNAVAILABLE;
+  }
+  const state = String(session?.state || '');
+  const confirmed = Boolean(opts.providerConfirmedLive) || state === 'LIVE';
+  if (state === 'CANCELLED' || state === 'FAILED') return PUBLIC_PLAYBACK_STATE.UNAVAILABLE;
+  if (confirmed && state === 'LIVE') return PUBLIC_PLAYBACK_STATE.LIVE;
+  if (state === 'CONNECTING' || state === 'ENDING') return PUBLIC_PLAYBACK_STATE.CONNECTING;
+  if (state === 'PROCESSING') return PUBLIC_PLAYBACK_STATE.REPLAY_PROCESSING;
+  if (state === 'REPLAY_READY') return PUBLIC_PLAYBACK_STATE.REPLAY_READY;
+  if (['ENDED'].includes(state)) return PUBLIC_PLAYBACK_STATE.ENDED;
+  return PUBLIC_PLAYBACK_STATE.WAITING;
 }
 
 /**
@@ -786,9 +853,10 @@ export function selectPrimaryPublishedSession(sessions, opts = {}) {
  */
 export function toPublicFeedLiveMarketSummary(session, opts = {}) {
   if (!session) return null;
+  const providerConfirmedLive = Boolean(opts.providerConfirmedLive);
   const publicState = normalizePublicStorefrontLiveState(session, {
     now: opts.now,
-    providerConfirmedLive: opts.providerConfirmedLive,
+    providerConfirmedLive,
   });
   if (
     publicState === PUBLIC_STOREFRONT_LIVE_STATE.UNAVAILABLE ||
@@ -796,13 +864,20 @@ export function toPublicFeedLiveMarketSummary(session, opts = {}) {
   ) {
     return null;
   }
-  return {
+  /** @type {Record<string, unknown>} */
+  const summary = {
     sessionId: session.id,
     title: session.title,
     scheduledAt: session.scheduledStartAt ?? null,
     timezone: opts.displayTimezone || null,
     publicState,
+    providerConfirmedLive,
   };
+  // Optional canonical playback projection for global Marketplace player (no secrets).
+  if (opts.playback && typeof opts.playback === 'object') {
+    summary.playback = opts.playback;
+  }
+  return summary;
 }
 
 /**
