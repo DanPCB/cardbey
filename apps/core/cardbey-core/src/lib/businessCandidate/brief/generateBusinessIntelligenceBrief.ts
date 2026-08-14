@@ -75,8 +75,9 @@ function buildSignals(
     hasServices: candidate.fetchedServices.length > 0,
     hasHours,
     hasDescription: Boolean(
-      candidate.originalContent?.description &&
-        String(candidate.originalContent.description).trim(),
+      (candidate.description && String(candidate.description).trim()) ||
+        (candidate.originalContent?.description &&
+          String(candidate.originalContent.description).trim()),
     ),
   };
 }

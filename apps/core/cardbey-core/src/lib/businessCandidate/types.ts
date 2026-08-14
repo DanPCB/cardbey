@@ -124,6 +124,29 @@ export interface BusinessCandidateRecord {
   externalId: string;
   createdAt: string;
   updatedAt: string;
+
+  /**
+   * Multi-source enrichment fields — all optional / nullable.
+   * Existing fixtures that omit these must remain valid.
+   * Written only by the opt-in enrichment agent (never discovery/QA auto-run).
+   */
+  description?: string | null;
+  /** Cardbey mapped category (may differ from discovery businessType) */
+  category?: string | null;
+  tags?: string[] | null;
+  heroImageUrl?: string | null;
+  heroImageSource?: string | null;
+  biBrief?: string | null;
+  biStatus?: 'not_generated' | 'generated' | 'failed' | null;
+  abn?: string | null;
+  legalName?: string | null;
+  openingHours?: string | null;
+  enrichmentNote?: string | null;
+  claimUrl?: string | null;
+  enrichmentSources?: string[] | null;
+  enrichmentUpdatedAt?: string | null;
+  /** Last multi-source enrichment run id (cuid) — correlates provenance sidecar rows */
+  enrichmentRunId?: string | null;
 }
 
 export interface BusinessCandidateTransitionRecord {
