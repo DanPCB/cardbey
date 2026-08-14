@@ -85,6 +85,8 @@ const TEMPLATE_KEY_TO_TYPE: Record<string, string> = {
   'clothing': 'retail',
   'nail_salon': 'nail_salon',
   'beauty_nails': 'nail_salon',
+  'beauty_salon': 'salon',
+  'beauty_spa': 'spa',
   'gym': 'fitness',
   'fitness': 'fitness',
   'spa': 'spa',
