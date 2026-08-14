@@ -36,6 +36,9 @@ const defaultAllowlist = [
   '20260619150000_add_business_lead_models',
   // Idempotent Payment column/index DDL (IF NOT EXISTS) — safe to roll back and redeploy.
   '20260707140000_extend_payment_stripe_journey',
+  // Live Market registration SQL shipped with UTF-8 BOM; strip + roll back failed row then redeploy.
+  '20260814010000_live_market_participant_registration',
+  '20260814020000_live_market_question_review_status',
 ];
 const allowlist = nameArg
   ? [nameArg.split('=')[1]]
