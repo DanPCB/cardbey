@@ -32,6 +32,10 @@ import * as PreBuiltStoreService from '../lib/discovery/PreBuiltStoreService.js'
 import { runAllActive } from '../lib/discovery/DiscoveryBatchRunner.js';
 import * as DiscoveryConfigService from '../lib/discovery/DiscoveryConfigService.js';
 import { reloadDiscoverySchedule, reloadSchedule, isDiscoveryRunning } from '../lib/discovery/DiscoveryScheduler.js';
+import {
+  enrichSeedsWithDiagnostics,
+  enrichBatchWithResult,
+} from '../lib/discovery/diagnostics/enrichSeedDiagnostics.js';
 import { appendDiscoveryReport } from '../scheduler/reportScheduler.js';
 import {
   generateOtp,
@@ -443,7 +447,8 @@ router.get('/seeds', requireAuth, requireAdmin, async (req, res, next) => {
     const seeds = await prisma.discoverySeedSource.findMany({
       orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
     });
-    return res.status(200).json({ ok: true, seeds });
+    const enriched = await enrichSeedsWithDiagnostics(seeds);
+    return res.status(200).json({ ok: true, seeds: enriched });
   } catch (error) {
     console.error('[discovery] seeds list error:', error);
     next(error);
@@ -549,7 +554,7 @@ router.get('/batches', requireAuth, requireAdmin, async (req, res, next) => {
     });
     return res.status(200).json({
       ok: true,
-      batches: batches.map(parseBatchRow),
+      batches: batches.map((b) => enrichBatchWithResult(parseBatchRow(b))),
     });
   } catch (error) {
     console.error('[discovery] batches error:', error);
@@ -564,7 +569,10 @@ router.get('/batches/:id', requireAuth, requireAdmin, async (req, res, next) => 
     if (!batch) {
       return res.status(404).json({ ok: false, error: 'not_found' });
     }
-    return res.status(200).json({ ok: true, batch: parseBatchRow(batch) });
+    return res.status(200).json({
+      ok: true,
+      batch: enrichBatchWithResult(parseBatchRow(batch)),
+    });
   } catch (error) {
     console.error('[discovery] batch detail error:', error);
     next(error);
@@ -633,12 +641,15 @@ router.get('/stats', requireAuth, requireAdmin, async (req, res, next) => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const [stats, config, runsToday, runnable] = await Promise.all([
+    const [stats, config, sourceRunsToday, limitRunsToday, runnable] = await Promise.all([
       UnclaimedStoreService.getDiscoveryStats(since),
       DiscoveryConfigService.getConfig(),
+      // Display: every DiscoveryBatchRun row started today (one per seed execution).
       prisma.discoveryBatchRun.count({
         where: { startedAt: { gte: startOfDay } },
       }),
+      // Quota: same filter as isRunnable / maxRunsPerDay enforcement.
+      DiscoveryConfigService.countRunsToday(),
       DiscoveryConfigService.isRunnable(),
     ]);
 
@@ -658,8 +669,16 @@ router.get('/stats', requireAuth, requireAdmin, async (req, res, next) => {
       ok: true,
       stats,
       ...stats,
-      runsToday,
+      /** @deprecated Prefer sourceRunsToday — kept for older UI */
+      runsToday: sourceRunsToday,
+      sourceRunsToday,
+      limitRunsToday,
       maxRunsPerDay: config.maxRunsPerDay,
+      runsTodaySemantics: {
+        sourceRunsTodayLabel: 'source batch rows started today (one row per seed per tick/Run Now)',
+        limitRunsTodayLabel: 'completed+partial+running rows counted toward maxRunsPerDay',
+        maxRunsPerDayLabel: 'max DiscoveryBatchRun rows (not scheduler ticks, not URL executions)',
+      },
       nextRun,
       nextScheduledRun: nextRun,
       nextScheduledLabel,

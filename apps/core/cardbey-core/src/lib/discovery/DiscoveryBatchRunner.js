@@ -10,9 +10,50 @@ import { buildClaimAuthority } from './ClaimAuthorityBuilder.js';
 import * as UnclaimedStoreService from './UnclaimedStoreService.js';
 import * as PreBuiltStoreService from './PreBuiltStoreService.js';
 import * as DiscoveryConfigService from './DiscoveryConfigService.js';
+import {
+  RESULT_CODES,
+  SKIP_REASONS,
+  isRetryableCode,
+} from './diagnostics/discoveryResultCodes.js';
+import {
+  classifyScrapeFailure,
+  classifyBatchOutcome,
+  sanitizeDiagnosticEvent,
+} from './diagnostics/classifyDiscoveryFailure.js';
+import {
+  deriveSourceHealth,
+  shouldSkipCronForHealth,
+} from './diagnostics/sourceHealth.js';
 
 /** Resolve outcomes that are not technical batch failures. */
 const NON_FAILURE_RESOLVE_STATUSES = new Set(['OK', 'NO_RESULTS', 'PROVIDER_BLOCKED']);
+
+/** Map resolver status strings → Diagnostics V2 result codes. */
+function mapResolveStatusToCode(status) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'OK') return RESULT_CODES.SUCCESS;
+  if (s === 'NO_RESULTS') return RESULT_CODES.NO_RESULTS;
+  if (s === 'PROVIDER_BLOCKED') return RESULT_CODES.PROVIDER_BLOCKED;
+  if (s === 'RATE_LIMITED') return RESULT_CODES.RATE_LIMITED;
+  if (s === 'NETWORK_ERROR') return RESULT_CODES.NETWORK_ERROR;
+  if (s === 'CONFIG_ERROR') return RESULT_CODES.CONFIG_ERROR;
+  if (s === 'RESOLVER_PARSE_ERROR' || s === 'PARSE_ERROR') return RESULT_CODES.PARSE_ERROR;
+  if (s === 'AUTH_ERROR') return RESULT_CODES.AUTH_ERROR;
+  if (s === 'INVALID_SOURCE') return RESULT_CODES.INVALID_SOURCE;
+  return RESULT_CODES.UPSTREAM_ERROR;
+}
+
+function parseBatchRowLocal(row) {
+  let configSnapshot = null;
+  let errorLog = null;
+  try {
+    configSnapshot = row.configSnapshot ? JSON.parse(row.configSnapshot) : null;
+  } catch { /* ignore */ }
+  try {
+    errorLog = row.errorLog ? JSON.parse(row.errorLog) : null;
+  } catch { /* ignore */ }
+  return { ...row, configSnapshot, errorLog };
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -139,8 +180,16 @@ async function processUrl(url, batchRun, seedId, errors) {
   const scraped = await scrapeAndNormalize(url);
   if (!scraped) {
     batchRun.failed += 1;
-    errors.push({ url, error: 'scrape_failed' });
-    await recordSeedError(seedId, 'scrape_failed');
+    const classified = classifyScrapeFailure('scrape_failed');
+    errors.push(sanitizeDiagnosticEvent({
+      url,
+      code: classified.code,
+      message: classified.message,
+      error: classified.message,
+      retryable: classified.retryable,
+      pipelineStoppedAt: 'processUrl:scrapeAndNormalize',
+    }));
+    await recordSeedError(seedId, `${classified.code}:${classified.message}`);
     return;
   }
 
@@ -171,6 +220,15 @@ async function processUrl(url, batchRun, seedId, errors) {
 
   if (result.existed) {
     batchRun.skipped += 1;
+    errors.push(sanitizeDiagnosticEvent({
+      url,
+      code: RESULT_CODES.SKIPPED,
+      skipReason: SKIP_REASONS.ALREADY_EXISTS,
+      message: 'Unclaimed store already exists for sourceUrl',
+      error: 'ALREADY_EXISTS',
+      retryable: false,
+      pipelineStoppedAt: 'processUrl:upsertFromPayload',
+    }));
     return;
   }
 
@@ -195,9 +253,16 @@ async function runWithConcurrency(urls, batchRun, seedId, concurrency, delayMs) 
         await processUrl(url, batchRun, seedId, errors);
       } catch (error) {
         batchRun.failed += 1;
-        const msg = error?.message || String(error);
-        errors.push({ url, error: msg });
-        await recordSeedError(seedId, msg);
+        const classified = classifyScrapeFailure(error?.message || String(error));
+        errors.push(sanitizeDiagnosticEvent({
+          url,
+          code: classified.code,
+          message: classified.message,
+          error: classified.message,
+          retryable: classified.retryable,
+          pipelineStoppedAt: 'processUrl:exception',
+        }));
+        await recordSeedError(seedId, `${classified.code}:${classified.message}`);
       }
     }));
     if (delayMs > 0 && i + chunkSize < urls.length) {
@@ -208,7 +273,7 @@ async function runWithConcurrency(urls, batchRun, seedId, concurrency, delayMs) 
   return errors;
 }
 
-function buildConfigSnapshot(config, runSessionId) {
+function buildConfigSnapshot(config, runSessionId, result = null) {
   return JSON.stringify({
     batchSize: config.batchSize,
     concurrency: config.concurrency,
@@ -216,6 +281,7 @@ function buildConfigSnapshot(config, runSessionId) {
     cronExpression: config.cronExpression,
     maxRunsPerDay: config.maxRunsPerDay,
     runSessionId,
+    ...(result ? { result } : {}),
   });
 }
 
@@ -272,13 +338,23 @@ export async function runBatch(seed, sourceLimit, triggeredBy = 'cron', triggere
     if (urls.length > 0) {
       errors = await runWithConcurrency(urls, counters, seed.id, concurrency, delayMs);
     } else {
-      const resolveError = {
+      const code = mapResolveStatusToCode(resolveStatus);
+      const resolveError = sanitizeDiagnosticEvent({
+        code,
         error: resolveStatus,
+        message: resolveDetail
+          || (code === RESULT_CODES.CONFIG_ERROR
+            ? 'google_maps free-text is unsupported — use a Place URL (Places API not wired into seed resolve)'
+            : code === RESULT_CODES.PROVIDER_BLOCKED
+              ? 'TikTok hashtag discovery blocked from this runtime'
+              : resolveStatus),
+        retryable: isRetryableCode(code),
         seedType: seed.type,
-        seedValue: seed.value,
+        seedValue: String(seed.value).slice(0, 120),
         detail: resolveDetail,
+        pipelineStoppedAt: 'resolveUrlsFromSeed',
         ...(resolved?.resolveMeta || {}),
-      };
+      });
       errors = [resolveError];
 
       // Legitimate empty search / provider block are not technical failures.
@@ -288,16 +364,28 @@ export async function runBatch(seed, sourceLimit, triggeredBy = 'cron', triggere
 
       await recordSeedError(
         seed.id,
-        `${resolveStatus} for ${seed.type}:${String(seed.value).slice(0, 80)}${
+        `${code}:${resolveStatus} for ${seed.type}:${String(seed.value).slice(0, 80)}${
           resolveDetail ? ` (${resolveDetail})` : ''
         }`,
       );
     }
 
+    const outcome = classifyBatchOutcome(counters, errors, {
+      resolveCode: urls.length === 0 ? mapResolveStatusToCode(resolveStatus) : null,
+    });
+
     const status = counters.failed > 0 && counters.created === 0 ? 'failed'
       : counters.failed > 0 ? 'partial' : 'completed';
 
     const completedAt = new Date();
+    const resultPayload = {
+      code: outcome.code,
+      message: outcome.message,
+      retryable: outcome.retryable,
+      skipReason: outcome.skipReason,
+      resolveStatus,
+    };
+
     await prisma.discoveryBatchRun.update({
       where: { id: batchRun.id },
       data: {
@@ -310,6 +398,7 @@ export async function runBatch(seed, sourceLimit, triggeredBy = 'cron', triggere
         failed: counters.failed,
         preBuilt: counters.preBuilt,
         errorLog: errors.length > 0 ? JSON.stringify(errors) : null,
+        configSnapshot: buildConfigSnapshot(activeConfig, sessionId, resultPayload),
       },
     });
 
@@ -318,6 +407,9 @@ export async function runBatch(seed, sourceLimit, triggeredBy = 'cron', triggere
       data: {
         lastRunAt: completedAt,
         runCount: { increment: 1 },
+        lastError: outcome.code === RESULT_CODES.SUCCESS
+          ? null
+          : `${outcome.code}:${String(outcome.message || '').slice(0, 480)}`,
       },
     });
 
@@ -329,18 +421,34 @@ export async function runBatch(seed, sourceLimit, triggeredBy = 'cron', triggere
       ...counters,
       completedAt,
       status,
+      resultCode: outcome.code,
+      resultMessage: outcome.message,
+      retryable: outcome.retryable,
+      skipReason: outcome.skipReason,
     };
   } catch (error) {
     const completedAt = new Date();
+    const classified = {
+      code: RESULT_CODES.INTERNAL_ERROR,
+      message: error?.message || String(error),
+      retryable: true,
+    };
     await prisma.discoveryBatchRun.update({
       where: { id: batchRun.id },
       data: {
         status: 'failed',
         completedAt,
-        errorLog: JSON.stringify([{ error: error?.message || String(error) }]),
+        errorLog: JSON.stringify([sanitizeDiagnosticEvent({
+          code: classified.code,
+          message: classified.message,
+          error: classified.message,
+          retryable: true,
+          pipelineStoppedAt: 'runBatch',
+        })]),
+        configSnapshot: buildConfigSnapshot(activeConfig, sessionId, classified),
       },
     });
-    await recordSeedError(seed.id, error?.message || String(error));
+    await recordSeedError(seed.id, `${classified.code}:${classified.message}`);
     throw error;
   }
 }
@@ -364,6 +472,31 @@ export async function runAllActive(triggeredBy = 'cron', triggeredById = null) {
   for (const seed of seeds) {
     if (remainingQuota <= 0) break;
 
+    if (triggeredBy === 'cron') {
+      const recent = await prisma.discoveryBatchRun.findMany({
+        where: { seedSourceId: seed.id },
+        orderBy: { startedAt: 'desc' },
+        take: 8,
+      });
+      const healthInfo = deriveSourceHealth(recent.map(parseBatchRowLocal));
+      if (shouldSkipCronForHealth(healthInfo, triggeredBy)) {
+        summaries.push({
+          seedSourceId: seed.id,
+          seedType: seed.type,
+          seedValue: seed.value,
+          status: 'skipped_cooldown',
+          resultCode: healthInfo.lastResultCode,
+          resultMessage: `Cron cooldown (${healthInfo.lastResultCode}): ${healthInfo.suggestedAction}`,
+          runSessionId,
+          discovered: 0,
+          created: 0,
+          skipped: 0,
+          failed: 0,
+        });
+        continue;
+      }
+    }
+
     const sourceLimit = Math.min(
       seed.batchLimit ?? config.batchSize,
       remainingQuota,
@@ -386,6 +519,7 @@ export async function runAllActive(triggeredBy = 'cron', triggeredById = null) {
         seedType: seed.type,
         seedValue: seed.value,
         status: 'failed',
+        resultCode: RESULT_CODES.INTERNAL_ERROR,
         error: error?.message || String(error),
         runSessionId,
       });
