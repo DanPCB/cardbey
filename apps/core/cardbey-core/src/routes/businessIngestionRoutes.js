@@ -6,14 +6,12 @@ import express from 'express';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { isPlatformAdmin } from '../lib/authorization.js';
 import {
-  buildIngestionDashboardMetrics,
   getSeedRecordById,
   listIngestionRuns,
   runIngestion,
   upsertSeedRecords,
 } from '../lib/businessIngestion/index.js';
-import { buildEnrichmentMetrics } from '../lib/businessIngestion/BusinessEnrichmentAgent.js';
-import { buildControlCenterIngestionSnapshot } from '../lib/businessIngestion/buildControlCenterIngestionSnapshot.js';
+import { buildCanonicalSeedingMetrics } from '../lib/businessIngestion/buildCanonicalSeedingMetrics.js';
 import {
   approveSeed,
   enrichQueueItem,
@@ -32,10 +30,10 @@ import {
   activateSeedAfterOwnerConfirmation,
   rejectSeedClaim,
   listClaimsByStatus,
-  buildClaimQueueMetrics,
   enrichClaimsForDashboard,
 } from '../lib/businessIngestion/ClaimBridgeService.js';
 import { listClaimAuditEntries } from '../lib/businessIngestion/ClaimAuditLog.js';
+import { listManualReviewQueue } from '../lib/businessIngestion/claimManualReviewStore.js';
 import {
   CsvAdapter,
   GoogleSheetAdapter,
@@ -74,53 +72,11 @@ function parseQueueFilters(query) {
   return filters;
 }
 
-/** GET /api/business-ingestion/metrics */
+/** GET /api/business-ingestion/metrics — canonical GTM / seeding funnel source of truth */
 router.get('/metrics', requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    const metrics = await buildIngestionDashboardMetrics();
-    const qaPending = await listQaQueue({ status: 'seeded_pending_qa' });
-    const autoSuggested = qaPending.filter((s) => s.autoApprovalSuggested).length;
-    const claimQueue = await buildClaimQueueMetrics();
-    const enrichment = await buildEnrichmentMetrics().catch(() => null);
-    const { buildDiscoveryIntelligenceMetrics } = await import(
-      '../lib/businessIngestion/businessEvolutionService.js'
-    );
-    const discoveryIntelligence = await buildDiscoveryIntelligenceMetrics().catch(() => null);
-    const { buildAllPilotBatchMetrics } = await import('../lib/businessIngestion/buildPilotBatchMetrics.js');
-    const pilotBatches = await buildAllPilotBatchMetrics().catch(() => []);
-    const controlCenter = buildControlCenterIngestionSnapshot({
-      totalSeeds: metrics.totalSeeds,
-      byVerificationStatus: metrics.byVerificationStatus,
-      bySourceType: metrics.bySourceType,
-      recentRuns: metrics.recentRuns,
-      qaPendingCount: qaPending.length,
-      claimQueue,
-      enrichment,
-      discoveryIntelligence,
-    });
-    return res.status(200).json({
-      ok: true,
-      metrics: {
-        ...metrics,
-        qaPendingCount: qaPending.length,
-        qaAutoSuggestedCount: autoSuggested,
-        claimQueue,
-        pendingClaims: claimQueue.pendingClaims,
-        verifiedClaims: claimQueue.verifiedClaims,
-        rejectedClaims: claimQueue.rejectedClaims,
-        duplicateBlocked: claimQueue.duplicateBlocked,
-        activatedSeeds: claimQueue.activatedSeeds,
-        activationRate: claimQueue.activationRate,
-        operatingConversionRate: claimQueue.operatingConversionRate,
-        averageVerificationDurationMs: claimQueue.averageVerificationDurationMs,
-        averageActivationDurationMs: claimQueue.averageActivationDurationMs,
-        stalledActivationCount: claimQueue.stalledActivationCount,
-        enrichment,
-        discoveryIntelligence,
-        controlCenter,
-        pilotBatches,
-      },
-    });
+    const payload = await buildCanonicalSeedingMetrics();
+    return res.status(200).json(payload);
   } catch (error) {
     console.error('[business-ingestion] metrics error:', error);
     next(error);
@@ -136,6 +92,22 @@ router.get('/claims', requireAuth, requireAdmin, async (req, res, next) => {
     return res.status(200).json({ ok: true, claims: enriched, total: enriched.length });
   } catch (error) {
     console.error('[business-ingestion] list claims error:', error);
+    next(error);
+  }
+});
+
+/** GET /api/business-ingestion/claims/manual-reviews — Guard B enrichment mismatch queue */
+router.get('/claims/manual-reviews', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : 'pending';
+    const reason = typeof req.query.reason === 'string' ? req.query.reason.trim() : undefined;
+    const reviews = await listManualReviewQueue({
+      status: status === 'all' ? undefined : status,
+      reason: reason || undefined,
+    });
+    return res.status(200).json({ ok: true, reviews, total: reviews.length });
+  } catch (error) {
+    console.error('[business-ingestion] list manual reviews error:', error);
     next(error);
   }
 });
@@ -350,7 +322,12 @@ router.post('/seeds/:id/claim', requireAuth, async (req, res, next) => {
       claimantUserId: req.userId,
       proofType,
       contact,
+      emailVerified: req.user?.emailVerified === true,
+      claimantEmail: req.user?.email ?? null,
     });
+    if (!result.ok && result.code === 'EMAIL_NOT_VERIFIED') {
+      return res.status(403).json(result);
+    }
     return res.status(result.ok ? 200 : 400).json(result);
   } catch (error) {
     console.error('[business-ingestion] claim start error:', error);
@@ -367,7 +344,12 @@ router.post('/seeds/:id/claim/verify', requireAuth, async (req, res, next) => {
       claimantUserId: req.userId,
       otp: body.otp ?? null,
       proofValue: body.proofValue ?? body.contact ?? null,
+      emailVerified: req.user?.emailVerified === true,
+      claimantEmail: req.user?.email ?? null,
     });
+    if (!result.ok && result.code === 'EMAIL_NOT_VERIFIED') {
+      return res.status(403).json(result);
+    }
     return res.status(result.ok ? 200 : 400).json(result);
   } catch (error) {
     console.error('[business-ingestion] claim verify error:', error);
