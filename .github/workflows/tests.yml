@@ -12,6 +12,8 @@ on:
       - 'apps/core/cardbey-core/vitest.config.mjs'
       - 'scripts/deploy-render-readiness.mjs'
       - 'scripts/ci-assert-dashboard-submodule.mjs'
+      - 'scripts/init-private-dashboard-submodule.mjs'
+      - 'scripts/privateDashboardSubmoduleAuth.mjs'
       - '.github/workflows/tests.yml'
   push:
     branches:
@@ -29,6 +31,8 @@ on:
       - 'apps/core/cardbey-core/vitest.config.mjs'
       - 'scripts/deploy-render-readiness.mjs'
       - 'scripts/ci-assert-dashboard-submodule.mjs'
+      - 'scripts/init-private-dashboard-submodule.mjs'
+      - 'scripts/privateDashboardSubmoduleAuth.mjs'
       - '.github/workflows/tests.yml'
 
 env:
@@ -109,11 +113,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Public monorepo + private dashboard: use established token secret (never embed PAT).
+      - name: Prove submodule token present (no value)
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
+
+      # Public monorepo + private dashboard: map Actions-legal secret name (never embed PAT).
       - name: Init private dashboard submodule
         env:
           CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
-          GITHUB_SUBMODULE_TOKEN: ${{ secrets.GITHUB_SUBMODULE_TOKEN }}
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
         run: node scripts/init-private-dashboard-submodule.mjs
 
       - name: Assert dashboard submodule SHA

@@ -4,45 +4,35 @@
 Live Market / staging PRs were failing CI with three root causes that also reproduced on the base tip:
 
 1. **tsx** — `vitest.config.js` hard-coded monorepo-root `node_modules/tsx`, while CI installs deps under `apps/core/cardbey-core` (`npm ci`) or pnpm without root hoist.
-2. **Dashboard submodule** — workflows used `actions/checkout@v4` without materializing the private dashboard submodule, so `deploy-render-readiness` and dashboard jobs saw an empty path (or walked up to the root `package.json`). Naive `submodules: recursive` from the **public** parent also fails: default `GITHUB_TOKEN` cannot clone the **private** dashboard (`repository not found`).
-3. **Prisma shadow DB** — `prisma migrate diff --from-migrations` requires `--shadow-database-url` on current Prisma; CI only provisioned one disposable Postgres DB.
+2. **Dashboard submodule** — workflows used `actions/checkout@v4` without materializing the private dashboard submodule. Naive `submodules: recursive` from the **public** parent also fails: default `GITHUB_TOKEN` cannot clone the **private** dashboard.
+3. **Prisma shadow DB** — `prisma migrate diff --from-migrations` requires `--shadow-database-url`.
+
+## Actions secret name (verified)
+
+GitHub Actions **rejects custom secrets whose names start with `GITHUB_`**.
+
+| Scope | Name present | Used by workflows |
+|-------|--------------|-------------------|
+| `DanPCB/cardbey` repository Actions secrets | `CARDBEY_SUBMODULE_TOKEN` | yes |
+| `DanPCB/cardbey` repository Actions secrets | `GITHUB_SUBMODULE_TOKEN` | **not creatable** (reserved prefix) |
+| Repository Environments | none | n/a |
+
+Workflows map `secrets.CARDBEY_SUBMODULE_TOKEN` into `CARDBEY_SUBMODULE_TOKEN` and the Render/local alias `GITHUB_SUBMODULE_TOKEN` for `scripts/init-private-dashboard-submodule.mjs`. Presence is logged as `secret_present=true|false` only.
 
 ## Fix (this branch)
 - Resolve `tsx` from `@cardbey/core` `node_modules` first (`vitest.config.js`).
-- Materialize the dashboard via `scripts/init-private-dashboard-submodule.mjs` + `GITHUB_SUBMODULE_TOKEN` (established secret name; never embed the value), then assert gitlink SHA with `scripts/ci-assert-dashboard-submodule.mjs`.
-- Core-only jobs (Vitest / Prisma gold) do **not** require the private submodule.
-- Ephemeral `cardbey_shadow` DB for migrate-diff only; `migrate deploy` against empty `cardbey_test`.
-- Enable `staging` branch triggers for the repaired workflows.
-
-## Required GitHub Actions secret
-On `DanPCB/cardbey` (Actions → Secrets), set:
-
-| Name | Purpose |
-|------|---------|
-| `GITHUB_SUBMODULE_TOKEN` | Fine-grained or classic PAT with **read** access to private `DanPCB/cardbey-marketing-dashboard` |
-
-Without it, dashboard-dependent jobs fail fast with the existing init-script message. Core Vitest / Prisma contract jobs still run.
+- Materialize the dashboard via the init script + `CARDBEY_SUBMODULE_TOKEN`, then assert gitlink SHA.
+- Core-only jobs do **not** require the private submodule.
+- Ephemeral `cardbey_shadow` for migrate-diff; `migrate deploy` on empty `cardbey_test`.
+- Build Artifact: init private submodule; PR builds images **without cache and without push**; push-to-staging may use gha cache only after a no-cache PR build succeeds.
 
 ## Dashboard standalone PRs
-`DanPCB/cardbey-marketing-dashboard` previously ran Golden Flows only on `main`/`master`, so PRs such as #102 reported **no checks**. That is not CI success.
-
-Standalone fix PR: https://github.com/DanPCB/cardbey-marketing-dashboard/pull/103 (`fix/ci-pr-checks-live-market`) adds `.github/workflows/pr-checks.yml` (Live Market Vitest + production build, Node 20).
-
-Until that lands, manual merge gate for dashboard product PRs:
-
-```bash
-cd apps/dashboard/cardbey-marketing-dashboard
-pnpm install --frozen-lockfile || pnpm install
-pnpm exec vitest run src/lib/liveMarket src/components/liveMarket src/pages/dashboard/StoreLiveMarketPage.test.tsx --pool=forks
-pnpm run build
-```
+https://github.com/DanPCB/cardbey-marketing-dashboard/pull/103 adds `.github/workflows/pr-checks.yml`.
 
 ## Out of scope
-RTMPS product code, Render secrets, Cloudflare, schema/migrations content.
+RTMPS product code, Render secrets, Cloudflare, schema/migrations content repairs.
 
-## Known remaining (separate from this repair)
-- **`BLOCKED_PRISMA_MIGRATION_CHAIN`**: with a working shadow DB, `prisma migrate diff --from-migrations … --exit-code` reports large drift (schema models such as TemplateLibrary / commerce tables vs migration history). Job `Prisma schema vs migrations (no drift)` fails honestly. `migrate deploy` on empty disposable Postgres **succeeds**. Do **not** auto-baseline, edit historical migrations, or replace with `db push` in this CI-repair PR. Needs a dedicated migration-alignment PR.
-- **`GITHUB_SUBMODULE_TOKEN`**: must be set on `DanPCB/cardbey` Actions secrets for monorepo dashboard jobs. Until then, use dashboard standalone PR checks (#103).
-- **Full core Vitest suite** on staging tip still reports many unrelated product failures after tsx is fixed (tsx was the previous hard stop). Live Market suite is the required runway gate (`test:live-market`).
-- **Build Artifact** on `staging`: Docker `cache-to: type=gha` without buildx setup; dashboard image still needs submodule auth.
+## Known remaining
+- **`BLOCKED_PRISMA_MIGRATION_CHAIN`**: migrate-diff remains an honest failing gate. Do not auto-baseline, edit history, or replace with `db push`.
+- Full core Vitest on staging tip has pre-existing product failures after tsx is fixed. Live Market suite is the runway gate.
 - RTMPS PRs #102 / #139 are **not** merged by this work.

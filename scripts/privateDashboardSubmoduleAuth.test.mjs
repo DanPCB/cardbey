@@ -19,8 +19,15 @@ describe('privateDashboardSubmoduleAuth', () => {
   it('fail-fast when init enabled without token', () => {
     const result = validateSubmoduleToken({ CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true' });
     expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/CARDBEY_SUBMODULE_TOKEN/);
     expect(result.message).toMatch(/GITHUB_SUBMODULE_TOKEN/);
     expect(result.message).toMatch(/Private dashboard source is unavailable/);
+  });
+
+  it('accepts CARDBEY_SUBMODULE_TOKEN as the Actions-legal name', () => {
+    const result = validateSubmoduleToken({ CARDBEY_SUBMODULE_TOKEN: 'test-token-not-a-secret' });
+    expect(result.ok).toBe(true);
+    expect(result.token).toBe('test-token-not-a-secret');
   });
 
   it('applies authenticated URL rewrite without requiring a real secret', () => {

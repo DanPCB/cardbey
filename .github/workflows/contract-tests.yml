@@ -61,6 +61,24 @@ jobs:
           until pg_isready -h localhost -U postgres; do sleep 1; done
           psql -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='cardbey_shadow'" | grep -q 1 \
             || psql -d postgres -c "CREATE DATABASE cardbey_shadow;"
+      - name: Capture Postgres migrate-diff SQL (disposable shadow; audit only)
+        working-directory: apps/core/cardbey-core
+        run: >
+          npx prisma migrate diff
+          --from-migrations prisma/postgres/migrations
+          --to-schema-datamodel prisma/postgres/schema.prisma
+          --shadow-database-url "$SHADOW_DATABASE_URL"
+          --script > prisma-postgres-drift.sql
+          || true
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+          SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_shadow
+      - name: Upload Postgres drift SQL
+        uses: actions/upload-artifact@v4
+        with:
+          name: prisma-postgres-drift
+          path: apps/core/cardbey-core/prisma-postgres-drift.sql
+          if-no-files-found: warn
       - name: migrate diff (exit 2 = drift = fail)
         working-directory: apps/core/cardbey-core
         run: >
@@ -72,6 +90,45 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
           SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_shadow
+
+  prisma-sqlite-drift:
+    name: SQLite schema vs migrations (no drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/core/cardbey-core/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/core/cardbey-core
+        run: npm ci
+      - name: Capture SQLite migrate-diff SQL (disposable file DB)
+        working-directory: apps/core/cardbey-core
+        run: >
+          npx prisma migrate diff
+          --from-migrations prisma/sqlite/migrations
+          --to-schema-datamodel prisma/sqlite/schema.prisma
+          --script > prisma-sqlite-drift.sql
+          || true
+        env:
+          DATABASE_URL: file:./prisma/ci-sqlite-drift.db
+      - name: Upload SQLite drift SQL
+        uses: actions/upload-artifact@v4
+        with:
+          name: prisma-sqlite-drift
+          path: apps/core/cardbey-core/prisma-sqlite-drift.sql
+          if-no-files-found: warn
+      - name: migrate diff sqlite (exit 2 = drift = fail)
+        working-directory: apps/core/cardbey-core
+        run: >
+          npx prisma migrate diff
+          --from-migrations prisma/sqlite/migrations
+          --to-schema-datamodel prisma/sqlite/schema.prisma
+          --exit-code
+        env:
+          DATABASE_URL: file:./prisma/ci-sqlite-drift.db
 
   contract-tests:
     name: Run Contract Tests

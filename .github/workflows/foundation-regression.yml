@@ -33,10 +33,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prove submodule token present (no value)
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
       - name: Init private dashboard submodule
         env:
           CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
-          GITHUB_SUBMODULE_TOKEN: ${{ secrets.GITHUB_SUBMODULE_TOKEN }}
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
         run: node scripts/init-private-dashboard-submodule.mjs
       - name: Assert dashboard submodule SHA
         run: node scripts/ci-assert-dashboard-submodule.mjs
@@ -116,11 +127,23 @@ jobs:
         working-directory: apps/dashboard/cardbey-marketing-dashboard
     steps:
       - uses: actions/checkout@v4
+      - name: Prove submodule token present (no value)
+        working-directory: .
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
       - name: Init private dashboard submodule
         working-directory: .
         env:
           CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
-          GITHUB_SUBMODULE_TOKEN: ${{ secrets.GITHUB_SUBMODULE_TOKEN }}
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
         run: node scripts/init-private-dashboard-submodule.mjs
       - name: Assert dashboard submodule SHA
         working-directory: .

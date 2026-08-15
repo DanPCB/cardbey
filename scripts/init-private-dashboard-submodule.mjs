@@ -5,15 +5,15 @@
  * Preferred live deploy path is Architecture B (clone DanPCB/cardbey-marketing-dashboard
  * directly). Use this script only when a parent-repo build must materialize the submodule.
  *
- * Requires secret GITHUB_SUBMODULE_TOKEN (read-only on the dashboard repo).
- * Never prints the token or rewritten remotes.
+ * Requires Actions secret CARDBEY_SUBMODULE_TOKEN (read-only on the dashboard repo).
+ * GITHUB_SUBMODULE_TOKEN remains a Render/local alias. Never prints the token or remotes.
  *
  * Usage:
- *   GITHUB_SUBMODULE_TOKEN=... node scripts/init-private-dashboard-submodule.mjs
+ *   CARDBEY_SUBMODULE_TOKEN=... node scripts/init-private-dashboard-submodule.mjs
  *
  * Env:
  *   CARDBEY_INIT_DASHBOARD_SUBMODULE=false → no-op exit 0 (no clone)
- *   GITHUB_SUBMODULE_TOKEN missing when init enabled → fail-fast exit 1
+ *   token missing when init enabled → fail-fast exit 1
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -50,7 +50,7 @@ export function main(env = process.env) {
   if (!tokenCheck.ok) {
     console.error(`[dashboard-submodule] FATAL: ${tokenCheck.message}`);
     console.error(
-      '[dashboard-submodule] Required configuration: set GitHub Actions (and/or Render) secret GITHUB_SUBMODULE_TOKEN',
+      '[dashboard-submodule] Required configuration: set Actions secret CARDBEY_SUBMODULE_TOKEN (GitHub forbids custom GITHUB_* secret names)',
     );
     console.error(
       '[dashboard-submodule] Or deploy the static site directly from DanPCB/cardbey-marketing-dashboard (preferred).',
