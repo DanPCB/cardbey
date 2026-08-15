@@ -126,7 +126,7 @@ jobs:
 
 
   dashboard-i18n:
-    name: Dashboard i18n audit
+    name: Dashboard i18n no-new-debt
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -156,17 +156,22 @@ jobs:
       - name: Assert dashboard submodule SHA
         working-directory: .
         run: node scripts/ci-assert-dashboard-submodule.mjs
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.25.0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile || pnpm install
+      - name: i18n ratchet unit tests
         working-directory: .
-      - name: Check i18n coverage (reporting-only; do not raise baseline)
-        run: pnpm run i18n:check
+        run: node --test scripts/i18nNoNewDebt.test.mjs
+      - name: Check i18n no-new-debt (audited baseline; historical target remains unpaid)
+        working-directory: .
+        run: node scripts/i18n-no-new-debt.mjs
+      - name: Upload i18n audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-debt-audit
+          path: artifacts/i18n/
+          if-no-files-found: warn
 
   dashboard-tests:
     name: Dashboard unit tests

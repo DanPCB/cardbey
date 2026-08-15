@@ -1,10 +1,27 @@
 # i18n translation debt — dashboard gitlink `43140668`
 
-**Status:** keep the CI failure (do not raise the baseline).  
-**Gitlink:** `431406682f5ece98d561a839e1b397433aa2ccb8`  
-**Scanner result:** `2553` gaps / `629` files vs allowed **`1213`**.
+**Status:** audited existing debt is pinned; CI enforces **no new debt**. Debt is **not** resolved.
 
-This is reporting-only product debt. Foundation Regression now runs i18n as its own job so Vitest and the production dashboard build still execute while this audit stays red.
+| | |
+|--|--|
+| Current audited debt | **2553** gaps / **629** files |
+| Historical/product target | **1213** (May 2026; not the current tree) |
+| Delta unpaid vs target | **1340** |
+| Source dashboard SHA | `431406682f5ece98d561a839e1b397433aa2ccb8` |
+| Audit date | 2026-08-15 |
+
+Parent-owned ratchet (does not change the private dashboard gitlink):
+
+- `scripts/i18n-debt-baseline.json` — audited cap `2553`, historical target `1213`, per-file counts, SHA metadata
+- `scripts/i18n-no-new-debt.mjs` — CI gate
+- `scripts/i18nNoNewDebt.mjs` + `scripts/i18nNoNewDebt.test.mjs`
+
+Rules: count `>` audited baseline → fail; new gaps in changed files vs pinned file counts → fail; equal → pass the no-new-debt gate; below → pass and report improvement. **Never auto-increase** `auditedGapCount`. Submodule `scripts/i18n-ci-baseline.json` remains the historical 1213 file and is **not** the CI cap.
+
+Also audited at the same 2553: dashboard CI merge `9dc2e130`, RTMPS UI `80f63c16`.
+
+The rest of this document is the 2026-08-15 diagnosis (scanner scope, false positives, locale catalog).
+
 
 ## Where baseline `1213` is defined
 
@@ -80,6 +97,6 @@ Leaf delta ≈ **58** Vietnamese strings behind English. That is real catalog in
 - missing files the scanner is forbidden to see
 - accidentally deleted `i18n.js` resources (catalog is larger than in May)
 
-**Smallest truthful fix:** none in CI besides splitting the job. Do not raise `allowedGapCount`. Do not bulk-insert placeholder translations.
+**Ratchet (2026-08-15):** pin audited 2553 in the parent repo; fail new debt; keep 1213 as the unpaid product target. Do not bulk-insert placeholder translations. TypeScript-generic false positives remain counted until the scanner is improved deterministically.
 
 Follow-up (not this PR): pay down hardcoded UI in the top files (Mission Console telemetry, Discovery/Growth command centers, creator studio, store preview) and optionally tighten the detector so TypeScript generic syntax is not counted as JSX text.

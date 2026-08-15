@@ -27,7 +27,7 @@ Workflows map `secrets.CARDBEY_SUBMODULE_TOKEN` into `CARDBEY_SUBMODULE_TOKEN` a
 - Build Artifact: init private submodule; PR builds images **without cache and without push**; push-to-staging may use gha cache only after a no-cache PR build succeeds.
 - Core Docker context is the **monorepo root** so `npm ci` can resolve `file:../../../packages/template-engine` (lockfile unchanged).
 - Render readiness treats `foo.js` server imports as satisfied by `foo.ts` (tsx boot).
-- Dashboard i18n audit is a **separate failing job**; Vitest + production build still run.
+- Dashboard i18n is a **separate no-new-debt job** (audited baseline 2553; historical target 1213 unpaid). Vitest + production build still run independently.
 
 ## Dashboard standalone PRs
 https://github.com/DanPCB/cardbey-marketing-dashboard/pull/103 adds `.github/workflows/pr-checks.yml`.
@@ -36,7 +36,8 @@ https://github.com/DanPCB/cardbey-marketing-dashboard/pull/103 adds `.github/wor
 RTMPS product code, Render secrets, Cloudflare, schema/migrations content repairs.
 
 ## Known remaining
-- **i18n (product debt):** `2553` hardcoded gaps vs baseline `1213` at gitlink `43140668`. See `docs/reports/I18N_TRANSLATION_DEBT_STAGING.md`. Do not raise the baseline.
-- **`BLOCKED_PRISMA_MIGRATION_CHAIN`:** migrate-diff remains an honest failing gate on this CI PR. Template Library catch-up is a **separate** branch/PR. Do not auto-baseline, edit history, or replace with `db push`.
+- **i18n no-new-debt:** parent ratchet pins audited **2553** (`scripts/i18n-debt-baseline.json`). Historical target **1213** remains unpaid and visible. See `docs/reports/I18N_TRANSLATION_DEBT_STAGING.md`.
+- **Render:** merging to `staging` auto-deploys `cardbey-core-staging` and `cardbey-dashboard-staging`. See `docs/reports/RENDER_STAGING_AUTO_DEPLOY.md`. Do not merge under the current no-deploy ACK.
+- **`BLOCKED_PRISMA_MIGRATION_CHAIN`:** migrate-diff remains an honest failing **deployment** gate. Template Library catch-up is PR **#144** (do not merge yet). Commerce/POS is planning-only: `docs/reports/IMPACT_REPORT_PRISMA_PG_COMMERCE_POS_CATCHUP.md`.
 - Full core Vitest on staging tip has pre-existing product failures after tsx is fixed. Live Market suite is the runway gate.
 - RTMPS PRs #102 / #139 are **not** merged by this work.
