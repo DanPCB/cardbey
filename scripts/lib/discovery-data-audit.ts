@@ -153,10 +153,14 @@ export interface ClassifiedDraft {
   reasons: string[];
 }
 
+export type AuditSeedSource = 'db' | 'file';
+
 export interface AuditContext {
   generatedAt: string;
   databaseUrlRedacted: string;
   ingestionDir: string;
+  /** Where seed inventory was loaded from — must match import backend when DB is available. */
+  seedSource: AuditSeedSource;
   businesses: BusinessRow[];
   drafts: DraftStoreRow[];
   seeds: IngestedSeedRecord[];
@@ -711,20 +715,87 @@ async function listSeedSuitcases(dir: string): Promise<SeedSuitcase[]> {
   }
 }
 
+const AUDIT_SEEDS_FILE_FALLBACK_WARN =
+  '[WARN] audit:seeds — DB unavailable, falling back to seeds.json (counts may not reflect Postgres state)';
+
+/**
+ * Load seed inventory from the same backend as import (`listSeedRecords`).
+ * When the BusinessSeed DB backend is unavailable, fall back to seeds.json with an explicit WARN.
+ * Read-path only — no writes / upserts / status changes.
+ */
+export async function loadAuditSeeds(): Promise<{
+  seeds: IngestedSeedRecord[];
+  seedSource: AuditSeedSource;
+}> {
+  const ingestionRepo = path.join(
+    CORE_ROOT,
+    'src',
+    'lib',
+    'businessIngestion',
+    'IngestionRepository.ts',
+  );
+  const backendModPath = path.join(
+    CORE_ROOT,
+    'src',
+    'lib',
+    'businessIngestion',
+    'businessSeedBackend.ts',
+  );
+
+  try {
+    const [{ listSeedRecords }, { resolveBusinessSeedBackend }] = await Promise.all([
+      import(pathToFileURL(ingestionRepo).href) as Promise<{
+        listSeedRecords: () => Promise<IngestedSeedRecord[]>;
+      }>,
+      import(pathToFileURL(backendModPath).href) as Promise<{
+        resolveBusinessSeedBackend: () => Promise<'db' | 'file'>;
+      }>,
+    ]);
+
+    const backend = await resolveBusinessSeedBackend();
+    if (backend === 'db') {
+      const seeds = await listSeedRecords();
+      return { seeds, seedSource: 'db' };
+    }
+
+    console.warn(AUDIT_SEEDS_FILE_FALLBACK_WARN);
+    const seeds = await listSeedRecords();
+    return { seeds, seedSource: 'file' };
+  } catch (err) {
+    console.warn(AUDIT_SEEDS_FILE_FALLBACK_WARN);
+    console.warn(
+      '[WARN] audit:seeds — backend resolve failed:',
+      err instanceof Error ? err.message : String(err),
+    );
+    const seeds = await readJsonFile<IngestedSeedRecord[]>(
+      path.join(ingestionDir(), 'seeds.json'),
+      [],
+    );
+    return { seeds, seedSource: 'file' };
+  }
+}
+
 export async function loadIngestionArtifacts(): Promise<{
   seeds: IngestedSeedRecord[];
+  seedSource: AuditSeedSource;
   claims: IngestionClaimRequest[];
   enrichmentCandidates: EnrichmentCandidate[];
   suitcases: SeedSuitcase[];
 }> {
   const dir = ingestionDir();
-  const [seeds, claims, enrichmentCandidates, suitcases] = await Promise.all([
-    readJsonFile<IngestedSeedRecord[]>(path.join(dir, 'seeds.json'), []),
+  const [seedLoad, claims, enrichmentCandidates, suitcases] = await Promise.all([
+    loadAuditSeeds(),
     readJsonFile<IngestionClaimRequest[]>(path.join(dir, 'claims.json'), []),
     readJsonFile<EnrichmentCandidate[]>(path.join(dir, 'enrichment-candidates.json'), []),
     listSeedSuitcases(dir),
   ]);
-  return { seeds, claims, enrichmentCandidates, suitcases };
+  return {
+    seeds: seedLoad.seeds,
+    seedSource: seedLoad.seedSource,
+    claims,
+    enrichmentCandidates,
+    suitcases,
+  };
 }
 
 export async function loadAuditContext(prisma: PrismaClient): Promise<AuditContext> {
@@ -807,6 +878,7 @@ export async function loadAuditContext(prisma: PrismaClient): Promise<AuditConte
     generatedAt: new Date().toISOString(),
     databaseUrlRedacted: redactDatabaseUrl(process.env.DATABASE_URL),
     ingestionDir: ingestionDir(),
+    seedSource: ingestion.seedSource,
     businesses,
     drafts,
     seeds: ingestion.seeds,
@@ -1155,11 +1227,17 @@ export function formatAuditReportMarkdown(report: AuditReport): string {
       s.preserveFlags.hasDevices,
   );
 
+  const seedSourceLine =
+    context.seedSource === 'db'
+      ? 'Seed source: **db** (`BusinessSeed` / same backend as import)'
+      : 'Seed source: **file** (`seeds.json`) — WARNING: counts may not reflect Postgres state';
+
   return `# Discovery Data Audit
 
 Generated: ${context.generatedAt}  
 Database: ${context.databaseUrlRedacted}  
-Ingestion dir: \`${context.ingestionDir}\`
+Ingestion dir: \`${context.ingestionDir}\`  
+${seedSourceLine}
 
 ---
 
@@ -1343,6 +1421,12 @@ export function formatReadinessMarkdown(report: AuditReport): string {
   return `# Melbourne Batch 0 Readiness
 
 Generated: ${report.context.generatedAt}
+
+Seed source: ${
+    report.context.seedSource === 'db'
+      ? 'db (BusinessSeed)'
+      : 'file (seeds.json) — WARNING: may not reflect Postgres'
+  }
 
 ## Remaining inventory
 
