@@ -137,9 +137,11 @@ jobs:
           timeout 30 bash -c 'until curl -f http://localhost:3001/api/health; do sleep 1; done' || exit 1
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
-          NODE_ENV: test
+          # Do not set NODE_ENV=test: ensureDatabaseUrl treats it as Vitest and rewrites
+          # DATABASE_URL to prisma/test.db (sqlite), breaking Postgres contract runs.
           PORT: 3001
           API_BASE_URL: http://localhost:3001
+          ROLE: api
       
       - name: Run Fast Gold Flow Tests (Required)
         working-directory: apps/core/cardbey-core
