@@ -50,7 +50,7 @@ export function main(env = process.env) {
   if (!tokenCheck.ok) {
     console.error(`[dashboard-submodule] FATAL: ${tokenCheck.message}`);
     console.error(
-      '[dashboard-submodule] Required configuration: set Render secret GITHUB_SUBMODULE_TOKEN',
+      '[dashboard-submodule] Required configuration: set GitHub Actions (and/or Render) secret GITHUB_SUBMODULE_TOKEN',
     );
     console.error(
       '[dashboard-submodule] Or deploy the static site directly from DanPCB/cardbey-marketing-dashboard (preferred).',
@@ -83,8 +83,9 @@ export function main(env = process.env) {
     return { status: 'incomplete' };
   }
 
-  log('ok');
-  return { status: 'ok' };
+  // Honest completion: package.json materialization is the side-effect evidence.
+  log(`initialized (${submoduleRel}/package.json present)`);
+  return { status: 'initialized', evidence: 'package.json', path: submoduleRel };
 }
 
 const isDirectRun =

@@ -70,14 +70,12 @@ jobs:
           psql -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='cardbey_shadow'" | grep -q 1 \
             || psql -d postgres -c "CREATE DATABASE cardbey_shadow;"
 
-      - name: Validate Prisma schemas (no live DB required beyond URL syntax)
+      - name: Validate Prisma schemas (URL protocol must match provider)
         working-directory: apps/core/cardbey-core
         run: |
-          npx prisma validate --schema prisma/schema.prisma
-          npx prisma validate --schema prisma/sqlite/schema.prisma
-          npx prisma validate --schema prisma/postgres/schema.prisma
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+          DATABASE_URL="file:./prisma/test.db" npx prisma validate --schema prisma/schema.prisma
+          DATABASE_URL="file:./prisma/test.db" npx prisma validate --schema prisma/sqlite/schema.prisma
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5432/cardbey_test" npx prisma validate --schema prisma/postgres/schema.prisma
 
       - name: Check Postgres schema vs migrations (no drift)
         working-directory: apps/core/cardbey-core
