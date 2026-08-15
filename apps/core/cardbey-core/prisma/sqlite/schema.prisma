@@ -4154,6 +4154,27 @@ model BusinessSeedStatusTransition {
   @@map("business_seed_status_transition")
 }
 
+/// Durable claim OTP (Phase 2) — table name is snake_case in SQLite
+model ClaimOtp {
+  id              String    @id @default(cuid())
+  seedId          String
+  email           String
+  recipientEmail  String
+  codeHash        String
+  userId          String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  usedAt          DateTime?
+  attemptCount    Int       @default(0)
+  lockedAt        DateTime?
+  lastSentAt      DateTime?
+
+  @@index([seedId, email, createdAt])
+  @@index([seedId, createdAt])
+  @@index([expiresAt])
+  @@map("claim_otp")
+}
+
 // Phase 10 — Account knowledge vault (briefings, mission outputs, uploads, artifacts)
 model SuitcaseItem {
   id              String   @id @default(cuid())
