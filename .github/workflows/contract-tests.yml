@@ -143,25 +143,13 @@ jobs:
           API_BASE_URL: http://localhost:3001
           ROLE: api
       
-      - name: Run Fast Gold Flow Tests (Required)
+      - name: Run declared contract Vitest suite
         working-directory: apps/core/cardbey-core
-        run: npm run test:gold:fast
+        run: npm run test:contracts
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
-          API_BASE_URL: http://localhost:3001
-          TEST_TENANT_ID: test-tenant-contract-test
-          TEST_STORE_ID: test-store-contract-test
-        continue-on-error: false
-      
-      - name: Run All Gold Flow Tests (Nightly)
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        working-directory: apps/core/cardbey-core
-        run: npm run test:gold
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
-          API_BASE_URL: http://localhost:3001
-          TEST_TENANT_ID: test-tenant-contract-test
-          TEST_STORE_ID: test-store-contract-test
+          # Hermetic suite; Vitest setupEnv pins sqlite. Postgres migrate deploy + health
+          # already proved above. Staging tip has no test:gold:fast script.
+          DATABASE_URL: file:./prisma/test.db
         continue-on-error: false
       
       - name: Upload test results
