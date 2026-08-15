@@ -25,6 +25,9 @@ Workflows map `secrets.CARDBEY_SUBMODULE_TOKEN` into `CARDBEY_SUBMODULE_TOKEN` a
 - Core-only jobs do **not** require the private submodule.
 - Ephemeral `cardbey_shadow` for migrate-diff; `migrate deploy` on empty `cardbey_test`.
 - Build Artifact: init private submodule; PR builds images **without cache and without push**; push-to-staging may use gha cache only after a no-cache PR build succeeds.
+- Core Docker context is the **monorepo root** so `npm ci` can resolve `file:../../../packages/template-engine` (lockfile unchanged).
+- Render readiness treats `foo.js` server imports as satisfied by `foo.ts` (tsx boot).
+- Dashboard i18n audit is a **separate failing job**; Vitest + production build still run.
 
 ## Dashboard standalone PRs
 https://github.com/DanPCB/cardbey-marketing-dashboard/pull/103 adds `.github/workflows/pr-checks.yml`.
@@ -33,6 +36,7 @@ https://github.com/DanPCB/cardbey-marketing-dashboard/pull/103 adds `.github/wor
 RTMPS product code, Render secrets, Cloudflare, schema/migrations content repairs.
 
 ## Known remaining
-- **`BLOCKED_PRISMA_MIGRATION_CHAIN`**: migrate-diff remains an honest failing gate. Do not auto-baseline, edit history, or replace with `db push`.
+- **i18n (product debt):** `2553` hardcoded gaps vs baseline `1213` at gitlink `43140668`. See `docs/reports/I18N_TRANSLATION_DEBT_STAGING.md`. Do not raise the baseline.
+- **`BLOCKED_PRISMA_MIGRATION_CHAIN`:** migrate-diff remains an honest failing gate on this CI PR. Template Library catch-up is a **separate** branch/PR. Do not auto-baseline, edit history, or replace with `db push`.
 - Full core Vitest on staging tip has pre-existing product failures after tsx is fixed. Live Market suite is the runway gate.
 - RTMPS PRs #102 / #139 are **not** merged by this work.

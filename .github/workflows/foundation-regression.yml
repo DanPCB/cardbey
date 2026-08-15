@@ -125,6 +125,49 @@ jobs:
         run: npm run test:live-market
 
 
+  dashboard-i18n:
+    name: Dashboard i18n audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard/cardbey-marketing-dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prove submodule token present (no value)
+        working-directory: .
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
+      - name: Init private dashboard submodule
+        working-directory: .
+        env:
+          CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: node scripts/init-private-dashboard-submodule.mjs
+      - name: Assert dashboard submodule SHA
+        working-directory: .
+        run: node scripts/ci-assert-dashboard-submodule.mjs
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile || pnpm install
+        working-directory: .
+      - name: Check i18n coverage (reporting-only; do not raise baseline)
+        run: pnpm run i18n:check
+
   dashboard-tests:
     name: Dashboard unit tests
     runs-on: ubuntu-latest
@@ -165,8 +208,6 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile || pnpm install
         working-directory: .
-      - name: Check i18n coverage (no new gap regressions)
-        run: pnpm run i18n:check
       - name: Vitest run
         run: pnpm exec vitest run
       - name: Production dashboard build

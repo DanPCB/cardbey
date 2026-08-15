@@ -38,6 +38,9 @@ function checkCoreServerImports() {
   while ((match = importRe.exec(src)) !== null) {
     const spec = match[1];
     const base = path.resolve(serverDir, spec);
+    // tsx (npm start --import tsx) resolves foo.js → foo.ts. A spec that
+    // already ends in .js must also try the .ts sibling, not `${base}.ts`
+    // (which would look for selfAudit.routes.js.ts).
     const candidates = [
       base,
       `${base}.js`,
@@ -45,7 +48,11 @@ function checkCoreServerImports() {
       `${base}.ts`,
       path.join(base, 'index.js'),
       path.join(base, 'index.mjs'),
+      path.join(base, 'index.ts'),
     ];
+    if (spec.endsWith('.js')) {
+      candidates.push(base.replace(/\.js$/i, '.ts'));
+    }
     if (!candidates.some((p) => fs.existsSync(p))) {
       fail(`Core server.js import missing: ${spec} (expected under src/)`);
     }
