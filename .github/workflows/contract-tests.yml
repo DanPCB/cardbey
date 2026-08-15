@@ -7,15 +7,18 @@ on:
       - 'apps/core/cardbey-core/tests/**'
       - 'apps/core/cardbey-core/package.json'
       - 'apps/core/cardbey-core/prisma/**'
+      - '.github/workflows/contract-tests.yml'
   push:
     branches:
       - main
       - develop
+      - staging
     paths:
       - 'apps/core/cardbey-core/src/**'
       - 'apps/core/cardbey-core/tests/**'
       - 'apps/core/cardbey-core/package.json'
       - 'apps/core/cardbey-core/prisma/**'
+      - '.github/workflows/contract-tests.yml'
 
 jobs:
   contract-tests:
@@ -38,6 +41,8 @@ jobs:
           - 5432:5432
     
     steps:
+      # Core-only job: do not recurse into the private dashboard submodule
+      # (public parent GITHUB_TOKEN cannot clone it; not required for Prisma/gold).
       - name: Checkout code
         uses: actions/checkout@v4
       
@@ -52,11 +57,39 @@ jobs:
         working-directory: apps/core/cardbey-core
         run: npm ci
 
-      - name: Check Postgres schema vs migrations (no drift)
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create disposable Prisma shadow database
+        env:
+          PGPASSWORD: postgres
+          PGHOST: localhost
+          PGUSER: postgres
+        run: |
+          until pg_isready -h localhost -U postgres; do sleep 1; done
+          psql -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='cardbey_shadow'" | grep -q 1 \
+            || psql -d postgres -c "CREATE DATABASE cardbey_shadow;"
+
+      - name: Validate Prisma schemas (no live DB required beyond URL syntax)
         working-directory: apps/core/cardbey-core
-        run: npx prisma migrate diff --from-migrations prisma/postgres/migrations --to-schema-datamodel prisma/postgres/schema.prisma --exit-code
+        run: |
+          npx prisma validate --schema prisma/schema.prisma
+          npx prisma validate --schema prisma/sqlite/schema.prisma
+          npx prisma validate --schema prisma/postgres/schema.prisma
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+
+      - name: Check Postgres schema vs migrations (no drift)
+        working-directory: apps/core/cardbey-core
+        run: >
+          npx prisma migrate diff
+          --from-migrations prisma/postgres/migrations
+          --to-schema-datamodel prisma/postgres/schema.prisma
+          --shadow-database-url "$SHADOW_DATABASE_URL"
+          --exit-code
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
+          SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_shadow
       
       - name: Generate Prisma Client
         working-directory: apps/core/cardbey-core
@@ -64,7 +97,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
       
-      - name: Run database migrations
+      - name: Run database migrations (empty disposable CI DB)
         working-directory: apps/core/cardbey-core
         run: npx prisma migrate deploy --schema prisma/postgres/schema.prisma
         env:
@@ -111,4 +144,3 @@ jobs:
           name: test-results
           path: apps/core/cardbey-core/test-results/
           if-no-files-found: ignore
-

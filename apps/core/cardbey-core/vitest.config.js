@@ -4,9 +4,25 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defineConfig, configDefaults } from 'vitest/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TSX_LOADER = pathToFileURL(
-  path.resolve(__dirname, '../../../node_modules/tsx/dist/loader.mjs'),
-).href;
+
+/**
+ * Resolve tsx from the package that declares it (@cardbey/core), then monorepo root.
+ * CI may run `npm ci` only under apps/core/cardbey-core (no root hoist).
+ */
+function resolveTsxLoaderHref() {
+  const candidates = [
+    path.resolve(__dirname, 'node_modules/tsx/dist/loader.mjs'),
+    path.resolve(__dirname, '../../../node_modules/tsx/dist/loader.mjs'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return pathToFileURL(candidate).href;
+  }
+  throw new Error(
+    `tsx loader not found (declare/install tsx in apps/core/cardbey-core). Tried:\n${candidates.join('\n')}`,
+  );
+}
+
+const TSX_LOADER = resolveTsxLoaderHref();
 
 /** Vitest/Vite: resolve `import './foo.js'` to `foo.ts` when only the TS source exists (tsx runtime parity). */
 function jsToTsResolver() {

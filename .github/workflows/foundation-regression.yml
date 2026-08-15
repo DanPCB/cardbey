@@ -7,6 +7,7 @@ on:
       - 'apps/dashboard/cardbey-marketing-dashboard/**'
       - 'scripts/**'
       - 'docs/CI_REGRESSION.md'
+      - 'docs/CI_STAGING_RUNWAY_LIVE_MARKET.md'
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/foundation-regression.yml'
@@ -14,12 +15,14 @@ on:
     branches:
       - main
       - develop
+      - staging
     paths:
       - 'apps/core/cardbey-core/**'
       - 'apps/dashboard/cardbey-marketing-dashboard/**'
       - 'scripts/**'
       - 'package.json'
       - 'pnpm-workspace.yaml'
+      - '.github/workflows/foundation-regression.yml'
 
 env:
   NODE_ENV: test
@@ -30,6 +33,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Init private dashboard submodule
+        env:
+          CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.GITHUB_SUBMODULE_TOKEN }}
+        run: node scripts/init-private-dashboard-submodule.mjs
+      - name: Assert dashboard submodule SHA
+        run: node scripts/ci-assert-dashboard-submodule.mjs
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -90,6 +100,8 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile || pnpm install
         working-directory: .
+      - name: Prove tsx resolves from declared dependency
+        run: node -e "const fs=require('fs'); const p=require('path'); const c=['node_modules/tsx/dist/loader.mjs','../../../node_modules/tsx/dist/loader.mjs'].map(x=>p.resolve(x)); const hit=c.find(fs.existsSync); if(!hit){console.error('tsx missing',c); process.exit(1)}; console.log('tsx_ok',hit);"
       - name: Prisma generate + test DB
         run: npm run pretest
       - name: Vitest
@@ -103,6 +115,15 @@ jobs:
         working-directory: apps/dashboard/cardbey-marketing-dashboard
     steps:
       - uses: actions/checkout@v4
+      - name: Init private dashboard submodule
+        working-directory: .
+        env:
+          CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.GITHUB_SUBMODULE_TOKEN }}
+        run: node scripts/init-private-dashboard-submodule.mjs
+      - name: Assert dashboard submodule SHA
+        working-directory: .
+        run: node scripts/ci-assert-dashboard-submodule.mjs
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -116,3 +137,7 @@ jobs:
         run: pnpm run i18n:check
       - name: Vitest run
         run: pnpm exec vitest run
+      - name: Production dashboard build
+        run: pnpm run build
+        env:
+          NODE_ENV: production
