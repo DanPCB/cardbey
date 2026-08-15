@@ -99,6 +99,7 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
       providerConfirmedLive,
       displayTimezone: timezone,
       playback,
+      playerEnabled: Features.liveMarket.globalPlayerV1,
     });
     if (summary) map.set(storeId, summary);
   }

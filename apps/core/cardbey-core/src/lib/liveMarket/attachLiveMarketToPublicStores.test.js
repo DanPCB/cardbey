@@ -91,9 +91,19 @@ describe('attachLiveMarketToPublicStores', () => {
 
     const map = await loadPrimaryLiveMarketSummariesByStoreIds(prisma, ['s1', 's2', 's3']);
     expect(prisma.liveMarketSession.findMany).toHaveBeenCalledTimes(1);
-    expect(map.get('s1')).toMatchObject({
+    const s1 = map.get('s1');
+    expect(Object.keys(s1).sort()).toEqual([
+      'publicState',
+      'scheduledAt',
+      'sessionId',
+      'timezone',
+      'title',
+    ]);
+    expect(s1).toEqual({
       sessionId: 'soon',
       title: 'Soon',
+      scheduledAt: future,
+      timezone: s1.timezone,
       publicState: 'upcoming',
     });
     expect(map.get('s2')).toMatchObject({

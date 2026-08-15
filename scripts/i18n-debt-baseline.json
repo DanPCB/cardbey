@@ -3,7 +3,8 @@
   "sourceDashboardSha": "431406682f5ece98d561a839e1b397433aa2ccb8",
   "acceptedAuditedShas": [
     "9dc2e130c10f9eb8a55cf34ac4e73533263963ce",
-    "80f63c166bf448eda68c76cf304b2342ce36f8dd"
+    "80f63c166bf448eda68c76cf304b2342ce36f8dd",
+    "dadccb1fbc37fa306cb12a749b4e413eae54ef49"
   ],
   "auditDate": "2026-08-15",
   "report": "docs/reports/I18N_TRANSLATION_DEBT_STAGING.md",

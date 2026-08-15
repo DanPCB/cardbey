@@ -6,7 +6,7 @@
 |--|--|
 | Stack branch | `feat/cloudflare-stream-rtmps-pilot-ci-stack` |
 | Base | PR #140 `fix/staging-ci-runway-live-market` @ `639b241de` |
-| Dashboard gitlink | `80f63c166bf448eda68c76cf304b2342ce36f8dd` (PR #102). Do **not** replace with `43140668`. |
+| Dashboard gitlink | `dadccb1fbc37fa306cb12a749b4e413eae54ef49` (compact DTO omit-nulls on PR #102). Previous pin `80f63c16`. |
 | Backup of original #139 HEAD | `backup/cloudflare-stream-rtmps-pilot-v3-20260815` @ `355d54d16` |
 | Original PR | **#139 left untouched** |
 

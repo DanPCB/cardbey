@@ -846,10 +846,74 @@ export function selectPrimaryPublishedSession(sessions, opts = {}) {
   return decorated[0]?.session || null;
 }
 
+const PUBLIC_FEED_FORBIDDEN_KEYS = new Set([
+  'rtmpsUrl',
+  'rtmpsStreamKey',
+  'streamKey',
+  'whipUrl',
+  'whepUrl',
+  'whepPlaybackUrl',
+  'accountId',
+  'apiToken',
+  'webhookSecret',
+  'token',
+  'secret',
+  'providerError',
+  'error',
+  'failureReason',
+  'credentials',
+  'webrtc',
+  'raw',
+  'providerExternalRef',
+  'hostUserId',
+]);
+
+/**
+ * Public-safe compact playback for feed / global player.
+ * Allowlists playbackState + player URLs. Never copies RTMPS/keys/tokens.
+ * @param {unknown} raw
+ * @returns {object | undefined}
+ */
+export function sanitizePublicFeedPlayback(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const row = /** @type {Record<string, unknown>} */ (raw);
+  if (String(row.playbackState || '') !== PUBLIC_PLAYBACK_STATE.LIVE) return undefined;
+  /** @type {Record<string, unknown>} */
+  const playback = { playbackState: PUBLIC_PLAYBACK_STATE.LIVE };
+  if (row.providerConfirmedLive === true) playback.providerConfirmedLive = true;
+  const playerRaw = row.player;
+  if (playerRaw && typeof playerRaw === 'object' && !Array.isArray(playerRaw)) {
+    const p = /** @type {Record<string, unknown>} */ (playerRaw);
+    /** @type {Record<string, string>} */
+    const player = {};
+    if (typeof p.provider === 'string' && p.provider.trim()) player.provider = p.provider.trim();
+    if (isPublicPlaybackMediaUrl(p.hlsUrl)) player.hlsUrl = String(p.hlsUrl).trim();
+    if (isPublicPlaybackMediaUrl(p.iframeSrc)) player.iframeSrc = String(p.iframeSrc).trim();
+    if (Object.keys(player).length) playback.player = player;
+  }
+  return playback;
+}
+
+function isPublicPlaybackMediaUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  const s = value.trim();
+  if (/^rtmps:\/\//i.test(s) || /\/whip\b/i.test(s) || /\/whep\b/i.test(s)) return false;
+  if (PUBLIC_FEED_FORBIDDEN_KEYS.has(s)) return false;
+  return /^https:\/\//i.test(s);
+}
+
 /**
  * Compact feed-card summary (no description / subjects / internals).
+ * Scheduled / connecting cards keep the historical five-field shape.
+ * Confirmed LIVE may add public-safe playback; never secrets or explicit nulls.
  * @param {object} session
- * @param {{ now?: Date, providerConfirmedLive?: boolean, displayTimezone?: string|null }} [opts]
+ * @param {{
+ *   now?: Date,
+ *   providerConfirmedLive?: boolean,
+ *   displayTimezone?: string|null,
+ *   playback?: object | null,
+ *   playerEnabled?: boolean,
+ * }} [opts]
  */
 export function toPublicFeedLiveMarketSummary(session, opts = {}) {
   if (!session) return null;
@@ -871,11 +935,16 @@ export function toPublicFeedLiveMarketSummary(session, opts = {}) {
     scheduledAt: session.scheduledStartAt ?? null,
     timezone: opts.displayTimezone || null,
     publicState,
-    providerConfirmedLive,
   };
-  // Optional canonical playback projection for global Marketplace player (no secrets).
-  if (opts.playback && typeof opts.playback === 'object') {
-    summary.playback = opts.playback;
+  const confirmedLive =
+    providerConfirmedLive && publicState === PUBLIC_STOREFRONT_LIVE_STATE.LIVE;
+  if (confirmedLive) summary.providerConfirmedLive = true;
+  if (confirmedLive && opts.playerEnabled !== false) {
+    const playback = sanitizePublicFeedPlayback(opts.playback);
+    if (playback) summary.playback = playback;
+  }
+  for (const key of Object.keys(summary)) {
+    if (PUBLIC_FEED_FORBIDDEN_KEYS.has(key)) delete summary[key];
   }
   return summary;
 }
