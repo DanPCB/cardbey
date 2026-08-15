@@ -41,7 +41,8 @@ pnpm run build
 RTMPS product code, Render secrets, Cloudflare, schema/migrations content.
 
 ## Known remaining (separate from this repair)
-- **`BLOCKED_PRISMA_MIGRATION_CHAIN`**: with a working shadow DB, `prisma migrate diff --from-migrations … --exit-code` reports large drift (schema models such as TemplateLibrary / commerce tables vs migration history). Do **not** auto-baseline, edit historical migrations, or replace with `db push` in this CI-repair PR. Needs a dedicated migration-alignment PR.
+- **`BLOCKED_PRISMA_MIGRATION_CHAIN`**: with a working shadow DB, `prisma migrate diff --from-migrations … --exit-code` reports large drift (schema models such as TemplateLibrary / commerce tables vs migration history). Job `Prisma schema vs migrations (no drift)` fails honestly. `migrate deploy` on empty disposable Postgres **succeeds**. Do **not** auto-baseline, edit historical migrations, or replace with `db push` in this CI-repair PR. Needs a dedicated migration-alignment PR.
 - **`GITHUB_SUBMODULE_TOKEN`**: must be set on `DanPCB/cardbey` Actions secrets for monorepo dashboard jobs. Until then, use dashboard standalone PR checks (#103).
+- **Full core Vitest suite** on staging tip still reports many unrelated product failures after tsx is fixed (tsx was the previous hard stop). Live Market suite is the required runway gate (`test:live-market`).
 - **Build Artifact** on `staging`: Docker `cache-to: type=gha` without buildx setup; dashboard image still needs submodule auth.
 - RTMPS PRs #102 / #139 are **not** merged by this work.

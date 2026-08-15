@@ -70,6 +70,38 @@ jobs:
       - name: Run tests
         run: npm run test
 
+  live-market:
+    name: Live Market tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/core/cardbey-core
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/core/cardbey-core/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prove tsx resolves from declared dependency
+        run: node -e "const fs=require('fs'); const p=require('path'); const c=['node_modules/tsx/dist/loader.mjs','../../../node_modules/tsx/dist/loader.mjs'].map(x=>p.resolve(x)); const hit=c.find(fs.existsSync); if(!hit){console.error('tsx missing',c); process.exit(1)}; console.log('tsx_ok',hit);"
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/sqlite/schema.prisma
+
+      - name: Prepare test database
+        run: npx prisma db push --schema prisma/sqlite/schema.prisma --accept-data-loss
+
+      - name: Run Live Market suite
+        run: npm run test:live-market
+
   render-readiness:
     name: Render deploy readiness
     runs-on: ubuntu-latest

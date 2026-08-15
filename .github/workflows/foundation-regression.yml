@@ -104,8 +104,9 @@ jobs:
         run: node -e "const fs=require('fs'); const p=require('path'); const c=['node_modules/tsx/dist/loader.mjs','../../../node_modules/tsx/dist/loader.mjs'].map(x=>p.resolve(x)); const hit=c.find(fs.existsSync); if(!hit){console.error('tsx missing',c); process.exit(1)}; console.log('tsx_ok',hit);"
       - name: Prisma generate + test DB
         run: npm run pretest
-      - name: Vitest
-        run: npm run test
+      - name: Live Market Vitest
+        run: npm run test:live-market
+
 
   dashboard-tests:
     name: Dashboard unit tests
