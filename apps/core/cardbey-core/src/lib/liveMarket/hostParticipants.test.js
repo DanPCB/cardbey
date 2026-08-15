@@ -23,6 +23,9 @@ vi.mock('./audit.js', () => ({
 }));
 
 const mockPrisma = {
+  liveMarketPilotEnrollment: {
+    findUnique: vi.fn(),
+  },
   liveMarketSession: {
     findFirst: vi.fn(),
   },
@@ -52,6 +55,10 @@ import { LIVE_QUESTION_REVIEW_STATUS } from './domain.js';
 describe('host participant workspace (Batch A)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.liveMarketPilotEnrollment.findUnique.mockResolvedValue({
+      storeId: 'store1',
+      state: 'ACTIVE',
+    });
     mockPrisma.liveMarketSession.findFirst.mockResolvedValue({
       id: 'sess1',
       storeId: 'store1',
@@ -164,7 +171,7 @@ describe('host participant workspace (Batch A)', () => {
     expect(first.participant.questionReviewStatus).toBe('REVIEWED');
     expect(appendLiveMarketAudit).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'LIVE_PARTICIPANT_QUESTION_REVIEWED',
+        action: 'LIVE_PARTICIPANT_QUESTION_REVIEW_CHANGED',
         fromStatus: 'NEW',
         toStatus: 'REVIEWED',
         metadata: expect.objectContaining({ hasQuestion: true }),
@@ -198,6 +205,46 @@ describe('host participant workspace (Batch A)', () => {
         reviewStatus: 'DONE',
       }),
     ).rejects.toMatchObject({ code: 'LIVE_QUESTION_REVIEW_INVALID' });
+  });
+
+  it('rejects disallowed review transition', async () => {
+    mockPrisma.liveMarketParticipantRegistration.findFirst.mockResolvedValue({
+      id: 'reg1',
+      sessionId: 'sess1',
+      storeId: 'store1',
+      userId: 'u1',
+      preferredLanguage: 'en',
+      status: 'REGISTERED',
+      registeredAt: new Date('2026-08-14T01:00:00.000Z'),
+      cancelledAt: null,
+      questionForHost: 'Will you ship internationally?',
+      questionReviewStatus: 'NEW',
+      interestSubjectId: null,
+      interestSubjectType: null,
+    });
+    await expect(
+      updateParticipantQuestionReview({
+        prisma: mockPrisma,
+        storeId: 'store1',
+        sessionId: 'sess1',
+        registrationId: 'reg1',
+        reviewStatus: LIVE_QUESTION_REVIEW_STATUS.ANSWERED,
+      }),
+    ).rejects.toMatchObject({ code: 'LIVE_QUESTION_REVIEW_INVALID' });
+  });
+
+  it('rejects removed enrolment for host participants', async () => {
+    mockPrisma.liveMarketPilotEnrollment.findUnique.mockResolvedValue({
+      storeId: 'store1',
+      state: 'REMOVED',
+    });
+    await expect(
+      listSessionParticipantsForOwner({
+        prisma: mockPrisma,
+        storeId: 'store1',
+        sessionId: 'sess1',
+      }),
+    ).rejects.toMatchObject({ code: 'LIVE_ENROLLMENT_NOT_ACTIVE', status: 403 });
   });
 
   it('rejects cross-store missing session', async () => {

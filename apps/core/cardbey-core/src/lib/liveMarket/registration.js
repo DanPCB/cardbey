@@ -12,6 +12,7 @@ import {
   LIVE_REGISTRATION_STATUS,
   LIVE_QUESTION_REVIEW_STATUS,
   LIVE_PARTICIPANT_TYPE,
+  assertQuestionReviewTransition,
   evaluateRegistrationAvailability,
   toPublicRegistrationDto,
 } from './domain.js';
@@ -507,16 +508,40 @@ function requireHostParticipantsFlag() {
   }
 }
 
+async function assertHostParticipantsEnrolment(db, storeId) {
+  const enrollment = await getEnrollmentForStore(db, storeId);
+  if (!enrollment) {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_STORE_NOT_ENROLLED,
+      'store not enrolled',
+      403,
+    );
+  }
+  const state = String(enrollment.state || '');
+  if (state !== 'ACTIVE' && state !== 'PAUSED') {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_ENROLLMENT_NOT_ACTIVE,
+      'enrolment does not allow host participants',
+      403,
+    );
+  }
+  return enrollment;
+}
+
 function toOwnerParticipantDto(row, extras = {}) {
   const hasQuestion = !!(row.questionForHost && String(row.questionForHost).trim());
   return {
     id: row.id,
+    registrationId: row.id,
     participantType: LIVE_PARTICIPANT_TYPE.ACCOUNT,
     displayName: extras.displayName || 'Participant',
     preferredLanguage: row.preferredLanguage,
     status: row.status,
+    registrationStatus: row.status,
     registeredAt: row.registeredAt,
     cancelledAt: row.cancelledAt ?? null,
+    hasQuestion,
+    question: hasQuestion ? row.questionForHost : null,
     questionForHost: hasQuestion ? row.questionForHost : null,
     questionReviewStatus: hasQuestion
       ? row.questionReviewStatus || LIVE_QUESTION_REVIEW_STATUS.NEW
@@ -524,6 +549,14 @@ function toOwnerParticipantDto(row, extras = {}) {
     interestSubjectId: row.interestSubjectId ?? null,
     interestSubjectType: row.interestSubjectType ?? null,
     interestName: extras.interestName ?? null,
+    interest:
+      row.interestSubjectId != null
+        ? {
+            subjectId: row.interestSubjectId,
+            subjectType: row.interestSubjectType || null,
+            publicName: extras.interestName ?? null,
+          }
+        : null,
   };
 }
 
@@ -545,6 +578,7 @@ export async function listSessionParticipantsForOwner({
 } = {}) {
   requireHostParticipantsFlag();
   const db = client(prisma);
+  await assertHostParticipantsEnrolment(db, storeId);
   const session = await db.liveMarketSession.findFirst({
     where: { id: String(sessionId), storeId: String(storeId) },
     select: { id: true, storeId: true },
@@ -604,7 +638,8 @@ export async function listSessionParticipantsForOwner({
     db.liveMarketParticipantRegistration.count({ where }),
     db.liveMarketParticipantRegistration.findMany({
       where,
-      orderBy: [{ registeredAt: 'desc' }, { id: 'desc' }],
+      // Active (REGISTERED) before cancelled, then most recently registered.
+      orderBy: [{ status: 'desc' }, { registeredAt: 'desc' }, { id: 'desc' }],
       skip,
       take: size,
       select: {
@@ -704,6 +739,7 @@ export async function updateParticipantQuestionReview({
     );
   }
   const db = client(prisma);
+  await assertHostParticipantsEnrolment(db, storeId);
   const row = await db.liveMarketParticipantRegistration.findFirst({
     where: {
       id: String(registrationId),
@@ -736,6 +772,15 @@ export async function updateParticipantQuestionReview({
     };
   }
 
+  const transition = assertQuestionReviewTransition(fromStatus, next);
+  if (!transition.ok) {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_QUESTION_REVIEW_INVALID,
+      'Invalid question review transition',
+      400,
+    );
+  }
+
   const updated = await db.liveMarketParticipantRegistration.update({
     where: { id: row.id },
     data: { questionReviewStatus: next },
@@ -745,14 +790,15 @@ export async function updateParticipantQuestionReview({
     prisma: db,
     entityType: 'LiveMarketParticipantRegistration',
     entityId: updated.id,
-    action: 'LIVE_PARTICIPANT_QUESTION_REVIEWED',
+    action: 'LIVE_PARTICIPANT_QUESTION_REVIEW_CHANGED',
     fromStatus,
     toStatus: next,
     actorId: actorId ? String(actorId) : null,
-    reason: LIVE_MARKET_AUDIT_REASONS.PARTICIPANT_QUESTION_REVIEWED,
+    reason: LIVE_MARKET_AUDIT_REASONS.PARTICIPANT_QUESTION_REVIEW_CHANGED,
     metadata: {
       sessionId: updated.sessionId,
       storeId: updated.storeId,
+      registrationId: updated.id,
       // Intentionally omit question text and contact fields
       hasQuestion: true,
     },

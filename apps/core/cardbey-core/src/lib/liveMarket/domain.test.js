@@ -3,6 +3,7 @@ import { Features, snapshotFeatures } from '../../config/features.js';
 import {
   assertEnrollmentTransition,
   assertSessionTransition,
+  assertQuestionReviewTransition,
   assertHostActionAllowed,
   validateSessionSubject,
   normalizeSubjectInputs,
@@ -36,7 +37,6 @@ describe('liveMarket feature flags', () => {
     'ENABLE_LIVE_MARKET_REGISTRATION_V1',
     'ENABLE_LIVE_MARKET_REGISTRATION_SUMMARY_V1',
     'ENABLE_LIVE_MARKET_HOST_PARTICIPANTS_V1',
-    'ENABLE_GLOBAL_LIVE_HOST_PARTICIPANTS_V1',
   ];
   const prev = {};
 
@@ -138,6 +138,21 @@ describe('liveMarket session transitions', () => {
   it('allows READY → LIVE only as a later provider-backed step', () => {
     expect(assertSessionTransition('SCHEDULED', 'READY').ok).toBe(true);
     expect(assertSessionTransition('READY', 'LIVE').ok).toBe(true);
+  });
+});
+
+describe('liveMarket question review transitions', () => {
+  it('allows Batch A host review graph', () => {
+    expect(assertQuestionReviewTransition('NEW', 'REVIEWED').ok).toBe(true);
+    expect(assertQuestionReviewTransition('NEW', 'PLANNED').ok).toBe(true);
+    expect(assertQuestionReviewTransition('PLANNED', 'ANSWERED').ok).toBe(true);
+    expect(assertQuestionReviewTransition('ANSWERED', 'REVIEWED').ok).toBe(true);
+    expect(assertQuestionReviewTransition('DISMISSED', 'REVIEWED').ok).toBe(true);
+  });
+
+  it('rejects NEW → ANSWERED and unknown states', () => {
+    expect(assertQuestionReviewTransition('NEW', 'ANSWERED').ok).toBe(false);
+    expect(assertQuestionReviewTransition('NEW', 'DONE').ok).toBe(false);
   });
 });
 

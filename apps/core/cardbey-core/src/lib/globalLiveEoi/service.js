@@ -16,8 +16,16 @@ import {
   resolvePilot,
   sanitizeText,
   toAdminEoiDto,
+  toApplicantEoiDto,
   toPublicPilotDto,
 } from './domain.js';
+import { buildServerConsentEvidence } from './consentEvidence.js';
+import { generateEoiPublicReference } from './publicReference.js';
+import {
+  confirmationStatusFromResult,
+  sendEoiConfirmation,
+} from './sendEoiConfirmation.js';
+import { getEoiOperationalHealth } from './health.js';
 
 function makeError(code, message, status = 400) {
   const err = new Error(message || code);
@@ -41,6 +49,8 @@ export function getPublicConfig(pilotIdInput) {
     consentRequired: true,
   };
 }
+
+export { getEoiOperationalHealth };
 
 /**
  * Create EOI or soft-dedupe recent duplicate for same pilot + email.
@@ -74,7 +84,6 @@ export async function submitEoiRegistration(input, ctx = {}) {
   });
 
   if (existing) {
-    // Idempotent success — do not leak duplicate/account signals to client.
     return { created: false, registration: existing };
   }
 
@@ -83,43 +92,131 @@ export async function submitEoiRegistration(input, ctx = {}) {
     ctx.userId && typeof ctx.userId === 'string' && ctx.userId.trim()
       ? ctx.userId.trim()
       : null;
-  // Only accept client storeId when authenticated; never invent ownership.
-  const storeId =
-    sessionUserId && input.storeId && String(input.storeId).trim()
-      ? String(input.storeId).trim()
-      : null;
 
-  const row = await prisma.globalLiveEoiRegistration.create({
-    data: {
-      pilotId,
-      userId: sessionUserId,
-      storeId,
-      name: sanitizeText(input.name, 120),
-      businessName: sanitizeText(input.businessName, 200),
-      industry: sanitizeText(input.industry, 120),
-      city: sanitizeText(input.city, 120),
-      country: sanitizeText(input.country || pilot.defaultCountry || 'Vietnam', 120),
-      phone,
-      email: sanitizeText(input.email, 200),
-      emailNormalized,
-      showcaseTypes: input.showcaseTypes,
-      businessDescription: sanitizeText(input.businessDescription, 2000),
-      existingCardbeyBusiness: input.existingCardbeyBusiness,
-      businessUrl: normalizeBusinessUrl(input.businessUrl),
-      language: input.language ? sanitizeText(input.language, 16) : null,
-      source: input.source ? sanitizeText(input.source, 200) : null,
-      campaign: input.campaign ? sanitizeText(input.campaign, 200) : null,
-      utmSource: input.utmSource ? sanitizeText(input.utmSource, 200) : null,
-      utmMedium: input.utmMedium ? sanitizeText(input.utmMedium, 200) : null,
-      utmCampaign: input.utmCampaign ? sanitizeText(input.utmCampaign, 200) : null,
-      utmContent: input.utmContent ? sanitizeText(input.utmContent, 200) : null,
-      referrer: input.referrer ? sanitizeText(input.referrer, 500) : null,
-      socialProvider: input.socialProvider ? sanitizeText(input.socialProvider, 200) : null,
-      consentGranted: true,
-      consentAt: now,
-      status: GLOBAL_LIVE_EOI_STATUS.SUBMITTED,
-    },
-  });
+  let storeId = null;
+  const requestedStoreId =
+    input.storeId && String(input.storeId).trim() ? String(input.storeId).trim() : null;
+  if (requestedStoreId) {
+    if (!sessionUserId) {
+      storeId = null;
+    } else {
+      const owned = await prisma.business.findFirst({
+        where: { id: requestedStoreId, userId: sessionUserId },
+        select: { id: true },
+      });
+      if (!owned) {
+        throw makeError(
+          GLOBAL_LIVE_EOI_ERROR_CODES.VALIDATION,
+          'Selected business is not available for this account',
+          400,
+        );
+      }
+      storeId = owned.id;
+    }
+  }
+
+  // Server-authoritative consent — ignore any client version fields.
+  const consent = buildServerConsentEvidence({ language: input.language });
+
+  let row = null;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      row = await prisma.globalLiveEoiRegistration.create({
+        data: {
+          pilotId,
+          userId: sessionUserId,
+          storeId,
+          name: sanitizeText(input.name, 120),
+          businessName: sanitizeText(input.businessName, 200),
+          industry: sanitizeText(input.industry, 120),
+          city: sanitizeText(input.city, 120),
+          country: sanitizeText(input.country || pilot.defaultCountry || 'Vietnam', 120),
+          phone,
+          email: sanitizeText(input.email, 200),
+          emailNormalized,
+          showcaseTypes: input.showcaseTypes,
+          businessDescription: sanitizeText(input.businessDescription, 2000),
+          existingCardbeyBusiness: input.existingCardbeyBusiness,
+          businessUrl: normalizeBusinessUrl(input.businessUrl),
+          language: input.language ? sanitizeText(input.language, 16) : null,
+          source: input.source ? sanitizeText(input.source, 200) : null,
+          campaign: input.campaign ? sanitizeText(input.campaign, 200) : null,
+          utmSource: input.utmSource ? sanitizeText(input.utmSource, 200) : null,
+          utmMedium: input.utmMedium ? sanitizeText(input.utmMedium, 200) : null,
+          utmCampaign: input.utmCampaign ? sanitizeText(input.utmCampaign, 200) : null,
+          utmContent: input.utmContent ? sanitizeText(input.utmContent, 200) : null,
+          referrer: input.referrer ? sanitizeText(input.referrer, 500) : null,
+          socialProvider: input.socialProvider ? sanitizeText(input.socialProvider, 200) : null,
+          consentGranted: true,
+          consentAt: now,
+          consentVersion: consent.consentVersion,
+          privacyVersion: consent.privacyVersion,
+          termsVersion: consent.termsVersion,
+          consentLocale: consent.consentLocale,
+          consentContext: consent.consentContext,
+          consentTextHash: consent.consentTextHash,
+          publicReference: generateEoiPublicReference(),
+          status: GLOBAL_LIVE_EOI_STATUS.SUBMITTED,
+        },
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      // Unique collision on publicReference — retry with a new opaque id.
+      if (err?.code === 'P2002') continue;
+      throw err;
+    }
+  }
+  if (!row) {
+    console.warn('[GlobalLiveEoi] create failed after reference retries', {
+      code: lastErr?.code || 'unknown',
+    });
+    throw makeError(GLOBAL_LIVE_EOI_ERROR_CODES.UNKNOWN, 'Unable to process your request', 500);
+  }
+
+  // Best-effort confirmation — never fail create if delivery fails.
+  try {
+    const delivery = await sendEoiConfirmation({
+      name: row.name,
+      businessName: row.businessName,
+      email: row.email,
+      phone: row.phone,
+      language: row.language,
+      country: row.country,
+      pilotId: row.pilotId,
+      registrationId: row.id,
+      publicReference: row.publicReference,
+      createdAt: row.createdAt,
+      showcaseTypes: row.showcaseTypes,
+      status: row.status,
+      storeId: row.storeId,
+      userId: row.userId,
+      confirmationEmailStatus: row.confirmationEmailStatus,
+    });
+    const status = confirmationStatusFromResult(delivery.email);
+    const updated = await prisma.globalLiveEoiRegistration.update({
+      where: { id: row.id },
+      data: {
+        confirmationEmailStatus: status,
+        confirmationSentAt: status === 'sent' ? new Date() : null,
+      },
+    });
+    row = updated;
+  } catch (err) {
+    console.warn('[GlobalLiveEoi] Confirmation failed (registration kept)', {
+      registrationId: row.id,
+      error: err?.message ? String(err.message).slice(0, 120) : 'unknown',
+    });
+    try {
+      row = await prisma.globalLiveEoiRegistration.update({
+        where: { id: row.id },
+        data: { confirmationEmailStatus: 'failed' },
+      });
+    } catch {
+      /* keep original row */
+    }
+  }
 
   return { created: true, registration: row };
 }
@@ -134,6 +231,24 @@ export async function listEoiRegistrations(query = {}) {
   if (query.pilotId) where.pilotId = String(query.pilotId).trim();
   if (query.status && GLOBAL_LIVE_EOI_STATUSES.includes(String(query.status))) {
     where.status = String(query.status);
+  }
+  if (query.createdFrom || query.createdTo) {
+    where.createdAt = {};
+    if (query.createdFrom) {
+      const d = new Date(query.createdFrom);
+      if (!Number.isNaN(d.getTime())) where.createdAt.gte = d;
+    }
+    if (query.createdTo) {
+      const d = new Date(query.createdTo);
+      if (!Number.isNaN(d.getTime())) where.createdAt.lte = d;
+    }
+  }
+  const q = query.q != null ? String(query.q).trim() : '';
+  if (q) {
+    where.OR = [
+      { businessName: { contains: q } },
+      { publicReference: { contains: q } },
+    ];
   }
 
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
@@ -179,6 +294,20 @@ export async function listEoiRegistrations(query = {}) {
   };
 }
 
+export async function getEoiRegistration(id) {
+  if (!Features.globalLiveEoi.v1) {
+    throw makeError(GLOBAL_LIVE_EOI_ERROR_CODES.DISABLED, 'Global Live EOI is disabled', 403);
+  }
+  const prisma = getPrismaClient();
+  const row = await prisma.globalLiveEoiRegistration.findUnique({
+    where: { id: String(id).trim() },
+  });
+  if (!row) {
+    throw makeError(GLOBAL_LIVE_EOI_ERROR_CODES.NOT_FOUND, 'Registration not found', 404);
+  }
+  return toAdminEoiDto(row);
+}
+
 export async function updateEoiStatus(id, status) {
   if (!Features.globalLiveEoi.v1) {
     throw makeError(GLOBAL_LIVE_EOI_ERROR_CODES.DISABLED, 'Global Live EOI is disabled', 403);
@@ -200,4 +329,65 @@ export async function updateEoiStatus(id, status) {
     data: { status },
   });
   return toAdminEoiDto(updated);
+}
+
+/**
+ * Authenticated applicant view — only rows linked by userId or verified email match.
+ * Possession of publicReference alone never grants access.
+ */
+export async function listMyEoiApplications({ userId, user, locale = 'en', limit } = {}) {
+  if (!Features.globalLiveEoi.v1) {
+    throw makeError(GLOBAL_LIVE_EOI_ERROR_CODES.DISABLED, 'Global Live EOI is disabled', 403);
+  }
+  const uid = userId && String(userId).trim() ? String(userId).trim() : null;
+  if (!uid) {
+    throw makeError(GLOBAL_LIVE_EOI_ERROR_CODES.VALIDATION, 'Authentication required', 401);
+  }
+
+  const prisma = getPrismaClient();
+  const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
+
+  const byUser = await prisma.globalLiveEoiRegistration.findMany({
+    where: { userId: uid },
+    orderBy: { createdAt: 'desc' },
+    take,
+  });
+
+  const emailVerified = Boolean(user?.emailVerified === true || user?.emailVerified === 1);
+  const userEmailNorm = normalizeEmail(user?.email || '');
+
+  // Link orphan rows only when email is verified and matches (side effect for claim).
+  if (emailVerified && userEmailNorm) {
+    const orphans = await prisma.globalLiveEoiRegistration.findMany({
+      where: {
+        userId: null,
+        emailNormalized: userEmailNorm,
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    for (const orphan of orphans) {
+      try {
+        await prisma.globalLiveEoiRegistration.update({
+          where: { id: orphan.id },
+          data: { userId: uid },
+        });
+        orphan.userId = uid;
+        byUser.push(orphan);
+      } catch {
+        /* ignore race */
+      }
+    }
+  }
+
+  const seen = new Set();
+  const items = [];
+  for (const row of byUser.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    items.push(toApplicantEoiDto(row, locale === 'vi' ? 'vi' : 'en'));
+    if (items.length >= take) break;
+  }
+
+  return { items, total: items.length };
 }

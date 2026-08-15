@@ -10,6 +10,7 @@ export const GLOBAL_LIVE_EOI_ERROR_CODES = Object.freeze({
   VALIDATION: 'GLOBAL_LIVE_EOI_VALIDATION',
   NOT_FOUND: 'GLOBAL_LIVE_EOI_NOT_FOUND',
   UNKNOWN_PILOT: 'GLOBAL_LIVE_EOI_UNKNOWN_PILOT',
+  UNKNOWN: 'GLOBAL_LIVE_EOI_ERROR',
 });
 
 export const GLOBAL_LIVE_EOI_STATUS = Object.freeze({
@@ -181,6 +182,7 @@ export function toAdminEoiDto(row) {
   if (!row) return null;
   return {
     id: row.id,
+    publicReference: row.publicReference ?? null,
     pilotId: row.pilotId,
     userId: row.userId ?? null,
     storeId: row.storeId ?? null,
@@ -206,8 +208,187 @@ export function toAdminEoiDto(row) {
     socialProvider: row.socialProvider ?? null,
     consentGranted: Boolean(row.consentGranted),
     consentAt: row.consentAt ? new Date(row.consentAt).toISOString() : null,
+    consentVersion: row.consentVersion ?? null,
+    privacyVersion: row.privacyVersion ?? null,
+    termsVersion: row.termsVersion ?? null,
+    consentLocale: row.consentLocale ?? null,
+    consentContext: row.consentContext ?? null,
+    consentTextHash: row.consentTextHash ?? null,
+    consentEvidence: {
+      versioned: Boolean(row.consentVersion && row.consentTextHash),
+      label: row.consentVersion && row.consentTextHash ? 'versioned' : 'legacy_unversioned',
+    },
+    businessLink: row.storeId
+      ? { linked: true, storeId: row.storeId }
+      : { linked: false, storeId: null },
     status: row.status,
+    confirmationEmailStatus: row.confirmationEmailStatus ?? null,
+    confirmationSentAt: row.confirmationSentAt
+      ? new Date(row.confirmationSentAt).toISOString()
+      : null,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+/** Applicant-facing public status codes (mapped from internal EOI status). */
+export const GLOBAL_LIVE_EOI_APPLICANT_STATUS = Object.freeze({
+  RECEIVED: 'received',
+  REVIEWING: 'reviewing',
+  SHORTLISTED: 'shortlisted',
+  SELECTED: 'selected',
+  WAITLISTED: 'waitlisted',
+  CLOSED: 'closed',
+  WITHDRAWN: 'withdrawn',
+});
+
+/**
+ * Map internal status → public-safe applicant status (no inventing progress).
+ * @param {string} internalStatus
+ */
+export function toApplicantStatus(internalStatus) {
+  switch (String(internalStatus || '')) {
+    case GLOBAL_LIVE_EOI_STATUS.SUBMITTED:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.RECEIVED;
+    case GLOBAL_LIVE_EOI_STATUS.UNDER_REVIEW:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.REVIEWING;
+    case GLOBAL_LIVE_EOI_STATUS.SHORTLISTED:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.SHORTLISTED;
+    case GLOBAL_LIVE_EOI_STATUS.SELECTED:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.SELECTED;
+    case GLOBAL_LIVE_EOI_STATUS.WAITLISTED:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.WAITLISTED;
+    case GLOBAL_LIVE_EOI_STATUS.DECLINED:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.CLOSED;
+    case GLOBAL_LIVE_EOI_STATUS.WITHDRAWN:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.WITHDRAWN;
+    default:
+      return GLOBAL_LIVE_EOI_APPLICANT_STATUS.RECEIVED;
+  }
+}
+
+/**
+ * @param {string} applicantStatus
+ * @param {'vi'|'en'} locale
+ */
+export function applicantStatusLabel(applicantStatus, locale = 'en') {
+  const vi = locale === 'vi';
+  switch (applicantStatus) {
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.RECEIVED:
+      return vi ? 'Đã nhận' : 'Received';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.REVIEWING:
+      return vi ? 'Đang xem xét' : 'Under review';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.SHORTLISTED:
+      return vi ? 'Đã vào danh sách ngắn' : 'Shortlisted';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.SELECTED:
+      return vi ? 'Được chọn tham gia thí điểm' : 'Selected for the pilot';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.WAITLISTED:
+      return vi ? 'Danh sách chờ' : 'Waitlisted';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.CLOSED:
+      return vi ? 'Không được chọn lần này' : 'Not selected this round';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.WITHDRAWN:
+      return vi ? 'Đã rút hồ sơ' : 'Withdrawn';
+    default:
+      return vi ? 'Đã nhận' : 'Received';
+  }
+}
+
+/**
+ * @param {string} applicantStatus
+ * @param {'vi'|'en'} locale
+ */
+export function applicantNextStep(applicantStatus, locale = 'en') {
+  const vi = locale === 'vi';
+  switch (applicantStatus) {
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.RECEIVED:
+      return vi
+        ? 'Cardbey sẽ xem xét hồ sơ và liên hệ nếu doanh nghiệp phù hợp.'
+        : 'Cardbey will review your application and contact you if your business is a fit.';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.REVIEWING:
+      return vi
+        ? 'Hồ sơ đang được xem xét. Bạn không cần gửi lại.'
+        : 'Your application is being reviewed. You do not need to resubmit.';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.SHORTLISTED:
+      return vi
+        ? 'Cardbey có thể liên hệ để trao đổi bước tiếp theo.'
+        : 'Cardbey may contact you to discuss next steps.';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.SELECTED:
+      return vi
+        ? 'Nếu được hướng dẫn, hãy chuẩn bị gian hàng và nội dung phiên Global Live.'
+        : 'When guided, prepare your storefront and Global Live session content.';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.WAITLISTED:
+      return vi
+        ? 'Hồ sơ đang ở danh sách chờ. Cardbey sẽ liên hệ nếu có suất.'
+        : 'Your application is on the waitlist. Cardbey will contact you if a place opens.';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.CLOSED:
+      return vi
+        ? 'Cảm ơn bạn đã đăng ký. Hãy tiếp tục cập nhật doanh nghiệp trên Cardbey.'
+        : 'Thank you for applying. Keep your Cardbey business profile up to date.';
+    case GLOBAL_LIVE_EOI_APPLICANT_STATUS.WITHDRAWN:
+      return vi
+        ? 'Hồ sơ đã được rút. Bạn có thể gửi hồ sơ mới khi chương trình mở.'
+        : 'This application was withdrawn. You may apply again when the pilot is open.';
+    default:
+      return vi
+        ? 'Cardbey sẽ xem xét hồ sơ và liên hệ nếu doanh nghiệp phù hợp.'
+        : 'Cardbey will review your application and contact you if your business is a fit.';
+  }
+}
+
+export function pilotDisplayName(pilotId, locale = 'en') {
+  const { pilot } = resolvePilot(pilotId);
+  if (locale === 'vi') {
+    return 'Cardbey Global Live — Việt Nam → Úc';
+  }
+  if (pilot?.label) {
+    return `Cardbey Global Live — ${pilot.label}`;
+  }
+  return 'Cardbey Global Live — Vietnam → Australia';
+}
+
+export function showcaseTypeLabels(types, locale = 'en') {
+  const list = Array.isArray(types) ? types : [];
+  const vi = locale === 'vi';
+  const map = vi
+    ? {
+        products: 'Sản phẩm',
+        services: 'Dịch vụ',
+        business_story: 'Câu chuyện doanh nghiệp',
+        demonstration: 'Trình diễn trực tiếp',
+        promotion_offer: 'Khuyến mãi hoặc ưu đãi',
+        other: 'Khác',
+      }
+    : {
+        products: 'Products',
+        services: 'Services',
+        business_story: 'Business story',
+        demonstration: 'Live demonstration',
+        promotion_offer: 'Promotion or offer',
+        other: 'Other',
+      };
+  return list.map((t) => map[t] || t).filter(Boolean);
+}
+
+/**
+ * Public-safe applicant DTO — no admin notes, scores, contact history, or internal cuid.
+ * @param {object} row
+ * @param {'vi'|'en'} [locale]
+ */
+export function toApplicantEoiDto(row, locale = 'en') {
+  if (!row) return null;
+  const status = toApplicantStatus(row.status);
+  const loc = locale === 'vi' ? 'vi' : 'en';
+  return {
+    publicReference: row.publicReference || null,
+    pilotId: row.pilotId,
+    pilotDisplayName: pilotDisplayName(row.pilotId, loc),
+    businessName: row.businessName,
+    submittedAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+    status,
+    statusLabel: applicantStatusLabel(status, loc),
+    nextStep: applicantNextStep(status, loc),
+    preferredLanguage: row.language || null,
+    presentationTypes: showcaseTypeLabels(row.showcaseTypes, loc),
   };
 }

@@ -105,7 +105,7 @@ export const LIVE_MARKET_AUDIT_REASONS = Object.freeze({
   STOREFRONT_WITHDRAWN: 'LIVE_SESSION_STOREFRONT_WITHDRAWN',
   PARTICIPANT_REGISTERED: 'LIVE_PARTICIPANT_REGISTERED',
   PARTICIPANT_REGISTRATION_CANCELLED: 'LIVE_PARTICIPANT_REGISTRATION_CANCELLED',
-  PARTICIPANT_QUESTION_REVIEWED: 'LIVE_PARTICIPANT_QUESTION_REVIEWED',
+  PARTICIPANT_QUESTION_REVIEW_CHANGED: 'LIVE_PARTICIPANT_QUESTION_REVIEW_CHANGED',
 });
 
 /** Audience registration status — attendance states reserved until truthful. */
@@ -121,6 +121,18 @@ export const LIVE_QUESTION_REVIEW_STATUS = Object.freeze({
   PLANNED: 'PLANNED',
   ANSWERED: 'ANSWERED',
   DISMISSED: 'DISMISSED',
+});
+
+/**
+ * Allowed question-review transitions (Batch A).
+ * Same-state updates are idempotent at the service layer (not listed here).
+ */
+export const QUESTION_REVIEW_TRANSITIONS = Object.freeze({
+  NEW: Object.freeze(['REVIEWED', 'PLANNED', 'DISMISSED']),
+  REVIEWED: Object.freeze(['PLANNED', 'ANSWERED', 'DISMISSED']),
+  PLANNED: Object.freeze(['REVIEWED', 'ANSWERED', 'DISMISSED']),
+  ANSWERED: Object.freeze(['REVIEWED']),
+  DISMISSED: Object.freeze(['REVIEWED']),
 });
 
 export const LIVE_PARTICIPANT_TYPE = Object.freeze({
@@ -267,6 +279,44 @@ export function assertSessionTransition(from, to) {
 }
 
 /**
+ * @param {string} from
+ * @param {string} to
+ */
+export function canTransitionQuestionReview(from, to) {
+  const allowed = QUESTION_REVIEW_TRANSITIONS[from];
+  return Array.isArray(allowed) && allowed.includes(to);
+}
+
+/**
+ * @param {string} from
+ * @param {string} to
+ */
+export function assertQuestionReviewTransition(from, to) {
+  const fromStatus = String(from || '').toUpperCase();
+  const toStatus = String(to || '').toUpperCase();
+  if (
+    !Object.values(LIVE_QUESTION_REVIEW_STATUS).includes(fromStatus) ||
+    !Object.values(LIVE_QUESTION_REVIEW_STATUS).includes(toStatus)
+  ) {
+    return {
+      ok: false,
+      code: LIVE_MARKET_ERROR_CODES.LIVE_QUESTION_REVIEW_INVALID,
+      from: fromStatus,
+      to: toStatus,
+    };
+  }
+  if (!canTransitionQuestionReview(fromStatus, toStatus)) {
+    return {
+      ok: false,
+      code: LIVE_MARKET_ERROR_CODES.LIVE_QUESTION_REVIEW_INVALID,
+      from: fromStatus,
+      to: toStatus,
+    };
+  }
+  return { ok: true, from: fromStatus, to: toStatus };
+}
+
+/**
  * Host capability vs enrolment state (Phase 1 decision):
  * - ACTIVE: full draft/schedule/prepare/start/cancel (prepare/start still need provider)
  * - PAUSED: draft edit, subjects, cancel only; block schedule/prepare/start
@@ -283,6 +333,7 @@ export function hostCapabilitiesForEnrollment(enrollmentState) {
       canSchedule: true,
       canPrepareOrStart: true,
       canCancel: true,
+      canManageHostParticipants: true,
     };
   }
   if (state === 'PAUSED') {
@@ -292,6 +343,7 @@ export function hostCapabilitiesForEnrollment(enrollmentState) {
       canSchedule: false,
       canPrepareOrStart: false,
       canCancel: true,
+      canManageHostParticipants: true,
     };
   }
   return {
@@ -300,6 +352,7 @@ export function hostCapabilitiesForEnrollment(enrollmentState) {
     canSchedule: false,
     canPrepareOrStart: false,
     canCancel: false,
+    canManageHostParticipants: false,
   };
 }
 
@@ -334,6 +387,8 @@ export function ownerOperationalCapabilities(enrollmentState, opts = {}) {
     /** Withdraw allowed for ACTIVE or PAUSED (safety). */
     canWithdrawStorefront:
       String(enrollmentState || '') === 'ACTIVE' || String(enrollmentState || '') === 'PAUSED',
+    /** Batch A host participant workspace — ACTIVE or PAUSED; REMOVED blocked. */
+    canManageHostParticipants: Boolean(base.canManageHostParticipants),
   };
 }
 
@@ -401,7 +456,7 @@ export function toOwnerLiveMarketStatusDto(input) {
 
 /**
  * @param {EnrollmentState|string|null|undefined} enrollmentState
- * @param {'draft'|'subjects'|'schedule'|'prepare'|'start'|'cancel'} action
+ * @param {'draft'|'subjects'|'schedule'|'prepare'|'start'|'cancel'|'publish_storefront'|'withdraw_storefront'|'host_participants'} action
  */
 export function assertHostActionAllowed(enrollmentState, action) {
   const caps = hostCapabilitiesForEnrollment(enrollmentState);
@@ -415,6 +470,7 @@ export function assertHostActionAllowed(enrollmentState, action) {
     cancel: caps.canCancel,
     publish_storefront: ownerCaps.canPublishStorefront,
     withdraw_storefront: ownerCaps.canWithdrawStorefront,
+    host_participants: caps.canManageHostParticipants,
   };
   if (!map[action]) {
     if (!enrollmentState || enrollmentState === 'REMOVED' || !ENROLLMENT_STATES.includes(String(enrollmentState))) {

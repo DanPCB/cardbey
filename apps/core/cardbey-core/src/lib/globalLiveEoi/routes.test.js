@@ -9,6 +9,21 @@ import request from 'supertest';
 const store = new Map();
 
 const mockPrisma = {
+  business: {
+    findFirst: vi.fn(async ({ where }) => {
+      // Default: treat store_* ids as owned by the requesting user when tests set ownership map.
+      const ownership = mockPrisma.__ownedStores || new Map();
+      const key = `${where.userId}:${where.id}`;
+      if (ownership.has(key) || ownership.get(where.userId)?.includes(where.id)) {
+        return { id: where.id };
+      }
+      // Back-compat for tests that bind store_should_bind for user_1 without setup.
+      if (where.userId === 'user_1' && where.id === 'store_should_bind') {
+        return { id: where.id };
+      }
+      return null;
+    }),
+  },
   globalLiveEoiRegistration: {
     findFirst: vi.fn(async ({ where }) => {
       const rows = [...store.values()].filter((r) => {
@@ -26,6 +41,7 @@ const mockPrisma = {
         createdAt: new Date(),
         updatedAt: new Date(),
         status: data.status || 'SUBMITTED',
+        publicReference: data.publicReference || `GL${store.size + 1}`,
         ...data,
       };
       store.set(row.id, row);
@@ -35,8 +51,54 @@ const mockPrisma = {
       let rows = [...store.values()];
       if (where?.pilotId) rows = rows.filter((r) => r.pilotId === where.pilotId);
       if (where?.status) rows = rows.filter((r) => r.status === where.status);
+      if (Object.prototype.hasOwnProperty.call(where || {}, 'userId')) {
+        if (where.userId === null) rows = rows.filter((r) => r.userId == null);
+        else rows = rows.filter((r) => r.userId === where.userId);
+      }
+      if (where?.emailNormalized) {
+        rows = rows.filter((r) => r.emailNormalized === where.emailNormalized);
+      }
+      if (where?.OR) {
+        rows = rows.filter((r) =>
+          where.OR.some((clause) => {
+            if (clause.businessName?.contains) {
+              return String(r.businessName || '')
+                .toLowerCase()
+                .includes(String(clause.businessName.contains).toLowerCase());
+            }
+            if (clause.publicReference?.contains) {
+              return String(r.publicReference || '')
+                .toLowerCase()
+                .includes(String(clause.publicReference.contains).toLowerCase());
+            }
+            if (Object.prototype.hasOwnProperty.call(clause, 'userId')) {
+              return r.userId === clause.userId || (clause.userId === null && !r.userId);
+            }
+            return true;
+          }),
+        );
+      }
       rows.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       return rows.slice(skip || 0, (skip || 0) + (take || 50));
+    }),
+    updateMany: vi.fn(async ({ where, data }) => {
+      let count = 0;
+      for (const [id, row] of store.entries()) {
+        if (where.emailNormalized && row.emailNormalized !== where.emailNormalized) continue;
+        if (where.OR) {
+          const ok = where.OR.some((clause) => {
+            if (Object.prototype.hasOwnProperty.call(clause, 'userId')) {
+              return row.userId === clause.userId || (clause.userId === null && !row.userId);
+            }
+            if (clause.userId === '') return !row.userId || row.userId === '';
+            return false;
+          });
+          if (!ok) continue;
+        }
+        store.set(id, { ...row, ...data, updatedAt: new Date() });
+        count += 1;
+      }
+      return { count };
     }),
     count: vi.fn(async ({ where } = {}) => {
       let rows = [...store.values()];
@@ -82,6 +144,8 @@ vi.mock('../../middleware/auth.js', () => ({
     req.user = {
       id: String(uid),
       role: req.headers['x-test-admin'] === '1' ? 'platform_admin' : 'owner',
+      email: req.headers['x-test-email'] || `${uid}@example.com`,
+      emailVerified: req.headers['x-test-email-verified'] === '1',
     };
     next();
   },
@@ -93,15 +157,39 @@ vi.mock('../../middleware/auth.js', () => ({
   },
 }));
 
-const { globalLiveEoiPublicRoutes, globalLiveEoiAdminRoutes } = await import('./routes.js');
+vi.mock('../../middleware/rateLimit.js', () => ({
+  rateLimit: () => (_req, _res, next) => next(),
+}));
 
-const FLAG_KEYS = ['ENABLE_GLOBAL_LIVE_EOI_V1', 'GLOBAL_LIVE_EOI_OPEN'];
+vi.mock('./sendEoiConfirmation.js', () => ({
+  sendEoiConfirmation: vi.fn(async () => ({
+    email: { ok: true, status: 'sent' },
+    sms: { ok: true },
+  })),
+  confirmationStatusFromResult: (emailResult) => {
+    if (!emailResult) return 'failed';
+    if (emailResult.ok && !emailResult.skipped) return 'sent';
+    if (emailResult.skipped) return 'skipped';
+    return 'failed';
+  },
+}));
+
+const { globalLiveEoiPublicRoutes, globalLiveEoiAdminRoutes, globalLiveEoiMeRoutes } =
+  await import('./routes.js');
+const { sendEoiConfirmation } = await import('./sendEoiConfirmation.js');
+
+const FLAG_KEYS = [
+  'ENABLE_GLOBAL_LIVE_EOI_V1',
+  'GLOBAL_LIVE_EOI_OPEN',
+  'ENABLE_GLOBAL_LIVE_EOI_APPLICANT_TRACKING_V1',
+];
 
 function buildApp() {
   const app = express();
   app.use(express.json());
   app.use('/api/public/global-live', globalLiveEoiPublicRoutes);
   app.use('/api/admin/global-live', globalLiveEoiAdminRoutes);
+  app.use('/api/me/global-live', globalLiveEoiMeRoutes);
   return app;
 }
 
@@ -176,7 +264,7 @@ describe('globalLiveEoi routes', () => {
       .set('x-test-user-id', 'user_1')
       .send(validBody({ storeId: 'store_should_bind' }));
     expect(res.status).toBe(201);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body).toEqual({ ok: true, alreadyReceived: false });
     expect(store.size).toBe(1);
     const row = [...store.values()][0];
     expect(row.pilotId).toBe('vn_au_global_live_v1');
@@ -187,6 +275,11 @@ describe('globalLiveEoi routes', () => {
     expect(row.storeId).toBe('store_should_bind');
     expect(row.emailNormalized).toBe('lan@example.com');
     expect(row.phone).toBe('+84912345678');
+    expect(row.publicReference).toMatch(/^GL/);
+    expect(row.publicReference).not.toBe(row.id);
+    expect(sendEoiConfirmation).toHaveBeenCalledTimes(1);
+    expect(sendEoiConfirmation.mock.calls[0][0].email).toBe('lan@example.com');
+    expect(sendEoiConfirmation.mock.calls[0][0].publicReference).toMatch(/^GL/);
   });
 
   it('does not bind storeId without session; soft-dedupes same email', async () => {
@@ -194,14 +287,30 @@ describe('globalLiveEoi routes', () => {
       .post('/api/public/global-live/registrations')
       .send(validBody({ storeId: 'orphan_store' }));
     expect(first.status).toBe(201);
+    expect(first.body).toEqual({ ok: true, alreadyReceived: false });
     expect([...store.values()][0].storeId).toBeNull();
+    expect(sendEoiConfirmation).toHaveBeenCalledTimes(1);
 
     const second = await request(app)
       .post('/api/public/global-live/registrations')
       .send(validBody({ businessName: 'Changed Name' }));
     expect(second.status).toBe(201);
-    expect(second.body).toEqual({ ok: true });
+    expect(second.body).toEqual({ ok: true, alreadyReceived: true });
     expect(store.size).toBe(1);
+    // Soft-dedupe must not re-notify or rewrite fields.
+    expect(sendEoiConfirmation).toHaveBeenCalledTimes(1);
+    expect([...store.values()][0].businessName).toBe('Lan Specialty Coffee');
+  });
+
+  it('rejects storeId that the authenticated user does not own', async () => {
+    const res = await request(app)
+      .post('/api/public/global-live/registrations')
+      .set('x-test-user-id', 'user_1')
+      .send(validBody({ storeId: 'someone_elses_store', email: 'owner-check@example.com' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('GLOBAL_LIVE_EOI_VALIDATION');
+    expect(res.body.fields).toContain('storeId');
+    expect(store.size).toBe(0);
   });
 
   it('public config returns pilot without records', async () => {
@@ -242,5 +351,86 @@ describe('globalLiveEoi routes', () => {
       .send({ status: 'SHORTLISTED' });
     expect(res.status).toBe(200);
     expect(res.body.item.status).toBe('SHORTLISTED');
+  });
+
+  it('admin health scrubbed and reports draft legal + broadcasting off', async () => {
+    const res = await request(app)
+      .get('/api/admin/global-live/health')
+      .set('x-test-user-id', 'admin_1')
+      .set('x-test-admin', '1');
+    expect(res.status).toBe(200);
+    expect(res.body.broadcastingOperational).toBe(false);
+    expect(res.body.legalReadiness).toBe('DRAFT');
+    expect(res.body.consentRegistryVersion).toBe('global-live-eoi-consent-v1');
+    expect(JSON.stringify(res.body)).not.toMatch(/MAIL_PASS|TWILIO_AUTH|password|secret/i);
+  });
+
+  it('me applications require auth and tracking flag', async () => {
+    const deniedFlag = await request(app)
+      .get('/api/me/global-live/applications')
+      .set('x-test-user-id', 'user_1');
+    expect(deniedFlag.status).toBe(403);
+
+    process.env.ENABLE_GLOBAL_LIVE_EOI_APPLICANT_TRACKING_V1 = 'true';
+    const deniedAnon = await request(app).get('/api/me/global-live/applications');
+    expect(deniedAnon.status).toBe(401);
+  });
+
+  it('me applications return only linked rows and public-safe DTO', async () => {
+    process.env.ENABLE_GLOBAL_LIVE_EOI_APPLICANT_TRACKING_V1 = 'true';
+    await request(app)
+      .post('/api/public/global-live/registrations')
+      .set('x-test-user-id', 'user_1')
+      .send(validBody({ email: 'owner@example.com' }));
+    await request(app)
+      .post('/api/public/global-live/registrations')
+      .set('x-test-user-id', 'user_2')
+      .send(validBody({ email: 'other@example.com', businessName: 'Other Cafe' }));
+
+    const res = await request(app)
+      .get('/api/me/global-live/applications')
+      .set('x-test-user-id', 'user_1')
+      .set('x-test-email', 'owner@example.com')
+      .set('x-test-email-verified', '1');
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].businessName).toBe('Lan Specialty Coffee');
+    expect(res.body.items[0].publicReference).toMatch(/^GL/);
+    expect(res.body.items[0].status).toBe('received');
+    expect(res.body.items[0].statusLabel).toBeTruthy();
+    expect(JSON.stringify(res.body)).not.toContain('eoi_');
+    expect(JSON.stringify(res.body)).not.toContain('owner@example.com');
+    expect(JSON.stringify(res.body)).not.toContain('businessDescription');
+  });
+
+  it('verified email can claim orphan application; unverified cannot', async () => {
+    process.env.ENABLE_GLOBAL_LIVE_EOI_APPLICANT_TRACKING_V1 = 'true';
+    await request(app)
+      .post('/api/public/global-live/registrations')
+      .send(validBody({ email: 'claimable@example.com' }));
+    expect([...store.values()][0].userId).toBeNull();
+
+    const unverified = await request(app)
+      .get('/api/me/global-live/applications')
+      .set('x-test-user-id', 'claimer')
+      .set('x-test-email', 'claimable@example.com');
+    expect(unverified.status).toBe(200);
+    expect(unverified.body.items).toHaveLength(0);
+
+    const verified = await request(app)
+      .get('/api/me/global-live/applications')
+      .set('x-test-user-id', 'claimer')
+      .set('x-test-email', 'claimable@example.com')
+      .set('x-test-email-verified', '1');
+    expect(verified.status).toBe(200);
+    expect(verified.body.items).toHaveLength(1);
+    expect([...store.values()][0].userId).toBe('claimer');
+  });
+
+  it('public EOI endpoints never return application status list', async () => {
+    await request(app).post('/api/public/global-live/registrations').send(validBody());
+    const config = await request(app).get('/api/public/global-live/config');
+    expect(config.body.items).toBeUndefined();
+    expect(JSON.stringify(config.body)).not.toContain('Lan Specialty Coffee');
   });
 });
