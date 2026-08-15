@@ -65,6 +65,13 @@ export function main(env = process.env) {
 
   log('authenticating private dashboard submodule (token not logged)');
   try {
+    // actions/checkout persist-credentials injects GITHUB_TOKEN via extraheader.
+    // That token cannot read the private dashboard and wins over url.insteadOf (HTTP 403).
+    try {
+      runGit(['config', '--local', '--unset-all', 'http.https://github.com/.extraheader'], { silent: true });
+    } catch {
+      /* extraheader not present */
+    }
     runGit(['config', '--global', rewriteKey, 'https://github.com/']);
     runGit(['submodule', 'sync', '--', submoduleRel], { silent: true });
     runGit(['submodule', 'update', '--init', '--depth', '1', '--', submoduleRel]);

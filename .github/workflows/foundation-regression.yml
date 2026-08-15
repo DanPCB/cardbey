@@ -33,6 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Prove submodule token present (no value)
         env:
           CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
@@ -76,6 +78,8 @@ jobs:
       ROLE: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -102,6 +106,8 @@ jobs:
       ROLE: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -127,6 +133,8 @@ jobs:
         working-directory: apps/dashboard/cardbey-marketing-dashboard
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Prove submodule token present (no value)
         working-directory: .
         env:
