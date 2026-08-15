@@ -30,6 +30,8 @@ const WHIP =
   'https://customer-example.cloudflarestream.com/pubsecretvalue1234567890abcdef/webRTC/publish';
 const WHEP =
   'https://customer-example.cloudflarestream.com/66be4bf738797e01e1fca35a7bdecdcd/webRTC/play';
+const RTMPS_URL = 'rtmps://live.cloudflare.com:443/live';
+const STREAM_KEY = 'cf_stream_key_DO_NOT_LEAK_1234567890abcdef';
 const TOKEN = 'cf_test_token_DO_NOT_LEAK_1234567890';
 const WEBHOOK_SECRET = 'whsec_test_DO_NOT_LEAK_abcdef';
 
@@ -39,11 +41,14 @@ function allFlagsEnv(extra = {}) {
     ENABLE_LIVE_MARKET_V1: 'true',
     ENABLE_LIVE_BROADCAST_V1: 'true',
     ENABLE_LIVE_CLOUDFLARE_STREAM_V1: 'true',
-    ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1: 'true',
+    ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1: 'false',
+    ENABLE_LIVE_RTMPS_HOST_V1: 'true',
     LIVE_VIDEO_PROVIDER: 'cloudflare',
     CLOUDFLARE_ACCOUNT_ID: 'acct_test_123',
     CLOUDFLARE_STREAM_API_TOKEN: TOKEN,
     CLOUDFLARE_STREAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+    CLOUDFLARE_STREAM_CUSTOMER_CODE: 'example',
+    CLOUDFLARE_STREAM_ALLOWED_ORIGINS: 'https://cardbey.com,https://staging.cardbey.com',
     ...extra,
   };
 }
@@ -56,6 +61,7 @@ function liveInputResult(overrides = {}) {
       status: null,
       webRTC: { url: WHIP },
       webRTCPlayback: { url: WHEP },
+      rtmps: { url: RTMPS_URL, streamKey: STREAM_KEY },
       recording: { mode: 'off' },
       meta: { cardbeySessionId: 'sess_1' },
       ...overrides,
@@ -112,11 +118,11 @@ describe('resolveLiveVideoProvider Cloudflare selection', () => {
     expect(isOwnerCapabilityProviderReady(p)).toBe(false);
   });
 
-  it('selects Cloudflare only with all required flags and configuration', () => {
+  it('selects Cloudflare for RTMPS without requiring WebRTC', () => {
     const p = resolveLiveVideoProvider({ env: allFlagsEnv() });
     expect(p).toBeInstanceOf(CloudflareStreamLiveVideoProvider);
     expect(p.name).toBe('cloudflare_stream');
-    expect(isOwnerCapabilityProviderReady(p)).toBe(false);
+    expect(isOwnerCapabilityProviderReady(p)).toBe(true);
   });
 
   it('missing account/token yields NotConfigured (LIVE_PROVIDER_NOT_CONFIGURED on use)', async () => {
@@ -132,7 +138,7 @@ describe('resolveLiveVideoProvider Cloudflare selection', () => {
   it('never selects fake implicitly when Cloudflare flags are incomplete', () => {
     const p = resolveLiveVideoProvider({
       env: allFlagsEnv({
-        ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1: 'false',
+        ENABLE_LIVE_CLOUDFLARE_STREAM_V1: 'false',
         LIVE_MARKET_ALLOW_FAKE_PROVIDER: 'true',
       }),
     });
@@ -140,7 +146,7 @@ describe('resolveLiveVideoProvider Cloudflare selection', () => {
     expect(p).toBeInstanceOf(FakeLiveVideoProvider);
     const incompleteNoFake = resolveLiveVideoProvider({
       env: allFlagsEnv({
-        ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1: 'false',
+        ENABLE_LIVE_CLOUDFLARE_STREAM_V1: 'false',
         LIVE_MARKET_ALLOW_FAKE_PROVIDER: 'false',
       }),
     });
@@ -157,7 +163,7 @@ describe('resolveLiveVideoProvider Cloudflare selection', () => {
 });
 
 describe('CloudflareStreamLiveVideoProvider mocked HTTP', () => {
-  it('normalizes create live input and keeps WHIP/WHEP off externalRef', async () => {
+  it('normalizes create live input and keeps RTMPS/WHIP/WHEP off externalRef', async () => {
     const calls = [];
     const fetchImpl = vi.fn(async (url, init) => {
       calls.push({ url: String(url), method: init.method, body: init.body, headers: init.headers });
@@ -179,6 +185,8 @@ describe('CloudflareStreamLiveVideoProvider mocked HTTP', () => {
     });
     expect(prepared.externalRef).toBe('66be4bf738797e01e1fca35a7bdecdcd');
     expect(prepared.externalRef).not.toMatch(/webRTC|publish|play/i);
+    expect(prepared.sensitiveCapabilities.rtmpsUrl).toBe(RTMPS_URL);
+    expect(prepared.sensitiveCapabilities.rtmpsStreamKey).toBe(STREAM_KEY);
     expect(prepared.sensitiveCapabilities.whipPublishUrl).toBe(WHIP);
     expect(prepared.sensitiveCapabilities.whepPlaybackUrl).toBe(WHEP);
     expect(JSON.stringify(prepared.externalRef)).not.toContain('publish');
@@ -188,7 +196,30 @@ describe('CloudflareStreamLiveVideoProvider mocked HTTP', () => {
     const body = JSON.parse(calls[0].body);
     expect(body.meta.cardbeySessionId).toBe('sess_1');
     expect(body.recording.mode).toBe('off');
+    expect(body.allowedOrigins).toEqual(['https://cardbey.com', 'https://staging.cardbey.com']);
     expect(calls[0].url).toMatch(/\/stream\/live_inputs$/);
+  });
+
+  it('prepareSession succeeds for RTMPS even when WHIP/WHEP are absent', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify(liveInputResult({ webRTC: undefined, webRTCPlayback: undefined })),
+    }));
+    const provider = createCloudflareStreamLiveVideoProvider({
+      config: readCloudflareStreamConfig(allFlagsEnv()).config,
+      fetchImpl,
+    });
+    const prepared = await provider.prepareSession({
+      sessionId: 'sess_1',
+      storeId: 'store_1',
+      hostUserId: 'user_1',
+    });
+    expect(prepared.externalRef).toBe('66be4bf738797e01e1fca35a7bdecdcd');
+    expect(prepared.sensitiveCapabilities.rtmpsUrl).toBe(RTMPS_URL);
+    expect(prepared.sensitiveCapabilities.whipPublishUrl).toBeUndefined();
+    expect(prepared.sensitiveCapabilities.whepPlaybackUrl).toBeUndefined();
   });
 
   it('get-state normalization maps connected → live without exposing URLs', async () => {
@@ -213,7 +244,7 @@ describe('CloudflareStreamLiveVideoProvider mocked HTTP', () => {
     });
     expect(state.status).toBe('live');
     expect(state.externalRef).toBe('66be4bf738797e01e1fca35a7bdecdcd');
-    expect(JSON.stringify(state)).not.toMatch(/webRTC|publish|Bearer|whsec/i);
+    expect(JSON.stringify(state)).not.toMatch(/webRTC|publish|Bearer|whsec|stream_key|rtmps/i);
   });
 
   it('startSession does not mark LIVE from click alone', async () => {
@@ -232,7 +263,48 @@ describe('CloudflareStreamLiveVideoProvider mocked HTTP', () => {
       hostUserId: 'u',
     });
     const started = await provider.startSession({ sessionId: 'sess_1', storeId: 'store_1' });
-    expect(started.status).toBe('prepared');
+    expect(started.status).toBe('connecting');
+  });
+
+  it('getRtmpsCredentials returns internal credentials without leaking via session state', async () => {
+    const fetchImpl = vi.fn(async (url, init) => ({
+      ok: true,
+      status: 200,
+      text: async () =>
+        init.method === 'POST'
+          ? JSON.stringify(liveInputResult())
+          : JSON.stringify(liveInputResult({ status: 'connected' })),
+    }));
+    const provider = createCloudflareStreamLiveVideoProvider({
+      config: readCloudflareStreamConfig(allFlagsEnv()).config,
+      fetchImpl,
+    });
+    await provider.prepareSession({ sessionId: 'sess_1', storeId: 's', hostUserId: 'u' });
+    const creds = await provider.getRtmpsCredentials({ sessionId: 'sess_1' });
+    expect(creds.rtmpsUrl).toBe(RTMPS_URL);
+    expect(creds.rtmpsStreamKey).toBe(STREAM_KEY);
+    const state = await provider.getSessionState({ sessionId: 'sess_1' });
+    expect(JSON.stringify(state)).not.toContain(STREAM_KEY);
+    expect(JSON.stringify(state)).not.toContain(RTMPS_URL);
+  });
+
+  it('builds public playback info from customer code without exposing stream keys', async () => {
+    const provider = createCloudflareStreamLiveVideoProvider({
+      config: readCloudflareStreamConfig(allFlagsEnv()).config,
+      fetchImpl: vi.fn(),
+    });
+    const info = await provider.getPublicPlaybackInfo({
+      externalRef: '66be4bf738797e01e1fca35a7bdecdcd',
+    });
+    expect(info).toEqual({
+      provider: 'cloudflare_stream',
+      liveInputUid: '66be4bf738797e01e1fca35a7bdecdcd',
+      hlsUrl:
+        'https://customer-example.cloudflarestream.com/66be4bf738797e01e1fca35a7bdecdcd/manifest/video.m3u8',
+      iframeSrc:
+        'https://customer-example.cloudflarestream.com/66be4bf738797e01e1fca35a7bdecdcd/iframe',
+    });
+    expect(JSON.stringify(info)).not.toContain(STREAM_KEY);
   });
 
   it('disable then delete on endSession (no mutation retry)', async () => {
@@ -282,6 +354,7 @@ describe('CloudflareStreamLiveVideoProvider mocked HTTP', () => {
         const serialized = JSON.stringify(err, Object.getOwnPropertyNames(err));
         expect(serialized).not.toContain(TOKEN);
         expect(serialized).not.toContain(WHIP);
+        expect(serialized).not.toContain(STREAM_KEY);
         expect(serialized).not.toContain(WEBHOOK_SECRET);
         expect(String(err.message)).not.toContain(TOKEN);
       }
@@ -368,6 +441,8 @@ describe('redaction and webhook verify', () => {
   it('normalizeCloudflareLiveInput isolates uid from capability URLs', () => {
     const n = normalizeCloudflareLiveInput(liveInputResult().result);
     expect(n.uid).toBe('66be4bf738797e01e1fca35a7bdecdcd');
+    expect(n.rtmpsUrl).toBe(RTMPS_URL);
+    expect(n.rtmpsStreamKey).toBe(STREAM_KEY);
     expect(n.whipPublishUrl).toContain('publish');
     expect(n.whepPlaybackUrl).toContain('play');
   });
@@ -378,7 +453,6 @@ describe('redaction and webhook verify', () => {
         liveMarketV1: true,
         broadcastV1: true,
         cloudflareStreamV1: true,
-        cloudflareWebRtcV1: true,
       }),
     ).toBe(false);
   });

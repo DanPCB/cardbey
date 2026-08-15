@@ -9,6 +9,8 @@ import {
   selectPrimaryPublishedSession,
   toPublicFeedLiveMarketSummary,
 } from './domain.js';
+import { buildPublicPlaybackDto } from './publicPlayback.js';
+import { readCloudflareStreamConfig } from './providers/cloudflareStreamConfig.js';
 
 /**
  * @param {import('@prisma/client').PrismaClient} prisma
@@ -33,7 +35,18 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
       where: {
         storeId: { in: ids },
         storefrontPublicationStatus: STOREFRONT_PUBLICATION_STATUS.PUBLISHED,
-        state: { in: ['SCHEDULED', 'READY', 'LIVE', 'ENDED', 'PROCESSING', 'REPLAY_READY'] },
+        state: {
+          in: [
+            'SCHEDULED',
+            'READY',
+            'CONNECTING',
+            'LIVE',
+            'ENDING',
+            'ENDED',
+            'PROCESSING',
+            'REPLAY_READY',
+          ],
+        },
       },
       select: {
         id: true,
@@ -42,6 +55,7 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
         state: true,
         scheduledStartAt: true,
         storefrontPublicationStatus: true,
+        providerExternalRef: true,
       },
       orderBy: [{ scheduledStartAt: 'asc' }, { updatedAt: 'desc' }],
     }),
@@ -58,9 +72,10 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
   }
 
   for (const [storeId, list] of byStore) {
+    const hasConfirmedLive = list.some((s) => String(s.state) === 'LIVE');
     const primary = selectPrimaryPublishedSession(list, {
       now,
-      providerConfirmedLive: false,
+      providerConfirmedLive: hasConfirmedLive,
       enrollmentState: 'ACTIVE',
     });
     let timezone = null;
@@ -69,10 +84,22 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
     } catch {
       timezone = null;
     }
+    const providerConfirmedLive = primary ? String(primary.state) === 'LIVE' : false;
+    let playback = null;
+    if (Features.liveMarket.globalPlayerV1 && primary && providerConfirmedLive) {
+      const cfg = readCloudflareStreamConfig();
+      playback = buildPublicPlaybackDto(primary, {
+        playerEnabled: true,
+        customerCode: cfg.ok ? cfg.config.customerCode : null,
+        providerConfirmedLive: true,
+      });
+    }
     const summary = toPublicFeedLiveMarketSummary(primary, {
       now,
-      providerConfirmedLive: false,
+      providerConfirmedLive,
       displayTimezone: timezone,
+      playback,
+      playerEnabled: Features.liveMarket.globalPlayerV1,
     });
     if (summary) map.set(storeId, summary);
   }
