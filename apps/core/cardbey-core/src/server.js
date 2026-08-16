@@ -136,6 +136,7 @@ import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoring
 import adminDeepseekDiagnosticRoutes from './routes/admin/deepseekDiagnosticRoutes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
+import activationEventRoutes from './routes/public/activationEventRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
@@ -1153,6 +1154,7 @@ app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
+app.use('/api/public/activation', activationEventRoutes); // Phase 1 outcome events (no auth; no PII; no Meta)
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
 const miOpenApiPath = fromRoot('..', 'openapi', 'mi-tools.v1.yaml');
