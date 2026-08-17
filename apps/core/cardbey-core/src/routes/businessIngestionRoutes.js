@@ -24,6 +24,8 @@ import {
   rejectSeed,
   sendSeedBackToReview,
 } from '../lib/businessIngestion/QaPromotionService.js';
+import { persistSeedCompleteness } from '../lib/ingestion/persistSeedCompleteness.js';
+import { curateSeedHero } from '../lib/ingestion/curateSeedHero.js';
 import { listQaAuditEntries } from '../lib/businessIngestion/QaAuditLog.js';
 import { listSeedLifecycleTransitions } from '../lib/businessIngestion/BusinessSeedStatusTransitionRepository.js';
 import {
@@ -187,6 +189,57 @@ router.get('/seeds/:id', requireAuth, requireAdmin, async (req, res, next) => {
     });
   } catch (error) {
     console.error('[business-ingestion] get seed error:', error);
+    next(error);
+  }
+});
+
+/** POST /api/business-ingestion/seeds/:id/completeness/recompute */
+router.post('/seeds/:id/completeness/recompute', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const result = await persistSeedCompleteness(req.params.id);
+    if (!result.ok) {
+      return res.status(404).json({ ok: false, error: 'not_found', message: result.message });
+    }
+    return res.status(200).json({
+      ok: true,
+      completeness: result.completeness,
+      seed: enrichQueueItem(result.seed),
+    });
+  } catch (error) {
+    console.error('[business-ingestion] completeness recompute error:', error);
+    next(error);
+  }
+});
+
+/** POST /api/business-ingestion/seeds/:id/curate/hero */
+router.post('/seeds/:id/curate/hero', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const result = await curateSeedHero({
+      seedId: req.params.id,
+      adminId: req.userId ?? req.user?.id ?? 'unknown',
+      imageUrl: body.imageUrl ?? null,
+      imageBase64: body.imageBase64 ?? null,
+      altText: body.altText ?? null,
+      note: body.note ?? null,
+    });
+    if (!result.ok) {
+      const status = result.status ?? 400;
+      return res.status(status).json({
+        ok: false,
+        code: result.code,
+        detail: result.detail,
+        width: result.width,
+        height: result.height,
+        state: result.state,
+      });
+    }
+    return res.status(200).json({
+      hero: result.hero,
+      completeness: result.completeness,
+    });
+  } catch (error) {
+    console.error('[business-ingestion] curate hero error:', error);
     next(error);
   }
 });

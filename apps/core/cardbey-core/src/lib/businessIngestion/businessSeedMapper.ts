@@ -26,6 +26,11 @@ export function ingestedSeedToDbRow(seed: IngestedSeedRecord) {
     rawPayload: JSON.stringify(seed),
     dedupeKey: buildSeedDedupeKey(seed),
     storeId: seed.storeId,
+    completenessTier: seed.completenessTier ?? null,
+    completenessScore: seed.completenessScore ?? null,
+    completenessBlockers: seed.completenessBlockers ?? null,
+    completenessGaps: seed.completenessGaps ?? null,
+    completenessCheckedAt: seed.completenessCheckedAt ? new Date(seed.completenessCheckedAt) : null,
     createdAt: new Date(seed.createdAt),
     updatedAt: new Date(seed.updatedAt),
   };

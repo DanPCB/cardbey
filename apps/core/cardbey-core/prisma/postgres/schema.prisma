@@ -4125,6 +4125,11 @@ model BusinessSeed {
   rawPayload String   @default("{}")
   dedupeKey  String   @unique
   storeId    String?
+  completenessTier      String?
+  completenessScore     Int?
+  completenessBlockers  String?
+  completenessGaps      String?
+  completenessCheckedAt DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -4132,6 +4137,20 @@ model BusinessSeed {
   @@index([source])
   @@index([storeId])
   @@map("business_seed")
+}
+
+model SeedCurationEvent {
+  id             String   @id @default(cuid())
+  seedId         String
+  field          String
+  adminId        String
+  note           String?
+  previousValue  String   @default("null")
+  createdAt      DateTime @default(now())
+
+  @@index([seedId])
+  @@index([createdAt])
+  @@map("seed_curation_events")
 }
 
 /// Business ingestion pipeline run history — production-durable on Postgres
