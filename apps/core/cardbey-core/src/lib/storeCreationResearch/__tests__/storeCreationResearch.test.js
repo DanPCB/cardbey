@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { scoreSourceMatch, aggregateResearchConfidence } from '../sourceConfidenceScorer.js';
+import { scoreSourceMatch, aggregateResearchConfidence, attachOfficialWebsiteWhenGbpMatches } from '../sourceConfidenceScorer.js';
 import { extractBusinessFacts } from '../businessFactsExtractor.js';
 import { extractServiceMenuCatalog, classifyBusinessKind } from '../serviceMenuExtractor.js';
 import { buildResearchBackedStore } from '../researchBackedStoreBuilder.js';
@@ -245,6 +245,73 @@ describe('Google Places — metro location vs suburb address', () => {
     expect(match.matched).toBe(true);
     expect(match.confidence).toBeGreaterThanOrEqual(0.88);
     expect(match.reasons).toContain('google-place-name');
+  });
+
+  it('keeps hostname-titled website offers when GBP matched the same host', () => {
+    const identity = {
+      businessName: 'Modern Security Doors',
+      location: 'Ravenhall VIC 3023',
+    };
+    const gbp = scoreSourceMatch(
+      {
+        sourceType: 'google_business',
+        sourceUrl: 'https://maps.google.com/?cid=1',
+        raw: {
+          name: 'MODERN SECURITY DOORS',
+          placeId: 'ChIJ-msd',
+          website: 'http://modernsecuritydoors.com.au',
+          rating: 4.8,
+          address: 'Ravenhall VIC 3023',
+        },
+        priority: 1,
+      },
+      identity,
+    );
+    const website = scoreSourceMatch(
+      {
+        sourceType: 'official_website',
+        sourceUrl: 'http://modernsecuritydoors.com.au',
+        raw: {
+          name: 'modernsecuritydoors.com.au',
+          website: 'http://modernsecuritydoors.com.au',
+          offers: [{ name: 'Roller Shutters' }, { name: 'Fly Doors' }],
+        },
+        priority: 0,
+      },
+      identity,
+    );
+    expect(website.matched).toBe(false);
+
+    const attached = attachOfficialWebsiteWhenGbpMatches([gbp, website]);
+    const site = attached.find((m) => m.source.sourceType === 'official_website');
+    expect(site.matched).toBe(true);
+    expect(site.reasons).toContain('google-place-website');
+    expect(site.source.raw.offers.length).toBe(2);
+  });
+
+  it('does not attach a different-host website to a GBP match', () => {
+    const attached = attachOfficialWebsiteWhenGbpMatches([
+      {
+        matched: true,
+        confidence: 0.94,
+        reasons: ['google-place-name'],
+        source: {
+          sourceType: 'google_business',
+          raw: { website: 'http://modernsecuritydoors.com.au', name: 'MODERN SECURITY DOORS' },
+        },
+      },
+      {
+        matched: false,
+        confidence: 0.1,
+        reasons: [],
+        source: {
+          sourceType: 'official_website',
+          sourceUrl: 'https://other-doors.example',
+          raw: { name: 'other-doors.example', offers: [{ name: 'Wrong shop' }] },
+        },
+      },
+    ]);
+    expect(attached[1].matched).toBe(false);
   });
 });
 
