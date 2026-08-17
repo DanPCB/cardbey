@@ -11,6 +11,7 @@ import { buildIngestedSeedRecord } from './SeedGovernance.js';
 import { buildSeedStoreDraft, seedStoreBuilder } from './SeedStoreBuilder.js';
 import { appendIngestionRun, listSeedRecords, saveSeedRecords, upsertSeedRecords } from './IngestionRepository.js';
 import { reconcileIngestionSeeds, buildSourceKey } from './seedIdempotency.js';
+import { persistSeedCompletenessOnRecord } from '../ingestion/persistSeedCompleteness.js';
 import { attachStoreToSeed } from './seedStorePersistence.js';
 import type {
   BusinessFeedAdapter,
@@ -85,10 +86,11 @@ export class IngestionPipeline {
         campaignId: options.campaignId ?? null,
       });
 
-      const draft = seedStoreBuilder.buildFromSeed(seed);
+      const stamped = persistSeedCompletenessOnRecord(seed).seed;
+      const draft = seedStoreBuilder.buildFromSeed(stamped);
       if (draft) drafts.push(draft);
 
-      seeds.push(seed);
+      seeds.push(stamped);
     }
 
     let finalSeeds = seeds;
