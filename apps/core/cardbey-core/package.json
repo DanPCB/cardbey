@@ -121,6 +121,7 @@
     "backfill:business-ingestion-runs": "node --import ../../../node_modules/tsx/dist/loader.mjs scripts/backfill-business-ingestion-runs.mjs",
     "backfill:business-ingestion-runs:dry-run": "node --import ../../../node_modules/tsx/dist/loader.mjs scripts/backfill-business-ingestion-runs.mjs --dry-run",
     "business:ingest:sample": "node --import tsx/esm scripts/run-business-ingestion.mjs",
+    "backfill:seed-completeness": "node --import tsx/esm scripts/backfillSeedCompleteness.js",
     "test:e2e:m3-checkpoints": "cross-env NODE_ENV=test DATABASE_URL=file:../test.db vitest run src/test/e2e/m3-checkpoints-closeout.e2e.test.js",
     "test:e2e:kernel": "cross-env NODE_ENV=test DATABASE_URL=file:../test.db vitest run tests/runtime/kernelMandatory.test.js tests/runtime/kernelFlow.test.js",
     "test:e2e": "npm run test:e2e:kernel",

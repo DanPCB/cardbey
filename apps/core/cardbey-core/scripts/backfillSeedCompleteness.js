@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Backfill completeness for seeded_pending_qa records.
- * Usage: node scripts/backfillSeedCompleteness.js
+ * Usage: node --import tsx/esm scripts/backfillSeedCompleteness.js
+ *    or: npm run backfill:seed-completeness
  */
 
 import { listSeedRecords } from '../src/lib/businessIngestion/IngestionRepository.js';
