@@ -20,6 +20,30 @@ function slugId(prefix, seed) {
   return `${prefix}_${seed.replace(/[^a-z0-9]+/gi, '_').slice(0, 48)}_${randomUUID().slice(0, 8)}`;
 }
 
+/**
+ * `searchGooglePlaces` returns `{ source, attribution, raw }`. Identity matching
+ * must read the nested `raw` fields (name, placeId, website, address).
+ * @param {object} row
+ */
+export function unwrapPlacesSearchRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const nested = row.raw;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    if (
+      nested.name != null ||
+      nested.businessName != null ||
+      nested.placeId != null ||
+      nested.sourceId != null ||
+      nested.website != null ||
+      nested.address != null ||
+      nested.formattedAddress != null
+    ) {
+      return nested;
+    }
+  }
+  return row;
+}
+
 function rawToCandidate(raw, index, input) {
   const name = cleanString(raw.businessName ?? raw.name) || input.businessName;
   const phone = normalizePhone(cleanString(raw.phone)) ?? undefined;
@@ -37,6 +61,16 @@ function rawToCandidate(raw, index, input) {
     { name, phone: phone ?? null, website: website ?? null, location: address ?? null },
   );
 
+  let confidence = Math.min(1, Math.max(0, match.score));
+  // Suburb-only intake vs Place formattedAddress ("… VIC 3023, Australia") often
+  // disagrees on localityToken last-2 words. Keep named Place hits as candidates.
+  if (
+    placeId &&
+    (match.reasons.includes('name-exact') || match.reasons.includes('name-partial'))
+  ) {
+    confidence = Math.max(confidence, 0.5);
+  }
+
   return {
     entityId: placeId ? slugId('place', placeId) : slugId('candidate', `${name}_${index}`),
     name,
@@ -47,7 +81,7 @@ function rawToCandidate(raw, index, input) {
     website: website ?? null,
     placeId: placeId ?? null,
     category: cleanString(raw.category ?? raw.primaryType) ?? null,
-    confidence: Math.min(1, Math.max(0, match.score)),
+    confidence,
     matchReasons: match.reasons,
     source: 'google_places',
   };
@@ -130,7 +164,7 @@ export async function resolveBusinessEntity(input) {
     const places = await searchGooglePlaces(query, location);
     const mapped = places
       .slice(0, 8)
-      .map((raw, i) => rawToCandidate(raw, i, input))
+      .map((row, i) => rawToCandidate(unwrapPlacesSearchRow(row), i, input))
       .filter((c) => c.confidence >= PLAUSIBLE_CANDIDATE_THRESHOLD);
     candidates.push(...mapped);
     if (mapped.length) notes.push(`Google Places returned ${mapped.length} plausible candidate(s)`);

@@ -134,7 +134,11 @@ export async function runStoreResearchPipeline(input, options = {}) {
   const sources = options.skipNetwork ? [] : await discoverBusinessSources(enrichedInput, log);
   const legacy = await legacyRunStoreCreationResearch(enrichedInput, legacyOptions);
 
-  await runBusinessSourceExtractors(sources, enrichedInput, legacy?.scoredSources ?? []);
+  // Extractor payloads are not merged into catalog (legacyResearchResult is authority).
+  // Skip the extra website crawl unless explicitly opted in.
+  if (envTruthy('STORE_RESEARCH_RUN_EXTRACTORS', false) && !options.skipNetwork) {
+    await runBusinessSourceExtractors(sources, enrichedInput, legacy?.scoredSources ?? []);
+  }
 
   const providerResults = legacy?.researchEvidence?.providerResults ?? [];
   const businessKind = legacy?.businessProfile?.businessKind ?? legacy?.catalog?.meta?.businessKind ?? 'services';
