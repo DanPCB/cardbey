@@ -306,6 +306,11 @@ import {
   liveMarketCloudflareWebhookRoutes,
 } from './lib/liveMarket/routes.js';
 import {
+  liveCnetOwnerRoutes,
+  liveCnetAdminRoutes,
+  liveCnetPublicRoutes,
+} from './lib/liveCnet/routes.js';
+import {
   globalLiveEoiPublicRoutes,
   globalLiveEoiAdminRoutes,
   globalLiveEoiMeRoutes,
@@ -1074,6 +1079,7 @@ app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
+app.use('/api/stores', liveCnetOwnerRoutes); // Global Live × Cnet contract (flag-gated, default OFF)
 app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
 app.use('/api/me/live-market', liveMarketMeRoutes); // Live Market my registrations (flag-gated)
 app.use('/api/webhooks/cloudflare', liveMarketCloudflareWebhookRoutes); // Stream Live Input notifications
@@ -1171,6 +1177,7 @@ app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/busi
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
 app.use('/api/public/live-market', liveMarketPublicRoutes); // Live Market public session read (flag-gated)
+app.use('/api/public/live-cnet', liveCnetPublicRoutes); // QR handoff + public live-cnet events (flag-gated)
 app.use('/api/public/global-live', globalLiveEoiPublicRoutes); // Global Live pilot EOI (flag-gated; default OFF)
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
@@ -1303,6 +1310,7 @@ app.use('/api/language', languageRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
 app.use('/api/admin/live-market', liveMarketAdminRoutes); // Admin: Live Market pilot (flag-gated)
+app.use('/api/admin/live-cnet', liveCnetAdminRoutes); // Admin: pause Global Live × Cnet campaign (flag-gated)
 app.use('/api/admin/global-live', globalLiveEoiAdminRoutes); // Admin: Global Live pilot EOI (flag-gated)
 
 // Internal API routes (for Lambda callbacks, workers, etc.)

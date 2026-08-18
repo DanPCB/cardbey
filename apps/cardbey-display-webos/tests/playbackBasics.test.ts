@@ -211,4 +211,107 @@ describe('PlaybackCoordinator', () => {
     expect(coordinator.getState().status).toBe('FAILED');
     coordinator.destroy();
   });
+
+  it('plays LIVE_CARD without HTTP probe and does not treat it as IMAGE media', async () => {
+    const stage = document.createElement('div');
+    const probeMedia = vi.fn(passProbe);
+    const coordinator = new PlaybackCoordinator({
+      stage,
+      clock: new FakeClock(),
+      defaultImageDurationMs: 8_000,
+      probeMedia,
+    });
+    coordinator.setManifest({
+      id: 'live-card',
+      revision: 1,
+      playlist: {
+        id: 'live-card',
+        loop: true,
+        defaultDurationMs: 8_000,
+        items: [
+          {
+            id: 'card-1',
+            type: 'LIVE_CARD',
+            url: 'https://app.example/s/demo#live',
+            durationMs: 5_000,
+            overlayTitle: 'Lunch special',
+            overlayBadge: 'Live soon',
+            qrValue: 'https://app.example/api/public/live-cnet/h/glt_x',
+          },
+        ],
+      },
+      settings: { muted: true, transition: 'NONE', transitionDurationMs: 0, fit: 'COVER' },
+    });
+    await coordinator.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(probeMedia).not.toHaveBeenCalled();
+    expect(coordinator.getDiagnostics().currentItemType).toBe('LIVE_CARD');
+    expect(coordinator.getState().status).toBe('PLAYING');
+    coordinator.destroy();
+  });
+
+  it('falls back from HLS VIDEO to the timed QR card when playback errors', async () => {
+    const stage = document.createElement('div');
+    const coordinator = new PlaybackCoordinator({
+      stage,
+      clock: new FakeClock(),
+      defaultImageDurationMs: 8_000,
+      probeMedia: async (input) => ({
+        itemId: input.itemId,
+        mediaType: 'VIDEO',
+        originalUrl: input.url,
+        resolvedUrl: input.url,
+        ok: true,
+        redirectChain: [],
+        probeMethod: 'NONE',
+      }),
+    });
+    coordinator.setManifest({
+      id: 'hls-fallback',
+      revision: 1,
+      playlist: {
+        id: 'hls-fallback',
+        loop: true,
+        defaultDurationMs: 8_000,
+        items: [
+          {
+            id: 'live-1',
+            type: 'VIDEO',
+            url: 'https://videodelivery.net/uid/manifest/video.m3u8',
+            mimeType: 'application/vnd.apple.mpegurl',
+            durationMs: 4 * 60 * 60 * 1000,
+            overlayTitle: 'Lunch special',
+            overlayBadge: 'LIVE NOW',
+            qrValue: 'https://app.example/api/public/live-cnet/h/glt_x',
+          },
+        ],
+      },
+      settings: { muted: true, transition: 'NONE', transitionDurationMs: 0, fit: 'COVER' },
+    });
+    await coordinator.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    if (coordinator.getDiagnostics().currentItemType !== 'LIVE_CARD') {
+      const gen =
+        coordinator.getState().status === 'PREPARING' ||
+        coordinator.getState().status === 'PLAYING' ||
+        coordinator.getState().status === 'PAUSED'
+          ? coordinator.getState().generation
+          : 1;
+      coordinator.handleMediaError('live-1', gen, {
+        code: 'DISPLAY_MEDIA_VIDEO_LOAD_FAILED',
+        message: 'Video failed to load',
+        retryable: false,
+        mediaType: 'VIDEO',
+        itemId: 'live-1',
+        failureCode: 'MEDIA_VIDEO_LOAD_FAILED',
+      });
+      await Promise.resolve();
+    }
+    expect(coordinator.getDiagnostics().currentItemType).toBe('LIVE_CARD');
+    expect(coordinator.getState().status).toBe('PLAYING');
+    expect(stage.querySelector('[data-testid="live-card"]')).toBeTruthy();
+    coordinator.destroy();
+  });
 });

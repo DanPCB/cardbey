@@ -805,6 +805,16 @@ export const Features = {
         parseBoolEnv(process.env.ENABLE_LIVE_MARKET_HOST_PARTICIPANTS_V1, false)
       );
     },
+    /**
+     * Global Live × Cnet commercial contract (campaign, placement, QR, overlay).
+     * Default OFF. Does not enable WHIP/WHEP or staging auto-deploy.
+     */
+    get cnetContractV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_CNET_CONTRACT_V1, false)
+      );
+    },
   },
 
   /** Marketing EOI for Cardbey Global Live pilots (orthogonal to session RSVP). */
@@ -1012,6 +1022,7 @@ export function snapshotFeatures() {
       registrationV1: Features.liveMarket.registrationV1,
       registrationSummaryV1: Features.liveMarket.registrationSummaryV1,
       hostParticipantsV1: Features.liveMarket.hostParticipantsV1,
+      cnetContractV1: Features.liveMarket.cnetContractV1,
     },
     globalLiveEoi: {
       v1: Features.globalLiveEoi.v1,

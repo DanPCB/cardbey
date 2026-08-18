@@ -68,7 +68,7 @@ export type {
   EmptyPlaylistResult,
   NormalizePlaylistResult,
 } from './playlist/displayManifest.js';
-export { normalizePlaylist, type NormalizePlaylistOptions } from './playlist/normalizePlaylist.js';
+export { normalizePlaylist, isHlsPlaybackUrl, type NormalizePlaylistOptions } from './playlist/normalizePlaylist.js';
 export { validateManifest } from './playlist/validateManifest.js';
 export { filterManifestBySchedule, isItemActiveAt } from './playlist/scheduleFilter.js';
 export {

@@ -226,6 +226,72 @@ body,
   border: 0;
 }
 
+.live-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 64px;
+  background:
+    radial-gradient(900px 600px at 12% 10%, rgba(232, 43, 43, 0.28), transparent 55%),
+    #0b0b0c;
+  color: #f4f4f5;
+}
+
+.live-card-badge {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e82b2b;
+}
+
+.live-card-title {
+  margin: 0;
+  font-size: 56px;
+  font-weight: 700;
+  max-width: 18ch;
+  line-height: 1.1;
+}
+
+.live-card-hint,
+.live-card-scan {
+  margin: 0;
+  font-size: 22px;
+  color: #a1a1aa;
+}
+
+.live-card-qr {
+  margin-top: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.live-card-qr-img {
+  display: block;
+  width: 240px;
+  height: 240px;
+}
+
+.live-qr-corner {
+  position: absolute;
+  right: 48px;
+  bottom: 48px;
+  z-index: 3;
+  background: #fff;
+  padding: 10px;
+}
+
+.live-qr-corner-img {
+  display: block;
+  width: 160px;
+  height: 160px;
+}
+
 .diagnostics {
   position: absolute;
   right: var(--cb-safe);

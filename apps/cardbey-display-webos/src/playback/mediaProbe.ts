@@ -1,10 +1,22 @@
-import { browserFetch } from '@cardbey/display-runtime';
+import { browserFetch, isHlsPlaybackUrl } from '@cardbey/display-runtime';
 import {
   failureCodeFromHttpStatus,
   type MediaFailureCode,
   type MediaItemProbeResult,
 } from './mediaFailureCodes.js';
 import { safeRuntimeLog } from '../runtime/runtimeErrorReport.js';
+
+export type ProbeMediaType = 'IMAGE' | 'VIDEO' | 'LIVE_CARD';
+
+/** HLS and live cards must not be HEAD/GET probed — m3u8 probes fail or misclassify. */
+export function shouldSkipHttpMediaProbe(input: {
+  mediaType: string;
+  url: string;
+  mimeType?: string;
+}): boolean {
+  if (String(input.mediaType || '').toUpperCase() === 'LIVE_CARD') return true;
+  return isHlsPlaybackUrl(input.url, input.mimeType);
+}
 
 function headerGet(headers: Headers, name: string): string | null {
   try {
@@ -33,20 +45,31 @@ function classifyFetchError(err: unknown): {
  */
 export async function probeMediaItem(input: {
   itemId: string;
-  mediaType: 'IMAGE' | 'VIDEO';
+  mediaType: ProbeMediaType;
   url: string;
+  mimeType?: string;
 }): Promise<MediaItemProbeResult> {
   const originalUrl = String(input.url || '').trim();
   const redirectChain: string[] = [];
+  const mediaType: 'IMAGE' | 'VIDEO' =
+    input.mediaType === 'VIDEO' ? 'VIDEO' : 'IMAGE';
   const base: MediaItemProbeResult = {
     itemId: input.itemId,
-    mediaType: input.mediaType,
+    mediaType,
     originalUrl,
     resolvedUrl: originalUrl,
     ok: false,
     redirectChain,
     probeMethod: 'NONE',
   };
+
+  if (shouldSkipHttpMediaProbe(input)) {
+    return {
+      ...base,
+      ok: true,
+      probeMethod: 'NONE',
+    };
+  }
 
   if (!originalUrl) {
     return {

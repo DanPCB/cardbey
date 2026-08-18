@@ -1,4 +1,4 @@
-import type { DisplayFit, DisplayManifestItem } from '@cardbey/display-runtime';
+import { isHlsPlaybackUrl, type DisplayFit, type DisplayManifestItem } from '@cardbey/display-runtime';
 import { clearElementChildren } from './domClear.js';
 import { mediaError, type MediaPlaybackError } from './mediaErrors.js';
 import { translateVideoErrorCode } from './mediaFailureCodes.js';
@@ -151,7 +151,14 @@ export class VideoRenderer {
       itemId: item.id,
       urlHostPath: maskUrl(item.url),
     });
-    video.src = item.url;
+    if (isHlsPlaybackUrl(item.url, item.mimeType)) {
+      const source = document.createElement('source');
+      source.src = item.url;
+      source.type = item.mimeType || 'application/vnd.apple.mpegurl';
+      video.appendChild(source);
+    } else {
+      video.src = item.url;
+    }
     video.load();
   }
 

@@ -1,0 +1,118 @@
+# Dedicated Global Live × Cnet pilot services.
+# Isolated from staging (`cardbey-core-staging`) and production (`cardbey-core`).
+# autoDeploy is false — creating this blueprint does not publish, merge, or replace live services.
+# Do not copy these names into render.yaml. Do not put Cloudflare secret values here.
+# DATABASE_URL must be a NEW Render Postgres. Never paste staging or production connection strings.
+
+services:
+  - type: web
+    name: cardbey-core-global-live-pilot
+    runtime: node
+    repo: https://github.com/DanPCB/cardbey
+    branch: feat/global-live-cnet-commercial-contract-a
+    autoDeploy: false
+    rootDir: apps/core/cardbey-core
+    buildCommand: node scripts/render-build.mjs
+    preDeployCommand: 'echo "[render] global-live-pilot bootstrap deferred to npm prestart — see Logs tab"'
+    startCommand: npm start
+    healthCheckPath: /api/performer/intake/v2
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EMAIL_VERIFICATION_BASE_URL
+        value: https://cardbey-core-global-live-pilot.onrender.com
+      - key: PUBLIC_APP_URL
+        value: https://cardbey-dashboard-global-live-pilot.onrender.com
+      - key: DASHBOARD_URL
+        value: https://cardbey-dashboard-global-live-pilot.onrender.com
+      - key: ENABLE_LIVE_MARKET_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_OWNER_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_PUBLIC_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_STOREFRONT_PUBLISH_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_STOREFRONT_CONSUME_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_GLOBAL_FEED_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_REGISTRATION_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_REGISTRATION_SUMMARY_V1
+        value: "false"
+      - key: ENABLE_LIVE_MARKET_HOST_PARTICIPANTS_V1
+        value: "false"
+      - key: ENABLE_LIVE_BROADCAST_V1
+        value: "false"
+      - key: ENABLE_LIVE_CLOUDFLARE_STREAM_V1
+        value: "false"
+      - key: ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1
+        value: "false"
+      - key: ENABLE_LIVE_RTMPS_HOST_V1
+        value: "false"
+      - key: ENABLE_LIVE_STOREFRONT_PLAYER_V1
+        value: "false"
+      - key: ENABLE_LIVE_GLOBAL_PLAYER_V1
+        value: "false"
+      - key: ENABLE_LIVE_RECORDING_V1
+        value: "false"
+      - key: ENABLE_LIVE_REPLAY_V1
+        value: "false"
+      - key: ENABLE_LIVE_CNET_CONTRACT_V1
+        value: "false"
+      - key: LIVE_VIDEO_PROVIDER
+        value: cloudflare
+      - key: CLOUDFLARE_STREAM_ALLOWED_ORIGINS
+        value: https://cardbey-dashboard-global-live-pilot.onrender.com,https://cardbey-core-global-live-pilot.onrender.com
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_STREAM_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_STREAM_CUSTOMER_CODE
+        sync: false
+      - key: CLOUDFLARE_STREAM_WEBHOOK_SECRET
+        sync: false
+      - key: CLOUDFLARE_NOTIFICATIONS_WEBHOOK_AUTH
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+
+  - type: web
+    name: cardbey-dashboard-global-live-pilot
+    runtime: static
+    repo: https://github.com/DanPCB/cardbey
+    branch: feat/global-live-cnet-commercial-contract-a
+    autoDeploy: false
+    rootDir: .
+    buildCommand: node scripts/render-dashboard-static-build.mjs --mode=staging
+    staticPublishPath: apps/dashboard/cardbey-marketing-dashboard/dist
+    envVars:
+      - key: VITE_ENV
+        value: staging
+      - key: VITE_CORE_BASE_URL
+        value: https://cardbey-core-global-live-pilot.onrender.com
+      - key: VITE_CORE_ORIGIN
+        value: https://cardbey-core-global-live-pilot.onrender.com
+      - key: VITE_ENABLE_LIVE_MARKET_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_MARKET_OWNER_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_MARKET_PUBLIC_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_MARKET_STOREFRONT_PUBLISH_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_MARKET_STOREFRONT_CONSUME_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_MARKET_GLOBAL_FEED_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_MARKET_REGISTRATION_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_RTMPS_HOST_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_STOREFRONT_PLAYER_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_GLOBAL_PLAYER_V1
+        value: "false"
+      - key: VITE_ENABLE_LIVE_CNET_CONTRACT_V1
+        value: "false"

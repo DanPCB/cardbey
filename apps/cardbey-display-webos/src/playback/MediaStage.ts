@@ -2,6 +2,8 @@ import type { DisplayFit, DisplayManifestItem, DisplayTransition } from '@cardbe
 import { clearElementChildren } from './domClear.js';
 import { ImageRenderer } from './ImageRenderer.js';
 import { VideoRenderer } from './VideoRenderer.js';
+import { LiveCardRenderer } from './LiveCardRenderer.js';
+import { mountQrCornerOverlay } from './QrCornerOverlay.js';
 import { TransitionController } from './TransitionController.js';
 import type { MediaPlaybackError } from './mediaErrors.js';
 
@@ -24,8 +26,9 @@ export class MediaStage {
   private readonly surface: HTMLElement;
   private readonly image: ImageRenderer;
   private readonly video: VideoRenderer;
+  private readonly liveCard: LiveCardRenderer;
   private readonly transition: TransitionController;
-  private activeType: 'IMAGE' | 'VIDEO' | null = null;
+  private activeType: 'IMAGE' | 'VIDEO' | 'LIVE_CARD' | null = null;
 
   constructor(private readonly stage: HTMLElement) {
     this.stage.classList.add('stage', 'is-active');
@@ -36,6 +39,7 @@ export class MediaStage {
     this.stage.appendChild(this.surface);
     this.image = new ImageRenderer(this.surface);
     this.video = new VideoRenderer(this.surface);
+    this.liveCard = new LiveCardRenderer(this.surface);
     this.transition = new TransitionController(this.surface);
   }
 
@@ -51,6 +55,7 @@ export class MediaStage {
   ): void {
     this.image.cleanup();
     this.video.cleanup();
+    this.liveCard.cleanup();
     this.transition.clear();
     this.activeType = item.type;
 
@@ -70,6 +75,13 @@ export class MediaStage {
         onEnded: opts.callbacks.onEnded,
         onWaiting: opts.callbacks.onWaiting,
         onStallClear: opts.callbacks.onStallClear,
+      });
+      if (item.qrValue) mountQrCornerOverlay(this.surface, item.qrValue);
+    } else if (item.type === 'LIVE_CARD') {
+      this.liveCard.prepare(item, {
+        generation: opts.callbacks.generation,
+        isCurrentGeneration: opts.callbacks.isCurrentGeneration,
+        onReady: opts.callbacks.onReady,
       });
     } else {
       opts.callbacks.onError(
@@ -112,6 +124,7 @@ export class MediaStage {
   clear(): void {
     this.image.cleanup();
     this.video.cleanup();
+    this.liveCard.cleanup();
     this.transition.clear();
     this.activeType = null;
     this.stage.classList.remove('is-active');
