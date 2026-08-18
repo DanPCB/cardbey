@@ -33,7 +33,18 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
       where: {
         storeId: { in: ids },
         storefrontPublicationStatus: STOREFRONT_PUBLICATION_STATUS.PUBLISHED,
-        state: { in: ['SCHEDULED', 'READY', 'LIVE', 'ENDED', 'PROCESSING', 'REPLAY_READY'] },
+        state: {
+          in: [
+            'SCHEDULED',
+            'READY',
+            'CONNECTING',
+            'LIVE',
+            'ENDING',
+            'ENDED',
+            'PROCESSING',
+            'REPLAY_READY',
+          ],
+        },
       },
       select: {
         id: true,
@@ -58,9 +69,10 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
   }
 
   for (const [storeId, list] of byStore) {
+    const hasConfirmedLive = list.some((s) => String(s.state) === 'LIVE');
     const primary = selectPrimaryPublishedSession(list, {
       now,
-      providerConfirmedLive: false,
+      providerConfirmedLive: hasConfirmedLive,
       enrollmentState: 'ACTIVE',
     });
     let timezone = null;
@@ -71,7 +83,7 @@ export async function loadPrimaryLiveMarketSummariesByStoreIds(prisma, storeIds,
     }
     const summary = toPublicFeedLiveMarketSummary(primary, {
       now,
-      providerConfirmedLive: false,
+      providerConfirmedLive: primary ? String(primary.state) === 'LIVE' : false,
       displayTimezone: timezone,
     });
     if (summary) map.set(storeId, summary);

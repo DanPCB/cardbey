@@ -710,6 +710,44 @@ export const Features = {
         parseBoolEnv(process.env.ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1, false)
       );
     },
+    /**
+     * RTMPS host credential issuance + Cloudflare prepare/start-intent unlock.
+     * Requires master + broadcast + Cloudflare Stream. Does not enable WebRTC.
+     */
+    get rtmpsHostV1() {
+      return (
+        Features.liveMarket.broadcastV1 &&
+        Features.liveMarket.cloudflareStreamV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_RTMPS_HOST_V1, false)
+      );
+    },
+    /** Storefront may mount a player when session is confirmed LIVE + published. */
+    get storefrontPlayerV1() {
+      return (
+        Features.liveMarket.storefrontConsumeV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_STOREFRONT_PLAYER_V1, false)
+      );
+    },
+    /** Global surfaces may deep-link / show live player affordances (not feed embed). */
+    get globalPlayerV1() {
+      return (
+        Features.liveMarket.globalFeedV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_GLOBAL_PLAYER_V1, false)
+      );
+    },
+    /** Recording retained videos — default OFF; out of scope for RTMPS pilot. */
+    get recordingV1() {
+      return (
+        Features.liveMarket.broadcastV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_RECORDING_V1, false)
+      );
+    },
+    /** Replay publication — default OFF; out of scope for RTMPS pilot. */
+    get replayV1() {
+      return (
+        Features.liveMarket.v1 && parseBoolEnv(process.env.ENABLE_LIVE_REPLAY_V1, false)
+      );
+    },
     /** Owner may publish scheduled announcements to /s/:slug (no video required). */
     get storefrontPublishV1() {
       return (
@@ -963,6 +1001,11 @@ export function snapshotFeatures() {
       broadcastV1: Features.liveMarket.broadcastV1,
       cloudflareStreamV1: Features.liveMarket.cloudflareStreamV1,
       cloudflareWebRtcV1: Features.liveMarket.cloudflareWebRtcV1,
+      rtmpsHostV1: Features.liveMarket.rtmpsHostV1,
+      storefrontPlayerV1: Features.liveMarket.storefrontPlayerV1,
+      globalPlayerV1: Features.liveMarket.globalPlayerV1,
+      recordingV1: Features.liveMarket.recordingV1,
+      replayV1: Features.liveMarket.replayV1,
       storefrontPublishV1: Features.liveMarket.storefrontPublishV1,
       storefrontConsumeV1: Features.liveMarket.storefrontConsumeV1,
       globalFeedV1: Features.liveMarket.globalFeedV1,
