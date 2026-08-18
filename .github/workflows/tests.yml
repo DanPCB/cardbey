@@ -8,11 +8,18 @@ on:
       - 'apps/core/cardbey-core/package.json'
       - 'apps/core/cardbey-core/package-lock.json'
       - 'apps/core/cardbey-core/prisma/**'
+      - 'apps/core/cardbey-core/vitest.config.js'
       - 'apps/core/cardbey-core/vitest.config.mjs'
+      - 'scripts/deploy-render-readiness.mjs'
+      - 'scripts/ci-assert-dashboard-submodule.mjs'
+      - 'scripts/init-private-dashboard-submodule.mjs'
+      - 'scripts/privateDashboardSubmoduleAuth.mjs'
+      - '.github/workflows/tests.yml'
   push:
     branches:
       - main
       - develop
+      - staging
       - 'rollback/**'
     paths:
       - 'apps/core/cardbey-core/src/**'
@@ -20,7 +27,13 @@ on:
       - 'apps/core/cardbey-core/package.json'
       - 'apps/core/cardbey-core/package-lock.json'
       - 'apps/core/cardbey-core/prisma/**'
+      - 'apps/core/cardbey-core/vitest.config.js'
       - 'apps/core/cardbey-core/vitest.config.mjs'
+      - 'scripts/deploy-render-readiness.mjs'
+      - 'scripts/ci-assert-dashboard-submodule.mjs'
+      - 'scripts/init-private-dashboard-submodule.mjs'
+      - 'scripts/privateDashboardSubmoduleAuth.mjs'
+      - '.github/workflows/tests.yml'
 
 env:
   NODE_ENV: test
@@ -49,9 +62,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Render deploy readiness
-        run: node ../../../scripts/deploy-render-readiness.mjs
-        working-directory: apps/core/cardbey-core
+      - name: Prove tsx resolves from declared dependency
+        run: node -e "const fs=require('fs'); const p=require('path'); const c=['node_modules/tsx/dist/loader.mjs','../../../node_modules/tsx/dist/loader.mjs'].map(x=>p.resolve(x)); const hit=c.find(fs.existsSync); if(!hit){console.error('tsx missing',c); process.exit(1)}; console.log('tsx_ok',hit);"
 
       - name: Generate Prisma Client
         run: npx prisma generate --schema prisma/sqlite/schema.prisma
@@ -62,3 +74,73 @@ jobs:
       - name: Run tests
         run: npm run test
 
+  live-market:
+    name: Live Market tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/core/cardbey-core
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/core/cardbey-core/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prove tsx resolves from declared dependency
+        run: node -e "const fs=require('fs'); const p=require('path'); const c=['node_modules/tsx/dist/loader.mjs','../../../node_modules/tsx/dist/loader.mjs'].map(x=>p.resolve(x)); const hit=c.find(fs.existsSync); if(!hit){console.error('tsx missing',c); process.exit(1)}; console.log('tsx_ok',hit);"
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/sqlite/schema.prisma
+
+      - name: Prepare test database
+        run: npx prisma db push --schema prisma/sqlite/schema.prisma --accept-data-loss
+
+      - name: Run Live Market suite
+        run: npm run test:live-market
+
+  render-readiness:
+    name: Render deploy readiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prove submodule token present (no value)
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
+
+      # Public monorepo + private dashboard: map Actions-legal secret name (never embed PAT).
+      - name: Init private dashboard submodule
+        env:
+          CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: node scripts/init-private-dashboard-submodule.mjs
+
+      - name: Assert dashboard submodule SHA
+        run: node scripts/ci-assert-dashboard-submodule.mjs
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Render deploy readiness
+        run: node scripts/deploy-render-readiness.mjs

@@ -7,6 +7,7 @@ on:
       - 'apps/dashboard/cardbey-marketing-dashboard/**'
       - 'scripts/**'
       - 'docs/CI_REGRESSION.md'
+      - 'docs/CI_STAGING_RUNWAY_LIVE_MARKET.md'
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/foundation-regression.yml'
@@ -14,12 +15,14 @@ on:
     branches:
       - main
       - develop
+      - staging
     paths:
       - 'apps/core/cardbey-core/**'
       - 'apps/dashboard/cardbey-marketing-dashboard/**'
       - 'scripts/**'
       - 'package.json'
       - 'pnpm-workspace.yaml'
+      - '.github/workflows/foundation-regression.yml'
 
 env:
   NODE_ENV: test
@@ -30,6 +33,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prove submodule token present (no value)
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
+      - name: Init private dashboard submodule
+        env:
+          CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: node scripts/init-private-dashboard-submodule.mjs
+      - name: Assert dashboard submodule SHA
+        run: node scripts/ci-assert-dashboard-submodule.mjs
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -55,6 +78,8 @@ jobs:
       ROLE: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -81,6 +106,8 @@ jobs:
       ROLE: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -90,10 +117,61 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile || pnpm install
         working-directory: .
+      - name: Prove tsx resolves from declared dependency
+        run: node -e "const fs=require('fs'); const p=require('path'); const c=['node_modules/tsx/dist/loader.mjs','../../../node_modules/tsx/dist/loader.mjs'].map(x=>p.resolve(x)); const hit=c.find(fs.existsSync); if(!hit){console.error('tsx missing',c); process.exit(1)}; console.log('tsx_ok',hit);"
       - name: Prisma generate + test DB
         run: npm run pretest
-      - name: Vitest
-        run: npm run test
+      - name: Live Market Vitest
+        run: npm run test:live-market
+
+
+  dashboard-i18n:
+    name: Dashboard i18n no-new-debt
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard/cardbey-marketing-dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prove submodule token present (no value)
+        working-directory: .
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
+      - name: Init private dashboard submodule
+        working-directory: .
+        env:
+          CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: node scripts/init-private-dashboard-submodule.mjs
+      - name: Assert dashboard submodule SHA
+        working-directory: .
+        run: node scripts/ci-assert-dashboard-submodule.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: i18n ratchet unit tests
+        working-directory: .
+        run: node --test scripts/i18nNoNewDebt.test.mjs
+      - name: Check i18n no-new-debt (audited baseline; historical target remains unpaid)
+        working-directory: .
+        run: node scripts/i18n-no-new-debt.mjs
+      - name: Upload i18n audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-debt-audit
+          path: artifacts/i18n/
+          if-no-files-found: warn
 
   dashboard-tests:
     name: Dashboard unit tests
@@ -103,6 +181,29 @@ jobs:
         working-directory: apps/dashboard/cardbey-marketing-dashboard
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prove submodule token present (no value)
+        working-directory: .
+        env:
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: |
+          if [ -z "$CARDBEY_SUBMODULE_TOKEN" ]; then
+            echo "secret_present=false secret_name=CARDBEY_SUBMODULE_TOKEN"
+            echo "GitHub Actions rejects custom secrets named GITHUB_*; workflows read CARDBEY_SUBMODULE_TOKEN."
+            exit 1
+          fi
+          echo "secret_present=true secret_name=CARDBEY_SUBMODULE_TOKEN"
+      - name: Init private dashboard submodule
+        working-directory: .
+        env:
+          CARDBEY_INIT_DASHBOARD_SUBMODULE: 'true'
+          CARDBEY_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+          GITHUB_SUBMODULE_TOKEN: ${{ secrets.CARDBEY_SUBMODULE_TOKEN }}
+        run: node scripts/init-private-dashboard-submodule.mjs
+      - name: Assert dashboard submodule SHA
+        working-directory: .
+        run: node scripts/ci-assert-dashboard-submodule.mjs
       - uses: pnpm/action-setup@v4
         with:
           version: 10.25.0
@@ -112,7 +213,9 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile || pnpm install
         working-directory: .
-      - name: Check i18n coverage (no new gap regressions)
-        run: pnpm run i18n:check
       - name: Vitest run
         run: pnpm exec vitest run
+      - name: Production dashboard build
+        run: pnpm run build
+        env:
+          NODE_ENV: production

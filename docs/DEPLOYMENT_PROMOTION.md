@@ -43,7 +43,7 @@ the **commit SHA** (immutable) and the branch name (moving pointer):
 - `ghcr.io/<owner>/cardbey-dashboard:sha-<short>`
 
 Dockerfiles:
-- `apps/core/cardbey-core/Dockerfile` (context = that folder)
+- `apps/core/cardbey-core/Dockerfile` (context = **repo root**; needs `packages/template-engine`)
 - `apps/dashboard/cardbey-marketing-dashboard/Dockerfile` (context = **repo root**;
   needs submodules checked out)
 

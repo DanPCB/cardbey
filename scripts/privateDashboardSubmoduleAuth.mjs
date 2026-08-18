@@ -10,12 +10,15 @@ export function shouldInitDashboardSubmodule(env = process.env) {
  * @returns {{ ok: true, token: string } | { ok: false, message: string }}
  */
 export function validateSubmoduleToken(env = process.env) {
-  const token = String(env.GITHUB_SUBMODULE_TOKEN || '').trim();
+  // GitHub Actions rejects custom secrets whose names start with GITHUB_.
+  // Repository Actions secret is CARDBEY_SUBMODULE_TOKEN; GITHUB_SUBMODULE_TOKEN
+  // remains a Render/local alias.
+  const token = String(env.CARDBEY_SUBMODULE_TOKEN || env.GITHUB_SUBMODULE_TOKEN || '').trim();
   if (!token) {
     return {
       ok: false,
       message:
-        'Private dashboard source is unavailable. Cause: Missing authenticated access for dashboard repository (GITHUB_SUBMODULE_TOKEN).',
+        'Private dashboard source is unavailable. Cause: Missing authenticated access for dashboard repository (CARDBEY_SUBMODULE_TOKEN or GITHUB_SUBMODULE_TOKEN).',
     };
   }
   return { ok: true, token };

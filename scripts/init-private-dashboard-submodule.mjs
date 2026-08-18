@@ -2,42 +2,48 @@
 /**
  * Authenticated init of the private dashboard submodule (Architecture A fallback).
  *
- * Preferred live deploy path is Architecture B (clone DanPCB/cardbey-marketing-dashboard
- * directly). Use this script only when a parent-repo build must materialize the submodule.
- *
- * Requires secret GITHUB_SUBMODULE_TOKEN (read-only on the dashboard repo).
- * Never prints the token or rewritten remotes.
- *
- * Usage:
- *   GITHUB_SUBMODULE_TOKEN=... node scripts/init-private-dashboard-submodule.mjs
- *
- * Env:
- *   CARDBEY_INIT_DASHBOARD_SUBMODULE=false → no-op exit 0 (no clone)
- *   GITHUB_SUBMODULE_TOKEN missing when init enabled → fail-fast exit 1
+ * Requires Actions secret CARDBEY_SUBMODULE_TOKEN (read-only on the dashboard repo).
+ * GITHUB_SUBMODULE_TOKEN remains a Render/local alias. Never prints the token or remotes.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  buildGithubHttpsInsteadOfUrl,
+  redactGithubTokenUrl,
   shouldInitDashboardSubmodule,
   validateSubmoduleToken,
 } from './privateDashboardSubmoduleAuth.mjs';
 
 const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const submoduleRel = 'apps/dashboard/cardbey-marketing-dashboard';
+const dashAbs = path.join(repoRoot, submoduleRel);
+const DASHBOARD_CLONE_HOST_PATH = 'github.com/DanPCB/cardbey-marketing-dashboard.git';
 
 function log(msg) {
   console.log(`[dashboard-submodule] ${msg}`);
 }
 
 function runGit(args, opts = {}) {
-  execFileSync('git', args, {
-    cwd: repoRoot,
-    stdio: opts.silent ? 'pipe' : 'inherit',
-    env: process.env,
+  return execFileSync('git', args, {
+    cwd: opts.cwd || repoRoot,
+    encoding: 'utf8',
+    stdio: opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
   });
+}
+
+function redact(text) {
+  return redactGithubTokenUrl(String(text || '')).replace(/x-access-token:[^@\s]+/gi, 'x-access-token:***');
+}
+
+function expectedGitlinkSha() {
+  const ls = runGit(['ls-tree', 'HEAD', submoduleRel], { silent: true }).trim();
+  const m = ls.match(/\b([0-9a-f]{40})\b/);
+  if (!m) {
+    throw new Error(`could not parse gitlink SHA from: ${ls || '(empty)'}`);
+  }
+  return m[1];
 }
 
 export function main(env = process.env) {
@@ -50,41 +56,90 @@ export function main(env = process.env) {
   if (!tokenCheck.ok) {
     console.error(`[dashboard-submodule] FATAL: ${tokenCheck.message}`);
     console.error(
-      '[dashboard-submodule] Required configuration: set Render secret GITHUB_SUBMODULE_TOKEN',
-    );
-    console.error(
-      '[dashboard-submodule] Or deploy the static site directly from DanPCB/cardbey-marketing-dashboard (preferred).',
+      '[dashboard-submodule] Required configuration: set Actions secret CARDBEY_SUBMODULE_TOKEN (GitHub forbids custom GITHUB_* secret names)',
     );
     process.exitCode = 1;
     return { status: 'missing_token' };
   }
 
-  const token = tokenCheck.token;
-  const insteadOf = buildGithubHttpsInsteadOfUrl(token);
-  const rewriteKey = `url.${insteadOf}.insteadOf`;
-
-  log('authenticating private dashboard submodule (token not logged)');
+  let expected;
   try {
-    runGit(['config', '--global', rewriteKey, 'https://github.com/']);
-    runGit(['submodule', 'sync', '--', submoduleRel], { silent: true });
-    runGit(['submodule', 'update', '--init', '--depth', '1', '--', submoduleRel]);
-  } finally {
-    try {
-      runGit(['config', '--global', '--unset-all', rewriteKey], { silent: true });
-    } catch {
-      /* ignore cleanup failures */
-    }
+    expected = expectedGitlinkSha();
+  } catch (err) {
+    console.error(`[dashboard-submodule] FATAL: ${err?.message || err}`);
+    process.exitCode = 1;
+    return { status: 'gitlink_parse_failed' };
+  }
+  log(`expected_gitlink=${expected}`);
+
+  try {
+    runGit(['config', '--local', '--unset-all', 'http.https://github.com/.extraheader'], { silent: true });
+  } catch {
+    /* extraheader not present */
   }
 
-  const probe = path.join(repoRoot, submoduleRel, 'package.json');
+  fs.mkdirSync(dashAbs, { recursive: true });
+  const gitDir = path.join(dashAbs, '.git');
+  if (!fs.existsSync(gitDir)) {
+    runGit(['init'], { cwd: dashAbs, silent: true });
+  }
+
+  const authUrl = `https://x-access-token:${tokenCheck.token}@${DASHBOARD_CLONE_HOST_PATH}`;
+  try {
+    try {
+      runGit(['remote', 'remove', 'origin'], { cwd: dashAbs, silent: true });
+    } catch {
+      /* no origin yet */
+    }
+    execFileSync('git', ['remote', 'add', 'origin', authUrl], {
+      cwd: dashAbs,
+      stdio: 'pipe',
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    execFileSync('git', ['fetch', '--depth', '1', 'origin', expected], {
+      cwd: dashAbs,
+      stdio: 'pipe',
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    runGit(['checkout', '--detach', 'FETCH_HEAD'], { cwd: dashAbs, silent: true });
+    execFileSync(
+      'git',
+      ['remote', 'set-url', 'origin', `https://${DASHBOARD_CLONE_HOST_PATH}`],
+      { cwd: dashAbs, stdio: 'pipe' },
+    );
+  } catch (err) {
+    const raw = `${err?.stderr || ''} ${err?.message || err}`;
+    const safe = redact(raw);
+    console.error('[dashboard-submodule] FATAL: authenticated fetch of gitlink SHA failed');
+    console.error(`[dashboard-submodule] target_repo=DanPCB/cardbey-marketing-dashboard`);
+    console.error(`[dashboard-submodule] secret_name=CARDBEY_SUBMODULE_TOKEN secret_present=true`);
+    if (/403|not found|Permission|denied/i.test(safe)) {
+      console.error(
+        '[dashboard-submodule] mismatch=token_cannot_read_private_dashboard (HTTP 403). Token is visible to this workflow but GitHub denies it for DanPCB/cardbey-marketing-dashboard. Typical causes: fine-grained PAT resource list omits that repo; missing contents:read; classic PAT missing repo scope; SSO not authorized. Not an Environment mismatch (none configured).',
+      );
+    }
+    console.error(safe);
+    process.exitCode = 1;
+    return { status: 'clone_forbidden' };
+  }
+
+  const actual = runGit(['rev-parse', 'HEAD'], { cwd: dashAbs, silent: true }).trim();
+  log(`actual_checkout=${actual}`);
+  if (actual !== expected) {
+    console.error(`[dashboard-submodule] FATAL: SHA mismatch expected ${expected} got ${actual}`);
+    process.exitCode = 1;
+    return { status: 'sha_mismatch' };
+  }
+
+  const probe = path.join(dashAbs, 'package.json');
   if (!fs.existsSync(probe)) {
-    console.error('[dashboard-submodule] FATAL: submodule init finished but package.json missing');
+    console.error('[dashboard-submodule] FATAL: checkout finished but package.json missing');
     process.exitCode = 1;
     return { status: 'incomplete' };
   }
 
-  log('ok');
-  return { status: 'ok' };
+  log(`initialized (${submoduleRel}/package.json present)`);
+  return { status: 'initialized', evidence: 'package.json', path: submoduleRel, sha: actual };
 }
 
 const isDirectRun =
