@@ -39,12 +39,26 @@ Owner action → LIVE; unverified Cloudflare; credentials in logs/storage/public
 
 ---
 
+## Commits and PRs
+
+| Git | Value |
+|-----|--------|
+| Core SHA | `43a9175a5a4fe05c8d13b8ed8cac1e7c40cd0f54` |
+| Core branch | `feat/global-live-cnet-commercial-contract-a` |
+| Core draft PR | https://github.com/DanPCB/cardbey/pull/153 (base `feat/cloudflare-stream-rtmps-pilot-v3`, **not** staging/main) |
+| Dashboard SHA | `9ef832fed867cd786cebd80fe6cb99917ef6f3b3` |
+| Dashboard branch | `feat/global-live-cnet-commercial-contract-a` |
+| Dashboard draft PR | https://github.com/DanPCB/cardbey-marketing-dashboard/pull/106 (base `feat/cloudflare-stream-rtmps-pilot-ui-v3`, **not** staging/main) |
+
+---
+
 ## Evidence log
 
 | Check | Result |
 |-------|--------|
 | Automated A/B tests (prior session) | live-cnet 23, live-market 87, display-runtime 50, webOS 38, dashboard 47 |
-| Render apply this session | **Not executed** (avoids billing + accidental staging bind) |
+| Render apply this session | **Not executed** — `RENDER_API_KEY` unset; applying repo-root `render.yaml` is forbidden |
+| Render CLI present | `render` exists locally; no authenticated apply |
 | Pilot migrate | **Not executed** (no new DATABASE_URL in this environment) |
 | OBS READY→CONNECTING→LIVE | **Not executed** |
 | Physical HLS + QR attribution | **Not executed** |
