@@ -43,6 +43,14 @@ import {
   probeWebOsDeviceInfo,
 } from '../platform/webosLifecycle.js';
 import {
+  startWebOsKeepAwake,
+  type WebOsKeepAwakeHandle,
+} from '../platform/webosKeepAwake.js';
+import {
+  startWebOsForegroundGuard,
+  type WebOsForegroundGuardHandle,
+} from '../platform/webosForegroundGuard.js';
+import {
   PlaybackCoordinator,
   type PlaybackDiagnostics,
   type PlaybackState,
@@ -100,6 +108,8 @@ export class DisplayShellApp {
   private stopped = false;
   private unbindKeys: (() => void) | null = null;
   private unbindLifecycle: (() => void) | null = null;
+  private keepAwake: WebOsKeepAwakeHandle | null = null;
+  private foregroundGuard: WebOsForegroundGuardHandle | null = null;
   private lastHeartbeat?: HeartbeatControllerSnapshot;
   private lastSync?: SyncControllerSnapshot;
   private lastSyncOutcome?: SyncOutcome['kind'];
@@ -242,20 +252,30 @@ export class DisplayShellApp {
     this.unbindLifecycle = bindWebOsLifecycle({
       onForeground: () => {
         this.foreground = true;
+        this.keepAwake?.setEnabled(true);
         this.refreshCountdown();
         void this.playback?.onLifecycleForeground();
         this.render();
       },
       onBackground: () => {
         this.foreground = false;
+        // Allow system screensaver when we are not the foreground app.
+        this.keepAwake?.setEnabled(false);
         this.playback?.onLifecycleBackground();
+        // Home / screensaver takeover — try to return to Cardbey shortly.
+        this.foregroundGuard?.requestReclaim();
         this.render();
       },
       onRelaunch: () => {
         this.bootMessage = 'App relaunched';
+        this.keepAwake?.setEnabled(true);
+        void this.playback?.onLifecycleForeground();
         this.render();
       },
     });
+    // Reject LG home screensaver while this signage app is foreground.
+    this.keepAwake = startWebOsKeepAwake();
+    this.foregroundGuard = startWebOsForegroundGuard();
     this.unbindKeys = bindRemoteKeys((action) => this.onRemoteKey(action));
     this.bindDomActions();
     window.addEventListener('online', this.onBrowserOnline);
@@ -284,6 +304,10 @@ export class DisplayShellApp {
     this.playback = null;
     this.activation?.stopControllers();
     this.clearCountdown();
+    this.keepAwake?.stop();
+    this.keepAwake = null;
+    this.foregroundGuard?.stop();
+    this.foregroundGuard = null;
     this.unbindKeys?.();
     this.unbindLifecycle?.();
     this.unbindKeys = null;
@@ -338,7 +362,14 @@ export class DisplayShellApp {
     }
     player.setHeartbeat(this.activation?.getHeartbeat() ?? null);
     player.setManifest(manifest);
-    if (manifest && manifest.playlist.items.length > 0) {
+    // setManifest starts playback when needed. Do NOT call play() on every
+    // sync — that tears down the current <img> and flashes black on webOS.
+    const status = player.getState().status;
+    if (
+      manifest &&
+      manifest.playlist.items.length > 0 &&
+      (status === 'IDLE' || status === 'WAITING_FOR_CONTENT' || status === 'FAILED')
+    ) {
       void player.play();
     }
   }
@@ -535,6 +566,10 @@ export class DisplayShellApp {
         this.allowManualSkip = this.diagnosticsOpen;
         this.render();
       }
+      return;
+    }
+    if (action === 'home') {
+      // Signage: ignore Home — stay in Cardbey Display.
       return;
     }
     if (action === 'back') {

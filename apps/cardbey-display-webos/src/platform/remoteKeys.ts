@@ -1,5 +1,6 @@
 export type RemoteKeyAction =
   | 'back'
+  | 'home'
   | 'ok'
   | 'info'
   | 'left'
@@ -15,7 +16,7 @@ export type RemoteKeyHandler = (action: RemoteKeyAction, event: KeyboardEvent) =
 
 /**
  * Map LG remote / keyboard events to shell actions.
- * Back is consumed by default so the app does not exit unexpectedly (signage-safe).
+ * Back/Home are consumed by default so the app does not exit unexpectedly (signage-safe).
  */
 export function mapKeyToAction(event: KeyboardEvent): RemoteKeyAction {
   const key = event.key;
@@ -23,6 +24,10 @@ export function mapKeyToAction(event: KeyboardEvent): RemoteKeyAction {
 
   if (key === 'Backspace' || key === 'Escape' || code === 461 || code === 8 || code === 27) {
     return 'back';
+  }
+  // LG Home / Guide / Exit-to-launcher variants
+  if (key === 'Home' || code === 36 || code === 172 || code === 1003) {
+    return 'home';
   }
   if (key === 'Enter' || code === 13) return 'ok';
   if (key === 'Info' || key === 'i' || key === 'I' || code === 457) return 'info';
@@ -39,7 +44,7 @@ export function mapKeyToAction(event: KeyboardEvent): RemoteKeyAction {
 export function bindRemoteKeys(handler: RemoteKeyHandler): () => void {
   const onKeyDown = (event: KeyboardEvent) => {
     const action = mapKeyToAction(event);
-    if (action === 'back' || action === 'ok' || action === 'info') {
+    if (action === 'back' || action === 'home' || action === 'ok' || action === 'info') {
       event.preventDefault();
       event.stopPropagation();
     }
