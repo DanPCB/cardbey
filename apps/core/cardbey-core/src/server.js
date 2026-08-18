@@ -297,6 +297,14 @@ import toolsRoutes from './routes/toolsRoutes.js';
 import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import learningRoutes from './lib/learning/learningRoutes.js';
+import {
+  liveMarketOwnerRoutes,
+  liveMarketAdminRoutes,
+  liveMarketPublicRoutes,
+  liveMarketParticipantRoutes,
+  liveMarketMeRoutes,
+} from './lib/liveMarket/routes.js';
+import { cloudflareStreamLiveWebhookRoutes } from './lib/liveMarket/routes.js';
 import ctaEngineRoutes from './routes/ctaEngineRoutes.js';
 import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import visionIntakeRoutes from './routes/visionIntake.js';
@@ -600,9 +608,9 @@ app.get('/__whoami', (_req, res) => {
     }
   });
 });
-// Simple health check (legacy) — prefer GET /api/health?full=true
+// Simple health check (legacy) â€” prefer GET /api/health?full=true
 app.get('/health', (_req, res) => {
-  console.warn('[DEPRECATED] GET /health — use GET /api/health?full=true');
+  console.warn('[DEPRECATED] GET /health â€” use GET /api/health?full=true');
   res.status(200).json({ ok: true, deprecated: true, use: '/api/health?full=true' });
 });
 
@@ -639,7 +647,7 @@ app.get('/robots.txt', (_req, res) => {
  */
 app.use(cookieParser()); // Parse cookies for OAuth
 
-// Stripe webhook — MUST use raw body (before express.json)
+// Stripe webhook â€” MUST use raw body (before express.json)
 app.post(
   '/api/payments/webhook',
   express.raw({ type: 'application/json' }),
@@ -746,7 +754,7 @@ app.use((req, res, next) => {
 // Legacy runway usage warnings (non-blocking). See docs/RUNWAY_OWNERSHIP.md
 app.use(runwayLegacyGuard);
 
-// Intent routing classification (metadata only — does not intercept route handlers)
+// Intent routing classification (metadata only â€” does not intercept route handlers)
 app.use(intentRoutingStack);
 
 // Example: Broadcast log message (can be called from anywhere in the app)
@@ -1017,7 +1025,7 @@ app.use(mobileCompatAuthRouter);
 app.use('/api/auth', authRoutes); // Authentication routes: /api/auth/register, /api/auth/login, /api/auth/me
 app.patch('/api/users/me', requireAuth, patchCurrentUserProfile); // Alias for PATCH /api/auth/profile (personal profile Phase 1)
 app.patch('/api/users/me/profile', requireAuth, patchCurrentUserProfile);
-// Performer intake: mount before any `app.use('/api', …)` stack so POST /api/performer/intake is never swallowed (404) or mis-logged.
+// Performer intake: mount before any `app.use('/api', â€¦)` stack so POST /api/performer/intake is never swallowed (404) or mis-logged.
 app.use('/api/performer/intake', performerIntakeRoutes);
 app.use('/api/performer', performerDispatchRoutes);
 app.use('/api/performer/runtime', performerRuntimeRoutes); // Phase 1.5: stream + state
@@ -1031,7 +1039,7 @@ app.use('/api', confirmationRoutes);
 app.use('/api/performer/intake/v2', performerIntakeV2Routes);
 app.use('/api/cta', ctaEngineRoutes); // CTA Engine Phase 2: evaluate / dismiss / events
 app.use('/api/learning', learningRoutes);
-app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document — POST /ingest-document
+app.use('/api/performer', performerIngestDocumentRoutes); // DANH: skill-round6-document â€” POST /ingest-document
 app.use('/api/vision', visionIntakeRoutes);
 app.use('/api/vision', visionDiscoveryRoutes);
 app.use('/api/ghost-stores', ghostStoreRoutes);
@@ -1060,6 +1068,9 @@ if (process.env.NODE_ENV !== 'production') {
 app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
+app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
+app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
+app.use('/api/me/live-market', liveMarketMeRoutes); // Live Market my registrations (flag-gated)
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
 app.use('/api/store', storesRoutes); // Store context routes: /api/store/context, /api/store/:id/context
 app.use('/api/storefront', storefrontRoutes); // Published store feed: GET /api/storefront/frontscreen (no draft dependency)
@@ -1070,7 +1081,7 @@ app.use('/api/business', businessRoutes); // Business Builder routes: /api/busin
 app.use('/api/business', businessBrandRoutes); // GET/PATCH /api/business/:storeId/brand
 app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: search/import/claim/generate-channel
 app.use('/api/business-ingestion', businessIngestionRoutes); // Bulk factual business ingestion pipeline
-app.use('/api/discovery-engine', discoveryEngineRoutes); // Discovery Engine V1 — candidates → seeds
+app.use('/api/discovery-engine', discoveryEngineRoutes); // Discovery Engine V1 â€” candidates â†’ seeds
 app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first BusinessCandidate pilot
 app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
@@ -1083,7 +1094,7 @@ app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owne
 app.use('/api/stores/:storeId/bookings', bookingOwnerRoutes); // Owner bookings + payment status
 app.use('/api/stores/:storeId/payments', paymentOwnerRoutes); // Owner payment list
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
-app.use('/api/claim-business', claimBusinessPublicRoutes); // Dev proxy alias (/api → core)
+app.use('/api/claim-business', claimBusinessPublicRoutes); // Dev proxy alias (/api â†’ core)
 app.use('/activate-business', activateBusinessPublicRoutes);
 app.use('/api/activate-business', activateBusinessPublicRoutes);
 app.use('/api/explore', exploreRoutes); // Featured explore videos: GET/POST/PATCH/DELETE /api/explore/videos
@@ -1099,7 +1110,7 @@ app.use('/api/loyalty', loyaltyRoutes); // Loyalty program routes: /api/loyalty/
 app.use('/api/loyalty', loyaltyEngineRoutes); // Loyalty engine routes: /api/loyalty/program, /api/loyalty/assets, etc.
 app.use('/api/watcher', watcherRoutes); // System watcher routes: /api/watcher/event, /api/watcher/insights, /api/watcher/chat
 app.use('/api/pil', pilRoutes); // PIL intelligence events: POST /api/pil/events, /api/pil/events/batch
-app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observation → outcome memory
+app.use('/api/pil/business-memory', businessMemoryRoutes); // Phase 4: observation â†’ outcome memory
 app.use('/api/intelligence', intelligenceRoutes); // Foundation: /health, /memory, /express, /metrics (requires jsonParser above)
 if (process.env.USE_UNIFIED_MEMORY !== 'false') {
   app.use('/api/memory', memoryRoutes); // Unified memory facade: /bundle, /invalidate
@@ -1113,7 +1124,7 @@ app.use('/api/hooks', hookRoutes); // Lifecycle hooks registry + test
 app.use('/api/agents', agentRoutes); // Sub-agent registry, orchestration, message bus
 app.use('/api/layout', layoutRoutes); // General layout engine: POST /apply, GET /types
 app.use('/api/reliability', reliabilityRoutes); // P6: auto-heal, rate limits, bulkhead, SLO, alerts
-app.use('/api/conversations', conversationRoutes); // Phase 0 — continuous Performer conversation sessions
+app.use('/api/conversations', conversationRoutes); // Phase 0 â€” continuous Performer conversation sessions
 app.use('/api/promo/engine', promoEngineRoutes); // Promo engine routes: /api/promo/engine/preview, /api/promo/engine/apply, etc.
 app.use('/api/signage/engine', signageEngineRoutes); // Signage engine routes: /api/signage/engine/build-playlist, /api/signage/engine/apply-schedule, etc.
 app.use('/api', signageRoutes); // Signage REST API routes: /api/signage-assets, /api/signage-playlists, etc.
@@ -1152,6 +1163,8 @@ app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
+app.use('/api/public/live-market', liveMarketPublicRoutes); // Live Market public session read (flag-gated)
+app.use('/api/webhooks/cloudflare/stream-live', cloudflareStreamLiveWebhookRoutes); // Live Input Notifications (auth-gated)
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
 const miOpenApiPath = fromRoot('..', 'openapi', 'mi-tools.v1.yaml');
@@ -1172,9 +1185,9 @@ app.use('/api/ai', aiPromoRouter);
 app.use('/api/ai/images', aiImagesRouter);
 app.use('/api/studio', studioRouter);
 // Production-critical: store mission Phase 0 create/summary/generate. Same DB for create and read (single DATABASE_URL).
-app.use('/api/draft-store', draftStoreRoutes); // Canonical store draft runway — POST /, GET /:draftId/summary, generate, commit
-app.use('/api/store-draft', draftStoreRoutes); // LEGACY alias (same router); runwayLegacyGuard logs — prefer /api/draft-store
-app.use('/api/journeys', journeysRoutes); // Journey templates, instances, planner, analytics (was unmounted — smoke: GET /templates)
+app.use('/api/draft-store', draftStoreRoutes); // Canonical store draft runway â€” POST /, GET /:draftId/summary, generate, commit
+app.use('/api/store-draft', draftStoreRoutes); // LEGACY alias (same router); runwayLegacyGuard logs â€” prefer /api/draft-store
+app.use('/api/journeys', journeysRoutes); // Journey templates, instances, planner, analytics (was unmounted â€” smoke: GET /templates)
 app.use('/api/mini-website', miniWebsiteRoutes); // POST /publish/cardbey (same as store publish), custom-domain stub
 app.use('/api/intent-graph', intentGraphRoutes); // Intent Graph v1: POST /build, GET /suggestions?draftId=|storeId=
 app.use('/api', seedLibraryRoutes); // Seed Library: GET /api/seed-library/placeholder?vertical=&categoryKey=&orientation=
@@ -1190,7 +1203,7 @@ if (process.env.ENABLE_CONTACT_SYNC === 'true') {
 }
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
-app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
+app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery â†’ governed code_fix proposals (super_admin)
 app.use('/api/self-audit', selfAuditRoutes); // Self-audit: status, run, fix proposals (admin)
 app.use('/api', developmentRoutes); // Development Runtime: /api/development/*
 console.log('[CORE] mounted /api/telemetry (GET /summary, POST /code-fix-proposal)');
@@ -1204,11 +1217,11 @@ app.use('/api/agents/researcher', researcherRoutes); // Researcher agent: POST /
 app.use('/api/campaign', campaignRoutes); // Campaign Phase A: POST /api/campaign/validate-scope (requireAuth)
 app.use('/api/smart-objects', smartObjectsRoutes); // Smart Object: create, get by id/publicCode, set active-promo
 app.use('/api/qr', qrRoutes); // Dynamic QR v0: POST create, GET :code/resolve, PATCH :code
-app.use('/q', qRedirect); // GET /q/:code — 302 redirect, record ScanEvent + IntentSignal (no auth)
-app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug — public offer page (no auth)
+app.use('/q', qRedirect); // GET /q/:code â€” 302 redirect, record ScanEvent + IntentSignal (no auth)
+app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug â€” public offer page (no auth)
 app.use('/api/docs', smartDocumentRoutes); // Smart documents + suitcase list: GET/POST /api/docs
-app.use('/api/suitcase', skillSuitcaseRoutes); // DANH: suitcase-skill-output — skill reports + mission history
-app.use('/api/suitcase', suitcaseItemRoutes); // Phase 10 — account knowledge vault items CRUD
+app.use('/api/suitcase', skillSuitcaseRoutes); // DANH: suitcase-skill-output â€” skill reports + mission history
+app.use('/api/suitcase', suitcaseItemRoutes); // Phase 10 â€” account knowledge vault items CRUD
 app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards, visitor chat, etc.
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
@@ -1237,7 +1250,7 @@ app.use('/api/oauth', oauthSocialConnectRoutes); // Facebook Page connect callba
 app.use('/api/oauth', oauthExtendedPlatformRoutes); // Twitter, LinkedIn, Reddit, Mastodon, Pinterest stubs
 app.use('/api/platforms', platformRoutes); // Social + LLM platform connection dashboard
 app.use('/api/oauth', oauthGoogleRoutes); // Google OAuth (Calendar / future Gmail)
-// MCP server — external AI tool integration (read-only, token-scoped)
+// MCP server â€” external AI tool integration (read-only, token-scoped)
 app.use('/mcp', mcpRoutes);
 app.use('/mcp', mcpServerRoutes);
 console.log('[CORE] MCP server mounted at /mcp (SSE: /mcp/sse, Messages: /mcp/message, Info: /mcp/info)');
@@ -1282,15 +1295,16 @@ app.get('/metrics', async (_req, res) => {
 app.use('/api/language', languageRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
+app.use('/api/admin/live-market', liveMarketAdminRoutes); // Admin: Live Market pilot (flag-gated)
 
 // Internal API routes (for Lambda callbacks, workers, etc.)
 app.use('/api/internal', internalRoutes);
-// Ops read-only API (status, audit-trail) — requireAuth + requireAdmin
+// Ops read-only API (status, audit-trail) â€” requireAuth + requireAdmin
 app.use('/api/ops', opsRoutes);
 app.use('/api/control-tower', controlTowerRoutes);
 console.log('[CORE] Admin routes mounted at /api/admin');
 
-// Debug routes (⚠️ FOR LOCAL/DEV ONLY - NOT FOR PRODUCTION)
+// Debug routes (âš ï¸ FOR LOCAL/DEV ONLY - NOT FOR PRODUCTION)
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/debug', debugRoutes);
   app.use('/api/debug', createDebugRoutesLite(app));
@@ -1310,7 +1324,7 @@ if (fs.existsSync(cfgPath)) {
     const absPath = fromRoot(dir);
     if (fs.existsSync(absPath)) {
       app.use(express.static(absPath));
-      console.log(`✅ Serving static files from ${dir}`);
+      console.log(`âœ… Serving static files from ${dir}`);
     }
   }
   
@@ -1334,7 +1348,7 @@ if (fs.existsSync(cfgPath)) {
         }
         res.sendFile(index);
       });
-      console.log(`✅ SPA fallback: ${spaFallbackDir}/index.html`);
+      console.log(`âœ… SPA fallback: ${spaFallbackDir}/index.html`);
     }
   }
 }
@@ -1398,7 +1412,7 @@ const isTestEnv = (process.env.NODE_ENV || '').toLowerCase() === 'test' || Boole
       }
     }
     
-    // Start scheduler heartbeat (only for API server, not worker). Skip under Vitest — integration tests import this module
+    // Start scheduler heartbeat (only for API server, not worker). Skip under Vitest â€” integration tests import this module
     // without a real HTTP server; timers + Prisma shutdown ordering can trigger Rust/N-API panics on exit.
     // NOTE: Keep this pre-listen (lightweight) but ensure heavier workers start after port bind (see listen callback).
     if (process.env.ROLE !== 'worker' && process.env.VITEST !== 'true') {
@@ -1461,18 +1475,18 @@ function startApiHttpServer() {
     console.log('[CORE] Production-critical routes: /api/mi (missions/intents/events), /api/draft-store (create/summary/generate), /api/missions');
     console.log('[CORE] DATABASE_URL:', process.env.DATABASE_URL ? 'set (single DB for draft create/read)' : 'not set');
     console.log(`
-╔══════════════════════════════════════════════╗
-║  🚀 Cardbey Core API                        ║
-╚══════════════════════════════════════════════╝
+â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+â•‘  ðŸš€ Cardbey Core API                        â•‘
+â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-✅ Local: ${baseUrl}
-🌐 LAN:   ${lanUrl} ← use this on tablets/TVs
+âœ… Local: ${baseUrl}
+ðŸŒ LAN:   ${lanUrl} â† use this on tablets/TVs
 
-✅ Health: ${baseUrl}/health
-✅ API:    ${baseUrl}/api/health
-✅ Healthz: ${baseUrl}/healthz
-✅ Readyz: ${baseUrl}/readyz
-✅ WebSocket: ws://${LAN}:${PORT}/api/stream?key=<API_KEY>
+âœ… Health: ${baseUrl}/health
+âœ… API:    ${baseUrl}/api/health
+âœ… Healthz: ${baseUrl}/healthz
+âœ… Readyz: ${baseUrl}/readyz
+âœ… WebSocket: ws://${LAN}:${PORT}/api/stream?key=<API_KEY>
 `);
     
     // Dev-only: bootstrap super_admin from SUPER_ADMIN_EMAIL (never in production)
@@ -1501,7 +1515,7 @@ function startApiHttpServer() {
     }
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`\n❌ Port ${PORT} is already in use!\n`);
+      console.error(`\nâŒ Port ${PORT} is already in use!\n`);
       console.error('To fix this, try one of the following:');
       console.error(`1. Kill the process using port ${PORT}:`);
       console.error(`   netstat -ano | findstr :${PORT}`);
@@ -1529,7 +1543,7 @@ function startApiHttpServer() {
     signalShutdown();
     stopBackgroundWorkers();
     const forceTimer = setTimeout(() => {
-      console.warn('[CORE] Shutdown timeout — forcing exit');
+      console.warn('[CORE] Shutdown timeout â€” forcing exit');
       process.exit(1);
     }, SHUTDOWN_FORCE_MS);
     server.close(async () => {
@@ -1549,7 +1563,7 @@ function startApiHttpServer() {
     signalShutdown();
     stopBackgroundWorkers();
     const forceTimer = setTimeout(() => {
-      console.warn('[CORE] Shutdown timeout — forcing exit');
+      console.warn('[CORE] Shutdown timeout â€” forcing exit');
       process.exit(1);
     }, SHUTDOWN_FORCE_MS);
     server.close(async () => {
@@ -1566,5 +1580,5 @@ function startApiHttpServer() {
 }
 
 if (process.env.ROLE !== 'api') {
-  console.log('⚠️  Skipping app.listen() (ROLE is not "api"; set ROLE=api to start the HTTP server)');
+  console.log('âš ï¸  Skipping app.listen() (ROLE is not "api"; set ROLE=api to start the HTTP server)');
 }

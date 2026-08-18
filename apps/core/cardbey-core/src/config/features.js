@@ -1,6 +1,6 @@
 /**
  * Single source of truth for intake feature flags.
- * All runtime code must read flags from here — no direct process.env.INTAKE_* elsewhere.
+ * All runtime code must read flags from here â€” no direct process.env.INTAKE_* elsewhere.
  */
 
 function parseBoolEnv(raw, defaultValue) {
@@ -34,7 +34,7 @@ function parseThreshold(raw, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-/** @deprecated Decision loop removed — IntentReasoner is the sole classifier. Always false. */
+/** @deprecated Decision loop removed â€” IntentReasoner is the sole classifier. Always false. */
 function readDecisionLoopEnabled() {
   return false;
 }
@@ -52,7 +52,7 @@ function readAdvisorShadowEnabled() {
 
 export const Features = {
   /**
-   * LLM Gateway — Integrate, Don't Build (Phase 0–1).
+   * LLM Gateway â€” Integrate, Don't Build (Phase 0â€“1).
    * Default ON: all text-gen should go through llmGateway.
    * Rollback: USE_LLM_GATEWAY=false
    */
@@ -169,12 +169,12 @@ export const Features = {
     },
   },
   loyalty: {
-    /** When true: loyalty card scan uses IntentReasoner → compile → writeMetadata. Default false keeps ui-action. */
+    /** When true: loyalty card scan uses IntentReasoner â†’ compile â†’ writeMetadata. Default false keeps ui-action. */
     get useSpine() {
       return parseBoolEnv(process.env.USE_LOYALTY_SPINE, false);
     },
     /**
-     * When true: block synthetic DEFAULT_TEMPLATE topology (2×5 etc.) so missing topology surfaces loudly.
+     * When true: block synthetic DEFAULT_TEMPLATE topology (2Ã—5 etc.) so missing topology surfaces loudly.
      * Set LOYALTY_DISABLE_DEFAULT_TEMPLATE=true while debugging card extraction / graph handoff.
      */
     get disableDefaultTemplate() {
@@ -361,7 +361,7 @@ export const Features = {
     get stagingOnly() {
       return parseBoolEnv(process.env.PHASE2_REASONING_STAGING_ONLY, false);
     },
-    /** 0–100 mission cohort rollout (hash-stable per missionId). */
+    /** 0â€“100 mission cohort rollout (hash-stable per missionId). */
     get rolloutPercent() {
       const value = parseFloat(process.env.PHASE2_REASONING_ROLLOUT_PERCENT ?? '0');
       if (!Number.isFinite(value)) return 0;
@@ -443,7 +443,7 @@ export const Features = {
         .toLowerCase();
       if (raw === 'false' || raw === '0' || raw === 'off' || raw === 'no') return false;
       if (raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes') return true;
-      // Staging Render uses NODE_ENV=production + CARDEY_DEPLOY_ENV=staging — treat as non-prod.
+      // Staging Render uses NODE_ENV=production + CARDEY_DEPLOY_ENV=staging â€” treat as non-prod.
       // Live production stays off until ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1 is set explicitly.
       const deployEnv = String(process.env.CARDEY_DEPLOY_ENV || process.env.RENDER_SERVICE_NAME || '')
         .trim()
@@ -455,7 +455,7 @@ export const Features = {
     },
   },
   /**
-   * Grounded store creation V1 — stop silent product invention + weak stock media.
+   * Grounded store creation V1 â€” stop silent product invention + weak stock media.
    * Default OFF. Set ENABLE_GROUNDED_STORE_CREATION_V1=true to enable.
    */
   groundedStoreCreation: {
@@ -467,7 +467,7 @@ export const Features = {
     },
   },
   /**
-   * Storefront Design Library — advisory contracts/projection (see storefrontDesignLibrary/flags.js).
+   * Storefront Design Library â€” advisory contracts/projection (see storefrontDesignLibrary/flags.js).
    * Mirrored here for health snapshots; DL modules also read env directly.
    */
   designLibrary: {
@@ -501,7 +501,7 @@ export const Features = {
   },
 
   /**
-   * Performer turn V1 — POST /api/performer/turn (reason-only LLM via llmGateway).
+   * Performer turn V1 â€” POST /api/performer/turn (reason-only LLM via llmGateway).
    * Default ON outside production; set ENABLE_PERFORMER_TURN_V1=false to disable.
    * Does not execute CRM/booking; dashboard structured planner remains fallback.
    */
@@ -521,7 +521,7 @@ export const Features = {
   },
 
   /**
-   * Universal Library — catalogue, population, Pexels REFERENCE sync.
+   * Universal Library â€” catalogue, population, Pexels REFERENCE sync.
    * Non-prod defaults ON via readNonProductionFlag when unset.
    * Fixtures and scheduled provider sync stay fail-closed (explicit opt-in).
    */
@@ -592,8 +592,8 @@ export const Features = {
   },
 
   /**
-   * Universal Resource Intelligence (URI) — rights-aware reuse / federation.
-   * Restored for Library “Use this” (select → revalidate → confirm → draft).
+   * Universal Resource Intelligence (URI) â€” rights-aware reuse / federation.
+   * Restored for Library â€œUse thisâ€ (select â†’ revalidate â†’ confirm â†’ draft).
    * Fixtures/scheduled sync stay unrelated; publication remains fail-closed.
    */
   universalResourceIntelligence: {
@@ -655,10 +655,127 @@ export const Features = {
       );
     },
   },
+
+  /**
+   * Cardbey Live Market / Global Live (pilot).
+   * All flags default OFF. Master kill switch: ENABLE_LIVE_MARKET_V1.
+   * Cloudflare Stream RTMPS pilot flags; WebRTC remains deferred/off.
+   */
+  liveMarket: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_LIVE_MARKET_V1, false);
+    },
+    get adminV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_ADMIN_V1, false)
+      );
+    },
+    get ownerV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_OWNER_V1, false)
+      );
+    },
+    get publicV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_PUBLIC_V1, false)
+      );
+    },
+    get broadcastV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_BROADCAST_V1, false)
+      );
+    },
+    get cloudflareStreamV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_CLOUDFLARE_STREAM_V1, false)
+      );
+    },
+    get cloudflareWebRtcV1() {
+      return (
+        Features.liveMarket.broadcastV1 &&
+        Features.liveMarket.cloudflareStreamV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1, false)
+      );
+    },
+    get rtmpsHostV1() {
+      return (
+        Features.liveMarket.broadcastV1 &&
+        Features.liveMarket.cloudflareStreamV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_RTMPS_HOST_V1, false)
+      );
+    },
+    get storefrontPlayerV1() {
+      return (
+        Features.liveMarket.storefrontConsumeV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_STOREFRONT_PLAYER_V1, false)
+      );
+    },
+    get globalPlayerV1() {
+      return (
+        Features.liveMarket.globalFeedV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_GLOBAL_PLAYER_V1, false)
+      );
+    },
+    get recordingV1() {
+      return (
+        Features.liveMarket.broadcastV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_RECORDING_V1, false)
+      );
+    },
+    get replayV1() {
+      return (
+        Features.liveMarket.recordingV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_REPLAY_V1, false)
+      );
+    },
+    get storefrontPublishV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_STOREFRONT_PUBLISH_V1, false)
+      );
+    },
+    get storefrontConsumeV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_STOREFRONT_CONSUME_V1, false)
+      );
+    },
+    get globalFeedV1() {
+      return (
+        Features.liveMarket.v1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_GLOBAL_FEED_V1, false)
+      );
+    },
+    get registrationV1() {
+      return (
+        Features.liveMarket.v1 &&
+        Features.liveMarket.storefrontConsumeV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_REGISTRATION_V1, false)
+      );
+    },
+    get registrationSummaryV1() {
+      return (
+        Features.liveMarket.ownerV1 &&
+        Features.liveMarket.registrationV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_REGISTRATION_SUMMARY_V1, false)
+      );
+    },
+    get hostParticipantsV1() {
+      return (
+        Features.liveMarket.registrationSummaryV1 &&
+        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_HOST_PARTICIPANTS_V1, false)
+      );
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
-/** @deprecated Always false — decision loop authority removed (Phase 1 collapse). */
+/** @deprecated Always false â€” decision loop authority removed (Phase 1 collapse). */
 export function isDecisionLoopEnabled() {
   return false;
 }
@@ -822,6 +939,26 @@ export function snapshotFeatures() {
       providerSdkV1: Features.universalResourceIntelligence.providerSdkV1,
       federationPlannerV1: Features.universalResourceIntelligence.federationPlannerV1,
       resourceGraphV1: Features.universalResourceIntelligence.resourceGraphV1,
+    },
+    liveMarket: {
+      v1: Features.liveMarket.v1,
+      adminV1: Features.liveMarket.adminV1,
+      ownerV1: Features.liveMarket.ownerV1,
+      publicV1: Features.liveMarket.publicV1,
+      broadcastV1: Features.liveMarket.broadcastV1,
+      cloudflareStreamV1: Features.liveMarket.cloudflareStreamV1,
+      cloudflareWebRtcV1: Features.liveMarket.cloudflareWebRtcV1,
+      rtmpsHostV1: Features.liveMarket.rtmpsHostV1,
+      storefrontPlayerV1: Features.liveMarket.storefrontPlayerV1,
+      globalPlayerV1: Features.liveMarket.globalPlayerV1,
+      recordingV1: Features.liveMarket.recordingV1,
+      replayV1: Features.liveMarket.replayV1,
+      storefrontPublishV1: Features.liveMarket.storefrontPublishV1,
+      storefrontConsumeV1: Features.liveMarket.storefrontConsumeV1,
+      globalFeedV1: Features.liveMarket.globalFeedV1,
+      registrationV1: Features.liveMarket.registrationV1,
+      registrationSummaryV1: Features.liveMarket.registrationSummaryV1,
+      hostParticipantsV1: Features.liveMarket.hostParticipantsV1,
     },
   };
 }

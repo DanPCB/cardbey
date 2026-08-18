@@ -5,7 +5,7 @@
 //
 // Local SQLite: prefer prisma/sqlite/schema.prisma + DATABASE_URL=file:../dev.db in .env so
 // CLI and server both use prisma/dev.db. This file lives in prisma/; a bare file:./dev.db here
-// would not match ensureDatabaseUrl’s package-root resolution unless you use an absolute file: URL.
+// would not match ensureDatabaseUrlâ€™s package-root resolution unless you use an absolute file: URL.
 
 generator client {
   provider = "prisma-client-js"
@@ -74,6 +74,7 @@ model User {
   cards                      Card[]
   suitcaseItems              SuitcaseItem[]
   conversationSessions       ConversationSession[]
+  liveMarketParticipantRegistrations LiveMarketParticipantRegistration[]
 
   @@index([email])
   @@index([handle])
@@ -94,7 +95,7 @@ model TelemetryProbe {
   @@index([missionId])
 }
 
-/// Hero video upload / verify / playback client telemetry (dashboard → POST /api/telemetry/hero-video).
+/// Hero video upload / verify / playback client telemetry (dashboard â†’ POST /api/telemetry/hero-video).
 model TelemetryHeroVideo {
   id            String    @id @default(cuid())
   eventType     String
@@ -227,6 +228,9 @@ model Business {
   storeSaves              StoreSave[]
   storeShares             StoreShare[]
   offerClaims             OfferClaim[]
+  liveMarketPilotEnrollment LiveMarketPilotEnrollment?
+  liveMarketSessions        LiveMarketSession[]
+  liveMarketParticipantRegistrations LiveMarketParticipantRegistration[]
 
   @@index([userId])
   @@index([slug])
@@ -1288,7 +1292,7 @@ model PlaylistSchedule {
 model Device {
   id                   String    @id @default(cuid())
   /// Phase 1: nullable, non-unique. Prefer prisma/sqlite + prisma/postgres schemas for ops.
-  /// Unique constraint is Phase 3 after duplicate cleanup — do not add @unique here yet.
+  /// Unique constraint is Phase 3 after duplicate cleanup â€” do not add @unique here yet.
   installationId       String?
   tenantId             String
   storeId              String
@@ -1300,8 +1304,8 @@ model Device {
   location             String?
   appVersion           String?
   platform             String? // Platform identifier (e.g., "browser-player", "android_tv")
-  orientation          String?   @default("horizontal") // legacy dual-wire: "horizontal" | "vertical" — prefer rotationDegrees
-  rotationDegrees      Int       @default(0) // Device mount angle 0–359; UI initially 0/90/180/270
+  orientation          String?   @default("horizontal") // legacy dual-wire: "horizontal" | "vertical" â€” prefer rotationDegrees
+  rotationDegrees      Int       @default(0) // Device mount angle 0â€“359; UI initially 0/90/180/270
   lastSeenAt           DateTime?
   lastScreenshotBase64 String? // Base64 encoded screenshot (dev only, will migrate to S3 URL)
   lastScreenshotAt     DateTime? // When screenshot was taken
@@ -1464,7 +1468,7 @@ model DeviceAlert {
   ip            String? // Source IP provided by the device
   engineVersion String? // Device engine version (e.g., "DEVICE v2")
   env           String? // Environment (e.g., "DEV", "PROD")
-  resolved      Boolean   @default(false) // Legacy flag – derived from status
+  resolved      Boolean   @default(false) // Legacy flag â€“ derived from status
   createdAt     DateTime  @default(now())
   resolvedAt    DateTime?
 
@@ -1669,7 +1673,7 @@ model Mission {
 }
 
 // Multi-agent coordination: append-only event log keyed by missionId (Performer blackboard UI).
-// SQLite: String JSON — avoid Json type (Prisma can emit JSONB DDL on SQLite).
+// SQLite: String JSON â€” avoid Json type (Prisma can emit JSONB DDL on SQLite).
 model MissionBlackboard {
   id            String   @id @default(cuid())
   missionId     String
@@ -1811,7 +1815,7 @@ model MissionPipeline {
   description              String?
   status                   String    @default("requested") // MissionPipelineStatus
   runState                 String    @default("idle")      // MissionPipelineRunState
-  /// Values: AUTO_RUN | GUIDED_RUN — AUTO_RUN = system-driven to completion; GUIDED_RUN = proactive runway (user-driven steps).
+  /// Values: AUTO_RUN | GUIDED_RUN â€” AUTO_RUN = system-driven to completion; GUIDED_RUN = proactive runway (user-driven steps).
   executionMode            String    @default("AUTO_RUN")
   targetType               String    // store | draft_store | promotion | slot_assignment | device_group | generic
   targetId                 String?
@@ -1850,7 +1854,7 @@ model MissionPipelineStep {
   id          String   @id @default(cuid())
   missionId   String
   orderIndex  Int
-  /// action | checkpoint | conditional — checkpoint/conditional are handled inside runNextMissionPipelineStep (no blind tool dispatch for checkpoint).
+  /// action | checkpoint | conditional â€” checkpoint/conditional are handled inside runNextMissionPipelineStep (no blind tool dispatch for checkpoint).
   stepKind    String   @default("action")
   toolName    String
   label       String
@@ -2221,7 +2225,7 @@ model CreativeTemplate {
   @@index([isSystem])
 }
 
-// ─── Template Library Platform ───────────────────────────────────────────────
+// â”€â”€â”€ Template Library Platform â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Canonical template system: libraries, versioned templates, instances, assets.
 // CreativeTemplate above remains for legacy Creative Engine compatibility.
 
@@ -2472,7 +2476,7 @@ model MiMusicTrack {
   @@index([key])
 }
 
-// Cardbey Audio Library — indexed licensed audio (local + imported from open sources)
+// Cardbey Audio Library â€” indexed licensed audio (local + imported from open sources)
 model AudioLibrary {
   id          String   @id @default(cuid())
   externalId  String   @unique
@@ -2777,7 +2781,7 @@ model ContentInteractionViewerState {
   @@index([viewerKey])
 }
 
-// Canonical store engagement — every interaction writes StoreActivityEvent; snapshots are derived.
+// Canonical store engagement â€” every interaction writes StoreActivityEvent; snapshots are derived.
 model StoreActivityEvent {
   id           String   @id @default(cuid())
   storeId      String
@@ -3073,7 +3077,7 @@ model ScanEvent {
 }
 
 // --- Legal Seed Library (ingested assets from Unsplash/Pexels/Pixabay etc.) ---
-// Used for image autofill; does not touch Draft → Preview → Publish flow.
+// Used for image autofill; does not touch Draft â†’ Preview â†’ Publish flow.
 
 model SeedAsset {
   id                String    @id @default(cuid())
@@ -3145,7 +3149,7 @@ model SeedIngestionJob {
 
 // ============================================
 // Promotion Slot Pipeline v1 - shared promotion delivery
-// Promotions → Placements → Slots; resolver returns best promotion per slot.
+// Promotions â†’ Placements â†’ Slots; resolver returns best promotion per slot.
 // ============================================
 
 model Promotion {
@@ -3265,7 +3269,7 @@ model PlatformConnection {
 }
 
 // ============================================
-// Digital cards (Suitcase) — created by buildCard / create card missions
+// Digital cards (Suitcase) â€” created by buildCard / create card missions
 // ============================================
 model Card {
   id               String   @id
@@ -3293,7 +3297,7 @@ model Card {
 }
 
 // ============================================
-// SmartDocument Layer — CC-1
+// SmartDocument Layer â€” CC-1
 // Polymorphic document with embedded agent, phase engine, and capability registry.
 // ============================================
 model SmartDocument {
@@ -3481,7 +3485,7 @@ model DocSignature {
   @@index([visitorId, signedAt])
 }
 
-// PIL Phase B.1 — platform intelligence events (observe only; no execution).
+// PIL Phase B.1 â€” platform intelligence events (observe only; no execution).
 model PilEvent {
   id         String   @id @default(cuid())
   type       String
@@ -3501,7 +3505,7 @@ model PilEvent {
   @@index([entityType, entityId])
 }
 
-// PIL learning — skill dispatch telemetry + user classification feedback.
+// PIL learning â€” skill dispatch telemetry + user classification feedback.
 model SkillDispatchLog {
   id            String   @id @default(cuid())
   traceId       String
@@ -3537,7 +3541,7 @@ model SkillDispatchFeedback {
   @@index([userId])
 }
 
-// PIL learning Phase 3 — governed self-healing proposals from misroute detection.
+// PIL learning Phase 3 â€” governed self-healing proposals from misroute detection.
 model SelfHealingProposal {
   id                   String    @id @default(cuid())
   type                 String
@@ -3558,7 +3562,7 @@ model SelfHealingProposal {
   @@index([createdAt])
 }
 
-// PIL learning Phase 4 — adaptive pattern weights (governed adjustments only).
+// PIL learning Phase 4 â€” adaptive pattern weights (governed adjustments only).
 model PatternWeight {
   id                String   @id @default(cuid())
   patternId         String   @unique
@@ -3574,7 +3578,7 @@ model PatternWeight {
   @@index([matchedSkill])
 }
 
-// Runtime observation bus — structured execution telemetry for learning + copilot.
+// Runtime observation bus â€” structured execution telemetry for learning + copilot.
 model Observation {
   id              String   @id @default(cuid())
   missionId       String?
@@ -3646,7 +3650,7 @@ model CopilotSuggestion {
   @@map("copilot_suggestions")
 }
 
-// Universal PIL Assistant — user memory and onboarding progress.
+// Universal PIL Assistant â€” user memory and onboarding progress.
 model UserMemory {
   id             String    @id @default(cuid())
   userId         String    @unique
@@ -3675,7 +3679,7 @@ model OnboardingProgress {
   @@index([userId])
 }
 
-// Content acquisition pipeline — agent-discovered unclaimed stores
+// Content acquisition pipeline â€” agent-discovered unclaimed stores
 model UnclaimedStore {
   id              String    @id @default(cuid())
   slug            String    @unique
@@ -3775,7 +3779,7 @@ model DiscoveryConfig {
   @@map("discovery_config")
 }
 
-// Phase 10 — Account knowledge vault (briefings, mission outputs, uploads, artifacts)
+// Phase 10 â€” Account knowledge vault (briefings, mission outputs, uploads, artifacts)
 model SuitcaseItem {
   id              String   @id @default(cuid())
   ownerId         String
@@ -3808,7 +3812,7 @@ model SuitcaseItem {
   @@map("suitcase_items")
 }
 
-// Phase 0 — Continuous conversation sessions (Performer console)
+// Phase 0 â€” Continuous conversation sessions (Performer console)
 model ConversationSession {
   id              String   @id @default(cuid())
   userId          String   @map("user_id")
@@ -3873,7 +3877,7 @@ model ConversationPendingAction {
   @@map("conversation_pending_actions")
 }
 
-// Performer Context Engine — durable session memory (Phase A)
+// Performer Context Engine â€” durable session memory (Phase A)
 model PerformerSessionContext {
   id          String    @id @default(cuid())
   userId      String    @map("user_id")
@@ -3889,7 +3893,7 @@ model PerformerSessionContext {
   @@map("performer_session_contexts")
 }
 
-// Phase D — Learning Layer (Reasoning-Native Architecture)
+// Phase D â€” Learning Layer (Reasoning-Native Architecture)
 model UserProfile {
   userId                String   @id @map("user_id")
   preferredWorkflows    Json     @default("[]") @map("preferred_workflows")
@@ -3979,7 +3983,7 @@ model EnrichedFieldProvenance {
   @@index([fieldPath])
 }
 
-// ── Store Business Growth Center (owner-scoped CRM) ──
+// â”€â”€ Store Business Growth Center (owner-scoped CRM) â”€â”€
 
 model BusinessLead {
   id              String    @id @default(cuid())
@@ -4282,3 +4286,106 @@ model UniversalDiscoveryScore {
   asset UniversalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 }
 
+/// Cardbey Live Market â€” pilot enrolment (one active row per store).
+model LiveMarketPilotEnrollment {
+  id                         String    @id @default(cuid())
+  storeId                    String    @unique
+  store                      Business  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  state                      String    @default("INVITED")
+  approvedHostUserIds        Json?
+  allowedSourceLanguages     Json?
+  allowedTargetLanguages     Json?
+  maxSessionDurationMinutes  Int?
+  recordingAllowed           Boolean   @default(true)
+  automaticReplayPublication Boolean   @default(true)
+  approvedAt                 DateTime?
+  approvedByActorId          String?
+  pausedAt                   DateTime?
+  pausedByActorId            String?
+  removedAt                  DateTime?
+  removedByActorId           String?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([state])
+  @@index([storeId, state])
+}
+
+/// Live session lifecycle record (provider-neutral). Not a broadcast claim by itself.
+model LiveMarketSession {
+  id                          String   @id @default(cuid())
+  storeId                     String
+  store                       Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  hostUserId                  String
+  title                       String
+  description                 String?
+  sourceLanguage              String   @default("vi")
+  viewerLanguages             Json?
+  scheduledStartAt            DateTime?
+  startedAt                   DateTime?
+  endedAt                     DateTime?
+  state                       String   @default("DRAFT")
+  /// Editorial storefront announcement â€” independent of media LIVE.
+  storefrontPublicationStatus String   @default("HIDDEN")
+  storefrontPublishedAt       DateTime?
+  recordingEnabled            Boolean  @default(true)
+  automaticReplayPublication  Boolean  @default(true)
+  providerExternalRef         String?
+  endReasonCode               String?
+  failureReasonCode           String?
+  version                     Int      @default(1)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  subjects                    LiveMarketSessionSubject[]
+  participantRegistrations    LiveMarketParticipantRegistration[]
+
+  @@index([storeId])
+  @@index([storeId, state])
+  @@index([storeId, storefrontPublicationStatus, scheduledStartAt])
+  @@index([hostUserId])
+  @@index([state, scheduledStartAt])
+  @@index([scheduledStartAt])
+}
+
+/// Session subjects reference Product.id (products and services). No catalog field copies.
+model LiveMarketSessionSubject {
+  id          String            @id @default(cuid())
+  sessionId   String
+  session     LiveMarketSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  subjectType String
+  subjectId   String
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+
+  @@unique([sessionId, subjectType, subjectId])
+  @@index([sessionId])
+  @@index([subjectId])
+}
+
+/// Audience registration for published Global Live sessions (not viewers / not LIVE).
+model LiveMarketParticipantRegistration {
+  id                   String            @id @default(cuid())
+  sessionId            String
+  session              LiveMarketSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  storeId              String
+  store                Business          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId               String
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preferredLanguage    String
+  questionForHost      String?
+  /// Host inbox review state when a question exists â€” NEW|REVIEWED|PLANNED|ANSWERED|DISMISSED
+  questionReviewStatus String?
+  interestSubjectId    String?
+  interestSubjectType  String?
+  status               String            @default("REGISTERED")
+  registeredAt         DateTime          @default(now())
+  cancelledAt          DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@unique([sessionId, userId])
+  @@index([storeId, status])
+  @@index([userId, status, registeredAt])
+  @@index([sessionId, status])
+  @@index([sessionId, questionReviewStatus])
+}
