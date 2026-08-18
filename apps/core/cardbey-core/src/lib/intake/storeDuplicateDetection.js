@@ -70,8 +70,13 @@ export async function findDuplicateStoreForUser(prisma, input = {}) {
   const normalizedLocation = normalizeLocationForDuplicateCheck(input.location);
 
   try {
+    // Include guest draft Business rows (isActive:false + isGuestDraft:true).
+    // Otherwise repeated guest create-store for the same name always misses and allocates -2/-3.
     const rows = await prisma.business.findMany({
-      where: { userId: uid, isActive: true },
+      where: {
+        userId: uid,
+        OR: [{ isActive: true }, { isGuestDraft: true }],
+      },
       select: {
         id: true,
         name: true,
@@ -79,6 +84,8 @@ export async function findDuplicateStoreForUser(prisma, input = {}) {
         suburb: true,
         region: true,
         formattedAddress: true,
+        isGuestDraft: true,
+        isActive: true,
       },
     });
 
