@@ -4,6 +4,7 @@
  */
 
 export { isServiceVertical, resolveTransactionCommerce, SERVICE_VERTICALS } from '../../lib/storeTransactionMode.js';
+import { textSuggestsFoodVertical } from '../../lib/storeGeneration/foodVerticalLexicon.js';
 
 /**
  * Normalize businessType/vertical for matching (lowercase, strip symbols, single spaces).
@@ -31,9 +32,17 @@ export function resolveVerticalSlug(businessType, vertical) {
   let resolved = 'generic';
   if (/\b(nail|beauty|salon|spa|lash|wax|manicure|pedicure)\b/.test(combined)) resolved = 'beauty';
   else if (/\b(fashion|clothing|apparel|boutique|wear|dress|women|men)\b/.test(combined)) resolved = 'fashion';
-  else if (/\b(cafe|coffee|banh mi|restaurant|food|bakery|florist|barista|espresso|pastry|sweets|dessert|confectionery)\b/.test(combined)) resolved = 'food';
-  else if (/\b(furniture|homeware|homewares|interior|decor|sofa|mattress|table|cabinet|bedroom|living room)\b/.test(combined)) resolved = 'furniture';
-  else if (/\b(construction|construct|builder|builders|building|trade|trades|contractor|contractors|renovation|renovations|carpentry|carpenter)\b/.test(combined)) resolved = 'construction';
+  else if (textSuggestsFoodVertical(combined) || /\b(florist|barista|espresso|pastry|sweets|dessert|confectionery)\b/.test(combined)) {
+    resolved = 'food';
+  } else if (/\b(furniture|homeware|homewares|interior|decor|sofa|mattress|table|cabinet|bedroom|living room)\b/.test(combined)) {
+    resolved = 'furniture';
+  } else if (
+    /\b(construction|construct|builder|builders|building|trade|trades|contractor|contractors|renovation|renovations|carpentry|carpenter)\b/.test(
+      combined,
+    )
+  ) {
+    resolved = 'construction';
+  }
   if (process.env.NODE_ENV !== 'production') {
     console.log('[verticalResolver]', { businessType, vertical, resolved });
   }

@@ -288,4 +288,26 @@ describe('intakePayloadGuard', () => {
     expect(seeded.storeName).toBe('Owner Chosen Name');
     expect(seeded.location).toBe('Sydney');
   });
+
+  it('forces freshStoreMission when upload OCR conflicts with sticky active mission title', () => {
+    const guard = applyIntakePayloadGuard({
+      userMessage: 'Create store from uploaded card',
+      classification: {
+        parameters: {
+          source: 'upload_ask_selection',
+          storeName: 'PTH INTERNATIONAL FURNITURE',
+          _autoSubmit: true,
+        },
+      },
+      intentSourceContext: { fromAskSelection: 'create_store' },
+      imageContext: { extractedText: 'SPA WELLNESS\nMelbourne' },
+      currentContext: {
+        activeMissionId: 'mission-pth',
+        activeMission: { title: 'Create store: PTH INTERNATIONAL FURNITURE' },
+      },
+      history: [{ role: 'user', content: 'prior' }],
+    });
+    expect(guard.freshStoreMission).toBe(true);
+    expect(guard.body.freshStoreMission).toBe(true);
+  });
 });

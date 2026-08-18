@@ -3,9 +3,11 @@ import {
   buildCreateStoreDraftIntakeResponseFromUpload,
   buildNeedsFormCreateStoreIntakeBody,
   dispatchCreateStoreCheckpointPipeline,
+  extractStickyMissionBusinessName,
   resolveCreateStoreHandoffFields,
   shouldDeferStorePipelineExecutionForIntake,
   shouldForceCreateStoreCheckpointDispatch,
+  shouldForceFreshStoreMissionOnUploadIdentityConflict,
   shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../createStoreCheckpointDispatch.js';
 
@@ -123,6 +125,191 @@ describe('resolveCreateStoreHandoffFields', () => {
     expect(fields.businessName).toBe('PTH Construction');
     expect(fields.locationTrim).toBe('Melbourne');
     expect(fields.businessType).toBe('Construction');
+  });
+
+  it('P1.1: OCR evidence wins over stale upload_ask storeName (NOODLE vs AWE)', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from uploaded card',
+      classification: {
+        parameters: {
+          source: 'upload_ask_selection',
+          storeName: 'NOODLE hut',
+          location: '136 Station Street, VIC 3078',
+          _autoSubmit: true,
+        },
+      },
+      intentSourceContext: { fromAskSelection: 'create_store' },
+      imageContext: {
+        extractedText:
+          'AWE FINANCIAL\nLeo Nguyen\nFinance Broker\nUnlock Financial Solutions',
+      },
+    });
+    expect(fields.businessName).toMatch(/AWE/i);
+    expect(fields.locationTrim).not.toMatch(/136 Station/i);
+  });
+
+  it('P1.1: stale storeCandidate NOODLE is ignored when OCR missing (needs form, not duplicate)', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from uploaded card',
+      classification: {
+        parameters: {
+          source: 'upload_ask_selection',
+          storeName: 'NOODLE hut',
+          location: '136 Station Street, VIC 3078',
+          _autoSubmit: true,
+        },
+      },
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        storeCandidate: { businessName: 'NOODLE hut', location: '136 Station Street' },
+        cardExtraction: { businessName: 'NOODLE hut' },
+      },
+      imageContext: { extractedText: '' },
+    });
+    expect(fields.businessName).toBe('');
+  });
+
+  it('P1.1: sticky form Mộc unlocked when OCR is PTH Furniture', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from uploaded card',
+      storeCreateForm: {
+        storeName: 'Mộc',
+        storeType: 'Food & drink',
+        location: 'Melbourne',
+        intentMode: 'store',
+      },
+      classification: {
+        parameters: {
+          source: 'upload_ask_selection',
+          storeName: 'Mộc',
+          _autoSubmit: true,
+        },
+      },
+      intentSourceContext: { fromAskSelection: 'create_store' },
+      imageContext: {
+        extractedText:
+          'PTH INTERNATIONAL FURNITURE\nUnit 7, 12-14 Oakland Drive, Derrimut, Vic 3026',
+      },
+    });
+    expect(fields.businessName).toMatch(/PTH/i);
+    expect(fields.businessName).not.toMatch(/Mộc|Moc/i);
+  });
+
+  it('P1.1: Coffee form + NOODLE hut OCR → NOODLE (not Coffee)', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from uploaded card',
+      storeCreateForm: {
+        storeName: 'Coffee',
+        storeType: 'Food & drink',
+        location: '',
+        intentMode: 'store',
+      },
+      classification: {
+        parameters: { source: 'upload_ask_selection', storeName: 'Coffee', _autoSubmit: true },
+      },
+      intentSourceContext: { fromAskSelection: 'create_store', assetAction: 'create_store' },
+      imageContext: {
+        extractedText: 'NOODLE hut\n136 Station Street, Fairfield VIC 3078',
+      },
+    });
+    expect(fields.businessName).toMatch(/NOODLE/i);
+  });
+
+  it('P1.1: Cellarbrations OCR wins over stale NOODLE params', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from uploaded card',
+      classification: {
+        parameters: {
+          source: 'upload_ask_selection',
+          storeName: 'NOODLE hut',
+          _autoSubmit: true,
+        },
+      },
+      intentSourceContext: {
+        fromAskSelection: 'create_store',
+        storeCandidate: { businessName: 'NOODLE hut' },
+      },
+      imageContext: {
+        extractedText: 'CELLARBRATIONS DEER PARK\nNEW BREAKFAST MENU\nBig Breakfast $18',
+      },
+    });
+    expect(fields.businessName).toMatch(/CELLARBRATIONS/i);
+  });
+
+  it('P1.1: form storeName stays authoritative over OCR', () => {
+    const fields = resolveCreateStoreHandoffFields({
+      userMessage: 'Create store from uploaded card',
+      storeCreateForm: {
+        storeName: 'Confirmed Cafe',
+        location: 'Sydney',
+        storeType: 'Cafe',
+      },
+      classification: {
+        parameters: { source: 'upload_ask_selection', storeName: 'NOODLE hut' },
+      },
+      imageContext: { extractedText: 'AWE FINANCIAL\nLeo Nguyen' },
+    });
+    expect(fields.businessName).toBe('Confirmed Cafe');
+    expect(fields.locationTrim).toBe('Sydney');
+  });
+});
+
+describe('shouldForceFreshStoreMissionOnUploadIdentityConflict', () => {
+  it('forces fresh mission when SPA OCR conflicts with sticky PTH mission title', () => {
+    expect(
+      shouldForceFreshStoreMissionOnUploadIdentityConflict({
+        userMessage: 'Create store from uploaded card',
+        classification: {
+          parameters: {
+            source: 'upload_ask_selection',
+            storeName: 'PTH INTERNATIONAL FURNITURE',
+            _autoSubmit: true,
+          },
+        },
+        intentSourceContext: { fromAskSelection: 'create_store' },
+        imageContext: {
+          extractedText: 'SPA WELLNESS\nMelbourne',
+        },
+        currentContext: {
+          activeMissionId: 'mission-pth',
+          activeMission: { title: 'Create store: PTH INTERNATIONAL FURNITURE' },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it('does not force fresh when OCR matches sticky mission name', () => {
+    expect(
+      shouldForceFreshStoreMissionOnUploadIdentityConflict({
+        userMessage: 'Create store from uploaded card',
+        classification: {
+          parameters: {
+            source: 'upload_ask_selection',
+            storeName: 'PTH INTERNATIONAL FURNITURE',
+            _autoSubmit: true,
+          },
+        },
+        intentSourceContext: { fromAskSelection: 'create_store' },
+        imageContext: {
+          extractedText: 'PTH INTERNATIONAL FURNITURE\nUnit 7, Derrimut',
+        },
+        currentContext: {
+          activeMissionId: 'mission-pth',
+          activeMission: { title: 'Create store: PTH INTERNATIONAL FURNITURE' },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('extractStickyMissionBusinessName reads activeMission title', () => {
+    expect(
+      extractStickyMissionBusinessName({
+        currentContext: {
+          activeMissionId: 'm1',
+          activeMission: { title: 'Create store: NOODLE hut' },
+        },
+      }),
+    ).toBe('NOODLE hut');
   });
 });
 

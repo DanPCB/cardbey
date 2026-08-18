@@ -2377,6 +2377,112 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const userMessage = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const locale = resolveIntakeLocale(body.locale ?? req.headers?.['x-locale'], userMessage);
 
+  // Upload-ask: Ask panel from this OCR only. Classifier / confirm / LLM never speak.
+  // Chip replays (intakeV2Selection) are not Ask turns — those keep their own path.
+  if (isAttachmentOnlyPlaceholderMessage(userMessage)) {
+    const conversationSessionId =
+      String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
+      null;
+    const sessionKey = resolveIntakeAssetSessionKey({
+      conversationSessionId,
+      sessionId: conversationSessionId,
+      userId: String(req.user?.id ?? body?.userId ?? '').trim() || null,
+      guestSessionId: req.guestSessionId ?? null,
+    });
+    const imageRef = resolveIntakeImageRefForOcr(body);
+    let attachmentAnalysis = null;
+    if (imageRef) {
+      const barrier = await runIntakeEvidenceBarrier({
+        hasAttachment: true,
+        imageRef,
+        filename: null,
+        mimeType: null,
+        userMessage,
+        sessionId: sessionKey,
+        storeId: null,
+        attachmentOnlyUpload: true,
+        runVisionEnrichment: true,
+        abortSignal: req.abortSignal ?? null,
+      });
+      if (barrier?.status === 'awaiting_perception') {
+        return res.json(buildAwaitingPerceptionIntakeResponse(barrier));
+      }
+      if (barrier?.status === 'ready') {
+        attachmentAnalysis = barrier.attachmentAnalysis ?? null;
+      }
+    }
+    const isc =
+      body.intentSourceContext && typeof body.intentSourceContext === 'object'
+        ? body.intentSourceContext
+        : null;
+    // Ask identity = OCR of these pixels only. Never trust client cardExtraction (sticky prior name).
+    const barrierOcr = String(attachmentAnalysis?.ocrText ?? attachmentAnalysis?.rawOcrText ?? '').trim();
+    attachmentAnalysis = { ocrText: barrierOcr };
+    console.log('[INTAKE] Upload Ask barrier OCR:', barrierOcr.slice(0, 120));
+    const uploadAskTurn = await maybeRespondUploadAskBeforeClassifier({
+      userMessage,
+      attachmentOnlyUpload: true,
+      hasAttachment: Boolean(imageRef),
+      imageDataUrl: imageRef,
+      intentSourceContext: isc,
+      beliefLoaderOpts: {
+        req,
+        sessionKey,
+        sessionId: conversationSessionId ?? sessionKey,
+        currentContext:
+          body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {},
+        intentSourceContext: isc,
+        body,
+      },
+      advisorInput: {
+        userMessage,
+        originalUserMessage: userMessage,
+        attachments: body.attachments,
+        imageDataUrl: imageRef,
+        hasAttachment: Boolean(imageRef),
+        intentSourceContext: isc,
+      },
+      body,
+      attachmentAnalysis,
+    });
+    const askPayload = uploadAskTurn?.payload;
+    if (askPayload) {
+      console.log('[INTAKE] Upload Ask panel — front of intake, classifier skipped');
+      console.log(
+        '[INTAKE] Upload Ask response:',
+        String(askPayload.response ?? askPayload.message ?? '').slice(0, 180),
+      );
+      return res.json({
+        ...askPayload,
+        action: 'clarify',
+        executionPath: 'intake_upload_ask',
+      });
+    }
+    console.warn('[INTAKE] Upload Ask missing payload — returning empty-upload Ask');
+    const emptyAsk = await maybeRespondUploadAskBeforeClassifier({
+      userMessage: '(Image attached)',
+      attachmentOnlyUpload: true,
+      hasAttachment: true,
+      imageDataUrl: imageRef,
+      attachmentAnalysis: { ocrText: '' },
+      body: { text: '(Image attached)' },
+    });
+    return res.json({
+      ...(emptyAsk?.payload ?? {
+        success: true,
+        action: 'clarify',
+        response: 'I see your upload. What would you like to do next?',
+        options: [
+          { label: 'Create store', tool: 'create_store', parameters: {} },
+          { label: 'Import catalog / menu', tool: 'replace_store_catalog', parameters: {} },
+          { label: 'Analyze document', tool: 'ingest_asset_for_intent_detection', parameters: {} },
+        ],
+      }),
+      action: 'clarify',
+      executionPath: 'intake_upload_ask',
+    });
+  }
+
   /** Set when NL confirm intercept resolves a pending plan before classification. */
   let confirmInterceptClassification = null;
   let confirmInterceptApplied = false;
@@ -2521,13 +2627,18 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       guestSessionId: req.guestSessionId ?? null,
     });
     if (casualSessionKey) {
-      try {
-        await clearStaleUploadBeliefContext(casualSessionKey);
-      } catch (clearErr) {
-        console.warn(
-          '[IntakeV2] casual chat upload context clear failed:',
-          clearErr?.message ?? clearErr,
-        );
+      const preserveUpload =
+        isAttachmentOnlyPlaceholderMessage(userMessage) ||
+        detectCreateStoreFromUploadedAssetIntent(userMessage);
+      if (!preserveUpload) {
+        try {
+          await clearStaleUploadBeliefContext(casualSessionKey);
+        } catch (clearErr) {
+          console.warn(
+            '[IntakeV2] casual chat upload context clear failed:',
+            clearErr?.message ?? clearErr,
+          );
+        }
       }
     }
     console.log('[IntakeV2] routing:open_performer_chat_shortcircuit', { userMessage });
@@ -2618,6 +2729,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
             bundle: replayBundle,
             currentImageRef,
             hasFreshImageAttachment: earlyHasAttachment,
+            userMessage,
+            intentSourceContext: earlyIntentSourceContext,
+            refuseTextOnlyReplay: isExplicitCreateStoreFromUploadContext({
+              userMessage,
+              intentSourceContext: earlyIntentSourceContext,
+            }),
+            hasLastUpload: currentImageRef ? undefined : false,
           })
         ) {
           const replayAnalysis = hydrateAttachmentAnalysisFromFrozenBundle(replayBundle);
@@ -2701,7 +2819,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (!confirmInterceptApplied) {
       let skipUploadAskForLoyalty = shouldSkipUploadAskForIntakeSelectionReplay(body);
       if (skipUploadAskForLoyalty) {
-        console.log('[INTAKE] Skipping upload-ask — intakeV2Selection loyalty replay');
+        console.log(
+          '[INTAKE] Skipping upload-ask — selection replay (create_store-from-upload or loyalty/active-space)',
+        );
       }
       if (earlyHasAttachment) {
         try {
@@ -2987,6 +3107,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         });
       } else {
         if (earlyResponse.action === 'chat') {
+          const chatMsg = String(userMessage ?? '').trim();
+          const preserveUpload =
+            isAttachmentOnlyPlaceholderMessage(chatMsg) ||
+            detectCreateStoreFromUploadedAssetIntent(chatMsg);
+          if (!preserveUpload) {
           const casualSessionId =
             String(req.headers?.['x-session-id'] ?? body.sessionId ?? body.conversationSessionId ?? '').trim() ||
             null;
@@ -3005,6 +3130,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
                 clearErr?.message ?? clearErr,
               );
             }
+          }
           }
         }
         console.log('[IntakeV2] routing:intent_engine_primary', {
@@ -3323,6 +3449,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           bundle: replayBundle,
           currentImageRef,
           hasFreshImageAttachment: hasAnyImageEarly,
+          userMessage,
+          intentSourceContext,
+          refuseTextOnlyReplay: isExplicitCreateStoreFromUploadContext({
+            userMessage,
+            intentSourceContext,
+          }),
+          hasLastUpload: currentImageRef ? undefined : false,
         })
       ) {
         const replayAnalysis = hydrateAttachmentAnalysisFromFrozenBundle(replayBundle);

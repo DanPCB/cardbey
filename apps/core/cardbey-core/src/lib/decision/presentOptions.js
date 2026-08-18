@@ -33,38 +33,61 @@ export function buildUploadAttachmentActionContext(belief) {
 }
 
 /**
+ * Only claim a read name when it appears in this-turn OCR.
+ * @param {import('./constants.js').BeliefLastUpload | null | undefined} upload
+ * @returns {string | null}
+ */
+export function groundedReadNameFromUpload(upload) {
+  const name = String(upload?.businessName ?? '').trim();
+  const ocr = String(upload?.ocrText ?? '').trim();
+  if (!name || !ocr) return null;
+  const nameNorm = name.toLowerCase().replace(/\s+/g, ' ');
+  const ocrNorm = ocr.toLowerCase().replace(/\s+/g, ' ');
+  if (ocrNorm.includes(nameNorm)) return name;
+  const tokens = nameNorm.split(' ').filter((t) => t.length > 1);
+  if (tokens.length > 0 && tokens.every((t) => ocrNorm.includes(t))) return name;
+  return null;
+}
+
+const MENU_DOCUMENT_TYPES = new Set(['menu', 'product_catalog', 'price_list']);
+
+/**
  * @param {import('./constants.js').BeliefSnapshot} belief
  */
 export function buildUploadGoalOptions(belief) {
-  const name = belief.lastUpload?.businessName;
+  const name = groundedReadNameFromUpload(belief.lastUpload);
   const prefix = name ? `I read ${name} from your upload. ` : 'I see your upload. ';
   const attachmentCtx = buildUploadAttachmentActionContext(belief);
   const sharedParams = { ...attachmentCtx };
   delete sharedParams.intent;
   delete sharedParams.type;
 
+  const createStore = {
+    id: 'create_store',
+    label: 'Create store',
+    tool: 'create_store',
+    parameters: { ...attachmentCtx },
+  };
+  const importCatalog = {
+    id: 'import_catalog',
+    label: 'Import catalog / menu',
+    tool: 'replace_store_catalog',
+    parameters: { ...sharedParams, intent: 'import_catalog' },
+  };
+  const analyzeDocument = {
+    id: 'analyze_document',
+    label: 'Analyze document',
+    tool: 'ingest_asset_for_intent_detection',
+    parameters: { ...sharedParams, intent: 'analyze_document' },
+  };
+  const documentType = String(belief.lastUpload?.documentType ?? '').toLowerCase();
+  const options = MENU_DOCUMENT_TYPES.has(documentType)
+    ? [importCatalog, createStore, analyzeDocument]
+    : [createStore, importCatalog, analyzeDocument];
+
   return {
     question: `${prefix}What would you like to do next?`,
-    options: [
-      {
-        id: 'create_store',
-        label: 'Create store',
-        tool: 'create_store',
-        parameters: { ...attachmentCtx },
-      },
-      {
-        id: 'import_catalog',
-        label: 'Import catalog / menu',
-        tool: 'replace_store_catalog',
-        parameters: { ...sharedParams, intent: 'import_catalog' },
-      },
-      {
-        id: 'analyze_document',
-        label: 'Analyze document',
-        tool: 'ingest_asset_for_intent_detection',
-        parameters: { ...sharedParams, intent: 'analyze_document' },
-      },
-    ],
+    options,
   };
 }
 

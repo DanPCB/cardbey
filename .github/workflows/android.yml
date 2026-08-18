@@ -2,12 +2,14 @@ name: Android
 
 on:
   pull_request:
+    branches: [staging, main]
     paths:
       - 'apps/android/**'
       - '.github/workflows/android.yml'
   push:
     branches:
       - main
+      - staging
       - develop
     paths:
       - 'apps/android/**'

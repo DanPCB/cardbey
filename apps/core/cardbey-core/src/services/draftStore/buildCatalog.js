@@ -44,7 +44,9 @@ import { resolveCommerceProfile } from '../../lib/commerce/resolveCommerceProfil
 import {
   applyGroundedCatalogPolicy,
   buildGroundedEmptyCatalogResult,
+  hasAuthoritativeOfferings,
   isGroundedStoreCreationEnabled,
+  shouldSkipAiInventForGrounded,
   stripInventedGenericProducts,
 } from './groundedStoreCreation.js';
 import { countCatalogItemsByKind } from '../../lib/commerce/assertCatalogKindConsistency.js';
@@ -651,6 +653,18 @@ export async function buildFromOcr(params) {
   });
 
   const lines = ocrText.split('\n').filter((line) => line.trim().length > 0);
+  const currency =
+    (params.currencyCode && String(params.currencyCode).trim().toUpperCase()) ||
+    inferCurrencyFromLocationText(params.location) ||
+    'AUD';
+  const verticalSlug =
+    params.verticalSlug ||
+    resolveVerticalSlug(params.storeType ?? params.businessType, params.vertical);
+  const isFood = String(verticalSlug || '').startsWith('food') || /food|cafe|restaurant|noodle|takeaway/i.test(
+    `${params.businessType || ''} ${params.storeType || ''} ${businessName || ''}`,
+  );
+  const defaultCategoryId = isFood ? 'menu' : 'offerings';
+  const defaultCategoryName = isFood ? 'Menu' : 'Offerings';
   const products = lines.slice(0, CATALOG_ITEM_LIMIT).map((line, idx) => {
     const priceMatch = line.match(/[\$€£¥]\s*[\d,]+\.?\d*/);
     const price = priceMatch ? priceMatch[0] : null;
@@ -660,12 +674,17 @@ export async function buildFromOcr(params) {
       name: name || `Item ${idx + 1}`,
       description: null,
       price,
-      categoryId: 'other',
+      currencyCode: currency,
+      categoryId: defaultCategoryId,
+      categoryName: defaultCategoryName,
+      origin: 'ocr',
+      provenanceStatus: 'EXTRACTED',
+      authorityLevel: 'SOURCE_CONFIRMED',
       imageUrl: null,
     };
   });
 
-  const categories = [{ id: 'other', name: 'Other' }];
+  const categories = [{ id: defaultCategoryId, name: defaultCategoryName }];
 
   return {
     profile: {
@@ -679,7 +698,11 @@ export async function buildFromOcr(params) {
     },
     categories,
     products,
-    meta: { catalogSource: 'ocr' },
+    meta: {
+      catalogSource: 'ocr',
+      currencyCode: currency,
+      bypassLegacyCategoryNormalization: true,
+    },
   };
 }
 
@@ -717,7 +740,7 @@ export async function buildCatalog(params) {
   }
 
   const grounded = isGroundedStoreCreationEnabled();
-  /** @type {{ skippedAiExpansion?: boolean, skippedSeedPad?: boolean, skippedAiTemplateFallback?: boolean }} */
+  /** @type {{ skippedAiExpansion?: boolean, skippedSeedPad?: boolean, skippedAiTemplateFallback?: boolean, skippedLeakRepairInvent?: boolean }} */
   const groundedFlags = {};
 
   let result;
@@ -753,6 +776,34 @@ export async function buildCatalog(params) {
     } catch (e) {
       console.warn('[buildCatalog] grounded evidence catalog failed; falling through', e?.message || e);
     }
+  }
+  // P0 invent-stop: grounded with no authoritative offerings → incomplete (AI + template).
+  if (!result && shouldSkipAiInventForGrounded(params, grounded)) {
+    groundedFlags.skippedAiExpansion = true;
+    groundedFlags.skippedAiTemplateFallback = true;
+    groundedFlags.skippedSeedPad = true;
+    result = buildGroundedEmptyCatalogResult({
+      draftId: params.draftId,
+      businessName: params.businessName,
+      businessType: params.businessType ?? params.storeType,
+      storeType: params.storeType,
+      aiErrorMessage: 'invent_stop_no_evidence_offerings',
+    });
+    console.log('[buildCatalog] grounded invent-stop: empty catalog (no evidence offerings)', {
+      draftId: params.draftId ?? null,
+      verticalSlug,
+      mode,
+    });
+  }
+  // Pass 1: never fall through to template/AI invent when grounded + empty evidence.
+  if (!result && grounded && !hasAuthoritativeOfferings(params) && (mode === 'template' || mode === 'ai')) {
+    result = buildGroundedEmptyCatalogResult({
+      draftId: params.draftId,
+      businessName: params.businessName,
+      businessType: params.businessType ?? params.storeType,
+      storeType: params.storeType,
+      aiErrorMessage: 'invent_stop_grounded_no_authoritative_offerings',
+    });
   }
   if (!result && mode === 'template') result = await buildFromTemplate(paramsWithVertical);
   else if (!result && mode === 'seed') result = await buildFromSeed(paramsWithVertical);
@@ -847,7 +898,7 @@ export async function buildCatalog(params) {
     }
   }
 
-  if (result && verticalSlug) {
+  if (result && verticalSlug && !grounded) {
     result.optionsSchema = buildOptionsSchema(verticalSlug);
     const catalogForValidation = {
       ...result,
@@ -869,6 +920,8 @@ export async function buildCatalog(params) {
       result.meta.verticalWarnings = validated.warnings;
       result.meta.verticalCorrected = validated.corrected;
     }
+  } else if (result && verticalSlug && grounded) {
+    result.optionsSchema = buildOptionsSchema(verticalSlug);
   }
 
   const seedProfile = profile
@@ -888,8 +941,13 @@ export async function buildCatalog(params) {
         businessModel: params.businessModel,
         businessType: params.businessType,
       };
-  const catalogValidated = await validateAndCorrectCatalog(seedProfile, result, () => buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT }));
-  if (catalogValidated.corrected) result = catalogValidated.catalog;
+  let catalogValidated = { corrected: false, reasons: [], catalog: result };
+  if (!grounded) {
+    catalogValidated = await validateAndCorrectCatalog(seedProfile, result, () =>
+      buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT }),
+    );
+    if (catalogValidated.corrected) result = catalogValidated.catalog;
+  }
   if (result?.products?.length) {
     const deduped = dedupeCatalogProductsByName(result.products, { logContext: `buildCatalog:${mode}` });
     if (deduped.removedCount > 0) {
@@ -905,13 +963,14 @@ export async function buildCatalog(params) {
     businessType: params.businessType ?? params.storeType ?? seedProfile.businessType,
     catalogLabel: result?.meta?.catalogLabel,
   };
+  if (!grounded) {
   const leakRepair = repairServiceCatalogPlaceholderProducts(
     result?.products ?? [],
     leakProfile,
     () => {
       const industry = buildIndustryCatalog(leakProfile, TARGET_ITEM_COUNT);
       if (industry) return industry;
-      const cuisine = buildCuisineMenuCatalog(leakProfile, TARGET_ITEM_COUNT);
+      const cuisine = buildCuisineMenuCatalog(leakProfile, TARGET_ITEM_COUNT, { grounded: false });
       if (cuisine) return cuisine;
       return buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT });
     },
@@ -962,6 +1021,9 @@ export async function buildCatalog(params) {
         repairedCount: leakRepair.repairedCount,
       });
     }
+  }
+  } else {
+    groundedFlags.skippedLeakRepairInvent = true;
   }
 
   const catalogProfile =
@@ -1047,13 +1109,37 @@ export async function buildCatalog(params) {
     });
   }
   if (grounded && result) {
-    result = applyGroundedCatalogPolicy(result, {
+    const applied = applyGroundedCatalogPolicy(result, {
       draftId: params.draftId,
       businessName: params.businessName,
       businessType: params.businessType ?? params.storeType,
       storeType: params.storeType,
+      mode,
+      catalogSource: result?.meta?.catalogSource,
       ...groundedFlags,
     });
+    result = applied?.result ?? applied;
+  }
+
+  // Stamp currency on all products when known (OCR/AI/seed may omit).
+  const stampCurrency =
+    (params.currencyCode && String(params.currencyCode).trim().toUpperCase()) ||
+    inferCurrencyFromLocationText(params.location) ||
+    null;
+  if (stampCurrency && Array.isArray(result?.products)) {
+    result.products = result.products.map((p) => {
+      if (!p || typeof p !== 'object') return p;
+      if (p.currencyCode || p.currency) return p;
+      return {
+        ...p,
+        currencyCode: stampCurrency,
+        currency: stampCurrency,
+      };
+    });
+    result.meta = {
+      ...(result.meta ?? {}),
+      currencyCode: result.meta?.currencyCode || stampCurrency,
+    };
   }
 
   return result;

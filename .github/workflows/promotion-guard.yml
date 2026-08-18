@@ -1,8 +1,8 @@
 name: Promotion Guard
 
-# Enforces the cardbey promotion flow: dev -> staging -> main (live).
-# Production (main) should only receive merges that already passed through staging.
-# This protects the "promote, don't rebuild from a random branch" intent.
+# Enforces feature → staging → main (live).
+# - PRs into main must come from staging (or release/rollback/hotfix / override label).
+# - Feature work should open PRs against staging; CI gates run on those PRs.
 #
 # Override for genuine hotfixes: add the label `promotion-override` to the PR.
 

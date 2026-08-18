@@ -17,6 +17,37 @@ import { runDraftQa } from './draftQaAgent.js';
 import { mergeMissionContext } from '../../lib/mission.js';
 import { hasUserUploadedLogo } from '../draftStore/logoUpdateService.js';
 import { catalogItemRef, repairSemanticImageMismatches } from './catalogRepairHelpers.js';
+import { attachGenerationPolicyToPreview } from '../draftStore/generationGroundingPolicy.js';
+import { buildAuthorityTraceFromPreview } from '../draftStore/storeCreationAuthorityTrace.js';
+
+/**
+ * Re-attach authority trace after QA mutations (Pass 2 lifecycle).
+ * finalizeDraft attaches first; Tier2 must not leave final DTO without trace.
+ */
+function reattachAuthorityTraceAfterQa(preview, input = {}) {
+  if (!preview || typeof preview !== 'object') return preview;
+  attachGenerationPolicyToPreview(preview);
+  try {
+    const trace = buildAuthorityTraceFromPreview({
+      preview,
+      groundedComposition: input.groundedComposition || preview.meta?.groundedComposition,
+      location: input.location || preview.location,
+      currencyCode: preview.meta?.currencyCode || input.currencyCode,
+      businessName: preview.storeName,
+    });
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      storeCreationAuthorityTrace: trace,
+      groundingStatus: trace.groundingStatus,
+      groundingBlockers: trace.blockers,
+      groundingGaps: trace.gaps,
+      authorityTraceLifecycle: 'post_storeBuildQa',
+    };
+  } catch (err) {
+    console.warn('[storeBuildQa] authority trace reattach skipped:', err?.message || err);
+  }
+  return preview;
+}
 
 /** @typedef {'vertical' | 'tagline' | 'description' | 'imageUrl' | 'hero' | 'avatar' | 'product_description'} FixableIssueKey */
 
@@ -654,6 +685,7 @@ export async function applyPendingStoreBuildQaTier2Fixes(opts = {}) {
     { fixIds },
   );
   preview = repaired;
+  reattachAuthorityTraceAfterQa(preview, input);
 
   const { patchDraftPreview, runWithCommittedDraftReopenedForCatalogPatch } = await import(
     '../draftStore/draftStoreService.js'
@@ -942,6 +974,7 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
     );
     preview = tier2Preview;
     autoFixed.push(...tier2Applied);
+    reattachAuthorityTraceAfterQa(preview, input);
     await patchDraftPreview(draftId, preview);
     await verifyDraftImagePersistence(draftId, preview);
     if (missionId) {
@@ -971,7 +1004,24 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
   }
 
   const postAudit = auditDraftCatalogQa(preview, { ...input, verticalSlug });
+  reattachAuthorityTraceAfterQa(preview, input);
   const qaReport = runDraftQa({ preview, input });
+
+  // Pass 2: needs_media items must not count as semantically matched.
+  if (Array.isArray(preview.items)) {
+    const needsMedia = preview.items.filter((it) => it?.mediaStatus === 'needs_media' || !it?.imageUrl);
+    const withApproved = preview.items.filter(
+      (it) => it?.imageUrl && it?.mediaStatus !== 'needs_media',
+    );
+    qaReport.itemsWithImages = withApproved.length;
+    qaReport.itemsWithoutImages = needsMedia.length;
+    qaReport.semanticallyMatchedImages = withApproved.filter(
+      (it) => typeof it.mediaMatchScore !== 'number' || it.mediaMatchScore >= 0.55,
+    ).length;
+    qaReport.weakImageMatches = preview.items.filter(
+      (it) => it?.mediaStatus === 'needs_media',
+    ).length;
+  }
 
   const uniqueFixed = [...new Set(autoFixed)];
 

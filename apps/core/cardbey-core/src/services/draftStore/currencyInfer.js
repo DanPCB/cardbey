@@ -9,10 +9,14 @@ export function inferCurrencyFromLocationText(text) {
   if (!t.trim()) return null;
   if (/\b(vic|nsw|qld|wa|sa|tas|nt|act|australia|\bau\b)\b/.test(t)) return 'AUD';
   if (
-    /\b(melbourne|sydney|brisbane|perth|adelaide|hobart|darwin|canberra|geelong|ballarat|bendigo|maribyrnong)\b/.test(
+    /\b(melbourne|sydney|brisbane|perth|adelaide|hobart|darwin|canberra|geelong|ballarat|bendigo|maribyrnong|fairfield|footscray|richmond|brunswick|carlton|st\s*kilda|parramatta|newcastle|wollongong|gold\s*coast|sunshine\s*coast|fremantle|hobart)\b/.test(
       t,
     )
   ) {
+    return 'AUD';
+  }
+  // AU postcodes (4 digits) with suburb-like token nearby are a weak AUD signal when state absent.
+  if (/\b\d{4}\b/.test(t) && /\b(st|street|rd|road|ave|avenue|dr|drive|parade|pde)\b/.test(t)) {
     return 'AUD';
   }
   if (/\bnz\b|new zealand/.test(t)) return 'NZD';

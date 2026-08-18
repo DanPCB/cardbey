@@ -9,6 +9,7 @@
 
 import { resolveStoreCreationClassification } from './resolveStoreCreationClassification.js';
 import { resolveVertical } from '../../lib/verticals/verticalTaxonomy.js';
+import { inferCurrencyFromLocationText } from './currencyInfer.js';
 
 /**
  * @param {Record<string, any>} input - Raw draft.input (from API or orchestra)
@@ -101,7 +102,12 @@ export function resolveGenerationParams(input, opts = {}) {
         ? String(raw.currencyCode).trim().toUpperCase()
         : raw.currency != null && String(raw.currency).trim()
           ? String(raw.currency).trim().toUpperCase()
-          : undefined,
+          : inferCurrencyFromLocationText(raw.location) ||
+            inferCurrencyFromLocationText(raw.address) ||
+            // Cardbey AU platform default when no US signal
+            (/\b(us|usa|united states|u\.s\.a\.)\b/i.test(String(raw.location || raw.address || ''))
+              ? 'USD'
+              : 'AUD'),
     priceTier: raw.priceTier != null ? String(raw.priceTier) : undefined,
     locale: raw.locale || raw.regionCode,
     ocrRawText: raw.ocrRawText,

@@ -15,6 +15,16 @@ import {
 import { buildCuisineMenuCatalog } from '../draftStore/foodCuisineCatalog.js';
 import { buildIndustryCatalog, getIndustryWebsiteCopy } from '../draftStore/industryBlueprintRegistry.js';
 import { catalogItemRef } from './catalogRepairHelpers.js';
+import {
+  canInventCatalogFacts,
+  resolveGenerationGroundingPolicy,
+  GROUNDED_QA_OUTCOME,
+  invalidateItemDerivedMedia,
+  assignItemProvenance,
+  isAuthoritativeOffering,
+} from '../draftStore/generationGroundingPolicy.js';
+import { displayBusinessTypeForCopy } from '../draftStore/storeCreationAuthorityTrace.js';
+import { buildOfferingIncompleteState } from '../draftStore/groundedStoreCreation.js';
 
 const MIN_DESCRIPTION_LEN = 12;
 const MIN_TAGLINE_LEN = 8;
@@ -223,7 +233,10 @@ function serviceDescriptionFallback(name, profile) {
   return `${name} — made fresh for you.`;
 }
 
-function buildReplacementProducts(profile, count, categories) {
+function buildReplacementProducts(profile, count, categories, inventCtx = {}) {
+  if (!canInventCatalogFacts(inventCtx)) {
+    return [];
+  }
   const industry = buildIndustryCatalog(profile, Math.max(24, count + 4));
   if (industry?.items?.length) {
     const firstCatId = categories?.[0]?.id || industry.categories?.[0]?.id || 'cat_0';
@@ -233,9 +246,12 @@ function buildReplacementProducts(profile, count, categories) {
       price: String(it.price ?? defaultPriceForIndex(profile.businessType || profile.verticalSlug, i)),
       priceV1: { amount: it.price ?? defaultPriceForIndex(profile.businessType || profile.verticalSlug, i) },
       categoryId: it.categoryId || firstCatId,
+      origin: 'industry_blueprint',
+      provenanceStatus: 'GENERATED_FALLBACK',
+      catalogSource: 'generated',
     }));
   }
-  const cuisine = buildCuisineMenuCatalog(profile, Math.max(24, count + 4));
+  const cuisine = buildCuisineMenuCatalog(profile, Math.max(24, count + 4), { grounded: false });
   if (cuisine?.items?.length) {
     const firstCatId = categories?.[0]?.id || cuisine.categories?.[0]?.id || 'cat_0';
     return cuisine.items.slice(0, count).map((it, i) => ({
@@ -244,6 +260,9 @@ function buildReplacementProducts(profile, count, categories) {
       price: String(defaultPriceForIndex(profile.businessType || profile.verticalSlug, i)),
       priceV1: { amount: defaultPriceForIndex(profile.businessType || profile.verticalSlug, i) },
       categoryId: it.categoryId || firstCatId,
+      origin: 'cuisine_bank',
+      provenanceStatus: 'GENERATED_FALLBACK',
+      catalogSource: 'cuisine_template',
     }));
   }
   const seed = buildSeedCatalog(profile, { targetCount: Math.max(24, count + 4) });
@@ -255,6 +274,9 @@ function buildReplacementProducts(profile, count, categories) {
     price: String(defaultPriceForIndex(profile.businessType || profile.verticalSlug, i)),
     priceV1: { amount: defaultPriceForIndex(profile.businessType || profile.verticalSlug, i) },
     categoryId: it.categoryId || firstCatId,
+    origin: 'seed',
+    provenanceStatus: 'GENERATED_FALLBACK',
+    catalogSource: 'generated',
   }));
 }
 
@@ -292,14 +314,72 @@ function deriveHeroImageTags(preview, input, verticalSlug) {
 
 function buildStoreDescription(preview, input) {
   const name = String(preview?.storeName || input?.businessName || 'Our store').trim();
-  const bt = String(input?.businessType || preview?.storeType || 'local business').trim();
+  const archetype = input?.groundedComposition?.archetype || preview?.meta?.groundedComposition?.archetype;
+  const bt = displayBusinessTypeForCopy(
+    input?.businessType || preview?.storeType || 'local business',
+    archetype,
+  );
   return `${name} is your local ${bt.replace(/_/g, ' ')} — browse our menu and order online.`;
 }
 
 function buildTagline(preview, input) {
   const name = String(preview?.storeName || input?.businessName || 'Us').trim();
-  const bt = String(input?.businessType || preview?.storeType || 'store').trim();
+  const archetype = input?.groundedComposition?.archetype || preview?.meta?.groundedComposition?.archetype;
+  const bt = displayBusinessTypeForCopy(
+    input?.businessType || preview?.storeType || 'store',
+    archetype,
+  );
   return `Welcome to ${name} — quality ${bt.replace(/_/g, ' ')} you can trust.`;
+}
+
+/**
+ * Grounded QA: remove unsupported catalog facts; never invent replacements.
+ */
+function applyGroundedUnsupportedCatalogRemoval(preview, badIndices, autoFixed) {
+  const items = ensurePreviewItems(preview);
+  const removeSet = new Set(badIndices);
+  const kept = [];
+  let removedCount = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item || typeof item !== 'object') continue;
+    const unsupported = removeSet.has(i) || !isAuthoritativeOffering(item);
+    if (unsupported) {
+      removedCount += 1;
+      autoFixed.push(
+        `removed_unsupported ${catalogItemRef(i, preview)} (was "${item.name ?? ''}")`,
+      );
+      continue;
+    }
+    kept.push(item);
+  }
+  const { categories, items: itemsWithCat } = recomputeDraftCategoriesFromItems(kept);
+  preview.categories = categories;
+  preview.items = itemsWithCat;
+  preview.products = itemsWithCat;
+
+  let outcome = GROUNDED_QA_OUTCOME.REMOVED_UNSUPPORTED;
+  if (itemsWithCat.length === 0) {
+    outcome = GROUNDED_QA_OUTCOME.INCOMPLETE_MISSING_EVIDENCE;
+    const incomplete = buildOfferingIncompleteState({
+      reason: 'qa_removed_unsupported_no_authoritative_offerings',
+    });
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      offeringIncomplete: incomplete,
+      catalogSource: 'grounded_incomplete',
+      groundedQaOutcome: outcome,
+      evidenceOfferingCount: 0,
+    };
+  } else {
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      groundedQaOutcome: outcome,
+      evidenceOfferingCount: itemsWithCat.length,
+    };
+  }
+  autoFixed.push(`grounded_qa_outcome:${outcome}`);
+  return { preview, autoFixed, outcome, removedCount };
 }
 
 /** Fixes touching more than this many products require explicit owner approval (Tier 2). */
@@ -465,39 +545,71 @@ export function applyDraftCatalogQaTier1AutoRepair(preview, input = {}, params =
   const businessType = params.businessType ?? input.businessType ?? preview.storeType ?? '';
   const verticalSlug = params.verticalSlug ?? input.verticalSlug ?? preview?.meta?.verticalSlug ?? '';
   const profile = catalogRepairProfile(preview, input, params);
+  const inventCtx = {
+    preview,
+    input,
+    meta: preview.meta,
+    groundedStoreCreation: preview.meta?.groundedStoreCreation === true,
+    groundedComposition: input.groundedComposition || preview.meta?.groundedComposition,
+  };
+  const policy = resolveGenerationGroundingPolicy(inventCtx);
   const audit = auditDraftCatalogQa(preview, { ...input, verticalSlug });
   const badIndices = new Set(audit.badProductIndices ?? []);
 
   if (audit.issueCodes?.includes('SERVICE_CATALOG_LEAK') && badIndices.size > 0) {
-    const profile = catalogRepairProfile(preview, input, params);
-    const replacements = buildReplacementProducts(profile, badIndices.size, preview.categories);
-    let repIndex = 0;
-    for (const idx of [...badIndices].sort((a, b) => a - b)) {
-      const item = items[idx];
-      const rep = replacements[repIndex % replacements.length];
-      repIndex += 1;
-      if (!item || !rep) continue;
-      item.name = rep.name;
-      item.description = rep.description;
-      item.price = rep.price;
-      item.priceV1 = rep.priceV1;
-      if (rep.categoryId) item.categoryId = rep.categoryId;
-      item.serviceMode = undefined;
-      item.executionAction = undefined;
-      item.primaryAction = undefined;
-      item.bookingEnabled = undefined;
-      item.purchaseEnabled = undefined;
-      item.serviceCatalog = undefined;
-      item.itemType = undefined;
-      item.type = undefined;
-      autoFixed.push(`products[${idx}].service_catalog_leak`);
+    if (!policy.canInventCatalogFacts) {
+      applyGroundedUnsupportedCatalogRemoval(preview, [...badIndices], autoFixed);
+      badIndices.clear();
+    } else {
+      const replacements = buildReplacementProducts(profile, badIndices.size, preview.categories, inventCtx);
+      let repIndex = 0;
+      for (const idx of [...badIndices].sort((a, b) => a - b)) {
+        const item = items[idx];
+        const rep = replacements[repIndex % Math.max(replacements.length, 1)];
+        repIndex += 1;
+        if (!item || !rep) continue;
+        item.name = rep.name;
+        item.description = rep.description;
+        item.price = rep.price;
+        item.priceV1 = rep.priceV1;
+        if (rep.categoryId) item.categoryId = rep.categoryId;
+        invalidateItemDerivedMedia(item);
+        assignItemProvenance(item, {
+          provenanceStatus: rep.provenanceStatus || 'GENERATED_FALLBACK',
+          origin: rep.origin || 'generated',
+          catalogSource: rep.catalogSource || 'generated',
+          hasEvidenceChain: false,
+        });
+        item.serviceMode = undefined;
+        item.executionAction = undefined;
+        item.primaryAction = undefined;
+        item.bookingEnabled = undefined;
+        item.purchaseEnabled = undefined;
+        item.serviceCatalog = undefined;
+        item.itemType = undefined;
+        item.type = undefined;
+        autoFixed.push(`products[${idx}].service_catalog_leak`);
+      }
+      const { categories, items: itemsWithCat } = recomputeDraftCategoriesFromItems(items);
+      preview.categories = categories;
+      preview.items = itemsWithCat;
+      badIndices.clear();
     }
-    const { categories, items: itemsWithCat } = recomputeDraftCategoriesFromItems(items);
-    preview.categories = categories;
-    preview.items = itemsWithCat;
-    badIndices.clear();
   }
 
+  // Pass 2: under grounded mode, never fabricate prices/descriptions for unsupported items.
+  if (!policy.canInventCatalogFacts) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item || typeof item !== 'object') continue;
+      if (!isAuthoritativeOffering(item) || badIndices.has(i)) {
+        badIndices.add(i);
+      }
+    }
+    if (badIndices.size > 0) {
+      applyGroundedUnsupportedCatalogRemoval(preview, [...badIndices], autoFixed);
+    }
+  } else {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (!item || typeof item !== 'object' || badIndices.has(i)) continue;
@@ -521,17 +633,28 @@ export function applyDraftCatalogQaTier1AutoRepair(preview, input = {}, params =
       autoFixed.push(`${catalogItemRef(i, preview)}.description`);
     }
   }
+  }
 
   const tagline = String(preview.tagline ?? preview.slogan ?? '').trim();
-  if (!tagline || tagline.length < MIN_TAGLINE_LEN) {
-    preview.tagline = buildTagline(preview, { ...input, businessType });
+  const otherLeak = /\bquality\s+Other\b/i.test(tagline) || /\blocal\s+Other\b/i.test(tagline);
+  if (!tagline || tagline.length < MIN_TAGLINE_LEN || otherLeak) {
+    preview.tagline = buildTagline(preview, {
+      ...input,
+      businessType,
+      groundedComposition: input.groundedComposition || preview.meta?.groundedComposition,
+    });
     preview.slogan = preview.tagline;
     autoFixed.push('tagline');
   }
 
   const storeDesc = String(preview.description ?? preview.storeDescription ?? '').trim();
-  if (!storeDesc || storeDesc.length < MIN_STORE_DESCRIPTION_LEN) {
-    preview.description = buildStoreDescription(preview, { ...input, businessType });
+  const descOtherLeak = /\blocal\s+Other\b/i.test(storeDesc);
+  if (!storeDesc || storeDesc.length < MIN_STORE_DESCRIPTION_LEN || descOtherLeak) {
+    preview.description = buildStoreDescription(preview, {
+      ...input,
+      businessType,
+      groundedComposition: input.groundedComposition || preview.meta?.groundedComposition,
+    });
     autoFixed.push('store description');
   }
 
@@ -586,6 +709,36 @@ export function applyDraftCatalogQaTier2Fixes(preview, input = {}, params = {}, 
   const items = ensurePreviewItems(preview);
   const profile = catalogRepairProfile(preview, input, params);
   const badIndices = audit.badProductIndices ?? [];
+  const inventCtx = {
+    preview,
+    input,
+    meta: preview.meta,
+    groundedStoreCreation: preview.meta?.groundedStoreCreation === true,
+    groundedComposition: input.groundedComposition || preview.meta?.groundedComposition,
+  };
+  const policy = resolveGenerationGroundingPolicy(inventCtx);
+
+  // Pass 2: always strip non-authoritative pseudo-offerings under grounded mode,
+  // even when audit does not flag them as "bad products".
+  if (!policy.canInventCatalogFacts) {
+    const pseudo = [];
+    for (let i = 0; i < items.length; i++) {
+      if (!isAuthoritativeOffering(items[i])) pseudo.push(i);
+    }
+    if (pseudo.length > 0) {
+      applyGroundedUnsupportedCatalogRemoval(preview, pseudo, autoFixed);
+      preview.meta = {
+        ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+        catalogQaTier2AppliedAt: new Date().toISOString(),
+        catalogQaTier2Fixed: [...new Set(autoFixed)],
+      };
+      return {
+        preview,
+        autoFixed: [...new Set(autoFixed)],
+        repairedProductCount: 0,
+      };
+    }
+  }
 
   const runRegenerate =
     wants('catalog_regenerate') ||
@@ -593,24 +746,40 @@ export function applyDraftCatalogQaTier2Fixes(preview, input = {}, params = {}, 
     wants('category_reassignment');
 
   if (runRegenerate && badIndices.length > 0 && items.length > 0) {
-    const replacements = buildReplacementProducts(profile, badIndices.length, preview.categories);
-    badIndices.forEach((idx, repIndex) => {
-      const item = items[idx];
-      if (!item || typeof item !== 'object') return;
-      const rep = replacements[repIndex % replacements.length];
-      if (!rep) return;
-      const prevName = item.name;
-      item.name = rep.name;
-      item.description = rep.description;
-      item.price = rep.price;
-      item.priceV1 = rep.priceV1;
-      if (rep.categoryId) item.categoryId = rep.categoryId;
-      item.imageUrl = item.imageUrl ?? null;
-      autoFixed.push(`regenerated ${catalogItemRef(idx, preview)} (was "${prevName}")`);
-    });
-    autoFixed.push(`regenerated ${badIndices.length} catalog item(s)`);
+    if (!policy.canInventCatalogFacts) {
+      applyGroundedUnsupportedCatalogRemoval(preview, badIndices, autoFixed);
+    } else {
+      const replacements = buildReplacementProducts(
+        profile,
+        badIndices.length,
+        preview.categories,
+        inventCtx,
+      );
+      badIndices.forEach((idx, repIndex) => {
+        const item = items[idx];
+        if (!item || typeof item !== 'object') return;
+        const rep = replacements[repIndex % Math.max(replacements.length, 1)];
+        if (!rep) return;
+        const prevName = item.name;
+        item.name = rep.name;
+        item.description = rep.description;
+        item.price = rep.price;
+        item.priceV1 = rep.priceV1;
+        if (rep.categoryId) item.categoryId = rep.categoryId;
+        invalidateItemDerivedMedia(item);
+        assignItemProvenance(item, {
+          provenanceStatus: rep.provenanceStatus || 'GENERATED_FALLBACK',
+          origin: rep.origin || 'generated',
+          catalogSource: rep.catalogSource || 'generated',
+          hasEvidenceChain: false,
+        });
+        autoFixed.push(`regenerated ${catalogItemRef(idx, preview)} (was "${prevName}")`);
+      });
+      autoFixed.push(`regenerated ${badIndices.length} catalog item(s)`);
+    }
   }
 
+  if (policy.canInventCatalogFacts) {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (!item || badIndices.includes(i)) continue;
@@ -630,8 +799,10 @@ export function applyDraftCatalogQaTier2Fixes(preview, input = {}, params = {}, 
       autoFixed.push(`${catalogItemRef(i, preview)}.name`);
     }
   }
+  }
 
   if (
+    policy.canInventCatalogFacts &&
     items.length > 0 &&
     (runRegenerate || wants('category_reassignment') || wants('bulk_catalog_repair'))
   ) {
@@ -647,12 +818,15 @@ export function applyDraftCatalogQaTier2Fixes(preview, input = {}, params = {}, 
     ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
     catalogQaTier2AppliedAt: new Date().toISOString(),
     catalogQaTier2Fixed: [...new Set(autoFixed)],
+    groundedQaOutcome:
+      preview.meta?.groundedQaOutcome ||
+      (policy.grounded ? GROUNDED_QA_OUTCOME.REMOVED_UNSUPPORTED : undefined),
   };
 
   return {
     preview,
     autoFixed: [...new Set(autoFixed)],
-    repairedProductCount: badIndices.length,
+    repairedProductCount: policy.canInventCatalogFacts ? badIndices.length : 0,
   };
 }
 
@@ -685,6 +859,18 @@ export function applyDraftCatalogQaAutoRepair(preview, input = {}, params = {}) 
  */
 export function regenerateCatalogProductSlots(preview, indices, input = {}, params = {}) {
   if (!preview || !Array.isArray(indices) || indices.length === 0) return preview;
+  const inventCtx = {
+    preview,
+    input,
+    meta: preview.meta,
+    groundedStoreCreation: preview.meta?.groundedStoreCreation === true,
+    groundedComposition: input.groundedComposition || preview.meta?.groundedComposition,
+  };
+  if (!canInventCatalogFacts(inventCtx)) {
+    const autoFixed = [];
+    applyGroundedUnsupportedCatalogRemoval(preview, indices, autoFixed);
+    return preview;
+  }
   const items = Array.isArray(preview.items) ? preview.items : [];
   const businessType = params.businessType ?? input.businessType ?? '';
   const verticalSlug = params.verticalSlug ?? input.verticalSlug ?? '';
@@ -694,17 +880,24 @@ export function regenerateCatalogProductSlots(preview, indices, input = {}, para
     businessType,
     businessModel: effectiveVertical(businessType) === 'food' ? 'food' : 'retail',
   };
-  const replacements = buildReplacementProducts(profile, indices.length, preview.categories);
+  const replacements = buildReplacementProducts(profile, indices.length, preview.categories, inventCtx);
   indices.forEach((idx, repIndex) => {
     if (idx < 0 || idx >= items.length) return;
     const item = items[idx];
-    const rep = replacements[repIndex % replacements.length];
+    const rep = replacements[repIndex % Math.max(replacements.length, 1)];
     if (!item || !rep) return;
     item.name = rep.name;
     item.description = rep.description;
     item.price = rep.price;
     item.priceV1 = rep.priceV1;
     if (rep.categoryId) item.categoryId = rep.categoryId;
+    invalidateItemDerivedMedia(item);
+    assignItemProvenance(item, {
+      provenanceStatus: rep.provenanceStatus || 'GENERATED_FALLBACK',
+      origin: rep.origin || 'generated',
+      catalogSource: rep.catalogSource || 'generated',
+      hasEvidenceChain: false,
+    });
   });
   const { categories, items: itemsWithCat } = recomputeDraftCategoriesFromItems(items);
   preview.categories = categories;

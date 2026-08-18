@@ -28,12 +28,53 @@ describe('intakeFrozenEvidenceReplay', () => {
     ).toBe(true);
   });
 
-  it('shouldReuseFrozenEvidenceBundle rejects bundle when fresh image differs', () => {
+  it('shouldReuseFrozenEvidenceBundle rejects text-only create-from-upload (stale NOODLE evidence)', () => {
+    expect(
+      shouldReuseFrozenEvidenceBundle({
+        bundle: { imageRef: 'data:image/png;base64,noodle' },
+        currentImageRef: null,
+        userMessage: 'Create store from uploaded card',
+      }),
+    ).toBe(false);
+  });
+
+  it('shouldReuseFrozenEvidenceBundle rejects Ask create_store handoff without pixels', () => {
+    expect(
+      shouldReuseFrozenEvidenceBundle({
+        bundle: { imageRef: 'data:image/png;base64,noodle' },
+        currentImageRef: null,
+        intentSourceContext: { fromAskSelection: 'create_store' },
+      }),
+    ).toBe(false);
+  });
+
+  it('shouldReuseFrozenEvidenceBundle rejects when fresh image differs from bundle', () => {
     expect(
       shouldReuseFrozenEvidenceBundle({
         bundle: { imageRef: 'data:image/png;base64,old' },
         currentImageRef: 'data:image/png;base64,new',
         hasFreshImageAttachment: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('shouldReuseFrozenEvidenceBundle rejects mismatch even without hasFreshImageAttachment flag', () => {
+    expect(
+      shouldReuseFrozenEvidenceBundle({
+        bundle: { imageRef: 'data:image/png;base64,old' },
+        currentImageRef: 'data:image/png;base64,new',
+      }),
+    ).toBe(false);
+  });
+
+  it('shouldReuseFrozenEvidenceBundle rejects refuseTextOnlyReplay with hasLastUpload false', () => {
+    expect(
+      shouldReuseFrozenEvidenceBundle({
+        bundle: { imageRef: 'data:image/png;base64,noodle' },
+        currentImageRef: null,
+        refuseTextOnlyReplay: true,
+        hasLastUpload: false,
+        userMessage: '(Image attached)',
       }),
     ).toBe(false);
   });

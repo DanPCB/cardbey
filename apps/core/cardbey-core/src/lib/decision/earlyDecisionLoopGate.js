@@ -7,7 +7,7 @@ import { loadBelief } from './beliefLoader.js';
 import { hydrateBeliefForDecisionLoop } from './hydrateBeliefForDecisionLoop.js';
 import { isExplicitCreateStoreFromUploadContext, isExplicitLoyaltyFromUploadContext } from '../intake/assetUploadGuard.js';
 import { UPLOAD_INTAKE_PHASE } from '../intake/uploadIntakePhase.js';
-import { buildIntakeResponse, buildUploadAskResponseFromBelief } from '../response/responseBuilder.js';
+import { buildIntakeResponse } from '../response/responseBuilder.js';
 import { activeGoalSupersedesUploadClarify } from './uploadBeliefContext.js';
 import {
   conversationAwaitingIntakeConfirm,
@@ -15,6 +15,8 @@ import {
 } from '../intake/intakeConfirmIntercept.js';
 import { isCasualChatTurn } from '../intake/intakeCasualChatTurn.js';
 import { clearStaleUploadBeliefContext, persistBeliefDelta } from './persistBeliefDelta.js';
+import { buildObserveFirstUploadAskPayload } from '../performerTurnBelief/buildObserveFirstUploadAsk.js';
+import { extractEvidenceBusinessName } from '../performerTurnBelief/buildTurnBeliefFromIntake.js';
 
 const UPLOAD_ASK_SELECTION_TOOLS = new Set([
   'create_store',
@@ -55,14 +57,23 @@ function isUploadAskSelectionResolved(opts = {}) {
  */
 function hasUnrelatedPendingPlan(belief, opts = {}) {
   if (opts.hasActivePendingCheckpoint === true) return true;
-  if (activeGoalSupersedesUploadClarify(belief?.activeGoal) && belief?.pendingClarify == null) {
-    return true;
-  }
 
-  const intentSourceContext = opts.intentSourceContext ?? opts.advisorInput?.intentSourceContext ?? {};
-  const contextGoal = strip(intentSourceContext.activeGoal ?? intentSourceContext.chosenTool);
-  if (contextGoal && activeGoalSupersedesUploadClarify({ intent: contextGoal })) {
-    return true;
+  // Fresh pixels on this turn must get Upload Ask even if a prior create_store goal is sticky.
+  const freshUploadTurn =
+    opts.hasImageAttachment === true ||
+    opts.attachmentOnlyUpload === true ||
+    Boolean(String(opts.imageDataUrl ?? '').trim());
+
+  if (!freshUploadTurn) {
+    if (activeGoalSupersedesUploadClarify(belief?.activeGoal) && belief?.pendingClarify == null) {
+      return true;
+    }
+
+    const intentSourceContext = opts.intentSourceContext ?? opts.advisorInput?.intentSourceContext ?? {};
+    const contextGoal = strip(intentSourceContext.activeGoal ?? intentSourceContext.chosenTool);
+    if (contextGoal && activeGoalSupersedesUploadClarify({ intent: contextGoal })) {
+      return true;
+    }
   }
 
   const msg = strip(
@@ -168,10 +179,45 @@ export function shouldRequireUploadAskPanel(opts = {}) {
 
 /**
  * Rule 1 Ask panel — HTTP payload (works with or without authority flag).
+ * Observe-first: TurnBelief from OCR before runway chips/forms.
  * @param {import('./constants.js').BeliefSnapshot} belief
+ * @param {{
+ *   ocrText?: string | null;
+ *   attachmentAnalysis?: unknown;
+ *   goal?: string | null;
+ *   stickyGoalName?: string | null;
+ *   missionId?: string | null;
+ * } } [observeInput]
  */
-export function buildUploadAskClarifyFromBelief(belief) {
-  return buildUploadAskResponseFromBelief(belief);
+export function buildUploadAskClarifyFromBelief(belief, observeInput = {}) {
+  const ocrText =
+    String(observeInput.ocrText ?? '').trim() ||
+    String(belief?.lastUpload?.ocrText ?? '').trim() ||
+    '';
+
+  const payload = buildObserveFirstUploadAskPayload({
+    goal: observeInput.goal ?? null,
+    // Never inherit activeGoal / sticky identity — this-turn OCR only.
+    stickyGoalName: null,
+    ocrText: ocrText || null,
+    attachmentAnalysis: observeInput.attachmentAnalysis ?? null,
+    imageDataUrl: belief?.lastUpload?.imageRef ?? null,
+    missionId: observeInput.missionId ?? belief?.anchors?.missionId ?? null,
+    decisionLoopBelief: belief,
+  });
+
+  // Prefer evidence name onto decision-loop lastUpload for downstream stamps.
+  const evidenceName =
+    String(payload.turnBelief?.identity?.name ?? '').trim() ||
+    extractEvidenceBusinessName({
+      ocrText,
+      attachmentAnalysis: observeInput.attachmentAnalysis,
+    });
+  if (evidenceName && belief?.lastUpload && !belief.lastUpload.businessName) {
+    belief.lastUpload = { ...belief.lastUpload, businessName: evidenceName };
+  }
+
+  return payload;
 }
 
 /**
@@ -187,9 +233,18 @@ export async function loadHydratedBeliefForUploadDecision(opts = {}) {
       belief = opts.belief ?? null;
     }
   }
+  const extractedText =
+    strip(opts.extractedText) ||
+    (opts.attachmentAnalysis && typeof opts.attachmentAnalysis === 'object'
+      ? strip(
+          opts.attachmentAnalysis.ocrText ??
+            opts.attachmentAnalysis.rawOcrText ??
+            opts.attachmentAnalysis.extractedText,
+        )
+      : null);
   return hydrateBeliefForDecisionLoop(belief, {
     imageDataUrl: opts.imageDataUrl ?? null,
-    extractedText: opts.extractedText ?? null,
+    extractedText,
     attachmentOnlyUpload: opts.attachmentOnlyUpload === true,
     hasAttachment: opts.hasImageAttachment === true,
     sessionKey: opts.beliefLoaderOpts?.sessionKey ?? opts.belief?.sessionKey ?? null,
@@ -214,7 +269,13 @@ export async function buildUploadAskClarifyFallback(opts = {}) {
   const belief = await loadHydratedBeliefForUploadDecision(opts);
   if (!belief?.lastUpload?.imageRef && !opts.hasImageAttachment) return null;
 
-  const payload = buildUploadAskClarifyFromBelief(belief);
+  const payload = buildUploadAskClarifyFromBelief(belief, {
+    ocrText: opts.extractedText ?? null,
+    attachmentAnalysis: opts.attachmentAnalysis ?? null,
+    goal: userMessage,
+    stickyGoalName: opts.stickyGoalName ?? null,
+    missionId: opts.missionId ?? null,
+  });
   return {
     payload,
     classification: {
@@ -224,10 +285,11 @@ export async function buildUploadAskClarifyFallback(opts = {}) {
       parameters: {
         imageDataUrl: belief.lastUpload?.imageRef ?? opts.imageDataUrl ?? null,
         source: 'upload_ask_rule1_fallback',
+        observeFirst: true,
       },
       message: payload.response,
       clarifyOptions: payload.options ?? [],
-      _uploadAskSource: 'rule1_fallback',
+      _uploadAskSource: 'rule1_fallback_observe_first',
     },
   };
 }

@@ -9,6 +9,26 @@ function strip(value) {
 }
 
 /**
+ * This-turn OCR (including empty string) replaces stash identity.
+ * @param {object} input
+ */
+function hasLiveExtractedText(input) {
+  return typeof input?.extractedText === 'string';
+}
+
+/**
+ * Cheap type from this read only — not a parallel reasoner.
+ * @param {string | null} ocrText
+ * @param {Record<string, unknown> | null} hints
+ */
+function documentTypeFromThisRead(ocrText, hints) {
+  const text = String(ocrText ?? '');
+  if (/\b(menu|entree|entrée|appetizer|mains?|catalog)\b/i.test(text)) return 'menu';
+  if (strip(hints?.businessName) || strip(hints?.detectedBusinessName)) return 'business_card';
+  return text ? 'unknown' : null;
+}
+
+/**
  * @param {import('./constants.js').BeliefSnapshot | null} belief
  * @param {object} [input]
  * @param {string | null} [input.imageDataUrl]
@@ -51,27 +71,36 @@ export function hydrateBeliefForDecisionLoop(belief, input = {}) {
     belief = createEphemeralBeliefForUpload({ sessionKey: input.sessionKey });
   }
 
-  const imageRefResolved = imageRef;
-  const ocrText = strip(input.extractedText) ?? belief.lastUpload?.ocrText ?? null;
+  const incomingImage = strip(input.imageDataUrl);
+  const priorImage = strip(belief?.lastUpload?.imageRef);
+  const imageChanged = Boolean(incomingImage && priorImage && incomingImage !== priorImage);
+  const liveRead = hasLiveExtractedText(input);
+  const replaceStashIdentity = liveRead || imageChanged;
+
+  const imageRefResolved = incomingImage ?? priorImage;
+  const ocrText = liveRead
+    ? strip(input.extractedText)
+    : imageChanged
+      ? null
+      : belief.lastUpload?.ocrText ?? null;
   const attachmentOnly = input.attachmentOnlyUpload === true;
 
   if (!hasAttachment && !belief.lastUpload) return belief;
 
   const hints = ocrText ? buildOcrHintsFromImageText(ocrText) : null;
-  const businessName =
-    belief.lastUpload?.businessName ??
-    strip(hints?.businessName) ??
-    strip(hints?.detectedBusinessName) ??
-    null;
+  const fromThisRead = strip(hints?.businessName) ?? strip(hints?.detectedBusinessName) ?? null;
+  const businessName = replaceStashIdentity ? fromThisRead : fromThisRead ?? belief.lastUpload?.businessName ?? null;
 
   /** @type {import('./constants.js').BeliefLastUpload} */
   const lastUpload = {
     imageRef: imageRefResolved,
     ocrText,
-    documentType: belief.lastUpload?.documentType ?? (ocrText ? 'business_card' : null),
+    documentType: replaceStashIdentity
+      ? documentTypeFromThisRead(ocrText, hints)
+      : belief.lastUpload?.documentType ?? documentTypeFromThisRead(ocrText, hints),
     businessName,
     sessionKey: belief.sessionKey,
-    at: belief.lastUpload?.at ?? new Date().toISOString(),
+    at: imageChanged ? new Date().toISOString() : belief.lastUpload?.at ?? new Date().toISOString(),
   };
 
   let pendingClarify = belief.pendingClarify;

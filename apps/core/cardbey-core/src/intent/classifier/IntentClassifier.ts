@@ -148,6 +148,17 @@ export function classifyIntent(input: IntentEngineInput): Intent {
     });
   }
 
+  // Attachment placeholder without pixels in this request — don't treat as empty chat.
+  if (/^\(image attached\)$/i.test(msg) || /^\(files attached\)$/i.test(msg)) {
+    return buildIntent('clarify', {
+      requiresBusiness: false,
+      confidence: 0.7,
+      response:
+        'I see your upload. What would you like to do — create a store, import a catalog, or analyze the document?',
+      shouldExecute: false,
+    });
+  }
+
   const explicitFromMessage = intentFromExplicitToolKey(msg);
   if (explicitFromMessage) return explicitFromMessage;
 

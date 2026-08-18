@@ -167,7 +167,11 @@ export function getCuisineMenuPromptHints(verticalSlug, businessName = '', busin
  * @param {object} profile
  * @param {number} [targetCount]
  */
-export function buildCuisineMenuCatalog(profile = {}, targetCount = CATALOG_ITEM_LIMIT) {
+export function buildCuisineMenuCatalog(profile = {}, targetCount = CATALOG_ITEM_LIMIT, opts = {}) {
+  // Pass 1: grounded invent-stop — cuisine banks must not fill live catalogs.
+  if (opts.forbidInvent === true || opts.grounded === true) {
+    return null;
+  }
   const cap = Math.max(CATALOG_ITEM_MIN, Math.min(CATALOG_ITEM_LIMIT, targetCount));
   const key = resolveCuisineMenuBankKey(
     profile.verticalSlug,
@@ -199,13 +203,22 @@ export function buildCuisineMenuCatalog(profile = {}, targetCount = CATALOG_ITEM
       description: src.description ?? null,
       price: src.price ?? null,
       categoryId: catId,
+      origin: 'cuisine_bank',
+      provenanceStatus: 'GENERATED_FALLBACK',
+      authorityLevel: 'GENERATED_FALLBACK',
+      catalogSource: 'cuisine_template',
     });
   }
 
   return {
     categories,
     items,
-    meta: { catalogSource: 'cuisine_template', vertical: key, cuisineLabel: bank.label },
+    meta: {
+      catalogSource: 'cuisine_template',
+      vertical: key,
+      cuisineLabel: bank.label,
+      provenanceStatus: 'GENERATED_FALLBACK',
+    },
   };
 }
 

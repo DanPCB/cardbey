@@ -456,11 +456,13 @@ export const Features = {
   },
   /**
    * Grounded store creation V1 — stop silent product invention + weak stock media.
-   * Default OFF. Set ENABLE_GROUNDED_STORE_CREATION_V1=true to enable.
+   * P0: non-production defaults ON so create-store exercises invent-stop.
+   * Production remains OFF unless ENABLE_GROUNDED_STORE_CREATION_V1=true.
    */
   groundedStoreCreation: {
     get v1() {
-      return parseBoolEnv(process.env.ENABLE_GROUNDED_STORE_CREATION_V1, false);
+      const defaultOn = process.env.NODE_ENV !== 'production';
+      return parseBoolEnv(process.env.ENABLE_GROUNDED_STORE_CREATION_V1, defaultOn);
     },
     get minMediaMatchScore() {
       return parseThreshold(process.env.GROUNDED_MIN_MEDIA_MATCH_SCORE, 0.55);

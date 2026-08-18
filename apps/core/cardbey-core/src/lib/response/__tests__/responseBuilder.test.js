@@ -33,10 +33,12 @@ describe('responseBuilder', () => {
 
     const payload = buildUploadAskResponseFromBelief(belief);
     expect(payload.action).toBe('clarify');
-    expect(payload.response).toMatch(/What would you like to do/i);
+    expect(payload.clarifyType).toBe('observe_first_upload');
+    expect(payload.response).toMatch(/JOE BAKERY|read/i);
     expect(payload.options?.length).toBeGreaterThan(0);
-    expect(payload.options?.some((o) => o.label === 'Create store')).toBe(true);
+    expect(payload.options?.some((o) => /Create store/i.test(o.label))).toBe(true);
     expect(payload.storeCreationDraft).toBeNull();
+    expect(payload.turnBelief).toBeTruthy();
   });
 
   it('builds create_store draft when execute + upload belief', () => {

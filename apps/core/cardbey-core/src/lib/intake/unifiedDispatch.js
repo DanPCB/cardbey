@@ -510,6 +510,18 @@ function mapCreateStoreDispatchResult(dispatchResult) {
     };
   }
 
+  if (dispatchResult.kind === 'turn_belief_blocked') {
+    return {
+      ok: true,
+      status: 'blocked',
+      executionPath: 'turn_belief_gate',
+      action: 'clarify',
+      dispatchKind: 'turn_belief_blocked',
+      responseBody: dispatchResult.responseBody,
+      turnBelief: dispatchResult.turnBelief ?? null,
+    };
+  }
+
   return {
     ok: false,
     status: dispatchResult.kind === 'failed' ? 'failed' : 'blocked',
@@ -983,6 +995,20 @@ export function mapUnifiedDispatchToIntakeResponse(result, ctx = {}) {
           result.message ??
           "I didn't quite catch that. You can ask for help, manage campaigns, add products, or create a new business — what would you like to do?",
         executionPath: 'direct_action',
+      };
+    }
+    if (result.dispatchKind === 'turn_belief_blocked') {
+      return {
+        ...(result.responseBody && typeof result.responseBody === 'object'
+          ? result.responseBody
+          : {
+              success: true,
+              action: 'clarify',
+              response:
+                result.message ??
+                'I need to resolve a conflict before starting store setup.',
+            }),
+        executionPath: 'turn_belief_gate',
       };
     }
     if (result.dispatchKind === 'needs_form') {

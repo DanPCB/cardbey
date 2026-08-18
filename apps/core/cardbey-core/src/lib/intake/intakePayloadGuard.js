@@ -8,6 +8,7 @@ import {
   normalizeIntakeReplayBody,
   stripHeavyUploadFieldsDeep,
 } from './intakeReplayPayload.js';
+import { shouldForceFreshStoreMissionOnUploadIdentityConflict } from './createStoreCheckpointDispatch.js';
 
 export const DEFAULT_INTAKE_PAYLOAD_MAX_BYTES = 256 * 1024;
 
@@ -486,7 +487,7 @@ export function normalizeCreateStoreDispatchBody(body) {
  * @param {{ maxBytes?: number }} [options]
  */
 export function applyIntakePayloadGuard(body, options = {}) {
-  const input = body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
+  let input = body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
   const uploadEvidence = hasIntakeUploadEvidence(input);
   const decisionLoopUpload =
     isDecisionLoopEnabled() && uploadEvidence && !isFreshStoreCreationMission(input);
@@ -501,7 +502,16 @@ export function applyIntakePayloadGuard(body, options = {}) {
   const largestKeys = getTopLevelKeySizes(input);
   const stripped = [];
 
-  const freshStoreMission = isFreshStoreCreationMission(input);
+  let freshStoreMission = isFreshStoreCreationMission(input);
+  if (
+    !freshStoreMission &&
+    shouldForceFreshStoreMissionOnUploadIdentityConflict(
+      input && typeof input === 'object' ? input : {},
+    )
+  ) {
+    freshStoreMission = true;
+    input = { ...(input && typeof input === 'object' ? input : {}), freshStoreMission: true };
+  }
   let normalized = input;
 
   const replayNormalized = normalizeIntakeReplayBody(normalized);

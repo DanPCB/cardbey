@@ -22,6 +22,11 @@ import {
   buildStoreCompositionPlan,
   evaluateCompositionGenericness,
 } from './storeCompositionPlan.js';
+import {
+  classifyEvidenceKind,
+  isAuthoritativeOffering,
+  EVIDENCE_KIND,
+} from '../../services/draftStore/generationGroundingPolicy.js';
 
 const MAX_GATE_RETRIES = 2;
 
@@ -71,11 +76,15 @@ export function extractOfferingLinesFromText(text) {
     if (/^(tel|phone|email|www\.|http|open|hours|address|mon|tue|wed|thu|fri|sat|sun)\b/i.test(line)) {
       continue;
     }
+    // Pass 2: trading hours / contact / location mid-line must not become offerings.
+    const kind = classifyEvidenceKind(line);
+    if (kind !== EVIDENCE_KIND.OFFERING) continue;
     // "Item .... $12" or "Item - 12.00"
     const m = line.match(/^(.{2,80}?)(?:\s{2,}|\s[-–—]\s|\s\$|\s\d+\.\d{2}\s*$)/);
     const candidate = (m ? m[1] : line).replace(/\s+/g, ' ').trim();
     if (candidate.length < 2 || candidate.length > 80) continue;
     if (GENERIC_OFFERING_RE.test(candidate)) continue;
+    if (!isAuthoritativeOffering(candidate)) continue;
     if (/^[A-Z\s]{3,}$/.test(candidate) && candidate.split(/\s+/).length <= 2 && !/\$|\d/.test(line)) {
       // Likely a section header (MENU, SERVICES) — skip short all-caps
       if (candidate.length <= 18) continue;
@@ -115,6 +124,7 @@ export function collectEvidenceOfferings(input = {}) {
   for (const name of [...fromArrays, ...fromText]) {
     const key = name.toLowerCase();
     if (seen.has(key) || GENERIC_OFFERING_RE.test(name)) continue;
+    if (!isAuthoritativeOffering(name)) continue;
     seen.add(key);
     offerings.push(name);
   }
@@ -532,6 +542,9 @@ export function composeGroundedStoreIntelligence(input = {}, opts = {}) {
 export function applyCompositionToGenerationParams(params, composition) {
   if (!params || !composition?.plan) return params;
   const { plan, understanding, brand, groundedOfferings } = composition;
+  const authoritativeOfferings = Array.isArray(groundedOfferings)
+    ? groundedOfferings.filter((name) => isAuthoritativeOffering(name))
+    : [];
   params.primaryCTA = plan.primaryCTA || params.primaryCTA;
   params.secondaryCTA = plan.secondaryCTA || null;
   params.groundedComposition = {
@@ -542,7 +555,10 @@ export function applyCompositionToGenerationParams(params, composition) {
     websiteSectionTypes: plan.websiteSectionTypes,
     themeSpec: plan.themeSpec,
     resourceNeeds: plan.resourceNeeds,
-    groundedOfferings,
+    groundedOfferings: authoritativeOfferings,
+    rejectedNonOfferingEvidence: Array.isArray(groundedOfferings)
+      ? groundedOfferings.filter((n) => !isAuthoritativeOffering(n))
+      : [],
     skipFabricatedReviews: plan.skipFabricatedReviews,
     skipGenericUsp: plan.skipGenericUsp,
     offeringPresentation: plan.offeringPresentation,
@@ -558,11 +574,25 @@ export function applyCompositionToGenerationParams(params, composition) {
     };
   }
   // Prefer evidence offerings over AI invent when we have them
-  if (Array.isArray(groundedOfferings) && groundedOfferings.length > 0) {
-    params.seedItems = groundedOfferings.map((name) => ({ name, description: null, price: null }));
+  if (authoritativeOfferings.length > 0) {
+    params.seedItems = authoritativeOfferings.map((name) => ({ name, description: null, price: null }));
     if (params.mode === 'ai') {
       params.mode = 'seed';
       params.groundedForcedSeedFromEvidence = true;
+    }
+  } else if (Array.isArray(groundedOfferings) && groundedOfferings.length > 0) {
+    // Hours/contact-only evidence: do not seed catalog; keep invent-stop empty path.
+    params.seedItems = [];
+    params.groundedForcedSeedFromEvidence = false;
+  }
+  // Override weak "Other" when composition resolved a food archetype.
+  const foodArchetypes = new Set(['FOOD_TAKEAWAY', 'FOOD_DINE_IN', 'CAFE']);
+  if (foodArchetypes.has(plan.archetype)) {
+    if (!params.storeType || /^other$/i.test(String(params.storeType).trim())) {
+      params.storeType = 'Food & drink';
+    }
+    if (!params.businessType || /^other$/i.test(String(params.businessType).trim())) {
+      params.businessType = 'Food & drink';
     }
   }
   if (!params.storeType && understanding?.category?.value) {
@@ -584,7 +614,8 @@ export function applyCompositionToGenerationParams(params, composition) {
 export function buildCatalogFromGroundedOfferings(offerings, opts = {}) {
   const draftId = opts.draftId || 'draft';
   const currency = opts.currencyCode || 'AUD';
-  const products = (offerings || []).map((name, i) => ({
+  const authoritative = (offerings || []).filter((name) => isAuthoritativeOffering(name));
+  const products = authoritative.map((name, i) => ({
     id: `item_${draftId}_g_${i}`,
     name,
     description: null,
@@ -594,6 +625,7 @@ export function buildCatalogFromGroundedOfferings(offerings, opts = {}) {
     imageUrl: null,
     origin: 'evidence',
     provenanceStatus: 'VERIFIED',
+    authorityLevel: 'SOURCE_CONFIRMED',
   }));
   return {
     profile: {},
@@ -602,9 +634,10 @@ export function buildCatalogFromGroundedOfferings(offerings, opts = {}) {
       : [],
     products,
     meta: {
-      catalogSource: 'grounded_evidence',
+      catalogSource: products.length ? 'grounded_evidence' : 'grounded_incomplete',
       groundedStoreCreation: true,
       evidenceOfferingCount: products.length,
+      generationPolicy: { mode: 'GROUNDED' },
     },
   };
 }

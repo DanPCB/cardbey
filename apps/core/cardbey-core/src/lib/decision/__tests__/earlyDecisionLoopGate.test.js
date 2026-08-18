@@ -121,6 +121,36 @@ describe('earlyDecisionLoopGate', () => {
     ).toBe(true);
   });
 
+  it('fresh attachment still requires Ask despite sticky create_store activeGoal', () => {
+    expect(
+      shouldRequireUploadAskPanel({
+        attachmentOnlyUpload: true,
+        hasImageAttachment: true,
+        imageDataUrl: 'data:image/png;base64,abc',
+        userMessage: '(Image attached)',
+        belief: baseBelief({
+          activeGoal: { intent: 'create_store', status: 'active' },
+          pendingClarify: null,
+        }),
+      }),
+    ).toBe(true);
+  });
+
+  it('sticky create_store goal blocks Ask when no fresh attachment', () => {
+    expect(
+      shouldRequireUploadAskPanel({
+        attachmentOnlyUpload: false,
+        hasImageAttachment: false,
+        uploadIntakePhase: UPLOAD_INTAKE_PHASE.ASK_INTENT,
+        userMessage: 'what next',
+        belief: baseBelief({
+          activeGoal: { intent: 'create_store', status: 'active' },
+          pendingClarify: null,
+        }),
+      }),
+    ).toBe(false);
+  });
+
   it('buildUploadAskClarifyFromBelief returns Create store option', () => {
     const belief = hydrateBeliefForDecisionLoop(baseBelief(), {
       imageDataUrl: 'data:image/png;base64,abc',

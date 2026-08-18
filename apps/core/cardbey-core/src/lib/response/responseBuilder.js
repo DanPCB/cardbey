@@ -6,6 +6,7 @@ import { buildUploadGoalOptions } from '../decision/presentOptions.js';
 import { isRegisteredTool } from '../intake/intakeToolRegistry.js';
 import { buildStoreCreationDraft } from '../intake/storeCreationDraft.js';
 import { formatStoreCreationDraftResponseForBundle } from '../intake/storeCreationDraftAssetBridge.js';
+import { buildObserveFirstUploadAskPayload } from '../performerTurnBelief/buildObserveFirstUploadAsk.js';
 
 /**
  * @param {import('../decision/constants.js').BeliefSnapshot | null} belief
@@ -193,17 +194,20 @@ export function buildIntakeResponse(turnResult, belief = null, extras = {}) {
 }
 
 /**
- * Upload-ask panel from belief alone (Rule 1 fallback).
+ * Upload-ask panel from belief alone (Rule 1 fallback) — Observe-first TurnBelief.
  * @param {import('../decision/constants.js').BeliefSnapshot} belief
  */
 export function buildUploadAskResponseFromBelief(belief) {
-  const turnResult = {
-    nextStep: 'present_options',
-    rationale: buildUploadGoalOptions(belief).question,
-    options: buildUploadGoalOptions(belief).options,
-    tool: null,
-    governance: {},
-    belief,
-  };
-  return buildIntakeResponse(turnResult, belief);
+  return buildObserveFirstUploadAskPayload({
+    ocrText: belief?.lastUpload?.ocrText ?? null,
+    // Never pass activeGoal / sticky name — Ask is this-turn OCR only.
+    stickyGoalName: null,
+    goal: '',
+    imageDataUrl: belief?.lastUpload?.imageRef ?? null,
+    missionId: belief?.anchors?.missionId ?? null,
+    decisionLoopBelief: belief,
+    attachmentAnalysis: belief?.lastUpload?.ocrText
+      ? { ocrText: belief.lastUpload.ocrText }
+      : null,
+  });
 }

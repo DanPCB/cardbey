@@ -1,0 +1,31 @@
+---
+description: P0 Performer capability contract freeze — no dirty parallel cognition until TurnBelief spine (P1)
+alwaysApply: true
+---
+
+# Performer P0 Contract Freeze
+
+Canonical contract: `docs/PERFORMER_CAPABILITY_CONTRACT.md` (`performer.capability.contract.v1`).
+
+Schema: `apps/core/cardbey-core/src/lib/performerTurnBelief/` (`PERFORMER_STATUS`, `TurnBelief`).
+
+## Until Phase 1 TurnBelief is wired into intake/dispatch
+
+1. **Do not** add new celebratory intake templates that fire on tool/dispatch start (especially “kicked off” / “automated setup” while status would be `NEEDS_EVIDENCE`, `BLOCKED`, or `AWAITING_CONFIRM`).
+2. **Do not** add a new parallel reasoner, orchestrator, or store generator that bypasses TurnBelief.
+3. **Do not** add invent/repair writers that create customer-facing catalog facts outside grounded generation policy (`generationGroundingPolicy` / `ENABLE_GROUNDED_STORE_CREATION_V1`).
+4. **Do not** invent new status synonyms in UI — use `PERFORMER_STATUS` only.
+5. Clarify chips must not substitute for understanding; belief-driven options only once P1 lands.
+6. Success for Performer work is **contract E2E**, not pipeline-complete theater alone.
+
+## Allowed
+
+- Implement Phase 1 TurnBelief writers/readers against the locked schema.
+- Grounded invent-stop / provenance / media fixes that obey the shared grounding policy.
+- Docs and tests for this contract.
+
+## Owner ACK
+
+Recorded: `ACK PERFORMER_CAPABILITY_CONTRACT_V1` (2026-08-12).
+
+Phase 1 TurnBelief spine is in progress: create-store choke point + celebratory copy gate. Do not add competing parallel cognition paths.

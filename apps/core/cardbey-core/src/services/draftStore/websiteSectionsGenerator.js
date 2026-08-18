@@ -14,7 +14,18 @@ import {
   themePatchFromFoundation,
 } from './websiteTemplateFoundation.js';
 import { toDisplayReadyCopy } from '../../lib/storeGeneration/businessUnderstanding.js';
+import { displayBusinessTypeForCopy } from './storeCreationAuthorityTrace.js';
 
+function sanitizeDisplay(value) {
+  if (value == null) return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  try {
+    return toDisplayReadyCopy(s) || s;
+  } catch {
+    return s;
+  }
+}
 /**
  * @param {string} storeType
  * @returns {'minimal'|'bold'|'editorial'|'warm'|'dark'}
@@ -39,14 +50,6 @@ function stableItemKey(item, index) {
 }
 
 /**
- * Sanitize public display strings (Phase 1 contract helper; safe no-op if import fails).
- * @param {unknown} raw
- */
-function sanitizeDisplay(raw) {
-  return toDisplayReadyCopy(raw);
-}
-
-/**
  * Business-aware website sections when ENABLE_GROUNDED_STORE_CREATION_V1 composition is present.
  * @param {object} preview
  * @param {object} input
@@ -61,7 +64,8 @@ function mergeGroundedWebsiteIntoPreview(preview, input, composition) {
   if (avUrl && !preview.avatarUrl) preview.avatarUrl = avUrl;
 
   const storeName = preview.storeName || 'Your store';
-  const storeType = preview.storeType || composition.archetype || 'Store';
+  const storeTypeRaw = preview.storeType || composition.archetype || 'Store';
+  const storeType = displayBusinessTypeForCopy(storeTypeRaw, composition.archetype);
   const slogan = sanitizeDisplay(preview.slogan || preview.tagline || preview.heroText || '');
   const location = (input.location && String(input.location).trim()) || '';
   const blurb =
@@ -242,8 +246,11 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
   if (avUrl && !preview.avatarUrl) preview.avatarUrl = avUrl;
 
   const storeName = preview.storeName || 'Your store';
-  const storeType = preview.storeType || 'Store';
-  const commerce = resolveTransactionCommerce(storeType);
+  const storeType = displayBusinessTypeForCopy(
+    preview.storeType || 'Store',
+    input.groundedComposition?.archetype || preview.meta?.groundedComposition?.archetype,
+  );
+  const commerce = resolveTransactionCommerce(preview.storeType || storeType);
   const slogan = preview.slogan || preview.tagline || preview.heroText || '';
   const location = (input.location && String(input.location).trim()) || '';
   const blurb =

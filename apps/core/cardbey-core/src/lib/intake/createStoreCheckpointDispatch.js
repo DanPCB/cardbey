@@ -34,6 +34,16 @@ import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
 import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
 import { resolveBueForCreateStoreDraft } from './createStoreBueProjection.js';
+import {
+  extractEvidenceBusinessName,
+  extractGoalBusinessName,
+  identitiesHardConflict,
+  isGenericCreateStoreFromUploadGoal,
+} from '../performerTurnBelief/buildTurnBeliefFromIntake.js';
+import {
+  projectPerformerStatus,
+  performerStatusResponseFields,
+} from '../performerTurnBelief/projectPerformerStatus.js';
 
 /** Local pure helpers — avoid boot-time dependency on businessDataNormalizer.ts resolution. */
 function cleanString(value) {
@@ -107,6 +117,7 @@ function buildStoreMissionStartedDispatchResult({
   locationTrim,
   intentMode,
   runResult = {},
+  turnBelief = null,
 }) {
   const fact = FactBuilder.storeMissionStarted({
     missionId,
@@ -119,6 +130,8 @@ function buildStoreMissionStartedDispatchResult({
     generationRunId: runResult.generationRunId,
     draftId: runResult.draftId,
   });
+
+  const statusProjection = projectPerformerStatus(turnBelief, { missionRunning: true });
 
   const responseBody = buildIntakePayloadFromFact(fact, { explanation: null }, {
     success: true,
@@ -135,6 +148,8 @@ function buildStoreMissionStartedDispatchResult({
       location: locationTrim,
       ...(runResult.mode ? { mode: runResult.mode } : {}),
     },
+    ...performerStatusResponseFields(statusProjection),
+    ...(turnBelief ? { turnBelief } : {}),
   });
 
   return {
@@ -174,12 +189,288 @@ async function findDuplicateBusinessNameForUser(prisma, userId, businessName, lo
 }
 
 /**
+ * Create-store from upload Ask / chip — identity must bind to current attachment, not active store.
+ * @param {Record<string, unknown>} input
+ */
+export function isUploadDrivenCreateStoreHandoff(input = {}) {
+  const params =
+    input.classification?.parameters &&
+    typeof input.classification.parameters === 'object' &&
+    !Array.isArray(input.classification.parameters)
+      ? input.classification.parameters
+      : {};
+  const isc =
+    input.intentSourceContext && typeof input.intentSourceContext === 'object'
+      ? input.intentSourceContext
+      : null;
+  if (String(params.source ?? '').trim() === 'upload_ask_selection') return true;
+  if (String(params.type ?? '').trim() === 'CREATE_STORE_FROM_UPLOAD') return true;
+  if (String(isc?.fromAskSelection ?? '').trim() === 'create_store') return true;
+  if (String(isc?.assetAction ?? '').trim() === 'create_store') return true;
+  if (String(isc?.type ?? '').trim() === 'CREATE_STORE_FROM_UPLOAD') return true;
+  return isExplicitCreateStoreFromUploadContext({
+    userMessage: input.userMessage,
+    intentSourceContext: isc,
+  });
+}
+
+function pickStickyNameCandidate(value) {
+  const name = String(value ?? '').trim();
+  if (!name || isGenericCreateStoreFromUploadGoal(name)) return '';
+  return name;
+}
+
+/**
+ * Business name bound to the sticky active mission / goal (client keeps missionId).
+ * @param {Record<string, unknown>} [input]
+ */
+export function extractStickyMissionBusinessName(input = {}) {
+  const body = input.body && typeof input.body === 'object' ? input.body : {};
+  const ctx =
+    (input.currentContext && typeof input.currentContext === 'object'
+      ? input.currentContext
+      : null) ??
+    (body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : null);
+
+  /** @type {string[]} */
+  const candidates = [];
+
+  const activeMission =
+    ctx?.activeMission && typeof ctx.activeMission === 'object' ? ctx.activeMission : null;
+  if (activeMission) {
+    candidates.push(pickStickyNameCandidate(extractGoalBusinessName(activeMission.title)));
+    candidates.push(pickStickyNameCandidate(activeMission.businessName));
+    candidates.push(pickStickyNameCandidate(activeMission.storeName));
+  }
+  candidates.push(pickStickyNameCandidate(extractGoalBusinessName(ctx?.missionTitle)));
+
+  const mem = ctx?.memorySummary && typeof ctx.memorySummary === 'object' ? ctx.memorySummary : null;
+  if (mem) {
+    candidates.push(pickStickyNameCandidate(extractGoalBusinessName(mem.missionTitle)));
+    candidates.push(pickStickyNameCandidate(mem.businessName));
+    candidates.push(pickStickyNameCandidate(mem.storeName));
+  }
+
+  const unified =
+    ctx?.unifiedMemory && typeof ctx.unifiedMemory === 'object' ? ctx.unifiedMemory : null;
+  const workingMission =
+    unified?.working?.activeMission && typeof unified.working.activeMission === 'object'
+      ? unified.working.activeMission
+      : null;
+  if (workingMission) {
+    candidates.push(pickStickyNameCandidate(extractGoalBusinessName(workingMission.title)));
+    candidates.push(pickStickyNameCandidate(workingMission.businessName));
+    candidates.push(pickStickyNameCandidate(workingMission.storeName));
+  }
+
+  const stickyMissionId = String(
+    input.missionId ?? body.missionId ?? ctx?.activeMissionId ?? mem?.missionId ?? '',
+  ).trim();
+  if (stickyMissionId) {
+    const classification = input.classification ?? body.classification;
+    const params =
+      classification?.parameters &&
+      typeof classification.parameters === 'object' &&
+      !Array.isArray(classification.parameters)
+        ? classification.parameters
+        : {};
+    candidates.push(pickStickyNameCandidate(params.storeName ?? params.businessName));
+    const form =
+      input.storeCreateForm ?? body.storeCreateForm;
+    if (form && typeof form === 'object' && !Array.isArray(form)) {
+      candidates.push(pickStickyNameCandidate(form.storeName ?? form.businessName));
+    }
+  }
+
+  const isc =
+    input.intentSourceContext && typeof input.intentSourceContext === 'object'
+      ? input.intentSourceContext
+      : body.intentSourceContext && typeof body.intentSourceContext === 'object'
+        ? body.intentSourceContext
+        : null;
+  if (isc) {
+    const goal = isc.activeGoal && typeof isc.activeGoal === 'object' ? isc.activeGoal : null;
+    if (goal) {
+      candidates.push(pickStickyNameCandidate(goal.businessName ?? goal.storeName));
+      candidates.push(pickStickyNameCandidate(extractGoalBusinessName(goal.intent)));
+    }
+  }
+
+  return candidates.find(Boolean) ?? '';
+}
+
+/**
+ * Upload create_store with OCR/card identity ≠ sticky mission title → new mission required.
+ * @param {Record<string, unknown>} [input]
+ */
+export function shouldForceFreshStoreMissionOnUploadIdentityConflict(input = {}) {
+  if (input.freshStoreMission === true) return false;
+  const body = input.body && typeof input.body === 'object' ? input.body : {};
+  if (body.freshStoreMission === true) return false;
+
+  const handoffInput = {
+    userMessage: input.userMessage ?? body.userMessage ?? body.text ?? body.goal ?? body.message,
+    classification: input.classification ?? body.classification,
+    intentSourceContext: input.intentSourceContext ?? body.intentSourceContext,
+    storeCreateForm: input.storeCreateForm ?? body.storeCreateForm,
+    imageContext: input.imageContext ?? body.imageContext,
+    attachmentAnalysis: input.attachmentAnalysis ?? body.attachmentAnalysis,
+  };
+  if (!isUploadDrivenCreateStoreHandoff(handoffInput)) return false;
+
+  const stickyName = extractStickyMissionBusinessName(input);
+  if (!stickyName) return false;
+
+  const handoff = resolveCreateStoreHandoffFields(handoffInput);
+  const evidenceName =
+    pickStickyNameCandidate(handoff.businessName) ||
+    pickStickyNameCandidate(
+      extractEvidenceBusinessName({
+        ocrText: handoff.ocrText || handoffInput.imageContext?.extractedText,
+        attachmentAnalysis:
+          handoffInput.attachmentAnalysis ||
+          (handoffInput.intentSourceContext &&
+          typeof handoffInput.intentSourceContext === 'object'
+            ? handoffInput.intentSourceContext.attachmentAnalysis
+            : null),
+      }),
+    );
+  if (!evidenceName) return false;
+
+  return identitiesHardConflict(stickyName, evidenceName);
+}
+
+/**
+ * P1.1 — Prefer current OCR/attachmentAnalysis identity over stale classification/active-store names.
+ * Do NOT treat session storeCandidate/cardExtraction as evidence on upload-driven turns — those often
+ * still hold the previous business (e.g. NOODLE) while the user uploaded a new card/menu.
+ * @param {{
+ *   businessName: string,
+ *   businessType: string,
+ *   locationTrim: string,
+ *   phone: string,
+ *   email: string,
+ *   websiteUrl: string,
+ *   ocrText: string,
+ *   formLocked: boolean,
+ *   input: Record<string, unknown>,
+ *   isc: Record<string, unknown> | null,
+ * }} args
+ */
+function applyUploadEvidenceIdentityPreference(args) {
+  let {
+    businessName,
+    businessType,
+    locationTrim,
+    phone,
+    email,
+    websiteUrl,
+    ocrText,
+  } = args;
+  const { formLocked, input, isc } = args;
+  if (formLocked || !isUploadDrivenCreateStoreHandoff(input)) {
+    return { businessName, businessType, locationTrim, phone, email, websiteUrl };
+  }
+
+  const analysis =
+    input.attachmentAnalysis ||
+    (isc?.attachmentAnalysis && typeof isc.attachmentAnalysis === 'object'
+      ? isc.attachmentAnalysis
+      : null);
+  const card =
+    isc?.cardExtraction && typeof isc.cardExtraction === 'object' ? isc.cardExtraction : null;
+  const storeCandidate =
+    (isc?.storeCandidate && typeof isc.storeCandidate === 'object' ? isc.storeCandidate : null) ??
+    (isc?.documentExtraction &&
+    typeof isc.documentExtraction === 'object' &&
+    isc.documentExtraction.storeCandidate &&
+    typeof isc.documentExtraction.storeCandidate === 'object'
+      ? isc.documentExtraction.storeCandidate
+      : null);
+
+  const params =
+    input.classification?.parameters &&
+    typeof input.classification.parameters === 'object' &&
+    !Array.isArray(input.classification.parameters)
+      ? input.classification.parameters
+      : {};
+  const paramsStoreName = stripQuotes(params.storeName ?? params.businessName);
+
+  // Prefer live OCR. Client cardExtraction only when it is not a duplicate of param storeName
+  // (param+card both NOODLE usually means stale active-store laundering).
+  const ocrEvidence = extractEvidenceBusinessName({
+    ocrText,
+    attachmentAnalysis: analysis,
+  });
+  const cardName = stripQuotes(card?.businessName);
+  const candidateName = stripQuotes(storeCandidate?.businessName ?? storeCandidate?.name);
+  let evidenceName = ocrEvidence || '';
+  if (!evidenceName && cardName) {
+    if (!paramsStoreName || identitiesHardConflict(paramsStoreName, cardName)) {
+      evidenceName = cardName;
+    }
+  }
+  if (!evidenceName && candidateName && !paramsStoreName) {
+    evidenceName = candidateName;
+  }
+
+  const priorName = businessName;
+  const genericGoal = isGenericCreateStoreFromUploadGoal(input.userMessage);
+  const conflict = Boolean(priorName && evidenceName && identitiesHardConflict(priorName, evidenceName));
+
+  if (evidenceName && (!priorName || conflict || genericGoal)) {
+    businessName = evidenceName;
+    if (conflict || (genericGoal && priorName && identitiesHardConflict(priorName, evidenceName))) {
+      locationTrim = '';
+      phone = '';
+      email = '';
+      websiteUrl = '';
+      if (ocrText) {
+        const hints = buildOcrHintsFromImageText(ocrText);
+        if (hints?.location) locationTrim = stripQuotes(hints.location);
+        if (hints?.businessType && businessType === 'Other') {
+          businessType = stripQuotes(hints.businessType) || businessType;
+        }
+      }
+      if (!locationTrim && card) locationTrim = stripQuotes(card.location);
+      if (!locationTrim && storeCandidate && !paramsStoreName) {
+        locationTrim = stripQuotes(storeCandidate.location ?? storeCandidate.address);
+      }
+      if (businessType === 'Other' && card) {
+        businessType = stripQuotes(card.vertical ?? card.category) || businessType;
+      }
+      if (!websiteUrl && card) websiteUrl = stripQuotes(card.website ?? card.websiteUrl);
+      if (!websiteUrl && storeCandidate && !paramsStoreName) {
+        websiteUrl = stripQuotes(storeCandidate.website ?? storeCandidate.websiteUrl);
+      }
+      if (!phone && card) phone = stripQuotes(card.phone);
+      if (!phone && storeCandidate && !paramsStoreName) phone = stripQuotes(storeCandidate.phone);
+      if (!email && card) email = stripQuotes(card.email);
+      if (!email && storeCandidate && !paramsStoreName) email = stripQuotes(storeCandidate.email);
+    } else if (genericGoal && !locationTrim && card) {
+      locationTrim = stripQuotes(card.location);
+    } else if (genericGoal && !locationTrim && storeCandidate && !paramsStoreName) {
+      locationTrim = stripQuotes(storeCandidate.location ?? storeCandidate.address);
+    }
+  } else if (genericGoal) {
+    // Upload create with no trustworthy current-turn identity — never kick off under stale name.
+    businessName = '';
+    locationTrim = '';
+    phone = '';
+    email = '';
+  }
+
+  return { businessName, businessType, locationTrim, phone, email, websiteUrl };
+}
+
+/**
  * @param {{
  *   storeCreateForm?: Record<string, unknown> | null;
  *   classification?: { parameters?: Record<string, unknown> } | null;
  *   userMessage?: string;
  *   intentSourceContext?: Record<string, unknown> | null;
  *   imageContext?: { extractedText?: string } | null;
+ *   attachmentAnalysis?: Record<string, unknown> | null;
  * }} input
  */
 export function resolveCreateStoreHandoffFields(input = {}) {
@@ -312,12 +603,13 @@ export function resolveCreateStoreHandoffFields(input = {}) {
   }
 
   if (!ocrText && input.imageContext?.extractedText) {
-    ocrText = cleanString(input.imageContext.extractedText) || '';
+    // Keep newlines — evidence identity extraction is line-oriented.
+    ocrText = String(input.imageContext.extractedText).trim() || '';
   }
   if (!ocrText && isc?.documentExtraction && typeof isc.documentExtraction === 'object') {
     const de = isc.documentExtraction;
-    ocrText =
-      cleanString(de.ocrText ?? de.ocrRawText ?? de.rawText ?? de.extractedText) || '';
+    const raw = de.ocrText ?? de.ocrRawText ?? de.rawText ?? de.extractedText;
+    ocrText = typeof raw === 'string' ? raw.trim() : '';
   }
 
   // Phase 2: STORE_WEBSITE template id (Adaptive = empty)
@@ -347,6 +639,50 @@ export function resolveCreateStoreHandoffFields(input = {}) {
       }
     }
   }
+
+  // Upload-driven: sticky form that still mirrors Ask/chip params must not lock over OCR.
+  // If the user edited the form to a different name than params, keep form authoritative.
+  let formLocked = Boolean(form && stripQuotes(form.storeName));
+  if (formLocked && isUploadDrivenCreateStoreHandoff(input)) {
+    const formName = stripQuotes(form?.storeName);
+    const paramsName = stripQuotes(params.storeName ?? params.businessName);
+    const ocrEvidence = extractEvidenceBusinessName({
+      ocrText,
+      attachmentAnalysis:
+        input.attachmentAnalysis ||
+        (isc?.attachmentAnalysis && typeof isc.attachmentAnalysis === 'object'
+          ? isc.attachmentAnalysis
+          : null),
+    });
+    const formMatchesStickyParams =
+      !paramsName || !identitiesHardConflict(formName, paramsName);
+    if (
+      formName &&
+      ocrEvidence &&
+      identitiesHardConflict(formName, ocrEvidence) &&
+      formMatchesStickyParams
+    ) {
+      formLocked = false;
+    }
+  }
+  const preferred = applyUploadEvidenceIdentityPreference({
+    businessName,
+    businessType,
+    locationTrim,
+    phone,
+    email,
+    websiteUrl,
+    ocrText,
+    formLocked,
+    input,
+    isc,
+  });
+  businessName = preferred.businessName;
+  businessType = preferred.businessType;
+  locationTrim = preferred.locationTrim;
+  phone = preferred.phone;
+  email = preferred.email;
+  websiteUrl = preferred.websiteUrl;
 
   const normalizedWebsite = normalizeWebsite(websiteUrl) || cleanString(websiteUrl) || '';
   const normalizedPhone = normalizePhone(phone) || cleanString(phone) || '';
@@ -621,8 +957,18 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
   } = deps;
 
   const diag = isKernelDispatchDiagEnabled();
+  const handoffFields = resolveCreateStoreHandoffFields({
+    storeCreateForm,
+    classification,
+    userMessage,
+    intentSourceContext: deps.intentSourceContext,
+    imageContext: deps.imageContext,
+    attachmentAnalysis: deps.attachmentAnalysis,
+    websiteTemplateId: deps.websiteTemplateId,
+    websiteTemplateSlug: deps.websiteTemplateSlug,
+  });
+  let businessName = handoffFields.businessName;
   const {
-    businessName,
     businessType,
     locationTrim,
     intentMode,
@@ -632,15 +978,7 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     phone,
     email,
     ocrText,
-  } = resolveCreateStoreHandoffFields({
-    storeCreateForm,
-    classification,
-    userMessage,
-    intentSourceContext: deps.intentSourceContext,
-    imageContext: deps.imageContext,
-    websiteTemplateId: deps.websiteTemplateId,
-    websiteTemplateSlug: deps.websiteTemplateSlug,
-  });
+  } = handoffFields;
   const ctxIntentMode = intentMode === 'website' ? 'website' : 'store';
   const researchContact = researchContactFieldsForMissionBody({
     websiteUrl,
@@ -667,6 +1005,126 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     _autoSubmit: classification?.parameters?._autoSubmit ?? null,
     source: classification?.parameters?.source ?? null,
   });
+
+  // P1 TurnBelief spine — block invent/kickoff on hard identity conflict.
+  try {
+    const {
+      buildTurnBeliefFromIntake,
+      buildTurnBeliefBlockedIntakePayload,
+    } = await import('../performerTurnBelief/buildTurnBeliefFromIntake.js');
+    const {
+      isTurnBelief,
+      hasHardConflict,
+      turnBeliefAllowsDispatch,
+      patchTurnBelief,
+    } = await import('../performerTurnBelief/turnBelief.js');
+    const { PERFORMER_STATUS } = await import('../performerTurnBelief/performerStatus.js');
+
+    let turnBelief =
+      deps.turnBelief && isTurnBelief(deps.turnBelief)
+        ? deps.turnBelief
+        : buildTurnBeliefFromIntake({
+            goal: userMessage,
+            businessName,
+            missionId: deps.missionId ?? null,
+            ocrText:
+              ocrText ||
+              deps.intentSourceContext?.ocrText ||
+              deps.intentSourceContext?.ocrRawText ||
+              null,
+            attachmentAnalysis:
+              deps.attachmentAnalysis ||
+              deps.intentSourceContext?.attachmentAnalysis ||
+              null,
+          });
+
+    const resolveConflict = String(
+      classification?.parameters?.resolveConflict ||
+        storeCreateForm?.resolveConflict ||
+        deps.resolveConflict ||
+        '',
+    ).trim();
+    const uploadDriven = isUploadDrivenCreateStoreHandoff({
+      userMessage,
+      classification,
+      intentSourceContext: deps.intentSourceContext,
+    });
+    // Upload card while sticky goal still says prior brand (Mộc/Coffee): adopt OCR, never continue prior.
+    if (uploadDriven && hasHardConflict(turnBelief) && !resolveConflict) {
+      const evidenceName = String(turnBelief.identity?.name ?? '').trim();
+      if (evidenceName) {
+        businessName = evidenceName;
+        turnBelief = patchTurnBelief(turnBelief, {
+          conflicts: [],
+          status: PERFORMER_STATUS.READY_TO_PROPOSE,
+          goal: `Create store: ${evidenceName}`,
+          identity: {
+            ...turnBelief.identity,
+            name: evidenceName,
+            confidence: Math.max(Number(turnBelief.identity?.confidence) || 0, 0.7),
+            evidenceRefIds: ['ocr'],
+          },
+          userVisibleSummary: `Using upload identity "${evidenceName}" (prior goal conflicted).`,
+          gaps: [],
+          missingQuestions: [],
+        });
+        diagLog(diag, '→ turn_belief auto use_evidence (upload-driven conflict)', {
+          evidenceName,
+        });
+      }
+    } else if (hasHardConflict(turnBelief) && resolveConflict === 'use_goal' && businessName) {
+      turnBelief = patchTurnBelief(turnBelief, {
+        conflicts: [],
+        status: PERFORMER_STATUS.READY_TO_PROPOSE,
+        identity: {
+          ...turnBelief.identity,
+          name: businessName,
+          confidence: 0.55,
+          evidenceRefIds: [],
+        },
+        userVisibleSummary: `Using goal identity "${businessName}" after your confirmation.`,
+        gaps: [],
+        missingQuestions: [],
+      });
+    } else if (hasHardConflict(turnBelief) && resolveConflict === 'use_evidence') {
+      const evidenceName = turnBelief.identity?.name;
+      if (evidenceName) {
+        businessName = String(evidenceName).trim() || businessName;
+        turnBelief = patchTurnBelief(turnBelief, {
+          conflicts: [],
+          status: PERFORMER_STATUS.READY_TO_PROPOSE,
+          userVisibleSummary: `Using upload identity "${evidenceName}" after your confirmation.`,
+          gaps: [],
+          missingQuestions: [],
+        });
+      }
+    }
+
+    deps.turnBelief = turnBelief;
+
+    const { persistTurnBeliefOnDispatchDeps } = await import(
+      '../performerTurnBelief/persistTurnBelief.js'
+    );
+    persistTurnBeliefOnDispatchDeps(deps, turnBelief);
+
+    if (!turnBeliefAllowsDispatch(turnBelief)) {
+      diagLog(diag, '→ turn_belief_blocked', {
+        status: turnBelief.status,
+        conflicts: turnBelief.conflicts?.map((c) => c.code) ?? [],
+      });
+      return {
+        kind: 'turn_belief_blocked',
+        responseBody: buildTurnBeliefBlockedIntakePayload(turnBelief),
+        turnBelief,
+      };
+    }
+  } catch (beliefErr) {
+    console.warn(
+      '[CreateStoreDispatch] TurnBelief gate skipped (non-fatal):',
+      beliefErr?.message ?? beliefErr,
+    );
+  }
+
   const kernelAuthPreview = assertKernelAuthorizedExecution({
     source: auditSource ?? 'intake_v2_unified',
     actionType: 'dispatch_tool',
@@ -848,6 +1306,7 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
       locationTrim,
       intentMode: ctxIntentMode,
       runResult: { mode: 'checkpoint_pipeline', missionId: pipeline.id },
+      turnBelief: deps.turnBelief ?? null,
     });
   }
 
@@ -896,6 +1355,7 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
       locationTrim,
       intentMode: ctxIntentMode,
       runResult,
+      turnBelief: deps.turnBelief ?? null,
     });
   }
 
@@ -997,6 +1457,27 @@ export async function respondCreateStoreCheckpointDispatch(res, result, ctx) {
         result: 'intake_chat',
       },
     );
+    return res;
+  }
+
+  if (result.kind === 'turn_belief_blocked') {
+    const body = result.responseBody ?? {
+      success: true,
+      action: 'clarify',
+      response: result.message ?? 'I need to resolve a conflict before starting store setup.',
+    };
+    await safeJson(body, {
+      classification: {
+        executionPath: 'turn_belief_gate',
+        tool: 'create_store',
+        confidence: 1,
+      },
+      validated: true,
+      downgraded: false,
+      validationErrors: [],
+      riskLevel: RISK.SAFE_READ,
+      result: 'turn_belief_blocked',
+    });
     return res;
   }
 
@@ -1174,6 +1655,14 @@ export async function runCreateStoreViaUnifiedDispatch(deps, auditSource) {
       kind: 'started',
       responseBody: unifiedResult.responseBody ?? {},
       telemetry: unifiedResult.telemetry ?? {},
+    };
+  }
+  if (kind === 'turn_belief_blocked') {
+    return {
+      kind: 'turn_belief_blocked',
+      responseBody: unifiedResult.responseBody ?? {},
+      turnBelief: unifiedResult.turnBelief ?? null,
+      message: unifiedResult.responseBody?.message ?? unifiedResult.responseBody?.response ?? null,
     };
   }
   if (kind === 'store_selection_required') {

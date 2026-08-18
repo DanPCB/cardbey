@@ -279,8 +279,9 @@ export function applyCommerceFieldsToPreview(preview) {
     }
   }
   const commerce = resolveStoreCommerce({
-    storeType: preview.storeType,
-    businessType: preview.meta?.storeType ?? preview.storeType,
+    storeType: preview.storeType ?? preview.businessType ?? preview.meta?.storeType,
+    businessType: preview.meta?.storeType ?? preview.storeType ?? preview.businessType,
+    businessName: preview.storeName ?? preview.name ?? null,
     commerceMode: preview.commerceMode ?? catalogProfile.commerceMode,
     transactionMode: preview.transactionMode ?? catalogProfile.transactionMode,
     items: preview.items,
@@ -1433,6 +1434,17 @@ async function finalizeDraft(draftId, {
       serviceImageRegistry = null;
     }
     let billingLimitHit = false;
+    let scoreSemanticMediaMatch = null;
+    let shouldAcceptMediaMatch = null;
+    let markItemNeedsMedia = null;
+    try {
+      const mediaMatchMod = await import('./groundedStoreCreation.js');
+      scoreSemanticMediaMatch = mediaMatchMod.scoreSemanticMediaMatch;
+      shouldAcceptMediaMatch = mediaMatchMod.shouldAcceptMediaMatch;
+      markItemNeedsMedia = mediaMatchMod.markItemNeedsMedia;
+    } catch (mediaMatchErr) {
+      console.warn('[DraftStore] item media semantic gate unavailable:', mediaMatchErr?.message || mediaMatchErr);
+    }
     itemImages: for (let offset = 0; offset < toEnrich.length && !billingLimitHit; offset += BATCH_SIZE) {
       if (isShutdownRequested()) {
         if (process.env.NODE_ENV !== 'production') {
@@ -1544,13 +1556,54 @@ async function finalizeDraft(draftId, {
         const result = settled[i];
         if (result?.status === 'fulfilled' && result.value && result.value.url && !item.imageUrl) {
           const img = result.value;
-          item.imageUrl = img.url;
-          item.imageSource = img.source;
-          item.imageQuery = img.query;
-          item.imageConfidence = img.confidence;
-          if (img.imageSelection) item.imageSelection = img.imageSelection;
-          if (img.imageMatchStatus) item.imageMatchStatus = img.imageMatchStatus;
-          if (img.canonicalServiceTitle) item.canonicalServiceTitle = img.canonicalServiceTitle;
+          // Pass 1: item media semantic gate (reuse hero scorer — no new matcher).
+          if (typeof scoreSemanticMediaMatch === 'function' && typeof shouldAcceptMediaMatch === 'function') {
+            try {
+              const score = scoreSemanticMediaMatch({
+                itemName: item.name,
+                businessType: preview.storeType,
+                verticalSlug: profile?.verticalSlug ?? preview.meta?.verticalSlug,
+                storeName: preview.storeName,
+                altText: img.altText || img.caption || '',
+                caption: img.caption || '',
+                filename: img.url,
+                query: img.query || item.name,
+                providerConfidence: typeof img.confidence === 'number' ? img.confidence : 0.4,
+                source: img.source || 'openai',
+              });
+              item.mediaMatchScore = score;
+              if (!shouldAcceptMediaMatch(score)) {
+                if (typeof markItemNeedsMedia === 'function') {
+                  markItemNeedsMedia(item, 'weak_item_semantic_match');
+                } else {
+                  item.imageUrl = null;
+                  item.mediaStatus = 'needs_media';
+                  item.mediaRejectReason = 'weak_item_semantic_match';
+                }
+              } else {
+                item.imageUrl = img.url;
+                item.imageSource = img.source;
+                item.imageQuery = img.query;
+                item.imageConfidence = img.confidence;
+                if (img.imageSelection) item.imageSelection = img.imageSelection;
+                if (img.imageMatchStatus) item.imageMatchStatus = img.imageMatchStatus;
+                if (img.canonicalServiceTitle) item.canonicalServiceTitle = img.canonicalServiceTitle;
+              }
+            } catch {
+              item.imageUrl = img.url;
+              item.imageSource = img.source;
+              item.imageQuery = img.query;
+              item.imageConfidence = img.confidence;
+            }
+          } else {
+            item.imageUrl = img.url;
+            item.imageSource = img.source;
+            item.imageQuery = img.query;
+            item.imageConfidence = img.confidence;
+            if (img.imageSelection) item.imageSelection = img.imageSelection;
+            if (img.imageMatchStatus) item.imageMatchStatus = img.imageMatchStatus;
+            if (img.canonicalServiceTitle) item.canonicalServiceTitle = img.canonicalServiceTitle;
+          }
         }
         if (result?.status === 'rejected' && result.reason?.code === 'BILLING_HARD_LIMIT') {
           billingLimitHit = true;
@@ -1623,6 +1676,44 @@ async function finalizeDraft(draftId, {
         verticalGroup: profile?.verticalGroup ?? (profile?.verticalSlug || '').split('.')[0] ?? null,
       });
       heroImageUrl = hero?.imageUrl ?? null;
+      // P0-5: reject weak / unrelated stock heroes.
+      if (heroImageUrl) {
+        try {
+          const { scoreSemanticMediaMatch, shouldAcceptMediaMatch } = await import('./groundedStoreCreation.js');
+          const score = scoreSemanticMediaMatch({
+            storeName: preview.storeName,
+            businessType: preview.storeType ?? preview.meta?.storeType,
+            verticalSlug: profile?.verticalSlug ?? preview.meta?.verticalSlug,
+            altText: hero?.altText || hero?.caption || '',
+            caption: hero?.caption || '',
+            filename: heroImageUrl,
+            query: [preview.storeName, preview.storeType, profile?.verticalSlug].filter(Boolean).join(' '),
+            providerConfidence: typeof hero?.confidence === 'number' ? hero.confidence : 0.4,
+            source: hero?.source || 'openai',
+          });
+          if (!shouldAcceptMediaMatch(score)) {
+            console.log('[DraftStore] finalizeDraft: rejected weak hero media', {
+              draftId,
+              score,
+              storeName: preview.storeName,
+            });
+            preview.meta = {
+              ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+              mediaRequiresReview: true,
+              mediaRejectReason: 'weak_hero_semantic_match',
+              mediaRejectScore: score,
+            };
+            heroImageUrl = null;
+          } else {
+            preview.meta = {
+              ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+              mediaMatchScore: score,
+            };
+          }
+        } catch (scoreErr) {
+          console.warn('[DraftStore] hero semantic score skipped:', scoreErr?.message || scoreErr);
+        }
+      }
     } catch (heroErr) {
       if (heroErr?.code === 'TS_MODULE_UNAVAILABLE') throw heroErr;
       console.warn(`[DraftStore] Hero generation failed for draft ${draftId}:`, heroErr?.message || heroErr);
@@ -1638,9 +1729,39 @@ async function finalizeDraft(draftId, {
           orientation: 'landscape',
         });
         if (fallback) {
-          heroImageUrl = fallback;
-          if (process.env.cardbey_debugImageSource === '1' || process.env.CARDBEY_DEBUG_IMAGE_SOURCE === '1') {
-            console.log('[DraftStore] hero fallback from Seed Library', { draftId, vertical, categoryKey: preview.storeType });
+          let acceptSeed = true;
+          try {
+            const { scoreSemanticMediaMatch, shouldAcceptMediaMatch } = await import('./groundedStoreCreation.js');
+            const score = scoreSemanticMediaMatch({
+              storeName: preview.storeName,
+              businessType: preview.storeType ?? preview.meta?.storeType,
+              verticalSlug: profile?.verticalSlug ?? preview.meta?.verticalSlug,
+              filename: String(fallback),
+              query: [preview.storeName, preview.storeType].filter(Boolean).join(' '),
+              providerConfidence: 0.35,
+              source: 'seed_library',
+            });
+            acceptSeed = shouldAcceptMediaMatch(score);
+            if (!acceptSeed) {
+              preview.meta = {
+                ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+                mediaRequiresReview: true,
+                mediaRejectReason: 'weak_seed_hero_semantic_match',
+                mediaRejectScore: score,
+              };
+            }
+          } catch {
+            /* keep seed if scorer unavailable */
+          }
+          if (acceptSeed) {
+            heroImageUrl = fallback;
+            if (process.env.cardbey_debugImageSource === '1' || process.env.CARDBEY_DEBUG_IMAGE_SOURCE === '1') {
+              console.log('[DraftStore] hero fallback from Seed Library', {
+                draftId,
+                vertical,
+                categoryKey: preview.storeType,
+              });
+            }
           }
         }
       } catch (e) {
@@ -1674,6 +1795,10 @@ async function finalizeDraft(draftId, {
   normalizePreviewCategories(preview);
   applyCommerceFieldsToPreview(preview);
   try {
+    const { isGroundedStoreCreationEnabled } = await import('./groundedStoreCreation.js');
+    const groundedFinalize = isGroundedStoreCreationEnabled();
+    // Pass 1: never re-invent catalog via leak repair when grounded invent-stop is active.
+    if (!groundedFinalize) {
     const { repairServiceCatalogPlaceholderProducts, buildServiceCatalogPlaceholderSeed } =
       await import('../../lib/catalog/serviceCatalogPlaceholders.js');
     const { validateStoreCoherence } = await import('./storeCoherenceValidator.js');
@@ -1720,18 +1845,62 @@ async function finalizeDraft(draftId, {
     preview.meta = {
       ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
       storeCoherence: coherence,
-      ...(ctx ? { storeGenerationBusinessContext: ctx } : {}),
     };
-    if (!coherence.ok) {
-      console.warn('[DraftStore] store coherence critical warnings', {
-        draftId,
-        critical: coherence.critical,
-        warnings: coherence.warnings,
-      });
+    } else {
+      preview.meta = {
+        ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+        groundedFinalizeInventBlocked: true,
+      };
+      // Prefer grounded composition CTA — do not let Other downgrade it.
+      const gCta =
+        draft.input?.groundedComposition?.primaryCTA ||
+        preview.meta?.groundedComposition?.primaryCTA ||
+        null;
+      if (gCta) {
+        preview.primaryCTA = gCta;
+        preview.ctaLabel = gCta;
+      }
+      applyCommerceFieldsToPreview(preview);
+      if (gCta) {
+        preview.primaryCTA = gCta;
+        preview.ctaLabel = gCta;
+      }
     }
-  } catch (coherenceErr) {
-    console.warn('[DraftStore] store coherence pass failed (non-fatal):', coherenceErr?.message || coherenceErr);
+  } catch (repairErr) {
+    console.warn('[DraftStore] catalog repair/coherence skipped:', repairErr?.message || repairErr);
   }
+
+  // Pass 1/2: attach authority trace + generation policy (diagnostic metadata).
+  try {
+    const { attachGenerationPolicyToPreview } = await import('./generationGroundingPolicy.js');
+    attachGenerationPolicyToPreview(preview, {
+      mode: groundedFinalize || preview.meta?.groundedStoreCreation ? 'GROUNDED' : 'GENERATIVE',
+      grounded: Boolean(groundedFinalize || preview.meta?.groundedStoreCreation),
+      flag: 'ENABLE_GROUNDED_STORE_CREATION_V1',
+      source: 'finalizeDraft',
+      canInventCatalogFacts: !(groundedFinalize || preview.meta?.groundedStoreCreation),
+      canAssignEvidenceProvenanceToGenerated: false,
+    });
+    const { buildAuthorityTraceFromPreview } = await import('./storeCreationAuthorityTrace.js');
+    const trace = buildAuthorityTraceFromPreview({
+      preview,
+      groundedComposition: draft.input?.groundedComposition || preview.meta?.groundedComposition,
+      location: draft.input?.location || preview.location,
+      currencyCode: preview.meta?.currencyCode || draft.input?.currencyCode,
+      businessName: preview.storeName,
+    });
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      storeCreationAuthorityTrace: trace,
+      groundingStatus: trace.groundingStatus,
+      groundingBlockers: trace.blockers,
+      groundingGaps: trace.gaps,
+      authorityTraceLifecycle: 'finalizeDraft',
+    };
+  } catch (traceErr) {
+    console.warn('[DraftStore] authority trace skipped:', traceErr?.message || traceErr);
+  }
+
   const schemaMod = await loadDraftPreviewSchema();
   if (schemaMod) {
     const parseDraftPreview = schemaMod.parseDraftPreview ?? schemaMod.default?.parseDraftPreview;

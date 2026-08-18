@@ -4,6 +4,7 @@
 
 import { StructuredFact } from './factTypes.js';
 import { llmGateway } from '../llm/llmGateway.ts';
+import { projectPerformerStatus } from '../performerTurnBelief/projectPerformerStatus.js';
 
 /**
  * @returns {boolean}
@@ -170,7 +171,27 @@ Explain why they can't do this and what they need to do instead.`;
 
       case 'action_succeeded':
         if (reason === 'store_mission_started') {
-          prompt += `A store build mission has started.
+          const projected = projectPerformerStatus(this.context?.turnBelief, {
+            missionRunning: true,
+            failed: Boolean(this.context?.failed),
+            awaitingConfirm: Boolean(this.context?.awaitingConfirm),
+          });
+          const status = this.context?.performerStatus ?? projected.status;
+          const celebratoryOk =
+            typeof this.context?.allowsCelebratoryCopy === 'boolean'
+              ? this.context.allowsCelebratoryCopy
+              : projected.allowsCelebratoryCopy;
+          if (!celebratoryOk) {
+            prompt += `Store setup cannot celebrate yet.
+Store name: ${data.storeName}
+Performer status: ${status}
+Reason: status does not allow celebratory kickoff copy.
+
+Available actions: ${allowedActions.join(', ')}
+
+Explain calmly that you need a conflict resolved or more evidence before starting — do NOT say automated setup has kicked off.`;
+          } else {
+            prompt += `A store build mission has started.
 Store name: ${data.storeName}
 Mission ID: ${data.missionId}
 Intent mode: ${data.intentMode}
@@ -180,6 +201,7 @@ Business type: ${data.businessType ?? 'not specified'}
 Available actions: ${allowedActions.join(', ')}
 
 Explain that the automated store setup has started and what they can do while it runs.`;
+          }
         } else {
           prompt += `Action succeeded.
 Reason: ${reason}

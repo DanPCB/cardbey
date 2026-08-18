@@ -75,7 +75,8 @@ export const SERVICE_VERTICALS = [
 ];
 
 const INQUIRY_HINTS = /\b(custom|quote|bespoke|consultation|enquir|inquiry|estimate|tailor)\b/i;
-const FOODISH_RE = /\b(restaurant|cafe|coffee|bakery|baker|food|dining|kitchen|bar|bistro|eatery|pizza)\b/i;
+const FOODISH_RE =
+  /\b(restaurant|cafe|coffee|bakery|baker|food|dining|kitchen|bar|bistro|eatery|pizza|noodle|noodles|takeaway|take-away|sushi|thai|ramen|burger|kebab)\b/i;
 const PRODUCTISH_RE = /\b(retail|shop|store|product|merchandise|boutique|florist|market|gallery)\b/i;
 
 /**

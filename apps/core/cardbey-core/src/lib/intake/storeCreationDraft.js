@@ -14,6 +14,7 @@ import {
   isVagueLocationPhrase,
 } from '../multiAgent/multiStorePlanHelpers.ts';
 import { canonicalizeCreateStoreCategory } from './intakeErrorTypes.js';
+import { textSuggestsFoodVertical } from '../storeGeneration/foodVerticalLexicon.js';
 
 const WRAP_QUOTE_RE = /^[\s"'`\u201c\u201d\u2018\u2019]+|[\s"'`\u201c\u201d\u2018\u2019]+$/g;
 
@@ -141,7 +142,7 @@ export function inferStoreCategoryFromHint(hint, name = '', location = '') {
     return canonicalizeCreateStoreCategory('signage');
   }
   if (/hair|beauty|salon|spa|nail|barber/i.test(text)) return 'Beauty';
-  if (/cafe|coffee|restaurant|food|pizza|sushi|bakery|bar\b/i.test(text)) return 'Food & drink';
+  if (textSuggestsFoodVertical(text)) return 'Food & drink';
   if (/construction|construct|builder|building|contractor|renovat|carpentry|trade|handyman/i.test(text)) {
     return 'Home & garden';
   }

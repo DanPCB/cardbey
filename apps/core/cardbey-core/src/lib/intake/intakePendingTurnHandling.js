@@ -4,6 +4,10 @@
  */
 
 import { loadBelief } from '../decision/beliefLoader.js';
+import {
+  createEphemeralBeliefForUpload,
+  hydrateBeliefForDecisionLoop,
+} from '../decision/hydrateBeliefForDecisionLoop.js';
 import { clearStaleUploadBeliefContext } from '../decision/persistBeliefDelta.js';
 import {
   buildUploadAskClarifyFallback,
@@ -13,6 +17,7 @@ import {
 } from '../decision/earlyDecisionLoopGate.js';
 import {
   detectExplicitStoreIntent,
+  detectCreateStoreFromUploadedAssetIntent,
   hasExplicitUploadCreateStoreOrWebsiteIntent,
   isAttachmentOnlyPlaceholderMessage,
   isExplicitLoyaltyFromUploadContext,
@@ -23,13 +28,91 @@ import { resolveUploadIntakePhase, UPLOAD_INTAKE_PHASE } from './uploadIntakePha
 import { shouldSkipUploadAskForIntakeSelectionReplay } from './intakeReplayPayload.js';
 
 /**
+ * OCR from this attachment turn. Empty string means we attempted a read and
+ * must not inherit a prior upload's business name.
+ * @param {object} opts
+ * @returns {string | undefined}
+ */
+function thisTurnExtractedText(opts) {
+  const analysis = opts.attachmentAnalysis;
+  if (analysis && typeof analysis === 'object') {
+    return String(analysis.ocrText ?? analysis.rawOcrText ?? '');
+  }
+  if (opts.hasAttachment === true || opts.attachmentOnlyUpload === true) {
+    return '';
+  }
+  return undefined;
+}
+
+function uploadAskFromThisOcr(opts) {
+  const analysis = opts.attachmentAnalysis;
+  const ocrText =
+    analysis && typeof analysis === 'object'
+      ? String(analysis.ocrText ?? analysis.rawOcrText ?? '')
+      : '';
+  const belief = hydrateBeliefForDecisionLoop(
+    createEphemeralBeliefForUpload({
+      sessionKey: opts.beliefLoaderOpts?.sessionKey ?? 'upload-turn',
+    }),
+    {
+      imageDataUrl: opts.imageDataUrl ?? null,
+      extractedText: ocrText,
+      attachmentOnlyUpload: true,
+      hasAttachment: true,
+      sessionKey: opts.beliefLoaderOpts?.sessionKey ?? null,
+    },
+  );
+  const firstLine = ocrText
+    .split(/\r?\n/)
+    .map((line) => String(line).trim())
+    .find((line) => line.length > 0);
+  if (belief?.lastUpload && firstLine) {
+    belief.lastUpload = {
+      ...belief.lastUpload,
+      ocrText,
+      businessName: firstLine,
+      // Drop any prior documentType / identity bleed.
+      documentType: firstLine ? 'business_card' : null,
+    };
+  }
+  const payload = buildUploadAskClarifyFromBelief(belief, {
+    ocrText,
+    attachmentAnalysis: analysis && typeof analysis === 'object' ? analysis : null,
+    stickyGoalName: null,
+    goal: '',
+  });
+  return {
+    payload,
+    classification: {
+      executionPath: 'clarify',
+      tool: 'ingest_asset_for_intent_detection',
+      confidence: 0.9,
+      parameters: {
+        imageDataUrl: belief?.lastUpload?.imageRef ?? opts.imageDataUrl ?? null,
+        source: 'upload_ask_intake',
+      },
+      message: payload.response,
+      clarifyOptions: payload.options ?? [],
+      _uploadAskSource: 'intake_pending_turn',
+    },
+  };
+}
+
+/**
  * Clear stale lastUpload when user sends a new text-only message with explicit store/create intent.
+ * Do NOT clear when the message references the upload itself (create from card/image).
  * @param {object} opts
  */
 export async function maybeClearStaleUploadOnTextOnlyIntent(opts = {}) {
   const userMessage = String(opts.userMessage ?? '').trim();
   if (!userMessage || opts.hasAttachment === true) return;
   if (isCasualChatTurn(userMessage) || isIntakeConfirmAffirmation(userMessage)) return;
+  if (
+    isAttachmentOnlyPlaceholderMessage(userMessage) ||
+    detectCreateStoreFromUploadedAssetIntent(userMessage)
+  ) {
+    return;
+  }
 
   const sessionKey = String(opts.sessionKey ?? '').trim();
   if (!sessionKey) return;
@@ -64,8 +147,21 @@ export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
       : opts.intakeV2Selection
         ? { intakeV2Selection: opts.intakeV2Selection, pendingIntent: opts.pendingIntent ?? null }
         : null;
+  // New pixels always Ask. Chip replays use a non-placeholder goal
+  // ("Create store from uploaded card") — leftover intakeV2Selection on
+  // "(Image attached)" must not steal the turn.
+  if (isAttachmentOnlyPlaceholderMessage(userMessage)) {
+    return uploadAskFromThisOcr(opts);
+  }
+
   if (replayBody && shouldSkipUploadAskForIntakeSelectionReplay(replayBody)) {
-    return null;
+    const hasSelection =
+      replayBody.intakeV2Selection &&
+      typeof replayBody.intakeV2Selection === 'object' &&
+      !Array.isArray(replayBody.intakeV2Selection);
+    if (hasSelection) {
+      return null;
+    }
   }
 
   if (
@@ -85,6 +181,8 @@ export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
     intentSourceContext: opts.intentSourceContext ?? null,
   });
 
+  const extractedText = thisTurnExtractedText(opts);
+
   const gateOpts = {
     attachmentOnlyUpload: opts.attachmentOnlyUpload === true,
     uploadIntakePhase,
@@ -101,6 +199,7 @@ export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
       imageDataUrl: opts.imageDataUrl ?? null,
       hasImageAttachment: opts.hasAttachment === true,
       attachmentOnlyUpload: opts.attachmentOnlyUpload === true,
+      extractedText,
     });
     const hasImage =
       Boolean(belief?.lastUpload?.imageRef) ||
@@ -133,6 +232,7 @@ export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
     beliefLoaderOpts: opts.beliefLoaderOpts,
     userMessage,
     advisorInput: opts.advisorInput,
+    extractedText,
   });
 
   if (!fallback?.payload) return null;

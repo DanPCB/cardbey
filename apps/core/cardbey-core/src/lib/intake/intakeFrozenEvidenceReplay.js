@@ -5,6 +5,10 @@
 
 import { hashAttachmentContent } from './attachmentAnalysisCache.js';
 import { getCachedAnalysisForImageRef } from './attachmentEvidenceRegistry.js';
+import {
+  detectCreateStoreFromUploadedAssetIntent,
+  isExplicitCreateStoreFromUploadContext,
+} from './assetUploadGuard.js';
 
 function pickString(...values) {
   for (const value of values) {
@@ -31,6 +35,40 @@ export function attachmentImageRefsMatch(a, b) {
  *   bundle?: { imageRef?: string | null } | null;
  *   currentImageRef?: string | null;
  *   hasFreshImageAttachment?: boolean;
+ *   hasLastUpload?: boolean;
+ *   userMessage?: string | null;
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   refuseTextOnlyReplay?: boolean;
+ * }} input
+ */
+function isUploadCreateWithoutCurrentImage(input = {}) {
+  if (pickString(input.currentImageRef)) return false;
+  const isc =
+    input.intentSourceContext && typeof input.intentSourceContext === 'object'
+      ? input.intentSourceContext
+      : null;
+  if (String(isc?.fromAskSelection ?? '').trim() === 'create_store') return true;
+  if (String(isc?.assetAction ?? '').trim() === 'create_store') return true;
+  if (String(isc?.type ?? '').trim() === 'CREATE_STORE_FROM_UPLOAD') return true;
+  return (
+    input.refuseTextOnlyReplay === true ||
+    detectCreateStoreFromUploadedAssetIntent(input.userMessage) ||
+    isExplicitCreateStoreFromUploadContext({
+      userMessage: input.userMessage,
+      intentSourceContext: input.intentSourceContext,
+    })
+  );
+}
+
+/**
+ * @param {{
+ *   bundle?: { imageRef?: string | null } | null;
+ *   currentImageRef?: string | null;
+ *   hasFreshImageAttachment?: boolean;
+ *   hasLastUpload?: boolean;
+ *   userMessage?: string | null;
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   refuseTextOnlyReplay?: boolean;
  * }} input
  */
 export function shouldReuseFrozenEvidenceBundle(input = {}) {
@@ -40,15 +78,17 @@ export function shouldReuseFrozenEvidenceBundle(input = {}) {
   const currentImageRef = pickString(input.currentImageRef);
   const bundleImageRef = pickString(bundle.imageRef);
 
-  // Text-only replay (store confirm / chip) — no new pixels in this turn.
+  // Upload create without pixels on this turn — never reuse prior evidenceId OCR/topology.
+  if (isUploadCreateWithoutCurrentImage(input)) return false;
+  if (!currentImageRef && input.hasLastUpload === false && input.refuseTextOnlyReplay === true) {
+    return false;
+  }
+
+  // Text-only chip/confirm without pixels — allow reuse unless caller refused above.
   if (!currentImageRef) return true;
 
   // Client sent image bytes but bundle has no image ref — force fresh barrier.
   if (!bundleImageRef) return false;
-
-  if (input.hasFreshImageAttachment === false) {
-    return attachmentImageRefsMatch(bundleImageRef, currentImageRef);
-  }
 
   return attachmentImageRefsMatch(bundleImageRef, currentImageRef);
 }

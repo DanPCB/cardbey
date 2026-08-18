@@ -7,6 +7,20 @@
 
 import { Features } from '../../config/features.js';
 import { applyContentReadinessToCatalog } from './contentReadinessModel.js';
+import {
+  isAuthoritativeOffering,
+  clearCustomerFacingItemMedia,
+} from './generationGroundingPolicy.js';
+
+export {
+  classifyEvidenceKind,
+  isAuthoritativeOffering,
+  resolveGenerationGroundingPolicy,
+  canInventCatalogFacts,
+  attachGenerationPolicyToPreview,
+  EVIDENCE_KIND,
+  GROUNDED_QA_OUTCOME,
+} from './generationGroundingPolicy.js';
 
 export const NO_VERIFIED_PRODUCTS_OR_SERVICES = 'NO_VERIFIED_PRODUCTS_OR_SERVICES';
 
@@ -71,6 +85,48 @@ export function isInventedGenericProductName(name) {
 }
 
 /**
+ * Known cuisine-bank dish names (Pass 1 — fail-closed under grounded invent-stop).
+ */
+export const CUISINE_BANK_PRODUCT_NAMES = new Set(
+  [
+    'edamame',
+    'gyoza',
+    'spring rolls',
+    'pad thai',
+    'green curry',
+    'teriyaki chicken',
+    'ramen',
+    'fried rice',
+    'steamed rice',
+    'thai iced tea',
+    'chả giò',
+    'gỏi cuốn',
+    'phở bò',
+    'phở gà',
+    'classic burger',
+    'cheeseburger',
+    'espresso',
+    'flat white',
+    'latte',
+    'avocado toast',
+    'croissant',
+  ].map((s) => s.toLowerCase()),
+);
+
+/**
+ * @param {string|null|undefined} name
+ */
+export function isCuisineBankProductName(name) {
+  const key = normalizeProductNameKey(name);
+  if (!key) return false;
+  if (CUISINE_BANK_PRODUCT_NAMES.has(key)) return true;
+  for (const base of CUISINE_BANK_PRODUCT_NAMES) {
+    if (key === base || key.startsWith(`${base} `) || key.startsWith(`${base}-`)) return true;
+  }
+  return false;
+}
+
+/**
  * Structured incomplete offering — never invent inventory to fill the gap.
  * @param {{ reason?: string, suggestedQuestions?: string[] }} [opts]
  */
@@ -98,8 +154,24 @@ export function stripInventedGenericProducts(products) {
   const kept = [];
   const strippedNames = [];
   for (const p of products) {
-    if (isInventedGenericProductName(p?.name)) {
-      strippedNames.push(String(p?.name ?? ''));
+    const name = p?.name;
+    const prov = String(p?.provenanceStatus || p?.provenance || p?.origin || '').toUpperCase();
+    const sourced =
+      p?.origin === 'evidence' ||
+      p?.origin === 'ocr' ||
+      /^(SOURCED|VERIFIED|EXTRACTED|EVIDENCE)$/i.test(prov);
+    const cuisineFallback =
+      !sourced &&
+      (isCuisineBankProductName(name) ||
+        p?.origin === 'cuisine_bank' ||
+        p?.catalogSource === 'cuisine_template' ||
+        prov === 'GENERATED_FALLBACK');
+    if (cuisineFallback && p?.suggestedOnly === true) {
+      kept.push(p);
+      continue;
+    }
+    if (isInventedGenericProductName(name) || cuisineFallback) {
+      strippedNames.push(String(name ?? ''));
       continue;
     }
     kept.push(p);
@@ -173,9 +245,24 @@ export function scoreSemanticMediaMatch(input = {}) {
 
   // Hard mismatch cues (food imagery for signage-like context, etc.)
   const biz = String(input.businessType || input.verticalSlug || '').toLowerCase();
+  const item = String(input.itemName || '').toLowerCase();
   const isSignageLike = /\bsign(age)?|print|banner|vinyl|wayfind/.test(biz);
   const foodLeak = /\b(pastry|donut|croissant|latte|burger|sushi|pizza|cafe)\b/.test(corpus);
   if (isSignageLike && foodLeak) score -= 0.4;
+
+  // Pass 1: deliberate semantic mismatches must fail (item ↔ image corpus).
+  if (/\bedamame|soybean|soya\b/.test(item) && /\b(noodle|ramen|pad\s*thai|takeaway|takeout|burger|box)\b/.test(corpus)) {
+    score -= 0.5;
+  }
+  if (/\b(plumb|pipe|drain|tap)\b/.test(item + ' ' + biz) && /\b(salon|nail|hair|beauty|spa)\b/.test(corpus)) {
+    score -= 0.5;
+  }
+  if (/\b(haircut|hair|salon|barber)\b/.test(item + ' ' + biz) && /\b(burger|hamburger|fries|pizza)\b/.test(corpus)) {
+    score -= 0.5;
+  }
+  if (/\b(coffee|cafe|latte|espresso)\b/.test(item + ' ' + biz) && /\b(office|corporate|desk|meeting|boardroom)\b/.test(corpus)) {
+    score -= 0.5;
+  }
 
   return Math.max(0, Math.min(1, score));
 }
@@ -189,15 +276,48 @@ export function shouldAcceptMediaMatch(score, minScore = getMinMediaMatchScore()
 }
 
 /**
+ * P0/Pass2 invent-stop: grounded create-store with no *authoritative offerings* must not invent.
+ * Business-card OCR / photo / trading hours alone are NOT menu evidence.
+ * @param {{ mode?: string, seedItems?: unknown[], groundedOfferings?: unknown[], ocrRawText?: string|null, ocrMenuText?: string|null, photoDataUrl?: string|null }} params
+ * @param {boolean} [grounded]
+ */
+export function hasAuthoritativeOfferings(params = {}) {
+  if (Array.isArray(params.seedItems) && params.seedItems.length > 0) {
+    if (params.seedItems.some((it) => isAuthoritativeOffering(it))) return true;
+  }
+  if (Array.isArray(params.groundedOfferings) && params.groundedOfferings.length > 0) {
+    if (params.groundedOfferings.some((n) => isAuthoritativeOffering(n))) return true;
+  }
+  const menuText = String(params.ocrMenuText || '').trim();
+  if (menuText) {
+    const lines = menuText
+      .split(/\n+/)
+      .map((l) => l.trim())
+      .filter((l) => l.length >= 2 && isAuthoritativeOffering(l));
+    if (lines.length > 0) return true;
+  }
+  // Generic card OCR (address/hours/contact) does not count as offerings.
+  return false;
+}
+
+/**
+ * @param {object} params
+ * @param {boolean} [grounded]
+ */
+export function shouldSkipAiInventForGrounded(params = {}, grounded = isGroundedStoreCreationEnabled()) {
+  if (!grounded) return false;
+  if (hasAuthoritativeOfferings(params)) return false;
+  const mode = String(params.mode || '').toLowerCase();
+  // Block AI and template invent when there is no sourced offering list.
+  return mode === 'ai' || mode === 'template';
+}
+
+/**
  * @param {object} item
  * @param {string} [reason]
  */
 export function markItemNeedsMedia(item, reason = 'weak_media_match') {
-  if (!item || typeof item !== 'object') return item;
-  item.imageUrl = null;
-  item.mediaStatus = 'needs_media';
-  item.mediaRejectReason = reason;
-  return item;
+  return clearCustomerFacingItemMedia(item, reason);
 }
 
 /**
