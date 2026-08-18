@@ -123,6 +123,10 @@ export type RawPlaylistItem = {
   validUntil?: string;
   checksum?: string;
   mimeType?: string;
+  qrValue?: string;
+  overlayTitle?: string;
+  overlayBadge?: string;
+  overlayHint?: string;
   asset?: { id?: string; url?: string; type?: string };
 };
 

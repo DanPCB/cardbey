@@ -2,6 +2,7 @@ import { displayError } from '../errors/displayError.js';
 import { normalizeMediaUrl } from '../media/normalizeMediaUrl.js';
 import type { RawPlaylistFullResponse, RawPlaylistItem } from '../api/deviceApiContracts.js';
 import type {
+  DisplayItemType,
   DisplayManifest,
   DisplayManifestItem,
   DisplayOrientation,
@@ -30,12 +31,24 @@ function resolveItemUrl(item: RawPlaylistItem): string | null {
   return null;
 }
 
-function inferType(url: string, declared?: string): 'IMAGE' | 'VIDEO' {
-  const d = (declared || '').toLowerCase();
-  if (d === 'video' || d === 'image') return d.toUpperCase() as 'IMAGE' | 'VIDEO';
+function inferType(url: string, declared?: string): DisplayItemType {
+  const d = (declared || '').toLowerCase().replace(/-/g, '_');
+  if (d === 'live_card') return 'LIVE_CARD';
+  if (d === 'live_hls' || d === 'hls' || d === 'video') {
+    return 'VIDEO';
+  }
+  if (d === 'image') return 'IMAGE';
+  if (isHlsPlaybackUrl(url)) return 'VIDEO';
   const lower = url.toLowerCase();
   if (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(lower)) return 'VIDEO';
   return 'IMAGE';
+}
+
+export function isHlsPlaybackUrl(url: string, mimeType?: string): boolean {
+  const mime = String(mimeType || '').toLowerCase();
+  if (mime.includes('mpegurl') || mime.includes('x-mpegurl')) return true;
+  const lower = String(url || '').toLowerCase();
+  return /\.m3u8(\?|$)/i.test(lower) || lower.includes('/manifest/video.m3u8');
 }
 
 function computeRevision(raw: RawPlaylistFullResponse): string | number {
@@ -137,6 +150,10 @@ export function normalizePlaylist(
       muted: item.muted,
       order: typeof item.order === 'number' ? item.order : i,
       fit: 'COVER',
+      qrValue: item.qrValue,
+      overlayTitle: item.overlayTitle,
+      overlayBadge: item.overlayBadge,
+      overlayHint: item.overlayHint,
     });
   }
 

@@ -812,6 +812,7 @@ liveMarketParticipantRoutes.post(
         interestSubjectId: req.body?.interestSubjectId,
         interestSubjectType: req.body?.interestSubjectType,
         surface: req.body?.surface || req.query?.surface || null,
+        attributionToken: req.body?.attributionToken || req.query?.glt || null,
       });
       return res.status(result.created ? 201 : 200).json({
         ok: true,

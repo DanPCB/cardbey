@@ -1,7 +1,7 @@
 export type DisplayOrientation = 'LANDSCAPE' | 'PORTRAIT';
 export type DisplayFit = 'CONTAIN' | 'COVER';
 export type DisplayTransition = 'NONE' | 'FADE';
-export type DisplayItemType = 'IMAGE' | 'VIDEO';
+export type DisplayItemType = 'IMAGE' | 'VIDEO' | 'LIVE_CARD';
 
 export type DisplayManifestItem = {
   id: string;
@@ -15,6 +15,10 @@ export type DisplayManifestItem = {
   fit?: DisplayFit;
   muted?: boolean;
   order?: number;
+  qrValue?: string;
+  overlayTitle?: string;
+  overlayBadge?: string;
+  overlayHint?: string;
 };
 
 export type DisplayManifest = {

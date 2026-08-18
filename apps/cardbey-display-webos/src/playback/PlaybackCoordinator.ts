@@ -14,14 +14,17 @@ import {
   type TelemetrySink,
 } from '@cardbey/display-runtime';
 import {
+  isTimedCardItem,
+  canFallbackHlsToLiveCard,
   resolveImageDurationMs,
   resolveVideoMaxDurationMs,
   SHELL_DEFAULT_IMAGE_DURATION_MS,
+  HLS_LIVE_CARD_FALLBACK_DURATION_MS,
 } from './duration.js';
 import { maskMediaUrl } from './maskMediaUrl.js';
 import type { MediaPlaybackError } from './mediaErrors.js';
 import type { MediaPlaybackFailureDetail } from './mediaFailureCodes.js';
-import { probeMediaItem } from './mediaProbe.js';
+import { probeMediaItem, shouldSkipHttpMediaProbe } from './mediaProbe.js';
 import type { MediaItemProbeResult } from './mediaFailureCodes.js';
 import { MediaStage } from './MediaStage.js';
 import {
@@ -104,6 +107,8 @@ export class PlaybackCoordinator {
   private lastMediaError?: string;
   private lastFailureCode?: string;
   private lastFailureDetail?: MediaPlaybackFailureDetail;
+  private hlsLiveCardFallbackUsed = false;
+  private hlsLiveCardFallbackItem: DisplayManifestItem | null = null;
   private activeWatchdog: ItemWatchdog | null = null;
   private imageTimer: ReturnType<typeof setTimeout> | null = null;
   private imageRemainingMs: number | null = null;
@@ -312,7 +317,7 @@ export class PlaybackCoordinator {
     }
     const paused = this.state;
     this.media.resume().catch(() => undefined);
-    if (paused.item.type === 'IMAGE' && paused.remainingImageMs != null) {
+    if (isTimedCardItem(paused.item) && paused.remainingImageMs != null) {
       this.startImageTimer(paused.item.id, paused.generation, paused.remainingImageMs);
     }
     this.activeWatchdog?.resume();
@@ -364,9 +369,9 @@ export class PlaybackCoordinator {
     this.lastMediaEvent = 'ready';
     this.clearWatchdogKind('LOAD_TIMEOUT');
     this.clearWatchdogKind('START_TIMEOUT');
-    const item = this.sequencer?.current();
-    // Images have no separate playing event — ready means visible.
-    if (item?.type === 'IMAGE') {
+    const item = this.hlsLiveCardFallbackItem || this.sequencer?.current();
+    // Images and live cards have no separate playing event — ready means visible.
+    if (item && isTimedCardItem(item)) {
       this.onPlaying(itemId, generation);
       return;
     }
@@ -386,6 +391,15 @@ export class PlaybackCoordinator {
   handleMediaError(itemId: string, generation: number, error: MediaPlaybackError): void {
     if (!this.isCurrent(generation, itemId)) {
       this.staleEventCount += 1;
+      return;
+    }
+    const current = this.sequencer?.current();
+    if (
+      current &&
+      !this.hlsLiveCardFallbackUsed &&
+      canFallbackHlsToLiveCard(current)
+    ) {
+      this.presentHlsLiveCardFallback(current, generation);
       return;
     }
     this.lastMediaEvent = 'error';
@@ -482,6 +496,8 @@ export class PlaybackCoordinator {
     const generation = this.generation;
     this.advanceGuard.delete(generation);
     this.activeFingerprint = fingerprint(item);
+    this.hlsLiveCardFallbackUsed = false;
+    this.hlsLiveCardFallbackItem = null;
 
     this.setState({
       status: 'PREPARING',
@@ -500,11 +516,26 @@ export class PlaybackCoordinator {
       generation,
     });
 
-    const probe = await this.probeMedia({
-      itemId: item.id,
+    const skipProbe = shouldSkipHttpMediaProbe({
       mediaType: item.type,
       url: item.url,
+      mimeType: item.mimeType,
     });
+    const probe = skipProbe
+      ? {
+          itemId: item.id,
+          mediaType: (item.type === 'VIDEO' ? 'VIDEO' : 'IMAGE') as 'IMAGE' | 'VIDEO',
+          originalUrl: item.url,
+          resolvedUrl: item.url,
+          ok: true as const,
+          redirectChain: [] as string[],
+          probeMethod: 'NONE' as const,
+        }
+      : await this.probeMedia({
+          itemId: item.id,
+          mediaType: item.type === 'VIDEO' ? 'VIDEO' : 'IMAGE',
+          url: item.url,
+        });
     if (generation !== this.generation || this.destroyed) return;
 
     if (!probe.ok) {
@@ -514,7 +545,7 @@ export class PlaybackCoordinator {
       this.lastFailureCode = failureCode;
       this.lastFailureDetail = {
         itemId: item.id,
-        mediaType: item.type,
+        mediaType: item.type === 'VIDEO' ? 'VIDEO' : 'IMAGE',
         originalUrl: probe.originalUrl,
         resolvedUrl: probe.resolvedUrl,
         mimeType: probe.mimeType,
@@ -570,12 +601,57 @@ export class PlaybackCoordinator {
     });
   }
 
+  private presentHlsLiveCardFallback(item: DisplayManifestItem, generation: number): void {
+    this.hlsLiveCardFallbackUsed = true;
+    const card: DisplayManifestItem = {
+      ...item,
+      type: 'LIVE_CARD',
+      url: item.qrValue || item.url,
+      durationMs: HLS_LIVE_CARD_FALLBACK_DURATION_MS,
+      overlayBadge: item.overlayBadge && item.overlayBadge !== 'LIVE NOW'
+        ? item.overlayBadge
+        : 'Live unavailable',
+    };
+    this.hlsLiveCardFallbackItem = card;
+    this.lastMediaEvent = 'hls_fallback_live_card';
+    this.lastFailureCode = 'STREAM_UNAVAILABLE';
+    safeRuntimeLog('MEDIA_HLS_FALLBACK_LIVE_CARD', { itemId: item.id });
+    this.stopMediaTimers();
+    const playlistId = this.sequencer?.getState().playlistId || '';
+    this.setState({
+      status: 'PREPARING',
+      item: card,
+      playlistId,
+      generation,
+    });
+    const settings = this.eligibleManifest?.settings;
+    this.media.showItem(card, {
+      fit: card.fit ?? settings?.fit ?? 'COVER',
+      muted: true,
+      transition: settings?.transition ?? 'NONE',
+      transitionDurationMs: settings?.transitionDurationMs ?? 0,
+      callbacks: {
+        generation,
+        isCurrentGeneration: (g) => g === this.generation && !this.destroyed,
+        onReady: (id, g) => this.handleMediaReady(id, g),
+        onPlaying: (id, g) => this.onPlaying(id, g),
+        onEnded: (id, g) => this.handleMediaEnded(id, g),
+        onError: (id, g, err) => this.handleMediaError(id, g, err),
+        onWaiting: (id, g) => this.onWaiting(id, g),
+        onStallClear: (id, g) => this.onStallClear(id, g),
+        onTransitionDone: (g) => {
+          if (g !== this.generation) this.staleEventCount += 1;
+        },
+      },
+    });
+  }
+
   private onPlaying(itemId: string, generation: number): void {
     if (!this.isCurrent(generation, itemId)) {
       this.staleEventCount += 1;
       return;
     }
-    const item = this.sequencer?.current();
+    const item = this.hlsLiveCardFallbackItem || this.sequencer?.current();
     if (!item) return;
     this.clearWatchdogKind('START_TIMEOUT');
     this.clearWatchdogKind('LOAD_TIMEOUT');
@@ -595,7 +671,7 @@ export class PlaybackCoordinator {
     this.telemetry.enqueue('ITEM_STARTED', { itemId,
       playlistId });
 
-    if (item.type === 'IMAGE' && this.eligibleManifest) {
+    if (isTimedCardItem(item) && this.eligibleManifest) {
       const duration = resolveImageDurationMs(
         item,
         this.eligibleManifest,
@@ -658,7 +734,7 @@ export class PlaybackCoordinator {
     const generation = this.state.generation;
 
     let remainingImageMs: number | undefined;
-    if (item.type === 'IMAGE' && this.imageDeadline != null) {
+    if (isTimedCardItem(item) && this.imageDeadline != null) {
       remainingImageMs = Math.max(0, this.imageDeadline - Date.now());
       this.clearImageTimer();
       this.imageRemainingMs = remainingImageMs;
@@ -876,10 +952,10 @@ export class PlaybackCoordinator {
     this.lastFailureCode = 'MEDIA_TIMEOUT';
     this.lastFailureDetail = {
       itemId: item.id,
-      mediaType: item.type,
+      mediaType: item.type === 'VIDEO' ? 'VIDEO' : 'IMAGE',
       originalUrl: item.url,
       resolvedUrl: item.url,
-      renderer: item.type,
+      renderer: item.type === 'VIDEO' ? 'VIDEO' : 'IMAGE',
       failureCode: 'MEDIA_TIMEOUT',
       watchdogStage: kind,
       lastMediaEvent: 'watchdog',

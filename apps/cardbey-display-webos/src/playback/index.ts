@@ -8,6 +8,8 @@ export type {
 } from './playbackState.js';
 export { maskMediaUrl } from './maskMediaUrl.js';
 export {
+  isTimedCardItem,
+  canFallbackHlsToLiveCard,
   resolveImageDurationMs,
   resolveVideoMaxDurationMs,
   SHELL_DEFAULT_IMAGE_DURATION_MS,

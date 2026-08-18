@@ -4338,6 +4338,7 @@ model LiveMarketSession {
   updatedAt                   DateTime @updatedAt
   subjects                    LiveMarketSessionSubject[]
   participantRegistrations    LiveMarketParticipantRegistration[]
+  cnetCampaigns               GlobalLiveCnetCampaign[]
 
   @@index([storeId])
   @@index([storeId, state])
@@ -4388,6 +4389,70 @@ model LiveMarketParticipantRegistration {
   @@index([userId, status, registeredAt])
   @@index([sessionId, status])
   @@index([sessionId, questionReviewStatus])
+}
+
+/// Cnet distribution campaign linked to one Live Market session. Public refs only in QR.
+model GlobalLiveCnetCampaign {
+  id                   String   @id @default(cuid())
+  publicRef            String   @unique
+  liveSessionPublicRef String
+  liveSessionId        String   @unique
+  liveSession          LiveMarketSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  storeId              String
+  storeSlug            String
+  status               String   @default("DRAFT")
+  creativeVersion      Int      @default(1)
+  validFrom            DateTime?
+  validUntil           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  placements           GlobalLiveCnetPlacement[]
+  events               GlobalLiveCnetEvent[]
+
+  @@index([storeId, status])
+  @@index([publicRef])
+}
+
+model GlobalLiveCnetPlacement {
+  id               String   @id @default(cuid())
+  publicRef        String   @unique
+  campaignId       String
+  campaign         GlobalLiveCnetCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  deviceId         String
+  devicePublicCode String
+  locationLabel    String?
+  attributionToken String   @unique
+  validFrom        DateTime?
+  validUntil       DateTime?
+  withdrawnAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  events           GlobalLiveCnetEvent[]
+
+  @@unique([campaignId, deviceId])
+  @@index([deviceId])
+  @@index([devicePublicCode])
+}
+
+model GlobalLiveCnetEvent {
+  id                   String   @id @default(cuid())
+  eventType            String
+  campaignId           String
+  campaign             GlobalLiveCnetCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  placementId          String?
+  placement            GlobalLiveCnetPlacement? @relation(fields: [placementId], references: [id], onDelete: SetNull)
+  campaignPublicRef    String
+  liveSessionPublicRef String
+  storePublicRef       String
+  devicePublicCode     String?
+  placementPublicCode  String?
+  attributionToken     String?
+  creativeVersion      Int      @default(1)
+  dedupeKey            String   @unique
+  createdAt            DateTime @default(now())
+
+  @@index([campaignId, eventType, createdAt])
+  @@index([eventType, createdAt])
 }
 
 /// Marketing EOI for Cardbey Global Live pilots (not Live Market session registration).

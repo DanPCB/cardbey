@@ -38,4 +38,30 @@ describe('media failure classification', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('skips HTTP probe for HLS and LIVE_CARD', async () => {
+    const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }));
+    vi.stubGlobal('window', { fetch: fetchImpl });
+    try {
+      const hls = await probeMediaItem({
+        itemId: 'live',
+        mediaType: 'VIDEO',
+        url: 'https://customer-abc.cloudflarestream.com/uid/manifest/video.m3u8',
+        mimeType: 'application/vnd.apple.mpegurl',
+      });
+      expect(hls.ok).toBe(true);
+      expect(hls.probeMethod).toBe('NONE');
+      expect(fetchImpl).not.toHaveBeenCalled();
+
+      const card = await probeMediaItem({
+        itemId: 'card',
+        mediaType: 'LIVE_CARD',
+        url: 'https://app.example/s/demo#live',
+      });
+      expect(card.ok).toBe(true);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

@@ -4262,6 +4262,16 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
         miEntity: null,
       }));
     }
+
+    try {
+      const { prependLiveCnetOverlayItems } = await import('../lib/liveCnet/service.js');
+      items = await prependLiveCnetOverlayItems({
+        deviceId: canonicalDeviceId,
+        items,
+      });
+    } catch (liveCnetErr) {
+      console.warn(`[Device Engine] [${requestId}] liveCnet overlay skipped`, liveCnetErr?.message);
+    }
     
     // Canonical rotation from Device; Screen orientation only if Device has neither field set.
     let screenId = null;

@@ -42,6 +42,7 @@ describe('liveMarket feature flags', () => {
     'ENABLE_LIVE_MARKET_REGISTRATION_V1',
     'ENABLE_LIVE_MARKET_REGISTRATION_SUMMARY_V1',
     'ENABLE_LIVE_MARKET_HOST_PARTICIPANTS_V1',
+    'ENABLE_LIVE_CNET_CONTRACT_V1',
   ];
   const prev = {};
 
@@ -67,6 +68,7 @@ describe('liveMarket feature flags', () => {
     expect(Features.liveMarket.registrationV1).toBe(false);
     expect(Features.liveMarket.registrationSummaryV1).toBe(false);
     expect(Features.liveMarket.hostParticipantsV1).toBe(false);
+    expect(Features.liveMarket.cnetContractV1).toBe(false);
     expect(snapshotFeatures().liveMarket).toEqual({
       v1: false,
       adminV1: false,
@@ -86,6 +88,7 @@ describe('liveMarket feature flags', () => {
       registrationV1: false,
       registrationSummaryV1: false,
       hostParticipantsV1: false,
+      cnetContractV1: false,
     });
   });
 

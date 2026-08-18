@@ -161,6 +161,7 @@ export async function registerForSession({
   interestSubjectId = null,
   interestSubjectType = null,
   surface = null,
+  attributionToken = null,
 } = {}) {
   if (!Features.liveMarket.registrationV1) {
     throw fail(LIVE_MARKET_ERROR_CODES.LIVE_REGISTRATION_DISABLED, 'Registration is disabled', 403);
@@ -311,6 +312,8 @@ export async function registerForSession({
     select: { displayName: true, fullName: true, email: true },
   });
 
+  await recordLiveCnetRegistration(db, attributionToken);
+
   return {
     registration: toRegistrationDto(row, {
       displayName: user?.displayName || user?.fullName || null,
@@ -322,6 +325,21 @@ export async function registerForSession({
     created,
     idempotent: !created && existing?.status === LIVE_REGISTRATION_STATUS.REGISTERED,
   };
+}
+
+async function recordLiveCnetRegistration(prisma, attributionToken) {
+  if (!attributionToken || !Features.liveMarket.cnetContractV1) return;
+  try {
+    const { recordContractEvent, LIVE_CNET_EVENTS } = await import('../liveCnet/index.js');
+    await recordContractEvent({
+      prisma,
+      eventType: LIVE_CNET_EVENTS.REGISTRATION,
+      attributionToken,
+      extraDedupe: `reg:${String(attributionToken)}:${new Date().toISOString().slice(0, 13)}`,
+    });
+  } catch {
+    /* never block RSVP */
+  }
 }
 
 export async function cancelMyRegistration({ prisma, sessionId, userId, surface = null } = {}) {

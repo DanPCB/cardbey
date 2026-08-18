@@ -53,6 +53,51 @@ describe('normalizePlaylist', () => {
     );
   });
 
+  it('classifies HLS live_hls and m3u8 as VIDEO, not IMAGE', () => {
+    const result = normalizePlaylist(
+      {
+        ok: true,
+        items: [
+          {
+            id: 'live',
+            type: 'live_hls',
+            url: 'https://customer-abc.cloudflarestream.com/uid/manifest/video.m3u8',
+            mimeType: 'application/vnd.apple.mpegurl',
+            qrValue: 'https://app.example/api/public/live-cnet/h/glt_x',
+            overlayBadge: 'LIVE NOW',
+          },
+        ],
+      },
+      { apiBaseUrl: 'https://cardbey-core.example.com' },
+    );
+    expect(result.kind).toBe('manifest');
+    if (result.kind !== 'manifest') return;
+    expect(result.manifest.playlist.items[0].type).toBe('VIDEO');
+    expect(result.manifest.playlist.items[0].qrValue).toContain('/live-cnet/h/');
+  });
+
+  it('keeps live_card as LIVE_CARD rather than mislabeling HLS', () => {
+    const result = normalizePlaylist(
+      {
+        ok: true,
+        items: [
+          {
+            id: 'card',
+            type: 'live_card',
+            url: 'https://app.example/s/demo#live',
+            overlayTitle: 'Lunch special',
+            overlayBadge: 'Live soon',
+            qrValue: 'https://app.example/api/public/live-cnet/h/glt_x',
+          },
+        ],
+      },
+      { apiBaseUrl: 'https://cardbey-core.example.com' },
+    );
+    expect(result.kind).toBe('manifest');
+    if (result.kind !== 'manifest') return;
+    expect(result.manifest.playlist.items[0].type).toBe('LIVE_CARD');
+  });
+
   it('skips unsupported schemes without failing whole playlist', () => {
     const result = normalizePlaylist(
       {
