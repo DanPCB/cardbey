@@ -787,6 +787,16 @@ export const Features = {
       return parseBoolEnv(process.env.ENABLE_GLOBAL_LIVE_EOI_APPLICANT_TRACKING_V1, false);
     },
   },
+
+  /**
+   * Global front-page acquisition CTA — Create Your Online Store.
+   * Default OFF. Dashboard also gates via VITE_ENABLE_GLOBAL_STORE_CREATION_CTA_V1.
+   */
+  globalStoreCreationCta: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_GLOBAL_STORE_CREATION_CTA_V1, false);
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -975,6 +985,9 @@ export function snapshotFeatures() {
       open: Features.globalLiveEoi.open,
       confirmationEmailV2: Features.globalLiveEoi.confirmationEmailV2,
       applicantTrackingV1: Features.globalLiveEoi.applicantTrackingV1,
+    },
+    globalStoreCreationCta: {
+      v1: Features.globalStoreCreationCta.v1,
     },
   };
 }
