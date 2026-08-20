@@ -655,6 +655,16 @@ export const Features = {
       );
     },
   },
+
+  /**
+   * Global front-page acquisition CTA — Create Your Online Store.
+   * Default OFF. Dashboard also gates via VITE_ENABLE_GLOBAL_STORE_CREATION_CTA_V1.
+   */
+  globalStoreCreationCta: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_GLOBAL_STORE_CREATION_CTA_V1, false);
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -822,6 +832,9 @@ export function snapshotFeatures() {
       providerSdkV1: Features.universalResourceIntelligence.providerSdkV1,
       federationPlannerV1: Features.universalResourceIntelligence.federationPlannerV1,
       resourceGraphV1: Features.universalResourceIntelligence.resourceGraphV1,
+    },
+    globalStoreCreationCta: {
+      v1: Features.globalStoreCreationCta.v1,
     },
   };
 }
