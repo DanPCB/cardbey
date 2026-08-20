@@ -78,6 +78,9 @@ services:
         value: "true"
       - key: PIXABAY_API_KEY
         sync: false
+      # Global front-page acquisition CTA (Create Your Online Store)
+      - key: ENABLE_GLOBAL_STORE_CREATION_CTA_V1
+        value: "true"
 
   # Dashboard (staging) — Architecture A: primary repo = monorepo (clone works).
   # Private dashboard is a submodule with RELATIVE url (../cardbey-marketing-dashboard.git)
@@ -121,6 +124,8 @@ services:
       - key: VITE_INTELLIGENCE_SURFACE_PIL
         value: "true"
       - key: VITE_PIL_CONCIERGE_LLM
+        value: "true"
+      - key: VITE_ENABLE_GLOBAL_STORE_CREATION_CTA_V1
         value: "true"
 
   # Core API (production / live) — same build + health probe as staging; branch main tracks staging merges.
@@ -187,6 +192,9 @@ services:
         value: "20"
       - key: EXPLORE_VIDEO_MAX_BYTES
         value: "52428800"
+      # Global front-page acquisition CTA (Create Your Online Store)
+      - key: ENABLE_GLOBAL_STORE_CREATION_CTA_V1
+        value: "true"
 
   # Dashboard (production) — Architecture A + relative submodule URL (see
   # docs/IMPACT_REPORT_render_dashboard_submodule_relative_url.md).
@@ -219,3 +227,5 @@ services:
         value: "1"
       - key: VITE_EXPLORE_VIDEO_MAX_BYTES
         value: "52428800"
+      - key: VITE_ENABLE_GLOBAL_STORE_CREATION_CTA_V1
+        value: "true"
