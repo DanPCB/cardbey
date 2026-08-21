@@ -61,7 +61,9 @@ export function isDesignAdapterCommand(command) {
  * @param {string|null|undefined} command
  */
 export function isDesignAdapterCommandConfigured(command) {
-  void command;
+  const c = String(command || '').trim();
+  // C2: setTemplate + setHero are configured (still flag-gated at runtime).
+  if (c === 'setTemplate' || c === 'setHero') return true;
   return false;
 }
 

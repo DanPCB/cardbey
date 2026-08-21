@@ -10,10 +10,10 @@ import { buildDesignPresentationProjection } from './buildDesignPresentationProj
 import { DESIGN_PARALLEL_WRITERS } from './designParallelWriters.js';
 
 describe('designAdapterContract C1', () => {
-  it('defaults commands unconfigured (no mutation)', () => {
-    for (const c of DESIGN_ADAPTER_COMMANDS) {
-      expect(isDesignAdapterCommandConfigured(c)).toBe(false);
-    }
+  it('configures setTemplate and setHero in C2 (still flag-gated at runtime)', () => {
+    expect(isDesignAdapterCommandConfigured('setTemplate')).toBe(true);
+    expect(isDesignAdapterCommandConfigured('setHero')).toBe(true);
+    expect(isDesignAdapterCommandConfigured('setDesignTokens')).toBe(false);
   });
 
   it('recognises design section aliases', () => {

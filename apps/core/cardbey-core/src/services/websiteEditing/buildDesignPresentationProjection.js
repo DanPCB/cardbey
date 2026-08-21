@@ -12,6 +12,11 @@ import {
   isDesignAdapterCommandConfigured,
 } from './designAdapterContract.js';
 import { DESIGN_PARALLEL_WRITERS } from './designParallelWriters.js';
+import {
+  draftRevisionFingerprint,
+  readDesignPresentationEnvelope,
+} from './designPresentationEnvelope.js';
+import { CANONICAL_DESIGN_PRESET_IDS } from './designPresets.js';
 
 function parseJsonObject(value) {
   if (value == null) return null;
@@ -47,7 +52,13 @@ export function buildDesignPresentationProjection({
   draft = null,
   editingContext = null,
   flagEnabled = false,
+  mutationCapabilities = null,
 }) {
+  const mutations = {
+    setTemplate: Boolean(flagEnabled && (mutationCapabilities?.setTemplate ?? isDesignAdapterCommandConfigured('setTemplate'))),
+    setHero: Boolean(flagEnabled && (mutationCapabilities?.setHero ?? isDesignAdapterCommandConfigured('setHero'))),
+  };
+
   if (!flagEnabled) {
     return {
       ok: true,
@@ -56,8 +67,10 @@ export function buildDesignPresentationProjection({
       commandsConfigured: Object.fromEntries(
         DESIGN_ADAPTER_COMMANDS.map((c) => [c, isDesignAdapterCommandConfigured(c)]),
       ),
+      mutationCapabilities: { setTemplate: false, setHero: false },
       sourcePrecedence: DESIGN_SOURCE_PRECEDENCE,
       parallelWriters: DESIGN_PARALLEL_WRITERS,
+      supportedPresets: CANONICAL_DESIGN_PRESET_IDS,
       projection: null,
       conflicts: [],
       diagnostics: ['flag_off'],
@@ -77,12 +90,26 @@ export function buildDesignPresentationProjection({
     draftWebsite?.theme && typeof draftWebsite.theme === 'object' ? draftWebsite.theme : null;
   const liveTheme =
     miniWebsite?.theme && typeof miniWebsite.theme === 'object' ? miniWebsite.theme : null;
+  const envelope = readDesignPresentationEnvelope(draftPreview);
 
+  const explicitTemplate = envelope?.templateId ?? null;
   const draftTemplate = draftTheme?.templateId ?? null;
   const liveTemplate = liveTheme?.templateId ?? null;
   let templateProvenance = DESIGN_PROVENANCE.MISSING;
   let templateValue = null;
-  if (draftTemplate != null && liveTemplate != null && String(draftTemplate) !== String(liveTemplate)) {
+  if (explicitTemplate != null) {
+    templateProvenance = DESIGN_PROVENANCE.DRAFT_STORE;
+    templateValue = explicitTemplate;
+    if (liveTemplate != null && String(liveTemplate) !== String(explicitTemplate)) {
+      conflicts.push({
+        field: 'templateId',
+        sources: ['approved_canonical_draft_design', DESIGN_PROVENANCE.MINI_WEBSITE],
+        draft: explicitTemplate,
+        live: liveTemplate,
+        note: 'explicit_draft_wins_after_c2_mutation',
+      });
+    }
+  } else if (draftTemplate != null && liveTemplate != null && String(draftTemplate) !== String(liveTemplate)) {
     templateProvenance = DESIGN_PROVENANCE.CONFLICT;
     templateValue = { draft: draftTemplate, live: liveTemplate };
     conflicts.push({
@@ -248,15 +275,38 @@ export function buildDesignPresentationProjection({
     commandsConfigured: Object.fromEntries(
       DESIGN_ADAPTER_COMMANDS.map((c) => [c, isDesignAdapterCommandConfigured(c)]),
     ),
+    mutationCapabilities: mutations,
+    supportedPresets: CANONICAL_DESIGN_PRESET_IDS,
+    fingerprint: draft ? draftRevisionFingerprint(draft) : null,
+    designEnvelope: envelope,
+    unpublishedDesignChanges: Boolean(envelope?.templateId || envelope?.heroRef),
     sourcePrecedence: DESIGN_SOURCE_PRECEDENCE,
     parallelWriters: DESIGN_PARALLEL_WRITERS,
     projection,
     conflicts,
-    diagnostics: buildDiagnosticsHints({ conflicts, draft, miniWebsite, draftTemplate, liveTemplate }),
+    diagnostics: buildDiagnosticsHints({
+      conflicts,
+      draft,
+      miniWebsite,
+      draftTemplate: explicitTemplate || draftTemplate,
+      liveTemplate,
+      envelope,
+      mutations,
+      compositionMeta,
+    }),
   };
 }
 
-function buildDiagnosticsHints({ conflicts, draft, miniWebsite, draftTemplate, liveTemplate }) {
+function buildDiagnosticsHints({
+  conflicts,
+  draft,
+  miniWebsite,
+  draftTemplate,
+  liveTemplate,
+  envelope,
+  mutations,
+  compositionMeta,
+}) {
   const hints = [];
   if (!draft?.id) hints.push('missing_draft');
   if (liveTemplate && !draftTemplate) hints.push('style_preset_only_in_mini_website');
@@ -266,5 +316,11 @@ function buildDiagnosticsHints({ conflicts, draft, miniWebsite, draftTemplate, l
   if (conflicts.some((c) => c.field === 'templateId')) hints.push('template_mismatch');
   if (conflicts.length > 1) hints.push('multiple_design_sources_claiming_authority');
   hints.push('live_writer_risk_documented');
+  if (envelope?.templateId) hints.push('canonical_draft_design_persisted');
+  if (mutations?.setTemplate) hints.push('template_mutation_available');
+  if (mutations?.setHero) hints.push('hero_mutation_available');
+  if (compositionMeta?.status === 'stale') hints.push('composition_brand_stale');
+  hints.push('preview_consumption_may_require_c4');
+  hints.push('public_write_quarantine_pending_c5');
   return hints;
 }

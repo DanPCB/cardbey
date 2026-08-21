@@ -400,15 +400,16 @@ Output: per-store JSON for admin/support; privacy-safe ids only.
 
 ### C2 — Style preset + hero draft mutations
 
-- **Scope:** Persist template to draft; hero remains draft services; remove reliance on local-only template  
-- **Deps:** C1  
-- **Flags:** design adapter mutations  
-- **Migration:** None  
-- **Tests:** Persistence + reload  
-- **Browser:** Style chip survives refresh on draft  
-- **Rollback:** Flag off  
-- **Exit:** Local-only template path gone when flag on  
-- **Exclude:** Legacy route redirect; composition gate  
+- **Status (2026-08-21):** Implemented draft-only — see [`IMPLEMENTATION_REPORT_STYLE_CONVERGENCE_C2.md`](./IMPLEMENTATION_REPORT_STYLE_CONVERGENCE_C2.md)
+- **Scope:** Persist template to `designPresentationV1` + `theme.templateId`; hero via `updateHeroForStore({ draftOnly: true })`; OCC; audit; pilot Design panel controls
+- **Deps:** C1 + `STYLE_CONVERGENCE_C1_RUNTIME_VERIFIED`
+- **Flags:** design adapter mutations (same flags; default OFF)
+- **Migration:** None
+- **Tests:** Preset mapping, OCC, cross-store, public unchanged
+- **Browser/API:** Disposable fixture persistence + reload projection
+- **Rollback:** Flag off
+- **Exit:** Local-only template authority replaced when flag on (draft); public unchanged until publish
+- **Exclude:** Legacy route redirect; C3 UI; C4 preview consumption; C5 writer quarantine
 
 ### C3 — Website Editing Design UI
 

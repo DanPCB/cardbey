@@ -143,6 +143,51 @@ router.get(
   },
 );
 
+/**
+ * C2 admin setTemplate (requires reason).
+ * POST .../website-editing/design/template  { presetId, reason, expectedFingerprint? }
+ */
+router.post(
+  '/platform/account-management/stores/:storeId/website-editing/design/template',
+  async (req, res, next) => {
+    try {
+      const storeId = String(req.params.storeId ?? '').trim();
+      if (!storeId) return res.status(400).json({ ok: false, error: 'storeId_required' });
+      const reason = String(req.body?.reason || req.body?.adminReason || '').trim();
+      if (!reason) {
+        return res.status(400).json({ ok: false, error: 'admin_reason_required' });
+      }
+      const { executeSetTemplate } = await import(
+        '../../services/websiteEditing/designAdapterMutations.js'
+      );
+      const prisma = getPrismaClient();
+      const result = await executeSetTemplate(prisma, {
+        storeId,
+        userId: req.userId,
+        user: req.user,
+        draftId: req.body?.draftId || null,
+        presetId: req.body?.presetId || req.body?.templateId,
+        expectedFingerprint: req.body?.expectedFingerprint,
+        body: req.body,
+        adminSupport: true,
+        adminReason: reason,
+      });
+      return res.status(200).json({ ...result, adminSupport: true });
+    } catch (err) {
+      const status = err?.statusCode || 500;
+      if (status !== 500) {
+        return res.status(status).json({
+          ok: false,
+          error: err.code || 'set_template_failed',
+          message: err.message,
+          currentFingerprint: err.currentFingerprint,
+        });
+      }
+      return next(err);
+    }
+  },
+);
+
 function requireConfirmed(req, res) {
   if (req.body?.confirmed !== true) {
     res.status(400).json({

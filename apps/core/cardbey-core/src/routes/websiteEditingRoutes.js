@@ -173,4 +173,79 @@ router.get('/:storeId/website-editing/design-projection', requireAuth, async (re
   }
 });
 
+/**
+ * C2 — set draft template/style preset (draft-only).
+ * POST /api/stores/:storeId/website-editing/design/template
+ */
+router.post('/:storeId/website-editing/design/template', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = String(req.params.storeId ?? '').trim();
+    if (!storeId || storeId === '_') {
+      return res.status(400).json({ ok: false, error: 'storeId_required' });
+    }
+    const { executeSetTemplate } = await import('../services/websiteEditing/designAdapterMutations.js');
+    const prisma = getPrismaClient();
+    const result = await executeSetTemplate(prisma, {
+      storeId,
+      userId: req.userId,
+      user: req.user,
+      draftId: req.body?.draftId || req.query.draftId || null,
+      presetId: req.body?.presetId || req.body?.templateId,
+      expectedFingerprint: req.body?.expectedFingerprint,
+      body: req.body,
+      adminSupport: false,
+    });
+    return res.status(200).json(result);
+  } catch (err) {
+    const status = err?.statusCode || 500;
+    if (status !== 500) {
+      return res.status(status).json({
+        ok: false,
+        error: err.code || 'set_template_failed',
+        message: err.message || 'Could not set template',
+        readiness: err.readiness,
+        currentFingerprint: err.currentFingerprint,
+      });
+    }
+    return next(err);
+  }
+});
+
+/**
+ * C2 — set draft hero via canonical hero service (draftOnly).
+ * POST /api/stores/:storeId/website-editing/design/hero
+ */
+router.post('/:storeId/website-editing/design/hero', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = String(req.params.storeId ?? '').trim();
+    if (!storeId || storeId === '_') {
+      return res.status(400).json({ ok: false, error: 'storeId_required' });
+    }
+    const { executeSetHero } = await import('../services/websiteEditing/designAdapterMutations.js');
+    const prisma = getPrismaClient();
+    const result = await executeSetHero(prisma, {
+      storeId,
+      userId: req.userId,
+      user: req.user,
+      draftId: req.body?.draftId || req.query.draftId || null,
+      expectedFingerprint: req.body?.expectedFingerprint,
+      body: req.body,
+      adminSupport: false,
+    });
+    return res.status(200).json(result);
+  } catch (err) {
+    const status = err?.statusCode || 500;
+    if (status !== 500) {
+      return res.status(status).json({
+        ok: false,
+        error: err.code || 'set_hero_failed',
+        message: err.message || 'Could not set hero',
+        readiness: err.readiness,
+        currentFingerprint: err.currentFingerprint,
+      });
+    }
+    return next(err);
+  }
+});
+
 export default router;
