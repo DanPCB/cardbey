@@ -194,4 +194,37 @@ describe('resolveWebsiteEditingContext (Phase 0)', () => {
     expect(ctx.editingKind).toBe(WEBSITE_EDITING_KINDS.GENERATED_DRAFT);
     expect(ctx.liveUnchanged).toBe(true);
   });
+
+  it('reopening Website Editing is idempotent (reuses existing draft)', async () => {
+    const business = makeBusiness();
+    const draft = makeDraft({ committedStoreId: 'store_1' });
+    const prisma = makePrisma({ business, draft });
+    const a = await resolveWebsiteEditingContext(prisma, {
+      storeId: 'store_1',
+      userId: 'owner_1',
+      user: owner,
+    });
+    const b = await resolveWebsiteEditingContext(prisma, {
+      storeId: 'store_1',
+      userId: 'owner_1',
+      user: owner,
+    });
+    expect(a.draftId).toBe(b.draftId);
+    expect(a.initializedRevision).toBe(false);
+    expect(b.initializedRevision).toBe(false);
+  });
+
+  it('opening Website Editing never mutates published storefront flags', async () => {
+    const business = makeBusiness({ isActive: true, publishedAt: new Date() });
+    const draft = makeDraft({ committedStoreId: 'store_1' });
+    const prisma = makePrisma({ business, draft });
+    prisma.business.update = vi.fn();
+    const ctx = await resolveWebsiteEditingContext(prisma, {
+      storeId: 'store_1',
+      userId: 'owner_1',
+      user: owner,
+    });
+    expect(ctx.liveUnchanged).toBe(true);
+    expect(prisma.business.update).not.toHaveBeenCalled();
+  });
 });

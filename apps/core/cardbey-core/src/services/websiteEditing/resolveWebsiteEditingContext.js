@@ -24,6 +24,30 @@ const EDITING_KINDS = {
 
 const DEFAULT_EXPIRY_HOURS = 48;
 
+/** In-process lock so concurrent Website Editing opens cannot double-init DraftStore. */
+const initLocks = new Map();
+
+async function withStoreInitLock(storeId, fn) {
+  const key = String(storeId);
+  const prev = initLocks.get(key) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const chained = prev.then(() => gate);
+  initLocks.set(
+    key,
+    chained.catch(() => {}),
+  );
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (initLocks.get(key) === chained) initLocks.delete(key);
+  }
+}
+
 function httpError(statusCode, code, message) {
   const err = new Error(message);
   err.statusCode = statusCode;
@@ -340,10 +364,13 @@ export async function resolveWebsiteEditingContext(prisma, args) {
 
   // 4) Initialise editable revision of the same store (create-from-store contract)
   if (!draft && business && allowInit) {
-    const ensured = await ensureEditableRevisionForBusiness(prisma, {
-      business,
-      user,
-      userId: adminSupport ? business.userId || userId : userId,
+    const ensured = await withStoreInitLock(business.id, async () => {
+      // Re-check inside lock — another concurrent open may have created the draft.
+      return ensureEditableRevisionForBusiness(prisma, {
+        business,
+        user,
+        userId: adminSupport ? business.userId || userId : userId,
+      });
     });
     draft = ensured.draft;
     initializedRevision = ensured.initialized;

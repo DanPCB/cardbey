@@ -64,7 +64,10 @@ function buildShowWork({ url, title, uploadedAt }) {
     mediaUrl: url,
     thumbnailUrl: null,
     uploadedAt,
+    updatedAt: uploadedAt,
     ctaLabel: 'Watch',
+    status: 'PUBLISHED',
+    provenance: 'owner',
   };
 }
 
