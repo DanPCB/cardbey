@@ -15,10 +15,57 @@ import {
   listDuplicateStoreGroups,
   listSuspiciousAccounts,
 } from '../../lib/admin/accountManagementService.js';
+import { resolveWebsiteEditingContext } from '../../services/websiteEditing/resolveWebsiteEditingContext.js';
 
 const router = Router();
 router.use(requireAuth);
 router.use(requireAdmin);
+
+/**
+ * GET /api/admin/platform/account-management/stores/:storeId/website-editing-context
+ * Same canonical resolver as owner Website Editing (admin-support entry).
+ * Read-only — does not create Business or mutate live content.
+ */
+router.get(
+  '/platform/account-management/stores/:storeId/website-editing-context',
+  async (req, res, next) => {
+    try {
+      const storeId = String(req.params.storeId ?? '').trim();
+      if (!storeId) {
+        return res.status(400).json({ ok: false, error: 'storeId_required' });
+      }
+      const draftId =
+        typeof req.query.draftId === 'string' && req.query.draftId.trim()
+          ? req.query.draftId.trim()
+          : null;
+      const revisionId =
+        typeof req.query.revisionId === 'string' && req.query.revisionId.trim()
+          ? req.query.revisionId.trim()
+          : null;
+
+      const prisma = getPrismaClient();
+      const context = await resolveWebsiteEditingContext(prisma, {
+        storeId,
+        draftId,
+        revisionId,
+        userId: req.userId,
+        user: req.user,
+        adminSupport: true,
+      });
+      return res.status(200).json(context);
+    } catch (err) {
+      const status = err?.statusCode || 500;
+      if (status !== 500) {
+        return res.status(status).json({
+          ok: false,
+          error: err.code || 'resolve_failed',
+          message: err.message || 'Could not resolve Website Editing context',
+        });
+      }
+      return next(err);
+    }
+  },
+);
 
 function requireConfirmed(req, res) {
   if (req.body?.confirmed !== true) {

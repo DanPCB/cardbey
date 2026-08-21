@@ -168,6 +168,7 @@ import authRoutes, { patchCurrentUserProfile } from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
 import storesRoutes from './routes/stores.js';
+import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
 import promosPublicRoutes from './routes/promosPublic.js';
@@ -1060,6 +1061,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
+app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
 app.use('/api/store', storesRoutes); // Store context routes: /api/store/context, /api/store/:id/context
