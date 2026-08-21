@@ -676,6 +676,16 @@ export const Features = {
       return parseBoolEnv(process.env.ENABLE_PERFORMER_CONTENT_EDITING_BRIDGE_V1, false);
     },
   },
+  /**
+   * Website Editing Design & presentation adapter (Style & preview convergence C1).
+   * Default OFF. Read-only projection/diagnostics when ON. Mutations deferred to C2.
+   * Dashboard twin: VITE_ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1.
+   */
+  websiteEditingDesignAdapter: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1, false);
+    },
+  },
 
 };
 

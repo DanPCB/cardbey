@@ -13,6 +13,9 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { getPrismaClient } from '../lib/prisma.js';
 import { resolveWebsiteEditingContext } from '../services/websiteEditing/resolveWebsiteEditingContext.js';
+import { buildDesignPresentationProjection } from '../services/websiteEditing/buildDesignPresentationProjection.js';
+import { DESIGN_READINESS } from '../services/websiteEditing/designAdapterContract.js';
+import Features from '../config/features.js';
 
 const router = Router();
 
@@ -89,6 +92,83 @@ router.get('/:storeId/website-editing-context', requireAuth, async (req, res, ne
         message: err.message || 'Could not resolve Website Editing context',
       });
     }
+    return next(err);
+  }
+});
+
+/**
+ * C1 read-only Design projection.
+ * GET /api/stores/:storeId/website-editing/design-projection
+ */
+router.get('/:storeId/website-editing/design-projection', requireAuth, async (req, res, next) => {
+  try {
+    const storeId = String(req.params.storeId ?? '').trim();
+    if (!storeId || storeId === '_') {
+      return res.status(400).json({ ok: false, error: 'storeId_required' });
+    }
+
+    const flagEnabled = Boolean(Features.websiteEditingDesignAdapter?.v1);
+    if (!flagEnabled) {
+      return res.status(200).json({
+        ok: true,
+        readiness: DESIGN_READINESS.NOT_ENABLED,
+        message: 'Website Editing Design adapter is not enabled.',
+        projection: null,
+      });
+    }
+
+    const draftId =
+      typeof req.query.draftId === 'string' && req.query.draftId.trim()
+        ? req.query.draftId.trim()
+        : null;
+
+    const prisma = getPrismaClient();
+    let editingContext = null;
+    try {
+      editingContext = await resolveWebsiteEditingContext(prisma, {
+        storeId,
+        draftId,
+        userId: req.userId,
+        user: req.user,
+        adminSupport: false,
+        allowInit: false,
+      });
+    } catch (err) {
+      const status = err?.statusCode || 500;
+      if (status === 403 || status === 404) {
+        return res.status(status).json({
+          ok: false,
+          error: err.code || 'forbidden',
+          message: err.message || 'Not allowed',
+          readiness: DESIGN_READINESS.BLOCKED_BY_MISSING_DRAFT,
+        });
+      }
+      if (status !== 500) {
+        editingContext = null;
+      } else {
+        return next(err);
+      }
+    }
+
+    const business = await prisma.business.findUnique({ where: { id: storeId } });
+    if (!business) {
+      return res.status(404).json({ ok: false, error: 'store_not_found' });
+    }
+
+    const resolvedDraftId = editingContext?.draftId || draftId;
+    let draft = null;
+    if (resolvedDraftId) {
+      draft = await prisma.draftStore.findUnique({ where: { id: resolvedDraftId } }).catch(() => null);
+    }
+
+    const body = buildDesignPresentationProjection({
+      business,
+      draft,
+      editingContext,
+      flagEnabled: true,
+    });
+    return res.status(200).json(body);
+  } catch (err) {
     return next(err);
   }
 });
