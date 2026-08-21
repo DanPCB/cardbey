@@ -20,7 +20,7 @@ import os from 'node:os';
 import { getPrismaClient } from '../lib/prisma.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { guestSessionId } from '../middleware/guestSession.js';
-import { hasRole } from '../lib/authorization.js';
+import { hasRole, isPlatformAdmin } from '../lib/authorization.js';
 import { createDraft, createDraftStoreForUser, generateDraft, getDraft, getDraftByGenerationRunId, commitDraft, patchDraftPreview, normalizePreviewCategories, repairCatalog } from '../services/draftStore/draftStoreService.js';
 import { buildDraftPublishState } from '../services/draftStore/buildDraftPublishState.js';
 import { isDraftOwnedByUser, canAccessDraftStore, draftOwnershipFieldsForLog } from '../lib/draftOwnership.js';
@@ -45,6 +45,7 @@ import {
   isPublishSnapshotV1Enabled,
   PublishSnapshotError,
 } from '../services/draftStore/publishSnapshotService.js';
+import { restoreDraftFromPublished } from '../services/draftStore/restoreDraftFromPublished.js';
 import { enforcePublishHeroCanonical } from '../services/draftStore/heroPublishInvariant.js';
 import {
   heroAssetUploadSingle,
@@ -1129,6 +1130,60 @@ router.post('/:draftId/upload/hero', requireAuth, heroAssetUploadSingle, async (
 });
 
 /**
+ * POST /api/draft-store/:draftId/restore-from-published
+ * Reset editable draft preview to match the live published Business.
+ * Does not republish. Requires auth + draft access; draft must have committedStoreId.
+ */
+router.post('/:draftId/restore-from-published', requireAuth, async (req, res, next) => {
+  try {
+    const { draftId } = req.params;
+    const existingDraft = await getDraft(draftId);
+    if (!existingDraft) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft store not found or expired',
+      });
+    }
+    const userId = req.userId ?? req.user?.id ?? null;
+    const tenantKey = getTenantId(req.user) ?? userId ?? null;
+    const allowed = await canAccessDraftStore(existingDraft, {
+      userId,
+      tenantKey,
+      isSuperAdmin: isSuperAdmin(req),
+    });
+    if (!allowed) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have access to this draft.',
+      });
+    }
+    const result = await restoreDraftFromPublished(prisma, { draftId });
+    return res.json({
+      ok: true,
+      draftId: result.draftId,
+      status: result.status,
+      preview: result.preview,
+      publishState: result.publishState,
+    });
+  } catch (error) {
+    const code = error?.code;
+    const status = error?.statusCode || 500;
+    if (
+      code === 'store_not_found' ||
+      code === 'draft_not_found' ||
+      code === 'store_not_live' ||
+      code === 'draft_not_committed'
+    ) {
+      return res.status(status).json({ ok: false, error: code, message: error.message });
+    }
+    console.error('[DraftStore] POST /:draftId/restore-from-published error:', error);
+    next(error);
+  }
+});
+
+/**
  * PATCH /api/draft-store/:draftId
  * Update draft preview (items, categories, store meta). Requires auth; draft must belong to user via
  * Orchestra ownership (generationRunId) or store ownership (preview.meta.storeId / input.storeId / committedStoreId).
@@ -1471,7 +1526,9 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
     const allowed = await canAccessDraftStore(draft, {
       userId,
       tenantKey,
+      user: req.user,
       isSuperAdmin: isSuperAdmin(req),
+      isPlatformAdmin: isPlatformAdmin(req.user),
       missionId: missionIdQuery || null,
     });
     if (!allowed) {

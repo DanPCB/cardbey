@@ -55,6 +55,20 @@ async function assertStoreAccess(prisma, storeId, userId, user) {
   return store;
 }
 
+/** Platform-admin acting on another owner's store must supply a substantive reason. */
+function requireAdminReasonIfNeeded(store, userId, user, reason) {
+  const actingOnBehalf =
+    isPlatformAdmin(user) && store.userId && store.userId !== userId;
+  if (!actingOnBehalf) return;
+  const r = typeof reason === 'string' ? reason.trim() : '';
+  if (r.length < 8 || r === 'admin_support' || r === 'show_update' || r === 'show_create') {
+    const err = new Error('Admin support reason required');
+    err.statusCode = 400;
+    err.code = 'admin_reason_required';
+    throw err;
+  }
+}
+
 async function invalidatePublic(prisma, store) {
   if (store.isActive) {
     try {
@@ -92,6 +106,8 @@ router.post('/:storeId/shows', requireAuth, async (req, res, next) => {
     const prisma = getPrismaClient();
     const store = await assertStoreAccess(prisma, storeId, req.userId, req.user);
     const patch = req.body || {};
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'show_create';
+    requireAdminReasonIfNeeded(store, req.userId, req.user, reason);
     const provenance = isPlatformAdmin(req.user) && store.userId !== req.userId ? 'admin' : 'owner';
     const result = await upsertStoreShow(prisma, {
       storeId,
@@ -99,7 +115,7 @@ router.post('/:storeId/shows', requireAuth, async (req, res, next) => {
       patch: { ...patch, status: patch.status || 'DRAFT' },
       actorId: req.userId,
       provenance,
-      reason: typeof req.body?.reason === 'string' ? req.body.reason : 'show_create',
+      reason,
     });
     await invalidatePublic(prisma, store);
     return res.status(201).json({ ok: true, ...result });
@@ -118,6 +134,8 @@ router.patch('/:storeId/shows/:workId', requireAuth, async (req, res, next) => {
     const prisma = getPrismaClient();
     const store = await assertStoreAccess(prisma, storeId, req.userId, req.user);
     await getStoreShow(prisma, { storeId, workId });
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'show_update';
+    requireAdminReasonIfNeeded(store, req.userId, req.user, reason);
     const provenance = isPlatformAdmin(req.user) && store.userId !== req.userId ? 'admin' : 'owner';
     const result = await upsertStoreShow(prisma, {
       storeId,
@@ -125,7 +143,7 @@ router.patch('/:storeId/shows/:workId', requireAuth, async (req, res, next) => {
       patch: req.body || {},
       actorId: req.userId,
       provenance,
-      reason: typeof req.body?.reason === 'string' ? req.body.reason : 'show_update',
+      reason,
     });
     await stalePendingContentProposals(prisma, storeId, workId);
     await invalidatePublic(prisma, store);

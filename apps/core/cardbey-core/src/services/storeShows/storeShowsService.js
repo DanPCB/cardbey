@@ -252,7 +252,19 @@ export async function persistStoreShows(prisma, { storeId, works, actorId = null
         actorType: actorId ? 'human' : 'system',
         actorId: actorId ?? null,
         reason: reason || 'store_shows_mutation',
-        metadata: { count: normalized.length, reason },
+        metadata: {
+          count: normalized.length,
+          reason,
+          workIds: normalized.map((w) => w.id).slice(0, 50),
+          // fingerprints only — no media query tokens
+          fingerprints: normalized.slice(0, 20).map((w) => ({
+            id: w.id,
+            titleLen: String(w.title || '').length,
+            descriptionLen: String(w.description || '').length,
+            status: w.status,
+            updatedAt: w.updatedAt || null,
+          })),
+        },
       },
     });
   } catch {
