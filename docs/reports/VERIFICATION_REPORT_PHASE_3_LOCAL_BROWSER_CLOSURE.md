@@ -55,7 +55,8 @@ Processes stopped cleanly after verification.
 
 ## Corrective commits
 
-(Created after this report if staging succeeds — see git log.)
+- Dashboard: `7f22110e` — ShowEditDrawer save a11y + admin reason + closure Playwright
+- Parent: `4057eca6d` — admin draft access, admin_reason_required, audit fingerprints, report + submodule pointer
 
 ## Confirmations
 
