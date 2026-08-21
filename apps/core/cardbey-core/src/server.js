@@ -170,6 +170,7 @@ import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
 import storesRoutes from './routes/stores.js';
 import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
 import storeShowsRoutes from './routes/storeShowsRoutes.js';
+import performerContentEditingBridgeRoutes from './routes/performerContentEditingBridgeRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
 import promosPublicRoutes from './routes/promosPublic.js';
@@ -1061,6 +1062,7 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev/broker', devBrokerRuntimeProofRoutes);
 }
 app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
+app.use('/api/performer/content-editing-bridge', performerContentEditingBridgeRoutes); // Phase 2 bridge (flag-gated)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
 app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
