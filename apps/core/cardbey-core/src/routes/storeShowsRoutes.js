@@ -16,8 +16,24 @@ import {
   getStoreShow,
 } from '../services/storeShows/storeShowsService.js';
 import { bumpPublicFeedRankForStore } from '../lib/feed/publicFeedRankBump.js';
+import { markPendingProposalsStaleForItem } from '../services/contentEditProposals/contentEditProposalRepository.js';
+import { Features } from '../config/features.js';
 
 const router = Router();
+
+async function stalePendingContentProposals(prisma, storeId, workId) {
+  if (!Features.performerContentEditingBridge?.v1) return;
+  try {
+    await markPendingProposalsStaleForItem(prisma, {
+      storeId,
+      contentType: 'shows',
+      contentItemId: workId,
+      reason: 'manual_show_mutation',
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
 
 async function assertStoreAccess(prisma, storeId, userId, user) {
   const store = await prisma.business.findUnique({
@@ -111,6 +127,7 @@ router.patch('/:storeId/shows/:workId', requireAuth, async (req, res, next) => {
       provenance,
       reason: typeof req.body?.reason === 'string' ? req.body.reason : 'show_update',
     });
+    await stalePendingContentProposals(prisma, storeId, workId);
     await invalidatePublic(prisma, store);
     return res.json({ ok: true, ...result });
   } catch (err) {
@@ -134,6 +151,7 @@ router.post('/:storeId/shows/:workId/hide', requireAuth, async (req, res, next) 
       actorId: req.userId,
       reason: typeof req.body?.reason === 'string' ? req.body.reason : 'show_hide',
     });
+    await stalePendingContentProposals(prisma, storeId, workId);
     await invalidatePublic(prisma, store);
     return res.json({ ok: true, ...result });
   } catch (err) {
@@ -157,6 +175,7 @@ router.post('/:storeId/shows/:workId/archive', requireAuth, async (req, res, nex
       actorId: req.userId,
       reason: typeof req.body?.reason === 'string' ? req.body.reason : 'show_archive',
     });
+    await stalePendingContentProposals(prisma, storeId, workId);
     await invalidatePublic(prisma, store);
     return res.json({ ok: true, ...result });
   } catch (err) {

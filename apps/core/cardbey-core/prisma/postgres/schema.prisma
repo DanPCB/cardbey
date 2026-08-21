@@ -663,6 +663,40 @@ model AuditEvent {
   @@index([correlationId])
 }
 
+
+/// General content-edit proposal (Performer bridge Phase 3). Not Shows-specific.
+model ContentEditProposal {
+  id                 String    @id @default(cuid())
+  actorId            String
+  storeId            String
+  draftId            String?
+  revisionId         String?
+  contentType        String
+  contentItemId      String
+  scopedFieldsJson   String
+  baseFingerprint    String
+  baseUpdatedAt      String?
+  proposedPatchJson  String
+  beforeSnapshotJson String
+  afterSnapshotJson  String
+  providerMethod     String
+  status             String
+  expiresAt          DateTime
+  acceptedAt         DateTime?
+  discardedAt        DateTime?
+  appliedRevisionId  String?
+  adminReason        String?
+  correlationId      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([storeId, status, createdAt])
+  @@index([actorId, createdAt])
+  @@index([contentType, contentItemId, status])
+  @@index([expiresAt])
+  @@index([correlationId])
+}
+
 model DevSystemProposal {
   id                 String   @id @default(cuid())
   tenantKey          String?

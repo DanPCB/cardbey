@@ -159,7 +159,8 @@ describe('performerContentEditingBridge', () => {
       userId: 'owner_1',
       user: { id: 'owner_1' },
     });
-    await discardShowImprovement({
+    await discardShowImprovement(prisma, {
+      storeId: 'store_1',
       proposalId: proposed.proposal.proposalId,
       userId: 'owner_1',
       user: { id: 'owner_1' },
