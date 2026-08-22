@@ -87,6 +87,7 @@ function mapNewPlaceRow(place) {
       name: displayNameText(place.displayName),
       businessName: displayNameText(place.displayName),
       category: types.length ? cleanString(String(types[0]).replace(/_/g, ' ')) : null,
+      types,
       address: cleanString(place.formattedAddress),
       location: cleanString(place.formattedAddress),
       phone: cleanString(place.nationalPhoneNumber),
@@ -125,6 +126,7 @@ function mapLegacyPlaceRow(r) {
     raw: {
       name: cleanString(r.name),
       category: Array.isArray(r.types) ? cleanString(String(r.types[0]).replace(/_/g, ' ')) : null,
+      types: Array.isArray(r.types) ? r.types : [],
       address: cleanString(r.formatted_address) ?? cleanString(r.vicinity),
       rating: typeof r.rating === 'number' ? r.rating : null,
       reviewCount: typeof r.user_ratings_total === 'number' ? r.user_ratings_total : null,

@@ -15,6 +15,10 @@
     }
   },
   "scripts": {
+    "worktree:list": "node scripts/worktree.mjs list",
+    "worktree:create": "node scripts/worktree.mjs create",
+    "worktree:audit": "node scripts/worktree.mjs audit",
+    "worktree:cleanup": "node scripts/worktree.mjs cleanup",
     "check:runway": "node scripts/check-single-runway.js",
     "dev": "node scripts/print-dev-help.mjs",
     "dev:doctor": "node scripts/dev-doctor.mjs",
@@ -52,6 +56,8 @@
     "import:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/import-melbourne-batch0.ts",
     "restore:melbourne-batch0": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/restore-melbourne-batch0.ts",
     "enrich:candidates": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/enrich-business-candidates-multisource.ts",
+    "export:candidates-from-seeds": "pnpm -C apps/core/cardbey-core exec tsx scripts/exportPostgresSeedsToCandidates.ts",
+    "backfill:batch001-taxonomy": "pnpm -C apps/core/cardbey-core exec tsx scripts/backfillBatch001CategoryTaxonomy.ts",
     "test:melbourne-batch0-restore": "pnpm exec vitest run --root scripts/lib melbourne-batch0-restore.test.ts",
     "audit:business-classification": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/audit-business-classification.ts",
     "repair:business-classification:dry-run": "pnpm -C apps/core/cardbey-core exec tsx ../../../scripts/repair-business-classification.ts",

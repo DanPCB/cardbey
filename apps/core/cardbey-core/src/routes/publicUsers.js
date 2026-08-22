@@ -37,7 +37,12 @@ import { optionalAuth } from '../middleware/auth.js';
 import { attachStoreEngagementToPublicStores } from '../services/storeEngagement/attachStoreEngagementToPublicStores.js';
 import { isGhostStoreRemoved, isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 import { filterBusinessesForFeedCategory } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
+import { loadActiveFeedPromoArtifacts } from '../services/feed/loadActiveFeedPromoArtifacts.js';
 import { getRelatedBusinessesForSlug } from '../lib/relatedBusinesses/relatedBusinessService.js';
+import { resolveCuratedCollections } from '../services/feed/resolveCuratedCollections.js';
+import { caseInsensitiveFilter } from '../lib/dbCapabilities.js';
+import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
+import { normalizeSuburbLabel } from '../utils/normalizeSuburbLabel.js';
 
 const router = Router();
 /**
@@ -143,12 +148,57 @@ function businessTypeMatchesCategory(businessType, category) {
   return keywords.some((k) => t.includes(k.toLowerCase()));
 }
 
+function parseFeedSuburbQuery(raw) {
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+function parseFeedCategoryQuery(raw) {
+  const category = typeof raw === 'string' ? raw.trim().toLowerCase() : null;
+  return category && FEED_CATEGORY_KEYWORDS[category] ? category : null;
+}
+
+function buildPublicFeedListWhere({ suburb = null } = {}) {
+  const where = publicStoreListWhere();
+  const suburbFilter = parseFeedSuburbQuery(suburb);
+  if (!suburbFilter || !hasBusinessColumn('suburb')) return where;
+  return {
+    ...where,
+    suburb: caseInsensitiveFilter(suburbFilter),
+  };
+}
+
+/**
+ * @param {Array<{ suburb?: string | null }>} businesses
+ * @returns {Array<{ suburb: string, count: number }>}
+ */
+export function aggregatePublicStoreSuburbs(businesses) {
+  const counts = new Map();
+  for (const business of businesses) {
+    const suburb = normalizeSuburbLabel(business?.suburb);
+    if (!suburb) continue;
+    const key = suburb.toLowerCase();
+    const existing = counts.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      counts.set(key, { suburb, count: 1 });
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count || a.suburb.localeCompare(b.suburb));
+}
+
+function businessMatchesSuburbFilter(business, suburbRaw) {
+  const target = normalizeSuburbLabel(parseFeedSuburbQuery(suburbRaw));
+  if (!target) return true;
+  return normalizeSuburbLabel(business?.suburb)?.toLowerCase() === target.toLowerCase();
+}
+
 /**
  * GET /api/public/stores/feed
  * Paginated feed of active public stores (for reels/frontscreen).
  * No authentication required.
  *
- * Query: limit (default 10), cursor (opaque), category (optional: food|products|services)
+ * Query: limit (default 10), cursor (opaque), category (optional: food|products|services), suburb (optional)
  * Order: publishedAt DESC, updatedAt DESC, id DESC (tie-break) when publishedAt column exists;
  *         otherwise createdAt DESC, id DESC.
  * Response: { items: PublicStore[], nextCursor: string | null }
@@ -157,7 +207,8 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 10), 50);
     const cursorRaw = typeof req.query.cursor === 'string' ? req.query.cursor : null;
-    const categoryRaw = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : null;
+    const categoryRaw = parseFeedCategoryQuery(req.query.category);
+    const suburbRaw = parseFeedSuburbQuery(req.query.suburb);
     const supportsPublishedAt = getBusinessColumnSupport().publishedAt;
     let cursor = null;
     if (cursorRaw) {
@@ -181,10 +232,10 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
           { id: 'desc' },
         ]
       : [{ createdAt: 'desc' }, { id: 'desc' }];
-    const where = publicStoreListWhere();
+    const where = buildPublicFeedListWhere({ suburb: suburbRaw });
 
     // Fetch extra rows when filtering by category so we have enough after in-memory keyword filter (no fallback to all stores)
-    const takeDb = categoryRaw && FEED_CATEGORY_KEYWORDS[categoryRaw] ? Math.min(take * 4, 100) : take;
+    const takeDb = categoryRaw ? Math.min(take * 4, 100) : take;
 
     const listArgs = cursor
       ? { where, orderBy, cursor, skip: 1, take: takeDb }
@@ -192,7 +243,11 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
 
     let businesses = await findPublicBusinesses(prisma, listArgs);
 
-    if (categoryRaw && FEED_CATEGORY_KEYWORDS[categoryRaw]) {
+    if (suburbRaw) {
+      businesses = businesses.filter((business) => businessMatchesSuburbFilter(business, suburbRaw));
+    }
+
+    if (categoryRaw) {
       businesses = await filterBusinessesForFeedCategory(prisma, businesses, categoryRaw);
       businesses = businesses.slice(0, take);
     }
@@ -242,6 +297,102 @@ router.get('/stores/feed', optionalAuth, async (req, res, next) => {
     });
   } catch (error) {
     console.error('[PublicStores] Feed error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/public/stores/suburbs
+ * Distinct suburbs with eligible public feed store counts (no auth).
+ *
+ * Query: category (optional: food|products|services)
+ * Response: { ok: true, suburbs: [{ suburb, count }] }
+ */
+router.get('/stores/suburbs', optionalAuth, async (req, res, next) => {
+  try {
+    const categoryRaw = parseFeedCategoryQuery(req.query.category);
+    let businesses = await findPublicBusinesses(prisma, {
+      where: {
+        ...publicStoreListWhere(),
+        ...(hasBusinessColumn('suburb') ? { suburb: { not: null } } : {}),
+      },
+    });
+    businesses = businesses.filter(isPublicFeedEligibleBusiness);
+    if (categoryRaw) {
+      businesses = await filterBusinessesForFeedCategory(prisma, businesses, categoryRaw);
+    }
+    res.json({
+      ok: true,
+      suburbs: aggregatePublicStoreSuburbs(businesses),
+    });
+  } catch (error) {
+    console.error('[PublicStores] Suburbs error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/public/stores/category-counts
+ * Published store counts per feed category lane (no auth).
+ *
+ * Query: suburb (optional — scopes counts to one suburb)
+ * Response: { ok: true, counts: { food, products, services, offers, others } }
+ */
+router.get('/stores/category-counts', optionalAuth, async (req, res, next) => {
+  try {
+    const suburbRaw = parseFeedSuburbQuery(req.query.suburb);
+    let businesses = await findPublicBusinesses(prisma, {
+      where: buildPublicFeedListWhere({ suburb: suburbRaw }),
+    });
+    businesses = businesses.filter(isPublicFeedEligibleBusiness);
+    if (suburbRaw) {
+      businesses = businesses.filter((business) => businessMatchesSuburbFilter(business, suburbRaw));
+    }
+
+    const businessIds = businesses.map((b) => b.id).filter(Boolean);
+    const [foodStores, productStores, serviceStores, promoByStore] = await Promise.all([
+      filterBusinessesForFeedCategory(prisma, businesses, 'food'),
+      filterBusinessesForFeedCategory(prisma, businesses, 'products'),
+      filterBusinessesForFeedCategory(prisma, businesses, 'services'),
+      loadActiveFeedPromoArtifacts(prisma, businessIds),
+    ]);
+
+    let offersCount = 0;
+    for (const business of businesses) {
+      const promos = promoByStore.get(business.id);
+      if (Array.isArray(promos) && promos.length > 0) offersCount += 1;
+    }
+
+    res.json({
+      ok: true,
+      counts: {
+        food: foodStores.length,
+        products: productStores.length,
+        services: serviceStores.length,
+        offers: offersCount,
+        others: 0,
+      },
+    });
+  } catch (error) {
+    console.error('[PublicStores] Category counts error:', error);
+    next(error);
+  }
+});
+
+/**
+ * GET /api/public/stores/collections
+ * Curated editorial collections with live store counts (no auth).
+ *
+ * Query: suburb (optional — scopes the pool before counting, e.g. active suburb pill)
+ * Response: { ok: true, collections: [{ id, title, subtitle, emoji, count, filters }] }
+ */
+router.get('/stores/collections', optionalAuth, async (req, res, next) => {
+  try {
+    const suburbRaw = parseFeedSuburbQuery(req.query.suburb);
+    const collections = await resolveCuratedCollections(prisma, { suburb: suburbRaw });
+    res.json({ ok: true, collections });
+  } catch (error) {
+    console.error('[PublicStores] Collections error:', error);
     next(error);
   }
 });

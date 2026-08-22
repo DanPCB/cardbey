@@ -9,7 +9,7 @@ import path from 'node:path';
 import type { BusinessCandidateRecord } from '../types.js';
 import { EnrichmentBudget, EnrichmentBudgetExhaustedError } from '../enrichment/budget.js';
 import { PROTECTED_BATCH_IDS, MAX_WEB_FETCHES_PER_RECORD } from '../enrichment/constants.js';
-import { mapToCardbeyCategory, isDefaultOtherCategory } from '../enrichment/categoryMap.js';
+import { mapToCardbeyCategory, isDefaultOtherCategory, resolveCategory } from '../enrichment/categoryMap.js';
 import {
   appendCandidateFieldProvenance,
   listProvenanceForRun,
@@ -205,6 +205,18 @@ describe('multi-source enrichment guards', () => {
         biStatus: 'generated',
       }),
     ).toBe(false);
+  });
+
+  it('maps pub/hotel names and Google types to Food & Drink', () => {
+    expect(
+      resolveCategory('Braybrook Hotel', ['bar', 'pub', 'hotel', 'establishment']),
+    ).toBe('Food & Drink');
+    const mapped = mapToCardbeyCategory({
+      businessName: 'Braybrook Hotel',
+      placesTypes: ['bar', 'pub', 'hotel'],
+    });
+    expect(mapped.category).toBe('Food & Drink');
+    expect(mapped.tags).toContain('pub-bar');
   });
 
   it('detects frozen-field mutation', () => {
