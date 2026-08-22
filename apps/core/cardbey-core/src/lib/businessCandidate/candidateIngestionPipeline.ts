@@ -17,6 +17,7 @@ import {
   listBusinessCandidates,
   upsertBusinessCandidates,
 } from './candidateRepository.js';
+import { normalizeSuburbLabel } from '../../utils/normalizeSuburbLabel.js';
 import { createBusinessOnboardingMission } from './businessOnboardingMission.js';
 import { emitBusinessDiscovered } from './candidateRuntimeEvents.js';
 import { checkCandidateDuplicate } from './candidateDedupe.js';
@@ -54,10 +55,11 @@ function discoveryToPersisted(
   initialStatus: BusinessCandidateStatus,
 ): BusinessCandidateRecord {
   const now = new Date().toISOString();
-  const suburb =
+  const suburb = normalizeSuburbLabel(
     (typeof candidate.metadata.suburb === 'string' ? candidate.metadata.suburb : null) ??
-    candidate.city ??
-    null;
+      candidate.city ??
+      null,
+  );
   const placeId =
     typeof candidate.metadata.placeId === 'string'
       ? candidate.metadata.placeId

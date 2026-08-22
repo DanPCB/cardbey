@@ -88,7 +88,7 @@ export async function batchStoreActivityScores(prisma, storeIds, windowDays = 7)
  */
 export function deriveStoreBadges(activityScore, publishedAt) {
   const badges = [];
-  if (activityScore >= 12) badges.push('HOT');
+  if (activityScore >= 40) badges.push('HOT');
   else if (activityScore >= 6) badges.push('TRENDING');
   const published = publishedAt ? new Date(publishedAt) : null;
   if (published && !Number.isNaN(published.getTime())) {
