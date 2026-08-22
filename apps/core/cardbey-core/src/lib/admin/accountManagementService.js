@@ -341,11 +341,58 @@ export async function listSuspiciousAccounts(prisma) {
 }
 
 /**
+ * Remove store-scoped rows that are not always FK-cascaded on production Postgres.
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {string} storeId
+ */
+async function purgeStoreDependencies(tx, storeId) {
+  await tx.user
+    .updateMany({
+      where: { personalPresenceStoreId: storeId },
+      data: { personalPresenceStoreId: null },
+    })
+    .catch(() => {});
+
+  await deleteManyIfAvailable(tx, 'opportunityInferenceRun', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'storeLeadActivity', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'businessLead', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'storeOutreachCampaign', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'contentEditProposal', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'suitcaseItem', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'conversationSession', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'loyaltyProgramStamp', { where: { storeId } });
+  await deleteManyIfAvailable(tx, 'loyaltyProgram', { where: { storeId } });
+
+  await tx.draftStore
+    .updateMany({
+      where: { committedStoreId: storeId },
+      data: { committedStoreId: null },
+    })
+    .catch(() => {});
+  await tx.businessSeed
+    .updateMany({
+      where: { storeId },
+      data: { storeId: null },
+    })
+    .catch(() => {});
+
+  await tx.promotionPlacement.deleteMany({ where: { storeId } }).catch(() => {});
+  await tx.promotion.deleteMany({ where: { storeId } }).catch(() => {});
+  await tx.smartObject.deleteMany({ where: { storeId } }).catch(() => {});
+  await tx.intentOpportunity.deleteMany({ where: { storeId } }).catch(() => {});
+  await tx.intentSignal.deleteMany({ where: { storeId } }).catch(() => {});
+  await tx.storeOffer.deleteMany({ where: { storeId } }).catch(() => {});
+  await tx.storePromo.deleteMany({ where: { storeId } }).catch(() => {});
+  await tx.product.deleteMany({ where: { businessId: storeId } }).catch(() => {});
+}
+
+/**
  * Hard-delete a store and dependent rows (admin).
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} storeId
+ * @param {{ actorUserId?: string | null, reason?: string | null }} [opts]
  */
-export async function adminDeleteStore(prisma, storeId) {
+export async function adminDeleteStore(prisma, storeId, opts = {}) {
   const store = await prisma.business.findUnique({
     where: { id: storeId },
     select: { id: true, name: true, slug: true },
@@ -357,16 +404,27 @@ export async function adminDeleteStore(prisma, storeId) {
     throw err;
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.promotionPlacement.deleteMany({ where: { storeId } }).catch(() => {});
-    await tx.promotion.deleteMany({ where: { storeId } }).catch(() => {});
-    await tx.smartObject.deleteMany({ where: { storeId } }).catch(() => {});
-    await tx.intentOpportunity.deleteMany({ where: { storeId } }).catch(() => {});
-    await tx.intentSignal.deleteMany({ where: { storeId } }).catch(() => {});
-    await tx.storeOffer.deleteMany({ where: { storeId } }).catch(() => {});
-    await tx.storePromo.deleteMany({ where: { storeId } }).catch(() => {});
-    await tx.product.deleteMany({ where: { businessId: storeId } }).catch(() => {});
-    await tx.business.delete({ where: { id: storeId } });
+  try {
+    await prisma.$transaction(async (tx) => {
+      await purgeStoreDependencies(tx, storeId);
+      await tx.business.delete({ where: { id: storeId } });
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Could not delete store (database constraint or server error)';
+    const wrapped = new Error(message);
+    wrapped.status = 500;
+    wrapped.code = 'store_delete_failed';
+    wrapped.cause = err;
+    throw wrapped;
+  }
+
+  console.log('[admin/account-management] store deleted', {
+    storeId: store.id,
+    slug: store.slug,
+    actorUserId: opts.actorUserId ?? null,
+    reason: typeof opts.reason === 'string' ? opts.reason.trim() : null,
+    timestamp: new Date().toISOString(),
   });
 
   return store;
