@@ -135,6 +135,7 @@ import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
 import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoringRoutes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
+import adminStoreContentManagementRoutes from './routes/admin/storeContentManagementRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
@@ -167,6 +168,9 @@ import authRoutes, { patchCurrentUserProfile } from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
 import storesRoutes from './routes/stores.js';
+import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
+import storeShowsRoutes from './routes/storeShowsRoutes.js';
+import performerContentEditingBridgeRoutes from './routes/performerContentEditingBridgeRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
 import promosPublicRoutes from './routes/promosPublic.js';
@@ -1070,7 +1074,10 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev/broker', devBrokerRuntimeProofRoutes);
 }
 app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
+app.use('/api/performer/content-editing-bridge', performerContentEditingBridgeRoutes); // Phase 2 bridge (flag-gated)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
+app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
+app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
 app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
@@ -1279,6 +1286,7 @@ app.use('/api/admin', adminPlatformActivityRoutes);
 app.use('/api/admin', adminPlatformSearchRoutes);
 app.use('/api/admin', adminMultiAgentMonitoringRoutes);
 app.use('/api/admin', adminAccountManagementRoutes);
+app.use('/api/admin', adminStoreContentManagementRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {

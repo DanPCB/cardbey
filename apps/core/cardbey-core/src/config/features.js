@@ -797,6 +797,25 @@ export const Features = {
       return parseBoolEnv(process.env.ENABLE_GLOBAL_STORE_CREATION_CTA_V1, false);
     },
   },
+
+  /**
+   * Performer → Draft Review content editing bridge (Improve / Edit manually / Hide now).
+   * Default OFF in all environments. Dashboard twin: VITE_ENABLE_PERFORMER_CONTENT_EDITING_BRIDGE_V1.
+   */
+  performerContentEditingBridge: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_PERFORMER_CONTENT_EDITING_BRIDGE_V1, false);
+    },
+  },
+  /**
+   * Website Editing Design & presentation adapter (Style & preview convergence C1).
+   * Default OFF. Dashboard twin: VITE_ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1.
+   */
+  websiteEditingDesignAdapter: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1, false);
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -988,6 +1007,9 @@ export function snapshotFeatures() {
     },
     globalStoreCreationCta: {
       v1: Features.globalStoreCreationCta.v1,
+    },
+    performerContentEditingBridge: {
+      v1: Features.performerContentEditingBridge.v1,
     },
   };
 }

@@ -719,6 +719,38 @@ model AuditEvent {
   @@index([correlationId])
 }
 
+model ContentEditProposal {
+  id                 String    @id @default(cuid())
+  actorId            String
+  storeId            String
+  draftId            String?
+  revisionId         String?
+  contentType        String // e.g. "shows"
+  contentItemId      String
+  scopedFieldsJson   String // JSON string[]
+  baseFingerprint    String
+  baseUpdatedAt      String?
+  proposedPatchJson  String // JSON patch object (safe fields only)
+  beforeSnapshotJson String // JSON snapshot without private media secrets
+  afterSnapshotJson  String
+  providerMethod     String // deterministic_relevance | deterministic_a11y | not_configured | …
+  status             String // PENDING | ACCEPTED | DISCARDED | EXPIRED | STALE | FAILED
+  expiresAt          DateTime
+  acceptedAt         DateTime?
+  discardedAt        DateTime?
+  appliedRevisionId  String?
+  adminReason        String?
+  correlationId      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([storeId, status, createdAt])
+  @@index([actorId, createdAt])
+  @@index([contentType, contentItemId, status])
+  @@index([expiresAt])
+  @@index([correlationId])
+}
+
 model DevSystemProposal {
   id                 String   @id @default(cuid())
   tenantKey          String?
