@@ -5,6 +5,7 @@
 import { listStoreProducts } from '../listStoreProducts.js';
 import { listStoreShows } from '../../services/storeShows/storeShowsService.js';
 import { bumpPublicFeedRankForStore } from '../feed/publicFeedRankBump.js';
+import { adminDeleteStore } from './accountManagementService.js';
 
 const SERVICE_CATEGORY_RE = /service|treatment|menu|package|consult/i;
 
@@ -234,4 +235,17 @@ export async function adminSoftDeleteProduct(prisma, { storeId, productId, actor
   });
 
   return { product: deleted, storeId };
+}
+
+export async function adminDeleteStoreContent(prisma, { storeId, actorUserId, reason }) {
+  const adminReason = requireAdminReason(reason);
+  const deleted = await adminDeleteStore(prisma, storeId, {
+    actorUserId,
+    reason: adminReason,
+  });
+  return {
+    deleted: deleted.id,
+    name: deleted.name,
+    slug: deleted.slug,
+  };
 }
