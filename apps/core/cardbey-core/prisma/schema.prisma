@@ -74,6 +74,7 @@ model User {
   cards                      Card[]
   suitcaseItems              SuitcaseItem[]
   conversationSessions       ConversationSession[]
+  liveMarketParticipantRegistrations LiveMarketParticipantRegistration[]
 
   @@index([email])
   @@index([handle])
@@ -254,6 +255,9 @@ model Business {
   storeSaves              StoreSave[]
   storeShares             StoreShare[]
   offerClaims             OfferClaim[]
+  liveMarketPilotEnrollment LiveMarketPilotEnrollment?
+  liveMarketSessions        LiveMarketSession[]
+  liveMarketParticipantRegistrations LiveMarketParticipantRegistration[]
 
   @@index([userId])
   @@index([slug])
@@ -605,6 +609,40 @@ model AuditEvent {
   createdAt     DateTime @default(now())
 
   @@index([entityType, entityId, createdAt])
+  @@index([correlationId])
+}
+
+
+/// General content-edit proposal (Performer bridge Phase 3). Not Shows-specific.
+model ContentEditProposal {
+  id                 String    @id @default(cuid())
+  actorId            String
+  storeId            String
+  draftId            String?
+  revisionId         String?
+  contentType        String
+  contentItemId      String
+  scopedFieldsJson   String
+  baseFingerprint    String
+  baseUpdatedAt      String?
+  proposedPatchJson  String
+  beforeSnapshotJson String
+  afterSnapshotJson  String
+  providerMethod     String
+  status             String
+  expiresAt          DateTime
+  acceptedAt         DateTime?
+  discardedAt        DateTime?
+  appliedRevisionId  String?
+  adminReason        String?
+  correlationId      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([storeId, status, createdAt])
+  @@index([actorId, createdAt])
+  @@index([contentType, contentItemId, status])
+  @@index([expiresAt])
   @@index([correlationId])
 }
 
@@ -4309,3 +4347,325 @@ model UniversalDiscoveryScore {
   asset UniversalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 }
 
+/// Cardbey Live Market — pilot enrolment (one active row per store).
+model LiveMarketPilotEnrollment {
+  id                         String    @id @default(cuid())
+  storeId                    String    @unique
+  store                      Business  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  state                      String    @default("INVITED")
+  approvedHostUserIds        Json?
+  allowedSourceLanguages     Json?
+  allowedTargetLanguages     Json?
+  maxSessionDurationMinutes  Int?
+  recordingAllowed           Boolean   @default(true)
+  automaticReplayPublication Boolean   @default(true)
+  approvedAt                 DateTime?
+  approvedByActorId          String?
+  pausedAt                   DateTime?
+  pausedByActorId            String?
+  removedAt                  DateTime?
+  removedByActorId           String?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([state])
+  @@index([storeId, state])
+}
+
+/// Live session lifecycle record (provider-neutral). Not a broadcast claim by itself.
+model LiveMarketSession {
+  id                          String   @id @default(cuid())
+  storeId                     String
+  store                       Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  hostUserId                  String
+  title                       String
+  description                 String?
+  sourceLanguage              String   @default("vi")
+  viewerLanguages             Json?
+  scheduledStartAt            DateTime?
+  startedAt                   DateTime?
+  endedAt                     DateTime?
+  state                       String   @default("DRAFT")
+  /// Editorial storefront announcement — independent of media LIVE.
+  storefrontPublicationStatus String   @default("HIDDEN")
+  storefrontPublishedAt       DateTime?
+  recordingEnabled            Boolean  @default(true)
+  automaticReplayPublication  Boolean  @default(true)
+  providerExternalRef         String?
+  endReasonCode               String?
+  failureReasonCode           String?
+  version                     Int      @default(1)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  subjects                    LiveMarketSessionSubject[]
+  participantRegistrations    LiveMarketParticipantRegistration[]
+
+  @@index([storeId])
+  @@index([storeId, state])
+  @@index([storeId, storefrontPublicationStatus, scheduledStartAt])
+  @@index([hostUserId])
+  @@index([state, scheduledStartAt])
+  @@index([scheduledStartAt])
+}
+
+/// Session subjects reference Product.id (products and services). No catalog field copies.
+model LiveMarketSessionSubject {
+  id          String            @id @default(cuid())
+  sessionId   String
+  session     LiveMarketSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  subjectType String
+  subjectId   String
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+
+  @@unique([sessionId, subjectType, subjectId])
+  @@index([sessionId])
+  @@index([subjectId])
+}
+
+/// Audience registration for published Global Live sessions (not viewers / not LIVE).
+model LiveMarketParticipantRegistration {
+  id                   String            @id @default(cuid())
+  sessionId            String
+  session              LiveMarketSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  storeId              String
+  store                Business          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId               String
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preferredLanguage    String
+  questionForHost      String?
+  /// Host inbox review state when a question exists — NEW|REVIEWED|PLANNED|ANSWERED|DISMISSED
+  questionReviewStatus String?
+  interestSubjectId    String?
+  interestSubjectType  String?
+  status               String            @default("REGISTERED")
+  registeredAt         DateTime          @default(now())
+  cancelledAt          DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@unique([sessionId, userId])
+  @@index([storeId, status])
+  @@index([userId, status, registeredAt])
+  @@index([sessionId, status])
+  @@index([sessionId, questionReviewStatus])
+}
+
+/// Marketing EOI for Cardbey Global Live pilots (not Live Market session registration).
+model GlobalLiveEoiRegistration {
+  id                      String    @id @default(cuid())
+  /// Stable pilot identifier (e.g. vn_au_global_live_v1). Not hard-coded to one corridor.
+  pilotId                 String
+  userId                  String?
+  storeId                 String?
+  name                    String
+  businessName            String
+  industry                String
+  city                    String
+  country                 String    @default("Vietnam")
+  phone                   String
+  email                   String
+  /// Lowercased trimmed email for soft dedupe (never used as account-existence signal)
+  emailNormalized         String
+  showcaseTypes           Json
+  businessDescription     String
+  /// yes | no | not_sure
+  existingCardbeyBusiness String
+  businessUrl             String?
+  language                String?
+  source                  String?
+  campaign                String?
+  utmSource               String?
+  utmMedium               String?
+  utmCampaign             String?
+  utmContent              String?
+  referrer                String?
+  socialProvider          String?
+  consentGranted          Boolean   @default(false)
+  consentAt               DateTime?
+  /// Server-authoritative EOI consent artifact id (e.g. global-live-eoi-consent-v1). Null = legacy/unversioned.
+  consentVersion          String?
+  privacyVersion          String?
+  termsVersion            String?
+  consentLocale           String?
+  /// e.g. GLOBAL_LIVE_EOI
+  consentContext          String?
+  /// SHA-256 hex of canonical consent text shown for consentVersion + locale
+  consentTextHash         String?
+  /// SUBMITTED | UNDER_REVIEW | SHORTLISTED | SELECTED | WAITLISTED | DECLINED | WITHDRAWN
+  status                  String    @default("SUBMITTED")
+  /// Opaque public receipt reference (never the Prisma cuid)
+  publicReference         String    @unique
+  /// sent | skipped | failed — delivery outcome only; no rendered body stored
+  confirmationEmailStatus String?
+  confirmationSentAt      DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([pilotId, status])
+  @@index([pilotId, emailNormalized])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([emailNormalized])
+}
+
+
+// --- Multi-market discovery + two-layer prebuilt store V1 (additive; flags default OFF) ---
+// JSON stores remain the runtime source for V1; these tables enable durable roll-forward.
+
+model MultiMarketDiscoveryJob {
+  id                  String    @id @default(cuid())
+  batchId             String
+  market              String
+  countryCode         String
+  regionCode          String?
+  territoryId         String
+  locality            String?
+  categoryId          String
+  searchTermsJson     String    @default("[]")
+  language            String    @default("en")
+  provider            String    @default("auto")
+  providerCursor      String?
+  campaignId          String?
+  pilotId             String?
+  dryRun              Boolean   @default(true)
+  slowMode            Boolean   @default(false)
+  requestedLimit      Int       @default(20)
+  status              String    @default("prepared")
+  discoveredCount     Int       @default(0)
+  acceptedCount       Int       @default(0)
+  duplicatesSkipped   Int       @default(0)
+  failureClassesJson  String    @default("[]")
+  estimatedQueryCount Int       @default(1)
+  queryAreaJson       String?
+  createdBy           String?
+  createdAt           DateTime  @default(now())
+  startedAt           DateTime?
+  completedAt         DateTime?
+
+  @@index([countryCode, status])
+  @@index([batchId])
+  @@index([territoryId, categoryId])
+  @@map("multi_market_discovery_job")
+}
+
+model PublicBusinessCard {
+  id                String    @id @default(cuid())
+  slug              String    @unique
+  candidateId       String
+  seedId            String?
+  status            String    @default("NOT_CREATED")
+  businessName      String
+  category          String?
+  address           String?
+  locality          String?
+  countryCode       String?
+  coordinatesJson   String?
+  publicPhone       String?
+  officialWebsite   String?
+  socialLinksJson   String?
+  openingHours      String?
+  imageUrl          String?
+  imageSource       String?
+  disclosure        String
+  claimEligibilityJson String @default("{}")
+  publishedAt       DateTime?
+  withdrawnAt       DateTime?
+  supersededStoreId String?
+  noindex           Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([candidateId])
+  @@index([status])
+  @@index([countryCode])
+  @@map("public_business_card")
+}
+
+model PrebuiltStoreDraft {
+  id                String    @id @default(cuid())
+  candidateId       String
+  cardId            String?
+  seedId            String?
+  status            String    @default("GENERATING")
+  businessName      String
+  slug              String
+  category          String?
+  address           String?
+  locality          String?
+  countryCode       String?
+  payloadJson       String    @default("{}")
+  publicFeedExcluded Boolean  @default(true)
+  claimStartedAt    DateTime?
+  claimVerifiedAt   DateTime?
+  convertedAt       DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  offerings PrebuiltOfferingDraft[]
+  assets    PrebuiltAssetDraft[]
+  evidence  PrebuiltFieldEvidence[]
+
+  @@index([candidateId])
+  @@index([status])
+  @@index([slug])
+  @@map("prebuilt_store_draft")
+}
+
+model PrebuiltOfferingDraft {
+  id            String   @id @default(cuid())
+  draftId       String
+  title         String
+  description   String?
+  priceText     String?
+  evidenceClass String
+  ownerAccepted Boolean  @default(false)
+  source        String?
+  included      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  draft PrebuiltStoreDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
+  @@map("prebuilt_offering_draft")
+}
+
+model PrebuiltAssetDraft {
+  id                     String   @id @default(cuid())
+  draftId                String
+  role                   String
+  sourceType             String
+  sourceUrlOrAssetId     String?
+  custodyMode            String?
+  retrievedAt            DateTime?
+  confidence             Float?
+  ownerApprovalRequired  Boolean  @default(true)
+  attributionRequired    Boolean  @default(false)
+  contentHash            String?
+  createdAt              DateTime @default(now())
+
+  draft PrebuiltStoreDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
+  @@map("prebuilt_asset_draft")
+}
+
+model PrebuiltFieldEvidence {
+  id              String   @id @default(cuid())
+  draftId         String
+  fieldPath       String
+  evidenceClass   String
+  source          String?
+  valueSummary    String?
+  ownerAccepted   Boolean?
+  blockedReason   String?
+  conflictSummary String?
+  updatedAt       DateTime @updatedAt
+
+  draft PrebuiltStoreDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId, fieldPath])
+  @@map("prebuilt_field_evidence")
+}

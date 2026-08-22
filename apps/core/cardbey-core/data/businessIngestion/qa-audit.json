@@ -1,6 +1,6 @@
 [
   {
-    "id": "aee9a4b6-42a0-4a50-9dfd-103d19addf5c",
+    "id": "7d076758-f448-425c-a4c5-2f276d8a91fb",
     "seedId": "gen-store-1",
     "previousStatus": "seeded_pending_qa",
     "nextStatus": "seeded_claimable",
@@ -8,7 +8,40 @@
     "reviewerId": {
       "actorId": "qa-1"
     },
-    "timestamp": "2026-06-29T04:56:32.618Z",
+    "timestamp": "2026-08-14T00:29:10.116Z",
+    "reason": null,
+    "canonicalSeedId": null
+  },
+  {
+    "id": "a210121c-bf6a-4070-ae1f-eeedced3a272",
+    "seedId": "gen-store-1",
+    "previousStatus": "seeded_claimable",
+    "nextStatus": "seeded_pending_qa",
+    "action": "send_back_to_review",
+    "reviewerId": "phase4-enrich",
+    "timestamp": "2026-08-14T01:05:10.009Z",
+    "reason": "Phase 4: align Batch0 to pending QA before enrichment",
+    "canonicalSeedId": null
+  },
+  {
+    "id": "eb5432fc-7cb6-490e-ad07-4f1547d40245",
+    "seedId": "39f1bfba-c728-40d3-9574-a25693cbb4fd",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "Approved via Control Center QA Review",
+    "timestamp": "2026-08-14T14:02:13.395Z",
+    "reason": null,
+    "canonicalSeedId": null
+  },
+  {
+    "id": "c0891e54-9faf-485c-9904-465860edc0b0",
+    "seedId": "55bd0ac7-b057-4d5c-a110-5f29e8209d68",
+    "previousStatus": "seeded_pending_qa",
+    "nextStatus": "seeded_claimable",
+    "action": "approve",
+    "reviewerId": "Approved via Control Center QA Review",
+    "timestamp": "2026-08-14T14:02:18.161Z",
     "reason": null,
     "canonicalSeedId": null
   }

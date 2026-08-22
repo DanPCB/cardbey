@@ -130,6 +130,7 @@ router.get('/v2/flags', (req, res) => {
     business_builder_v1: true,
     menu_visual_agent_v1: getFeatureFlag('ENABLE_MENU_VISUAL_AGENT', false),
     ENABLE_GLOBAL_STORE_CREATION_CTA_V1: Boolean(Features.globalStoreCreationCta?.v1),
+    ENABLE_PERFORMER_CONTENT_EDITING_BRIDGE_V1: Boolean(Features.performerContentEditingBridge?.v1),
     EXPERIMENTS: {
       HOME_SECTIONS_V2: true,
       OAUTH_INTEGRATION: false

@@ -1,6 +1,6 @@
 [
   {
-    "id": "71bc54bd-2e5c-4415-ae98-de51c0f9c511",
+    "id": "43e3f7ce-cbc9-46e4-b0d8-8412b8e5649a",
     "seedId": "gen-store-1",
     "fromStatus": "seeded_pending_qa",
     "toStatus": "seeded_claimable",
@@ -13,6 +13,20 @@
     "reason": null,
     "claimRequestId": null,
     "metadata": {},
-    "createdAt": "2026-06-29T04:56:32.619Z"
+    "createdAt": "2026-08-14T00:29:10.118Z"
+  },
+  {
+    "id": "e4198cfd-c7e0-4912-ab98-728594b72597",
+    "seedId": "gen-store-1",
+    "fromStatus": "seeded_claimable",
+    "toStatus": "seeded_pending_qa",
+    "lifecycleStage": "seeded_pending_qa",
+    "action": "qa_send_back",
+    "actorId": "phase4-enrich",
+    "actorType": "admin",
+    "reason": "Phase 4: align Batch0 to pending QA before enrichment",
+    "claimRequestId": null,
+    "metadata": {},
+    "createdAt": "2026-08-14T01:05:10.010Z"
   }
 ]

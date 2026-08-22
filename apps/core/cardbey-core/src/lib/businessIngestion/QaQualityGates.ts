@@ -7,9 +7,16 @@ import type { IngestedSeedRecord } from './types.js';
 
 export const AUTO_APPROVAL_MIN_QUALITY_SCORE = 70;
 
+/** Prestige / outreach seeds missing a real hero must not bulk-approve. */
+export const QA_FLAG_HERO_MISSING = 'HERO_MISSING';
+
 export interface AutoApprovalSuggestion {
   suggested: boolean;
   reasons: string[];
+}
+
+function seedQaFlags(seed: IngestedSeedRecord): string[] {
+  return Array.isArray(seed.qaFlags) ? seed.qaFlags.map(String) : [];
 }
 
 /**
@@ -20,6 +27,9 @@ export function suggestAutoApproval(seed: IngestedSeedRecord): AutoApprovalSugge
   const reasons: string[] = [];
   const n = seed.normalized;
 
+  if (seedQaFlags(seed).includes(QA_FLAG_HERO_MISSING)) {
+    reasons.push('HERO_MISSING — assign a venue hero before QA approve / outreach');
+  }
   if (seed.verificationStatus !== 'seeded_pending_qa') {
     reasons.push(`status is ${seed.verificationStatus}, not seeded_pending_qa`);
   }
@@ -47,6 +57,13 @@ export function suggestAutoApproval(seed: IngestedSeedRecord): AutoApprovalSugge
 
 /** Hard block: entity/marked duplicates cannot be promoted to claimable. */
 export function canPromoteToClaimable(seed: IngestedSeedRecord): { ok: boolean; message: string } {
+  if (seedQaFlags(seed).includes(QA_FLAG_HERO_MISSING)) {
+    return {
+      ok: false,
+      message:
+        'HERO_MISSING — this seed needs a venue hero image before QA approve (bulk and manual).',
+    };
+  }
   if (seed.verificationStatus === 'duplicate' || seed.resolution === 'duplicate') {
     return { ok: false, message: 'Duplicate seeds cannot be promoted to claimable.' };
   }

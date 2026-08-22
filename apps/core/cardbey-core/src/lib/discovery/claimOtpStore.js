@@ -1,6 +1,6 @@
 /**
- * In-memory OTP store for discovery claim verification (10 min TTL).
- * Phase 2: replace with SMS/email delivery.
+ * In-memory OTP helpers retained for discovery claim tests + generateOtp.
+ * Durable claim ownership OTP uses lib/claim/claimOtpService.js (Prisma ClaimOtp).
  */
 
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -11,6 +11,7 @@ export function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+/** @deprecated Prefer claimOtpService.initiateClaimOtp for seed claims */
 export function setClaimOtp(unclaimedStoreId, userId, otp) {
   store.set(unclaimedStoreId, {
     otp,
@@ -19,6 +20,7 @@ export function setClaimOtp(unclaimedStoreId, userId, otp) {
   });
 }
 
+/** @deprecated Prefer claimOtpService.verifyClaimOtpCode for seed claims */
 export function verifyClaimOtp(unclaimedStoreId, userId, otp) {
   const entry = store.get(unclaimedStoreId);
   if (!entry) return false;

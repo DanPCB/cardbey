@@ -114,6 +114,40 @@ export function scoreSourceMatch(source, identity) {
   return { matched, confidence, reasons, source };
 }
 
+function gbpWebsiteHost(match) {
+  const raw = match?.source?.raw ?? {};
+  return websiteHost(raw.website ?? raw.url ?? match?.source?.sourceUrl);
+}
+
+/**
+ * Keep official-website extracts (nav categories, schema offers) when Google
+ * already matched the same host. Schema/OG titles are often the hostname
+ * (`modernsecuritydoors.com.au`) and fail name identity on their own.
+ * @param {import('./types.js').SourceMatchResult[]} scored
+ */
+export function attachOfficialWebsiteWhenGbpMatches(scored) {
+  if (!Array.isArray(scored) || scored.length === 0) return scored;
+  const gbpHits = scored.filter(
+    (m) => m?.matched && m.source?.sourceType === 'google_business' && gbpWebsiteHost(m),
+  );
+  if (!gbpHits.length) return scored;
+
+  return scored.map((m) => {
+    if (m?.source?.sourceType !== 'official_website') return m;
+    if (m.matched && m.confidence >= 0.55) return m;
+    const webHost = websiteHost(m.source.sourceUrl ?? m.source.raw?.website ?? m.source.raw?.url);
+    if (!webHost) return m;
+    const gbpHit = gbpHits.find((g) => gbpWebsiteHost(g) === webHost);
+    if (!gbpHit) return m;
+    return {
+      ...m,
+      matched: true,
+      confidence: Math.max(Number(m.confidence) || 0, Math.min(1, Number(gbpHit.confidence) || 0.55)),
+      reasons: [...new Set([...(Array.isArray(m.reasons) ? m.reasons : []), 'google-place-website'])],
+    };
+  });
+}
+
 function slugSimilarity(a, b) {
   const sa = slugWords(a);
   const sb = slugWords(b);

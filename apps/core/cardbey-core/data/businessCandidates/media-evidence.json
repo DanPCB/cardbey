@@ -1,0 +1,117 @@
+[
+  {
+    "id": "0532d5d4-f84d-4264-8850-319a8648c075",
+    "candidateId": "210f8adc-4474-4611-a7c9-2d7b831cbdff",
+    "seedId": null,
+    "assetType": "storefront",
+    "url": "https://maps.google.com/?cid=13872203734044290935&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "thumbnailUrl": "https://maps.google.com/?cid=13872203734044290935&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceProvider": "google_places",
+    "sourceUrl": "https://maps.google.com/?cid=13872203734044290935&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceLabel": "Provider business photo",
+    "sourceType": "provider_photo",
+    "matchConfidence": 0.75,
+    "categoryMatchConfidence": 0.7,
+    "businessSpecificConfidence": 0.8,
+    "isRepresentative": false,
+    "licenseStatus": "needs_review",
+    "usageStatus": "needs_review",
+    "evidenceJson": {
+      "placeId": "ChIJ_S8AJh1e1moRd6-OS8z3g8A",
+      "provider": "google_places"
+    },
+    "createdAt": "2026-08-14T14:01:54.423Z"
+  },
+  {
+    "id": "0213d5af-73a2-419c-90fa-9fd8cbb4319b",
+    "candidateId": "96fafecf-9306-4ae1-baf0-f785b262cabe",
+    "seedId": null,
+    "assetType": "storefront",
+    "url": "https://maps.google.com/?cid=10941051839596960301&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "thumbnailUrl": "https://maps.google.com/?cid=10941051839596960301&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceProvider": "google_places",
+    "sourceUrl": "https://maps.google.com/?cid=10941051839596960301&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceLabel": "Provider business photo",
+    "sourceType": "provider_photo",
+    "matchConfidence": 0.75,
+    "categoryMatchConfidence": 0.7,
+    "businessSpecificConfidence": 0.8,
+    "isRepresentative": false,
+    "licenseStatus": "needs_review",
+    "usageStatus": "needs_review",
+    "evidenceJson": {
+      "placeId": "ChIJdXggWzxe1moRLZpPEK5s1pc",
+      "provider": "google_places"
+    },
+    "createdAt": "2026-08-14T14:01:54.494Z"
+  },
+  {
+    "id": "90d87a57-85b8-4452-93f1-9e64e3fe703b",
+    "candidateId": "66341366-c958-4c78-b545-6c12c0416c5e",
+    "seedId": null,
+    "assetType": "storefront",
+    "url": "https://maps.google.com/?cid=3143747403526973306&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "thumbnailUrl": "https://maps.google.com/?cid=3143747403526973306&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceProvider": "google_places",
+    "sourceUrl": "https://maps.google.com/?cid=3143747403526973306&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceLabel": "Provider business photo",
+    "sourceType": "provider_photo",
+    "matchConfidence": 0.75,
+    "categoryMatchConfidence": 0.7,
+    "businessSpecificConfidence": 0.8,
+    "isRepresentative": false,
+    "licenseStatus": "needs_review",
+    "usageStatus": "needs_review",
+    "evidenceJson": {
+      "placeId": "ChIJz5b4GCBe1moReifIcpvVoCs",
+      "provider": "google_places"
+    },
+    "createdAt": "2026-08-14T14:01:54.683Z"
+  },
+  {
+    "id": "0a790e18-a6db-43c3-bd0a-5d8fe5a0907a",
+    "candidateId": "6ab45784-5fe6-48b2-a725-94684908b65e",
+    "seedId": null,
+    "assetType": "storefront",
+    "url": "https://maps.google.com/?cid=13209882903146461795&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "thumbnailUrl": "https://maps.google.com/?cid=13209882903146461795&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceProvider": "google_places",
+    "sourceUrl": "https://maps.google.com/?cid=13209882903146461795&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceLabel": "Provider business photo",
+    "sourceType": "provider_photo",
+    "matchConfidence": 0.75,
+    "categoryMatchConfidence": 0.7,
+    "businessSpecificConfidence": 0.8,
+    "isRepresentative": false,
+    "licenseStatus": "needs_review",
+    "usageStatus": "needs_review",
+    "evidenceJson": {
+      "placeId": "ChIJmbK1Whhe1moRY_qM7oLuUrc",
+      "provider": "google_places"
+    },
+    "createdAt": "2026-08-14T14:01:54.744Z"
+  },
+  {
+    "id": "d1c68df9-ce05-47f7-bba6-8caad49a497e",
+    "candidateId": "8a93b91a-84d4-4d6f-b978-f865f8999312",
+    "seedId": null,
+    "assetType": "storefront",
+    "url": "https://maps.google.com/?cid=8909416609362750202&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "thumbnailUrl": "https://maps.google.com/?cid=8909416609362750202&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceProvider": "google_places",
+    "sourceUrl": "https://maps.google.com/?cid=8909416609362750202&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+    "sourceLabel": "Provider business photo",
+    "sourceType": "provider_photo",
+    "matchConfidence": 0.75,
+    "categoryMatchConfidence": 0.7,
+    "businessSpecificConfidence": 0.8,
+    "isRepresentative": false,
+    "licenseStatus": "needs_review",
+    "usageStatus": "needs_review",
+    "evidenceJson": {
+      "placeId": "ChIJdyUmDhRe1moR-ioIvTObpHs",
+      "provider": "google_places"
+    },
+    "createdAt": "2026-08-14T14:02:13.514Z"
+  }
+]

@@ -136,6 +136,7 @@ import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoring
 import adminDeepseekDiagnosticRoutes from './routes/admin/deepseekDiagnosticRoutes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
+import adminStoreContentManagementRoutes from './routes/admin/storeContentManagementRoutes.js';
 import activationEventRoutes from './routes/public/activationEventRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
@@ -169,6 +170,9 @@ import authRoutes, { patchCurrentUserProfile } from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
 import storesRoutes from './routes/stores.js';
+import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
+import storeShowsRoutes from './routes/storeShowsRoutes.js';
+import performerContentEditingBridgeRoutes from './routes/performerContentEditingBridgeRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
 import promosPublicRoutes from './routes/promosPublic.js';
@@ -1060,7 +1064,10 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev/broker', devBrokerRuntimeProofRoutes);
 }
 app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
+app.use('/api/performer/content-editing-bridge', performerContentEditingBridgeRoutes); // Phase 2 bridge (flag-gated)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
+app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
+app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
 app.use('/api/store', storesRoutes); // Store context routes: /api/store/context, /api/store/:id/context
@@ -1265,6 +1272,7 @@ app.use('/api/admin', adminPlatformSearchRoutes);
 app.use('/api/admin', adminMultiAgentMonitoringRoutes);
 app.use('/api/admin', adminDeepseekDiagnosticRoutes); // Admin: GET /api/admin/deepseek-diagnostic
 app.use('/api/admin', adminAccountManagementRoutes);
+app.use('/api/admin', adminStoreContentManagementRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {

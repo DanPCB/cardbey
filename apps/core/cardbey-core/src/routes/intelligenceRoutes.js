@@ -18,6 +18,7 @@ import {
   getFleetIntelligenceOverrides,
   setFleetIntelligenceOverrides,
 } from '../services/intelligence/intelligenceOverrideService.js';
+import { buildCanonicalSeedingMetrics } from '../lib/businessIngestion/buildCanonicalSeedingMetrics.js';
 
 const router = Router();
 
@@ -106,17 +107,24 @@ router.put('/overrides', foundationMetricsGate, async (req, res) => {
   }
 });
 
-router.get('/metrics', foundationMetricsGate, (_req, res) => {
-  res.json({
-    ok: true,
-    gate:
-      process.env.NODE_ENV !== 'production' ||
-      String(process.env.RENDER_SERVICE_NAME ?? '').toLowerCase().includes('staging') ||
-      process.env.CARDBEY_ENV === 'staging'
-        ? 'staging_or_dev_open'
-        : 'production_admin',
-    ...foundationMetricsSnapshot(),
-  });
+/**
+ * GET /api/intelligence/metrics
+ * Permanent alias of canonical seeding funnel metrics (business-ingestion).
+ * Auth: always requireAuth + requireAdmin (401 unauthenticated).
+ * Foundation latency snapshot nested under `foundation` (not a second funnel).
+ */
+router.get('/metrics', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const seeding = await buildCanonicalSeedingMetrics();
+    return res.status(200).json({
+      ...seeding,
+      aliasOf: '/api/business-ingestion/metrics',
+      foundation: foundationMetricsSnapshot(),
+    });
+  } catch (error) {
+    console.error('[intelligence] metrics alias error:', error);
+    next(error);
+  }
 });
 
 router.post('/memory', guestSessionId, optionalAuth, async (req, res) => {
