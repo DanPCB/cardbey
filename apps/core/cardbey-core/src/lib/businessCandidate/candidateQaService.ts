@@ -19,7 +19,7 @@ function toDiscoveryShape(record: BusinessCandidateRecord): DiscoveryBusinessCan
     providerId: record.discoveryProviderId as DiscoveryBusinessCandidate['providerId'],
     externalId: record.externalId,
     businessName: record.name,
-    category: record.businessType,
+    category: record.category ?? record.businessType,
     address: record.address,
     city: record.suburb ?? record.city,
     state: record.state,

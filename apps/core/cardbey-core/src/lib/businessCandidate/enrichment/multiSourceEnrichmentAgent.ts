@@ -15,6 +15,7 @@ import { saveBusinessCandidate } from '../candidateRepository.js';
 import { lookupAbnPublic } from './abrLookup.js';
 import { EnrichmentBudget, EnrichmentBudgetExhaustedError } from './budget.js';
 import { isDefaultOtherCategory, mapToCardbeyCategory } from './categoryMap.js';
+import { buildCategoryMappingInputFromCandidate } from './resolveEnrichmentSignals.js';
 import { resolveHeroImage } from './heroImageResolve.js';
 import { isPlaceholderDescription, wordCount } from './htmlUtils.js';
 import { queryOsmOverpass } from './osmCrossRef.js';
@@ -35,6 +36,7 @@ import {
   extractFromBusinessWebsite,
   extractPublicSocialProfile,
   extractYellowPagesSnippet,
+  extractTrueLocalSnippet,
 } from './webExtractors.js';
 
 function snapshotFrozen(c: BusinessCandidateRecord): Record<string, unknown> {
@@ -388,34 +390,44 @@ export async function enrichCandidateMultiSource(params: {
         }
       }
 
-      // STEP 5 — Aggregator if thin
+      // STEP 5 — Tier 3 aggregators when evidence is thin
       const thinSoFar =
         !bag.description ||
         isPlaceholderDescription(bag.description.value) ||
         (!websiteExtract && !igBio && !fbAbout);
+      let ypExtract: Awaited<ReturnType<typeof extractYellowPagesSnippet>> = null;
+      let trueLocalExtract: Awaited<ReturnType<typeof extractTrueLocalSnippet>> = null;
       if (thinSoFar && candidate.name && budget.websiteFetches < budget.maxFetches) {
         budget.assertWithinBudget();
-        const yp = await extractYellowPagesSnippet(budget, candidate.name, candidate.suburb);
-        if (yp) {
+        ypExtract = await extractYellowPagesSnippet(budget, candidate.name, candidate.suburb);
+        if (ypExtract) {
           sourcesUsed.add('yellow_pages');
           noteHighest(3);
-          if (yp.description && !bag.description) {
-            // Do not use aggregator text as public description per prompt —
-            // keep only as research signal for category mapping.
-          }
+        }
+      }
+      if (
+        thinSoFar &&
+        candidate.name &&
+        budget.websiteFetches < budget.maxFetches &&
+        (!ypExtract?.description || wordCount(ypExtract.description) < 30)
+      ) {
+        budget.assertWithinBudget();
+        trueLocalExtract = await extractTrueLocalSnippet(budget, candidate.name, candidate.suburb);
+        if (trueLocalExtract) {
+          sourcesUsed.add('true_local');
+          noteHighest(3);
         }
       }
 
-      // STEP 6 — Category mapping (rule-based; Claude optional later if budget)
+      // STEP 6 — Category mapping (rule-based; uses aggregator snippets as signals)
+      const signalInput = buildCategoryMappingInputFromCandidate(candidate);
       const mapped = mapToCardbeyCategory({
-        businessName: candidate.name,
-        businessType: candidate.businessType ?? candidate.category,
-        placesTypes: Array.isArray(candidate.rawSourceJson?.types)
-          ? (candidate.rawSourceJson!.types as string[])
-          : null,
+        ...signalInput,
         osmTag,
         igCategory,
         fbCategory,
+        ypSnippet: ypExtract?.description ?? null,
+        trueLocalSnippet: trueLocalExtract?.description ?? null,
         websiteNavItems: websiteExtract?.navItems ?? null,
       });
       setField(bag, 'category', {
@@ -447,6 +459,8 @@ export async function enrichCandidateMultiSource(params: {
         businessType: candidate.businessType,
         businessName: candidate.name,
         suburb: candidate.suburb,
+        placesTypes: buildCategoryMappingInputFromCandidate(candidate).placesTypes,
+        tags: mapped.tags,
         identityMatchedWebsite: Boolean(websiteUrl),
       });
       const hero = heroResolved.hero;
@@ -475,10 +489,16 @@ export async function enrichCandidateMultiSource(params: {
         websiteDescription: websiteExtract?.description ?? null,
         instagramBio: igBio,
         facebookAbout: fbAbout,
+        yellowPagesDescription: ypExtract?.description ?? null,
+        trueLocalDescription: trueLocalExtract?.description ?? null,
         cuisineOrSpecialty: cuisine,
-        evidenceUrls: [websiteExtract?.sourceUrl, instagramUrl, facebookUrl].filter(
-          Boolean,
-        ) as string[],
+        evidenceUrls: [
+          websiteExtract?.sourceUrl,
+          instagramUrl,
+          facebookUrl,
+          ypExtract?.sourceUrl,
+          trueLocalExtract?.sourceUrl,
+        ].filter(Boolean) as string[],
       });
       if (descSynth.meta.usedClaude) sourcesUsed.add('claude_synthesised');
       else sourcesUsed.add('rule_synthesised');
