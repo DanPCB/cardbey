@@ -20,6 +20,8 @@ import {
 
 } from '../discovery/claimOtpStore.js';
 
+import { syncSeedCategoryFromLinkedCandidate } from '../businessCandidate/enrichment/seedCategoryNormalization.js';
+
 import { websiteHost, normalizePhone } from '../businessDiscovery/businessDataNormalizer.js';
 
 import { maskEmail, maskPhone } from './contactMasking.js';
@@ -951,6 +953,27 @@ export async function verifySeedClaimProof(params: {
 
     .catch(() => {});
 
+  void import('../../services/notifications/inAppNotificationService.js')
+    .then(({ emitInAppNotification }) =>
+      emitInAppNotification({
+        recipientUserId: params.claimantUserId,
+        recipientRole: 'owner',
+        type: 'STORE_CLAIM_VERIFIED',
+        category: 'store',
+        priority: 'SUCCESS',
+        title: 'Store claim verified',
+        message: `${updatedSeed.normalized?.businessName ?? 'Business'} is verified. Continue activation.`,
+        actionUrl: `/activate-business/${params.seedId}`,
+        entityType: 'business_seed',
+        entityId: params.seedId,
+        i18nKey: 'notifications.types.STORE_CLAIM_VERIFIED.title',
+        i18nParams: { storeName: updatedSeed.normalized?.businessName ?? 'Business' },
+        dedupeKey: `STORE_CLAIM_VERIFIED:${params.seedId}`,
+        surface: 'system',
+      }),
+    )
+    .catch(() => {});
+
 
 
   return {
@@ -991,9 +1014,11 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
 }> {
 
-  const seed = await getSeedRecordById(params.seedId);
+  const seedRow = await getSeedRecordById(params.seedId);
 
-  if (!seed) return { ok: false, seed: null, message: 'Seed not found.' };
+  if (!seedRow) return { ok: false, seed: null, message: 'Seed not found.' };
+
+  const seed = (await syncSeedCategoryFromLinkedCandidate(params.seedId)) ?? seedRow;
 
   if (seed.verificationStatus !== 'verified_owner') {
 
@@ -1124,6 +1149,19 @@ export async function activateSeedAfterOwnerConfirmation(params: {
   const transition = applySeedStatusTransition(seed, 'active');
 
   if (!transition.ok) return { ok: false, seed, message: transition.message };
+
+  try {
+    const { tryRecordBusinessClaimed } = await import(
+      '../../services/marketingOperations/attributionSpine.js'
+    );
+    void tryRecordBusinessClaimed({
+      userId: ownerId,
+      storeId: transfer.storeId ?? seed.storeId ?? null,
+      seedId: params.seedId,
+    });
+  } catch {
+    /* non-fatal */
+  }
 
 
 
