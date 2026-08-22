@@ -11,6 +11,7 @@ const INTENT_TOOL_MAP: Record<string, string> = {
   setup_loyalty: 'setup_loyalty_program',
   analytics: 'get_store_analytics',
   manage_catalog: 'replace_store_catalog',
+  content_edit: 'code_fix',
 };
 
 function isGuestActorId(userId: string | null | undefined): boolean {

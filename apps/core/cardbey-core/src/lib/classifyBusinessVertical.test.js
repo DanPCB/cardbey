@@ -124,4 +124,14 @@ describe('classifyBusinessVertical', () => {
     expect(result.businessVertical).toBe('food');
     expect(result.ctaLabel).toBe('Order now');
   });
+
+  it('classifies capital group as service with Book now', () => {
+    const result = classifyBusinessVertical({
+      category: 'Other',
+      businessName: 'Anison Capital Group',
+    });
+    expect(result.businessVertical).toBe('service');
+    expect(result.ctaLabel).toBe('Book now');
+    expect(result.feedCategory).toBe('services');
+  });
 });

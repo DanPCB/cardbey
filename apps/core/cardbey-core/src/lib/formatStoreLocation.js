@@ -57,7 +57,12 @@ export function hasReliableStoreLocationLabel(store) {
 }
 
 /**
- * Feed/card location line with confidence-aware fallback text.
+ * Feed/card location line.
+ * Prefer real locality/address text whenever present (city, suburb, state, country).
+ * "Location not confirmed" is only for records with an address signal that cannot
+ * be turned into any displayable locality string (e.g. coordinates-only).
+ * Map pin reliability remains gated by hasConfirmedStoreCoordinates / hasReliableStoreLocationLabel.
+ *
  * @param {object | null | undefined} store
  * @returns {string | null}
  */
@@ -65,11 +70,10 @@ export function formatFeedStoreLocationLabel(store) {
   if (!store || typeof store !== 'object') return null;
 
   const compact = formatStoreLocation(store);
-  if (compact && hasReliableStoreLocationLabel(store)) return compact;
+  if (compact) return compact;
 
-  if (hasCanonicalStoreAddress(store) && !hasConfirmedStoreCoordinates(store)) {
-    return LOCATION_NOT_CONFIRMED_LABEL;
-  }
+  const long = formatStoreLocationLong(store);
+  if (long) return long;
 
   if (!hasCanonicalStoreAddress(store)) {
     return null;

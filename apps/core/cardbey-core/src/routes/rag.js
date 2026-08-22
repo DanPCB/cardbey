@@ -9,10 +9,13 @@ import { getRagAnswer, buildRagContext } from '../services/ragService.js';
 import { requestLog } from '../middleware/requestLog.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 import OpenAI from 'openai';
+import { llmGateway } from '../lib/llm/llmGateway.ts';
+import { warnDirectOpenAICall } from '../lib/llm/directOpenAICall.js';
+import { Features } from '../config/features.js';
 
 const router = express.Router();
 
-// Initialize OpenAI client for streaming
+// OpenAI client for streaming rollback only (Phase 0 gateway has no token stream yet)
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -144,8 +147,13 @@ router.post('/ask/stream', async (req, res, next) => {
       return;
     }
 
-    if (!HAS_OPENAI) {
-      res.write(`event: error\ndata: ${JSON.stringify({ message: 'OpenAI API key not configured' })}\n\n`);
+    const canAnswer = Features.llm.useGateway
+      ? Features.llm.available
+      : HAS_OPENAI;
+    if (!canAnswer) {
+      res.write(
+        `event: error\ndata: ${JSON.stringify({ message: 'No LLM provider configured' })}\n\n`,
+      );
       res.end();
       return;
     }
@@ -191,33 +199,51 @@ Question: ${question.trim()}
 
 Please provide a helpful answer based on the context above. If the context doesn't contain enough information, say so.`;
 
-    // Call OpenAI with streaming
-    const stream = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 1000,
-      stream: true,
-    });
-
     let fullText = '';
 
-    // Stream tokens as they arrive
-    for await (const chunk of stream) {
-      const content = chunk.choices?.[0]?.delta?.content;
-      if (content) {
-        fullText += content;
-        // Send delta event
-        res.write(`event: delta\ndata: ${JSON.stringify({ text: content })}\n\n`);
+    if (Features.llm.useGateway) {
+      // Phase 0: gateway has no native SSE; complete then emit as one delta
+      const result = await llmGateway.complete({
+        purpose: 'rag_answer_stream',
+        tenantKey: 'rag',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        provider: Features.llm.defaultProvider,
+        model: Features.llm.defaultModel,
+        temperature: 0.7,
+        maxTokens: 1000,
+        responseFormat: 'text',
+      });
+      fullText = result.text || '';
+      if (fullText) {
+        res.write(`event: delta\ndata: ${JSON.stringify({ text: fullText })}\n\n`);
       }
+    } else {
+      warnDirectOpenAICall('routes/rag.js#ask/stream');
+      const stream = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+        stream: true,
+      });
 
-      // Check if stream is done
-      const finishReason = chunk.choices?.[0]?.finish_reason;
-      if (finishReason === 'stop' || finishReason === 'length') {
-        break;
+      for await (const chunk of stream) {
+        const content = chunk.choices?.[0]?.delta?.content;
+        if (content) {
+          fullText += content;
+          res.write(`event: delta\ndata: ${JSON.stringify({ text: content })}\n\n`);
+        }
+
+        const finishReason = chunk.choices?.[0]?.finish_reason;
+        if (finishReason === 'stop' || finishReason === 'length') {
+          break;
+        }
       }
     }
 

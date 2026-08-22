@@ -128,6 +128,16 @@ export function resolveHeroImageSearchQuery(params = {}) {
   if (/\b(handyman|handy[\s-]?man)\b/.test(name)) {
     return 'handyman home repair tools contractor hero banner';
   }
+  if (
+    /\b(capital|finance|financial|investment|private equity|wealth|asset management|venture)\b/.test(
+      name,
+    )
+  ) {
+    return 'corporate finance office modern skyline hero banner';
+  }
+  if (/\b(consulting|consultant|advisory)\b/.test(name)) {
+    return 'business consulting meeting modern office hero banner';
+  }
 
   return null;
 }

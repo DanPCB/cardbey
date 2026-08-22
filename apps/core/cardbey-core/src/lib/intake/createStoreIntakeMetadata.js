@@ -12,6 +12,8 @@ export const CREATE_STORE_INTAKE_SOURCE_VALUES = new Set([
   'chat',
   'performer_pill',
   'manual',
+  'upload_ask_selection',
+  'new_store_url',
 ]);
 
 /**
@@ -20,6 +22,7 @@ export const CREATE_STORE_INTAKE_SOURCE_VALUES = new Set([
  */
 export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'source',
+  'sourceType',
   'intent',
   'message',
   'intentLabel',
@@ -41,6 +44,21 @@ export const CREATE_STORE_INTAKE_METADATA_PARAM_KEYS = [
   'pipelineId',
   'stepId',
   'draftId',
+  'clientRequestId',
+  'requestId',
+  'evidenceId',
+  'attachmentId',
+  'attachmentIds',
+  'contentHash',
+  'fromAskSelection',
+  'cardExtraction',
+  'storeCandidate',
+  // Ask chip / belief attachment context — must not become unknown_field clarify
+  'conversationId',
+  'sessionKey',
+  'sourceMessageId',
+  'observeFirstAsk',
+  'resolveConflict',
   '_performerMode',
   '_performerSource',
   '_manualAction',
@@ -65,6 +83,9 @@ export const STORE_CREATE_FORM_ALLOWED_KEYS = new Set([
   'location',
   'intentMode',
   'websiteUrl',
+  'website',
+  'phone',
+  'email',
 ]);
 
 /**

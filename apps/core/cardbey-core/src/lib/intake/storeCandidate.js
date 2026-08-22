@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { parseBusinessCardOCR } from '../businessCardParser.js';
 import { inferStoreCategoryFromHint } from './storeCreationDraft.js';
 import { mapVerticalSlugToCategory } from './storeCreationDraftAssetBridge.js';
+import { canonicalizeCreateStoreCategory } from './intakeErrorTypes.js';
 
 /** @typedef {'business_card'|'menu'|'flyer'|'brochure'|'poster'|'storefront_photo'|'logo'|'invoice'|'receipt'|'unknown'} DocumentType */
 
@@ -181,7 +182,9 @@ export function buildStoreCandidateFromOcr(rawOcrText, meta = {}) {
   if (addrF) extractedFields.address = addrF;
 
   const vertical = strip(meta.vertical ?? entities.vertical ?? entities.category ?? entities.businessType);
-  const catLabel = mapVerticalSlugToCategory(vertical) ?? vertical;
+  const catLabel = canonicalizeCreateStoreCategory(
+    mapVerticalSlugToCategory(vertical) ?? vertical,
+  );
   const catF = field(catLabel, 0.7, 'inference', 'category_hint');
   if (catF && catLabel) extractedFields.category = catF;
 
@@ -407,6 +410,36 @@ export function peekPendingDocumentExtraction(sessionId) {
 }
 
 /**
+ * @param {string | null | undefined} sessionId
+ */
+export function clearPendingDocumentExtraction(sessionId) {
+  const sid = strip(sessionId);
+  if (!sid) return;
+  pendingBySession.delete(sid);
+}
+
+/**
+ * True when pending artifact is for the same upload pixels (or pending has no image to compare).
+ * @param {DocumentExtractionArtifact | null | undefined} pending
+ * @param {string | null | undefined} currentImageDataUrl
+ */
+export function pendingExtractionMatchesCurrentImage(pending, currentImageDataUrl) {
+  const current = String(currentImageDataUrl ?? '').trim();
+  if (!current) return true;
+  const pendingImg = String(
+    pending?.imageDataUrl ?? pending?.storeCandidate?.imageDataUrl ?? '',
+  ).trim();
+  if (!pendingImg) return false;
+  if (pendingImg === current) return true;
+  // Cheap fingerprint for large data URLs
+  return (
+    pendingImg.length === current.length &&
+    pendingImg.slice(0, 96) === current.slice(0, 96) &&
+    pendingImg.slice(-48) === current.slice(-48)
+  );
+}
+
+/**
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {string} missionId
  * @param {DocumentExtractionArtifact} artifact
@@ -505,6 +538,8 @@ export function loadStoreCandidateFromMissionMetadata(metadataJson) {
  *   metadataJson?: Record<string, unknown> | null;
  *   sessionId?: string | null;
  *   persistedIngest?: Record<string, unknown> | null;
+ *   currentImageDataUrl?: string | null;
+ *   skipPending?: boolean;
  * }} input
  * @returns {StoreCandidate | null}
  */
@@ -513,20 +548,52 @@ export function resolveStoreCandidateForHandoff(input = {}) {
     input.intentSourceContext && typeof input.intentSourceContext === 'object'
       ? input.intentSourceContext
       : null;
+  const currentImage = String(input.currentImageDataUrl ?? '').trim();
 
   /** @type {StoreCandidate | null} */
   let candidate = null;
 
   const fromCtx = ctx?.documentExtraction;
   if (fromCtx && typeof fromCtx === 'object') {
-    candidate =
+    const ctxCandidate =
       fromCtx.storeCandidate && typeof fromCtx.storeCandidate === 'object'
         ? /** @type {StoreCandidate} */ (fromCtx.storeCandidate)
         : /** @type {StoreCandidate} */ (fromCtx);
+    const ctxImg = String(fromCtx.imageDataUrl ?? ctxCandidate?.imageDataUrl ?? '').trim();
+    // New upload pixels must not inherit a prior documentExtraction identity.
+    if (!currentImage || !ctxImg || pendingExtractionMatchesCurrentImage(fromCtx, currentImage)) {
+      candidate = ctxCandidate;
+    }
   }
 
-  const fromCard = buildStoreCandidateFromCardExtraction(ctx?.cardExtraction);
-  candidate = mergeStoreCandidates(candidate, fromCard);
+  // When this turn carries upload pixels, do not trust unscoped client cardExtraction —
+  // it may belong to a prior card (PTH) while imageDataUrl is a new logo. Prefer pending /
+  // ingest / OCR that match currentImageDataUrl. Same-image client seeds still flow via
+  // storeCreateForm and matching session pending.
+  if (!currentImage) {
+    const fromCard = buildStoreCandidateFromCardExtraction(ctx?.cardExtraction);
+    candidate = mergeStoreCandidates(candidate, fromCard);
+    const ctxStoreCandidate =
+      ctx?.storeCandidate && typeof ctx.storeCandidate === 'object' && !Array.isArray(ctx.storeCandidate)
+        ? /** @type {StoreCandidate} */ (ctx.storeCandidate)
+        : null;
+    if (ctxStoreCandidate) {
+      candidate = mergeStoreCandidates(candidate, ctxStoreCandidate);
+    }
+  } else {
+    const ctxStoreCandidate =
+      ctx?.storeCandidate && typeof ctx.storeCandidate === 'object' && !Array.isArray(ctx.storeCandidate)
+        ? /** @type {StoreCandidate} */ (ctx.storeCandidate)
+        : null;
+    const ctxCandidateImage = String(ctxStoreCandidate?.imageDataUrl ?? '').trim();
+    if (
+      ctxStoreCandidate &&
+      ctxCandidateImage &&
+      pendingExtractionMatchesCurrentImage({ imageDataUrl: ctxCandidateImage }, currentImage)
+    ) {
+      candidate = mergeStoreCandidates(candidate, ctxStoreCandidate);
+    }
+  }
 
   const fromIngest = buildStoreCandidateFromIngest(
     ctx?.assetIngestResult ?? input.persistedIngest ?? null,
@@ -534,11 +601,21 @@ export function resolveStoreCandidateForHandoff(input = {}) {
   candidate = mergeStoreCandidates(candidate, fromIngest);
 
   const fromMeta = loadStoreCandidateFromMissionMetadata(input.metadataJson ?? null);
-  candidate = mergeStoreCandidates(candidate, fromMeta);
+  if (fromMeta) {
+    const metaImg = String(fromMeta.imageDataUrl ?? '').trim();
+    if (!currentImage || !metaImg || pendingExtractionMatchesCurrentImage(fromMeta, currentImage)) {
+      candidate = mergeStoreCandidates(candidate, fromMeta);
+    }
+  }
 
   const pending = peekPendingDocumentExtraction(input.sessionId);
-  if (pending?.storeCandidate) {
-    candidate = mergeStoreCandidates(candidate, pending.storeCandidate);
+  if (pending?.storeCandidate && input.skipPending !== true) {
+    if (pendingExtractionMatchesCurrentImage(pending, input.currentImageDataUrl)) {
+      candidate = mergeStoreCandidates(candidate, pending.storeCandidate);
+    } else if (currentImage) {
+      // Different upload in this session — drop stale Construct Corp / prior card.
+      clearPendingDocumentExtraction(input.sessionId);
+    }
   }
 
   return candidate;

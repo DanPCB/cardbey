@@ -1,6 +1,7 @@
 /**
  * Mailer adapter – SMTP via nodemailer.
  * When ENABLE_EMAIL_VERIFICATION is false or MAIL_HOST is missing, sendMail logs and returns { ok: false, skipped: true }.
+ * bypassEnableGate: send when MAIL_HOST is set even if verification gate is off (transactional).
  */
 
 import nodemailer from 'nodemailer';
@@ -10,9 +11,16 @@ const MAIL_HOST = process.env.MAIL_HOST || '';
 
 let transporter = null;
 
-function getTransporter() {
+function maskEmail(to) {
+  const s = String(to || '');
+  const at = s.indexOf('@');
+  if (at < 1) return '[redacted]';
+  return `${s.slice(0, 1)}***@${s.slice(at + 1)}`;
+}
+
+function getTransporter({ force = false } = {}) {
   if (transporter !== null) return transporter;
-  if (!ENABLED || !MAIL_HOST.trim()) return null;
+  if ((!ENABLED && !force) || !MAIL_HOST.trim()) return null;
   const insecureTls = process.env.MAIL_INSECURE_TLS === 'true' || process.env.MAIL_INSECURE_TLS === '1';
   transporter = nodemailer.createTransport({
     host: process.env.MAIL_HOST,
@@ -30,16 +38,21 @@ function getTransporter() {
 
 /**
  * Send an email. Does not throw.
- * @param {{ to: string, subject: string, html: string, text?: string }} options
- * @returns {{ ok: boolean, skipped?: boolean, error?: string }}
+ * @param {{ to: string, subject: string, html: string, text?: string, bypassEnableGate?: boolean, replyTo?: string }} options
+ * @returns {Promise<{ ok: boolean, skipped?: boolean, error?: string, messageId?: string }>}
  */
-export async function sendMail({ to, subject, html, text }) {
-  if (!ENABLED || !MAIL_HOST.trim()) {
-    console.log('[Mailer] Skipped (ENABLE_EMAIL_VERIFICATION off or MAIL_HOST not set)', { to, subject: subject?.slice(0, 40) });
+export async function sendMail({ to, subject, html, text, bypassEnableGate = false, replyTo } = {}) {
+  const gateOk = bypassEnableGate || ENABLED;
+  if (!gateOk || !MAIL_HOST.trim()) {
+    console.log('[Mailer] Skipped (ENABLE_EMAIL_VERIFICATION off or MAIL_HOST not set)', {
+      to: maskEmail(to),
+      subject: subject?.slice(0, 40),
+      bypassEnableGate: Boolean(bypassEnableGate),
+    });
     return { ok: false, skipped: true };
   }
 
-  const transport = getTransporter();
+  const transport = getTransporter({ force: Boolean(bypassEnableGate) });
   if (!transport) {
     return { ok: false, skipped: true };
   }
@@ -53,13 +66,19 @@ export async function sendMail({ to, subject, html, text }) {
       subject: subject || 'Cardbey',
       html: html || '',
       text: text || undefined,
+      ...(replyTo ? { replyTo } : {}),
     });
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[Mailer] Sent', { to, messageId: info?.messageId });
+      console.log('[Mailer] Sent', { to: maskEmail(to), messageId: info?.messageId });
     }
     return { ok: true, messageId: info?.messageId };
   } catch (err) {
-    console.error('[Mailer] Send failed', { to, error: err?.message });
+    console.error('[Mailer] Send failed', { to: maskEmail(to), error: err?.message });
     return { ok: false, error: err?.message };
   }
+}
+
+/** True when SMTP host is configured (does not expose credentials). */
+export function isMailConfigured() {
+  return Boolean(MAIL_HOST.trim());
 }

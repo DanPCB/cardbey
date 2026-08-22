@@ -42,7 +42,10 @@ import {
   shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../lib/intake/createStoreCheckpointDispatch.js';
 import { applyIntakePayloadGuard } from '../lib/intake/intakePayloadGuard.js';
-import { shouldSkipUploadAskForIntakeSelectionReplay } from '../lib/intake/intakeReplayPayload.js';
+import {
+  isCreateStoreFromUploadTurn,
+  shouldSkipUploadAskForIntakeSelectionReplay,
+} from '../lib/intake/intakeReplayPayload.js';
 import { validateIntakeAttachmentPayload } from '../lib/intake/intakeAttachmentRef.js';
 import {
   canSendResponse,
@@ -115,6 +118,11 @@ import {
   hasRecentUploadedAssetInContext,
   isAttachmentOnlyPlaceholderMessage,
 } from '../lib/intake/assetUploadGuard.js';
+import {
+  resolveCreateStoreAttachmentContext,
+  emitCreateStoreCardContextResolved,
+  emitCreateStoreCardContextFailed,
+} from '../lib/intake/resolveCreateStoreAttachmentContext.js';
 import {
   buildAssetIntentDetectionClassification,
   buildAnalyzeUploadedAssetForStoreCreationClassification,
@@ -897,6 +905,42 @@ async function resolveCreateStoreUploadImageRef(body, intentSourceContext, sessi
     .map((v) => (typeof v === 'string' ? v.trim() : ''))
     .find((v) => v.length > 20);
   if (fromCtx) return fromCtx;
+
+  const selectionParams =
+    body?.intakeV2Selection &&
+    typeof body.intakeV2Selection === 'object' &&
+    body.intakeV2Selection.selectedParameters &&
+    typeof body.intakeV2Selection.selectedParameters === 'object'
+      ? body.intakeV2Selection.selectedParameters
+      : {};
+  const evidenceCandidates = [
+    body?.evidenceId,
+    body?.intakeEvidenceId,
+    isc.evidenceId,
+    selectionParams.evidenceId,
+    selectionParams.attachmentAnalysis?.evidenceId,
+  ]
+    .map((v) => (typeof v === 'string' ? v.trim() : ''))
+    .filter(Boolean);
+  for (const evidenceId of evidenceCandidates) {
+    try {
+      const bundle = getIntakeEvidenceBundleByEvidenceId(evidenceId);
+      const fromBundle =
+        typeof bundle?.imageRef === 'string' && bundle.imageRef.trim().length > 20
+          ? bundle.imageRef.trim()
+          : '';
+      if (fromBundle) {
+        console.log('[INTAKE] create_store upload image recovered from evidence bundle', {
+          evidenceId: evidenceId.slice(0, 12),
+          bytes: fromBundle.length,
+        });
+        return fromBundle;
+      }
+    } catch (err) {
+      console.warn('[INTAKE] evidence bundle image recover failed:', err?.message || err);
+    }
+  }
+
   try {
     const { peekIntakeWorkflowContext } = await import('../lib/intake/intakeWorkflowContext.js');
     const wf = peekIntakeWorkflowContext(sessionKey);
@@ -1663,8 +1707,21 @@ const POST_BUILD_CHIP_HANDLERS = {
   improve_hero: handleUpdateStoreHero,
 };
 
-async function guardClassificationAgainstCompletedCreateStore(classification, missionId) {
+async function guardClassificationAgainstCompletedCreateStore(
+  classification,
+  missionId,
+  { userMessage, intentSourceContext } = {},
+) {
   if (!classification || classification.tool !== 'create_store') return classification;
+  // New store from upload Ask / card must not inherit a completed prior create_store mission.
+  if (
+    isExplicitCreateStoreFromUploadContext({
+      userMessage,
+      intentSourceContext,
+    })
+  ) {
+    return classification;
+  }
   const mid = typeof missionId === 'string' ? missionId.trim() : '';
   if (!mid) return classification;
   const prisma = getPrismaClient();
@@ -4240,7 +4297,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if ((draftConfirmationSubmit || body._autoSubmit === true) && storeCreateFormPayload) {
+  // Upload Ask → Create store: defer field completeness to draft projection / checkpoint.
+  // Early validateCreateStorePayload here 400s MISSING_NAME before OCR/cardExtraction runs.
+  if (
+    (draftConfirmationSubmit || body._autoSubmit === true) &&
+    storeCreateFormPayload &&
+    !isCreateStoreFromUploadTurn(body)
+  ) {
     const formValidationErrors = validateCreateStorePayload({
       storeCreateForm: storeCreateFormPayload,
       storeName: storeCreateFormPayload.storeName,
@@ -4868,7 +4931,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           : undefined,
       };
 
-      if (storeCreateFormPayload) {
+      if (storeCreateFormPayload && !isCreateStoreFromUploadTurn(body)) {
         const validationErrors = validateCreateStorePayload({
           storeCreateForm: storeCreateFormPayload,
           storeName: storeCreateFormPayload.storeName,
@@ -5335,6 +5398,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   const guardedCompletedCreateStore = await guardClassificationAgainstCompletedCreateStore(
     classification,
     missionId,
+    { userMessage, intentSourceContext },
   );
   classification = guardedCompletedCreateStore;
   const guardedActiveMission = guardClassificationForActiveMission(classification, {
@@ -5614,7 +5678,17 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (loyaltyAttachmentClarify) return loyaltyAttachmentClarify;
   }
 
-  if (process.env.MULTI_AGENT_ENABLED === 'true' && !skipDeepSeekForLoyaltySpine) {
+  const skipDeepSeekForUploadCreateStore = isExplicitCreateStoreFromUploadContext({
+    userMessage,
+    intentSourceContext,
+  });
+
+  if (
+    process.env.MULTI_AGENT_ENABLED === 'true' &&
+    !skipDeepSeekForLoyaltySpine &&
+    !skipDeepSeekForUploadCreateStore &&
+    classification?.tool !== 'create_store'
+  ) {
     try {
       const { integrateDeepSeekMultiAgentIntake } = await import('../lib/multiAgent/deepseekIntakeBridge.ts');
       const deepSeekIntegration = await integrateDeepSeekMultiAgentIntake({
@@ -7411,39 +7485,84 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     !forceCreateStoreCheckpoint &&
     isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
   ) {
-    const recoveredUploadImage = await resolveCreateStoreUploadImageRef(
-      body,
+    const cardAttachmentCtx = resolveCreateStoreAttachmentContext({
+      conversationId: conversationSessionIdHint ?? null,
+      missionId: body?.missionId ?? null,
+      sessionKey: intakeAssetSessionKey,
+      currentImageDataUrl: resolveIntakeImageRefForOcr(body),
+      currentAttachments: Array.isArray(body?.attachments) ? body.attachments : [],
       intentSourceContext,
-      intakeAssetSessionKey,
-    );
+    });
+    emitCreateStoreCardContextResolved(cardAttachmentCtx, {
+      conversationId: conversationSessionIdHint ?? null,
+      missionId: body?.missionId ?? null,
+      preflightStatus: 'upload_create_store',
+      extractedFields: [
+        ...(cardAttachmentCtx.cardExtraction?.businessName ? ['businessName'] : []),
+        ...(cardAttachmentCtx.cardExtraction?.location ? ['location'] : []),
+        ...(cardAttachmentCtx.cardExtraction?.vertical || cardAttachmentCtx.cardExtraction?.category
+          ? ['category']
+          : []),
+      ],
+    });
+    if (cardAttachmentCtx.cardExtraction) {
+      intentSourceContext = {
+        ...(intentSourceContext && typeof intentSourceContext === 'object' ? intentSourceContext : {}),
+        cardExtraction: intentSourceContext?.cardExtraction || cardAttachmentCtx.cardExtraction,
+        ...(cardAttachmentCtx.storeCandidate && !intentSourceContext?.storeCandidate
+          ? { storeCandidate: cardAttachmentCtx.storeCandidate }
+          : {}),
+      };
+      body.intentSourceContext = intentSourceContext;
+    }
+    const recoveredUploadImage =
+      (await resolveCreateStoreUploadImageRef(
+        body,
+        intentSourceContext,
+        intakeAssetSessionKey,
+      )) || cardAttachmentCtx.mediaUrlOrRef;
     let hasWorkflowIdentity = Boolean(
-      intentSourceContext?.cardExtraction || intentSourceContext?.storeCandidate,
+      intentSourceContext?.cardExtraction ||
+        intentSourceContext?.storeCandidate ||
+        cardAttachmentCtx.extractionStatus === 'ready',
     );
     if (!recoveredUploadImage && !hasWorkflowIdentity) {
       try {
         const { peekIntakeWorkflowContext } = await import('../lib/intake/intakeWorkflowContext.js');
         const wf = peekIntakeWorkflowContext(intakeAssetSessionKey);
         const uploaded = wf?.uploadedAsset && typeof wf.uploadedAsset === 'object' ? wf.uploadedAsset : null;
-        hasWorkflowIdentity = Boolean(uploaded?.storeCandidate || uploaded?.documentExtraction || uploaded?.rawOcrText);
+        hasWorkflowIdentity = Boolean(
+          uploaded?.storeCandidate || uploaded?.documentExtraction || uploaded?.rawOcrText || uploaded?.imageDataUrl,
+        );
       } catch {
         /* ignore */
       }
     }
     if (!recoveredUploadImage && !hasWorkflowIdentity) {
+      emitCreateStoreCardContextFailed(
+        cardAttachmentCtx.fallbackReason || 'ATTACHMENT_NOT_READY',
+        {
+          conversationId: conversationSessionIdHint ?? null,
+          missionId: body?.missionId ?? null,
+          attachmentSource: cardAttachmentCtx.attachmentSource,
+        },
+      );
       console.warn('[INTAKE] ATTACHMENT_NOT_READY create_store from upload without resolvable image', {
         sessionKey: intakeAssetSessionKey ? String(intakeAssetSessionKey).slice(0, 12) : null,
         hasEvidenceId: Boolean(body?.evidenceId || intentSourceContext?.evidenceId),
         hasAttachmentId: Boolean(body?.attachmentId || intentSourceContext?.attachmentId),
+        fallbackReason: cardAttachmentCtx.fallbackReason,
       });
       return res.status(409).json({
         ok: false,
         success: false,
         error: 'ATTACHMENT_NOT_READY',
-        code: 'ATTACHMENT_NOT_READY',
+        code: cardAttachmentCtx.fallbackReason || 'ATTACHMENT_NOT_READY',
         message:
           'We still have your upload request, but the image is not ready to read. Please tap Create store again, or re-attach the image.',
         action: 'clarify',
         retryable: true,
+        fallbackReason: cardAttachmentCtx.fallbackReason || 'ATTACHMENT_NOT_READY',
       });
     }
     const uploadDraftBody = await buildCreateStoreDraftIntakeResponseFromUpload({
@@ -7457,6 +7576,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       sessionId: intakeAssetSessionKey,
       missionId,
       ocrExtractFn: ocrExtractText,
+      attachmentAnalysis,
       persistedIngest: await resolveAssetIngestContextForStoreDraft({
         intentSourceContext,
         missionId,

@@ -1,0 +1,280 @@
+/**
+ * Country-aware discovery category registry.
+ * Canonical IDs map to Cardbey store categories; never infer licences/credentials.
+ */
+
+import type { MarketCategoryRecord, MarketCountryCode } from './types.js';
+
+function cat(
+  partial: Omit<MarketCategoryRecord, 'regulatedInferenceForbidden' | 'active'> & {
+    active?: boolean;
+  },
+): MarketCategoryRecord {
+  return {
+    regulatedInferenceForbidden: true,
+    active: partial.active !== false,
+    ...partial,
+  };
+}
+
+export const MARKET_CATEGORIES: MarketCategoryRecord[] = [
+  // Shared groups
+  cat({
+    id: 'food_hospitality',
+    displayName: 'Food and hospitality',
+    displayNameVi: 'Ẩm thực và nhà hàng',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'food_hospitality',
+    groupLabel: 'Food and hospitality',
+    providerSearchTerms: {
+      AU: ['restaurant', 'cafe', 'bakery', 'food'],
+      VN: ['nhà hàng', 'quán ăn', 'cafe', 'restaurant'],
+    },
+    osmTags: ['amenity=restaurant', 'amenity=cafe', 'amenity=fast_food', 'shop=bakery'],
+    englishAliases: ['food', 'restaurant', 'cafe', 'bakery', 'hospitality'],
+    vietnameseAliases: ['am thuc', 'nha hang', 'quan an', 'cafe'],
+    cardbeyStoreCategories: ['food_drink', 'restaurant', 'cafe'],
+  }),
+  cat({
+    id: 'beauty_hair',
+    displayName: 'Beauty and hair',
+    displayNameVi: 'Làm đẹp và tóc',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'beauty_hair',
+    groupLabel: 'Beauty and hair',
+    providerSearchTerms: {
+      AU: ['hair salon', 'nail salon', 'beauty'],
+      VN: ['salon tóc', 'nail', 'spa làm đẹp', 'hair salon'],
+    },
+    osmTags: ['shop=hairdresser', 'shop=beauty', 'shop=nails'],
+    englishAliases: ['beauty', 'hair', 'nails', 'salon'],
+    vietnameseAliases: ['lam dep', 'salon toc', 'nail'],
+    cardbeyStoreCategories: ['beauty', 'hair_salon'],
+  }),
+  cat({
+    id: 'home_services_trades',
+    displayName: 'Home services and trades',
+    displayNameVi: 'Dịch vụ nhà cửa và thợ',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'home_services_trades',
+    groupLabel: 'Home services and trades',
+    providerSearchTerms: {
+      AU: ['plumber', 'electrician', 'home services'],
+      VN: ['sửa chữa', 'điện nước', 'dịch vụ nhà'],
+    },
+    osmTags: ['craft=plumber', 'craft=electrician', 'craft=carpenter'],
+    englishAliases: ['trades', 'plumber', 'electrician', 'home services'],
+    vietnameseAliases: ['sua chua', 'dien nuoc', 'dich vu nha'],
+    cardbeyStoreCategories: ['home_services'],
+  }),
+  cat({
+    id: 'retail',
+    displayName: 'Retail',
+    displayNameVi: 'Bán lẻ',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'retail',
+    groupLabel: 'Retail',
+    providerSearchTerms: {
+      AU: ['retail', 'shop', 'store', 'grocery'],
+      VN: ['cửa hàng', 'bán lẻ', 'siêu thị'],
+    },
+    osmTags: ['shop=convenience', 'shop=supermarket', 'shop=general', 'shop=variety_store'],
+    englishAliases: ['retail', 'shop', 'grocery', 'store'],
+    vietnameseAliases: ['cua hang', 'ban le', 'sieu thi'],
+    cardbeyStoreCategories: ['retail', 'grocery'],
+  }),
+  cat({
+    id: 'fashion_textiles',
+    displayName: 'Fashion and textiles',
+    displayNameVi: 'Thời trang và dệt may',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'fashion_textiles',
+    groupLabel: 'Fashion and textiles',
+    providerSearchTerms: {
+      AU: ['fashion', 'clothing', 'boutique'],
+      VN: ['thời trang', 'quần áo', 'may mặc'],
+    },
+    osmTags: ['shop=clothes', 'shop=boutique', 'shop=fabric'],
+    englishAliases: ['fashion', 'clothing', 'textiles'],
+    vietnameseAliases: ['thoi trang', 'quan ao', 'det may'],
+    cardbeyStoreCategories: ['fashion', 'retail'],
+  }),
+  cat({
+    id: 'professional_services',
+    displayName: 'Professional services',
+    displayNameVi: 'Dịch vụ chuyên nghiệp',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'professional_services',
+    groupLabel: 'Professional services',
+    providerSearchTerms: {
+      AU: ['accountant', 'consultant', 'professional services'],
+      VN: ['dịch vụ tư vấn', 'văn phòng'],
+    },
+    osmTags: ['office=accountant', 'office=consulting'],
+    englishAliases: ['professional', 'consultant', 'services'],
+    vietnameseAliases: ['tu van', 'dich vu chuyen nghiep'],
+    cardbeyStoreCategories: ['professional_services'],
+  }),
+  cat({
+    id: 'tourism',
+    displayName: 'Tourism',
+    displayNameVi: 'Du lịch',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'tourism',
+    groupLabel: 'Tourism',
+    providerSearchTerms: {
+      AU: ['tourism', 'tour', 'travel agency'],
+      VN: ['du lịch', 'tour', 'lữ hành'],
+    },
+    osmTags: ['tourism=information', 'shop=travel_agency'],
+    englishAliases: ['tourism', 'tour', 'travel'],
+    vietnameseAliases: ['du lich', 'lu hanh'],
+    cardbeyStoreCategories: ['tourism'],
+  }),
+  cat({
+    id: 'health_wellness',
+    displayName: 'Health and wellness',
+    displayNameVi: 'Sức khỏe và wellness',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'health_wellness',
+    groupLabel: 'Health and wellness',
+    providerSearchTerms: {
+      AU: ['wellness', 'gym', 'yoga'],
+      VN: ['gym', 'yoga', 'sức khỏe'],
+    },
+    osmTags: ['leisure=fitness_centre', 'shop=nutrition_supplements'],
+    englishAliases: ['health', 'wellness', 'fitness'],
+    vietnameseAliases: ['suc khoe', 'wellness', 'gym'],
+    cardbeyStoreCategories: ['health_wellness'],
+  }),
+  cat({
+    id: 'furniture_homewares',
+    displayName: 'Furniture and homewares',
+    displayNameVi: 'Nội thất và đồ gia dụng',
+    countryAvailability: ['AU', 'VN'],
+    groupId: 'furniture_homewares',
+    groupLabel: 'Furniture and homewares',
+    providerSearchTerms: {
+      AU: ['furniture', 'homewares'],
+      VN: ['nội thất', 'đồ gia dụng'],
+    },
+    osmTags: ['shop=furniture', 'shop=houseware'],
+    englishAliases: ['furniture', 'homewares'],
+    vietnameseAliases: ['noi that', 'do gia dung'],
+    cardbeyStoreCategories: ['furniture', 'retail'],
+  }),
+
+  // Vietnam-specific / high-priority
+  cat({
+    id: 'coffee_beverages',
+    displayName: 'Coffee and beverages',
+    displayNameVi: 'Cà phê và đồ uống',
+    countryAvailability: ['VN', 'AU'],
+    groupId: 'coffee_beverages',
+    groupLabel: 'Coffee and beverages',
+    providerSearchTerms: {
+      VN: ['cà phê', 'cafe', 'trà sữa', 'coffee'],
+      AU: ['coffee', 'cafe', 'beverage'],
+    },
+    osmTags: ['amenity=cafe', 'amenity=cafe;cuisine=coffee_shop'],
+    englishAliases: ['coffee', 'cafe', 'beverages'],
+    vietnameseAliases: ['ca phe', 'tra sua', 'do uong'],
+    cardbeyStoreCategories: ['cafe', 'food_drink'],
+  }),
+  cat({
+    id: 'handicrafts',
+    displayName: 'Handicrafts',
+    displayNameVi: 'Thủ công mỹ nghệ',
+    countryAvailability: ['VN'],
+    groupId: 'handicrafts',
+    groupLabel: 'Handicrafts',
+    providerSearchTerms: { VN: ['thủ công', 'mỹ nghệ', 'handicraft'] },
+    osmTags: ['shop=craft', 'craft=handicraft'],
+    englishAliases: ['handicrafts', 'crafts'],
+    vietnameseAliases: ['thu cong', 'my nghe'],
+    cardbeyStoreCategories: ['handicrafts', 'retail'],
+  }),
+  cat({
+    id: 'manufacturing',
+    displayName: 'Manufacturing',
+    displayNameVi: 'Sản xuất',
+    countryAvailability: ['VN'],
+    groupId: 'manufacturing',
+    groupLabel: 'Manufacturing',
+    providerSearchTerms: { VN: ['sản xuất', 'nhà máy', 'manufacturing'] },
+    osmTags: ['industrial=factory', 'man_made=works'],
+    englishAliases: ['manufacturing', 'factory'],
+    vietnameseAliases: ['san xuat', 'nha may'],
+    cardbeyStoreCategories: ['manufacturing'],
+  }),
+  cat({
+    id: 'export_services',
+    displayName: 'Export services',
+    displayNameVi: 'Dịch vụ xuất khẩu',
+    countryAvailability: ['VN'],
+    groupId: 'export_services',
+    groupLabel: 'Export services',
+    providerSearchTerms: { VN: ['xuất khẩu', 'export', 'logistics'] },
+    osmTags: ['office=logistics', 'office=company'],
+    englishAliases: ['export', 'logistics', 'trade'],
+    vietnameseAliases: ['xuat khau', 'xuat nhap khau'],
+    cardbeyStoreCategories: ['export_services', 'professional_services'],
+  }),
+  cat({
+    id: 'vietnamese_food_products',
+    displayName: 'Vietnamese food products',
+    displayNameVi: 'Thực phẩm Việt',
+    countryAvailability: ['VN'],
+    groupId: 'vietnamese_food_products',
+    groupLabel: 'Vietnamese food products',
+    providerSearchTerms: { VN: ['thực phẩm', 'đặc sản', 'food products'] },
+    osmTags: ['shop=food', 'shop=convenience'],
+    englishAliases: ['vietnamese food', 'specialty food'],
+    vietnameseAliases: ['thuc pham', 'dac san'],
+    cardbeyStoreCategories: ['food_drink', 'retail'],
+  }),
+  cat({
+    id: 'beauty_products',
+    displayName: 'Beauty products',
+    displayNameVi: 'Mỹ phẩm',
+    countryAvailability: ['VN'],
+    groupId: 'beauty_products',
+    groupLabel: 'Beauty products',
+    providerSearchTerms: { VN: ['mỹ phẩm', 'cosmetics', 'beauty products'] },
+    osmTags: ['shop=cosmetics', 'shop=beauty'],
+    englishAliases: ['cosmetics', 'beauty products'],
+    vietnameseAliases: ['my pham'],
+    cardbeyStoreCategories: ['beauty', 'retail'],
+  }),
+  cat({
+    id: 'textile_fashion_production',
+    displayName: 'Textile and fashion production',
+    displayNameVi: 'Sản xuất dệt may / thời trang',
+    countryAvailability: ['VN'],
+    groupId: 'textile_fashion_production',
+    groupLabel: 'Textile/fashion production',
+    providerSearchTerms: { VN: ['dệt may', 'gia công may', 'garment'] },
+    osmTags: ['industrial=factory', 'craft=dressmaker'],
+    englishAliases: ['garment', 'textile production', 'fashion production'],
+    vietnameseAliases: ['det may', 'gia cong may'],
+    cardbeyStoreCategories: ['manufacturing', 'fashion'],
+  }),
+];
+
+/** Map legacy Melbourne pilot category labels → canonical ids. */
+export const MELBOURNE_PILOT_CATEGORY_TO_CANONICAL: Record<string, string> = {
+  Bakery: 'food_hospitality',
+  Cafe: 'coffee_beverages',
+  Restaurant: 'food_hospitality',
+  'Nail salon': 'beauty_hair',
+  'Hair salon': 'beauty_hair',
+  Grocery: 'retail',
+  'Local retail': 'retail',
+  'Home services': 'home_services_trades',
+};
+
+export function categoriesForCountry(countryCode: MarketCountryCode): MarketCategoryRecord[] {
+  return MARKET_CATEGORIES.filter(
+    (c) => c.active && c.countryAvailability.includes(countryCode),
+  );
+}

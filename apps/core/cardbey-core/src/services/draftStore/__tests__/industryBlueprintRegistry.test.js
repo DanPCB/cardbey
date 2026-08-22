@@ -3,6 +3,7 @@ import {
   buildIndustryCatalog,
   reconcileIndustryVerticalSlug,
   resolveIndustryBlueprintKey,
+  industrySlugToTemplateKey,
   isRetailCatalogPlaceholderName,
   shouldRepairRetailCatalogLeakInServiceStore,
   INDUSTRY_BLUEPRINTS,
@@ -21,6 +22,30 @@ describe('industryBlueprintRegistry', () => {
     expect(ids).toContain('auto.repair');
     expect(ids).toContain('services.plumbing');
     expect(ids).toContain('services.accounting');
+    expect(ids).toContain('services.finance');
+  });
+
+  it('resolves Anison Capital Group to finance — not accounting', () => {
+    expect(resolveIndustryBlueprintKey({ businessName: 'Anison Capital Group' })).toBe(
+      'services.finance',
+    );
+    expect(resolveIndustryBlueprintKey({ businessName: 'Anision Capital Group' })).toBe(
+      'services.finance',
+    );
+    const catalog = buildIndustryCatalog(
+      { businessName: 'Anison Capital Group', businessType: '', verticalSlug: '' },
+      12,
+    );
+    const names = catalog.items.map((i) => i.name);
+    expect(names.some((n) => /tax return|bas|bookkeeping/i.test(n))).toBe(false);
+    expect(names).toContain('Book our consultations');
+    expect(catalog.meta?.bookingMode).toBe('consultation_only');
+  });
+
+  it('resolves accountant names to accounting blueprint', () => {
+    expect(
+      resolveIndustryBlueprintKey({ businessName: 'Braybrook Tax & Accounting' }),
+    ).toBe('services.accounting');
   });
 
   it('resolves handyman blueprint from business name', () => {
@@ -98,6 +123,31 @@ describe('industryBlueprintRegistry', () => {
     const names = catalog.items.map((i) => i.name);
     expect(names).toContain("Women's Haircut");
     expect(names).toContain('Balayage');
+  });
+
+  it('resolves nail stores to beauty.nails — not hair salon', () => {
+    expect(resolveIndustryBlueprintKey({ businessName: 'ANGEL NAIL' })).toBe('beauty.nails');
+    expect(
+      resolveIndustryBlueprintKey({
+        businessName: 'ANGEL NAIL',
+        businessType: 'Beauty salon',
+        verticalSlug: 'beauty.hair_salon',
+      }),
+    ).toBe('beauty.nails');
+    expect(industrySlugToTemplateKey('beauty.nails')).toBe('beauty_nails');
+    expect(industrySlugToTemplateKey('beauty.hair_salon')).toBe('beauty_salon');
+    expect(industrySlugToTemplateKey('beauty.spa')).toBe('beauty_spa');
+  });
+
+  it('builds nail salon catalog without haircut items', () => {
+    const catalog = buildIndustryCatalog(
+      { businessName: 'ANGEL NAIL', businessType: 'Nail salon', verticalSlug: 'beauty.nails' },
+      24,
+    );
+    const names = catalog.items.map((i) => i.name);
+    expect(names).toContain('Classic Manicure');
+    expect(names).toContain('Gel Manicure');
+    expect(names.some((n) => /haircut|balayage|blow dry/i.test(n))).toBe(false);
   });
 
   it('builds fashion boutique catalog', () => {

@@ -20,6 +20,17 @@ import {
 
 } from '../discovery/claimOtpStore.js';
 
+import { initiateClaimOtp, verifyClaimOtpCode } from '../claim/claimOtpService.js';
+import { withSeedClaimCriticalSection, lockBusinessSeedRowForUpdate } from '../claim/seedClaimLock.js';
+import { getPrismaClient } from '../prisma.js';
+import { getDbCapabilities } from '../persistence/dbCapabilityRegistry.js';
+import { resolveBusinessSeedBackend } from './businessSeedBackend.js';
+
+import {
+  flagForManualReview,
+  getClaimantReviewMessage,
+} from './claimManualReviewStore.js';
+
 import { websiteHost, normalizePhone } from '../businessDiscovery/businessDataNormalizer.js';
 
 import { maskEmail, maskPhone } from './contactMasking.js';
@@ -77,7 +88,24 @@ import type {
 
 const OTP_PROOF_TYPES = new Set<ClaimProofType>(['email', 'phone']);
 
-const OPEN_CLAIM_STATUSES = new Set(['pending', 'otp_sent', 'proof_submitted']);
+const OPEN_CLAIM_STATUSES = new Set(['pending', 'otp_sent', 'proof_submitted', 'pending_review']);
+
+const VERIFYABLE_CLAIM_STATUSES = new Set(['pending', 'otp_sent', 'proof_submitted']);
+
+function normalizeEmailForCompare(value: string | null | undefined): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function assertClaimantEmailVerified(params: {
+  emailVerified?: boolean | null;
+}): { ok: true } | { ok: false; code: 'EMAIL_NOT_VERIFIED'; message: string } {
+  if (params.emailVerified === true) return { ok: true };
+  return {
+    ok: false,
+    code: 'EMAIL_NOT_VERIFIED',
+    message: 'Verify your Cardbey email before claiming this business.',
+  };
+}
 
 
 
@@ -255,6 +283,12 @@ export async function startSeedClaim(params: {
 
   contact: string;
 
+  /** Cardbey account emailVerified — Guard A */
+  emailVerified?: boolean | null;
+
+  /** Cardbey account email — Guard B compare source */
+  claimantEmail?: string | null;
+
 }): Promise<{
 
   ok: boolean;
@@ -267,13 +301,35 @@ export async function startSeedClaim(params: {
 
   message: string;
 
+  code?: string;
+
 }> {
 
+  const verifiedGate = assertClaimantEmailVerified({ emailVerified: params.emailVerified });
+  if (!verifiedGate.ok) {
+    return {
+      ok: false,
+      claim: null,
+      requiresOtp: false,
+      message: verifiedGate.message,
+      code: verifiedGate.code,
+    };
+  }
+
+  return withSeedClaimCriticalSection(params.seedId, async () => {
   const seed = await getSeedRecordById(params.seedId);
 
   if (!seed) return { ok: false, claim: null, requiresOtp: false, message: 'Seed not found.' };
 
-
+  if (seed.verificationStatus === 'verified_owner' || seed.verificationStatus === 'active') {
+    return {
+      ok: false,
+      claim: null,
+      requiresOtp: false,
+      message: 'This store has already been claimed.',
+      code: 'ALREADY_CLAIMED',
+    };
+  }
 
   const gate = canPubliclyClaim(seed);
 
@@ -487,9 +543,26 @@ export async function startSeedClaim(params: {
 
     requiresOtp = true;
 
-    otp = generateOtp();
-
-    setClaimOtp(otpKey(params.seedId), params.claimantUserId, otp);
+    if (params.proofType === 'email') {
+      const issued = await initiateClaimOtp({
+        seedId: params.seedId,
+        email: proofContact,
+        userId: params.claimantUserId,
+        businessName: seed.normalized?.businessName ?? null,
+      });
+      if (!issued.ok) {
+        return {
+          ok: false,
+          claim,
+          requiresOtp: true,
+          message: issued.message || `OTP initiate failed (${issued.code}).`,
+        };
+      }
+      otp = issued.otp;
+    } else {
+      otp = generateOtp();
+      setClaimOtp(otpKey(params.seedId), params.claimantUserId, otp);
+    }
 
     updatedClaim = {
 
@@ -556,7 +629,7 @@ export async function startSeedClaim(params: {
       : 'Claim started. Submit proof for verification.',
 
   };
-
+  });
 }
 
 
@@ -611,6 +684,12 @@ export async function verifySeedClaimProof(params: {
 
   proofValue?: string | null;
 
+  /** Cardbey account emailVerified — Guard A (before OTP consume) */
+  emailVerified?: boolean | null;
+
+  /** Cardbey account email — Guard B enrichment match */
+  claimantEmail?: string | null;
+
 }): Promise<{
 
   ok: boolean;
@@ -623,13 +702,28 @@ export async function verifySeedClaimProof(params: {
 
   duplicateBlocked?: boolean;
 
+  code?: string;
+
+  pendingReview?: boolean;
+
 }> {
 
+  return withSeedClaimCriticalSection(params.seedId, async () => {
   const seed = await getSeedRecordById(params.seedId);
 
   if (!seed) return { ok: false, claim: null, seed: null, message: 'Seed not found.' };
 
 
+
+  if (seed.verificationStatus === 'verified_owner' || seed.verificationStatus === 'active') {
+    return {
+      ok: false,
+      claim: null,
+      seed,
+      message: 'This store has already been claimed.',
+      code: 'ALREADY_CLAIMED',
+    };
+  }
 
   if (seed.verificationStatus !== 'claim_pending') {
 
@@ -651,7 +745,7 @@ export async function verifySeedClaimProof(params: {
 
   let claim = await getActiveClaimForSeed(params.seedId, params.claimantUserId);
 
-  if (!claim || !OPEN_CLAIM_STATUSES.has(claim.claimStatus)) {
+  if (!claim || !VERIFYABLE_CLAIM_STATUSES.has(claim.claimStatus)) {
 
     return { ok: false, claim: null, seed, message: 'No pending claim found for this user.' };
 
@@ -667,7 +761,16 @@ export async function verifySeedClaimProof(params: {
 
   }
 
-
+  const verifiedGate = assertClaimantEmailVerified({ emailVerified: params.emailVerified });
+  if (!verifiedGate.ok) {
+    return {
+      ok: false,
+      claim,
+      seed,
+      message: verifiedGate.message,
+      code: verifiedGate.code,
+    };
+  }
 
   let proofValid = false;
 
@@ -677,24 +780,42 @@ export async function verifySeedClaimProof(params: {
 
     if (!otp) return { ok: false, claim, seed, message: 'OTP is required.' };
 
-    proofValid = verifyClaimOtp(otpKey(params.seedId), params.claimantUserId, otp);
-
-    if (!proofValid) {
-
-      const failed: IngestionClaimRequest = {
-
-        ...claim,
-
-        attempts: (claim.attempts ?? 0) + 1,
-
-        updatedAt: new Date().toISOString(),
-
-      };
-
-      await saveClaimRequest(failed);
-
-      return { ok: false, claim: failed, seed, message: 'Invalid or expired OTP.' };
-
+    if (claim.proofType === 'email') {
+      const verified = await verifyClaimOtpCode({
+        seedId: params.seedId,
+        email: claim.proofContact,
+        code: otp,
+        userId: params.claimantUserId,
+      });
+      proofValid = Boolean(verified.valid);
+      if (!proofValid) {
+        const failed: IngestionClaimRequest = {
+          ...claim,
+          attempts: (claim.attempts ?? 0) + 1,
+          updatedAt: new Date().toISOString(),
+        };
+        await saveClaimRequest(failed);
+        const msg =
+          verified.code === 'LOCKED'
+            ? 'OTP locked after too many failures.'
+            : verified.code === 'EXPIRED'
+              ? 'OTP expired.'
+              : verified.code === 'TOO_MANY_ATTEMPTS'
+                ? verified.message
+                : 'Invalid or expired OTP.';
+        return { ok: false, claim: failed, seed, message: msg };
+      }
+    } else {
+      proofValid = verifyClaimOtp(otpKey(params.seedId), params.claimantUserId, otp);
+      if (!proofValid) {
+        const failed: IngestionClaimRequest = {
+          ...claim,
+          attempts: (claim.attempts ?? 0) + 1,
+          updatedAt: new Date().toISOString(),
+        };
+        await saveClaimRequest(failed);
+        return { ok: false, claim: failed, seed, message: 'Invalid or expired OTP.' };
+      }
     }
 
   } else {
@@ -783,7 +904,54 @@ export async function verifySeedClaimProof(params: {
 
   }
 
+  // Guard B — enrichment email mismatch → manual review (soft), not auto-approve / not reject
+  const enrichmentEmail = normalizeEmailForCompare(seed.normalized?.email);
+  const claimantEmail = normalizeEmailForCompare(params.claimantEmail);
+  if (enrichmentEmail && claimantEmail && enrichmentEmail !== claimantEmail) {
+    const review = await flagForManualReview({
+      seedId: params.seedId,
+      userId: params.claimantUserId,
+      claimRequestId: claim.id,
+      reason: 'email_mismatch',
+      claimantEmail,
+      enrichmentEmail,
+    });
 
+    const nowIso = new Date().toISOString();
+    const pendingClaim: IngestionClaimRequest = {
+      ...claim,
+      proofStatus: 'pending',
+      claimStatus: 'pending_review',
+      updatedAt: nowIso,
+      claimStartedAt: claim.claimStartedAt ?? claim.createdAt,
+    };
+    await saveClaimRequest(pendingClaim);
+    clearClaimOtp(otpKey(params.seedId));
+
+    await appendClaimAuditEntry({
+      seedId: params.seedId,
+      claimRequestId: claim.id,
+      action: 'flagged_manual_review',
+      actorId: params.claimantUserId,
+      previousStatus: claim.claimStatus,
+      nextStatus: 'pending_review',
+      reason: 'email_mismatch',
+      metadata: {
+        reviewId: review.id,
+        claimantEmail,
+        enrichmentEmail,
+      },
+    });
+
+    return {
+      ok: true,
+      claim: pendingClaim,
+      seed,
+      pendingReview: true,
+      code: 'PENDING_REVIEW',
+      message: getClaimantReviewMessage(),
+    };
+  }
 
   const verifiedAt = new Date().toISOString();
 
@@ -964,7 +1132,7 @@ export async function verifySeedClaimProof(params: {
     message: 'Ownership verified. Confirm activation to publish your store.',
 
   };
-
+  });
 }
 
 
@@ -991,9 +1159,19 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
 }> {
 
+  return withSeedClaimCriticalSection(params.seedId, async () => {
   const seed = await getSeedRecordById(params.seedId);
 
   if (!seed) return { ok: false, seed: null, message: 'Seed not found.' };
+
+  if (seed.verificationStatus === 'active') {
+    return {
+      ok: false,
+      seed,
+      message: 'This store has already been claimed.',
+      code: 'ALREADY_CLAIMED',
+    } as { ok: boolean; seed: IngestedSeedRecord | null; message: string; duplicateBlocked?: boolean };
+  }
 
   if (seed.verificationStatus !== 'verified_owner') {
 
@@ -1111,10 +1289,46 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
   const ownerId = seed.ownerUserId ?? params.ownerUserId;
 
+  // Layer 1 (Postgres): hold business_seed row lock for claim completion writes when DB-backed.
+  if (getDbCapabilities().isPostgres) {
+    try {
+      const backend = await resolveBusinessSeedBackend();
+      if (backend === 'db') {
+        const prisma = getPrismaClient();
+        await prisma.$transaction(async (tx) => {
+          const locked = await lockBusinessSeedRowForUpdate(tx, params.seedId);
+          const status = locked?.status ? String(locked.status) : null;
+          if (status === 'active') {
+            const err = new Error('ALREADY_CLAIMED');
+            (err as { code?: string }).code = 'ALREADY_CLAIMED';
+            throw err;
+          }
+        });
+      }
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'ALREADY_CLAIMED' || (err as Error)?.message === 'ALREADY_CLAIMED') {
+        return {
+          ok: false,
+          seed,
+          message: 'This store has already been claimed.',
+          code: 'ALREADY_CLAIMED',
+        } as { ok: boolean; seed: IngestedSeedRecord | null; message: string; duplicateBlocked?: boolean };
+      }
+      console.warn('[claim] activate seed row lock warning:', (err as Error)?.message || err);
+    }
+  }
+
   const transfer = await transferSeedStoreToOwner(seed, ownerId);
 
   if (!transfer.ok) {
-
+    if (transfer.code === 'ALREADY_CLAIMED') {
+      return {
+        ok: false,
+        seed,
+        message: transfer.error ?? 'This store has already been claimed.',
+        code: 'ALREADY_CLAIMED',
+      } as { ok: boolean; seed: IngestedSeedRecord | null; message: string; duplicateBlocked?: boolean };
+    }
     return { ok: false, seed, message: transfer.error ?? 'Store creation failed.' };
 
   }
@@ -1282,7 +1496,7 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
 
   return { ok: true, seed: activatedSeed, message: 'Store activated.' };
-
+  });
 }
 
 

@@ -1,8 +1,10 @@
 /**
- * Direct GPT-4o vision menu extraction from image bytes (bypasses mock engine fallback).
+ * GPT-4o vision menu extraction from image bytes (via llmGateway; bypasses mock engine fallback).
  */
 
 import OpenAI from 'openai';
+import { Features } from '../../config/features.js';
+import { analyzeVision } from '../../lib/llm/llmGateway.ts';
 import { MenuExtractionLlmError } from './menuExtractionLlmError.js';
 import { formatLayoutHintsForExtraction } from './menuLayoutStructureAgent.js';
 
@@ -151,17 +153,6 @@ function parseItemsArrayFromVisionJson(text) {
  * @returns {Promise<unknown[]>}
  */
 export async function extractMenuItemsFromImageBuffer(fileBuffer, mimeType, ctx = {}) {
-  const openai = process.env.OPENAI_API_KEY
-    ? new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-        timeout: 60000,
-        maxRetries: 2,
-      })
-    : null;
-  if (!openai) {
-    throw new MenuExtractionLlmError('OpenAI API key not configured', { cause: 'NO_OPENAI_API_KEY' });
-  }
-
   const mime = mimeType && /^image\//i.test(mimeType) ? mimeType : 'image/jpeg';
   const b64 = fileBuffer.toString('base64');
   const dataUrl = `data:${mime};base64,${b64}`;
@@ -179,27 +170,55 @@ Store context: ${businessName} (${businessType}).
 ${viNote}
 ${layoutBlock ? `\n${layoutBlock}\n` : ''}`;
 
+  const systemPrompt =
+    'You read service menus, spa packages, and restaurant menus and return structured JSON only. Extract every sellable item with accurate names, durations, prices, package inclusions, and add-ons. When a layout structure is provided, follow its sections, columns, and reading order. Never invent placeholder catalog rows.';
+
   try {
-    const completion = await openai.chat.completions.create({
-      model: process.env.MENU_VISION_MODEL?.trim() || 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You read service menus, spa packages, and restaurant menus and return structured JSON only. Extract every sellable item with accurate names, durations, prices, package inclusions, and add-ons. When a layout structure is provided, follow its sections, columns, and reading order. Never invent placeholder catalog rows.',
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: userText },
-            { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
-          ],
-        },
-      ],
-      temperature: 0.1,
-      max_tokens: 4096,
-    });
-    const raw = completion.choices?.[0]?.message?.content ?? '';
+    let raw = '';
+    if (Features.vision.useGateway) {
+      const response = await analyzeVision({
+        image: b64,
+        mediaType: mime,
+        prompt: userText,
+        system: systemPrompt,
+        provider: process.env.VISION_PROVIDER?.trim() || 'openai',
+        model: process.env.MENU_VISION_MODEL?.trim() || 'gpt-4o',
+        maxTokens: 4096,
+        detail: 'high',
+        purpose: 'menu_vision_extract',
+      });
+      raw = response.content ?? '';
+    } else {
+      const openai = process.env.OPENAI_API_KEY
+        ? new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+            timeout: 60000,
+            maxRetries: 2,
+          })
+        : null;
+      if (!openai) {
+        throw new MenuExtractionLlmError('OpenAI API key not configured', {
+          cause: 'NO_OPENAI_API_KEY',
+        });
+      }
+      const completion = await openai.chat.completions.create({
+        model: process.env.MENU_VISION_MODEL?.trim() || 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userText },
+              { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
+            ],
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 4096,
+      });
+      raw = completion.choices?.[0]?.message?.content ?? '';
+    }
+
     const items = parseItemsArrayFromVisionJson(raw);
     if (isPlaceholderMenuExtraction(items)) {
       console.warn('[menu-extract] vision returned placeholder items — treating as empty');
@@ -207,6 +226,7 @@ ${layoutBlock ? `\n${layoutBlock}\n` : ''}`;
     }
     return items;
   } catch (e) {
+    if (e instanceof MenuExtractionLlmError) throw e;
     throw new MenuExtractionLlmError('OpenAI vision menu extraction failed', { cause: e });
   }
 }

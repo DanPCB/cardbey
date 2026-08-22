@@ -7,7 +7,11 @@ import {
   findUnknownStoreCreateFormFields,
   validateCreateStoreIntakeSource,
 } from './createStoreIntakeMetadata.js';
-import { formatValidationErrorResponse, formatDuplicateStoreIntakeResponse } from './intakeErrorTypes.js';
+import {
+  canonicalizeCreateStoreCategory,
+  formatValidationErrorResponse,
+  formatDuplicateStoreIntakeResponse,
+} from './intakeErrorTypes.js';
 import {
   isStoreCreationDraftConfirmationSubmit,
   resolveStoreCreateFormFromDraftSubmitBody,
@@ -74,6 +78,26 @@ export async function handleFreshStoreCreationDraftSubmit(req, res, ctx) {
 
   if (!storeCreateForm) {
     return false;
+  }
+
+  // Hollow draft (empty name) is not a confirmation — e.g. beginNewStoreCreation + card
+  // image. Defer to upload OCR / Live checkpoint instead of MISSING_NAME 400.
+  const earlyStoreName = String(
+    storeCreateForm.storeName ?? storeCreateForm.businessName ?? '',
+  ).trim();
+  if (earlyStoreName.length < 2) {
+    diagLog(diag, '→ skip fast path (empty storeName — defer to upload/Live runway)');
+    return false;
+  }
+
+  // OCR / Ask often ship free-text types ("Greek street food", "handyman").
+  // Canonicalize before allowlist + mission handoff so confirm does not 400 silently.
+  const canonicalCategory = canonicalizeCreateStoreCategory(
+    storeCreateForm.category ?? storeCreateForm.storeType ?? storeCreateForm.businessType,
+  );
+  if (canonicalCategory) {
+    storeCreateForm.storeType = canonicalCategory;
+    storeCreateForm.category = canonicalCategory;
   }
 
   const unknownFormFields = findUnknownStoreCreateFormFields(storeCreateForm);
@@ -166,6 +190,10 @@ export async function handleFreshStoreCreationDraftSubmit(req, res, ctx) {
       auditSource: 'intake_v2_fresh_store_draft',
       storeCreateForm,
       classification,
+      action: 'create_store',
+      freshStoreMission: true,
+      primaryModeHint: 'store_creation',
+      primaryMode: 'create',
       safeJson: minimalSafeJson,
       formatDuplicateResponse: formatDuplicateStoreIntakeResponse,
       createMissionPipeline,

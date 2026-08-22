@@ -1,7 +1,9 @@
 /**
- * AI Engine Registry
- * Central registry for all AI engine implementations
- * Provides getter functions to retrieve engines by name
+ * AI Engine Registry (legacy compatibility facade)
+ *
+ * Phase 4: Prefer llmGateway. Engines remain for loyalty/OCR/template callers.
+ * Deleted: lib/llm/hybridRouter.js, lib/llm/cloudAdapter.js
+ * Kept: lib/routing/hybridRouter.js (unrelated governance router)
  */
 
 import type {

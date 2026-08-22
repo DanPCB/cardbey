@@ -13,6 +13,7 @@ import {
   isMultiStoreRequest,
   isVagueLocationPhrase,
 } from '../multiAgent/multiStorePlanHelpers.ts';
+import { canonicalizeCreateStoreCategory } from './intakeErrorTypes.js';
 
 const WRAP_QUOTE_RE = /^[\s"'`\u201c\u201d\u2018\u2019]+|[\s"'`\u201c\u201d\u2018\u2019]+$/g;
 
@@ -92,6 +93,11 @@ export function isGenericStoreName(name) {
   if (GENERIC_STORE_NAMES.has(norm)) return true;
   if (/^(my|the|a|an)\s+(business|store|shop|cafe|company|restaurant)$/i.test(norm)) return true;
   if (/^(store|shop|business)$/i.test(norm)) return true;
+  // Card section headers / slogans mis-picked as the trading name
+  if (/^(we|our|i)\s+(speciali[sz]e|offer|provide|serve|feature)\b/.test(norm)) return true;
+  if (/speciali[sz]e\s+in\s*:?\s*$/.test(norm)) return true;
+  if (/:\s*$/.test(norm) && norm.length < 28) return true;
+  if (/^(welcome|opening hours|hours|services|menu|about us|contact us)\b/.test(norm)) return true;
   return false;
 }
 
@@ -127,24 +133,28 @@ function finalizeParsedStoreCreation(parsed) {
  */
 export function inferStoreCategoryFromHint(hint, name = '', location = '') {
   const fromHint = stripQuotes(hint);
-  if (fromHint && fromHint.length >= 2 && fromHint.toLowerCase() !== 'other') {
-    const lower = fromHint.toLowerCase();
-    if (lower === 'bakery' || lower === 'cafe' || lower === 'restaurant') return 'Food & drink';
-    return fromHint;
+  if (fromHint && fromHint.length >= 2) {
+    return canonicalizeCreateStoreCategory(fromHint);
   }
   const text = `${name ?? ''} ${location ?? ''} ${hint ?? ''}`.toLowerCase();
-  if (/sign|signage|display|billboard|banner/i.test(text)) return 'Signage';
+  if (/sign|signage|display|billboard|banner/i.test(text)) {
+    return canonicalizeCreateStoreCategory('signage');
+  }
   if (/hair|beauty|salon|spa|nail|barber/i.test(text)) return 'Beauty';
   if (/cafe|coffee|restaurant|food|pizza|sushi|bakery|bar\b/i.test(text)) return 'Food & drink';
-  if (/construction|construct|builder|building|contractor|renovat|carpentry|trade/i.test(text)) {
-    return 'Construction';
+  if (/construction|construct|builder|building|contractor|renovat|carpentry|trade|handyman/i.test(text)) {
+    return 'Home & garden';
   }
   if (/furniture|sofa|chair|decor|home\s+goods|interior/i.test(text)) return 'Home & garden';
-  if (/car\s*wash|auto|mechanic|tyre|detailing/i.test(text)) return 'Automotive';
+  if (/car\s*wash|auto|mechanic|tyre|detailing/i.test(text)) {
+    return canonicalizeCreateStoreCategory('automotive');
+  }
   if (/gym|fitness|yoga|sport|training|pilates/i.test(text)) return 'Sports';
   if (/fashion|cloth|dress|wear|apparel|boutique/i.test(text)) return 'Fashion';
   if (/health|pharmacy|medical|clinic|dental/i.test(text)) return 'Health';
-  if (/tech|software|digital|IT\b|computer/i.test(text)) return 'Technology';
+  if (/tech|software|digital|IT\b|computer/i.test(text)) {
+    return canonicalizeCreateStoreCategory('technology');
+  }
   return 'Other';
 }
 

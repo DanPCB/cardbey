@@ -48,7 +48,9 @@ export const BEAUTY_BLUEPRINTS = {
     industry: 'beauty',
     label: 'Nail Salon',
     verticalSlugs: ['beauty.nails'],
-    templateKey: 'beauty_salon',
+    // Must NOT share beauty_salon — that template expands haircut items.
+    matchPatterns: [/\b(nails?|nail salon|manicure|pedicure|nail art|gel nails|acrylic nails|sns|dip powder)\b/i],
+    templateKey: 'beauty_nails',
     categories: [
       { key: 'manicure', label: 'Manicure' },
       { key: 'pedicure', label: 'Pedicure' },
@@ -82,7 +84,8 @@ export const BEAUTY_BLUEPRINTS = {
     label: 'Spa & Beauty',
     verticalSlugs: ['beauty.spa', 'beauty.lashes_brows', 'beauty.waxing'],
     matchPatterns: [/\b(spa|facial|massage|wax|lash|brow|eyelash|skincare)\b/i],
-    templateKey: 'beauty_salon',
+    // Must NOT share beauty_salon — that template expands haircut items.
+    templateKey: 'beauty_spa',
     categories: [
       { key: 'facials', label: 'Facials & Skin' },
       { key: 'massage', label: 'Massage' },

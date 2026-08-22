@@ -21,11 +21,29 @@ describe('formatStoreLocation confidence', () => {
     expect(label).toBe('Carlton, VIC');
   });
 
-  it('address without coordinates → Location not confirmed', () => {
+  it('city/suburb text shows even when confidence is unconfirmed (pre-geocode)', () => {
     const label = formatFeedStoreLocationLabel({
       suburb: 'Melbourne',
       state: 'VIC',
       country: 'Australia',
+      locationConfidence: 'unconfirmed',
+    });
+    expect(label).toBe('Melbourne, VIC');
+  });
+
+  it('city-only intake shows city (not Location not confirmed)', () => {
+    const label = formatFeedStoreLocationLabel({
+      city: 'Melbourne',
+      country: 'Australia',
+      locationConfidence: 'unconfirmed',
+    });
+    expect(label).toBe('Melbourne');
+  });
+
+  it('coordinates-only without locality → Location not confirmed', () => {
+    const label = formatFeedStoreLocationLabel({
+      lat: -37.8,
+      lng: 144.96,
       locationConfidence: 'unconfirmed',
     });
     expect(label).toBe(LOCATION_NOT_CONFIRMED_LABEL);

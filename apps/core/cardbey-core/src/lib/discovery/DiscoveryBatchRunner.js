@@ -245,7 +245,15 @@ export async function runBatch(seed, sourceLimit, triggeredBy = 'cron', triggere
 
     const errors = urls.length > 0
       ? await runWithConcurrency(urls, counters, seed.id, concurrency, delayMs)
-      : [];
+      : [{ error: 'no_urls_resolved', seedType: seed.type, seedValue: seed.value }];
+
+    if (urls.length === 0) {
+      counters.failed = 1;
+      await recordSeedError(
+        seed.id,
+        `no_urls_resolved for ${seed.type}:${String(seed.value).slice(0, 80)}`,
+      );
+    }
 
     const status = counters.failed > 0 && counters.created === 0 ? 'failed'
       : counters.failed > 0 ? 'partial' : 'completed';

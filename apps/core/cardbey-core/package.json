@@ -8,6 +8,7 @@
   "scripts": {
     "test": "cross-env PRISMA_CLIENT_ENGINE_TYPE=binary NODE_ENV=test ROLE=test DATABASE_URL=file:../test.db vitest run",
     "audit:performer-mission": "node scripts/audit-performer-mission-startup.mjs",
+    "smoke:create-store-runtime": "node scripts/smoke-create-store-runtime-graph.mjs",
     "test:intent": "vitest run src/intent/__tests__/*.test.ts",
     "test:intent:unit": "vitest run src/intent/__tests__/*.test.ts",
     "test:intent:shadow": "vitest run src/intent/__tests__/shadow/*.test.ts 2>/dev/null || echo 'No shadow tests yet'",
@@ -109,6 +110,10 @@
     "test:e2e:foundation3": "cross-env NODE_ENV=test DATABASE_URL=file:../test.db vitest run src/test/e2e/foundation3-closeout.e2e.test.js",
     "test:business-ingestion": "vitest run src/lib/businessIngestion/__tests__",
     "test:discovery-engine": "vitest run src/lib/discoveryEngine/__tests__",
+    "test:live-market": "node ./node_modules/vitest/vitest.mjs run src/lib/liveMarket/domain.test.js src/lib/liveMarket/registration.domain.test.js src/lib/liveMarket/hostParticipants.test.js src/lib/liveMarket/service.test.js src/lib/liveMarket/liveMarket.integration.test.js src/lib/liveMarket/providers/cloudflareStreamProvider.test.js src/lib/liveMarket/attachLiveMarketToPublicStores.test.js --pool=forks --no-file-parallelism",
+    "test:live-market:integration": "node ./node_modules/vitest/vitest.mjs run src/lib/liveMarket/liveMarket.integration.test.js --pool=forks --no-file-parallelism",
+    "live-market:migrate-proof": "node scripts/live-market-migrate-from-zero.mjs",
+    "live-market:postgres-static": "node scripts/live-market-postgres-static-check.mjs",
     "db:ensure-business-seed": "node scripts/ensure-business-seed-table.mjs",
     "backfill:business-seeds": "node --import ../../../node_modules/tsx/dist/loader.mjs scripts/backfill-business-seeds.mjs",
     "backfill:business-seeds:dry-run": "node --import ../../../node_modules/tsx/dist/loader.mjs scripts/backfill-business-seeds.mjs --dry-run",

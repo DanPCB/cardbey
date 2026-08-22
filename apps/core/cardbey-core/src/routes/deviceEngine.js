@@ -34,9 +34,8 @@
  * 
  * - Device Management:
  *   * POST /api/device/update - Update device information (auth required)
- *   * Accepts: { deviceId, name?, location?, model?, orientation? }
- *   * Returns: { ok: true, device: DeviceDto }
- *   * Also updates associated Screen orientation if provided
+ *   * Accepts: { deviceId, name?, location?, model?, rotationDegrees?, orientation? }
+ *   * Returns: { ok: true, device: DeviceDto } with rotationDegrees (+ legacy orientation)
  */
 
 import crypto from 'crypto';
@@ -69,6 +68,10 @@ import {
   upsertDeviceMetadata,
   buildProjectedDeviceFields,
 } from '../lib/deviceProjection.js';
+import {
+  parseRotationUpdate,
+  resolveDeviceRotation,
+} from '../lib/deviceRotation.js';
 import {
   resolveCanonicalDevice,
   persistInstallationId,
@@ -542,6 +545,20 @@ router.get('/list', requireAuth, async (req, res) => {
         metadata,
       });
 
+      const capsInstallId =
+        metadata && typeof metadata === 'object' && typeof metadata.installationId === 'string'
+          ? metadata.installationId.trim()
+          : '';
+      const rawCaps =
+        (Array.isArray(device.capabilities) ? device.capabilities[0] : device.capabilities)
+          ?.capabilities;
+      const rawCapsInstallId =
+        rawCaps && typeof rawCaps === 'object' && typeof rawCaps.installationId === 'string'
+          ? String(rawCaps.installationId).trim()
+          : '';
+      const columnInstallId =
+        typeof device.installationId === 'string' ? device.installationId.trim() : '';
+
       return {
         id: device.id,
         tenantId: device.tenantId,
@@ -549,11 +566,10 @@ router.get('/list', requireAuth, async (req, res) => {
         name: device.name,
         model: device.model,
         location: device.location,
-        // Device V2 display orientation — required so Dashboard preview/state survive list refetch
-        orientation:
-          device.orientation === 'vertical' || device.orientation === 'horizontal'
-            ? device.orientation
-            : 'horizontal',
+        // Used by markDuplicateDevicesInList (shared install = true duplicate).
+        installationId: columnInstallId || capsInstallId || rawCapsInstallId || null,
+        rotationDegrees: projected.rotationDegrees,
+        orientation: projected.orientation,
         status: heartbeatOnline ? 'online' : 'offline',
         isOnline: heartbeatOnline,
         presenceTier: projected.presenceTier,
@@ -1611,7 +1627,8 @@ router.post('/heartbeat', async (req, res) => {
           platform: platform || undefined,
           appVersion: engineVersion || undefined,
           name: 'Unnamed Device',
-          orientation: 'horizontal', // Default orientation for new devices
+          orientation: 'horizontal',
+          rotationDegrees: 0,
           ...(playbackReportPatch || {}),
         },
         select: {
@@ -1619,6 +1636,7 @@ router.post('/heartbeat', async (req, res) => {
           name: true,
           status: true,
           orientation: true,
+          rotationDegrees: true,
           tenantId: true,
           storeId: true,
           lastSeenAt: true,
@@ -1652,6 +1670,7 @@ router.post('/heartbeat', async (req, res) => {
             name: true,
             status: true,
             orientation: true,
+            rotationDegrees: true,
             tenantId: true,
             storeId: true,
             pairingCode: true,
@@ -1674,7 +1693,8 @@ router.post('/heartbeat', async (req, res) => {
               platform: platform || undefined,
               appVersion: engineVersion || undefined,
               name: 'Unnamed Device',
-              orientation: 'horizontal', // Default orientation for new devices
+              orientation: 'horizontal',
+              rotationDegrees: 0,
               ...(playbackReportPatch || {}),
             },
             select: {
@@ -1682,6 +1702,7 @@ router.post('/heartbeat', async (req, res) => {
               name: true,
               status: true,
               orientation: true,
+              rotationDegrees: true,
               tenantId: true,
               storeId: true,
               lastSeenAt: true,
@@ -1794,6 +1815,7 @@ router.post('/heartbeat', async (req, res) => {
             name: true,
             status: true,
             orientation: true,
+          rotationDegrees: true,
             tenantId: true,
             storeId: true,
             lastSeenAt: true,
@@ -1917,7 +1939,8 @@ router.post('/heartbeat', async (req, res) => {
               platform: platform || undefined,
               appVersion: engineVersion || undefined,
               name: 'Unnamed Device',
-              orientation: 'horizontal', // Default orientation for new devices
+              orientation: 'horizontal',
+              rotationDegrees: 0,
               ...(playbackReportPatch || {}),
             },
             select: {
@@ -1925,6 +1948,7 @@ router.post('/heartbeat', async (req, res) => {
               name: true,
               status: true,
               orientation: true,
+              rotationDegrees: true,
               tenantId: true,
               storeId: true,
               lastSeenAt: true,
@@ -1960,6 +1984,7 @@ router.post('/heartbeat', async (req, res) => {
             name: true,
             status: true,
             orientation: true,
+          rotationDegrees: true,
             tenantId: true,
             storeId: true,
             pairingCode: true,
@@ -2088,8 +2113,10 @@ router.post('/heartbeat', async (req, res) => {
       ? device.status 
       : null;
 
-    // Get orientation from device (defaults to 'horizontal' if not set)
-    const deviceOrientation = device.orientation || 'horizontal';
+    const deviceRotation = resolveDeviceRotation({
+      rotationDegrees: device.rotationDegrees,
+      orientation: device.orientation,
+    });
 
     const presenceNow = new Date();
     const presenceForSse = computeDevicePresenceWithPlayback(device, presenceNow);
@@ -2128,7 +2155,8 @@ router.post('/heartbeat', async (req, res) => {
       status: normalizedStatus,
       pairingStatus,
       displayName,
-      orientation: deviceOrientation, // Include orientation in heartbeat response
+      rotationDegrees: deviceRotation.rotationDegrees,
+      orientation: deviceRotation.orientation,
       tenantId: device.tenantId ?? null,
       storeId: device.storeId ?? null,
       currentPlaylistId: activeBinding?.playlistId || heartbeatPlaylistIdHint || null,
@@ -3722,28 +3750,75 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       host: req.get?.('host') || null,
     });
     
-    // Verify device exists and get device details (lookup by trimmed id)
-    const device = await prisma.device.findUnique({
-      where: { id: normalizedDeviceId },
-      select: {
-        id: true,
-        tenantId: true,
-        storeId: true,
-        name: true,
-        location: true,
-        orientation: true, // Device orientation field
-      },
+    // Verify device exists and get device details.
+    // Prefer installation identity (same as heartbeat) so remapped claimed devices
+    // still resolve when the path id is a stale local/session id.
+    const headerInstallId = normalizeInstallationId(
+      req.get?.('x-installation-id') || req.get?.('X-Installation-Id'),
+    );
+    const headerDeviceId = String(req.get?.('x-device-id') || req.get?.('X-Device-Id') || '')
+      .trim();
+
+    const resolved = await resolveCanonicalDevice(prisma, {
+      deviceId: normalizedDeviceId || headerDeviceId,
+      installationId: headerInstallId || undefined,
     });
+
+    let device = resolved.device
+      ? await prisma.device.findUnique({
+          where: { id: resolved.device.id },
+          select: {
+            id: true,
+            tenantId: true,
+            storeId: true,
+            name: true,
+            location: true,
+            orientation: true,
+            rotationDegrees: true,
+          },
+        })
+      : null;
+
+    if (!device && normalizedDeviceId) {
+      device = await prisma.device.findUnique({
+        where: { id: normalizedDeviceId },
+        select: {
+          id: true,
+          tenantId: true,
+          storeId: true,
+          name: true,
+          location: true,
+          orientation: true,
+          rotationDegrees: true,
+        },
+      });
+    }
     
     if (!device) {
       console.log(`[Device Engine] [${requestId}] Device not found after normalize`, {
         deviceIdParamRaw: rawDeviceId,
         deviceIdNormalized: normalizedDeviceId,
+        headerDeviceId: headerDeviceId || null,
+        installationIdHash: hashInstallationId(headerInstallId),
+        matchReason: resolved.matchReason,
       });
+      res.set('Cache-Control', 'no-store');
       return res.status(404).json({
         ok: false,
         error: 'device_not_found',
         message: 'Device not found',
+      });
+    }
+
+    if (
+      resolved.requestedDeviceId &&
+      resolved.device &&
+      resolved.requestedDeviceId !== resolved.device.id
+    ) {
+      console.warn(`[Device Engine] [${requestId}] playlist/full identity remap`, {
+        requestedDeviceId: resolved.requestedDeviceId,
+        canonicalDeviceId: resolved.device.id,
+        matchReason: resolved.matchReason,
       });
     }
 
@@ -3876,6 +3951,7 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
         itemCount: 0,
         playlistId: null,
       });
+      res.set('Cache-Control', 'no-store');
       return res.json(noBindingBody);
     }
 
@@ -4203,25 +4279,14 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       }));
     }
     
-    // Get orientation from Device model (preferred) or fallback to Screen
-    // Use safe default to prevent errors if orientation is null/undefined
-    let orientation = device.orientation || 'horizontal'; // Default to horizontal
+    // Canonical rotation from Device; Screen orientation only if Device has neither field set.
     let screenId = null;
-    
-    // Normalize orientation: ensure it's 'horizontal' or 'vertical'
-    if (orientation !== 'horizontal' && orientation !== 'vertical') {
-      orientation = 'horizontal'; // Default if invalid
-    }
-    
-    // Log orientation for debugging
-    console.log('[Device Engine] playlist/full orientation', {
-      deviceId: canonicalDeviceId,
-      orientation,
-      deviceOrientation: device.orientation || 'null (using default)',
+    let rotation = resolveDeviceRotation({
+      rotationDegrees: device.rotationDegrees,
+      orientation: device.orientation,
     });
-    
-    // Try to find associated Screen for backward compatibility (if Device orientation not set)
-    if (!device.orientation) {
+
+    if (device.rotationDegrees == null && !device.orientation) {
       try {
         if (device.name || device.location) {
           const screenWhere = {
@@ -4248,16 +4313,23 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
             
             if (screen) {
               screenId = screen.id;
-              // Use Screen orientation if Device doesn't have one
-              orientation = screen.orientation === 'vertical' ? 'vertical' : 'horizontal';
+              rotation = resolveDeviceRotation({ orientation: screen.orientation });
             }
           }
         }
       } catch (screenError) {
-        // Non-fatal: log but continue with default orientation
         console.warn(`[Device Engine] [${requestId}] Failed to find associated screen:`, screenError.message);
       }
     }
+
+    const orientation = rotation.orientation;
+    const rotationDegrees = rotation.rotationDegrees;
+
+    console.log('[Device Engine] playlist/full rotation', {
+      deviceId: canonicalDeviceId,
+      rotationDegrees,
+      orientation,
+    });
     
     // Build normalized response with explicit state (CORE-004)
     // Format matches Android app expectations with version field for format detection
@@ -4276,7 +4348,8 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       ok: true,
       deviceId: canonicalDeviceId,
       screenId,
-      orientation, // 'horizontal' | 'vertical'
+      rotationDegrees,
+      orientation,
       state,
       message,
       version: bindingVersion, // Include version at top level for easy access
@@ -4437,6 +4510,7 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       itemCount: compatItems.length,
     });
     
+    res.set('Cache-Control', 'no-store');
     res.json(response);
   } catch (error) {
     console.error(`[Device Engine] [${requestId}] Playlist/full error:`, {
@@ -4445,6 +4519,7 @@ router.get('/:deviceId/playlist/full', async (req, res) => {
       stack: error.stack,
     });
     
+    res.set('Cache-Control', 'no-store');
     res.status(500).json({
       ok: false,
       error: 'internal_error',
@@ -5078,29 +5153,24 @@ router.get('/:id/debug', requireAuth, async (req, res) => {
 
 /**
  * POST /api/device/update
- * Update device information (name, location, model, orientation)
+ * Update device information (name, location, model, rotationDegrees / orientation)
  * Auth required
- * 
+ *
  * Request body:
  * {
  *   deviceId: string (required),
  *   name?: string,
  *   location?: string,
  *   model?: string,
- *   orientation?: "horizontal" | "vertical"
- * }
- * 
- * Response:
- * {
- *   ok: true,
- *   device: DeviceDto
+ *   rotationDegrees?: number (0–359, preferred),
+ *   orientation?: "horizontal" | "vertical" (legacy; mapped to 0 / 90)
  * }
  */
 router.post('/update', requireAuth, async (req, res) => {
   const requestId = Math.random().toString(36).slice(2, 9);
   
   try {
-    const { deviceId, name, location, model, orientation } = req.body || {};
+    const { deviceId, name, location, model, orientation, rotationDegrees } = req.body || {};
     
     // Validate deviceId
     if (!deviceId || typeof deviceId !== 'string' || deviceId.trim() === '') {
@@ -5117,6 +5187,7 @@ router.post('/update', requireAuth, async (req, res) => {
       hasLocation: location !== undefined,
       hasModel: model !== undefined,
       hasOrientation: orientation !== undefined,
+      hasRotationDegrees: rotationDegrees !== undefined,
     });
     
     // Find device
@@ -5128,6 +5199,7 @@ router.post('/update', requireAuth, async (req, res) => {
         location: true,
         model: true,
         orientation: true,
+        rotationDegrees: true,
         tenantId: true,
         storeId: true,
         status: true,
@@ -5159,21 +5231,22 @@ router.post('/update', requireAuth, async (req, res) => {
     if (model !== undefined) {
       deviceUpdateData.model = model === null || model === '' ? null : String(model).trim();
     }
-    if (orientation !== undefined) {
-      // Validate orientation value
-      if (orientation !== 'horizontal' && orientation !== 'vertical') {
-        return res.status(400).json({
-          ok: false,
-          error: 'invalid_orientation',
-          message: 'Orientation must be "horizontal" or "vertical"',
-        });
-      }
-      deviceUpdateData.orientation = orientation;
-      
-      // Log orientation update
-      console.log('[Device] Updating orientation', {
-        deviceId: deviceId,
-        orientation: orientation,
+
+    const rotationParsed = parseRotationUpdate({ rotationDegrees, orientation });
+    if (rotationParsed && rotationParsed.ok === false) {
+      return res.status(400).json({
+        ok: false,
+        error: rotationParsed.error,
+        message: rotationParsed.message,
+      });
+    }
+    if (rotationParsed && rotationParsed.ok === true) {
+      deviceUpdateData.rotationDegrees = rotationParsed.rotationDegrees;
+      deviceUpdateData.orientation = rotationParsed.orientation;
+      console.log('[Device] Updating rotation', {
+        deviceId,
+        rotationDegrees: rotationParsed.rotationDegrees,
+        orientation: rotationParsed.orientation,
       });
     }
     
@@ -5189,6 +5262,7 @@ router.post('/update', requireAuth, async (req, res) => {
           location: true,
           model: true,
           orientation: true,
+          rotationDegrees: true,
           tenantId: true,
           storeId: true,
           status: true,
@@ -5205,18 +5279,21 @@ router.post('/update', requireAuth, async (req, res) => {
         updatedFields: Object.keys(deviceUpdateData),
       });
     }
+
+    const wireRotation = resolveDeviceRotation({
+      rotationDegrees: updatedDevice.rotationDegrees,
+      orientation: updatedDevice.orientation,
+    });
     
-    // Orientation is now stored directly on Device model, so no need to update Screen
-    // (Screen orientation is kept for backward compatibility with legacy screens)
-    
-    // Emit device update event (orientation lives on Device; do not reference undefined Screen fields)
+    // Emit device update event (rotation lives on Device)
     try {
       broadcastSse('admin', 'device.updated', {
         deviceId: updatedDevice.id,
         name: updatedDevice.name,
         location: updatedDevice.location,
         model: updatedDevice.model,
-        orientation: updatedDevice.orientation || 'horizontal',
+        rotationDegrees: wireRotation.rotationDegrees,
+        orientation: wireRotation.orientation,
       });
     } catch (eventError) {
       // Non-fatal: log but continue
@@ -5231,7 +5308,8 @@ router.post('/update', requireAuth, async (req, res) => {
         name: updatedDevice.name,
         location: updatedDevice.location,
         model: updatedDevice.model,
-        orientation: updatedDevice.orientation || 'horizontal', // Device orientation (defaults to horizontal)
+        rotationDegrees: wireRotation.rotationDegrees,
+        orientation: wireRotation.orientation,
         tenantId: updatedDevice.tenantId,
         storeId: updatedDevice.storeId,
         status: updatedDevice.status,
@@ -5245,6 +5323,7 @@ router.post('/update', requireAuth, async (req, res) => {
     
     console.log(`[Device Engine] [${requestId}] Update response`, {
       deviceId: response.device.id,
+      rotationDegrees: response.device.rotationDegrees,
       orientation: response.device.orientation,
     });
     
@@ -5544,7 +5623,8 @@ router.post('/pair/complete', async (req, res) => {
           appVersion: appVersion || null,
           status: 'online',
           lastSeenAt: now,
-          orientation: 'horizontal', // Default orientation
+          orientation: 'horizontal',
+          rotationDegrees: 0,
         },
       });
     } else {
@@ -5559,7 +5639,8 @@ router.post('/pair/complete', async (req, res) => {
           appVersion: appVersion || null,
           status: 'online',
           lastSeenAt: now,
-          orientation: 'horizontal', // Default orientation
+          orientation: 'horizontal',
+          rotationDegrees: 0,
           type: 'screen', // Default type
         },
       });

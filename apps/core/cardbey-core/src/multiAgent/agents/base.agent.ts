@@ -1,5 +1,7 @@
 /**
- * Base agent class — DeepSeek API client, thinking mode, retries, fallback.
+ * Base agent class — LLM calls via llmGateway (Phase 2).
+ * Default provider: deepseek (MULTIAGENT_PROVIDER / per-agent AGENT_*_PROVIDER).
+ * Rollback: MULTIAGENT_USE_GATEWAY=false uses deprecated direct OpenAI SDK → DeepSeek.
  */
 
 import OpenAI from 'openai';
@@ -12,6 +14,9 @@ import { loadDeepSeekConfig, loadFallbackConfig } from '../config/deepseek.confi
 import logger from '../telemetry/logger.js';
 import { retryWithBackoff } from '../utils/retry.js';
 import { globalRequestCache } from '../utils/cache.js';
+import { llmGateway } from '../../lib/llm/llmGateway.ts';
+import type { LLMChatMessage, LLMResult, LLMToolDefinition } from '../../lib/llm/llmGatewayTypes.js';
+import { Features } from '../../config/features.js';
 
 export interface DeepSeekCallOptions {
   responseFormat?: { type: 'json_object' };
@@ -29,8 +34,20 @@ export interface DeepSeekCallMeta {
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 let sharedClient: OpenAI | null = null;
+let warnedDirectClient = false;
+
+function warnDirectDeepSeekClient(caller: string): void {
+  if (warnedDirectClient) return;
+  warnedDirectClient = true;
+  console.warn(
+    `[DEPRECATED] Direct multiAgent DeepSeek client (${caller}). ` +
+      'Use llmGateway with provider "deepseek" (default). ' +
+      'Rollback: MULTIAGENT_USE_GATEWAY=false.',
+  );
+}
 
 function getSharedClient(): OpenAI {
+  warnDirectDeepSeekClient('BaseAgent.getSharedClient');
   if (!sharedClient) {
     const cfg = loadDeepSeekConfig();
     sharedClient = new OpenAI({
@@ -45,6 +62,123 @@ function getSharedClient(): OpenAI {
 
 export function resetSharedClientForTests(): void {
   sharedClient = null;
+  warnedDirectClient = false;
+}
+
+function useMultiAgentGateway(): boolean {
+  if (!Features.llm.useGateway) return false;
+  const raw = String(process.env.MULTIAGENT_USE_GATEWAY ?? '').trim().toLowerCase();
+  if (raw === 'false' || raw === '0' || raw === 'off') return false;
+  return true;
+}
+
+function resolveGatewayProvider(agentProvider: string): string {
+  const fromEnv = String(process.env.MULTIAGENT_PROVIDER || '').trim().toLowerCase();
+  if (fromEnv) return fromEnv;
+  const fromAgent = String(agentProvider || '').trim().toLowerCase();
+  if (fromAgent) return fromAgent;
+  return Features.multiAgent.provider || 'deepseek';
+}
+
+function toGatewayMessages(messages: ChatMessage[]): LLMChatMessage[] {
+  const out: LLMChatMessage[] = [];
+  for (const msg of messages) {
+    const role = msg.role;
+    if (role === 'system' || role === 'user' || role === 'assistant' || role === 'tool') {
+      const content =
+        typeof msg.content === 'string'
+          ? msg.content
+          : Array.isArray(msg.content)
+            ? msg.content
+                .map((part) => {
+                  if (typeof part === 'string') return part;
+                  if (part && typeof part === 'object' && 'text' in part) {
+                    return String((part as { text?: string }).text ?? '');
+                  }
+                  return '';
+                })
+                .join('')
+            : '';
+      const entry: LLMChatMessage = { role, content };
+      if (role === 'tool' && 'tool_call_id' in msg && msg.tool_call_id) {
+        entry.tool_call_id = String(msg.tool_call_id);
+      }
+      if (role === 'assistant' && 'tool_calls' in msg && Array.isArray(msg.tool_calls)) {
+        entry.tool_calls = msg.tool_calls
+          .filter((tc) => tc && typeof tc === 'object' && 'function' in tc)
+          .map((tc) => {
+            const fn = (tc as { id?: string; function?: { name?: string; arguments?: string } })
+              .function;
+            let parameters: Record<string, unknown> = {};
+            try {
+              parameters = JSON.parse(fn?.arguments || '{}');
+            } catch {
+              parameters = {};
+            }
+            return {
+              id: String((tc as { id?: string }).id || `tool_${Date.now()}`),
+              name: String(fn?.name || 'unknown'),
+              parameters,
+            };
+          });
+      }
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+function toGatewayTools(
+  tools: OpenAI.Chat.Completions.ChatCompletionTool[],
+): LLMToolDefinition[] {
+  return tools
+    .filter((t) => t.type === 'function')
+    .map((t) => ({
+      name: t.function.name,
+      description: t.function.description || '',
+      parameters: (t.function.parameters as Record<string, unknown>) ?? {
+        type: 'object',
+        properties: {},
+      },
+    }));
+}
+
+function toChatCompletion(result: LLMResult, model: string): OpenAI.Chat.Completions.ChatCompletion {
+  const toolCalls = result.tool_calls?.length
+    ? result.tool_calls.map((tc) => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: {
+          name: tc.name,
+          arguments: JSON.stringify(tc.parameters ?? {}),
+        },
+      }))
+    : undefined;
+
+  return {
+    id: `ma-gateway-${Date.now()}`,
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: result.model || model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: result.content || result.text || '',
+          ...(toolCalls ? { tool_calls: toolCalls } : {}),
+          refusal: null,
+        },
+        finish_reason: toolCalls?.length ? 'tool_calls' : 'stop',
+        logprobs: null,
+      },
+    ],
+    usage: {
+      prompt_tokens: result.inputTokens ?? 0,
+      completion_tokens: result.outputTokens ?? 0,
+      total_tokens: (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
+    },
+  } as OpenAI.Chat.Completions.ChatCompletion;
 }
 
 export abstract class BaseAgent {
@@ -68,7 +202,10 @@ export abstract class BaseAgent {
       type: 'enabled',
       reasoningEffort: 'medium' as ThinkingConfig['reasoningEffort'],
     };
-    this.client = getSharedClient();
+    // Lazy: only construct SDK client when gateway is off (rollback path).
+    this.client = useMultiAgentGateway()
+      ? (null as unknown as OpenAI)
+      : getSharedClient();
   }
 
   protected getSystemPrompt(): string {
@@ -98,7 +235,9 @@ export abstract class BaseAgent {
       body.tool_choice = 'auto';
     }
 
-    if (this.thinkingConfig.type === 'enabled') {
+    // DeepSeek V4 thinking can consume the max_tokens budget and truncate JSON content.
+    const jsonMode = options.responseFormat?.type === 'json_object';
+    if (this.thinkingConfig.type === 'enabled' && !jsonMode) {
       body.thinking = {
         type: this.thinkingConfig.type,
         reasoning_effort: this.thinkingConfig.reasoningEffort,
@@ -108,12 +247,69 @@ export abstract class BaseAgent {
     return body;
   }
 
-  /** Native tool-calling DeepSeek request. */
+  private async callViaGateway(
+    messages: ChatMessage[],
+    options: DeepSeekCallOptions,
+    tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+  ): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; meta: DeepSeekCallMeta }> {
+    const startTime = Date.now();
+    const provider = resolveGatewayProvider(this.provider);
+    const gatewayMessages = toGatewayMessages(messages);
+    const gatewayTools = tools?.length ? toGatewayTools(tools) : undefined;
+
+    const jsonMode = options.responseFormat?.type === 'json_object';
+    const result = await llmGateway.complete({
+      purpose: `multi_agent_${this.agentName}`,
+      tenantKey: 'multi-agent',
+      messages: gatewayMessages,
+      provider,
+      model: this.model,
+      maxTokens: this.maxTokens,
+      temperature: this.temperature,
+      responseFormat: jsonMode ? 'json' : 'text',
+      // Avoid thinking-mode truncation on structured JSON agent outputs.
+      thinking: !jsonMode && this.thinkingConfig.type === 'enabled',
+      ...(gatewayTools ? { tools: gatewayTools, tool_choice: 'auto' as const } : {}),
+    });
+
+    const response = toChatCompletion(result, this.model);
+    const durationMs = Date.now() - startTime;
+    const tokensUsed = (result.inputTokens ?? 0) + (result.outputTokens ?? 0);
+
+    logger.info({
+      message: `[${this.agentName}] gateway API call completed`,
+      agent: this.agentName,
+      model: result.model || this.model,
+      provider,
+      durationMs,
+      tokens: tokensUsed,
+      via: 'llmGateway',
+    });
+
+    return {
+      response,
+      meta: {
+        tokensUsed,
+        durationMs,
+        model: result.model || this.model,
+        provider,
+      },
+    };
+  }
+
+  /** Native tool-calling request (gateway by default). */
   protected async callDeepSeekWithTools(
     messages: ChatMessage[],
     tools: OpenAI.Chat.Completions.ChatCompletionTool[],
     options: DeepSeekCallOptions = {},
   ): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; meta: DeepSeekCallMeta }> {
+    if (useMultiAgentGateway()) {
+      return this.callViaGateway(messages, options, tools);
+    }
+
+    warnDirectDeepSeekClient('BaseAgent.callDeepSeekWithTools');
+    if (!this.client) this.client = getSharedClient();
+
     const startTime = Date.now();
     const execute = async (): Promise<OpenAI.Chat.Completions.ChatCompletion> => {
       const body = this.buildRequestBody(messages, options, tools);
@@ -156,6 +352,21 @@ export abstract class BaseAgent {
         };
       }
     }
+
+    if (useMultiAgentGateway()) {
+      try {
+        const out = await this.callViaGateway(messages, options);
+        if (options.useCache !== false) {
+          globalRequestCache.set(this.agentName, cacheInput, out.response);
+        }
+        return out;
+      } catch (primaryError) {
+        return this.callFallback(messages, options, primaryError, startTime);
+      }
+    }
+
+    warnDirectDeepSeekClient('BaseAgent.callDeepSeek');
+    if (!this.client) this.client = getSharedClient();
 
     const execute = async (): Promise<OpenAI.Chat.Completions.ChatCompletion> => {
       const body = this.buildRequestBody(messages, options);
@@ -207,7 +418,6 @@ export abstract class BaseAgent {
     primaryError: unknown,
     startTime: number,
   ): Promise<{ response: OpenAI.Chat.Completions.ChatCompletion; meta: DeepSeekCallMeta }> {
-    const fallback = loadFallbackConfig();
     const err = primaryError instanceof Error ? primaryError : new Error(String(primaryError));
 
     logger.warn({
@@ -217,10 +427,44 @@ export abstract class BaseAgent {
       stack: err.stack,
     });
 
+    const fallbackProvider =
+      String(process.env.MULTIAGENT_FALLBACK_PROVIDER || '').trim().toLowerCase() ||
+      Features.multiAgent.fallbackProvider ||
+      Features.llm.fallbackProvider ||
+      'openai';
+
+    if (useMultiAgentGateway() && Features.llm.available) {
+      try {
+        const result = await llmGateway.complete({
+          purpose: `multi_agent_${this.agentName}_fallback`,
+          tenantKey: 'multi-agent',
+          messages: toGatewayMessages(messages),
+          provider: fallbackProvider,
+          maxTokens: this.maxTokens,
+          temperature: this.temperature,
+          responseFormat: options.responseFormat?.type === 'json_object' ? 'json' : 'text',
+        });
+        const response = toChatCompletion(result, result.model || fallbackProvider);
+        return {
+          response,
+          meta: {
+            tokensUsed: (result.inputTokens ?? 0) + (result.outputTokens ?? 0),
+            durationMs: Date.now() - startTime,
+            model: result.model || fallbackProvider,
+            provider: `${fallbackProvider}-fallback`,
+          },
+        };
+      } catch {
+        // fall through to OpenAI SDK fallback
+      }
+    }
+
+    const fallback = loadFallbackConfig();
     if (!fallback.openaiApiKey) {
       throw err;
     }
 
+    warnDirectDeepSeekClient('BaseAgent.callFallback');
     const fallbackClient = new OpenAI({
       apiKey: fallback.openaiApiKey,
       timeout: loadDeepSeekConfig().timeoutMs,

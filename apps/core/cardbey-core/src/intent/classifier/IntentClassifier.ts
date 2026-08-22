@@ -1,10 +1,12 @@
 /**
  * Pure intent classification — message content only.
  * No context, routing, or guard patches.
+ * Phase 2: attaches unifiedIntent (canonical lib/intent IntentType).
  */
 
 import type { Intent, IntentEngineInput, IntentType } from '../intent.types.js';
 import { normalizeCreateStoreTypos } from '../../lib/intent/storeCreateFastPath.js';
+import { fromIntentFirstType } from '../../lib/intent/unifiedIntent.ts';
 
 const GREETING_RE =
   /^(hi|hello|hey|thanks|thank you|yo|sup|good\s+(morning|afternoon|evening))$/i;
@@ -62,6 +64,10 @@ const ANALYTICS_RE =
 const CATALOG_RE =
   /\b(catalog|products?|menu|inventory|add\s+products?|manage\s+products?)\b/i;
 
+/** Headline / copy edits — aligned with intakeCapabilityGap SIMPLE_TEXT_OR_COPY_FIX_RE + ontology. */
+const CONTENT_EDIT_RE =
+  /\b(fix|change|update|replace|correct|edit|rewrite)\b[\s\S]{0,120}\b(headline|title|tagline|subtitle|name|wording|text|spelling|typo|hero)\b/i;
+
 const AMBIGUOUS_RE = /^[\p{L}\p{M}\p{N}'-]+(?:\s+[\p{L}\p{M}\p{N}'-]+){0,4}$/u;
 
 const INTENT_SIGNAL_RE =
@@ -85,7 +91,8 @@ function buildIntent(
       type === 'create_campaign' ||
       type === 'setup_loyalty' ||
       type === 'analytics' ||
-      type === 'manage_catalog');
+      type === 'manage_catalog' ||
+      type === 'content_edit');
 
   return {
     type,
@@ -94,6 +101,7 @@ function buildIntent(
     response: opts.response,
     entities: opts.entities,
     shouldExecute: opts.shouldExecute ?? (requiresBusiness || type === 'question'),
+    unifiedIntent: fromIntentFirstType(type),
   };
 }
 
@@ -188,6 +196,15 @@ export function classifyIntent(input: IntentEngineInput): Intent {
 
   if (CATALOG_RE.test(msg)) {
     return buildIntent('manage_catalog', { shouldExecute: true });
+  }
+
+  // Before generic question/chat fallback — restore legacy content_edit → code_fix path.
+  if (CONTENT_EDIT_RE.test(msg) && !/\b(image|photo|picture|logo)\b/i.test(msg)) {
+    return buildIntent('content_edit', {
+      shouldExecute: true,
+      confidence: 0.9,
+      response: 'Preparing a copy update for your approval.',
+    });
   }
 
   if (QUESTION_RE.test(msg)) {

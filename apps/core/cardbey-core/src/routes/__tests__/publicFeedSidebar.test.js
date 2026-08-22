@@ -120,6 +120,7 @@ describe('GET /api/public-feed/sidebar', () => {
     expect(res.body.locationSource).toBe('platform_default');
     expect(res.body.featuredNow[0]?.slug).toBe('cafe-one');
     expect(res.body.featuredNow[0]?.canManage).toBe(false);
+    expect(res.body.featuredNow[0]?.ownerId).toBeNull();
   });
 
   it('featuredNow prioritizes promoted stores', async () => {

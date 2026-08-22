@@ -261,6 +261,8 @@ export async function updateHeroForStore({
   missionId = null,
   previewPatch,
   source = 'upload',
+  /** When true (Design adapter C2), never write Business/public hero. */
+  draftOnly = false,
 }) {
   if (!previewPatch || typeof previewPatch !== 'object' || !Object.keys(previewPatch).length) {
     const err = new Error('No hero fields to save');
@@ -317,7 +319,7 @@ export async function updateHeroForStore({
     }
   }
 
-  if (effectiveStoreId) {
+  if (effectiveStoreId && !draftOnly) {
     businessUpdated = await syncBusinessHeroProfile(prisma, effectiveStoreId, mergedPreview);
   }
 

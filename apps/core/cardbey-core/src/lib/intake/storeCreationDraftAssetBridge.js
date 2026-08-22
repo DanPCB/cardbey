@@ -20,15 +20,15 @@ const VERTICAL_SLUG_TO_CATEGORY = {
   food_beverage: 'Food & drink',
   beauty: 'Beauty',
   home_garden: 'Home & garden',
-  automotive: 'Automotive',
+  automotive: 'Other',
   furniture: 'Home & garden',
   sports: 'Sports',
   health: 'Health',
   arts_crafts: 'Arts & crafts',
-  signage: 'Signage',
-  construction: 'Construction',
+  signage: 'Other',
+  construction: 'Home & garden',
   fashion: 'Fashion',
-  technology: 'Technology',
+  technology: 'Electronics',
 };
 
 export const STORE_DRAFT_DIRECT_ASSET_TYPES = new Set(['business_card', 'storefront_photo']);
@@ -284,20 +284,21 @@ export function hasMeaningfulAssetExtraction(assetExtraction) {
  * @returns {Promise<Record<string, unknown> | null>}
  */
 export async function enrichAssetExtractionWithUploadOcr(assetExtraction, opts = {}) {
-  if (hasMeaningfulAssetExtraction(assetExtraction)) return assetExtraction ?? null;
-
   let text = String(opts.rawOcrText ?? opts.imageContext?.extractedText ?? '').trim();
   const imageDataUrl = String(opts.imageDataUrl ?? '').trim();
 
-  if (!text && imageDataUrl.length > 100 && typeof opts.ocrExtractFn === 'function') {
+  // When pixels are present, always run live OCR and prefer it over handed-in
+  // rawOcrText (session pending often carries a prior card's text).
+  if (imageDataUrl.length > 100 && typeof opts.ocrExtractFn === 'function') {
     try {
       const ocrResult = await opts.ocrExtractFn({
         imageDataUrl,
         context: { purpose: 'business_card' },
       });
-      text = String(ocrResult?.text ?? '').trim();
+      const live = String(ocrResult?.text ?? '').trim();
+      if (live) text = live;
     } catch {
-      text = '';
+      /* keep handed-in text only as fallback */
     }
   }
 
@@ -309,7 +310,13 @@ export async function enrichAssetExtractionWithUploadOcr(assetExtraction, opts =
   });
   if (!candidate) return assetExtraction ?? null;
 
-  return mergeAssetExtraction(storeCandidateToAssetExtraction(candidate), assetExtraction);
+  const fromOcr = storeCandidateToAssetExtraction(candidate);
+  if (!hasMeaningfulAssetExtraction(fromOcr)) {
+    return assetExtraction ?? null;
+  }
+
+  // OCR overwrites stale handoff/session fields; keep handoff only for gaps.
+  return mergeAssetExtraction(assetExtraction, fromOcr);
 }
 
 /**

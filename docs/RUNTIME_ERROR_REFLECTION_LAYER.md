@@ -63,9 +63,9 @@ Build metadata (Vite):
 
 ### deploy_version_mismatch
 
-**Symptom:** Dashboard deployed on Render; Core still on previous commit — new API routes 404.
+**Symptom:** Dashboard deployed on Render; Core still on previous **monorepo** commit — new API routes 404.
 
-**Detection:** On boot, dashboard calls `GET /api/runtime/version` and compares `commitSha`.
+**Detection:** On boot, dashboard calls Core `GET {coreBase}/api/runtime/version` (absolute Core URL, not SPA `/api`) and compares baked **parent** `VITE_PARENT_COMMIT_SHA` / `VITE_APP_COMMIT_SHA` to Core `commitSha`. Do not compare dashboard-submodule SHA.
 
 ## R2 CORS required config
 
@@ -98,11 +98,11 @@ See also: [R2_MEDIA_CDN_CORS.md](./R2_MEDIA_CDN_CORS.md)
 
 ## Render deployment mismatch
 
-1. Dashboard build embeds `VITE_APP_COMMIT_SHA` (from `RENDER_GIT_COMMIT` or git HEAD).
-2. Core exposes `commitSha` on `/api/runtime/version`.
-3. Mismatch → diagnostic `deploy_version_mismatch` with both SHAs.
+1. Parent static build (`render-dashboard-static-build.mjs`) embeds monorepo `RENDER_GIT_COMMIT` as `VITE_APP_COMMIT_SHA` / `VITE_PARENT_COMMIT_SHA` (optional `VITE_DASHBOARD_COMMIT_SHA` for evidence).
+2. Core exposes monorepo `commitSha` on `/api/runtime/version`.
+3. Mismatch → diagnostic `deploy_version_mismatch` with both **monorepo** SHAs.
 
-**Ops:** Deploy Core before or with Dashboard when API contracts change.
+**Ops:** Deploy Core before or with Dashboard when API contracts change. Submodule-only dashboard bumps advance parent SHA; redeploy Core (or accept a real tip mismatch warning) if tips must match.
 
 ## Runtime Observations UI
 

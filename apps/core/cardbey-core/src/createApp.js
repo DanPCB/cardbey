@@ -105,8 +105,22 @@ export function logDevProviderEnvHints() {
         'Set in repo .env or apps/core/cardbey-core/.env and restart dev:server.'
     );
   }
-  if (process.env.USE_LLM_GATEWAY === 'true') {
-    console.log('[cardbey-core] USE_LLM_GATEWAY=true (llmGateway enabled)');
+  // Phase 0: gateway defaults ON (Features.llm.useGateway); opt out with USE_LLM_GATEWAY=false
+  const useGateway =
+    String(process.env.USE_LLM_GATEWAY ?? '').trim().toLowerCase() !== 'false' &&
+    String(process.env.USE_LLM_GATEWAY ?? '').trim() !== '0' &&
+    String(process.env.USE_LLM_GATEWAY ?? '').trim().toLowerCase() !== 'off';
+  if (useGateway) {
+    console.log(
+      `[cardbey-core] USE_LLM_GATEWAY=on (default) provider=${process.env.LLM_DEFAULT_PROVIDER || 'anthropic'}`,
+    );
+    console.log(
+      `[cardbey-core] Phase3 multimodal: vision=${process.env.VISION_PROVIDER || 'anthropic'} embed=${process.env.EMBEDDING_PROVIDER || 'openai'} image=${process.env.IMAGE_PROVIDER || 'dalle'} video=${process.env.VIDEO_PROVIDER || 'openai'}`,
+    );
+  } else {
+    console.warn(
+      '[cardbey-core] USE_LLM_GATEWAY=false — direct provider SDK paths enabled (rollback mode)',
+    );
   }
 }
 
@@ -279,6 +293,8 @@ export async function createCardbeyApp() {
   app.use('/api/missions', agentsV1Routes);
   console.log('[cardbey-core/createApp] mounted /api/missions (agentsV1: spawn, blackboard/stream, …)');
   await tryMountRouter(app, './routes/localDesktopRoutes.js', '/api');
+  // Phase 0/C1 Website Editing context + design projection (before stores catch-alls).
+  await tryMountRouter(app, './routes/websiteEditingRoutes.js', '/api/stores');
   await tryMountRouter(app, './routes/stores.js', '/api/stores');
   await tryMountRouter(app, './routes/businessBrandRoutes.js', '/api/business');
   await tryMountRouter(app, './routes/draftStoreRoutes.js', '/api/draft-store');

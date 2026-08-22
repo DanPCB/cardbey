@@ -3,7 +3,11 @@
  */
 
 import { discoverSources } from './sourceDiscoveryService.js';
-import { scoreSourceMatch, aggregateResearchConfidence } from './sourceConfidenceScorer.js';
+import {
+  scoreSourceMatch,
+  aggregateResearchConfidence,
+  attachOfficialWebsiteWhenGbpMatches,
+} from './sourceConfidenceScorer.js';
 import { extractBusinessFacts } from './businessFactsExtractor.js';
 import { extractServiceMenuCatalog } from './serviceMenuExtractor.js';
 import { buildResearchBackedStore } from './researchBackedStoreBuilder.js';
@@ -15,7 +19,7 @@ import { resolveStoreResearchInputFields, shouldRunStoreCreationResearchFromFiel
 import {
     isGooglePlacesConfigured,
     getGooglePlacesApiMode,
-} from '../../lib/businessDiscovery/businessDiscoverySources';
+} from '../../lib/businessDiscovery/businessDiscoverySources.js';
 import { CONFIDENCE, RESEARCH_LOG } from './types.js';
 import { buildResearchEvidenceSnapshot } from '../researchEvidence/researchEvidenceRepository.js';
 import { normalizeLegacyMatchToProviderResult } from '../researchEvidence/providerResultNormalizer.js';
@@ -183,7 +187,7 @@ export async function runStoreCreationResearch(input, options = {}) {
     return result;
   }
 
-  const scored = discovered.map((source) => {
+  const scoredInitial = discovered.map((source) => {
     const match = scoreSourceMatch(source, normalizedInput);
     match.researchProvider = normalizeLegacyMatchToProviderResult(match);
     if (match.matched) {
@@ -195,6 +199,19 @@ export async function runStoreCreationResearch(input, options = {}) {
     }
     return match;
   });
+  const scored = attachOfficialWebsiteWhenGbpMatches(scoredInitial);
+  for (let i = 0; i < scored.length; i++) {
+    if (scored[i]?.matched && !scoredInitial[i]?.matched) {
+      log(RESEARCH_LOG.SOURCE_MATCHED, {
+        sourceType: scored[i].source?.sourceType,
+        confidence: scored[i].confidence,
+        reasons: scored[i].reasons,
+      });
+    }
+    if (scored[i] !== scoredInitial[i]) {
+      scored[i].researchProvider = normalizeLegacyMatchToProviderResult(scored[i]);
+    }
+  }
 
   const sourcesUsed = scored.filter((m) => m.matched && m.confidence >= CONFIDENCE.REJECT);
   const sourcesPendingConfirmation = scored.filter(

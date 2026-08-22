@@ -86,10 +86,44 @@ function ensureSubmodulePresent() {
   }
 }
 
+function resolveParentCommitSha() {
+  const fromEnv = String(
+    process.env.RENDER_GIT_COMMIT ||
+      process.env.VITE_PARENT_COMMIT_SHA ||
+      process.env.VITE_APP_COMMIT_SHA ||
+      '',
+  ).trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return execSync('git rev-parse HEAD', { cwd: repoRoot, encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function resolveDashboardCommitSha() {
+  try {
+    return execSync('git rev-parse HEAD', {
+      cwd: path.join(repoRoot, submoduleRel),
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
 log(`start mode=${mode}`);
 process.chdir(repoRoot);
 assertRelativeSubmoduleUrl();
 ensureSubmodulePresent();
+
+// Bake monorepo SHA into the SPA so deploy handshake matches Core RENDER_GIT_COMMIT.
+const parentSha = resolveParentCommitSha();
+const dashboardSha = resolveDashboardCommitSha();
+process.env.VITE_APP_COMMIT_SHA = parentSha;
+process.env.VITE_PARENT_COMMIT_SHA = parentSha;
+if (dashboardSha) process.env.VITE_DASHBOARD_COMMIT_SHA = dashboardSha;
+log(`bake commit parent=${parentSha.slice(0, 8)} dashboard=${(dashboardSha || 'n/a').slice(0, 8)}`);
 
 run('npm i -g pnpm@10.25.0');
 run('pnpm -v');

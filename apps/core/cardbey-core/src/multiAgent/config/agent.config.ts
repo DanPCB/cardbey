@@ -28,12 +28,12 @@ const AGENT_ENV_KEYS: Record<
   planner: {
     model: 'AGENT_PLANNER_MODEL',
     provider: 'AGENT_PLANNER_PROVIDER',
-    defaultEffort: ReasoningEffort.HIGH,
+    defaultEffort: ReasoningEffort.LOW,
   },
   critic: {
     model: 'AGENT_CRITIC_MODEL',
     provider: 'AGENT_CRITIC_PROVIDER',
-    defaultEffort: ReasoningEffort.HIGH,
+    defaultEffort: ReasoningEffort.LOW,
   },
   refiner: {
     model: 'AGENT_REFINER_MODEL',
@@ -93,6 +93,7 @@ export function loadAgentConfig(
   const provider =
     overrides?.provider ||
     process.env[keys.provider]?.trim() ||
+    process.env.MULTIAGENT_PROVIDER?.trim() ||
     'deepseek';
 
   return {

@@ -45,6 +45,7 @@ function storePickerExecution(
 function businessExecution(
   intent: Intent,
   context: ContextResult,
+  userMessage = '',
 ): ExecutionResult {
   const storeId = context.storeId ?? null;
   const baseParams = storeId ? { storeId } : {};
@@ -94,6 +95,18 @@ function businessExecution(
         parameters: baseParams,
         storeId,
         executionPath: 'proactive_plan',
+      };
+    case 'content_edit':
+      return {
+        action: 'proactive_plan',
+        response: intent.response ?? 'Preparing a copy update for your approval.',
+        tool: 'code_fix',
+        parameters: {
+          ...baseParams,
+          description: String(userMessage ?? '').trim(),
+        },
+        storeId,
+        executionPath: 'direct_action',
       };
     default:
       return chatExecution(intent.response ?? 'How can I help you today?');
@@ -150,7 +163,7 @@ export function executeIntent(
     return storePickerExecution(context, intent, userMessage);
   }
 
-  return businessExecution(intent, context);
+  return businessExecution(intent, context, userMessage);
 }
 
 export class IntentExecutor {

@@ -13,16 +13,13 @@ function deviceRecencyMs(device) {
   return device.createdAt ? new Date(device.createdAt).getTime() : 0;
 }
 
-function duplicateFingerprint(device) {
-  const norm = (v) => String(v ?? '').trim().toLowerCase();
-  return [
-    'dup',
-    norm(device.tenantId),
-    norm(device.storeId),
-    norm(device.type || 'screen'),
-    norm(device.platform || device.appVersion),
-    norm(device.model),
-  ].join('|');
+function resolveInstallationId(device) {
+  const direct = String(device?.installationId || '').trim();
+  if (direct) return direct;
+  const capRow = Array.isArray(device?.capabilities) ? device.capabilities[0] : device?.capabilities;
+  const caps =
+    capRow?.capabilities && typeof capRow.capabilities === 'object' ? capRow.capabilities : {};
+  return String(caps.installationId || '').trim();
 }
 
 function isSoftArchived(capRow) {
@@ -86,9 +83,13 @@ export async function runDeviceCleanupStale(prisma, { tenantId, storeId }) {
 
   const visible = devices.filter((d) => !isSoftArchived(d.capabilities?.[0]));
 
+  // Only shared installationId is a safe duplicate signal for multi-screen stores.
+  // Weak platform/model fingerprints must not archive a second legitimate TV.
   const groups = new Map();
   for (const device of visible) {
-    const fp = duplicateFingerprint(device);
+    const installId = resolveInstallationId(device);
+    if (!installId) continue;
+    const fp = `install|${String(installId).trim().toLowerCase()}`;
     if (!groups.has(fp)) groups.set(fp, []);
     groups.get(fp).push(device);
   }

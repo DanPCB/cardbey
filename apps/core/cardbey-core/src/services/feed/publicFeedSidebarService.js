@@ -147,7 +147,7 @@ function toSidebarStoreItem(business, ctx) {
       engagementScore: activity.activityScore ?? 0,
     },
     badges,
-    ownerId,
+    ownerId: canManage ? ownerId : null,
     canManage,
     promoted,
     publishedAt: business.publishedAt ?? null,
@@ -173,12 +173,16 @@ function toSidebarOfferItem(offer, store, ctx) {
   }
   const created = offer.createdAt ? new Date(offer.createdAt).getTime() : 0;
   if (created && now - created <= 3 * 24 * 60 * 60 * 1000) badges.push('NEW');
-  if (activity.activityScore >= 8) badges.push('HOT');
+  if (activity.activityScore >= 40) badges.push('HOT');
 
   const media = resolvePublicStoreMediaUrls({
     heroImageUrl: store.heroImageUrl,
     avatarImageUrl: store.avatarImageUrl,
   });
+
+  const canManage = Boolean(
+    ctx.viewerId && store.userId && String(ctx.viewerId) === String(store.userId),
+  );
 
   return {
     id: offer.id,
@@ -191,10 +195,8 @@ function toSidebarOfferItem(offer, store, ctx) {
     thumbnailUrl: media.heroImageUrl ?? media.avatarImageUrl ?? null,
     expiresAt: offer.endsAt ?? null,
     badges,
-    ownerId: store.userId ?? null,
-    canManage: Boolean(
-      ctx.viewerId && store.userId && String(ctx.viewerId) === String(store.userId),
-    ),
+    ownerId: canManage ? store.userId ?? null : null,
+    canManage,
     href: store.slug
       ? `/s/${encodeURIComponent(store.slug)}?from=feed&action=offer`
       : null,

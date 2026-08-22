@@ -133,8 +133,11 @@ import adminPlatformRoutes from './routes/admin/platformOverview.js';
 import adminPlatformActivityRoutes from './routes/admin/platformActivityRoutes.js';
 import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
 import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoringRoutes.js';
+import adminDeepseekDiagnosticRoutes from './routes/admin/deepseekDiagnosticRoutes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
+import adminStoreContentManagementRoutes from './routes/admin/storeContentManagementRoutes.js';
+import activationEventRoutes from './routes/public/activationEventRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
@@ -151,6 +154,8 @@ import { createDebugRoutesLite } from './routes/debugRoutesLite.js';
 import assistantRouter from './routes/assistant.js';
 import contentsRouter from './routes/contents.js';
 import contentLibraryRoutes from './routes/contentLibraryRoutes.js';
+import universalLibraryRoutes from './routes/universalLibraryRoutes.js';
+import universalResourceIntelligenceRoutes from './routes/universalResourceIntelligenceRoutes.js';
 import internalRoutes from './routes/internal.js';
 import opsRoutes from './routes/opsRoutes.js';
 import controlTowerRoutes from './routes/controlTowerRoutes.js';
@@ -165,6 +170,9 @@ import authRoutes, { patchCurrentUserProfile } from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
 import storesRoutes from './routes/stores.js';
+import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
+import storeShowsRoutes from './routes/storeShowsRoutes.js';
+import performerContentEditingBridgeRoutes from './routes/performerContentEditingBridgeRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
 import promosPublicRoutes from './routes/promosPublic.js';
@@ -179,6 +187,10 @@ import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
 import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
+import {
+  createStoreReadinessRouter,
+  createBusinessStudioReadinessRouter,
+} from './routes/storeReadinessRoutes.js';
 import activityMatrixRoutes from './routes/activityMatrixRoutes.js';
 import controlCenterActivityMatrixRoutes from './routes/controlCenterActivityMatrixRoutes.js';
 import { serviceCatalogPublicRoutes, quoteRequestOwnerRoutes } from './routes/serviceCatalogRoutes.js';
@@ -285,6 +297,7 @@ import audioLibraryRoutes from './routes/audioLibraryRoutes.js';
 import locationRoutes from './routes/locationRoutes.js';
 import rewardRoutes from './routes/reward.js';
 import performerRoutes from './routes/performer.js';
+import performerTurnRoutes from './routes/performerTurnRoutes.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
 import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
@@ -966,6 +979,26 @@ app.use('/assets', express.static(publicAssetsDir, {
   }
 }));
 
+// Cardbey Originals HOSTED video/audio under public/videos (same CORS as /assets)
+const publicVideosDir = path.join(process.cwd(), 'public', 'videos');
+if (!fs.existsSync(publicVideosDir)) fs.mkdirSync(publicVideosDir, { recursive: true });
+app.use('/videos', express.static(publicVideosDir, {
+  fallthrough: true,
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (filePath) {
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext === '.mp4') res.setHeader('Content-Type', 'video/mp4');
+      else if (ext === '.webm') res.setHeader('Content-Type', 'video/webm');
+      else if (ext === '.mp3') res.setHeader('Content-Type', 'audio/mpeg');
+      else if (ext === '.wav') res.setHeader('Content-Type', 'audio/wav');
+    }
+  },
+}));
+
 const autoLayoutToolPath = path.join(process.cwd(), 'public', 'auto-layout-tool.html');
 app.get('/tools/auto-layout', (_req, res) => {
   if (fs.existsSync(autoLayoutToolPath)) {
@@ -1030,7 +1063,11 @@ app.use('/api/dev', devSystemMissionsRoutes);
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/dev/broker', devBrokerRuntimeProofRoutes);
 }
+app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
+app.use('/api/performer/content-editing-bridge', performerContentEditingBridgeRoutes); // Phase 2 bridge (flag-gated)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
+app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
+app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
 app.use('/api/store', storesRoutes); // Store context routes: /api/store/context, /api/store/:id/context
@@ -1047,6 +1084,8 @@ app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first
 app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)
+app.use('/api/stores/:storeId/readiness', createStoreReadinessRouter()); // Store Readiness V1 (owner; ENABLE_STORE_READINESS_V1)
+app.use('/api/business-studio/stores/:storeId/readiness', createBusinessStudioReadinessRouter());
 app.use('/api/business/insights', activityMatrixRoutes); // User Activity Matrix (store owner)
 app.use('/api/control-center/activity-matrix', controlCenterActivityMatrixRoutes); // Platform-wide matrix (admin)
 app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owner quote request management
@@ -1122,6 +1161,7 @@ app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
+app.use('/api/public/activation', activationEventRoutes); // Phase 1 outcome events (no auth; no PII; no Meta)
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
 const miOpenApiPath = fromRoot('..', 'openapi', 'mi-tools.v1.yaml');
@@ -1182,6 +1222,8 @@ app.use('/api/suitcase', suitcaseItemRoutes); // Phase 10 — account knowledge 
 app.use('/api/cards', cardRoutes); // Digital cards (buildCard): GET /api/cards, visitor chat, etc.
 app.use('/api/contents', contentsRouter); // Content Studio CRUD routes
 app.use('/api/content-library', contentLibraryRoutes); // Logo / brand kit library (SVGRepo + Brandfetch)
+app.use('/api/universal-library', universalLibraryRoutes); // Universal Library catalogue + population
+app.use('/api/resource-intelligence', universalResourceIntelligenceRoutes); // URI reuse / federation
 app.use('/api/assets', assetsRouter);
 app.use('/api/media', mediaVideoRouter); // Multi-source video search: GET /api/media/video/search (Pexels, Pixabay, Coverr, Mixkit)
 app.use('/api/media', mediaLogoRouter); // Logo search + generation: GET /api/media/logo/search, POST /api/media/logo/generate
@@ -1228,7 +1270,9 @@ app.use('/api/admin', adminPlatformRoutes);
 app.use('/api/admin', adminPlatformActivityRoutes);
 app.use('/api/admin', adminPlatformSearchRoutes);
 app.use('/api/admin', adminMultiAgentMonitoringRoutes);
+app.use('/api/admin', adminDeepseekDiagnosticRoutes); // Admin: GET /api/admin/deepseek-diagnostic
 app.use('/api/admin', adminAccountManagementRoutes);
+app.use('/api/admin', adminStoreContentManagementRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {
