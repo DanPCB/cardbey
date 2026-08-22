@@ -12,6 +12,7 @@ import { safeDraftStoreCreate } from '../../lib/safeDraftStoreCreate.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
+import { syncMiniWebsiteHeroSectionInPreview } from '../storeContentPatchService.js';
 import {
   syncHeroFieldsIntoPreviewWebsite,
   applyPipelineGeneratedHeroImage,
@@ -476,6 +477,16 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     resolveCatalogAuthorityDecision,
     attachCatalogGrounding,
   } = await import('../../lib/storeCreationResearch/catalogAuthorityDecision.js');
+  const { collapseProfessionalCatalogWithoutPriceList } = await import('./industryBlueprintRegistry.js');
+  const maybeCollapseProfessional = (catalog) =>
+    collapseProfessionalCatalogWithoutPriceList(catalog, {
+      businessName: params.businessName ?? input?.businessName,
+      businessType: params.businessType ?? input?.businessType,
+      storeType: params.storeType ?? input?.storeType,
+      verticalSlug: params.verticalSlug ?? input?.vertical ?? input?.verticalSlug,
+      hasPriceList: input?.hasPriceList === true || params.hasPriceList === true,
+      allowBlueprintPrices: input?.allowBlueprintPrices === true,
+    });
   let deferredResearch = null;
   let researchAttempted = false;
   let researchException = false;
@@ -524,7 +535,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
           });
         }
         return {
-          catalog: attachCatalogGrounding(finalized, decision),
+          catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
           fromPreload: false,
           fromResearch: true,
           research,
@@ -633,7 +644,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         researchAttempted: true,
       });
       return {
-        catalog: attachCatalogGrounding(finalized, decision),
+        catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
         fromPreload: true,
         fromResearch: true,
         research: researchStub,
@@ -649,14 +660,14 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       fromPreload: true,
     });
     return {
-      catalog: attachCatalogGrounding(catalog, decision),
+      catalog: attachCatalogGrounding(maybeCollapseProfessional(catalog), decision),
       fromPreload: true,
       fromResearch: false,
       catalogAuthority: decision,
     };
   }
 
-  const catalog = stampSuggestedCatalogOrigin(await buildCatalog(params));
+  const catalog = stampSuggestedCatalogOrigin(maybeCollapseProfessional(await buildCatalog(params)));
   const decision = resolveCatalogAuthorityDecision({
     params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
     input,
@@ -873,15 +884,22 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
     const row = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
     if (row) {
       const prev = parseDraftJsonField(row.preview);
+      const slogan = sloganResult.content;
+      const tagline = taglineResult.content || slogan;
+      let nextPreview = {
+        ...prev,
+        slogan,
+        heroText: heroTextResult.content,
+        tagline,
+      };
+      // Keep website hero subheadline in sync so sections don't show unsanitized copy.
+      nextPreview = syncMiniWebsiteHeroSectionInPreview(nextPreview, {
+        subheadline: slogan || tagline,
+      });
       await prisma.draftStore.update({
         where: { id: draftId },
         data: {
-          preview: {
-            ...prev,
-            slogan: sloganResult.content,
-            heroText: heroTextResult.content,
-            tagline: taglineResult.content,
-          },
+          preview: nextPreview,
           updatedAt: new Date(),
         },
       }).catch(() => {});
@@ -3117,8 +3135,7 @@ export async function generateDraft(draftId, options = {}) {
           verticalGroup:
             genProfileForHero?.verticalGroup ??
             profile.verticalGroup ??
-            (genProfileForHero?.verticalSlug || profile.verticalSlug || '').split('.')[0] ||
-            null,
+            ((genProfileForHero?.verticalSlug || profile.verticalSlug || '').split('.')[0] || null),
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {
@@ -3197,8 +3214,7 @@ export async function generateDraft(draftId, options = {}) {
           verticalGroup:
             genProfileForHeroMenu?.verticalGroup ??
             profile.verticalGroup ??
-            (genProfileForHeroMenu?.verticalSlug || profile.verticalSlug || '').split('.')[0] ||
-            null,
+            ((genProfileForHeroMenu?.verticalSlug || profile.verticalSlug || '').split('.')[0] || null),
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {

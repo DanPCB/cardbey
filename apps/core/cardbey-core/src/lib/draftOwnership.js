@@ -6,6 +6,7 @@
 
 
 import { prisma } from './prisma.js';
+import { isPlatformAdmin } from './authorization.js';
 
 /**
  * Find OrchestratorTask whose request.generationRunId matches the given runId.
@@ -63,8 +64,12 @@ const DEV = process.env.NODE_ENV !== 'production';
 export async function canAccessDraftStore(draft, context = {}) {
   const userId = context.userId ?? context.user?.id ?? null;
   const tenantKey = context.tenantKey ?? null;
-  if (context.isSuperAdmin) {
-    if (DEV) console.log('[canAccessDraftStore] ALLOW_SUPER', { draftId: draft.id });
+  if (
+    context.isSuperAdmin ||
+    context.isPlatformAdmin === true ||
+    isPlatformAdmin(context.user)
+  ) {
+    if (DEV) console.log('[canAccessDraftStore] ALLOW_ADMIN', { draftId: draft.id });
     return true;
   }
   if (!userId) {

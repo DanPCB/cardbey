@@ -27,6 +27,61 @@ export const CATALOG_FALLBACK_REASONS = Object.freeze({
   PRELOADED_CATALOG: 'PRELOADED_CATALOG',
 });
 
+const MAPS_URL_RE = /google\.(com|com\.[a-z]+|co\.[a-z]+)\/maps|maps\.google/i;
+
+function sourceTypeOf(source) {
+  return String(source?.sourceType ?? source?.source?.sourceType ?? '').toLowerCase();
+}
+
+function sourceUrlOf(source) {
+  return (
+    source?.sourceUrl ??
+    source?.source?.sourceUrl ??
+    source?.website ??
+    source?.officialWebsite ??
+    null
+  );
+}
+
+function factsWebsiteValue(research) {
+  const w = research?.facts?.website;
+  if (typeof w === 'string' && w.trim()) return w;
+  if (w && typeof w === 'object') {
+    const value = w.value ?? w.sourceUrl ?? null;
+    return typeof value === 'string' && value.trim() ? value : null;
+  }
+  return null;
+}
+
+function placeWebsiteOf(source) {
+  const raw = source?.raw ?? source?.source?.raw ?? {};
+  const url = raw.website ?? raw.url ?? null;
+  return typeof url === 'string' && url.trim() ? url : null;
+}
+
+function isMapsUrl(url) {
+  return MAPS_URL_RE.test(String(url ?? ''));
+}
+
+/**
+ * Official website was provided, crawled, or present on a matched Place.
+ * `sourcesUsed` may be flat sources or `{ source: { sourceType, sourceUrl } }` matches.
+ */
+export function isOfficialWebsiteResolved(websiteProvided, sources, research) {
+  if (websiteProvided) return true;
+  if (factsWebsiteValue(research)) return true;
+  if (!Array.isArray(sources)) return false;
+  return sources.some((s) => {
+    if (sourceTypeOf(s) === 'official_website') return true;
+    const url = sourceUrlOf(s);
+    if (url && !isMapsUrl(url) && sourceTypeOf(s) !== 'google_business' && sourceTypeOf(s) !== 'manual') {
+      return true;
+    }
+    const placeSite = placeWebsiteOf(s);
+    return Boolean(placeSite) && !isMapsUrl(placeSite);
+  });
+}
+
 /**
  * @param {object} args
  * @returns {{
@@ -54,14 +109,7 @@ export function resolveCatalogAuthorityDecision({
   const fields = resolveStoreResearchInputFields(params, input);
   const websiteProvided = Boolean(fields.website);
   const sources = Array.isArray(research?.sourcesUsed) ? research.sourcesUsed : [];
-  const websiteResolved = Boolean(
-    websiteProvided ||
-      sources.some(
-        (s) =>
-          String(s?.sourceType ?? '').toLowerCase() === 'official_website' ||
-          Boolean(s?.website || s?.officialWebsite),
-      ),
-  );
+  const websiteResolved = isOfficialWebsiteResolved(websiteProvided, sources, research);
   const researchPipelineEnabled = isStoreResearchPipelineEnabled();
   const stagedSourcedCatalogEnabled = isStageSourcedCatalogPendingReviewEnabled();
   const ownerReviewRequired = isResearchCatalogPendingOwnerReview(research);

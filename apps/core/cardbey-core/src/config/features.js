@@ -655,6 +655,37 @@ export const Features = {
       );
     },
   },
+
+  /**
+   * Global front-page acquisition CTA — Create Your Online Store.
+   * Default OFF. Dashboard also gates via VITE_ENABLE_GLOBAL_STORE_CREATION_CTA_V1.
+   */
+  globalStoreCreationCta: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_GLOBAL_STORE_CREATION_CTA_V1, false);
+    },
+  },
+
+  /**
+   * Performer → Draft Review content editing bridge (Improve / Edit manually / Hide now).
+   * Default OFF in all environments. Dashboard twin: VITE_ENABLE_PERFORMER_CONTENT_EDITING_BRIDGE_V1.
+   * Kill-switch: unset or false. Does not alter create-store orchestration.
+   */
+  performerContentEditingBridge: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_PERFORMER_CONTENT_EDITING_BRIDGE_V1, false);
+    },
+  },
+  /**
+   * Website Editing Design & presentation adapter (Style & preview convergence C1).
+   * Default OFF. Read-only projection/diagnostics when ON. Mutations deferred to C2.
+   * Dashboard twin: VITE_ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1.
+   */
+  websiteEditingDesignAdapter: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1, false);
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -822,6 +853,12 @@ export function snapshotFeatures() {
       providerSdkV1: Features.universalResourceIntelligence.providerSdkV1,
       federationPlannerV1: Features.universalResourceIntelligence.federationPlannerV1,
       resourceGraphV1: Features.universalResourceIntelligence.resourceGraphV1,
+    },
+    globalStoreCreationCta: {
+      v1: Features.globalStoreCreationCta.v1,
+    },
+    performerContentEditingBridge: {
+      v1: Features.performerContentEditingBridge.v1,
     },
   };
 }

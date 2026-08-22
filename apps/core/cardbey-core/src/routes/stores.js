@@ -14,6 +14,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { VIDEO_UPLOAD_MAX_BYTES, VIDEO_UPLOAD_MAX_MB } from '../constants/videoUploadLimits.js';
 import { requireAuth, requireOwner, optionalAuth } from '../middleware/auth.js';
+import { isPlatformAdmin } from '../lib/authorization.js';
 import { isOwnerVisibleStore } from '../utils/publicStoreVisibility.js';
 import { normalizeSocialLinks } from '../lib/socialLinks.js';
 import { guestSessionId } from '../middleware/guestSession.js';
@@ -577,6 +578,19 @@ router.post('/', requireAuth, async (req, res, next) => {
     });
 
     console.log(`[Stores] ✅ Store created: ${store.slug} by user ${req.userId}`);
+
+    try {
+      const { tryRecordBusinessCreated } = await import(
+        '../services/marketingOperations/attributionSpine.js'
+      );
+      void tryRecordBusinessCreated({
+        req,
+        userId: req.userId,
+        storeId: store.id,
+      });
+    } catch {
+      /* non-fatal */
+    }
 
     res.status(201).json({
       ok: true,
@@ -1882,7 +1896,7 @@ router.get('/:storeId/draft', requireAuth, async (req, res, next) => {
     }
 
     const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
-    if (!isDevAdmin && store.userId !== req.userId) {
+    if (!isDevAdmin && !isPlatformAdmin(req.user) && store.userId !== req.userId) {
       return res.status(403).json({
         ok: false,
         error: 'access_denied',

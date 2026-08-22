@@ -36,6 +36,7 @@ import { buildCuisineMenuCatalog, cuisineSlugToTemplateKey } from './foodCuisine
 import {
   buildIndustryCatalog,
   reconcileIndustryVerticalSlug,
+  resolveIndustryBlueprintKey,
   shouldRepairRetailCatalogLeakInServiceStore,
   isRetailCatalogPlaceholderName,
 } from './industryBlueprintRegistry.js';
@@ -370,6 +371,30 @@ export async function buildFromTemplate(params) {
     key = selectTemplateId(verticalSlug);
     if (process.env.NODE_ENV !== 'production') {
       console.log('[buildCatalog] template guard: non-food vertical but templateId was cafe; using', key);
+    }
+  }
+  // Nail/spa must not keep legacy beauty_salon templateId (loads haircut starter menu).
+  if (key === 'beauty_salon' || key === 'beauty' || key === 'salon') {
+    const beautyKey = resolveIndustryBlueprintKey({
+      businessName,
+      businessType,
+      storeType: params.storeType,
+      verticalSlug,
+      prompt: params.prompt,
+    });
+    const redirected =
+      beautyKey === 'beauty.nails'
+        ? 'beauty_nails'
+        : beautyKey === 'beauty.spa'
+          ? 'beauty_spa'
+          : beautyKey === 'beauty.hair_salon'
+            ? 'beauty_salon'
+            : selectTemplateId(verticalSlug, params.audience);
+    if (redirected && redirected !== key) {
+      key = redirected;
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[buildCatalog] template guard: beauty vertical remapped from beauty_salon; using', key);
+      }
     }
   }
   let list = getTemplateItems(key);

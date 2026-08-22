@@ -100,4 +100,23 @@ describe('IntentClassifier', () => {
     });
     expect(intent.type).toBe('create_store');
   });
+
+  it('classifies headline change as content_edit (not question chat fallback)', () => {
+    const intent = classifyIntent({
+      message: "change headline 'AWE FINANCIAL' to 'AWE FINANCE'",
+    });
+    expect(intent.type).toBe('content_edit');
+    expect(intent.requiresBusiness).toBe(true);
+    expect(intent.shouldExecute).toBe(true);
+  });
+
+  it('classifies fix-the-headline phrasing as content_edit', () => {
+    const intent = classifyIntent({ message: 'fix the headline to MIMI WEB' });
+    expect(intent.type).toBe('content_edit');
+  });
+
+  it('does not treat hero image swaps as content_edit', () => {
+    const intent = classifyIntent({ message: 'change the hero image on my store' });
+    expect(intent.type).not.toBe('content_edit');
+  });
 });
