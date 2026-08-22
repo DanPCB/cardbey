@@ -162,12 +162,14 @@ router.post('/:storeId/shows/:workId/hide', requireAuth, async (req, res, next) 
     const workId = String(req.params.workId || '').trim();
     const prisma = getPrismaClient();
     const store = await assertStoreAccess(prisma, storeId, req.userId, req.user);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'show_hide';
+    requireAdminReasonIfNeeded(store, req.userId, req.user, reason);
     const result = await setStoreShowStatus(prisma, {
       storeId,
       workId,
       status: 'HIDDEN',
       actorId: req.userId,
-      reason: typeof req.body?.reason === 'string' ? req.body.reason : 'show_hide',
+      reason,
     });
     await stalePendingContentProposals(prisma, storeId, workId);
     await invalidatePublic(prisma, store);
@@ -186,12 +188,14 @@ router.post('/:storeId/shows/:workId/archive', requireAuth, async (req, res, nex
     const workId = String(req.params.workId || '').trim();
     const prisma = getPrismaClient();
     const store = await assertStoreAccess(prisma, storeId, req.userId, req.user);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'show_archive';
+    requireAdminReasonIfNeeded(store, req.userId, req.user, reason);
     const result = await setStoreShowStatus(prisma, {
       storeId,
       workId,
       status: 'ARCHIVED',
       actorId: req.userId,
-      reason: typeof req.body?.reason === 'string' ? req.body.reason : 'show_archive',
+      reason,
     });
     await stalePendingContentProposals(prisma, storeId, workId);
     await invalidatePublic(prisma, store);

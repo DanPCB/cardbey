@@ -136,6 +136,7 @@ import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoring
 import adminDeepseekDiagnosticRoutes from './routes/admin/deepseekDiagnosticRoutes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
+import adminStoreContentManagementRoutes from './routes/admin/storeContentManagementRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
@@ -1269,6 +1270,7 @@ app.use('/api/admin', adminPlatformSearchRoutes);
 app.use('/api/admin', adminMultiAgentMonitoringRoutes);
 app.use('/api/admin', adminDeepseekDiagnosticRoutes); // Admin: GET /api/admin/deepseek-diagnostic
 app.use('/api/admin', adminAccountManagementRoutes);
+app.use('/api/admin', adminStoreContentManagementRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {
