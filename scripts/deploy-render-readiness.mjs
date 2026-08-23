@@ -43,9 +43,10 @@ function checkCoreServerImports() {
       `${base}.js`,
       `${base}.mjs`,
       `${base}.ts`,
+      spec.endsWith('.js') ? base.replace(/\.js$/, '.ts') : null,
       path.join(base, 'index.js'),
       path.join(base, 'index.mjs'),
-    ];
+    ].filter(Boolean);
     if (!candidates.some((p) => fs.existsSync(p))) {
       fail(`Core server.js import missing: ${spec} (expected under src/)`);
     }
