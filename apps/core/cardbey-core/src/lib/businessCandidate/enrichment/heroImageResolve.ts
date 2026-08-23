@@ -122,7 +122,13 @@ export async function resolveHeroImage(params: {
     }
   }
 
-  const queries = buildHeroSearchQueries({
+  const remaining = Math.max(0, params.budget.maxFetches - params.budget.websiteFetches);
+  if (remaining < 1) {
+    adapterResults.push(statusResult('pexels', 'SKIPPED', 'fetch budget exhausted before hero'));
+    return { hero: null, status: 'NO_ELIGIBLE_MEDIA', adapterResults };
+  }
+
+  let queries = buildHeroSearchQueries({
     businessName: params.businessName,
     suburb: params.suburb,
     category: params.category,
@@ -131,6 +137,12 @@ export async function resolveHeroImage(params: {
     tags: params.tags,
     metro: 'Melbourne',
   });
+  // Prefer category queries when budget is tight; drop business-name last-resort.
+  if (remaining < 2 && params.businessName?.trim()) {
+    const nameQ = `${params.businessName.trim()} ${params.suburb?.trim() || 'Melbourne'}`;
+    queries = queries.filter((q) => q !== nameQ.replace(/\s+/g, ' ').trim());
+  }
+  queries = queries.slice(0, Math.max(remaining, 1));
 
   for (const query of queries) {
     if (params.budget.websiteFetches >= params.budget.maxFetches) {
