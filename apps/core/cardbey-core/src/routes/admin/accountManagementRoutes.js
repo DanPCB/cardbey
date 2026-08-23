@@ -230,19 +230,22 @@ router.delete('/platform/account-management/stores/:storeId', async (req, res, n
     }
 
     const prisma = getPrismaClient();
-    const deleted = await adminDeleteStore(prisma, storeId);
-
-    console.log('[admin/account-management] store deleted', {
-      storeId: deleted.id,
-      slug: deleted.slug,
+    const deleted = await adminDeleteStore(prisma, storeId, {
       actorUserId: req.userId ?? null,
-      timestamp: new Date().toISOString(),
+      reason: req.body?.reason,
     });
 
     return res.json({ ok: true, deleted: deleted.id, name: deleted.name, slug: deleted.slug });
   } catch (err) {
     if (err?.status === 404) {
       return res.status(404).json({ ok: false, error: err.code ?? 'not_found', message: err.message });
+    }
+    if (err?.status === 500 || err?.code === 'store_delete_failed') {
+      return res.status(500).json({
+        ok: false,
+        error: err.code ?? 'store_delete_failed',
+        message: err.message ?? 'Could not delete store',
+      });
     }
     return next(err);
   }
