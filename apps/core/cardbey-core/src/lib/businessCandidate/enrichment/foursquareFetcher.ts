@@ -5,8 +5,13 @@
 
 import type { EnrichmentBudget } from './budget.js';
 
-const FSQ_ENDPOINT = 'https://api.foursquare.com/v3/places/search';
-const FSQ_PHOTOS_ENDPOINT = 'https://api.foursquare.com/v3/places/{fsq_id}/photos';
+const FSQ_BASE = 'https://places-api.foursquare.com';
+const FSQ_SEARCH_ENDPOINT = `${FSQ_BASE}/places/search`;
+const FSQ_PHOTOS_ENDPOINT = `${FSQ_BASE}/places/{fsq_place_id}/photos`;
+const FSQ_API_VERSION =
+  process.env.FOURSQUARE_API_VERSION?.trim() || '2025-06-17';
+const FSQ_SEARCH_FIELDS =
+  'fsq_place_id,name,description,categories,website,tel,hours,verified';
 
 export type FoursquareResult = {
   fsqId: string;
@@ -29,6 +34,31 @@ function fsqKey(): string | null {
   return process.env.FOURSQUARE_API_KEY?.trim() || null;
 }
 
+function fsqAuthHeaders(key: string): Record<string, string> {
+  const token = key.replace(/^Bearer\s+/i, '');
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+    'X-Places-Api-Version': FSQ_API_VERSION,
+  };
+}
+
+type FsqPlaceRow = {
+  fsq_place_id?: string;
+  fsq_id?: string;
+  name?: string;
+  description?: string;
+  categories?: Array<{ name?: string }>;
+  website?: string;
+  tel?: string;
+  hours?: { display?: string };
+  verified?: boolean;
+};
+
+function pickFsqPlaceId(place: FsqPlaceRow): string | null {
+  return place.fsq_place_id ?? place.fsq_id ?? null;
+}
+
 export async function fetchFoursquareVenue(
   budget: EnrichmentBudget,
   businessName: string,
@@ -49,38 +79,31 @@ export async function fetchFoursquareVenue(
     query: name,
     near,
     limit: '3',
-    fields: 'fsq_id,name,description,categories,website,tel,hours,verified',
+    fields: FSQ_SEARCH_FIELDS,
   });
 
   budget.consumeFetch();
   try {
-    const response = await fetch(`${FSQ_ENDPOINT}?${params}`, {
-      headers: {
-        Authorization: key,
-        Accept: 'application/json',
-      },
+    const response = await fetch(`${FSQ_SEARCH_ENDPOINT}?${params}`, {
+      headers: fsqAuthHeaders(key),
       signal: AbortSignal.timeout(8000),
     });
-    if (!response.ok) return null;
-    const data = (await response.json()) as {
-      results?: Array<{
-        fsq_id?: string;
-        name?: string;
-        description?: string;
-        categories?: Array<{ name?: string }>;
-        website?: string;
-        tel?: string;
-        hours?: { display?: string };
-        verified?: boolean;
-      }>;
-    };
+    if (!response.ok) {
+      const body = (await response.text()).slice(0, 160);
+      console.warn(
+        `[Foursquare] search HTTP ${response.status} for "${name}": ${body}`,
+      );
+      return null;
+    }
+    const data = (await response.json()) as { results?: FsqPlaceRow[] };
     const results = data?.results ?? [];
     const needle = name.toLowerCase().slice(0, 8);
     const best =
       results.find((r) => r.name?.toLowerCase().includes(needle)) ?? results[0];
-    if (!best?.fsq_id) return null;
+    const fsqId = best ? pickFsqPlaceId(best) : null;
+    if (!fsqId) return null;
     return {
-      fsqId: best.fsq_id,
+      fsqId,
       fullName: best.name ?? null,
       description: best.description ?? null,
       categories: (best.categories ?? [])
@@ -91,7 +114,11 @@ export async function fetchFoursquareVenue(
       hours: best.hours?.display ?? null,
       verified: best.verified ?? false,
     };
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[Foursquare] search failed for "${name}":`,
+      err instanceof Error ? err.message : err,
+    );
     return null;
   }
 }
@@ -106,12 +133,18 @@ export async function fetchFoursquarePhotos(
 
   budget.consumeFetch();
   try {
-    const url = `${FSQ_PHOTOS_ENDPOINT.replace('{fsq_id}', encodeURIComponent(fsqId))}?limit=${maxPhotos}&sort=POPULAR`;
+    const url = `${FSQ_PHOTOS_ENDPOINT.replace('{fsq_place_id}', encodeURIComponent(fsqId))}?limit=${maxPhotos}&sort=POPULAR`;
     const response = await fetch(url, {
-      headers: { Authorization: key, Accept: 'application/json' },
+      headers: fsqAuthHeaders(key),
       signal: AbortSignal.timeout(8000),
     });
-    if (!response.ok) return [];
+    if (!response.ok) {
+      const body = (await response.text()).slice(0, 160);
+      console.warn(
+        `[Foursquare] photos HTTP ${response.status} for ${fsqId}: ${body}`,
+      );
+      return [];
+    }
     const photos = (await response.json()) as Array<{
       prefix?: string;
       suffix?: string;

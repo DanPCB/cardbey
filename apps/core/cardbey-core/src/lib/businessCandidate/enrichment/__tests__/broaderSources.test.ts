@@ -35,6 +35,31 @@ describe('foursquareFetcher', () => {
     expect(photos).toHaveLength(1);
     expect(photos[0]?.url).toContain('original');
   });
+
+  it('uses Bearer auth and version header on venue search', async () => {
+    process.env.FOURSQUARE_API_KEY = 'test-key';
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        results: [
+          {
+            fsq_place_id: 'abc123',
+            name: 'Braybrook Bakehouse',
+            categories: [{ name: 'Bakery' }],
+          },
+        ],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const budget = new EnrichmentBudget();
+    const result = await fetchFoursquareVenue(budget, 'Braybrook Bakehouse', 'Braybrook');
+    expect(result?.fsqId).toBe('abc123');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(init.headers?.Authorization)).toBe('Bearer test-key');
+    expect(init.headers?.['X-Places-Api-Version']).toBe('2025-06-17');
+    expect(String(init.headers?.Accept)).toBe('application/json');
+  });
 });
 
 describe('fullNameRecovery helpers', () => {
