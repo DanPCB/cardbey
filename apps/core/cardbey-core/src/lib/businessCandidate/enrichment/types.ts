@@ -14,7 +14,8 @@ export type EnrichmentFieldName =
   | 'legalName'
   | 'website'
   | 'phone'
-  | 'socialLinks';
+  | 'socialLinks'
+  | 'name';
 
 export type EnrichmentSourceKind =
   | 'business_website'
@@ -28,6 +29,11 @@ export type EnrichmentSourceKind =
   | 'yelp'
   | 'tripadvisor'
   | 'google_places'
+  | 'foursquare'
+  | 'foursquare_photos'
+  | 'wikimedia_commons'
+  | 'full_name_recovery'
+  | 'yp_title_extraction'
   | 'pexels'
   | 'pixabay'
   | 'unsplash'
