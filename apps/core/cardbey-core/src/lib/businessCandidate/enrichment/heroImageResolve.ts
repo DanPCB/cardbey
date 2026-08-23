@@ -1,11 +1,15 @@
 /**
- * Tier 4 hero image resolution — website og only for eligible business media.
- * Category stock / unconfigured Pexels/Pixabay → NO_ELIGIBLE_MEDIA (not claimable enrichment).
+ * Hero image resolution ladder:
+ * Tier 1: business website og:image
+ * Tier 3a: Foursquare venue photo (≥800px, attribution required)
+ * Tier 3b: Wikimedia Commons (free licence)
+ * Tier 4: Pexels representative stock ladder
  * Never caches Google Places photos for public display.
  */
 
 import type { EnrichmentBudget } from './budget.js';
 import type { EnrichmentSourceKind } from './types.js';
+import { buildHeroSearchQueries } from './heroSearchQueries.js';
 import { statusResult, successResult, type SourceAdapterResult } from './sourceStatus.js';
 
 export type HeroResolveResult = {
@@ -15,6 +19,7 @@ export type HeroResolveResult = {
   rawExtract: string;
   eligible: boolean;
   rejectionReason?: string;
+  attribution?: string | null;
 };
 
 function looksLikeLogoOrIcon(url: string): boolean {
@@ -24,6 +29,7 @@ function looksLikeLogoOrIcon(url: string): boolean {
 async function searchPexels(
   budget: EnrichmentBudget,
   query: string,
+  opts: { eligibleOnHit?: boolean } = {},
 ): Promise<SourceAdapterResult<HeroResolveResult>> {
   const key = process.env.PEXELS_API_KEY?.trim();
   if (!key) {
@@ -45,20 +51,27 @@ async function searchPexels(
     };
     const photo = (json.photos ?? []).find((p) => (p.width ?? 0) >= 1200) ?? json.photos?.[0];
     const imageUrl = photo?.src?.large2x ?? photo?.src?.large;
-    if (!imageUrl) return statusResult('pexels', 'NOT_FOUND', 'no photos');
-    // Stock category search is reference-only — not eligible business media
+    if (!imageUrl) return statusResult('pexels', 'NOT_FOUND', `no photos for query=${query}`);
+    const eligible = opts.eligibleOnHit === true;
     return successResult(
       'pexels',
-      [],
+      eligible ? ['heroImageUrl'] : [],
       {
         url: imageUrl,
         source: 'pexels',
         sourceUrl: url,
-        rawExtract: imageUrl,
-        eligible: false,
-        rejectionReason: 'stock_category_search_not_business_owned',
+        rawExtract: `query=${query};${imageUrl}`,
+        eligible,
+        rejectionReason: eligible
+          ? undefined
+          : 'stock_category_search_not_business_owned',
+        attribution: 'Photo from Pexels',
       },
-      { message: 'Stock result retained as reference-only; not eligible hero' },
+      {
+        message: eligible
+          ? `Representative stock hero from Pexels (query=${query})`
+          : 'Stock result retained as reference-only; not eligible hero',
+      },
     );
   } catch (err) {
     return statusResult('pexels', 'TIMEOUT', String(err));
@@ -66,8 +79,8 @@ async function searchPexels(
 }
 
 /**
- * Resolve hero. Eligible only when business-owned (website og:image passing checks).
- * Otherwise returns NO_ELIGIBLE_MEDIA — do not use category Unsplash as enrichment evidence.
+ * Resolve hero. Business-owned website og:image is tier 1 eligible.
+ * Foursquare / Wikimedia fill venue photos before Pexels stock.
  */
 export async function resolveHeroImage(params: {
   budget: EnrichmentBudget;
@@ -77,7 +90,12 @@ export async function resolveHeroImage(params: {
   businessType: string | null;
   businessName: string | null;
   suburb: string | null;
+  placesTypes?: string[] | null;
+  tags?: string[] | null;
   identityMatchedWebsite?: boolean;
+  foursquarePhotoUrl?: string | null;
+  wikimediaPhotoUrl?: string | null;
+  wikimediaLicence?: string | null;
 }): Promise<{
   hero: HeroResolveResult | null;
   status: 'SUCCESS' | 'NO_ELIGIBLE_MEDIA' | 'NOT_CONFIGURED' | 'PARTIAL';
@@ -113,20 +131,69 @@ export async function resolveHeroImage(params: {
     }
   }
 
-  const suburb = params.suburb ?? 'Melbourne';
-  const query = `${params.category ?? params.businessType ?? 'shop'} ${suburb} storefront`;
-  if (params.budget.websiteFetches < params.budget.maxFetches) {
-    const pexels = await searchPexels(params.budget, query);
+  if (params.foursquarePhotoUrl) {
+    const hero: HeroResolveResult = {
+      url: params.foursquarePhotoUrl,
+      source: 'foursquare_photos',
+      sourceUrl: params.foursquarePhotoUrl,
+      rawExtract: params.foursquarePhotoUrl,
+      eligible: true,
+      attribution: 'Photo from Foursquare',
+    };
+    adapterResults.push(
+      successResult('foursquare_photos', ['heroImageUrl'], hero, {
+        sourceUrl: hero.sourceUrl,
+        message: 'Foursquare venue photo (attribution required)',
+      }),
+    );
+    return { hero, status: 'SUCCESS', adapterResults };
+  }
+
+  if (params.wikimediaPhotoUrl) {
+    const hero: HeroResolveResult = {
+      url: params.wikimediaPhotoUrl,
+      source: 'wikimedia_commons',
+      sourceUrl: params.wikimediaPhotoUrl,
+      rawExtract: `licence=${params.wikimediaLicence ?? 'unknown'};${params.wikimediaPhotoUrl}`,
+      eligible: true,
+      attribution: params.wikimediaLicence
+        ? `Wikimedia Commons (${params.wikimediaLicence})`
+        : 'Wikimedia Commons',
+    };
+    adapterResults.push(
+      successResult('wikimedia_commons', ['heroImageUrl'], hero, {
+        sourceUrl: hero.sourceUrl,
+      }),
+    );
+    return { hero, status: 'SUCCESS', adapterResults };
+  }
+
+  const queries = buildHeroSearchQueries({
+    businessName: params.businessName,
+    suburb: params.suburb,
+    category: params.category,
+    businessType: params.businessType,
+    placesTypes: params.placesTypes,
+    tags: params.tags,
+    metro: 'Melbourne',
+  });
+
+  for (const query of queries) {
+    if (params.budget.websiteFetches >= params.budget.maxFetches) {
+      adapterResults.push(statusResult('pexels', 'SKIPPED', 'fetch budget exhausted'));
+      break;
+    }
+    const pexels = await searchPexels(params.budget, query, { eligibleOnHit: true });
     adapterResults.push(pexels);
-  } else {
-    adapterResults.push(statusResult('pexels', 'SKIPPED', 'fetch budget exhausted'));
+    if (pexels.ok && pexels.data?.url && pexels.data.eligible) {
+      return { hero: pexels.data, status: 'SUCCESS', adapterResults };
+    }
   }
 
   if (!process.env.PIXABAY_API_KEY?.trim()) {
     adapterResults.push(statusResult('pixabay', 'NOT_CONFIGURED', 'PIXABAY_API_KEY missing'));
   }
 
-  // Explicit: category Unsplash templates are NOT enrichment evidence
   adapterResults.push(
     statusResult(
       'unsplash_category_template',
@@ -137,3 +204,6 @@ export async function resolveHeroImage(params: {
 
   return { hero: null, status: 'NO_ELIGIBLE_MEDIA', adapterResults };
 }
+
+/** @internal test helper */
+export const __test = { buildHeroSearchQueries, searchPexels };
