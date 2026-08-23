@@ -175,13 +175,23 @@ function checkDashboardServicesAvoidUnauthSubmodule() {
   }
 }
 
+function dashboardReady() {
+  return fs.existsSync(path.join(dashboardRoot, 'package.json'));
+}
+
 function main() {
   console.log('🔍 Render deploy readiness\n');
   checkCoreServerImports();
   checkNoWorkspaceProtocol(path.join(coreRoot, 'package.json'), 'Core package.json');
-  checkNoWorkspaceProtocol(path.join(dashboardRoot, 'package.json'), 'Dashboard package.json');
-  checkCorsAllowlistSync();
-  checkIntakeNoSessionHeader();
+  if (dashboardReady()) {
+    checkNoWorkspaceProtocol(path.join(dashboardRoot, 'package.json'), 'Dashboard package.json');
+    checkCorsAllowlistSync();
+    checkIntakeNoSessionHeader();
+  } else {
+    console.log(
+      '⚠️  Dashboard submodule not checked out — skipping dashboard-specific deploy checks (expected in CI without private submodule access).',
+    );
+  }
   checkMigrationHealthCheckTracked();
   checkDashboardServicesAvoidUnauthSubmodule();
 
