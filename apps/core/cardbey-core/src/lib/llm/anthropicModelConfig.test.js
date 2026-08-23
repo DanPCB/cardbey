@@ -18,4 +18,10 @@ describe('anthropicModelConfig', () => {
   it('resolveAnthropicModel normalizes explicit override', () => {
     expect(resolveAnthropicModel('claude-claude-sonnet-4-6-20250514')).toBe('claude-sonnet-4-6');
   });
+
+  it('maps fast/thinking tier aliases to real model ids', () => {
+    expect(resolveAnthropicModel('fast')).toBe('claude-sonnet-4-6');
+    expect(resolveAnthropicModel('thinking')).toBe('claude-sonnet-4-6');
+    expect(resolveAnthropicModel('fast')).not.toBe('fast');
+  });
 });
