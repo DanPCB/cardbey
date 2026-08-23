@@ -51,11 +51,13 @@ function topCategorySearchTerms(category: string | null | undefined): string | n
 
 /**
  * Ordered fallback ladder — stop at first query returning photos.
- * 1. business + suburb
- * 2. subCategory + suburb
- * 3. subCategory + metro
- * 4. topCategory + metro
- * 5. topCategory + interior
+ * Category/suburb first (stock libraries rarely index local AU business names).
+ * Business name last so fetch budget is not wasted on empty name searches.
+ * 1. subCategory + suburb
+ * 2. subCategory + metro
+ * 3. topCategory + metro
+ * 4. topCategory + interior
+ * 5. business + suburb (last resort)
  */
 export function buildHeroSearchQueries(input: {
   businessName?: string | null;
@@ -75,7 +77,6 @@ export function buildHeroSearchQueries(input: {
   const top = topCategorySearchTerms(input.category);
 
   const out: string[] = [];
-  if (name) out.push(`${name} ${suburb}`);
   if (sub) {
     out.push(`${sub} ${suburb}`);
     out.push(`${sub} ${metro}`);
@@ -84,6 +85,7 @@ export function buildHeroSearchQueries(input: {
     out.push(`${top} ${metro}`);
     out.push(`${top} interior`);
   }
+  if (name) out.push(`${name} ${suburb}`);
   if (!out.length) out.push(`${suburb} local business storefront`);
 
   return [...new Set(out.map((q) => q.replace(/\s+/g, ' ').trim()).filter(Boolean))];

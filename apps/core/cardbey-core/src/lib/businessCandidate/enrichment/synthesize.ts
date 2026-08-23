@@ -203,10 +203,10 @@ export async function synthesizeDescription(
           role: 'user',
           content: `Write a factual business description using ONLY the confirmed evidence below.
 Rules:
-- Plain language. Max 60 words.
+- Plain language. 20–60 words (never under 20 words).
 - Do NOT invent products, services, prices, years, awards, hours, contacts, or legal claims.
 - Do NOT use: premier, leading, world-class, passionate, dedicated, one-stop, your go-to, best, award-winning.
-- If evidence is only name+category+location, write exactly one sentence: "{name} is listed as a {category} business in {suburb}."
+- If evidence is only name+category+location, write two grounded sentences: "{name} is a {category} business in {suburb}. Public listings identify it as a local {category} venue serving the {suburb} community." Expand with any Yellow Pages / True Local snippets when present.
 Confirmed evidence JSON: ${JSON.stringify({
   ...input,
   yellowPagesDescription: input.yellowPagesDescription ?? null,
@@ -243,6 +243,19 @@ Return strict JSON: {"description": string, "citedEvidenceFields": string[]}`,
           usedClaude: true,
           model,
           rejectedClaims: validated.rejectedClaims,
+          aiGenerated: false,
+        },
+      };
+    }
+    if (wordCount(validated.cleaned) < 20) {
+      return {
+        text: minimalGroundedDescription(input),
+        meta: {
+          ...baseMeta,
+          source: 'rule_synthesised',
+          usedClaude: true,
+          model,
+          rejectedClaims: [...validated.rejectedClaims, 'thin_claude_description'],
           aiGenerated: false,
         },
       };

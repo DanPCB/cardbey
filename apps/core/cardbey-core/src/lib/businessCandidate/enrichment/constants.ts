@@ -5,7 +5,8 @@
 /** Batch IDs the agent must never enrich (guard in agent loop, not only routes). */
 export const PROTECTED_BATCH_IDS = ['MELBOURNE_BATCH0_20260617'] as const;
 
-export const MAX_WEB_FETCHES_PER_RECORD = 5;
+/** ABR + OSM + YP + True Local + ≥2 Pexels category queries for no-website venues. */
+export const MAX_WEB_FETCHES_PER_RECORD = 8;
 export const MAX_CLAUDE_CALLS_PER_RECORD = 3;
 export const MAX_WALL_CLOCK_MS_PER_RECORD = 10 * 60 * 1000;
 
