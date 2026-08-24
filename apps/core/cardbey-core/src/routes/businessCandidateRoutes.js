@@ -32,14 +32,6 @@ const realLocalRateLimit = rateLimit({
   code: 'real_local_discovery_rate_limit',
 });
 
-const batchEnrichRateLimit = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 8,
-  keyGenerator: (req) => `batch-enrich:${req.user?.id ?? req.ip ?? 'unknown'}`,
-  message: 'Batch enrichment rate limit exceeded.',
-  code: 'batch_enrich_rate_limit',
-});
-
 /** GET /api/business-candidates/qa */
 router.get('/qa', requireAuth, requireAdmin, async (req, res, next) => {
   try {
@@ -124,6 +116,114 @@ router.post('/real-local/discover', requireAuth, requireAdmin, realLocalRateLimi
   }
 });
 
+const multiSourceEnrichRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req) => `candidate-multisource-enrich:${req.user?.id ?? req.ip ?? 'unknown'}`,
+  message: 'Multi-source enrichment rate limit exceeded.',
+  code: 'candidate_multisource_enrich_rate_limit',
+});
+
+/**
+ * POST /api/business-candidates/enrich/multi-source
+ * Opt-in only — same auth gate as /api/intelligence/metrics (requireAuth + requireAdmin).
+ * Body: { batchId: string (required), dryRun?: boolean (default true), candidateIds?: string[], maxCandidates?: number }
+ *
+ * Live runs (dryRun=false) are rejected for batches > 3 candidates over HTTP to avoid
+ * multi-minute blocking requests. Use the CLI script for larger live batches.
+ * Concurrent in-process runs are rejected while another enrichment is active.
+ */
+let enrichmentHttpLock = false;
+
+router.post(
+  '/enrich/multi-source',
+  requireAuth,
+  requireAdmin,
+  multiSourceEnrichRateLimit,
+  async (req, res, next) => {
+    try {
+      const body = req.body ?? {};
+      const batchId = typeof body.batchId === 'string' ? body.batchId.trim() : '';
+      if (!batchId) {
+        return res.status(400).json({
+          ok: false,
+          error: 'batchId_required',
+          message: 'batchId is required — refusing to enrich all candidates.',
+        });
+      }
+
+      // Default dry-run for HTTP safety; live requires explicit dryRun:false
+      const dryRun = body.dryRun !== false ? true : false;
+      const maxCandidates =
+        body.maxCandidates != null ? Math.min(Math.max(Number(body.maxCandidates) || 1, 1), 25) : 25;
+
+      if (!dryRun && maxCandidates > 3) {
+        return res.status(400).json({
+          ok: false,
+          error: 'live_http_batch_too_large',
+          message:
+            'Live enrichment over HTTP is limited to maxCandidates<=3. Use pnpm enrich:candidates for larger live batches.',
+        });
+      }
+
+      if (enrichmentHttpLock) {
+        return res.status(409).json({
+          ok: false,
+          error: 'enrichment_in_progress',
+          message: 'Another enrichment run is already in progress in this process.',
+        });
+      }
+
+      enrichmentHttpLock = true;
+      try {
+        const { runMultiSourceEnrichmentBatch, isProtectedEnrichmentBatch } = await import(
+          '../lib/businessCandidate/enrichment/runBatchEnrichment.js'
+        );
+        if (isProtectedEnrichmentBatch(batchId)) {
+          return res.status(400).json({
+            ok: false,
+            error: 'protected_batch',
+            message: `Refusing protected batch ${batchId}`,
+          });
+        }
+
+        const result = await runMultiSourceEnrichmentBatch({
+          batchId,
+          dryRun,
+          maxCandidates,
+          candidateIds: Array.isArray(body.candidateIds)
+            ? body.candidateIds.filter((id) => typeof id === 'string')
+            : undefined,
+          writeReport: body.writeReport !== false,
+        });
+
+        return res.json({
+          ok: true,
+          mode: dryRun ? 'DRY_RUN' : 'LIVE',
+          enrichmentRunId: result.enrichmentRunId,
+          batchId: result.batchId,
+          summary: result.summary,
+          results: result.results,
+          safety: {
+            writesBusinessSeed: false,
+            writesBusiness: false,
+            writesDraftStore: false,
+            autoQaApprove: false,
+            protectedBatch0SkippedInLoop: true,
+            dryRunDefault: true,
+            httpLiveCap: 3,
+            concurrentLock: true,
+          },
+        });
+      } finally {
+        enrichmentHttpLock = false;
+      }
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 /** POST /api/business-candidates/batch/qa-approve — bulk approve pending QA (makes claimable) */
 router.post('/batch/qa-approve', requireAuth, requireAdmin, async (req, res, next) => {
   try {
@@ -146,77 +246,6 @@ router.post('/batch/qa-approve', requireAuth, requireAdmin, async (req, res, nex
 
     return res.json({ ok: result.ok, ...result });
   } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * POST /api/business-candidates/batch/enrich — admin multi-source enrichment (Growth / QA).
- * Never creates stores or publishes. Caps at 25 candidates. Default dryRun=true for safety.
- */
-router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, async (req, res, next) => {
-  try {
-    const body = req.body ?? {};
-    const batchId =
-      typeof body.batchId === 'string' && body.batchId.trim()
-        ? body.batchId.trim()
-        : MELBOURNE_BATCH001_REAL_LOCAL_ID;
-    const dryRun = body.dryRun !== false;
-    const maxCandidates = body.maxCandidates != null ? Number(body.maxCandidates) : 5;
-    const candidateIds = Array.isArray(body.candidateIds)
-      ? body.candidateIds.filter((id) => typeof id === 'string' && id.trim())
-      : undefined;
-
-    const { runMultiSourceEnrichmentBatch, isProtectedEnrichmentBatch } = await import(
-      '../lib/businessCandidate/enrichment/runBatchEnrichment.js'
-    );
-
-    if (isProtectedEnrichmentBatch(batchId)) {
-      return res.status(403).json({
-        ok: false,
-        message: `Refusing to enrich protected batch ${batchId}`,
-      });
-    }
-
-    const result = await runMultiSourceEnrichmentBatch({
-      batchId,
-      dryRun,
-      candidateIds,
-      maxCandidates,
-      writeReport: false,
-    });
-
-    return res.json({
-      ok: true,
-      dryRun,
-      result: {
-        enrichmentRunId: result.enrichmentRunId,
-        batchId: result.batchId,
-        startedAt: result.startedAt,
-        finishedAt: result.finishedAt,
-        summary: result.summary,
-        results: result.results.map((row) => ({
-          candidateId: row.candidateId,
-          businessName: row.businessName,
-          status: row.status,
-          heroImageSource: row.heroImageSource,
-          descriptionLength: row.descriptionLength,
-          sourcesUsed: row.sourcesUsed,
-          flags: row.flags,
-          message: row.message ?? null,
-        })),
-      },
-      safety: {
-        autoStoreCreation: false,
-        autoPublish: false,
-        ownerOutreach: false,
-      },
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Enrichment failed';
-    if (String(message).includes('INVENTORY_EMPTY') || String(message).includes('protected batch')) {
-      return res.status(400).json({ ok: false, message });
-    }
     next(err);
   }
 });
