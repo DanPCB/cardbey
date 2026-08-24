@@ -5,6 +5,8 @@ import {
   resolveIndustryBlueprintKey,
   isRetailCatalogPlaceholderName,
   shouldRepairRetailCatalogLeakInServiceStore,
+  collapseProfessionalCatalogWithoutPriceList,
+  catalogHasNamedGroundedOfferings,
   INDUSTRY_BLUEPRINTS,
 } from '../industryBlueprintRegistry.js';
 
@@ -21,6 +23,30 @@ describe('industryBlueprintRegistry', () => {
     expect(ids).toContain('auto.repair');
     expect(ids).toContain('services.plumbing');
     expect(ids).toContain('services.accounting');
+    expect(ids).toContain('services.finance');
+  });
+
+  it('resolves Anison Capital Group to finance — not accounting', () => {
+    expect(resolveIndustryBlueprintKey({ businessName: 'Anison Capital Group' })).toBe(
+      'services.finance',
+    );
+    expect(resolveIndustryBlueprintKey({ businessName: 'Anision Capital Group' })).toBe(
+      'services.finance',
+    );
+    const catalog = buildIndustryCatalog(
+      { businessName: 'Anison Capital Group', businessType: '', verticalSlug: '' },
+      12,
+    );
+    const names = catalog.items.map((i) => i.name);
+    expect(names.some((n) => /tax return|bas|bookkeeping/i.test(n))).toBe(false);
+    expect(names).toContain('Book our consultations');
+    expect(catalog.meta?.bookingMode).toBe('consultation_only');
+  });
+
+  it('resolves accountant names to accounting blueprint', () => {
+    expect(
+      resolveIndustryBlueprintKey({ businessName: 'Braybrook Tax & Accounting' }),
+    ).toBe('services.accounting');
   });
 
   it('resolves handyman blueprint from business name', () => {
@@ -129,5 +155,28 @@ describe('industryBlueprintRegistry', () => {
         { businessName: 'Glow Hair', verticalSlug: 'beauty.hair_salon', verticalGroup: 'beauty' },
       ),
     ).toBe(true);
+  });
+
+  it('keeps named unpriced finance flyer offerings instead of collapsing to consultation', () => {
+    const flyerItems = [
+      { name: 'Home loan rate comparison' },
+      { name: 'Debt consolidation' },
+      { name: 'Low doc loans for self-employed' },
+      { name: 'Property investment refinance' },
+    ];
+    expect(catalogHasNamedGroundedOfferings(flyerItems)).toBe(true);
+    const collapsed = collapseProfessionalCatalogWithoutPriceList(
+      { items: flyerItems, categories: [{ id: 'c1', name: 'Services' }] },
+      { businessName: 'AWE FINANCIAL', businessType: 'finance broker', verticalSlug: 'services.finance' },
+    );
+    const names = collapsed.items.map((i) => i.name);
+    expect(names).toEqual(expect.arrayContaining([
+      'Home loan rate comparison',
+      'Debt consolidation',
+      'Low doc loans for self-employed',
+      'Property investment refinance',
+    ]));
+    expect(names).not.toContain('Book our consultations');
+    expect(collapsed.meta?.bookingMode).toBe('named_offerings_unpriced');
   });
 });

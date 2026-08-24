@@ -40,6 +40,20 @@ describe('serviceImageIntentResolver', () => {
     expect(blob).toMatch(/roof|ladder|leaves|downpipe/);
     expect(intent.queries.every((q) => !/^(repair|maintenance|handyman)$/i.test(q.trim()))).toBe(true);
   });
+
+  it('does not inject handyman queries for finance consultations', () => {
+    const intent = buildServiceImageIntent({
+      serviceName: 'Book our consultations',
+      businessCategory: 'finance broker',
+      businessSubcategory: 'services.finance',
+      imageQueryHint: 'professional consultation meeting modern office',
+    });
+    const blob = intent.queries.join(' ').toLowerCase();
+    expect(blob).toMatch(/consultation|office|advisor|finance/);
+    expect(blob).not.toMatch(/\bhandyman\b/);
+    expect(blob).not.toMatch(/\btradesperson\b/);
+    expect(intent.negativeTerms.some((t) => /truck|sanitation|handyman/i.test(t))).toBe(true);
+  });
 });
 
 describe('serviceImageCandidateScorer', () => {
