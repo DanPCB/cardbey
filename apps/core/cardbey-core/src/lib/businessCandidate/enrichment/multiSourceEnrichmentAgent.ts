@@ -399,12 +399,14 @@ export async function enrichCandidateMultiSource(params: {
       const plan = broaderEnabled
         ? buildSourceFetchPlan(gaps, Boolean(websiteUrl || bag.website), remainingForSources)
         : {
-            fetchOSM: remainingForSources >= 1,
+            // Broader off: do not burn fetch budget on Overpass/YP/TL (often blocked from cloud hosts).
+            // Keep slots for Pexels hero + Claude synthesis.
+            fetchOSM: false,
             fetchFoursquare: false,
             fetchFullName: false,
             fetchWikimedia: false,
             fetchFoursquarePhotos: false,
-            skipThinAggregators: false,
+            skipThinAggregators: true,
           };
 
       console.log(
@@ -708,8 +710,17 @@ export async function enrichCandidateMultiSource(params: {
             : hero.rawExtract,
         });
         bag.heroImageSource = hero.source;
+        console.log(`[Hero] ${candidate.name} — ${hero.source}`);
       } else {
         flags.push(heroResolved.status === 'NO_ELIGIBLE_MEDIA' ? 'NO_ELIGIBLE_MEDIA' : 'HERO_MISSING');
+        const pexelsNotes = heroResolved.adapterResults
+          .filter((r) => r.adapter === 'pexels')
+          .map((r) => `${r.status}:${r.message ?? ''}`)
+          .slice(0, 4);
+        console.warn(
+          `[Hero] ${candidate.name} — ${heroResolved.status}` +
+            (pexelsNotes.length ? ` pexels=[${pexelsNotes.join('; ')}]` : ''),
+        );
       }
 
       // STEP 8 — Description synthesis (evidence-grounded)
