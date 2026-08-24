@@ -11,7 +11,7 @@ import { getPublicBusinessProfileBySlug } from '../lib/businessIngestion/PublicB
 import { optionalAuth } from '../middleware/auth.js';
 import { getBusinessCandidateBySeedId } from '../lib/businessCandidate/candidateRepository.js';
 import { seedBriefCandidateId } from '../lib/businessCandidate/seedBriefAdapter.js';
-import { findSeedByPublicSlug } from '../lib/businessIngestion/businessPublicSlug.js';
+import { buildPublicBusinessSlug, findSeedByPublicSlug } from '../lib/businessIngestion/businessPublicSlug.js';
 import { listSeedRecords } from '../lib/businessIngestion/IngestionRepository.js';
 import { isSeedRolledBack } from '../lib/businessCandidate/rollback/isRolledBack.js';
 
@@ -82,8 +82,15 @@ async function resolveCandidateFromSlug(slug) {
   };
 }
 
+async function respondWithClaimIntent(res, intent, { slug, seed }) {
+  const { toPublicClaimIntentResponse } = await import(
+    '../lib/businessCandidate/claimIntent/claimIntentService.js'
+  );
+  const businessSlug = slug || (seed ? buildPublicBusinessSlug(seed) : null);
+  return res.json(toPublicClaimIntentResponse(intent, { businessSlug }));
+}
+
 /** POST /api/public/discovery/businesses/:slug/brief/download-intent */
-router.post('/discovery/businesses/:slug/brief/download-intent', optionalAuth, async (req, res, next) => {
   try {
     const slug = String(req.params.slug ?? '').trim();
     const { seed, candidateId } = await resolveCandidateFromSlug(slug);
@@ -164,15 +171,18 @@ router.post('/discovery/seeds/:seedId/claim-intent', optionalAuth, async (req, r
     const { recordClaimButtonIntent } = await import('../lib/businessCandidate/brief/briefService.js');
     const sessionId = req.headers['x-session-id'] ?? req.cookies?.['cardbey.session'] ?? null;
     const candidate = await getBusinessCandidateBySeedId(seed.id);
-    await recordClaimButtonIntent({
+    const intent = await recordClaimButtonIntent({
       candidateId: candidate?.id ?? null,
       seedId: seed.id,
+      businessSlug: req.body?.businessSlug ?? buildPublicBusinessSlug(seed),
+      evaluationId: req.body?.evaluationId ?? null,
+      graphId: req.body?.graphId ?? null,
       userId: req.user?.id ?? null,
       sessionId: typeof sessionId === 'string' ? sessionId : null,
       source,
     });
 
-    return res.json({ ok: true, claimUrl: `/activate-business/${seed.id}` });
+    return respondWithClaimIntent(res, intent, { slug: req.body?.businessSlug, seed });
   } catch (error) {
     next(error);
   }
@@ -183,22 +193,54 @@ router.post('/discovery/businesses/:slug/claim-intent', optionalAuth, async (req
   try {
     const slug = String(req.params.slug ?? '').trim();
     const source = req.body?.source ?? 'CLAIM_BUTTON';
-    const { seed, candidate, candidateId } = await resolveCandidateFromSlug(slug);
+    const { seed, candidate } = await resolveCandidateFromSlug(slug);
     if (!seed) {
       return res.status(404).json({ ok: false, message: 'Business not found.' });
     }
 
     const { recordClaimButtonIntent } = await import('../lib/businessCandidate/brief/briefService.js');
     const sessionId = req.headers['x-session-id'] ?? req.cookies?.['cardbey.session'] ?? null;
-    await recordClaimButtonIntent({
+    const intent = await recordClaimButtonIntent({
       candidateId: candidate?.id ?? null,
       seedId: seed.id,
+      businessSlug: slug,
+      evaluationId: req.body?.evaluationId ?? null,
+      graphId: req.body?.graphId ?? null,
       userId: req.user?.id ?? null,
       sessionId: typeof sessionId === 'string' ? sessionId : null,
       source,
     });
 
-    return res.json({ ok: true, claimUrl: `/activate-business/${seed.id}` });
+    return respondWithClaimIntent(res, intent, { slug, seed });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** GET /api/public/discovery/claim-intents/:claimIntentId */
+router.get('/discovery/claim-intents/:claimIntentId', optionalAuth, async (req, res, next) => {
+  try {
+    const claimIntentId = String(req.params.claimIntentId ?? '').trim();
+    if (!claimIntentId) {
+      return res.status(400).json({ ok: false, message: 'Claim intent id is required.' });
+    }
+
+    const { getClaimIntentById } = await import(
+      '../lib/businessCandidate/claimIntent/claimIntentService.js'
+    );
+    const intent = await getClaimIntentById(claimIntentId);
+    if (!intent) {
+      return res.status(404).json({ ok: false, message: 'Claim intent not found.' });
+    }
+
+    let seed = null;
+    if (intent.seedId) {
+      seed = (await listSeedRecords()).find((row) => row.id === intent.seedId) ?? null;
+    }
+    return respondWithClaimIntent(res, intent, {
+      slug: intent.businessSlug ?? null,
+      seed,
+    });
   } catch (error) {
     next(error);
   }
