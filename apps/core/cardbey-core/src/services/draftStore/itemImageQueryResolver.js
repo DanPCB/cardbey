@@ -13,6 +13,7 @@ import {
   buildServiceImageIntent,
   canonicalizeServiceTitle,
 } from '../media/serviceImageIntentResolver.js';
+import { enrichImageQueryWithBusinessContext } from '../../lib/mission001/fidelityPreReveal.js';
 
 const SUFFIX_RE = /\s+(- chef'?s|- special|- house|- style [a-z]|- option \d+)$/i;
 
@@ -64,10 +65,19 @@ export function resolveItemImageSearchQuery(params = {}) {
     businessType,
     storeName,
     categoryName,
+    location,
   } = params;
 
   const explicit = String(imageQueryHint ?? '').trim();
-  if (explicit) return explicit.slice(0, 200);
+  if (explicit) {
+    return enrichImageQueryWithBusinessContext(explicit.slice(0, 200), {
+      businessName: storeName,
+      storeName,
+      businessType,
+      category: categoryName ?? businessType,
+      location,
+    });
+  }
 
   const profile = {
     verticalSlug,
@@ -79,7 +89,15 @@ export function resolveItemImageSearchQuery(params = {}) {
   };
 
   const fromBlueprint = resolveBlueprintItemImageHint(itemName, profile);
-  if (fromBlueprint) return fromBlueprint.slice(0, 200);
+  if (fromBlueprint) {
+    return enrichImageQueryWithBusinessContext(fromBlueprint.slice(0, 200), {
+      businessName: storeName,
+      storeName,
+      businessType,
+      category: categoryName ?? businessType,
+      location,
+    });
+  }
 
   try {
     const intent = buildServiceImageIntent({
@@ -88,7 +106,15 @@ export function resolveItemImageSearchQuery(params = {}) {
       businessCategory: businessType ?? categoryName,
       businessSubcategory: verticalSlug,
     });
-    if (intent.queries?.[0]) return intent.queries[0].slice(0, 200);
+    if (intent.queries?.[0]) {
+      return enrichImageQueryWithBusinessContext(intent.queries[0].slice(0, 200), {
+        businessName: storeName,
+        storeName,
+        businessType,
+        category: categoryName ?? businessType,
+        location,
+      });
+    }
   } catch {
     /* fall through */
   }
@@ -97,14 +123,30 @@ export function resolveItemImageSearchQuery(params = {}) {
   const bank = key ? INDUSTRY_BLUEPRINTS[key] : null;
   if (bank) {
     const derived = deriveDefaultImageQueryHint(itemName, bank);
-    if (derived) return derived.slice(0, 200);
+    if (derived) {
+      return enrichImageQueryWithBusinessContext(derived.slice(0, 200), {
+        businessName: storeName,
+        storeName,
+        businessType,
+        category: categoryName ?? businessType,
+        location,
+      });
+    }
   }
 
   const name = String(itemName ?? '').trim();
-  if (name && categoryName) return `${name} ${categoryName}`.replace(/\s+/g, ' ').slice(0, 200);
-  if (name) return name.slice(0, 200);
-  if (description) return String(description).trim().slice(0, 200);
-  return 'professional service';
+  let fallback = 'professional service';
+  if (name && categoryName) fallback = `${name} ${categoryName}`.replace(/\s+/g, ' ');
+  else if (name) fallback = name;
+  else if (description) fallback = String(description).trim();
+
+  return enrichImageQueryWithBusinessContext(fallback.slice(0, 200), {
+    businessName: storeName,
+    storeName,
+    businessType,
+    category: categoryName ?? businessType,
+    location,
+  });
 }
 
 /**

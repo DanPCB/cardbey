@@ -154,7 +154,12 @@
     "e2e:french-baguette": "node ../../../scripts/e2e-french-baguette.js",
     "truth:check": "node scripts/truth-enforcer/index.js",
     "truth:fix": "node scripts/truth-enforcer/index.js --fix",
-    "truth:strict": "node scripts/truth-enforcer/index.js --strict"
+    "truth:strict": "node scripts/truth-enforcer/index.js --strict",
+    "benchmark:mission001": "node scripts/mission001-benchmark.mjs",
+    "benchmark:mission001:json": "node scripts/mission001-benchmark.mjs --json",
+    "benchmark:mission001:live": "node --import tsx/esm scripts/mission001-live-benchmark.mjs",
+    "benchmark:mission001:live:generate": "node --import tsx/esm scripts/mission001-live-benchmark.mjs --mode=generate",
+    "benchmark:mission001:offering-cohort": "node --import tsx/esm scripts/mission001-offering-cohort.mjs"
   },
   "keywords": [
     "cardbey",

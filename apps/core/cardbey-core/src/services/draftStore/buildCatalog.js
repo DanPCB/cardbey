@@ -36,13 +36,18 @@ import { buildCuisineMenuCatalog, cuisineSlugToTemplateKey } from './foodCuisine
 import {
   buildIndustryCatalog,
   reconcileIndustryVerticalSlug,
-  resolveIndustryBlueprintKey,
   shouldRepairRetailCatalogLeakInServiceStore,
   isRetailCatalogPlaceholderName,
 } from './industryBlueprintRegistry.js';
 import { maybeCompileTypedCatalog } from '../../lib/catalog/catalogCompiler.js';
 import { resolveCommerceProfile } from '../../lib/commerce/resolveCommerceProfile.js';
 import { countCatalogItemsByKind } from '../../lib/commerce/assertCatalogKindConsistency.js';
+import {
+  applyGroundedCatalogPolicy,
+  buildGroundedEmptyCatalogResult,
+  isGroundedStoreCreationEnabled,
+  stripInventedGenericProducts,
+} from './groundedStoreCreation.js';
 
 function tsModuleUnavailable(name) {
   const e = new Error(`${name} unavailable in plain Node runtime. Run server with tsx or add build step to compile TS.`);
@@ -373,30 +378,6 @@ export async function buildFromTemplate(params) {
       console.log('[buildCatalog] template guard: non-food vertical but templateId was cafe; using', key);
     }
   }
-  // Nail/spa must not keep legacy beauty_salon templateId (loads haircut starter menu).
-  if (key === 'beauty_salon' || key === 'beauty' || key === 'salon') {
-    const beautyKey = resolveIndustryBlueprintKey({
-      businessName,
-      businessType,
-      storeType: params.storeType,
-      verticalSlug,
-      prompt: params.prompt,
-    });
-    const redirected =
-      beautyKey === 'beauty.nails'
-        ? 'beauty_nails'
-        : beautyKey === 'beauty.spa'
-          ? 'beauty_spa'
-          : beautyKey === 'beauty.hair_salon'
-            ? 'beauty_salon'
-            : selectTemplateId(verticalSlug, params.audience);
-    if (redirected && redirected !== key) {
-      key = redirected;
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[buildCatalog] template guard: beauty vertical remapped from beauty_salon; using', key);
-      }
-    }
-  }
   let list = getTemplateItems(key);
   if (!list || !Array.isArray(list) || list.length === 0) {
     throw new Error(`Template not found: "${templateId}". Please choose a valid template (e.g. cafe, food_seafood, food_restaurant_generic, food_bakery, beauty_nails, fashion_boutique, fashion_kids, services_generic, florist, retail).`);
@@ -585,7 +566,8 @@ export async function buildFromAi(params) {
       ? { priceV1: { ...item.priceV1, currencyCode: currency } }
       : {}),
   }));
-  if (products.length < AI_EXPANSION_MIN && products.length > 0) {
+  const grounded = isGroundedStoreCreationEnabled();
+  if (!grounded && products.length < AI_EXPANSION_MIN && products.length > 0) {
     const verticalKey = verticalForMenu.replace(/_/g, '.');
     const variations = resolveAiExpansionVariations(
       verticalKey,
@@ -621,6 +603,12 @@ export async function buildFromAi(params) {
         targetMin: AI_EXPANSION_MIN,
       });
     }
+  } else if (grounded && products.length > 0 && products.length < AI_EXPANSION_MIN && process.env.NODE_ENV !== 'production') {
+    console.log('[buildCatalog] grounded: skipped AI expansion', {
+      draftId,
+      productCount: products.length,
+      targetMin: AI_EXPANSION_MIN,
+    });
   }
 
   return {
@@ -735,33 +723,55 @@ export async function buildCatalog(params) {
     });
   }
 
+  const grounded = isGroundedStoreCreationEnabled();
+  /** @type {{ skippedAiExpansion?: boolean, skippedSeedPad?: boolean, skippedAiTemplateFallback?: boolean, skippedLeakRepairInvent?: boolean }} */
+  const groundedFlags = {};
+
   let result;
   if (mode === 'template') result = await buildFromTemplate(paramsWithVertical);
   else if (mode === 'seed') result = await buildFromSeed(paramsWithVertical);
   else if (mode === 'ai') {
     try {
       result = await buildFromAi(paramsWithVertical);
+      if (grounded) groundedFlags.skippedAiExpansion = true;
     } catch (aiErr) {
-      const templateId = selectTemplateId(verticalSlug, paramsWithVertical.audience);
-      console.warn('[buildCatalog] AI catalog failed; falling back to template catalog', {
-        draftId: params.draftId ?? null,
-        verticalSlug,
-        templateId,
-        message: aiErr?.message ?? String(aiErr),
-        code: aiErr?.code ?? null,
-      });
-      result = await buildFromTemplate({ ...paramsWithVertical, templateId });
-      result.meta = {
-        ...(result.meta ?? {}),
-        catalogSource: 'template',
-        aiFallback: true,
-        aiFallbackReason: typeof aiErr?.message === 'string' ? aiErr.message.slice(0, 240) : 'ai_catalog_failed',
-      };
+      if (grounded) {
+        groundedFlags.skippedAiTemplateFallback = true;
+        console.warn('[buildCatalog] grounded: AI catalog failed; incomplete offering (no template invent)', {
+          draftId: params.draftId ?? null,
+          verticalSlug,
+          message: aiErr?.message ?? String(aiErr),
+          code: aiErr?.code ?? null,
+        });
+        result = buildGroundedEmptyCatalogResult({
+          draftId: params.draftId,
+          businessName: params.businessName,
+          businessType: params.businessType ?? params.storeType,
+          storeType: params.storeType,
+          aiErrorMessage: aiErr?.message ?? String(aiErr),
+        });
+      } else {
+        const templateId = selectTemplateId(verticalSlug, paramsWithVertical.audience);
+        console.warn('[buildCatalog] AI catalog failed; falling back to template catalog', {
+          draftId: params.draftId ?? null,
+          verticalSlug,
+          templateId,
+          message: aiErr?.message ?? String(aiErr),
+          code: aiErr?.code ?? null,
+        });
+        result = await buildFromTemplate({ ...paramsWithVertical, templateId });
+        result.meta = {
+          ...(result.meta ?? {}),
+          catalogSource: 'template',
+          aiFallback: true,
+          aiFallbackReason: typeof aiErr?.message === 'string' ? aiErr.message.slice(0, 240) : 'ai_catalog_failed',
+        };
+      }
     }
   } else if (mode === 'ocr') result = await buildFromOcr(paramsWithVertical);
   else throw new Error(`Unsupported mode: ${mode}. Use "template", "seed", "ai", or "ocr".`);
 
-  if (result?.products && result.products.length < MIN_ITEM_COUNT) {
+  if (!grounded && result?.products && result.products.length < MIN_ITEM_COUNT) {
     const seedProfile = {
       verticalGroup: (verticalSlug || '').split('.')[0] || profile.verticalGroup || 'services',
       verticalSlug: verticalSlug || profile.verticalSlug || 'services.generic',
@@ -794,6 +804,16 @@ export async function buildCatalog(params) {
     }
     if (process.env.NODE_ENV !== 'production' && extra.length > 0) {
       console.log('[buildCatalog] expanded with seed', { mode, verticalSlug, expandedBy: extra.length, seedSource: seedProfile.verticalGroup });
+    }
+  } else if (grounded && result?.products && result.products.length < MIN_ITEM_COUNT) {
+    groundedFlags.skippedSeedPad = true;
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[buildCatalog] grounded: skipped seed pad', {
+        mode,
+        verticalSlug,
+        productCount: result.products.length,
+        min: MIN_ITEM_COUNT,
+      });
     }
   }
 
@@ -869,62 +889,75 @@ export async function buildCatalog(params) {
     businessType: params.businessType ?? params.storeType ?? seedProfile.businessType,
     catalogLabel: result?.meta?.catalogLabel,
   };
-  const leakRepair = repairServiceCatalogPlaceholderProducts(
-    result?.products ?? [],
-    leakProfile,
-    () => {
+  if (grounded) {
+    // Strip invented scaffolds instead of replacing them with other invented seeds.
+    groundedFlags.skippedLeakRepairInvent = true;
+    const stripped = stripInventedGenericProducts(result?.products ?? []);
+    if (stripped.strippedCount > 0) {
+      result.products = stripped.products;
+      result.meta = {
+        ...(result.meta ?? {}),
+        groundedPlaceholderStripCount: stripped.strippedCount,
+      };
+    }
+  } else {
+    const leakRepair = repairServiceCatalogPlaceholderProducts(
+      result?.products ?? [],
+      leakProfile,
+      () => {
+        const industry = buildIndustryCatalog(leakProfile, TARGET_ITEM_COUNT);
+        if (industry) return industry;
+        const cuisine = buildCuisineMenuCatalog(leakProfile, TARGET_ITEM_COUNT);
+        if (cuisine) return cuisine;
+        return buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT });
+      },
+    );
+    if (!leakRepair.repaired && shouldRepairRetailCatalogLeakInServiceStore(result?.products ?? [], leakProfile)) {
       const industry = buildIndustryCatalog(leakProfile, TARGET_ITEM_COUNT);
-      if (industry) return industry;
-      const cuisine = buildCuisineMenuCatalog(leakProfile, TARGET_ITEM_COUNT);
-      if (cuisine) return cuisine;
-      return buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT });
-    },
-  );
-  if (!leakRepair.repaired && shouldRepairRetailCatalogLeakInServiceStore(result?.products ?? [], leakProfile)) {
-    const industry = buildIndustryCatalog(leakProfile, TARGET_ITEM_COUNT);
-    if (industry?.items?.length) {
-      let seedIdx = 0;
-      let repairedCount = 0;
-      const products = (result?.products ?? []).map((product) => {
-        if (!product || !isRetailCatalogPlaceholderName(product?.name)) return product;
-        const replacement = industry.items[seedIdx % industry.items.length];
-        seedIdx += 1;
-        repairedCount += 1;
-        return {
-          ...product,
-          name: replacement?.name || product.name,
-          description: replacement?.description ?? product.description ?? null,
-          price: replacement?.price ?? product.price ?? null,
-          ...(replacement?.serviceMode ? { serviceMode: replacement.serviceMode } : {}),
-          ...(replacement?.pricingModel ? { pricingModel: replacement.pricingModel } : {}),
-        };
-      });
-      if (repairedCount > 0) {
-        result.products = products;
-        if (industry.categories?.length) result.categories = industry.categories;
-        result.meta = {
-          ...(result.meta ?? {}),
-          retailCatalogLeakRepaired: true,
-          retailCatalogLeakRepairedCount: repairedCount,
-        };
+      if (industry?.items?.length) {
+        let seedIdx = 0;
+        let repairedCount = 0;
+        const products = (result?.products ?? []).map((product) => {
+          if (!product || !isRetailCatalogPlaceholderName(product?.name)) return product;
+          const replacement = industry.items[seedIdx % industry.items.length];
+          seedIdx += 1;
+          repairedCount += 1;
+          return {
+            ...product,
+            name: replacement?.name || product.name,
+            description: replacement?.description ?? product.description ?? null,
+            price: replacement?.price ?? product.price ?? null,
+            ...(replacement?.serviceMode ? { serviceMode: replacement.serviceMode } : {}),
+            ...(replacement?.pricingModel ? { pricingModel: replacement.pricingModel } : {}),
+          };
+        });
+        if (repairedCount > 0) {
+          result.products = products;
+          if (industry.categories?.length) result.categories = industry.categories;
+          result.meta = {
+            ...(result.meta ?? {}),
+            retailCatalogLeakRepaired: true,
+            retailCatalogLeakRepairedCount: repairedCount,
+          };
+        }
       }
-    }
-  } else if (leakRepair.repaired) {
-    result.products = leakRepair.products;
-    if (leakRepair.categories?.length) {
-      result.categories = leakRepair.categories;
-    }
-    result.meta = {
-      ...(result.meta ?? {}),
-      serviceCatalogLeakRepaired: true,
-      serviceCatalogLeakRepairedCount: leakRepair.repairedCount,
-    };
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[buildCatalog] repaired service catalog placeholder leak', {
-        mode,
-        verticalSlug: seedProfile.verticalSlug,
-        repairedCount: leakRepair.repairedCount,
-      });
+    } else if (leakRepair.repaired) {
+      result.products = leakRepair.products;
+      if (leakRepair.categories?.length) {
+        result.categories = leakRepair.categories;
+      }
+      result.meta = {
+        ...(result.meta ?? {}),
+        serviceCatalogLeakRepaired: true,
+        serviceCatalogLeakRepairedCount: leakRepair.repairedCount,
+      };
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[buildCatalog] repaired service catalog placeholder leak', {
+          mode,
+          verticalSlug: seedProfile.verticalSlug,
+          repairedCount: leakRepair.repairedCount,
+        });
+      }
     }
   }
 
@@ -995,6 +1028,16 @@ export async function buildCatalog(params) {
     if (result.counts) result.meta.catalogCounts = result.counts;
   }
 
+  if (grounded) {
+    const applied = applyGroundedCatalogPolicy(result, {
+      draftId: params.draftId,
+      mode,
+      catalogSource: result?.meta?.catalogSource,
+      ...groundedFlags,
+    });
+    result = applied.result;
+  }
+
   const itemCount = (result?.products || []).length;
   if (process.env.NODE_ENV !== 'production') {
     const counts = result.counts ?? countCatalogItemsByKind(result.catalogItems ?? result.products ?? []);
@@ -1008,6 +1051,8 @@ export async function buildCatalog(params) {
       productCount: counts.productCount,
       corrected: catalogValidated.corrected,
       reasons: catalogValidated.reasons,
+      grounded: grounded || undefined,
+      offeringIncomplete: result?.meta?.offeringIncomplete?.status || undefined,
     });
   }
   return result;
