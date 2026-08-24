@@ -14,7 +14,7 @@ async function main() {
     tagline: result?.tagline ?? result?.heading ?? null,
     phone: result?.phone ?? null,
     email: result?.email ?? null,
-    socialLinks: null,
+    socialLinks: result?.socialLinks ?? null,
     catalogItems: result?.catalogItems?.length ?? 0,
     catalogSample: result?.catalogItems?.slice(0, 8).map((i) => i.name) ?? [],
     navItems: result?.navItems ?? [],

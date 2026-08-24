@@ -37,6 +37,7 @@ import {
   extractPublicSocialProfile,
   extractYellowPagesSnippet,
   extractTrueLocalSnippet,
+  socialLinksToCandidateArray,
 } from './webExtractors.js';
 
 function snapshotFrozen(c: BusinessCandidateRecord): Record<string, unknown> {
@@ -334,6 +335,21 @@ export async function enrichCandidateMultiSource(params: {
               confidence: 0.95,
               rawExtract: websiteExtract.email,
             });
+          }
+          const extractedSocial = socialLinksToCandidateArray(websiteExtract.socialLinks ?? {});
+          if (extractedSocial.length) {
+            const existing = Array.isArray(candidate.socialLinks) ? candidate.socialLinks : [];
+            const seen = new Set(
+              existing.map((s) => `${String(s.platform).toLowerCase()}::${String(s.url).toLowerCase()}`),
+            );
+            const merged = [...existing];
+            for (const link of extractedSocial) {
+              const key = `${link.platform.toLowerCase()}::${link.url.toLowerCase()}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              merged.push(link);
+            }
+            candidate.socialLinks = merged;
           }
           if (!candidate.website && websiteUrl) {
             setField(bag, 'website', {

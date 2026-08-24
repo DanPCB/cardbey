@@ -29,6 +29,11 @@
 
 import { fetchHtml } from '../../social-import/scrapeUtils.js';
 import { sanitizeEnrichmentText } from '../../businessIngestion/enrichmentSafety.js';
+import {
+  extractSocialLinks,
+  socialLinksToCandidateArray,
+  type SocialLinks,
+} from './socialLinkExtract.js';
 import type { EnrichmentBudget } from './budget.js';
 import {
   absoluteUrl,
@@ -222,6 +227,7 @@ export type WebsiteExtract = {
   catalogItems: WebsiteCatalogItem[];
   phone: string | null;
   email: string | null;
+  socialLinks: SocialLinks;
   openingHours: string | null;
   /** @deprecated use phone — kept for callers reading JSON-LD telephone only */
   telephone: string | null;
@@ -267,6 +273,7 @@ export async function extractFromBusinessWebsite(
   const email = extractEmail(html);
 
   const catalogItems = extractCatalogItems(html);
+  const socialLinks = extractSocialLinks(html);
   const navItems = navLabels(html)
     .map((l) => decodeBasicEntities(l).trim())
     .filter((t) => t && !isNavItem(t) && !isContactString(t));
@@ -281,12 +288,15 @@ export async function extractFromBusinessWebsite(
     catalogItems,
     phone,
     email,
+    socialLinks,
     openingHours,
     telephone: phone,
     sourceUrl: url,
     pageText: stripHtmlToText(html),
   };
 }
+
+export { extractSocialLinks, socialLinksToCandidateArray };
 
 export type SocialExtract = {
   platform: 'instagram' | 'facebook';
