@@ -351,6 +351,48 @@ export async function enrichCandidateMultiSource(params: {
             }
             candidate.socialLinks = merged;
           }
+
+          // Service sub-page descriptions (remaining fetch budget; homepage already consumed 1)
+          const catalogWithUrls = (websiteExtract.catalogItems ?? []).filter(
+            (i) => typeof i.sourceUrl === 'string' && i.sourceUrl.trim(),
+          );
+          if (catalogWithUrls.length && budget.websiteFetches < budget.maxFetches) {
+            const { fetchServiceDescriptions } = await import('./serviceSubpageExtract.js');
+            const enrichedServices = await fetchServiceDescriptions(
+              catalogWithUrls.map((i) => ({
+                name: i.name,
+                url: String(i.sourceUrl),
+                description: i.description ?? undefined,
+              })),
+              budget,
+              Math.min(4, budget.maxFetches - budget.websiteFetches),
+            );
+            websiteExtract.catalogItems = enrichedServices.map((s) => ({
+              name: s.name,
+              sourceUrl: s.url,
+              description: s.description ?? null,
+            }));
+            candidate.fetchedServices = enrichedServices.map((s) => ({
+              name: s.name,
+              url: s.url,
+              description: s.description ?? null,
+              source: 'business_website',
+            }));
+            candidate.originalContent = {
+              ...(candidate.originalContent && typeof candidate.originalContent === 'object'
+                ? candidate.originalContent
+                : {}),
+              catalogItems: websiteExtract.catalogItems,
+            };
+          } else if (websiteExtract.catalogItems?.length) {
+            candidate.originalContent = {
+              ...(candidate.originalContent && typeof candidate.originalContent === 'object'
+                ? candidate.originalContent
+                : {}),
+              catalogItems: websiteExtract.catalogItems,
+            };
+          }
+
           if (!candidate.website && websiteUrl) {
             setField(bag, 'website', {
               value: websiteUrl,

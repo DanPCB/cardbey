@@ -34,6 +34,8 @@ import {
   socialLinksToCandidateArray,
   type SocialLinks,
 } from './socialLinkExtract.js';
+import { decodeBasicEntities, isContactString, isNavItem } from './navItemFilter.js';
+import { detectServiceLinks } from './serviceSubpageExtract.js';
 import type { EnrichmentBudget } from './budget.js';
 import {
   absoluteUrl,
@@ -47,113 +49,9 @@ import {
   stripHtmlToText,
 } from './htmlUtils.js';
 
-// ── Nav item blocklist ────────────────────────────────────────────────
-// Strings that appear in navigation but are NOT business services/products.
-const NAV_ITEM_BLOCKLIST_EXACT = new Set([
-  'home',
-  'about',
-  'about us',
-  'our story',
-  'who we are',
-  'blog',
-  'news',
-  'insights',
-  'articles',
-  'resources',
-  'media',
-  'contact',
-  'contact us',
-  'get in touch',
-  'reach us',
-  'faq',
-  'faqs',
-  'help',
-  'support',
-  'privacy',
-  'privacy policy',
-  'terms',
-  'terms of service',
-  'sitemap',
-  'accessibility',
-  'login',
-  'log in',
-  'sign in',
-  'sign up',
-  'register',
-  'my account',
-  'dashboard',
-  'portal',
-  'cart',
-  'checkout',
-  'bag',
-  'search',
-  'find',
-  'menu',
-  'navigation',
-  'back',
-  'next',
-  'previous',
-  'view all',
-  'see all',
-  'read more',
-  'learn more',
-  'explore',
-  'subscribe',
-  'newsletter',
-  'join',
-  'book a call',
-  'book now',
-  'book a demo',
-  'get started',
-  'download',
-  'brochure',
-  'services',
-  'our services',
-  'what we do',
-  'solutions',
-  'sell your business',
-  'business for sale',
-]);
+export { isNavItem, isContactString } from './navItemFilter.js';
 
-const NAV_ITEM_BLOCKLIST_PATTERNS = [
-  /^(tel:|mailto:)/i,
-  /^\+\d[\d\s\-().]{6,}$/,
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-  /^\$[\d,]+/,
-  /^#/,
-];
-
-export function isNavItem(text: string): boolean {
-  const trimmed = decodeBasicEntities(String(text ?? ''))
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-  if (trimmed.length === 0) return true;
-  if (NAV_ITEM_BLOCKLIST_EXACT.has(trimmed)) return true;
-  return NAV_ITEM_BLOCKLIST_PATTERNS.some((p) => p.test(trimmed));
-}
-
-export function isContactString(text: string): boolean {
-  const trimmed = decodeBasicEntities(String(text ?? '')).trim();
-  return (
-    /^\+\d[\d\s\-().]{6,}$/.test(trimmed) ||
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ||
-    /^tel:/i.test(trimmed) ||
-    /^mailto:/i.test(trimmed)
-  );
-}
-
-function decodeBasicEntities(text: string): string {
-  return String(text ?? '')
-    .replace(/&amp;/gi, '&')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>');
-}
-
-/** Phone: tel: href first, then footer-visible pattern. */
+// ── Contact extractors ────────────────────────────────────────────────
 export function extractPhone(html: string): string | null {
   const telMatch = html.match(/href=["']tel:([^"']+)["']/i);
   if (telMatch?.[1]) {
@@ -272,7 +170,27 @@ export async function extractFromBusinessWebsite(
     (jsonLd?.telephone ? String(jsonLd.telephone).replace(/\s/g, '') : null);
   const email = extractEmail(html);
 
-  const catalogItems = extractCatalogItems(html);
+  const catalogFromNav = extractCatalogItems(html);
+  const detectedServices = detectServiceLinks(html, url);
+  const catalogItems: WebsiteCatalogItem[] = [];
+  const seen = new Set<string>();
+  for (const svc of detectedServices) {
+    const key = svc.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    catalogItems.push({
+      name: svc.name,
+      sourceUrl: svc.url,
+      description: svc.description ?? null,
+    });
+  }
+  for (const item of catalogFromNav) {
+    const key = item.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    catalogItems.push(item);
+  }
+
   const socialLinks = extractSocialLinks(html);
   const navItems = navLabels(html)
     .map((l) => decodeBasicEntities(l).trim())
@@ -285,7 +203,7 @@ export async function extractFromBusinessWebsite(
     ogImage: ogImage && isHttpUrl(ogImage) ? ogImage : null,
     heading: tagline ?? firstHeading(html),
     navItems: [...new Set(navItems)].slice(0, 12),
-    catalogItems,
+    catalogItems: catalogItems.slice(0, 12),
     phone,
     email,
     socialLinks,
