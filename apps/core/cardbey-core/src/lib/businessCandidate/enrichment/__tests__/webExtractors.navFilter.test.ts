@@ -39,6 +39,11 @@ describe('Contact extraction', () => {
     expect(extractPhone(html)).toBe('+61299991234');
   });
 
+  it('extracts phone from Elementor icon-only tel: anchor', () => {
+    const html = '<a href="tel:+61390000000"><i class="ti-mobile"></i></a>';
+    expect(extractPhone(html)).toBe('+61390000000');
+  });
+
   it('extracts email from mailto: href', () => {
     const html = '<a href="mailto:contact@pactora.com.au">Email</a>';
     expect(extractEmail(html)).toBe('contact@pactora.com.au');

@@ -52,19 +52,32 @@ import {
 export { isNavItem, isContactString } from './navItemFilter.js';
 
 // ── Contact extractors ────────────────────────────────────────────────
+/** Collect raw tel: href values (debug + primary extract). */
+export function listTelHrefs(html: string): string[] {
+  return [...String(html ?? '').matchAll(/href=["']tel:([^"']+)["']/gi)].map((m) => m[1]);
+}
+
 export function extractPhone(html: string): string | null {
-  const telMatch = html.match(/href=["']tel:([^"']+)["']/i);
-  if (telMatch?.[1]) {
-    const cleaned = telMatch[1].replace(/[^\d+]/g, '');
+  const telHrefs = listTelHrefs(html);
+  if (process.env.CARDBEY_DEBUG_EXTRACT === '1') {
+    console.warn(
+      '[extractPhone] first tel: hrefs:',
+      telHrefs.slice(0, 5).length ? telHrefs.slice(0, 5) : '(none)',
+    );
+  }
+
+  // Priority 1: href="tel:..." (incl. Elementor icon-only <a href="tel:…"><i/></a>)
+  for (const raw of telHrefs) {
+    const cleaned = String(raw).replace(/[^\d+]/g, '');
     if (cleaned.length >= 8) return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
   }
 
   const footerMatch = html.match(
     /<footer[^>]*>[\s\S]*?(\+\d[\d\s\-().]{7,})[\s\S]*?<\/footer>/i,
   );
-  if (footerMatch?.[1]) return footerMatch[1].trim();
+  if (footerMatch?.[1] && !/xxx/i.test(footerMatch[1])) return footerMatch[1].trim();
 
-  // Header / page visible AU-style numbers (placeholder X digits allowed for privacy masks)
+  // Header / page visible AU-style numbers — skip privacy masks (XXX)
   const pageMatch = html.match(/(\+\d{1,3}[\d\s\-().Xx]{7,})/);
   if (pageMatch?.[1] && !/xxx/i.test(pageMatch[1])) return pageMatch[1].trim();
 

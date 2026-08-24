@@ -42,4 +42,29 @@ describe('Social link extraction', () => {
     expect(result.twitter).toBeUndefined();
     expect(isSocialShareButton('https://www.facebook.com/sharer/sharer.php?u=x')).toBe(true);
   });
+
+  it('extracts icon-only Elementor/Divi anchors (href + i/svg, no text)', () => {
+    const html = `
+      <a class="elementor-icon elementor-social-icon elementor-social-icon-facebook" href="https://www.facebook.com/anisoncapital" target="_blank">
+        <span class="elementor-screen-only">Facebook</span>
+        <svg class="e-fab-facebook"></svg>
+      </a>
+      <a href="https://www.linkedin.com/company/anisoncapital"><i class="fa fa-linkedin"></i></a>
+      <a class="et-social-instagram" href="//instagram.com/anisoncapital"><i></i></a>
+    `;
+    const result = extractSocialLinks(html);
+    expect(result.facebook).toBe('https://www.facebook.com/anisoncapital');
+    expect(result.linkedin).toContain('linkedin.com/company/anisoncapital');
+    expect(result.instagram).toContain('instagram.com/anisoncapital');
+  });
+
+  it('does not invent URLs when Elementor icons have no href', () => {
+    const html = `
+      <a class="elementor-icon elementor-social-icon elementor-social-icon-facebook" target="_blank">
+        <span class="elementor-screen-only">Facebook</span>
+        <svg></svg>
+      </a>
+    `;
+    expect(extractSocialLinks(html).facebook).toBeUndefined();
+  });
 });
