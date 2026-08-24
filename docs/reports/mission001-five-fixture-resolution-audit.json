@@ -1,0 +1,491 @@
+{
+  "generatedAt": "2026-08-24T04:54:12.665Z",
+  "traces": [
+    {
+      "fixtureId": "florist-name-loc",
+      "inputBusinessName": "Flower Store",
+      "inputLocation": "Melbourne VIC",
+      "category": "Florist",
+      "normalizedName": "flower store",
+      "placesConfigured": true,
+      "placesQuery": "Flower Store Melbourne VIC",
+      "placesRawCount": 10,
+      "candidateEntities": [],
+      "placePreview": [
+        {
+          "rank": 1,
+          "name": "H Flowers",
+          "website": "http://hflowers.com.au",
+          "address": "Melbourne Central Shopping Centre, GD 014A/211 La Trobe St, Melbourne VIC 3000",
+          "placeId": "ChIJpWrCkYRD1moRToogGNmqUio",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 2,
+          "name": "Flowers Across Melbourne",
+          "website": "https://flowersacrossmelbourne.com.au?utm_source=google&utm_medium=gmb&utm_campaign=sitebutton",
+          "address": "45b Quinn St, Preston VIC 3072",
+          "placeId": "ChIJ82jFoEBF1moRm-Ft_nFo3EQ",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 3,
+          "name": "QUEEN ST FLOWER CO",
+          "website": "http://queenstflowerco.com.au",
+          "address": "3/113 Queen St, Melbourne VIC 3000",
+          "placeId": "ChIJLW14Wktd1moR6AF5NV8JHoQ",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 4,
+          "name": "Flower Boutique on Collins",
+          "website": "https://facebook.com/042FLOWERS",
+          "address": "447 Collins St, Melbourne VIC 3000",
+          "placeId": "ChIJt26O3kxd1moRnswmEtYe25g",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 5,
+          "name": "Pollon Flowers Melbourne",
+          "website": "https://pollonflowers.melbourne",
+          "address": "1/199 Flinders Ln, Melbourne VIC 3000",
+          "placeId": "ChIJg7EmYbZC1moRRLVv1AAu-34",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 6,
+          "name": "Flowers Round The Hours",
+          "website": "http://flowersroundthehours.com.au",
+          "address": "90 Swanston St, cnr Little Collins St, Melbourne VIC 3000",
+          "placeId": "ChIJpyAnC7ZC1moRnAzhTta6Bko",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 7,
+          "name": "Melbourne Flower Merchant",
+          "website": "https://melbourneflowermerchant.com.au",
+          "address": "Shop 2/555 Bourke St, Melbourne VIC 3000",
+          "placeId": "ChIJNz56ekxd1moRMu0k4iE_bzQ",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 8,
+          "name": "Kellee Flowers",
+          "website": "http://kelleeflowers.com.au",
+          "address": "Near Epworth Freemasons, 178 Albert St, East Melbourne VIC 3002",
+          "placeId": "ChIJH5CTtudC1moR2awyf90b6GM",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        }
+      ],
+      "selectedCandidate": null,
+      "sharedBrandWebsite": null,
+      "identityConfidence": 0,
+      "requiresOwnerConfirmation": true,
+      "resolutionNotes": [
+        "No public entity match — treat as new business"
+      ],
+      "rejectionReasons": [
+        "no_places_candidate_above_threshold",
+        "weak_name_match:H Flowers",
+        "weak_name_match:Flowers Across Melbourne",
+        "weak_name_match:QUEEN ST FLOWER CO",
+        "weak_name_match:Flower Boutique on Collins",
+        "weak_name_match:Pollon Flowers Melbourne",
+        "weak_name_match:Flowers Round The Hours",
+        "weak_name_match:Melbourne Flower Merchant",
+        "weak_name_match:Kellee Flowers"
+      ],
+      "authoritativeSourceStatus": "none",
+      "catalogAuthorityStatus": "not_evaluated_no_research",
+      "finalResolutionOutcome": "BUSINESS_UNRESOLVED"
+    },
+    {
+      "fixtureId": "finance-name-loc",
+      "inputBusinessName": "Anison Capital",
+      "inputLocation": "Melbourne VIC",
+      "category": "Financial planner",
+      "normalizedName": "anison capital",
+      "placesConfigured": true,
+      "placesQuery": "Anison Capital Melbourne VIC",
+      "placesRawCount": 6,
+      "candidateEntities": [],
+      "placePreview": [
+        {
+          "rank": 1,
+          "name": "Acorn Capital Investment Fund Limited",
+          "website": "http://acqfund.com.au",
+          "address": "Level 4/2 Russell St, Melbourne VIC 3000",
+          "placeId": "ChIJ9WimVExd1moRWcbMKSdsJPM",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 2,
+          "name": "Adansonia Capital",
+          "website": "http://adansonia.com.au",
+          "address": "Level 1/25 Burwood Rd, Hawthorn VIC 3122",
+          "placeId": "ChIJVVXlIUlC1moRmb1_t6_ZhSI",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 3,
+          "name": "Ariston Group",
+          "website": "http://aristongroup.com.au",
+          "address": "Level 27/101 Collins St, Melbourne VIC 3000",
+          "placeId": "ChIJU0JrhXFD1moRKV8UfYCNAd8",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 4,
+          "name": "Atchison Consultants",
+          "website": "http://atchison.com.au",
+          "address": "Level 1/33 Cremorne St, Cremorne VIC 3121",
+          "placeId": "ChIJXXN-OUtd1moRGs5Rw6Pm5Mc",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 5,
+          "name": "Aniston",
+          "website": "https://aniston.com.au",
+          "address": "285 Geelong Rd, Kingsville VIC 3012",
+          "placeId": "ChIJc3IGqSBn1moR6flgk-8JHs8",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 6,
+          "name": "Aniston Lawyers",
+          "website": "http://anistonlawyers.com.au",
+          "address": "Level 2/326 Keilor Rd, Niddrie VIC 3042",
+          "placeId": "ChIJ72OHfwxc1moReXzUZ3cOd0A",
+          "matchScore": 0,
+          "matchReasons": []
+        }
+      ],
+      "selectedCandidate": null,
+      "sharedBrandWebsite": null,
+      "identityConfidence": 0,
+      "requiresOwnerConfirmation": true,
+      "resolutionNotes": [
+        "No public entity match — treat as new business"
+      ],
+      "rejectionReasons": [
+        "no_places_candidate_above_threshold",
+        "weak_name_match:Acorn Capital Investment Fund Limited",
+        "weak_name_match:Adansonia Capital",
+        "weak_name_match:Ariston Group",
+        "weak_name_match:Atchison Consultants",
+        "weak_name_match:Aniston",
+        "weak_name_match:Aniston Lawyers"
+      ],
+      "authoritativeSourceStatus": "none",
+      "catalogAuthorityStatus": "not_evaluated_no_research",
+      "finalResolutionOutcome": "BUSINESS_UNRESOLVED"
+    },
+    {
+      "fixtureId": "trades-name-loc",
+      "inputBusinessName": "CA Handy Man",
+      "inputLocation": "Melbourne VIC",
+      "category": "Handyman",
+      "normalizedName": "ca handy man",
+      "placesConfigured": true,
+      "placesQuery": "CA Handy Man Melbourne VIC",
+      "placesRawCount": 3,
+      "candidateEntities": [],
+      "placePreview": [
+        {
+          "rank": 1,
+          "name": "Handyman In Melbourne",
+          "website": "https://handymaninmelbourne.au",
+          "address": "Suit 576 18/20 Edinburgh St, Oakleigh South VIC 3167",
+          "placeId": "ChIJyQnWTV7Xr6sRgyHRGhQs-7E",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 2,
+          "name": "Cales Handyman Service",
+          "website": "http://cales.com.au",
+          "address": "475 Cardigan St, Carlton VIC 3053",
+          "placeId": "ChIJN7Ex6206tUARsfiK_UJukN8",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 3,
+          "name": "Handy Pros",
+          "website": "https://handypros.com.au",
+          "address": "Unit 1401/83 Queens Rd, Melbourne VIC 3004",
+          "placeId": "ChIJPWpomSlp1moRCHdIzOTL9i8",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        }
+      ],
+      "selectedCandidate": null,
+      "sharedBrandWebsite": null,
+      "identityConfidence": 0,
+      "requiresOwnerConfirmation": true,
+      "resolutionNotes": [
+        "No public entity match — treat as new business"
+      ],
+      "rejectionReasons": [
+        "no_places_candidate_above_threshold",
+        "weak_name_match:Handyman In Melbourne",
+        "weak_name_match:Cales Handyman Service",
+        "weak_name_match:Handy Pros"
+      ],
+      "authoritativeSourceStatus": "none",
+      "catalogAuthorityStatus": "not_evaluated_no_research",
+      "finalResolutionOutcome": "BUSINESS_UNRESOLVED"
+    },
+    {
+      "fixtureId": "vn-sme-name-loc",
+      "inputBusinessName": "Phuong Nam Export Trading",
+      "inputLocation": "Ho Chi Minh City",
+      "category": "Export trading",
+      "normalizedName": "phuong nam export trading",
+      "placesConfigured": true,
+      "placesQuery": "Phuong Nam Export Trading Ho Chi Minh City",
+      "placesRawCount": 10,
+      "candidateEntities": [],
+      "placePreview": [
+        {
+          "rank": 1,
+          "name": "CÔNG TY TNHH XUẤT NHẬP KHẨU PHƯƠNG NAM SÀI GÒN",
+          "website": null,
+          "address": "105 Đ. Số 6, Khu dân cư Đại Phúc Green Villas, Bình Hưng, Hồ Chí Minh, Vietnam",
+          "placeId": "ChIJ4TTd70IvdTERXDe2zDm--BY",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 2,
+          "name": "Trading Ltd Co Technician Sao Phuong Nam",
+          "website": "http://southernstar-vn.com",
+          "address": "24 Nguyễn Văn Nguyễn, Tân Định, Hồ Chí Minh, Vietnam",
+          "placeId": "ChIJWUJcfc0odTERGk2mvWpya-s",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 3,
+          "name": "Nam Phuong Trading - Import & Export Co.,Ltd",
+          "website": "http://kimtuyennamphuong.com",
+          "address": "40 Đường, B, Khu ADC, Phú Thạnh, Hồ Chí Minh, Vietnam",
+          "placeId": "ChIJu4h2vRwsdTERJgE3xA6fvpk",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 4,
+          "name": "Công Ty TNHH Thương Mại Phương Nam Food",
+          "website": null,
+          "address": "540/30 Cách Mạng Tháng Tám, Nhiêu Lộc, Hồ Chí Minh, Vietnam",
+          "placeId": "ChIJFQW-JocvdTERMg3xiNx1hRQ",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 5,
+          "name": "PHUONGNAM LACQUERWARE",
+          "website": "http://phuongnamart.com",
+          "address": "19 Võ Văn Tần, Xuân Hòa, Hồ Chí Minh, Vietnam",
+          "placeId": "ChIJZ17nkOAvdTER8pr7FVneQKA",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 6,
+          "name": "Công Ty TNHH SX-TM Nam Phương",
+          "website": null,
+          "address": "19A Đ. Cao Bá Nhạ, Cầu Ông Lãnh, Hồ Chí Minh 71014, Vietnam",
+          "placeId": "ChIJ1QcKMxcvdTER18PWZ-_lL0I",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 7,
+          "name": "Tòa nhà Phương Nam",
+          "website": "http://phuongnamvn.com.vn",
+          "address": "157 Võ Thị Sáu, Xuân Hòa, Hồ Chí Minh 722000, Vietnam",
+          "placeId": "ChIJxUZYAjIvdTERrfAA88QpxfI",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 8,
+          "name": "Văn Phòng Phẩm Phương Nam",
+          "website": "https://vpppn.com",
+          "address": "Binh Hung, Ho Chi Minh, Vietnam",
+          "placeId": "ChIJ2Zs0nTkudTERjmhzA-2pvMI",
+          "matchScore": 0,
+          "matchReasons": []
+        }
+      ],
+      "selectedCandidate": null,
+      "sharedBrandWebsite": null,
+      "identityConfidence": 0,
+      "requiresOwnerConfirmation": true,
+      "resolutionNotes": [
+        "No public entity match — treat as new business"
+      ],
+      "rejectionReasons": [
+        "no_places_candidate_above_threshold",
+        "weak_name_match:CÔNG TY TNHH XUẤT NHẬP KHẨU PHƯƠNG NAM SÀI GÒN",
+        "weak_name_match:Trading Ltd Co Technician Sao Phuong Nam",
+        "weak_name_match:Nam Phuong Trading - Import & Export Co.,Ltd",
+        "weak_name_match:Công Ty TNHH Thương Mại Phương Nam Food",
+        "weak_name_match:PHUONGNAM LACQUERWARE",
+        "weak_name_match:Công Ty TNHH SX-TM Nam Phương",
+        "weak_name_match:Tòa nhà Phương Nam",
+        "weak_name_match:Văn Phòng Phẩm Phương Nam"
+      ],
+      "authoritativeSourceStatus": "none",
+      "catalogAuthorityStatus": "not_evaluated_no_research",
+      "finalResolutionOutcome": "BUSINESS_UNRESOLVED"
+    },
+    {
+      "fixtureId": "service-name-loc",
+      "inputBusinessName": "Spotless Cleaning Services",
+      "inputLocation": "Melbourne VIC",
+      "category": "Cleaning",
+      "normalizedName": "spotless cleaning services",
+      "placesConfigured": true,
+      "placesQuery": "Spotless Cleaning Services Melbourne VIC",
+      "placesRawCount": 8,
+      "candidateEntities": [],
+      "placePreview": [
+        {
+          "rank": 1,
+          "name": "Simply Spotless Melbourne",
+          "website": "https://simplyspotless.com.au/melbourne?utm_source=GMB",
+          "address": "114 William St, Melbourne VIC 3000",
+          "placeId": "ChIJe0zbjMNd1moRz-qg1tRtIjg",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 2,
+          "name": "Spotless cleaner| Professional steam Carpet Cleaners Dandenong | Upholstery cleaners | Mattresses cleaners Dandenong",
+          "website": "http://spotlesscleaner.com.au",
+          "address": "4 Henty St, Dandenong VIC 3175",
+          "placeId": "ChIJkw3vkYAV1moRCQcmZmbZCKQ",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 3,
+          "name": "Spotless Surfaces | After Builders & Office Cleaning Services in Melbourne",
+          "website": "https://spotlesssurfaces.com.au",
+          "address": "29 Lockwood Rise, Lynbrook VIC 3975",
+          "placeId": "ChIJARAktc8R1moRqR3sEFrHkiE",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 4,
+          "name": "Pure Spotless Cleaning",
+          "website": "https://purespotlesscleaning.com.au",
+          "address": "470 St Kilda Rd, Melbourne VIC 3004",
+          "placeId": "ChIJGTH5lkpp1moRP1ifs_8ShcA",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 5,
+          "name": "NSB Spotless Cleaning",
+          "website": "https://nsbspotlesscleaning.com.au",
+          "address": "6 Crabill Walk, Narre Warren South VIC 3805",
+          "placeId": "ChIJVVEkoNAR1moRR9TbyvNx8vY",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 6,
+          "name": "Spotless a Downer company",
+          "website": "http://spotless.com",
+          "address": "5/549 St Kilda Rd, Melbourne VIC 3004",
+          "placeId": "ChIJb4X_fhdo1moRs5QJL8Tpai8",
+          "matchScore": 0.2,
+          "matchReasons": [
+            "locality"
+          ]
+        },
+        {
+          "rank": 7,
+          "name": "Melbourne Spotless Sparkle",
+          "website": null,
+          "address": "Apt 204/5 Wilson St, South Yarra VIC 3141",
+          "placeId": "ChIJTcAr-d5p1moRGgdSYU8079s",
+          "matchScore": 0,
+          "matchReasons": []
+        },
+        {
+          "rank": 8,
+          "name": "Cheap & Spotless Cleaning",
+          "website": "https://cheapspotlesscleaning.com.au",
+          "address": "17 Nicholas St, Broadmeadows VIC 3047",
+          "placeId": "ChIJpxXJUY1b1moREvyNFGACdTM",
+          "matchScore": 0,
+          "matchReasons": []
+        }
+      ],
+      "selectedCandidate": null,
+      "sharedBrandWebsite": null,
+      "identityConfidence": 0,
+      "requiresOwnerConfirmation": true,
+      "resolutionNotes": [
+        "No public entity match — treat as new business"
+      ],
+      "rejectionReasons": [
+        "no_places_candidate_above_threshold",
+        "weak_name_match:Simply Spotless Melbourne",
+        "weak_name_match:Spotless cleaner| Professional steam Carpet Cleaners Dandenong | Upholstery cleaners | Mattresses cleaners Dandenong",
+        "weak_name_match:Spotless Surfaces | After Builders & Office Cleaning Services in Melbourne",
+        "weak_name_match:Pure Spotless Cleaning",
+        "weak_name_match:NSB Spotless Cleaning",
+        "weak_name_match:Spotless a Downer company",
+        "weak_name_match:Melbourne Spotless Sparkle",
+        "weak_name_match:Cheap & Spotless Cleaning"
+      ],
+      "authoritativeSourceStatus": "none",
+      "catalogAuthorityStatus": "not_evaluated_no_research",
+      "finalResolutionOutcome": "BUSINESS_UNRESOLVED"
+    }
+  ]
+}
