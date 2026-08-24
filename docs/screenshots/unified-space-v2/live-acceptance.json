@@ -1,0 +1,142 @@
+[
+  {
+    "surface": "global",
+    "feedTheatre": true
+  },
+  {
+    "label": "braybrook-desktop",
+    "ok": true,
+    "mode": "compact",
+    "theatre": 1,
+    "nav": 1,
+    "center": 1,
+    "header": 1,
+    "context": 0,
+    "oldStore": 0,
+    "askPerformer": 0,
+    "expand": {
+      "hasDesktopCenter": false,
+      "media": {
+        "exists": true,
+        "display": "block",
+        "visibility": "visible",
+        "width": 1440,
+        "height": 900,
+        "hasMediaChild": false
+      },
+      "modeAfter": "compact"
+    }
+  },
+  {
+    "label": "braybrook-mobile",
+    "media": {
+      "exists": true,
+      "display": "block",
+      "width": 390,
+      "height": 844,
+      "hasMediaChild": false
+    }
+  },
+  {
+    "label": "mmm-desktop",
+    "ok": true,
+    "mode": "compact",
+    "theatre": 1,
+    "nav": 1,
+    "center": 1,
+    "header": 1,
+    "context": 1,
+    "oldStore": 0,
+    "askPerformer": 0,
+    "expand": {
+      "hasDesktopCenter": false,
+      "media": {
+        "exists": true,
+        "display": "block",
+        "visibility": "visible",
+        "width": 1440,
+        "height": 900,
+        "hasMediaChild": true
+      },
+      "modeAfter": "compact"
+    }
+  },
+  {
+    "label": "mmm-mobile",
+    "media": {
+      "exists": true,
+      "display": "block",
+      "width": 390,
+      "height": 844,
+      "hasMediaChild": true
+    }
+  },
+  {
+    "label": "awe-desktop",
+    "ok": true,
+    "mode": "compact",
+    "theatre": 1,
+    "nav": 1,
+    "center": 1,
+    "header": 1,
+    "context": 1,
+    "oldStore": 0,
+    "askPerformer": 0,
+    "expand": {
+      "hasDesktopCenter": false,
+      "media": {
+        "exists": true,
+        "display": "block",
+        "visibility": "visible",
+        "width": 1440,
+        "height": 900,
+        "hasMediaChild": true
+      },
+      "modeAfter": "compact"
+    }
+  },
+  {
+    "label": "awe-mobile",
+    "media": {
+      "exists": true,
+      "display": "block",
+      "width": 390,
+      "height": 844,
+      "hasMediaChild": true
+    }
+  },
+  {
+    "label": "personal-desktop",
+    "ok": true,
+    "mode": "compact",
+    "theatre": 1,
+    "nav": 1,
+    "center": 1,
+    "header": 1,
+    "context": 0,
+    "oldStore": 0,
+    "askPerformer": 0,
+    "expand": {
+      "hasDesktopCenter": false,
+      "media": {
+        "exists": true,
+        "display": "block",
+        "visibility": "visible",
+        "width": 1440,
+        "height": 900,
+        "hasMediaChild": false
+      },
+      "modeAfter": "compact"
+    }
+  },
+  {
+    "label": "personal-mobile",
+    "media": {
+      "exists": true,
+      "display": "block",
+      "width": 390,
+      "height": 844,
+      "hasMediaChild": false
+    }
+  }
+]
