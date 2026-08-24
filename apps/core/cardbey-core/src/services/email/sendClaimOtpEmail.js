@@ -16,10 +16,11 @@
  *   DEV_OTP_INBOX=dev@cardbey.com  → dev redirect target
  */
 
-import { sendMail } from './mailer.js';
+import { mailer } from '../email/mailer.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
+const FROM = `${process.env.MAIL_FROM_NAME ?? 'Cardbey'} <${process.env.MAIL_FROM_EMAIL ?? 'no-reply@cardbey.com'}>`;
 const OTP_TTL_MINUTES = 10;
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -27,51 +28,30 @@ const OTP_TTL_MINUTES = 10;
 /**
  * Send a claim OTP email via Cardbey's existing SMTP mailer.
  *
- * @param {{ email: string, otp?: string, code?: string, businessName?: string | null }} params
- * @returns {Promise<{ ok: boolean, recipient: string, redirected: boolean, skipped?: boolean, error?: string }>}
+ * @param {{ email: string, code: string, businessName: string }} params
+ * @throws if SMTP delivery fails (let ClaimOtpService handle the error)
  */
-export async function sendClaimOtpEmail({ email, otp, code, businessName }) {
+export async function sendClaimOtpEmail({ email, code, businessName }) {
   // GTM kill switch — redirect all OTPs to dev inbox unless live outreach is
   // explicitly enabled. CLAIM_OTP_LIVE_OUTREACH=false is the safe default.
-  const liveOutreach =
-    process.env.CLAIM_OTP_LIVE_OUTREACH === 'true' ||
-    process.env.CLAIM_OTP_LIVE_OUTREACH === '1';
-  const requested = String(email || '').trim().toLowerCase();
+  const liveOutreach = process.env.CLAIM_OTP_LIVE_OUTREACH === 'true';
   const recipient = liveOutreach
-    ? requested
-    : String(process.env.DEV_OTP_INBOX ?? 'dev@cardbey.com').trim().toLowerCase();
-  const redirected = recipient !== requested;
-  const otpCode = String(otp ?? code ?? '').trim();
-  const displayName = businessName || 'your business';
+    ? email
+    : (process.env.DEV_OTP_INBOX ?? 'dev@cardbey.com');
 
-  if (redirected) {
+  if (!liveOutreach) {
     console.warn(
-      `[ClaimOtp] Redirecting OTP from ${email} → ${recipient} (live outreach disabled)`
+      `[ClaimOtp] CLAIM_OTP_LIVE_OUTREACH=false — redirecting OTP for ${email} → ${recipient}`
     );
   }
 
-  const result = await sendMail({
+  await mailer.sendMail({
+    from: FROM,
     to: recipient,
-    subject: `Your code to claim ${displayName} on Cardbey`,
-    html: buildHtml({ code: otpCode, businessName: displayName }),
-    text: buildText({ code: otpCode, businessName: displayName }),
-    bypassEnableGate: true,
+    subject: `Your code to claim ${businessName} on Cardbey`,
+    html: buildHtml({ code, businessName }),
+    text: buildText({ code, businessName }),
   });
-
-  if (result.skipped) {
-    return { ok: true, recipient, redirected, skipped: true };
-  }
-
-  if (!result.ok) {
-    return {
-      ok: false,
-      recipient,
-      redirected,
-      error: result.error || 'Failed to send OTP email.',
-    };
-  }
-
-  return { ok: true, recipient, redirected, skipped: false };
 }
 
 // ── Email templates ───────────────────────────────────────────────────────────

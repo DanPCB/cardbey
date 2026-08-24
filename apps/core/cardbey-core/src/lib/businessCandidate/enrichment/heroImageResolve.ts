@@ -1,9 +1,5 @@
 /**
- * Hero image resolution ladder:
- * Tier 1: business website og:image
- * Tier 3a: Foursquare venue photo (≥800px, attribution required)
- * Tier 3b: Wikimedia Commons (free licence)
- * Tier 4: Pexels representative stock ladder
+ * Tier 4 hero image resolution — website og first; Pexels ladder for representative stock.
  * Never caches Google Places photos for public display.
  */
 
@@ -19,7 +15,6 @@ export type HeroResolveResult = {
   rawExtract: string;
   eligible: boolean;
   rejectionReason?: string;
-  attribution?: string | null;
 };
 
 function looksLikeLogoOrIcon(url: string): boolean {
@@ -65,7 +60,6 @@ async function searchPexels(
         rejectionReason: eligible
           ? undefined
           : 'stock_category_search_not_business_owned',
-        attribution: 'Photo from Pexels',
       },
       {
         message: eligible
@@ -80,7 +74,7 @@ async function searchPexels(
 
 /**
  * Resolve hero. Business-owned website og:image is tier 1 eligible.
- * Foursquare / Wikimedia fill venue photos before Pexels stock.
+ * Pexels ladder provides tier-4 representative stock when no owned media exists.
  */
 export async function resolveHeroImage(params: {
   budget: EnrichmentBudget;
@@ -93,9 +87,6 @@ export async function resolveHeroImage(params: {
   placesTypes?: string[] | null;
   tags?: string[] | null;
   identityMatchedWebsite?: boolean;
-  foursquarePhotoUrl?: string | null;
-  wikimediaPhotoUrl?: string | null;
-  wikimediaLicence?: string | null;
 }): Promise<{
   hero: HeroResolveResult | null;
   status: 'SUCCESS' | 'NO_ELIGIBLE_MEDIA' | 'NOT_CONFIGURED' | 'PARTIAL';
@@ -131,43 +122,6 @@ export async function resolveHeroImage(params: {
     }
   }
 
-  if (params.foursquarePhotoUrl) {
-    const hero: HeroResolveResult = {
-      url: params.foursquarePhotoUrl,
-      source: 'foursquare_photos',
-      sourceUrl: params.foursquarePhotoUrl,
-      rawExtract: params.foursquarePhotoUrl,
-      eligible: true,
-      attribution: 'Photo from Foursquare',
-    };
-    adapterResults.push(
-      successResult('foursquare_photos', ['heroImageUrl'], hero, {
-        sourceUrl: hero.sourceUrl,
-        message: 'Foursquare venue photo (attribution required)',
-      }),
-    );
-    return { hero, status: 'SUCCESS', adapterResults };
-  }
-
-  if (params.wikimediaPhotoUrl) {
-    const hero: HeroResolveResult = {
-      url: params.wikimediaPhotoUrl,
-      source: 'wikimedia_commons',
-      sourceUrl: params.wikimediaPhotoUrl,
-      rawExtract: `licence=${params.wikimediaLicence ?? 'unknown'};${params.wikimediaPhotoUrl}`,
-      eligible: true,
-      attribution: params.wikimediaLicence
-        ? `Wikimedia Commons (${params.wikimediaLicence})`
-        : 'Wikimedia Commons',
-    };
-    adapterResults.push(
-      successResult('wikimedia_commons', ['heroImageUrl'], hero, {
-        sourceUrl: hero.sourceUrl,
-      }),
-    );
-    return { hero, status: 'SUCCESS', adapterResults };
-  }
-
   const queries = buildHeroSearchQueries({
     businessName: params.businessName,
     suburb: params.suburb,
@@ -185,7 +139,7 @@ export async function resolveHeroImage(params: {
     }
     const pexels = await searchPexels(params.budget, query, { eligibleOnHit: true });
     adapterResults.push(pexels);
-    if (pexels.status === 'SUCCESS' && pexels.data?.url && pexels.data.eligible) {
+    if (pexels.ok && pexels.data?.url && pexels.data.eligible) {
       return { hero: pexels.data, status: 'SUCCESS', adapterResults };
     }
   }

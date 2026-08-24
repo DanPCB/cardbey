@@ -686,6 +686,7 @@ export const Features = {
       return parseBoolEnv(process.env.ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1, false);
     },
   },
+
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */

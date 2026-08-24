@@ -149,11 +149,11 @@ export const TEMPLATE_ITEMS = {
   food_vietnamese: flatCuisineTemplateItems('food.vietnamese'),
   food_asian: flatCuisineTemplateItems('food.asian'),
   food_fast_food: flatCuisineTemplateItems('food.fast_food'),
-  beauty_nails:
-    expandIndustryBlueprintItems('beauty.nails') ?? structuredItemsToFlat(TEMPLATE_BEAUTY_NAILS.items),
-  beauty_spa: expandIndustryBlueprintItems('beauty.spa') ?? [],
-  // Hair only — do not fall through to nails/spa (nail stores must use beauty_nails).
-  beauty_salon: expandIndustryBlueprintItems('beauty.hair_salon') ?? [],
+  beauty_nails: structuredItemsToFlat(TEMPLATE_BEAUTY_NAILS.items),
+  beauty_salon:
+    expandIndustryBlueprintItems('beauty.hair_salon') ??
+    expandIndustryBlueprintItems('beauty.spa') ??
+    structuredItemsToFlat(TEMPLATE_BEAUTY_NAILS.items),
   fashion_boutique: expandIndustryBlueprintItems('fashion.boutique') ?? structuredItemsToFlat(TEMPLATE_FASHION_BOUTIQUE.items),
   fashion_kids: expandIndustryBlueprintItems('fashion.kids') ?? structuredItemsToFlat(TEMPLATE_FASHION_KIDS.items),
   game_centre: structuredItemsToFlat(TEMPLATE_GAME_CENTRE.items),

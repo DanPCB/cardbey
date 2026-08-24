@@ -13,11 +13,6 @@ import {
 } from './publishedStoreSeedMatch.js';
 import { buildPublicBusinessSlug } from './businessPublicSlug.js';
 import { resolvePublicMediaForSeed } from '../businessCandidate/media/resolvePublicCandidateMedia.js';
-import { findBusinessCandidateForSeed } from '../businessCandidate/media/findBusinessCandidateForSeed.js';
-import {
-  resolvePublicCategoryLabel,
-  resolvePublicDescription,
-} from '../businessCandidate/media/resolvePublicCandidatePresentation.js';
 import {
   DISCOVERED_BUSINESS_BADGE,
   publicLifecycleLabel,
@@ -61,6 +56,18 @@ function inferFeedCategory(seed: IngestedSeedRecord): PublicFeedCategory {
   return classification.feedCategory;
 }
 
+function buildDescription(seed: IngestedSeedRecord, locationLabel: string | null): string {
+  const name = seed.normalized.businessName ?? 'This business';
+  const category = seed.normalized.category;
+  if (category && locationLabel) {
+    return `${name} — a local ${category} in ${locationLabel}. Claim your profile to manage your storefront on Cardbey.`;
+  }
+  if (locationLabel) {
+    return `${name} in ${locationLabel}. Claim your business profile on Cardbey.`;
+  }
+  return `${name}. Claim your business profile on Cardbey.`;
+}
+
 export async function buildPublicDiscoveryCard(
   seed: IngestedSeedRecord,
 ): Promise<PublicDiscoveryCard | null> {
@@ -76,20 +83,18 @@ export async function buildPublicDiscoveryCard(
   const locationLabel =
     canonical.source === 'unavailable' ? null : canonical.displayLocation;
 
-  const candidate = await findBusinessCandidateForSeed(seed);
   const media = await resolvePublicMediaForSeed(seed);
   const feedCategory = inferFeedCategory(seed);
   const slug = buildPublicBusinessSlug(seed);
-  const categoryLabel = resolvePublicCategoryLabel(seed, candidate);
 
   return {
     id: seed.id,
     slug,
     businessName: n.businessName,
-    category: categoryLabel,
-    categoryLabel,
+    category: n.category,
+    categoryLabel: n.category,
     locationLabel,
-    description: resolvePublicDescription(seed, candidate, locationLabel),
+    description: buildDescription(seed, locationLabel),
     heroImageUrl: media.heroImageUrl,
     heroImageSource: media.heroImageSource,
     representativeImageLabel: media.representativeImageLabel,

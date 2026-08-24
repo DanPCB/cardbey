@@ -4,10 +4,9 @@
 
 import type { IngestedSeedRecord } from '../../businessIngestion/types.js';
 import type { DiscoveryHeroSource } from '../../businessIngestion/DiscoveryCardHeroResolver.js';
+import { getBusinessCandidateBySeedId } from '../candidateRepository.js';
 import { selectBestCandidateMedia } from './selectBestCandidateMedia.js';
 import { resolveSeedRepresentativeHero } from './resolveSeedRepresentativeHero.js';
-import { resolveEnrichedHeroFromCandidate } from './resolvePublicCandidatePresentation.js';
-import { findBusinessCandidateForSeed } from './findBusinessCandidateForSeed.js';
 
 export interface PublicCandidateMediaResolution {
   heroImageUrl: string;
@@ -39,25 +38,9 @@ function seedRepresentativeFallback(seed: IngestedSeedRecord): PublicCandidateMe
 export async function resolvePublicMediaForSeed(
   seed: IngestedSeedRecord,
 ): Promise<PublicCandidateMediaResolution> {
-  const candidate = await findBusinessCandidateForSeed(seed);
+  const candidate = await getBusinessCandidateBySeedId(seed.id);
   if (!candidate) {
     return seedRepresentativeFallback(seed);
-  }
-
-  const enrichedHero = resolveEnrichedHeroFromCandidate(candidate);
-  if (enrichedHero) {
-    return {
-      heroImageUrl: enrichedHero.heroImageUrl,
-      heroImageSource: enrichedHero.heroImageSource,
-      representativeDisclosureRequired: enrichedHero.representativeDisclosureRequired,
-      representativeImageLabel: enrichedHero.representativeDisclosureRequired
-        ? REPRESENTATIVE_LABEL
-        : null,
-      mediaConfidenceSummary: enrichedHero.representativeDisclosureRequired
-        ? 'Representative category image from enrichment (Pexels)'
-        : 'Business website image from enrichment',
-      candidateId: candidate.id,
-    };
   }
 
   const selected = await selectBestCandidateMedia(candidate.id);
