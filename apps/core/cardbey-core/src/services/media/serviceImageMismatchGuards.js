@@ -80,6 +80,21 @@ const SERVICE_MISMATCH_GUARDS = {
     require: ['handyman', 'toolbox', 'maintenance', 'home repair', 'tools'],
     reject: ['paint roller only', 'office meeting'],
   },
+  'book our consultations': {
+    require: ['office', 'meeting', 'advisor', 'consultation', 'finance', 'business', 'document'],
+    reject: [
+      'handyman',
+      'truck',
+      'sanitation',
+      'garbage',
+      'pressure wash',
+      'gutter',
+      'fence',
+      'plumber',
+      'high visibility',
+      'hi-vis',
+    ],
+  },
 };
 
 /**
