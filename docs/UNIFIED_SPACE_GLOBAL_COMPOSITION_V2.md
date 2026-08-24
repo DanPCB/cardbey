@@ -1,39 +1,46 @@
-# UNIFIED SPACE GLOBAL COMPOSITION V2
+# UNIFIED SPACE GLOBAL COMPOSITION V2 — Live gate
 
-**Status:** Implementation in progress — live verdict pending  
-**Impact:** `docs/IMPACT_REPORT_UNIFIED_SPACE_GLOBAL_COMPOSITION_V2.md`  
-**Frozen:** Cardbey Global Marketplace `/` (PublicFeedShell / feed playback)
+**Date:** 2026-08-25  
+**Dashboard:** `6ecffb69` (+ category filter follow-up)  
+**Monorepo bumps:** staging [#208](https://github.com/DanPCB/cardbey/pull/208), main [#209](https://github.com/DanPCB/cardbey/pull/209)  
+**Screenshots:** `docs/screenshots/unified-space-v2/`  
+**Artifact:** `docs/screenshots/unified-space-v2/live-acceptance.json`
 
-## Principle
+## Verdict
 
-CARDBEY GLOBAL IS THE COMPOSITION REFERENCE.
+**`PARTIAL`**
 
-Space reuses Global theatre geometry (`max-w-[1280px]`, left `w-44`/`xl:w-48`, right `w-56`/`xl:w-60`) while projecting person/business content.
+Composition convergence and blank expanded-stage fix are live and verified on MMM, AWE, Personal, and Global. BrayBrook Space acceptance is blocked by **store resolve 404** (not by layout).
 
-## Architecture
+## Live checks
 
-```
-SpacePage
- └─ SpaceShell (space-theatre-row)
-      ├─ SpaceNavRail          ← Global feed-category-rail classes
-      ├─ center column
-      │    ├─ SpaceIdentityHeader (compact stage)
-      │    ├─ SpaceTabs (mobile)
-      │    └─ content
-      ├─ SpaceContextRail      ← grounded modules only
-      └─ SpaceImmersiveHeroStage (expand)
-           └─ CanonicalHeroStage (desktopCentered=false)
-```
+| Surface | Compact theatre | Expand media | Collapse | Notes |
+|---------|-----------------|--------------|----------|-------|
+| Global `/` | feed-theatre present | n/a | n/a | No visual regression observed |
+| MMM Fashion | PASS (left/center/right) | PASS (img, full viewport, no `desktop-center`) | PASS | Visit store rail; no architecture Store card |
+| AWE Financial | PASS | PASS | PASS | Same |
+| Personal | PASS | PASS (dark grounded fallback) | PASS | No Ask Performer when signed out |
+| BrayBrook | FAIL resolve | n/a | n/a | `/space/cmq7kux1e00agk85m6836gund` → “not available”; discovery finds store but `/api/store/:id/preview` and public store 404 |
 
-## Release-blocking fix
+## Explicit criteria
 
-Expanded Space no longer sets `desktopCentered`. That flag triggered CSS that hid `__media` and painted `#f8fafc` on desktop — white identity/CTA over nothing.
+1. No white/blank expanded viewport — **PASS** (MMM/AWE media; Personal/gradient dark stage)  
+2. Hero media renders when grounded — **PASS** (MMM/AWE)  
+3. No giant full-width Space banner — **PASS**  
+4. Space follows Global composition — **PASS**  
+5. Right rail contextual — **PASS** when data; collapses when empty  
+6. Left rail Space nav — **PASS**  
+7. Public never sees Ask Performer — **PASS**  
+8. No invented business data — **PASS** (filter untitled categories follow-up)  
+9. Store reachable via Visit store — **PASS** (MMM/AWE)  
+10. Global zero regression — **PASS** (theatre intact)
 
-## Removed
+## Remaining defects (exact)
 
-- Full-width giant Space banner as desktop target  
-- “Commercial destination stays on the Store page.” architecture card  
+1. **BrayBrook Space resolve:** store id is indexed in discovery (`/s/braybrook-bakery`) but Space resolve returns fallback unavailable (`preview`/`public` 404). Needs store/public publish path fix — outside this UI composition pass.  
+2. **Sparse right rail** on businesses without hours/location/social — by design (collapse empty modules).  
+3. **Secondary categories** may still show low-quality grounded labels like `Other` when present in catalog.
 
-## Verdict gate
+## Do not claim
 
-`UNIFIED_SPACE_GLOBAL_COMPOSITION_V2_READY` only after live screenshots for Global + Business compact/expanded + Personal compact/expanded + mobile.
+`UNIFIED_SPACE_GLOBAL_COMPOSITION_V2_READY` until BrayBrook Space loads real bakery identity + media on the same theatre shell.
