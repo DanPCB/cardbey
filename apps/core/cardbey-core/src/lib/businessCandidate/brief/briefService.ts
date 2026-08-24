@@ -15,7 +15,7 @@ import {
   createOrUpdateClaimIntent,
   hasClaimIntentForDownload,
 } from '../claimIntent/claimIntentService.js';
-import type { ClaimIntentSource } from '../claimIntent/types.js';
+import type { ClaimIntentSource, ClaimIntentRecord } from '../claimIntent/types.js';
 import { getBusinessCandidateById } from '../candidateRepository.js';
 
 export type BriefDownloadIntentResult =
@@ -161,19 +161,25 @@ export async function downloadBriefIfAllowed(params: {
 export async function recordClaimButtonIntent(params: {
   candidateId?: string | null;
   seedId: string;
+  businessSlug?: string | null;
+  evaluationId?: string | null;
+  graphId?: string | null;
   userId?: string | null;
   sessionId?: string | null;
   source?: ClaimIntentSource;
-}): Promise<void> {
+}): Promise<ClaimIntentRecord> {
   const { getBusinessCandidateBySeedId } = await import('../candidateRepository.js');
   const candidate =
     params.candidateId != null
       ? await getBusinessCandidateById(params.candidateId)
       : await getBusinessCandidateBySeedId(params.seedId);
 
-  await createOrUpdateClaimIntent({
+  return createOrUpdateClaimIntent({
     candidateId: candidate?.id ?? params.candidateId ?? null,
     seedId: params.seedId,
+    businessSlug: params.businessSlug ?? null,
+    evaluationId: params.evaluationId ?? null,
+    graphId: params.graphId ?? null,
     userId: params.userId ?? null,
     source: params.source ?? 'CLAIM_BUTTON',
     sessionId: params.sessionId ?? null,
