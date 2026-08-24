@@ -91,6 +91,7 @@ async function respondWithClaimIntent(res, intent, { slug, seed }) {
 }
 
 /** POST /api/public/discovery/businesses/:slug/brief/download-intent */
+router.post('/discovery/businesses/:slug/brief/download-intent', optionalAuth, async (req, res, next) => {
   try {
     const slug = String(req.params.slug ?? '').trim();
     const { seed, candidateId } = await resolveCandidateFromSlug(slug);
