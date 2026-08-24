@@ -139,7 +139,7 @@ export async function resolveHeroImage(params: {
     }
     const pexels = await searchPexels(params.budget, query, { eligibleOnHit: true });
     adapterResults.push(pexels);
-    if (pexels.ok && pexels.data?.url && pexels.data.eligible) {
+    if (pexels.status === 'SUCCESS' && pexels.data?.url && pexels.data.eligible) {
       return { hero: pexels.data, status: 'SUCCESS', adapterResults };
     }
   }

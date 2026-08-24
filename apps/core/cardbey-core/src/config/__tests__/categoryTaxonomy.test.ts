@@ -42,4 +42,46 @@ describe('categoryTaxonomy', () => {
   it('returns Other when no signals match', () => {
     expect(resolveCategoryFromSignals({ businessName: 'XYZ Holdings Pty Ltd' })).toBe('Other');
   });
+
+  it('resolves M&A advisory correctly', () => {
+    expect(resolveCategoryFromSignals({ businessName: 'Anison Capital Group' })).toBe('Professional');
+    expect(resolveCategoryFromSignals({ businessName: 'Capital Advisory Firm' })).toBe('Professional');
+    expect(resolveCategoryFromSignals({ businessName: 'M&A Advisory Services' })).toBe('Professional');
+  });
+
+  it('resolves pub/bar/hotel and cellars correctly', () => {
+    expect(
+      resolveCategoryFromSignals({
+        businessName: 'Braybrook Hotel',
+        placesTypes: ['bar', 'pub', 'hotel'],
+      }),
+    ).toBe('Food & Drink');
+    expect(
+      resolveCategoryFromSignals({ businessName: 'Churchill Cellars Licensed Bar' }),
+    ).toBe('Food & Drink');
+  });
+
+  it('resolves professional and pub sub-categories', () => {
+    expect(
+      resolveSubCategory({
+        category: 'Professional',
+        businessName: 'Anison Capital Group',
+        businessType: 'capital advisory',
+      }),
+    ).toBe('M&A Advisory');
+    expect(
+      resolveSubCategory({
+        category: 'Food & Drink',
+        businessName: 'Braybrook Hotel',
+        placesTypes: ['bar', 'pub', 'hotel'],
+      }),
+    ).toBe('Pub & bar');
+    expect(
+      resolveSubCategory({
+        category: 'Food & Drink',
+        businessName: 'Churchill Cellars',
+        businessType: 'licensed bar',
+      }),
+    ).toBe('Pub & bar');
+  });
 });
