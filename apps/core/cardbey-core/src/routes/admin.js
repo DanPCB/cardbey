@@ -10,7 +10,6 @@ import { prisma } from '../lib/prisma.js';
 import adminPublishedArtifactsRoutes from './adminPublishedArtifactsRoutes.js';
 import creatorContentModerationRoutes from './admin/creatorContentModerationRoutes.js';
 import creatorPublishingRoutes from './admin/creatorPublishingRoutes.js';
-import activationFunnelRoutes from './admin/activationFunnelRoutes.js';
 
 const router = Router();
 // All admin routes require auth + platform admin role
@@ -19,7 +18,6 @@ router.use(requireAdmin);
 router.use(adminPublishedArtifactsRoutes);
 router.use(creatorContentModerationRoutes);
 router.use(creatorPublishingRoutes);
-router.use(activationFunnelRoutes);
 
 /**
  * GET /api/admin/health — quick verification that caller is platform admin

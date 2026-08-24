@@ -30,60 +30,6 @@ function parseDataUrlPng(dataUrl) {
   }
 }
 
-/**
- * Persist a Phase 1 digital-card draft after sign-in. Card table only — never creates a Business.
- */
-router.post('/from-activation', requireAuth, async (req, res) => {
-  const prisma = getPrismaClient();
-  const userId = req.user?.id;
-  if (!userId) return res.status(401).json({ ok: false, error: 'auth_required' });
-  const body = asObject(req.body);
-  const name = typeof body.name === 'string' ? body.name.trim() : '';
-  if (!name) return res.status(400).json({ ok: false, error: 'name_required' });
-  const role = typeof body.role === 'string' ? body.role.trim() : '';
-  const phone = typeof body.phone === 'string' ? body.phone.trim() : '';
-  const email = typeof body.email === 'string' ? body.email.trim() : '';
-  const website = typeof body.website === 'string' ? body.website.trim() : '';
-  try {
-    const { buildCard } = await import('../lib/cards/buildCard.js');
-    const result = await buildCard(
-      `activation-card-${userId}`,
-      {
-        type: 'profile',
-        businessName: name,
-        businessType: role || 'Professional',
-      },
-      { userId, prisma, preferUserProfile: false },
-    );
-    if (!result?.cardId) {
-      return res.status(500).json({ ok: false, error: result?.error || 'card_create_failed' });
-    }
-    const extra = {
-      ...(phone ? { phone } : {}),
-      ...(email ? { email } : {}),
-      ...(website ? { website } : {}),
-    };
-    if (Object.keys(extra).length) {
-      const designJson =
-        result.designJson && typeof result.designJson === 'object' ? { ...result.designJson, ...extra } : extra;
-      await prisma.card.update({
-        where: { id: result.cardId },
-        data: { designJson },
-      });
-    }
-    return res.status(200).json({
-      ok: true,
-      cardId: result.cardId,
-      liveUrl: result.liveUrl || `/card/${result.cardId}/view`,
-      qrCodeUrl: result.qrCodeUrl || null,
-      indexed: false,
-    });
-  } catch (err) {
-    console.warn('[cards/from-activation]', err?.message || err);
-    return res.status(500).json({ ok: false, error: 'card_create_failed' });
-  }
-});
-
 router.get('/', requireAuth, async (req, res) => {
   const prisma = getPrismaClient();
   const userId = req.user?.id;

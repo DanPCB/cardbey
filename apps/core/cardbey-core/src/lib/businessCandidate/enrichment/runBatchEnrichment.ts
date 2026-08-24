@@ -33,7 +33,6 @@ export async function runMultiSourceEnrichmentBatch(params: {
   candidateIds?: string[];
   writeReport?: boolean;
   maxCandidates?: number;
-  offset?: number;
 }): Promise<MultiSourceBatchResult> {
   const batchId = String(params.batchId ?? '').trim();
   if (!batchId) {
@@ -47,8 +46,7 @@ export async function runMultiSourceEnrichmentBatch(params: {
   const enrichmentRunId = params.enrichmentRunId?.trim() || cuid();
   const startedAt = new Date().toISOString();
   const dryRun = params.dryRun === true;
-  const maxCandidates = Math.min(Math.max(params.maxCandidates ?? 25, 1), 50);
-  const offset = Math.max(params.offset ?? 0, 0);
+  const maxCandidates = Math.min(Math.max(params.maxCandidates ?? 25, 1), 25);
 
   let candidates = await listBusinessCandidatesByBatch(batchId);
   if (!candidates.length) {
@@ -59,10 +57,6 @@ export async function runMultiSourceEnrichmentBatch(params: {
   if (params.candidateIds?.length) {
     const allow = new Set(params.candidateIds);
     candidates = candidates.filter((c) => allow.has(c.id));
-  }
-  if (offset > 0) {
-    candidates = candidates.slice(offset);
-    logWarn(`Applied offset=${offset}; ${candidates.length} candidates remain in window`);
   }
   if (candidates.length > maxCandidates) {
     candidates = candidates.slice(0, maxCandidates);

@@ -5,16 +5,6 @@
 /** Current default Sonnet 4.6 id (no date suffix). */
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
-/** Fast tier for enrichment / batch synthesis (override via ANTHROPIC_FAST_MODEL). */
-export const DEFAULT_ANTHROPIC_FAST_MODEL =
-  String(process.env.ANTHROPIC_FAST_MODEL ?? '').trim() || DEFAULT_ANTHROPIC_MODEL;
-
-/** @type {Record<string, string>} */
-const TIER_ALIASES = {
-  fast: DEFAULT_ANTHROPIC_FAST_MODEL,
-  thinking: String(process.env.ANTHROPIC_THINKING_MODEL ?? '').trim() || DEFAULT_ANTHROPIC_MODEL,
-};
-
 /** @type {Record<string, string>} */
 const LEGACY_MODEL_ALIASES = {
   'claude-sonnet-4-20250514': DEFAULT_ANTHROPIC_MODEL,
@@ -51,11 +41,7 @@ export function normalizeAnthropicModelId(raw) {
  */
 export function resolveAnthropicModel(explicit) {
   const fromExplicit = typeof explicit === 'string' && explicit.trim() ? explicit.trim() : '';
-  if (fromExplicit) {
-    const tier = TIER_ALIASES[fromExplicit.toLowerCase()];
-    if (tier) return normalizeAnthropicModelId(tier);
-    return normalizeAnthropicModelId(fromExplicit);
-  }
+  if (fromExplicit) return normalizeAnthropicModelId(fromExplicit);
 
   const fromAnthropic = String(process.env.ANTHROPIC_MODEL ?? '').trim();
   if (fromAnthropic) return normalizeAnthropicModelId(fromAnthropic);

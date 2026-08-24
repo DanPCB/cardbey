@@ -43,10 +43,9 @@ function checkCoreServerImports() {
       `${base}.js`,
       `${base}.mjs`,
       `${base}.ts`,
-      spec.endsWith('.js') ? base.replace(/\.js$/, '.ts') : null,
       path.join(base, 'index.js'),
       path.join(base, 'index.mjs'),
-    ].filter(Boolean);
+    ];
     if (!candidates.some((p) => fs.existsSync(p))) {
       fail(`Core server.js import missing: ${spec} (expected under src/)`);
     }
@@ -176,23 +175,13 @@ function checkDashboardServicesAvoidUnauthSubmodule() {
   }
 }
 
-function dashboardReady() {
-  return fs.existsSync(path.join(dashboardRoot, 'package.json'));
-}
-
 function main() {
   console.log('🔍 Render deploy readiness\n');
   checkCoreServerImports();
   checkNoWorkspaceProtocol(path.join(coreRoot, 'package.json'), 'Core package.json');
-  if (dashboardReady()) {
-    checkNoWorkspaceProtocol(path.join(dashboardRoot, 'package.json'), 'Dashboard package.json');
-    checkCorsAllowlistSync();
-    checkIntakeNoSessionHeader();
-  } else {
-    console.log(
-      '⚠️  Dashboard submodule not checked out — skipping dashboard-specific deploy checks (expected in CI without private submodule access).',
-    );
-  }
+  checkNoWorkspaceProtocol(path.join(dashboardRoot, 'package.json'), 'Dashboard package.json');
+  checkCorsAllowlistSync();
+  checkIntakeNoSessionHeader();
   checkMigrationHealthCheckTracked();
   checkDashboardServicesAvoidUnauthSubmodule();
 

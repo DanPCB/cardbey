@@ -47,8 +47,11 @@ describe('GET /api/health (contract)', () => {
     expect(res.headers['content-type']).toMatch(/json/);
     expect(res.body).toMatchObject({ ok: true, status: 'ok' });
     expect(typeof res.body.timestamp).toBe('string');
-    expect(res.body.features).toBeUndefined();
-    expect(res.body.decisionLoop).toBeUndefined();
+    expect(res.body.decisionLoop).toMatchObject({
+      enabled: expect.any(Boolean),
+      running: expect.any(Boolean),
+    });
+    expect(res.body.features?.decisionLoop).toBeDefined();
   });
 
   it('returns 200 with full payload when ?full=true', async () => {

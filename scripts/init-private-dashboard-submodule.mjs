@@ -83,12 +83,8 @@ export function main(env = process.env) {
     return { status: 'incomplete' };
   }
 
-  log(`initialized (${submoduleRel})`);
-  return {
-    status: 'initialized',
-    submodulePath: submoduleRel,
-    packageJsonPath: probe,
-  };
+  log('ok');
+  return { status: 'ok' };
 }
 
 const isDirectRun =

@@ -871,7 +871,6 @@ router.get('/:draftId/publish-snapshot', requireAuth, async (req, res, next) => 
   }
 });
 
-
 /**
  * PATCH /api/draft-store/:draftId/publish-snapshot
  */
@@ -1127,61 +1126,6 @@ router.post('/:draftId/upload/hero', requireAuth, heroAssetUploadSingle, async (
   } catch (err) {
     console.error('[draftStore] POST /:draftId/upload/hero error:', err?.message || err);
     next(err);
-  }
-});
-
-
-/**
- * POST /api/draft-store/:draftId/restore-from-published
- * Reset editable draft preview to match the live published Business.
- * Does not republish. Requires auth + draft access; draft must have committedStoreId.
- */
-router.post('/:draftId/restore-from-published', requireAuth, async (req, res, next) => {
-  try {
-    const { draftId } = req.params;
-    const existingDraft = await getDraft(draftId);
-    if (!existingDraft) {
-      return res.status(404).json({
-        ok: false,
-        error: 'draft_not_found',
-        message: 'Draft store not found or expired',
-      });
-    }
-    const userId = req.userId ?? req.user?.id ?? null;
-    const tenantKey = getTenantId(req.user) ?? userId ?? null;
-    const allowed = await canAccessDraftStore(existingDraft, {
-      userId,
-      tenantKey,
-      isSuperAdmin: isSuperAdmin(req),
-    });
-    if (!allowed) {
-      return res.status(403).json({
-        ok: false,
-        error: 'forbidden',
-        message: 'You do not have access to this draft.',
-      });
-    }
-    const result = await restoreDraftFromPublished(prisma, { draftId });
-    return res.json({
-      ok: true,
-      draftId: result.draftId,
-      status: result.status,
-      preview: result.preview,
-      publishState: result.publishState,
-    });
-  } catch (error) {
-    const code = error?.code;
-    const status = error?.statusCode || 500;
-    if (
-      code === 'store_not_found' ||
-      code === 'draft_not_found' ||
-      code === 'store_not_live' ||
-      code === 'draft_not_committed'
-    ) {
-      return res.status(status).json({ ok: false, error: code, message: error.message });
-    }
-    console.error('[DraftStore] POST /:draftId/restore-from-published error:', error);
-    next(error);
   }
 });
 

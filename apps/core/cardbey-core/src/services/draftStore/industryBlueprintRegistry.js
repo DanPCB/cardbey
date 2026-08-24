@@ -113,27 +113,11 @@ function resolveFinanceVsAccountingBlueprint(blob) {
  */
 export function resolveIndustryBlueprintKey(profile = {}) {
   const blob = profileBlob(profile);
-  const nameBlob = [profile.businessName, profile.storeName]
-    .map((v) => String(v ?? '').toLowerCase())
-    .filter(Boolean)
-    .join(' ');
-  const typeBlob = [profile.businessType, profile.storeType, profile.category]
-    .map((v) => String(v ?? '').toLowerCase())
-    .filter(Boolean)
-    .join(' ');
-  const NAIL_SIGNAL_RE =
-    /\b(nails?|manicure|pedicure|nail\s*salon|nail\s*art|gel\s*nails?|acrylic\s*nails?)\b/i;
 
   // Explicit finance vs accounting disambiguation before generic pattern scan.
   const financeOrAccounting = resolveFinanceVsAccountingBlueprint(blob);
   if (financeOrAccounting && INDUSTRY_BLUEPRINTS[financeOrAccounting]) {
     return financeOrAccounting;
-  }
-
-  // Nail name/type beats wrong verticalSlug or shared beauty_salon → haircut menus
-  // (live bug: "ANGEL NAIL" received Women's Haircut starter catalog).
-  if (NAIL_SIGNAL_RE.test(nameBlob) || NAIL_SIGNAL_RE.test(typeBlob)) {
-    return 'beauty.nails';
   }
 
   if (blob) {

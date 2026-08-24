@@ -70,6 +70,8 @@ router.get('/storage/status', (req, res) => {
  * Otherwise returns simple format: { ok: true, env: "...", timestamp: "..." }
  */
 router.get('/health', async (req, res) => {
+  const decisionLoopHealth = getDecisionLoopHealth();
+
   // Simple health check for device players (default) — no DB, no logging spam
   if (req.query.full !== 'true') {
     res.setHeader('Cache-Control', 'no-store');
@@ -78,11 +80,16 @@ router.get('/health', async (req, res) => {
       status: 'ok',
       env: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
       version,
+      features: snapshotFeatures(),
+      decisionLoop: {
+        enabled: decisionLoopHealth.enabled,
+        running: decisionLoopHealth.running,
+      },
+      belief: decisionLoopHealth.belief,
     });
   }
-
-  const decisionLoopHealth = getDecisionLoopHealth();
 
   // Comprehensive health check for dashboard (?full=true) — cached to avoid heap/CPU spikes
   const now = Date.now();
