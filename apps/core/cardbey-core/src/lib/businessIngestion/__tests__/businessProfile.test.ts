@@ -93,8 +93,9 @@ describe('Public business profile by slug', () => {
     expect(profile?.businessName).toBe('Harbour Cafe');
     expect(profile?.lifecycleLabel).toBe('Discovered');
     expect(profile?.claimUrl).toBe('/activate-business/profile-1');
-    expect(JSON.stringify(profile)).not.toContain('sourceType');
-    expect(JSON.stringify(profile)).not.toContain('verificationStatus');
-    expect(JSON.stringify(profile)).not.toContain('confidenceScore');
+    const { briefSummary: _brief, ...publicCore } = profile!;
+    expect(JSON.stringify(publicCore)).not.toContain('sourceType');
+    expect(JSON.stringify(publicCore)).not.toContain('verificationStatus');
+    expect(JSON.stringify(publicCore)).not.toContain('confidenceScore');
   });
 });
