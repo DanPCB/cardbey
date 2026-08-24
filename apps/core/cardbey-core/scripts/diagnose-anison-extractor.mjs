@@ -11,7 +11,7 @@ async function main() {
   const result = await extractFromBusinessWebsite(budget, 'https://anisoncapitalgroup.com.au');
   const summary = {
     description: result?.description ?? null,
-    tagline: result?.heading ?? null,
+    tagline: result?.tagline ?? result?.heading ?? null,
     phone: result?.phone ?? null,
     email: result?.email ?? null,
     socialLinks: null,

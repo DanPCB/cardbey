@@ -163,6 +163,17 @@ function ruleBasedDescription(input: DescriptionInputs): string {
   return validated.cleaned ?? minimalGroundedDescription(input);
 }
 
+function lightCleanWebsiteDescription(raw: string): string {
+  let text = String(raw ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\b(learn more|click here|contact us|read more)\b[.!]*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Drop trailing broken ellipsis / CTA crumbs
+  text = text.replace(/\s*(…|\.\.\.)\s*$/g, '.').trim();
+  return sanitizeEnrichmentText(text, 480) ?? text.slice(0, 480);
+}
+
 export async function synthesizeDescription(
   budget: EnrichmentBudget,
   input: DescriptionInputs,
@@ -173,6 +184,39 @@ export async function synthesizeDescription(
       policyVersion: SYNTHESIS_POLICY_VERSION,
       evidenceHash: hash,
     };
+
+  // Real website description: light clean only — do not rewrite from thin signals.
+  if (input.websiteDescription && input.websiteDescription.trim().length >= 40) {
+    const cleaned = lightCleanWebsiteDescription(input.websiteDescription);
+    const validated = validateSynthesizedDescription(cleaned, input);
+    if (validated.ok && validated.cleaned) {
+      return {
+        text: validated.cleaned,
+        meta: {
+          ...baseMeta,
+          source: 'rule_synthesised',
+          usedClaude: false,
+          model: null,
+          rejectedClaims: validated.rejectedClaims,
+          aiGenerated: false,
+        },
+      };
+    }
+    // If validation is strict on name grounding, still prefer cleaned website text.
+    if (cleaned.length >= 40) {
+      return {
+        text: cleaned,
+        meta: {
+          ...baseMeta,
+          source: 'rule_synthesised',
+          usedClaude: false,
+          model: null,
+          rejectedClaims: validated.rejectedClaims,
+          aiGenerated: false,
+        },
+      };
+    }
+  }
 
   const hasApi = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
   if (!hasApi) {

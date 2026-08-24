@@ -32,7 +32,9 @@ import { sanitizeEnrichmentText } from '../../businessIngestion/enrichmentSafety
 import type { EnrichmentBudget } from './budget.js';
 import {
   absoluteUrl,
+  extractDescription,
   extractJsonLdLocalBusiness,
+  extractTagline,
   firstHeading,
   isHttpUrl,
   metaContent,
@@ -211,6 +213,7 @@ export function extractCatalogItems(html: string): WebsiteCatalogItem[] {
 export type WebsiteExtract = {
   title: string | null;
   description: string | null;
+  tagline: string | null;
   ogImage: string | null;
   heading: string | null;
   /** Raw-ish nav labels after chrome/contact filter (category signals). */
@@ -236,8 +239,11 @@ export async function extractFromBusinessWebsite(
   if (!html) return null;
 
   const jsonLd = extractJsonLdLocalBusiness(html);
-  const ogDescription = metaContent(html, 'og:description');
-  const metaDescription = metaContent(html, 'description');
+  const description =
+    extractDescription(html) ??
+    sanitizeEnrichmentText(String(jsonLd?.description ?? '')) ??
+    null;
+  const tagline = extractTagline(html);
   const ogImageRaw = metaContent(html, 'og:image');
   const ogImage =
     ogImageRaw && isHttpUrl(ogImageRaw)
@@ -255,11 +261,6 @@ export async function extractFromBusinessWebsite(
     openingHours = JSON.stringify(jsonLd.openingHoursSpecification).slice(0, 500);
   }
 
-  const description =
-    sanitizeEnrichmentText(
-      String(jsonLd?.description ?? ogDescription ?? metaDescription ?? ''),
-    ) ?? null;
-
   const phone =
     extractPhone(html) ||
     (jsonLd?.telephone ? String(jsonLd.telephone).replace(/\s/g, '') : null);
@@ -272,9 +273,10 @@ export async function extractFromBusinessWebsite(
 
   return {
     title: metaContent(html, 'og:title') ?? firstHeading(html),
-    description,
+    description: description ? sanitizeEnrichmentText(description, 600) : null,
+    tagline,
     ogImage: ogImage && isHttpUrl(ogImage) ? ogImage : null,
-    heading: firstHeading(html),
+    heading: tagline ?? firstHeading(html),
     navItems: [...new Set(navItems)].slice(0, 12),
     catalogItems,
     phone,

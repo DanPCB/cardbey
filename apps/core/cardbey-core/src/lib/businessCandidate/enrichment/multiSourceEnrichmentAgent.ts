@@ -297,6 +297,14 @@ export async function enrichCandidateMultiSource(params: {
               rawExtract: websiteExtract.description,
             });
           }
+          if (websiteExtract.tagline) {
+            candidate.originalContent = {
+              ...(candidate.originalContent && typeof candidate.originalContent === 'object'
+                ? candidate.originalContent
+                : {}),
+              tagline: websiteExtract.tagline,
+            };
+          }
           if (websiteExtract.openingHours) {
             setField(bag, 'openingHours', {
               value: websiteExtract.openingHours,
@@ -530,18 +538,26 @@ export async function enrichCandidateMultiSource(params: {
         flags.push(`SYNTHESIS_REJECTED:${descSynth.meta.rejectedClaims.join('|')}`);
       }
       if (descSynth.text) {
+        const websiteDescStrong =
+          Boolean(websiteExtract?.description) &&
+          String(websiteExtract?.description ?? '').trim().length >= 40;
         const existingTier = bag.description?.sourceTier ?? 99;
         const existingOk =
           bag.description &&
           !isPlaceholderDescription(bag.description.value) &&
-          existingTier <= 1;
+          existingTier <= 1 &&
+          !websiteDescStrong;
         if (!existingOk) {
           setField(bag, 'description', {
             value: descSynth.text,
-            source: descSynth.meta.source === 'rejected' ? 'rule_synthesised' : descSynth.meta.source,
-            sourceTier: 3,
-            sourceUrl: null,
-            confidence: descSynth.meta.aiGenerated ? 0.65 : 0.55,
+            source: websiteDescStrong
+              ? 'business_website'
+              : descSynth.meta.source === 'rejected'
+                ? 'rule_synthesised'
+                : descSynth.meta.source,
+            sourceTier: websiteDescStrong ? 1 : 3,
+            sourceUrl: websiteDescStrong ? websiteExtract?.sourceUrl ?? null : null,
+            confidence: websiteDescStrong ? 0.95 : descSynth.meta.aiGenerated ? 0.65 : 0.55,
             rawExtract: `evidenceHash=${descSynth.meta.evidenceHash};policy=${descSynth.meta.policyVersion};${descSynth.text}`,
           });
         }
