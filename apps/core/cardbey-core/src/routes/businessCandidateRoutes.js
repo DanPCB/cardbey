@@ -32,6 +32,15 @@ const realLocalRateLimit = rateLimit({
   code: 'real_local_discovery_rate_limit',
 });
 
+
+const batchEnrichRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 8,
+  keyGenerator: (req) => `batch-enrich:${req.user?.id ?? req.ip ?? 'unknown'}`,
+  message: 'Batch enrichment rate limit exceeded.',
+  code: 'batch_enrich_rate_limit',
+});
+
 /** GET /api/business-candidates/qa */
 router.get('/qa', requireAuth, requireAdmin, async (req, res, next) => {
   try {
@@ -246,6 +255,79 @@ router.post('/batch/qa-approve', requireAuth, requireAdmin, async (req, res, nex
 
     return res.json({ ok: result.ok, ...result });
   } catch (err) {
+    next(err);
+  }
+});
+
+
+/**
+ * POST /api/business-candidates/batch/enrich — admin multi-source enrichment (Growth / QA).
+ * Never creates stores or publishes. Caps at 25 candidates. Default dryRun=true for safety.
+ * Response shape matches dashboard runBatchEnrichment client.
+ */
+router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const batchId =
+      typeof body.batchId === 'string' && body.batchId.trim()
+        ? body.batchId.trim()
+        : MELBOURNE_BATCH001_REAL_LOCAL_ID;
+    const dryRun = body.dryRun !== false;
+    const maxCandidates = body.maxCandidates != null ? Number(body.maxCandidates) : 5;
+    const candidateIds = Array.isArray(body.candidateIds)
+      ? body.candidateIds.filter((id) => typeof id === 'string' && id.trim())
+      : undefined;
+
+    const { runMultiSourceEnrichmentBatch, isProtectedEnrichmentBatch } = await import(
+      '../lib/businessCandidate/enrichment/runBatchEnrichment.js'
+    );
+
+    if (isProtectedEnrichmentBatch(batchId)) {
+      return res.status(403).json({
+        ok: false,
+        message: `Refusing to enrich protected batch ${batchId}`,
+      });
+    }
+
+    const result = await runMultiSourceEnrichmentBatch({
+      batchId,
+      dryRun,
+      candidateIds,
+      maxCandidates,
+      writeReport: false,
+    });
+
+    return res.json({
+      ok: true,
+      dryRun,
+      result: {
+        enrichmentRunId: result.enrichmentRunId,
+        batchId: result.batchId,
+        startedAt: result.startedAt,
+        finishedAt: result.finishedAt,
+        summary: result.summary,
+        results: result.results.map((row) => ({
+          candidateId: row.candidateId,
+          businessName: row.businessName,
+          status: row.status,
+          heroImageSource: row.heroImageSource,
+          descriptionLength: row.descriptionLength,
+          sourcesUsed: row.sourcesUsed,
+          flags: row.flags,
+          message: row.message ?? null,
+        })),
+      },
+      safety: {
+        autoStoreCreation: false,
+        autoPublish: false,
+        ownerOutreach: false,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Enrichment failed';
+    if (String(message).includes('INVENTORY_EMPTY') || String(message).includes('protected batch')) {
+      return res.status(400).json({ ok: false, message });
+    }
     next(err);
   }
 });
