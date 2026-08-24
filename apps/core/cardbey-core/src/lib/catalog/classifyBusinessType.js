@@ -21,6 +21,11 @@ const FIXED_BOOKING_RE =
   /\b(nails?|nail salon|manicure|pedicure|nail art|gel nails|acrylic nails|spa|massage|facial|waxing|lash|brow|haircut|hair cut|hair salon|barber|beauty salon|wellness|car wash|auto detailing|detailing|cleaning package|inspection fee|on-?site measurement)\b/i;
 const QUOTE_REQUIRED_RE =
   /\b(handyman|handy[\s-]?man|handyperson|til(e|ing)|floor(ing)?|renovation|plumb(ing|er)?|electric(ian|al)?|paint(ing|er)?|construct(ion|or)?|signage|bathroom|kitchen splashback|splashback|waterproof(ing)?|contractor|builder|bespoke|custom work|landscap(e|ing)|roof(ing)?|extension|refurbish|gutter|pressure wash|window clean|furniture assembly|tv mount)\b/i;
+/** Professional / financial / advisory — must not fall through to product_retail Add to cart. */
+const PROFESSIONAL_RE =
+  /\b(capital|finance|financial|investment|investments|wealth|accounting|accountant|bookkeep|lawyer|legal|solicitor|attorney|consulting|consultant|advisory|advisor|private equity|asset management|venture capital|fund manager|tax return|conveyanc)\b/i;
+export { PROFESSIONAL_RE };
+
 const SPA_NAILS_SPECIFIC_RE = /\b(nails?|spa|salon|beauty|massage|facial)\b/i;
 const TILING_SPECIFIC_RE = /\b(til(e|ing)|floor(ing)?|splashback|waterproof)\b/i;
 
