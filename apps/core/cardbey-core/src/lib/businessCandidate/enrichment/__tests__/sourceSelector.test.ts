@@ -4,6 +4,7 @@ import {
   buildSourceFetchPlan,
   countPlannedFetches,
   isNameTruncated,
+  splitFetchBudgetForHeroReserve,
 } from '../sourceSelector.js';
 
 describe('sourceSelector', () => {
@@ -57,5 +58,25 @@ describe('sourceSelector', () => {
       0,
     );
     expect(countPlannedFetches(plan)).toBe(0);
+  });
+
+  it('splitFetchBudgetForHeroReserve holds slots for Pexels when hero needed', () => {
+    const split = splitFetchBudgetForHeroReserve(4, {
+      needsHero: true,
+      pexelsConfigured: true,
+      reserveSlots: 2,
+    });
+    expect(split.heroReserve).toBe(2);
+    expect(split.remainingForSources).toBe(2);
+  });
+
+  it('splitFetchBudgetForHeroReserve is zero when Pexels unset', () => {
+    const split = splitFetchBudgetForHeroReserve(4, {
+      needsHero: true,
+      pexelsConfigured: false,
+      reserveSlots: 2,
+    });
+    expect(split.heroReserve).toBe(0);
+    expect(split.remainingForSources).toBe(4);
   });
 });

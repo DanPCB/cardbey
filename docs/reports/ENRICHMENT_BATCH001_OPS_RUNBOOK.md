@@ -42,6 +42,7 @@ Mount a **persistent disk** at `/var/data` (or your chosen path) when using `BUS
 | Shell pod ≠ web pod | `candidates.json` empty in shell but QA shows 25 | Run CLI on web service shell, or mount shared disk |
 | Postgres has no Batch 001 seeds | `batch001: 0` in seed query | Discovery writes JSON only today; export path not yet populated |
 | FSQ 429 | `[Foursquare] search HTTP 429` | `ENRICHMENT_BROADER_SOURCES=0` **or** FSQ fallback patch (YP/TL after failed FSQ) |
+| YP/TL 403 + Overpass timeout from Render | Thin `sourcesUsed` / no hero | Agent reserves 2 Pexels slots (`heroReserve=2`); expect `pexels` hero when key set |
 | Candidate IDs change | Old `e56709e1…` invalid after re-discovery | Always list current IDs from `candidates.json` |
 
 ---

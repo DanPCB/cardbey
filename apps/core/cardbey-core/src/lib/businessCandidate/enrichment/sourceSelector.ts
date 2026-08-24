@@ -131,3 +131,27 @@ export function countPlannedFetches(plan: SourceFetchPlan): number {
     Number(plan.fetchWikimedia)
   );
 }
+
+/**
+ * Split remaining fetch budget so Pexels hero ladder keeps reserved slots
+ * when configured and hero is still needed.
+ */
+export function splitFetchBudgetForHeroReserve(
+  remainingFetches: number,
+  opts: {
+    needsHero: boolean;
+    pexelsConfigured: boolean;
+    reserveSlots?: number;
+  },
+): { remainingForSources: number; heroReserve: number } {
+  const remaining = Math.max(0, Math.floor(remainingFetches));
+  const wantReserve =
+    opts.needsHero && opts.pexelsConfigured
+      ? Math.max(0, Math.floor(opts.reserveSlots ?? 2))
+      : 0;
+  const heroReserve = Math.min(wantReserve, remaining);
+  return {
+    heroReserve,
+    remainingForSources: Math.max(0, remaining - heroReserve),
+  };
+}
