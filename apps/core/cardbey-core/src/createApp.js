@@ -293,6 +293,8 @@ export async function createCardbeyApp() {
   app.use('/api/missions', agentsV1Routes);
   console.log('[cardbey-core/createApp] mounted /api/missions (agentsV1: spawn, blackboard/stream, …)');
   await tryMountRouter(app, './routes/localDesktopRoutes.js', '/api');
+  // Phase 0/C1 Website Editing context + design projection (before stores catch-alls).
+  await tryMountRouter(app, './routes/websiteEditingRoutes.js', '/api/stores');
   await tryMountRouter(app, './routes/stores.js', '/api/stores');
   await tryMountRouter(app, './routes/businessBrandRoutes.js', '/api/business');
   await tryMountRouter(app, './routes/draftStoreRoutes.js', '/api/draft-store');

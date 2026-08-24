@@ -26,8 +26,6 @@ export {
   suggestAutoApproval,
   canPromoteToClaimable,
   AUTO_APPROVAL_MIN_QUALITY_SCORE,
-  QA_FLAG_HERO_MISSING,
-  APPROVE_COMPLETENESS_BLOCKERS,
 } from './QaQualityGates.js';
 export {
   appendQaAuditEntry,

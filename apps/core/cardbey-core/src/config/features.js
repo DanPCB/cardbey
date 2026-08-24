@@ -657,138 +657,6 @@ export const Features = {
   },
 
   /**
-   * Cardbey Live Market / Global Live (pilot).
-   * All flags default OFF. Master kill switch: ENABLE_LIVE_MARKET_V1.
-   * Cloudflare / WebRTC flags are experimental (Slice A adapter only — no owner Go Live).
-   * Chat/captions/commerce/replay remain reserved and unimplemented.
-   */
-  liveMarket: {
-    /** Master kill switch — gates all Live Market routes and owner actions. */
-    get v1() {
-      return parseBoolEnv(process.env.ENABLE_LIVE_MARKET_V1, false);
-    },
-    get adminV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_ADMIN_V1, false)
-      );
-    },
-    get ownerV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_OWNER_V1, false)
-      );
-    },
-    get publicV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_PUBLIC_V1, false)
-      );
-    },
-    /** Experimental broadcast transport gate (does not unlock owner prepare/start in Slice A). */
-    get broadcastV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_BROADCAST_V1, false)
-      );
-    },
-    /** Experimental Cloudflare Stream provider selection (requires master). */
-    get cloudflareStreamV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_CLOUDFLARE_STREAM_V1, false)
-      );
-    },
-    /**
-     * Experimental WebRTC (WHIP/WHEP) for Cloudflare Stream.
-     * Requires master + broadcast + Cloudflare Stream flags.
-     */
-    get cloudflareWebRtcV1() {
-      return (
-        Features.liveMarket.broadcastV1 &&
-        Features.liveMarket.cloudflareStreamV1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1, false)
-      );
-    },
-    /** Owner may publish scheduled announcements to /s/:slug (no video required). */
-    get storefrontPublishV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_STOREFRONT_PUBLISH_V1, false)
-      );
-    },
-    /** Public storefront may consume published live-session announcements. */
-    get storefrontConsumeV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_STOREFRONT_CONSUME_V1, false)
-      );
-    },
-    /**
-     * Global Marketplace/homepage feed may attach compact liveMarket summaries.
-     * Independent of storefront consume; does not change publication state.
-     */
-    get globalFeedV1() {
-      return (
-        Features.liveMarket.v1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_GLOBAL_FEED_V1, false)
-      );
-    },
-    /**
-     * Audience may register for published Global Live sessions.
-     * Requires master + storefront consume. Does not enable streaming.
-     */
-    get registrationV1() {
-      return (
-        Features.liveMarket.v1 &&
-        Features.liveMarket.storefrontConsumeV1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_REGISTRATION_V1, false)
-      );
-    },
-    /**
-     * Owner registration aggregate summary on session cards.
-     * Requires master + owner + registration.
-     */
-    get registrationSummaryV1() {
-      return (
-        Features.liveMarket.ownerV1 &&
-        Features.liveMarket.registrationV1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_REGISTRATION_SUMMARY_V1, false)
-      );
-    },
-    /**
-     * Owner participant workspace (list / questions inbox / review states).
-     * Requires master + owner + registration summary. Does not enable guest/email/SMS/public counts.
-     * Env: ENABLE_LIVE_MARKET_HOST_PARTICIPANTS_V1 (single flag; no GLOBAL_LIVE_* alias).
-     */
-    get hostParticipantsV1() {
-      return (
-        Features.liveMarket.registrationSummaryV1 &&
-        parseBoolEnv(process.env.ENABLE_LIVE_MARKET_HOST_PARTICIPANTS_V1, false)
-      );
-    },
-  },
-
-  /** Marketing EOI for Cardbey Global Live pilots (orthogonal to session RSVP). */
-  globalLiveEoi: {
-    get v1() {
-      return parseBoolEnv(process.env.ENABLE_GLOBAL_LIVE_EOI_V1, false);
-    },
-    get open() {
-      return (
-        Features.globalLiveEoi.v1 &&
-        parseBoolEnv(process.env.GLOBAL_LIVE_EOI_OPEN, false)
-      );
-    },
-    get confirmationEmailV2() {
-      return parseBoolEnv(process.env.ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_EMAIL_V2, false);
-    },
-    get applicantTrackingV1() {
-      return parseBoolEnv(process.env.ENABLE_GLOBAL_LIVE_EOI_APPLICANT_TRACKING_V1, false);
-    },
-  },
-
-  /**
    * Global front-page acquisition CTA — Create Your Online Store.
    * Default OFF. Dashboard also gates via VITE_ENABLE_GLOBAL_STORE_CREATION_CTA_V1.
    */
@@ -801,6 +669,7 @@ export const Features = {
   /**
    * Performer → Draft Review content editing bridge (Improve / Edit manually / Hide now).
    * Default OFF in all environments. Dashboard twin: VITE_ENABLE_PERFORMER_CONTENT_EDITING_BRIDGE_V1.
+   * Kill-switch: unset or false. Does not alter create-store orchestration.
    */
   performerContentEditingBridge: {
     get v1() {
@@ -809,13 +678,15 @@ export const Features = {
   },
   /**
    * Website Editing Design & presentation adapter (Style & preview convergence C1).
-   * Default OFF. Dashboard twin: VITE_ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1.
+   * Default OFF. Read-only projection/diagnostics when ON. Mutations deferred to C2.
+   * Dashboard twin: VITE_ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1.
    */
   websiteEditingDesignAdapter: {
     get v1() {
       return parseBoolEnv(process.env.ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1, false);
     },
   },
+
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -983,27 +854,6 @@ export function snapshotFeatures() {
       providerSdkV1: Features.universalResourceIntelligence.providerSdkV1,
       federationPlannerV1: Features.universalResourceIntelligence.federationPlannerV1,
       resourceGraphV1: Features.universalResourceIntelligence.resourceGraphV1,
-    },
-    liveMarket: {
-      v1: Features.liveMarket.v1,
-      adminV1: Features.liveMarket.adminV1,
-      ownerV1: Features.liveMarket.ownerV1,
-      publicV1: Features.liveMarket.publicV1,
-      broadcastV1: Features.liveMarket.broadcastV1,
-      cloudflareStreamV1: Features.liveMarket.cloudflareStreamV1,
-      cloudflareWebRtcV1: Features.liveMarket.cloudflareWebRtcV1,
-      storefrontPublishV1: Features.liveMarket.storefrontPublishV1,
-      storefrontConsumeV1: Features.liveMarket.storefrontConsumeV1,
-      globalFeedV1: Features.liveMarket.globalFeedV1,
-      registrationV1: Features.liveMarket.registrationV1,
-      registrationSummaryV1: Features.liveMarket.registrationSummaryV1,
-      hostParticipantsV1: Features.liveMarket.hostParticipantsV1,
-    },
-    globalLiveEoi: {
-      v1: Features.globalLiveEoi.v1,
-      open: Features.globalLiveEoi.open,
-      confirmationEmailV2: Features.globalLiveEoi.confirmationEmailV2,
-      applicantTrackingV1: Features.globalLiveEoi.applicantTrackingV1,
     },
     globalStoreCreationCta: {
       v1: Features.globalStoreCreationCta.v1,

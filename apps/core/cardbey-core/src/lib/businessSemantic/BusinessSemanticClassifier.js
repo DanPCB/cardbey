@@ -14,6 +14,26 @@ const INDUSTRY_PATTERNS = [
   { industry: 'food_hospitality', subIndustry: 'restaurant', re: /\b(restaurant|dining|bistro)\b/i },
   { industry: 'food_hospitality', subIndustry: 'cafe', re: /\b(cafe|coffee|espresso)\b/i },
   { industry: 'food_hospitality', subIndustry: 'bakery', re: /\b(bakery|baker|pastry)\b/i },
+  {
+    industry: 'professional_services',
+    subIndustry: 'finance',
+    re: /\b(capital|finance|financial|investment|wealth|private equity|asset management|venture)\b/i,
+  },
+  {
+    industry: 'professional_services',
+    subIndustry: 'accounting',
+    re: /\b(accountant|accounting|bookkeep|tax return|payroll|bas)\b/i,
+  },
+  {
+    industry: 'professional_services',
+    subIndustry: 'legal',
+    re: /\b(lawyer|legal|solicitor|attorney|conveyanc)\b/i,
+  },
+  {
+    industry: 'professional_services',
+    subIndustry: 'consulting',
+    re: /\b(consulting|consultant|advisory|advisor)\b/i,
+  },
   { industry: 'retail', subIndustry: 'fashion', re: /\b(fashion|clothing|apparel|boutique)\b/i },
   { industry: 'retail', subIndustry: 'general', re: /\b(retail|shop|store|merchandise)\b/i },
 ];

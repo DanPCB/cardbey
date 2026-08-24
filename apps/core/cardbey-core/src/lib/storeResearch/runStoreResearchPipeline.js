@@ -5,7 +5,7 @@
  * New business: delegate to legacy research (no entity) or industry blueprint path
  */
 
-import { resolveBusinessEntity, isExistingBusinessIntent, sharedBrandWebsiteFromCandidates } from './businessEntityResolver.js';
+import { resolveBusinessEntity, isExistingBusinessIntent } from './businessEntityResolver.js';
 import { discoverBusinessSources } from './sourceDiscoveryService.js';
 import { runBusinessSourceExtractors } from './extractors/index.js';
 import { reconcileBusinessEvidence } from './businessEvidenceReconciler.js';
@@ -101,26 +101,13 @@ export async function runStoreResearchPipeline(input, options = {}) {
   }
 
   if (entityResolution.candidates.length > 1 && entityResolution.requiresOwnerConfirmation) {
-    // Ambiguous entity: still reconstruct offerings when a shared brand website is known,
-    // or when the caller already supplied a website. Never invent a catalog without a URL.
-    const sharedWebsite =
-      entityResolution.sharedBrandWebsite ||
-      sharedBrandWebsiteFromCandidates(entityResolution.candidates);
-    const researchWebsite = normalized.website || sharedWebsite || null;
-    let legacy = null;
-    if (researchWebsite && !options.skipNetwork) {
-      legacy = await legacyRunStoreCreationResearch(
-        { ...normalized, website: researchWebsite },
-        legacyOptions,
-      );
-    }
     const reviewArtifact = buildStoreResearchReviewArtifact({
       missionId: normalized.missionId ?? '',
       draftId: normalized.draftId ?? null,
       entityResolution,
       evidence: null,
       sources: [],
-      suggestedItems: legacy?.extractedItems ?? [],
+      suggestedItems: [],
     });
     return {
       mode: 'ambiguous_entity',
@@ -128,10 +115,10 @@ export async function runStoreResearchPipeline(input, options = {}) {
       evidence: null,
       reviewArtifact,
       missionContract: null,
-      legacyResearchResult: legacy,
+      legacyResearchResult: null,
       ownerReviewRequired: true,
-      fallbackToGenerated: Boolean(legacy?.fallbackToGenerated ?? !legacy?.extractedItems?.length),
-      logs: [...logs, ...(legacy?.logs ?? [])],
+      fallbackToGenerated: false,
+      logs,
     };
   }
 

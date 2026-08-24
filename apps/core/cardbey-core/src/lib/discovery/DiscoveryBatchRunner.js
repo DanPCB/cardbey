@@ -4,15 +4,12 @@
 
 import { prisma } from '../prisma.js';
 import { scrapeAndNormalize } from '../social-import/SocialImportService.js';
+import { fetchHtml } from '../social-import/scrapeUtils.js';
 import { extractBusinessUrls } from './sources/DirectoryCrawler.js';
-import { resolveTikTokHashtag } from './sources/tiktokHashtagResolver.js';
 import { buildClaimAuthority } from './ClaimAuthorityBuilder.js';
 import * as UnclaimedStoreService from './UnclaimedStoreService.js';
 import * as PreBuiltStoreService from './PreBuiltStoreService.js';
 import * as DiscoveryConfigService from './DiscoveryConfigService.js';
-
-/** Resolve outcomes that are not technical batch failures. */
-const NON_FAILURE_RESOLVE_STATUSES = new Set(['OK', 'NO_RESULTS', 'PROVIDER_BLOCKED']);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,7 +30,6 @@ export async function isDiscoveryLocked() {
 
 /**
  * Resolve candidate profile URLs from a seed source.
- * @returns {Promise<{ urls: string[], resolveStatus: string, resolveDetail: string, resolveMeta?: object }>}
  */
 export async function resolveUrlsFromSeed(seed, maxUrls) {
   const type = String(seed.type || '').toLowerCase();
@@ -43,68 +39,53 @@ export async function resolveUrlsFromSeed(seed, maxUrls) {
     try {
       const parsed = JSON.parse(value);
       if (Array.isArray(parsed)) {
-        const urls = parsed
-          .filter((u) => typeof u === 'string' && u.startsWith('http'))
-          .slice(0, maxUrls);
-        return urls.length > 0
-          ? { urls, resolveStatus: 'OK', resolveDetail: `url_list_${urls.length}` }
-          : {
-              urls: [],
-              resolveStatus: 'CONFIG_ERROR',
-              resolveDetail: 'url_list_empty_or_invalid',
-            };
+        return parsed.filter((u) => typeof u === 'string' && u.startsWith('http')).slice(0, maxUrls);
       }
     } catch {
-      if (value.startsWith('http')) {
-        return { urls: [value].slice(0, maxUrls), resolveStatus: 'OK', resolveDetail: 'url_list_single' };
-      }
+      if (value.startsWith('http')) return [value].slice(0, maxUrls);
     }
-    return { urls: [], resolveStatus: 'CONFIG_ERROR', resolveDetail: 'url_list_parse_failed' };
+    return [];
   }
 
   if (type === 'directory_crawl') {
-    if (!value.startsWith('http')) {
-      return { urls: [], resolveStatus: 'CONFIG_ERROR', resolveDetail: 'directory_crawl_needs_http' };
-    }
-    const urls = (await extractBusinessUrls(value, maxUrls)).slice(0, maxUrls);
-    return urls.length > 0
-      ? { urls, resolveStatus: 'OK', resolveDetail: `directory_${urls.length}` }
-      : { urls: [], resolveStatus: 'NO_RESULTS', resolveDetail: 'directory_zero_links' };
+    if (!value.startsWith('http')) return [];
+    const urls = await extractBusinessUrls(value, maxUrls);
+    return urls.slice(0, maxUrls);
   }
 
   if (type === 'tiktok_hashtag') {
-    // Plain HTTP only — do not headless-bypass TikTok anti-bot (PROVIDER_BLOCKED when shell).
-    const resolved = await resolveTikTokHashtag(value, { maxUrls });
-    return {
-      urls: resolved.urls,
-      resolveStatus: resolved.status,
-      resolveDetail: resolved.detail,
-      resolveMeta: {
-        classification: resolved.classification,
-        tagUrl: resolved.tagUrl,
-        httpStatus: resolved.httpStatus,
-        contentType: resolved.contentType,
-        responseBytes: resolved.responseBytes,
-      },
-    };
+    const tag = value.replace(/^#/, '');
+    const tagUrl = `https://www.tiktok.com/tag/${encodeURIComponent(tag)}`;
+    const html = await fetchHtml(tagUrl);
+    if (!html) return [];
+    return extractTikTokProfileUrls(html).slice(0, maxUrls);
   }
 
   if (type === 'google_maps') {
-    if (value.startsWith('http')) {
-      return { urls: [value].slice(0, maxUrls), resolveStatus: 'OK', resolveDetail: 'google_maps_url' };
-    }
-    return {
-      urls: [],
-      resolveStatus: 'CONFIG_ERROR',
-      resolveDetail: 'google_maps_query_unsupported_use_place_url',
-    };
+    if (value.startsWith('http')) return [value].slice(0, maxUrls);
+    return [];
   }
 
   if (value.startsWith('http')) {
-    return { urls: [value].slice(0, maxUrls), resolveStatus: 'OK', resolveDetail: 'raw_http_value' };
+    return [value].slice(0, maxUrls);
   }
 
-  return { urls: [], resolveStatus: 'CONFIG_ERROR', resolveDetail: 'unsupported_seed_value' };
+  return [];
+}
+
+function extractTikTokProfileUrls(html) {
+  const seen = new Set();
+  const urls = [];
+  const re = /https?:\/\/(?:www\.)?tiktok\.com\/@([A-Za-z0-9._]+)/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const url = `https://www.tiktok.com/@${m[1]}`;
+    if (!seen.has(url)) {
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+  return urls;
 }
 
 async function recordSeedError(seedId, message) {
@@ -259,38 +240,18 @@ export async function runBatch(seed, sourceLimit, triggeredBy = 'cron', triggere
   };
 
   try {
-    const resolved = await resolveUrlsFromSeed(seed, maxUrls);
-    const urls = Array.isArray(resolved?.urls) ? resolved.urls : [];
-    const resolveStatus = String(resolved?.resolveStatus || (urls.length ? 'OK' : 'NETWORK_ERROR'));
-    const resolveDetail = String(resolved?.resolveDetail || '');
+    const urls = await resolveUrlsFromSeed(seed, maxUrls);
     counters.discovered = urls.length;
-    counters.resolveStatus = resolveStatus;
 
-    /** @type {object[]} */
-    let errors = [];
+    const errors = urls.length > 0
+      ? await runWithConcurrency(urls, counters, seed.id, concurrency, delayMs)
+      : [{ error: 'no_urls_resolved', seedType: seed.type, seedValue: seed.value }];
 
-    if (urls.length > 0) {
-      errors = await runWithConcurrency(urls, counters, seed.id, concurrency, delayMs);
-    } else {
-      const resolveError = {
-        error: resolveStatus,
-        seedType: seed.type,
-        seedValue: seed.value,
-        detail: resolveDetail,
-        ...(resolved?.resolveMeta || {}),
-      };
-      errors = [resolveError];
-
-      // Legitimate empty search / provider block are not technical failures.
-      if (!NON_FAILURE_RESOLVE_STATUSES.has(resolveStatus)) {
-        counters.failed = 1;
-      }
-
+    if (urls.length === 0) {
+      counters.failed = 1;
       await recordSeedError(
         seed.id,
-        `${resolveStatus} for ${seed.type}:${String(seed.value).slice(0, 80)}${
-          resolveDetail ? ` (${resolveDetail})` : ''
-        }`,
+        `no_urls_resolved for ${seed.type}:${String(seed.value).slice(0, 80)}`,
       );
     }
 

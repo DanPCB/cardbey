@@ -358,12 +358,10 @@ export class IntentReasoner {
 
     if (!hasForm && !hasHint && !hasAction) return null;
 
-    const paramName = String(parameters.name ?? parameters.storeName ?? '').trim();
-    const storeName = formName || paramName;
-    // Hollow Quick Create / beginNewStoreCreation sends action+hint with no name.
-    // Inventing "New Store" + _autoSubmit skipped the name/type/location input card.
-    if (storeName.length < 2) return null;
-
+    const storeName =
+      formName ||
+      String(parameters.name ?? parameters.storeName ?? '').trim() ||
+      'New Store';
     const storeType =
       storeCreateForm?.storeType ??
       storeCreateForm?.category ??

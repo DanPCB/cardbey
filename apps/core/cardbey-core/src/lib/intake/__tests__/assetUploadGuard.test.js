@@ -229,30 +229,6 @@ describe('assetUploadGuard', () => {
     ).toBe(true);
   });
 
-  it('plain Create store without upload evidence is NOT upload-from-card (avoids ATTACHMENT_NOT_READY)', () => {
-    expect(
-      isExplicitCreateStoreFromUploadContext({
-        userMessage: 'Create a store for my business',
-      }),
-    ).toBe(false);
-    expect(
-      isExplicitCreateStoreFromUploadContext({
-        userMessage: 'Create store',
-      }),
-    ).toBe(false);
-    expect(
-      isExplicitCreateStoreFromUploadContext({
-        userMessage: 'Create a store for my business',
-        imageDataUrl: 'data:image/png;base64,' + 'a'.repeat(120),
-      }),
-    ).toBe(true);
-    expect(
-      isExplicitCreateStoreFromUploadContext({
-        userMessage: 'Create store from the card',
-      }),
-    ).toBe(true);
-  });
-
   it('routes upload-only when image is only in intentSourceContext handoff', () => {
     expect(
       shouldRouteToAssetIntentDetection('(Image attached)', {

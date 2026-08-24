@@ -90,7 +90,6 @@ function extractItemsFromOffers(raw, match, businessKind) {
       sourceType: match.source.sourceType,
       confidence: match.confidence,
       needsOwnerReview: match.confidence < 0.55,
-      contentOrigin: 'sourced',
       businessKind,
     });
   }

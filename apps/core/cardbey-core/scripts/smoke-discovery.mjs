@@ -71,7 +71,6 @@ try {
   console.log('\n--- Batch Summary ---');
   console.log(JSON.stringify({
     status: summary.status,
-    resolveStatus: summary.resolveStatus || null,
     discovered: summary.discovered,
     scraped: summary.scraped,
     created: summary.created,

@@ -1,4 +1,4 @@
--- Live Market participant registration (audience RSVP without LIVE or streaming)
+﻿-- Live Market participant registration (audience RSVP without LIVE or streaming)
 CREATE TABLE "LiveMarketParticipantRegistration" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "sessionId" TEXT NOT NULL,

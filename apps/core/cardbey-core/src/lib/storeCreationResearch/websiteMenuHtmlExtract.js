@@ -2,8 +2,6 @@
  * Extract service/menu rows from website HTML (fallback when schema.org offers are absent).
  */
 
-import { evaluateOfferingLabel } from '../mission001/offeringReconstruction/offeringLabelQuality.js';
-
 const PRICE_LINE_RE =
   /^(.{3,72}?)(?:\s+[-–—.:·]{1,4}\s+|\s{2,})(?:from\s+)?(?:\$|AUD\s*|USD\s*)?(\d+(?:\.\d{2})?)\s*$/i;
 const TRAILING_PRICE_RE = /^(.{3,72}?)\s+(\d{1,4}(?:\.\d{2})?)\s*$/;
@@ -16,10 +14,7 @@ const SKIP_LINE_RE =
 
 /** Exact nav chrome labels — not service categories. */
 const SKIP_NAV_LABEL_RE =
-  /^(home|about|about us|contact|contact us|gallery|blog|book now|book online|services|products|product categories|menu|pricing|faq|privacy|privacy policy|terms|warranty|login|sign in|search|cart|checkout|follow us|instagram|facebook|youtube|linkedin|hotline|see all|view all|shop all|shop by category|why choose us|testimonials?|who we are|overview|our people|my account|continue shopping|new in|journal)$/i;
-
-const COMMERCIAL_HREF_RE =
-  /\/(products?|shop|store|collections?|services?|solutions?|treatments?|menu|capabilities?|industries?|sectors?|practice|range|catalogue|catalog|what-we-do|our-services|our-products|advisory|consulting)(?:\/|$|\?)/i;
+  /^(home|about|about us|contact|contact us|gallery|blog|book now|book online|services|products|product categories|menu|pricing|faq|privacy|privacy policy|terms|warranty|login|sign in|search|cart|checkout|follow us|instagram|facebook|youtube|linkedin|hotline)$/i;
 
 function stripHtmlToText(fragment) {
   return String(fragment ?? '')
@@ -122,16 +117,15 @@ export function extractServiceCategoryLinksFromHtml(html) {
   if (!html || typeof html !== 'string') return [];
 
   const labels = [];
-  const pushLabel = (raw, href = '') => {
+  const pushLabel = (raw) => {
     const name = stripHtmlToText(raw)
       .replace(/\s+/g, ' ')
       .trim();
     if (!name || name.length < 3 || name.length > 72) return;
     if (SKIP_NAV_LABEL_RE.test(name)) return;
-    if (!evaluateOfferingLabel(name).ok) return;
     if (!/[a-z]/i.test(name)) return;
     if (/^\d+$/.test(name)) return;
-    labels.push({ name, href: String(href || '') });
+    labels.push(name);
   };
 
   // Prefer explicit category menus / dropdowns / sidebars.
@@ -144,12 +138,9 @@ export function extractServiceCategoryLinksFromHtml(html) {
     let m;
     while ((m = re.exec(html)) !== null) {
       const chunk = m[0];
-      const aRe = /<a\b[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      const aRe = /<a\b[^>]*>([\s\S]*?)<\/a>/gi;
       let a;
-      while ((a = aRe.exec(chunk)) !== null) pushLabel(a[2], a[1]);
-      const aBare = /<a\b(?![^>]*href=)[^>]*>([\s\S]*?)<\/a>/gi;
-      let ab;
-      while ((ab = aBare.exec(chunk)) !== null) pushLabel(ab[1]);
+      while ((a = aRe.exec(chunk)) !== null) pushLabel(a[1]);
       const liRe = /<li\b[^>]*>([\s\S]*?)<\/li>/gi;
       let li;
       while ((li = liRe.exec(chunk)) !== null) {
@@ -158,24 +149,22 @@ export function extractServiceCategoryLinksFromHtml(html) {
     }
   }
 
-  // Fallback: only anchors whose href looks commercial (avoid dumping whole-site chrome).
+  // Fallback: all internal-looking anchors with category-ish text.
   if (labels.length < 3) {
     const aRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
     let a;
     while ((a = aRe.exec(html)) !== null) {
       const href = String(a[1] || '');
       if (/^(mailto:|tel:|#|javascript:)/i.test(href)) continue;
-      if (!COMMERCIAL_HREF_RE.test(href)) continue;
-      pushLabel(a[2], href);
+      pushLabel(a[2]);
     }
   }
 
   const out = [];
   const seen = new Set();
-  for (const row of labels) {
-    const name = typeof row === 'string' ? row : row.name;
-    const key = String(name ?? '').toLowerCase();
-    if (!key || seen.has(key)) continue;
+  for (const name of labels) {
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
     seen.add(key);
     out.push({
       name,

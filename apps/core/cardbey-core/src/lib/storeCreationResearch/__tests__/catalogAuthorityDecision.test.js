@@ -94,6 +94,58 @@ describe('resolveCatalogAuthorityDecision', () => {
     expect(decision.fallbackReason).toBe(CATALOG_FALLBACK_REASONS.NO_CATALOG_CONTENT_FOUND);
   });
 
+  it('resolves official website from nested SourceMatchResult shape', () => {
+    const decision = resolveCatalogAuthorityDecision({
+      params: { businessName: 'Modern Security Doors', location: 'Ravenhall VIC', missionId: 'm1' },
+      input: {},
+      researchAttempted: true,
+      research: {
+        researchRan: true,
+        fallbackToGenerated: true,
+        ownerReviewRequired: true,
+        confidence: 0.77,
+        sourcesUsed: [
+          {
+            matched: true,
+            source: {
+              sourceType: 'official_website',
+              sourceUrl: 'http://modernsecuritydoors.com.au',
+              raw: { website: 'http://modernsecuritydoors.com.au' },
+            },
+          },
+        ],
+        extractedItems: [],
+      },
+    });
+    expect(decision.websiteResolved).toBe(true);
+    expect(decision.fallbackReason).toBe(CATALOG_FALLBACK_REASONS.NO_CATALOG_CONTENT_FOUND);
+  });
+
+  it('resolves website from Place Details on a google_business match', () => {
+    const decision = resolveCatalogAuthorityDecision({
+      params: { businessName: 'Modern Security Doors', location: 'Ravenhall VIC', missionId: 'm1' },
+      input: {},
+      researchAttempted: true,
+      research: {
+        researchRan: true,
+        fallbackToGenerated: true,
+        sourcesUsed: [
+          {
+            matched: true,
+            source: {
+              sourceType: 'google_business',
+              sourceUrl: 'https://maps.google.com/?cid=1',
+              raw: { website: 'http://modernsecuritydoors.com.au' },
+            },
+          },
+        ],
+        extractedItems: [],
+      },
+    });
+    expect(decision.websiteResolved).toBe(true);
+    expect(decision.fallbackReason).toBe(CATALOG_FALLBACK_REASONS.NO_CATALOG_CONTENT_FOUND);
+  });
+
   it('attaches grounding summary for suggested catalogues', () => {
     const grounded = attachCatalogGrounding(
       {

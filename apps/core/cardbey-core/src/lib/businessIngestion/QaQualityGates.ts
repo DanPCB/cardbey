@@ -4,22 +4,11 @@
  */
 
 import type { IngestedSeedRecord } from './types.js';
-import { parseCompletenessList } from '../ingestion/persistSeedCompleteness.js';
 
 export const AUTO_APPROVAL_MIN_QUALITY_SCORE = 70;
 
 /** Prestige / outreach seeds missing a real hero must not bulk-approve. */
 export const QA_FLAG_HERO_MISSING = 'HERO_MISSING';
-
-/** Completeness codes that block QA approve → seeded_claimable (not ITEMS_* — those wait on extraction). */
-export const APPROVE_COMPLETENESS_BLOCKERS = Object.freeze([
-  'HERO_MISSING',
-  'HERO_LOW_RES',
-  'HERO_LOGO_SUSPECT',
-  'NAME_MISSING',
-  'CATEGORY_MISSING',
-  'ADDRESS_OR_HOURS_MISSING',
-]);
 
 export interface AutoApprovalSuggestion {
   suggested: boolean;
@@ -40,11 +29,6 @@ export function suggestAutoApproval(seed: IngestedSeedRecord): AutoApprovalSugge
 
   if (seedQaFlags(seed).includes(QA_FLAG_HERO_MISSING)) {
     reasons.push('HERO_MISSING — assign a venue hero before QA approve / outreach');
-  }
-  for (const code of completenessApproveBlockers(seed)) {
-    if (code !== QA_FLAG_HERO_MISSING) {
-      reasons.push(`${code} — completeness blocker`);
-    }
   }
   if (seed.verificationStatus !== 'seeded_pending_qa') {
     reasons.push(`status is ${seed.verificationStatus}, not seeded_pending_qa`);
@@ -71,26 +55,13 @@ export function suggestAutoApproval(seed: IngestedSeedRecord): AutoApprovalSugge
   };
 }
 
-function completenessApproveBlockers(seed: IngestedSeedRecord): string[] {
-  const fromFlags = seedQaFlags(seed).includes(QA_FLAG_HERO_MISSING) ? [QA_FLAG_HERO_MISSING] : [];
-  const fromCompleteness = parseCompletenessList(seed.completenessBlockers).filter((code) =>
-    APPROVE_COMPLETENESS_BLOCKERS.includes(code),
-  );
-  return [...new Set([...fromFlags, ...fromCompleteness])];
-}
-
 /** Hard block: entity/marked duplicates cannot be promoted to claimable. */
-export function canPromoteToClaimable(seed: IngestedSeedRecord): {
-  ok: boolean;
-  message: string;
-  blockers?: string[];
-} {
-  const blockers = completenessApproveBlockers(seed);
-  if (blockers.length > 0) {
+export function canPromoteToClaimable(seed: IngestedSeedRecord): { ok: boolean; message: string } {
+  if (seedQaFlags(seed).includes(QA_FLAG_HERO_MISSING)) {
     return {
       ok: false,
-      message: `${blockers.join(', ')} — completeness blockers must be cleared before QA approve.`,
-      blockers,
+      message:
+        'HERO_MISSING — this seed needs a venue hero image before QA approve (bulk and manual).',
     };
   }
   if (seed.verificationStatus === 'duplicate' || seed.resolution === 'duplicate') {

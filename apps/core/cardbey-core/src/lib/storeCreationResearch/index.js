@@ -18,15 +18,3 @@ export {
   clearResearchEvidenceForTests,
 } from './researchEvidenceRepository.js';
 export { CONFIDENCE, RESEARCH_LOG } from './types.js';
-export {
-  buildCanonicalSourcedBusinessContent,
-  splitSourcedProductsByRole,
-  assertNoNonOfferingRolesInCatalog,
-  shouldBypassLegacyCategoryNormalization,
-  syncCategoriesFromSourcedItems,
-  emitStoreCreationAuthorityTrace,
-  isOfferingContentRole,
-  isNonOfferingContentRole,
-  OFFERING_CONTENT_ROLES,
-  NON_OFFERING_CONTENT_ROLES,
-} from './canonicalSourcedBusinessContent.js';

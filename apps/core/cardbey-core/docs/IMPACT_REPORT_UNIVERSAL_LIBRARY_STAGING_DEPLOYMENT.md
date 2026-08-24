@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-08  
 **Branch:** `feat/ul-core-staging-deploy` (focused port from `feat/universal-library-staging-milestone`)  
-**Status:** **UNIVERSAL_LIBRARY_STAGING_OPERATIONAL_READY** (verified 2026-08-08)
+**Status:** In progress — Core deploy + Gate A pending
 
 ## Pre-merge audit
 
@@ -67,48 +67,25 @@
 | B | Bootstrap Originals + ≤20 Pexels → public count > 0 |
 | C | Staging `/library` shows real cards |
 
-## Results (post-operator config + bootstrap)
+## Results (fill after deploy)
 
 | Field | Value |
 |-------|-------|
-| CORE DEPLOY | **YES** — PR #82 on staging |
-| MIGRATIONS | **Applied** |
-| FLAGS | `fixturesV1=false`, `providerScheduledSyncV1=false`, `externalOpenProviderV1=true` |
-| PEXELS CONFIG | **PRESENT** (sync produced 16 REFERENCE assets) |
-| ORIGINALS IMPORT | **YES** — 41 `cardbey_internal` HOSTED public assets |
-| PROVIDER PILOT | **YES** — 16 Pexels REFERENCE (bounded) |
-| PUBLIC ASSETS | **57** (`fixturesExcluded=true`) |
-| FIXTURES | Flag **OFF**; public payload has **0** fixture/mock/seed providers |
-| RIGHTS / CUSTODY | Pexels `hostingMode=REFERENCE`, license `Pexels License`, openLicense; Originals HOSTED |
-| API | `GET /api/universal-library/assets?status=PUBLISHED` → **200**, total **57** |
-| IMAGE DELIVERY | Pexels preview HEAD **200** `image/jpeg`; Originals Core public HEAD **200** `image/png` |
-| DASHBOARD | Staging bundle `VITE_API_BASE_URL=https://cardbey-core-staging.onrender.com`; `/library` loads (SPA consumes Core catalogue) |
-| DESKTOP / MOBILE | Same Core catalogue endpoint; no empty-catalogue hardcode in HTML |
-| RESTART PERSISTENCE | DB-backed `UniversalAsset` ids; repeat GET stable at 57 |
-| Deployed commit | `49650125d` (+ docs PR #83) |
-
-### Staging inventory (public)
-
-| Metric | Count |
-|--------|------:|
-| Public total | 57 |
-| Pexels (REFERENCE) | 16 |
-| Cardbey Originals / internal (HOSTED) | 41 |
-| Fixtures in public | 0 |
-| Industries observed | beauty, fashion, food-drink, hair, home-services, retail, travel |
-
-### Sample Pexels trace
-
-`cmsjskrpv001mjfi5g52m9jd1` — Food-drink photo - Astrid Sosa → `provider=pexels`, `hostingMode=REFERENCE`, preview on `images.pexels.com`, collection `open-media-essentials`.
-
-### Not enabled (by design)
-
-- Scheduled provider sync remains **OFF**
-- Public fixtures remain **OFF**
-- Production/main promotion **not** part of this task
+| CORE DEPLOY | pending |
+| MIGRATIONS | pending |
+| FLAGS | pending |
+| PEXELS CONFIG | pending |
+| ORIGINALS IMPORT | pending |
+| PROVIDER PILOT | pending |
+| PUBLIC ASSETS | pending |
+| FIXTURES | pending |
+| RIGHTS | pending |
+| API | pending |
+| DASHBOARD | pending |
+| DESKTOP / MOBILE | pending |
+| RESTART PERSISTENCE | pending |
+| Deployed commit | pending |
 
 ## Verdict
 
-**UNIVERSAL_LIBRARY_STAGING_OPERATIONAL_READY**
-
-Proven chain: staging Dashboard → staging Core UL API → staging DB ← Originals + bounded Pexels REFERENCE path, fixtures excluded, previews render, catalogue persists across repeated reads.
+Pending Gate A+.

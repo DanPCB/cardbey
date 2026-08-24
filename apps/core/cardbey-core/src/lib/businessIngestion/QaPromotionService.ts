@@ -152,36 +152,12 @@ export async function approveSeed(
   seedId: string,
   reviewerId: string,
   reason?: string | null,
-): Promise<{
-  ok: boolean;
-  seed: IngestedSeedRecord | null;
-  message: string;
-  blockers?: string[];
-  completeness?: {
-    tier: string | null;
-    blockers: string[];
-    gaps: string | null;
-    score: number | null;
-  };
-}> {
+): Promise<{ ok: boolean; seed: IngestedSeedRecord | null; message: string }> {
   const seed = await getSeedRecordById(seedId);
   if (!seed) return { ok: false, seed: null, message: 'Seed not found.' };
 
   const gate = canPromoteToClaimable(seed);
-  if (!gate.ok) {
-    return {
-      ok: false,
-      seed,
-      message: gate.message,
-      blockers: gate.blockers ?? [],
-      completeness: {
-        tier: seed.completenessTier ?? null,
-        blockers: gate.blockers ?? [],
-        gaps: seed.completenessGaps ?? null,
-        score: seed.completenessScore ?? null,
-      },
-    };
-  }
+  if (!gate.ok) return { ok: false, seed, message: gate.message };
 
   const nowIso = new Date().toISOString();
   const updated = patchSeed(seed, {

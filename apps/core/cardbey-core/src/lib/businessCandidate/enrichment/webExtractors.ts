@@ -111,21 +111,15 @@ export async function extractYellowPagesSnippet(
   businessName: string,
   suburb: string | null,
 ): Promise<AggregatorExtract | null> {
-  const q = [businessName, suburb, 'Australia'].filter(Boolean).join(' ');
-  const sourceUrl = `https://www.yellowpages.com.au/search/listings?clue=${encodeURIComponent(q)}`;
+  const q = [businessName, suburb, 'VIC'].filter(Boolean).join(' ');
+  const sourceUrl = `https://www.yellowpages.com.au/search/listings?clue=${encodeURIComponent(q)}&locationClue=${encodeURIComponent(suburb ?? 'Melbourne VIC')}`;
   budget.consumeFetch();
   const html = await fetchHtml(sourceUrl, { timeoutMs: 10000 });
-  if (!html) {
-    console.warn(`[YellowPages] empty/blocked response for "${businessName}"`);
-    return null;
-  }
+  if (!html) return null;
   const ogDescription = metaContent(html, 'og:description');
   const text = stripHtmlToText(html, 3000);
   const snippet = sanitizeEnrichmentText(ogDescription ?? text.slice(0, 400)) ?? null;
-  if (!snippet || snippet.length < 20) {
-    console.warn(`[YellowPages] no usable snippet for "${businessName}"`);
-    return null;
-  }
+  if (!snippet || snippet.length < 20) return null;
   return {
     category: null,
     description: snippet,
@@ -143,17 +137,11 @@ export async function extractTrueLocalSnippet(
   const sourceUrl = `https://www.truelocal.com.au/search?searchTerm=${encodeURIComponent(term)}&searchLocation=${encodeURIComponent(suburb ? `${suburb} VIC` : 'Melbourne VIC')}`;
   budget.consumeFetch();
   const html = await fetchHtml(sourceUrl, { timeoutMs: 10000 });
-  if (!html) {
-    console.warn(`[TrueLocal] empty/blocked response for "${businessName}"`);
-    return null;
-  }
+  if (!html) return null;
   const ogDescription = metaContent(html, 'og:description');
   const text = stripHtmlToText(html, 3000);
   const snippet = sanitizeEnrichmentText(ogDescription ?? text.slice(0, 400)) ?? null;
-  if (!snippet || snippet.length < 20) {
-    console.warn(`[TrueLocal] no usable snippet for "${businessName}"`);
-    return null;
-  }
+  if (!snippet || snippet.length < 20) return null;
   return {
     category: null,
     description: snippet,

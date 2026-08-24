@@ -1,0 +1,31 @@
+{
+  "missionId": "MISSION_c9cf6d8a",
+  "status": "completed",
+  "success": true,
+  "totalLatencyMs": 12676,
+  "intent": "STORE_SETUP",
+  "agentsUsed": [
+    "intent_classifier",
+    "planner",
+    "critic",
+    "refiner"
+  ],
+  "tokensByAgent": {
+    "intent_classifier": 100,
+    "planner": 500,
+    "critic": 300,
+    "refiner": 150
+  },
+  "planSteps": 1,
+  "reviewApproved": true,
+  "reviewIssues": [],
+  "executedSteps": [
+    "create_store"
+  ],
+  "fatalError": null,
+  "meetsLatencyTarget": false,
+  "deepseek": {
+    "baseURL": "https://api.deepseek.com/v1",
+    "model": "deepseek-v4-flash"
+  }
+}

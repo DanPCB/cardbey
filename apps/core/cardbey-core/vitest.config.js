@@ -1,13 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defineConfig, configDefaults } from 'vitest/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
 const TSX_LOADER = pathToFileURL(
-  path.join(path.dirname(require.resolve('tsx/package.json')), 'dist/loader.mjs'),
+  path.resolve(__dirname, '../../../node_modules/tsx/dist/loader.mjs'),
 ).href;
 
 /** Vitest/Vite: resolve `import './foo.js'` to `foo.ts` when only the TS source exists (tsx runtime parity). */

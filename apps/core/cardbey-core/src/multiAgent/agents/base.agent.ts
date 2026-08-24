@@ -235,7 +235,9 @@ export abstract class BaseAgent {
       body.tool_choice = 'auto';
     }
 
-    if (this.thinkingConfig.type === 'enabled') {
+    // DeepSeek V4 thinking can consume the max_tokens budget and truncate JSON content.
+    const jsonMode = options.responseFormat?.type === 'json_object';
+    if (this.thinkingConfig.type === 'enabled' && !jsonMode) {
       body.thinking = {
         type: this.thinkingConfig.type,
         reasoning_effort: this.thinkingConfig.reasoningEffort,
@@ -255,6 +257,7 @@ export abstract class BaseAgent {
     const gatewayMessages = toGatewayMessages(messages);
     const gatewayTools = tools?.length ? toGatewayTools(tools) : undefined;
 
+    const jsonMode = options.responseFormat?.type === 'json_object';
     const result = await llmGateway.complete({
       purpose: `multi_agent_${this.agentName}`,
       tenantKey: 'multi-agent',
@@ -263,8 +266,9 @@ export abstract class BaseAgent {
       model: this.model,
       maxTokens: this.maxTokens,
       temperature: this.temperature,
-      responseFormat: options.responseFormat?.type === 'json_object' ? 'json' : 'text',
-      thinking: this.thinkingConfig.type === 'enabled',
+      responseFormat: jsonMode ? 'json' : 'text',
+      // Avoid thinking-mode truncation on structured JSON agent outputs.
+      thinking: !jsonMode && this.thinkingConfig.type === 'enabled',
       ...(gatewayTools ? { tools: gatewayTools, tool_choice: 'auto' as const } : {}),
     });
 

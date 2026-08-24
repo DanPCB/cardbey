@@ -1,6 +1,8 @@
 /**
- * Mark duplicate Android TV (same fingerprint, different UUID) for list projection.
- * Winners stay visible; losers get presenceTier=duplicate_stale (hidden by default on dashboard).
+ * Mark true physical duplicates for list projection.
+ * Only rows that share a non-empty installationId are demoted (same install, multiple UUIDs).
+ * Weak tenant+store+platform+model fingerprints must NOT demote — multi-screen stores
+ * often have several identical TVs and must all stay visible/online.
  */
 
 import { HEARTBEAT_TIMEOUT_MS } from '../constants/devicePresence.js';
@@ -9,6 +11,9 @@ function normalizePart(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+/**
+ * @deprecated Prefer installationId grouping. Kept for diagnostics / callers that log fingerprints.
+ */
 export function duplicateDeviceFingerprint(device) {
   return [
     'dup',
@@ -18,6 +23,17 @@ export function duplicateDeviceFingerprint(device) {
     normalizePart(device.platform || device.appVersion),
     normalizePart(device.model),
   ].join('|');
+}
+
+export function resolveInstallationId(device) {
+  const direct = String(device?.installationId || '').trim();
+  if (direct) return direct;
+  const caps = device?.capabilities;
+  if (caps && typeof caps === 'object' && !Array.isArray(caps)) {
+    const fromCaps = String(caps.installationId || '').trim();
+    if (fromCaps) return fromCaps;
+  }
+  return '';
 }
 
 function recencyMs(device) {
@@ -52,9 +68,12 @@ export function markDuplicateDevicesInList(devices, now = new Date()) {
   for (const device of devices) {
     if (!device?.id) continue;
     if (device.tenantId === 'temp' || device.storeId === 'temp') continue;
-    const fp = duplicateDeviceFingerprint(device);
-    if (!groups.has(fp)) groups.set(fp, []);
-    groups.get(fp).push(device);
+    const installId = resolveInstallationId(device);
+    // Distinct physical screens (no shared install id) must not be collapsed.
+    if (!installId) continue;
+    const key = `install|${normalizePart(installId)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(device);
   }
 
   const duplicatePlans = [];
@@ -70,6 +89,7 @@ export function markDuplicateDevicesInList(devices, now = new Date()) {
       count: members.length,
       winnerId: winner.id,
       loserIds: losers.map((d) => d.id),
+      reason: 'shared_installationId',
     });
 
     for (const loser of losers) {
@@ -81,6 +101,7 @@ export function markDuplicateDevicesInList(devices, now = new Date()) {
         deviceId: loser.id,
         winnerId: winner.id,
         fingerprint,
+        reason: 'shared_installationId',
       });
     }
 

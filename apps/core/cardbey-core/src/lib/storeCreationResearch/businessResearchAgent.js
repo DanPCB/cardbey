@@ -10,10 +10,6 @@ import {
 } from './sourceConfidenceScorer.js';
 import { extractBusinessFacts } from './businessFactsExtractor.js';
 import { extractServiceMenuCatalog } from './serviceMenuExtractor.js';
-import {
-  filterCatalogItemsByOfferingLabel,
-  catalogLooksLikeNavChrome,
-} from '../mission001/offeringReconstruction/offeringLabelQuality.js';
 import { buildResearchBackedStore } from './researchBackedStoreBuilder.js';
 import {
   saveResearchEvidence,
@@ -252,69 +248,8 @@ export async function runStoreCreationResearch(input, options = {}) {
   const facts = extractBusinessFacts(sourcesUsed, normalizedInput);
   log(RESEARCH_LOG.FACTS_EXTRACTED, { confidence, fields: Object.keys(facts) });
 
-  const { items: structuredRaw, businessKind } = extractServiceMenuCatalog(
-    facts,
-    sourcesUsed,
-    normalizedInput,
-  );
-  const structuredClean = filterCatalogItemsByOfferingLabel(structuredRaw);
-  const structuredIsChrome = catalogLooksLikeNavChrome(structuredRaw);
-  let items = structuredIsChrome ? [] : structuredClean;
-  let offeringReconstructionDebug = null;
-  let catalogAuthoritySource = items.length
-    ? 'STRUCTURED_CATALOG'
-    : 'SPARSE_NO_EVIDENCE';
-  log(RESEARCH_LOG.CATALOG_EXTRACTED, {
-    itemCount: items.length,
-    businessKind,
-    structuredRaw: structuredRaw.length,
-    structuredClean: structuredClean.length,
-    structuredRejectedAsChrome: structuredIsChrome,
-  });
-
-  if (!items.length) {
-    try {
-      const {
-        reconstructOfferingsFromWebsite,
-        resolveWebsiteUrlForReconstruction,
-      } = await import('../mission001/offeringReconstruction/semanticOfferingReconstruction.js');
-      const websiteUrl = resolveWebsiteUrlForReconstruction(normalizedInput, sourcesUsed, facts);
-      if (websiteUrl) {
-        const reconstructed = await reconstructOfferingsFromWebsite({
-          websiteUrl,
-          businessName: normalizedInput.businessName,
-          category: normalizedInput.category,
-          vertical: normalizedInput.category,
-          businessKind,
-        });
-        offeringReconstructionDebug = reconstructed.debug;
-        const semanticClean = filterCatalogItemsByOfferingLabel(reconstructed.items ?? []);
-        if (semanticClean.length) {
-          items = semanticClean;
-          catalogAuthoritySource = 'SEMANTIC_WEBSITE_OFFERINGS';
-          // Keep facts in sync for downstream builders
-          if (businessKind === 'food_menu') facts.menuItems = items;
-          else if (businessKind === 'product_retail') facts.products = items;
-          else facts.services = items;
-          log(RESEARCH_LOG.CATALOG_EXTRACTED, {
-            itemCount: items.length,
-            businessKind,
-            via: 'semantic_website_offerings',
-          });
-        }
-      }
-    } catch (err) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[storeCreationResearch] semantic offering reconstruction failed', err?.message ?? err);
-      }
-    }
-  } else if (structuredClean.length < structuredRaw.length) {
-    // Structured won but drop chrome labels from the accepted set
-    items = structuredClean;
-    if (businessKind === 'food_menu') facts.menuItems = items;
-    else if (businessKind === 'product_retail') facts.products = items;
-    else facts.services = items;
-  }
+  const { items, businessKind } = extractServiceMenuCatalog(facts, sourcesUsed, normalizedInput);
+  log(RESEARCH_LOG.CATALOG_EXTRACTED, { itemCount: items.length, businessKind });
 
   const ownerReviewRequired =
     confidence < CONFIDENCE.USE ||
@@ -339,8 +274,6 @@ export async function runStoreCreationResearch(input, options = {}) {
       ownerReviewRequired: true,
       extractedItems: items,
       scoredSources: scored,
-      offeringReconstruction: offeringReconstructionDebug,
-      catalogAuthoritySource: 'SPARSE_NO_EVIDENCE',
     };
     result.researchEvidence = buildResearchEvidenceSnapshot({
       input: normalizedInput,
@@ -368,9 +301,6 @@ export async function runStoreCreationResearch(input, options = {}) {
     input: normalizedInput,
     confidence,
   });
-  if (built?.catalog?.meta) {
-    built.catalog.meta.catalogAuthoritySource = catalogAuthoritySource;
-  }
 
   const result = {
     researchRan: true,
@@ -385,8 +315,6 @@ export async function runStoreCreationResearch(input, options = {}) {
     extractedItems: items,
     scoredSources: scored,
     logs,
-    offeringReconstruction: offeringReconstructionDebug,
-    catalogAuthoritySource,
   };
   result.researchEvidence = buildResearchEvidenceSnapshot({
     input: normalizedInput,

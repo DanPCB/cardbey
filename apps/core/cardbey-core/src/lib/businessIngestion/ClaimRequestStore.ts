@@ -58,6 +58,7 @@ const OPEN_CLAIM_STATUSES = new Set([
   'otp_sent',
   'proof_submitted',
   'verified',
+  'pending_review',
 ]);
 
 export async function getActiveClaimForSeed(

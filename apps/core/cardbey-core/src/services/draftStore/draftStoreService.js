@@ -478,128 +478,48 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     attachCatalogGrounding,
   } = await import('../../lib/storeCreationResearch/catalogAuthorityDecision.js');
   const { collapseProfessionalCatalogWithoutPriceList } = await import('./industryBlueprintRegistry.js');
-  const { Mission001Flags } = await import('../../lib/mission001/mission001Flags.js');
-  const { createPipelineTiming } = await import('../../lib/mission001/pipelineTiming.js');
-  const { resolveNameOnlyInputForResearch } = await import('../../lib/mission001/nameOnlyResolution.js');
-  const {
-    buildGroundedCatalogFromResearch,
-    preferGroundedCatalog,
-  } = await import('../../lib/mission001/groundedCatalogPipeline.js');
-  const {
-    buildSparseHonestCatalog,
-    shouldUseSparseCatalogMode,
-  } = await import('../../lib/mission001/sparseCatalogMode.js');
-  const { attachNormalizedProvenanceToCatalog } = await import('../../lib/mission001/provenanceNormalize.js');
-
-  let effectiveParams = params;
-  let effectiveInput = input;
-  /** @type {Record<string, unknown>} */
-  const mission001Meta = {};
-  const pipelineTiming =
-    Mission001Flags.pipelineTiming
-      ? createPipelineTiming({ missionId, draftId: params.draftId ?? input?.draftId ?? null })
-      : null;
-
-  if (Mission001Flags.nameResolution) {
-    const nameResolution = await resolveNameOnlyInputForResearch(params, input);
-    pipelineTiming?.mark('resolutionMs');
-    mission001Meta.nameResolution = nameResolution;
-    if (nameResolution.enriched) {
-      effectiveParams = nameResolution.params;
-      effectiveInput = nameResolution.input;
-    } else if (nameResolution.sparseMode) {
-      mission001Meta.sparseMode = true;
-    }
-  }
-
   const maybeCollapseProfessional = (catalog) =>
     collapseProfessionalCatalogWithoutPriceList(catalog, {
-      businessName: effectiveParams.businessName ?? effectiveInput?.businessName,
-      businessType: effectiveParams.businessType ?? effectiveInput?.businessType,
-      storeType: effectiveParams.storeType ?? effectiveInput?.storeType,
-      verticalSlug: effectiveParams.verticalSlug ?? effectiveInput?.vertical ?? effectiveInput?.verticalSlug,
-      hasPriceList: effectiveInput?.hasPriceList === true || effectiveParams.hasPriceList === true,
-      allowBlueprintPrices: effectiveInput?.allowBlueprintPrices === true,
+      businessName: params.businessName ?? input?.businessName,
+      businessType: params.businessType ?? input?.businessType,
+      storeType: params.storeType ?? input?.storeType,
+      verticalSlug: params.verticalSlug ?? input?.vertical ?? input?.verticalSlug,
+      hasPriceList: input?.hasPriceList === true || params.hasPriceList === true,
+      allowBlueprintPrices: input?.allowBlueprintPrices === true,
     });
   let deferredResearch = null;
   let researchAttempted = false;
   let researchException = false;
   let lastResearch = null;
-  let lastGroundedResult = null;
 
-  const skipResearchForSparse =
-    Mission001Flags.sparseMode && mission001Meta.sparseMode === true;
-
-  if (!skipResearchForSparse && shouldRunStoreCreationResearch(effectiveParams, effectiveInput)) {
+  if (shouldRunStoreCreationResearch(params, input)) {
     try {
       researchAttempted = true;
       const researchFields = (
         await import('../../lib/storeCreationResearch/researchInputFields.js')
       ).resolveStoreResearchInputFields(
-        {
-          ...effectiveParams,
-          draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
-          missionId: missionId ?? null,
-        },
-        effectiveInput,
+        { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId: missionId ?? null },
+        input,
       );
       const research = await runStoreCreationResearch(
         {
           ...researchFields,
-          socialLinks:
-            researchFields.socialLinks ??
-            effectiveInput?.socialLinks ??
-            effectiveParams.socialLinks ??
-            null,
-          ocrText: effectiveInput?.ocrRawText ?? effectiveInput?.ocrText ?? null,
+          socialLinks: researchFields.socialLinks ?? input?.socialLinks ?? params.socialLinks ?? null,
+          ocrText: input?.ocrRawText ?? input?.ocrText ?? null,
         },
         { prisma },
       );
-      pipelineTiming?.mark('researchMs');
       lastResearch = research;
       if (isResearchCatalogPendingOwnerReview(research)) {
         deferredResearch = research;
       }
-      if (Mission001Flags.groundingConnected) {
-        lastGroundedResult = buildGroundedCatalogFromResearch(
-          research,
-          effectiveParams,
-          effectiveInput,
-          { missionId, draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null },
-        );
-        pipelineTiming?.mark('groundingMs');
-        mission001Meta.grounding = lastGroundedResult
-          ? {
-              fidelity: lastGroundedResult.grounded?.fidelity ?? null,
-              provenanceSummary: lastGroundedResult.grounded?.provenanceSummary ?? null,
-            }
-          : null;
-        mission001Meta.fidelityScore = lastGroundedResult?.grounded?.fidelity ?? null;
-      }
-      const researchCatalog = resolveResearchCatalogFromResult(
-        research,
-        effectiveParams,
-        effectiveInput,
-        buildCatalogFromPreloadedItems,
-      );
-      const chosenCatalog = preferGroundedCatalog(lastGroundedResult, researchCatalog);
-      if (chosenCatalog) {
-        const finalized = finalizeResearchCatalogForDraft(chosenCatalog, research, effectiveParams);
-        if (Mission001Flags.provenancePreserve) {
-          Object.assign(finalized, attachNormalizedProvenanceToCatalog(finalized));
-        }
-        finalized.meta = {
-          ...(finalized.meta ?? {}),
-          mission001: mission001Meta,
-        };
+      const researchCatalog = resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems);
+      if (researchCatalog) {
+        const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
         const pendingOwnerReview = isResearchCatalogPendingOwnerReview(research);
         const decision = resolveCatalogAuthorityDecision({
-          params: {
-            ...effectiveParams,
-            draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
-            missionId,
-          },
-          input: effectiveInput,
+          params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
+          input,
           research,
           researchAttempted: true,
         });
@@ -612,10 +532,8 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
             fallbackToGenerated: research.fallbackToGenerated,
             pendingOwnerReview,
             stagedPendingReview: pendingOwnerReview,
-            mission001Grounded: Boolean(lastGroundedResult?.catalog),
           });
         }
-        pipelineTiming?.mark('catalogMs');
         return {
           catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
           fromPreload: false,
@@ -623,9 +541,6 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
           research,
           pendingOwnerReview,
           catalogAuthority: decision,
-          mission001: mission001Meta,
-          pipelineTiming: pipelineTiming?.finish() ?? null,
-          groundedResult: lastGroundedResult,
         };
       }
       if (process.env.NODE_ENV !== 'production' && research.researchRan) {
@@ -752,31 +667,14 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     };
   }
 
-  let catalog;
-  if (shouldUseSparseCatalogMode(mission001Meta, deferredResearch || lastResearch)) {
-    catalog = stampSuggestedCatalogOrigin(
-      maybeCollapseProfessional(buildSparseHonestCatalog(effectiveParams, effectiveInput, mission001Meta)),
-    );
-    mission001Meta.sparseMode = true;
-  } else {
-    catalog = stampSuggestedCatalogOrigin(maybeCollapseProfessional(await buildCatalog(effectiveParams)));
-  }
-  if (Mission001Flags.provenancePreserve) {
-    Object.assign(catalog, attachNormalizedProvenanceToCatalog(catalog));
-  }
-  catalog.meta = { ...(catalog.meta ?? {}), mission001: mission001Meta };
+  const catalog = stampSuggestedCatalogOrigin(maybeCollapseProfessional(await buildCatalog(params)));
   const decision = resolveCatalogAuthorityDecision({
-    params: {
-      ...effectiveParams,
-      draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
-      missionId,
-    },
-    input: effectiveInput,
+    params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
+    input,
     research: deferredResearch || lastResearch,
     researchAttempted,
     researchException,
   });
-  pipelineTiming?.mark('catalogMs');
   const grounded = attachCatalogGrounding(catalog, decision);
   if (deferredResearch) {
     return {
@@ -786,17 +684,9 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       pendingOwnerReview: true,
       research: deferredResearch,
       catalogAuthority: decision,
-      mission001: mission001Meta,
-      pipelineTiming: pipelineTiming?.finish() ?? null,
     };
   }
-  return {
-    catalog: grounded,
-    fromPreload: false,
-    catalogAuthority: decision,
-    mission001: mission001Meta,
-    pipelineTiming: pipelineTiming?.finish() ?? null,
-  };
+  return { catalog: grounded, fromPreload: false, catalogAuthority: decision };
 }
 
 function resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems) {
@@ -850,20 +740,6 @@ async function emitStoreResearchReviewIfPending(missionId, draftId, catalogResul
     catalogResult.pendingOwnerReview ||
     isResearchCatalogPendingOwnerReview(catalogResult.research);
   if (!shouldEmit) return;
-  try {
-    const { shouldSkipResearchReviewCheckpoint } = await import('../../lib/mission001/reduceFriction.js');
-    if (shouldSkipResearchReviewCheckpoint(catalogResult)) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[buildCatalogForStoreReactStep] skipping research review checkpoint (confident inference)', {
-          missionId: mid,
-          draftId,
-        });
-      }
-      return;
-    }
-  } catch {
-    /* non-fatal */
-  }
   const { maybeEmitPendingStoreResearchReview } = await import(
     '../storeCreationResearch/storeResearchReviewService.js'
   );
@@ -1400,16 +1276,6 @@ async function finalizeDraft(draftId, {
     draftInput.location != null && String(draftInput.location).trim()
       ? String(draftInput.location).trim()
       : null;
-  const timingScope = { missionId: pipelineMissionId, draftId };
-  const finalizeStartedAt = Date.now();
-  let lastStageAt = finalizeStartedAt;
-  /** @type {Record<string, number>} */
-  const finalizeStageMs = {};
-  const markFinalizeStage = (name) => {
-    const now = Date.now();
-    finalizeStageMs[name] = now - lastStageAt;
-    lastStageAt = now;
-  };
   let effectiveImageFillProfile = imageFillProfile;
   if (
     reactEnrichedImageFillProfile != null &&
@@ -1442,25 +1308,6 @@ async function finalizeDraft(draftId, {
   }
   const verticalForItem =
     effectiveImageFillProfile?.verticalSlug ?? imageFillProfile?.verticalSlug ?? preview.storeType ?? null;
-  const businessTypeKey = (preview.storeType || '')
-    .toString()
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '_');
-  const businessTypeToStyle = {
-    cafe: 'warm',
-    'coffee-shop': 'warm',
-    coffee_shop: 'warm',
-    restaurant: 'warm',
-    bakery: 'warm',
-    bar: 'warm',
-    florist: 'vibrant',
-    salon: 'modern',
-    spa: 'modern',
-    design: 'minimal',
-    studio: 'minimal',
-  };
-  const draftStyleName = businessTypeToStyle[businessTypeKey] || 'modern';
 
   console.log('[DraftStore] finalizeDraft media', {
     draftId,
@@ -1499,8 +1346,13 @@ async function finalizeDraft(draftId, {
     if (!menuMod) throw tsModuleUnavailable('menuVisualAgent');
     const generateImageForDraftItem = menuMod.generateImageForDraftItem ?? menuMod.default?.generateImageForDraftItem;
     if (typeof generateImageForDraftItem !== 'function') throw tsModuleUnavailable('menuVisualAgent');
-    const businessType = businessTypeKey;
-    const styleName = draftStyleName;
+    const businessType = (preview.storeType || '')
+      .toString().toLowerCase().trim().replace(/\s+/g, '_');
+    const businessTypeToStyle = {
+      cafe: 'warm', 'coffee-shop': 'warm', coffee_shop: 'warm', restaurant: 'warm', bakery: 'warm',
+      bar: 'warm', florist: 'vibrant', salon: 'modern', spa: 'modern', design: 'minimal', studio: 'minimal',
+    };
+    const styleName = businessTypeToStyle[businessType] || 'modern';
     const MAX_ITEMS = CATALOG_IMAGE_ENRICH_MAX;
     const BATCH_SIZE = CATALOG_IMAGE_FETCH_CONCURRENCY;
     const missingIdx = [];
@@ -1565,7 +1417,6 @@ async function finalizeDraft(draftId, {
             businessType: preview.storeType,
             storeName: preview.storeName,
             categoryName: catalogCategoryHint,
-            location: locationStr,
           });
         } catch {
           const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
@@ -1653,13 +1504,10 @@ async function finalizeDraft(draftId, {
     }
     const withImages = items.filter((p) => p.imageUrl).length;
     console.log(`[DraftStore] finalizeDraft: ${withImages}/${toEnrich.length} item images for draft ${draftId}`);
-    markFinalizeStage('imageResolutionMs');
   } else if (!includeImages) {
     console.log('[DraftStore] finalizeDraft: images skipped (includeImages=false)', { draftId, itemCount: items.length });
-    markFinalizeStage('imageResolutionMs');
   } else if (items.length === 0) {
     console.log('[DraftStore] finalizeDraft: images skipped (no catalog items)', { draftId });
-    markFinalizeStage('imageResolutionMs');
   }
 
   let heroImageUrl = null;
@@ -1761,8 +1609,6 @@ async function finalizeDraft(draftId, {
 
   normalizePreviewCategories(preview);
   applyCommerceFieldsToPreview(preview);
-  markFinalizeStage('compositionMs');
-  let repairMsTotal = 0;
   try {
     const { repairServiceCatalogPlaceholderProducts, buildServiceCatalogPlaceholderSeed } =
       await import('../../lib/catalog/serviceCatalogPlaceholders.js');
@@ -1819,64 +1665,6 @@ async function finalizeDraft(draftId, {
         warnings: coherence.warnings,
       });
     }
-    try {
-      const { assessPreRevealFidelity } = await import('../../lib/mission001/fidelityPreReveal.js');
-      const mission001 = preview.meta?.mission001 ?? {};
-      const fidelityAssessment = assessPreRevealFidelity(preview, {
-        ctx,
-        fidelityScore: mission001.fidelityScore ?? null,
-        evidence: mission001.grounding?.evidence ?? null,
-        groundedResult: mission001.grounding ?? null,
-      });
-      let finalAssessment = fidelityAssessment;
-      try {
-        const { executeTargetedRepairLoop } = await import('../../lib/mission001/targetedRepair.js');
-        const repairStart = Date.now();
-        const repairResult = await executeTargetedRepairLoop({
-          preview,
-          assessment: fidelityAssessment,
-          assessOptions: {
-            ctx,
-            fidelityScore: mission001.fidelityScore ?? null,
-          },
-          repairContext: {
-            draftInput,
-            includeImages,
-            locationStr,
-            verticalForItem,
-            effectiveImageFillProfile,
-            styleName: draftStyleName,
-          },
-        });
-        repairMsTotal = Date.now() - repairStart;
-        if (repairResult.applied) {
-          applyCommerceFieldsToPreview(preview);
-          finalAssessment = repairResult.finalAssessment ?? fidelityAssessment;
-        }
-        mission001.targetedRepair = repairResult;
-      } catch (repairErr) {
-        console.warn('[DraftStore] mission001 targeted repair failed (non-fatal):', repairErr?.message || repairErr);
-      }
-      preview.meta = {
-        ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
-        mission001: {
-          ...(typeof mission001 === 'object' ? mission001 : {}),
-          fidelityAssessment: finalAssessment,
-          pipelineTiming: preview.meta?.mission001?.pipelineTiming ?? null,
-        },
-      };
-      if (finalAssessment.enabled && !finalAssessment.pass) {
-        console.warn('[DraftStore] mission001 pre-reveal fidelity gate', {
-          draftId,
-          hasCritical: finalAssessment.hasCritical,
-          repairTargets: finalAssessment.repairTargets,
-          overall: finalAssessment.fidelity?.overall ?? null,
-          repairCycles: mission001.targetedRepair?.cycles ?? 0,
-        });
-      }
-    } catch (fidelityErr) {
-      console.warn('[DraftStore] mission001 fidelity pass failed (non-fatal):', fidelityErr?.message || fidelityErr);
-    }
   } catch (coherenceErr) {
     console.warn('[DraftStore] store coherence pass failed (non-fatal):', coherenceErr?.message || coherenceErr);
   }
@@ -1913,31 +1701,8 @@ async function finalizeDraft(draftId, {
   const { runDraftQa } = await import('../qa/draftQaAgent.js');
   const qaReport = runDraftQa({ preview, input: draft.input }, { logger: console.log.bind(console) });
   preview.meta = { ...(preview.meta || {}), qaReport };
-  markFinalizeStage('qaMs');
-  finalizeStageMs.repairMs = repairMsTotal;
 
   await persistCanonicalLocationForDraft(draftId, { missionId: pipelineMissionId ?? null });
-  markFinalizeStage('persistenceMs');
-  finalizeStageMs.generationMs = Date.now() - finalizeStartedAt;
-  try {
-    const { mergePipelineTiming, recordPipelineTiming } = await import('../../lib/mission001/pipelineTiming.js');
-    const merged = mergePipelineTiming(preview.meta?.mission001?.pipelineTiming, {
-      ...finalizeStageMs,
-      totalMs:
-        (preview.meta?.mission001?.pipelineTiming?.totalMs ?? 0) +
-        finalizeStageMs.generationMs,
-    });
-    preview.meta = {
-      ...(preview.meta || {}),
-      mission001: {
-        ...(preview.meta?.mission001 && typeof preview.meta.mission001 === 'object' ? preview.meta.mission001 : {}),
-        pipelineTiming: merged,
-      },
-    };
-    recordPipelineTiming(timingScope, merged ?? finalizeStageMs);
-  } catch {
-    /* non-fatal */
-  }
   const refreshed = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
   const previewForReady =
     refreshed?.preview && typeof refreshed.preview === 'object' ? refreshed.preview : preview;

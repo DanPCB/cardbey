@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isExistingBusinessIntent, resolveBusinessEntity } from '../businessEntityResolver.js';
+import { isExistingBusinessIntent, resolveBusinessEntity, unwrapPlacesSearchRow } from '../businessEntityResolver.js';
 import { classifySourceAuthority } from '../sourceDiscoveryService.js';
 import { reconcileBusinessEvidence } from '../businessEvidenceReconciler.js';
 import { buildStoreResearchReviewArtifact, canPersistStoreDraftFromResearch } from '../ownerReviewArtifact.js';
 import { markSuggestedCatalogItems } from '../catalogNormalizers/index.js';
 import { buildStoreCreationMissionContract } from '../missionContract.js';
 import { isStoreResearchPipelineEnabled } from '../runStoreResearchPipeline.js';
+import {
+  searchGooglePlaces,
+  isGooglePlacesConfigured,
+} from '../../businessDiscovery/businessDiscoverySources.js';
 
 vi.mock('../../businessDiscovery/businessDiscoverySources.js', () => ({
   searchGooglePlaces: vi.fn(),
@@ -16,6 +20,8 @@ vi.mock('../../businessDiscovery/businessDiscoverySources.js', () => ({
 describe('storeResearch pipeline', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    isGooglePlacesConfigured.mockReturnValue(false);
+    searchGooglePlaces.mockResolvedValue([]);
   });
 
   it('classifies existing business intent when name + location provided', () => {
@@ -32,6 +38,35 @@ describe('storeResearch pipeline', () => {
     expect(result.candidates).toEqual([]);
     expect(result.selectedCandidate).toBeUndefined();
     expect(result.requiresOwnerConfirmation).toBe(true);
+  });
+
+  it('unwraps Places { source, attribution, raw } rows for identity matching', async () => {
+    const wrapped = {
+      source: 'google_places',
+      attribution: { sourceUrl: 'https://maps.google.com/?cid=1' },
+      raw: {
+        name: 'MODERN SECURITY DOORS',
+        businessName: 'MODERN SECURITY DOORS',
+        address: 'Unit 54/68 Eucumbene Dr, Ravenhall VIC 3023, Australia',
+        location: 'Unit 54/68 Eucumbene Dr, Ravenhall VIC 3023, Australia',
+        website: 'http://modernsecuritydoors.com.au',
+        placeId: 'ChIJ-msd-test',
+        sourceId: 'ChIJ-msd-test',
+      },
+    };
+    expect(unwrapPlacesSearchRow(wrapped).placeId).toBe('ChIJ-msd-test');
+
+    isGooglePlacesConfigured.mockReturnValue(true);
+    searchGooglePlaces.mockResolvedValue([wrapped]);
+
+    const result = await resolveBusinessEntity({
+      businessName: 'Modern Security Doors',
+      location: 'Ravenhall VIC 3023',
+    });
+    expect(result.candidates.length).toBeGreaterThan(0);
+    expect(result.candidates[0].placeId).toBe('ChIJ-msd-test');
+    expect(result.candidates[0].website).toMatch(/modernsecuritydoors/i);
+    expect(result.candidates[0].confidence).toBeGreaterThanOrEqual(0.45);
   });
 
   it('classifies official website as owner_controlled authority', () => {

@@ -42,7 +42,10 @@ import {
   shouldSkipDynamicPlannerForUploadCreateStore,
 } from '../lib/intake/createStoreCheckpointDispatch.js';
 import { applyIntakePayloadGuard } from '../lib/intake/intakePayloadGuard.js';
-import { shouldSkipUploadAskForIntakeSelectionReplay } from '../lib/intake/intakeReplayPayload.js';
+import {
+  isCreateStoreFromUploadTurn,
+  shouldSkipUploadAskForIntakeSelectionReplay,
+} from '../lib/intake/intakeReplayPayload.js';
 import { validateIntakeAttachmentPayload } from '../lib/intake/intakeAttachmentRef.js';
 import {
   canSendResponse,
@@ -4294,7 +4297,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     }
   }
 
-  if ((draftConfirmationSubmit || body._autoSubmit === true) && storeCreateFormPayload) {
+  // Upload Ask → Create store: defer field completeness to draft projection / checkpoint.
+  // Early validateCreateStorePayload here 400s MISSING_NAME before OCR/cardExtraction runs.
+  if (
+    (draftConfirmationSubmit || body._autoSubmit === true) &&
+    storeCreateFormPayload &&
+    !isCreateStoreFromUploadTurn(body)
+  ) {
     const formValidationErrors = validateCreateStorePayload({
       storeCreateForm: storeCreateFormPayload,
       storeName: storeCreateFormPayload.storeName,
@@ -4922,7 +4931,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           : undefined,
       };
 
-      if (storeCreateFormPayload) {
+      if (storeCreateFormPayload && !isCreateStoreFromUploadTurn(body)) {
         const validationErrors = validateCreateStorePayload({
           storeCreateForm: storeCreateFormPayload,
           storeName: storeCreateFormPayload.storeName,
@@ -7442,19 +7451,11 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     imageContext,
   });
 
-  const createStoreUploadContextOpts = {
-    userMessage,
-    intentSourceContext,
-    imageDataUrl: resolveIntakeImageRefForOcr(body),
-    attachments: Array.isArray(body?.attachments) ? body.attachments : undefined,
-    sessionId: intakeAssetSessionKey,
-  };
-
   if (
     classification.tool === 'create_store' &&
     !forceCreateStoreCheckpoint &&
     isAttachmentOnlyPlaceholderMessage(userMessage) &&
-    !isExplicitCreateStoreFromUploadContext(createStoreUploadContextOpts)
+    !isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
   ) {
     const uploadAskSafety = await buildUploadAskClarifyFallback({
       attachmentOnlyUpload: attachmentOnlyUpload === true,
@@ -7482,7 +7483,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (
     classification.tool === 'create_store' &&
     !forceCreateStoreCheckpoint &&
-    isExplicitCreateStoreFromUploadContext(createStoreUploadContextOpts)
+    isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
   ) {
     const cardAttachmentCtx = resolveCreateStoreAttachmentContext({
       conversationId: conversationSessionIdHint ?? null,
@@ -7520,21 +7521,9 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         intentSourceContext,
         intakeAssetSessionKey,
       )) || cardAttachmentCtx.mediaUrlOrRef;
-    const selectionParamsForIdentity =
-      body?.intakeV2Selection &&
-      typeof body.intakeV2Selection === 'object' &&
-      body.intakeV2Selection.selectedParameters &&
-      typeof body.intakeV2Selection.selectedParameters === 'object'
-        ? body.intakeV2Selection.selectedParameters
-        : {};
     let hasWorkflowIdentity = Boolean(
       intentSourceContext?.cardExtraction ||
         intentSourceContext?.storeCandidate ||
-        intentSourceContext?.documentExtraction ||
-        intentSourceContext?.assetIngestResult ||
-        selectionParamsForIdentity.cardExtraction ||
-        selectionParamsForIdentity.storeCandidate ||
-        selectionParamsForIdentity.documentExtraction ||
         cardAttachmentCtx.extractionStatus === 'ready',
     );
     if (!recoveredUploadImage && !hasWorkflowIdentity) {
@@ -7562,8 +7551,6 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         sessionKey: intakeAssetSessionKey ? String(intakeAssetSessionKey).slice(0, 12) : null,
         hasEvidenceId: Boolean(body?.evidenceId || intentSourceContext?.evidenceId),
         hasAttachmentId: Boolean(body?.attachmentId || intentSourceContext?.attachmentId),
-        assetAction: intentSourceContext?.assetAction ?? null,
-        fromAskSelection: intentSourceContext?.fromAskSelection ?? null,
         fallbackReason: cardAttachmentCtx.fallbackReason,
       });
       return res.status(409).json({
@@ -7589,6 +7576,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       sessionId: intakeAssetSessionKey,
       missionId,
       ocrExtractFn: ocrExtractText,
+      attachmentAnalysis,
       persistedIngest: await resolveAssetIngestContextForStoreDraft({
         intentSourceContext,
         missionId,

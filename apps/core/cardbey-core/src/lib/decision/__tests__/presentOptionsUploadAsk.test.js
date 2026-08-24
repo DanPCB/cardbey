@@ -23,6 +23,7 @@ describe('buildUploadGoalOptions attachment stamping', () => {
     expect(create.parameters.attachmentId).toBe('att_456');
     expect(create.parameters.attachmentIds).toEqual(['att_456', 'ev_123']);
     expect(create.parameters.conversationId).toBe('conv_1');
+    expect(create.parameters.storeName).toBe('Pho Ngon');
   });
 
   it('buildUploadAttachmentActionContext tolerates missing refs', () => {

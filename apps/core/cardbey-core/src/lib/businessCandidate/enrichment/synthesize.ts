@@ -31,10 +31,7 @@ export type DescriptionInputs = {
   facebookAbout: string | null;
   yellowPagesDescription?: string | null;
   trueLocalDescription?: string | null;
-  foursquareDescription?: string | null;
-  osmAmenity?: string | null;
   cuisineOrSpecialty: string | null;
-  openingHours?: string | null;
   evidenceUrls?: string[];
 };
 
@@ -60,10 +57,7 @@ function evidenceHash(input: DescriptionInputs): string {
         facebookAbout: input.facebookAbout,
         yellowPagesDescription: input.yellowPagesDescription,
         trueLocalDescription: input.trueLocalDescription,
-        foursquareDescription: input.foursquareDescription,
-        osmAmenity: input.osmAmenity,
         cuisineOrSpecialty: input.cuisineOrSpecialty,
-        openingHours: input.openingHours,
         evidenceUrls: input.evidenceUrls ?? [],
       }),
     )
@@ -78,10 +72,7 @@ function collectEvidenceText(input: DescriptionInputs): string {
     input.facebookAbout,
     input.yellowPagesDescription,
     input.trueLocalDescription,
-    input.foursquareDescription,
-    input.osmAmenity,
     input.cuisineOrSpecialty,
-    input.openingHours,
   ]
     .filter(Boolean)
     .join(' \n ');

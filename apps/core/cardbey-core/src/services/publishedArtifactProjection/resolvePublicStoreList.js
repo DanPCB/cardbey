@@ -12,7 +12,6 @@ import { resolveStoreCommercePresentation } from '../../lib/businessSemantic/res
 import { enrichStoreHeroVideoUrls } from '../../lib/videoIosSafe.js';
 import { resolvePublicStoreMediaUrls } from '../../utils/publicUrl.js';
 import { loadActiveFeedPromoArtifacts } from '../feed/loadActiveFeedPromoArtifacts.js';
-import { attachLiveMarketSummariesToPublicStoreResults } from '../../lib/liveMarket/attachLiveMarketToPublicStores.js';
 
 /** Fields required for projection build + public DTO on list/feed routes. */
 export const PUBLIC_STORE_LIST_SELECT = businessPublicReadSelect();
@@ -129,9 +128,7 @@ export async function resolvePublicStoresForList(prisma, businesses, opts = {}) 
     results.push({ store: enriched, projection, usedFallback });
   }
 
-  const deduped = dedupeNearDuplicatePublicStoreResults(dedupeExactStoreIdPublicStoreResults(results));
-  // Flag-gated (globalFeedV1): compact liveMarket for feed / list badges. No-op when off.
-  return attachLiveMarketSummariesToPublicStoreResults(prisma, deduped);
+  return dedupeNearDuplicatePublicStoreResults(dedupeExactStoreIdPublicStoreResults(results));
 }
 
 /** One Business.id → one list row (before near-duplicate slug/name collapse). */

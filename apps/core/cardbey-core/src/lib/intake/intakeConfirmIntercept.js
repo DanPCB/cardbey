@@ -161,7 +161,7 @@ export function formatIntakeValidationClarifyMessage(validationErrors, locale = 
   for (const err of validationErrors) {
     const reason = String(err?.reason ?? '').trim();
     const field = String(err?.field ?? '').trim();
-    // Strict unknown keys are schema rejects — never "I need source type / client request id".
+    // Strict unknown keys are schema rejects — never "I need <field>" (e.g. sourceType spillover).
     if (reason === 'unknown_field') continue;
     if (reason === 'requires_store') {
       parts.push('a store');

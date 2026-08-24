@@ -9,12 +9,6 @@ import { listSeedRecords } from './IngestionRepository.js';
 import { buildPublicBusinessSlug, findSeedByPublicSlug } from './businessPublicSlug.js';
 import { findPublishedStoreForSeed, type PublishedStoreIdentity } from './publishedStoreSeedMatch.js';
 import { resolvePublicMediaForSeed } from '../businessCandidate/media/resolvePublicCandidateMedia.js';
-import { findBusinessCandidateForSeed } from '../businessCandidate/media/findBusinessCandidateForSeed.js';
-import {
-  ensureIntelligenceBriefFromEnrichment,
-  resolvePublicCategoryLabel,
-  resolvePublicDescription,
-} from '../businessCandidate/media/resolvePublicCandidatePresentation.js';
 import { resolvePilotCategoryKey } from '../businessCandidate/media/categoryMediaVocabulary.js';
 import { getBriefByCandidateId, getBriefBySeedId } from '../businessCandidate/brief/briefRepository.js';
 import {
@@ -81,6 +75,18 @@ function lifecycleStageFromStatus(status: SeedVerificationStatus): PublicLifecyc
   }
 }
 
+function buildProfileDescription(seed: IngestedSeedRecord, locationLabel: string | null): string {
+  const name = seed.normalized.businessName ?? 'This business';
+  const category = seed.normalized.category;
+  if (category && locationLabel) {
+    return `${name} — a local ${category} in ${locationLabel}. Activate your Cardbey Business Space to manage your profile and grow online.`;
+  }
+  if (locationLabel) {
+    return `${name} in ${locationLabel}. Activate your Cardbey Business Space to manage your profile.`;
+  }
+  return `${name}. Activate your Cardbey Business Space on Cardbey.`;
+}
+
 async function loadPublishedStoresForProfileMatch(): Promise<PublishedStoreIdentity[]> {
   try {
     const prisma = getPrismaClient();
@@ -130,17 +136,14 @@ export async function buildPublicBusinessProfile(
   const locationLabel =
     canonical.source === 'unavailable' ? null : canonical.displayLocation;
 
-  const candidate = await findBusinessCandidateForSeed(seed);
   const media = await resolvePublicMediaForSeed(seed);
   const slug = buildPublicBusinessSlug(seed);
   const activeStoreUrl = await resolveActiveStoreUrl(seed, publishedStores);
-  const publicCategory = resolvePublicCategoryLabel(seed, candidate);
 
   let briefSummary = null;
   try {
     let brief =
       (media.candidateId ? await getBriefByCandidateId(media.candidateId) : null) ??
-      (candidate ? await ensureIntelligenceBriefFromEnrichment(candidate, seed) : null) ??
       (await getBriefBySeedId(seed.id));
     if (!brief && seed.claimable) {
       brief = await generateBusinessIntelligenceBriefForSeed(seed);
@@ -150,20 +153,20 @@ export async function buildPublicBusinessProfile(
     console.warn('[publicBusinessProfile] brief generation failed:', err);
   }
 
-  const resolvedCategoryKey = resolvePilotCategoryKey(publicCategory, n.businessName);
+  const resolvedCategoryKey = resolvePilotCategoryKey(n.category, n.businessName);
   const categoryLabel =
     resolvedCategoryKey !== 'unknown'
       ? resolvedCategoryKey.replace(/_/g, ' ')
-      : publicCategory;
+      : n.category;
 
   return {
     slug,
     businessName: n.businessName,
-    category: publicCategory,
+    category: n.category,
     categoryLabel,
     locationLabel,
     city: canonical.suburb ?? canonical.city,
-    description: resolvePublicDescription(seed, candidate, locationLabel),
+    description: buildProfileDescription(seed, locationLabel),
     heroImageUrl: media.heroImageUrl,
     heroVideoUrl: null,
     badge: DISCOVERED_BUSINESS_BADGE,

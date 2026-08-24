@@ -339,23 +339,6 @@ describe('IntentReasoner', () => {
     expect(result.confidence).toBe(1);
   });
 
-  it('does not invent New Store for hollow action create_store without a name', async () => {
-    const result = await reasoner.reason('user_123', 'session_123', {
-      text: 'Create a store for my business',
-      action: 'create_store',
-      primaryMode: 'create',
-      primaryModeHint: 'store_creation',
-      intentSource: 'new_store_url',
-    });
-
-    const params = result?.parameters && typeof result.parameters === 'object' ? result.parameters : {};
-    expect(String(params.storeName ?? params.name ?? '')).not.toBe('New Store');
-    // May still classify create_store via NL, but must not auto-submit a placeholder name.
-    if (result?.tool === 'create_store') {
-      expect(params._autoSubmit).not.toBe(true);
-    }
-  });
-
   it('should infer create_store from Create store: text when user already has a store', async () => {
     mockContext.activeStoreId = 'store_existing';
 

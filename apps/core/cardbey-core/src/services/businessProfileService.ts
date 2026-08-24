@@ -5,6 +5,7 @@
  */
 
 import { generatePalette, generateText } from './aiService.js';
+import { sanitizeStoreSlogan, isCustomerFacingSlogan } from '../lib/contentResolution/sanitizeStoreSlogan.js';
 
 /**
  * Input mode for business profile generation
@@ -248,23 +249,30 @@ async function generateBrandColors(
 async function generateTagline(description: string, businessName: string, businessType: string): Promise<string | undefined> {
   try {
     const result = await generateText({
-      prompt: `Create a catchy tagline for "${businessName}" (a ${businessType}).
-Business description: ${description.substring(0, 200)}
+      prompt: `Generate one concise customer-facing business slogan based on the supplied business context.
 
-The tagline should be:
-- Short and memorable (5-10 words max)
-- Capture the essence of the business
-- Suitable for marketing materials
+Business: ${businessName}
+Category: ${businessType}
+Description: ${description.substring(0, 200)}
 
-Return only the tagline, no quotes or explanations.`,
+Return ONLY the slogan text.
+Do not explain your answer.
+Do not introduce the slogan.
+Do not say 'slogan', 'tagline', 'professional slogan', 'top pick', 'suggestion', 'recommended', or similar.
+Do not include the business name as a prefix.
+Do not use quotation marks.
+Do not use markdown.
+Do not use bullets.
+Do not return multiple options.
+Do not add commentary before or after the slogan.`,
       language: 'en',
       tone: 'friendly',
       context: { section: 'headline' },
     });
     
     if (result?.text) {
-      const tagline = result.text.trim().replace(/^["']|["']$/g, '');
-      if (tagline.length > 0 && tagline.length <= 100) {
+      const tagline = sanitizeStoreSlogan(result.text, 100);
+      if (isCustomerFacingSlogan(tagline)) {
         return tagline;
       }
     }

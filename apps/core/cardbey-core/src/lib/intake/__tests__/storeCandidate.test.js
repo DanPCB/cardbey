@@ -77,6 +77,27 @@ describe('resolveStoreCandidateForHandoff', () => {
     expect(resolved?.businessName).toMatch(/PTH/i);
     expect(peekPendingDocumentExtraction('sess-test-1')?.artifactType).toBe('document_extraction');
   });
+
+  it('ignores stale cardExtraction when currentImageDataUrl is a different upload', () => {
+    const oldImg = 'data:image/png;base64,OLD_PTH_CARD_PIXELS_AAAAAAAAAAAAAAAA';
+    const newImg = 'data:image/png;base64,NEW_HANDYMAN_LOGO_PIXELS_BBBBBBBBBBBB';
+    const candidate = buildStoreCandidateFromOcr(SAMPLE_CARD, { documentType: 'business_card' });
+    const artifact = buildDocumentExtractionArtifact(candidate, { imageDataUrl: oldImg });
+    stashPendingDocumentExtraction('sess-stale-img', artifact);
+    const resolved = resolveStoreCandidateForHandoff({
+      sessionId: 'sess-stale-img',
+      currentImageDataUrl: newImg,
+      intentSourceContext: {
+        cardExtraction: {
+          businessName: 'PTH International Furniture',
+          location: 'VIC 3026',
+        },
+        pendingImageDataUrl: oldImg,
+      },
+    });
+    expect(resolved?.businessName ?? '').not.toMatch(/PTH/i);
+    expect(peekPendingDocumentExtraction('sess-stale-img')).toBeNull();
+  });
 });
 
 describe('formatStoreCandidateReviewResponse', () => {

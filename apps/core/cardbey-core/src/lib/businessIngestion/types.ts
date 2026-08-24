@@ -208,45 +208,6 @@ export interface IngestedSeedRecord {
   batchId?: string | null;
   /** Discovery campaign identifier for funnel attribution. */
   campaignId?: string | null;
-  /** QA queue flags (e.g. HERO_MISSING) — blocks auto-suggest / promote until cleared. */
-  qaFlags?: string[] | null;
-  /** Completeness gate (JSON-in-string for SQLite/Postgres parity). */
-  completenessTier?: 'blocked' | 'publishable' | 'good' | 'prestige_ready' | null;
-  completenessScore?: number | null;
-  completenessBlockers?: string | null;
-  completenessGaps?: string | null;
-  completenessFieldReport?: string | null;
-  completenessCheckedAt?: string | null;
-  /** Admin-curated or extracted hero metadata used by toSeedSnapshot. */
-  hero?: {
-    url?: string | null;
-    width?: number | null;
-    height?: number | null;
-    provenance?: string | null;
-    isLogoSuspect?: boolean;
-    altText?: string | null;
-  } | null;
-  items?: Array<{
-    name?: string | null;
-    description?: string | null;
-    price?: number | null;
-    itemType?: 'product' | 'service';
-    provenance?: string;
-  }> | null;
-  gallery?: Array<{ url?: string | null; width?: number | null; height?: number | null; provenance?: string | null }> | null;
-  hours?: object | null;
-  tagline?: string | null;
-  about?: string | null;
-  socialLinks?: Record<string, string | null> | null;
-  enrichmentProfile?: {
-    description?: string | null;
-    logoUrl?: string | null;
-    heroImageUrl?: string | null;
-    heroWidth?: number | null;
-    heroHeight?: number | null;
-    enrichedAt?: string | null;
-    visualSource?: string | null;
-  } | null;
 }
 
 /** Batch-scoped pilot funnel metrics for Control Center. */

@@ -28,24 +28,10 @@ function mapItemType(businessKind, item) {
 
 function mapEvidenceStatus(item) {
   if (item?.aiGenerated) return EVIDENCE_STATUS.FALLBACK;
+  if (item?.needsOwnerReview) return EVIDENCE_STATUS.INFERRED;
   const conf = Number(item?.confidence ?? item?.researchMeta?.confidence);
-  const origin = String(item?.contentOrigin ?? '').toLowerCase();
-  const sourceType = String(item?.sourceType ?? item?.researchMeta?.sourceType ?? '').toLowerCase();
-  const sourced =
-    origin === 'sourced' ||
-    sourceType.includes('website') ||
-    sourceType.includes('official') ||
-    sourceType.includes('booking') ||
-    sourceType.includes('shopify') ||
-    sourceType.includes('bookwell');
-
-  // Price / owner-review flags must not demote clearly sourced commercial offerings.
-  if (sourced && Number.isFinite(conf) && conf >= 0.7) return EVIDENCE_STATUS.VERIFIED;
-  if (sourced && Number.isFinite(conf) && conf >= 0.55) return EVIDENCE_STATUS.VERIFIED;
-  if (item?.needsOwnerReview && !sourced) return EVIDENCE_STATUS.INFERRED;
-  if (Number.isFinite(conf) && conf >= 0.75) return EVIDENCE_STATUS.VERIFIED;
-  if (Number.isFinite(conf) && conf >= 0.55) return EVIDENCE_STATUS.INFERRED;
-  if (sourced) return EVIDENCE_STATUS.VERIFIED;
+  if (conf >= 0.75) return EVIDENCE_STATUS.VERIFIED;
+  if (conf >= 0.55) return EVIDENCE_STATUS.INFERRED;
   return EVIDENCE_STATUS.EXACT;
 }
 

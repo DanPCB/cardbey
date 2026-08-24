@@ -6,18 +6,6 @@
 import { effectiveVertical, applyItemGuards, isDraftGuardsEnabled, isBlockedCandidateForFood } from './draftGuards.js';
 import { resolveUsableDraftItemImageUrl } from './draftStoreService.js';
 import { runBusinessImageEnricherTool } from './businessImageEnricher.ts';
-import {
-  createGroundedCreationDiagnostics,
-  isGroundedStoreCreationEnabled,
-  logGroundedDiagnostics,
-  markItemNeedsMedia,
-  scoreSemanticMediaMatch,
-  shouldAcceptMediaMatch,
-} from './groundedStoreCreation.js';
-import {
-  isNonOfferingContentRole,
-  resolveItemContentRole,
-} from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
 
 const BUSINESS_TYPE_TO_STYLE = {
   cafe: 'warm',
@@ -43,7 +31,7 @@ const BUSINESS_TYPE_TO_STYLE = {
  * @param {string|null} [input.location]
  * @param {object|null} [input.generationProfile]
  * @param {number} [input.maxItems]
- * @returns {Promise<{ patched: number, rejectedMedia?: number, groundedDiagnostics?: object|null }>}
+ * @returns {Promise<{ patched: number }>}
  */
 export async function fillMissingDraftItemImages({
   items,
@@ -55,7 +43,7 @@ export async function fillMissingDraftItemImages({
   maxItems = 30,
 }) {
   if (!Array.isArray(items) || items.length === 0) {
-    return { patched: 0, rejectedMedia: 0, groundedDiagnostics: null };
+    return { patched: 0 };
   }
 
   try {
@@ -68,51 +56,11 @@ export async function fillMissingDraftItemImages({
     /* non-blocking */
   }
 
-  const groundedEarly = isGroundedStoreCreationEnabled();
   const idxList = [];
   for (let i = 0; i < items.length && idxList.length < maxItems; i++) {
-    const row = items[i];
-    if (resolveUsableDraftItemImageUrl(row)) continue;
-    const role = resolveItemContentRole(row);
-    // Non-offering pages must never request catalog imagery.
-    if (row?.contentRole && isNonOfferingContentRole(role)) {
-      row.skipCatalogImageGeneration = true;
-      if (groundedEarly) markItemNeedsMedia(row, 'non_offering_role');
-      try {
-        console.info(
-          '[media.generation.skipped_non_offering]',
-          JSON.stringify({ name: row?.name, contentRole: role }),
-        );
-      } catch {
-        /* ignore */
-      }
-      continue;
-    }
-    if (row?.skipCatalogImageGeneration === true || row?.catalogEligible === false) {
-      if (groundedEarly) markItemNeedsMedia(row, 'catalog_ineligible');
-      continue;
-    }
-    // Grounded + sourced: do not invent via Pexels/AI — prefer official media or needs_media.
-    if (
-      groundedEarly &&
-      String(row?.contentOrigin || '').toLowerCase() === 'sourced' &&
-      !row?.imageUrl &&
-      !row?.officialImageUrl
-    ) {
-      markItemNeedsMedia(row, 'grounded_sourced_no_official_media');
-      try {
-        console.info(
-          '[media.generation.skipped_grounded_source]',
-          JSON.stringify({ name: row?.name, contentRole: role }),
-        );
-      } catch {
-        /* ignore */
-      }
-      continue;
-    }
-    idxList.push(i);
+    if (!resolveUsableDraftItemImageUrl(items[i])) idxList.push(i);
   }
-  if (!idxList.length) return { patched: 0, rejectedMedia: 0, groundedDiagnostics: null };
+  if (!idxList.length) return { patched: 0 };
 
   let menuMod = null;
   try {
@@ -193,9 +141,6 @@ export async function fillMissingDraftItemImages({
     serviceImageRegistry = null;
   }
   let patched = 0;
-  let rejectedMedia = 0;
-  let mediaCandidates = 0;
-  const grounded = isGroundedStoreCreationEnabled();
   let billingLimitHit = false;
   const BATCH_SIZE = 5;
 
@@ -276,25 +221,6 @@ export async function fillMissingDraftItemImages({
       const item = items[i];
       if (result?.status === 'fulfilled' && result.value?.url && !resolveUsableDraftItemImageUrl(item)) {
         const img = result.value;
-        mediaCandidates += 1;
-        if (grounded) {
-          const matchScore = scoreSemanticMediaMatch({
-            itemName: item?.name,
-            businessType: storeType,
-            verticalSlug: verticalForItem,
-            storeName,
-            altText: img?.meta?.alt ?? img?.alt ?? null,
-            query: img?.query ?? null,
-            providerConfidence: typeof img?.confidence === 'number' ? img.confidence : null,
-            source: img?.source ?? null,
-          });
-          item.mediaMatchScore = matchScore;
-          if (!shouldAcceptMediaMatch(matchScore)) {
-            markItemNeedsMedia(item, 'media_match_below_threshold');
-            rejectedMedia += 1;
-            return;
-          }
-        }
         item.imageUrl = img.url;
         item.imageSource = img.source;
         item.imageQuery = img.query;
@@ -302,7 +228,6 @@ export async function fillMissingDraftItemImages({
         if (img.imageSelection) item.imageSelection = img.imageSelection;
         if (img.imageMatchStatus) item.imageMatchStatus = img.imageMatchStatus;
         if (img.canonicalServiceTitle) item.canonicalServiceTitle = img.canonicalServiceTitle;
-        if (grounded) item.mediaStatus = 'accepted';
         patched += 1;
       }
     });
@@ -312,16 +237,5 @@ export async function fillMissingDraftItemImages({
     applyItemGuards(items, effectiveVerticalType);
   }
 
-  let groundedDiagnostics = null;
-  if (grounded && (mediaCandidates > 0 || rejectedMedia > 0)) {
-    groundedDiagnostics = createGroundedCreationDiagnostics({
-      mediaCandidates,
-      acceptedMedia: patched,
-      rejectedMedia,
-      fallbackUsage: { mediaMatchGate: true },
-    });
-    logGroundedDiagnostics(groundedDiagnostics);
-  }
-
-  return { patched, rejectedMedia, groundedDiagnostics };
+  return { patched };
 }
