@@ -115,12 +115,48 @@ export async function extractYellowPagesSnippet(
   const sourceUrl = `https://www.yellowpages.com.au/search/listings?clue=${encodeURIComponent(q)}`;
   budget.consumeFetch();
   const html = await fetchHtml(sourceUrl, { timeoutMs: 10000 });
-  if (!html) return null;
+  if (!html) {
+    console.warn(`[YellowPages] empty/blocked response for "${businessName}"`);
+    return null;
+  }
   const ogDescription = metaContent(html, 'og:description');
   const text = stripHtmlToText(html, 3000);
+  const snippet = sanitizeEnrichmentText(ogDescription ?? text.slice(0, 400)) ?? null;
+  if (!snippet || snippet.length < 20) {
+    console.warn(`[YellowPages] no usable snippet for "${businessName}"`);
+    return null;
+  }
   return {
     category: null,
-    description: sanitizeEnrichmentText(ogDescription ?? text.slice(0, 280)) ?? null,
+    description: snippet,
+    sourceUrl,
+  };
+}
+
+/** True Local AU — Tier 3 aggregator fallback. */
+export async function extractTrueLocalSnippet(
+  budget: EnrichmentBudget,
+  businessName: string,
+  suburb: string | null,
+): Promise<AggregatorExtract | null> {
+  const term = [businessName, suburb].filter(Boolean).join(' ');
+  const sourceUrl = `https://www.truelocal.com.au/search?searchTerm=${encodeURIComponent(term)}&searchLocation=${encodeURIComponent(suburb ? `${suburb} VIC` : 'Melbourne VIC')}`;
+  budget.consumeFetch();
+  const html = await fetchHtml(sourceUrl, { timeoutMs: 10000 });
+  if (!html) {
+    console.warn(`[TrueLocal] empty/blocked response for "${businessName}"`);
+    return null;
+  }
+  const ogDescription = metaContent(html, 'og:description');
+  const text = stripHtmlToText(html, 3000);
+  const snippet = sanitizeEnrichmentText(ogDescription ?? text.slice(0, 400)) ?? null;
+  if (!snippet || snippet.length < 20) {
+    console.warn(`[TrueLocal] no usable snippet for "${businessName}"`);
+    return null;
+  }
+  return {
+    category: null,
+    description: snippet,
     sourceUrl,
   };
 }

@@ -14,6 +14,7 @@ import type { BusinessCandidateRecord } from '../types.js';
 import { saveBusinessCandidate } from '../candidateRepository.js';
 import { lookupAbnPublic } from './abrLookup.js';
 import { EnrichmentBudget, EnrichmentBudgetExhaustedError } from './budget.js';
+import { RESERVED_HERO_FETCHES } from './constants.js';
 import { isDefaultOtherCategory, mapToCardbeyCategory } from './categoryMap.js';
 import { buildCategoryMappingInputFromCandidate } from './resolveEnrichmentSignals.js';
 import { fetchFoursquarePhotos, fetchFoursquareVenue } from './foursquareFetcher.js';
@@ -26,6 +27,7 @@ import {
   assessEnrichmentGaps,
   buildSourceFetchPlan,
   isBroaderEnrichmentSourcesEnabled,
+  splitFetchBudgetForHeroReserve,
 } from './sourceSelector.js';
 import {
   preferHigherTierField,
@@ -387,10 +389,17 @@ export async function enrichCandidateMultiSource(params: {
         rawSourceJson: candidate.rawSourceJson,
       });
       const remainingFetches = Math.max(0, budget.maxFetches - budget.websiteFetches);
+      const { remainingForSources, heroReserve } = splitFetchBudgetForHeroReserve(remainingFetches, {
+        needsHero: gaps.needsHero,
+        pexelsConfigured: Boolean(process.env.PEXELS_API_KEY?.trim()),
+        reserveSlots: RESERVED_HERO_FETCHES,
+      });
+      const sourceFetchCeiling = budget.maxFetches - heroReserve;
+      const canSpendSourceFetch = () => budget.websiteFetches < sourceFetchCeiling;
       const plan = broaderEnabled
-        ? buildSourceFetchPlan(gaps, Boolean(websiteUrl || bag.website), remainingFetches)
+        ? buildSourceFetchPlan(gaps, Boolean(websiteUrl || bag.website), remainingForSources)
         : {
-            fetchOSM: remainingFetches >= 1,
+            fetchOSM: remainingForSources >= 1,
             fetchFoursquare: false,
             fetchFullName: false,
             fetchWikimedia: false,
@@ -399,7 +408,7 @@ export async function enrichCandidateMultiSource(params: {
           };
 
       console.log(
-        `[sourceSelector] gaps: ${JSON.stringify(gaps)} plan: ${JSON.stringify(plan)} remainingFetches=${remainingFetches}`,
+        `[sourceSelector] gaps: ${JSON.stringify(gaps)} plan: ${JSON.stringify(plan)} remainingFetches=${remainingFetches} remainingForSources=${remainingForSources} heroReserve=${heroReserve}`,
       );
 
       let osmTag: string | null = null;
@@ -412,7 +421,7 @@ export async function enrichCandidateMultiSource(params: {
       let foursquareVenueId: string | null = null;
       let fsqCategories: string[] = [];
 
-      if (plan.fetchOSM && candidate.name && budget.websiteFetches < budget.maxFetches) {
+      if (plan.fetchOSM && candidate.name && canSpendSourceFetch()) {
         budget.assertWithinBudget();
         const osm = await queryOsmOverpass(
           budget,
@@ -467,7 +476,7 @@ export async function enrichCandidateMultiSource(params: {
       }
 
       let fsqDelivered = false;
-      if (plan.fetchFoursquare && candidate.name && budget.websiteFetches < budget.maxFetches) {
+      if (plan.fetchFoursquare && candidate.name && canSpendSourceFetch()) {
         budget.assertWithinBudget();
         const fsq = await fetchFoursquareVenue(
           budget,
@@ -535,7 +544,7 @@ export async function enrichCandidateMultiSource(params: {
       if (
         plan.fetchFoursquarePhotos &&
         foursquareVenueId &&
-        budget.websiteFetches < budget.maxFetches
+        canSpendSourceFetch()
       ) {
         budget.assertWithinBudget();
         const photos = await fetchFoursquarePhotos(budget, foursquareVenueId, 3);
@@ -546,7 +555,7 @@ export async function enrichCandidateMultiSource(params: {
         }
       }
 
-      if (plan.fetchFullName && !bag.name && candidate.name && budget.websiteFetches < budget.maxFetches) {
+      if (plan.fetchFullName && !bag.name && candidate.name && canSpendSourceFetch()) {
         budget.assertWithinBudget();
         const recovered = await recoverFullName(budget, candidate.name, candidate.suburb, {
           fbUrl: facebookUrl,
@@ -566,7 +575,7 @@ export async function enrichCandidateMultiSource(params: {
         }
       }
 
-      if (plan.fetchWikimedia && candidate.name && budget.websiteFetches < budget.maxFetches) {
+      if (plan.fetchWikimedia && candidate.name && canSpendSourceFetch()) {
         budget.assertWithinBudget();
         const wiki = await fetchWikimediaPhoto(
           budget,
@@ -599,7 +608,7 @@ export async function enrichCandidateMultiSource(params: {
         thinSoFar &&
         allowThinAggregators &&
         candidate.name &&
-        budget.websiteFetches < budget.maxFetches
+        canSpendSourceFetch()
       ) {
         budget.assertWithinBudget();
         ypExtract = await extractYellowPagesSnippet(budget, candidate.name, candidate.suburb);
@@ -612,7 +621,7 @@ export async function enrichCandidateMultiSource(params: {
         thinSoFar &&
         allowThinAggregators &&
         candidate.name &&
-        budget.websiteFetches < budget.maxFetches &&
+        canSpendSourceFetch() &&
         (!ypExtract?.description || wordCount(ypExtract.description) < 30)
       ) {
         budget.assertWithinBudget();
