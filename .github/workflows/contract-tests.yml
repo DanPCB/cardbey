@@ -52,6 +52,9 @@ jobs:
         working-directory: apps/core/cardbey-core
         run: npm ci
 
+      - name: Create Postgres shadow database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'cardbey_shadow'" | grep -q 1 || PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE cardbey_shadow;"
+
       - name: Check Postgres schema vs migrations (no drift)
         working-directory: apps/core/cardbey-core
         run: npx prisma migrate diff --from-migrations prisma/postgres/migrations --to-schema-datamodel prisma/postgres/schema.prisma --exit-code --shadow-database-url "$SHADOW_DATABASE_URL"
