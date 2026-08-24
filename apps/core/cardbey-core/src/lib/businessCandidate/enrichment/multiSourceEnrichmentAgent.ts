@@ -466,6 +466,7 @@ export async function enrichCandidateMultiSource(params: {
         }
       }
 
+      let fsqDelivered = false;
       if (plan.fetchFoursquare && candidate.name && budget.websiteFetches < budget.maxFetches) {
         budget.assertWithinBudget();
         const fsq = await fetchFoursquareVenue(
@@ -475,6 +476,7 @@ export async function enrichCandidateMultiSource(params: {
           candidate.state ?? 'VIC',
         );
         if (fsq) {
+          fsqDelivered = true;
           sourcesUsed.add('foursquare');
           noteHighest(3);
           foursquareVenueId = fsq.fsqId;
@@ -579,7 +581,14 @@ export async function enrichCandidateMultiSource(params: {
         }
       }
 
-      // STEP 5 — Tier 3 aggregators when evidence is thin (skip if FSQ covers)
+      // STEP 5 — Tier 3 aggregators when evidence is thin (skip if FSQ delivered; retry when FSQ 429/miss)
+      const allowThinAggregators =
+        !plan.skipThinAggregators || (plan.fetchFoursquare && !fsqDelivered);
+      if (plan.fetchFoursquare && !fsqDelivered) {
+        console.log(
+          `[sourceSelector] FSQ unavailable for ${candidate.name} — falling back to thin aggregators`,
+        );
+      }
       const thinSoFar =
         !bag.description ||
         isPlaceholderDescription(bag.description.value) ||
@@ -588,7 +597,7 @@ export async function enrichCandidateMultiSource(params: {
       let trueLocalExtract: Awaited<ReturnType<typeof extractTrueLocalSnippet>> = null;
       if (
         thinSoFar &&
-        !plan.skipThinAggregators &&
+        allowThinAggregators &&
         candidate.name &&
         budget.websiteFetches < budget.maxFetches
       ) {
@@ -601,7 +610,7 @@ export async function enrichCandidateMultiSource(params: {
       }
       if (
         thinSoFar &&
-        !plan.skipThinAggregators &&
+        allowThinAggregators &&
         candidate.name &&
         budget.websiteFetches < budget.maxFetches &&
         (!ypExtract?.description || wordCount(ypExtract.description) < 30)
