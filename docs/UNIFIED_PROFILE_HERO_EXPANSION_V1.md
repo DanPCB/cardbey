@@ -1,9 +1,10 @@
 # UNIFIED PROFILE HERO EXPANSION V1
 
-**Verdict target:** `UNIFIED_PROFILE_HERO_EXPANSION_V1_READY`  
+**Verdict:** `UNIFIED_PROFILE_HERO_EXPANSION_V1_READY`  
 **Date:** 2026-08-25  
 **Surfaces:** Business Space + Personal Space (`/space/:spaceId`)  
-**Frozen:** Global Marketplace frontpage appearance and feed playback
+**Frozen:** Global Marketplace frontpage appearance and feed playback  
+**Dashboard:** `cc4deb44` (PR [#171](https://github.com/DanPCB/cardbey-marketing-dashboard/pull/171)) on `staging` + `main` submodule bumps [#203](https://github.com/DanPCB/cardbey/pull/203) / [#204](https://github.com/DanPCB/cardbey/pull/204)
 
 ---
 
@@ -100,43 +101,44 @@ SpacePage
 
 ## Screenshots
 
-Reference (product mock targets) under `docs/screenshots/unified-profile-hero/`:
+Live Playwright cohort (2026-08-25) — all **6/6** compact→immersive→compact:
 
-- `mmm-fashion-desktop-compact-reference.png`
-- `mmm-fashion-desktop-expanded-reference.png`
+| Capture | File |
+|---------|------|
+| MMM desktop | `docs/screenshots/unified-profile-hero/mmm-fashion-desktop-live.png` |
+| MMM mobile | `docs/screenshots/unified-profile-hero/mmm-fashion-mobile-live.png` |
+| AWE desktop | `docs/screenshots/unified-profile-hero/awe-desktop-live.png` |
+| AWE mobile | `docs/screenshots/unified-profile-hero/awe-mobile-live.png` |
+| Personal desktop | `docs/screenshots/unified-profile-hero/personal-desktop-live.png` |
+| Personal mobile | `docs/screenshots/unified-profile-hero/personal-mobile-live.png` |
 
-Live production captures still required for full READY:
-
-- MMM Fashion mobile compact / expanded
-- AWE desktop compact / expanded
-- Personal desktop compact / expanded
+Product mock references also retained (`*-reference.png`).
 
 ## Acceptance checklist
 
 | Gate | Status |
 |------|--------|
-| Compact Business profile (unit + structure) | Pass |
-| Expanded Business hero (unit + ImmersiveScreenShell) | Pass |
-| Compact Personal profile (same shell) | Pass (unit / structure) |
-| Expanded Personal hero | Pass (context=PERSONAL) |
-| Desktop / mobile CSS paths | Implemented; live device QA pending |
-| Global regression (no Global file edits + media unit) | Pass |
-| Canonical playback reused (`ImmersiveScreenShell`) | Pass |
-| No duplicate engagement state | Pass (shared handlers) |
-| Business-aware CTAs | Pass (existing primary CTA) |
-| Grounded media only | Pass |
+| Compact Business profile | **Pass** (MMM + AWE live) |
+| Expanded Business hero | **Pass** |
+| Compact Personal profile | **Pass** (live `/space/personal`) |
+| Expanded Personal hero | **Pass** |
+| Desktop | **Pass** |
+| Mobile | **Pass** |
+| Global regression (no Global file edits + media unit) | **Pass** |
+| Canonical playback reused (`ImmersiveScreenShell`) | **Pass** |
+| No duplicate engagement state | **Pass** (shared handlers) |
+| Business-aware CTAs | **Pass** (existing primary CTA) |
+| Grounded media only | **Pass** |
 
 ## Known limitations
 
 - Does not reuse `ArtifactMediaSurface` slideshow/Ken Burns (Space uses shell image/video only — intentional to avoid forking feed runtime)
 - Peer Message still deferred
-- Live screenshot cohort on production Spaces not completed in this agent session
-- `PublicFeedShell` full suite may require intact dashboard `node_modules` / test helpers
 
 ## Regression
 
 Global Marketplace files in this change set: **none**.
 
-## Verdict note
+## Final verdict
 
-Implementation + unit gates are green. Live visual cohort remains the remaining READY gap → see final agent verdict.
+# UNIFIED_PROFILE_HERO_EXPANSION_V1_READY
