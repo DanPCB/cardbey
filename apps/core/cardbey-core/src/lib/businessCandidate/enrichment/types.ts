@@ -14,6 +14,7 @@ export type EnrichmentFieldName =
   | 'legalName'
   | 'website'
   | 'phone'
+  | 'email'
   | 'socialLinks';
 
 export type EnrichmentSourceKind =

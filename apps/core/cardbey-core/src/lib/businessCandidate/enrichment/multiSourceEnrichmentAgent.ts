@@ -79,6 +79,8 @@ type FieldBag = {
   abn?: ConfirmedField;
   legalName?: ConfirmedField;
   website?: ConfirmedField;
+  phone?: ConfirmedField;
+  email?: ConfirmedField;
 };
 
 function setField(
@@ -131,6 +133,8 @@ function provenanceRowsFromBag(
   push('abn', bag.abn);
   push('legalName', bag.legalName);
   push('website', bag.website);
+  push('phone', bag.phone);
+  push('email', bag.email);
   return rows;
 }
 
@@ -301,6 +305,26 @@ export async function enrichCandidateMultiSource(params: {
               sourceUrl: websiteExtract.sourceUrl,
               confidence: 0.9,
               rawExtract: websiteExtract.openingHours,
+            });
+          }
+          if (websiteExtract.phone) {
+            setField(bag, 'phone', {
+              value: websiteExtract.phone,
+              source: 'business_website',
+              sourceTier: 1,
+              sourceUrl: websiteExtract.sourceUrl,
+              confidence: 0.95,
+              rawExtract: websiteExtract.phone,
+            });
+          }
+          if (websiteExtract.email) {
+            setField(bag, 'email', {
+              value: websiteExtract.email,
+              source: 'business_website',
+              sourceTier: 1,
+              sourceUrl: websiteExtract.sourceUrl,
+              confidence: 0.95,
+              rawExtract: websiteExtract.email,
             });
           }
           if (!candidate.website && websiteUrl) {
@@ -574,6 +598,8 @@ export async function enrichCandidateMultiSource(params: {
       if (bag.legalName) candidate.legalName = bag.legalName.value;
       if (bag.openingHours) candidate.openingHours = bag.openingHours.value;
       if (bag.website && !candidate.website) candidate.website = bag.website.value;
+      if (bag.phone && !candidate.phone) candidate.phone = bag.phone.value;
+      if (bag.email && !candidate.email) candidate.email = bag.email.value;
       candidate.claimUrl = claimUrl;
       candidate.enrichmentSources = [...sourcesUsed];
       candidate.enrichmentUpdatedAt = new Date().toISOString();
