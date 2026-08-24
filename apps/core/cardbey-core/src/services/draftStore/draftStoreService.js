@@ -12,6 +12,7 @@ import { safeDraftStoreCreate } from '../../lib/safeDraftStoreCreate.js';
 import { isShutdownRequested } from '../../lib/coreShutdown.js';
 import { emitHealthProbe } from '../../lib/telemetry/healthProbes.js';
 import { resolveContent } from '../../lib/contentResolution/contentResolver.js';
+import { syncMiniWebsiteHeroSectionInPreview } from '../storeContentPatchService.js';
 import {
   syncHeroFieldsIntoPreviewWebsite,
   applyPipelineGeneratedHeroImage,
@@ -52,10 +53,6 @@ import {
   shouldApplyResearchCatalogToDraft,
   stampSuggestedCatalogOrigin,
 } from './researchCatalogDraft.js';
-import {
-  shouldBypassLegacyCategoryNormalization,
-  syncCategoriesFromSourcedItems,
-} from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
 
 /** Store MissionPipeline id (same as Mission.id for pipeline missions) — cooperative cancel while finalizeDraft runs. */
 async function isMissionPipelineCancelled(pipelineMissionId) {
@@ -74,15 +71,6 @@ async function isMissionPipelineCancelled(pipelineMissionId) {
  */
 export function normalizePreviewCategories(preview) {
   if (!preview || typeof preview !== 'object') return preview;
-  // Projection / sourced authority: never flatten semantic roles into Other.
-  if (shouldBypassLegacyCategoryNormalization(preview)) {
-    syncCategoriesFromSourcedItems(preview);
-    preview.meta = {
-      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
-      legacyCategoryNormalizerBypassed: true,
-    };
-    return preview;
-  }
   let categories = Array.isArray(preview.categories) ? [...preview.categories] : [];
   const items = Array.isArray(preview.items) ? preview.items : [];
 
@@ -253,20 +241,37 @@ export function applyCommerceFieldsToPreview(preview) {
   if (isResearchBackedPreview(preview)) {
     return applyResearchProfileToPreview(preview);
   }
+  const lockedCtx =
+    preview.meta?.storeGenerationBusinessContext ||
+    preview.storeGenerationBusinessContext ||
+    null;
   const catalogProfile = buildCatalogGenerationProfile({
     businessName: preview.storeName ?? preview.name,
-    businessType: preview.storeType ?? preview.meta?.storeType,
-    category: preview.businessCategory ?? preview.meta?.storeType,
+    businessType: preview.storeType ?? preview.meta?.storeType ?? lockedCtx?.primaryCategory,
+    category: preview.businessCategory ?? preview.meta?.storeType ?? lockedCtx?.primaryCategory,
     description: preview.description,
     items: preview.items,
   });
+  // Locked BusinessContext wins over re-inference that defaults finance → Add to cart.
+  if (lockedCtx?.primaryCTA) {
+    catalogProfile.primaryCTA = lockedCtx.primaryCTA;
+    catalogProfile.businessType = lockedCtx.businessType || catalogProfile.businessType;
+    catalogProfile.catalogMode = lockedCtx.catalogMode || catalogProfile.catalogMode;
+    catalogProfile.generatedContentProfile =
+      lockedCtx.generatedContentProfile || catalogProfile.generatedContentProfile;
+    if (/book consultation|request quote|contact|enquire/i.test(String(lockedCtx.primaryCTA))) {
+      catalogProfile.ctaLabel = lockedCtx.primaryCTA;
+      catalogProfile.commerceMode = 'services';
+      catalogProfile.transactionMode = 'booking';
+    }
+  }
   const commerce = resolveStoreCommerce({
     storeType: preview.storeType,
     businessType: preview.meta?.storeType ?? preview.storeType,
     commerceMode: preview.commerceMode ?? catalogProfile.commerceMode,
     transactionMode: preview.transactionMode ?? catalogProfile.transactionMode,
     items: preview.items,
-    ctaLabel: preview.ctaLabel ?? catalogProfile.ctaLabel,
+    ctaLabel: preview.ctaLabel ?? catalogProfile.ctaLabel ?? lockedCtx?.primaryCTA,
     catalogLabel: preview.catalogLabel ?? catalogProfile.catalogLabel,
     ctaAction: preview.storefront?.cta?.action ?? catalogProfile.ctaAction,
   });
@@ -472,39 +477,129 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     resolveCatalogAuthorityDecision,
     attachCatalogGrounding,
   } = await import('../../lib/storeCreationResearch/catalogAuthorityDecision.js');
+  const { collapseProfessionalCatalogWithoutPriceList } = await import('./industryBlueprintRegistry.js');
+  const { Mission001Flags } = await import('../../lib/mission001/mission001Flags.js');
+  const { createPipelineTiming } = await import('../../lib/mission001/pipelineTiming.js');
+  const { resolveNameOnlyInputForResearch } = await import('../../lib/mission001/nameOnlyResolution.js');
+  const {
+    buildGroundedCatalogFromResearch,
+    preferGroundedCatalog,
+  } = await import('../../lib/mission001/groundedCatalogPipeline.js');
+  const {
+    buildSparseHonestCatalog,
+    shouldUseSparseCatalogMode,
+  } = await import('../../lib/mission001/sparseCatalogMode.js');
+  const { attachNormalizedProvenanceToCatalog } = await import('../../lib/mission001/provenanceNormalize.js');
+
+  let effectiveParams = params;
+  let effectiveInput = input;
+  /** @type {Record<string, unknown>} */
+  const mission001Meta = {};
+  const pipelineTiming =
+    Mission001Flags.pipelineTiming
+      ? createPipelineTiming({ missionId, draftId: params.draftId ?? input?.draftId ?? null })
+      : null;
+
+  if (Mission001Flags.nameResolution) {
+    const nameResolution = await resolveNameOnlyInputForResearch(params, input);
+    pipelineTiming?.mark('resolutionMs');
+    mission001Meta.nameResolution = nameResolution;
+    if (nameResolution.enriched) {
+      effectiveParams = nameResolution.params;
+      effectiveInput = nameResolution.input;
+    } else if (nameResolution.sparseMode) {
+      mission001Meta.sparseMode = true;
+    }
+  }
+
+  const maybeCollapseProfessional = (catalog) =>
+    collapseProfessionalCatalogWithoutPriceList(catalog, {
+      businessName: effectiveParams.businessName ?? effectiveInput?.businessName,
+      businessType: effectiveParams.businessType ?? effectiveInput?.businessType,
+      storeType: effectiveParams.storeType ?? effectiveInput?.storeType,
+      verticalSlug: effectiveParams.verticalSlug ?? effectiveInput?.vertical ?? effectiveInput?.verticalSlug,
+      hasPriceList: effectiveInput?.hasPriceList === true || effectiveParams.hasPriceList === true,
+      allowBlueprintPrices: effectiveInput?.allowBlueprintPrices === true,
+    });
   let deferredResearch = null;
   let researchAttempted = false;
   let researchException = false;
   let lastResearch = null;
+  let lastGroundedResult = null;
 
-  if (shouldRunStoreCreationResearch(params, input)) {
+  const skipResearchForSparse =
+    Mission001Flags.sparseMode && mission001Meta.sparseMode === true;
+
+  if (!skipResearchForSparse && shouldRunStoreCreationResearch(effectiveParams, effectiveInput)) {
     try {
       researchAttempted = true;
       const researchFields = (
         await import('../../lib/storeCreationResearch/researchInputFields.js')
       ).resolveStoreResearchInputFields(
-        { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId: missionId ?? null },
-        input,
+        {
+          ...effectiveParams,
+          draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
+          missionId: missionId ?? null,
+        },
+        effectiveInput,
       );
       const research = await runStoreCreationResearch(
         {
           ...researchFields,
-          socialLinks: researchFields.socialLinks ?? input?.socialLinks ?? params.socialLinks ?? null,
-          ocrText: input?.ocrRawText ?? input?.ocrText ?? null,
+          socialLinks:
+            researchFields.socialLinks ??
+            effectiveInput?.socialLinks ??
+            effectiveParams.socialLinks ??
+            null,
+          ocrText: effectiveInput?.ocrRawText ?? effectiveInput?.ocrText ?? null,
         },
         { prisma },
       );
+      pipelineTiming?.mark('researchMs');
       lastResearch = research;
       if (isResearchCatalogPendingOwnerReview(research)) {
         deferredResearch = research;
       }
-      const researchCatalog = resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems);
-      if (researchCatalog) {
-        const finalized = finalizeResearchCatalogForDraft(researchCatalog, research, params);
+      if (Mission001Flags.groundingConnected) {
+        lastGroundedResult = buildGroundedCatalogFromResearch(
+          research,
+          effectiveParams,
+          effectiveInput,
+          { missionId, draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null },
+        );
+        pipelineTiming?.mark('groundingMs');
+        mission001Meta.grounding = lastGroundedResult
+          ? {
+              fidelity: lastGroundedResult.grounded?.fidelity ?? null,
+              provenanceSummary: lastGroundedResult.grounded?.provenanceSummary ?? null,
+            }
+          : null;
+        mission001Meta.fidelityScore = lastGroundedResult?.grounded?.fidelity ?? null;
+      }
+      const researchCatalog = resolveResearchCatalogFromResult(
+        research,
+        effectiveParams,
+        effectiveInput,
+        buildCatalogFromPreloadedItems,
+      );
+      const chosenCatalog = preferGroundedCatalog(lastGroundedResult, researchCatalog);
+      if (chosenCatalog) {
+        const finalized = finalizeResearchCatalogForDraft(chosenCatalog, research, effectiveParams);
+        if (Mission001Flags.provenancePreserve) {
+          Object.assign(finalized, attachNormalizedProvenanceToCatalog(finalized));
+        }
+        finalized.meta = {
+          ...(finalized.meta ?? {}),
+          mission001: mission001Meta,
+        };
         const pendingOwnerReview = isResearchCatalogPendingOwnerReview(research);
         const decision = resolveCatalogAuthorityDecision({
-          params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
-          input,
+          params: {
+            ...effectiveParams,
+            draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
+            missionId,
+          },
+          input: effectiveInput,
           research,
           researchAttempted: true,
         });
@@ -517,15 +612,20 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
             fallbackToGenerated: research.fallbackToGenerated,
             pendingOwnerReview,
             stagedPendingReview: pendingOwnerReview,
+            mission001Grounded: Boolean(lastGroundedResult?.catalog),
           });
         }
+        pipelineTiming?.mark('catalogMs');
         return {
-          catalog: attachCatalogGrounding(finalized, decision),
+          catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
           fromPreload: false,
           fromResearch: true,
           research,
           pendingOwnerReview,
           catalogAuthority: decision,
+          mission001: mission001Meta,
+          pipelineTiming: pipelineTiming?.finish() ?? null,
+          groundedResult: lastGroundedResult,
         };
       }
       if (process.env.NODE_ENV !== 'production' && research.researchRan) {
@@ -629,7 +729,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         researchAttempted: true,
       });
       return {
-        catalog: attachCatalogGrounding(finalized, decision),
+        catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
         fromPreload: true,
         fromResearch: true,
         research: researchStub,
@@ -645,21 +745,38 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       fromPreload: true,
     });
     return {
-      catalog: attachCatalogGrounding(catalog, decision),
+      catalog: attachCatalogGrounding(maybeCollapseProfessional(catalog), decision),
       fromPreload: true,
       fromResearch: false,
       catalogAuthority: decision,
     };
   }
 
-  const catalog = stampSuggestedCatalogOrigin(await buildCatalog(params));
+  let catalog;
+  if (shouldUseSparseCatalogMode(mission001Meta, deferredResearch || lastResearch)) {
+    catalog = stampSuggestedCatalogOrigin(
+      maybeCollapseProfessional(buildSparseHonestCatalog(effectiveParams, effectiveInput, mission001Meta)),
+    );
+    mission001Meta.sparseMode = true;
+  } else {
+    catalog = stampSuggestedCatalogOrigin(maybeCollapseProfessional(await buildCatalog(effectiveParams)));
+  }
+  if (Mission001Flags.provenancePreserve) {
+    Object.assign(catalog, attachNormalizedProvenanceToCatalog(catalog));
+  }
+  catalog.meta = { ...(catalog.meta ?? {}), mission001: mission001Meta };
   const decision = resolveCatalogAuthorityDecision({
-    params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
-    input,
+    params: {
+      ...effectiveParams,
+      draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
+      missionId,
+    },
+    input: effectiveInput,
     research: deferredResearch || lastResearch,
     researchAttempted,
     researchException,
   });
+  pipelineTiming?.mark('catalogMs');
   const grounded = attachCatalogGrounding(catalog, decision);
   if (deferredResearch) {
     return {
@@ -669,9 +786,17 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       pendingOwnerReview: true,
       research: deferredResearch,
       catalogAuthority: decision,
+      mission001: mission001Meta,
+      pipelineTiming: pipelineTiming?.finish() ?? null,
     };
   }
-  return { catalog: grounded, fromPreload: false, catalogAuthority: decision };
+  return {
+    catalog: grounded,
+    fromPreload: false,
+    catalogAuthority: decision,
+    mission001: mission001Meta,
+    pipelineTiming: pipelineTiming?.finish() ?? null,
+  };
 }
 
 function resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems) {
@@ -725,6 +850,20 @@ async function emitStoreResearchReviewIfPending(missionId, draftId, catalogResul
     catalogResult.pendingOwnerReview ||
     isResearchCatalogPendingOwnerReview(catalogResult.research);
   if (!shouldEmit) return;
+  try {
+    const { shouldSkipResearchReviewCheckpoint } = await import('../../lib/mission001/reduceFriction.js');
+    if (shouldSkipResearchReviewCheckpoint(catalogResult)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[buildCatalogForStoreReactStep] skipping research review checkpoint (confident inference)', {
+          missionId: mid,
+          draftId,
+        });
+      }
+      return;
+    }
+  } catch {
+    /* non-fatal */
+  }
   const { maybeEmitPendingStoreResearchReview } = await import(
     '../storeCreationResearch/storeResearchReviewService.js'
   );
@@ -869,15 +1008,22 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
     const row = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
     if (row) {
       const prev = parseDraftJsonField(row.preview);
+      const slogan = sloganResult.content;
+      const tagline = taglineResult.content || slogan;
+      let nextPreview = {
+        ...prev,
+        slogan,
+        heroText: heroTextResult.content,
+        tagline,
+      };
+      // Keep website hero subheadline in sync so sections don't show unsanitized copy.
+      nextPreview = syncMiniWebsiteHeroSectionInPreview(nextPreview, {
+        subheadline: slogan || tagline,
+      });
       await prisma.draftStore.update({
         where: { id: draftId },
         data: {
-          preview: {
-            ...prev,
-            slogan: sloganResult.content,
-            heroText: heroTextResult.content,
-            tagline: taglineResult.content,
-          },
+          preview: nextPreview,
           updatedAt: new Date(),
         },
       }).catch(() => {});
@@ -1254,6 +1400,16 @@ async function finalizeDraft(draftId, {
     draftInput.location != null && String(draftInput.location).trim()
       ? String(draftInput.location).trim()
       : null;
+  const timingScope = { missionId: pipelineMissionId, draftId };
+  const finalizeStartedAt = Date.now();
+  let lastStageAt = finalizeStartedAt;
+  /** @type {Record<string, number>} */
+  const finalizeStageMs = {};
+  const markFinalizeStage = (name) => {
+    const now = Date.now();
+    finalizeStageMs[name] = now - lastStageAt;
+    lastStageAt = now;
+  };
   let effectiveImageFillProfile = imageFillProfile;
   if (
     reactEnrichedImageFillProfile != null &&
@@ -1286,6 +1442,25 @@ async function finalizeDraft(draftId, {
   }
   const verticalForItem =
     effectiveImageFillProfile?.verticalSlug ?? imageFillProfile?.verticalSlug ?? preview.storeType ?? null;
+  const businessTypeKey = (preview.storeType || '')
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '_');
+  const businessTypeToStyle = {
+    cafe: 'warm',
+    'coffee-shop': 'warm',
+    coffee_shop: 'warm',
+    restaurant: 'warm',
+    bakery: 'warm',
+    bar: 'warm',
+    florist: 'vibrant',
+    salon: 'modern',
+    spa: 'modern',
+    design: 'minimal',
+    studio: 'minimal',
+  };
+  const draftStyleName = businessTypeToStyle[businessTypeKey] || 'modern';
 
   console.log('[DraftStore] finalizeDraft media', {
     draftId,
@@ -1324,13 +1499,8 @@ async function finalizeDraft(draftId, {
     if (!menuMod) throw tsModuleUnavailable('menuVisualAgent');
     const generateImageForDraftItem = menuMod.generateImageForDraftItem ?? menuMod.default?.generateImageForDraftItem;
     if (typeof generateImageForDraftItem !== 'function') throw tsModuleUnavailable('menuVisualAgent');
-    const businessType = (preview.storeType || '')
-      .toString().toLowerCase().trim().replace(/\s+/g, '_');
-    const businessTypeToStyle = {
-      cafe: 'warm', 'coffee-shop': 'warm', coffee_shop: 'warm', restaurant: 'warm', bakery: 'warm',
-      bar: 'warm', florist: 'vibrant', salon: 'modern', spa: 'modern', design: 'minimal', studio: 'minimal',
-    };
-    const styleName = businessTypeToStyle[businessType] || 'modern';
+    const businessType = businessTypeKey;
+    const styleName = draftStyleName;
     const MAX_ITEMS = CATALOG_IMAGE_ENRICH_MAX;
     const BATCH_SIZE = CATALOG_IMAGE_FETCH_CONCURRENCY;
     const missingIdx = [];
@@ -1395,6 +1565,7 @@ async function finalizeDraft(draftId, {
             businessType: preview.storeType,
             storeName: preview.storeName,
             categoryName: catalogCategoryHint,
+            location: locationStr,
           });
         } catch {
           const derivedHint = deriveItemCategoryHint(p?.name, verticalForItem, preview.storeType);
@@ -1482,10 +1653,13 @@ async function finalizeDraft(draftId, {
     }
     const withImages = items.filter((p) => p.imageUrl).length;
     console.log(`[DraftStore] finalizeDraft: ${withImages}/${toEnrich.length} item images for draft ${draftId}`);
+    markFinalizeStage('imageResolutionMs');
   } else if (!includeImages) {
     console.log('[DraftStore] finalizeDraft: images skipped (includeImages=false)', { draftId, itemCount: items.length });
+    markFinalizeStage('imageResolutionMs');
   } else if (items.length === 0) {
     console.log('[DraftStore] finalizeDraft: images skipped (no catalog items)', { draftId });
+    markFinalizeStage('imageResolutionMs');
   }
 
   let heroImageUrl = null;
@@ -1542,39 +1716,23 @@ async function finalizeDraft(draftId, {
       console.warn(`[DraftStore] Hero generation failed for draft ${draftId}:`, heroErr?.message || heroErr);
     }
     if (!heroImageUrl) {
-      let groundedHero = false;
       try {
-        const { isGroundedStoreCreationEnabled } = await import('./groundedStoreCreation.js');
-        groundedHero = isGroundedStoreCreationEnabled();
-      } catch {
-        groundedHero = false;
-      }
-      if (groundedHero) {
-        // Grounded V1: never fill hero with unrelated Seed Library stock.
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('[DraftStore] grounded: skipped Seed Library hero fallback', { draftId });
-        }
-        preview.meta = preview.meta || {};
-        preview.meta.heroMediaStatus = 'needs_media';
-      } else {
-        try {
-          const { getSeedImageForCategory } = await import('../../lib/seedLibrary/getSeedImageForCategory.js');
-          const vertical = effectiveVertical(preview.storeType, preview.meta?.storeType) || null;
-          const fallback = await getSeedImageForCategory({
-            vertical,
-            categoryKey: preview.storeType || null,
-            businessName: preview.storeName || null,
-            orientation: 'landscape',
-          });
-          if (fallback) {
-            heroImageUrl = fallback;
-            if (process.env.cardbey_debugImageSource === '1' || process.env.CARDBEY_DEBUG_IMAGE_SOURCE === '1') {
-              console.log('[DraftStore] hero fallback from Seed Library', { draftId, vertical, categoryKey: preview.storeType });
-            }
+        const { getSeedImageForCategory } = await import('../../lib/seedLibrary/getSeedImageForCategory.js');
+        const vertical = effectiveVertical(preview.storeType, preview.meta?.storeType) || null;
+        const fallback = await getSeedImageForCategory({
+          vertical,
+          categoryKey: preview.storeType || null,
+          businessName: preview.storeName || null,
+          orientation: 'landscape',
+        });
+        if (fallback) {
+          heroImageUrl = fallback;
+          if (process.env.cardbey_debugImageSource === '1' || process.env.CARDBEY_DEBUG_IMAGE_SOURCE === '1') {
+            console.log('[DraftStore] hero fallback from Seed Library', { draftId, vertical, categoryKey: preview.storeType });
           }
-        } catch (e) {
-          // non-blocking: leave hero null
         }
+      } catch (e) {
+        // non-blocking: leave hero null
       }
     }
     if (!importedAvatarUrl) {
@@ -1603,6 +1761,125 @@ async function finalizeDraft(draftId, {
 
   normalizePreviewCategories(preview);
   applyCommerceFieldsToPreview(preview);
+  markFinalizeStage('compositionMs');
+  let repairMsTotal = 0;
+  try {
+    const { repairServiceCatalogPlaceholderProducts, buildServiceCatalogPlaceholderSeed } =
+      await import('../../lib/catalog/serviceCatalogPlaceholders.js');
+    const { validateStoreCoherence } = await import('./storeCoherenceValidator.js');
+    const ctx =
+      draft.input?.storeGenerationBusinessContext ||
+      preview.meta?.storeGenerationBusinessContext ||
+      null;
+    const leakProfile = {
+      businessName: preview.storeName,
+      storeName: preview.storeName,
+      businessType: preview.storeType,
+      storeType: preview.storeType,
+      verticalSlug: preview.meta?.verticalSlug ?? draft.input?.verticalSlug ?? ctx?.verticalSlug,
+      verticalGroup: preview.meta?.verticalGroup ?? draft.input?.verticalGroup ?? ctx?.verticalGroup,
+    };
+    const repaired = repairServiceCatalogPlaceholderProducts(
+      preview.items || [],
+      leakProfile,
+      () => buildServiceCatalogPlaceholderSeed(preview.items || [], leakProfile),
+    );
+    if (repaired.repaired && Array.isArray(repaired.products)) {
+      preview.items = repaired.products;
+      if (Array.isArray(repaired.categories) && repaired.categories.length) {
+        preview.categories = repaired.categories;
+      }
+      console.warn('[DraftStore] repaired generic catalog scaffolds', {
+        draftId,
+        repairedCount: repaired.repairedCount,
+      });
+    }
+    // Re-merge website after catalog repair so Shows/CTA follow professional rules.
+    try {
+      const { ensureWebsiteTemplateFoundationOnInput } = await import('./websiteTemplateFoundation.js');
+      const inputWithTpl = await ensureWebsiteTemplateFoundationOnInput(draft.input || {});
+      mergeWebsiteIntoPreview(preview, inputWithTpl);
+    } catch {
+      mergeWebsiteIntoPreview(preview, draft.input || {});
+    }
+    applyCommerceFieldsToPreview(preview);
+    if (ctx?.primaryCTA && /add to cart/i.test(String(preview.primaryCTA || ''))) {
+      preview.primaryCTA = ctx.primaryCTA;
+    }
+    const coherence = validateStoreCoherence(preview, ctx);
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      storeCoherence: coherence,
+      ...(ctx ? { storeGenerationBusinessContext: ctx } : {}),
+    };
+    if (!coherence.ok) {
+      console.warn('[DraftStore] store coherence critical warnings', {
+        draftId,
+        critical: coherence.critical,
+        warnings: coherence.warnings,
+      });
+    }
+    try {
+      const { assessPreRevealFidelity } = await import('../../lib/mission001/fidelityPreReveal.js');
+      const mission001 = preview.meta?.mission001 ?? {};
+      const fidelityAssessment = assessPreRevealFidelity(preview, {
+        ctx,
+        fidelityScore: mission001.fidelityScore ?? null,
+        evidence: mission001.grounding?.evidence ?? null,
+        groundedResult: mission001.grounding ?? null,
+      });
+      let finalAssessment = fidelityAssessment;
+      try {
+        const { executeTargetedRepairLoop } = await import('../../lib/mission001/targetedRepair.js');
+        const repairStart = Date.now();
+        const repairResult = await executeTargetedRepairLoop({
+          preview,
+          assessment: fidelityAssessment,
+          assessOptions: {
+            ctx,
+            fidelityScore: mission001.fidelityScore ?? null,
+          },
+          repairContext: {
+            draftInput,
+            includeImages,
+            locationStr,
+            verticalForItem,
+            effectiveImageFillProfile,
+            styleName: draftStyleName,
+          },
+        });
+        repairMsTotal = Date.now() - repairStart;
+        if (repairResult.applied) {
+          applyCommerceFieldsToPreview(preview);
+          finalAssessment = repairResult.finalAssessment ?? fidelityAssessment;
+        }
+        mission001.targetedRepair = repairResult;
+      } catch (repairErr) {
+        console.warn('[DraftStore] mission001 targeted repair failed (non-fatal):', repairErr?.message || repairErr);
+      }
+      preview.meta = {
+        ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+        mission001: {
+          ...(typeof mission001 === 'object' ? mission001 : {}),
+          fidelityAssessment: finalAssessment,
+          pipelineTiming: preview.meta?.mission001?.pipelineTiming ?? null,
+        },
+      };
+      if (finalAssessment.enabled && !finalAssessment.pass) {
+        console.warn('[DraftStore] mission001 pre-reveal fidelity gate', {
+          draftId,
+          hasCritical: finalAssessment.hasCritical,
+          repairTargets: finalAssessment.repairTargets,
+          overall: finalAssessment.fidelity?.overall ?? null,
+          repairCycles: mission001.targetedRepair?.cycles ?? 0,
+        });
+      }
+    } catch (fidelityErr) {
+      console.warn('[DraftStore] mission001 fidelity pass failed (non-fatal):', fidelityErr?.message || fidelityErr);
+    }
+  } catch (coherenceErr) {
+    console.warn('[DraftStore] store coherence pass failed (non-fatal):', coherenceErr?.message || coherenceErr);
+  }
   const schemaMod = await loadDraftPreviewSchema();
   if (schemaMod) {
     const parseDraftPreview = schemaMod.parseDraftPreview ?? schemaMod.default?.parseDraftPreview;
@@ -1636,8 +1913,31 @@ async function finalizeDraft(draftId, {
   const { runDraftQa } = await import('../qa/draftQaAgent.js');
   const qaReport = runDraftQa({ preview, input: draft.input }, { logger: console.log.bind(console) });
   preview.meta = { ...(preview.meta || {}), qaReport };
+  markFinalizeStage('qaMs');
+  finalizeStageMs.repairMs = repairMsTotal;
 
   await persistCanonicalLocationForDraft(draftId, { missionId: pipelineMissionId ?? null });
+  markFinalizeStage('persistenceMs');
+  finalizeStageMs.generationMs = Date.now() - finalizeStartedAt;
+  try {
+    const { mergePipelineTiming, recordPipelineTiming } = await import('../../lib/mission001/pipelineTiming.js');
+    const merged = mergePipelineTiming(preview.meta?.mission001?.pipelineTiming, {
+      ...finalizeStageMs,
+      totalMs:
+        (preview.meta?.mission001?.pipelineTiming?.totalMs ?? 0) +
+        finalizeStageMs.generationMs,
+    });
+    preview.meta = {
+      ...(preview.meta || {}),
+      mission001: {
+        ...(preview.meta?.mission001 && typeof preview.meta.mission001 === 'object' ? preview.meta.mission001 : {}),
+        pipelineTiming: merged,
+      },
+    };
+    recordPipelineTiming(timingScope, merged ?? finalizeStageMs);
+  } catch {
+    /* non-fatal */
+  }
   const refreshed = await prisma.draftStore.findUnique({ where: { id: draftId }, select: { preview: true } }).catch(() => null);
   const previewForReady =
     refreshed?.preview && typeof refreshed.preview === 'object' ? refreshed.preview : preview;
@@ -3061,10 +3361,16 @@ export async function generateDraft(draftId, options = {}) {
         if (!heroMod2) throw tsModuleUnavailable('heroGenerationService');
         const generateHeroForDraftFn = heroMod2.generateHeroForDraft ?? heroMod2.default?.generateHeroForDraft;
         if (typeof generateHeroForDraftFn !== 'function') throw tsModuleUnavailable('heroGenerationService');
+        const genProfileForHero = input.generationProfile ?? input.classificationProfile ?? null;
         const { hero } = await generateHeroForDraftFn({
           storeName: profile.name,
           businessType: profile.type,
           storeType: profile.type,
+          verticalSlug: genProfileForHero?.verticalSlug ?? profile.verticalSlug ?? null,
+          verticalGroup:
+            genProfileForHero?.verticalGroup ??
+            profile.verticalGroup ??
+            ((genProfileForHero?.verticalSlug || profile.verticalSlug || '').split('.')[0] || null),
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {
@@ -3134,10 +3440,16 @@ export async function generateDraft(draftId, options = {}) {
         if (!heroMod3) throw tsModuleUnavailable('heroGenerationService');
         const generateHeroForDraftFn3 = heroMod3.generateHeroForDraft ?? heroMod3.default?.generateHeroForDraft;
         if (typeof generateHeroForDraftFn3 !== 'function') throw tsModuleUnavailable('heroGenerationService');
+        const genProfileForHeroMenu = input.generationProfile ?? input.classificationProfile ?? null;
         const { hero } = await generateHeroForDraftFn3({
           storeName: profile.name,
           businessType: profile.type,
           storeType: profile.type,
+          verticalSlug: genProfileForHeroMenu?.verticalSlug ?? profile.verticalSlug ?? null,
+          verticalGroup:
+            genProfileForHeroMenu?.verticalGroup ??
+            profile.verticalGroup ??
+            ((genProfileForHeroMenu?.verticalSlug || profile.verticalSlug || '').split('.')[0] || null),
         });
         heroImageUrl = hero?.imageUrl ?? null;
       } catch (heroErr) {

@@ -5,7 +5,7 @@
  * New business: delegate to legacy research (no entity) or industry blueprint path
  */
 
-import { resolveBusinessEntity, isExistingBusinessIntent } from './businessEntityResolver.js';
+import { resolveBusinessEntity, isExistingBusinessIntent, sharedBrandWebsiteFromCandidates } from './businessEntityResolver.js';
 import { discoverBusinessSources } from './sourceDiscoveryService.js';
 import { runBusinessSourceExtractors } from './extractors/index.js';
 import { reconcileBusinessEvidence } from './businessEvidenceReconciler.js';
@@ -101,13 +101,26 @@ export async function runStoreResearchPipeline(input, options = {}) {
   }
 
   if (entityResolution.candidates.length > 1 && entityResolution.requiresOwnerConfirmation) {
+    // Ambiguous entity: still reconstruct offerings when a shared brand website is known,
+    // or when the caller already supplied a website. Never invent a catalog without a URL.
+    const sharedWebsite =
+      entityResolution.sharedBrandWebsite ||
+      sharedBrandWebsiteFromCandidates(entityResolution.candidates);
+    const researchWebsite = normalized.website || sharedWebsite || null;
+    let legacy = null;
+    if (researchWebsite && !options.skipNetwork) {
+      legacy = await legacyRunStoreCreationResearch(
+        { ...normalized, website: researchWebsite },
+        legacyOptions,
+      );
+    }
     const reviewArtifact = buildStoreResearchReviewArtifact({
       missionId: normalized.missionId ?? '',
       draftId: normalized.draftId ?? null,
       entityResolution,
       evidence: null,
       sources: [],
-      suggestedItems: [],
+      suggestedItems: legacy?.extractedItems ?? [],
     });
     return {
       mode: 'ambiguous_entity',
@@ -115,10 +128,10 @@ export async function runStoreResearchPipeline(input, options = {}) {
       evidence: null,
       reviewArtifact,
       missionContract: null,
-      legacyResearchResult: null,
+      legacyResearchResult: legacy,
       ownerReviewRequired: true,
-      fallbackToGenerated: false,
-      logs,
+      fallbackToGenerated: Boolean(legacy?.fallbackToGenerated ?? !legacy?.extractedItems?.length),
+      logs: [...logs, ...(legacy?.logs ?? [])],
     };
   }
 
@@ -134,7 +147,11 @@ export async function runStoreResearchPipeline(input, options = {}) {
   const sources = options.skipNetwork ? [] : await discoverBusinessSources(enrichedInput, log);
   const legacy = await legacyRunStoreCreationResearch(enrichedInput, legacyOptions);
 
-  await runBusinessSourceExtractors(sources, enrichedInput, legacy?.scoredSources ?? []);
+  // Extractor payloads are not merged into catalog (legacyResearchResult is authority).
+  // Skip the extra website crawl unless explicitly opted in.
+  if (envTruthy('STORE_RESEARCH_RUN_EXTRACTORS', false) && !options.skipNetwork) {
+    await runBusinessSourceExtractors(sources, enrichedInput, legacy?.scoredSources ?? []);
+  }
 
   const providerResults = legacy?.researchEvidence?.providerResults ?? [];
   const businessKind = legacy?.businessProfile?.businessKind ?? legacy?.catalog?.meta?.businessKind ?? 'services';
