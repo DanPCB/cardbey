@@ -3,7 +3,7 @@
  * Issue/send tools refuse unless confirmed: true (confirm-before-execute).
  */
 
-import { Features } from '../../config/features.js';
+import { Features } from '../../../config/features.js';
 import {
   convertQuoteToInvoice,
   createDocumentDraft,
@@ -11,9 +11,9 @@ import {
   getDocument,
   issueDocument,
   updateDocumentDraft,
-} from '../accountingDocuments/documentService.js';
-import { DOC_TYPE } from '../accountingDocuments/constants.js';
-import { toCents } from '../accountingDocuments/money.js';
+} from '../../accountingDocuments/documentService.js';
+import { DOC_TYPE } from '../../accountingDocuments/constants.js';
+import { toCents } from '../../accountingDocuments/money.js';
 
 function requireFlag() {
   if (!Features.accountingDocuments?.v1) {
