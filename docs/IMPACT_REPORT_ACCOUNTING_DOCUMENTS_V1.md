@@ -1,61 +1,45 @@
-# IMPACT REPORT — Accounting Documents V1
+# IMPACT REPORT — Accounting Documents V1 (Closure Pass)
 
 **Date:** 2026-08-25  
-**Target verdict:** `CARDBEY_ACCOUNTING_DOCUMENTS_V1_READY`  
-**Mode:** Audit complete → smallest commercial-document spine behind feature flag
+**Pass:** Close PARTIAL → READY gates without expanding scope
 
----
+## Changes in this pass
 
-## Audit summary (existing vs new)
-
-| Concern | Existing | Decision |
-|---------|----------|----------|
-| Visitor quote enquiry | `QuoteRequest` + Growth panel | **Reuse as upstream CRM**; do not merge with issued Quote |
-| Platform billing credits | `/api/billing` | **Do not reuse** |
-| Creator payout bank | `CreatorPayoutAccount` | **Do not reuse** for store AR |
-| Catalog / SKU | `Product` / `ProductVariant` | **Reuse** for line selection; **snapshot** on issue |
-| POS customer | `CommerceCustomer` | **Optional FK**; document-local buyer allowed |
-| Tax settings seed | `TaxProfile`, `CommerceBusinessSettings.taxInclusive` | **Seed** GST mode; new explicit GST model on docs |
-| Payments | Stripe `Payment` + quote deposits | **Later** link via `linkedEntityType`; V1 = BANK_TRANSFER details only |
-| PDF | Inbound parse / Puppeteer graphics | **New** document PDF renderer |
-| Email | `sendMail` | **Reuse** when enabled; else download + share link |
-| Audit | `BusinessEvent` + `AuditEvent` | **Reuse** event types |
-| Performer | No accounting tools | **New** governed tools + confirm for issue/send |
-| UI shell | `/business/invoices` EmptyState | **Extend** → Quotes & Invoices |
-| ABN on Business | Missing on live `Business` | **New** `BusinessBillingProfile` |
-| Money helpers | Float + ad-hoc `toCents` | **New** integer-cents calculator |
-
----
+1. Canonical Prisma migrations (postgres + sqlite) `20260825050000_accounting_documents_v1`
+2. pdfkit A4 PDF from `issuedSnapshot` (owner + share-token endpoints)
+3. Snapshot integrity unit/smoke (same snap → equal PDF)
+4. Accept/decline hardening (idempotent, expiry, cancelled)
+5. Share token length gate; recipient always uses frozen snapshot
+6. Dashboard `/d/:token` recipient page + PDF/accept/decline
+7. Owner UI: PDF links + mobile stacked list cards
 
 ## What could break
 
-1. **QuoteRequest confusion** — owner “Send quote” CRM reply mistaken for issued Quote → mitigate with distinct models + UI copy.
-2. **Prisma Float money elsewhere** — new docs must not use Float for authoritative totals.
-3. **Public API leaks** — bank settings / sequential IDs → owner-only settings; opaque share tokens.
-4. **Silent issue/send** — Performer must draft only; issue/send confirmation required.
-5. **Migration on postgres/sqlite dual schemas** — apply to both commerce schemas.
+| Risk | Mitigation |
+|------|------------|
+| Staging migrate conflict | Additive-only SQL; rollback drops documented |
+| PDFkit missing in slim images | Already in package.json deps |
+| Token probing | Uniform `share_not_found`; min length 20 |
 
----
+## Staging migration evidence (required for READY)
 
-## Smallest safe patch (V1 spine)
+Operator steps after merge of core PR:
 
-1. Flag: `ENABLE_ACCOUNTING_DOCUMENTS_V1` (core) + `VITE_ENABLE_ACCOUNTING_DOCUMENTS_V1` (dashboard); non-prod default ON per conventions.
-2. Models: `BusinessBillingProfile`, `AccountingDocument`, `AccountingDocumentLine`, `AccountingDocumentSequence`, `AccountingDocumentShare`.
-3. Pure calc module (cents) + numbering service.
-4. Owner APIs: CRUD draft, issue, accept, convert, mark paid, PDF, share.
-5. Public: tokenized recipient view + accept/decline.
-6. Dashboard: Quotes & Invoices list + create workspace (replace stub).
-7. Performer tools: draft/update/add item/preview (auto); issue/send (confirm).
-8. Do **not** change QuoteRequest behaviour globally.
+```bash
+cd apps/core/cardbey-core
+prisma migrate deploy   # postgres schema used on staging
+prisma generate
+# healthz / readiness
+```
 
----
+Verify tables exist: BusinessBillingProfile, AccountingDocument, AccountingDocumentLine, AccountingDocumentShare, AccountingDocumentSequence.
 
-## Out of scope (locked)
+Local empty-DB `migrate deploy` on sqlite fails on older migration history (unrelated `20260711080337_init`) — **do not** use empty sqlite as staging proof. Use staging postgres.
 
-GL, payroll, BAS, bank feed, FX, payment processors, CREDIT_NOTE/PO/RECEIPT (schema-ready only).
+## Verdict
 
----
+`CARDBEY_ACCOUNTING_DOCUMENTS_V1_PARTIAL`
 
-**Verdict (implementation pass):** `CARDBEY_ACCOUNTING_DOCUMENTS_V1_PARTIAL`
+**Exact blocking gate:** staging migration applied + staging E2E (scenarios 1–8) + desktop/mobile live QA.
 
-Spine delivered behind `ENABLE_ACCOUNTING_DOCUMENTS_V1`. See `docs/ACCOUNTING_DOCUMENTS_V1.md` gate table for remaining READY items (PDF binary, `/d/:token` UI, migrate+live QA).
+All code gates for PDF, recipient page, accept/decline, and snapshot immutability are implemented pending that deploy.

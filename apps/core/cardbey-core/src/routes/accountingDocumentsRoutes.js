@@ -5,6 +5,9 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { Features } from '../config/features.js';
+import { renderAccountingDocumentHtml } from '../lib/accountingDocuments/renderHtml.js';
+import { getPrismaClient } from '../lib/prisma.js';
+import { DOC_TYPE } from '../lib/accountingDocuments/constants.js';
 import {
   acceptQuote,
   convertQuoteToInvoice,
@@ -18,12 +21,10 @@ import {
   listDocuments,
   markInvoicePaid,
   publicBillingSlice,
+  renderIssuedDocumentPdfBuffer,
   updateBillingProfile,
   updateDocumentDraft,
 } from '../lib/accountingDocuments/documentService.js';
-import { renderAccountingDocumentHtml } from '../lib/accountingDocuments/renderHtml.js';
-import { getPrismaClient } from '../lib/prisma.js';
-import { DOC_TYPE } from '../lib/accountingDocuments/constants.js';
 
 const ownerRouter = Router({ mergeParams: true });
 const publicRouter = Router();
@@ -241,6 +242,20 @@ ownerRouter.get('/documents/:documentId/preview.html', async (req, res) => {
   }
 });
 
+/** Issued PDF — snapshot only. */
+ownerRouter.get('/documents/:documentId/pdf', async (req, res) => {
+  try {
+    const doc = await getDocument(req.params.storeId, req.params.documentId, req.userId);
+    const buf = await renderIssuedDocumentPdfBuffer(doc);
+    const name = `${doc.documentNumber || doc.id}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    res.send(buf);
+  } catch (err) {
+    handleErr(res, err);
+  }
+});
+
 publicRouter.use(flagGate);
 
 publicRouter.get('/accounting-documents/:token', async (req, res) => {
@@ -266,6 +281,22 @@ publicRouter.get('/accounting-documents/:token/preview.html', async (req, res) =
     const { snapshot } = await getDocumentByShareToken(req.params.token);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(renderAccountingDocumentHtml(snapshot));
+  } catch (err) {
+    handleErr(res, err);
+  }
+});
+
+publicRouter.get('/accounting-documents/:token/pdf', async (req, res) => {
+  try {
+    const { document, snapshot } = await getDocumentByShareToken(req.params.token);
+    const { renderAccountingDocumentPdf } = await import(
+      '../lib/accountingDocuments/renderPdf.js'
+    );
+    const buf = await renderAccountingDocumentPdf(snapshot);
+    const name = `${document.documentNumber || 'document'}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    res.send(buf);
   } catch (err) {
     handleErr(res, err);
   }

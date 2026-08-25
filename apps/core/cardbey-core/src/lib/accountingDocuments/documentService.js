@@ -477,6 +477,36 @@ export async function acceptQuote(storeId, documentId, actor, { viaShareToken = 
     where: { storeId, id: documentId, type: DOC_TYPE.QUOTE },
   });
   if (!doc) throw Object.assign(new Error('document_not_found'), { status: 404 });
+
+  // Idempotent: already accepted
+  if (doc.status === QUOTE_STATUS.ACCEPTED) {
+    return prisma.accountingDocument.findFirst({
+      where: { id: doc.id },
+      include: { lines: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  if (
+    doc.status === QUOTE_STATUS.CANCELLED ||
+    doc.status === QUOTE_STATUS.DECLINED ||
+    doc.status === QUOTE_STATUS.CONVERTED
+  ) {
+    throw Object.assign(new Error('quote_not_acceptable'), { status: 409 });
+  }
+
+  if (doc.status === QUOTE_STATUS.EXPIRED) {
+    throw Object.assign(new Error('quote_expired'), { status: 409 });
+  }
+
+  // Soft-expire: past expiryDate cannot accept (V1 policy)
+  if (doc.expiryDate && new Date(doc.expiryDate).getTime() < Date.now()) {
+    await prisma.accountingDocument.update({
+      where: { id: doc.id },
+      data: { status: QUOTE_STATUS.EXPIRED },
+    });
+    throw Object.assign(new Error('quote_expired'), { status: 409 });
+  }
+
   if (doc.status !== QUOTE_STATUS.ISSUED && doc.status !== QUOTE_STATUS.VIEWED) {
     throw Object.assign(new Error('quote_not_acceptable'), { status: 409 });
   }
@@ -509,6 +539,23 @@ export async function declineQuote(storeId, documentId, actor, { viaShareToken =
     where: { storeId, id: documentId, type: DOC_TYPE.QUOTE },
   });
   if (!doc) throw Object.assign(new Error('document_not_found'), { status: 404 });
+
+  if (doc.status === QUOTE_STATUS.DECLINED) {
+    return prisma.accountingDocument.findFirst({
+      where: { id: doc.id },
+      include: { lines: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  if (
+    doc.status === QUOTE_STATUS.CANCELLED ||
+    doc.status === QUOTE_STATUS.ACCEPTED ||
+    doc.status === QUOTE_STATUS.CONVERTED ||
+    doc.status === QUOTE_STATUS.EXPIRED
+  ) {
+    throw Object.assign(new Error('quote_not_declinable'), { status: 409 });
+  }
+
   if (doc.status !== QUOTE_STATUS.ISSUED && doc.status !== QUOTE_STATUS.VIEWED) {
     throw Object.assign(new Error('quote_not_declinable'), { status: 409 });
   }
@@ -625,8 +672,13 @@ export async function createShareToken(storeId, documentId, actorUserId, { ttlDa
 export async function getDocumentByShareToken(token) {
   assertEnabled();
   const prisma = prismaOrThrow();
+  const raw = String(token || '').trim();
+  // Opaque high-entropy tokens only — reject short/guessable values without probing IDs
+  if (raw.length < 20) {
+    throw Object.assign(new Error('share_not_found'), { status: 404 });
+  }
   const share = await prisma.accountingDocumentShare.findUnique({
-    where: { token: String(token || '').trim() },
+    where: { token: raw },
     include: {
       document: { include: { lines: { orderBy: { sortOrder: 'asc' } } } },
     },
@@ -641,7 +693,11 @@ export async function getDocumentByShareToken(token) {
     where: { storeId: share.storeId },
   });
   const doc = share.document;
-  const snapshot = doc.issuedSnapshot || buildIssuedSnapshot(doc, profile);
+  if (!doc?.issuedSnapshot) {
+    throw Object.assign(new Error('share_not_found'), { status: 404 });
+  }
+  // Recipient view always uses frozen snapshot — never live billing profile mutation
+  const snapshot = doc.issuedSnapshot;
   if (doc.status === QUOTE_STATUS.ISSUED || doc.status === INVOICE_STATUS.ISSUED) {
     await prisma.accountingDocument.update({
       where: { id: doc.id },
@@ -663,7 +719,19 @@ export async function getDocumentByShareToken(token) {
     document: doc,
     snapshot,
     share: { expiresAt: share.expiresAt },
+    profilePublic: publicBillingSlice(profile, { includeBank: false }),
   };
+}
+
+/**
+ * PDF bytes for an issued document — snapshot only.
+ */
+export async function renderIssuedDocumentPdfBuffer(doc) {
+  if (!doc?.issuedSnapshot) {
+    throw Object.assign(new Error('document_not_issued'), { status: 409 });
+  }
+  const { renderAccountingDocumentPdf } = await import('./renderPdf.js');
+  return renderAccountingDocumentPdf(doc.issuedSnapshot);
 }
 
 export async function listDocuments(storeId, actorUserId, { type, status } = {}) {
