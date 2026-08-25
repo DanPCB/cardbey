@@ -138,31 +138,20 @@ function resolveRolledBack(migrationName) {
 }
 
 function ensurePrismaClientGenerated() {
+  // Never run `prisma generate` during Render prestart — it OOMs small instances
+  // and restarts the whole service before soft-fail can continue. Build/postinstall
+  // already generates client-gen; migrate status uses the CLI schema path.
   if (fs.existsSync(clientGenIndex)) {
-    console.log('[resolve-postgres-failed] prisma client-gen already present — skip generate');
+    console.log('[resolve-postgres-failed] prisma client-gen present');
     return;
   }
-  console.log('[resolve-postgres-failed] generating prisma client for schema', schemaPath);
-  execSync(`npx prisma generate --schema=${schemaPath}`, {
-    stdio: 'inherit',
-    env: prismaEnv(),
-    shell: true,
-  });
+  console.warn(
+    '[resolve-postgres-failed] prisma client-gen missing — skip generate at prestart (avoid OOM); bootstrap will generate if needed',
+  );
 }
 
 async function main() {
-  try {
-    ensurePrismaClientGenerated();
-  } catch (err) {
-    if (fs.existsSync(clientGenIndex)) {
-      console.warn(
-        '[resolve-postgres-failed] generate failed but client-gen exists — continuing:',
-        err?.message || err,
-      );
-    } else {
-      throw err;
-    }
-  }
+  ensurePrismaClientGenerated();
 
   const explicitName = nameArg ? nameArg.split('=')[1].trim() : '';
   const fromStatus = listFailedMigrationNames();
