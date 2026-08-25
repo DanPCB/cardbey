@@ -215,6 +215,7 @@ import storefrontPrerenderRoutes from './routes/storefrontPrerenderRoutes.js';
 import storefrontSitemapRoutes from './routes/storefrontSitemapRoutes.js';
 import marketingVisitRoutes from './routes/public/marketingVisitRoutes.js';
 import marketingOperationsRoutes from './routes/admin/marketingOperationsRoutes.js';
+import businessOperationIntelligenceRoutes from './routes/businessOperationIntelligenceRoutes.js';
 import { Features } from './config/features.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
@@ -1176,6 +1177,8 @@ app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
+app.use('/api/public/business-operation', businessOperationIntelligenceRoutes); // BOI Phase A/B (feature-gated inside router)
+console.log('[CORE] mounted /api/public/business-operation (ENABLE_BUSINESS_OPERATION_INTELLIGENCE_V1)');
 if (Features.marketingOperator.v1) {
   app.use('/api/public/marketing', marketingVisitRoutes); // POST /api/public/marketing/visits
   console.log('[CORE] mounted /api/public/marketing (visit attribution; ENABLE_MARKETING_OPERATOR_V1)');

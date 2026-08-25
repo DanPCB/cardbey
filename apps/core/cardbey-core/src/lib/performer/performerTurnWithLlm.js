@@ -5,6 +5,7 @@
 import { getPrismaClient } from '../prisma.js';
 import { record as recordFoundationMetric } from '../metrics/foundationMetrics.js';
 import { Features } from '../../config/features.js';
+import { buildSKP, skpToPublicDto } from '../storeKnowledge/index.js';
 
 const INTENTS = new Set(['submit_enquiry', 'request_booking', 'general', 'answer']);
 const GROUNDINGS = new Set(['exact', 'related', 'none']);
@@ -65,7 +66,39 @@ export function isPerformerTurnV1Enabled() {
 }
 
 /**
+ * Merge SKP public fields into Performer store context (additive).
+ * Pure — used by loadPerformerStoreContext and unit tests.
+ * @param {object} base
+ * @param {object | null} skp
+ */
+export function enrichPerformerStoreContextWithSkp(base, skp) {
+  if (!base || typeof base !== 'object') return base;
+  if (!skp) return { ...base, skpReady: false };
+  const dto = skpToPublicDto(skp);
+  if (!dto) return { ...base, skpReady: false };
+  return {
+    ...base,
+    storeName: dto.name || base.storeName,
+    storeSlug: dto.slug || base.storeSlug,
+    businessType: dto.category || base.businessType,
+    description: dto.description || null,
+    suburb: dto.suburb || null,
+    state: dto.state || null,
+    canonicalUrl: dto.canonicalUrl || null,
+    skpReady: true,
+    skpVisibility: {
+      indexable: Boolean(dto.indexable),
+      jsonLdReady: Boolean(dto.jsonLdReady),
+      aiSearchReady: Boolean(dto.aiSearchReady),
+    },
+    skpVersion: skp.version ?? null,
+  };
+}
+
+/**
  * Authoritative store projection for a turn (bounded).
+ * Prefer SKP for identity/visibility; keep product/service listing from Prisma
+ * so unpublished-but-active stores still work when SKP returns null.
  */
 export async function loadPerformerStoreContext(storeId) {
   const id = String(storeId ?? '').trim();
@@ -115,7 +148,7 @@ export async function loadPerformerStoreContext(storeId) {
       hasListedPrice: p.price != null && Number(p.price) > 0,
     }));
 
-  return {
+  const base = {
     storeId: store.id,
     storeName: store.name,
     storeSlug: store.slug,
@@ -124,6 +157,14 @@ export async function loadPerformerStoreContext(storeId) {
     canSubmitEnquiry: true,
     canRequestBooking: (servicesOnly.length ? servicesOnly : listedServices).some((s) => s.bookable),
   };
+
+  let skp = null;
+  try {
+    skp = await buildSKP(id);
+  } catch (err) {
+    console.warn('[performer.store] SKP build failed', err?.message || err);
+  }
+  return enrichPerformerStoreContextWithSkp(base, skp);
 }
 
 function sanitizeFacts(raw, listedServices) {
@@ -308,6 +349,9 @@ export async function runPerformerTurnWithLlm(input) {
               listedServices: storeCtx.listedServices,
               canSubmitEnquiry: storeCtx.canSubmitEnquiry,
               canRequestBooking: storeCtx.canRequestBooking,
+              description: storeCtx.description || null,
+              suburb: storeCtx.suburb || null,
+              canonicalUrl: storeCtx.canonicalUrl || null,
               // Explicit: no prices in projection unless listed on item
               pricePolicy: 'Do not invent prices. Only hasListedPrice flags exist.',
             },
