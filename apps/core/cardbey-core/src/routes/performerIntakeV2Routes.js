@@ -34,6 +34,11 @@ import {
   tryStoreCreateFastPath,
 } from '../lib/intent/storeCreateFastPath.js';
 import { resolveIntakeOrchestrationDispatch } from '../lib/intent/campaignOrchestrationIntent.js';
+import {
+  isInvoiceIntent,
+  isInvoiceMultiAgentIntent,
+} from '../lib/intent/accountingOrchestrationIntent.js';
+import { dispatchSingleAgentInvoice } from '../lib/intake/accountingDispatch.js';
 import { resolveIntakeShortcutContext } from '../lib/intake/intakeShortcutContext.js';
 import {
   buildCreateStoreDraftIntakeResponseFromUpload,
@@ -3179,6 +3184,61 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       userMessage,
       locale,
       cardbeyTraceId,
+    });
+  }
+
+  // Accounting Documents — single-agent / direct tool fast-path (Orders & Invoices surface).
+  // Multi-agent month-end already routed above via isInvoiceMultiAgentIntent → multi_agent.
+  if (isInvoiceIntent(userMessage) && !isInvoiceMultiAgentIntent(userMessage)) {
+    const accountingStoreId = String(
+      currentContext?.activeStoreId ||
+        currentContext?.storeId ||
+        body.storeId ||
+        body.currentContext?.storeId ||
+        '',
+    ).trim();
+    const surface =
+      currentContext?.surface ||
+      body.surfaceContext?.surface ||
+      body.currentContext?.surface ||
+      null;
+    const accountingResult = await dispatchSingleAgentInvoice({
+      prompt: userMessage,
+      storeId: accountingStoreId,
+      userId: performerIntakeV2ActorId(req),
+      surfaceContext: {
+        surface: surface || 'orders_accounting',
+        ...(body.surfaceContext && typeof body.surfaceContext === 'object' ? body.surfaceContext : {}),
+        ...(currentContext && typeof currentContext === 'object' ? { fromContext: true } : {}),
+      },
+      missionId: body.missionId || null,
+      storeKnowledge: currentContext?.storeKnowledge || null,
+    });
+    const toolOut = accountingResult?.result || {};
+    const summaryText =
+      toolOut?.message ||
+      (toolOut?.type === 'invoice_summary'
+        ? `Invoice summary: ${toolOut.total ?? 0} documents, ${toolOut.overdueCount ?? 0} overdue.`
+        : toolOut?.type === 'chase_email_draft'
+          ? `Chase email drafted for ${toolOut.buyerName || 'customer'} (not sent).`
+          : toolOut?.type === 'invoice_report'
+            ? 'Invoice report ready.'
+            : toolOut?.type === 'overdue_invoices'
+              ? `${toolOut.count ?? 0} overdue invoice(s).`
+              : toolOut?.type === 'invoice_list'
+                ? `${toolOut.count ?? 0} document(s).`
+                : 'Accounting tool completed.');
+    return res.json({
+      success: toolOut?.ok !== false,
+      action: 'tool_result',
+      tool: accountingResult.tool,
+      type: 'tool_result',
+      response: summaryText,
+      result: toolOut,
+      artifact: toolOut?.type
+        ? { type: toolOut.type, payload: toolOut }
+        : null,
+      surface: surface || 'orders_accounting',
     });
   }
 

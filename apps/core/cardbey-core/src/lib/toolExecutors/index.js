@@ -182,6 +182,12 @@ import {
   issue_quote,
   issue_invoice,
   send_document,
+  list_accounting_documents,
+  list_invoices,
+  get_invoice_summary,
+  flag_overdue_invoices,
+  draft_chase_email,
+  generate_invoice_report,
 } from './accounting/index.js';
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
@@ -408,6 +414,12 @@ export const executors = {
   issue_quote,
   issue_invoice,
   send_document,
+  list_accounting_documents,
+  list_invoices,
+  get_invoice_summary,
+  flag_overdue_invoices,
+  draft_chase_email,
+  generate_invoice_report,
   update_order: phase2Business.update_order,
   transfer_inventory: phase2Business.transfer_inventory,
   refund_order: phase2Business.refund_order,
