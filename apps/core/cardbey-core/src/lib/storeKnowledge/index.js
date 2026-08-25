@@ -13,7 +13,11 @@ export {
   preferProvenanced,
 } from './provenance.js';
 
-export { SKP_VERSION, initialSkpVisibilityFlags } from './StoreKnowledgeProjection.js';
+export {
+  SKP_VERSION,
+  initialSkpVisibilityFlags,
+  resolveSkpVisibilityFlags,
+} from './StoreKnowledgeProjection.js';
 
 export {
   buildSKP,

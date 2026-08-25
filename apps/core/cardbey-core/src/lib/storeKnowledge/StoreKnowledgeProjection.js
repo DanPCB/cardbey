@@ -114,10 +114,29 @@
 
 export const SKP_VERSION = 1;
 
-/** Visibility flags that stay false until later phase gates pass. */
-export function initialSkpVisibilityFlags() {
+/**
+ * Resolve SKP visibility flags from crawlability + feature gates.
+ * aiSearchReady requires Phase 2 crawlable SKP + Phase 3 attributionV1.
+ * @param {{ indexable: boolean, jsonLdReady: boolean, attributionEnabled?: boolean }} args
+ */
+export function resolveSkpVisibilityFlags({
+  indexable,
+  jsonLdReady,
+  attributionEnabled = false,
+}) {
+  const canIndex = Boolean(indexable);
+  const ld = Boolean(jsonLdReady);
   return {
-    sitemapIncluded: false, // Phase 2
-    aiSearchReady: false, // Phase 3+ attribution required
+    sitemapIncluded: canIndex, // Phase 2: published stores in sitemap-stores.xml
+    aiSearchReady: Boolean(canIndex && ld && attributionEnabled),
   };
+}
+
+/** @deprecated Prefer resolveSkpVisibilityFlags — kept for callers that need defaults. */
+export function initialSkpVisibilityFlags() {
+  return resolveSkpVisibilityFlags({
+    indexable: false,
+    jsonLdReady: false,
+    attributionEnabled: false,
+  });
 }

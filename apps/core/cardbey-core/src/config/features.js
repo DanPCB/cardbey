@@ -826,6 +826,34 @@ export const Features = {
       return readNonProductionFlag('ENABLE_ACCOUNTING_DOCUMENTS_V1');
     },
   },
+
+  /**
+   * Marketing operator + attribution spine.
+   * Default OFF. Visit ingest + admin marketing ops mount only when v1 is on.
+   * attributionV1 additionally gates SKP visibility.aiSearchReady (with crawlable SKP).
+   */
+  marketingOperator: {
+    get v1() {
+      return parseBoolEnv(process.env.ENABLE_MARKETING_OPERATOR_V1, false);
+    },
+    get attributionV1() {
+      if (!Features.marketingOperator.v1) return false;
+      return parseBoolEnv(process.env.ENABLE_MARKETING_ATTRIBUTION_V1, false);
+    },
+    get livePublishingV1() {
+      if (!Features.marketingOperator.v1) return false;
+      return parseBoolEnv(process.env.ENABLE_MARKETING_LIVE_PUBLISHING_V1, false);
+    },
+    get autoScheduleV1() {
+      if (!Features.marketingOperator.v1) return false;
+      return parseBoolEnv(process.env.ENABLE_MARKETING_AUTO_SCHEDULE_V1, false);
+    },
+    get approvalWorkflowV1() {
+      if (!Features.marketingOperator.v1) return false;
+      return parseBoolEnv(process.env.ENABLE_MARKETING_APPROVAL_WORKFLOW_V1, true);
+    },
+  },
+
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -1023,6 +1051,13 @@ export function snapshotFeatures() {
     },
     accountingDocuments: {
       v1: Features.accountingDocuments.v1,
+    },
+    marketingOperator: {
+      v1: Features.marketingOperator.v1,
+      attributionV1: Features.marketingOperator.attributionV1,
+      livePublishingV1: Features.marketingOperator.livePublishingV1,
+      autoScheduleV1: Features.marketingOperator.autoScheduleV1,
+      approvalWorkflowV1: Features.marketingOperator.approvalWorkflowV1,
     },
   };
 }

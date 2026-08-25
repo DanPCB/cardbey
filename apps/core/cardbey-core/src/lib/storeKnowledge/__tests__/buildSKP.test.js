@@ -6,6 +6,7 @@ import {
   buildSKPFromSources,
   skpToPublicDto,
   skpToJsonLd,
+  resolveSkpVisibilityFlags,
 } from '../index.js';
 
 function baseBusiness(overrides = {}) {
@@ -53,6 +54,27 @@ describe('storeKnowledge provenance maps', () => {
   });
 });
 
+describe('resolveSkpVisibilityFlags', () => {
+  it('sets sitemapIncluded when indexable (Phase 2)', () => {
+    const v = resolveSkpVisibilityFlags({
+      indexable: true,
+      jsonLdReady: true,
+      attributionEnabled: false,
+    });
+    expect(v.sitemapIncluded).toBe(true);
+    expect(v.aiSearchReady).toBe(false);
+  });
+
+  it('sets aiSearchReady only when crawlable + attribution enabled', () => {
+    const v = resolveSkpVisibilityFlags({
+      indexable: true,
+      jsonLdReady: true,
+      attributionEnabled: true,
+    });
+    expect(v.aiSearchReady).toBe(true);
+  });
+});
+
 describe('buildSKPFromSources', () => {
   it('builds SKP from a published store', () => {
     const skp = buildSKPFromSources({ business: baseBusiness() });
@@ -60,8 +82,9 @@ describe('buildSKPFromSources', () => {
     expect(skp.identity.storeId).toBe('biz_test_1');
     expect(skp.identity.slug).toBe('demo-cafe');
     expect(skp.visibility.canonicalUrl).toContain('/s/demo-cafe');
-    expect(skp.visibility.aiSearchReady).toBe(false);
-    expect(skp.visibility.sitemapIncluded).toBe(false);
+    expect(skp.visibility.aiSearchReady).toBe(false); // attributionV1 off by default
+    expect(skp.visibility.sitemapIncluded).toBe(true); // Phase 2: indexable → sitemap
+    expect(skp.visibility.jsonLdReady).toBe(true);
   });
 
   it('assigns SELLER_CONFIRMED for claimed owner stores', () => {
