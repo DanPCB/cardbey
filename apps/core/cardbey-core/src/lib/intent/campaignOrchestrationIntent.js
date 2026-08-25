@@ -1,4 +1,22 @@
 /**
+ * DATA FLOW MAP — Multi-Agent Capability E2E (Phase 1 first change)
+ *
+ * User prompt
+ *   → POST /api/performer/intake[/v2]  (V1 shims into V2 — one handler stack)
+ *   → resolveIntakeOrchestrationDispatch({ missionType, userMessage })
+ *        1) explicit body.missionType multi_agent | campaign_orchestration
+ *        2) NL multi-agent keywords
+ *        3) isCampaignOrchestrationIntent(NL) → campaign_orchestration
+ *   → dispatchOrchestrationMissionFromIntake → unifiedDispatch (confirm-gated)
+ *   → missionPipelineRunner → AgentCoordinator.orchestrate()
+ *   → MissionBlackboard + campaign package → MultiAgentMissionCard
+ *
+ * Non-orchestration campaign NL still uses create_campaign checkpoint.
+ * decideTurn.js: already removed. /api/performer/turn: reason-only (no missions).
+ * verify/learn + SKP-in-coordinator: later phases.
+ */
+
+/**
  * Campaign phrase detection — shared by IntentReasoner and intake routing.
  */
 
@@ -42,6 +60,42 @@ function hasCampaignActionVerb(text) {
 /** @param {string | null | undefined} message */
 export function isCampaignOrchestrationIntent(message) {
   return CAMPAIGN_ORCHESTRATION_PATTERNS.some((p) => p.test(message ?? ''));
+}
+
+/**
+ * Explicit multi-agent phrasing (not every campaign).
+ * @param {string | null | undefined} message
+ */
+export function isMultiAgentIntent(message) {
+  const text = String(message ?? '').trim();
+  if (!text) return false;
+  return /\bmulti[-\s]?agent\b/i.test(text);
+}
+
+/**
+ * Single intake resolution for orchestration dispatch.
+ * Prefer explicit missionType; else NL multi-agent; else campaign orchestration phrases.
+ *
+ * @param {{
+ *   missionType?: string | null;
+ *   userMessage?: string | null;
+ * }} input
+ * @returns {'multi_agent' | 'campaign_orchestration' | null}
+ */
+export function resolveIntakeOrchestrationDispatch(input = {}) {
+  const rawType = String(input.missionType ?? '').trim();
+  if (rawType === 'multi_agent' || rawType === 'campaign_orchestration') {
+    return rawType;
+  }
+
+  const text = String(input.userMessage ?? '').trim();
+  if (!text || isInformationalCampaignQuestion(text)) return null;
+
+  if (isMultiAgentIntent(text)) return 'multi_agent';
+  if (isCampaignOrchestrationIntent(text) && hasCampaignActionVerb(text)) {
+    return 'campaign_orchestration';
+  }
+  return null;
 }
 
 /**
