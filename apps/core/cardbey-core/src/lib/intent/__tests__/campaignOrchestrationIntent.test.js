@@ -66,6 +66,14 @@ describe('resolveIntakeOrchestrationDispatch (Phase 1)', () => {
     ).toBe('multi_agent');
   });
 
+  it('routes invoice month-end NL to multi_agent', () => {
+    expect(
+      resolveIntakeOrchestrationDispatch({
+        userMessage: 'Do the end of month invoice close',
+      }),
+    ).toBe('multi_agent');
+  });
+
   it('leaves simple create_campaign phrasing to legacy checkpoint path', () => {
     expect(detectCampaignCreationIntent('Create a campaign')).toBe(true);
     expect(
