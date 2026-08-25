@@ -33,6 +33,7 @@ import {
   shouldBlockServiceRequestForStoreCreate,
   tryStoreCreateFastPath,
 } from '../lib/intent/storeCreateFastPath.js';
+import { resolveIntakeOrchestrationDispatch } from '../lib/intent/campaignOrchestrationIntent.js';
 import { resolveIntakeShortcutContext } from '../lib/intake/intakeShortcutContext.js';
 import {
   buildCreateStoreDraftIntakeResponseFromUpload,
@@ -3167,10 +3168,15 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     intentSourceContext,
   });
 
-  // Multi-agent orchestration — unified dispatch (confirmation-gated)
-  if (body.missionType === 'multi_agent' || body.missionType === 'campaign_orchestration') {
+  // Multi-agent / campaign orchestration — unified dispatch (confirmation-gated).
+  // Phase 1: resolve from explicit missionType OR NL fast-path (not create_campaign legacy).
+  const orchestrationDispatchType = resolveIntakeOrchestrationDispatch({
+    missionType: body.missionType,
+    userMessage,
+  });
+  if (orchestrationDispatchType) {
     return dispatchOrchestrationMissionFromIntake(req, res, {
-      dispatchType: body.missionType,
+      dispatchType: orchestrationDispatchType,
       body,
       currentContext,
       userMessage,
@@ -7410,11 +7416,28 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     if (loyaltyResponded) return loyaltyResponded;
   }
 
-  // ── proactive_plan ─────────────────────────────────────────────────────────
+  // ── proactive_plan / create_campaign ───────────────────────────────────────
+  // If the classifier chose create_campaign but NL is orchestration-grade,
+  // prefer campaign_orchestration (still confirmation-gated via unifiedDispatch).
   if (
     (classification.executionPath === 'kernel_dispatch' && classification.tool === 'create_campaign') ||
     (classification.executionPath === 'proactive_plan' && isCampaignCheckpointKernelTool(classification.tool))
   ) {
+    const lateOrchestration = resolveIntakeOrchestrationDispatch({
+      missionType: null,
+      userMessage: originalGoal || userMessage,
+    });
+    if (lateOrchestration === 'campaign_orchestration' || lateOrchestration === 'multi_agent') {
+      return dispatchOrchestrationMissionFromIntake(req, res, {
+        dispatchType: lateOrchestration,
+        body,
+        currentContext,
+        userMessage: originalGoal || userMessage,
+        locale,
+        cardbeyTraceId,
+      });
+    }
+
     const classifiedActorId = performerIntakeV2ActorId(req);
     const classifiedUser = performerIntakeV2UserLike(req);
     const prismaClassified = getPrismaClient();
