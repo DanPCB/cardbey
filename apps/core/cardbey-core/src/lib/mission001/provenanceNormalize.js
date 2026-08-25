@@ -1,6 +1,11 @@
 /**
  * Mission 001 Gate 4 — normalize provenance on catalog products.
+ *
+ * Also attaches `skpProvenance` (Store Knowledge Projection tag) so catalog
+ * rows can feed the canonical SKP without inventing a second knowledge base.
  */
+
+import { mapMission001StatusToSkp } from '../storeKnowledge/provenance.js';
 
 export const PROVENANCE_STATUS = Object.freeze({
   REAL: 'REAL',
@@ -71,14 +76,19 @@ export function attachNormalizedProvenanceToCatalog(catalog) {
   const nextProducts = products.map((p) => {
     if (!p || typeof p !== 'object') return p;
     const status = inferProvenanceStatus(p, meta);
+    const skpProvenance = mapMission001StatusToSkp(status, {
+      ownerConfirmed: meta.ownerConfirmed === true,
+    });
     return {
       ...p,
       provenanceStatus: status,
+      skpProvenance,
       provenance:
         p.provenance && typeof p.provenance === 'object'
-          ? { ...p.provenance, status }
+          ? { ...p.provenance, status, skpProvenance }
           : {
               status,
+              skpProvenance,
               source: p.sourceType ?? meta.catalogSource ?? 'unknown',
               confidence: Number(p.confidence) || null,
             },
