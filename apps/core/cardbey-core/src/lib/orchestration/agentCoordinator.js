@@ -8,6 +8,8 @@ import { loadAgentClass } from './agentLoader.js';
 import { evaluateWave } from './spawnPolicy.js';
 import { loadStoreKnowledgeForAgents } from './storeKnowledgeForAgents.js';
 import { withAgentRetry } from './agentRetry.js';
+import { runVerifyStep } from './verifyStep.js';
+import { scheduleLearnStep } from './learnStep.js';
 import {
   createStore as createRuntimeStore,
   getStore as getRuntimeStore,
@@ -529,7 +531,52 @@ Return JSON only as an array.`,
         }),
     );
 
-    return this.mergeResults();
+    const merged = this.mergeResults();
+    const artifacts = Object.values(merged)
+      .map((envelope) => {
+        const r = envelope?.result;
+        if (!r || typeof r !== 'object') {
+          return {
+            type: envelope?.agentType ?? 'unknown',
+            summary: envelope?.summary,
+            result: r,
+          };
+        }
+        return {
+          type: r.type ?? envelope?.agentType ?? 'agent_result',
+          content: r.content,
+          url: r.url ?? r.graphicUrl ?? r.artifactUrl,
+          graphicUrl: r.graphicUrl,
+          artifactUrl: r.artifactUrl,
+          summary: envelope?.summary,
+          result: r,
+        };
+      })
+      .filter(Boolean);
+
+    let verifyResult = { passed: false, score: 0, issues: ['verify_skipped'] };
+    try {
+      verifyResult = await runVerifyStep({
+        missionId: this.missionId,
+        brief: String(goal ?? ''),
+        artifacts,
+        storeKnowledge: this.baseContext.storeKnowledge ?? null,
+        blackboard: this.blackboard,
+      });
+    } catch (err) {
+      console.warn('[AgentCoordinator] verifyStep failed (non-fatal):', err?.message ?? err);
+    }
+
+    scheduleLearnStep({
+      missionId: this.missionId,
+      storeId: this.baseContext.storeId ?? this.baseContext.targetId ?? null,
+      brief: String(goal ?? ''),
+      verifyResult,
+      artifacts,
+      blackboard: this.blackboard,
+    });
+
+    return merged;
   }
 
   mergeResults() {
