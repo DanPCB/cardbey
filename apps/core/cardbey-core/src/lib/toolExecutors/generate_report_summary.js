@@ -1,10 +1,6 @@
 /**
  * generate_report_summary — deterministic report bullets from analytics (Round 3).
  * DANH: skill-round3-analytics
- *
- * AUDIT:
- * - generate_report_summary: not found
- * - market_research / analyze_offer_performance: found — different domains (market/offer)
  */
 
 /**
@@ -66,6 +62,36 @@ export function buildReportSummary(analytics) {
 }
 
 /**
+ * @param {Record<string, unknown>} analytics
+ * @param {{ strengths: string[], gaps: string[], topAction: string }} summary
+ */
+export function formatAnalyticsReportMarkdown(analytics, summary) {
+  const name = analytics.storeName ?? analytics.storeSlug ?? analytics.storeId ?? 'Store';
+  const lines = [
+    `# Store Performance Report — ${name}`,
+    '',
+    `Window: last ${analytics.windowDays ?? 30} days`,
+    '',
+    '## Snapshot',
+    `- Bookings: ${analytics.bookingCount ?? 0}`,
+    `- Products: ${analytics.productCount ?? 0}`,
+    `- Active promos: ${analytics.activePromos ?? 0}`,
+    `- Campaign reach (promo scans): ${analytics.campaignReach ?? 0}`,
+    `- Product views: ${analytics.productViews ?? 0}`,
+    '',
+    '## Strengths',
+    ...(summary.strengths?.length ? summary.strengths.map((s) => `- ${s}`) : ['- None noted']),
+    '',
+    '## Gaps',
+    ...(summary.gaps?.length ? summary.gaps.map((g) => `- ${g}`) : ['- None noted']),
+    '',
+    `## Top action`,
+    summary.topAction ?? 'Review store health this week',
+  ];
+  return lines.join('\n');
+}
+
+/**
  * @param {object} [input]
  * @param {object} [_context]
  */
@@ -80,16 +106,23 @@ export async function execute(input = {}, _context = {}) {
   }
 
   const summary = buildReportSummary(analytics);
+  const content = formatAnalyticsReportMarkdown(analytics, summary);
 
   // @pure-transform: deterministic transform of analytics input; no DB/API side effects by design.
   return {
     status: 'ok',
+    type: 'analytics_report',
+    content,
     output: {
       ok: true,
       summary,
       strengths: summary.strengths,
       gaps: summary.gaps,
       topAction: summary.topAction,
+      type: 'analytics_report',
+      title: 'Store Performance Report',
+      format: 'markdown',
+      content,
     },
   };
 }
