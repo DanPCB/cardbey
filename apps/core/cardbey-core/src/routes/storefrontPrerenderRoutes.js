@@ -3,8 +3,7 @@
  *
  * GET /s/:slug
  * - Crawler UAs or ?_prerender=1 → SKP-backed HTML (canonical, OG, JSON-LD)
- * - Normal browsers → 404 JSON with X-Cardbey-Prerender: skip
- *   (dashboard SPA remains the human storefront host)
+ * - Normal browsers / missing store → next() so SPA (or downstream) can handle UI
  */
 
 import express from 'express';
@@ -97,22 +96,20 @@ export function renderStoreHtml(skp) {
 
 router.get('/:slug', async (req, res, next) => {
   try {
+    // Humans / non-crawlers: fall through to SPA (or Core 404 if no SPA).
     if (!isBotRequest(req)) {
       res.setHeader('X-Cardbey-Prerender', 'skip');
-      return res.status(404).json({
-        ok: false,
-        prerender: false,
-        message:
-          'Storefront HTML prerender is for crawlers; use the Cardbey web app for browsing.',
-      });
+      return next();
     }
 
     const slug = String(req.params.slug || '').trim();
-    if (!slug) return res.status(404).send('Not found');
+    if (!slug) return next();
 
     const skp = await buildSKPBySlug(slug);
-    if (!skp || !skp.visibility.indexable) {
-      return res.status(404).send('Store not found');
+    // Missing / not indexable: fall through (SPA 404 UI) — never JSON 404 here.
+    if (!skp || !skp.visibility?.indexable) {
+      res.setHeader('X-Cardbey-Prerender', 'miss');
+      return next();
     }
 
     const html = renderStoreHtml(skp);
