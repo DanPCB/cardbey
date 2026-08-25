@@ -347,6 +347,49 @@ export async function buildSKP(storeId, opts = {}) {
   });
 }
 
+/**
+ * Load by public slug (normalized lowercase).
+ * @param {string} slug
+ * @param {{ prisma?: any, boiSnapshot?: object|null, mission001?: object|null }} [opts]
+ */
+export async function buildSKPBySlug(slug, opts = {}) {
+  const normalized = String(slug || '').trim().toLowerCase();
+  if (!normalized) return null;
+
+  let prisma = opts.prisma;
+  if (!prisma) {
+    const mod = await import('../prisma.js');
+    prisma = mod.prisma || mod.default || (await mod.getPrismaClient?.());
+  }
+  if (!prisma?.business?.findFirst) return null;
+
+  const business = await prisma.business.findFirst({
+    where: { slug: normalized },
+    include: {
+      publishedArtifactProjection: true,
+      products: {
+        where: { isPublished: true },
+        take: 200,
+        select: { id: true, name: true },
+      },
+    },
+  });
+  if (!business) return null;
+
+  const artifactRow = business.publishedArtifactProjection;
+  const artifact =
+    artifactRow?.projectionJson && typeof artifactRow.projectionJson === 'object'
+      ? artifactRow.projectionJson
+      : null;
+
+  return buildSKPFromSources({
+    business,
+    artifact,
+    boiSnapshot: opts.boiSnapshot ?? null,
+    mission001: opts.mission001 ?? null,
+  });
+}
+
 export function skpToPublicDto(skp) {
   if (!skp) return null;
   return {

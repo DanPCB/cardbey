@@ -214,6 +214,8 @@ import storeEngagementRoutes from './routes/storeEngagementRoutes.js';
 import publicStoreRoutes from './routes/publicStoreRoutes.js';
 import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
+import storefrontPrerenderRoutes from './routes/storefrontPrerenderRoutes.js';
+import storefrontSitemapRoutes from './routes/storefrontSitemapRoutes.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
@@ -627,9 +629,17 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/robots.txt', (_req, res) => {
+  const publicOrigin = (
+    process.env.PUBLIC_APP_URL ||
+    process.env.DASHBOARD_URL ||
+    'https://cardbey.com'
+  ).replace(/\/+$/, '');
   res.type('text/plain').send(
     [
       'User-agent: *',
+      'Allow: /s/',
+      'Allow: /p/',
+      'Allow: /sitemap-stores.xml',
       'Disallow: /api/',
       'Disallow: /api/stream',
       'Disallow: /api/performer/',
@@ -638,6 +648,9 @@ app.get('/robots.txt', (_req, res) => {
       '',
       'User-agent: PetalBot',
       'Disallow: /',
+      '',
+      `Sitemap: ${publicOrigin}/sitemap.xml`,
+      `Sitemap: ${publicOrigin}/sitemap-stores.xml`,
     ].join('\n'),
   );
 });
@@ -1237,6 +1250,8 @@ app.use('/api/smart-objects', smartObjectsRoutes); // Smart Object: create, get 
 app.use('/api/qr', qrRoutes); // Dynamic QR v0: POST create, GET :code/resolve, PATCH :code
 app.use('/q', qRedirect); // GET /q/:code — 302 redirect, record ScanEvent + IntentSignal (no auth)
 app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug — public offer page (no auth)
+app.use('/s', storefrontPrerenderRoutes); // GET /s/:slug — bot/social prerender HTML (SKP + JSON-LD)
+app.use(storefrontSitemapRoutes); // GET /sitemap-stores.xml — published store URLs
 app.use('/api/docs', smartDocumentRoutes); // Smart documents + suitcase list: GET/POST /api/docs
 app.use('/api/suitcase', skillSuitcaseRoutes); // DANH: suitcase-skill-output — skill reports + mission history
 app.use('/api/suitcase', suitcaseItemRoutes); // Phase 10 — account knowledge vault items CRUD
