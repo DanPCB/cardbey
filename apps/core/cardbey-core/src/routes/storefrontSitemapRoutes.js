@@ -6,15 +6,14 @@
 
 import express from 'express';
 import { prisma } from '../lib/prisma.js';
-import { publicWebBase } from '../utils/publicWebBase.js';
+import { publicCanonicalWebBase } from '../utils/publicWebBase.js';
 import { isPublicFeedEligibleBusiness } from '../utils/publicStoreVisibility.js';
 
 const router = express.Router();
 const MAX_URLS = 50000;
 
 function origin() {
-  const base = publicWebBase() || process.env.PUBLIC_APP_URL || process.env.DASHBOARD_URL || '';
-  return String(base).replace(/\/+$/, '') || 'https://cardbey.com';
+  return publicCanonicalWebBase();
 }
 
 function xmlEscape(s) {

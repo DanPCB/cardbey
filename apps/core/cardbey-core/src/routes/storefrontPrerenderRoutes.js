@@ -12,7 +12,7 @@ import {
   skpToJsonLd,
   skpToPublicDto,
 } from '../lib/storeKnowledge/index.js';
-import { publicWebBase } from '../utils/publicWebBase.js';
+import { publicCanonicalWebBase } from '../utils/publicWebBase.js';
 
 const router = express.Router();
 
@@ -36,8 +36,7 @@ function escapeHtml(s) {
 }
 
 function publicOrigin() {
-  const base = publicWebBase() || process.env.PUBLIC_APP_URL || process.env.DASHBOARD_URL || '';
-  return String(base).replace(/\/+$/, '') || 'https://cardbey.com';
+  return publicCanonicalWebBase();
 }
 
 export function renderStoreHtml(skp) {
