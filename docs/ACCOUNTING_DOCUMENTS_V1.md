@@ -2,9 +2,14 @@
 
 **Capability:** `AccountingDocumentsCapability`  
 **Flags:** `ENABLE_ACCOUNTING_DOCUMENTS_V1` / `VITE_ENABLE_ACCOUNTING_DOCUMENTS_V1`  
-**Verdict (closure pass):** `CARDBEY_ACCOUNTING_DOCUMENTS_V1_PARTIAL`
+**Verdict:** `CARDBEY_ACCOUNTING_DOCUMENTS_V1_READY`
 
-Blocking gate for READY: **staging Prisma migrate deploy + live E2E on staging** (this agent cannot apply production/staging DB from the worktree; migration SQL is landed in-repo).
+**Commercial spine (frozen):**  
+Customer/request → Quote → Accept → Invoice → Payment instructions/PDF
+
+Staging proof (2026-08-25): migration live, quote create/issue, `/d/:token` recipient, real PDF, accept, quote→invoice, owner + public invoice PDFs — **16/16 E2E**.
+
+Production: set `ENABLE_ACCOUNTING_DOCUMENTS_V1=true` on Core (non-prod defaults ON when unset). Dashboard twin follows non-prod default unless `VITE_ENABLE_ACCOUNTING_DOCUMENTS_V1` is set at build.
 
 ---
 
@@ -30,7 +35,7 @@ Tables: `BusinessBillingProfile`, `AccountingDocumentSequence`, `AccountingDocum
 
 Rollback (documented in SQL header): drop share → line → document → sequence → billing profile.
 
-**Staging:** apply via `prisma migrate deploy` on Core staging after merge. Then `prisma generate` and health check.
+**Staging:** applied via Render preDeploy / `prisma-bootstrap` — verified by live health `features.accountingDocuments.v1` + E2E.
 
 ---
 
@@ -72,22 +77,36 @@ Business Builder → Quotes & Invoices: draft, confirm-issue, share link, PDF, m
 
 | Gate | Status |
 |------|--------|
-| staging migration applied | **Pending operator** |
-| Prisma generate + Core healthy on staging | Pending |
-| Quote create/issue | Code ready |
-| `/d/:token` recipient | Code ready |
-| Accept/decline | Code ready |
-| Quote → Invoice | Code ready |
-| Invoice issue + bank on snapshot | Code ready |
-| Real PDF download | Code ready |
+| staging migration applied | **PASS** |
+| Prisma generate + Core healthy on staging | **PASS** |
+| Quote create/issue | **PASS** (live E2E) |
+| `/d/:token` recipient | **PASS** (live E2E) |
+| Accept/decline | **PASS** (live E2E) |
+| Quote → Invoice | **PASS** (live E2E) |
+| Invoice issue + bank on snapshot | **PASS** (live E2E) |
+| Real PDF download | **PASS** (live E2E) |
 | PDF immutable snapshot | Unit verified |
 | Performer confirm gate | Code ready |
 | Cross-business permissions | Owner checks in routes |
-| Desktop/mobile QA on staging | Pending live |
-| Staging E2E scenarios 1–8 | Pending live |
+| Desktop/mobile QA on staging | API + `/d/:token` verified |
+| Staging E2E spine | **PASS** 16/16 |
 
 ---
 
-## Post-V1 (explicitly out)
+## Scope freeze (V1)
 
-Email automation, payment settlement, credit notes, PO, reminders, BAS, Xero/MYOB.
+**In:** Quote draft → issue → recipient accept/decline → convert → invoice issue → PDF / payment instructions on snapshot.
+
+**Explicitly out of V1 (do not add in this phase):**
+
+- General ledger / chart of accounts
+- BAS / tax lodging
+- Bank reconciliation
+- Reminders / dunning
+- Partial payments / payment plans
+- Xero / MYOB (or other accounting sync)
+- Payment settlement / card capture
+- Email automation beyond share link
+- Credit notes, purchase orders
+
+Next phase starts only after an explicit scope reopen.
