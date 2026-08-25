@@ -1801,6 +1801,23 @@ model MissionBlackboard {
   @@index([correlationId])
 }
 
+/// Multi-agent learn step persistence (additive; does not touch Business/Seed/User).
+model BusinessLearning {
+  id           String   @id @default(cuid())
+  storeId      String
+  missionId    String
+  capability   String
+  outcome      String
+  score        Int
+  briefSummary String?
+  issues       String?
+  learnedAt    DateTime @default(now())
+
+  @@index([storeId, capability])
+  @@index([storeId, learnedAt])
+  @@index([missionId])
+}
+
 // M1.5 Single Runway: durable Mission Inbox. Outcome UIs create intents here; only Mission Execution runs orchestrator.
 // type = user intent (e.g. rewrite_descriptions, generate_tags). agent = orchestrator target (e.g. CopyAgent, CatalogAgent) for M3.
 model IntentRequest {

@@ -1,14 +1,14 @@
 /**
- * Learn step — persist mission outcomes for future agent context (Phase 6).
+ * Learn step — persist mission outcomes for future agent context.
  *
- * There is no BusinessContextService in this repo. Learnings are written to a
- * JSON sidecar under data/orchestration/missionLearnings (not Business / Seed / User).
- * Fire-and-forget from the coordinator critical path.
+ * Prefers Prisma BusinessLearning when available; falls back to JSON sidecar.
+ * Never writes Business / BusinessSeed / User. Fire-and-forget via scheduleLearnStep.
  */
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getPrismaClient } from '../prisma.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -58,12 +58,43 @@ export async function runLearnStep(context = {}) {
     learnedAt: new Date().toISOString(),
   };
 
-  try {
-    await fs.mkdir(LEARNINGS_DIR, { recursive: true });
-    const file = path.join(LEARNINGS_DIR, `${missionId}.json`);
-    await fs.writeFile(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
-  } catch (err) {
-    console.warn('[learnStep] sidecar write failed (non-fatal):', err?.message ?? err);
+  // Prefer Prisma persistence when model + storeId exist.
+  if (storeId) {
+    try {
+      const prisma = getPrismaClient();
+      if (prisma?.businessLearning?.create) {
+        await prisma.businessLearning.create({
+          data: {
+            storeId,
+            missionId,
+            capability: record.capability,
+            outcome: record.outcome,
+            score: record.score,
+            briefSummary: record.briefSummary || null,
+            issues: record.issues.length ? JSON.stringify(record.issues) : null,
+          },
+        });
+      } else {
+        throw new Error('businessLearning model unavailable');
+      }
+    } catch (err) {
+      console.warn('[learnStep] Prisma persist failed, using sidecar:', err?.message ?? err);
+      try {
+        await fs.mkdir(LEARNINGS_DIR, { recursive: true });
+        const file = path.join(LEARNINGS_DIR, `${missionId}.json`);
+        await fs.writeFile(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+      } catch (sidecarErr) {
+        console.warn('[learnStep] sidecar write failed (non-fatal):', sidecarErr?.message ?? sidecarErr);
+      }
+    }
+  } else {
+    try {
+      await fs.mkdir(LEARNINGS_DIR, { recursive: true });
+      const file = path.join(LEARNINGS_DIR, `${missionId}.json`);
+      await fs.writeFile(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+    } catch (err) {
+      console.warn('[learnStep] sidecar write failed (non-fatal):', err?.message ?? err);
+    }
   }
 
   if (context.blackboard?.appendEvent && missionId !== 'unknown') {
