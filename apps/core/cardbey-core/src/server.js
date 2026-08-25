@@ -192,6 +192,10 @@ import {
 import activityMatrixRoutes from './routes/activityMatrixRoutes.js';
 import controlCenterActivityMatrixRoutes from './routes/controlCenterActivityMatrixRoutes.js';
 import { serviceCatalogPublicRoutes, quoteRequestOwnerRoutes } from './routes/serviceCatalogRoutes.js';
+import {
+  accountingDocumentsOwnerRoutes,
+  accountingDocumentsPublicRoutes,
+} from './routes/accountingDocumentsRoutes.js';
 import { bookingOwnerRoutes } from './routes/bookingOwnerRoutes.js';
 import { paymentRoutes, journeyPaymentRoutes, paymentOwnerRoutes } from './routes/paymentRoutes.js';
 import { handleStripeWebhook } from './lib/payments/paymentWebhookService.js';
@@ -1103,6 +1107,8 @@ app.use('/api/business-studio/stores/:storeId/readiness', createBusinessStudioRe
 app.use('/api/business/insights', activityMatrixRoutes); // User Activity Matrix (store owner)
 app.use('/api/control-center/activity-matrix', controlCenterActivityMatrixRoutes); // Platform-wide matrix (admin)
 app.use('/api/stores/:storeId/quote-requests', quoteRequestOwnerRoutes); // Owner quote request management
+app.use('/api/stores/:storeId/accounting', accountingDocumentsOwnerRoutes); // Accounting Documents V1
+app.use('/api/public', accountingDocumentsPublicRoutes); // Opaque share tokens for Quote/Invoice
 app.use('/api/stores/:storeId/bookings', bookingOwnerRoutes); // Owner bookings + payment status
 app.use('/api/stores/:storeId/payments', paymentOwnerRoutes); // Owner payment list
 app.use('/claim-business', claimBusinessPublicRoutes); // Public claim preview for ingestion seeds
