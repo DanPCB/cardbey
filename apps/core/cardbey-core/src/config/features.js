@@ -714,6 +714,19 @@ export const Features = {
     },
   },
 
+  /**
+   * Phase 5 AI visibility surfaces — default OFF.
+   * citationProbesV1 / virtualKolV1 must stay off until production SSR + attribution verified.
+   */
+  visibility: {
+    get citationProbesV1() {
+      return parseBoolEnv(process.env.ENABLE_CITATION_PROBES_V1, false);
+    },
+    get virtualKolV1() {
+      return parseBoolEnv(process.env.ENABLE_VIRTUAL_KOL_V1, false);
+    },
+  },
+
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -894,6 +907,10 @@ export function snapshotFeatures() {
       livePublishingV1: Features.marketingOperator.livePublishingV1,
       autoScheduleV1: Features.marketingOperator.autoScheduleV1,
       approvalWorkflowV1: Features.marketingOperator.approvalWorkflowV1,
+    },
+    visibility: {
+      citationProbesV1: Features.visibility.citationProbesV1,
+      virtualKolV1: Features.visibility.virtualKolV1,
     },
   };
 }
