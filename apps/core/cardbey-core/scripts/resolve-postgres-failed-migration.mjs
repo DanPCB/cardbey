@@ -11,6 +11,7 @@
  */
 import '../src/env/ensureDatabaseUrl.js';
 import { execSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -22,6 +23,7 @@ import {
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const schemaPath = resolvePrismaSchemaPath(root);
 const dbUrl = pickDatabaseUrlForPrisma();
+const clientGenIndex = path.join(root, 'node_modules', '.prisma', 'client-gen', 'index.js');
 
 if (!isPostgresDatabaseUrl(dbUrl)) {
   console.log('[resolve-postgres-failed] not postgres — skipping');
@@ -135,12 +137,32 @@ function resolveRolledBack(migrationName) {
   }
 }
 
-async function main() {
+function ensurePrismaClientGenerated() {
+  if (fs.existsSync(clientGenIndex)) {
+    console.log('[resolve-postgres-failed] prisma client-gen already present — skip generate');
+    return;
+  }
+  console.log('[resolve-postgres-failed] generating prisma client for schema', schemaPath);
   execSync(`npx prisma generate --schema=${schemaPath}`, {
     stdio: 'inherit',
     env: prismaEnv(),
     shell: true,
   });
+}
+
+async function main() {
+  try {
+    ensurePrismaClientGenerated();
+  } catch (err) {
+    if (fs.existsSync(clientGenIndex)) {
+      console.warn(
+        '[resolve-postgres-failed] generate failed but client-gen exists — continuing:',
+        err?.message || err,
+      );
+    } else {
+      throw err;
+    }
+  }
 
   const explicitName = nameArg ? nameArg.split('=')[1].trim() : '';
   const fromStatus = listFailedMigrationNames();

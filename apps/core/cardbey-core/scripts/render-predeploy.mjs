@@ -50,12 +50,17 @@ async function main() {
     return;
   }
 
-  runStep('resolve-postgres-failed', 'resolve-postgres-failed-migration.mjs');
+  // Soft-fail: prisma-bootstrap already re-runs allowlisted P3009 resolve + migrate deploy.
+  // Hard-failing here left staging with "No open ports" when generate/resolve OOMs or exits 1.
+  runStep('resolve-postgres-failed', 'resolve-postgres-failed-migration.mjs', {
+    fatal: false,
+  });
   runStep('prisma-bootstrap', 'prisma-bootstrap.js');
   log(`[render-predeploy] done ${new Date().toISOString()}`);
 }
 
-function runStep(label, scriptName) {
+function runStep(label, scriptName, opts = {}) {
+  const fatal = opts.fatal !== false;
   const scriptPath = path.join(root, 'scripts', scriptName);
   log(`[render-predeploy] step=${label} script=${scriptName}`);
   const r = spawnSync(process.execPath, [scriptPath], {
@@ -64,7 +69,12 @@ function runStep(label, scriptName) {
     stdio: 'inherit',
   });
   if (r.status !== 0) {
-    fail(`[render-predeploy] FATAL: ${label} exited ${r.status ?? '?'}`);
+    const detail = `exited ${r.status ?? '?'} signal=${r.signal ?? 'none'} error=${r.error?.message ?? 'none'}`;
+    if (fatal) {
+      fail(`[render-predeploy] FATAL: ${label} ${detail}`);
+    }
+    console.warn(`[render-predeploy] WARN: ${label} ${detail} — continuing to next step`);
+    return;
   }
   log(`[render-predeploy] step=${label} ok`);
 }
