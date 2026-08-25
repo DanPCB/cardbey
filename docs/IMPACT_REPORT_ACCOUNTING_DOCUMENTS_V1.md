@@ -1,7 +1,8 @@
 # IMPACT REPORT — Accounting Documents V1 (Closure Pass)
 
 **Date:** 2026-08-25  
-**Pass:** Close PARTIAL → READY gates without expanding scope
+**Pass:** PARTIAL → **READY** (staging E2E closed)  
+**Verdict:** `CARDBEY_ACCOUNTING_DOCUMENTS_V1_READY`
 
 ## Changes in this pass
 
@@ -13,33 +14,25 @@
 6. Dashboard `/d/:token` recipient page + PDF/accept/decline
 7. Owner UI: PDF links + mobile stacked list cards
 
-## What could break
+## What could break (production promote)
 
-| Risk | Mitigation |
-|------|------------|
-| Staging migrate conflict | Additive-only SQL; rollback drops documented |
-| PDFkit missing in slim images | Already in package.json deps |
-| Token probing | Uniform `share_not_found`; min length 20 |
+| Risk | Why | Impact | Mitigation |
+|------|-----|--------|------------|
+| Migrate fail on prod Postgres | New tables/indexes | Core preDeploy / boot | Additive-only SQL; rollback drops documented |
+| Feature off on prod | `readNonProductionFlag` defaults OFF in `NODE_ENV=production` | Routes 404 until env set | Set `ENABLE_ACCOUNTING_DOCUMENTS_V1=true` on Core prod |
+| Dashboard missing UI | Vite flag / old submodule | No Quotes & Invoices / `/d/:token` | Release bumps submodule to `a2a8e2f1`; set twin flag if needed at build |
+| Unrelated staging delta | Full staging→main is ~195 commits / conflicts | Broad prod risk | **Focused** `release/accounting-documents-v1` cherry-pick only |
 
-## Staging migration evidence (required for READY)
+## Staging evidence (READY gate)
 
-Operator steps after merge of core PR:
+- Health: `features.accountingDocuments.v1: true`
+- Public probe: `share_not_found` (routes mounted)
+- E2E 16/16: draft → issue → `/d/:token` → accept → convert → issue invoice → owner/public PDF (`%PDF`)
 
-```bash
-cd apps/core/cardbey-core
-prisma migrate deploy   # postgres schema used on staging
-prisma generate
-# healthz / readiness
-```
+## Scope freeze
 
-Verify tables exist: BusinessBillingProfile, AccountingDocument, AccountingDocumentLine, AccountingDocumentShare, AccountingDocumentSequence.
+No ledger, BAS, reconciliation, reminders, partial payments, Xero/MYOB, or payment settlement in V1.
 
-Local empty-DB `migrate deploy` on sqlite fails on older migration history (unrelated `20260711080337_init`) — **do not** use empty sqlite as staging proof. Use staging postgres.
+## Smallest safe promote
 
-## Verdict
-
-`CARDBEY_ACCOUNTING_DOCUMENTS_V1_PARTIAL`
-
-**Exact blocking gate:** staging migration applied + staging E2E (scenarios 1–8) + desktop/mobile live QA.
-
-All code gates for PDF, recipient page, accept/decline, and snapshot immutability are implemented pending that deploy.
+Branch `release/accounting-documents-v1` ← cherry-pick of accounting commits onto `main` + READY docs (not full staging merge).
