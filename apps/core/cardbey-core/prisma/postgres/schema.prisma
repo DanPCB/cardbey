@@ -219,6 +219,10 @@ model Business {
   taxProfiles TaxProfile[]
   commerceBusinessSettings CommerceBusinessSettings?
   businessEvents BusinessEvent[]
+  businessBillingProfile BusinessBillingProfile?
+  accountingDocuments AccountingDocument[]
+  accountingDocumentSequences AccountingDocumentSequence[]
+  accountingDocumentShares AccountingDocumentShare[]
   storePromos StorePromo[]
   storeOffers StoreOffer[]
   personalPresenceOwner User? @relation("PersonalPresenceStore")
@@ -5093,6 +5097,136 @@ model CommerceBusinessSettings {
   updatedAt    DateTime @updatedAt
 
   business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+// ─── Accounting Documents V1 (commercial Quote / Invoice — not QuoteRequest) ───
+
+model BusinessBillingProfile {
+  id                           String   @id @default(cuid())
+  storeId                      String   @unique
+  legalBusinessName            String?
+  tradingName                  String?
+  abn                          String?
+  acn                          String?
+  billingAddress               String?
+  billingEmail                 String?
+  billingPhone                 String?
+  website                      String?
+  logoUrl                      String?
+  contactPerson                String?
+  gstRegistered                Boolean  @default(false)
+  currency                     String   @default("AUD")
+  defaultGstMode               String   @default("GST_EXCLUSIVE")
+  defaultQuoteExpiryDays       Int      @default(30)
+  defaultPaymentTermsDays      Int      @default(14)
+  defaultNotes                 String?
+  defaultTerms                 String?
+  bankAccountName              String?
+  bsb                          String?
+  accountNumber                String?
+  bankName                     String?
+  paymentReferenceInstructions String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+model AccountingDocumentSequence {
+  id           String   @id @default(cuid())
+  storeId      String
+  documentType String
+  nextValue    Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business Business @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, documentType])
+  @@index([storeId])
+}
+
+model AccountingDocument {
+  id                 String    @id @default(cuid())
+  storeId            String
+  type               String
+  status             String
+  documentNumber     String?
+  currency           String    @default("AUD")
+  gstMode            String    @default("GST_EXCLUSIVE")
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  dueDate            DateTime?
+  issuedAt           DateTime?
+  paidAt             DateTime?
+  acceptedAt         DateTime?
+  acceptedBy         String?
+  acceptedByUserId   String?
+  purchaseOrderRef   String?
+  notes              String?
+  terms              String?
+  buyerJson          Json?
+  issuedSnapshot     Json?
+  sourceQuoteId      String?
+  convertedInvoiceId String?
+  quoteRequestId     String?
+  subtotalCents      Int       @default(0)
+  gstCents           Int       @default(0)
+  totalCents         Int       @default(0)
+  discountCents      Int       @default(0)
+  amountPaidCents    Int       @default(0)
+  balanceDueCents    Int       @default(0)
+  createdByUserId    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business Business                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  lines    AccountingDocumentLine[]
+  shares   AccountingDocumentShare[]
+
+  @@unique([storeId, documentNumber])
+  @@index([storeId, type, status])
+  @@index([storeId, updatedAt])
+  @@index([sourceQuoteId])
+  @@index([quoteRequestId])
+}
+
+model AccountingDocumentLine {
+  id                 String   @id @default(cuid())
+  documentId         String
+  sortOrder          Int      @default(0)
+  sku                String?
+  name               String
+  description        String?
+  quantity           Float
+  unitPriceCents     Int
+  lineSubtotalCents  Int
+  lineGstCents       Int
+  lineTotalCents     Int
+  productId          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  document AccountingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model AccountingDocumentShare {
+  id              String    @id @default(cuid())
+  storeId         String
+  documentId      String
+  token           String    @unique
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+
+  business Business           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  document AccountingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([documentId])
 }
 
 model BusinessEvent {

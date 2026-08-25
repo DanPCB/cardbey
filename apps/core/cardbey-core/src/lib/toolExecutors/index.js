@@ -173,6 +173,16 @@ import * as adjust_inventory from './business/adjust_inventory.js';
 import * as record_payment from './business/record_payment.js';
 import * as print_receipt from './business/print_receipt.js';
 import * as phase2Business from './business/phase2Stubs.js';
+import {
+  create_quote_draft,
+  update_quote_draft,
+  add_quote_item,
+  prepare_invoice_from_quote,
+  preview_commercial_document,
+  issue_quote,
+  issue_invoice,
+  send_document,
+} from './accounting/index.js';
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
 function honestBlocker(toolName, message) {
@@ -388,6 +398,14 @@ export const executors = {
   adjust_inventory,
   record_payment,
   print_receipt,
+  create_quote_draft,
+  update_quote_draft,
+  add_quote_item,
+  prepare_invoice_from_quote,
+  preview_commercial_document,
+  issue_quote,
+  issue_invoice,
+  send_document,
   update_order: phase2Business.update_order,
   transfer_inventory: phase2Business.transfer_inventory,
   refund_order: phase2Business.refund_order,
