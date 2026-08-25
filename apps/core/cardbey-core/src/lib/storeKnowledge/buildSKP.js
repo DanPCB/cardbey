@@ -10,9 +10,10 @@ import {
   mapMission001StatusToSkp,
   mapBoiKnowledgeStateToSkp,
 } from './provenance.js';
-import { SKP_VERSION, initialSkpVisibilityFlags } from './StoreKnowledgeProjection.js';
+import { SKP_VERSION, resolveSkpVisibilityFlags } from './StoreKnowledgeProjection.js';
 import { publicWebBase, buildPublicStorefrontUrl } from '../../utils/publicWebBase.js';
 import { isPublicFeedEligibleBusiness } from '../../utils/publicStoreVisibility.js';
+import { Features } from '../../config/features.js';
 
 function str(v) {
   if (v == null) return null;
@@ -182,7 +183,11 @@ export function buildSKPFromSources(sources = {}) {
   const jsonLdReady = Boolean(
     nameValue && descriptionValue && suburbValue && categoryValue && categoryValue !== 'Other',
   );
-  const visFlags = initialSkpVisibilityFlags();
+  const visFlags = resolveSkpVisibilityFlags({
+    indexable,
+    jsonLdReady,
+    attributionEnabled: Features.marketingOperator?.attributionV1 === true,
+  });
 
   return {
     identity: {

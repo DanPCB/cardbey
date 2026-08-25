@@ -213,6 +213,9 @@ import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
 import storefrontPrerenderRoutes from './routes/storefrontPrerenderRoutes.js';
 import storefrontSitemapRoutes from './routes/storefrontSitemapRoutes.js';
+import marketingVisitRoutes from './routes/public/marketingVisitRoutes.js';
+import marketingOperationsRoutes from './routes/admin/marketingOperationsRoutes.js';
+import { Features } from './config/features.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
@@ -1173,6 +1176,10 @@ app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
+if (Features.marketingOperator.v1) {
+  app.use('/api/public/marketing', marketingVisitRoutes); // POST /api/public/marketing/visits
+  console.log('[CORE] mounted /api/public/marketing (visit attribution; ENABLE_MARKETING_OPERATOR_V1)');
+}
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
 const miOpenApiPath = fromRoot('..', 'openapi', 'mi-tools.v1.yaml');
@@ -1286,6 +1293,10 @@ app.use('/api/admin', adminMultiAgentMonitoringRoutes);
 app.use('/api/admin', adminDeepseekDiagnosticRoutes); // Admin: GET /api/admin/deepseek-diagnostic
 app.use('/api/admin', adminAccountManagementRoutes);
 app.use('/api/admin', adminStoreContentManagementRoutes);
+if (Features.marketingOperator.v1) {
+  app.use('/api/admin', marketingOperationsRoutes); // Marketing ops + attribution admin (flag-gated)
+  console.log('[CORE] mounted /api/admin/marketing/* (ENABLE_MARKETING_OPERATOR_V1)');
+}
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {
