@@ -816,6 +816,16 @@ export const Features = {
       return parseBoolEnv(process.env.ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1, false);
     },
   },
+
+  /**
+   * Accounting Documents V1 — commercial Quote / Invoice (not QuoteRequest enquiry).
+   * Non-prod defaults ON when unset. Dashboard twin: VITE_ENABLE_ACCOUNTING_DOCUMENTS_V1.
+   */
+  accountingDocuments: {
+    get v1() {
+      return readNonProductionFlag('ENABLE_ACCOUNTING_DOCUMENTS_V1');
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -1010,6 +1020,9 @@ export function snapshotFeatures() {
     },
     performerContentEditingBridge: {
       v1: Features.performerContentEditingBridge.v1,
+    },
+    accountingDocuments: {
+      v1: Features.accountingDocuments.v1,
     },
   };
 }
