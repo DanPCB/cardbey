@@ -2,7 +2,7 @@
 
 Date: 2026-08-25  
 Branch: `fix/multi-agent-capability-e2e`  
-Status: Proceeding with additive agent intelligence (coordinator untouched)
+Status: Phases A–E committed; Phase F (BusinessLearning) + gate tests landing
 
 ## Data flow (actual)
 
@@ -33,3 +33,12 @@ Status: Proceeding with additive agent intelligence (coordinator untouched)
 ## Smallest safe approach
 
 Override `execute()` on each specialist to call live Claude when available; keep stub fallback on LLM failure so local boot does not break.
+
+## Completion notes (2026-08-25)
+
+- Agents keep `execute(task)` + stub fallback on LLM failure.
+- LLM path: `llmGateway` + `withAgentRetry` (not raw Anthropic SDK).
+- Action graphic path: `dispatchTool('generate_promotion_asset', …)`.
+- Learn: Prisma `BusinessLearning` preferred; JSON sidecar fallback when table/client unavailable.
+- Unit gate: `src/lib/orchestration/__tests__/liveAgents.test.js` (mocked LLM).
+- Staging E2E still needs operator `TEST_TOKEN` / deploy with migration applied.
