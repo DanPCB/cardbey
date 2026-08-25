@@ -6,6 +6,7 @@
 import { llmGateway } from '../llm/llmGateway.ts';
 import { loadAgentClass } from './agentLoader.js';
 import { evaluateWave } from './spawnPolicy.js';
+import { loadStoreKnowledgeForAgents } from './storeKnowledgeForAgents.js';
 import {
   createStore as createRuntimeStore,
   getStore as getRuntimeStore,
@@ -287,11 +288,43 @@ Return JSON only as an array.`,
   async orchestrate(goal, missionContext = {}) {
     const safeContext = asObject(missionContext);
 
+    // SKP once per run — shared via baseContext.storeKnowledge (no per-agent Prisma store reads).
+    const storeId =
+      String(safeContext.storeId ?? this.baseContext.storeId ?? this.baseContext.targetId ?? '').trim() ||
+      null;
+    if (storeId && this.baseContext.storeKnowledge == null) {
+      const storeKnowledge = await loadStoreKnowledgeForAgents(storeId, {
+        buildSKPFn: this._buildSKPFn,
+      });
+      this.baseContext = {
+        ...this.baseContext,
+        storeId,
+        storeKnowledge,
+      };
+      if (
+        storeKnowledge &&
+        storeKnowledge.enrichmentStatus &&
+        storeKnowledge.enrichmentStatus !== 'ENRICHED' &&
+        this.blackboard?.appendEvent
+      ) {
+        try {
+          await this.blackboard.appendEvent(this.missionId, 'DATA_QUALITY_WARNING', {
+            enrichmentStatus: storeKnowledge.enrichmentStatus,
+            storeId,
+            note: `Store data is ${storeKnowledge.enrichmentStatus} — research output may be limited`,
+          });
+        } catch {
+          // non-fatal
+        }
+      }
+    }
+
     try {
       createRuntimeStore(this.missionId, this.tenantKey, this.orchestrationKind);
       if (this.blackboard?.appendEvent) {
         await this.blackboard.appendEvent(this.missionId, 'runtime.execution.started', {
           orchestrationKind: this.orchestrationKind,
+          hasStoreKnowledge: Boolean(this.baseContext.storeKnowledge),
         });
       }
     } catch (e) {
