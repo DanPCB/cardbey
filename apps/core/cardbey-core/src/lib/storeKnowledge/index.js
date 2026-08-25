@@ -17,6 +17,7 @@ export { SKP_VERSION, initialSkpVisibilityFlags } from './StoreKnowledgeProjecti
 
 export {
   buildSKP,
+  buildSKPBySlug,
   buildSKPFromSources,
   skpToPublicDto,
   skpToPublicDTO,
