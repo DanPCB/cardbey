@@ -2,7 +2,7 @@
 
 Date: 2026-08-25  
 Branch: `fix/multi-agent-capability-e2e`  
-Status: Phases A–E committed; Phase F (BusinessLearning) + gate tests landing
+Status: Complete (A–F + unit gates). Staging E2E pending operator deploy/token.
 
 ## Data flow (actual)
 
