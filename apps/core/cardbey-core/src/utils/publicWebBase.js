@@ -2,12 +2,21 @@
  * Public marketing / dashboard SPA origin (absolute URL, no trailing slash).
  * Prefer PUBLIC_APP_URL, then DASHBOARD_URL, then FRONTEND_PUBLIC_URL.
  *
+ * SEO / SKP canonical URLs use {@link publicCanonicalWebBase} instead, so
+ * production can set PUBLIC_WEB_BASE_URL=https://cardbey.com without changing
+ * SPA redirect origins on staging.
+ *
  * @param {{ emptyInProductionIfUnset?: boolean }} [opts]
  *   When true and NODE_ENV is production with no env set, returns '' so callers avoid
  *   emitting a wrong Location header (post-verify redirect path in auth).
  */
 
 const WEB_BASE_ENV_KEYS = ['PUBLIC_APP_URL', 'DASHBOARD_URL', 'FRONTEND_PUBLIC_URL'];
+const CANONICAL_BASE_ENV_KEYS = [
+  'PUBLIC_WEB_BASE_URL',
+  'PUBLIC_CANONICAL_ORIGIN',
+  ...WEB_BASE_ENV_KEYS,
+];
 
 function normalizePublicWebOrigin(raw) {
   return String(raw || '').trim().replace(/\/+$/, '');
@@ -27,8 +36,8 @@ export function isValidPublicWebOrigin(raw) {
   }
 }
 
-function resolvePublicWebOriginFromEnv() {
-  for (const key of WEB_BASE_ENV_KEYS) {
+function resolveOriginFromKeys(keys) {
+  for (const key of keys) {
     const raw = process.env[key];
     const normalized = normalizePublicWebOrigin(raw);
     if (!normalized) continue;
@@ -43,6 +52,26 @@ function resolvePublicWebOriginFromEnv() {
     }
   }
   return { origin: null, source: null };
+}
+
+function resolvePublicWebOriginFromEnv() {
+  return resolveOriginFromKeys(WEB_BASE_ENV_KEYS);
+}
+
+/**
+ * Origin for SEO canonical URLs, sitemaps, and bot prerender HTML.
+ * Prefer PUBLIC_WEB_BASE_URL (prod: https://cardbey.com), then SPA public envs,
+ * then https://cardbey.com — never localhost for crawlable surfaces.
+ */
+export function publicCanonicalWebBase() {
+  const { origin, source } = resolveOriginFromKeys(CANONICAL_BASE_ENV_KEYS);
+  if (origin) {
+    if (process.env.NODE_ENV !== 'test' && process.env.DEBUG_PUBLIC_WEB_BASE === '1') {
+      console.log('[publicCanonicalWebBase]', { origin, source });
+    }
+    return origin;
+  }
+  return 'https://cardbey.com';
 }
 
 export function publicWebBase(opts = {}) {

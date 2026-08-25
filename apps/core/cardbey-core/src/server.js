@@ -19,7 +19,7 @@ import './env/ensureDatabaseUrl.js';
 import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentity.js';
 import { logStorageBoot } from './lib/storage/index.js';
 import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
-import { logPublicWebBaseOnStartup } from './utils/publicWebBase.js';
+import { logPublicWebBaseOnStartup, publicCanonicalWebBase } from './utils/publicWebBase.js';
 import './lib/skills/index.js';
 import './services/skills/builtinSkills.js';
 import './services/hooks/builtinHooks.js';
@@ -619,11 +619,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/robots.txt', (_req, res) => {
-  const publicOrigin = (
-    process.env.PUBLIC_APP_URL ||
-    process.env.DASHBOARD_URL ||
-    'https://cardbey.com'
-  ).replace(/\/+$/, '');
+  const publicOrigin = publicCanonicalWebBase();
   res.type('text/plain').send(
     [
       'User-agent: *',

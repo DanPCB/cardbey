@@ -11,7 +11,7 @@ import {
   mapBoiKnowledgeStateToSkp,
 } from './provenance.js';
 import { SKP_VERSION, initialSkpVisibilityFlags } from './StoreKnowledgeProjection.js';
-import { publicWebBase, buildPublicStorefrontUrl } from '../../utils/publicWebBase.js';
+import { publicCanonicalWebBase, buildPublicStorefrontPath } from '../../utils/publicWebBase.js';
 import { isPublicFeedEligibleBusiness } from '../../utils/publicStoreVisibility.js';
 
 function str(v) {
@@ -66,10 +66,8 @@ function socialLinksOf(business) {
 }
 
 function canonicalForSlug(slug, storeId) {
-  const built = buildPublicStorefrontUrl(slug, { storeId });
-  if (built && /^https?:\/\//i.test(built)) return built;
-  const base = publicWebBase() || 'https://cardbey.com';
-  const path = built || `/s/${encodeURIComponent(slug)}`;
+  const path = buildPublicStorefrontPath(slug) || `/s/${encodeURIComponent(slug || storeId || '')}`;
+  const base = publicCanonicalWebBase();
   if (/^https?:\/\//i.test(path)) return path;
   return `${String(base).replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
 }
@@ -180,7 +178,7 @@ export function buildSKPFromSources(sources = {}) {
   }
 
   const jsonLdReady = Boolean(
-    nameValue && descriptionValue && suburbValue && categoryValue && categoryValue !== 'Other',
+    nameValue && descriptionValue && categoryValue && categoryValue !== 'Other',
   );
   const visFlags = initialSkpVisibilityFlags();
 

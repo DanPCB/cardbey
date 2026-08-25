@@ -104,6 +104,21 @@ describe('buildSKPFromSources', () => {
     expect(ld.url).toContain('/s/demo-cafe');
   });
 
+  it('produces valid JSON-LD without suburb when name+description+category present', () => {
+    const skp = buildSKPFromSources({
+      business: baseBusiness({
+        suburb: null,
+        city: null,
+        state: null,
+        address: null,
+      }),
+    });
+    expect(skp.visibility.jsonLdReady).toBe(true);
+    const ld = skpToJsonLd(skp);
+    expect(ld).not.toBeNull();
+    expect(ld.name).toBe('Demo Cafe');
+  });
+
   it('returns null JSON-LD for thin stores', () => {
     const skp = buildSKPFromSources({
       business: baseBusiness({
