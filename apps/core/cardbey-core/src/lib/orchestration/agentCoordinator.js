@@ -235,16 +235,23 @@ Return JSON only as an array.`,
   async createAgent(agentType) {
     const t = String(agentType || '').trim() || 'research';
     const AgentClass = await loadAgentClass(t);
+    // Inject blackboard + sse into agent context (additive; orchestrate() signature unchanged).
+    const agentContext = {
+      ...this.baseContext,
+      blackboard: this.blackboard,
+      sseEmitter: this.sseEmitter,
+      brief: this.baseContext.brief ?? this.baseContext.goal ?? null,
+    };
     if (t === 'action' || t === 'graphics' || t === 'slideshow') {
-      return new AgentClass({ context: this.baseContext });
+      return new AgentClass({ context: agentContext });
     }
     if (t === 'package') {
-      return new AgentClass({ tenantKey: this.tenantKey, context: this.baseContext });
+      return new AgentClass({ tenantKey: this.tenantKey, context: agentContext });
     }
     return new AgentClass({
       tenantKey: this.tenantKey,
       locale: this.locale,
-      context: this.baseContext,
+      context: agentContext,
     });
   }
 
