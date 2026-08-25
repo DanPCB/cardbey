@@ -7,6 +7,7 @@ import { llmGateway } from '../llm/llmGateway.ts';
 import { loadAgentClass } from './agentLoader.js';
 import { evaluateWave } from './spawnPolicy.js';
 import { loadStoreKnowledgeForAgents } from './storeKnowledgeForAgents.js';
+import { withAgentRetry } from './agentRetry.js';
 import {
   createStore as createRuntimeStore,
   getStore as getRuntimeStore,
@@ -30,18 +31,32 @@ function withTimeout(promise, timeoutMs) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
 }
 
-async function callClaudeJson({ tenantKey, purpose, system, user, maxTokens = 900, temperature = 0.2 }) {
+async function callClaudeJson({
+  tenantKey,
+  purpose,
+  system,
+  user,
+  maxTokens = 900,
+  temperature = 0.2,
+  agentName = 'AgentCoordinator',
+  missionId = null,
+  sseEmitter = null,
+}) {
   try {
     const prompt = `${String(system || '').trim()}\n\n${String(user || '').trim()}`.trim();
-    const out = await llmGateway.generate({
-      purpose,
-      prompt,
-      provider: 'anthropic',
-      responseFormat: 'json',
-      tenantKey: tenantKey || 'default',
-      maxTokens,
-      temperature,
-    });
+    const out = await withAgentRetry(
+      () =>
+        llmGateway.generate({
+          purpose,
+          prompt,
+          provider: 'anthropic',
+          responseFormat: 'json',
+          tenantKey: tenantKey || 'default',
+          maxTokens,
+          temperature,
+        }),
+      { agentName, missionId, sseEmitter },
+    );
     const text = out?.text ?? '';
     const cleaned = String(text)
       .split('\n')
@@ -105,6 +120,8 @@ export class AgentCoordinator {
     this.locale = opts.locale ?? 'en';
     this.tenantKey = opts.tenantKey ?? 'default';
     this.orchestrationKind = opts.orchestrationKind ?? 'default';
+    this.sseEmitter =
+      opts.sseEmitter && typeof opts.sseEmitter === 'object' ? opts.sseEmitter : null;
     this.baseContext =
       opts.baseContext && typeof opts.baseContext === 'object' && !Array.isArray(opts.baseContext)
         ? opts.baseContext
@@ -166,6 +183,9 @@ Return JSON only as an array. Max 8 tasks.`,
             user: `Goal: ${goal}\nContext: ${JSON.stringify(context)}`,
             maxTokens: 1200,
             temperature: 0.2,
+            agentName: 'AgentCoordinator.campaign_decompose',
+            missionId: this.missionId,
+            sseEmitter: this.sseEmitter,
           }),
           this.agentTimeoutMs,
         );
@@ -194,6 +214,9 @@ Return JSON only as an array.`,
           user: `Goal: ${goal}\nContext: ${JSON.stringify(context)}`,
           maxTokens: 900,
           temperature: 0.2,
+          agentName: 'AgentCoordinator.decompose',
+          missionId: this.missionId,
+          sseEmitter: this.sseEmitter,
         }),
         this.agentTimeoutMs,
       );
