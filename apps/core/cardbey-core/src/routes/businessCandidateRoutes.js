@@ -35,9 +35,10 @@ const realLocalRateLimit = rateLimit({
 
 const batchEnrichRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 8,
+  max: 20,
   keyGenerator: (req) => `batch-enrich:${req.user?.id ?? req.ip ?? 'unknown'}`,
-  message: 'Batch enrichment rate limit exceeded.',
+  message:
+    'Batch enrichment rate limit exceeded. Max {max} runs per {windowMinutes} min. Retry in {retryAfter}s.',
   code: 'batch_enrich_rate_limit',
 });
 
