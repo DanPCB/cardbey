@@ -19,7 +19,7 @@ import './env/ensureDatabaseUrl.js';
 import { assertDatabaseIdentityAtStartup, logCoreEnvBoot } from './lib/dbIdentity.js';
 import { logStorageBoot } from './lib/storage/index.js';
 import { assertSchemaFingerprintAtStartup } from './lib/schemaFingerprint.js';
-import { logPublicWebBaseOnStartup } from './utils/publicWebBase.js';
+import { logPublicWebBaseOnStartup, publicCanonicalWebBase } from './utils/publicWebBase.js';
 import './lib/skills/index.js';
 import './services/skills/builtinSkills.js';
 import './services/hooks/builtinHooks.js';
@@ -216,6 +216,8 @@ import storeEngagementRoutes from './routes/storeEngagementRoutes.js';
 import publicStoreRoutes from './routes/publicStoreRoutes.js';
 import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
+import storefrontPrerenderRoutes from './routes/storefrontPrerenderRoutes.js';
+import storefrontSitemapRoutes from './routes/storefrontSitemapRoutes.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
@@ -617,9 +619,13 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/robots.txt', (_req, res) => {
+  const publicOrigin = publicCanonicalWebBase();
   res.type('text/plain').send(
     [
       'User-agent: *',
+      'Allow: /s/',
+      'Allow: /p/',
+      'Allow: /sitemap-stores.xml',
       'Disallow: /api/',
       'Disallow: /api/stream',
       'Disallow: /api/performer/',
@@ -628,6 +634,9 @@ app.get('/robots.txt', (_req, res) => {
       '',
       'User-agent: PetalBot',
       'Disallow: /',
+      '',
+      `Sitemap: ${publicOrigin}/sitemap.xml`,
+      `Sitemap: ${publicOrigin}/sitemap-stores.xml`,
     ].join('\n'),
   );
 });
@@ -1222,6 +1231,8 @@ app.use('/api/smart-objects', smartObjectsRoutes); // Smart Object: create, get 
 app.use('/api/qr', qrRoutes); // Dynamic QR v0: POST create, GET :code/resolve, PATCH :code
 app.use('/q', qRedirect); // GET /q/:code — 302 redirect, record ScanEvent + IntentSignal (no auth)
 app.use('/p', publicOfferPage); // GET /p/:storeSlug/offers/:offerSlug — public offer page (no auth)
+// Store bot prerender is mounted immediately before SPA catch-all (see below).
+app.use(storefrontSitemapRoutes); // GET /sitemap-stores.xml — published store URLs
 app.use('/api/docs', smartDocumentRoutes); // Smart documents + suitcase list: GET/POST /api/docs
 app.use('/api/suitcase', skillSuitcaseRoutes); // DANH: suitcase-skill-output — skill reports + mission history
 app.use('/api/suitcase', suitcaseItemRoutes); // Phase 10 — account knowledge vault items CRUD
@@ -1318,6 +1329,12 @@ if (process.env.NODE_ENV !== 'production') {
   console.log('[CORE] Debug routes enabled: /api/debug/pairing-stats, /api/debug/routes, POST /api/dev/credits/add, /api/dev/truth-violations');
 }
 
+// ── Store bot prerender — MUST be before SPA catch-all / JSON 404 ───────
+// Serves crawlable HTML + JSON-LD to Googlebot / Perplexitybot / etc.
+// Browser + missing-store requests call next() and fall through.
+app.use('/s', storefrontPrerenderRoutes);
+console.log('[CORE] mounted /s/:slug storefront bot prerender (SKP + JSON-LD)');
+
 // Static file hosting for production builds
 const cfgPath = fromRoot('..', 'core.config.json');
 if (fs.existsSync(cfgPath)) {
@@ -1339,14 +1356,17 @@ if (fs.existsSync(cfgPath)) {
     const index = path.join(root, 'index.html');
     if (fs.existsSync(index)) {
       app.get('*', (req, res, next) => {
-        // Don't SPA-fallback for API routes, OAuth routes, or diagnostics
+        // Don't SPA-fallback for API routes, OAuth routes, diagnostics, or store prerender path
         if (
           req.path.startsWith('/api') ||
           req.path.startsWith('/oauth') ||
           req.path.startsWith('/health') ||
           req.path.startsWith('/__ping') ||
           req.path.startsWith('/__whoami') ||
-          req.path.startsWith('/device')
+          req.path.startsWith('/device') ||
+          req.path.startsWith('/s/') ||
+          req.path === '/s' ||
+          req.path.startsWith('/sitemap-stores')
         ) {
           return next();
         }
