@@ -6,6 +6,10 @@
 import { llmGateway } from '../llm/llmGateway.ts';
 import { loadAgentClass } from './agentLoader.js';
 import { evaluateWave } from './spawnPolicy.js';
+import { loadStoreKnowledgeForAgents } from './storeKnowledgeForAgents.js';
+import { withAgentRetry } from './agentRetry.js';
+import { runVerifyStep } from './verifyStep.js';
+import { scheduleLearnStep } from './learnStep.js';
 import {
   createStore as createRuntimeStore,
   getStore as getRuntimeStore,
@@ -29,18 +33,32 @@ function withTimeout(promise, timeoutMs) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
 }
 
-async function callClaudeJson({ tenantKey, purpose, system, user, maxTokens = 900, temperature = 0.2 }) {
+async function callClaudeJson({
+  tenantKey,
+  purpose,
+  system,
+  user,
+  maxTokens = 900,
+  temperature = 0.2,
+  agentName = 'AgentCoordinator',
+  missionId = null,
+  sseEmitter = null,
+}) {
   try {
     const prompt = `${String(system || '').trim()}\n\n${String(user || '').trim()}`.trim();
-    const out = await llmGateway.generate({
-      purpose,
-      prompt,
-      provider: 'anthropic',
-      responseFormat: 'json',
-      tenantKey: tenantKey || 'default',
-      maxTokens,
-      temperature,
-    });
+    const out = await withAgentRetry(
+      () =>
+        llmGateway.generate({
+          purpose,
+          prompt,
+          provider: 'anthropic',
+          responseFormat: 'json',
+          tenantKey: tenantKey || 'default',
+          maxTokens,
+          temperature,
+        }),
+      { agentName, missionId, sseEmitter },
+    );
     const text = out?.text ?? '';
     const cleaned = String(text)
       .split('\n')
@@ -104,6 +122,8 @@ export class AgentCoordinator {
     this.locale = opts.locale ?? 'en';
     this.tenantKey = opts.tenantKey ?? 'default';
     this.orchestrationKind = opts.orchestrationKind ?? 'default';
+    this.sseEmitter =
+      opts.sseEmitter && typeof opts.sseEmitter === 'object' ? opts.sseEmitter : null;
     this.baseContext =
       opts.baseContext && typeof opts.baseContext === 'object' && !Array.isArray(opts.baseContext)
         ? opts.baseContext
@@ -111,7 +131,7 @@ export class AgentCoordinator {
     this.agents = new Map();
     this.results = new Map();
     this.maxAgents = 8;
-    this.agentTimeoutMs = 30_000;
+    this.agentTimeoutMs = 90_000;
     this.totalSpawned = 0;
     this.batchingEnabled =
       typeof this.blackboard?.appendEventBatch === 'function' &&
@@ -165,6 +185,9 @@ Return JSON only as an array. Max 8 tasks.`,
             user: `Goal: ${goal}\nContext: ${JSON.stringify(context)}`,
             maxTokens: 1200,
             temperature: 0.2,
+            agentName: 'AgentCoordinator.campaign_decompose',
+            missionId: this.missionId,
+            sseEmitter: this.sseEmitter,
           }),
           this.agentTimeoutMs,
         );
@@ -193,6 +216,9 @@ Return JSON only as an array.`,
           user: `Goal: ${goal}\nContext: ${JSON.stringify(context)}`,
           maxTokens: 900,
           temperature: 0.2,
+          agentName: 'AgentCoordinator.decompose',
+          missionId: this.missionId,
+          sseEmitter: this.sseEmitter,
         }),
         this.agentTimeoutMs,
       );
@@ -209,16 +235,23 @@ Return JSON only as an array.`,
   async createAgent(agentType) {
     const t = String(agentType || '').trim() || 'research';
     const AgentClass = await loadAgentClass(t);
+    // Inject blackboard + sse into agent context (additive; orchestrate() signature unchanged).
+    const agentContext = {
+      ...this.baseContext,
+      blackboard: this.blackboard,
+      sseEmitter: this.sseEmitter,
+      brief: this.baseContext.brief ?? this.baseContext.goal ?? null,
+    };
     if (t === 'action' || t === 'graphics' || t === 'slideshow') {
-      return new AgentClass({ context: this.baseContext });
+      return new AgentClass({ context: agentContext });
     }
     if (t === 'package') {
-      return new AgentClass({ tenantKey: this.tenantKey, context: this.baseContext });
+      return new AgentClass({ tenantKey: this.tenantKey, context: agentContext });
     }
     return new AgentClass({
       tenantKey: this.tenantKey,
       locale: this.locale,
-      context: this.baseContext,
+      context: agentContext,
     });
   }
 
@@ -287,11 +320,43 @@ Return JSON only as an array.`,
   async orchestrate(goal, missionContext = {}) {
     const safeContext = asObject(missionContext);
 
+    // SKP once per run — shared via baseContext.storeKnowledge (no per-agent Prisma store reads).
+    const storeId =
+      String(safeContext.storeId ?? this.baseContext.storeId ?? this.baseContext.targetId ?? '').trim() ||
+      null;
+    if (storeId && this.baseContext.storeKnowledge == null) {
+      const storeKnowledge = await loadStoreKnowledgeForAgents(storeId, {
+        buildSKPFn: this._buildSKPFn,
+      });
+      this.baseContext = {
+        ...this.baseContext,
+        storeId,
+        storeKnowledge,
+      };
+      if (
+        storeKnowledge &&
+        storeKnowledge.enrichmentStatus &&
+        storeKnowledge.enrichmentStatus !== 'ENRICHED' &&
+        this.blackboard?.appendEvent
+      ) {
+        try {
+          await this.blackboard.appendEvent(this.missionId, 'DATA_QUALITY_WARNING', {
+            enrichmentStatus: storeKnowledge.enrichmentStatus,
+            storeId,
+            note: `Store data is ${storeKnowledge.enrichmentStatus} — research output may be limited`,
+          });
+        } catch {
+          // non-fatal
+        }
+      }
+    }
+
     try {
       createRuntimeStore(this.missionId, this.tenantKey, this.orchestrationKind);
       if (this.blackboard?.appendEvent) {
         await this.blackboard.appendEvent(this.missionId, 'runtime.execution.started', {
           orchestrationKind: this.orchestrationKind,
+          hasStoreKnowledge: Boolean(this.baseContext.storeKnowledge),
         });
       }
     } catch (e) {
@@ -473,7 +538,52 @@ Return JSON only as an array.`,
         }),
     );
 
-    return this.mergeResults();
+    const merged = this.mergeResults();
+    const artifacts = Object.values(merged)
+      .map((envelope) => {
+        const r = envelope?.result;
+        if (!r || typeof r !== 'object') {
+          return {
+            type: envelope?.agentType ?? 'unknown',
+            summary: envelope?.summary,
+            result: r,
+          };
+        }
+        return {
+          type: r.type ?? envelope?.agentType ?? 'agent_result',
+          content: r.content,
+          url: r.url ?? r.graphicUrl ?? r.artifactUrl,
+          graphicUrl: r.graphicUrl,
+          artifactUrl: r.artifactUrl,
+          summary: envelope?.summary,
+          result: r,
+        };
+      })
+      .filter(Boolean);
+
+    let verifyResult = { passed: false, score: 0, issues: ['verify_skipped'] };
+    try {
+      verifyResult = await runVerifyStep({
+        missionId: this.missionId,
+        brief: String(goal ?? ''),
+        artifacts,
+        storeKnowledge: this.baseContext.storeKnowledge ?? null,
+        blackboard: this.blackboard,
+      });
+    } catch (err) {
+      console.warn('[AgentCoordinator] verifyStep failed (non-fatal):', err?.message ?? err);
+    }
+
+    scheduleLearnStep({
+      missionId: this.missionId,
+      storeId: this.baseContext.storeId ?? this.baseContext.targetId ?? null,
+      brief: String(goal ?? ''),
+      verifyResult,
+      artifacts,
+      blackboard: this.blackboard,
+    });
+
+    return merged;
   }
 
   mergeResults() {

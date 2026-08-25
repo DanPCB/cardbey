@@ -303,6 +303,8 @@ export const executors = {
   manage_menu_sync,
   get_store_analytics,
   generate_report_summary,
+  store_performance_report: get_store_analytics,
+  analytics_reporting: get_store_analytics,
   audit_store_completeness,
   generate_health_report,
   get_review_summary,
