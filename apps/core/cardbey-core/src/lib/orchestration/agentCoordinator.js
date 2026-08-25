@@ -131,7 +131,7 @@ export class AgentCoordinator {
     this.agents = new Map();
     this.results = new Map();
     this.maxAgents = 8;
-    this.agentTimeoutMs = 30_000;
+    this.agentTimeoutMs = 90_000;
     this.totalSpawned = 0;
     this.batchingEnabled =
       typeof this.blackboard?.appendEventBatch === 'function' &&
