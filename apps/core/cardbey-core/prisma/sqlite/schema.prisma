@@ -81,6 +81,8 @@ model User {
   suitcaseItems              SuitcaseItem[]
   conversationSessions       ConversationSession[]
   liveMarketParticipantRegistrations LiveMarketParticipantRegistration[]
+  connectionsFrom            UserConnection[] @relation("ConnectionFrom")
+  connectionsTo              UserConnection[] @relation("ConnectionTo")
 
   @@index([email])
   @@index([handle])
@@ -3617,6 +3619,27 @@ model ContactSuggestion {
   @@index([userId, status, rankScore])
   @@index([userId, createdAt])
   @@index([expiresAt])
+}
+
+/// User↔user connect / friend graph (Phase B). Not StoreFollow.
+model UserConnection {
+  id           String    @id @default(cuid())
+  fromUserId   String
+  toUserId     String
+  status       String    @default("pending") // pending | accepted | rejected | blocked
+  source       String    @default("direct") // direct | contact_suggestion | legacy_import
+  suggestionId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  respondedAt  DateTime?
+
+  fromUser User @relation("ConnectionFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("ConnectionTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserId, toUserId])
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
+  @@index([status, updatedAt])
 }
 
 // ============================================
