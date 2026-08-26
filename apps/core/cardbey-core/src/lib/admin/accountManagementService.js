@@ -96,6 +96,9 @@ async function purgeUserAccountDependencies(tx, userId) {
   await deleteManyIfAvailable(tx, 'conversationThread', { where: { createdByUserId: userId } });
   await deleteManyIfAvailable(tx, 'conversationSession', { where: { userId } });
   await deleteManyIfAvailable(tx, 'userIdentifier', { where: { userId } });
+  await deleteManyIfAvailable(tx, 'userConnection', {
+    where: { OR: [{ fromUserId: userId }, { toUserId: userId }] },
+  });
   await deleteManyIfAvailable(tx, 'passwordResetToken', { where: { userId } });
   await deleteManyIfAvailable(tx, 'personalMedia', { where: { userId } });
   await deleteManyIfAvailable(tx, 'demand', { where: { userId } });

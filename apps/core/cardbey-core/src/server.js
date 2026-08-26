@@ -277,6 +277,7 @@ import chatScopeRoutes from './routes/chatScopeRoutes.js';
 import chatThreadsRoutes from './routes/chatThreadsRoutes.js';
 import threadsRoutes from './routes/threadsRoutes.js';
 import contactsSyncRoutes from './routes/contactsSyncRoutes.js';
+import connectionRoutes from './routes/connectionRoutes.js';
 import aiOperatorRoutes from './routes/aiOperatorRoutes.js';
 import missionsRoutes from './routes/missionsRoutes.js';
 import confirmationRoutes from './routes/confirmation.routes.js';
@@ -1235,6 +1236,7 @@ app.use('/api/threads', threadsRoutes); // Conversation threads: GET/POST /api/t
 if (process.env.ENABLE_CONTACT_SYNC === 'true') {
   app.use('/api', contactsSyncRoutes); // Contact Sync (Phase 1 MVP)
 }
+app.use('/api', connectionRoutes); // User↔user connections (Phase B)
 app.use('/api/ai-operator', aiOperatorRoutes); // AI Operator: POST/GET /api/ai-operator/missions/:missionId/start, /status (requireAuth)
 app.use('/api/telemetry', telemetryRoutes); // Mission Console: GET /api/telemetry/summary (requireAuth; in-memory + DB sample)
 app.use('/api/self-healing', selfHealingRoutes); // admin_tool_discovery → governed code_fix proposals (super_admin)
