@@ -26,6 +26,30 @@ export function inferHeroSubCategory(input: {
   if (includesToken(text, ['m a', 'merger', 'acquisition', 'capital advisory', 'capital group', 'corporate finance'])) {
     return 'corporate advisory';
   }
+  if (
+    includesToken(text, [
+      'mortgage broker',
+      'finance broker',
+      'home loan',
+      'refinance',
+      'debt consolidation',
+      'low doc',
+      'loan broker',
+    ])
+  ) {
+    return 'mortgage broker';
+  }
+  if (
+    includesToken(text, [
+      'financial planning',
+      'financial adviser',
+      'financial advisor',
+      'wealth management',
+      'superannuation',
+    ])
+  ) {
+    return 'financial planning';
+  }
   if (includesToken(text, ['pub', 'tavern', 'inn', 'hotel', 'bar', 'brewery', 'grill', 'bistro', 'cellars'])) {
     return 'pub';
   }
@@ -66,6 +90,20 @@ export const CATEGORY_HERO_QUERIES: Record<string, string[]> = {
     'mergers acquisitions business deal handshake',
     'corporate advisory professionals',
     'business deal signing boardroom',
+  ],
+  'mortgage-broker': [
+    '{name} {suburb}',
+    'finance broker professional portrait',
+    'mortgage broker meeting client',
+    'home loan approval handshake',
+    'financial adviser professional office',
+  ],
+  'financial-planning': [
+    '{name} {suburb}',
+    'financial adviser professional portrait',
+    'financial planning meeting',
+    'investment advice professional',
+    'wealth management office',
   ],
   'food-and-drink': [
     '{name} {suburb}',
@@ -131,11 +169,21 @@ export function buildHeroSearchQueries(input: {
 
   // Prefer category templates when we know the vertical (avoids "Other suburb storefront")
   if (category && !/^other$/i.test(category)) {
+    const subKey =
+      sub === 'corporate advisory'
+        ? 'ma-advisory'
+        : sub === 'mortgage broker'
+          ? 'mortgage-broker'
+          : sub === 'financial planning'
+            ? 'financial-planning'
+            : sub === 'pub'
+              ? 'bar-pub'
+              : null;
     const fromTemplates = buildHeroQueries(
       name || category,
       suburb,
       categoryId.includes('professional') ? 'professional' : categoryId.includes('food') ? 'food-and-drink' : categoryId,
-      sub === 'corporate advisory' ? 'ma-advisory' : sub === 'pub' ? 'bar-pub' : null,
+      subKey,
       category,
       sub,
     );
