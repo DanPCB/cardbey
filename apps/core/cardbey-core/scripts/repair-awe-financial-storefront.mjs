@@ -18,7 +18,32 @@
  * phone/email/address — brochure fields are the authoritative contact source for repair.
  */
 
-import { PrismaClient } from '@prisma/client';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+
+async function loadPrisma() {
+  // Prefer app singleton (client-gen) when available.
+  try {
+    const mod = await import(pathToFileURL(path.join(__dirname, '../src/lib/prisma.js')).href);
+    if (typeof mod.getPrismaClient === 'function') return mod.getPrismaClient();
+  } catch {
+    // fall through
+  }
+  // Render CJS interop for @prisma/client / client-gen
+  try {
+    const gen = require('../node_modules/.prisma/client-gen');
+    return new gen.PrismaClient();
+  } catch {
+    const pkg = require('@prisma/client');
+    const PrismaClient = pkg.PrismaClient || pkg.default?.PrismaClient || pkg.default;
+    return new PrismaClient();
+  }
+}
 
 const APPLY = process.argv.includes('--apply');
 const BROCHURE = process.argv.includes('--brochure');
@@ -28,7 +53,7 @@ const idArg = process.argv.find((a) => a.startsWith('--store-id='));
 const SLUG = slugArg ? slugArg.slice('--slug='.length) : 'awe-financial';
 const STORE_ID = idArg ? idArg.slice('--store-id='.length) : 'cmsn1psxj006elcb3q9p2f79j';
 
-const prisma = new PrismaClient();
+const prisma = await loadPrisma();
 
 const BAD_IMAGE_RE =
   /\b(sanitation|garbage|waste|truck|hi-?vis|high visibility|bicycle|road maintenance|street cleaning|sweeper)\b/i;
@@ -382,5 +407,9 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    try {
+      if (typeof prisma?.$disconnect === 'function') await prisma.$disconnect();
+    } catch {
+      // singleton clients may reject disconnect — ignore
+    }
   });
