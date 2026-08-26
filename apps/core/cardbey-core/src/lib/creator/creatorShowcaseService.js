@@ -15,10 +15,17 @@ const TYPE_FILTER_MAP = Object.freeze({
   article: 'ARTICLE',
   live: 'LIVESTREAM',
   livestream: 'LIVESTREAM',
-  services: 'SERVICE',
-  service: 'SERVICE',
+  // Publishing / Prisma use CREATOR_SERVICE (not bare SERVICE).
+  services: 'CREATOR_SERVICE',
+  service: 'CREATOR_SERVICE',
+  creator_service: 'CREATOR_SERVICE',
   'digital-products': 'DIGITAL_PRODUCT',
   digital_product: 'DIGITAL_PRODUCT',
+});
+
+/** Legacy rows that may still store bare SERVICE */
+const TYPE_FILTER_ALIASES = Object.freeze({
+  CREATOR_SERVICE: ['CREATOR_SERVICE', 'SERVICE'],
 });
 
 const TOPIC_CATEGORIES = new Set([
@@ -89,13 +96,15 @@ export async function listCreatorShowcase(opts = {}) {
   const where = { ...PUBLISHED_PUBLIC };
 
   if (typeFilter) {
-    where.type = typeFilter;
+    const aliases = TYPE_FILTER_ALIASES[typeFilter];
+    where.type = aliases ? { in: aliases } : typeFilter;
   }
 
+  // Creator.categories is Json? — cannot use scalar-list `has`. Restrict to active
+  // creators in SQL, then match category in memory (same pattern as listPublicCreators business).
   if (topicCategory) {
     where.creator = {
       creatorStatus: 'active',
-      categories: { has: topicCategory },
     };
   }
 
@@ -125,10 +134,11 @@ export async function listCreatorShowcase(opts = {}) {
     }
   }
 
+  const take = topicCategory ? Math.min(limit * 3 + 1, 150) : limit + 1;
   const rows = await prisma.creatorContent.findMany({
     where,
     orderBy: { publishedAt: 'desc' },
-    take: limit + 1,
+    take,
     include: {
       creator: {
         select: {
@@ -144,8 +154,15 @@ export async function listCreatorShowcase(opts = {}) {
     },
   });
 
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
+  const matched = topicCategory
+    ? rows.filter((row) => {
+        const cats = Array.isArray(row.creator?.categories) ? row.creator.categories : [];
+        return cats.some((c) => String(c).toLowerCase() === topicCategory);
+      })
+    : rows;
+
+  const hasMore = matched.length > limit;
+  const page = hasMore ? matched.slice(0, limit) : matched;
   const items = page.map((row) => toShowcaseItem(row));
 
   return {
