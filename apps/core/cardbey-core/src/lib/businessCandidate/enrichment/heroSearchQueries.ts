@@ -23,7 +23,34 @@ export function inferHeroSubCategory(input: {
   const text = norm(
     [input.businessName, input.businessType, ...(input.placesTypes ?? []), ...(input.tags ?? [])].join(' '),
   );
-  if (includesToken(text, ['pub', 'tavern', 'inn', 'hotel', 'bar', 'brewery', 'grill', 'bistro'])) {
+  if (includesToken(text, ['m a', 'merger', 'acquisition', 'capital advisory', 'capital group', 'corporate finance'])) {
+    return 'corporate advisory';
+  }
+  if (
+    includesToken(text, [
+      'mortgage broker',
+      'finance broker',
+      'home loan',
+      'refinance',
+      'debt consolidation',
+      'low doc',
+      'loan broker',
+    ])
+  ) {
+    return 'mortgage broker';
+  }
+  if (
+    includesToken(text, [
+      'financial planning',
+      'financial adviser',
+      'financial advisor',
+      'wealth management',
+      'superannuation',
+    ])
+  ) {
+    return 'financial planning';
+  }
+  if (includesToken(text, ['pub', 'tavern', 'inn', 'hotel', 'bar', 'brewery', 'grill', 'bistro', 'cellars'])) {
     return 'pub';
   }
   if (includesToken(text, ['cafe', 'coffee', 'espresso'])) return 'cafe';
@@ -38,6 +65,7 @@ export function inferHeroSubCategory(input: {
 function topCategorySearchTerms(category: string | null | undefined): string | null {
   const c = norm(category);
   if (!c || c === 'other') return null;
+  if (c.includes('professional')) return 'corporate advisory office Melbourne';
   if (c.includes('food') || c.includes('drink')) return 'bar restaurant food drink';
   if (c.includes('grocery')) return 'grocery store supermarket';
   if (c.includes('beauty') || c.includes('wellness')) return 'beauty salon spa';
@@ -49,13 +77,76 @@ function topCategorySearchTerms(category: string | null | undefined): string | n
   return null;
 }
 
+export const CATEGORY_HERO_QUERIES: Record<string, string[]> = {
+  professional: [
+    '{name} {suburb}',
+    'corporate advisory meeting Australia',
+    'professional services office Melbourne',
+    'business advisory team meeting',
+    'corporate office building Melbourne',
+  ],
+  'ma-advisory': [
+    '{name} {suburb}',
+    'mergers acquisitions business deal handshake',
+    'corporate advisory professionals',
+    'business deal signing boardroom',
+  ],
+  'mortgage-broker': [
+    '{name} {suburb}',
+    'finance broker professional portrait',
+    'mortgage broker meeting client',
+    'home loan approval handshake',
+    'financial adviser professional office',
+  ],
+  'financial-planning': [
+    '{name} {suburb}',
+    'financial adviser professional portrait',
+    'financial planning meeting',
+    'investment advice professional',
+    'wealth management office',
+  ],
+  'food-and-drink': [
+    '{name} {suburb}',
+    '{subCategory} {suburb}',
+    '{subCategory} Melbourne',
+    'restaurant cafe food Melbourne',
+    'restaurant interior food',
+  ],
+  'bar-pub': ['pub bar interior Melbourne', 'bar drinks cocktails', 'pub hotel exterior'],
+  pub: ['pub bar interior Melbourne', 'bar drinks cocktails', 'pub hotel exterior'],
+  default: [
+    '{name} {suburb}',
+    '{subCategory} {suburb}',
+    '{subCategory} Melbourne',
+    '{topCategory} Melbourne',
+    '{topCategory} shop interior',
+  ],
+};
+
+export function buildHeroQueries(
+  businessName: string,
+  suburb: string,
+  categoryId: string,
+  subCategoryId: string | null,
+  topCategoryLabel: string,
+  subCategoryLabel: string | null,
+): string[] {
+  const templates =
+    CATEGORY_HERO_QUERIES[subCategoryId ?? ''] ??
+    CATEGORY_HERO_QUERIES[categoryId] ??
+    CATEGORY_HERO_QUERIES.default;
+
+  return templates.map((t) =>
+    t
+      .replace('{name}', businessName)
+      .replace('{suburb}', suburb)
+      .replace('{subCategory}', subCategoryLabel ?? topCategoryLabel)
+      .replace('{topCategory}', topCategoryLabel),
+  );
+}
+
 /**
  * Ordered fallback ladder — stop at first query returning photos.
- * 1. business + suburb
- * 2. subCategory + suburb
- * 3. subCategory + metro
- * 4. topCategory + metro
- * 5. topCategory + interior
  */
 export function buildHeroSearchQueries(input: {
   businessName?: string | null;
@@ -69,10 +160,37 @@ export function buildHeroSearchQueries(input: {
   const suburb = input.suburb?.trim() || 'Melbourne';
   const metro = input.metro?.trim() || 'Melbourne';
   const name = input.businessName?.trim();
+  const category = input.category?.trim() || '';
+  const categoryId = norm(category).replace(/\s+/g, '-') || 'default';
   const sub =
     inferHeroSubCategory(input) ??
     (input.businessType?.trim() ? norm(input.businessType).split(' ')[0] : null);
   const top = topCategorySearchTerms(input.category);
+
+  // Prefer category templates when we know the vertical (avoids "Other suburb storefront")
+  if (category && !/^other$/i.test(category)) {
+    const subKey =
+      sub === 'corporate advisory'
+        ? 'ma-advisory'
+        : sub === 'mortgage broker'
+          ? 'mortgage-broker'
+          : sub === 'financial planning'
+            ? 'financial-planning'
+            : sub === 'pub'
+              ? 'bar-pub'
+              : null;
+    const fromTemplates = buildHeroQueries(
+      name || category,
+      suburb,
+      categoryId.includes('professional') ? 'professional' : categoryId.includes('food') ? 'food-and-drink' : categoryId,
+      subKey,
+      category,
+      sub,
+    );
+    if (fromTemplates.length) {
+      return [...new Set(fromTemplates.map((q) => q.replace(/\s+/g, ' ').trim()).filter(Boolean))];
+    }
+  }
 
   const out: string[] = [];
   if (name) out.push(`${name} ${suburb}`);
