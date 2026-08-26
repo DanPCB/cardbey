@@ -9,6 +9,14 @@ export const PUBLIC_LIFECYCLE_EVENT_TYPES = Object.freeze({
   CAMPAIGN_LAUNCHED: 'CAMPAIGN_LAUNCHED',
   OFFER_ACTIVATED: 'OFFER_ACTIVATED',
   PROMOTION_ACTIVATED: 'PROMOTION_ACTIVATED',
+  /** Explicit Space Post publish (Business Space Content + optional Global eligibility). */
+  SPACE_UPDATE: 'SPACE_UPDATE',
+});
+
+/** Distribution intent for SPACE_UPDATE — only GLOBAL_ELIGIBLE bumps public feed rank. */
+export const SPACE_UPDATE_DISTRIBUTION = Object.freeze({
+  SPACE_ONLY: 'SPACE_ONLY',
+  GLOBAL_ELIGIBLE: 'GLOBAL_ELIGIBLE',
 });
 
 export const PUBLIC_LIFECYCLE_EVENT_TYPE_SET = new Set(
@@ -145,6 +153,13 @@ export function projectLifecycleRow(row, now = Date.now()) {
   if (!title) return null;
   const createdMs = row.createdAt instanceof Date ? row.createdAt.getTime() : Date.parse(String(row.createdAt));
   const age = Number.isFinite(createdMs) ? now - createdMs : Number.POSITIVE_INFINITY;
+  const distribution =
+    meta.distribution === SPACE_UPDATE_DISTRIBUTION.GLOBAL_ELIGIBLE
+      ? SPACE_UPDATE_DISTRIBUTION.GLOBAL_ELIGIBLE
+      : meta.distribution === SPACE_UPDATE_DISTRIBUTION.SPACE_ONLY
+        ? SPACE_UPDATE_DISTRIBUTION.SPACE_ONLY
+        : null;
+
   return {
     id: row.id,
     type: row.eventType,
@@ -153,6 +168,14 @@ export function projectLifecycleRow(row, now = Date.now()) {
     entityId: typeof meta.entityId === 'string' ? meta.entityId : null,
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     freshness: age <= JUST_LAUNCHED_MS ? 'just_launched' : 'recent',
+    mediaUrl: typeof meta.mediaUrl === 'string' ? meta.mediaUrl : null,
+    mediaKind: typeof meta.mediaKind === 'string' ? meta.mediaKind : null,
+    distribution,
+    productId: typeof meta.productId === 'string' ? meta.productId : null,
+    serviceId: typeof meta.serviceId === 'string' ? meta.serviceId : null,
+    promotionId: typeof meta.promotionId === 'string' ? meta.promotionId : null,
+    showWorkId: typeof meta.showWorkId === 'string' ? meta.showWorkId : null,
+    actorIdentity: meta.actorIdentity === 'person' ? 'person' : 'business',
   };
 }
 
