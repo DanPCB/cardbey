@@ -93,7 +93,35 @@ const SERVICE_MISMATCH_GUARDS = {
       'plumber',
       'high visibility',
       'hi-vis',
+      'street sweeper',
+      'sweeper',
+      'municipal',
+      'bicycle',
+      'waste',
+      'road maintenance',
     ],
+  },
+  consultation: {
+    require: ['consultation', 'office', 'meeting', 'advisor', 'adviser', 'broker', 'desk'],
+    reject: [
+      'truck',
+      'street sweeper',
+      'sweeper',
+      'municipal',
+      'garbage',
+      'sanitation',
+      'hi-vis',
+      'bicycle',
+      'waste',
+    ],
+  },
+  'home loan': {
+    require: ['loan', 'mortgage', 'home', 'house', 'keys', 'handshake', 'office', 'advisor'],
+    reject: ['truck', 'sweeper', 'sanitation', 'construction site', 'garbage'],
+  },
+  refinance: {
+    require: ['loan', 'mortgage', 'refinance', 'office', 'advisor', 'handshake'],
+    reject: ['truck', 'sweeper', 'sanitation', 'garbage'],
   },
 };
 
