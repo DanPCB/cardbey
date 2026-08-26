@@ -84,6 +84,104 @@ describe('creatorShowcaseService', () => {
     );
   });
 
+  it('listCreatorShowcase maps services filter to CREATOR_SERVICE (not bare SERVICE)', async () => {
+    mockFindMany.mockResolvedValue([]);
+
+    const { listCreatorShowcase } = await import('../creatorShowcaseService.js');
+    await listCreatorShowcase({ type: 'services' });
+
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          type: { in: ['CREATOR_SERVICE', 'SERVICE'] },
+        }),
+      }),
+    );
+  });
+
+  it('listCreatorShowcase topic category filters in memory (Json categories)', async () => {
+    mockFindMany.mockResolvedValue([
+      {
+        id: 'c1',
+        creatorId: 'cr1',
+        type: 'ARTICLE',
+        title: 'Biz tip',
+        description: null,
+        language: 'en',
+        durationSeconds: null,
+        publishedAt: new Date('2026-07-02'),
+        visibility: 'public',
+        thumbnail: null,
+        mediaUrl: null,
+        status: 'published',
+        views: 1,
+        likes: 0,
+        shares: 0,
+        bookmarks: 0,
+        runtimeMissionId: null,
+        sourceType: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        creator: {
+          id: 'cr1',
+          username: 'biz',
+          displayName: 'Biz',
+          avatar: null,
+          country: 'AU',
+          categories: ['business'],
+          isQualified: true,
+        },
+      },
+      {
+        id: 'c2',
+        creatorId: 'cr2',
+        type: 'ARTICLE',
+        title: 'Food tip',
+        description: null,
+        language: 'en',
+        durationSeconds: null,
+        publishedAt: new Date('2026-07-01'),
+        visibility: 'public',
+        thumbnail: null,
+        mediaUrl: null,
+        status: 'published',
+        views: 1,
+        likes: 0,
+        shares: 0,
+        bookmarks: 0,
+        runtimeMissionId: null,
+        sourceType: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        creator: {
+          id: 'cr2',
+          username: 'foodie',
+          displayName: 'Foodie',
+          avatar: null,
+          country: 'AU',
+          categories: ['food'],
+          isQualified: false,
+        },
+      },
+    ]);
+
+    const { listCreatorShowcase } = await import('../creatorShowcaseService.js');
+    const result = await listCreatorShowcase({ category: 'business', limit: 12 });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].title).toBe('Biz tip');
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'published',
+          visibility: 'public',
+          creator: { creatorStatus: 'active' },
+        }),
+      }),
+    );
+    expect(mockFindMany.mock.calls[0][0].where.creator.categories).toBeUndefined();
+  });
+
   it('getPublicCreatorContent returns null for missing content', async () => {
     mockFindFirst.mockResolvedValue(null);
 
