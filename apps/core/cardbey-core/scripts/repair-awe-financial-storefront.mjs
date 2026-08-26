@@ -200,10 +200,15 @@ async function main() {
       name: true,
       slug: true,
       type: true,
-      location: true,
       phone: true,
       email: true,
       description: true,
+      tagline: true,
+      address: true,
+      suburb: true,
+      city: true,
+      state: true,
+      formattedAddress: true,
       stylePreferences: true,
       products: {
         select: { id: true, name: true, imageUrl: true, price: true },
@@ -225,21 +230,24 @@ async function main() {
   const { next, changes } = patchMiniWebsite(miniWebsite, business);
 
   const locationChanges = [];
-  let nextLocation = business.location;
-  if (
-    typeof business.location === 'string' &&
-    business.location.trim() &&
-    !isPlaceLikeLocationText(business.location)
-  ) {
-    nextLocation = BROCHURE ? BROCHURE_FIELDS.location : null;
+  const addressBlob = [business.address, business.suburb, business.city, business.state, business.formattedAddress]
+    .filter(Boolean)
+    .join(' | ');
+  const addressIsBad =
+    (business.address && !isPlaceLikeLocationText(business.address)) ||
+    (business.formattedAddress && !isPlaceLikeLocationText(business.formattedAddress)) ||
+    (!business.address && !business.suburb && BROCHURE);
+
+  if (BROCHURE && addressIsBad) {
     locationChanges.push(
-      BROCHURE
-        ? `location: replace slogan with "${BROCHURE_FIELDS.location}"`
-        : `location: clear "${business.location}"`,
+      `address/suburb/state: set brochure "${BROCHURE_FIELDS.address}" (was: ${addressBlob || 'empty'})`,
     );
-  } else if (BROCHURE && !business.location) {
-    nextLocation = BROCHURE_FIELDS.location;
-    locationChanges.push(`location: set "${BROCHURE_FIELDS.location}"`);
+  } else if (
+    !BROCHURE &&
+    business.address &&
+    !isPlaceLikeLocationText(business.address)
+  ) {
+    locationChanges.push(`address: clear non-geo "${business.address}"`);
   }
 
   const fieldChanges = [];
@@ -261,10 +269,23 @@ async function main() {
       fieldPatch.description = BROCHURE_FIELDS.description;
       fieldChanges.push('description: brochure copy');
     }
+    if (!business.tagline) {
+      fieldPatch.tagline = BROCHURE_FIELDS.tagline;
+      fieldChanges.push(`tagline: ${BROCHURE_FIELDS.tagline}`);
+    }
     if (business.type && /^other$/i.test(String(business.type))) {
       fieldPatch.type = BROCHURE_FIELDS.type;
       fieldChanges.push(`type: ${BROCHURE_FIELDS.type}`);
     }
+    if (addressIsBad) {
+      fieldPatch.address = BROCHURE_FIELDS.address;
+      fieldPatch.suburb = BROCHURE_FIELDS.suburb;
+      fieldPatch.city = BROCHURE_FIELDS.suburb;
+      fieldPatch.state = 'VIC';
+      fieldPatch.formattedAddress = BROCHURE_FIELDS.address;
+    }
+  } else if (business.address && !isPlaceLikeLocationText(business.address)) {
+    fieldPatch.address = null;
   }
 
   const badProducts = (business.products || []).filter((p) => {
@@ -279,6 +300,14 @@ async function main() {
   });
 
   console.log('Target:', { id: business.id, slug: business.slug, name: business.name });
+  console.log('Current contact:', {
+    phone: business.phone,
+    email: business.email,
+    address: business.address,
+    suburb: business.suburb,
+    state: business.state,
+    type: business.type,
+  });
   console.log('Proposed miniWebsite changes:', changes.length ? changes : ['(none)']);
   console.log('Proposed location changes:', locationChanges.length ? locationChanges : ['(none)']);
   console.log('Proposed field changes:', fieldChanges.length ? fieldChanges : ['(none)']);
@@ -319,16 +348,7 @@ async function main() {
   await prisma.business.update({
     where: { id: business.id },
     data: {
-      ...(locationChanges.length ? { location: nextLocation } : {}),
       ...fieldPatch,
-      ...(BROCHURE
-        ? {
-            address: BROCHURE_FIELDS.address,
-            suburb: BROCHURE_FIELDS.suburb,
-            state: 'VIC',
-            tagline: BROCHURE_FIELDS.tagline,
-          }
-        : {}),
       stylePreferences: nextPrefs,
     },
   });
