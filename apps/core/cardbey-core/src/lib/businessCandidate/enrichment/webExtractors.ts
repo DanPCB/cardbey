@@ -81,6 +81,12 @@ export function extractPhone(html: string): string | null {
   const pageMatch = html.match(/(\+\d{1,3}[\d\s\-().Xx]{7,})/);
   if (pageMatch?.[1] && !/xxx/i.test(pageMatch[1])) return pageMatch[1].trim();
 
+  // AU mobiles / landlines without country code (e.g. 0420 435 238)
+  const auLocal = html.match(/(?:\+?61\s*)?(0[2-478](?:[\s-]?\d){8})\b/);
+  if (auLocal?.[1] && !/xxx/i.test(auLocal[1])) {
+    return auLocal[1].replace(/\s+/g, ' ').trim();
+  }
+
   return null;
 }
 
@@ -98,6 +104,50 @@ export function extractEmail(html: string): string | null {
   if (pageEmail?.[1] && !/example\.(com|org)/i.test(pageEmail[1])) {
     return pageEmail[1].trim();
   }
+
+  return null;
+}
+
+/**
+ * Australian street address — JSON-LD PostalAddress, then footer/page AU patterns.
+ * @param {string} html
+ * @returns {string | null}
+ */
+export function extractAddress(html: string): string | null {
+  const source = String(html ?? '');
+  const jsonLdBlocks = [
+    ...source.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi),
+  ];
+  for (const block of jsonLdBlocks) {
+    try {
+      const data = JSON.parse(block[1]);
+      const nodes = Array.isArray(data) ? data : data?.['@graph'] ? data['@graph'] : [data];
+      for (const node of nodes) {
+        const addr = node?.address ?? node?.location?.address;
+        if (!addr) continue;
+        if (typeof addr === 'string' && addr.trim().length > 8) return addr.trim();
+        if (addr.streetAddress) {
+          return [addr.streetAddress, addr.addressLocality, addr.addressRegion, addr.postalCode]
+            .filter(Boolean)
+            .join(', ');
+        }
+      }
+    } catch {
+      /* ignore bad JSON-LD */
+    }
+  }
+
+  const auAddressPattern =
+    /\d{1,4}\s+[A-Za-z][A-Za-z0-9\s.'-]+(?:St|Street|Rd|Road|Ave|Avenue|Dr|Drive|Blvd|Boulevard|Ln|Lane|Ct|Court|Pl|Place|Cres|Crescent|Hwy|Highway)\.?,?\s+[A-Za-z][A-Za-z\s'-]+,?\s+(?:VIC|NSW|QLD|SA|WA|TAS|ACT|NT)\b(?:\s*\d{4})?/gi;
+
+  const footer = source.match(/<footer[^>]*>([\s\S]*?)<\/footer>/i);
+  if (footer?.[1]) {
+    const footerMatch = footer[1].match(auAddressPattern);
+    if (footerMatch?.[0]) return footerMatch[0].replace(/\s+/g, ' ').trim();
+  }
+
+  const pageMatch = source.match(auAddressPattern);
+  if (pageMatch?.[0]) return pageMatch[0].replace(/\s+/g, ' ').trim();
 
   return null;
 }
@@ -138,6 +188,7 @@ export type WebsiteExtract = {
   catalogItems: WebsiteCatalogItem[];
   phone: string | null;
   email: string | null;
+  address: string | null;
   socialLinks: SocialLinks;
   openingHours: string | null;
   /** @deprecated use phone — kept for callers reading JSON-LD telephone only */
@@ -181,7 +232,30 @@ export async function extractFromBusinessWebsite(
   const phone =
     extractPhone(html) ||
     (jsonLd?.telephone ? String(jsonLd.telephone).replace(/\s/g, '') : null);
-  const email = extractEmail(html);
+  let email = extractEmail(html);
+  let address = extractAddress(html);
+  let resolvedPhone = phone;
+
+  // Thin homepage contact → try common contact/about paths (budget-capped).
+  if (!resolvedPhone || !email || !address) {
+    const contactPaths = ['/contact', '/contact-us', '/get-in-touch', '/about', '/about-us'];
+    for (const path of contactPaths) {
+      if (budget.websiteFetches >= budget.maxFetches) break;
+      try {
+        const contactUrl = new URL(path, url).href;
+        budget.consumeFetch();
+        const contactHtml = await fetchHtml(contactUrl, { timeoutMs: 5000 });
+        if (!contactHtml) continue;
+        if (!resolvedPhone) resolvedPhone = extractPhone(contactHtml);
+        if (!email) email = extractEmail(contactHtml);
+        if (!address) address = extractAddress(contactHtml);
+        if (resolvedPhone && email && address) break;
+      } catch {
+        // Cap / network — stop probing further contact pages.
+        break;
+      }
+    }
+  }
 
   const catalogFromNav = extractCatalogItems(html);
   const detectedServices = detectServiceLinks(html, url);
@@ -217,11 +291,12 @@ export async function extractFromBusinessWebsite(
     heading: tagline ?? firstHeading(html),
     navItems: [...new Set(navItems)].slice(0, 12),
     catalogItems: catalogItems.slice(0, 12),
-    phone,
+    phone: resolvedPhone,
     email,
+    address,
     socialLinks,
     openingHours,
-    telephone: phone,
+    telephone: resolvedPhone,
     sourceUrl: url,
     pageText: stripHtmlToText(html),
   };
