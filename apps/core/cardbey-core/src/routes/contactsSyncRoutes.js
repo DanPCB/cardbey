@@ -20,6 +20,8 @@ import {
   getContactSyncHashVersion,
   hmacIdentifier,
 } from '../lib/contactSyncHash.js';
+import { syncUserMatchIdentifiers } from '../lib/userIdentifierSync.js';
+import { connectionStatusByPeerIds } from '../services/connections/userConnectionService.js';
 
 const router = Router();
 const prisma = getPrismaClient();
@@ -36,7 +38,7 @@ async function requireDbUser(req) {
   // Always verify DB-backed user exists; do not trust JWT alone.
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
-    select: { id: true, email: true, emailVerified: true, createdAt: true },
+    select: { id: true, email: true, emailVerified: true, createdAt: true, phone: true },
   });
   return user;
 }
@@ -150,30 +152,9 @@ router.post('/contacts-sync/sessions', requireAuth, limitCreateSession, async (r
       select: { id: true },
     });
 
-    // Ensure the current user has a verified identifier row for email (global match anchor).
-    // This is server-controlled HMAC; no raw email returned.
-    if (dbUser.email && typeof dbUser.email === 'string') {
-      const canonEmail = canonicalizeEmail(dbUser.email);
-      if (canonEmail) {
-        const hash = hmacIdentifier('email', canonEmail);
-        const hv = getContactSyncHashVersion();
-        await prisma.userIdentifier.upsert({
-          where: { kind_hash_hashVersion: { kind: 'email', hash, hashVersion: hv } },
-          create: {
-            userId: dbUser.id,
-            kind: 'email',
-            hash,
-            hashVersion: hv,
-            source: 'email',
-            verifiedAt: dbUser.emailVerified ? new Date() : null,
-          },
-          update: {
-            userId: dbUser.id,
-            verifiedAt: dbUser.emailVerified ? new Date() : undefined,
-          },
-        });
-      }
-    }
+    // Ensure the current user has match-anchor identifiers (email + E.164 phone when present).
+    // Server-controlled HMAC; no raw identifiers returned.
+    await syncUserMatchIdentifiers(prisma, dbUser);
 
     return res.status(201).json({
       ok: true,
@@ -475,6 +456,7 @@ router.get('/contacts-sync/sessions/:sessionId/results', requireAuth, async (req
         })
       : [];
     const userById = new Map(users.map((u) => [u.id, u]));
+    const statusByPeer = await connectionStatusByPeerIds(prisma, dbUser.id, uniqueIds);
 
     const connect = [];
     for (const s of suggestions) {
@@ -485,6 +467,7 @@ router.get('/contacts-sync/sessions/:sessionId/results', requireAuth, async (req
         suggestionId: s.id,
         user: u,
         reasonCode: s.reasonCode,
+        connectionStatus: statusByPeer.get(s.matchedUserId) ?? null,
       });
     }
 
