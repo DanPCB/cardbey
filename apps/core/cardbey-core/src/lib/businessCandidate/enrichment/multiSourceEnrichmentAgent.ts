@@ -280,9 +280,15 @@ export async function enrichCandidateMultiSource(params: {
         }
       }
 
-      // STEP 2 — Website
+      // STEP 2 — Website (skip when manually verified / stub site locked)
       let websiteExtract: Awaited<ReturnType<typeof extractFromBusinessWebsite>> = null;
-      if (websiteUrl && budget.websiteFetches < budget.maxFetches) {
+      const skipWebsite =
+        candidate.metadata?.skipWebsiteFetch === true ||
+        candidate.metadata?.manuallyVerified === true ||
+        /MANUALLY_VERIFIED/i.test(String(candidate.enrichmentNote ?? ''));
+      if (skipWebsite) {
+        flags.push('SKIP_WEBSITE_FETCH_MANUALLY_VERIFIED');
+      } else if (websiteUrl && budget.websiteFetches < budget.maxFetches) {
         budget.assertWithinBudget();
         websiteExtract = await extractFromBusinessWebsite(budget, websiteUrl);
         if (websiteExtract) {

@@ -270,6 +270,15 @@ async function main() {
     );
   }
 
+  const enrichmentGuard = {
+    manuallyVerified: true,
+    skipWebsiteFetch: true,
+    note: 'MANUALLY_VERIFIED_2026-08-26 — website is GoDaddy stub; brochure data applied directly',
+    verifiedAt: new Date().toISOString(),
+    verifiedSource: 'brochure',
+  };
+  console.log('Proposed enrichmentGuard:', enrichmentGuard);
+
   if (!APPLY) {
     console.log('Dry-run complete. Re-run with CARDBEY_CONFIRM_LIVE_REPAIR=1 --apply [--brochure] to write.');
     console.log('After apply, schedule a separate confirmed republish if public projection is stale.');
@@ -279,6 +288,7 @@ async function main() {
   const nextPrefs = {
     ...prefs,
     ...(next ? { miniWebsite: next } : {}),
+    enrichmentGuard,
   };
 
   await prisma.business.update({
@@ -286,6 +296,14 @@ async function main() {
     data: {
       ...(locationChanges.length ? { location: nextLocation } : {}),
       ...fieldPatch,
+      ...(BROCHURE
+        ? {
+            address: BROCHURE_FIELDS.address,
+            suburb: BROCHURE_FIELDS.suburb,
+            state: 'VIC',
+            tagline: BROCHURE_FIELDS.tagline,
+          }
+        : {}),
       stylePreferences: nextPrefs,
     },
   });
@@ -319,6 +337,40 @@ async function main() {
       }
     }
     console.log('Services upserted:', BROCHURE_SERVICES.length);
+  }
+
+  // Mirror guard onto candidate record when present (batch enrich path).
+  try {
+    if (prisma.businessCandidate?.findFirst) {
+      const candidate = await prisma.businessCandidate.findFirst({
+        where: {
+          OR: [
+            { name: { contains: 'AWE' } },
+            { website: { contains: 'awefinancial' } },
+          ],
+        },
+        select: { id: true, metadata: true, enrichmentNote: true },
+      });
+      if (candidate) {
+        const meta =
+          candidate.metadata && typeof candidate.metadata === 'object' ? candidate.metadata : {};
+        await prisma.businessCandidate.update({
+          where: { id: candidate.id },
+          data: {
+            enrichmentNote: enrichmentGuard.note,
+            metadata: {
+              ...meta,
+              skipWebsiteFetch: true,
+              manuallyVerified: true,
+              verifiedAt: enrichmentGuard.verifiedAt,
+            },
+          },
+        });
+        console.log('Candidate enrichment guard set:', candidate.id);
+      }
+    }
+  } catch (err) {
+    console.warn('[repair-awe-financial] candidate guard skipped:', err?.message ?? err);
   }
 
   console.log('Applied Business patch. Public projection may still need a confirmed republish.');
