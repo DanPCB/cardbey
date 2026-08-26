@@ -39,6 +39,7 @@ const DEFAULT_VERIFY_REDIRECT_URI = '/app?verified=1';
 import { normalizeSocialLinks, parseSocialLinks } from '../lib/socialLinks.js';
 import { resolvePersistableMediaUrl, normalizeMediaUrlForStorage } from '../utils/publicUrl.js';
 import { normalizeLocale } from '../lib/localePrompt.js';
+import { syncUserPhoneIdentifier } from '../lib/userIdentifierSync.js';
 
 const router = express.Router();
 
@@ -461,6 +462,18 @@ export async function patchCurrentUserProfile(req, res, next) {
         personalPresenceStore: { select: { slug: true } },
       },
     });
+
+    // Phase A: keep contact-sync phone match anchors in sync with profile phone (E.164 only).
+    if (Object.prototype.hasOwnProperty.call(body, 'phone')) {
+      try {
+        await syncUserPhoneIdentifier(prisma, {
+          userId: req.userId,
+          phone: updatedUser.phone ?? null,
+        });
+      } catch (syncErr) {
+        console.warn('[Auth] phone identifier sync skipped:', syncErr?.message || syncErr);
+      }
+    }
 
     console.log(`[Auth] ✅ Profile updated for user ${req.userId}`);
 
