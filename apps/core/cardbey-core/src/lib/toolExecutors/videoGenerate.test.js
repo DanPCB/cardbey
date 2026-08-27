@@ -17,6 +17,8 @@ describe('video_generate_multimodal executor', () => {
     delete process.env.KLING_ACCESS_KEY;
     delete process.env.KLING_SECRET_KEY;
     delete process.env.OPENAI_API_KEY;
+    delete process.env.ENABLE_MINIMAX_H3_VIDEO_V1;
+    delete process.env.MINIMAX_API_KEY;
   });
 
   afterEach(() => {
@@ -48,5 +50,14 @@ describe('video_generate_multimodal executor', () => {
     expect(result.output?.artifact?.status).toBe('ready');
     expect(result.output?.artifact?.url).toBe('https://example.com/promo.mp4');
     expect(emitMissionArtifact.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not select MiniMax when the feature flag is off', async () => {
+    process.env.VIDEO_GENERATION_PROVIDER = 'minimax';
+    process.env.MINIMAX_API_KEY = 'mm-test-key';
+    delete process.env.ENABLE_MINIMAX_H3_VIDEO_V1;
+    const result = await execute({ prompt: 'Promo' }, { missionId: 'm-flag-off' });
+    expect(result.status).toBe('failed');
+    expect(result.error?.code).toBe('VIDEO_GENERATION_UNAVAILABLE');
   });
 });

@@ -9,9 +9,9 @@ import { VIDEO_PLAN_SCHEMA } from '../planApprovalConstants.js';
 /** @type {import('../types.js').SkillDefinition} */
 export const VideoGenerationSkill = {
   name: 'video_generation',
-  version: '2.1',
+  version: '2.2',
   description:
-    'Plan video, pause for approval, generate via Kling, then add voiceover and music.',
+    'Plan video, pause for approval, generate via Kling, then canonical post-production (TTS narration + captions).',
   triggers: [
     'create_video',
     'generate_video',
@@ -67,9 +67,9 @@ export const VideoGenerationSkill = {
     },
     {
       id: 'video_audio',
-      name: 'Add voiceover and music',
+      name: 'Add narration, music, and captions',
       tool: 'video_audio',
-      required: false,
+      required: true,
       buildInput: (ctx, stepResults) => {
         const plan =
           ctx.approvedPlan ??
@@ -93,7 +93,8 @@ export const VideoGenerationSkill = {
     shouldRetry: (error) =>
       error?.code !== 'VALIDATION_ERROR' &&
       error?.code !== 'PERMISSION_DENIED' &&
-      error?.code !== 'PLAN_NOT_APPROVED',
+      error?.code !== 'PLAN_NOT_APPROVED' &&
+      error?.code !== 'VIDEO_REQUIRED_AUDIO_MISSING',
   },
 };
 

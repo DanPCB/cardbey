@@ -1122,14 +1122,41 @@ const TOOLS = [
   {
     toolName: 'video_audio',
     label: 'Add video audio',
-    description: 'Post-process video with TTS voiceover and optional music bed',
+    description: 'Canonical post-production: TTS narration, optional music, captions (alias of video_post_production)',
+    category: 'video',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: false,
+    riskLevel: 'state_change',
+    parameters: {
+      approvedPlan: { type: 'object', required: false },
+      videoOutput: { type: 'object', required: false },
+    },
+  },
+  {
+    toolName: 'video_post_production',
+    label: 'Video post-production',
+    description: 'Mux approved narration (TTS) and captions onto generated video; fail closed when narration is required',
+    category: 'video',
+    targetTypes: ['store', 'draft_store'],
+    requiresConfirmation: false,
+    riskLevel: 'state_change',
+    parameters: {
+      approvedPlan: { type: 'object', required: false },
+      videoOutput: { type: 'object', required: false },
+      userMessage: { type: 'string', required: false },
+    },
+  },
+  {
+    toolName: 'video_media_validation',
+    label: 'Validate video media',
+    description: 'ffprobe the final MP4 for audio/video streams and persist validation status',
     category: 'video',
     targetTypes: ['store', 'draft_store'],
     requiresConfirmation: false,
     riskLevel: 'safe_read',
     parameters: {
+      postProduction: { type: 'object', required: false },
       approvedPlan: { type: 'object', required: false },
-      videoOutput: { type: 'object', required: false },
     },
   },
   // DANH: skill-round5-cardscan

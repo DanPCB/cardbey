@@ -303,6 +303,9 @@ export const Features = {
       const raw = String(process.env.VIDEO_FALLBACK_PROVIDER || 'kling').trim().toLowerCase();
       return raw || 'kling';
     },
+    get minimaxH3V1Enabled() {
+      return parseBoolEnv(process.env.ENABLE_MINIMAX_H3_VIDEO_V1, false);
+    },
   },
   reasoningPhase0: {
     get centralizedOutcome() {
@@ -791,6 +794,7 @@ export function snapshotFeatures() {
       useGateway: Features.video.useGateway,
       defaultProvider: Features.video.defaultProvider,
       fallbackProvider: Features.video.fallbackProvider,
+      minimaxH3V1Enabled: Features.video.minimaxH3V1Enabled,
     },
     reasoningPhase0: {
       centralizedOutcome: Features.reasoningPhase0.centralizedOutcome,
