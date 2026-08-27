@@ -11,8 +11,12 @@ import { initializeVideoFfmpeg } from '../videoCompat.js';
 const UPLOADS_DIR =
   process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads', 'media');
 
+/** Top-center captions: clear of center QR and bottom CTA. */
+export const QR_CTA_SAFE_CAPTION_STYLE =
+  'Alignment=8,MarginV=72,MarginL=48,MarginR=48,Fontsize=16,Outline=2,Shadow=1,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000';
+
 /**
- * @param {{ videoPath: string, srtContent: string }} opts
+ * @param {{ videoPath: string, srtContent: string, forceStyle?: string }} opts
  * @returns {Promise<{ ok: boolean, outputPath?: string, publicPath?: string, error?: string }>}
  */
 export async function burnSubtitlesIntoVideo(opts) {
@@ -34,7 +38,8 @@ export async function burnSubtitlesIntoVideo(opts) {
   await fs.promises.writeFile(srtPath, srtContent, 'utf8');
 
   const escapedSrt = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-  const vf = `subtitles='${escapedSrt}'`;
+  const forceStyle = String(opts.forceStyle ?? QR_CTA_SAFE_CAPTION_STYLE).replace(/'/g, '');
+  const vf = `subtitles='${escapedSrt}':force_style='${forceStyle}'`;
 
   const args = ['-y', '-i', videoPath, '-vf', vf, '-c:a', 'copy', outLocal];
 

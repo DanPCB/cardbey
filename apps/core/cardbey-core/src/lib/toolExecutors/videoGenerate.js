@@ -12,9 +12,12 @@ import {
   buildVideoArtifact,
   generateVideoViaProvider,
   isVideoGenerationProviderAvailable,
+  resolveRequestedVideoProvider,
   resolveVideoProvider,
 } from '../video/videoArtifactContract.js';
 import { OpenAiVideoUnavailableError } from '../video/openaiVideoErrors.js';
+import { isMinimaxSelectable } from '../video/minimax/minimaxConfig.js';
+import { MiniMaxProviderError } from '../video/minimax/minimaxErrors.js';
 
 function resolveMissionId(input = {}, context = {}) {
   return (
@@ -37,7 +40,10 @@ export async function execute(input = {}, context = {}) {
     };
   }
 
-  if (!isVideoGenerationProviderAvailable()) {
+  const provider = resolveRequestedVideoProvider(input);
+  const available =
+    provider === 'minimax' ? isMinimaxSelectable() : isVideoGenerationProviderAvailable();
+  if (!available) {
     const artifact = artifactUnavailable({
       type: 'video',
       missionId,
@@ -60,7 +66,7 @@ export async function execute(input = {}, context = {}) {
     sourceTool: 'video_generate_multimodal',
     title: 'Promotional video',
     message: 'Generating your promotional video…',
-    provider: resolveVideoProvider(),
+    provider: provider || resolveVideoProvider(),
   });
   emitMissionArtifact(missionId, processingArtifact);
 
@@ -130,28 +136,40 @@ export async function execute(input = {}, context = {}) {
       };
     }
 
-    const retryable = err?.retryable !== false;
+    const isMinimax =
+      err instanceof MiniMaxProviderError ||
+      err?.name === 'MiniMaxProviderError' ||
+      String(err?.code || '').startsWith('MINIMAX_');
+    const retryable = isMinimax ? false : err?.retryable !== false;
+    const publicMessage = isMinimax && err.userMessage ? err.userMessage : message;
     const artifact = artifactFailed({
       id: processingArtifact.id,
       type: 'video',
       missionId,
       sourceTool: 'video_generate_multimodal',
       title: 'Promotional video',
-      message: retryable ? 'Video generation failed. You can try again.' : message,
+      message: isMinimax ? publicMessage : retryable ? 'Video generation failed. You can try again.' : message,
       error: message,
       retryable,
-      provider: 'openai',
+      provider: provider || (isMinimax ? 'minimax' : 'openai'),
       metadata: {
         providerJobId: err?.providerJobId ?? undefined,
+        providerCode: err?.providerCode ?? undefined,
+        errorCode: err?.code ?? undefined,
       },
     });
     emitMissionArtifact(missionId, artifact);
-    console.error('[VIDEO] generation failed', { missionId, artifactId: artifact.id, message });
+    console.error('[VIDEO] generation failed', {
+      missionId,
+      artifactId: artifact.id,
+      code: err?.code ?? 'VIDEO_GENERATION_FAILED',
+      provider: provider || null,
+    });
 
     return {
       status: 'failed',
-      error: { code: 'VIDEO_GENERATION_FAILED', message },
-      output: { artifact, message },
+      error: { code: isMinimax ? err.code || 'VIDEO_GENERATION_FAILED' : 'VIDEO_GENERATION_FAILED', message: publicMessage },
+      output: { artifact, message: publicMessage },
     };
   }
 }

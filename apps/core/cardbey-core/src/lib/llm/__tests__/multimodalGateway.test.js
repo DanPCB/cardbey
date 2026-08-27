@@ -28,13 +28,14 @@ vi.mock('../providers/imageGeneration.js', () => ({
 vi.mock('../providers/videoGeneration.js', () => ({
   openaiVideoGeneration: vi.fn(),
   klingVideoGeneration: vi.fn(),
+  minimaxVideoGeneration: vi.fn(),
 }));
 
 import { anthropicVision } from '../providers/anthropicVision.js';
 import { openaiEmbedding } from '../providers/openaiEmbedding.js';
 import { voyageEmbedding } from '../providers/voyageEmbedding.js';
 import { dalleGeneration } from '../providers/imageGeneration.js';
-import { openaiVideoGeneration } from '../providers/videoGeneration.js';
+import { openaiVideoGeneration, minimaxVideoGeneration } from '../providers/videoGeneration.js';
 import {
   analyzeVision,
   embed,
@@ -155,5 +156,16 @@ describe('multimodalGateway', () => {
 
     expect(result.provider).toBe('openai');
     expect(result.status).toBe('completed');
+  });
+
+  it('does not paid-fallback when MiniMax is the requested provider', async () => {
+    minimaxVideoGeneration.mockRejectedValueOnce(new Error('MiniMax failed'));
+    await expect(
+      generateVideo({
+        prompt: 'Promo video',
+        provider: 'minimax',
+      }),
+    ).rejects.toThrow(/MiniMax failed/);
+    expect(openaiVideoGeneration).not.toHaveBeenCalled();
   });
 });
