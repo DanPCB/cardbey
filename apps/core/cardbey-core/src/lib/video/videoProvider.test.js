@@ -14,6 +14,8 @@ describe('videoProvider', () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.KLING_ACCESS_KEY;
     delete process.env.KLING_SECRET_KEY;
+    delete process.env.ENABLE_MINIMAX_H3_VIDEO_V1;
+    delete process.env.MINIMAX_API_KEY;
   });
 
   afterEach(() => {
@@ -39,5 +41,28 @@ describe('videoProvider', () => {
     expect(resolveVideoProvider()).toBeNull();
     expect(isVideoGenerationProviderAvailable()).toBe(false);
     expect(videoProviderUnavailableReason()).toMatch(/KLING_ACCESS_KEY/);
+  });
+
+  it('does not auto-select MiniMax from API key when the flag is off', () => {
+    process.env.MINIMAX_API_KEY = 'mm-test-key';
+    process.env.VIDEO_GENERATION_PROVIDER = 'minimax';
+    process.env.KLING_ACCESS_KEY = 'ak-test';
+    process.env.KLING_SECRET_KEY = 'sk-test';
+    expect(resolveVideoProvider()).toBe('kling');
+  });
+
+  it('selects MiniMax only when the flag is on and provider is explicit', () => {
+    process.env.ENABLE_MINIMAX_H3_VIDEO_V1 = 'true';
+    process.env.MINIMAX_API_KEY = 'mm-test-key';
+    process.env.VIDEO_GENERATION_PROVIDER = 'minimax';
+    expect(resolveVideoProvider()).toBe('minimax');
+    expect(isVideoGenerationProviderAvailable()).toBe(true);
+  });
+
+  it('keeps MiniMax unavailable when flagged on without a key', () => {
+    process.env.ENABLE_MINIMAX_H3_VIDEO_V1 = 'true';
+    process.env.VIDEO_GENERATION_PROVIDER = 'minimax';
+    expect(resolveVideoProvider()).toBe('minimax');
+    expect(isVideoGenerationProviderAvailable()).toBe(false);
   });
 });

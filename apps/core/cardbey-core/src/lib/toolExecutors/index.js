@@ -138,6 +138,8 @@ import * as queue_video_generation from './video/queue_video_generation.js'; // 
 import * as video_plan from './video/video_plan.js';
 import * as video_execute from './video/video_execute.js';
 import * as video_audio from './video/video_audio.js';
+import * as video_post_production from './video/video_post_production.js';
+import * as video_media_validation from './video/video_media_validation.js';
 import * as create_video from './video/videoRouter.js';
 import * as generate_video from './video/videoRouter.js';
 import * as check_scan_capability from './scan/check_scan_capability.js'; // DANH: skill-round5-cardscan
@@ -370,6 +372,8 @@ export const executors = {
   video_plan,
   video_execute,
   video_audio,
+  video_post_production,
+  video_media_validation,
   create_video,
   generate_video,
   check_scan_capability, // DANH: skill-round5-cardscan

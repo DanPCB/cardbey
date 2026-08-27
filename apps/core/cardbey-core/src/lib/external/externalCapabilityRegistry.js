@@ -51,6 +51,8 @@ const EXTERNAL_CAPABILITIES = [
       'KLING_SECRET_KEY',
       'OPENAI_API_KEY',
       'VIDEO_ARTIFACT_MOCK_URL',
+      'ENABLE_MINIMAX_H3_VIDEO_V1',
+      'MINIMAX_API_KEY',
     ],
     executorTools: ['video_generate_multimodal'],
     featureKey: 'video',

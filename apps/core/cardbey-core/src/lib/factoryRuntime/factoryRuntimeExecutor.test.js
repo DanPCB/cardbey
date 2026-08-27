@@ -71,6 +71,55 @@ describe('factoryRuntimeExecutor', () => {
           },
         };
       }
+      if (toolName === 'video_post_production') {
+        return {
+          status: 'ok',
+          output: {
+            videoUrl: 'https://cdn.example.com/v-audio.mp4',
+            captionUrl: '/uploads/media/captions.vtt',
+            hasAudio: true,
+            captionMode: 'sidecar',
+            outcomeReport: { audio: 'TTS muxed', captions: 'WebVTT', warnings: [] },
+            artifact: {
+              id: 'art-1',
+              missionId: 'm-1',
+              type: 'video',
+              status: 'ready',
+              url: 'https://cdn.example.com/v-audio.mp4',
+              metadata: { hasAudio: true, captionUrl: '/uploads/media/captions.vtt' },
+            },
+          },
+        };
+      }
+      if (toolName === 'video_media_validation') {
+        return {
+          status: 'ok',
+          output: {
+            videoUrl: 'https://cdn.example.com/v-audio.mp4',
+            hasAudio: true,
+            audioStreamCount: 1,
+            videoStreamCount: 1,
+            captionUrl: '/uploads/media/captions.vtt',
+            captionMode: 'sidecar',
+            validationStatus: 'passed',
+            artifact: {
+              id: 'art-1',
+              missionId: 'm-1',
+              type: 'video',
+              status: 'ready',
+              url: 'https://cdn.example.com/v-audio.mp4',
+              metadata: {
+                hasAudio: true,
+                audioStreamCount: 1,
+                videoStreamCount: 1,
+                captionMode: 'sidecar',
+                captionUrl: '/uploads/media/captions.vtt',
+                validationStatus: 'passed',
+              },
+            },
+          },
+        };
+      }
       return { status: 'failed', error: { message: 'unknown tool' } };
     });
   });
@@ -129,6 +178,18 @@ describe('factoryRuntimeExecutor', () => {
     expect(result.artifact?.artifactId).toBe('gart-test-1');
     expect(dispatchTool).toHaveBeenCalledWith(
       'video_generate_multimodal',
+      expect.any(Object),
+      expect.objectContaining({ runtimeOwned: true }),
+    );
+    expect(dispatchTool).toHaveBeenCalledWith(
+      'video_post_production',
+      expect.objectContaining({
+        approvedPlan: expect.objectContaining({ script: 'Hello' }),
+      }),
+      expect.objectContaining({ runtimeOwned: true }),
+    );
+    expect(dispatchTool).toHaveBeenCalledWith(
+      'video_media_validation',
       expect.any(Object),
       expect.objectContaining({ runtimeOwned: true }),
     );
@@ -317,5 +378,51 @@ describe('factoryRuntimeExecutor', () => {
     expect(registerGeneratedArtifactV1).toHaveBeenCalledWith(
       expect.objectContaining({ artifactType: 'campaign_package' }),
     );
+  });
+
+  it('fails closed when required narration post-production fails', async () => {
+    dispatchTool.mockImplementation(async (toolName) => {
+      /* @pure-transform test mock — no IO */
+      if (toolName === 'video_generate_multimodal') {
+        return { status: 'ok', output: { videoUrl: 'https://cdn.example.com/silent.mp4' } };
+      }
+      if (toolName === 'video_post_production') {
+        return {
+          status: 'failed',
+          error: { code: 'VIDEO_REQUIRED_AUDIO_MISSING', message: 'Required narration could not be added' },
+        };
+      }
+      return { status: 'failed', error: { message: 'unknown tool' } };
+    });
+
+    const { runFactoryExecution } = await import('./factoryRuntimeExecutor.js');
+    const result = await runFactoryExecution({
+      factoryId: 'creative_asset_factory_v1',
+      missionId: 'm-audio-fail',
+      userId: 'u-1',
+      intent: 'Create a promo video',
+      context: { storeId: 'store-1' },
+      resumeState: {
+        executionId: 'exec-audio-fail',
+        factoryId: 'creative_asset_factory_v1',
+        missionId: 'm-audio-fail',
+        userId: 'u-1',
+        intent: 'Create a promo video',
+        context: { storeId: 'store-1', missionId: 'm-audio-fail' },
+        stageIndex: 1,
+        stageOutputs: {
+          creative_plan: { plan: { script: 'Welcome to our store', audio: { voiceoverEnabled: true } } },
+        },
+        artifactRefs: [],
+        status: 'running',
+        resumeFromApproval: true,
+        resumedApprovalStageId: 'approval',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('failed');
+    expect(result.error?.code).toBe('VIDEO_REQUIRED_AUDIO_MISSING');
+    expect(result.stageId).toBe('video_post_production');
   });
 });
