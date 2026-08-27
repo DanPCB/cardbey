@@ -52,10 +52,10 @@ export function extractArtifactCandidate(state, definition) {
     const artifact = out.artifact ?? out.package ?? out;
     const url = out.videoUrl ?? out.url ?? artifact?.url ?? artifact?.previewUrl ?? null;
     if (artifact && typeof artifact === 'object') {
-      return { stageId, artifact, url };
+      return { stageId, artifact, url, ...pickMediaFields(out) };
     }
     if (url) {
-      return { stageId, artifact: out, url };
+      return { stageId, artifact: out, url, ...pickMediaFields(out) };
     }
   }
   return { stageId: null, artifact: null, url: null };
@@ -107,8 +107,17 @@ export async function finalizeFactoryArtifactFromPolicy(stage, state, definition
   let record = null;
 
   if (artifact && typeof artifact === 'object' && artifact.missionId) {
+    const mediaMeta = extractMediaMetadata(candidate, artifact);
     record = await registerGeneratedArtifactFromOperational(
-      { ...artifact, missionId: state.missionId },
+      {
+        ...artifact,
+        missionId: state.missionId,
+        url: url ?? artifact.url,
+        metadata: {
+          ...(artifact.metadata && typeof artifact.metadata === 'object' ? artifact.metadata : {}),
+          ...mediaMeta,
+        },
+      },
       {
         ownerUserId: state.userId,
         source: `factory:${state.factoryId}`,
@@ -132,6 +141,13 @@ export async function finalizeFactoryArtifactFromPolicy(stage, state, definition
         sourceStageId: candidate.stageId,
         plan: resolvePlanFromState(state, definition),
         artifact: artifact && typeof artifact === 'object' ? artifact : null,
+        hasAudio: resolveMediaFlag(candidate, artifact, 'hasAudio'),
+        captionUrl: resolveMediaString(candidate, artifact, 'captionUrl'),
+        captionMode: resolveMediaString(candidate, artifact, 'captionMode'),
+        validationStatus: resolveMediaString(candidate, artifact, 'validationStatus'),
+        audioStreamCount: resolveMediaNumber(candidate, artifact, 'audioStreamCount'),
+        videoStreamCount: resolveMediaNumber(candidate, artifact, 'videoStreamCount'),
+        outcomeReport: resolveOutcomeReport(candidate, artifact),
       },
     });
   }
@@ -155,4 +171,64 @@ export async function finalizeFactoryArtifactFromPolicy(stage, state, definition
     },
     artifactRef: record.artifactId,
   };
+}
+
+function pickMediaFields(out) {
+  if (!out || typeof out !== 'object') return {};
+  return {
+    hasAudio: out.hasAudio,
+    captionUrl: out.captionUrl,
+    captionMode: out.captionMode,
+    validationStatus: out.validationStatus,
+    audioStreamCount: out.audioStreamCount,
+    videoStreamCount: out.videoStreamCount,
+    outcomeReport: out.outcomeReport,
+  };
+}
+
+function extractMediaMetadata(candidate, artifact) {
+  return {
+    hasAudio: resolveMediaFlag(candidate, artifact, 'hasAudio'),
+    captionUrl: resolveMediaString(candidate, artifact, 'captionUrl'),
+    captionMode: resolveMediaString(candidate, artifact, 'captionMode'),
+    validationStatus: resolveMediaString(candidate, artifact, 'validationStatus'),
+    audioStreamCount: resolveMediaNumber(candidate, artifact, 'audioStreamCount'),
+    videoStreamCount: resolveMediaNumber(candidate, artifact, 'videoStreamCount'),
+    outcomeReport: resolveOutcomeReport(candidate, artifact),
+  };
+}
+
+function sourceBlob(candidate, artifact) {
+  const out = candidate && typeof candidate === 'object' ? candidate : {};
+  const art = artifact && typeof artifact === 'object' ? artifact : {};
+  const meta = art.metadata && typeof art.metadata === 'object' ? art.metadata : {};
+  return { out, art, meta };
+}
+
+function resolveMediaFlag(candidate, artifact, key) {
+  const { out, art, meta } = sourceBlob(candidate, artifact);
+  if (typeof out[key] === 'boolean') return out[key];
+  if (typeof art[key] === 'boolean') return art[key];
+  if (typeof meta[key] === 'boolean') return meta[key];
+  return null;
+}
+
+function resolveMediaString(candidate, artifact, key) {
+  const { out, art, meta } = sourceBlob(candidate, artifact);
+  if (typeof out[key] === 'string' && out[key].trim()) return out[key].trim();
+  if (typeof art[key] === 'string' && art[key].trim()) return art[key].trim();
+  if (typeof meta[key] === 'string' && meta[key].trim()) return meta[key].trim();
+  return null;
+}
+
+function resolveMediaNumber(candidate, artifact, key) {
+  const { out, art, meta } = sourceBlob(candidate, artifact);
+  const n = Number(out[key] ?? art[key] ?? meta[key]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function resolveOutcomeReport(candidate, artifact) {
+  const { out, art, meta } = sourceBlob(candidate, artifact);
+  const report = out.outcomeReport ?? art.outcomeReport ?? meta.outcomeReport;
+  return report && typeof report === 'object' ? report : null;
 }

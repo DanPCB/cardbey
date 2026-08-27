@@ -138,6 +138,7 @@
     "backfill:ios-video:apply": "node scripts/backfill-ios-video-derivatives.mjs --apply",
     "backfill:suitcase": "node scripts/backfill-suitcase-items.mjs",
     "backfill:suitcase:apply": "node scripts/backfill-suitcase-items.mjs --apply",
+    "smoke:minimax-h3": "node scripts/minimax-h3-smoke.mjs",
     "verify:suitcase": "node scripts/verify-suitcase-vault.mjs",
     "verify:suitcase:live": "node scripts/verify-suitcase-vault.mjs --live",
     "rag:ingest": "tsx scripts/ingestRagKnowledge.ts",

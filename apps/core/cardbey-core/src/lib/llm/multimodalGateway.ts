@@ -14,7 +14,7 @@ import {
   ideogramGeneration,
   recraftGeneration,
 } from './providers/imageGeneration.js';
-import { klingVideoGeneration, openaiVideoGeneration } from './providers/videoGeneration.js';
+import { klingVideoGeneration, minimaxVideoGeneration, openaiVideoGeneration } from './providers/videoGeneration.js';
 import type {
   EmbeddingRequest,
   EmbeddingResponse,
@@ -63,6 +63,7 @@ const IMAGE_PROVIDERS: Record<string, ImageFn> = {
 const VIDEO_PROVIDERS: Record<string, VideoFn> = {
   openai: openaiVideoGeneration,
   kling: klingVideoGeneration,
+  minimax: minimaxVideoGeneration,
 };
 
 function redactPrompt(prompt: string): string {
@@ -232,7 +233,14 @@ export async function generateVideo(
     });
   } catch (primaryError) {
     const fallback = Features.video.fallbackProvider;
-    if (fallback && fallback !== provider && VIDEO_PROVIDERS[fallback]) {
+    const providerIsPaidMinimax = provider === 'minimax';
+    if (
+      !providerIsPaidMinimax &&
+      fallback &&
+      fallback !== provider &&
+      fallback !== 'minimax' &&
+      VIDEO_PROVIDERS[fallback]
+    ) {
       console.warn(
         `[llmGateway.generateVideo] ${provider} failed; falling back to ${fallback}`,
       );

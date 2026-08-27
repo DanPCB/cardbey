@@ -100,7 +100,9 @@ function extractSkillArtifactMedia(skillName, stepResults, { executionId, storeI
   };
 
   if (key.includes('video') || stepResults?.video_execute || stepResults?.queue_video_generation) {
-    const audioStep = unwrapStepOutput(getStep(stepResults, 'video_audio'));
+    const audioStep =
+      unwrapStepOutput(getStep(stepResults, 'video_post_production')) ??
+      unwrapStepOutput(getStep(stepResults, 'video_audio'));
     const queueStep =
       unwrapStepOutput(getStep(stepResults, 'video_execute')) ??
       unwrapStepOutput(getStep(stepResults, 'queue_video_generation'));

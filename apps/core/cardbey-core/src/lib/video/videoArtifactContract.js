@@ -11,9 +11,9 @@ import {
 } from '../artifacts/artifactContract.js';
 import { Features } from '../../config/features.js';
 import { generateVideo } from '../llm/llmGateway.ts';
-import { resolveVideoProvider, isVideoGenerationProviderAvailable } from './videoProvider.js';
+import { resolveVideoProvider, isVideoGenerationProviderAvailable, resolveRequestedVideoProvider } from './videoProvider.js';
 
-export { resolveVideoProvider, isVideoGenerationProviderAvailable } from './videoProvider.js';
+export { resolveVideoProvider, isVideoGenerationProviderAvailable, resolveRequestedVideoProvider } from './videoProvider.js';
 
 export const VIDEO_ARTIFACT_UNAVAILABLE_MESSAGE =
   'Video generation is not connected yet. We can help with images, copy, and campaigns in the meantime.';
@@ -73,7 +73,7 @@ export function buildVideoArtifact(fields) {
  * }} [options]
  */
 export async function generateVideoViaProvider(input = {}, context = {}, options = {}) {
-  const provider = resolveVideoProvider();
+  const provider = resolveRequestedVideoProvider(input);
   const missionId =
     options.missionId ||
     (context?.missionId && String(context.missionId).trim()) ||
@@ -145,6 +145,94 @@ export async function generateVideoViaProvider(input = {}, context = {}, options
         sourceType: 'video_generation',
       },
     });
+  }
+
+  if (provider === 'minimax') {
+    const prompt = await resolveGenerationPrompt(input, context);
+    const emitProcessing = async (info) => {
+      if (!options.onProcessingUpdate) return;
+      await options.onProcessingUpdate(
+        artifactProcessing({
+          id: options.artifactId,
+          type: 'video',
+          missionId,
+          provider: 'minimax',
+          message: info.message || 'Generating your promotional video with MiniMax H3…',
+          metadata: {
+            provider: 'minimax',
+            providerModel: 'MiniMax-H3',
+            providerTaskId: info.taskId || null,
+            minimaxStatus: info.status,
+            stage: info.stage || null,
+            estimatedCostUsd: info.costEstimate?.amountUsd ?? null,
+            estimatedCostLabel: info.costEstimate?.label ?? null,
+            costIsEstimate: true,
+            resolution: info.settings?.resolution ?? null,
+            durationSeconds: info.settings?.durationSeconds ?? null,
+            aspectRatio: info.settings?.aspectRatio ?? null,
+            generationStarted: Boolean(info.taskId),
+            selectionReason: info.settings?.selectionReason || 'explicit_minimax_request',
+            audioIncluded: false,
+          },
+        }),
+      );
+    };
+
+    const { generateVideoViaMiniMax } = await import('./generateVideoViaMiniMax.js');
+    const { MiniMaxProviderError } = await import('./minimax/minimaxErrors.js');
+    try {
+      const result = await generateVideoViaMiniMax({
+        prompt,
+        duration: input?.lengthSeconds ?? input?.duration,
+        lengthSeconds: input?.lengthSeconds,
+        aspectRatio: input?.aspectRatio,
+        resolution: input?.resolution,
+        imageUrl: input?.imageUrl,
+        firstFrameUrl: input?.firstFrameUrl,
+        lastFrameUrl: input?.lastFrameUrl,
+        referenceImageUrl: input?.referenceImageUrl,
+        providerTaskId: input?.providerTaskId || input?.minimaxTaskId,
+        selectionReason:
+          input?.provider === 'minimax' || input?.approvedPlan?.provider === 'minimax'
+            ? 'explicit_request_provider'
+            : 'explicit_env_VIDEO_GENERATION_PROVIDER',
+        onPoll: emitProcessing,
+      });
+
+      return artifactReady({
+        id: options.artifactId,
+        type: 'video',
+        missionId,
+        url: result.videoUrl,
+        previewUrl: result.videoUrl,
+        thumbnailUrl: result.thumbnailUrl ?? null,
+        provider: 'minimax',
+        message: 'Your promotional video is ready.',
+        metadata: {
+          provider: 'minimax',
+          providerModel: result.providerModel,
+          providerTaskId: result.providerTaskId,
+          taskId: result.providerTaskId,
+          cdnUrl: result.cdnUrl,
+          heroVideoUrlIosSafe: result.heroVideoUrlIosSafe,
+          sourceType: 'video_generation',
+          estimatedCostUsd: result.costEstimateUsd,
+          estimatedCostLabel: result.costEstimateLabel,
+          costIsEstimate: true,
+          resolution: result.resolution,
+          durationSeconds: result.durationSeconds,
+          aspectRatio: result.aspectRatio,
+          generationStarted: true,
+          audioIncluded: false,
+          nativeProviderAudioNotAuthoritative: true,
+          selectionReason: result.selectionReason,
+          usage: result.usage,
+        },
+      });
+    } catch (err) {
+      if (err instanceof MiniMaxProviderError) throw err;
+      throw err;
+    }
   }
 
   if (provider === 'mock') {

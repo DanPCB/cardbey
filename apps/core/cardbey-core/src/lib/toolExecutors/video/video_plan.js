@@ -7,6 +7,7 @@ import { execute as generateVideoScript } from './generate_video_script.js';
 import { resolveVideoProvider } from '../../video/videoProvider.js';
 import { VIDEO_PLAN_SCHEMA } from '../../skills/planApprovalConstants.js';
 import { mapBrandToneToVoicePreset } from '../../video/audio/ttsProvider.js';
+import { detectNarrationLanguage } from '../../video/postProduction/narrationPolicy.js';
 
 const STYLE_OPTIONS = ['brand_story', 'promotional', 'fashion_runway', 'product_showcase'];
 
@@ -44,6 +45,7 @@ export async function execute(input = {}) {
   const durationSec = Number(brief.duration) || Number(scriptOut.duration) || 30;
   const estRenderMinutes = provider === 'kling' ? Math.max(2, Math.ceil(durationSec / 10)) : null;
   const brandTone = input?.brandTone ?? brief.mood ?? 'friendly';
+  const silentRequested = isSilentVideoRequest(input?.userMessage);
 
   const plan = {
     schema: VIDEO_PLAN_SCHEMA,
@@ -64,10 +66,16 @@ export async function execute(input = {}) {
       estRenderMinutes != null ? `~${estRenderMinutes} min render` : 'Provider not configured',
     brandTone,
     audio: {
-      voiceoverEnabled: true,
-      musicEnabled: true,
+      voiceoverEnabled: !silentRequested,
+      musicEnabled: !silentRequested,
+      silentRequested,
       voicePreset: mapBrandToneToVoicePreset(brandTone),
     },
+    captions: {
+      sidecar: !silentRequested,
+      burnIn: false,
+    },
+    language: detectNarrationLanguage(scriptOut.script ?? scriptOut.voiceover ?? ''),
   };
 
   return {
@@ -78,6 +86,12 @@ export async function execute(input = {}) {
       phase: 'plan',
     },
   };
+}
+
+function isSilentVideoRequest(userMessage) {
+  return /\b(silent\s+video|no\s+(sound|audio|voiceover|narration)|without\s+(sound|audio|voiceover|narration))\b/i.test(
+    String(userMessage ?? ''),
+  );
 }
 
 export default execute;

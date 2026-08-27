@@ -63,7 +63,7 @@ export type ImageGenerationResponse = {
 
 export type VideoGenerationRequest = {
   prompt: string;
-  provider?: 'openai' | 'kling' | string;
+  provider?: 'openai' | 'kling' | 'minimax' | string;
   model?: string;
   duration?: number;
   resolution?: string;

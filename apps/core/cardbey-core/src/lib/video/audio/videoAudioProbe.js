@@ -57,6 +57,37 @@ export async function fileHasAudioStream(filePath) {
 }
 
 /**
+ * @param {string} filePath
+ * @returns {Promise<{ hasAudio: boolean, audioStreamCount: number, videoStreamCount: number, durationSec: number | null, probe: object }>}
+ */
+export async function probeMediaStreams(filePath) {
+  const probe = await probeVideoFile(filePath);
+  const streams = Array.isArray(probe?.raw?.streams) ? probe.raw.streams : [];
+  const audioStreamCount = streams.filter((s) => s?.codec_type === 'audio').length;
+  const videoStreamCount = streams.filter((s) => s?.codec_type === 'video').length;
+  return {
+    hasAudio: Boolean(probe?.audio?.codec) || audioStreamCount > 0,
+    audioStreamCount: audioStreamCount || (probe?.audio ? 1 : 0),
+    videoStreamCount: videoStreamCount || (probe?.video ? 1 : 0),
+    durationSec: typeof probe?.duration === 'number' && Number.isFinite(probe.duration) ? probe.duration : null,
+    probe,
+  };
+}
+
+/**
+ * @param {string} filePath
+ * @returns {Promise<number | null>}
+ */
+export async function getMediaDurationSec(filePath) {
+  try {
+    const streams = await probeMediaStreams(filePath);
+    return streams.durationSec;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {string} videoUrl
  * @returns {Promise<{ hasAudio: boolean, localPath: string, downloaded: boolean }>}
  */
