@@ -3,9 +3,10 @@ import {
   buildIndustryCatalog,
   reconcileIndustryVerticalSlug,
   resolveIndustryBlueprintKey,
-  industrySlugToTemplateKey,
   isRetailCatalogPlaceholderName,
   shouldRepairRetailCatalogLeakInServiceStore,
+  collapseProfessionalCatalogWithoutPriceList,
+  catalogHasNamedGroundedOfferings,
   INDUSTRY_BLUEPRINTS,
 } from '../industryBlueprintRegistry.js';
 
@@ -125,31 +126,6 @@ describe('industryBlueprintRegistry', () => {
     expect(names).toContain('Balayage');
   });
 
-  it('resolves nail stores to beauty.nails — not hair salon', () => {
-    expect(resolveIndustryBlueprintKey({ businessName: 'ANGEL NAIL' })).toBe('beauty.nails');
-    expect(
-      resolveIndustryBlueprintKey({
-        businessName: 'ANGEL NAIL',
-        businessType: 'Beauty salon',
-        verticalSlug: 'beauty.hair_salon',
-      }),
-    ).toBe('beauty.nails');
-    expect(industrySlugToTemplateKey('beauty.nails')).toBe('beauty_nails');
-    expect(industrySlugToTemplateKey('beauty.hair_salon')).toBe('beauty_salon');
-    expect(industrySlugToTemplateKey('beauty.spa')).toBe('beauty_spa');
-  });
-
-  it('builds nail salon catalog without haircut items', () => {
-    const catalog = buildIndustryCatalog(
-      { businessName: 'ANGEL NAIL', businessType: 'Nail salon', verticalSlug: 'beauty.nails' },
-      24,
-    );
-    const names = catalog.items.map((i) => i.name);
-    expect(names).toContain('Classic Manicure');
-    expect(names).toContain('Gel Manicure');
-    expect(names.some((n) => /haircut|balayage|blow dry/i.test(n))).toBe(false);
-  });
-
   it('builds fashion boutique catalog', () => {
     const catalog = buildIndustryCatalog(
       { businessName: 'Urban Threads', businessType: 'Clothing boutique', verticalSlug: 'fashion.boutique' },
@@ -179,5 +155,28 @@ describe('industryBlueprintRegistry', () => {
         { businessName: 'Glow Hair', verticalSlug: 'beauty.hair_salon', verticalGroup: 'beauty' },
       ),
     ).toBe(true);
+  });
+
+  it('keeps named unpriced finance flyer offerings instead of collapsing to consultation', () => {
+    const flyerItems = [
+      { name: 'Home loan rate comparison' },
+      { name: 'Debt consolidation' },
+      { name: 'Low doc loans for self-employed' },
+      { name: 'Property investment refinance' },
+    ];
+    expect(catalogHasNamedGroundedOfferings(flyerItems)).toBe(true);
+    const collapsed = collapseProfessionalCatalogWithoutPriceList(
+      { items: flyerItems, categories: [{ id: 'c1', name: 'Services' }] },
+      { businessName: 'AWE FINANCIAL', businessType: 'finance broker', verticalSlug: 'services.finance' },
+    );
+    const names = collapsed.items.map((i) => i.name);
+    expect(names).toEqual(expect.arrayContaining([
+      'Home loan rate comparison',
+      'Debt consolidation',
+      'Low doc loans for self-employed',
+      'Property investment refinance',
+    ]));
+    expect(names).not.toContain('Book our consultations');
+    expect(collapsed.meta?.bookingMode).toBe('named_offerings_unpriced');
   });
 });

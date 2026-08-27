@@ -303,6 +303,9 @@ export const Features = {
       const raw = String(process.env.VIDEO_FALLBACK_PROVIDER || 'kling').trim().toLowerCase();
       return raw || 'kling';
     },
+    get minimaxH3V1Enabled() {
+      return parseBoolEnv(process.env.ENABLE_MINIMAX_H3_VIDEO_V1, false);
+    },
   },
   reasoningPhase0: {
     get centralizedOutcome() {
@@ -686,6 +689,16 @@ export const Features = {
       return parseBoolEnv(process.env.ENABLE_WEBSITE_EDITING_DESIGN_ADAPTER_V1, false);
     },
   },
+
+  /**
+   * Accounting Documents V1 — commercial Quote / Invoice (not QuoteRequest enquiry).
+   * Non-prod defaults ON when unset. Dashboard twin: VITE_ENABLE_ACCOUNTING_DOCUMENTS_V1.
+   */
+  accountingDocuments: {
+    get v1() {
+      return readNonProductionFlag('ENABLE_ACCOUNTING_DOCUMENTS_V1');
+    },
+  },
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -781,6 +794,7 @@ export function snapshotFeatures() {
       useGateway: Features.video.useGateway,
       defaultProvider: Features.video.defaultProvider,
       fallbackProvider: Features.video.fallbackProvider,
+      minimaxH3V1Enabled: Features.video.minimaxH3V1Enabled,
     },
     reasoningPhase0: {
       centralizedOutcome: Features.reasoningPhase0.centralizedOutcome,
@@ -859,6 +873,9 @@ export function snapshotFeatures() {
     },
     performerContentEditingBridge: {
       v1: Features.performerContentEditingBridge.v1,
+    },
+    accountingDocuments: {
+      v1: Features.accountingDocuments.v1,
     },
   };
 }

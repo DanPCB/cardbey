@@ -2243,8 +2243,9 @@ function readStylePreferencesObject(raw) {
 /**
  * PUT /api/stores/:storeId/show-video-mixes/:workId
  * Persist Show advanced-editor audio mix on the store (stylePreferences.showVideoMixes).
+ * Access: store owner (Business.userId) or platform admin — not global JWT role="owner".
  */
-router.put('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, async (req, res, next) => {
+router.put('/:storeId/show-video-mixes/:workId', requireAuth, async (req, res, next) => {
   try {
     const { storeId, workId } = req.params;
     const mix = req.body;
@@ -2257,10 +2258,19 @@ router.put('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, asyn
 
     const store = await prisma.business.findUnique({
       where: { id: storeId },
-      select: { id: true, stylePreferences: true },
+      select: { id: true, userId: true, stylePreferences: true },
     });
     if (!store) {
       return res.status(404).json({ ok: false, message: 'Store not found' });
+    }
+
+    const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
+    if (!isDevAdmin && !isPlatformAdmin(req.user) && store.userId !== req.userId) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have permission to update this store',
+      });
     }
 
     const prefs = readStylePreferencesObject(store.stylePreferences);
@@ -2287,17 +2297,28 @@ router.put('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, asyn
 
 /**
  * GET /api/stores/:storeId/show-video-mixes/:workId
+ * Access: store owner (Business.userId) or platform admin — not global JWT role="owner".
  */
-router.get('/:storeId/show-video-mixes/:workId', requireAuth, requireOwner, async (req, res, next) => {
+router.get('/:storeId/show-video-mixes/:workId', requireAuth, async (req, res, next) => {
   try {
     const { storeId, workId } = req.params;
     const store = await prisma.business.findUnique({
       where: { id: storeId },
-      select: { stylePreferences: true },
+      select: { userId: true, stylePreferences: true },
     });
     if (!store) {
       return res.status(404).json({ ok: false, message: 'Store not found' });
     }
+
+    const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
+    if (!isDevAdmin && !isPlatformAdmin(req.user) && store.userId !== req.userId) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden',
+        message: 'You do not have permission to access this store',
+      });
+    }
+
     const prefs = readStylePreferencesObject(store.stylePreferences);
     const mixes =
       prefs.showVideoMixes && typeof prefs.showVideoMixes === 'object' && !Array.isArray(prefs.showVideoMixes)

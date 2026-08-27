@@ -14,11 +14,21 @@ import type { BusinessCandidateRecord } from '../types.js';
 import { saveBusinessCandidate } from '../candidateRepository.js';
 import { lookupAbnPublic } from './abrLookup.js';
 import { EnrichmentBudget, EnrichmentBudgetExhaustedError } from './budget.js';
+import { RESERVED_HERO_FETCHES } from './constants.js';
 import { isDefaultOtherCategory, mapToCardbeyCategory } from './categoryMap.js';
+import { buildCategoryMappingInputFromCandidate } from './resolveEnrichmentSignals.js';
+import { fetchFoursquarePhotos, fetchFoursquareVenue } from './foursquareFetcher.js';
+import { recoverFullName } from './fullNameRecovery.js';
 import { resolveHeroImage } from './heroImageResolve.js';
 import { isPlaceholderDescription, wordCount } from './htmlUtils.js';
-import { queryOsmOverpass } from './osmCrossRef.js';
+import { osmTagsToCategorySignals, queryOsmOverpass } from './osmCrossRef.js';
 import { appendCandidateFieldProvenance } from './provenanceRepository.js';
+import {
+  assessEnrichmentGaps,
+  buildSourceFetchPlan,
+  isBroaderEnrichmentSourcesEnabled,
+  splitFetchBudgetForHeroReserve,
+} from './sourceSelector.js';
 import {
   preferHigherTierField,
   synthesizeBiBrief,
@@ -35,7 +45,9 @@ import {
   extractFromBusinessWebsite,
   extractPublicSocialProfile,
   extractYellowPagesSnippet,
+  extractTrueLocalSnippet,
 } from './webExtractors.js';
+import { fetchWikimediaPhoto } from './wikimediaFetcher.js';
 
 function snapshotFrozen(c: BusinessCandidateRecord): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -77,6 +89,7 @@ type FieldBag = {
   abn?: ConfirmedField;
   legalName?: ConfirmedField;
   website?: ConfirmedField;
+  name?: ConfirmedField;
 };
 
 function setField(
@@ -125,6 +138,7 @@ function provenanceRowsFromBag(
   push('tags', bag.tags);
   push('heroImageUrl', bag.heroImageUrl);
   push('biBrief', bag.biBrief);
+  push('name', bag.name);
   push('openingHours', bag.openingHours);
   push('abn', bag.abn);
   push('legalName', bag.legalName);
@@ -273,9 +287,15 @@ export async function enrichCandidateMultiSource(params: {
         }
       }
 
-      // STEP 2 — Website
+      // STEP 2 — Website (skip when manually verified / stub site locked)
       let websiteExtract: Awaited<ReturnType<typeof extractFromBusinessWebsite>> = null;
-      if (websiteUrl && budget.websiteFetches < budget.maxFetches) {
+      const skipWebsite =
+        candidate.metadata?.skipWebsiteFetch === true ||
+        candidate.metadata?.manuallyVerified === true ||
+        /MANUALLY_VERIFIED/i.test(String(candidate.enrichmentNote ?? ''));
+      if (skipWebsite) {
+        flags.push('SKIP_WEBSITE_FETCH_MANUALLY_VERIFIED');
+      } else if (websiteUrl && budget.websiteFetches < budget.maxFetches) {
         budget.assertWithinBudget();
         websiteExtract = await extractFromBusinessWebsite(budget, websiteUrl);
         if (websiteExtract) {
@@ -364,16 +384,64 @@ export async function enrichCandidateMultiSource(params: {
         });
       }
 
-      // STEP 4 — OSM
+      // STEP 4+ — Confidence-gap plan + OSM / Foursquare / name / Wikimedia
+      const broaderEnabled = isBroaderEnrichmentSourcesEnabled();
+      const gaps = assessEnrichmentGaps({
+        description: bag.description?.value ?? candidate.description,
+        heroImageUrl: candidate.heroImageUrl,
+        name: candidate.name,
+        category: bag.category?.value ?? candidate.category,
+        openingHours: bag.openingHours?.value ?? candidate.openingHours,
+        rawSourceJson: candidate.rawSourceJson,
+      });
+      const remainingFetches = Math.max(0, budget.maxFetches - budget.websiteFetches);
+      const { remainingForSources, heroReserve } = splitFetchBudgetForHeroReserve(remainingFetches, {
+        needsHero: gaps.needsHero,
+        pexelsConfigured: Boolean(process.env.PEXELS_API_KEY?.trim()),
+        reserveSlots: RESERVED_HERO_FETCHES,
+      });
+      const sourceFetchCeiling = budget.maxFetches - heroReserve;
+      const canSpendSourceFetch = () => budget.websiteFetches < sourceFetchCeiling;
+      const plan = broaderEnabled
+        ? buildSourceFetchPlan(gaps, Boolean(websiteUrl || bag.website), remainingForSources)
+        : {
+            // Broader off: do not burn fetch budget on Overpass/YP/TL (often blocked from cloud hosts).
+            // Keep slots for Pexels hero + Claude synthesis.
+            fetchOSM: false,
+            fetchFoursquare: false,
+            fetchFullName: false,
+            fetchWikimedia: false,
+            fetchFoursquarePhotos: false,
+            skipThinAggregators: true,
+          };
+
+      console.log(
+        `[sourceSelector] gaps: ${JSON.stringify(gaps)} plan: ${JSON.stringify(plan)} remainingFetches=${remainingFetches} remainingForSources=${remainingForSources} heroReserve=${heroReserve}`,
+      );
+
       let osmTag: string | null = null;
       let cuisine: string | null = null;
-      if (candidate.name && budget.websiteFetches < budget.maxFetches) {
+      let osmAmenity: string | null = null;
+      let foursquareDescription: string | null = null;
+      let foursquarePhotoUrl: string | null = null;
+      let wikimediaPhotoUrl: string | null = null;
+      let wikimediaLicence: string | null = null;
+      let foursquareVenueId: string | null = null;
+      let fsqCategories: string[] = [];
+
+      if (plan.fetchOSM && candidate.name && canSpendSourceFetch()) {
         budget.assertWithinBudget();
-        const osm = await queryOsmOverpass(budget, candidate.name, candidate.suburb);
+        const osm = await queryOsmOverpass(
+          budget,
+          candidate.name,
+          candidate.suburb,
+          candidate.state,
+        );
         if (osm) {
           sourcesUsed.add('openstreetmap');
           noteHighest(2);
           osmTag = [osm.amenity, osm.shop].filter(Boolean).join('/') || null;
+          osmAmenity = osm.amenity;
           cuisine = osm.cuisine;
           if (osm.openingHours && !bag.openingHours) {
             setField(bag, 'openingHours', {
@@ -385,42 +453,209 @@ export async function enrichCandidateMultiSource(params: {
               rawExtract: osm.openingHours,
             });
           }
+          if (osm.website && !websiteUrl && !bag.website) {
+            setField(bag, 'website', {
+              value: osm.website,
+              source: 'openstreetmap',
+              sourceTier: 2,
+              sourceUrl: osm.sourceUrl,
+              confidence: 0.8,
+              rawExtract: osm.website,
+            });
+          }
+          if (
+            osm.fullName &&
+            candidate.name &&
+            osm.fullName.length > candidate.name.length + 2
+          ) {
+            setField(bag, 'name', {
+              value: osm.fullName,
+              source: 'openstreetmap',
+              sourceTier: 2,
+              sourceUrl: osm.sourceUrl,
+              confidence: 0.85,
+              rawExtract: osm.fullName,
+            });
+          }
+          console.log(
+            `[OSM] ${candidate.name} — amenity:${osm.amenity} cuisine:${osm.cuisine} signals:${osmTagsToCategorySignals(osm).join(',')}`,
+          );
         }
       }
 
-      // STEP 5 — Aggregator if thin
+      let fsqDelivered = false;
+      if (plan.fetchFoursquare && candidate.name && canSpendSourceFetch()) {
+        budget.assertWithinBudget();
+        const fsq = await fetchFoursquareVenue(
+          budget,
+          bag.name?.value ?? candidate.name,
+          candidate.suburb,
+          candidate.state ?? 'VIC',
+        );
+        if (fsq) {
+          fsqDelivered = true;
+          sourcesUsed.add('foursquare');
+          noteHighest(3);
+          foursquareVenueId = fsq.fsqId;
+          fsqCategories = fsq.categories;
+          if (fsq.description && fsq.description.length > 20) {
+            foursquareDescription = fsq.description;
+            if (!bag.description || isPlaceholderDescription(bag.description.value)) {
+              setField(bag, 'description', {
+                value: fsq.description,
+                source: 'foursquare',
+                sourceTier: 3,
+                sourceUrl: `https://foursquare.com/v/${fsq.fsqId}`,
+                confidence: 0.8,
+                rawExtract: fsq.description,
+              });
+            }
+          }
+          if (fsq.hours && !bag.openingHours) {
+            setField(bag, 'openingHours', {
+              value: fsq.hours,
+              source: 'foursquare',
+              sourceTier: 3,
+              sourceUrl: `https://foursquare.com/v/${fsq.fsqId}`,
+              confidence: 0.75,
+              rawExtract: fsq.hours,
+            });
+          }
+          if (fsq.website && !websiteUrl && !bag.website) {
+            setField(bag, 'website', {
+              value: fsq.website,
+              source: 'foursquare',
+              sourceTier: 3,
+              sourceUrl: fsq.website,
+              confidence: 0.8,
+              rawExtract: fsq.website,
+            });
+          }
+          if (
+            fsq.fullName &&
+            candidate.name &&
+            fsq.fullName.length > (bag.name?.value ?? candidate.name).length + 2
+          ) {
+            setField(bag, 'name', {
+              value: fsq.fullName,
+              source: 'foursquare',
+              sourceTier: 3,
+              sourceUrl: `https://foursquare.com/v/${fsq.fsqId}`,
+              confidence: 0.8,
+              rawExtract: fsq.fullName,
+            });
+          }
+          console.log(`[Foursquare] ${candidate.name} — ${fsq.categories.join(', ')}`);
+        }
+      }
+
+      if (
+        plan.fetchFoursquarePhotos &&
+        foursquareVenueId &&
+        canSpendSourceFetch()
+      ) {
+        budget.assertWithinBudget();
+        const photos = await fetchFoursquarePhotos(budget, foursquareVenueId, 3);
+        if (photos.length) {
+          sourcesUsed.add('foursquare_photos');
+          foursquarePhotoUrl = photos[0]!.url;
+          console.log(`[Foursquare Photos] ${candidate.name} — ${photos.length} photos`);
+        }
+      }
+
+      if (plan.fetchFullName && !bag.name && candidate.name && canSpendSourceFetch()) {
+        budget.assertWithinBudget();
+        const recovered = await recoverFullName(budget, candidate.name, candidate.suburb, {
+          fbUrl: facebookUrl,
+          rawSourceJson: candidate.rawSourceJson,
+        });
+        if (recovered) {
+          sourcesUsed.add('full_name_recovery');
+          setField(bag, 'name', {
+            value: recovered,
+            source: 'full_name_recovery',
+            sourceTier: 3,
+            sourceUrl: null,
+            confidence: 0.75,
+            rawExtract: recovered,
+          });
+          console.log(`[FullName] ${candidate.name} → ${recovered}`);
+        }
+      }
+
+      if (plan.fetchWikimedia && candidate.name && canSpendSourceFetch()) {
+        budget.assertWithinBudget();
+        const wiki = await fetchWikimediaPhoto(
+          budget,
+          bag.name?.value ?? candidate.name,
+          candidate.suburb,
+        );
+        if (wiki) {
+          sourcesUsed.add('wikimedia_commons');
+          wikimediaPhotoUrl = wiki.url;
+          wikimediaLicence = wiki.licence;
+          console.log(`[Wikimedia] ${candidate.name} — ${wiki.licence}`);
+        }
+      }
+
+      // STEP 5 — Tier 3 aggregators when evidence is thin (skip if FSQ delivered; retry when FSQ 429/miss)
+      const allowThinAggregators =
+        !plan.skipThinAggregators || (plan.fetchFoursquare && !fsqDelivered);
+      if (plan.fetchFoursquare && !fsqDelivered) {
+        console.log(
+          `[sourceSelector] FSQ unavailable for ${candidate.name} — falling back to thin aggregators`,
+        );
+      }
       const thinSoFar =
         !bag.description ||
         isPlaceholderDescription(bag.description.value) ||
-        (!websiteExtract && !igBio && !fbAbout);
-      if (thinSoFar && candidate.name && budget.websiteFetches < budget.maxFetches) {
+        (!websiteExtract && !igBio && !fbAbout && !foursquareDescription);
+      let ypExtract: Awaited<ReturnType<typeof extractYellowPagesSnippet>> = null;
+      let trueLocalExtract: Awaited<ReturnType<typeof extractTrueLocalSnippet>> = null;
+      if (
+        thinSoFar &&
+        allowThinAggregators &&
+        candidate.name &&
+        canSpendSourceFetch()
+      ) {
         budget.assertWithinBudget();
-        const yp = await extractYellowPagesSnippet(budget, candidate.name, candidate.suburb);
-        if (yp) {
+        ypExtract = await extractYellowPagesSnippet(budget, candidate.name, candidate.suburb);
+        if (ypExtract) {
           sourcesUsed.add('yellow_pages');
           noteHighest(3);
-          if (yp.description && !bag.description) {
-            // Do not use aggregator text as public description per prompt —
-            // keep only as research signal for category mapping.
-          }
+        }
+      }
+      if (
+        thinSoFar &&
+        allowThinAggregators &&
+        candidate.name &&
+        canSpendSourceFetch() &&
+        (!ypExtract?.description || wordCount(ypExtract.description) < 30)
+      ) {
+        budget.assertWithinBudget();
+        trueLocalExtract = await extractTrueLocalSnippet(budget, candidate.name, candidate.suburb);
+        if (trueLocalExtract) {
+          sourcesUsed.add('true_local');
+          noteHighest(3);
         }
       }
 
-      // STEP 6 — Category mapping (rule-based; Claude optional later if budget)
+      // STEP 6 — Category mapping (rule-based; uses aggregator snippets as signals)
+      const signalInput = buildCategoryMappingInputFromCandidate(candidate);
       const mapped = mapToCardbeyCategory({
-        businessName: candidate.name,
-        businessType: candidate.businessType ?? candidate.category,
-        placesTypes: Array.isArray(candidate.rawSourceJson?.types)
-          ? (candidate.rawSourceJson!.types as string[])
-          : null,
+        ...signalInput,
+        businessName: bag.name?.value ?? signalInput.businessName,
         osmTag,
         igCategory,
         fbCategory,
+        ypSnippet: ypExtract?.description ?? null,
+        trueLocalSnippet: trueLocalExtract?.description ?? null,
         websiteNavItems: websiteExtract?.navItems ?? null,
+        placesTypes: [...(signalInput.placesTypes ?? []), ...fsqCategories],
       });
       setField(bag, 'category', {
         value: mapped.category,
-        source: osmTag ? 'openstreetmap' : 'rule_synthesised',
+        source: osmTag ? 'openstreetmap' : fsqCategories.length ? 'foursquare' : 'rule_synthesised',
         sourceTier: osmTag ? 2 : 3,
         sourceUrl: null,
         confidence: mapped.confidence,
@@ -437,48 +672,85 @@ export async function enrichCandidateMultiSource(params: {
         rawExtract: JSON.stringify(mapped.tags.slice(0, 5)),
       });
 
-      // STEP 7 — Hero (eligible business-owned media only)
+      // STEP 7 — Hero (website og → FSQ → Wikimedia → Pexels)
       budget.assertWithinBudget();
+      const displayName = bag.name?.value ?? candidate.name;
       const heroResolved = await resolveHeroImage({
         budget,
         websiteOgImage: websiteExtract?.ogImage ?? null,
         websiteSourceUrl: websiteExtract?.sourceUrl ?? null,
         category: bag.category?.value ?? null,
         businessType: candidate.businessType,
-        businessName: candidate.name,
+        businessName: displayName,
         suburb: candidate.suburb,
+        placesTypes: buildCategoryMappingInputFromCandidate(candidate).placesTypes,
+        tags: mapped.tags,
         identityMatchedWebsite: Boolean(websiteUrl),
+        foursquarePhotoUrl,
+        wikimediaPhotoUrl,
+        wikimediaLicence,
       });
       const hero = heroResolved.hero;
       if (hero?.eligible) {
         sourcesUsed.add(hero.source);
-        noteHighest(hero.source === 'business_website' ? 1 : 4);
+        noteHighest(
+          hero.source === 'business_website'
+            ? 1
+            : hero.source === 'foursquare_photos' || hero.source === 'wikimedia_commons'
+              ? 3
+              : 4,
+        );
         setField(bag, 'heroImageUrl', {
           value: hero.url,
           source: hero.source,
-          sourceTier: hero.source === 'business_website' ? 1 : 4,
+          sourceTier:
+            hero.source === 'business_website'
+              ? 1
+              : hero.source === 'foursquare_photos' || hero.source === 'wikimedia_commons'
+                ? 3
+                : 4,
           sourceUrl: hero.sourceUrl,
-          confidence: hero.source === 'business_website' ? 0.9 : 0.65,
-          rawExtract: hero.rawExtract,
+          confidence: hero.source === 'business_website' ? 0.9 : 0.75,
+          rawExtract: hero.attribution
+            ? `${hero.attribution};${hero.rawExtract}`
+            : hero.rawExtract,
         });
         bag.heroImageSource = hero.source;
+        console.log(`[Hero] ${candidate.name} — ${hero.source}`);
       } else {
         flags.push(heroResolved.status === 'NO_ELIGIBLE_MEDIA' ? 'NO_ELIGIBLE_MEDIA' : 'HERO_MISSING');
+        const pexelsNotes = heroResolved.adapterResults
+          .filter((r) => r.adapter === 'pexels')
+          .map((r) => `${r.status}:${r.message ?? ''}`)
+          .slice(0, 4);
+        console.warn(
+          `[Hero] ${candidate.name} — ${heroResolved.status}` +
+            (pexelsNotes.length ? ` pexels=[${pexelsNotes.join('; ')}]` : ''),
+        );
       }
 
       // STEP 8 — Description synthesis (evidence-grounded)
       budget.assertWithinBudget();
       const descSynth = await synthesizeDescription(budget, {
-        businessName: candidate.name ?? 'Business',
+        businessName: displayName ?? 'Business',
         category: bag.category?.value ?? null,
         suburb: candidate.suburb,
         websiteDescription: websiteExtract?.description ?? null,
         instagramBio: igBio,
         facebookAbout: fbAbout,
+        yellowPagesDescription: ypExtract?.description ?? null,
+        trueLocalDescription: trueLocalExtract?.description ?? null,
+        foursquareDescription,
+        osmAmenity,
         cuisineOrSpecialty: cuisine,
-        evidenceUrls: [websiteExtract?.sourceUrl, instagramUrl, facebookUrl].filter(
-          Boolean,
-        ) as string[],
+        openingHours: bag.openingHours?.value ?? null,
+        evidenceUrls: [
+          websiteExtract?.sourceUrl,
+          instagramUrl,
+          facebookUrl,
+          ypExtract?.sourceUrl,
+          trueLocalExtract?.sourceUrl,
+        ].filter(Boolean) as string[],
       });
       if (descSynth.meta.usedClaude) sourcesUsed.add('claude_synthesised');
       else sourcesUsed.add('rule_synthesised');
@@ -507,7 +779,7 @@ export async function enrichCandidateMultiSource(params: {
       budget.assertWithinBudget();
       const claimUrl = resolveClaimUrl(candidate);
       const briefSynth = await synthesizeBiBrief(budget, {
-        businessName: candidate.name ?? 'Business',
+        businessName: bag.name?.value ?? candidate.name ?? 'Business',
         legalName: bag.legalName?.value ?? candidate.legalName ?? null,
         abn: bag.abn?.value ?? candidate.abn ?? null,
         category: bag.category?.value ?? null,
@@ -534,6 +806,7 @@ export async function enrichCandidateMultiSource(params: {
       });
 
       // Apply bag → candidate (optional fields only)
+      if (bag.name) candidate.name = bag.name.value;
       if (bag.description) candidate.description = bag.description.value;
       if (bag.category) candidate.category = bag.category.value;
       if (bag.tags) candidate.tags = bag.tags.value;

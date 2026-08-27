@@ -61,3 +61,31 @@ export async function klingVideoGeneration(
     raw: result,
   };
 }
+
+export async function minimaxVideoGeneration(
+  request: VideoGenerationRequest,
+): Promise<VideoGenerationResponse> {
+  const { generateVideoViaMiniMax } = await import('../../video/generateVideoViaMiniMax.js');
+  const model = request.model?.trim() || process.env.MINIMAX_VIDEO_MODEL?.trim() || 'MiniMax-H3';
+
+  const result = await generateVideoViaMiniMax({
+    prompt: request.prompt,
+    ...(request.duration ? { duration: request.duration } : {}),
+    ...(request.resolution ? { resolution: request.resolution } : {}),
+    ...(request.input ?? {}),
+    selectionReason: 'gateway_minimax',
+  });
+
+  const videoUrl =
+    (typeof result?.videoUrl === 'string' && result.videoUrl) ||
+    (typeof result?.outputUrl === 'string' && result.outputUrl) ||
+    '';
+
+  return {
+    videoUrl,
+    provider: 'minimax',
+    model,
+    status: videoUrl ? 'completed' : 'failed',
+    raw: result,
+  };
+}

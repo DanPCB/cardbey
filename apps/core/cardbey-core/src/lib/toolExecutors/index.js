@@ -138,6 +138,8 @@ import * as queue_video_generation from './video/queue_video_generation.js'; // 
 import * as video_plan from './video/video_plan.js';
 import * as video_execute from './video/video_execute.js';
 import * as video_audio from './video/video_audio.js';
+import * as video_post_production from './video/video_post_production.js';
+import * as video_media_validation from './video/video_media_validation.js';
 import * as create_video from './video/videoRouter.js';
 import * as generate_video from './video/videoRouter.js';
 import * as check_scan_capability from './scan/check_scan_capability.js'; // DANH: skill-round5-cardscan
@@ -173,6 +175,16 @@ import * as adjust_inventory from './business/adjust_inventory.js';
 import * as record_payment from './business/record_payment.js';
 import * as print_receipt from './business/print_receipt.js';
 import * as phase2Business from './business/phase2Stubs.js';
+import {
+  create_quote_draft,
+  update_quote_draft,
+  add_quote_item,
+  prepare_invoice_from_quote,
+  preview_commercial_document,
+  issue_quote,
+  issue_invoice,
+  send_document,
+} from './accounting/index.js';
 
 /** Honest blocker for tools not implemented yet (no fake success payloads). */
 function honestBlocker(toolName, message) {
@@ -293,6 +305,8 @@ export const executors = {
   manage_menu_sync,
   get_store_analytics,
   generate_report_summary,
+  store_performance_report: get_store_analytics,
+  analytics_reporting: get_store_analytics,
   audit_store_completeness,
   generate_health_report,
   get_review_summary,
@@ -352,6 +366,8 @@ export const executors = {
   video_plan,
   video_execute,
   video_audio,
+  video_post_production,
+  video_media_validation,
   create_video,
   generate_video,
   check_scan_capability, // DANH: skill-round5-cardscan
@@ -388,6 +404,14 @@ export const executors = {
   adjust_inventory,
   record_payment,
   print_receipt,
+  create_quote_draft,
+  update_quote_draft,
+  add_quote_item,
+  prepare_invoice_from_quote,
+  preview_commercial_document,
+  issue_quote,
+  issue_invoice,
+  send_document,
   update_order: phase2Business.update_order,
   transfer_inventory: phase2Business.transfer_inventory,
   refund_order: phase2Business.refund_order,

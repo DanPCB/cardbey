@@ -41,6 +41,11 @@ export async function listClaimIntents(): Promise<ClaimIntentRecord[]> {
   return readAll();
 }
 
+export async function getClaimIntentById(id: string): Promise<ClaimIntentRecord | null> {
+  const all = await readAll();
+  return all.find((row) => row.id === id) ?? null;
+}
+
 export async function findClaimIntent(params: {
   candidateId?: string | null;
   seedId?: string | null;

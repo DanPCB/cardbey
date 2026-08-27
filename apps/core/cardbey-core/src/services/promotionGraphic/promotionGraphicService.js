@@ -513,6 +513,8 @@ export async function createPromotionGraphic({
   userImageUrl = null,
   imageDataUrl = null,
   skipImage = false,
+  imagePrefer = 'ai-first',
+  forceNew = true,
 }) {
   const prompt = String(description ?? '').trim();
   if (!prompt) {
@@ -536,12 +538,13 @@ export async function createPromotionGraphic({
   };
 
   const uploadedImage = userImageUrl || imageDataUrl;
+  const prefer = imagePrefer === 'stock-first' ? 'stock-first' : 'ai-first';
   const imageResult = await resolvePromoImage({
-    intent: prompt,
+    intent: forceNew ? `${prompt} unique promotional composition` : prompt,
     mood,
     format,
     content,
-    policy: { prefer: 'stock-first', allowAi: true },
+    policy: { prefer, allowAi: true },
     userImageUrl: uploadedImage,
     skipPlaceholder: skipImage === true,
   });

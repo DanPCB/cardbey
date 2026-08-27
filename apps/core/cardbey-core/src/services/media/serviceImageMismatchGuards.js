@@ -80,6 +80,49 @@ const SERVICE_MISMATCH_GUARDS = {
     require: ['handyman', 'toolbox', 'maintenance', 'home repair', 'tools'],
     reject: ['paint roller only', 'office meeting'],
   },
+  'book our consultations': {
+    require: ['office', 'meeting', 'advisor', 'consultation', 'finance', 'business', 'document'],
+    reject: [
+      'handyman',
+      'truck',
+      'sanitation',
+      'garbage',
+      'pressure wash',
+      'gutter',
+      'fence',
+      'plumber',
+      'high visibility',
+      'hi-vis',
+      'street sweeper',
+      'sweeper',
+      'municipal',
+      'bicycle',
+      'waste',
+      'road maintenance',
+    ],
+  },
+  consultation: {
+    require: ['consultation', 'office', 'meeting', 'advisor', 'adviser', 'broker', 'desk'],
+    reject: [
+      'truck',
+      'street sweeper',
+      'sweeper',
+      'municipal',
+      'garbage',
+      'sanitation',
+      'hi-vis',
+      'bicycle',
+      'waste',
+    ],
+  },
+  'home loan': {
+    require: ['loan', 'mortgage', 'home', 'house', 'keys', 'handshake', 'office', 'advisor'],
+    reject: ['truck', 'sweeper', 'sanitation', 'construction site', 'garbage'],
+  },
+  refinance: {
+    require: ['loan', 'mortgage', 'refinance', 'office', 'advisor', 'handshake'],
+    reject: ['truck', 'sweeper', 'sanitation', 'garbage'],
+  },
 };
 
 /**

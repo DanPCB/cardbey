@@ -48,15 +48,26 @@ export class V1OrchestrationAgent {
   /** @param {object} task */
   buildResult(task) {
     const goal = String(task?.goal ?? task?.description ?? '').trim();
+    const sk = this.context.storeKnowledge;
+    const enrichmentStatus = sk?.enrichmentStatus ?? null;
     return {
       stub: true,
       phase: 'PHASE_B',
       agent: this.agentName,
       missionId: this.context.missionId ?? null,
-      storeId: this.context.storeId ?? this.context.targetId ?? null,
+      storeId: this.context.storeId ?? this.context.targetId ?? sk?.id ?? null,
+      storeName: sk?.name ?? null,
+      storeDescription: sk?.description ?? null,
+      canonicalUrl: sk?.canonicalUrl ?? null,
+      enrichmentStatus,
       tenantId: this.context.tenantId ?? this.tenantKey,
       goal: goal || null,
       note: 'V1 deterministic stub — structured pipeline owns store build',
+      ...(enrichmentStatus && enrichmentStatus !== 'ENRICHED'
+        ? {
+            dataQualityWarning: `Store data is ${enrichmentStatus} — research output may be limited`,
+          }
+        : {}),
     };
   }
 }

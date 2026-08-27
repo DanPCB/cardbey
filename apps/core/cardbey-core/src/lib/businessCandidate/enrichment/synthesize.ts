@@ -29,7 +29,12 @@ export type DescriptionInputs = {
   websiteDescription: string | null;
   instagramBio: string | null;
   facebookAbout: string | null;
+  yellowPagesDescription?: string | null;
+  trueLocalDescription?: string | null;
+  foursquareDescription?: string | null;
+  osmAmenity?: string | null;
   cuisineOrSpecialty: string | null;
+  openingHours?: string | null;
   evidenceUrls?: string[];
 };
 
@@ -53,7 +58,12 @@ function evidenceHash(input: DescriptionInputs): string {
         websiteDescription: input.websiteDescription,
         instagramBio: input.instagramBio,
         facebookAbout: input.facebookAbout,
+        yellowPagesDescription: input.yellowPagesDescription,
+        trueLocalDescription: input.trueLocalDescription,
+        foursquareDescription: input.foursquareDescription,
+        osmAmenity: input.osmAmenity,
         cuisineOrSpecialty: input.cuisineOrSpecialty,
+        openingHours: input.openingHours,
         evidenceUrls: input.evidenceUrls ?? [],
       }),
     )
@@ -66,7 +76,12 @@ function collectEvidenceText(input: DescriptionInputs): string {
     input.websiteDescription,
     input.instagramBio,
     input.facebookAbout,
+    input.yellowPagesDescription,
+    input.trueLocalDescription,
+    input.foursquareDescription,
+    input.osmAmenity,
     input.cuisineOrSpecialty,
+    input.openingHours,
   ]
     .filter(Boolean)
     .join(' \n ');
@@ -80,10 +95,20 @@ export function minimalGroundedDescription(input: DescriptionInputs): string {
   const name = input.businessName.trim();
   const category = (input.category ?? 'local').trim().toLowerCase();
   const suburb = input.suburb?.trim();
-  if (suburb) {
-    return `${name} is listed as a ${category} business in ${suburb}.`;
+  const aggregator = sanitizeEnrichmentText(
+    [input.yellowPagesDescription, input.trueLocalDescription].filter(Boolean).join(' '),
+    220,
+  );
+  const lead = suburb
+    ? `${name} is a ${category} business in ${suburb}.`
+    : `${name} is a ${category} business.`;
+  if (aggregator && wordCount(aggregator) >= 8) {
+    return `${lead} ${aggregator}`.replace(/\s+/g, ' ').trim().slice(0, 480);
   }
-  return `${name} is listed as a ${category} business.`;
+  const tail = suburb
+    ? `Public listings identify it as a local ${category} venue serving the ${suburb} community.`
+    : `Public listings identify it as a local ${category} venue.`;
+  return `${lead} ${tail}`.replace(/\s+/g, ' ').trim();
 }
 
 export function validateSynthesizedDescription(
@@ -191,7 +216,11 @@ Rules:
 - Do NOT invent products, services, prices, years, awards, hours, contacts, or legal claims.
 - Do NOT use: premier, leading, world-class, passionate, dedicated, one-stop, your go-to, best, award-winning.
 - If evidence is only name+category+location, write exactly one sentence: "{name} is listed as a {category} business in {suburb}."
-Confirmed evidence JSON: ${JSON.stringify(input)}
+Confirmed evidence JSON: ${JSON.stringify({
+  ...input,
+  yellowPagesDescription: input.yellowPagesDescription ?? null,
+  trueLocalDescription: input.trueLocalDescription ?? null,
+})}
 Return strict JSON: {"description": string, "citedEvidenceFields": string[]}`,
         },
       ],

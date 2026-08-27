@@ -261,6 +261,66 @@ export function buildCanonicalServiceKey(title, category = '') {
 }
 
 /**
+ * Derive intent for professional / finance / legal consultation titles.
+ * Never inject handyman/trades queries (those produce truck/worker stock photos).
+ * @param {string} canonicalTitle
+ */
+function deriveProfessionalIntentFromTitle(canonicalTitle) {
+  const title = canonicalTitle || 'professional consultation';
+  return {
+    canonicalCategory: 'professional_consultation',
+    subjectTerms: ['advisor', 'consultant', 'professional', 'client'],
+    actionTerms: ['meeting', 'advising', 'planning'],
+    objectTerms: ['documents', 'charts', 'planning'],
+    environmentTerms: ['office', 'meeting room', 'boardroom'],
+    positiveTerms: [
+      'office',
+      'consultation',
+      'advisor',
+      'finance',
+      'professional',
+      'meeting',
+      'client',
+    ],
+    negativeTerms: [
+      'handyman',
+      'tradesperson',
+      'truck',
+      'sanitation',
+      'garbage',
+      'pressure wash',
+      'plumber',
+      'fence',
+      'gutter',
+      'toolbox',
+      'construction site',
+      'high visibility vest',
+    ],
+    queries: [
+      `${title} professional office consultation`,
+      'financial advisor client meeting modern office',
+      'professional consultation meeting modern office',
+      'business advisor reviewing documents office',
+    ],
+  };
+}
+
+/**
+ * @param {object} input
+ */
+function isProfessionalServiceImageContext(input = {}) {
+  const slug = String(input.businessSubcategory ?? input.verticalSlug ?? '').toLowerCase();
+  const cat = String(input.businessCategory ?? input.businessType ?? '').toLowerCase();
+  const name = String(input.serviceName ?? '').toLowerCase();
+  if (/^services\.(finance|accounting|legal)/.test(slug)) return true;
+  if (/\b(finance|financial|capital|accounting|lawyer|legal|solicitor|advisory|consult)/.test(`${slug} ${cat}`)) {
+    return true;
+  }
+  if (/book our consultations|consultation|refinance|home loan|mortgage/.test(name)) return true;
+  return false;
+}
+
+/**
  * Derive intent fields from title when no profile exists.
  * @param {string} canonicalTitle
  */
@@ -303,15 +363,10 @@ export function buildServiceImageIntent(input = {}) {
   const originalTitle = String(input.serviceName ?? '').trim();
   const canonicalTitle = canonicalizeServiceTitle(originalTitle) || originalTitle;
   const key = normalizeServiceKey(canonicalTitle);
-  const profile = SERVICE_INTENT_PROFILES[key] ?? deriveIntentFromTitle(canonicalTitle);
-
-  const businessProfile = {
-    verticalSlug: input.businessSubcategory ?? input.businessCategory ?? '',
-    businessType: input.businessCategory ?? '',
-    storeName: input.location ? undefined : undefined,
-    businessName: input.businessCategory,
-    storeType: input.businessCategory,
-  };
+  const professional = isProfessionalServiceImageContext(input);
+  const profile =
+    SERVICE_INTENT_PROFILES[key] ??
+    (professional ? deriveProfessionalIntentFromTitle(canonicalTitle) : deriveIntentFromTitle(canonicalTitle));
 
   let blueprintHint = null;
   if (input.imageQueryHint) {
@@ -338,10 +393,17 @@ export function buildServiceImageIntent(input = {}) {
 
   if (blueprintHint) pushQuery(blueprintHint);
   for (const q of profile.queries ?? []) pushQuery(q);
-  for (const q of deriveIntentFromTitle(canonicalTitle).queries ?? []) pushQuery(q);
+  // Do not merge handyman deriveIntent queries for professional/finance titles.
+  if (!professional) {
+    for (const q of deriveIntentFromTitle(canonicalTitle).queries ?? []) pushQuery(q);
+  }
 
   if (!queries.length) {
-    pushQuery(`handyman ${canonicalTitle.toLowerCase()} service professional`);
+    pushQuery(
+      professional
+        ? `professional consultation meeting modern office`
+        : `handyman ${canonicalTitle.toLowerCase()} service professional`,
+    );
   }
 
   /** @type {ServiceImageIntent} */

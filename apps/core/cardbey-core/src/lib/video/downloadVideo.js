@@ -14,9 +14,22 @@ const UPLOADS_DIR =
 /**
  * Downloads a video from a URL and stores it via the configured storage driver.
  */
+function looksLikeHtml(buffer, contentType) {
+  const type = String(contentType || '').toLowerCase();
+  if (type.includes('text/html') || type.includes('application/json')) return true;
+  const head = buffer.slice(0, 64).toString('utf8').trim().toLowerCase();
+  return head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('{');
+}
+
+function looksLikeMp4(buffer) {
+  if (buffer.length < 12) return false;
+  const box = buffer.slice(4, 8).toString('ascii');
+  return box === 'ftyp' || buffer.slice(0, 3).toString('ascii') === 'FLV';
+}
+
 export async function downloadAndStoreVideo(
   videoUrl,
-  { prefix = 'kling', timeoutMs = 30_000 } = {},
+  { prefix = 'kling', timeoutMs = 30_000, requireVideo = false, maxBytes = 0 } = {},
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -34,11 +47,32 @@ export async function downloadAndStoreVideo(
       throw new Error('Download failed: empty response body');
     }
 
+    const contentType = res.headers.get('content-type') || '';
     const chunks = [];
+    let received = 0;
+    const limit = Number(maxBytes) > 0 ? Number(maxBytes) : 0;
     for await (const chunk of Readable.fromWeb(res.body)) {
-      chunks.push(Buffer.from(chunk));
+      const buf = Buffer.from(chunk);
+      received += buf.length;
+      if (limit && received > limit) {
+        throw new Error(`Download failed: exceeded maxBytes (${limit})`);
+      }
+      chunks.push(buf);
     }
     const buffer = Buffer.concat(chunks);
+
+    if (requireVideo) {
+      if (looksLikeHtml(buffer, contentType)) {
+        throw new Error('Download failed: invalid media (HTML/JSON provider error response)');
+      }
+      const type = contentType.toLowerCase();
+      if (type && !type.includes('video/') && !type.includes('octet-stream') && !looksLikeMp4(buffer)) {
+        throw new Error(`Download failed: unexpected content-type ${contentType}`);
+      }
+      if (!looksLikeMp4(buffer) && type && !type.includes('video/')) {
+        throw new Error('Download failed: invalid media');
+      }
+    }
 
     const filename = `${Date.now()}-${prefix}-${randomUUID().slice(0, 8)}.mp4`;
 

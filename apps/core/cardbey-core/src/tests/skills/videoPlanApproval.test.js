@@ -44,9 +44,21 @@ describe('Video plan-first approval', () => {
     const dispatched = [];
     const executor = new SkillExecutor({
       toolDispatcher: async (tool, input) => {
+        /* @pure-transform test mock — no IO */
         dispatched.push(tool);
         if (tool === 'video_plan') return videoPlanExecute(input);
         if (tool === 'video_execute') return videoExecute(input);
+        if (tool === 'video_audio') {
+          return {
+            status: 'ok',
+            output: {
+              hasAudio: true,
+              videoUrl: input?.videoOutput?.videoUrl ?? 'https://example.com/v.mp4',
+              captionUrl: '/uploads/media/captions.vtt',
+              captionMode: 'sidecar',
+            },
+          };
+        }
         return { status: 'failed', error: { message: `unexpected tool ${tool}` } };
       },
       blackboard: {
@@ -72,9 +84,21 @@ describe('Video plan-first approval', () => {
     const dispatched = [];
     const executor = new SkillExecutor({
       toolDispatcher: async (tool, input) => {
+        /* @pure-transform test mock — no IO */
         dispatched.push(tool);
         if (tool === 'video_plan') return videoPlanExecute(input);
         if (tool === 'video_execute') return videoExecute(input);
+        if (tool === 'video_audio') {
+          return {
+            status: 'ok',
+            output: {
+              hasAudio: true,
+              videoUrl: input?.videoOutput?.videoUrl ?? 'https://example.com/v.mp4',
+              captionUrl: '/uploads/media/captions.vtt',
+              captionMode: 'sidecar',
+            },
+          };
+        }
         return { status: 'failed', error: { message: `unexpected tool ${tool}` } };
       },
       blackboard: { appendEvent: vi.fn(async () => ({})) },
@@ -100,6 +124,7 @@ describe('Video plan-first approval', () => {
 
     expect(resumed.status).toBe('completed');
     expect(dispatched).toContain('video_execute');
+    expect(dispatched).toContain('video_audio');
     expect(klingSpy).toHaveBeenCalledTimes(1);
     expect(klingSpy.mock.calls[0][0]?.script).toContain('Edited script');
   });
@@ -108,9 +133,21 @@ describe('Video plan-first approval', () => {
     const dispatched = [];
     const executor = new SkillExecutor({
       toolDispatcher: async (tool, input) => {
+        /* @pure-transform test mock — no IO */
         dispatched.push(tool);
         if (tool === 'video_plan') return videoPlanExecute(input);
         if (tool === 'video_execute') return videoExecute(input);
+        if (tool === 'video_audio') {
+          return {
+            status: 'ok',
+            output: {
+              hasAudio: true,
+              videoUrl: input?.videoOutput?.videoUrl ?? 'https://example.com/v.mp4',
+              captionUrl: '/uploads/media/captions.vtt',
+              captionMode: 'sidecar',
+            },
+          };
+        }
         return { status: 'failed', error: { message: `unexpected tool ${tool}` } };
       },
       blackboard: { appendEvent: vi.fn(async () => ({})) },

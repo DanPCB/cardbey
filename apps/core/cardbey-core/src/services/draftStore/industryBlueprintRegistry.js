@@ -8,6 +8,7 @@ import { ALL_INDUSTRY_BLUEPRINTS } from './industryBlueprints/index.js';
 import { CATALOG_ITEM_LIMIT, CATALOG_ITEM_MIN } from '../../config/catalogLimits.js';
 import { currencySymbol } from '../../lib/catalog/generators/serviceCatalogHelpers.js';
 import { canonicalizeServiceName } from '../../lib/catalog/canonicalServiceNormalizer.js';
+import { isServiceCatalogPlaceholderName } from '../../lib/catalog/serviceCatalogPlaceholders.js';
 
 export function deriveDefaultImageQueryHint(itemName, bank) {
   const name = String(itemName ?? '').trim().replace(/\s+(- chef'?s|- special|- house)$/i, '').trim();
@@ -113,27 +114,11 @@ function resolveFinanceVsAccountingBlueprint(blob) {
  */
 export function resolveIndustryBlueprintKey(profile = {}) {
   const blob = profileBlob(profile);
-  const nameBlob = [profile.businessName, profile.storeName]
-    .map((v) => String(v ?? '').toLowerCase())
-    .filter(Boolean)
-    .join(' ');
-  const typeBlob = [profile.businessType, profile.storeType, profile.category]
-    .map((v) => String(v ?? '').toLowerCase())
-    .filter(Boolean)
-    .join(' ');
-  const NAIL_SIGNAL_RE =
-    /\b(nails?|manicure|pedicure|nail\s*salon|nail\s*art|gel\s*nails?|acrylic\s*nails?)\b/i;
 
   // Explicit finance vs accounting disambiguation before generic pattern scan.
   const financeOrAccounting = resolveFinanceVsAccountingBlueprint(blob);
   if (financeOrAccounting && INDUSTRY_BLUEPRINTS[financeOrAccounting]) {
     return financeOrAccounting;
-  }
-
-  // Nail name/type beats wrong verticalSlug or shared beauty_salon → haircut menus
-  // (live bug: "ANGEL NAIL" received Women's Haircut starter catalog).
-  if (NAIL_SIGNAL_RE.test(nameBlob) || NAIL_SIGNAL_RE.test(typeBlob)) {
-    return 'beauty.nails';
   }
 
   if (blob) {
@@ -244,6 +229,27 @@ export function catalogHasMeaningfulPriceList(items) {
   return strong >= 1 || weak >= 2;
 }
 
+const CONSULTATION_ONLY_NAME_RE = /^book our consultations$/i;
+
+/**
+ * True when catalog already has real named offerings (OCR / research / flyer lines),
+ * even if they have no dollar prices. Do not wipe these into a single consultation.
+ * @param {object[]|null|undefined} items
+ * @returns {boolean}
+ */
+export function catalogHasNamedGroundedOfferings(items) {
+  if (!Array.isArray(items) || items.length === 0) return false;
+  let named = 0;
+  for (const it of items) {
+    const name = String(it?.name ?? '').trim();
+    if (name.length < 3) continue;
+    if (CONSULTATION_ONLY_NAME_RE.test(name)) continue;
+    if (isServiceCatalogPlaceholderName(name)) continue;
+    named += 1;
+  }
+  return named >= 1;
+}
+
 /**
  * General unpriced consultation booking for professional stores without a price list.
  * @param {object} [profile]
@@ -298,8 +304,63 @@ export function isProfessionalIndustryContext(profile = {}, bank = null) {
 }
 
 /**
+ * Build a professional catalog from named offerings without inventing prices.
+ * @param {object[]} evidence
+ * @param {object} [profile]
+ * @param {IndustryBlueprint|null} [bank]
+ */
+export function buildNamedUnpricedProfessionalCatalog(evidence, profile = {}, bank = null) {
+  const vertical = bank?.verticalSlugs?.[0] || profile.verticalSlug || 'services.finance';
+  const categories = [{ id: 'cat_named_0', name: bank?.categories?.[0]?.label || 'Services' }];
+  const items = [];
+  const seen = new Set();
+  for (const raw of evidence) {
+    const name = String(raw?.name ?? raw?.title ?? '').trim();
+    if (name.length < 3) continue;
+    if (CONSULTATION_ONLY_NAME_RE.test(name)) continue;
+    if (isServiceCatalogPlaceholderName(name)) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({
+      id: `item_named_${items.length}`,
+      name,
+      description: raw?.description ?? null,
+      price: null,
+      categoryId: 'cat_named_0',
+      serviceMode: raw?.serviceMode || 'fixed_booking',
+      pricingModel: 'custom',
+      priceProvenance: raw?.priceProvenance || raw?.priceOrigin || 'ocr',
+      executionAction: 'book',
+      imageQueryHint:
+        raw?.imageQueryHint ||
+        deriveDefaultImageQueryHint(name, bank || { industry: 'professional' }),
+    });
+  }
+  if (items.length === 0) {
+    return buildProfessionalConsultationBookingCatalog(profile, bank);
+  }
+  return {
+    categories,
+    items,
+    imageQueryHints: {
+      cat_named_0: ['professional advisory service', 'finance consultation office'],
+    },
+    meta: {
+      catalogSource: 'named_offerings_unpriced',
+      vertical,
+      industryLabel: bank?.label || 'Professional',
+      offeringProvenance: 'GROUNDED_UNPRICED',
+      bookingMode: 'named_offerings_unpriced',
+    },
+  };
+}
+
+/**
  * If professional + no meaningful price list → consultation booking catalog.
  * Keeps priced menus from OCR/upload/research when evidence exists.
+ * Also keeps **named** unpriced offerings (e.g. loan products from a flyer) —
+ * never invent a single "Book our consultations" over real service names.
  * @param {object} catalog
  * @param {object} [profile]
  */
@@ -319,6 +380,17 @@ export function collapseProfessionalCatalogWithoutPriceList(catalog, profile = {
   if (!isProfessionalIndustryContext(mergedProfile)) return catalog;
   if (profile.hasPriceList === true || profile.allowBlueprintPrices === true) return catalog;
   if (catalogHasMeaningfulPriceList(items)) return catalog;
+  // Named flyer/OCR/research offerings without $ prices are still grounded — keep them.
+  if (catalogHasNamedGroundedOfferings(items)) {
+    return {
+      ...catalog,
+      meta: {
+        ...(catalog.meta || {}),
+        bookingMode: catalog.meta?.bookingMode || 'named_offerings_unpriced',
+        offeringProvenance: catalog.meta?.offeringProvenance || 'GROUNDED_UNPRICED',
+      },
+    };
+  }
 
   const key = resolveIndustryBlueprintKey(mergedProfile);
   const bank = key ? INDUSTRY_BLUEPRINTS[key] : null;
@@ -345,7 +417,8 @@ export function collapseProfessionalCatalogWithoutPriceList(catalog, profile = {
 }
 
 function buildFromBlueprint(bank, key, targetCount, profile = {}) {
-  // Professional stores without a real price list → general consultation booking only.
+  // Professional stores without a real price list → consultation booking only
+  // when there are also no named grounded offerings from OCR/research/flyer.
   if (
     bank.industry === 'professional' &&
     profile.allowBlueprintPrices !== true &&
@@ -353,6 +426,9 @@ function buildFromBlueprint(bank, key, targetCount, profile = {}) {
   ) {
     const evidence =
       profile.items || profile.products || profile.detectedServices || profile.preloadedCatalogItems || [];
+    if (catalogHasNamedGroundedOfferings(evidence) && !catalogHasMeaningfulPriceList(evidence)) {
+      return buildNamedUnpricedProfessionalCatalog(evidence, profile, bank);
+    }
     if (!catalogHasMeaningfulPriceList(evidence)) {
       return buildProfessionalConsultationBookingCatalog(profile, bank);
     }
