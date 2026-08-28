@@ -122,6 +122,10 @@ export function buildSKPFromSources(sources = {}) {
   const phoneValue = str(business.phone);
   const emailValue = str(business.email);
   const websiteValue = str(business.websiteUrl);
+  const priceRangeValue =
+    str(business.priceRange) ||
+    (content && typeof content === 'object' ? str(content.priceRange) : null) ||
+    null;
 
   const boi = asObj(sources.boiSnapshot);
   let biSummaryValue = null;
@@ -264,12 +268,17 @@ export function buildSKPFromSources(sources = {}) {
     },
     commerce: {
       openingHours: withProvenance(
-        business.tradingHours ?? null,
+        business.tradingHours ?? business.openingHours ?? null,
         ProvenanceTag.PLATFORM_OBSERVED,
         'business.tradingHours',
-        business.tradingHours ? 0.75 : 0,
+        business.tradingHours || business.openingHours ? 0.75 : 0,
       ),
-      priceRange: withProvenance(null, ProvenanceTag.UNVERIFIED, undefined, 0),
+      priceRange: withProvenance(
+        priceRangeValue,
+        priceRangeValue ? ProvenanceTag.PLATFORM_OBSERVED : ProvenanceTag.UNVERIFIED,
+        priceRangeValue ? 'business.priceRange' : undefined,
+        priceRangeValue ? 0.7 : 0,
+      ),
       acceptsBookings: withProvenance(
         String(business.transactionMode || '').toLowerCase() === 'booking',
         ProvenanceTag.PLATFORM_INFERRED,
@@ -481,7 +490,14 @@ export function skpToJsonLd(skp) {
   if (sameAs.length) ld.sameAs = sameAs;
 
   if (skp.content.heroImageUrl.value) ld.image = skp.content.heroImageUrl.value;
+  if (skp.content.logoUrl.value) ld.logo = skp.content.logoUrl.value;
   if (skp.content.tagline.value) ld.slogan = skp.content.tagline.value;
+  if (skp.commerce.openingHours.value) {
+    ld.openingHours = skp.commerce.openingHours.value;
+  }
+  if (skp.commerce.priceRange.value) {
+    ld.priceRange = skp.commerce.priceRange.value;
+  }
 
   return ld;
 }

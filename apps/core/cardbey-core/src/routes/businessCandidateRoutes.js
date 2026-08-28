@@ -62,7 +62,11 @@ router.get('/qa', requireAuth, requireAdmin, async (req, res, next) => {
         return {
           ...c,
           qaEnrichment: {
-            mediaPreviewUrl: media?.heroImage?.thumbnailUrl ?? media?.heroImage?.url ?? null,
+            mediaPreviewUrl:
+              c.heroImageUrl ??
+              media?.heroImage?.thumbnailUrl ??
+              media?.heroImage?.url ??
+              null,
             mediaSource: media?.heroImage?.sourceType ?? null,
             mediaConfidence: media?.heroImage?.matchConfidence ?? null,
             isRepresentative: media?.representativeDisclosureRequired ?? false,

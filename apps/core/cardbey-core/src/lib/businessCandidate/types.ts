@@ -147,6 +147,17 @@ export interface BusinessCandidateRecord {
   enrichmentUpdatedAt?: string | null;
   /** Last multi-source enrichment run id (cuid) — correlates provenance sidecar rows */
   enrichmentRunId?: string | null;
+
+  /** Pre-claim profile — written by multi-source enrichment agent */
+  logoUrl?: string | null;
+  tagline?: string | null;
+  brandColors?: { primary: string | null; secondary: string | null } | null;
+  subCategory?: string | null;
+  priceRange?: string | null;
+  /** 0–100 completeness score — recalculated each enrichment run */
+  profileScore?: number | null;
+  enrichmentStatus?: 'unenriched' | 'partial' | 'enriched' | null;
+  enrichedAt?: string | null;
 }
 
 export interface BusinessCandidateTransitionRecord {
