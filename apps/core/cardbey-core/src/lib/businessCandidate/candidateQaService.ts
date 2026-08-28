@@ -39,6 +39,21 @@ function toDiscoveryShape(record: BusinessCandidateRecord): DiscoveryBusinessCan
       placeId: record.placeId,
       suburb: record.suburb,
       rawSourceJson: record.rawSourceJson,
+      enrichedProfile: {
+        heroImageUrl: record.heroImageUrl ?? null,
+        logoUrl: record.logoUrl ?? null,
+        tagline: record.tagline ?? null,
+        description: record.description ?? null,
+        brandColors: record.brandColors ?? null,
+        category: record.category ?? null,
+        subCategory: record.subCategory ?? null,
+        tags: record.tags ?? null,
+        openingHours: record.openingHours ?? null,
+        priceRange: record.priceRange ?? null,
+        abn: record.abn ?? null,
+        legalName: record.legalName ?? null,
+        profileScore: record.profileScore ?? null,
+      },
     },
   };
 }

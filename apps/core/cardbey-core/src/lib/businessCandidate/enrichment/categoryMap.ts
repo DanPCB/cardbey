@@ -52,6 +52,8 @@ export function mapToCardbeyCategory(input: CategoryMappingInput): {
 
   category: CardbeyCategory;
 
+  subCategory: string | null;
+
   tags: string[];
 
   confidence: number;
@@ -120,7 +122,7 @@ export function mapToCardbeyCategory(input: CategoryMappingInput): {
 
 
 
-  return { category, tags: tags.slice(0, 5), confidence };
+  return { category, subCategory: subCategory ?? null, tags: tags.slice(0, 5), confidence };
 
 }
 
