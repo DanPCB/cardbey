@@ -101,7 +101,16 @@ export async function approveCandidateForClaiming(params: {
   }
 
   const seed = promotion.seeds[0]!;
-  const approved = await approveSeed(seed.id, params.reason ?? 'QA approved real local pilot candidate');
+  const { applyCandidateProfileToSeed } = await import('./applyCandidateProfileToSeed.js');
+  const { upsertSeedRecords } = await import('../businessIngestion/IngestionRepository.js');
+  const patchedSeed = await applyCandidateProfileToSeed(candidate, seed);
+  await upsertSeedRecords([patchedSeed]);
+
+  const approved = await approveSeed(
+    patchedSeed.id,
+    params.reviewerId,
+    params.reason ?? 'QA approved real local pilot candidate',
+  );
 
   if (!approved.ok) {
     return { ok: false, message: approved.message ?? 'Seed QA approval failed' };
