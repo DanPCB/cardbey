@@ -2,6 +2,7 @@ name: Foundation Regression
 
 on:
   pull_request:
+    branches: [staging, main]
     paths:
       - 'apps/core/cardbey-core/**'
       - 'apps/dashboard/cardbey-marketing-dashboard/**'
@@ -13,6 +14,7 @@ on:
   push:
     branches:
       - main
+      - staging
       - develop
     paths:
       - 'apps/core/cardbey-core/**'

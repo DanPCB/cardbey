@@ -2,6 +2,7 @@ name: Tests
 
 on:
   pull_request:
+    branches: [staging, main]
     paths:
       - 'apps/core/cardbey-core/src/**'
       - 'apps/core/cardbey-core/tests/**'
@@ -12,6 +13,7 @@ on:
   push:
     branches:
       - main
+      - staging
       - develop
       - 'rollback/**'
     paths:
