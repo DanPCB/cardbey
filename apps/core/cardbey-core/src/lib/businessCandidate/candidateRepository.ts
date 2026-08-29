@@ -5,20 +5,17 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type {
   BusinessCandidateRecord,
   BusinessCandidateTransitionRecord,
 } from './types.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CORE_ROOT = path.resolve(__dirname, '..', '..', '..');
+import {
+  resolveBusinessCandidateStoreRoot,
+  resetBusinessCandidateStoreRootForTests,
+} from './businessCandidateStoreRoot.js';
 
 function storeRoot(): string {
-  return (
-    process.env.BUSINESS_CANDIDATE_DIR ||
-    path.join(CORE_ROOT, 'data', 'businessCandidates')
-  );
+  return resolveBusinessCandidateStoreRoot();
 }
 
 function candidatesFile(): string {
@@ -133,6 +130,7 @@ export async function listCandidateTransitions(
 }
 
 export async function resetBusinessCandidatesForTests(): Promise<void> {
+  resetBusinessCandidateStoreRootForTests();
   await queuedWrite(candidatesFile(), []);
   await queuedWrite(transitionsFile(), []);
 }

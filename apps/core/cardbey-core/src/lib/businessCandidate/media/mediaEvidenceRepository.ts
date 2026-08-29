@@ -5,17 +5,11 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { CandidateMediaAsset } from './types.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CORE_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
+import { resolveBusinessCandidateStoreRoot } from '../businessCandidateStoreRoot.js';
 
 function mediaFile(): string {
-  const root =
-    process.env.BUSINESS_CANDIDATE_DIR ||
-    path.join(CORE_ROOT, 'data', 'businessCandidates');
-  return path.join(root, 'media-evidence.json');
+  return path.join(resolveBusinessCandidateStoreRoot(), 'media-evidence.json');
 }
 
 let writeChain: Promise<unknown> = Promise.resolve();
