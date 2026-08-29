@@ -14,6 +14,7 @@ import {
   ensureIntelligenceBriefFromEnrichment,
   resolvePublicCategoryLabel,
   resolvePublicDescription,
+  resolvePublicLogoUrl,
 } from '../businessCandidate/media/resolvePublicCandidatePresentation.js';
 import { resolvePilotCategoryKey } from '../businessCandidate/media/categoryMediaVocabulary.js';
 import { getBriefByCandidateId, getBriefBySeedId } from '../businessCandidate/brief/briefRepository.js';
@@ -41,6 +42,7 @@ export interface PublicBusinessProfile {
   description: string | null;
   heroImageUrl: string;
   heroVideoUrl: string | null;
+  logoUrl: string | null;
   badge: string;
   publicLifecycle: PublicBusinessLifecycle;
   lifecycleLabel: string;
@@ -166,6 +168,7 @@ export async function buildPublicBusinessProfile(
     description: resolvePublicDescription(seed, candidate, locationLabel),
     heroImageUrl: media.heroImageUrl,
     heroVideoUrl: null,
+    logoUrl: resolvePublicLogoUrl(seed, candidate),
     badge: DISCOVERED_BUSINESS_BADGE,
     publicLifecycle,
     lifecycleLabel: profileLifecycleLabel(publicLifecycle),

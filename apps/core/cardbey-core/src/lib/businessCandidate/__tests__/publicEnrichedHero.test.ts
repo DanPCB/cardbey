@@ -12,9 +12,13 @@ import type { BusinessCandidateRecord } from '../types.js';
 import { findBusinessCandidateForSeed } from '../media/findBusinessCandidateForSeed.js';
 import {
   isEligibleEnrichedHero,
+  isPublicRenderableImageUrl,
   resolveEnrichedHeroFromCandidate,
+  resolveEnrichedHeroFromSeed,
   resolvePublicDescription,
+  resolvePublicLogoUrl,
 } from '../media/resolvePublicCandidatePresentation.js';
+import { resolvePublicMediaForSeed } from '../media/resolvePublicCandidateMedia.js';
 
 function sampleCandidate(overrides: Partial<BusinessCandidateRecord> = {}): BusinessCandidateRecord {
   const now = new Date().toISOString();
@@ -150,5 +154,73 @@ describe('findBusinessCandidateForSeed', () => {
     const desc = resolvePublicDescription(seed, found, 'Braybrook, VIC');
     expect(desc).toContain('fresh bread');
     expect(desc.toLowerCase()).not.toContain('claim your profile');
+  });
+
+  it('rejects Google Places photo URLs for public hero display', () => {
+    expect(
+      isPublicRenderableImageUrl(
+        'https://maps.googleapis.com/maps/api/place/photo?maxwidth=1200&photo_reference=abc',
+      ),
+    ).toBe(false);
+    expect(isPublicRenderableImageUrl('https://images.pexels.com/photos/hero.jpg')).toBe(true);
+  });
+
+  it('resolveEnrichedHeroFromSeed uses QA-copied seed hero', () => {
+    const seed = {
+      ...sampleSeed('ChIJ-test'),
+      hero: {
+        url: 'https://images.pexels.com/photos/seed-hero.jpg',
+        width: 1600,
+        height: 900,
+        provenance: 'stock_fallback',
+      },
+      enrichmentProfile: {
+        heroImageUrl: 'https://images.pexels.com/photos/seed-hero.jpg',
+        visualSource: 'pexels',
+      },
+      about: 'Family-owned bakery with sourdough and viennoiserie.',
+    };
+    const hero = resolveEnrichedHeroFromSeed(seed);
+    expect(hero?.heroImageUrl).toContain('pexels');
+    expect(hero?.representativeDisclosureRequired).toBe(true);
+
+    const desc = resolvePublicDescription(seed, null, 'Braybrook, VIC');
+    expect(desc).toContain('sourdough');
+  });
+
+  it('resolvePublicLogoUrl prefers candidate logo over seed enrichment', () => {
+    const seed = {
+      ...sampleSeed('ChIJ-test'),
+      enrichmentProfile: { logoUrl: 'https://cdn.example/seed-logo.png' },
+    };
+    const candidate = sampleCandidate({ logoUrl: 'https://cdn.example/candidate-logo.png' });
+    expect(resolvePublicLogoUrl(seed, candidate)).toBe('https://cdn.example/candidate-logo.png');
+  });
+
+  it('resolvePublicMediaForSeed skips non-renderable provider photos', async () => {
+    const placeId = 'ChIJ-provider-photo';
+    await saveBusinessCandidate(
+      sampleCandidate({
+        seedId: 'seed-provider',
+        placeId,
+        externalId: placeId,
+        heroImageUrl: null,
+        heroImageSource: null,
+        rawSourceJson: {
+          photos: [{ photo_reference: 'abc123' }],
+        },
+        sourceUrl:
+          'https://maps.googleapis.com/maps/api/place/photo?maxwidth=1200&photo_reference=abc123',
+      }),
+    );
+    const seed = {
+      ...sampleSeed(placeId),
+      id: 'seed-provider',
+      hero: null,
+      enrichmentProfile: null,
+    };
+    const media = await resolvePublicMediaForSeed(seed);
+    expect(media.heroImageUrl).not.toContain('maps.googleapis.com');
+    expect(media.heroImageSource).toBe('representative');
   });
 });

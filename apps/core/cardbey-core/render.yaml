@@ -52,11 +52,17 @@ services:
     buildCommand: node scripts/render-build.mjs
     preDeployCommand: npm ci && node scripts/resolve-postgres-failed-migration.mjs && node scripts/prisma-bootstrap.js
     startCommand: npm start
+    disk:
+      name: business-candidates
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: CARDEY_DEPLOY_ENV
         value: staging
+      - key: BUSINESS_CANDIDATE_DIR
+        value: /var/data/businessCandidates
       # Phase 2 — platform marketing CTA API (staging only; production service omits this)
       - key: ENABLE_CTA_ENGINE_PLATFORM_MARKETING_V1
         value: "true"

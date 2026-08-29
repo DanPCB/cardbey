@@ -5,17 +5,11 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { RollbackAuditEvent, RollbackJob } from './types.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CORE_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
+import { resolveBusinessCandidateStoreRoot } from '../businessCandidateStoreRoot.js';
 
 function storeRoot(): string {
-  return (
-    process.env.BUSINESS_CANDIDATE_DIR ||
-    path.join(CORE_ROOT, 'data', 'businessCandidates')
-  );
+  return resolveBusinessCandidateStoreRoot();
 }
 
 function jobsFile(): string {

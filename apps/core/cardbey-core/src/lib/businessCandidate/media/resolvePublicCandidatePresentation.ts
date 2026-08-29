@@ -17,6 +17,15 @@ const PUBLIC_ELIGIBLE_HERO_SOURCES = new Set(['business_website', 'pexels', 'pix
 /** Representative stock — show with disclosure label on public surfaces. */
 const REPRESENTATIVE_HERO_SOURCES = new Set(['pexels', 'pixabay']);
 
+/** Google Places photo URLs require server-side API keys and break in public <img> tags. */
+export function isPublicRenderableImageUrl(url: string | null | undefined): boolean {
+  const text = String(url ?? '').trim();
+  if (!text) return false;
+  if (!text.startsWith('http://') && !text.startsWith('https://')) return false;
+  if (text.includes('maps.googleapis.com/maps/api/place/photo')) return false;
+  return true;
+}
+
 export function isClaimPlaceholderDescription(value: string | null | undefined): boolean {
   const text = String(value ?? '').trim();
   if (!text) return true;
@@ -35,6 +44,11 @@ export function resolvePublicDescription(
   const enriched = candidate?.description?.trim();
   if (enriched && !isClaimPlaceholderDescription(enriched)) {
     return enriched;
+  }
+
+  const seedCopy = (seed.about ?? seed.enrichmentProfile?.description)?.trim();
+  if (seedCopy && !isClaimPlaceholderDescription(seedCopy)) {
+    return seedCopy;
   }
 
   const name = seed.normalized.businessName ?? candidate?.name ?? 'This business';
@@ -76,13 +90,49 @@ export function resolveEnrichedHeroFromCandidate(
   candidate: BusinessCandidateRecord,
 ): { heroImageUrl: string; heroImageSource: DiscoveryHeroSource; representativeDisclosureRequired: boolean } | null {
   if (!isEligibleEnrichedHero(candidate)) return null;
+  const url = candidate.heroImageUrl!.trim();
+  if (!isPublicRenderableImageUrl(url)) return null;
   const source = String(candidate.heroImageSource ?? '').trim();
   const representative = REPRESENTATIVE_HERO_SOURCES.has(source);
   return {
-    heroImageUrl: candidate.heroImageUrl!.trim(),
+    heroImageUrl: url,
     heroImageSource: source === 'pexels' || source === 'pixabay' ? 'representative' : 'website',
     representativeDisclosureRequired: representative,
   };
+}
+
+/** QA-approved seed hero copied from BusinessCandidate during promotion. */
+export function resolveEnrichedHeroFromSeed(
+  seed: IngestedSeedRecord,
+): { heroImageUrl: string; heroImageSource: DiscoveryHeroSource; representativeDisclosureRequired: boolean } | null {
+  const url = (seed.hero?.url ?? seed.enrichmentProfile?.heroImageUrl)?.trim();
+  if (!isPublicRenderableImageUrl(url)) return null;
+
+  const visualSource = String(
+    seed.enrichmentProfile?.visualSource ?? seed.hero?.provenance ?? '',
+  ).trim();
+  const representative =
+    REPRESENTATIVE_HERO_SOURCES.has(visualSource) ||
+    visualSource === 'stock_fallback' ||
+    visualSource === 'pexels' ||
+    visualSource === 'pixabay';
+
+  return {
+    heroImageUrl: url!,
+    heroImageSource: representative ? 'representative' : 'website',
+    representativeDisclosureRequired: representative,
+  };
+}
+
+export function resolvePublicLogoUrl(
+  seed: IngestedSeedRecord,
+  candidate: BusinessCandidateRecord | null,
+): string | null {
+  const fromCandidate = candidate?.logoUrl?.trim();
+  if (isPublicRenderableImageUrl(fromCandidate)) return fromCandidate!;
+  const fromSeed = seed.enrichmentProfile?.logoUrl?.trim();
+  if (isPublicRenderableImageUrl(fromSeed)) return fromSeed!;
+  return null;
 }
 
 function firstParagraph(markdown: string): string {

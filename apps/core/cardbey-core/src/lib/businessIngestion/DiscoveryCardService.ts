@@ -17,6 +17,7 @@ import { findBusinessCandidateForSeed } from '../businessCandidate/media/findBus
 import {
   resolvePublicCategoryLabel,
   resolvePublicDescription,
+  resolvePublicLogoUrl,
 } from '../businessCandidate/media/resolvePublicCandidatePresentation.js';
 import {
   DISCOVERED_BUSINESS_BADGE,
@@ -40,6 +41,7 @@ export interface PublicDiscoveryCard {
   description: string | null;
   heroImageUrl: string;
   heroImageSource: string;
+  logoUrl: string | null;
   representativeImageLabel: string | null;
   briefProfileUrl: string | null;
   candidateId: string | null;
@@ -92,6 +94,7 @@ export async function buildPublicDiscoveryCard(
     description: resolvePublicDescription(seed, candidate, locationLabel),
     heroImageUrl: media.heroImageUrl,
     heroImageSource: media.heroImageSource,
+    logoUrl: resolvePublicLogoUrl(seed, candidate),
     representativeImageLabel: media.representativeImageLabel,
     briefProfileUrl: `/business/${slug}#bi-brief`,
     candidateId: media.candidateId,

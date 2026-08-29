@@ -6,7 +6,11 @@ import type { IngestedSeedRecord } from '../../businessIngestion/types.js';
 import type { DiscoveryHeroSource } from '../../businessIngestion/DiscoveryCardHeroResolver.js';
 import { selectBestCandidateMedia } from './selectBestCandidateMedia.js';
 import { resolveSeedRepresentativeHero } from './resolveSeedRepresentativeHero.js';
-import { resolveEnrichedHeroFromCandidate } from './resolvePublicCandidatePresentation.js';
+import {
+  isPublicRenderableImageUrl,
+  resolveEnrichedHeroFromCandidate,
+  resolveEnrichedHeroFromSeed,
+} from './resolvePublicCandidatePresentation.js';
 import { findBusinessCandidateForSeed } from './findBusinessCandidateForSeed.js';
 
 export interface PublicCandidateMediaResolution {
@@ -40,6 +44,21 @@ export async function resolvePublicMediaForSeed(
   seed: IngestedSeedRecord,
 ): Promise<PublicCandidateMediaResolution> {
   const candidate = await findBusinessCandidateForSeed(seed);
+
+  const seedHero = resolveEnrichedHeroFromSeed(seed);
+  if (seedHero) {
+    return {
+      heroImageUrl: seedHero.heroImageUrl,
+      heroImageSource: seedHero.heroImageSource,
+      representativeDisclosureRequired: seedHero.representativeDisclosureRequired,
+      representativeImageLabel: seedHero.representativeDisclosureRequired
+        ? REPRESENTATIVE_LABEL
+        : null,
+      mediaConfidenceSummary: 'Hero from QA-approved business profile',
+      candidateId: candidate?.id ?? null,
+    };
+  }
+
   if (!candidate) {
     return seedRepresentativeFallback(seed);
   }
@@ -71,6 +90,15 @@ export async function resolvePublicMediaForSeed(
   }
 
   const hero = selected.heroImage;
+  if (!isPublicRenderableImageUrl(hero.url)) {
+    const fallback = seedRepresentativeFallback(seed);
+    return {
+      ...fallback,
+      mediaConfidenceSummary: selected?.confidenceSummary ?? fallback.mediaConfidenceSummary,
+      candidateId: candidate.id,
+    };
+  }
+
   const sourceMap: Record<string, PublicCandidateMediaResolution['heroImageSource']> = {
     owner_uploaded: 'owner_uploaded',
     official_site: 'website',

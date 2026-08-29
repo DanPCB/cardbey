@@ -19,11 +19,8 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { CandidateFieldProvenanceRecord } from './types.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CORE_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
+import { resolveBusinessCandidateStoreRoot } from '../businessCandidateStoreRoot.js';
 
 /** Soft bound to prevent unbounded sidecar growth in pilot mode. */
 export const MAX_PROVENANCE_ROWS = 50_000;
@@ -32,10 +29,7 @@ export const PROVENANCE_RUNTIME_CLASSIFICATION =
   'development_pilot_runtime_state_temporary_bridge' as const;
 
 function storeRoot(): string {
-  return (
-    process.env.BUSINESS_CANDIDATE_DIR ||
-    path.join(CORE_ROOT, 'data', 'businessCandidates')
-  );
+  return resolveBusinessCandidateStoreRoot();
 }
 
 function provenanceFile(dryRun = false): string {
