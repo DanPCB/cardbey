@@ -467,6 +467,23 @@ function resolveCatalogItemTarget(params) {
   return n != null && n > 0 ? Math.floor(n) : null;
 }
 
+function catalogBuildingMilestoneLine(itemTarget) {
+  if (itemTarget != null) {
+    return `📦 Building catalog: ${itemTarget} items`;
+  }
+  return '📦 Preparing catalog items…';
+}
+
+function draftReadyMilestoneLine(finalCount, itemTarget) {
+  if (finalCount != null && itemTarget != null) {
+    return `✅ Draft ready: ${finalCount}/${itemTarget} items`;
+  }
+  if (finalCount != null) {
+    return `✅ Draft ready: ${finalCount} items`;
+  }
+  return '✅ Draft ready';
+}
+
 /**
  * Use Mission.context.preloadedCatalogItems, else draft.input.preloadedCatalogItems (set on POST /missions/:id/run),
  * else LLM/template catalog.
@@ -2064,7 +2081,6 @@ async function maybeValidateDraftOutput(draftId, missionId, params, input, emitC
       });
     } else {
       bb.write('react_validation', disabledResult);
-      bb.appendReasoningLog('✓ Output validation skipped (USE_OUTPUT_VALIDATION off)');
     }
     await bb.flushReasoningEmits?.().catch(() => {});
     await mergeMissionContext(missionId, { react_validation: result }, { prisma }).catch(() => {});
@@ -2153,7 +2169,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
             const itemTarget = resolveCatalogItemTarget(params);
             await appendReasoningLogLine(
               missionId,
-              `📦 Building catalog: ${itemTarget != null ? `${itemTarget}` : '?'} items`,
+              catalogBuildingMilestoneLine(itemTarget),
               emitCtx,
             );
           }
@@ -2249,7 +2265,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
                 const itemTarget = resolveCatalogItemTarget(params);
                 await appendReasoningLogLine(
                   missionId,
-                  `📦 Building catalog: ${itemTarget != null ? `${itemTarget}` : '?'} items`,
+                  catalogBuildingMilestoneLine(itemTarget),
                   emitCtx
                 );
                 await stepReporter.started('catalog').catch(() => {});
@@ -2445,7 +2461,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
       const itemTarget = resolveCatalogItemTarget(params);
       await appendReasoningLogLine(
         missionId,
-        `📦 Building catalog: ${itemTarget != null ? `${itemTarget}` : '?'} items`,
+                  catalogBuildingMilestoneLine(itemTarget),
         emitCtx
       );
     }
@@ -2488,7 +2504,7 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
       const finalCount = Array.isArray(catalog?.products) ? catalog.products.length : null;
       await appendReasoningLogLine(
         missionId,
-        `✅ Draft ready: ${finalCount != null ? finalCount : '?'}${itemTarget != null ? `/${itemTarget}` : ''} items`,
+        draftReadyMilestoneLine(finalCount, itemTarget),
         emitCtx
       );
     }
