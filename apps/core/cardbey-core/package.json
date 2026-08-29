@@ -79,6 +79,7 @@
     "prisma:device:audit": "node scripts/audit-device-installation-id-migration.mjs",
     "prisma:device:dup-report": "node scripts/report-device-installation-duplicates.mjs",
     "prisma:migration:guard": "node scripts/prisma-migration-diff-guard.mjs",
+    "prisma:commerce-pos-batch1:preflight": "node scripts/prisma-commerce-pos-batch1-preflight.mjs",
     "prisma:device:migrate:sqlite": "cross-env DATABASE_URL=file:../dev.db prisma migrate deploy --schema prisma/sqlite/schema.prisma",
     "prisma:device:migrate:postgres": "node scripts/run-postgres-prisma.js migrate deploy",
     "db:ensure-projection-table": "node scripts/ensure-published-artifact-projection-table.mjs",
