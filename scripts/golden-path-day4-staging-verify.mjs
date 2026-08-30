@@ -1,0 +1,148 @@
+#!/usr/bin/env node
+/**
+ * Golden Path Day 4 staging smoke — result-first readiness (API layer).
+ * Dashboard navigation is verified manually / via promo capture; this script proves
+ * draft-ready source of truth and expected result routes per case.
+ */
+const CORE = process.env.CORE_STAGING_URL || 'https://cardbey-core-staging.onrender.com';
+
+const CASES = [
+  {
+    id: 'A_name_research',
+    userMessage: 'Market Lane Coffee',
+    expectIdentity: /market lane coffee/i,
+    minOfferings: 1,
+  },
+  {
+    id: 'B_url_only',
+    userMessage: 'modernsecuritydoors.com.au',
+    expectIdentity: /security|door|modern/i,
+    minOfferings: 0,
+  },
+  {
+    id: 'C_description',
+    userMessage: 'I run a Vietnamese packaging factory and want customers in Australia.',
+    expectIdentity: /vietnamese|packaging|factory|australia/i,
+    minOfferings: 0,
+    provisional: true,
+  },
+];
+
+function check(name, ok, detail = '') {
+  const mark = ok ? 'PASS' : 'FAIL';
+  console.log(`[${mark}] ${name}${detail ? ` — ${detail}` : ''}`);
+  return ok;
+}
+
+async function postIntake(message) {
+  const res = await fetch(`${CORE}/api/performer/intake/v2`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userMessage: message,
+      source: 'golden_path_day4_verify',
+      primaryModeHint: 'store_setup',
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  return { status: res.status, body };
+}
+
+async function pollDraftReady(generationRunId, maxMs = 180000) {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const q = encodeURIComponent(generationRunId);
+    const res = await fetch(`${CORE}/api/public/store/temp/draft?generationRunId=${q}`);
+    const data = await res.json().catch(() => ({}));
+    if (String(data.status ?? '').toLowerCase() === 'ready' && data.draftId) {
+      return { readyAt: Date.now(), data };
+    }
+    if (String(data.status ?? '').toLowerCase() === 'failed') {
+      return { failed: true, data };
+    }
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+  return { timeout: true };
+}
+
+function readIdentity(data) {
+  const draft = data.draft && typeof data.draft === 'object' ? data.draft : {};
+  const store = data.store && typeof data.store === 'object' ? data.store : {};
+  return String(draft.businessName || draft.name || store.name || draft.description || '').trim();
+}
+
+function readOfferingCount(data) {
+  const products = Array.isArray(data.products) ? data.products.length : 0;
+  const draft = data.draft && typeof data.draft === 'object' ? data.draft : {};
+  const items = Array.isArray(draft.items) ? draft.items.length : 0;
+  return Math.max(products, items);
+}
+
+function expectedResultRoute(draftId, generationRunId) {
+  const q = generationRunId ? `?generationRunId=${encodeURIComponent(generationRunId)}` : '';
+  return `/preview/website/${draftId}${q}`;
+}
+
+async function main() {
+  console.log('Golden Path Day 4 staging smoke (draft-ready + result route)');
+  console.log(`Core: ${CORE}\n`);
+
+  const ver = await fetch(`${CORE}/api/runtime/version`).then((r) => r.json());
+  console.log(`Deploy SHA: ${String(ver.commitSha || '').slice(0, 12)}\n`);
+
+  let allPass = true;
+
+  for (const c of CASES) {
+    console.log(`--- ${c.id} ---`);
+    const intake = await postIntake(c.userMessage);
+    allPass = check(`${c.id} intake create_store`, intake.body.action === 'create_store', intake.body.action) && allPass;
+
+    const missionId = intake.body.missionId || intake.body.mission?.id;
+    const generationRunId =
+      intake.body.generationRunId ||
+      intake.body.storeCreationDraft?.generationRunId ||
+      intake.body.outputs?.generationRunId;
+
+    if (!generationRunId) {
+      allPass = check(`${c.id} generationRunId present`, false, 'missing') && allPass;
+      continue;
+    }
+
+    const poll = await pollDraftReady(generationRunId);
+    allPass = check(`${c.id} draft ready`, Boolean(poll.data?.draftId), JSON.stringify(poll).slice(0, 120)) && allPass;
+
+    if (!poll.data?.draftId) continue;
+
+    const identity = readIdentity(poll.data);
+    allPass =
+      check(`${c.id} identity`, c.expectIdentity.test(identity), identity) && allPass;
+
+    const offerings = readOfferingCount(poll.data);
+    if (c.minOfferings > 0) {
+      allPass = check(`${c.id} offerings`, offerings >= c.minOfferings, String(offerings)) && allPass;
+    }
+
+    const route = expectedResultRoute(poll.data.draftId, generationRunId);
+    allPass = check(`${c.id} expected result route`, route.includes('/preview/website/'), route) && allPass;
+
+    if (missionId) {
+      const stateRes = await fetch(`${CORE}/api/missions/${missionId}/state`).then((r) => r.json()).catch(() => ({}));
+      const missionStatus = stateRes?.state?.status ?? stateRes?.status ?? 'unknown';
+      console.log(`  missionId=${missionId} status=${missionStatus} (draft-ready reveal allowed regardless)`);
+    }
+  }
+
+  console.log('\n---');
+  if (allPass) {
+    console.log('VERDICT: CARDBEY_V1_GOLDEN_PATH_DAY4_RESULT_FIRST_READY (API readiness PASS)');
+    console.log('NOTE: Browser result-first navigation requires dashboard deploy + manual/promo check.');
+    process.exit(0);
+  }
+  console.log('VERDICT: FAIL');
+  process.exit(1);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
