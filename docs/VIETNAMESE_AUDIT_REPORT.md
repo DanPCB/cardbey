@@ -25,6 +25,10 @@
 | **Activation Runway** | **Fixed** | Wired to `activation.*` keys |
 | **Business Discovery** | **Fixed** | Wired to `discovery.*` keys |
 | Devices | **Fixed** | Table chrome + toasts use `devices.*` |
+| **Business Space theatre** | **Fixed** | Composer, spotlight, stream tail, relationship chips |
+| **Public feed chrome** | **Fixed** | Toasts, empty states, quick actions, identity pill aria |
+| **Discover / search** | **Fixed** | Sidebar empty state, action sheet chrome, search close |
+| **Social interaction bar** | **Fixed** | Views/Love/Clap/Comments on storefront show surfaces |
 | Suitcase / Account | Partial | Sidebar label fixed; some admin labels remain |
 | Login / Signup | OK | Auth contract tests pass |
 | Dashboard Home | OK | `dashboard.home.*` vi present |
@@ -37,12 +41,16 @@
 4. **Vi copy corrections** — nav, sidebar, MI panel, explore capability titles
 5. **Device toasts** — hardcoded English toasts → `devices.toast.*`
 6. **Tests** — `activationDiscovery.i18n.test.tsx`, extended `i18nContract.test.ts`
+7. **Public feed chrome** — feed toasts, empty CTA, quick actions; `publicFeedChrome.i18n.test.tsx`
+8. **Discover / search** — `PublicDiscoveryRail`, `DiscoverRailActionSheet`, `discoverySearch.close`; `discoveryChrome.i18n.test.tsx`
+9. **Social interaction bar** — `SocialInteractionBar` + `storefront.social.*`; `socialInteractionBar.i18n.test.tsx`
 
 ## Remaining Gaps (follow-up)
 
 | Area | Issue | Priority |
 |------|-------|----------|
 | Console section subtitles | Creatives/Insights/Devices section pages | Medium |
+| Discover rail action labels | API-driven sheet action labels remain English | Low |
 | Homepage | `"Discover"`, slideshow aria-labels | Medium |
 | `mapGenerateStoreError.ts` | English error strings from API layer | Low |
 | CI baseline | ~1,213 allowed hardcoded strings in `i18n-ci-baseline.json` | Low (incremental) |
