@@ -40,6 +40,7 @@ import {
   shouldRepairRetailCatalogLeakInServiceStore,
   isRetailCatalogPlaceholderName,
 } from './industryBlueprintRegistry.js';
+import { ensureStoreCreationCatalogItems } from './ensureStoreCreationCatalogItems.js';
 import { maybeCompileTypedCatalog } from '../../lib/catalog/catalogCompiler.js';
 import { resolveCommerceProfile } from '../../lib/commerce/resolveCommerceProfile.js';
 import { countCatalogItemsByKind } from '../../lib/commerce/assertCatalogKindConsistency.js';
@@ -585,7 +586,30 @@ export async function buildFromAi(params) {
       ? { priceV1: { ...item.priceV1, currencyCode: currency } }
       : {}),
   }));
-  if (products.length < AI_EXPANSION_MIN && products.length > 0) {
+  if (products.length === 0) {
+    const cuisine = buildCuisineMenuCatalog(
+      {
+        verticalSlug: params.verticalSlug || verticalForMenu.replace(/_/g, '.'),
+        businessName: profile.name || businessName || 'Store',
+        businessType: String(businessType || storeType || profile.type || '').trim(),
+        storeType: String(storeType || businessType || profile.type || '').trim(),
+      },
+      TARGET_ITEM_COUNT,
+    );
+    if (cuisine?.items?.length) {
+      products = cuisine.items.map((item, i) => ({
+        id: item.id ?? `item_${draftId}_${i}`,
+        name: item.name,
+        description: item.description ?? null,
+        price: item.price ?? null,
+        currencyCode: currency,
+        categoryId: item.categoryId ?? cuisine.categories?.[0]?.id ?? `cat_${draftId}_0`,
+        imageUrl: item.imageUrl ?? null,
+      }));
+      menuResult.categories = cuisine.categories;
+      menuResult.meta = { ...(menuResult.meta ?? {}), ...(cuisine.meta ?? {}), aiMenuEmptyFallback: true };
+    }
+  } else if (products.length < AI_EXPANSION_MIN) {
     const verticalKey = verticalForMenu.replace(/_/g, '.');
     const variations = resolveAiExpansionVariations(
       verticalKey,
@@ -996,6 +1020,9 @@ export async function buildCatalog(params) {
   }
 
   const itemCount = (result?.products || []).length;
+  if (itemCount === 0) {
+    result = ensureStoreCreationCatalogItems(result, paramsWithVertical, params);
+  }
   if (process.env.NODE_ENV !== 'production') {
     const counts = result.counts ?? countCatalogItemsByKind(result.catalogItems ?? result.products ?? []);
     console.log('[buildCatalog]', {
