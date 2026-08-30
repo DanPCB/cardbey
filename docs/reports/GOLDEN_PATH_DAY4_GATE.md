@@ -167,4 +167,67 @@ No mission screen, no restore screen, no manual "Open website preview" click.
 | Debug trace preserved | **YES** |
 | Live staging proof | **PENDING deploy** |
 
+---
+
+## RESULT SURFACE UX COMPLETION
+
+**Gate ID:** `CARDBEY_V1_GOLDEN_PATH_DAY4_RESULT_SURFACE_UX_READY`  
+**Date:** 2026-08-30
+
+### Blackboard lifecycle
+
+| Phase | Behavior |
+|-------|----------|
+| **Processing** | Blackboard expanded; single human-readable promo phase label (non-debug) |
+| **Result ready** | Auto-collapse to compact summary (`✓ Your business is ready` + completed bullets) |
+| **User opens details** | Expandable panel shows preserved human-readable build history |
+| **User closes details** | Collapse again; manual expand is respected (no immediate re-collapse) |
+
+**Source of truth for collapse:** usable business result exists (`inlineWebsitePreview` draft ready / `assessStoreResultReadiness`), not mission terminal alone.
+
+### Compact state
+
+- `PerformerBuildHistoryCollapsible` — summary bullets mapped from real `STORE_CREATION_PROMO_PHASES`
+- Raw `react_step_*`, `web_scrape_*`, pipeline object names hidden unless `cardbey.performerRuntimeDebug=true`
+
+### Preview owner menu
+
+- `DraftPreviewOwnerChrome` on `/preview/website/:draftId` — Back, Draft Preview title, Build details, More menu, Publish (existing flow)
+- `DraftPreviewBuildDetailsPanel` — drawer/sheet reusing `useMissionBlackboardRows` (no new storage model)
+- `missionId` passed in result-reveal URL for build-history access after refresh
+
+### Mobile (412×915)
+
+- Owner menu via hamburger; build details bottom sheet; toolbar stacked below owner chrome
+- Publish on mobile in owner menu; style templates remain in secondary toolbar row
+
+### Files changed
+
+- `src/lib/storeLaunch/buildHistoryPresentation.ts` (new)
+- `src/lib/storeLaunch/storeCreationPromoStream.ts`
+- `src/app/console/performer/missionStreamComposer.ts`
+- `src/app/console/performer/PerformerBuildHistoryCollapsible.tsx` (new)
+- `src/app/console/ConsoleCentreColumn.tsx`
+- `src/components/draftPreview/DraftPreviewOwnerChrome.tsx` (new)
+- `src/components/publish/WebsitePreviewToolbar.tsx`
+- `src/pages/public/WebsitePreviewPage.tsx`
+- `src/lib/reviewRoutes.ts`, `src/lib/storeLaunch/storeResultReveal.ts`
+
+### Tests
+
+- `buildHistoryPresentation.test.ts`
+- `PerformerBuildHistoryCollapsible.test.tsx`
+- `DraftPreviewOwnerChrome.test.tsx`
+- `storeCreationPromoStream.test.ts` (result-ready history preservation)
+
+### Live evidence
+
+- Screenshots: **PENDING** post-deploy (MSD + Banh mi Nhu Lan, 412×915)
+
+### Known limitations
+
+- Build details on preview requires `missionId` query param (set by result reveal)
+- Full diagnostic trace only in debug mode or Performer console
+- Day 5 Share / Improve-with-AI not implemented (by design)
+
 **STOP — Day 5 not started.**
