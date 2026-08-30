@@ -367,7 +367,9 @@ export function resolveCreateStoreShortcut(input = {}) {
     };
   }
 
-  const primaryMode = String(input.primaryMode ?? '').trim().toLowerCase();
+  const primaryMode = String(input.primaryMode ?? input.primaryModeHint ?? '')
+    .trim()
+    .toLowerCase();
   if (primaryMode === 'create' || primaryMode === 'store_setup' || primaryMode === 'website') {
     if (isCasualChatTurn(String(input.userMessage ?? ''))) {
       return null;
