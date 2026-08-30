@@ -104,19 +104,16 @@ async function main() {
     }
   }
 
-  allPass =
-    check('Day 4: result reveal module in bundle', bundleText.includes('attemptStoreResultReveal')) && allPass;
+  // Production bundles minify function names; use string literals that survive build.
+  const hasResultReveal = bundleText.includes('cardbey.goldenPath.resultReveal.v1');
+  const hasPreviewRoute = bundleText.includes('/preview/website');
+  const hasSuccessToast = bundleText.includes('Your business is ready');
+  allPass = check('Day 4: result reveal module in bundle', hasResultReveal) && allPass;
   allPass =
     check('Day 4: promo progress filter in bundle', bundleText.includes('store-creation-promo-progress')) &&
     allPass;
-  allPass =
-    check('Day 4: website preview owner route in bundle', bundleText.includes('buildWebsitePreviewOwnerUrl')) &&
-    allPass;
-  check(
-    'Day 4: success toast copy in bundle',
-    bundleText.includes('Your business is ready'),
-    bundleText.includes('Your business is ready') ? 'present' : 'pending deploy',
-  );
+  allPass = check('Day 4: website preview route in bundle', hasPreviewRoute) && allPass;
+  allPass = check('Day 4: success toast copy in bundle', hasSuccessToast, hasSuccessToast ? 'present' : 'pending deploy') && allPass;
   allPass =
     check('Promo progress labels in bundle', bundleText.includes('Understanding your business')) && allPass;
 
@@ -135,20 +132,25 @@ async function main() {
 
   if (FULL) {
     const guestFull = `day4-full-${Date.now()}`;
-    const start = await fetchJson(`${CORE}/api/performer/intake/v2`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Guest-Session': guestFull },
-      body: JSON.stringify({
-        userMessage: 'modernsecuritydoors.com.au',
-        primaryMode: 'create',
-        freshStoreMission: true,
-        action: 'create_store',
-        source: 'golden_path_day4_verify',
-      }),
+    const intake = await postIntake('modernsecuritydoors.com.au', guestFull);
+    const draftFields = intake.json?.storeCreationDraft?.draft ?? {};
+    const start = await postIntake('modernsecuritydoors.com.au', guestFull, {
+      primaryMode: 'create',
+      freshStoreMission: true,
+      storeCreateForm: {
+        storeName: draftFields.name || 'Modern Security Doors',
+        website: draftFields.website || 'https://modernsecuritydoors.com.au',
+        location: draftFields.location || 'Melbourne',
+        category: draftFields.category || 'Home & garden',
+      },
+      _autoSubmit: true,
     });
 
-    allPass =
-      check('MSD mission started', start.json?.action === 'store_mission_started', start.json?.action) && allPass;
+    const missionDetail =
+      start.json?.action === 'store_mission_started'
+        ? start.json.action
+        : start.json?.error || start.json?.errors?.[0]?.code || start.json?.action;
+    allPass = check('MSD mission started', start.json?.action === 'store_mission_started', missionDetail) && allPass;
 
     const missionId = start.json?.missionId;
     if (missionId) {
