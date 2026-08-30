@@ -34,6 +34,12 @@ describe('CORS API allowed headers', () => {
     expect(CORS_API_ALLOWED_HEADERS).toContain('X-Creator-Source');
   });
 
+  it('includes x-cardbey-runtime-authority for Creator Studio video uploads', () => {
+    expect(CORS_API_ALLOWED_HEADERS).toEqual(
+      expect.arrayContaining(['x-cardbey-runtime-authority', 'X-Cardbey-Runtime-Authority']),
+    );
+  });
+
   it('resolvePreflightAllowHeaders echoes requested headers when all are allowed', () => {
     const echoed = resolvePreflightAllowHeaders(
       'content-type, authorization, x-session-id, x-creator-source',
@@ -97,6 +103,37 @@ describe('OPTIONS /api/performer/intake/v2 preflight (cardbey.com → core)', ()
     expect(allowed).toContain('x-maintenance-token');
     expect(allowed).toContain('x-performer-role');
     expect(allowed).toContain('x-performer-mode');
+  });
+});
+
+describe('OPTIONS /api/performer/runtime/ui-action/upload-creator-video preflight', () => {
+  function appWithCors() {
+    const app = express();
+    app.use(cors(corsOptions));
+    app.options('/api/performer/runtime/ui-action/upload-creator-video', (req, res) => {
+      const allow = resolvePreflightAllowHeaders(req.get('Access-Control-Request-Headers'));
+      res.setHeader('Access-Control-Allow-Headers', allow);
+      res.sendStatus(204);
+    });
+    app.post('/api/performer/runtime/ui-action/upload-creator-video', (_req, res) => {
+      res.json({ ok: true });
+    });
+    return app;
+  }
+
+  it('allows x-cardbey-runtime-authority from https://cardbey.com', async () => {
+    const res = await request(appWithCors())
+      .options('/api/performer/runtime/ui-action/upload-creator-video')
+      .set('Origin', 'https://cardbey.com')
+      .set('Access-Control-Request-Method', 'POST')
+      .set(
+        'Access-Control-Request-Headers',
+        'content-type, authorization, x-cardbey-runtime-authority',
+      );
+
+    expect(res.status).toBe(204);
+    const allowed = String(res.headers['access-control-allow-headers'] || '').toLowerCase();
+    expect(allowed).toContain('x-cardbey-runtime-authority');
   });
 });
 
