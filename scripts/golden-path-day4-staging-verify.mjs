@@ -34,7 +34,7 @@ function check(name, ok, detail = '') {
   return ok;
 }
 
-async function postIntake(message) {
+async function postIntake(message, extra = {}) {
   const res = await fetch(`${CORE}/api/performer/intake/v2`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -42,10 +42,34 @@ async function postIntake(message) {
       userMessage: message,
       source: 'golden_path_day4_verify',
       primaryModeHint: 'store_setup',
+      freshStoreMission: true,
+      _autoSubmit: true,
+      ...extra,
     }),
   });
   const body = await res.json().catch(() => ({}));
   return { status: res.status, body };
+}
+
+async function pollMissionForGenerationRun(missionId, maxMs = 120000) {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const res = await fetch(`${CORE}/api/missions/${missionId}/state`);
+    const json = await res.json().catch(() => ({}));
+    const state = json?.state ?? json;
+    const gen =
+      state?.generationRunId ||
+      state?.metadata?.generationRunId ||
+      state?.outputs?.generationRunId ||
+      state?.outputs?.structured_store_build?.generationRunId;
+    if (gen) return String(gen).trim();
+    const build = (state?.steps ?? []).find(
+      (s) => String(s?.toolName ?? '').toLowerCase() === 'structured_store_build',
+    );
+    if (build?.status === 'failed') return null;
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+  return null;
 }
 
 async function pollDraftReady(generationRunId, maxMs = 180000) {
@@ -95,16 +119,24 @@ async function main() {
   for (const c of CASES) {
     console.log(`--- ${c.id} ---`);
     const intake = await postIntake(c.userMessage);
-    allPass = check(`${c.id} intake create_store`, intake.body.action === 'create_store', intake.body.action) && allPass;
+    const intakeOk =
+      intake.body.action === 'store_mission_started' || intake.body.action === 'create_store';
+    allPass = check(`${c.id} intake started`, intakeOk, intake.body.action) && allPass;
 
     const missionId = intake.body.missionId || intake.body.mission?.id;
-    const generationRunId =
+    let generationRunId =
       intake.body.generationRunId ||
-      intake.body.storeCreationDraft?.generationRunId ||
-      intake.body.outputs?.generationRunId;
+      intake.body.data?.generationRunId ||
+      intake.body.storeCreationDraft?.generationRunId;
+
+    if (!generationRunId && missionId) {
+      generationRunId = await pollMissionForGenerationRun(missionId);
+    }
+
+    allPass = check(`${c.id} missionId present`, Boolean(missionId), missionId || 'missing') && allPass;
 
     if (!generationRunId) {
-      allPass = check(`${c.id} generationRunId present`, false, 'missing') && allPass;
+      allPass = check(`${c.id} generationRunId present`, false, 'missing after poll') && allPass;
       continue;
     }
 
