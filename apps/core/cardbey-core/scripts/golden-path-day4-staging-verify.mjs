@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 /**
- * Golden Path Day 4 staging smoke — result-first reveal (business preview, not edit session).
- *
- * Usage:
- *   node scripts/golden-path-day4-staging-verify.mjs
- *   node scripts/golden-path-day4-staging-verify.mjs --full
+ * Golden Path Day 4 staging smoke — cardbey-core-staging shell copy.
+ * Monorepo mirror: ../../../../scripts/golden-path-day4-staging-verify.mjs
  */
 const DASHBOARD = process.env.DASHBOARD_STAGING_URL || 'https://cardbey-dashboard-staging.onrender.com';
 const CORE =
@@ -100,7 +97,7 @@ async function main() {
       const chunk = await fetchText(url);
       if (chunk.ok) bundleText += '\n' + chunk.text;
     } catch {
-      /* optional chunk */
+      /* optional */
     }
   }
 

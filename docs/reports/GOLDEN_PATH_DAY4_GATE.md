@@ -1,100 +1,170 @@
-# Golden Path Day 4 Gate — Result-First Post-Create
+# Golden Path Day 4 Gate — Result-First Reveal
 
-**Gate ID:** `CARDBEY_V1_GOLDEN_PATH_DAY4_RESULT_FIRST_READY`  
-**Baseline:** Day 3 `CARDBEY_V1_GOLDEN_PATH_DAY3_INTELLIGENCE_FIRST_INTAKE_READY` (staging `121472ea6`)
-
-## Completion flow trace (before)
-
-```
-Performer intake → store_mission_started
-  → deferred pipeline (structured_store_build → brand_assets checkpoint → analyze_store)
-  → draftStore.status = ready (finalizeDraft)
-  → inline iframe preview in Performer execution panel
-  → user stays on /app?missionId=… (terminal completion chat)
-```
-
-**Gap:** Usable draft existed while mission could be `awaiting_input` at brand-assets, but user remained on Performer terminal UI.
-
-## Chosen source of truth
-
-| Signal | Authority |
-|--------|-----------|
-| Draft ready | `GET /api/public/store/temp/draft` → `status === 'ready'` + `draftId` |
-| Pipeline hint | `storeDraftReviewReady` on mission pipeline state |
-| **Not used alone** | `mission.status === completed` |
-
-## Result surface selected
-
-**Primary:** `/preview/website/:draftId` via `buildWebsitePreviewOwnerUrl`  
-- Shows business name, hero, about, catalog sections  
-- `returnTo=/app?missionId=…` preserves Performer correction access  
-
-**Store-catalog intent:** `/app/store/draft/review?mode=draft&jobId=…` when `intentMode === 'store'` and `jobId` present.
-
-## Implementation decisions
-
-1. **`assessStoreResultReadiness`** — lightweight pre-reveal gate (identity, draft ready, no build failure)
-2. **`attemptStoreResultReveal`** — session-deduped navigation + telemetry (`draft_ready_at`, `result_reveal_at`, `reveal_delay_ms`, `result_route`)
-3. **Hook: `commitStoreDraftPreviewFromPipelineState`** — reveals as soon as build completes (includes brand-assets `awaiting_input`)
-4. **Hook: terminal completion + draft poll** — fallback when terminal path runs first
-5. **No core / intake / Day 1–3 changes**
-
-## Files changed
-
-- `src/lib/storeLaunch/assessStoreResultReadiness.ts` (new)
-- `src/lib/storeLaunch/storeResultReveal.ts` (new)
-- `src/lib/storeLaunch/*.test.ts` (new)
-- `src/app/console/performer/storeDraftPreviewCommit.ts`
-- `src/app/console/performer/waitForDraftPreview.ts`
-- `src/app/console/performer/usePerformerConsole.ts`
-- `scripts/golden-path-day4-staging-verify.mjs` (new)
-
-## Before / after
-
-| Scenario | Before | After |
-|----------|--------|-------|
-| Draft ready + brand-assets checkpoint | Inline preview in Performer; user on `/app` | Auto-navigate to `/preview/website/:draftId` |
-| Draft still generating | Progress in Performer | No redirect (readiness gate blocks) |
-| Build failed | Error in Performer | No redirect |
-| User wants to edit | Manual CTA / inline preview | `returnTo` → Performer with missionId |
-
-## Tests (local)
-
-```
-✓ assessStoreResultReadiness.test.ts (6)
-✓ storeResultReveal.test.ts (5)
-```
-
-Covers: ready draft navigation, awaiting_input + ready draft, incomplete/failed block, dedup, route resolution.
-
-## Live staging
-
-Run after dashboard + core staging deploy:
-
-```bash
-node scripts/golden-path-day4-staging-verify.mjs
-node scripts/golden-path-day3-staging-verify.mjs
-node scripts/v1-promo-capture-check.mjs --full
-```
-
-| Case | API readiness | Browser reveal |
-|------|---------------|----------------|
-| A Market Lane Coffee | PENDING | PENDING |
-| B URL-only | PENDING | PENDING |
-| C Description-only | PENDING | PENDING |
-| D Brand-assets checkpoint | PENDING | PENDING |
-| E Incomplete build | PENDING | PENDING |
-
-## Promo compatibility
-
-PENDING — run `v1-promo-capture-check.mjs --full` after deploy.
-
-## Known limitations
-
-- Browser navigation proof requires dashboard staging deploy (API script validates draft-ready + expected route only)
-- Guest sessions: same reveal path; guest storage handoff unchanged
-- No Day 5 “Improve with AI” CTA
+**Gate ID:** `CARDBEY_V1_GOLDEN_PATH_DAY4_RESULT_FIRST_REVEAL`  
+**Date:** 2026-08-30
 
 ## Verdict
 
-**CARDBEY_V1_GOLDEN_PATH_DAY4_PARTIAL** — implementation + local tests complete; live staging proof PENDING deploy.
+**CARDBEY_V1_GOLDEN_PATH_DAY4_PARTIAL** — implementation complete; **live staging proof pending** dashboard deploy with Day 4 bundle.
+
+---
+
+## Architectural finding (live evidence)
+
+### Observation
+
+Modern Security Doors on staging (2026-08-30) demonstrated:
+
+| Layer | State |
+|-------|--------|
+| **RESULT** | Present — Performer right panel rendered full website preview (hero, identity, location, contact) |
+| **MISSION** | Completed build (`structured_store_build`) with brand-assets checkpoint pending |
+| **EDIT SESSION** | **Failed** when navigating to `/app/store/draft/review?...` — "We couldn't reopen the exact store editing session" |
+
+### Conclusion
+
+```
+RESULT AVAILABILITY ≠ EDIT SESSION AVAILABILITY
+```
+
+**Day 4 principle (locked):**
+
+| Concept | Role in V1 |
+|---------|------------|
+| **RESULT** | Primary — persistent business Cardbey created (`draftId` → `/preview/website/:draftId`) |
+| **EDIT SESSION** | Secondary — only when user explicitly chooses to edit |
+| **MISSION** | Background — mostly invisible during Golden Path |
+
+> Never make persistent product visibility depend on temporary interaction state.
+
+---
+
+## Implementation (dashboard)
+
+### 1. Result-first auto-reveal
+
+| Module | Behavior |
+|--------|----------|
+| `assessStoreResultReadiness.ts` | Draft `ready` / `storeDraftReviewReady`; checkpoint is **warning only** |
+| `storeResultReveal.ts` | On readiness → navigate to **`/preview/website/:draftId`** (never auto-route to edit-session review) |
+| `storeDraftPreviewCommit.ts` | Triggers reveal when inline preview commits |
+| `usePerformerConsole.ts` | Wires reveal on pipeline hydration + terminal completion |
+
+**Success moment:** toast `"Your business is ready."` then full website preview.
+
+### 2. Canonical result surface
+
+| Surface | Route | Use |
+|---------|-------|-----|
+| **Primary (Golden Path)** | `/preview/website/:draftId?generationRunId=…` | Direct draft render; refresh-safe; no session restore |
+| Inline Performer panel | Same data via `buildWebsitePreviewInlineUrl` | Build-time preview only |
+| Edit-session review | `/app/store/draft/review?…` | **Explicit edit only** — not success destination |
+
+### 3. Customer-facing progress (non-debug)
+
+| Module | Behavior |
+|--------|----------|
+| `storeCreationPromoStream.ts` | Replaces raw blackboard process lines with single promo phase label |
+| `conversationRuntimeUx.ts` | Tool → promo label mapping |
+| `missionStreamComposer.ts` | Applies filter for store-creation missions |
+| `isPerformerRuntimeDebugMode()` | Full `web_scrape_*`, `react_step_*`, `Step N (tool)` trace when `cardbey.performerRuntimeDebug=true` |
+
+**Promo labels (only):**
+
+1. Understanding your business  
+2. Finding your products & services  
+3. Learning your brand  
+4. Preparing your Cardbey presence  
+
+### 4. Edit failure isolation
+
+| File | Change |
+|------|--------|
+| `StoreReviewPage.tsx` | Recovery UI offers **Open website preview** + **Back to Mission Process** (not `/app/console`); result remains at preview URL |
+
+---
+
+## Files changed
+
+- `src/lib/storeLaunch/storeResultReveal.ts`
+- `src/lib/storeLaunch/storeCreationPromoStream.ts` (new)
+- `src/lib/storeLaunch/storeCreationPromoStream.test.ts` (new)
+- `src/lib/storeLaunch/storeResultReveal.test.ts`
+- `src/app/console/performer/missionStreamComposer.ts`
+- `src/pages/store/StoreReviewPage.tsx` (recovery — prior commit `b4912537`)
+
+---
+
+## Live acceptance test — Modern Security Doors
+
+**Input:** `modernsecuritydoors.com.au`
+
+| Step | Expected | Live (pre-Day-4 deploy) |
+|------|----------|---------------------------|
+| Create Your Business → Performer intake | PASS | PASS |
+| Real research/build | PASS | PASS (MSD grounded preview) |
+| Human-readable progress only | PASS after deploy | FAIL (internal lines visible) |
+| Draft ready → **automatic** full preview | PASS after deploy | PARTIAL (manual / edit route) |
+| No restore screen on success path | PASS after deploy | FAIL if user hits review URL |
+| Refresh `/preview/website/:draftId` | PASS | PENDING |
+| Performer FAB remains for correction | PASS | PASS |
+
+---
+
+## Verification commands
+
+```bash
+# Local unit tests
+cd apps/dashboard/cardbey-marketing-dashboard
+npx vitest run src/lib/storeLaunch/
+
+# Staging (after deploy)
+node scripts/golden-path-day4-staging-verify.mjs
+node scripts/golden-path-day4-staging-verify.mjs --full
+node scripts/v1-promo-capture-check.mjs --full
+```
+
+---
+
+## Promo capture impact
+
+After Day 4 deploy, continuous story becomes recordable:
+
+```
+Create Your Business → modernsecuritydoors.com.au
+→ Understanding… → Finding… → Learning… → Preparing…
+→ MODERN SECURITY DOORS full preview (auto)
+```
+
+No mission screen, no restore screen, no manual "Open website preview" click.
+
+---
+
+## Out of scope (Day 5+)
+
+- Publish / Share / Improve with AI CTAs on result page  
+- New post-create action architecture  
+- Repairing edit-session restoration as primary path  
+
+---
+
+## Related gates
+
+- Day 1: `GOLDEN_PATH_DAY1_GATE.md` — research pipeline  
+- Day 2: `GOLDEN_PATH_DAY2_GATE.md` — entry convergence  
+- Day 3: `GOLDEN_PATH_DAY3_GATE.md` — intelligence-first intake  
+- Promo: `V1_PROMO_CAPTURE_AUDIT.md`, `V1_PROMO_SHOT_LIST.md`
+
+---
+
+## Final gate status
+
+| Check | Status |
+|-------|--------|
+| Result-first route (`/preview/website/:draftId`) | **IMPLEMENTED** |
+| Edit-session decoupled from success | **IMPLEMENTED** |
+| Customer progress UX | **IMPLEMENTED** |
+| Debug trace preserved | **YES** |
+| Live staging proof | **PENDING deploy** |
+
+**STOP — Day 5 not started.**
