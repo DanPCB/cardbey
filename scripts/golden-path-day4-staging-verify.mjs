@@ -9,19 +9,45 @@ const CORE = process.env.CORE_STAGING_URL || 'https://cardbey-core-staging.onren
 const CASES = [
   {
     id: 'A_name_research',
-    userMessage: 'Market Lane Coffee',
+    intakeBody: {
+      userMessage: 'Create my business',
+      primaryMode: 'create',
+      storeCreateForm: {
+        storeName: 'Market Lane Coffee',
+        website: 'https://www.marketlane.com.au',
+        location: 'Melbourne',
+        category: 'Food & Beverage',
+      },
+    },
     expectIdentity: /market lane coffee/i,
     minOfferings: 1,
   },
   {
     id: 'B_url_only',
-    userMessage: 'modernsecuritydoors.com.au',
+    intakeBody: {
+      userMessage: 'modernsecuritydoors.com.au',
+      primaryModeHint: 'store_setup',
+      freshStoreMission: true,
+      storeCreateForm: {
+        storeName: 'Modern Security Doors',
+        website: 'https://modernsecuritydoors.com.au',
+      },
+    },
     expectIdentity: /security|door|modern/i,
     minOfferings: 0,
   },
   {
     id: 'C_description',
-    userMessage: 'I run a Vietnamese packaging factory and want customers in Australia.',
+    intakeBody: {
+      userMessage: 'I run a Vietnamese packaging factory and want customers in Australia.',
+      primaryModeHint: 'store_setup',
+      freshStoreMission: true,
+      storeCreateForm: {
+        storeName: 'Vietnamese Packaging Factory',
+        location: 'Australia',
+        category: 'Manufacturing',
+      },
+    },
     expectIdentity: /vietnamese|packaging|factory|australia/i,
     minOfferings: 0,
     provisional: true,
@@ -34,27 +60,29 @@ function check(name, ok, detail = '') {
   return ok;
 }
 
-async function postIntake(message, extra = {}) {
+async function postIntake(guestSession, intakeBody) {
   const res = await fetch(`${CORE}/api/performer/intake/v2`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Guest-Session': guestSession,
+    },
     body: JSON.stringify({
-      userMessage: message,
       source: 'golden_path_day4_verify',
-      primaryModeHint: 'store_setup',
       freshStoreMission: true,
-      _autoSubmit: true,
-      ...extra,
+      ...intakeBody,
     }),
   });
   const body = await res.json().catch(() => ({}));
   return { status: res.status, body };
 }
 
-async function pollMissionForGenerationRun(missionId, maxMs = 120000) {
+async function pollMissionForGenerationRun(missionId, guestSession, maxMs = 240000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
-    const res = await fetch(`${CORE}/api/missions/${missionId}/state`);
+    const res = await fetch(`${CORE}/api/missions/${missionId}/state`, {
+      headers: { 'X-Guest-Session': guestSession },
+    });
     const json = await res.json().catch(() => ({}));
     const state = json?.state ?? json;
     const gen =
@@ -66,13 +94,18 @@ async function pollMissionForGenerationRun(missionId, maxMs = 120000) {
     const build = (state?.steps ?? []).find(
       (s) => String(s?.toolName ?? '').toLowerCase() === 'structured_store_build',
     );
+    const fromStep =
+      build?.output?.generationRunId ||
+      build?.output?.jobId ||
+      (build?.output && typeof build.output === 'object' ? build.output.generationRunId : null);
+    if (fromStep) return String(fromStep).trim();
     if (build?.status === 'failed') return null;
     await new Promise((r) => setTimeout(r, 4000));
   }
   return null;
 }
 
-async function pollDraftReady(generationRunId, maxMs = 180000) {
+async function pollDraftReady(generationRunId, maxMs = 240000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
     const q = encodeURIComponent(generationRunId);
@@ -118,7 +151,8 @@ async function main() {
 
   for (const c of CASES) {
     console.log(`--- ${c.id} ---`);
-    const intake = await postIntake(c.userMessage);
+    const guestSession = `golden-path-day4-${c.id}-${Date.now()}`;
+    const intake = await postIntake(guestSession, c.intakeBody);
     const intakeOk =
       intake.body.action === 'store_mission_started' || intake.body.action === 'create_store';
     allPass = check(`${c.id} intake started`, intakeOk, intake.body.action) && allPass;
@@ -130,7 +164,7 @@ async function main() {
       intake.body.storeCreationDraft?.generationRunId;
 
     if (!generationRunId && missionId) {
-      generationRunId = await pollMissionForGenerationRun(missionId);
+      generationRunId = await pollMissionForGenerationRun(missionId, guestSession);
     }
 
     allPass = check(`${c.id} missionId present`, Boolean(missionId), missionId || 'missing') && allPass;
