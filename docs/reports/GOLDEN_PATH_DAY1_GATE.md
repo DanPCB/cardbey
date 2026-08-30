@@ -2,124 +2,143 @@
 
 ## Verdict
 
-**CARDBEY_V1_GOLDEN_PATH_DAY1_PARTIAL**
+**CARDBEY_V1_GOLDEN_PATH_DAY1_UNBLOCKED**
 
-Code fixes and staging flag configuration are complete and tested locally. Live `cardbey-core-staging` has **not** been redeployed with the Day 1 flag bundle yet, so the scripted create-store proof below uses the **identical flag snapshot** locally (not the currently running Render service).
+Post-deploy live staging verification completed on 2026-08-30 against merge commit `809200d9bfcf6bbf042bb71cb701292a0f9a374d` (PR #279).
 
-## Scope Completed
+## Deploy confirmation
 
-### 1. Mission 001 staging flags
+| Check | Result |
+|-------|--------|
+| Staging commit (`GET /api/runtime/version`) | `809200d9bfcf6bbf042bb71cb701292a0f9a374d` — matches Day 1 merge |
+| Staging environment | `staging` |
+| Authoritative Render config | Root `render.yaml` → service `cardbey-core-staging` (`rootDir: apps/core/cardbey-core`) |
+| Production commit | `ce82e3fe8793eabb2d23e4641540a9257f282415` (different from Day 1) |
+| Mission 001 flags in `main` `render.yaml` | **Absent** — production unchanged |
 
-| Flag | Previous (staging render.yaml) | New staging value | Effective runtime (with bundle) | Dependency |
-|------|-------------------------------|-------------------|----------------------------------|------------|
-| `ENABLE_MISSION_001_STORE_FIDELITY_V1` | unset (OFF) | `1` | ON | **Master** — required for all Mission 001 subflags |
-| `ENABLE_MISSION_001_OFFERING_RECONSTRUCTION_V1` | unset | `1` | ON | Subflag; requires master |
-| `ENABLE_STORE_RESEARCH_PIPELINE` | unset (defaults ON in non-prod) | `1` | ON | Independent; explicit for staging observability |
-| `ENABLE_MISSION_001_GROUNDING_V1` | unset | `1` | ON | Subflag; default ON when master ON |
-| `ENABLE_MISSION_001_FIDELITY_GATE_V1` | unset | `1` | ON | Subflag; default ON when master ON |
-| `ENABLE_MISSION_001_PIPELINE_TIMING_V1` | unset | `1` | ON | Subflag; default ON when master ON |
+Mission 001 env flags are not exposed on `/api/health`. Live proof uses create-store runtime output and draft provenance.
 
-**Production (`cardbey-core` service in root `render.yaml` and `apps/core/cardbey-core/render.yaml`): NOT changed.**
+---
 
-**Deploy source:** Root `render.yaml` (`cardbey-core-staging`, `rootDir: apps/core/cardbey-core`) is the authoritative Render blueprint. The same flag block is mirrored in `apps/core/cardbey-core/render.yaml` for local/docs parity.
+## LIVE STAGING — Scripted store creation
 
-Subflag graph (`mission001Flags.js`): when master is OFF, all subflags are OFF regardless of env. When master is ON, subflags default ON unless explicitly set to `0`/`false`/`off`.
+**Endpoint:** `POST https://cardbey-core-staging.onrender.com/api/performer/intake/v2`  
+**Guest session:** `X-Guest-Session` (guest create-store path)
 
-**Staging flag verification (post-deploy):** `/api/health` exposes `features.*` but not Mission 001 env flags. After deploy, confirm via create-store logs (`[CREATE_STORE]`, `SERVICE_CATALOG_EXTRACTED`, `catalogAuthoritySource`) or run `scripts/mission001-offering-cohort.mjs` with `MISSION_001_LIVE_BENCHMARK=1`.
-
-### 2. Ask→Create fix
-
-- **Root cause:** `resolveIntakeShortcutContext()` returned early on `clarify_create_runway` from `detectIntent()` and never consulted `resolveCreateStoreShortcut()` / `matchCreateStoreIntent()`, so clear create phrases that missed the runway regex (e.g. typo-normalized or contract-only matches) dead-ended in generic runway clarification.
-- **Files changed:**
-  - `apps/core/cardbey-core/src/lib/intake/intakeShortcutContext.js`
-  - `apps/core/cardbey-core/src/lib/intent/storeCreateFastPath.js` (honor `primaryModeHint`)
-  - `apps/core/cardbey-core/src/lib/intake/__tests__/intakeShortcutContext.test.js`
-- **Before:** `primaryMode: create` + clear create phrase → `clarify_create_runway` when runway classifier returned no `intentMode` (even if create-store contract matched).
-- **After:** Non-ambiguous clarify paths are upgraded to `create_store` when the canonical create-store contract matches; genuinely ambiguous dual-runway requests still clarify.
-- **Regression coverage:** `intakeShortcutContext.test.js` — clear intents, ambiguous dual-runway, typo recovery (`creat my business`).
-
-### 3. Video runtime fix
-
-- **Root cause:** `isVideoOwnedByCreativeFactory` was referenced by factory routing but not exported from `createVideoOntology.js`; dynamic import paths could resolve `undefined` at runtime.
-- **Files changed:**
-  - `apps/core/cardbey-core/src/lib/intake/createVideoOntology.js`
-  - `apps/core/cardbey-core/src/lib/factoryRuntime/factoryIntentRouter.js` (static import + skip UAF for Factory-owned video turns)
-  - `apps/core/cardbey-core/src/lib/intake/__tests__/createVideoOntology.test.js`
-- **Before error:** `isVideoOwnedByCreativeFactory is not a function`
-- **After:** Helper resolves to a function; video tool labels and ontology-matched promotional video phrases return `true`; incidental “video” mentions return `false`.
-- **Regression coverage:** `createVideoOntology.test.js`, `factoryIntentRouter.test.js`.
-
-## Scripted Store Creation Evidence
+### Input
 
 | Field | Value |
 |-------|-------|
-| **Input** | Business: `Market Lane Coffee`, Website: `https://www.marketlane.com.au` (Mission 001 `cafe-strong-web` fixture) |
-| **Environment** | Local core with Day 1 flag snapshot (`ENABLE_MISSION_001_*` + `ENABLE_STORE_RESEARCH_PIPELINE=1`, `NODE_ENV=staging`) |
-| **Canonical path** | `runStoreCreationResearch` → structured catalog extract |
-| **Research source** | Ran (`SERVICE_CATALOG_EXTRACTED`, 24 items) |
-| **Catalog source / provenance** | `catalogAuthoritySource: STRUCTURED_CATALOG`, `fallbackToGenerated: false` |
-| **Reconstruction** | Offering reconstruction not triggered for this fixture (`offeringReconstruction: null`); pipeline supports it when master + subflag ON |
-| **Draft result** | 24 grounded catalog items (sample: Wholesale, Coffee, Equipment) |
-| **Timing** | ~755 ms end-to-end for research step |
+| Business name | Market Lane Coffee |
+| Website | `https://www.marketlane.com.au` |
+| Location | Melbourne |
+| Payload | `storeCreateForm` + `primaryMode: create` + `freshStoreMission: true` |
 
-**Note:** Live `https://cardbey-core-staging.onrender.com` health check OK; Mission 001 master flag not yet active on running staging until this branch deploys.
+### Canonical path
 
-## Ask→Create Evidence
+| Stage | Evidence |
+|-------|----------|
+| Intake | `action: store_mission_started` |
+| Mission ID | `cmtf8gud7001gnhczee32g26y` |
+| Pipeline step | `structured_store_build` → **completed** |
+| Generation run | `cmtf8gur90023nhczm37i17cl` |
+| Draft ID | `cmtf8gwef0025nhcz9gwawtf9` |
+| Store ID | `cmtf8n6210046nhczk1q6ce04` |
+| Post-build state | `awaiting_input` / `blocked_on_checkpoint` (brand assets checkpoint — expected) |
 
-| Message | Expected | Result |
-|---------|----------|--------|
-| `create my business` | `create_store` | PASS |
-| `create my store` | `create_store` | PASS |
-| `I want to create a business` | `create_store` | PASS |
-| `help me create my business` | `create_store` | PASS |
-| `creat my business` (typo) | `create_store` | PASS |
-| `create a store and a mini website` | `clarify_create_runway` | PASS |
-| `Help me get started` (frontscreen create) | `clarify_create_runway` via `detectIntent` | PASS |
+### Research / catalog proof
 
-## Video Evidence
+**Draft fetch:** `GET /api/stores/temp/draft?generationRunId=cmtf8gur90023nhczm37i17cl`
 
-```
-typeof isVideoOwnedByCreativeFactory → "function"
-isVideoOwnedByCreativeFactory('Create a promotional video', 'create_video') → true
-isVideoOwnedByCreativeFactory('did the homepage video finish loading?') → false
-```
+| Metric | Value |
+|--------|-------|
+| Draft status | `ready` |
+| Offering count | **24** |
+| `catalogSource` per item | **24 × `research`** |
+| Template items | **0** |
+| Sample offerings | Wholesale, Coffee, Equipment, Subscriptions, Classes |
+| QA `catalogKind` | `product` |
+| QA `catalogPass` | `true` |
+| Template fallback | **No** — no `TEMPLATE` catalog source observed |
 
-`factoryIntentRouter.test.js` passes with static import path.
+**PASS criterion:** discoverable real offerings did not silently become a template catalog.
 
-## Tests
+---
+
+## LIVE STAGING — Ask→Create smoke
+
+| Test | Input | HTTP | `action` | Response (preview) | Result |
+|------|-------|------|----------|-------------------|--------|
+| A | `create my business` + `primaryMode: create` | 200 | `create_store` | "Let's set up your store…" | **PASS** |
+| B | `create my store` + `primaryMode: create` | 200 | `create_store` | "Let's set up your store…" | **PASS** |
+| C | `create a store and a mini website` | 200 | `clarify` | Runway clarify + store/website options | **PASS** |
+| Guest | `create my business` (no primaryMode) | 200 | `create_store` | "Let's set up your store…" | **PASS** |
+
+No generic runway dead-end on clear create intents. Ambiguous dual-runway still clarifies safely.
+
+---
+
+## LIVE STAGING — Factory video smoke
+
+| Test | Input | HTTP | `action` | `isVideoOwnedByCreativeFactory` error | Result |
+|------|-------|------|----------|--------------------------------------|--------|
+| With store context | `Create a promotional video for Market Lane Coffee` + `storeId` + `missionId` | 200 | `approval_required` | **None** | **PASS** |
+| NL factory phrase | `Create a 15 second promotional video ad for Market Lane Coffee` + `storeId` | 200 | `approval_required` | **None** | **PASS** |
+| Without resolvable store | `create a promotional video for my store` (guest, no store) | 200 | `clarify` (store picker) | **None** | **PASS** (expected clarify, not runtime error) |
+
+Factory-owned routing reaches approval checkpoint; no `is not a function` regression.
+
+---
+
+## LIVE STAGING — Guest creation smoke
+
+Guest `create my business` → `create_store` (PASS).  
+Guest Market Lane form submit → `store_mission_started` with mission + draft + 24 research-backed items (PASS).
+
+**Note:** `storeCreateForm` without `location` returns `MISSING_LOCATION` validation — expected Day 3-era form gate, not a Day 1 regression.
+
+---
+
+## LIVE STAGING — Log / error observation
+
+No Render log API access in this verification session. API-level observation:
+
+- No `isVideoOwnedByCreativeFactory is not a function` in any intake response body
+- No 5xx on exercised paths
+- No template-catalog silent fallback on Market Lane live draft (24/24 `catalogSource: research`)
+
+---
+
+## Pre-merge validation (unchanged)
 
 | Command | Result |
 |---------|--------|
-| `npx vitest run src/lib/intake/__tests__/intakeShortcutContext.test.js src/lib/intake/__tests__/createVideoOntology.test.js src/lib/factoryRuntime/factoryIntentRouter.test.js` | **11/11 PASS** |
-| `npx vitest run src/lib/storeResearch/__tests__/storeResearchPipeline.test.js` | **9/9 PASS** |
-| `npx vitest run src/lib/intake/__tests__/intakeV2.test.js` | 2 pre-existing failures in `normalizePlan` (unrelated to Day 1) |
+| Targeted intake/video unit tests | **11/11 PASS** |
+| Store research pipeline tests | **9/9 PASS** |
+| `intakeV2.test.js` `normalizePlan` | 2 pre-existing failures (unrelated) |
 
-## Diff Scope Check
+---
 
-| File | Why in Day 1 |
-|------|----------------|
-| `apps/core/cardbey-core/render.yaml` | Staging-only Mission 001 / research flags (mirror) |
-| `render.yaml` | **Authoritative** staging deploy flags for `cardbey-core-staging` |
-| `apps/core/cardbey-core/src/lib/intake/intakeShortcutContext.js` | Ask→Create clarify dead-end fix |
-| `apps/core/cardbey-core/src/lib/intent/storeCreateFastPath.js` | Honor `primaryModeHint` in shortcut resolution |
-| `apps/core/cardbey-core/src/lib/intake/createVideoOntology.js` | Export video ownership helpers |
-| `apps/core/cardbey-core/src/lib/factoryRuntime/factoryIntentRouter.js` | Static import + UAF guard for Factory video |
-| `apps/core/cardbey-core/src/lib/intake/__tests__/intakeShortcutContext.test.js` | Ask→Create regression |
-| `apps/core/cardbey-core/src/lib/intake/__tests__/createVideoOntology.test.js` | Video export regression |
-| `docs/reports/GOLDEN_PATH_DAY1_GATE.md` | Gate report |
+## Scope completed (Day 1 PR #279)
+
+1. Staging Mission 001 / research flag bundle (root `render.yaml` + mirror)
+2. Ask→Create first-hop clarify recovery (`intakeShortcutContext.js`)
+3. Video ownership export + static factory import (`createVideoOntology.js`, `factoryIntentRouter.js`)
 
 **Out-of-scope changes:** NONE
 
-## Remaining Known Issues (Days 2–6 — not fixed)
+---
 
-1. Fragmented entry — multiple creation surfaces / CTA convergence (Day 2)
-2. Mandatory name/location/category form before research (`computeMissingStoreCreationFields`)
-3. Post-create redirect lands in Performer vs business preview
-4. `/create` route convergence
-5. Orchestra convergence
-6. Result surface / publish flow redesign
-7. Live staging deploy required to activate Mission 001 flag bundle on Render
+## Remaining known issues (Days 2–6 — not in scope)
 
-## Day 2 Readiness
+1. Entry CTA / surface convergence (Day 2)
+2. `computeMissingStoreCreationFields` relaxation — location still required on form submit (Day 3)
+3. Post-create redirect to business preview (Day 4)
+4. Orchestra convergence (Day 6)
+5. Offering reconstruction telemetry not surfaced on guest draft API for Market Lane (items are research-sourced; reconstruction metadata not in draft payload)
 
-**NO** — merge + deploy Day 1 to staging first, then verify live create-store with Mission 001 flags active before entry convergence work.
+---
+
+## Day 2 readiness
+
+**YES** — Day 1 live gate criteria met on staging. Day 2 entry convergence may begin; do not relax missing-field gates until Day 3.
