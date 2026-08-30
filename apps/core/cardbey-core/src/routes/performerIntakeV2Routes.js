@@ -2505,6 +2505,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (
     userMessage &&
     isOpenPerformerChatTurn(userMessage) &&
+    !tryStoreCreateFastPath(userMessage, {
+      storeCreateForm: body.storeCreateForm,
+      forceIntent: body.forceIntent,
+      currentFlow: body.currentFlow ?? body.intentSourceContext?.currentFlow,
+      source: body.source ?? body.intentSource,
+      primaryModeHint: body.primaryModeHint,
+      primaryMode: body.primaryMode,
+    }) &&
     !isIntakeConfirmAffirmation(userMessage) &&
     !confirmInterceptApplied &&
     !hasIntakeImageAttachment(body) &&
