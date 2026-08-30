@@ -720,6 +720,7 @@ export class IntentReasoner {
         forceIntent: parsedInput.intakeMeta?.forceIntent,
         currentFlow: parsedInput.intakeMeta?.currentFlow,
         source: parsedInput.intakeMeta?.source,
+        primaryModeHint: parsedInput.primaryModeHint ?? parsedInput.intakeMeta?.primaryModeHint,
         activeStoreId: storeId ?? context.activeStoreId,
       });
       if (storeFast) {
