@@ -2981,6 +2981,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
           forceIntent: body.forceIntent,
           currentFlow: body.currentFlow ?? currentContext?.currentFlow,
           source: body.source ?? body.intentSource,
+          primaryModeHint: body.primaryModeHint,
           activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
         })
       ) {
