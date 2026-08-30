@@ -28,7 +28,8 @@
 - `apps/core/cardbey-core/src/lib/intake/storeCreationDraftAssetBridge.js`
 - `apps/core/cardbey-core/src/lib/intake/intakeErrorTypes.js`
 - `apps/core/cardbey-core/src/lib/intake/intakeSystemShortcuts.js`
-- `apps/core/cardbey-core/src/routes/performerIntakeV2Routes.js`
+- `apps/core/cardbey-core/src/lib/intent/storeCreateFastPath.js` (hotfix: store_setup identity fast path)
+- `apps/core/cardbey-core/src/routes/performerIntakeV2Routes.js` (hotfix: intent engine + ambiguous chat bypass)
 - `apps/core/cardbey-core/src/lib/intake/__tests__/storeCreationIntakePolicy.test.js` (new)
 - `apps/core/cardbey-core/src/lib/intake/__tests__/storeCreationDraft.test.js`
 - `scripts/golden-path-day3-staging-verify.mjs` (new)
@@ -53,19 +54,21 @@
 
 ## Live staging cases
 
+**Deploy SHA:** `2f11269b1` (staging merge of PRs #281–#284)  
+**Verified:** 2026-08-30 via `node scripts/golden-path-day3-staging-verify.mjs`
+
 | Case | Status |
 |------|--------|
-| A URL-only | PENDING deploy |
-| B Name-only | PENDING deploy |
-| C Description-only | PENDING deploy |
-| D Handyman Melbourne | PENDING deploy |
-| E Insufficient input | PENDING deploy |
-| F Ambiguous entity (ABC Plumbing) | PENDING — requires live entity resolution |
-
-Run after `cardbey-core-staging` deploy:
+| A URL-only | **PASS** |
+| B Name-only | **PASS** (hotfix: ambiguous chat shortcircuit bypass + store_setup fast path) |
+| C Description-only | **PASS** |
+| D Handyman Melbourne | **PASS** |
+| E Insufficient input | **PASS** |
+| F Ambiguous entity (ABC Plumbing) | NOT IN SCRIPT — requires live entity resolution |
 
 ```bash
 node scripts/golden-path-day3-staging-verify.mjs
+# VERDICT: CARDBEY_V1_GOLDEN_PATH_DAY3_INTELLIGENCE_FIRST_INTAKE_READY (staging smoke PASS)
 ```
 
 ## Regression checks
@@ -84,7 +87,9 @@ node scripts/golden-path-day3-staging-verify.mjs
 
 ## Verdict
 
-**CARDBEY_V1_GOLDEN_PATH_DAY3_PARTIAL** — implementation + local tests complete; **live staging proof PENDING** deploy of `cardbey-core-staging`.
+**CARDBEY_V1_GOLDEN_PATH_DAY3_INTELLIGENCE_FIRST_INTAKE_READY** — implementation, local tests, and live staging smoke **PASS** (cases A–E).
+
+**DAY 4 READY:** YES (post-create redirect / result surfaces may proceed on separate branch).
 
 ## Related
 
