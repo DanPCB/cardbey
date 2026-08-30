@@ -14,6 +14,11 @@ import {
   isVagueLocationPhrase,
 } from '../multiAgent/multiStorePlanHelpers.ts';
 import { canonicalizeCreateStoreCategory } from './intakeErrorTypes.js';
+import { extractFirstUrlFromText, applySyncWebsiteHintsToDraft } from './storeCreationDraftAssetBridge.js';
+import {
+  assessStoreCreationIntake,
+  buildSingleClarificationMessage,
+} from './storeCreationIntakePolicy.js';
 
 const WRAP_QUOTE_RE = /^[\s"'`\u201c\u201d\u2018\u2019]+|[\s"'`\u201c\u201d\u2018\u2019]+$/g;
 
@@ -47,6 +52,7 @@ export const STORE_CREATION_INTRO_COPY = {
  * @property {StoreCreationDraftField[]} missingFields
  * @property {boolean} isComplete
  * @property {boolean} [needsClarification]
+ * @property {import('./storeCreationIntakePolicy.js').assessStoreCreationIntake extends (...args: any[]) => infer R ? R : never} [intakeAssessment]
  * @property {import('../multiAgent/multiStorePlanHelpers.ts').MultiStoreExtractedInfo | null} [multiStore]
  */
 
@@ -155,6 +161,9 @@ export function inferStoreCategoryFromHint(hint, name = '', location = '') {
   if (/tech|software|digital|IT\b|computer/i.test(text)) {
     return canonicalizeCreateStoreCategory('technology');
   }
+  if (/packaging|factory|manufactur/i.test(text)) {
+    return canonicalizeCreateStoreCategory('manufacturing');
+  }
   return 'Other';
 }
 
@@ -187,6 +196,66 @@ export function parseNaturalLanguageStoreCreation(raw) {
       location: locationMatch ? stripQuotes(locationMatch[1]) : null,
       category: null,
       source: 'exact_phrase',
+    });
+  }
+
+  const urlFromText = extractFirstUrlFromText(userMessage);
+  if (urlFromText && userMessage.replace(urlFromText, '').trim().length < 8) {
+    return finalizeParsedStoreCreation({
+      name: null,
+      location: null,
+      category: null,
+      source: 'url_only',
+    });
+  }
+
+  const runBusinessIn = userMessage.match(/^i run (?:a|an) (.+?) (?:business )?in ([^.?!]+)\.?$/i);
+  if (runBusinessIn) {
+    const concept = stripQuotes(runBusinessIn[1]);
+    const location = stripQuotes(runBusinessIn[2]);
+    return finalizeParsedStoreCreation({
+      name: sanitizeExtractedStoreName(concept),
+      location: location || null,
+      category: inferStoreCategoryFromHint(concept, '', location),
+      source: 'nl_description_business_in',
+    });
+  }
+
+  const runDescription = userMessage.match(/^i run (?:a|an) (.+?)(?:\s+and\s+want\b|[.?!]|$)/i);
+  if (runDescription) {
+    const concept = stripQuotes(runDescription[1]);
+    const marketMatch = userMessage.match(/customers in ([^.?!]+)/i);
+    const location = marketMatch ? stripQuotes(marketMatch[1]) : null;
+    return finalizeParsedStoreCreation({
+      name: sanitizeExtractedStoreName(concept),
+      location,
+      category: inferStoreCategoryFromHint(concept, '', location ?? ''),
+      source: 'nl_description_run',
+    });
+  }
+
+  const standaloneName = userMessage.match(/^[A-Z][\w\s&'.-]{2,80}$/);
+  if (
+    standaloneName &&
+    !/\b(create|help|want|start)\b/i.test(userMessage) &&
+    userMessage.split(/\s+/).filter(Boolean).length >= 2
+  ) {
+    return finalizeParsedStoreCreation({
+      name: userMessage.trim(),
+      location: null,
+      category: inferStoreCategoryFromHint(null, userMessage, ''),
+      source: 'standalone_name',
+    });
+  }
+
+  if (urlFromText) {
+    const withoutUrl = userMessage.replace(urlFromText, '').replace(/https?:\/\//i, '').trim();
+    const nameFromPrefix = withoutUrl.match(/(?:for|called|named)\s+(.+)$/i)?.[1]?.trim();
+    return finalizeParsedStoreCreation({
+      name: nameFromPrefix ? stripQuotes(nameFromPrefix) : null,
+      location: null,
+      category: null,
+      source: 'name_url',
     });
   }
 
@@ -275,9 +344,15 @@ export function parseNaturalLanguageStoreCreation(raw) {
 
 /**
  * @param {StoreCreationDraft} draft
+ * @param {{ userMessage?: string; intelligenceFirst?: boolean }} [options]
  * @returns {StoreCreationDraftField[]}
  */
-export function computeMissingStoreCreationFields(draft) {
+export function computeMissingStoreCreationFields(draft, options = {}) {
+  const intelligenceFirst = options.intelligenceFirst !== false;
+  if (intelligenceFirst) {
+    const assessment = assessStoreCreationIntake(draft, options.userMessage ?? '', options);
+    return assessment.missingFields;
+  }
   /** @type {StoreCreationDraftField[]} */
   const missing = [];
   const name = stripQuotes(draft?.name);
@@ -310,6 +385,13 @@ export function formatStoreCreationDraftResponse(bundle) {
   if (bundle.isComplete) {
     const summary = found.length > 0 ? `I found:\n\n${found.join('\n\n')}\n\n` : '';
     return `${summary}Everything looks complete.\n\nReady to create your store?`;
+  }
+
+  if (
+    bundle.intakeAssessment?.clarificationReason === 'insufficient_input' ||
+    bundle.intakeAssessment?.clarificationReason === 'ambiguous_entity'
+  ) {
+    return buildSingleClarificationMessage(bundle);
   }
 
   const missing = bundle.missingFields ?? [];
@@ -365,6 +447,7 @@ export function buildStoreCreationDraft(input = {}) {
   const parsed = parseNaturalLanguageStoreCreation(userMessage);
   const pill = parseStructuredStoreCreatePillMessage(userMessage);
   const multiStoreInfo = isMultiStoreRequest(userMessage) ? extractMultiStoreInfo(userMessage) : null;
+  const websiteFromMessage = extractFirstUrlFromText(userMessage);
 
   const name = sanitizeExtractedStoreName(
     asTrimmedString(form?.storeName) ||
@@ -400,7 +483,9 @@ export function buildStoreCreationDraft(input = {}) {
   if (category && category !== 'Other') extractedFields.category = category;
   if (asset?.phone) extractedFields.phone = String(asset.phone);
   if (asset?.email) extractedFields.email = String(asset.email);
-  if (asset?.website) extractedFields.website = String(asset.website);
+  const website =
+    asTrimmedString(params.website ?? form?.websiteUrl ?? asset?.website) || websiteFromMessage;
+  if (website) extractedFields.website = website;
 
   const confidence =
     typeof input.classification?.confidence === 'number' && !Number.isNaN(input.classification.confidence)
@@ -429,11 +514,11 @@ export function buildStoreCreationDraft(input = {}) {
   );
 
   /** @type {StoreCreationDraft} */
-  const draft = {
+  let draft = {
     name,
     location,
     category: category !== 'Other' ? category : categoryRaw,
-    website: asTrimmedString(params.website ?? form?.websiteUrl ?? asset?.website),
+    website,
     phone: asTrimmedString(params.phone ?? asset?.phone),
     email: asTrimmedString(params.email ?? asset?.email),
     logo: asTrimmedString(params.logoUrl ?? params.logo ?? asset?.logo),
@@ -442,19 +527,31 @@ export function buildStoreCreationDraft(input = {}) {
     extractedFields,
   };
 
-  const missingFields = computeMissingStoreCreationFields(draft);
+  draft = applySyncWebsiteHintsToDraft(draft, userMessage);
+
+  const intakeAssessment = assessStoreCreationIntake(draft, userMessage, {
+    intelligenceFirst: input.intelligenceFirst !== false,
+  });
+  const missingFields = intakeAssessment.missingFields;
 
   return {
     intent: 'create_store',
     intentMode,
     draft,
     missingFields,
-    isComplete: missingFields.length === 0 && !multiStoreInfo?.missingFields?.length,
+    isComplete:
+      missingFields.length === 0 &&
+      !multiStoreInfo?.missingFields?.length &&
+      intakeAssessment.canProceedToCheckpoint,
+    intakeAssessment,
     ...(multiStoreInfo?.isMultiStore
       ? {
           needsClarification: multiStoreInfo.missingFields.length > 0,
           multiStore: multiStoreInfo,
         }
+      : {}),
+    ...(intakeAssessment.clarificationRequired && !multiStoreInfo?.isMultiStore
+      ? { needsClarification: true }
       : {}),
   };
 }
