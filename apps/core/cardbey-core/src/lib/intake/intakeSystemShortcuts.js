@@ -51,7 +51,7 @@ export function validateCreateStorePayload(payload = {}) {
   }
   return [
     ...errors,
-    ...validateStoreCreationFields(payload).map(({ field, message, code, suggestion, errorAction }) => ({
+    ...validateStoreCreationFields(payload, { intelligenceFirst: true }).map(({ field, message, code, suggestion, errorAction }) => ({
       field,
       message,
       ...(code ? { code } : {}),
