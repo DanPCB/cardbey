@@ -13,6 +13,8 @@ import {
 
 const URL_RE = /https?:\/\/[^\s\]\)"'<>]+/i;
 const WWW_RE = /(?:^|[\s(])www\.[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9](?:\/[^\s\]\)"'<>]*)?/i;
+const BARE_DOMAIN_RE =
+  /(?:^|[\s(])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com\.au|co\.uk|com|net|org|au|io|dev|app|biz|shop))(?:\/[^\s\]\)"'<>]*)?/i;
 
 /** @typedef {'business_card'|'storefront_photo'|'flyer'|'brochure'|'menu'|'website'|'qr'|'ocr'|'unknown'} AssetDraftSource */
 
@@ -65,10 +67,14 @@ export function extractFirstUrlFromText(raw) {
     const cleaned = www.trim().replace(/^\s*\(/, '');
     return cleaned.startsWith('http') ? cleaned.replace(/[.,;]+$/, '') : `https://${cleaned.replace(/^\s*www\.?/i, 'www.')}`;
   }
+  const bare = text.match(BARE_DOMAIN_RE);
+  if (bare?.[1]) {
+    return `https://${bare[1].replace(/[.,;]+$/, '')}`;
+  }
   return null;
 }
 
-function domainToDisplayName(url) {
+export function domainToDisplayName(url) {
   try {
     const host = new URL(url).hostname.replace(/^www\./i, '');
     const base = host.split('.')[0] ?? host;
@@ -80,6 +86,43 @@ function domainToDisplayName(url) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Apply synchronous website hints (URL extraction + domain display name) before intake assessment.
+ * @param {import('./storeCreationDraft.js').StoreCreationDraft} draft
+ * @param {string} [userMessage]
+ */
+export function applySyncWebsiteHintsToDraft(draft, userMessage = '') {
+  if (!draft || typeof draft !== 'object') return draft;
+  const website = asTrimmed(draft.website) || extractFirstUrlFromText(userMessage);
+  if (!website) return draft;
+  const next = { ...draft, website };
+  if (!asTrimmed(next.name)) {
+    const fromDomain = domainToDisplayName(website);
+    if (fromDomain) next.name = fromDomain;
+  }
+  return next;
+}
+
+/**
+ * @param {import('./storeCreationDraft.js').StoreCreationDraftBundle} bundle
+ * @param {string} websiteUrl
+ */
+export async function enrichStoreCreationDraftBundleFromWebsite(bundle, websiteUrl) {
+  if (!bundle?.draft) return bundle;
+  const meta = await resolveWebsiteMetadataForStoreDraft(websiteUrl);
+  if (!meta) return bundle;
+  const draft = { ...bundle.draft };
+  if (meta.name && !asTrimmed(draft.name)) draft.name = meta.name;
+  if (meta.location && !asTrimmed(draft.location)) draft.location = meta.location;
+  if (meta.category && (!draft.category || String(draft.category).toLowerCase() === 'other')) {
+    draft.category = meta.category;
+  }
+  if (meta.phone && !draft.phone) draft.phone = meta.phone;
+  if (meta.email && !draft.email) draft.email = meta.email;
+  if (meta.website) draft.website = meta.website;
+  return { ...bundle, draft };
 }
 
 /**

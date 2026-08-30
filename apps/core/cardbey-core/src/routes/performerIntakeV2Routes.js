@@ -4318,6 +4318,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         storeCreateFormPayload.category ??
         storeCreateFormPayload.storeType ??
         storeCreateFormPayload.businessType,
+      userMessage: String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim(),
+      website: storeCreateFormPayload.websiteUrl,
     });
     if (formValidationErrors.length > 0) {
       return res.status(400).json(formatValidationErrorResponse(formValidationErrors));

@@ -17,6 +17,7 @@
 
 import { FactBuilder } from '../response/factBuilder.js';
 import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
+import { assessStoreCreationIntake } from './storeCreationIntakePolicy.js';
 
 export const StoreCreationError = {
   DUPLICATE_STORE: {
@@ -280,9 +281,11 @@ export async function explainDuplicateStoreIntakeResponse(storeName, existingSto
  * Validate store creation fields; returns structured field errors for inline UI.
  *
  * @param {Record<string, unknown>} payload
+ * @param {{ intelligenceFirst?: boolean }} [options]
  * @returns {Array<{ field: string; message: string; code: string; suggestion?: string; errorAction?: string }>}
  */
-export function validateStoreCreationFields(payload = {}) {
+export function validateStoreCreationFields(payload = {}, options = {}) {
+  const intelligenceFirst = options.intelligenceFirst !== false;
   const errors = [];
   const envelope = payload?.storeCreateForm;
   let name =
@@ -300,6 +303,77 @@ export function validateStoreCreationFields(payload = {}) {
       ? envelope.category ?? envelope.storeType ?? envelope.businessType
       : payload?.category ?? payload?.storeType ?? payload?.businessType;
   const category = canonicalizeCreateStoreCategory(categoryRaw);
+  const userMessage = String(
+    payload?.userMessage ?? payload?.text ?? payload?.goal ?? payload?.message ?? '',
+  ).trim();
+  const website =
+    payload?.website ??
+    (envelope && typeof envelope === 'object' ? envelope.websiteUrl : null) ??
+    null;
+
+  if (intelligenceFirst) {
+    const assessment = assessStoreCreationIntake(
+      {
+        name: name || null,
+        location: location || null,
+        category: category || categoryRaw || 'Other',
+        website: website != null ? String(website).trim() : null,
+      },
+      userMessage,
+      options,
+    );
+    if (assessment.canProceedToCheckpoint) return [];
+    if (assessment.clarificationReason === 'insufficient_input') {
+      errors.push({
+        field: 'userMessage',
+        message: 'Tell me a business name, website, or short description to get started.',
+        code: 'INSUFFICIENT_INPUT',
+        suggestion: 'Example: Market Lane Coffee, yourshop.com.au, or "I run a cafe in Melbourne".',
+      });
+      return errors;
+    }
+    if (assessment.clarificationReason === 'ambiguous_entity') {
+      errors.push({
+        field: 'name',
+        message: 'Multiple businesses match that name. Which one is yours?',
+        code: 'AMBIGUOUS_ENTITY',
+      });
+      return errors;
+    }
+    if (!assessment.canProceedToCheckpoint && assessment.missingFields.length > 0) {
+      if (assessment.missingFields.includes('name')) {
+        const cfg = StoreCreationError.MISSING_NAME;
+        errors.push({
+          field: cfg.field,
+          message: cfg.userMessage,
+          code: cfg.code,
+          suggestion: cfg.suggestion,
+          errorAction: cfg.errorAction,
+        });
+      }
+      if (assessment.missingFields.includes('location')) {
+        const cfg = StoreCreationError.MISSING_LOCATION;
+        errors.push({
+          field: cfg.field,
+          message: cfg.userMessage,
+          code: cfg.code,
+          suggestion: cfg.suggestion,
+          errorAction: cfg.errorAction,
+        });
+      }
+      if (assessment.missingFields.includes('category')) {
+        const cfg = StoreCreationError.MISSING_CATEGORY;
+        errors.push({
+          field: cfg.field,
+          message: cfg.userMessage,
+          code: cfg.code,
+          suggestion: cfg.suggestion,
+          errorAction: cfg.errorAction,
+        });
+      }
+      return errors;
+    }
+  }
 
   if (!name || name.length < 2) {
     const cfg = StoreCreationError.MISSING_NAME;

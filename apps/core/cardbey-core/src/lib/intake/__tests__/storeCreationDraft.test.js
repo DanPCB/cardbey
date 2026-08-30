@@ -71,14 +71,14 @@ describe('buildStoreCreationDraft', () => {
     expect(bundle.draft.category).toBe('Food & drink');
   });
 
-  it('reports missing location only', () => {
+  it('name-only allows research without blocking on location', () => {
     const bundle = buildStoreCreationDraft({
       userMessage: 'Create a store called ABC Bakery',
       classification: { parameters: {} },
     });
-    expect(bundle.missingFields).toContain('location');
     expect(bundle.draft.name).toBe('ABC Bakery');
-    expect(bundle.isComplete).toBe(false);
+    expect(bundle.missingFields).not.toContain('location');
+    expect(bundle.intakeAssessment?.researchEligible).toBe(true);
   });
 });
 
