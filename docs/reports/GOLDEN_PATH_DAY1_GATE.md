@@ -19,9 +19,13 @@ Code fixes and staging flag configuration are complete and tested locally. Live 
 | `ENABLE_MISSION_001_FIDELITY_GATE_V1` | unset | `1` | ON | Subflag; default ON when master ON |
 | `ENABLE_MISSION_001_PIPELINE_TIMING_V1` | unset | `1` | ON | Subflag; default ON when master ON |
 
-**Production (`cardbey-core` service in `render.yaml`): NOT changed.**
+**Production (`cardbey-core` service in root `render.yaml` and `apps/core/cardbey-core/render.yaml`): NOT changed.**
+
+**Deploy source:** Root `render.yaml` (`cardbey-core-staging`, `rootDir: apps/core/cardbey-core`) is the authoritative Render blueprint. The same flag block is mirrored in `apps/core/cardbey-core/render.yaml` for local/docs parity.
 
 Subflag graph (`mission001Flags.js`): when master is OFF, all subflags are OFF regardless of env. When master is ON, subflags default ON unless explicitly set to `0`/`false`/`off`.
+
+**Staging flag verification (post-deploy):** `/api/health` exposes `features.*` but not Mission 001 env flags. After deploy, confirm via create-store logs (`[CREATE_STORE]`, `SERVICE_CATALOG_EXTRACTED`, `catalogAuthoritySource`) or run `scripts/mission001-offering-cohort.mjs` with `MISSION_001_LIVE_BENCHMARK=1`.
 
 ### 2. Ask→Create fix
 
@@ -94,7 +98,8 @@ isVideoOwnedByCreativeFactory('did the homepage video finish loading?') → fals
 
 | File | Why in Day 1 |
 |------|----------------|
-| `apps/core/cardbey-core/render.yaml` | Staging-only Mission 001 / research flags |
+| `apps/core/cardbey-core/render.yaml` | Staging-only Mission 001 / research flags (mirror) |
+| `render.yaml` | **Authoritative** staging deploy flags for `cardbey-core-staging` |
 | `apps/core/cardbey-core/src/lib/intake/intakeShortcutContext.js` | Ask→Create clarify dead-end fix |
 | `apps/core/cardbey-core/src/lib/intent/storeCreateFastPath.js` | Honor `primaryModeHint` in shortcut resolution |
 | `apps/core/cardbey-core/src/lib/intake/createVideoOntology.js` | Export video ownership helpers |

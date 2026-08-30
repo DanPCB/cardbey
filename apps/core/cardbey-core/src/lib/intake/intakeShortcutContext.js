@@ -84,7 +84,7 @@ export function resolveIntakeShortcutContext(input = {}) {
     const preserveStoreShortcut = shouldPreserveCreateStoreShortcutWhenKernelMandatory(shortcut, {
       userMessage,
       storeCreateForm,
-      primaryMode: input.primaryMode,
+      primaryMode,
       intentSource: input.intentSource,
     });
     if (!preserveStoreShortcut) {
@@ -97,14 +97,14 @@ export function resolveIntakeShortcutContext(input = {}) {
     shouldPreserveCreateStoreShortcutWhenKernelMandatory(null, {
       userMessage,
       storeCreateForm,
-      primaryMode: input.primaryMode,
+      primaryMode,
       intentSource: input.intentSource,
     })
   ) {
     shortcut = resolveCreateStoreShortcut({
       userMessage,
       storeCreateForm,
-      primaryMode: input.primaryMode,
+      primaryMode,
       intentSource: input.intentSource,
       forceIntent: input.forceIntent,
       currentFlow: input.currentFlow,
