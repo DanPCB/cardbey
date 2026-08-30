@@ -495,6 +495,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     attachCatalogGrounding,
   } = await import('../../lib/storeCreationResearch/catalogAuthorityDecision.js');
   const { collapseProfessionalCatalogWithoutPriceList } = await import('./industryBlueprintRegistry.js');
+  const { ensureStoreCreationCatalogItems } = await import('./ensureStoreCreationCatalogItems.js');
   const maybeCollapseProfessional = (catalog) =>
     collapseProfessionalCatalogWithoutPriceList(catalog, {
       businessName: params.businessName ?? input?.businessName,
@@ -504,6 +505,11 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       hasPriceList: input?.hasPriceList === true || params.hasPriceList === true,
       allowBlueprintPrices: input?.allowBlueprintPrices === true,
     });
+  const finalizeReactStepCatalog = (catalog, decision) =>
+    attachCatalogGrounding(
+      maybeCollapseProfessional(ensureStoreCreationCatalogItems(catalog, params, input)),
+      decision,
+    );
   let deferredResearch = null;
   let researchAttempted = false;
   let researchException = false;
@@ -552,7 +558,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
           });
         }
         return {
-          catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
+          catalog: finalizeReactStepCatalog(finalized, decision),
           fromPreload: false,
           fromResearch: true,
           research,
@@ -661,7 +667,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         researchAttempted: true,
       });
       return {
-        catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
+        catalog: finalizeReactStepCatalog(finalized, decision),
         fromPreload: true,
         fromResearch: true,
         research: researchStub,
@@ -677,14 +683,14 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       fromPreload: true,
     });
     return {
-      catalog: attachCatalogGrounding(maybeCollapseProfessional(catalog), decision),
+      catalog: finalizeReactStepCatalog(catalog, decision),
       fromPreload: true,
       fromResearch: false,
       catalogAuthority: decision,
     };
   }
 
-  const catalog = stampSuggestedCatalogOrigin(maybeCollapseProfessional(await buildCatalog(params)));
+  let catalog = stampSuggestedCatalogOrigin(await buildCatalog(params));
   const decision = resolveCatalogAuthorityDecision({
     params: { ...params, draftId: params.draftId ?? input?.draftId ?? null, missionId },
     input,
@@ -692,10 +698,10 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     researchAttempted,
     researchException,
   });
-  const grounded = attachCatalogGrounding(catalog, decision);
+  catalog = finalizeReactStepCatalog(catalog, decision);
   if (deferredResearch) {
     return {
-      catalog: grounded,
+      catalog,
       fromPreload: false,
       fromResearch: false,
       pendingOwnerReview: true,
@@ -703,7 +709,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       catalogAuthority: decision,
     };
   }
-  return { catalog: grounded, fromPreload: false, catalogAuthority: decision };
+  return { catalog, fromPreload: false, catalogAuthority: decision };
 }
 
 function resolveResearchCatalogFromResult(research, params, input, buildCatalogFromPreloadedItems) {
