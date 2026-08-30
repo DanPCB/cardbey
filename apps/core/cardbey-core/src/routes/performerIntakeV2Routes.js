@@ -2971,22 +2971,24 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       intentEnginePrimaryClassification = engineClassification;
     }
     if (earlyResponse) {
+      const storeCreateFastOverride =
+        earlyResponse.action === 'chat'
+          ? tryStoreCreateFastPath(userMessage, {
+              storeCreateForm: body.storeCreateForm,
+              forceIntent: body.forceIntent,
+              currentFlow: body.currentFlow ?? currentContext?.currentFlow,
+              source: body.source ?? body.intentSource,
+              primaryModeHint: body.primaryModeHint,
+              activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
+            })
+          : null;
       // Safety net: do not bury create-store NL behind Intent Engine chat fallback.
-      if (
-        earlyResponse.action === 'chat' &&
-        tryStoreCreateFastPath(userMessage, {
-          storeCreateForm: body.storeCreateForm,
-          forceIntent: body.forceIntent,
-          currentFlow: body.currentFlow ?? currentContext?.currentFlow,
-          source: body.source ?? body.intentSource,
-          primaryModeHint: body.primaryModeHint,
-          activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
-        })
-      ) {
+      if (storeCreateFastOverride) {
         console.log('[IntakeV2] routing:intent_engine_primary_chat_overridden_by_store_create_fast_path', {
           intent: earlyResponse._intentEngine?.intent,
           ownerUserId,
         });
+        intentEnginePrimaryClassification = null;
       } else {
         if (earlyResponse.action === 'chat') {
           const casualSessionId =
