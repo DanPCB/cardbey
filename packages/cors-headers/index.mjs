@@ -26,6 +26,8 @@ export const DASHBOARD_CORS_REQUEST_HEADERS = [
   'X-Performer-Role',
   'x-performer-mode',
   'X-Performer-Mode',
+  'x-cardbey-runtime-authority',
+  'X-Cardbey-Runtime-Authority',
   // App context
   'x-cardbey-context',
   'x-cardbey-viewer-key',
