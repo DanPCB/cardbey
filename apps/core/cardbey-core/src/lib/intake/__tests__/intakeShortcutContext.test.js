@@ -26,6 +26,17 @@ describe('resolveIntakeShortcutContext', () => {
     expect(ctx?.intentMode).toBe('store');
   });
 
+  it('detects create_store from standalone business name in store_setup context', () => {
+    const ctx = resolveIntakeShortcutContext({
+      userMessage: 'Market Lane Coffee',
+      primaryModeHint: 'store_setup',
+      auth: { userId: 'user_1', isGuest: false },
+    });
+
+    expect(ctx?.type).toBe('create_store');
+    expect(ctx?.intentMode).toBe('store');
+  });
+
   it('returns null for casual greetings even with store_setup primaryMode', () => {
     expect(
       resolveIntakeShortcutContext({
