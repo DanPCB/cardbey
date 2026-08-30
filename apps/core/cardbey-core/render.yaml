@@ -100,6 +100,19 @@ services:
         value: "true"
       - key: PHASE2_REASONING_STEP_LOG
         value: "true"
+      # Golden Path Day 1 — Mission 001 store fidelity / research pilot (staging only)
+      - key: ENABLE_MISSION_001_STORE_FIDELITY_V1
+        value: "1"
+      - key: ENABLE_MISSION_001_OFFERING_RECONSTRUCTION_V1
+        value: "1"
+      - key: ENABLE_STORE_RESEARCH_PIPELINE
+        value: "1"
+      - key: ENABLE_MISSION_001_GROUNDING_V1
+        value: "1"
+      - key: ENABLE_MISSION_001_FIDELITY_GATE_V1
+        value: "1"
+      - key: ENABLE_MISSION_001_PIPELINE_TIMING_V1
+        value: "1"
       # Optional stream key for dashboard SSE (?key=). JWT (?token=) works without this.
       - key: SSE_STREAM_KEY
         sync: false

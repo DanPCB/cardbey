@@ -46,31 +46,45 @@ export function resolveIntakeShortcutContext(input = {}) {
       ? input.storeCreateForm
       : undefined;
 
+  const primaryMode =
+    String(input.primaryMode ?? input.primaryModeHint ?? '').trim() || undefined;
+
   let shortcut = detectIntent({
     userMessage,
     auth: input.auth ?? {},
-    primaryMode: input.primaryMode,
+    primaryMode,
     primaryModeHint: input.primaryModeHint,
     intentSource: input.intentSource,
     storeCreateForm,
   });
 
-  if (!shortcut?.type) {
-    shortcut = resolveCreateStoreShortcut({
+  const resolveStoreShortcut = () =>
+    resolveCreateStoreShortcut({
       userMessage,
       storeCreateForm,
-      primaryMode: input.primaryMode,
+      primaryMode,
       intentSource: input.intentSource,
       forceIntent: input.forceIntent,
       currentFlow: input.currentFlow,
     });
+
+  if (!shortcut?.type) {
+    shortcut = resolveStoreShortcut();
+  } else if (shortcut.type === 'clarify_create_runway') {
+    const runway = classifyStoreWebsiteCreateIntent(userMessage);
+    if (!runway.ambiguous) {
+      const storeShortcut = resolveStoreShortcut();
+      if (storeShortcut?.type === 'create_store') {
+        shortcut = storeShortcut;
+      }
+    }
   }
 
   if (!areIntakeShortcutsAllowed()) {
     const preserveStoreShortcut = shouldPreserveCreateStoreShortcutWhenKernelMandatory(shortcut, {
       userMessage,
       storeCreateForm,
-      primaryMode: input.primaryMode,
+      primaryMode,
       intentSource: input.intentSource,
     });
     if (!preserveStoreShortcut) {
@@ -83,14 +97,14 @@ export function resolveIntakeShortcutContext(input = {}) {
     shouldPreserveCreateStoreShortcutWhenKernelMandatory(null, {
       userMessage,
       storeCreateForm,
-      primaryMode: input.primaryMode,
+      primaryMode,
       intentSource: input.intentSource,
     })
   ) {
     shortcut = resolveCreateStoreShortcut({
       userMessage,
       storeCreateForm,
-      primaryMode: input.primaryMode,
+      primaryMode,
       intentSource: input.intentSource,
       forceIntent: input.forceIntent,
       currentFlow: input.currentFlow,

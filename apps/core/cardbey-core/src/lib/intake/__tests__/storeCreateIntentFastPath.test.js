@@ -73,6 +73,27 @@ describe('storeCreateIntentFastPath', () => {
     expect(result?.parameters?.storeName).toBe('Melbourne Flower');
   });
 
+  it('fast-path classifies standalone business name in store_setup context', () => {
+    const result = tryStoreCreateFastPath('Market Lane Coffee', {
+      primaryModeHint: 'store_setup',
+    });
+    expect(result?.tool).toBe('create_store');
+    expect(result?.parameters?.storeName).toBe('Market Lane Coffee');
+    expect(result?._reasoning).toBe('standalone_name_store_setup');
+  });
+
+  it('does not fast-path standalone business name outside store_setup context', () => {
+    expect(tryStoreCreateFastPath('Market Lane Coffee', {})).toBeNull();
+  });
+
+  it('fast-path classifies url-only message in store_setup context', () => {
+    const result = tryStoreCreateFastPath('modernsecuritydoors.com.au', {
+      primaryModeHint: 'store_setup',
+    });
+    expect(result?.tool).toBe('create_store');
+    expect(result?.parameters?.website).toBe('https://modernsecuritydoors.com.au');
+  });
+
   it('blocks service_request override for store creation phrases', () => {
     expect(
       shouldBlockServiceRequestForStoreCreate('Create a store for my business', {}),

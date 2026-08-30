@@ -2503,6 +2503,14 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (
     userMessage &&
     isOpenPerformerChatTurn(userMessage) &&
+    !tryStoreCreateFastPath(userMessage, {
+      storeCreateForm: body.storeCreateForm,
+      forceIntent: body.forceIntent,
+      currentFlow: body.currentFlow ?? body.intentSourceContext?.currentFlow,
+      source: body.source ?? body.intentSource,
+      primaryModeHint: body.primaryModeHint,
+      primaryMode: body.primaryMode,
+    }) &&
     !isIntakeConfirmAffirmation(userMessage) &&
     !confirmInterceptApplied &&
     !hasIntakeImageAttachment(body) &&
@@ -2971,21 +2979,24 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       intentEnginePrimaryClassification = engineClassification;
     }
     if (earlyResponse) {
+      const storeCreateFastOverride =
+        earlyResponse.action === 'chat'
+          ? tryStoreCreateFastPath(userMessage, {
+              storeCreateForm: body.storeCreateForm,
+              forceIntent: body.forceIntent,
+              currentFlow: body.currentFlow ?? currentContext?.currentFlow,
+              source: body.source ?? body.intentSource,
+              primaryModeHint: body.primaryModeHint,
+              activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
+            })
+          : null;
       // Safety net: do not bury create-store NL behind Intent Engine chat fallback.
-      if (
-        earlyResponse.action === 'chat' &&
-        tryStoreCreateFastPath(userMessage, {
-          storeCreateForm: body.storeCreateForm,
-          forceIntent: body.forceIntent,
-          currentFlow: body.currentFlow ?? currentContext?.currentFlow,
-          source: body.source ?? body.intentSource,
-          activeStoreId: resolveIntakeStoreId(currentContext) ?? resolveIntakeStoreId(body.currentContext),
-        })
-      ) {
+      if (storeCreateFastOverride) {
         console.log('[IntakeV2] routing:intent_engine_primary_chat_overridden_by_store_create_fast_path', {
           intent: earlyResponse._intentEngine?.intent,
           ownerUserId,
         });
+        intentEnginePrimaryClassification = null;
       } else {
         if (earlyResponse.action === 'chat') {
           const casualSessionId =
@@ -4318,6 +4329,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         storeCreateFormPayload.category ??
         storeCreateFormPayload.storeType ??
         storeCreateFormPayload.businessType,
+      userMessage: String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim(),
+      website: storeCreateFormPayload.websiteUrl,
     });
     if (formValidationErrors.length > 0) {
       return res.status(400).json(formatValidationErrorResponse(formValidationErrors));
