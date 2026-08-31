@@ -146,6 +146,7 @@ export async function applyCandidateProfileToSeed(
     heroWidth: hero?.width ?? seed.enrichmentProfile?.heroWidth ?? null,
     heroHeight: hero?.height ?? seed.enrichmentProfile?.heroHeight ?? null,
     visualSource: hero?.visualSource ?? seed.enrichmentProfile?.visualSource ?? null,
+    fetchedMenu: candidate.fetchedMenu ?? seed.enrichmentProfile?.fetchedMenu ?? null,
     enrichedAt:
       candidate.enrichedAt ??
       candidate.enrichmentUpdatedAt ??

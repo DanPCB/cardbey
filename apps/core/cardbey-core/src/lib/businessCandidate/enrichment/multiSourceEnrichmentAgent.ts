@@ -54,6 +54,9 @@ import { extractBrandColors } from './brandColorExtract.js';
 import { extractTagline } from './taglineExtract.js';
 import { calculateProfileScore } from './profileScore.js';
 import { priceRangeFromRawSource } from './priceRange.js';
+import { fetchAndExtractMenu, isFoodBusinessCategory } from './menuFetchOrchestrator.js';
+import { syncCandidateMenuToLinkedStore } from '../menuPromotion.js';
+import type { ExtractedMenu } from './types/menuTypes.js';
 
 function getCandidateMetadata(candidate: BusinessCandidateRecord): Record<string, unknown> {
   const raw = candidate.originalContent?.metadata;
@@ -450,6 +453,37 @@ export async function enrichCandidateMultiSource(params: {
         }
       } else if (!websiteUrl) {
         flags.push('NO_WEBSITE');
+      }
+
+      // STEP 2b — Menu extraction (F&B only, budget permitting)
+      let extractedMenu: ExtractedMenu | null = null;
+      if (
+        isFoodBusinessCategory(
+          bag.category?.value ?? candidate.category ?? candidate.businessType,
+          bag.subCategory?.value ?? candidate.subCategory ?? null,
+          candidate.name,
+        )
+      ) {
+        budget.assertWithinBudget();
+        extractedMenu = await fetchAndExtractMenu({
+          budget,
+          businessName: candidate.name ?? 'Business',
+          category: bag.category?.value ?? candidate.category ?? candidate.businessType ?? '',
+          subCategory: bag.subCategory?.value ?? candidate.subCategory ?? null,
+          suburb: candidate.suburb ?? candidate.city ?? '',
+          description: bag.description?.value ?? candidate.description ?? null,
+          websiteHtml: websiteExtract?.html ?? null,
+          baseUrl: websiteUrl ?? candidate.website ?? bag.website?.value ?? null,
+          googlePlacesData: candidate.rawSourceJson,
+          missionId: candidate.missionId ?? undefined,
+        });
+        if (extractedMenu) {
+          sourcesUsed.add(extractedMenu.source);
+          console.log(
+            `[enrich] ${candidate.name} menu: ${extractedMenu.items.length} items,` +
+              ` confidence: ${extractedMenu.confidence}`,
+          );
+        }
       }
 
       // STEP 3 — Social (optional, budget permitting)
@@ -993,6 +1027,11 @@ export async function enrichCandidateMultiSource(params: {
       if (bag.address && !candidate.address) candidate.address = bag.address.value;
       if (bag.suburb && !candidate.suburb) candidate.suburb = bag.suburb.value;
 
+      if (extractedMenu) {
+        candidate.fetchedMenu = extractedMenu as unknown as Record<string, unknown>;
+        candidate.missingFields = (candidate.missingFields ?? []).filter((f) => f !== 'menu');
+      }
+
       const profileScore = calculateProfileScore({
         name: candidate.name,
         description: candidate.description,
@@ -1047,6 +1086,14 @@ export async function enrichCandidateMultiSource(params: {
       } else {
         await saveBusinessCandidate(candidate);
         if (rows.length) await appendCandidateFieldProvenance(rows, { dryRun: false });
+        if (extractedMenu && candidate.storeId) {
+          try {
+            await syncCandidateMenuToLinkedStore(candidate);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`[enrich] menu promotion failed for ${candidate.id}:`, message);
+          }
+        }
       }
 
       return {
