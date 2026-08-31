@@ -751,6 +751,7 @@ router.get('/stores/:slug', async (req, res, next) => {
             personalPresenceStore: { select: { slug: true } },
           },
         },
+        businessBillingProfile: true,
       }
     });
 
