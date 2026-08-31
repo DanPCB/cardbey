@@ -127,9 +127,11 @@ describe('buildSKPFromSources', () => {
     expect(ld.url).toContain('/s/demo-cafe');
   });
 
-  it('includes ABN in JSON-LD when present on business', () => {
+  it('includes ABN in JSON-LD when present on billing profile', () => {
     const skp = buildSKPFromSources({
-      business: baseBusiness({ abn: '12 345 678 901' }),
+      business: baseBusiness({
+        businessBillingProfile: { abn: '12 345 678 901' },
+      }),
     });
     const ld = skpToJsonLd(skp);
     expect(ld.taxID).toBe('12 345 678 901');
