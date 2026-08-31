@@ -32,6 +32,29 @@ describe('itemImageQueryResolver', () => {
     expect(query).toBe('custom door repair photo');
   });
 
+  it('enriches short generic queries with business context when Mission 001 image fidelity is on', () => {
+    const prevMaster = process.env.ENABLE_MISSION_001_STORE_FIDELITY_V1;
+    const prevImage = process.env.ENABLE_MISSION_001_IMAGE_FIDELITY_V1;
+    process.env.ENABLE_MISSION_001_STORE_FIDELITY_V1 = '1';
+    process.env.ENABLE_MISSION_001_IMAGE_FIDELITY_V1 = '1';
+    try {
+      const query = resolveItemImageSearchQuery({
+        itemName: 'Door Repair',
+        imageQueryHint: 'door',
+        storeName: 'Secure Doors Melbourne',
+        businessType: 'security installation',
+        location: 'Melbourne VIC',
+      });
+      expect(query.toLowerCase()).toContain('door');
+      expect(query.toLowerCase()).toContain('melbourne');
+    } finally {
+      if (prevMaster === undefined) delete process.env.ENABLE_MISSION_001_STORE_FIDELITY_V1;
+      else process.env.ENABLE_MISSION_001_STORE_FIDELITY_V1 = prevMaster;
+      if (prevImage === undefined) delete process.env.ENABLE_MISSION_001_IMAGE_FIDELITY_V1;
+      else process.env.ENABLE_MISSION_001_IMAGE_FIDELITY_V1 = prevImage;
+    }
+  });
+
   it('derives search query for handyman catalog items without explicit hint', () => {
     const query = resolveItemImageSearchQuery({
       itemName: 'Minor Plumbing Repairs',

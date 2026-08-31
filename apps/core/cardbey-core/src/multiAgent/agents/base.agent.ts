@@ -257,7 +257,6 @@ export abstract class BaseAgent {
     const gatewayMessages = toGatewayMessages(messages);
     const gatewayTools = tools?.length ? toGatewayTools(tools) : undefined;
 
-    const jsonMode = options.responseFormat?.type === 'json_object';
     const result = await llmGateway.complete({
       purpose: `multi_agent_${this.agentName}`,
       tenantKey: 'multi-agent',
@@ -266,9 +265,8 @@ export abstract class BaseAgent {
       model: this.model,
       maxTokens: this.maxTokens,
       temperature: this.temperature,
-      responseFormat: jsonMode ? 'json' : 'text',
-      // Avoid thinking-mode truncation on structured JSON agent outputs.
-      thinking: !jsonMode && this.thinkingConfig.type === 'enabled',
+      responseFormat: options.responseFormat?.type === 'json_object' ? 'json' : 'text',
+      thinking: this.thinkingConfig.type === 'enabled',
       ...(gatewayTools ? { tools: gatewayTools, tool_choice: 'auto' as const } : {}),
     });
 

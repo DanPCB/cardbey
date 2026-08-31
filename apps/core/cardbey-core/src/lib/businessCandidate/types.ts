@@ -148,25 +148,16 @@ export interface BusinessCandidateRecord {
   /** Last multi-source enrichment run id (cuid) — correlates provenance sidecar rows */
   enrichmentRunId?: string | null;
 
-  /**
-   * Multi-market discovery fields — all optional.
-   * Melbourne pilot records may omit these; backfill maps Melbourne → AU registry.
-   */
-  market?: 'australia' | 'vietnam' | null;
-  countryCode?: 'AU' | 'VN' | string | null;
-  regionCode?: string | null;
-  territoryId?: string | null;
-  locality?: string | null;
-  /** Canonical category registry id */
-  categoryId?: string | null;
-  sourceLanguage?: 'en' | 'vi' | string | null;
-  /** Original business name before any translation (preserve VN script) */
-  originalName?: string | null;
-  normalisedName?: string | null;
-  sourceRetrievedAt?: string | null;
-  lastVerifiedAt?: string | null;
-  duplicateClusterId?: string | null;
-  claimEligibility?: 'pending_qa' | 'eligible' | 'blocked' | 'claimed' | null;
+  /** Pre-claim profile — written by multi-source enrichment agent */
+  logoUrl?: string | null;
+  tagline?: string | null;
+  brandColors?: { primary: string | null; secondary: string | null } | null;
+  subCategory?: string | null;
+  priceRange?: string | null;
+  /** 0–100 completeness score — recalculated each enrichment run */
+  profileScore?: number | null;
+  enrichmentStatus?: 'unenriched' | 'partial' | 'enriched' | null;
+  enrichedAt?: string | null;
 }
 
 export interface BusinessCandidateTransitionRecord {

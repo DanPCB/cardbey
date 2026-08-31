@@ -5,7 +5,6 @@
  * GET    /api/admin/platform/store-content/:storeId
  * POST   /api/admin/platform/store-content/:storeId/products/:productId/unpublish  { confirmed, reason }
  * DELETE /api/admin/platform/store-content/:storeId/products/:productId             { confirmed, reason }
- * DELETE /api/admin/platform/store-content/:storeId                               { confirmed, reason }
  */
 
 import { Router } from 'express';
@@ -14,7 +13,6 @@ import { getPrismaClient } from '../../lib/prisma.js';
 import {
   adminSoftDeleteProduct,
   adminUnpublishProduct,
-  adminDeleteStoreContent,
   getStoreContentInventory,
   searchStoresForAdmin,
 } from '../../lib/admin/storeContentManagementService.js';
@@ -106,38 +104,6 @@ router.delete('/platform/store-content/:storeId/products/:productId', async (req
     });
     return res.json({ ok: true, ...result });
   } catch (err) {
-    if (err?.statusCode && err.statusCode < 500) {
-      return res.status(err.statusCode).json({ ok: false, error: err.code, message: err.message });
-    }
-    return next(err);
-  }
-});
-
-router.delete('/platform/store-content/:storeId', async (req, res, next) => {
-  try {
-    if (!requireConfirmed(req, res)) return;
-    const storeId = String(req.params.storeId ?? '').trim();
-    if (!storeId) {
-      return res.status(400).json({ ok: false, error: 'storeId_required' });
-    }
-    const prisma = getPrismaClient();
-    const result = await adminDeleteStoreContent(prisma, {
-      storeId,
-      actorUserId: req.userId ?? null,
-      reason: req.body?.reason,
-    });
-    return res.json({ ok: true, ...result });
-  } catch (err) {
-    if (err?.status === 404 || err?.statusCode === 404) {
-      return res.status(404).json({ ok: false, error: err.code ?? 'not_found', message: err.message });
-    }
-    if (err?.status === 500 || err?.code === 'store_delete_failed') {
-      return res.status(500).json({
-        ok: false,
-        error: err.code ?? 'store_delete_failed',
-        message: err.message ?? 'Could not delete store',
-      });
-    }
     if (err?.statusCode && err.statusCode < 500) {
       return res.status(err.statusCode).json({ ok: false, error: err.code, message: err.message });
     }

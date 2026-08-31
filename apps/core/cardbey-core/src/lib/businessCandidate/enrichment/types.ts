@@ -6,14 +6,22 @@
 export type EnrichmentFieldName =
   | 'description'
   | 'category'
+  | 'subCategory'
   | 'tags'
   | 'heroImageUrl'
+  | 'logoUrl'
+  | 'tagline'
+  | 'brandColors'
   | 'biBrief'
   | 'openingHours'
+  | 'priceRange'
   | 'abn'
   | 'legalName'
   | 'website'
   | 'phone'
+  | 'email'
+  | 'address'
+  | 'suburb'
   | 'socialLinks'
   | 'name';
 

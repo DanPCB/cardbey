@@ -311,10 +311,6 @@ function pickWebsiteTemplateFields(body) {
 }
 
 export function normalizeFreshStoreCreationBody(body) {
-  // Upload Ask → Create store must not become an empty draft confirmation.
-  if (isCreateStoreFromUploadTurn(body)) {
-    return normalizeCreateStoreFromUploadBody(body);
-  }
   const message = String(body.userMessage ?? body.text ?? body.goal ?? body.message ?? '').trim();
   const sessionId = String(body.conversationSessionId ?? body.sessionId ?? '').trim();
   const traceId = String(body.traceId ?? body.cardbeyTraceId ?? '').trim();

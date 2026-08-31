@@ -126,19 +126,46 @@ export function hasUploadAttachmentEvidence(ctx = {}) {
 }
 
 /**
- * Explicit create-store from upload (message wording or Ask-panel assetAction handoff).
- * @param {{ userMessage?: string; intentSourceContext?: Record<string, unknown> | null }} [opts]
+ * Explicit create-store from upload (Ask-panel handoff, upload-specific wording, or
+ * create-store wording *with* upload evidence).
+ *
+ * Plain "Create a store" / "Create a store for my business" alone is NOT upload-from-card —
+ * that path must not enter ATTACHMENT_NOT_READY when no pixels are present.
+ *
+ * @param {{
+ *   userMessage?: string;
+ *   intentSourceContext?: Record<string, unknown> | null;
+ *   imageDataUrl?: string | null;
+ *   attachments?: unknown[];
+ *   sessionId?: string | null;
+ *   hasSessionPendingExtraction?: boolean;
+ * }} [opts]
  */
 export function isExplicitCreateStoreFromUploadContext(opts = {}) {
   const msg = String(opts.userMessage ?? '').trim();
   if (isAttachmentOnlyPlaceholderMessage(msg)) return false;
-  if (hasExplicitUploadCreateStoreOrWebsiteIntent(msg)) return true;
   const isc =
     opts.intentSourceContext && typeof opts.intentSourceContext === 'object'
       ? opts.intentSourceContext
       : null;
   if (String(isc?.assetAction ?? '').trim() === 'create_store') return true;
   if (String(isc?.fromAskSelection ?? '').trim() === 'create_store') return true;
+  if (String(isc?.type ?? '').trim() === 'CREATE_STORE_FROM_UPLOAD') return true;
+  // Upload-specific wording ("from this card", "from uploaded …") — not plain create-store.
+  if (detectCreateStoreFromUploadedAssetIntent(msg)) return true;
+  // Generic create-store wording only when this turn actually carries upload evidence.
+  if (
+    detectExplicitStoreIntent(msg) &&
+    hasUploadAttachmentEvidence({
+      attachments: opts.attachments,
+      imageDataUrl: opts.imageDataUrl,
+      intentSourceContext: isc,
+      sessionId: opts.sessionId,
+      hasSessionPendingExtraction: opts.hasSessionPendingExtraction,
+    })
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -240,6 +267,10 @@ export function shouldAnalyzeUploadedAssetForStoreCreation(opts = {}) {
   const explicitCreate = isExplicitCreateStoreFromUploadContext({
     userMessage,
     intentSourceContext: opts.intentSourceContext,
+    imageDataUrl: opts.imageDataUrl,
+    attachments: opts.attachments,
+    sessionId: opts.sessionId,
+    hasSessionPendingExtraction: opts.hasSessionPendingExtraction,
   });
   const hasAsset = hasRecentUploadedAssetInContext(opts);
   if (!explicitCreate && !opts.forceAssetStoreCreation) return false;

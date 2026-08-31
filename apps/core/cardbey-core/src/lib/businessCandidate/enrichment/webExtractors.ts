@@ -124,7 +124,33 @@ export type WebsiteExtract = {
   address: string | null;
   sourceUrl: string;
   pageText: string;
+  /** Raw HTML — in-memory only during enrichment (not persisted). */
+  html: string;
 };
+
+const SOCIAL_PATTERNS: Array<{ platform: string; re: RegExp }> = [
+  { platform: 'facebook', re: /https?:\/\/(?:www\.)?facebook\.com\/[^\s"'<>]+/i },
+  { platform: 'instagram', re: /https?:\/\/(?:www\.)?instagram\.com\/[^\s"'<>]+/i },
+  { platform: 'tiktok', re: /https?:\/\/(?:www\.)?tiktok\.com\/@[^\s"'<>]+/i },
+  { platform: 'linkedin', re: /https?:\/\/(?:www\.)?linkedin\.com\/(?:company|in)\/[^\s"'<>]+/i },
+  { platform: 'youtube', re: /https?:\/\/(?:www\.)?youtube\.com\/(?:c\/|channel\/|@)[^\s"'<>]+/i },
+  {
+    platform: 'whatsapp',
+    re: /https?:\/\/(?:wa\.me|api\.whatsapp\.com)\/[^\s"'<>]+/i,
+  },
+];
+
+/** Extract social profile URLs from website header/footer links. */
+export function extractSocialLinksFromHtml(
+  html: string,
+): Array<{ platform: string; url: string }> {
+  const found = new Map<string, string>();
+  for (const { platform, re } of SOCIAL_PATTERNS) {
+    const match = String(html ?? '').match(re);
+    if (match?.[0]) found.set(platform, match[0].replace(/[),.;]+$/, ''));
+  }
+  return [...found.entries()].map(([platform, url]) => ({ platform, url }));
+}
 
 export async function extractFromBusinessWebsite(
   budget: EnrichmentBudget,
@@ -198,6 +224,7 @@ export async function extractFromBusinessWebsite(
     address,
     sourceUrl: url,
     pageText: stripHtmlToText(html),
+    html,
   };
 }
 

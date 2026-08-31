@@ -734,18 +734,116 @@ export async function renderIssuedDocumentPdfBuffer(doc) {
   return renderAccountingDocumentPdf(doc.issuedSnapshot);
 }
 
-export async function listDocuments(storeId, actorUserId, { type, status } = {}) {
+function periodCreatedAtFilter(period) {
+  if (period === 'this_month') {
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    return { gte: start };
+  }
+  if (period === 'last_month') {
+    const start = new Date();
+    start.setMonth(start.getMonth() - 1);
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { gte: start, lte: end };
+  }
+  return null;
+}
+
+/**
+ * List quotes/invoices with optional period + overdue filters (agent read path).
+ * @param {string} storeId
+ * @param {string} [actorUserId]
+ * @param {{ type?: string, status?: string, period?: 'this_month'|'last_month'|'all', daysOverdue?: number }} [opts]
+ */
+export async function listDocuments(storeId, actorUserId, { type, status, period, daysOverdue } = {}) {
   assertEnabled();
   const prisma = prismaOrThrow();
   await getOrCreateBillingProfile(storeId, actorUserId);
   const where = { storeId };
   if (type) where.type = type;
   if (status) where.status = status;
+  const createdAt = periodCreatedAtFilter(period);
+  if (createdAt) where.createdAt = createdAt;
+
+  if (daysOverdue != null && Number(daysOverdue) >= 0) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - Math.max(1, Math.trunc(Number(daysOverdue))));
+    where.type = DOC_TYPE.INVOICE;
+    where.dueDate = { lte: cutoff };
+    where.status = {
+      in: [
+        INVOICE_STATUS.ISSUED,
+        INVOICE_STATUS.VIEWED,
+        INVOICE_STATUS.OVERDUE,
+        INVOICE_STATUS.PART_PAID,
+      ],
+    };
+  }
+
   return prisma.accountingDocument.findMany({
     where,
     orderBy: { updatedAt: 'desc' },
+    take: 50,
     include: { lines: { orderBy: { sortOrder: 'asc' } } },
   });
+}
+
+/**
+ * Summary for agents / PIL — counts, totals (cents), overdue invoices.
+ * @param {string} storeId
+ * @param {string} [actorUserId]
+ * @param {'this_month'|'last_month'|'all'} [period]
+ */
+export async function getAccountingDocumentSummary(storeId, actorUserId, period = 'this_month') {
+  const all = await listDocuments(storeId, actorUserId, { period: period === 'all' ? undefined : period });
+  const summary = {
+    total: all.length,
+    totalCents: 0,
+    byStatus: {},
+    byType: {},
+    overdue: [],
+    currency: 'AUD',
+  };
+  const now = new Date();
+  const openInvoiceStatuses = new Set([
+    INVOICE_STATUS.ISSUED,
+    INVOICE_STATUS.VIEWED,
+    INVOICE_STATUS.OVERDUE,
+    INVOICE_STATUS.PART_PAID,
+  ]);
+
+  for (const doc of all) {
+    const status = doc.status ?? 'unknown';
+    const type = doc.type ?? 'unknown';
+    summary.byStatus[status] = (summary.byStatus[status] ?? 0) + 1;
+    summary.byType[type] = (summary.byType[type] ?? 0) + 1;
+    summary.totalCents += Number(doc.totalCents) || 0;
+
+    if (
+      type === DOC_TYPE.INVOICE &&
+      doc.dueDate &&
+      new Date(doc.dueDate) < now &&
+      openInvoiceStatuses.has(status)
+    ) {
+      const daysOverdue = Math.floor((now - new Date(doc.dueDate)) / (1000 * 60 * 60 * 24));
+      const buyer = doc.buyerJson && typeof doc.buyerJson === 'object' ? doc.buyerJson : {};
+      summary.overdue.push({
+        id: doc.id,
+        buyerName: buyer.name || buyer.tradingName || 'Customer',
+        amountCents: doc.balanceDueCents ?? doc.totalCents ?? 0,
+        daysOverdue,
+        dueDate: doc.dueDate,
+        status: doc.status,
+        documentNumber: doc.documentNumber,
+      });
+    }
+  }
+
+  summary.overdue.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  return summary;
 }
 
 export async function getDocument(storeId, documentId, actorUserId) {

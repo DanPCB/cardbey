@@ -1032,18 +1032,52 @@ router.post('/:draftId/publish', requireAuth, wrapHybridRoute(async (req, res, n
           })()
         : draft.preview || {};
     enforcePublishHeroCanonical(previewRawForHero, { source: 'draft_store_publish_draft_preview' });
-    const previewOverride = snapshotToPreviewShape(snapshot);
+    const legacyPreviewOverride = snapshotToPreviewShape(snapshot);
     if (previewRawForHero.heroVideoUrl || previewRawForHero.heroMediaType === 'video') {
-      previewOverride.heroVideoUrl = previewRawForHero.heroVideoUrl;
-      previewOverride.heroVideo = previewRawForHero.heroVideo;
-      previewOverride.heroMediaType = previewRawForHero.heroMediaType;
-      previewOverride.heroPosterUrl = previewRawForHero.heroPosterUrl;
-      previewOverride.heroPoster = previewRawForHero.heroPoster;
+      legacyPreviewOverride.heroVideoUrl = previewRawForHero.heroVideoUrl;
+      legacyPreviewOverride.heroVideo = previewRawForHero.heroVideo;
+      legacyPreviewOverride.heroMediaType = previewRawForHero.heroMediaType;
+      legacyPreviewOverride.heroPosterUrl = previewRawForHero.heroPosterUrl;
+      legacyPreviewOverride.heroPoster = previewRawForHero.heroPoster;
       if (previewRawForHero.hero && typeof previewRawForHero.hero === 'object') {
-        previewOverride.hero = { ...previewRawForHero.hero };
+        legacyPreviewOverride.hero = { ...previewRawForHero.hero };
       }
     }
-    enforcePublishHeroCanonical(previewOverride, { source: 'draft_store_publish_snapshot' });
+    enforcePublishHeroCanonical(legacyPreviewOverride, { source: 'draft_store_publish_snapshot' });
+
+    // Phase 8B — optional projection publish snapshot (this entrypoint only; fail closed → legacy)
+    const publishStartedAtMs = Date.now();
+    let previewOverride = legacyPreviewOverride;
+    /** @type {{ primarySource: string, reason: string, provenance: object|null, authoritative: boolean, projectionFingerprint?: string|null, publishDurationMs?: number }} */
+    let publishCutover = {
+      primarySource: 'legacy',
+      reason: 'publish_cutover_disabled',
+      provenance: null,
+      authoritative: false,
+    };
+    try {
+      const { prepareDraftStorePublishOverride } = await import(
+        '../lib/storefrontDesignLibrary/publishCutover/index.js'
+      );
+      publishCutover = prepareDraftStorePublishOverride({
+        draft,
+        legacyPreview: legacyPreviewOverride,
+        startedAtMs: publishStartedAtMs,
+      });
+      previewOverride = publishCutover.previewOverride || legacyPreviewOverride;
+    } catch (cutoverErr) {
+      console.warn(
+        '[DraftStore] publish cutover prepare failed — using legacy snapshot:',
+        cutoverErr?.message || cutoverErr,
+      );
+      previewOverride = legacyPreviewOverride;
+      publishCutover = {
+        primarySource: 'legacy',
+        reason: 'legacy_fallback',
+        provenance: null,
+        authoritative: false,
+      };
+    }
 
     const storeId =
       body.storeId && typeof body.storeId === 'string' && body.storeId.trim()
@@ -1063,6 +1097,19 @@ router.post('/:draftId/publish', requireAuth, wrapHybridRoute(async (req, res, n
         storeId && storeId !== 'temp' ? storeId : snapshot.storeId && snapshot.storeId !== 'temp' ? snapshot.storeId : undefined,
     });
 
+    try {
+      const { finalizePublishCutoverTelemetry } = await import(
+        '../lib/storefrontDesignLibrary/publishCutover/index.js'
+      );
+      finalizePublishCutoverTelemetry(publishCutover, {
+        draftId,
+        storeId: result.storeId,
+        startedAtMs: publishStartedAtMs,
+      });
+    } catch {
+      /* non-fatal */
+    }
+
     const verified = await verifyPublishedStoreRoute(prisma, {
       slug: result.slug,
       storeId: result.storeId,
@@ -1078,6 +1125,10 @@ router.post('/:draftId/publish', requireAuth, wrapHybridRoute(async (req, res, n
       liveUrl: verified.liveUrl,
       storefrontUrl: verified.liveUrl,
       publishedStoreId: result.storeId,
+      publishSource: publishCutover.primarySource || 'legacy',
+      publishSourceReason: publishCutover.reason || null,
+      designLibraryPublish: publishCutover.provenance || previewOverride?.meta?.designLibraryPublish || null,
+      authoritative: false,
     });
   } catch (err) {
     if (err instanceof PublishSnapshotError) {
@@ -1562,6 +1613,316 @@ router.post('/:draftId/generate', requireAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * Phase 6/8A — authorised projection preview (advisory only).
+ * GET /api/draft-store/:draftId/projection-preview
+ * Does not replace the public storefront; requires preview flag + owner/admin access.
+ * Phase 8A-Core: dual packages + honest primarySource (legacy | projection).
+ */
+router.get('/:draftId/projection-preview', requireAuth, async (req, res, next) => {
+  try {
+    const { canAccessProjectionPreview } = await import(
+      '../lib/storefrontDesignLibrary/rendering/index.js'
+    );
+    const {
+      isDesignLibraryV1Enabled,
+      isStorefrontProjectionPreviewEnabled,
+    } = await import('../lib/storefrontDesignLibrary/flags.js');
+    const { buildPreviewRenderPayload } = await import(
+      '../lib/storefrontDesignLibrary/previewRendering/index.js'
+    );
+    const { catalogFromDraft } = await import('../lib/storefrontDesignLibrary/acceptance/index.js');
+
+    if (!isDesignLibraryV1Enabled() || !isStorefrontProjectionPreviewEnabled()) {
+      return res.status(404).json({
+        ok: false,
+        error: 'projection_preview_disabled',
+        message: 'Projection preview is not enabled',
+      });
+    }
+
+    const { draftId } = req.params;
+    const draft = await getDraft(draftId);
+    if (!draft) {
+      return res.status(404).json({
+        ok: false,
+        error: 'draft_not_found',
+        message: 'Draft store not found or expired',
+      });
+    }
+
+    const userId = req.userId ?? req.user?.id ?? null;
+    const tenantKey = getTenantId(req.user) ?? userId ?? null;
+    const allowed = await canAccessDraftStore(draft, {
+      userId,
+      tenantKey,
+      isSuperAdmin: isSuperAdmin(req),
+    });
+    if (!allowed) {
+      return res.status(403).json({ ok: false, error: 'forbidden', message: 'Draft access denied' });
+    }
+
+    const actor = {
+      userId,
+      role: req.user?.role,
+      roles: req.user?.roles,
+      isOwner: Boolean(draft.ownerUserId && userId && draft.ownerUserId === userId),
+    };
+    if (
+      !canAccessProjectionPreview(actor, { ownerUserId: draft.ownerUserId }) &&
+      !isSuperAdmin(req)
+    ) {
+      return res.status(403).json({
+        ok: false,
+        error: 'projection_preview_forbidden',
+        message: 'Projection preview requires owner or admin access',
+      });
+    }
+
+    const catalog = catalogFromDraft(draft);
+    if (!catalog.meta?.designLibraryStorefrontProjection && draft.preview?.meta?.designLibraryStorefrontProjection) {
+      catalog.meta = { ...catalog.meta, ...draft.preview.meta };
+    }
+
+    const legacyStore = {
+      products: catalog.products,
+      preview: draft.preview,
+      meta: catalog.meta,
+      primaryCTA: catalog.meta?.primaryCTA ?? draft.preview?.primaryCTA,
+      websiteTemplateId: draft.websiteTemplateId ?? draft.preview?.websiteTemplateId,
+      contentTemplateId: draft.contentTemplateId ?? draft.preview?.contentTemplateId,
+      theme: draft.preview?.website?.theme,
+    };
+
+    const payload = buildPreviewRenderPayload({
+      catalog,
+      legacyStore,
+      previewMode: true,
+      context: {
+        phone: draft.preview?.phone ?? draft.input?.phone,
+        bookingUrl: draft.preview?.bookingUrl,
+        businessName: draft.input?.businessName,
+        legacyStore,
+      },
+    });
+
+    if (!payload.ok || !payload.primaryPackage) {
+      return res.status(422).json({
+        ok: false,
+        error: 'projection_preview_unavailable',
+        message: 'Could not build preview packages',
+        previewLabel: 'Preview — not live',
+        authoritative: false,
+        primarySource: 'legacy',
+        reason: payload.reason ?? 'legacy_fallback',
+      });
+    }
+
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.json({
+      ok: true,
+      previewLabel: payload.previewLabel,
+      authoritative: false,
+      primarySource: payload.primarySource,
+      reason: payload.reason,
+      primaryPackage: payload.primaryPackage,
+      packages: payload.packages,
+      acceptance: payload.acceptance,
+      // Honesty: viewModel only when primary is projection (never projection-only under legacy)
+      viewModel: payload.viewModel,
+      comparison: payload.comparison,
+      // Phase 7 naming compat — same honesty rule as primarySource
+      previewSource: payload.primarySource,
+      acceptanceReason: payload.reason,
+      robots: 'noindex',
+    });
+  } catch (err) {
+    console.error('[DraftStore] GET /:draftId/projection-preview error:', err);
+    next(err);
+  }
+});
+
+/**
+ * Phase 7 — Current vs Recommended comparison for owner/admin.
+ * GET /api/draft-store/:draftId/projection-comparison
+ */
+router.get('/:draftId/projection-comparison', requireAuth, async (req, res, next) => {
+  try {
+    const { isStorefrontProjectionAcceptanceEnabled, isDesignLibraryV1Enabled } = await import(
+      '../lib/storefrontDesignLibrary/flags.js'
+    );
+    const { canAccessProjectionPreview } = await import(
+      '../lib/storefrontDesignLibrary/rendering/projectionPreviewAccess.js'
+    );
+    const { loadOwnerProjectionComparisonForDraft } = await import(
+      '../lib/storefrontDesignLibrary/acceptance/index.js'
+    );
+
+    if (!isDesignLibraryV1Enabled() || !isStorefrontProjectionAcceptanceEnabled()) {
+      return res.status(404).json({
+        ok: false,
+        error: 'projection_acceptance_disabled',
+        message: 'Projection acceptance workflow is not enabled',
+      });
+    }
+
+    const { draftId } = req.params;
+    const draft = await getDraft(draftId);
+    if (!draft) {
+      return res.status(404).json({ ok: false, error: 'draft_not_found' });
+    }
+
+    const userId = req.userId ?? req.user?.id ?? null;
+    const tenantKey = getTenantId(req.user) ?? userId ?? null;
+    const allowed = await canAccessDraftStore(draft, {
+      userId,
+      tenantKey,
+      isSuperAdmin: isSuperAdmin(req),
+    });
+    if (!allowed) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+
+    const actor = {
+      userId,
+      role: req.user?.role,
+      roles: req.user?.roles,
+      isOwner: Boolean(draft.ownerUserId && userId && draft.ownerUserId === userId),
+    };
+    if (
+      !canAccessProjectionPreview(actor, { ownerUserId: draft.ownerUserId }) &&
+      !isSuperAdmin(req)
+    ) {
+      return res.status(403).json({ ok: false, error: 'projection_comparison_forbidden' });
+    }
+
+    const loaded = await loadOwnerProjectionComparisonForDraft(draftId, {});
+    if (!loaded.ok) {
+      return res.status(404).json({ ok: false, error: loaded.error });
+    }
+
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return res.json({
+      ok: true,
+      authoritative: false,
+      comparison: loaded.comparison,
+      robots: 'noindex',
+    });
+  } catch (err) {
+    console.error('[DraftStore] GET /:draftId/projection-comparison error:', err);
+    next(err);
+  }
+});
+
+/**
+ * Phase 7 — Explicit accept/reject of recommended structure for this draft only.
+ * POST /api/draft-store/:draftId/projection-acceptance
+ * Body: { decision: 'accept'|'reject', confirm: true, applyToDraftPreview?: boolean, note?: string }
+ */
+router.post('/:draftId/projection-acceptance', requireAuth, async (req, res, next) => {
+  try {
+    const { isStorefrontProjectionAcceptanceEnabled, isDesignLibraryV1Enabled } = await import(
+      '../lib/storefrontDesignLibrary/flags.js'
+    );
+    const { canAccessProjectionPreview } = await import(
+      '../lib/storefrontDesignLibrary/rendering/projectionPreviewAccess.js'
+    );
+    const { persistProjectionAcceptanceDecision } = await import(
+      '../lib/storefrontDesignLibrary/acceptance/index.js'
+    );
+
+    if (!isDesignLibraryV1Enabled() || !isStorefrontProjectionAcceptanceEnabled()) {
+      return res.status(404).json({
+        ok: false,
+        error: 'projection_acceptance_disabled',
+        message: 'Projection acceptance workflow is not enabled',
+      });
+    }
+
+    const { draftId } = req.params;
+    const draft = await getDraft(draftId);
+    if (!draft) {
+      return res.status(404).json({ ok: false, error: 'draft_not_found' });
+    }
+
+    const userId = req.userId ?? req.user?.id ?? null;
+    const tenantKey = getTenantId(req.user) ?? userId ?? null;
+    const allowed = await canAccessDraftStore(draft, {
+      userId,
+      tenantKey,
+      isSuperAdmin: isSuperAdmin(req),
+    });
+    if (!allowed) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+
+    const actor = {
+      userId,
+      role: req.user?.role,
+      roles: req.user?.roles,
+      isOwner: Boolean(draft.ownerUserId && userId && draft.ownerUserId === userId),
+    };
+    if (
+      !canAccessProjectionPreview(actor, { ownerUserId: draft.ownerUserId }) &&
+      !isSuperAdmin(req)
+    ) {
+      return res.status(403).json({ ok: false, error: 'projection_acceptance_forbidden' });
+    }
+
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const result = await persistProjectionAcceptanceDecision(
+      draftId,
+      {
+        decision: body.decision,
+        confirm: body.confirm === true,
+        applyToDraftPreview: body.applyToDraftPreview,
+        note: body.note,
+        actorUserId: userId,
+      },
+      {},
+    );
+
+    if (!result.ok) {
+      const errors = Array.isArray(result.errors) ? result.errors : [];
+      const message =
+        errors.includes('not_safe_for_preview')
+          ? 'Recommended structure is not safe for draft preview yet (readiness blockers). Keep Current, or fix blockers before accepting.'
+          : errors.includes('projection_missing')
+            ? 'No recommended projection is available on this draft.'
+            : errors.includes('confirm_required')
+              ? 'Explicit confirmation is required to accept or reject.'
+              : errors.length
+                ? `Acceptance rejected: ${errors.join(', ')}`
+                : 'Acceptance rejected.';
+      return res.status(422).json({
+        ok: false,
+        error: result.error,
+        errors,
+        message,
+        readiness: result.comparison?.recommended?.readiness ?? null,
+        authoritative: false,
+      });
+    }
+
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return res.json({
+      ok: true,
+      authoritative: false,
+      acceptance: result.acceptance,
+      comparison: result.comparison,
+      message:
+        result.acceptance.status === 'accepted'
+          ? 'Recommended structure accepted for this draft preview only. Public storefront unchanged.'
+          : 'Recommended structure rejected. Current structure kept.',
+      robots: 'noindex',
+    });
+  } catch (err) {
+    console.error('[DraftStore] POST /:draftId/projection-acceptance error:', err);
+    next(err);
+  }
+});
+
 router.get('/:draftId', requireAuth, async (req, res, next) => {
   try {
     const { draftId } = req.params;
@@ -1629,6 +1990,63 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
           ? 'ready'
           : draft.status;
 
+    /** Ephemeral Projection Renderer Cutover payload — never persisted on draft. */
+    let storefrontRender = null;
+    try {
+      const { isStorefrontProjectionRenderCutoverEnabled } = await import(
+        '../lib/storefrontDesignLibrary/flags.js'
+      );
+      if (isStorefrontProjectionRenderCutoverEnabled()) {
+        const { catalogFromDraft } = await import(
+          '../lib/storefrontDesignLibrary/acceptance/index.js'
+        );
+        const { buildLiveRenderPayload } = await import(
+          '../lib/storefrontDesignLibrary/renderCutover/index.js'
+        );
+        const catalog = catalogFromDraft(draft);
+        if (
+          !catalog.meta?.designLibraryStorefrontProjection &&
+          preview?.meta?.designLibraryStorefrontProjection
+        ) {
+          catalog.meta = { ...catalog.meta, ...preview.meta };
+        }
+        const legacyStore = {
+          products: catalog.products,
+          preview: draft.preview,
+          meta: catalog.meta,
+          primaryCTA: catalog.meta?.primaryCTA ?? preview?.primaryCTA,
+          websiteTemplateId: draft.websiteTemplateId ?? preview?.websiteTemplateId,
+          contentTemplateId: draft.contentTemplateId ?? preview?.contentTemplateId,
+          theme: preview?.website?.theme,
+        };
+        const live = buildLiveRenderPayload({
+          catalog,
+          legacyStore,
+          draftStoreId: draft.id,
+          context: {
+            phone: preview?.phone ?? draft.input?.phone,
+            bookingUrl: preview?.bookingUrl,
+            businessName: draft.input?.businessName ?? preview?.storeName,
+            legacyStore,
+          },
+        });
+        storefrontRender = live.clientPayload;
+      }
+    } catch (cutoverErr) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[DraftStore] storefrontRender cutover attach failed; legacy only', cutoverErr);
+      }
+      storefrontRender = {
+        primarySource: 'legacy',
+        reason: 'resolver_error',
+        authoritative: false,
+        bypassLegacyNormalize: false,
+        rendererId: 'cardbey-legacy-storefront-v1',
+        viewModel: null,
+        fallbackDetail: cutoverErr instanceof Error ? cutoverErr.message : String(cutoverErr),
+      };
+    }
+
     res.json({
       ok: true,
       draftId: draft.id,
@@ -1644,6 +2062,7 @@ router.get('/:draftId', requireAuth, async (req, res, next) => {
       products,
       categories,
       preview: draft.preview,
+      storefrontRender,
       heroImageUrl: isVideo ? (heroImage || heroVideo || undefined) : (heroImage || heroVideo || undefined),
       heroVideoUrl: heroVideo || undefined,
       heroVideo: heroVideo || undefined,

@@ -64,4 +64,22 @@ describe('HERO_MISSING QA flag', () => {
     expect(suggestAutoApproval(seed).suggested).toBe(true);
     expect(canPromoteToClaimable(seed).ok).toBe(true);
   });
+
+  it('ITEMS_INSUFFICIENT completeness does not block QA approve to claimable', () => {
+    const seed = makeSeed({
+      completenessBlockers: JSON.stringify(['ITEMS_INSUFFICIENT', 'GALLERY_THIN']),
+      completenessTier: 'blocked',
+    });
+    expect(canPromoteToClaimable(seed).ok).toBe(true);
+  });
+
+  it('HERO_LOW_RES completeness blocks QA approve', () => {
+    const seed = makeSeed({
+      completenessBlockers: JSON.stringify(['HERO_LOW_RES']),
+      completenessTier: 'blocked',
+    });
+    const gate = canPromoteToClaimable(seed);
+    expect(gate.ok).toBe(false);
+    expect(gate.blockers).toContain('HERO_LOW_RES');
+  });
 });

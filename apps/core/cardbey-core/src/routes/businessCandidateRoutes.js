@@ -35,9 +35,10 @@ const realLocalRateLimit = rateLimit({
 
 const batchEnrichRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 8,
+  max: 20,
   keyGenerator: (req) => `batch-enrich:${req.user?.id ?? req.ip ?? 'unknown'}`,
-  message: 'Batch enrichment rate limit exceeded.',
+  message:
+    'Batch enrichment rate limit exceeded. Max {max} runs per {windowMinutes} min. Retry in {retryAfter}s.',
   code: 'batch_enrich_rate_limit',
 });
 
@@ -61,7 +62,11 @@ router.get('/qa', requireAuth, requireAdmin, async (req, res, next) => {
         return {
           ...c,
           qaEnrichment: {
-            mediaPreviewUrl: media?.heroImage?.thumbnailUrl ?? media?.heroImage?.url ?? null,
+            mediaPreviewUrl:
+              c.heroImageUrl ??
+              media?.heroImage?.thumbnailUrl ??
+              media?.heroImage?.url ??
+              null,
             mediaSource: media?.heroImage?.sourceType ?? null,
             mediaConfidence: media?.heroImage?.matchConfidence ?? null,
             isRepresentative: media?.representativeDisclosureRequired ?? false,

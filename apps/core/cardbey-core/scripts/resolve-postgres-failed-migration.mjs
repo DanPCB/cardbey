@@ -11,6 +11,7 @@
  */
 import '../src/env/ensureDatabaseUrl.js';
 import { execSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -22,6 +23,7 @@ import {
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const schemaPath = resolvePrismaSchemaPath(root);
 const dbUrl = pickDatabaseUrlForPrisma();
+const clientGenIndex = path.join(root, 'node_modules', '.prisma', 'client-gen', 'index.js');
 
 if (!isPostgresDatabaseUrl(dbUrl)) {
   console.log('[resolve-postgres-failed] not postgres — skipping');
@@ -36,6 +38,9 @@ const defaultAllowlist = [
   '20260619150000_add_business_lead_models',
   // Idempotent Payment column/index DDL (IF NOT EXISTS) — safe to roll back and redeploy.
   '20260707140000_extend_payment_stripe_journey',
+  // Live Market registration SQL shipped with UTF-8 BOM; strip + roll back failed row then redeploy.
+  '20260814010000_live_market_participant_registration',
+  '20260814020000_live_market_question_review_status',
 ];
 const allowlist = nameArg
   ? [nameArg.split('=')[1]]
@@ -132,12 +137,21 @@ function resolveRolledBack(migrationName) {
   }
 }
 
+function ensurePrismaClientGenerated() {
+  // Never run `prisma generate` during Render prestart — it OOMs small instances
+  // and restarts the whole service before soft-fail can continue. Build/postinstall
+  // already generates client-gen; migrate status uses the CLI schema path.
+  if (fs.existsSync(clientGenIndex)) {
+    console.log('[resolve-postgres-failed] prisma client-gen present');
+    return;
+  }
+  console.warn(
+    '[resolve-postgres-failed] prisma client-gen missing — skip generate at prestart (avoid OOM); bootstrap will generate if needed',
+  );
+}
+
 async function main() {
-  execSync(`npx prisma generate --schema=${schemaPath}`, {
-    stdio: 'inherit',
-    env: prismaEnv(),
-    shell: true,
-  });
+  ensurePrismaClientGenerated();
 
   const explicitName = nameArg ? nameArg.split('=')[1].trim() : '';
   const fromStatus = listFailedMigrationNames();

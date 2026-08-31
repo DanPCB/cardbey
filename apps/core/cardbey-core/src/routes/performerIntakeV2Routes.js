@@ -34,6 +34,11 @@ import {
   tryStoreCreateFastPath,
 } from '../lib/intent/storeCreateFastPath.js';
 import { resolveIntakeOrchestrationDispatch } from '../lib/intent/campaignOrchestrationIntent.js';
+import {
+  isInvoiceIntent,
+  isInvoiceMultiAgentIntent,
+} from '../lib/intent/accountingOrchestrationIntent.js';
+import { dispatchSingleAgentInvoice } from '../lib/intake/accountingDispatch.js';
 import { resolveIntakeShortcutContext } from '../lib/intake/intakeShortcutContext.js';
 import {
   buildCreateStoreDraftIntakeResponseFromUpload,
@@ -3193,6 +3198,61 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       userMessage,
       locale,
       cardbeyTraceId,
+    });
+  }
+
+  // Accounting Documents — single-agent / direct tool fast-path (Orders & Invoices surface).
+  // Multi-agent month-end already routed above via isInvoiceMultiAgentIntent → multi_agent.
+  if (isInvoiceIntent(userMessage) && !isInvoiceMultiAgentIntent(userMessage)) {
+    const accountingStoreId = String(
+      currentContext?.activeStoreId ||
+        currentContext?.storeId ||
+        body.storeId ||
+        body.currentContext?.storeId ||
+        '',
+    ).trim();
+    const surface =
+      currentContext?.surface ||
+      body.surfaceContext?.surface ||
+      body.currentContext?.surface ||
+      null;
+    const accountingResult = await dispatchSingleAgentInvoice({
+      prompt: userMessage,
+      storeId: accountingStoreId,
+      userId: performerIntakeV2ActorId(req),
+      surfaceContext: {
+        surface: surface || 'orders_accounting',
+        ...(body.surfaceContext && typeof body.surfaceContext === 'object' ? body.surfaceContext : {}),
+        ...(currentContext && typeof currentContext === 'object' ? { fromContext: true } : {}),
+      },
+      missionId: body.missionId || null,
+      storeKnowledge: currentContext?.storeKnowledge || null,
+    });
+    const toolOut = accountingResult?.result || {};
+    const summaryText =
+      toolOut?.message ||
+      (toolOut?.type === 'invoice_summary'
+        ? `Invoice summary: ${toolOut.total ?? 0} documents, ${toolOut.overdueCount ?? 0} overdue.`
+        : toolOut?.type === 'chase_email_draft'
+          ? `Chase email drafted for ${toolOut.buyerName || 'customer'} (not sent).`
+          : toolOut?.type === 'invoice_report'
+            ? 'Invoice report ready.'
+            : toolOut?.type === 'overdue_invoices'
+              ? `${toolOut.count ?? 0} overdue invoice(s).`
+              : toolOut?.type === 'invoice_list'
+                ? `${toolOut.count ?? 0} document(s).`
+                : 'Accounting tool completed.');
+    return res.json({
+      success: toolOut?.ok !== false,
+      action: 'tool_result',
+      tool: accountingResult.tool,
+      type: 'tool_result',
+      response: summaryText,
+      result: toolOut,
+      artifact: toolOut?.type
+        ? { type: toolOut.type, payload: toolOut }
+        : null,
+      surface: surface || 'orders_accounting',
     });
   }
 
@@ -7487,11 +7547,19 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     imageContext,
   });
 
+  const createStoreUploadContextOpts = {
+    userMessage,
+    intentSourceContext,
+    imageDataUrl: resolveIntakeImageRefForOcr(body),
+    attachments: Array.isArray(body?.attachments) ? body.attachments : undefined,
+    sessionId: intakeAssetSessionKey,
+  };
+
   if (
     classification.tool === 'create_store' &&
     !forceCreateStoreCheckpoint &&
     isAttachmentOnlyPlaceholderMessage(userMessage) &&
-    !isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
+    !isExplicitCreateStoreFromUploadContext(createStoreUploadContextOpts)
   ) {
     const uploadAskSafety = await buildUploadAskClarifyFallback({
       attachmentOnlyUpload: attachmentOnlyUpload === true,
@@ -7519,7 +7587,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
   if (
     classification.tool === 'create_store' &&
     !forceCreateStoreCheckpoint &&
-    isExplicitCreateStoreFromUploadContext({ userMessage, intentSourceContext })
+    isExplicitCreateStoreFromUploadContext(createStoreUploadContextOpts)
   ) {
     const cardAttachmentCtx = resolveCreateStoreAttachmentContext({
       conversationId: conversationSessionIdHint ?? null,
@@ -7557,9 +7625,21 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         intentSourceContext,
         intakeAssetSessionKey,
       )) || cardAttachmentCtx.mediaUrlOrRef;
+    const selectionParamsForIdentity =
+      body?.intakeV2Selection &&
+      typeof body.intakeV2Selection === 'object' &&
+      body.intakeV2Selection.selectedParameters &&
+      typeof body.intakeV2Selection.selectedParameters === 'object'
+        ? body.intakeV2Selection.selectedParameters
+        : {};
     let hasWorkflowIdentity = Boolean(
       intentSourceContext?.cardExtraction ||
         intentSourceContext?.storeCandidate ||
+        intentSourceContext?.documentExtraction ||
+        intentSourceContext?.assetIngestResult ||
+        selectionParamsForIdentity.cardExtraction ||
+        selectionParamsForIdentity.storeCandidate ||
+        selectionParamsForIdentity.documentExtraction ||
         cardAttachmentCtx.extractionStatus === 'ready',
     );
     if (!recoveredUploadImage && !hasWorkflowIdentity) {
@@ -7587,6 +7667,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         sessionKey: intakeAssetSessionKey ? String(intakeAssetSessionKey).slice(0, 12) : null,
         hasEvidenceId: Boolean(body?.evidenceId || intentSourceContext?.evidenceId),
         hasAttachmentId: Boolean(body?.attachmentId || intentSourceContext?.attachmentId),
+        assetAction: intentSourceContext?.assetAction ?? null,
+        fromAskSelection: intentSourceContext?.fromAskSelection ?? null,
         fallbackReason: cardAttachmentCtx.fallbackReason,
       });
       return res.status(409).json({

@@ -44,10 +44,35 @@ import { FROZEN_CANDIDATE_KEYS } from './types.js';
 import {
   extractFromBusinessWebsite,
   extractPublicSocialProfile,
+  extractSocialLinksFromHtml,
   extractYellowPagesSnippet,
   extractTrueLocalSnippet,
 } from './webExtractors.js';
 import { fetchWikimediaPhoto } from './wikimediaFetcher.js';
+import { resolveLogoUrl } from './logoResolve.js';
+import { extractBrandColors } from './brandColorExtract.js';
+import { extractTagline } from './taglineExtract.js';
+import { calculateProfileScore } from './profileScore.js';
+import { priceRangeFromRawSource } from './priceRange.js';
+
+function getCandidateMetadata(candidate: BusinessCandidateRecord): Record<string, unknown> {
+  const raw = candidate.originalContent?.metadata;
+  return raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+}
+
+function mergeSocialLinks(
+  existing: Array<{ platform: string; url: string }>,
+  incoming: Array<{ platform: string; url: string }>,
+): Array<{ platform: string; url: string }> {
+  const byPlatform = new Map(existing.map((s) => [s.platform.toLowerCase(), s]));
+  for (const link of incoming) {
+    const key = link.platform.toLowerCase();
+    if (!byPlatform.has(key)) byPlatform.set(key, link);
+  }
+  return [...byPlatform.values()];
+}
 
 function snapshotFrozen(c: BusinessCandidateRecord): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -81,14 +106,23 @@ function tierRank(t: EnrichmentSourceTier | null | undefined): number {
 type FieldBag = {
   description?: ConfirmedField;
   category?: ConfirmedField;
+  subCategory?: ConfirmedField;
   tags?: ConfirmedField<string[]>;
   heroImageUrl?: ConfirmedField;
   heroImageSource?: string;
+  logoUrl?: ConfirmedField;
+  tagline?: ConfirmedField;
+  brandColors?: ConfirmedField;
   biBrief?: ConfirmedField;
   openingHours?: ConfirmedField;
+  priceRange?: ConfirmedField;
   abn?: ConfirmedField;
   legalName?: ConfirmedField;
   website?: ConfirmedField;
+  phone?: ConfirmedField;
+  email?: ConfirmedField;
+  address?: ConfirmedField;
+  suburb?: ConfirmedField;
   name?: ConfirmedField;
 };
 
@@ -135,14 +169,23 @@ function provenanceRowsFromBag(
   };
   push('description', bag.description);
   push('category', bag.category);
+  push('subCategory', bag.subCategory);
   push('tags', bag.tags);
   push('heroImageUrl', bag.heroImageUrl);
+  push('logoUrl', bag.logoUrl);
+  push('tagline', bag.tagline);
+  push('brandColors', bag.brandColors);
   push('biBrief', bag.biBrief);
   push('name', bag.name);
   push('openingHours', bag.openingHours);
+  push('priceRange', bag.priceRange);
   push('abn', bag.abn);
   push('legalName', bag.legalName);
   push('website', bag.website);
+  push('phone', bag.phone);
+  push('email', bag.email);
+  push('address', bag.address);
+  push('suburb', bag.suburb);
   return rows;
 }
 
@@ -220,6 +263,18 @@ export async function enrichCandidateMultiSource(params: {
         });
       }
 
+      const placesPriceRange = priceRangeFromRawSource(candidate.rawSourceJson);
+      if (placesPriceRange) {
+        setField(bag, 'priceRange', {
+          value: placesPriceRange,
+          source: 'google_places',
+          sourceTier: 3,
+          sourceUrl: candidate.sourceUrl,
+          confidence: 0.8,
+          rawExtract: placesPriceRange,
+        });
+      }
+
       const websiteUrl =
         candidate.website?.trim() ||
         candidate.socialLinks.find((s) => s.platform === 'website')?.url ||
@@ -290,8 +345,8 @@ export async function enrichCandidateMultiSource(params: {
       // STEP 2 — Website (skip when manually verified / stub site locked)
       let websiteExtract: Awaited<ReturnType<typeof extractFromBusinessWebsite>> = null;
       const skipWebsite =
-        candidate.metadata?.skipWebsiteFetch === true ||
-        candidate.metadata?.manuallyVerified === true ||
+        getCandidateMetadata(candidate).skipWebsiteFetch === true ||
+        getCandidateMetadata(candidate).manuallyVerified === true ||
         /MANUALLY_VERIFIED/i.test(String(candidate.enrichmentNote ?? ''));
       if (skipWebsite) {
         flags.push('SKIP_WEBSITE_FETCH_MANUALLY_VERIFIED');
@@ -319,6 +374,67 @@ export async function enrichCandidateMultiSource(params: {
               sourceUrl: websiteExtract.sourceUrl,
               confidence: 0.9,
               rawExtract: websiteExtract.openingHours,
+            });
+          }
+          if (websiteExtract.telephone && !candidate.phone) {
+            setField(bag, 'phone', {
+              value: websiteExtract.telephone,
+              source: 'business_website',
+              sourceTier: 1,
+              sourceUrl: websiteExtract.sourceUrl,
+              confidence: 0.9,
+              rawExtract: websiteExtract.telephone,
+            });
+          }
+          if (websiteExtract.email && !candidate.email) {
+            setField(bag, 'email', {
+              value: websiteExtract.email,
+              source: 'business_website',
+              sourceTier: 1,
+              sourceUrl: websiteExtract.sourceUrl,
+              confidence: 0.9,
+              rawExtract: websiteExtract.email,
+            });
+          }
+          if (websiteExtract.address && !candidate.address) {
+            setField(bag, 'address', {
+              value: websiteExtract.address,
+              source: 'business_website',
+              sourceTier: 1,
+              sourceUrl: websiteExtract.sourceUrl,
+              confidence: 0.85,
+              rawExtract: websiteExtract.address,
+            });
+          }
+          const websiteSocial = extractSocialLinksFromHtml(websiteExtract.html);
+          if (websiteSocial.length) {
+            candidate.socialLinks = mergeSocialLinks(candidate.socialLinks, websiteSocial);
+            sourcesUsed.add('business_website');
+          }
+          const tagline = extractTagline(
+            websiteExtract.html,
+            candidate.name,
+            bag.category?.value ?? candidate.category ?? candidate.businessType,
+          );
+          if (tagline) {
+            setField(bag, 'tagline', {
+              value: tagline,
+              source: 'business_website',
+              sourceTier: 1,
+              sourceUrl: websiteExtract.sourceUrl,
+              confidence: 0.85,
+              rawExtract: tagline,
+            });
+          }
+          const brandColors = extractBrandColors(websiteExtract.html);
+          if (brandColors.primary || brandColors.secondary) {
+            setField(bag, 'brandColors', {
+              value: JSON.stringify(brandColors),
+              source: 'business_website',
+              sourceTier: 1,
+              sourceUrl: websiteExtract.sourceUrl,
+              confidence: 0.5,
+              rawExtract: JSON.stringify(brandColors),
             });
           }
           if (!candidate.website && websiteUrl) {
@@ -661,6 +777,16 @@ export async function enrichCandidateMultiSource(params: {
         confidence: mapped.confidence,
         rawExtract: mapped.category,
       });
+      if (mapped.subCategory) {
+        setField(bag, 'subCategory', {
+          value: mapped.subCategory,
+          source: 'rule_synthesised',
+          sourceTier: 3,
+          sourceUrl: null,
+          confidence: mapped.confidence,
+          rawExtract: mapped.subCategory,
+        });
+      }
       if (candidate.suburb) mapped.tags.push(candidate.suburb.toLowerCase().replace(/\s+/g, '-'));
       if (cuisine) mapped.tags.push(cuisine.toLowerCase().replace(/\s+/g, '-'));
       setField(bag, 'tags', {
@@ -727,6 +853,27 @@ export async function enrichCandidateMultiSource(params: {
           `[Hero] ${candidate.name} — ${heroResolved.status}` +
             (pexelsNotes.length ? ` pexels=[${pexelsNotes.join('; ')}]` : ''),
         );
+      }
+
+      // STEP 7b — Logo / avatar
+      budget.assertWithinBudget();
+      const logoUrl = await resolveLogoUrl(
+        displayName ?? candidate.name ?? 'Business',
+        candidate.website ?? bag.website?.value ?? websiteUrl,
+        websiteExtract?.html ?? null,
+        { remaining: Math.max(0, budget.maxFetches - budget.websiteFetches) },
+      );
+      if (logoUrl) {
+        sourcesUsed.add('business_website');
+        setField(bag, 'logoUrl', {
+          value: logoUrl,
+          source: 'business_website',
+          sourceTier: 1,
+          sourceUrl: websiteExtract?.sourceUrl ?? candidate.website ?? null,
+          confidence: 0.8,
+          rawExtract: logoUrl,
+        });
+        console.log(`[Logo] ${candidate.name} — resolved`);
       }
 
       // STEP 8 — Description synthesis (evidence-grounded)
@@ -809,6 +956,7 @@ export async function enrichCandidateMultiSource(params: {
       if (bag.name) candidate.name = bag.name.value;
       if (bag.description) candidate.description = bag.description.value;
       if (bag.category) candidate.category = bag.category.value;
+      if (bag.subCategory) candidate.subCategory = bag.subCategory.value;
       if (bag.tags) candidate.tags = bag.tags.value;
       if (bag.heroImageUrl) {
         candidate.heroImageUrl = bag.heroImageUrl.value;
@@ -816,6 +964,18 @@ export async function enrichCandidateMultiSource(params: {
       } else {
         candidate.heroImageUrl = null;
         candidate.heroImageSource = null;
+      }
+      if (bag.logoUrl) candidate.logoUrl = bag.logoUrl.value;
+      if (bag.tagline) candidate.tagline = bag.tagline.value;
+      if (bag.brandColors) {
+        try {
+          candidate.brandColors = JSON.parse(bag.brandColors.value) as {
+            primary: string | null;
+            secondary: string | null;
+          };
+        } catch {
+          candidate.brandColors = null;
+        }
       }
       if (bag.biBrief) {
         candidate.biBrief = bag.biBrief.value;
@@ -826,7 +986,31 @@ export async function enrichCandidateMultiSource(params: {
       if (bag.abn) candidate.abn = bag.abn.value;
       if (bag.legalName) candidate.legalName = bag.legalName.value;
       if (bag.openingHours) candidate.openingHours = bag.openingHours.value;
+      if (bag.priceRange) candidate.priceRange = bag.priceRange.value;
       if (bag.website && !candidate.website) candidate.website = bag.website.value;
+      if (bag.phone && !candidate.phone) candidate.phone = bag.phone.value;
+      if (bag.email && !candidate.email) candidate.email = bag.email.value;
+      if (bag.address && !candidate.address) candidate.address = bag.address.value;
+      if (bag.suburb && !candidate.suburb) candidate.suburb = bag.suburb.value;
+
+      const profileScore = calculateProfileScore({
+        name: candidate.name,
+        description: candidate.description,
+        heroImageUrl: candidate.heroImageUrl,
+        logoUrl: candidate.logoUrl,
+        category: candidate.category,
+        phone: candidate.phone,
+        email: candidate.email,
+        address: candidate.address,
+        suburb: candidate.suburb,
+        website: candidate.website,
+        tagline: candidate.tagline,
+        socialLinks: candidate.socialLinks,
+        openingHours: candidate.openingHours,
+      });
+      candidate.profileScore = profileScore.score;
+      candidate.enrichmentStatus = profileScore.ready ? 'enriched' : 'partial';
+      candidate.enrichedAt = new Date().toISOString();
       candidate.claimUrl = claimUrl;
       candidate.enrichmentSources = [...sourcesUsed];
       candidate.enrichmentUpdatedAt = new Date().toISOString();

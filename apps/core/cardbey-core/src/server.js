@@ -137,7 +137,6 @@ import adminDeepseekDiagnosticRoutes from './routes/admin/deepseekDiagnosticRout
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
 import adminStoreContentManagementRoutes from './routes/admin/storeContentManagementRoutes.js';
-import activationEventRoutes from './routes/public/activationEventRoutes.js';
 import languageRoutes from './routes/languageRoutes.js';
 import mediaHealthRoutes from './routes/mediaHealth.js';
 import {
@@ -172,6 +171,7 @@ import mobileCompatAuthRouter from './routes/mobileCompatAuth.js';
 import storesRoutes from './routes/stores.js';
 import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
 import storeShowsRoutes from './routes/storeShowsRoutes.js';
+import spacePostRoutes from './routes/spacePostRoutes.js';
 import performerContentEditingBridgeRoutes from './routes/performerContentEditingBridgeRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
@@ -219,6 +219,10 @@ import intentFeedRoutes from './routes/intentFeedRoutes.js';
 import publicOfferPage from './routes/publicOfferPage.js';
 import storefrontPrerenderRoutes from './routes/storefrontPrerenderRoutes.js';
 import storefrontSitemapRoutes from './routes/storefrontSitemapRoutes.js';
+import marketingVisitRoutes from './routes/public/marketingVisitRoutes.js';
+import marketingOperationsRoutes from './routes/admin/marketingOperationsRoutes.js';
+import marketIntentAdminRoutes from './routes/admin/marketIntentAdminRoutes.js';
+import { Features } from './config/features.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
 import autoTranslateStoreRoutes from './routes/i18n/autoTranslateStore.js';
@@ -311,6 +315,18 @@ import toolsRoutes from './routes/toolsRoutes.js';
 import businessOperationsRoutes from './routes/businessOperationsRoutes.js';
 import performerIntakeV2Routes from './routes/performerIntakeV2Routes.js';
 import learningRoutes from './lib/learning/learningRoutes.js';
+import {
+  liveMarketOwnerRoutes,
+  liveMarketAdminRoutes,
+  liveMarketPublicRoutes,
+  liveMarketParticipantRoutes,
+  liveMarketMeRoutes,
+} from './lib/liveMarket/routes.js';
+import {
+  globalLiveEoiPublicRoutes,
+  globalLiveEoiAdminRoutes,
+  globalLiveEoiMeRoutes,
+} from './lib/globalLiveEoi/routes.js';
 import ctaEngineRoutes from './routes/ctaEngineRoutes.js';
 import performerIngestDocumentRoutes from './routes/performerIngestDocumentRoutes.js'; // DANH: skill-round6-document
 import visionIntakeRoutes from './routes/visionIntake.js';
@@ -1083,7 +1099,12 @@ app.use('/api/performer/content-editing-bridge', performerContentEditingBridgeRo
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
 app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
+app.use('/api/stores', spacePostRoutes); // Space Post V1: POST /:storeId/space-updates
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
+app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
+app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
+app.use('/api/me/live-market', liveMarketMeRoutes); // Live Market my registrations (flag-gated)
+app.use('/api/me/global-live', globalLiveEoiMeRoutes); // Global Live EOI applicant applications (flag-gated)
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
 app.use('/api/store', storesRoutes); // Store context routes: /api/store/context, /api/store/:id/context
 app.use('/api/storefront', storefrontRoutes); // Published store feed: GET /api/storefront/frontscreen (no draft dependency)
@@ -1179,7 +1200,12 @@ app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/busi
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', listingReportRoutes); // POST /api/public/listings/:slug/report
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
-app.use('/api/public/activation', activationEventRoutes); // Phase 1 outcome events (no auth; no PII; no Meta)
+app.use('/api/public/live-market', liveMarketPublicRoutes); // Live Market public session read (flag-gated)
+app.use('/api/public/global-live', globalLiveEoiPublicRoutes); // Global Live pilot EOI (flag-gated; default OFF)
+if (Features.marketingOperator.v1) {
+  app.use('/api/public/marketing', marketingVisitRoutes); // POST /api/public/marketing/visits
+  console.log('[CORE] mounted /api/public/marketing (visit attribution; ENABLE_MARKETING_OPERATOR_V1)');
+}
 
 // MI Tool Contract v1 (additive; does not touch store creation/draft/publish)
 const miOpenApiPath = fromRoot('..', 'openapi', 'mi-tools.v1.yaml');
@@ -1294,6 +1320,11 @@ app.use('/api/admin', adminMultiAgentMonitoringRoutes);
 app.use('/api/admin', adminDeepseekDiagnosticRoutes); // Admin: GET /api/admin/deepseek-diagnostic
 app.use('/api/admin', adminAccountManagementRoutes);
 app.use('/api/admin', adminStoreContentManagementRoutes);
+if (Features.marketingOperator.v1) {
+  app.use('/api/admin', marketingOperationsRoutes); // Marketing ops + attribution admin (flag-gated)
+  console.log('[CORE] mounted /api/admin/marketing/* (ENABLE_MARKETING_OPERATOR_V1)');
+}
+app.use('/api/admin/market-intent', marketIntentAdminRoutes); // Market Intent admin test API (flag-gated in route)
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {
@@ -1315,6 +1346,8 @@ app.get('/metrics', async (_req, res) => {
 app.use('/api/language', languageRoutes);
 app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
+app.use('/api/admin/live-market', liveMarketAdminRoutes); // Admin: Live Market pilot (flag-gated)
+app.use('/api/admin/global-live', globalLiveEoiAdminRoutes); // Admin: Global Live pilot EOI (flag-gated)
 
 // Internal API routes (for Lambda callbacks, workers, etc.)
 app.use('/api/internal', internalRoutes);

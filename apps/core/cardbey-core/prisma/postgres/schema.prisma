@@ -669,8 +669,6 @@ model AuditEvent {
   @@index([correlationId])
 }
 
-
-/// General content-edit proposal (Performer bridge Phase 3). Not Shows-specific.
 model ContentEditProposal {
   id                 String    @id @default(cuid())
   actorId            String
@@ -4235,6 +4233,11 @@ model BusinessSeed {
   rawPayload String   @default("{}")
   dedupeKey  String   @unique
   storeId    String?
+  completenessTier      String?
+  completenessScore     Int?
+  completenessBlockers  String?
+  completenessGaps      String?
+  completenessCheckedAt DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -4242,6 +4245,20 @@ model BusinessSeed {
   @@index([source])
   @@index([storeId])
   @@map("business_seed")
+}
+
+model SeedCurationEvent {
+  id             String   @id @default(cuid())
+  seedId         String
+  field          String
+  adminId        String
+  note           String?
+  previousValue  String   @default("null")
+  createdAt      DateTime @default(now())
+
+  @@index([seedId])
+  @@index([createdAt])
+  @@map("seed_curation_events")
 }
 
 /// Business ingestion pipeline run history — production-durable on Postgres
@@ -4288,7 +4305,7 @@ model BusinessSeedStatusTransition {
   @@map("business_seed_status_transition")
 }
 
-/// Durable claim OTP (Phase 2) — replaces in-memory Map for seed ownership proof
+/// Durable claim OTP (Phase 2) — table name is snake_case in Postgres
 model ClaimOtp {
   id              String    @id @default(cuid())
   seedId          String
@@ -5672,164 +5689,4 @@ model GlobalLiveEoiRegistration {
   @@index([createdAt])
   @@index([userId])
   @@index([emailNormalized])
-}
-
-
-// --- Multi-market discovery + two-layer prebuilt store V1 (additive; flags default OFF) ---
-// JSON stores remain the runtime source for V1; these tables enable durable roll-forward.
-
-model MultiMarketDiscoveryJob {
-  id                  String    @id @default(cuid())
-  batchId             String
-  market              String
-  countryCode         String
-  regionCode          String?
-  territoryId         String
-  locality            String?
-  categoryId          String
-  searchTermsJson     String    @default("[]")
-  language            String    @default("en")
-  provider            String    @default("auto")
-  providerCursor      String?
-  campaignId          String?
-  pilotId             String?
-  dryRun              Boolean   @default(true)
-  slowMode            Boolean   @default(false)
-  requestedLimit      Int       @default(20)
-  status              String    @default("prepared")
-  discoveredCount     Int       @default(0)
-  acceptedCount       Int       @default(0)
-  duplicatesSkipped   Int       @default(0)
-  failureClassesJson  String    @default("[]")
-  estimatedQueryCount Int       @default(1)
-  queryAreaJson       String?
-  createdBy           String?
-  createdAt           DateTime  @default(now())
-  startedAt           DateTime?
-  completedAt         DateTime?
-
-  @@index([countryCode, status])
-  @@index([batchId])
-  @@index([territoryId, categoryId])
-  @@map("multi_market_discovery_job")
-}
-
-model PublicBusinessCard {
-  id                String    @id @default(cuid())
-  slug              String    @unique
-  candidateId       String
-  seedId            String?
-  status            String    @default("NOT_CREATED")
-  businessName      String
-  category          String?
-  address           String?
-  locality          String?
-  countryCode       String?
-  coordinatesJson   String?
-  publicPhone       String?
-  officialWebsite   String?
-  socialLinksJson   String?
-  openingHours      String?
-  imageUrl          String?
-  imageSource       String?
-  disclosure        String
-  claimEligibilityJson String @default("{}")
-  publishedAt       DateTime?
-  withdrawnAt       DateTime?
-  supersededStoreId String?
-  noindex           Boolean   @default(true)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@index([candidateId])
-  @@index([status])
-  @@index([countryCode])
-  @@map("public_business_card")
-}
-
-model PrebuiltStoreDraft {
-  id                String    @id @default(cuid())
-  candidateId       String
-  cardId            String?
-  seedId            String?
-  status            String    @default("GENERATING")
-  businessName      String
-  slug              String
-  category          String?
-  address           String?
-  locality          String?
-  countryCode       String?
-  payloadJson       String    @default("{}")
-  publicFeedExcluded Boolean  @default(true)
-  claimStartedAt    DateTime?
-  claimVerifiedAt   DateTime?
-  convertedAt       DateTime?
-  expiresAt         DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  offerings PrebuiltOfferingDraft[]
-  assets    PrebuiltAssetDraft[]
-  evidence  PrebuiltFieldEvidence[]
-
-  @@index([candidateId])
-  @@index([status])
-  @@index([slug])
-  @@map("prebuilt_store_draft")
-}
-
-model PrebuiltOfferingDraft {
-  id            String   @id @default(cuid())
-  draftId       String
-  title         String
-  description   String?
-  priceText     String?
-  evidenceClass String
-  ownerAccepted Boolean  @default(false)
-  source        String?
-  included      Boolean  @default(false)
-  createdAt     DateTime @default(now())
-
-  draft PrebuiltStoreDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
-
-  @@index([draftId])
-  @@map("prebuilt_offering_draft")
-}
-
-model PrebuiltAssetDraft {
-  id                     String   @id @default(cuid())
-  draftId                String
-  role                   String
-  sourceType             String
-  sourceUrlOrAssetId     String?
-  custodyMode            String?
-  retrievedAt            DateTime?
-  confidence             Float?
-  ownerApprovalRequired  Boolean  @default(true)
-  attributionRequired    Boolean  @default(false)
-  contentHash            String?
-  createdAt              DateTime @default(now())
-
-  draft PrebuiltStoreDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
-
-  @@index([draftId])
-  @@map("prebuilt_asset_draft")
-}
-
-model PrebuiltFieldEvidence {
-  id              String   @id @default(cuid())
-  draftId         String
-  fieldPath       String
-  evidenceClass   String
-  source          String?
-  valueSummary    String?
-  ownerAccepted   Boolean?
-  blockedReason   String?
-  conflictSummary String?
-  updatedAt       DateTime @updatedAt
-
-  draft PrebuiltStoreDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
-
-  @@index([draftId, fieldPath])
-  @@map("prebuilt_field_evidence")
 }

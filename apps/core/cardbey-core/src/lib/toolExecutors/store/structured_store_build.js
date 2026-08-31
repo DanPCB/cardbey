@@ -217,11 +217,7 @@ export async function execute(_input = {}, context = {}) {
     ...(phone ? { phone } : {}),
     ...(email ? { email } : {}),
     ...(ocrRawText ? { ocrRawText } : {}),
-    draftInput: draftInputWithCtx,
-    verticalSlug: storeGenCtx.verticalSlug,
-    verticalGroup: storeGenCtx.verticalGroup,
-    classificationProfile: draftInputWithCtx.classificationProfile,
-    storeGenerationBusinessContext: storeGenCtx,
+    ...(Object.keys(draftInputPatch).length > 0 ? { draftInput: draftInputPatch } : {}),
     ...(typeof meta.websiteTemplateId === 'string' && meta.websiteTemplateId.trim()
       ? {
           websiteTemplateId: meta.websiteTemplateId.trim(),

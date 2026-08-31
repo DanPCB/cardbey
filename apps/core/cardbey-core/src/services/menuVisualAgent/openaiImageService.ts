@@ -103,14 +103,16 @@ export async function generateMenuItemImage(
 
     console.log('[OpenAIImageService] Generating image with prompt:', prompt);
 
-    // Call DALL-E 3 API (pass shutdown signal so in-flight requests abort on SIGINT)
+    // Prefer project-configured model; fall back to current OpenAI image model (not removed dall-e-3).
+    const imageModel =
+      (typeof process.env.OPENAI_IMAGE_MODEL === 'string' && process.env.OPENAI_IMAGE_MODEL.trim()) ||
+      'gpt-image-1';
     const response = await openai.images.generate(
       {
-        model: 'dall-e-3',
+        model: imageModel,
         prompt,
-        size: '1024x1024', // Standard size for product images
-        quality: 'standard',
-        n: 1, // Generate 1 image
+        size: '1024x1024',
+        n: 1,
       },
       { signal: getShutdownSignal() },
     );

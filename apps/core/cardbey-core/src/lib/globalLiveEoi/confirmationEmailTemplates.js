@@ -14,10 +14,7 @@ import {
   toApplicantStatus,
   applicantNextStep,
 } from './domain.js';
-import {
-  isEoiApplicantTrackingEnabled,
-  isEoiConfirmationEmailV2Enabled,
-} from './flags.js';
+import { isEoiApplicantTrackingEnabled } from './flags.js';
 
 function escapeHtml(s) {
   return String(s || '')
@@ -339,16 +336,13 @@ export function buildEoiConfirmationEmailV2(reg) {
 }
 
 /**
- * Public builder used by sendEoiConfirmation — V1 or V2 based on feature flag
- * (ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_EMAIL_V2, default OFF).
+ * Public builder used by sendEoiConfirmation.
+ * Application-receipt (V2) content is always used. Legacy V1 remains available as buildV1
+ * for reference. ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_EMAIL_V2 is retained as a no-op
+ * compatibility flag (see flags.js / health diagnostics).
  */
 export function buildEoiConfirmationEmail(reg) {
-  const lang = String(reg?.language || '').toLowerCase();
-  const locale = !lang || lang.startsWith('vi') ? 'vi' : 'en';
-  if (isEoiConfirmationEmailV2Enabled()) {
-    return buildEoiConfirmationEmailV2(reg);
-  }
-  return buildV1(reg, locale);
+  return buildEoiConfirmationEmailV2(reg);
 }
 
 /** @deprecated Prefer applicantStatusLabel via domain */

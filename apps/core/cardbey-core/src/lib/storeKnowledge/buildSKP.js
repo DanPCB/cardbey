@@ -10,9 +10,10 @@ import {
   mapMission001StatusToSkp,
   mapBoiKnowledgeStateToSkp,
 } from './provenance.js';
-import { SKP_VERSION, initialSkpVisibilityFlags } from './StoreKnowledgeProjection.js';
+import { SKP_VERSION, resolveSkpVisibilityFlags } from './StoreKnowledgeProjection.js';
 import { publicCanonicalWebBase, buildPublicStorefrontPath } from '../../utils/publicWebBase.js';
 import { isPublicFeedEligibleBusiness } from '../../utils/publicStoreVisibility.js';
+import { Features } from '../../config/features.js';
 
 function str(v) {
   if (v == null) return null;
@@ -186,7 +187,11 @@ export function buildSKPFromSources(sources = {}) {
   const jsonLdReady = Boolean(
     nameValue && descriptionValue && categoryValue && categoryValue !== 'Other',
   );
-  const visFlags = initialSkpVisibilityFlags();
+  const visFlags = resolveSkpVisibilityFlags({
+    indexable,
+    jsonLdReady,
+    attributionEnabled: Features.marketingOperator?.attributionV1 === true,
+  });
 
   return {
     identity: {
@@ -275,12 +280,17 @@ export function buildSKPFromSources(sources = {}) {
     },
     commerce: {
       openingHours: withProvenance(
-        business.tradingHours ?? null,
+        business.tradingHours ?? business.openingHours ?? null,
         ProvenanceTag.PLATFORM_OBSERVED,
         'business.tradingHours',
-        business.tradingHours ? 0.75 : 0,
+        business.tradingHours || business.openingHours ? 0.75 : 0,
       ),
-      priceRange: withProvenance(null, ProvenanceTag.UNVERIFIED, undefined, 0),
+      priceRange: withProvenance(
+        priceRangeValue,
+        priceRangeValue ? ProvenanceTag.PLATFORM_OBSERVED : ProvenanceTag.UNVERIFIED,
+        priceRangeValue ? 'business.priceRange' : undefined,
+        priceRangeValue ? 0.7 : 0,
+      ),
       acceptsBookings: withProvenance(
         String(business.transactionMode || '').toLowerCase() === 'booking',
         ProvenanceTag.PLATFORM_INFERRED,
@@ -499,7 +509,14 @@ export function skpToJsonLd(skp) {
   if (sameAs.length) ld.sameAs = sameAs;
 
   if (skp.content.heroImageUrl.value) ld.image = skp.content.heroImageUrl.value;
+  if (skp.content.logoUrl.value) ld.logo = skp.content.logoUrl.value;
   if (skp.content.tagline.value) ld.slogan = skp.content.tagline.value;
+  if (skp.commerce.openingHours.value) {
+    ld.openingHours = skp.commerce.openingHours.value;
+  }
+  if (skp.commerce.priceRange.value) {
+    ld.priceRange = skp.commerce.priceRange.value;
+  }
 
   const abn = skp.identity.abn?.value;
   if (abn) {

@@ -43,6 +43,21 @@ import { syncUserPhoneIdentifier } from '../lib/userIdentifierSync.js';
 
 const router = express.Router();
 
+/**
+ * Store fields returned on /auth/me (and profile patch).
+ * Keep lean, but include media so dashboard "My stores" cards can show hero/avatar.
+ */
+const AUTH_ME_BUSINESS_SELECT = Object.freeze({
+  id: true,
+  name: true,
+  slug: true,
+  description: true,
+  heroImageUrl: true,
+  avatarImageUrl: true,
+  logo: true,
+  publishedAt: true,
+});
+
 function resolveRequestIp(req) {
   return (
     req.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ??
@@ -458,7 +473,7 @@ export async function patchCurrentUserProfile(req, res, next) {
       where: { id: req.userId },
       data: updateData,
       include: {
-        businesses: { select: { id: true, name: true, slug: true } },
+        businesses: { select: AUTH_ME_BUSINESS_SELECT },
         personalPresenceStore: { select: { slug: true } },
       },
     });
@@ -751,11 +766,11 @@ router.get('/me', requireAuth, async (req, res, next) => {
     }
 
     // DATA ISOLATION: Use only req.userId from JWT (set by requireAuth). Do not use client params.
-    // Schema has businesses[], not business; include only minimal fields needed for /me response.
+    // Schema has businesses[], not business; include id/name/slug + media for dashboard store cards.
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
       include: {
-        businesses: { select: { id: true, name: true, slug: true } },
+        businesses: { select: AUTH_ME_BUSINESS_SELECT },
         personalPresenceStore: { select: { slug: true } },
       },
     });
@@ -835,7 +850,7 @@ router.get('/profile', requireAuth, async (req, res, next) => {
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
       include: {
-        businesses: { select: { id: true, name: true, slug: true } },
+        businesses: { select: AUTH_ME_BUSINESS_SELECT },
         personalPresenceStore: { select: { slug: true } },
       },
     });

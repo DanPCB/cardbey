@@ -5,6 +5,7 @@
 
 import { resolveTransactionCommerce } from '../../lib/storeTransactionMode.js';
 import { getIndustryWebsiteCopy } from './industryBlueprintRegistry.js';
+import Mission001Flags from '../../lib/mission001/mission001Flags.js';
 import {
   applyPipelineGeneratedHeroImage,
   getExistingVideoUrlFromPreview,
@@ -156,8 +157,13 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
     });
   }
 
-  // Fake invented reviews are not truthful business content — omit for professional verticals.
-  if (!professionalContext) {
+  // Fabricated reviews are not truthful business content — omit when Mission 001 sparse mode is active.
+  const allowFabricatedReviews =
+    !Mission001Flags.sparseMode &&
+    !input?.mission001SparseMode &&
+    !preview?.meta?.mission001?.sparseMode &&
+    !(Array.isArray(input?.verifiedReviews) && input.verifiedReviews.length);
+  if (!professionalContext && allowFabricatedReviews) {
     sections.push({
       type: 'social_proof',
       content: {

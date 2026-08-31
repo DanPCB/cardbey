@@ -20,17 +20,7 @@ import {
 
 } from '../discovery/claimOtpStore.js';
 
-import { initiateClaimOtp, verifyClaimOtpCode } from '../claim/claimOtpService.js';
-import { withSeedClaimCriticalSection, lockBusinessSeedRowForUpdate } from '../claim/seedClaimLock.js';
-import { getPrismaClient } from '../prisma.js';
-import { getDbCapabilities } from '../persistence/dbCapabilityRegistry.js';
-import { resolveBusinessSeedBackend } from './businessSeedBackend.js';
 import { syncSeedCategoryFromLinkedCandidate } from '../businessCandidate/enrichment/seedCategoryNormalization.js';
-
-import {
-  flagForManualReview,
-  getClaimantReviewMessage,
-} from './claimManualReviewStore.js';
 
 import { websiteHost, normalizePhone } from '../businessDiscovery/businessDataNormalizer.js';
 
@@ -1181,21 +1171,11 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
 }> {
 
-  return withSeedClaimCriticalSection(params.seedId, async () => {
   const seedRow = await getSeedRecordById(params.seedId);
 
   if (!seedRow) return { ok: false, seed: null, message: 'Seed not found.' };
 
   const seed = (await syncSeedCategoryFromLinkedCandidate(params.seedId)) ?? seedRow;
-
-  if (seed.verificationStatus === 'active') {
-    return {
-      ok: false,
-      seed,
-      message: 'This store has already been claimed.',
-      code: 'ALREADY_CLAIMED',
-    } as { ok: boolean; seed: IngestedSeedRecord | null; message: string; duplicateBlocked?: boolean };
-  }
 
   if (seed.verificationStatus !== 'verified_owner') {
 

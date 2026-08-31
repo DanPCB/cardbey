@@ -20,8 +20,18 @@ export function computeBusinessFidelityScore(input) {
   const identityConf = Number(evidence?.businessIdentity?.sourceConfidence) || 0;
   const catalogConf = draft?.overallConfidence ?? evidence?.catalogEvidence?.confidence ?? 0;
   const pricingConf = draft?.missingContent?.some((m) => m.startsWith('conflict:')) ? 0.55 : 0.85;
-  const mediaMissing = (draft?.missingContent ?? []).filter((m) => m.startsWith('no_image:')).length;
-  const mediaConf = total > 0 ? Math.max(0, 1 - mediaMissing / total) : 0.5;
+  const missing = Array.isArray(draft?.missingContent) ? draft.missingContent : [];
+  const mediaMissing = missing.filter((m) => m.startsWith('no_image:')).length;
+  const onlyImageGaps =
+    mediaMissing > 0 && missing.every((m) => String(m).startsWith('no_image:'));
+  // When catalog is evidence-backed and the only gaps are images, treat media as deferred
+  // (Mission 001: image reconstruction is not the current optimisation target).
+  const mediaConf =
+    onlyImageGaps && exactCoverage >= 0.4
+      ? 0.8
+      : total > 0
+        ? Math.max(0, 1 - mediaMissing / total)
+        : 0.5;
   const brandingConf = evidence?.businessIdentity?.logoUrl ? 0.9 : 0.6;
 
   const identity = Math.round(identityConf * 100);

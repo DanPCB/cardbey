@@ -86,6 +86,57 @@ export function researchContactFieldsForMissionBody(fields = {}) {
   };
 }
 
+/** Local pure helpers — avoid boot-time dependency on businessDataNormalizer.ts resolution. */
+function cleanString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  return trimmed.length ? trimmed : null;
+}
+
+function normalizePhone(value) {
+  const s = cleanString(value);
+  if (!s) return null;
+  const hasPlus = s.trim().startsWith('+');
+  const digits = s.replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  return (hasPlus ? '+' : '') + digits;
+}
+
+function normalizeWebsite(value) {
+  const s = cleanString(value);
+  if (!s) return null;
+  let candidate = s;
+  if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`;
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    u.hash = '';
+    const host = u.host.toLowerCase().replace(/^www\./, '');
+    const path = u.pathname.replace(/\/+$/, '');
+    const query = u.search || '';
+    return `${u.protocol}//${host}${path}${query}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Optional research contact fields for mission metadata / run body (additive).
+ * @param {{ websiteUrl?: string, phone?: string, email?: string, ocrText?: string }} fields
+ */
+export function researchContactFieldsForMissionBody(fields = {}) {
+  const websiteUrl = normalizeWebsite(fields.websiteUrl) || cleanString(fields.websiteUrl) || '';
+  const phone = normalizePhone(fields.phone) || cleanString(fields.phone) || '';
+  const email = cleanString(fields.email) || '';
+  const ocrText = cleanString(fields.ocrText) || '';
+  return {
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(ocrText ? { ocrText, ocrRawText: ocrText } : {}),
+  };
+}
+
 const INTAKE_ASYNC_PIPELINE_SOURCES = new Set([
   'intake_v2_fresh_store_draft',
   'intake_v2_classified_checkpoint',
@@ -384,6 +435,7 @@ export function shouldSkipDynamicPlannerForUploadCreateStore(input = {}) {
     !isExplicitCreateStoreFromUploadContext({
       userMessage: input.userMessage,
       intentSourceContext: input.intentSourceContext,
+      imageDataUrl: input.imageDataUrl ?? input.imageContext?.imageDataUrl ?? null,
     })
   ) {
     return false;
@@ -408,6 +460,8 @@ export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) 
     !isExplicitCreateStoreFromUploadContext({
       userMessage,
       intentSourceContext,
+      imageDataUrl: input.imageDataUrl ?? null,
+      sessionId: input.sessionId ?? null,
     })
   ) {
     return null;

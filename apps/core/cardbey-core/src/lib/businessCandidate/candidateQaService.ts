@@ -39,6 +39,21 @@ function toDiscoveryShape(record: BusinessCandidateRecord): DiscoveryBusinessCan
       placeId: record.placeId,
       suburb: record.suburb,
       rawSourceJson: record.rawSourceJson,
+      enrichedProfile: {
+        heroImageUrl: record.heroImageUrl ?? null,
+        logoUrl: record.logoUrl ?? null,
+        tagline: record.tagline ?? null,
+        description: record.description ?? null,
+        brandColors: record.brandColors ?? null,
+        category: record.category ?? null,
+        subCategory: record.subCategory ?? null,
+        tags: record.tags ?? null,
+        openingHours: record.openingHours ?? null,
+        priceRange: record.priceRange ?? null,
+        abn: record.abn ?? null,
+        legalName: record.legalName ?? null,
+        profileScore: record.profileScore ?? null,
+      },
     },
   };
 }
@@ -86,7 +101,16 @@ export async function approveCandidateForClaiming(params: {
   }
 
   const seed = promotion.seeds[0]!;
-  const approved = await approveSeed(seed.id, params.reason ?? 'QA approved real local pilot candidate');
+  const { applyCandidateProfileToSeed } = await import('./applyCandidateProfileToSeed.js');
+  const { upsertSeedRecords } = await import('../businessIngestion/IngestionRepository.js');
+  const patchedSeed = await applyCandidateProfileToSeed(candidate, seed);
+  await upsertSeedRecords([patchedSeed]);
+
+  const approved = await approveSeed(
+    patchedSeed.id,
+    params.reviewerId,
+    params.reason ?? 'QA approved real local pilot candidate',
+  );
 
   if (!approved.ok) {
     return { ok: false, message: approved.message ?? 'Seed QA approval failed' };

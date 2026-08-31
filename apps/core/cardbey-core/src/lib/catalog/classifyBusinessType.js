@@ -24,6 +24,8 @@ const QUOTE_REQUIRED_RE =
 /** Professional / financial / advisory — must not fall through to product_retail Add to cart. */
 const PROFESSIONAL_RE =
   /\b(capital|finance|financial|investment|investments|wealth|accounting|accountant|bookkeep|lawyer|legal|solicitor|attorney|consulting|consultant|advisory|advisor|private equity|asset management|venture capital|fund manager|tax return|conveyanc)\b/i;
+export { PROFESSIONAL_RE };
+
 const SPA_NAILS_SPECIFIC_RE = /\b(nails?|spa|salon|beauty|massage|facial)\b/i;
 const TILING_SPECIFIC_RE = /\b(til(e|ing)|floor(ing)?|splashback|waterproof)\b/i;
 export { PROFESSIONAL_RE };

@@ -20,6 +20,8 @@
  * Campaign phrase detection — shared by IntentReasoner and intake routing.
  */
 
+import { isInvoiceMultiAgentIntent } from './accountingOrchestrationIntent.js';
+
 const CAMPAIGN_ORCHESTRATION_PATTERNS = [
   /\bcreate\s+a?\s*(winter|summer|spring|autumn|seasonal|holiday|flash|sale|launch|weekend|brunch)\s+campaign/i,
   /\bcampaign\s+for\s+/i,
@@ -92,6 +94,7 @@ export function resolveIntakeOrchestrationDispatch(input = {}) {
   if (!text || isInformationalCampaignQuestion(text)) return null;
 
   if (isMultiAgentIntent(text)) return 'multi_agent';
+  if (isInvoiceMultiAgentIntent(text)) return 'multi_agent';
   if (isCampaignOrchestrationIntent(text) && hasCampaignActionVerb(text)) {
     return 'campaign_orchestration';
   }

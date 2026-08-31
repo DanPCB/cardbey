@@ -126,7 +126,7 @@ describe('sendEoiConfirmation', () => {
     else process.env.ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_SMS = prevSms;
   });
 
-  it('sends V2 subject when flag enabled', async () => {
+  it('sends receipt subject (application receipt design)', async () => {
     process.env.ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_EMAIL_V2 = 'true';
     await sendEoiConfirmation({
       name: 'Lan',
@@ -143,7 +143,7 @@ describe('sendEoiConfirmation', () => {
     expect(sendMail.mock.calls[0][0].text).toContain('GLtestref001');
   });
 
-  it('keeps V1 subject when V2 flag off', async () => {
+  it('uses receipt subject even when V2 env flag is off', async () => {
     process.env.ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_EMAIL_V2 = 'false';
     await sendEoiConfirmation({
       email: 'lan@example.com',
@@ -151,17 +151,17 @@ describe('sendEoiConfirmation', () => {
       businessName: 'Lan Cafe',
     });
     expect(sendMail.mock.calls[0][0].subject).toBe(
-      'Cardbey đã nhận đăng ký Global Live của bạn',
+      'Cardbey đã nhận hồ sơ đăng ký thí điểm Global Live của bạn',
     );
   });
 
-  it('buildEoiConfirmationEmail respects V2 flag', () => {
+  it('buildEoiConfirmationEmail always returns receipt design', () => {
     process.env.ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_EMAIL_V2 = 'true';
-    const v2 = buildEoiConfirmationEmail({ language: 'en', publicReference: 'GLx' });
-    expect(v2.subject).toMatch(/has received your Global Live pilot application/i);
+    const on = buildEoiConfirmationEmail({ language: 'en', publicReference: 'GLx' });
+    expect(on.subject).toMatch(/has received your Global Live pilot application/i);
     process.env.ENABLE_GLOBAL_LIVE_EOI_CONFIRMATION_EMAIL_V2 = 'false';
-    const v1 = buildEoiConfirmationEmail({ language: 'en', businessName: 'X' });
-    expect(v1.subject).toMatch(/received your Global Live registration/i);
+    const off = buildEoiConfirmationEmail({ language: 'en', businessName: 'X', publicReference: 'GLy' });
+    expect(off.subject).toMatch(/has received your Global Live pilot application/i);
   });
 
   it('sends email only by default (SMS deferred)', async () => {
