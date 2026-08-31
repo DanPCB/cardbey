@@ -198,7 +198,9 @@ export function toPublicStore(business, options = {}) {
     catalogMode: resolvedCommerce.catalogMode ?? commerce.catalogMode,
     hasServices: resolvedCommerce.hasServices,
     includedInServices: resolvedCommerce.includedInServices,
-    ...(hasBusinessColumn('abn') && business.abn ? { abn: business.abn } : {}),
+    ...(business.businessBillingProfile?.abn
+      ? { abn: business.businessBillingProfile.abn }
+      : {}),
     ...(hasBusinessColumn('claimStatus') ? { claimStatus: business.claimStatus ?? null } : {}),
     ...(hasBusinessColumn('provenance') ? { provenance: business.provenance ?? null } : {}),
     isClaimed:

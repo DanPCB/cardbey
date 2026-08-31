@@ -125,7 +125,8 @@ export function buildSKPFromSources(sources = {}) {
     str(business.priceRange) ||
     (content && typeof content === 'object' ? str(content.priceRange) : null) ||
     null;
-  const abnValue = str(business.abn);
+  const abnValue = str(business.businessBillingProfile?.abn);
+  const legalNameValue = str(business.businessBillingProfile?.legalBusinessName);
 
   const boi = asObj(sources.boiSnapshot);
   let biSummaryValue = null;
@@ -192,12 +193,17 @@ export function buildSKPFromSources(sources = {}) {
       storeId: String(business.id),
       slug,
       businessName: withProvenance(nameValue, ownerTag, 'business.name', ownerConfirmed ? 0.99 : 0.85),
-      legalName: withProvenance(null, ProvenanceTag.UNVERIFIED, undefined, 0),
+      legalName: withProvenance(
+        legalNameValue,
+        legalNameValue ? ProvenanceTag.PLATFORM_OBSERVED : ProvenanceTag.UNVERIFIED,
+        'billing_profile',
+        legalNameValue ? 0.9 : 0,
+      ),
       abn: withProvenance(
         abnValue,
-        abnValue ? ownerTag : ProvenanceTag.UNVERIFIED,
-        'business.abn',
-        abnValue ? 0.9 : 0,
+        abnValue ? ProvenanceTag.PLATFORM_OBSERVED : ProvenanceTag.UNVERIFIED,
+        'billing_profile',
+        abnValue ? 0.95 : 0,
       ),
     },
     location: {
@@ -334,6 +340,7 @@ export async function buildSKP(storeId, opts = {}) {
     where: { id },
     include: {
       publishedArtifactProjection: true,
+      businessBillingProfile: true,
       products: {
         where: { isPublished: true },
         take: 200,
@@ -377,6 +384,7 @@ export async function buildSKPBySlug(slug, opts = {}) {
     where: { slug: normalized },
     include: {
       publishedArtifactProjection: true,
+      businessBillingProfile: true,
       products: {
         where: { isPublished: true },
         take: 200,
