@@ -220,6 +220,7 @@ import storefrontPrerenderRoutes from './routes/storefrontPrerenderRoutes.js';
 import storefrontSitemapRoutes from './routes/storefrontSitemapRoutes.js';
 import marketingVisitRoutes from './routes/public/marketingVisitRoutes.js';
 import marketingOperationsRoutes from './routes/admin/marketingOperationsRoutes.js';
+import marketIntentAdminRoutes from './routes/admin/marketIntentAdminRoutes.js';
 import { Features } from './config/features.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
@@ -1321,6 +1322,7 @@ if (Features.marketingOperator.v1) {
   app.use('/api/admin', marketingOperationsRoutes); // Marketing ops + attribution admin (flag-gated)
   console.log('[CORE] mounted /api/admin/marketing/* (ENABLE_MARKETING_OPERATOR_V1)');
 }
+app.use('/api/admin/market-intent', marketIntentAdminRoutes); // Market Intent admin test API (flag-gated in route)
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {
