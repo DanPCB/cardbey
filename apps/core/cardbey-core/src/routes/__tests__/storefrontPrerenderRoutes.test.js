@@ -51,6 +51,28 @@ describe('storefront prerender helpers', () => {
     expect(html).toContain('Demo Cafe');
     expect(html).toContain('index,follow');
   });
+
+  it('renderStoreHtml includes unclaimed disclosure for unclaimed stores', () => {
+    const skp = buildSKPFromSources({
+      business: {
+        id: 'biz_2',
+        slug: 'unclaimed-spa',
+        name: 'Unclaimed Spa',
+        description: 'A wellness studio.',
+        type: 'Beauty & Wellness',
+        suburb: 'Melbourne',
+        state: 'VIC',
+        country: 'AU',
+        publishedAt: new Date('2026-01-01'),
+        isActive: true,
+        provenance: 'consumer_capture',
+        claimStatus: 'unclaimed',
+      },
+    });
+    const html = renderStoreHtml(skp);
+    expect(html).toContain("hasn't been claimed yet");
+    expect(html).toContain('AI-assisted content');
+  });
 });
 
 describe('storefront prerender route fallthrough', () => {
