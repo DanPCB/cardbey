@@ -30,11 +30,16 @@ describe('CORS API allowed headers', () => {
     );
   });
 
+  it('includes X-Creator-Source for Creator Studio profile creation', () => {
+    expect(CORS_API_ALLOWED_HEADERS).toContain('X-Creator-Source');
+  });
+
   it('resolvePreflightAllowHeaders echoes requested headers when all are allowed', () => {
     const echoed = resolvePreflightAllowHeaders(
-      'content-type, authorization, x-session-id',
+      'content-type, authorization, x-session-id, x-creator-source',
     );
     expect(echoed.toLowerCase()).toContain('x-session-id');
+    expect(echoed.toLowerCase()).toContain('x-creator-source');
   });
 });
 

@@ -38,8 +38,6 @@ import {
 
 } from '../ClaimBridgeService.js';
 
-import { setClaimOtp } from '../../discovery/claimOtpStore.js';
-
 import type { IngestedSeedRecord, NormalizedBusinessRecord } from '../types.js';
 
 import { getSeedRecordById } from '../IngestionRepository.js';
@@ -248,6 +246,10 @@ describe('Claim Bridge V1.2', () => {
 
       contact: 'owner@claimable.example.com',
 
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
+
     });
 
     expect(result.ok).toBe(true);
@@ -295,6 +297,10 @@ describe('Claim Bridge V1.2', () => {
 
       contact: 'owner@claimable.example.com',
 
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
+
     });
 
     expect(result.ok).toBe(false);
@@ -337,6 +343,10 @@ describe('Claim Bridge V1.2', () => {
 
         contact: 'a@b.com',
 
+        emailVerified: true,
+
+        claimantEmail: 'a@b.com',
+
       })).ok,
 
     ).toBe(false);
@@ -353,6 +363,10 @@ describe('Claim Bridge V1.2', () => {
 
         contact: 'a@b.com',
 
+        emailVerified: true,
+
+        claimantEmail: 'a@b.com',
+
       })).ok,
 
     ).toBe(false);
@@ -365,7 +379,7 @@ describe('Claim Bridge V1.2', () => {
 
     const seed = await seedClaimable('verify-1');
 
-    await startSeedClaim({
+    const started = await startSeedClaim({
 
       seedId: seed.id,
 
@@ -375,11 +389,14 @@ describe('Claim Bridge V1.2', () => {
 
       contact: 'owner@claimable.example.com',
 
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
+
     });
 
-    setClaimOtp(`ingestion-seed:${seed.id}`, 'user-verify-1', '123456');
-
-
+    expect(started.ok).toBe(true);
+    expect(started.otp).toBeTruthy();
 
     const verified = await verifySeedClaimProof({
 
@@ -387,7 +404,11 @@ describe('Claim Bridge V1.2', () => {
 
       claimantUserId: 'user-verify-1',
 
-      otp: '123456',
+      otp: started.otp,
+
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
 
     });
 
@@ -459,7 +480,7 @@ describe('Claim Bridge V1.2', () => {
 
     const seed = await seedClaimable('activate-1');
 
-    await startSeedClaim({
+    const started = await startSeedClaim({
 
       seedId: seed.id,
 
@@ -469,9 +490,13 @@ describe('Claim Bridge V1.2', () => {
 
       contact: 'owner@claimable.example.com',
 
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
+
     });
 
-    setClaimOtp(`ingestion-seed:${seed.id}`, 'user-act-1', '654321');
+    expect(started.otp).toBeTruthy();
 
     await verifySeedClaimProof({
 
@@ -479,7 +504,11 @@ describe('Claim Bridge V1.2', () => {
 
       claimantUserId: 'user-act-1',
 
-      otp: '654321',
+      otp: started.otp,
+
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
 
     });
 
@@ -553,6 +582,10 @@ describe('Claim Bridge V1.2', () => {
 
       contact: 'ABN12345678901',
 
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
+
     });
 
 
@@ -564,6 +597,10 @@ describe('Claim Bridge V1.2', () => {
       claimantUserId: 'user-dup-1',
 
       proofValue: 'ABN12345678901',
+
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
 
     });
 
@@ -653,6 +690,10 @@ describe('Claim Bridge V1.2', () => {
 
       contact: 'owner@claimable.example.com',
 
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
+
     });
 
     const rejected = await rejectSeedClaim({
@@ -694,6 +735,10 @@ describe('Claim Bridge V1.2', () => {
       proofType: 'email',
 
       contact: 'owner@claimable.example.com',
+
+      emailVerified: true,
+
+      claimantEmail: 'owner@claimable.example.com',
 
     });
 

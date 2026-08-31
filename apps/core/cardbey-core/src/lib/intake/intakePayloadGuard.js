@@ -4,6 +4,7 @@
 import { isDecisionLoopEnabled } from '../../config/features.js';
 import { isStoreCreationDraftConfirmationSubmit } from './storeCreationDraft.js';
 import {
+  isCreateStoreFromUploadTurn,
   normalizeIntakeReplayBody,
   stripHeavyUploadFieldsDeep,
 } from './intakeReplayPayload.js';
@@ -509,7 +510,9 @@ export function applyIntakePayloadGuard(body, options = {}) {
 
   if (!replayNormalized.applied) {
     if (freshStoreMission) {
-      normalized = normalizeFreshStoreCreationBody(input);
+      normalized = isCreateStoreFromUploadTurn(input)
+        ? normalizeCreateStoreFromUploadBody(input)
+        : normalizeFreshStoreCreationBody(input);
       for (const key of Object.keys(input)) {
         if (!(key in normalized)) stripped.push(key);
       }

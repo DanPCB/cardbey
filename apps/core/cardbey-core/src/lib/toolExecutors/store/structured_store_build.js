@@ -68,6 +68,8 @@ export async function execute(_input = {}, context = {}) {
   const businessType =
     (typeof meta.businessType === 'string' && meta.businessType.trim()) ||
     (typeof meta.storeType === 'string' && meta.storeType.trim()) ||
+    (typeof meta.category === 'string' && meta.category.trim()) ||
+    (typeof meta.industry === 'string' && meta.industry.trim()) ||
     '';
   const location = (typeof meta.location === 'string' && meta.location.trim()) || '';
   const websiteUrl =
@@ -167,12 +169,42 @@ export async function execute(_input = {}, context = {}) {
       : {}),
   };
 
+  const {
+    buildStoreGenerationBusinessContext,
+    attachBusinessContextToDraftInput,
+  } = await import('../../../services/draftStore/storeGenerationBusinessContext.js');
+  const storeGenCtx = buildStoreGenerationBusinessContext({
+    businessName: businessName || 'My store',
+    businessType: businessType || undefined,
+    storeType: businessType || undefined,
+    category: businessType || (typeof meta.category === 'string' ? meta.category : undefined),
+    location,
+    description: meta.businessDescription || meta.description || undefined,
+    prompt: syntheticRaw,
+    ocrRawText: ocrRawText || undefined,
+  });
+  // Prefer inferred professional category over silent 'general' → retail scaffolds.
+  const lockedType =
+    businessType ||
+    (storeGenCtx.primaryCTA === 'Book consultation' || storeGenCtx.industry === 'professional_services'
+      ? storeGenCtx.subIndustry || storeGenCtx.primaryCategory || 'finance'
+      : null) ||
+    'general';
+  const draftInputWithCtx = attachBusinessContextToDraftInput(
+    {
+      ...draftInputPatch,
+      verticalSlug: storeGenCtx.verticalSlug,
+      verticalGroup: storeGenCtx.verticalGroup,
+    },
+    storeGenCtx,
+  );
+
   const jobRequest = {
     tenantId,
     userId: uid,
     businessName: businessName || 'My store',
-    businessType: businessType || 'general',
-    storeType: businessType || 'general',
+    businessType: lockedType,
+    storeType: lockedType,
     rawInput: syntheticRaw,
     storeId: 'temp',
     includeImages: true,

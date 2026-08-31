@@ -28,6 +28,9 @@ export async function resolveStoreCandidateForIntakeTurn(opts = {}) {
   const ingestResult = opts.ingestResult ?? null;
   const effectiveIngest = ingestResult?.ok !== false ? ingestResult : persistedIngest;
 
+  const currentImageDataUrl =
+    typeof opts.imageDataUrl === 'string' && opts.imageDataUrl.trim() ? opts.imageDataUrl.trim() : null;
+
   let storeCandidate = resolveStoreCandidateForHandoff({
     intentSourceContext: {
       ...(intentSourceContext ?? {}),
@@ -36,6 +39,7 @@ export async function resolveStoreCandidateForIntakeTurn(opts = {}) {
     metadataJson: opts.metadataJson ?? null,
     sessionId: opts.sessionId ?? null,
     persistedIngest,
+    currentImageDataUrl,
   });
 
   if (
@@ -48,6 +52,7 @@ export async function resolveStoreCandidateForIntakeTurn(opts = {}) {
       const fromCardCandidate = resolveStoreCandidateForHandoff({
         intentSourceContext: { assetIngestResult: fromClientCard },
         sessionId: opts.sessionId ?? null,
+        currentImageDataUrl,
       });
       storeCandidate = mergeStoreCandidates(storeCandidate, fromCardCandidate);
     }

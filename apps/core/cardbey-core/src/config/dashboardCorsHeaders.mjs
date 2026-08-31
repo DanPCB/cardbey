@@ -38,6 +38,7 @@ export const DASHBOARD_CORS_REQUEST_HEADERS = [
   'X-Assistant-Token',
   'x-request-id',
   'X-Request-ID',
+  'X-Creator-Source',
 ];
 
 export const DASHBOARD_CORS_REQUEST_HEADERS_VALUE =

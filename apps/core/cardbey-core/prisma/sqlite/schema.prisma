@@ -186,6 +186,33 @@ model TelemetryNavigation {
   @@index([userRole])
 }
 
+/// Create-store understanding audit (Phase 4 CanonicalUnderstanding observability).
+model PerformerAuditLog {
+  id                String   @id @default(cuid())
+  sessionId         String
+  userId            String?
+  step              String
+  imageHash         String
+  understandingId   String?
+  source            String?
+  confidence        Float?
+  fields            Json?
+  validationResult  Json?
+  userAction        String?
+  userEdits         Json?
+  error             String?
+  metadata          Json?
+  environment       String?
+  createdAt         DateTime @default(now())
+
+  @@index([imageHash])
+  @@index([createdAt])
+  @@index([sessionId])
+  @@index([step, source])
+  @@index([confidence])
+  @@index([userId, createdAt])
+}
+
 model PersonalMedia {
   id        String   @id @default(cuid())
   userId    String
@@ -251,6 +278,8 @@ model Business {
   brandColors      String? // JSON array string e.g. '["pink","gold"]'
   provenance       String?  @default("owner")
   claimStatus      String?
+  /// Ingestion seed that produced this store (Phase 6 uniqueness / claim race guard)
+  seedId           String?
   captureCount     Int      @default(1)
   capturedByUserId String?
   isGuestDraft  Boolean   @default(false)
@@ -306,6 +335,8 @@ model Business {
 
   @@index([userId])
   @@index([slug])
+  @@index([seedId])
+  @@unique([seedId])
 }
 
 // DANH: skill-round2-booking — store appointments (Performer + MI + storefront)

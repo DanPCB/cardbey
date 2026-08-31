@@ -235,7 +235,9 @@ export abstract class BaseAgent {
       body.tool_choice = 'auto';
     }
 
-    if (this.thinkingConfig.type === 'enabled') {
+    // DeepSeek V4 thinking can consume the max_tokens budget and truncate JSON content.
+    const jsonMode = options.responseFormat?.type === 'json_object';
+    if (this.thinkingConfig.type === 'enabled' && !jsonMode) {
       body.thinking = {
         type: this.thinkingConfig.type,
         reasoning_effort: this.thinkingConfig.reasoningEffort,

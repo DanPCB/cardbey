@@ -33,6 +33,58 @@ import { FactBuilder } from '../response/factBuilder.js';
 import { buildIntakePayloadFromFact } from '../response/intakeFactResponse.js';
 import { diagLog, isKernelDispatchDiagEnabled } from '../diagnostics/storeCreationDiagnostics.js';
 import { assertKernelAuthorizedExecution } from '../runtime/kernelMandatory.js';
+import { resolveBueForCreateStoreDraft } from './createStoreBueProjection.js';
+
+/** Local pure helpers — avoid boot-time dependency on businessDataNormalizer.ts resolution. */
+function cleanString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  return trimmed.length ? trimmed : null;
+}
+
+function normalizePhone(value) {
+  const s = cleanString(value);
+  if (!s) return null;
+  const hasPlus = s.trim().startsWith('+');
+  const digits = s.replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  return (hasPlus ? '+' : '') + digits;
+}
+
+function normalizeWebsite(value) {
+  const s = cleanString(value);
+  if (!s) return null;
+  let candidate = s;
+  if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`;
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    u.hash = '';
+    const host = u.host.toLowerCase().replace(/^www\./, '');
+    const path = u.pathname.replace(/\/+$/, '');
+    const query = u.search || '';
+    return `${u.protocol}//${host}${path}${query}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Optional research contact fields for mission metadata / run body (additive).
+ * @param {{ websiteUrl?: string, phone?: string, email?: string, ocrText?: string }} fields
+ */
+export function researchContactFieldsForMissionBody(fields = {}) {
+  const websiteUrl = normalizeWebsite(fields.websiteUrl) || cleanString(fields.websiteUrl) || '';
+  const phone = normalizePhone(fields.phone) || cleanString(fields.phone) || '';
+  const email = cleanString(fields.email) || '';
+  const ocrText = cleanString(fields.ocrText) || '';
+  return {
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(ocrText ? { ocrText, ocrRawText: ocrText } : {}),
+  };
+}
 
 /** Local pure helpers — avoid boot-time dependency on businessDataNormalizer.ts resolution. */
 function cleanString(value) {
@@ -448,6 +500,38 @@ export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) 
         ? intentSourceContext.documentExtraction
         : null;
 
+  const ocrText =
+    (storeCandidate && typeof storeCandidate.rawOcrText === 'string'
+      ? storeCandidate.rawOcrText
+      : null) ||
+    (typeof input.imageContext?.extractedText === 'string'
+      ? input.imageContext.extractedText
+      : null) ||
+    null;
+
+  const bue = await resolveBueForCreateStoreDraft({
+    attachmentAnalysis: input.attachmentAnalysis ?? null,
+    imageDataUrl:
+      input.imageDataUrl ??
+      (storeCandidate && typeof storeCandidate.imageDataUrl === 'string'
+        ? storeCandidate.imageDataUrl
+        : null),
+    ocrText,
+    userMessage,
+    storeName: bundle.draft?.name ?? null,
+    missionId: input.missionId ?? null,
+    evidenceId:
+      intentSourceContext?.evidenceId ??
+      input.attachmentAnalysis?.evidenceId ??
+      null,
+  });
+
+  if (bue.failed) {
+    console.warn('[CreateStoreDraft] BUE unavailable; continuing with OCR/StoreCandidate only', {
+      reason: bue.reason ?? 'unknown',
+    });
+  }
+
   return {
     success: true,
     action: 'create_store',
@@ -468,6 +552,16 @@ export async function buildCreateStoreDraftIntakeResponseFromUpload(input = {}) 
         : undefined),
     ...(storeCandidate ? { storeCandidate } : {}),
     ...(documentExtractionArtifact ? { documentExtraction: documentExtractionArtifact } : {}),
+    ...(bue.bundle ? { businessUnderstanding: bue.bundle } : {}),
+    ...(bue.merchantSummary ? { merchantUnderstandingSummary: bue.merchantSummary } : {}),
+    bueStatus: {
+      ok: bue.ok,
+      reused: bue.reused,
+      failed: bue.failed,
+      reason: bue.reason ?? null,
+      projectedBusinessName: bue.projected?.businessName ?? null,
+      projectedConfidence: bue.projected?.confidence ?? null,
+    },
   };
 }
 

@@ -28,6 +28,7 @@ export { PROFESSIONAL_RE };
 
 const SPA_NAILS_SPECIFIC_RE = /\b(nails?|spa|salon|beauty|massage|facial)\b/i;
 const TILING_SPECIFIC_RE = /\b(til(e|ing)|floor(ing)?|splashback|waterproof)\b/i;
+export { PROFESSIONAL_RE };
 
 /**
  * @param {string | null | undefined} value
@@ -77,6 +78,7 @@ function scoreSignals(corpus) {
     retail: RETAIL_RE.test(text) ? 2 : 0,
     fixedBooking: FIXED_BOOKING_RE.test(text) ? 3 : 0,
     quoteRequired: QUOTE_REQUIRED_RE.test(text) ? 3 : 0,
+    professional: PROFESSIONAL_RE.test(text) ? 4 : 0,
   };
 }
 
@@ -155,10 +157,14 @@ export function classifyBusinessType(input = {}) {
     (hasProductItems && hasServiceItems) ||
     (signals.food > 0 && serviceDominant > 0);
 
-  if (hybridSignals) {
+  if (hybridSignals && signals.professional === 0) {
     businessType = 'hybrid';
     confidence = 0.72;
     reasoning = 'Mixed product and service signals detected';
+  } else if (signals.professional > 0 && signals.food === 0) {
+    businessType = 'service_fixed_booking';
+    confidence = 0.9;
+    reasoning = 'Professional/financial/advisory keywords detected';
   } else if (signals.food >= signals.retail && signals.food >= serviceDominant && signals.food > 0) {
     businessType = 'food_menu';
     confidence = 0.88;
@@ -237,6 +243,22 @@ export function catalogProfileDefaults(businessType, corpus = '') {
           : ['All', 'Popular Services', 'Project Work', 'Repairs', 'Inspections', 'Commercial'],
       };
     case 'service_fixed_booking':
+      if (PROFESSIONAL_RE.test(text)) {
+        return {
+          catalogMode: 'services',
+          generatedContentProfile: 'professional_services',
+          primaryCTA: 'Book consultation',
+          defaultItemType: 'service',
+          defaultPricingMode: 'from_price',
+          suggestedSubcategories: [
+            'All',
+            'Advisory',
+            'Consultations',
+            'Compliance',
+            'Business Services',
+          ],
+        };
+      }
       return {
         catalogMode: 'services',
         generatedContentProfile: SPA_NAILS_SPECIFIC_RE.test(text) ? 'appointment_services_beauty' : 'appointment_services',
