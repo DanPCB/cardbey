@@ -180,6 +180,151 @@ describe('PlaybackCoordinator', () => {
     vi.useRealTimers();
   });
 
+  it('restores stage visibility after clear then play (empty → assigned)', async () => {
+    vi.useFakeTimers();
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    // Match shell CSS contract used on TV.
+    const style = document.createElement('style');
+    style.textContent = '.stage{display:none}.stage.is-active{display:block}';
+    document.head.appendChild(style);
+
+    const OriginalImage = window.Image;
+    window.Image = class extends OriginalImage {
+      override set src(_v: string) {
+        queueMicrotask(() => this.dispatchEvent(new Event('load')));
+      }
+    } as unknown as typeof Image;
+
+    const coordinator = new PlaybackCoordinator({
+      stage,
+      clock: new FakeClock(),
+      mediaTimeoutMs: 5_000,
+      scheduleRefreshMaxMs: 60_000,
+      probeMedia: passProbe,
+    });
+
+    coordinator.setManifest(null);
+    expect(stage.classList.contains('is-active')).toBe(false);
+
+    coordinator.setManifest(getPlaybackFixture('one_image'));
+    await coordinator.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    vi.advanceTimersByTime(50);
+
+    expect(coordinator.getState().status).toBe('PLAYING');
+    expect(stage.classList.contains('is-active')).toBe(true);
+    expect(getComputedStyle(stage).display).not.toBe('none');
+    expect(stage.querySelector('img.media-image')).toBeTruthy();
+
+    coordinator.destroy();
+    window.Image = OriginalImage;
+    vi.useRealTimers();
+  });
+
+  it('soft-loops same image without re-probe or DOM teardown', async () => {
+    vi.useFakeTimers();
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+
+    const OriginalImage = window.Image;
+    window.Image = class extends OriginalImage {
+      override set src(_v: string) {
+        queueMicrotask(() => this.dispatchEvent(new Event('load')));
+      }
+    } as unknown as typeof Image;
+
+    const probeMedia = vi.fn(passProbe);
+    const coordinator = new PlaybackCoordinator({
+      stage,
+      clock: new FakeClock(),
+      defaultImageDurationMs: 8_000,
+      mediaTimeoutMs: 5_000,
+      scheduleRefreshMaxMs: 60_000,
+      probeMedia,
+      onStateChange: () => undefined,
+    });
+
+    const manifest = getPlaybackFixture('one_image');
+    coordinator.setManifest(manifest);
+    await coordinator.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    vi.advanceTimersByTime(50);
+
+    expect(coordinator.getState().status).toBe('PLAYING');
+    const probesBeforeLoop = probeMedia.mock.calls.length;
+    expect(probesBeforeLoop).toBeGreaterThanOrEqual(1);
+    const imgBefore = stage.querySelector('img.media-image');
+    expect(imgBefore).toBeTruthy();
+
+    // Fixture one_image duration is 2000ms — fire image timer soft-loop.
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(coordinator.getState().status).toBe('PLAYING');
+    expect(coordinator.getDiagnostics().lastManifestReplace).toBe('soft_loop');
+    expect(probeMedia).toHaveBeenCalledTimes(probesBeforeLoop);
+    const imgAfter = stage.querySelector('img.media-image');
+    expect(imgAfter).toBe(imgBefore);
+
+    // Second loop must not stick on advanceGuard.
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+    expect(coordinator.getDiagnostics().lastManifestReplace).toBe('soft_loop');
+    expect(probeMedia).toHaveBeenCalledTimes(probesBeforeLoop);
+    expect(stage.querySelector('img.media-image')).toBe(imgBefore);
+
+    coordinator.destroy();
+    window.Image = OriginalImage;
+    vi.useRealTimers();
+  });
+
+  it('play() is idempotent while same image is already PLAYING', async () => {
+    vi.useFakeTimers();
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+
+    const OriginalImage = window.Image;
+    window.Image = class extends OriginalImage {
+      override set src(_v: string) {
+        queueMicrotask(() => this.dispatchEvent(new Event('load')));
+      }
+    } as unknown as typeof Image;
+
+    const probeMedia = vi.fn(passProbe);
+    const coordinator = new PlaybackCoordinator({
+      stage,
+      clock: new FakeClock(),
+      mediaTimeoutMs: 5_000,
+      scheduleRefreshMaxMs: 60_000,
+      probeMedia,
+    });
+
+    const manifest = getPlaybackFixture('one_image');
+    coordinator.setManifest(manifest);
+    await coordinator.play();
+    await Promise.resolve();
+    await Promise.resolve();
+    vi.advanceTimersByTime(50);
+
+    expect(coordinator.getState().status).toBe('PLAYING');
+    const probes = probeMedia.mock.calls.length;
+    const img = stage.querySelector('img.media-image');
+
+    await coordinator.play();
+    await coordinator.play();
+    expect(probeMedia).toHaveBeenCalledTimes(probes);
+    expect(stage.querySelector('img.media-image')).toBe(img);
+    expect(coordinator.getState().status).toBe('PLAYING');
+
+    coordinator.destroy();
+    window.Image = OriginalImage;
+    vi.useRealTimers();
+  });
+
   it('surfaces MEDIA_HTTP_404 from media probe before renderer', async () => {
     const stage = document.createElement('div');
     const coordinator = new PlaybackCoordinator({

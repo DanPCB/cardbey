@@ -194,6 +194,7 @@ export default defineConfig(({ mode }) => {
       environmentMatchGlobs: [
         ['tests/shellPairing.test.ts', 'happy-dom'],
         ['tests/playbackBasics.test.ts', 'happy-dom'],
+        ['tests/webosKeepAwake.test.ts', 'happy-dom'],
       ],
     },
   };

@@ -34,14 +34,11 @@ export function bindWebOsLifecycle(handlers: LifecycleHandlers): () => void {
 
   const onPageShow = () => handlers.onForeground?.();
   const onPageHide = () => handlers.onBackground?.();
-  const onFocus = () => handlers.onForeground?.();
-  const onBlur = () => handlers.onBackground?.();
 
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('pageshow', onPageShow);
   window.addEventListener('pagehide', onPageHide);
-  window.addEventListener('focus', onFocus);
-  window.addEventListener('blur', onBlur);
+  // Do not bind window blur/focus — remote/devtools blur falsely pauses signage.
 
   // webOS relaunch via custom event when hosts support it
   const onRelaunch = () => handlers.onRelaunch?.();
@@ -51,8 +48,6 @@ export function bindWebOsLifecycle(handlers: LifecycleHandlers): () => void {
     document.removeEventListener('visibilitychange', onVisibility);
     window.removeEventListener('pageshow', onPageShow);
     window.removeEventListener('pagehide', onPageHide);
-    window.removeEventListener('focus', onFocus);
-    window.removeEventListener('blur', onBlur);
     window.removeEventListener('webOSRelaunch', onRelaunch as EventListener);
   };
 }
