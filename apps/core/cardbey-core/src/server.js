@@ -208,6 +208,7 @@ import passiveGenerationRoutes from './routes/passiveGenerationRoutes.js';
 import automationRoutes from './routes/automation.js';
 import productsRoutes from './routes/products.js';
 import publicUsersRoutes from './routes/publicUsers.js';
+import listingReportRoutes from './routes/listingReportRoutes.js';
 import publicHeroPlaybackRoutes from './routes/publicHeroPlaybackRoutes.js';
 import publicDiscoveryRoutes from './routes/publicDiscoveryRoutes.js';
 import publicFeedRoutes from './routes/publicFeedRoutes.js';
@@ -1176,6 +1177,7 @@ app.use('/api/public/store-engagement', storeEngagementRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
+app.use('/api/public', listingReportRoutes); // POST /api/public/listings/:slug/report
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
 app.use('/api/public/activation', activationEventRoutes); // Phase 1 outcome events (no auth; no PII; no Meta)
 

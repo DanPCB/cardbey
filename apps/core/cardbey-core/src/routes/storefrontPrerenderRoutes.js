@@ -12,6 +12,7 @@ import {
   skpToJsonLd,
   skpToPublicDto,
 } from '../lib/storeKnowledge/index.js';
+import { abrVerificationUrl, isPublicStoreUnclaimed } from '../lib/storeCompliance/publicClaimStatus.js';
 import { publicCanonicalWebBase } from '../utils/publicWebBase.js';
 
 const router = express.Router();
@@ -72,11 +73,31 @@ export function renderStoreHtml(skp) {
   <style>
     body{font-family:system-ui,sans-serif;max-width:40rem;margin:0 auto;padding:1.5rem;line-height:1.5;color:#111}
     .muted{color:#555} a{color:#111}
+    .disclosure-banner{background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin:12px 0;font-size:13px}
   </style>
 </head>
 <body>
   <article>
     <h1>${escapeHtml(dto.name || '')}</h1>
+    ${
+      isPublicStoreUnclaimed({
+        claimStatus: skp.visibility?.claimStatus,
+        provenance: skp.visibility?.provenance,
+      })
+        ? `<div class="disclosure-banner" role="note">
+    <p><strong>This profile hasn't been claimed yet.</strong>
+    Built using publicly available information about ${escapeHtml(dto.name || '')}.
+    Not confirmed by the business owner.</p>
+    ${
+      dto.abn
+        ? `<p>ABN: ${escapeHtml(dto.abn)}.
+    <a href="${escapeHtml(abrVerificationUrl(dto.abn) || '#')}" rel="noopener">Verify on Australian Business Register</a></p>`
+        : ''
+    }
+    <p>AI-assisted content: descriptions and images generated from public data.</p>
+  </div>`
+        : ''
+    }
     ${dto.tagline ? `<p class="muted">${escapeHtml(dto.tagline)}</p>` : ''}
     ${dto.description ? `<p>${escapeHtml(dto.description)}</p>` : ''}
     ${

@@ -112,7 +112,7 @@ describe('visionRouter', () => {
 
     expect(dispatchDocumentIngestionFromVision).not.toHaveBeenCalled();
     expect(route).toEqual({
-      action: 'ghost_store_candidate',
+      action: 'discovered_business_candidate',
       intent: 'flyer_menu',
       extraction,
       location: null,
@@ -156,7 +156,7 @@ describe('visionRouter', () => {
       }),
     );
 
-    expect(route.action).toBe('ghost_store_candidate');
+    expect(route.action).toBe('discovered_business_candidate');
     expect(route.extraction.businessName).toBe('New Cafe');
   });
 

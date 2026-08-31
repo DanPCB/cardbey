@@ -121,6 +121,12 @@ export function buildSKPFromSources(sources = {}) {
   const phoneValue = str(business.phone);
   const emailValue = str(business.email);
   const websiteValue = str(business.websiteUrl);
+  const priceRangeValue =
+    str(business.priceRange) ||
+    (content && typeof content === 'object' ? str(content.priceRange) : null) ||
+    null;
+  const abnValue = str(business.businessBillingProfile?.abn);
+  const legalNameValue = str(business.businessBillingProfile?.legalBusinessName);
 
   const boi = asObj(sources.boiSnapshot);
   let biSummaryValue = null;
@@ -187,8 +193,18 @@ export function buildSKPFromSources(sources = {}) {
       storeId: String(business.id),
       slug,
       businessName: withProvenance(nameValue, ownerTag, 'business.name', ownerConfirmed ? 0.99 : 0.85),
-      legalName: withProvenance(null, ProvenanceTag.UNVERIFIED, undefined, 0),
-      abn: withProvenance(null, ProvenanceTag.UNVERIFIED, undefined, 0),
+      legalName: withProvenance(
+        legalNameValue,
+        legalNameValue ? ProvenanceTag.PLATFORM_OBSERVED : ProvenanceTag.UNVERIFIED,
+        'billing_profile',
+        legalNameValue ? 0.9 : 0,
+      ),
+      abn: withProvenance(
+        abnValue,
+        abnValue ? ProvenanceTag.PLATFORM_OBSERVED : ProvenanceTag.UNVERIFIED,
+        'billing_profile',
+        abnValue ? 0.95 : 0,
+      ),
     },
     location: {
       suburb: withProvenance(suburbValue, ownerTag, 'business.suburb', 0.85),
@@ -300,6 +316,8 @@ export function buildSKPFromSources(sources = {}) {
       jsonLdReady,
       sitemapIncluded: visFlags.sitemapIncluded,
       aiSearchReady: visFlags.aiSearchReady,
+      claimStatus: business.claimStatus ?? null,
+      provenance: business.provenance ?? null,
     },
     generatedAt: new Date().toISOString(),
     version: SKP_VERSION,
@@ -322,6 +340,7 @@ export async function buildSKP(storeId, opts = {}) {
     where: { id },
     include: {
       publishedArtifactProjection: true,
+      businessBillingProfile: true,
       products: {
         where: { isPublished: true },
         take: 200,
@@ -365,6 +384,7 @@ export async function buildSKPBySlug(slug, opts = {}) {
     where: { slug: normalized },
     include: {
       publishedArtifactProjection: true,
+      businessBillingProfile: true,
       products: {
         where: { isPublished: true },
         take: 200,
@@ -415,6 +435,9 @@ export function skpToPublicDto(skp) {
     indexable: skp.visibility.indexable,
     jsonLdReady: skp.visibility.jsonLdReady,
     aiSearchReady: skp.visibility.aiSearchReady,
+    abn: skp.identity.abn?.value ?? null,
+    claimStatus: skp.visibility.claimStatus ?? null,
+    provenance: skp.visibility.provenance ?? null,
   };
 }
 
@@ -477,6 +500,16 @@ export function skpToJsonLd(skp) {
 
   if (skp.content.heroImageUrl.value) ld.image = skp.content.heroImageUrl.value;
   if (skp.content.tagline.value) ld.slogan = skp.content.tagline.value;
+
+  const abn = skp.identity.abn?.value;
+  if (abn) {
+    ld.identifier = {
+      '@type': 'PropertyValue',
+      name: 'ABN',
+      value: abn,
+    };
+    ld.taxID = abn;
+  }
 
   return ld;
 }

@@ -198,6 +198,17 @@ export function toPublicStore(business, options = {}) {
     catalogMode: resolvedCommerce.catalogMode ?? commerce.catalogMode,
     hasServices: resolvedCommerce.hasServices,
     includedInServices: resolvedCommerce.includedInServices,
+    ...(business.businessBillingProfile?.abn
+      ? { abn: business.businessBillingProfile.abn }
+      : {}),
+    ...(hasBusinessColumn('claimStatus') ? { claimStatus: business.claimStatus ?? null } : {}),
+    ...(hasBusinessColumn('provenance') ? { provenance: business.provenance ?? null } : {}),
+    isClaimed:
+      String(business.claimStatus ?? '').toLowerCase() === 'claimed' ||
+      String(business.claimStatus ?? '').toLowerCase() === 'verified' ||
+      String(business.claimStatus ?? '').toLowerCase() === 'activated' ||
+      String(business.claimStatus ?? '').toLowerCase() === 'operating' ||
+      (!business.claimStatus && String(business.provenance ?? '').toLowerCase() === 'owner'),
     ...(stylePrefs?.showVideoMixes &&
     typeof stylePrefs.showVideoMixes === 'object' &&
     !Array.isArray(stylePrefs.showVideoMixes)
