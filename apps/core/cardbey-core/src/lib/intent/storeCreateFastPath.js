@@ -6,6 +6,7 @@ import {
 } from '../intake/storeWebsiteRunwayClassifier.js';
 import { isCasualChatTurn } from '../intake/intakeCasualChatTurn.js';
 import { matchesCreateVideoOntology } from '../intake/createVideoOntology.js';
+import { extractFirstUrlFromText } from '../intake/storeCreationDraftAssetBridge.js';
 import {
   CREATE_STORE_EXACT_PHRASES,
   matchCreateStoreIntent,
@@ -149,6 +150,8 @@ export function matchExactStoreCreatePhrase(userMessage) {
  * @param {string} [opts.forceIntent]
  * @param {string} [opts.currentFlow]
  * @param {string} [opts.source]
+ * @param {string} [opts.primaryModeHint]
+ * @param {string} [opts.primaryMode]
  * @param {string|null} [opts.activeStoreId]
  */
 export function shouldBlockServiceRequestForStoreCreate(userMessage, opts = {}) {
@@ -179,6 +182,74 @@ export function shouldBlockServiceRequestForStoreCreate(userMessage, opts = {}) 
   return false;
 }
 
+function normalizeUrlIdentity(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/[.,;]+$/, '')
+    .replace(/\/$/, '');
+}
+
+function isEssentiallyUrlOnlyMessage(msg, url) {
+  if (!url) return false;
+  if (normalizeUrlIdentity(msg) === normalizeUrlIdentity(url)) return true;
+  const remainder = msg.replace(url, '').replace(/https?:\/\//i, '').trim();
+  return remainder.length < 3;
+}
+
+function isStoreSetupContext(opts = {}) {
+  const primaryMode = String(opts.primaryModeHint ?? opts.primaryMode ?? '')
+    .trim()
+    .toLowerCase();
+  if (primaryMode === 'create' || primaryMode === 'store_setup' || primaryMode === 'website') {
+    return true;
+  }
+  const source = String(opts.source ?? '').trim().toLowerCase();
+  return (
+    source.includes('onboarding') ||
+    source.includes('new_store') ||
+    source.includes('starter') ||
+    source === 'create_new_business'
+  );
+}
+
+function looksLikeStandaloneBusinessName(userMessage) {
+  const msg = String(userMessage ?? '').trim();
+  if (!msg || msg.length < 3 || msg.length > 80) return false;
+  if (/\b(create|help|want|start)\b/i.test(msg)) return false;
+  if (extractFirstUrlFromText(msg)) return false;
+  return /^[A-Z][\w\s&'.-]+$/.test(msg) && msg.split(/\s+/).filter(Boolean).length >= 2;
+}
+
+function tryStoreSetupBusinessIdentityFastPath(raw, opts = {}) {
+  if (!isStoreSetupContext(opts)) return null;
+  const msg = String(raw ?? '').trim();
+  if (!msg || isCasualChatTurn(msg)) return null;
+
+  if (looksLikeStandaloneBusinessName(msg)) {
+    return buildCreateStoreClassification({
+      intentMode: 'store',
+      storeName: msg,
+      reason: 'standalone_name_store_setup',
+      confidence: 0.9,
+    });
+  }
+
+  const url = extractFirstUrlFromText(msg);
+  if (url && isEssentiallyUrlOnlyMessage(msg, url)) {
+    return buildCreateStoreClassification({
+      intentMode: 'store',
+      website: url,
+      reason: 'url_only_store_setup',
+      confidence: 0.9,
+    });
+  }
+
+  return null;
+}
+
 /**
  * Deterministic create_store classification before LLM / service_request override.
  *
@@ -188,6 +259,8 @@ export function shouldBlockServiceRequestForStoreCreate(userMessage, opts = {}) 
  * @param {string} [opts.forceIntent]
  * @param {string} [opts.currentFlow]
  * @param {string} [opts.source]
+ * @param {string} [opts.primaryModeHint]
+ * @param {string} [opts.primaryMode]
  * @param {string|null} [opts.activeStoreId]
  * @returns {object|null}
  */
@@ -252,6 +325,9 @@ export function tryStoreCreateFastPath(userMessage, opts = {}) {
     });
   }
 
+  const storeSetupIdentity = tryStoreSetupBusinessIdentityFastPath(raw, opts);
+  if (storeSetupIdentity) return storeSetupIdentity;
+
   const exact = matchExactStoreCreatePhrase(raw);
   if (exact) {
     emitCreateStoreDiag('CREATE_STORE_RUNTIME_DISPATCHED', {
@@ -310,6 +386,7 @@ function buildCreateStoreClassification(input) {
   if (input.storeName) parameters.storeName = String(input.storeName).trim();
   if (input.storeType) parameters.storeType = String(input.storeType).trim();
   if (input.location) parameters.location = String(input.location).trim();
+  if (input.website) parameters.website = String(input.website).trim();
   if (input.intentLabel) parameters.intentLabel = input.intentLabel;
 
   return {
@@ -357,6 +434,7 @@ export function resolveCreateStoreShortcut(input = {}) {
     forceIntent: input.forceIntent,
     currentFlow: input.currentFlow,
     source: input.intentSource,
+    primaryModeHint: input.primaryMode ?? input.primaryModeHint,
   });
 
   if (fast?.tool === 'create_store') {
@@ -367,7 +445,9 @@ export function resolveCreateStoreShortcut(input = {}) {
     };
   }
 
-  const primaryMode = String(input.primaryMode ?? '').trim().toLowerCase();
+  const primaryMode = String(input.primaryMode ?? input.primaryModeHint ?? '')
+    .trim()
+    .toLowerCase();
   if (primaryMode === 'create' || primaryMode === 'store_setup' || primaryMode === 'website') {
     if (isCasualChatTurn(String(input.userMessage ?? ''))) {
       return null;

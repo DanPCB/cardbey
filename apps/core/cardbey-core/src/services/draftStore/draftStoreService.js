@@ -507,6 +507,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     shouldUseSparseCatalogMode,
   } = await import('../../lib/mission001/sparseCatalogMode.js');
   const { attachNormalizedProvenanceToCatalog } = await import('../../lib/mission001/provenanceNormalize.js');
+  const { ensureStoreCreationCatalogItems } = await import('./ensureStoreCreationCatalogItems.js');
 
   let effectiveParams = params;
   let effectiveInput = input;
@@ -538,6 +539,11 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       hasPriceList: effectiveInput?.hasPriceList === true || effectiveParams.hasPriceList === true,
       allowBlueprintPrices: effectiveInput?.allowBlueprintPrices === true,
     });
+  const finalizeReactStepCatalog = (catalog, decision) =>
+    attachCatalogGrounding(
+      maybeCollapseProfessional(ensureStoreCreationCatalogItems(catalog, effectiveParams, effectiveInput)),
+      decision,
+    );
   let deferredResearch = null;
   let researchAttempted = false;
   let researchException = false;
@@ -634,7 +640,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         }
         pipelineTiming?.mark('catalogMs');
         return {
-          catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
+          catalog: finalizeReactStepCatalog(finalized, decision),
           fromPreload: false,
           fromResearch: true,
           research,
@@ -746,7 +752,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         researchAttempted: true,
       });
       return {
-        catalog: attachCatalogGrounding(maybeCollapseProfessional(finalized), decision),
+        catalog: finalizeReactStepCatalog(finalized, decision),
         fromPreload: true,
         fromResearch: true,
         research: researchStub,
@@ -762,7 +768,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       fromPreload: true,
     });
     return {
-      catalog: attachCatalogGrounding(maybeCollapseProfessional(catalog), decision),
+      catalog: finalizeReactStepCatalog(catalog, decision),
       fromPreload: true,
       fromResearch: false,
       catalogAuthority: decision,
@@ -772,11 +778,11 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
   let catalog;
   if (shouldUseSparseCatalogMode(mission001Meta, deferredResearch || lastResearch)) {
     catalog = stampSuggestedCatalogOrigin(
-      maybeCollapseProfessional(buildSparseHonestCatalog(effectiveParams, effectiveInput, mission001Meta)),
+      buildSparseHonestCatalog(effectiveParams, effectiveInput, mission001Meta),
     );
     mission001Meta.sparseMode = true;
   } else {
-    catalog = stampSuggestedCatalogOrigin(maybeCollapseProfessional(await buildCatalog(effectiveParams)));
+    catalog = stampSuggestedCatalogOrigin(await buildCatalog(effectiveParams));
   }
   if (Mission001Flags.provenancePreserve) {
     Object.assign(catalog, attachNormalizedProvenanceToCatalog(catalog));
@@ -794,10 +800,10 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     researchException,
   });
   pipelineTiming?.mark('catalogMs');
-  const grounded = attachCatalogGrounding(catalog, decision);
+  catalog = finalizeReactStepCatalog(catalog, decision);
   if (deferredResearch) {
     return {
-      catalog: grounded,
+      catalog,
       fromPreload: false,
       fromResearch: false,
       pendingOwnerReview: true,
@@ -808,7 +814,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     };
   }
   return {
-    catalog: grounded,
+    catalog,
     fromPreload: false,
     catalogAuthority: decision,
     mission001: mission001Meta,

@@ -127,6 +127,21 @@ describe('buildSKPFromSources', () => {
     expect(ld.url).toContain('/s/demo-cafe');
   });
 
+  it('includes ABN in JSON-LD when present on billing profile', () => {
+    const skp = buildSKPFromSources({
+      business: baseBusiness({
+        businessBillingProfile: { abn: '12 345 678 901' },
+      }),
+    });
+    const ld = skpToJsonLd(skp);
+    expect(ld.taxID).toBe('12 345 678 901');
+    expect(ld.identifier).toEqual({
+      '@type': 'PropertyValue',
+      name: 'ABN',
+      value: '12 345 678 901',
+    });
+  });
+
   it('produces valid JSON-LD without suburb when name+description+category present', () => {
     const skp = buildSKPFromSources({
       business: baseBusiness({

@@ -3,6 +3,7 @@
  */
 
 import { unifiedDispatch } from '../intake/unifiedDispatch.js';
+import { isVideoOwnedByCreativeFactory } from '../intake/createVideoOntology.js';
 import { appendEvent } from '../missionBlackboard.js';
 import { getPrismaClient } from '../prisma.js';
 import {
@@ -90,12 +91,15 @@ function isActiveFactoryExecution(existing) {
  * }} args
  */
 export async function tryRouteFactoryIntent(args) {
-  const { tryRouteUniversalArtifactIntent } = await import('../artifactFactory/artifactIntentRouter.js');
-  const uafRoute = await tryRouteUniversalArtifactIntent(args);
-  if (uafRoute) return uafRoute;
-
   const intentLabel = String(args.intentLabel ?? '').trim();
   const userMessage = typeof args.userMessage === 'string' ? args.userMessage.trim() : '';
+
+  if (!isVideoOwnedByCreativeFactory(userMessage, intentLabel)) {
+    const { tryRouteUniversalArtifactIntent } = await import('../artifactFactory/artifactIntentRouter.js');
+    const uafRoute = await tryRouteUniversalArtifactIntent(args);
+    if (uafRoute) return uafRoute;
+  }
+
   const intent = userMessage || intentLabel || 'factory intent';
 
   emitFactoryRouteAttempted({

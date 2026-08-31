@@ -60,7 +60,7 @@ export async function routeVisionEvent(event, options = {}) {
         };
       }
       return {
-        action: 'ghost_store_candidate',
+        action: 'discovered_business_candidate',
         intent: 'flyer_menu',
         extraction,
         location,
@@ -77,7 +77,7 @@ export async function routeVisionEvent(event, options = {}) {
         };
       }
       return {
-        action: 'ghost_store_candidate',
+        action: 'discovered_business_candidate',
         extraction,
         location,
       };
