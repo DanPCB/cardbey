@@ -3,8 +3,8 @@
  * Called when a canonical store exists for a candidate (post-publish).
  */
 
-import { getPrismaClient } from '../../prisma.js';
-import type { BusinessCandidateRecord } from '../types.js';
+import { getPrismaClient } from '../prisma.js';
+import type { BusinessCandidateRecord } from './types.js';
 import type { ExtractedMenuItem, FetchedMenuRecord } from './enrichment/types/menuTypes.js';
 
 const MENU_CONFIDENCE_THRESHOLD = 0.6;
