@@ -28,7 +28,6 @@ export { PROFESSIONAL_RE };
 
 const SPA_NAILS_SPECIFIC_RE = /\b(nails?|spa|salon|beauty|massage|facial)\b/i;
 const TILING_SPECIFIC_RE = /\b(til(e|ing)|floor(ing)?|splashback|waterproof)\b/i;
-export { PROFESSIONAL_RE };
 
 /**
  * @param {string | null | undefined} value

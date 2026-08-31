@@ -396,7 +396,6 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     research,
     profile: catalog.profile,
   });
-  const pendingOwnerReview = isResearchCatalogPendingOwnerReview(research);
 
   const meta = {
     ...(catalog.meta ?? {}),

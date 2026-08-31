@@ -1513,7 +1513,6 @@ export async function activateSeedAfterOwnerConfirmation(params: {
 
 
   return { ok: true, seed: activatedSeed, message: 'Store activated.' };
-  });
 }
 
 
