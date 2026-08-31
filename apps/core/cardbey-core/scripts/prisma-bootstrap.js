@@ -111,6 +111,57 @@ function isWindowsPrismaGenerateEperm(text) {
   );
 }
 
+/** Windows: stale query-engine binaries block prisma generate rename (EPERM). */
+function releaseWindowsPrismaQueryEngineLocks(projectRoot) {
+  if (process.platform !== "win32") return;
+  try {
+    execSync(
+      'powershell -NoProfile -Command "Get-Process -Name query-engine-windows -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"',
+      { stdio: "ignore" },
+    );
+  } catch {
+    /* non-fatal */
+  }
+  try {
+    const clientGen = path.join(projectRoot, "node_modules", ".prisma", "client-gen");
+    if (!fs.existsSync(clientGen)) return;
+    for (const name of fs.readdirSync(clientGen)) {
+      if (!name.includes(".tmp")) continue;
+      try {
+        fs.unlinkSync(path.join(clientGen, name));
+      } catch {
+        /* locked or already gone */
+      }
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/** Skip generate when client already matches schema mtime (common on Windows dev restarts). */
+function canSkipPrismaGenerate(schemaPath, projectRoot) {
+  if (envTruthy("PRISMA_FORCE_GENERATE", false)) return false;
+  const clientIndex = path.join(projectRoot, "node_modules", ".prisma", "client-gen", "index.js");
+  if (!fs.existsSync(clientIndex)) return false;
+  if (process.platform === "win32") {
+    const engine = path.join(
+      projectRoot,
+      "node_modules",
+      ".prisma",
+      "client-gen",
+      "query-engine-windows.exe",
+    );
+    if (!fs.existsSync(engine)) return false;
+  }
+  try {
+    const schemaMtime = fs.statSync(schemaPath).mtimeMs;
+    const clientMtime = fs.statSync(clientIndex).mtimeMs;
+    return clientMtime >= schemaMtime;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Run a prisma shell command with captured stdout/stderr so Render logs show the real error
  * (stdio: "inherit" loses stderr on execSync failures, so Node prints null stdout/stderr).
@@ -137,9 +188,16 @@ function runPrisma(cmdLabel, cmd, { retries = 5, retryDelaySec = 3 } = {}) {
         (cmdLabel === "generate" && isWindowsPrismaGenerateEperm(lastCombined))) &&
       attempt < retries - 1
     ) {
-      console.warn(
-        `[prisma] ${cmdLabel}: SQLite lock/busy (attempt ${attempt + 1}/${retries}); waiting ${retryDelaySec}s...`,
-      );
+      if (cmdLabel === "generate" && isWindowsPrismaGenerateEperm(lastCombined)) {
+        console.warn(
+          `[prisma] ${cmdLabel}: Windows query-engine file lock (attempt ${attempt + 1}/${retries}); releasing locks and waiting ${retryDelaySec}s...`,
+        );
+        releaseWindowsPrismaQueryEngineLocks(rootDir);
+      } else {
+        console.warn(
+          `[prisma] ${cmdLabel}: SQLite lock/busy (attempt ${attempt + 1}/${retries}); waiting ${retryDelaySec}s...`,
+        );
+      }
       sleepSync(retryDelaySec);
       continue;
     }
@@ -349,7 +407,12 @@ if (!fs.existsSync(schemaPath)) {
 
 console.log("[prisma] generate");
 try {
-  runPrisma("generate", `npx prisma generate --schema=${schemaPath}`);
+  if (canSkipPrismaGenerate(schemaPath, rootDir)) {
+    console.log("[prisma] generate skipped — client already up to date for schema");
+  } else {
+    releaseWindowsPrismaQueryEngineLocks(rootDir);
+    runPrisma("generate", `npx prisma generate --schema=${schemaPath}`);
+  }
 } catch (_e) {
   console.warn(
     "[prisma] generate failed (likely Windows " +
