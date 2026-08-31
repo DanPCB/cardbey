@@ -142,6 +142,7 @@ Return ONLY valid JSON. No preamble.`;
           maxTokens: 2000,
           temperature: 0,
           responseFormat: 'json',
+          tenantKey: 'enrichment',
         }),
       { agentName: 'menuExtractor', missionId },
     );
@@ -248,6 +249,7 @@ Return ONLY valid JSON.`;
           maxTokens: 1000,
           temperature: 0,
           responseFormat: 'json',
+          tenantKey: 'enrichment',
         }),
       { agentName: 'menuSynthesis', missionId },
     );
