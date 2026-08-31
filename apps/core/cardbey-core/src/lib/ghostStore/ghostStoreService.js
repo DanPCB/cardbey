@@ -92,7 +92,7 @@ export async function createGhostStore(input = {}) {
   if (!ownerId) {
     return {
       action: 'unsupported',
-      message: 'Ghost store creation is not configured (DISCOVERY_SYSTEM_USER_ID missing).',
+      message: 'Business discovery is not configured (DISCOVERY_SYSTEM_USER_ID missing).',
     };
   }
 
@@ -137,7 +137,7 @@ export async function createGhostStore(input = {}) {
   if (!published.ok || !published.storeId) {
     return {
       action: 'unsupported',
-      message: published.error ?? 'Failed to publish ghost store.',
+      message: published.error ?? 'Failed to publish discovered business profile.',
     };
   }
 

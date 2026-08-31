@@ -59,7 +59,7 @@ router.post('/create', optionalAuth, createRateLimit, async (req, res) => {
     return res.json({ ok: true, route });
   } catch (err) {
     console.error('[ghost-stores/create]', err?.message ?? err);
-    return res.status(500).json({ ok: false, error: 'ghost_store_create_failed' });
+    return res.status(500).json({ ok: false, error: 'discovered_business_create_failed' });
   }
 });
 
