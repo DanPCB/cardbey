@@ -33,7 +33,7 @@ export async function execute(input = {}, context = {}) {
     output: route,
     error:
       route.action === 'unsupported'
-        ? { message: route.message ?? 'Ghost store creation failed.' }
+        ? { message: route.message ?? 'Business profile creation failed.' }
         : undefined,
   };
 }
