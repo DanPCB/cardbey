@@ -48,9 +48,10 @@ Hardening workstream for schema drift gates and store-draft failure recovery on 
 
 | Condition | Production-like env | Local dev |
 |-----------|---------------------|-----------|
-| `requiredColumnsOk === false` | **Exit 1** (blocks start/deploy) | **Warn** only |
-| SQLite migration history dirty | **Exit 1** | **Warn** only |
-| `buildHealthDbFingerprint().ok === false` | **Exit 1** | N/A |
+| `requiredColumnsOk === false` (live) | **Exit 1** (blocks start/deploy) | **Warn** only |
+| Migration health not ok | **Exit 1** | **Warn** only |
+| Blocking fingerprint warnings (`required_columns_missing`, `migration_history_unsafe`, `sqlite_in_production`, …) | **Exit 1** | N/A |
+| Non-blocking fingerprint warnings (`schema_prisma_hash_mismatch`, `table_column_hash_mismatch`) when columns + migrations OK | **Warn** (deploy allowed) | N/A |
 
 Production-like = `NODE_ENV=production|staging` or Render env vars set.
 
