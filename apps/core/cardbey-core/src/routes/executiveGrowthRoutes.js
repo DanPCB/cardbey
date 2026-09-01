@@ -23,6 +23,19 @@ import {
   runPromoteLeadsToDiscovery,
 } from '../lib/executiveGrowth/promoteLeadToSeed.js';
 import { isLegacyGrowthStoreCreationEnabled } from '../lib/executiveGrowth/growthGovernanceConfig.js';
+import {
+  admitInvestorOrganizations,
+  approveInvestorHandoff,
+  buildInvestorGrowthBoard,
+  enrichGrowthInvestor,
+  getInvestorGrowthDetail,
+  prepareInvestorOutreachPack,
+  prepareInvestorProfile,
+  recordManualInvestorEvent,
+  rejectInvestorHandoff,
+  reviseInvestorHandoff,
+  runInvestorDiscovery,
+} from '../lib/executiveGrowth/growthInvestorService.js';
 
 const router = Router();
 
@@ -256,6 +269,157 @@ router.get('/batch-status/:id', async (req, res, next) => {
     const batch = await getGrowthBatchStatus(req.params.id);
     if (!batch) return res.status(404).json({ ok: false, error: 'not_found' });
     return res.json({ ok: true, batch });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/executive/growth/investors */
+router.get('/investors', async (_req, res, next) => {
+  try {
+    const board = await buildInvestorGrowthBoard();
+    const status = board.error === 'flag_off' ? 403 : 200;
+    return res.status(status).json(board);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/executive/growth/investors/:campaignId */
+router.get('/investors/:campaignId', async (req, res, next) => {
+  try {
+    const detail = await getInvestorGrowthDetail(req.params.campaignId);
+    if (detail.error === 'flag_off') return res.status(403).json(detail);
+    if (detail.error === 'not_found') return res.status(404).json(detail);
+    return res.json(detail);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/discover */
+router.post('/investors/discover', async (req, res, next) => {
+  try {
+    const schema = z.object({
+      targetCount: z.number().int().min(1).max(50).optional(),
+      geographies: z.array(z.string()).optional(),
+      stages: z.array(z.string()).optional(),
+      types: z.array(z.string()).optional(),
+      themes: z.array(z.string()).optional(),
+      chequeMin: z.number().nullable().optional(),
+      chequeMax: z.number().nullable().optional(),
+      canLead: z.union([z.literal('any'), z.boolean()]).optional(),
+      dryRun: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: 'validation_error', message: parsed.error.message });
+    }
+    const result = await runInvestorDiscovery(parsed.data);
+    const status = result.error === 'flag_off' ? 403 : 200;
+    return res.status(status).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/admit */
+router.post('/investors/admit', async (req, res, next) => {
+  try {
+    const schema = z.object({
+      catalogIds: z.array(z.string().trim().min(1)).min(1),
+      confirmed: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: 'validation_error', message: parsed.error.message });
+    }
+    const result = await admitInvestorOrganizations(parsed.data.catalogIds, {
+      confirmed: parsed.data.confirmed === true,
+      requestedBy: req.userId ?? null,
+    });
+    if (result.error === 'flag_off') return res.status(403).json(result);
+    if (result.requiresConfirmation) return res.status(400).json(result);
+    return res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/:campaignId/enrich */
+router.post('/investors/:campaignId/enrich', async (req, res, next) => {
+  try {
+    const result = await enrichGrowthInvestor(req.params.campaignId, { actorId: req.userId ?? null });
+    if (result.error === 'not_found') return res.status(404).json(result);
+    return res.status(result.ok ? 200 : 400).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/:campaignId/profile */
+router.post('/investors/:campaignId/profile', async (req, res, next) => {
+  try {
+    const result = await prepareInvestorProfile(req.params.campaignId, { actorId: req.userId ?? null });
+    if (result.error === 'not_found') return res.status(404).json(result);
+    return res.status(result.ok ? 200 : 400).json({ ...result, sends: false, publishes: false });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/:campaignId/outreach-pack */
+router.post('/investors/:campaignId/outreach-pack', async (req, res, next) => {
+  try {
+    const result = await prepareInvestorOutreachPack(req.params.campaignId, { actorId: req.userId ?? null });
+    if (result.error === 'not_found') return res.status(404).json(result);
+    return res.status(result.ok ? 200 : 400).json({ ...result, sends: false, publishes: false });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/:campaignId/handoff/approve */
+router.post('/investors/:campaignId/handoff/approve', async (req, res, next) => {
+  try {
+    const result = await approveInvestorHandoff(req.params.campaignId, { actorId: req.userId ?? null });
+    if (result.error === 'not_found') return res.status(404).json(result);
+    return res.status(result.ok ? 200 : 400).json({ ...result, sends: false, publishes: false });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/:campaignId/handoff/revise */
+router.post('/investors/:campaignId/handoff/revise', async (req, res, next) => {
+  try {
+    const result = await reviseInvestorHandoff(req.params.campaignId, { actorId: req.userId ?? null });
+    if (result.error === 'not_found') return res.status(404).json(result);
+    return res.status(result.ok ? 200 : 400).json({ ...result, sends: false, publishes: false });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/:campaignId/handoff/reject */
+router.post('/investors/:campaignId/handoff/reject', async (req, res, next) => {
+  try {
+    const result = await rejectInvestorHandoff(req.params.campaignId, { actorId: req.userId ?? null });
+    if (result.error === 'not_found') return res.status(404).json(result);
+    return res.status(result.ok ? 200 : 400).json({ ...result, sends: false, publishes: false });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/executive/growth/investors/:campaignId/events */
+router.post('/investors/:campaignId/events', async (req, res, next) => {
+  try {
+    const result = await recordManualInvestorEvent(req.params.campaignId, req.body ?? {}, {
+      actorId: req.userId ?? null,
+    });
+    if (result.error === 'not_found') return res.status(404).json(result);
+    return res.status(result.ok ? 200 : 400).json({ ...result, sends: false, publishes: false });
   } catch (err) {
     next(err);
   }

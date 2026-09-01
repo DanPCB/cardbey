@@ -47,6 +47,17 @@ function requireMarketIntentAdminEnabled(req, res, next) {
 
 router.use(requireMarketIntentAdminEnabled);
 
+/** GET /api/admin/market-intent/semantic-health */
+router.get('/semantic-health', (req, res) => {
+  const health = getMarketIntentAdminSemanticHealth();
+  safeJson(
+    res,
+    health.semanticStatus === 'AVAILABLE' ? 200 : 503,
+    { ok: health.semanticStatus === 'AVAILABLE', ...health },
+    req,
+  );
+});
+
 const AnalyzeSchema = z.object({
   rawText: z.string().trim().min(1).max(MARKET_INTENT_ADMIN_MAX_RAW_TEXT),
   sourceType: z.enum(['social_post', 'website', 'community_post', 'manual_note', 'other']).default('social_post'),
@@ -60,24 +71,6 @@ const AnalyzeSchema = z.object({
 function sendError(res, req, status, body) {
   safeJson(res, status, body, req);
 }
-
-/** GET /api/admin/market-intent/semantic-health */
-router.get('/semantic-health', (req, res) => {
-  const health = getMarketIntentAdminSemanticHealth();
-  safeJson(
-    res,
-    200,
-    {
-      ok: true,
-      ...health,
-      label:
-        health.semanticStatus === 'AVAILABLE'
-          ? 'Semantic analysis: Available'
-          : 'Semantic analysis: Unavailable',
-    },
-    req,
-  );
-});
 
 /** POST /api/admin/market-intent/analyze */
 router.post('/analyze', async (req, res) => {

@@ -232,7 +232,9 @@ describe('marketIntent G1 — cohort batch', () => {
       { llmGenerate: badLlm },
     );
     expect(signal.rawText).toContain('distributors');
-    expect(['AMBIGUOUS', 'CLASSIFICATION_FAILED']).toContain(analysis.outcome);
+    expect(analysis.outcome).toBe('SEMANTIC_RUNTIME_DEGRADED');
+    expect(analysis.classification).toBe('UNKNOWN');
+    expect(analysis.diagnostics.semanticFailureCode).toBe('LLM_RESPONSE_INVALID');
     expect(analysis.diagnostics.failureReason).toBeTruthy();
   });
 });

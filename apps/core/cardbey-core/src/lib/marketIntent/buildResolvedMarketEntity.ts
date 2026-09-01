@@ -28,6 +28,7 @@ export function mapResolverCandidate(raw: {
   location?: string | null;
   phone?: string | null;
   placeId?: string | null;
+  category?: string | null;
   confidence: number;
   matchReasons?: string[];
   source?: string;
@@ -39,7 +40,9 @@ export function mapResolverCandidate(raw: {
     location: raw.location ?? null,
     phone: raw.phone ?? null,
     placeId: raw.placeId ?? null,
+    category: raw.category ?? null,
     confidence: raw.confidence,
+    providerCandidateConfidence: raw.confidence,
     matchReasons: raw.matchReasons ?? [],
     source: raw.source ?? 'unknown',
   };
@@ -58,9 +61,15 @@ export function deriveResolutionStatus(
 
   const top = candidates[0];
   const second = candidates[1];
+  const identityConfidence = (c: EntityCandidate | undefined) =>
+    c?.identityMatchConfidence ?? c?.confidence ?? 0;
 
   if (!hints.businessName || hints.businessName.length < 2) {
-    notes.push('No business name available for resolution');
+    if (hints.actorHintKind === 'PERSON' && hints.actorHint) {
+      notes.push('Personal actor name present without verified business identity');
+    } else {
+      notes.push('No business name available for resolution');
+    }
     return { status: 'UNRESOLVED', confidence: 0, notes };
   }
 
@@ -85,27 +94,27 @@ export function deriveResolutionStatus(
     candidates.length > 1 &&
     second &&
     top &&
-    top.confidence >= PLAUSIBLE_THRESHOLD &&
-    second.confidence >= PLAUSIBLE_THRESHOLD &&
-    top.confidence - second.confidence < AMBIGUITY_GAP;
+    identityConfidence(top) >= PLAUSIBLE_THRESHOLD &&
+    identityConfidence(second) >= PLAUSIBLE_THRESHOLD &&
+    identityConfidence(top) - identityConfidence(second) < AMBIGUITY_GAP;
 
   if (ambiguous) {
     notes.push('Multiple plausible businesses — ambiguous resolution');
-    return { status: 'AMBIGUOUS', confidence: top.confidence, notes };
+    return { status: 'AMBIGUOUS', confidence: identityConfidence(top), notes };
   }
 
-  if (top.confidence >= STRONG_THRESHOLD && candidates.length === 1) {
+  if (identityConfidence(top) >= STRONG_THRESHOLD && candidates.length === 1) {
     notes.push('Single strong entity match');
-    return { status: 'RESOLVED', confidence: top.confidence, notes };
+    return { status: 'RESOLVED', confidence: identityConfidence(top), notes };
   }
 
-  if (top.confidence >= PLAUSIBLE_THRESHOLD) {
+  if (identityConfidence(top) >= PLAUSIBLE_THRESHOLD) {
     notes.push('Plausible match with corroborating evidence');
-    return { status: 'PARTIALLY_RESOLVED', confidence: top.confidence, notes };
+    return { status: 'PARTIALLY_RESOLVED', confidence: identityConfidence(top), notes };
   }
 
-  notes.push('Candidates below confidence threshold');
-  return { status: 'UNRESOLVED', confidence: top.confidence, notes };
+  notes.push('Candidates below identity confidence threshold');
+  return { status: 'UNRESOLVED', confidence: identityConfidence(top), notes };
 }
 
 export function buildResolvedMarketEntity(params: {
@@ -116,14 +125,31 @@ export function buildResolvedMarketEntity(params: {
   status: ResolutionStatus;
   confidence: number;
   notes: string[];
+  allCandidates?: EntityCandidate[];
 }): ResolvedMarketEntity {
-  const candidates = params.resolverResult?.candidates ?? [];
-  const selected = params.resolverResult?.selectedCandidate ?? candidates[0] ?? null;
+  const acceptedCandidates = params.resolverResult?.candidates ?? [];
+  const allCandidates = params.allCandidates ?? acceptedCandidates;
+  const selected =
+    params.resolverResult?.selectedCandidate ??
+    (params.status === 'RESOLVED' || params.status === 'PARTIALLY_RESOLVED'
+      ? acceptedCandidates[0]
+      : null);
 
   const canonicalName =
-    selected?.name ?? params.hints.businessName ?? null;
-  const website = selected?.website ?? params.hints.websiteHint ?? null;
-  const location = selected?.location ?? params.hints.location ?? null;
+    selected?.name ??
+    (params.status === 'RESOLVED' || params.status === 'PARTIALLY_RESOLVED'
+      ? params.hints.businessName
+      : null);
+  const website =
+    selected?.website ??
+    (params.status === 'RESOLVED' || params.status === 'PARTIALLY_RESOLVED'
+      ? params.hints.websiteHint
+      : null);
+  const location =
+    selected?.location ??
+    (params.status === 'RESOLVED' || params.status === 'PARTIALLY_RESOLVED'
+      ? params.hints.location
+      : null);
 
   const domains: string[] = [];
   const host = websiteHost(website ?? '');
@@ -153,11 +179,12 @@ export function buildResolvedMarketEntity(params: {
       source: 'g1_hint',
     });
   }
-  for (const c of candidates.slice(0, 3)) {
+  for (const c of allCandidates.slice(0, 5)) {
+    const identityConfidence = c.identityMatchConfidence ?? c.confidence;
     evidence.push({
-      statement: `Candidate "${c.name}" from ${c.source} (confidence ${c.confidence.toFixed(2)})`,
-      basis: c.confidence >= STRONG_THRESHOLD ? 'FACT' : 'INFERENCE',
-      confidence: c.confidence,
+      statement: `Candidate "${c.name}" from ${c.source} (provider ${c.providerCandidateConfidence?.toFixed(2) ?? c.confidence.toFixed(2)}, identity ${identityConfidence.toFixed(2)}${c.coherenceDecision ? `, ${c.coherenceDecision}` : ''})`,
+      basis: identityConfidence >= STRONG_THRESHOLD ? 'FACT' : 'INFERENCE',
+      confidence: identityConfidence,
       source: c.source,
     });
   }
@@ -175,7 +202,7 @@ export function buildResolvedMarketEntity(params: {
     location,
     externalIdentifiers,
     evidence,
-    candidateEntities: candidates,
+    candidateEntities: allCandidates,
     selectedCandidateId: selected?.entityId ?? null,
     resolutionNotes: [
       ...params.notes,

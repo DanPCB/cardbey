@@ -458,6 +458,24 @@ export const Features = {
     },
   },
   /**
+   * Investor engagement (marketing operations 1G + Growth Command Center investor mode).
+   * Default on non-production deploys when env unset.
+   */
+  investorEngagement: {
+    get v1() {
+      return readNonProductionFlag('ENABLE_INVESTOR_ENGAGEMENT_V1', true);
+    },
+    get profileV1() {
+      return readNonProductionFlag('ENABLE_INVESTOR_PROFILE_V1', this.v1);
+    },
+    get engagementTrackingV1() {
+      return readNonProductionFlag('ENABLE_INVESTOR_ENGAGEMENT_TRACKING_V1', this.v1);
+    },
+    get landingProjectionV1() {
+      return readNonProductionFlag('ENABLE_INVESTOR_LANDING_PROJECTION_V1', this.v1);
+    },
+  },
+  /**
    * Grounded store creation V1 — stop silent product invention + weak stock media.
    * Default OFF. Set ENABLE_GROUNDED_STORE_CREATION_V1=true to enable.
    */
