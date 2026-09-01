@@ -89,10 +89,34 @@ function lastUploadFromSources(opts) {
 
   const entities = workflowCtx?.entities;
   const entityObj = entities && typeof entities === 'object' ? entities : {};
+  const cardExt =
+    isc.cardExtraction && typeof isc.cardExtraction === 'object' && !Array.isArray(isc.cardExtraction)
+      ? /** @type {Record<string, unknown>} */ (isc.cardExtraction)
+      : null;
+  const ingest =
+    isc.assetIngestResult && typeof isc.assetIngestResult === 'object' && !Array.isArray(isc.assetIngestResult)
+      ? /** @type {Record<string, unknown>} */ (isc.assetIngestResult)
+      : null;
+  const entityContext =
+    ingest?.entityContext && typeof ingest.entityContext === 'object' && !Array.isArray(ingest.entityContext)
+      ? /** @type {Record<string, unknown>} */ (ingest.entityContext)
+      : null;
+  const storeCandidate =
+    isc.storeCandidate && typeof isc.storeCandidate === 'object' && !Array.isArray(isc.storeCandidate)
+      ? /** @type {Record<string, unknown>} */ (isc.storeCandidate)
+      : null;
+
+  // Client composer OCR / asset ingest — project into Ask belief so chips get storeName.
+  // Does not replace workflow/pending extraction; fills gaps only.
   const businessName =
     strip(entityObj.businessName) ??
     strip(entityObj.storeName) ??
-    strip(pending?.storeCandidate?.extractedFields?.businessName?.value);
+    strip(pending?.storeCandidate?.extractedFields?.businessName?.value) ??
+    strip(cardExt?.businessName) ??
+    strip(cardExt?.name) ??
+    strip(entityContext?.detectedBusinessName) ??
+    strip(storeCandidate?.businessName) ??
+    strip(storeCandidate?.name);
 
   const evidenceId =
     strip(isc.evidenceId) ??
