@@ -18,6 +18,10 @@ import { shouldBlockStoreBuildForMissingArtifact } from '../../artifactCheckpoin
 import { guestDraftOptsForActor } from '../../storeMission/guestDraftOpts.js';
 import { countCatalogItemsByKind } from '../../commerce/assertCatalogKindConsistency.js';
 import { classifyGenerateDraftFailure } from './classifyGenerateDraftFailure.js';
+import {
+  ensureDraftFailedAfterGenerateError,
+  persistStructuredStoreBuildFailureOutputs,
+} from './structuredStoreBuildFailureRecovery.js';
 
 export { classifyGenerateDraftFailure } from './classifyGenerateDraftFailure.js';
 
@@ -350,6 +354,18 @@ export async function execute(_input = {}, context = {}) {
       developerCode: classified.developerCode,
       stack: err?.stack,
     });
+    await ensureDraftFailedAfterGenerateError(
+      prisma,
+      draftIdForRun,
+      classified,
+      created.generationRunId,
+    );
+    await persistStructuredStoreBuildFailureOutputs(prisma, missionId, {
+      draftId: draftIdForRun,
+      generationRunId: created.generationRunId,
+      jobId: created.jobId,
+      classified,
+    });
     await transitionOrchestratorTaskStatus({
       prisma,
       taskId: created.jobId,
@@ -374,6 +390,14 @@ export async function execute(_input = {}, context = {}) {
         message: classified.message,
         developerMessage: classified.developerMessage,
         developerCode: classified.developerCode,
+      },
+      output: {
+        ok: false,
+        draftId: draftIdForRun,
+        generationRunId: created.generationRunId,
+        jobId: created.jobId,
+        failureCode: classified.code,
+        errorCode: classified.code,
       },
     };
   }

@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const coreRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../');
 
-describe('create-store runtime graph (plain Node ESM)', () => {
-  it('imports research + location modules without tsx', () => {
+describe('create-store runtime graph (release integrity gate)', () => {
+  it('imports research/location under plain Node and catalog/build under tsx/esm', () => {
     const script = path.join(coreRoot, 'scripts/smoke-create-store-runtime-graph.mjs');
     const result = spawnSync(process.execPath, [script], {
       cwd: coreRoot,
@@ -21,6 +21,7 @@ describe('create-store runtime graph (plain Node ESM)', () => {
       console.error(result.stderr);
     }
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('all required imports OK');
+    expect(result.stdout).toContain('gate:create-store-runtime: all required imports OK');
+    expect(result.stdout).toContain('phase=tsx-esm');
   });
 });

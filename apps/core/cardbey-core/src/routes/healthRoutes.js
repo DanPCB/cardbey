@@ -20,6 +20,7 @@ import {
 } from '../lib/external/externalCapabilityRegistry.js';
 import { getDecisionLoopHealth } from '../lib/decision/decisionLoopHealth.js';
 import { snapshotFeatures } from '../config/features.js';
+import { getDeployMetadata } from '../lib/deployMetadata.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -135,6 +136,7 @@ router.get('/health', async (req, res) => {
 
     const healthData = {
       version,
+      deploy: getDeployMetadata(),
       uptimeSec,
       api: apiStatus,
       database: databaseStatus,
