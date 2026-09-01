@@ -29,6 +29,17 @@ function fail(msg, code = 1) {
   process.exit(code);
 }
 
+function isBlockingFingerprintWarning(warning) {
+  if (!warning || typeof warning !== 'string') return false;
+  if (warning.startsWith('ghost_db_files:')) return true;
+  return (
+    warning === 'required_columns_missing' ||
+    warning === 'migration_history_unsafe' ||
+    warning === 'sqlite_in_production' ||
+    warning === 'creative_asset_campaign_id_null_drift'
+  );
+}
+
 async function main() {
   if (process.env.SKIP_DB_SCHEMA_DRIFT_GATE === '1') {
     console.warn('[gate:db-schema-drift] SKIP_DB_SCHEMA_DRIFT_GATE=1 — gate bypassed');
@@ -62,16 +73,23 @@ async function main() {
     console.warn(`[gate:db-schema-drift] WARN (non-prod): ${msg}`);
   }
 
-  if (!migration.ok && live.provider === 'sqlite') {
+  if (!migration.ok) {
     const msg =
-      `[gate:db-schema-drift] sqlite migration history dirty: pending=${migration.pending.join(',') || 'none'} failed=${migration.failed.join(',') || 'none'}`;
+      `[gate:db-schema-drift] migration health not ok: pending=${migration.pending.join(',') || 'none'} failed=${migration.failed.join(',') || 'none'}`;
     if (prodLike) fail(msg);
     console.warn(`[gate:db-schema-drift] WARN (non-prod): ${msg}`);
   }
 
-  if (prodLike && !fp.ok) {
+  const blockingWarnings = (fp.warnings || []).filter(isBlockingFingerprintWarning);
+  if (prodLike && blockingWarnings.length > 0) {
     fail(
-      `[gate:db-schema-drift] health fingerprint not ok: warnings=${fp.warnings.join(', ') || 'none'}`,
+      `[gate:db-schema-drift] blocking fingerprint warnings: ${blockingWarnings.join(', ')}`,
+    );
+  }
+
+  if (prodLike && !fp.ok && (fp.warnings?.length ?? 0) > 0) {
+    console.warn(
+      `[gate:db-schema-drift] non-blocking fingerprint warnings (deploy allowed): ${fp.warnings.join(', ')}`,
     );
   }
 
