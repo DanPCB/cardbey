@@ -5690,3 +5690,261 @@ model GlobalLiveEoiRegistration {
   @@index([userId])
   @@index([emailNormalized])
 }
+
+// ---- Launchpad Market Graph / Capital Resource Network V1 ----
+model MarketGraphNodeRecord {
+  id                   String   @id @default(cuid())
+  nodeId               String   @unique
+  label                String
+  signalId             String?
+  classification       String?
+  primaryIntent        String?
+  actorRole            String
+  marketSide           String
+  contextualRole       String
+  domain               String?
+  resourceType         String?
+  hasJson              Json
+  wantsJson            Json
+  constraintsJson      Json?
+  preferencesJson      Json?
+  geographyLabelsJson  Json
+  evidenceConfidence   String
+  contextSummary       String?
+  sourceType           String?
+  sourceRef            String?
+  provenanceJson       Json?
+  evidenceRefsJson     Json?
+  admissionState       String   @default("admitted")
+  freshnessAt          DateTime @default(now())
+  admittedAt           DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  nodePayloadJson      Json?
+  capitalProfileJson   Json?
+
+  matchesAsA MarketMatchRecord[] @relation("MatchNodeA")
+  matchesAsB MarketMatchRecord[] @relation("MatchNodeB")
+
+  @@index([contextualRole])
+  @@index([domain])
+  @@index([admissionState])
+  @@index([freshnessAt])
+  @@index([updatedAt])
+  @@map("market_graph_node")
+}
+
+model MarketMatchRecord {
+  id                         String    @id @default(cuid())
+  pairKey                    String    @unique
+  nodeAId                    String
+  nodeBId                    String
+  reciprocalBand             String
+  matcherVersion             String
+  matchJson                  Json
+  capitalQualificationJson   Json?
+  reviewState                String    @default("pending")
+  isStale                    Boolean   @default(false)
+  computedAt                 DateTime  @default(now())
+  invalidatedAt              DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  nodeA MarketGraphNodeRecord @relation("MatchNodeA", fields: [nodeAId], references: [nodeId], onDelete: Cascade)
+  nodeB MarketGraphNodeRecord @relation("MatchNodeB", fields: [nodeBId], references: [nodeId], onDelete: Cascade)
+
+  @@index([reciprocalBand])
+  @@index([reviewState])
+  @@index([isStale])
+  @@index([computedAt])
+  @@map("market_match")
+}
+
+model CapitalFundraisingMission {
+  id                  String   @id @default(cuid())
+  missionId           String   @unique
+  name                String
+  status              String   @default("active_research")
+  companyLabel        String?
+  graphNodeId         String?
+  proposedTermsJson   Json?
+  evidenceJson        Json?
+  hypothesesJson      Json?
+  desiredOutcomesJson Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([status])
+  @@map("capital_fundraising_mission")
+}
+
+// ---- Fundraising Campaign V1 ----
+model FundraisingCampaign {
+  id                    String   @id @default(cuid())
+  campaignKey           String   @unique
+  name                  String
+  companyLabel          String?
+  companyNodeId         String?
+  fundraisingObjectiveId String
+  proposedTargetAmountAud Int?
+  stage                 String?
+  proposedInstrument    String?
+  proposedTermsJson     Json?
+  targetMarketsJson     Json?
+  targetInvestorRegionsJson Json?
+  ownerUserId           String?
+  state                 String   @default("PREPARING")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  targets   FundraisingCampaignTarget[]
+  documents FundraisingDocument[]
+  events    FundraisingCampaignEvent[]
+
+  @@index([state])
+  @@index([fundraisingObjectiveId])
+  @@map("fundraising_campaign")
+}
+
+model FundraisingCampaignTarget {
+  id                    String   @id @default(cuid())
+  campaignId            String
+  catalogId             String?
+  investorName          String
+  investorNodeId        String?
+  companyNodeId         String?
+  marketMatchPairKey    String?
+  lifecycle             String   @default("TARGET")
+  lifecycleHistoryJson  Json?
+  assessmentsJson       Json?
+  dossierJson           Json?
+  handoffJson           Json?
+  unresolvedGapsJson    Json?
+  admittingOperatorId   String?
+  admittedAt            DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  campaign FundraisingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  researchGaps InvestorResearchGap[]
+  outreachDrafts FundraisingOutreachDraft[]
+
+  @@unique([campaignId, catalogId])
+  @@unique([campaignId, investorNodeId])
+  @@index([lifecycle])
+  @@index([investorNodeId])
+  @@map("fundraising_campaign_target")
+}
+
+model InvestorResearchGap {
+  id                String   @id @default(cuid())
+  targetId          String
+  field             String
+  whyItMatters      String
+  currentEvidenceState String @default("UNKNOWN")
+  requestedResearch String?
+  status            String   @default("OPEN")
+  provenanceJson    Json?
+  resolutionJson    Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  resolvedAt        DateTime?
+
+  target FundraisingCampaignTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([field])
+  @@map("investor_research_gap")
+}
+
+model FundraisingDocument {
+  id            String   @id @default(cuid())
+  campaignId    String
+  category      String
+  title         String
+  version       String   @default("v1")
+  status        String   @default("DRAFT")
+  visibility    String   @default("INTERNAL")
+  evidenceStatus String  @default("UNKNOWN")
+  contentRef    String?
+  metadataJson  Json?
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  campaign FundraisingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([category])
+  @@index([status])
+  @@map("fundraising_document")
+}
+
+model FundraisingOutreachDraft {
+  id            String   @id @default(cuid())
+  targetId      String
+  draftType     String
+  status        String   @default("DRAFT")
+  bodyText      String
+  markedAsAi    Boolean  @default(true)
+  approvedAt    DateTime?
+  approvedBy    String?
+  metadataJson  Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  target FundraisingCampaignTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([draftType])
+  @@map("fundraising_outreach_draft")
+}
+
+model FundraisingCampaignEvent {
+  id          String   @id @default(cuid())
+  campaignId  String
+  targetId    String?
+  eventType   String
+  actorId     String?
+  payloadJson Json?
+  occurredAt  DateTime @default(now())
+
+  campaign FundraisingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([eventType])
+  @@index([occurredAt])
+  @@map("fundraising_campaign_event")
+}
+
+// ---- Live Match Review Pilot V1 ----
+model MarketMatchReview {
+  id                  String   @id @default(cuid())
+  pairKey             String
+  nodeAId             String
+  nodeBId             String
+  decision            String
+  reason              String?
+  note                String?
+  reviewerId          String?
+  semanticTruthJson   Json
+  structuralTruthJson Json
+  marketTruthJson     Json
+  createdAt           DateTime @default(now())
+
+  @@index([pairKey])
+  @@index([decision])
+  @@index([createdAt])
+  @@map("market_match_review")
+}
+
+model MarketMatchConnectionEvent {
+  id          String   @id @default(cuid())
+  pairKey     String
+  reviewId    String?
+  eventType   String
+  stageState  String   @default("RECORDED")
+  actorId     String?
+  payloadJson Json?
+  occurredAt  DateTime @default(now())
+
+  @@index([pairKey])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@map("market_match_connection_event")
+}

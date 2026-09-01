@@ -13,6 +13,11 @@ import {
   computeOpportunityScores,
   G3_SCORER_VERSION,
 } from './scoreOpportunityFit.js';
+import {
+  applyServiceabilityFitCap,
+  deriveCoreNeedAssessment,
+} from './coreNeedServiceability.js';
+import type { MarketResearchObjective } from './marketResearchObjective.js';
 
 export type AssessMarketOpportunityInput = {
   signal: ExternalMarketSignal;
@@ -21,6 +26,7 @@ export type AssessMarketOpportunityInput = {
   research: MarketEntityResearch | null;
   g1Evidence?: EvidenceStatement[];
   missionContext?: MissionContext;
+  researchObjective?: MarketResearchObjective | null;
 };
 
 function buildAssessmentEvidence(
@@ -88,6 +94,12 @@ export function assessMarketOpportunity(input: AssessMarketOpportunityInput): Ma
   const { matches, unavailableDesired } = matchCapabilitiesToNeeds(needs, input.resolved);
   const { primary, supporting } = splitMatches(matches);
 
+  const coreNeed = deriveCoreNeedAssessment({
+    analysis: input.analysis,
+    matches,
+    researchObjective: input.researchObjective ?? null,
+  });
+
   const scores = computeOpportunityScores({
     analysis: input.analysis,
     resolved: input.resolved,
@@ -95,10 +107,33 @@ export function assessMarketOpportunity(input: AssessMarketOpportunityInput): Ma
     matches,
     mission,
     disqualifiers,
+    coreNeed,
   });
+
+  const capped = applyServiceabilityFitCap({
+    rawBand: scores.overallFitBand,
+    rawScore: scores.overallScore,
+    assessment: coreNeed,
+    capabilityFit: scores.capabilityFit,
+    matches,
+  });
+
+  coreNeed.fitCapReason = capped.fitCapReason;
+
+  if (coreNeed.serviceability === 'ENABLING_ONLY') {
+    capped.score = Math.min(capped.score, 64);
+    if (capped.band === 'HIGH_FIT') {
+      capped.band = 'MEDIUM_FIT';
+      coreNeed.fitCapReason =
+        coreNeed.fitCapReason ?? 'Enabling-only — score ceiling applied';
+    }
+  }
 
   const reasons = [
     ...scores.factors.map((f) => `${f.factor}: ${f.reason}`),
+    `coreNeed: ${coreNeed.coreNeedLabel} — serviceability ${coreNeed.serviceability}`,
+    coreNeed.explanation,
+    ...(capped.fitCapReason ? [`fitCap: ${capped.fitCapReason}`] : []),
     ...disqualifiers,
   ];
 
@@ -112,15 +147,17 @@ export function assessMarketOpportunity(input: AssessMarketOpportunityInput): Ma
     signalId: input.signal.signalId,
     resolvedEntityRef: input.resolved.resolvedEntityRef,
     missionContext: mission,
-    relevanceStatus: scores.overallFitBand,
+    relevanceStatus: capped.band,
     intentStrength: scores.intentStrength,
     evidenceConfidence: scores.evidenceConfidence,
     entityConfidence: scores.entityConfidence,
     businessRelevance: scores.businessRelevance,
     strategicFit: scores.strategicFit,
     capabilityFit: scores.capabilityFit,
-    overallFitBand: scores.overallFitBand,
-    overallScore: scores.overallScore,
+    overallFitBand: capped.band,
+    overallScore: capped.score,
+    rawOverallScore: scores.overallScore,
+    coreNeed,
     factors: scores.factors,
     reasons,
     disqualifiers,

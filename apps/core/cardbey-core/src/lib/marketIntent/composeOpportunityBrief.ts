@@ -11,6 +11,8 @@ import type {
 } from './briefTypes.js';
 import { G4_COMPOSER_VERSION } from './determinePreparationLevel.js';
 
+import type { MarketOpportunityResearch } from './buildMarketOpportunityResearch.js';
+
 export type ComposeOpportunityBriefInput = {
   signal: ExternalMarketSignal;
   analysis: MarketIntentAnalysis;
@@ -19,6 +21,7 @@ export type ComposeOpportunityBriefInput = {
   opportunity: MarketOpportunityAssessment;
   capabilityMatches: CardbeyCapabilityMatch[];
   preparationLevel: PreparationLevel;
+  marketOpportunityResearch?: MarketOpportunityResearch | null;
   recommendedSolutionSummary?: string;
 };
 
@@ -126,7 +129,7 @@ function collectUnknowns(
 ): BriefStatement[] {
   const unknowns: BriefStatement[] = [];
 
-  if (analysis.classification === 'AMBIGUOUS' || analysis.classification === 'UNKNOWN') {
+  if (analysis.classification === 'AMBIGUOUS') {
     unknowns.push(stmt('Commercial intent classification is ambiguous', 'UNKNOWN', 'g1'));
   }
 
@@ -157,6 +160,7 @@ function buildOpportunityCard(
 
   const fitLabel = input.opportunity.overallFitBand.replace(/_/g, ' ');
   const intent =
+    input.marketOpportunityResearch?.displayLabel ??
     input.analysis.intents.primary?.replace(/_/g, ' ').toLowerCase() ??
     input.analysis.wants[0]?.label ??
     'commercial objective';
@@ -171,7 +175,7 @@ function buildOpportunityCard(
     title: name,
     fitBand: input.opportunity.overallFitBand,
     fitLabel,
-    intentSummary: `Intent: ${intent}`,
+    intentSummary: `Research: ${intent}`,
     foundSummary: `What we found: ${found}`,
     relevanceSummary: `Why relevant: ${input.opportunity.reasons[0] ?? 'Cardbey capability alignment assessed'}`,
     canPrepare,
@@ -217,6 +221,7 @@ export function composeOpportunityBrief(input: ComposeOpportunityBriefInput): Op
   ];
 
   const objective =
+    input.marketOpportunityResearch?.displayLabel ??
     input.analysis.wants[0]?.label ??
     input.analysis.intents.primary?.replace(/_/g, ' ').toLowerCase() ??
     'business growth';
@@ -241,6 +246,19 @@ export function composeOpportunityBrief(input: ComposeOpportunityBriefInput): Op
     business: knownFacts.filter((f) => f.source === 'g2_entity' || f.source === 'g2_research'),
     opportunity: [
       stmt(`Fit band: ${input.opportunity.overallFitBand} (heuristic score ${input.opportunity.overallScore})`, 'INFERENCE', 'g3_assessment'),
+      ...(input.marketOpportunityResearch
+        ? [
+            stmt(
+              `Research objective: ${input.marketOpportunityResearch.displayLabel}`,
+              'INFERENCE',
+              'g3_assessment',
+              input.marketOpportunityResearch.confidence,
+            ),
+            ...input.marketOpportunityResearch.entryOrExpansionConsiderations
+              .slice(0, 3)
+              .map((q) => stmt(q, 'RECOMMENDATION', 'g3_assessment')),
+          ]
+        : []),
       ...inferences.filter((i) => i.source === 'g3_assessment').slice(0, 3),
     ],
     gaps: gaps.map((g) => stmt(`Gap: ${g}`, 'INFERENCE', 'g3_assessment')),

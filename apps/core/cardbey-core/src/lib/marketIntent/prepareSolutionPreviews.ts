@@ -5,6 +5,8 @@ import type { ProposedCardbeySolution, SolutionPreviewArtifact } from './briefTy
 import { isPreviewEligible } from './determinePreparationLevel.js';
 import type { FitBand } from './opportunityTypes.js';
 
+import type { MarketOpportunityResearch } from './buildMarketOpportunityResearch.js';
+
 /**
  * Create in-memory preview artifacts only — no DB writes, no publish, no outreach.
  */
@@ -15,6 +17,7 @@ export function prepareSolutionPreviews(params: {
   research: MarketEntityResearch | null;
   fitBand: FitBand;
   preparationLevel: number;
+  marketOpportunityResearch?: MarketOpportunityResearch | null;
 }): SolutionPreviewArtifact[] {
   if (!isPreviewEligible(params.preparationLevel as 0 | 1 | 2 | 3, params.fitBand)) {
     return [];
@@ -75,24 +78,36 @@ export function prepareSolutionPreviews(params: {
   }
 
   if (params.solution.capabilityIds.includes('market_research')) {
+    const researchLabel = params.marketOpportunityResearch?.displayLabel;
+    const label =
+      researchLabel && researchLabel !== 'Market Research'
+        ? `Market Research — ${researchLabel}`
+        : 'Market Research';
     const targetMarket =
-      params.analysis.wants.find((w) => /australia|market/i.test(w.label))?.label ??
+      params.marketOpportunityResearch?.objective.researchGeography ??
+      params.analysis.wants.find((w) => /australia|market|vietnam|nationwide/i.test(w.label))?.label ??
       params.analysis.locationHint ??
       'target market';
+    const researchQuestions =
+      params.marketOpportunityResearch?.entryOrExpansionConsiderations ??
+      [
+        `Who are likely buyers or partners for ${businessName} in ${targetMarket}?`,
+        'What positioning and compliance considerations apply?',
+        'Which channels should an initial presence prioritize?',
+      ];
 
     previews.push({
       type: 'market_entry_outline',
       capabilityId: 'market_research',
-      label: 'Market entry outline',
+      label,
       preview: {
         targetMarket,
-        objective: params.solution.objective,
-        researchQuestions: [
-          `Who are likely buyers or partners for ${businessName} in ${targetMarket}?`,
-          'What positioning and compliance considerations apply?',
-          'Which channels should an initial presence prioritize?',
-        ],
-        dataSources: ['Existing G2 research', 'Public business signals'],
+        objective: params.marketOpportunityResearch?.objective.objectiveType ?? params.solution.objective,
+        researchObjective: params.marketOpportunityResearch?.displayLabel ?? null,
+        counterpartyTypes: params.marketOpportunityResearch?.counterparties ?? [],
+        researchDepth: params.marketOpportunityResearch?.objective.researchDepth ?? 1,
+        researchQuestions,
+        dataSources: ['Existing G2 research', 'Public business signals', 'G1 intent analysis'],
         escalationNote: 'Full LLM market research not triggered in G4 — use existing G2 evidence first',
       },
       limitations: ['Outline only — not a full market report'],

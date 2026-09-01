@@ -56,6 +56,8 @@ const NEED_TAG_MAP: Record<string, string[]> = {
     'research',
     'audience',
     'competitor',
+    'partner',
+    'investor',
   ],
   create_store: ['online_presence', 'business', 'launch', 'store', 'presence', 'customer'],
   structured_store_build: ['online_presence', 'business', 'launch', 'store', 'catalog', 'offering'],
