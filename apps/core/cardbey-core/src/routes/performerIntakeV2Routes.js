@@ -2519,6 +2519,8 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     !isIntakeConfirmAffirmation(userMessage) &&
     !confirmInterceptApplied &&
     !hasIntakeImageAttachment(body) &&
+    !resolveIntakeHasAttachment(body) &&
+    !isAttachmentOnlyPlaceholderMessage(userMessage) &&
     !(body.intakeV2Selection && typeof body.intakeV2Selection === 'object') &&
     body._autoSubmit !== true &&
     !body.storeCreateForm &&
@@ -2961,7 +2963,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     userMessage &&
     !isIntakeConfirmAffirmation(userMessage) &&
     !confirmInterceptApplied &&
+    // Dashboard Ask uses top-level imageDataUrl; never bury upload Ask under Intent Engine chat.
     !hasIntakeImageAttachment(body) &&
+    !resolveIntakeHasAttachment(body) &&
+    !isAttachmentOnlyPlaceholderMessage(userMessage) &&
     !(body.intakeV2Selection && typeof body.intakeV2Selection === 'object') &&
     body._autoSubmit !== true
   ) {

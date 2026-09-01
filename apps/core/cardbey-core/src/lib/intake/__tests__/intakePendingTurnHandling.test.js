@@ -81,4 +81,16 @@ describe('intakePendingTurnHandling', () => {
     });
     expect(result).toBeNull();
   });
+
+  it('placeholder without pixels still returns upload Ask recovery (never Intent Engine chat)', async () => {
+    const result = await maybeRespondUploadAskBeforeClassifier({
+      userMessage: '(Image attached)',
+      attachmentOnlyUpload: false,
+      hasAttachment: false,
+      imageDataUrl: null,
+    });
+    expect(result?.payload).toBeTruthy();
+    expect(String(result?.payload?.response ?? '')).toMatch(/upload|attach|image|read/i);
+    expect(result?.payload?.action).toBe('clarify');
+  });
 });

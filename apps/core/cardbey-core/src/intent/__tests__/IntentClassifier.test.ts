@@ -119,4 +119,11 @@ describe('IntentClassifier', () => {
     const intent = classifyIntent({ message: 'change the hero image on my store' });
     expect(intent.type).not.toBe('content_edit');
   });
+
+  it('treats (Image attached) as upload clarify — never generic How can I help', () => {
+    const intent = classifyIntent({ message: '(Image attached)' });
+    expect(intent.type).toBe('clarify');
+    expect(String(intent.response ?? '')).toMatch(/upload/i);
+    expect(String(intent.response ?? '')).not.toMatch(/^How can I help you today\?$/i);
+  });
 });
