@@ -148,6 +148,22 @@ export function classifyIntent(input: IntentEngineInput): Intent {
     });
   }
 
+  // Attachment placeholders are upload Ask turns — never generic help chat.
+  const attachmentPlaceholder =
+    /^\(image attached\)$/i.test(msg) ||
+    /^\(files attached\)$/i.test(msg) ||
+    /^image attached$/i.test(msg) ||
+    /^files attached$/i.test(msg);
+  if (attachmentPlaceholder) {
+    return buildIntent('clarify', {
+      requiresBusiness: false,
+      confidence: 0.9,
+      response:
+        'I see your upload. What would you like to do next? You can create a store, import a catalog, or analyze the document.',
+      shouldExecute: false,
+    });
+  }
+
   const explicitFromMessage = intentFromExplicitToolKey(msg);
   if (explicitFromMessage) return explicitFromMessage;
 

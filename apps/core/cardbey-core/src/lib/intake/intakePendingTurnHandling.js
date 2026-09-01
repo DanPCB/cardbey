@@ -135,26 +135,87 @@ export async function maybeRespondUploadAskBeforeClassifier(opts = {}) {
     advisorInput: opts.advisorInput,
   });
 
-  if (!fallback?.payload) return null;
+  if (fallback?.payload) {
+    const shouldForce =
+      !isCasualChatTurn(userMessage) &&
+      !isExplicitLoyaltyFromUploadContext({
+        userMessage,
+        intentSourceContext: opts.intentSourceContext ?? null,
+        attachmentAnalysis: opts.attachmentAnalysis ?? null,
+      }) &&
+      (opts.attachmentOnlyUpload === true ||
+        opts.hasAttachment === true ||
+        isAttachmentOnlyPlaceholderMessage(userMessage) ||
+        uploadIntakePhase === UPLOAD_INTAKE_PHASE.ASK_INTENT);
 
-  const shouldForce =
-    !isCasualChatTurn(userMessage) &&
-    !isExplicitLoyaltyFromUploadContext({
-      userMessage,
-      intentSourceContext: opts.intentSourceContext ?? null,
-      attachmentAnalysis: opts.attachmentAnalysis ?? null,
-    }) &&
-    (opts.attachmentOnlyUpload === true ||
-      opts.hasAttachment === true ||
-      isAttachmentOnlyPlaceholderMessage(userMessage) ||
-      uploadIntakePhase === UPLOAD_INTAKE_PHASE.ASK_INTENT);
+    if (shouldForce) {
+      return {
+        payload: fallback.payload,
+        classification: fallback.classification,
+      };
+    }
+  }
 
-  if (!shouldForce) return null;
+  // Attachment placeholder with lost pixels — never fall through to Intent Engine greeting.
+  if (isAttachmentOnlyPlaceholderMessage(userMessage)) {
+    const belief = await loadHydratedBeliefForUploadDecision({
+      beliefLoaderOpts: opts.beliefLoaderOpts,
+      imageDataUrl: opts.imageDataUrl ?? null,
+      hasImageAttachment: true,
+      attachmentOnlyUpload: true,
+    });
+    if (belief) {
+      const payload = buildUploadAskClarifyFromBelief(belief);
+      return {
+        payload,
+        classification: {
+          executionPath: 'clarify',
+          tool: 'ingest_asset_for_intent_detection',
+          confidence: 0.85,
+          parameters: {
+            imageDataUrl: belief.lastUpload?.imageRef ?? opts.imageDataUrl ?? null,
+            source: 'upload_ask_placeholder_recovery',
+          },
+          message: payload.response,
+          clarifyOptions: payload.options ?? [],
+          _uploadAskSource: 'placeholder_recovery',
+        },
+      };
+    }
+    return {
+      payload: {
+        success: true,
+        action: 'clarify',
+        clarifyType: 'observe_first_upload',
+        response:
+          'I could not keep the image for this turn. Please attach the card or photo again, then choose Create store.',
+        message:
+          'I could not keep the image for this turn. Please attach the card or photo again, then choose Create store.',
+        options: [
+          { label: 'Create store', tool: 'create_store', parameters: {} },
+          { label: 'Import catalog / menu', tool: 'replace_store_catalog', parameters: {} },
+          { label: 'Analyze document', tool: 'ingest_asset_for_intent_detection', parameters: {} },
+        ],
+        clarifyOptions: [
+          { label: 'Create store', tool: 'create_store', parameters: {} },
+          { label: 'Import catalog / menu', tool: 'replace_store_catalog', parameters: {} },
+          { label: 'Analyze document', tool: 'ingest_asset_for_intent_detection', parameters: {} },
+        ],
+        executionPath: 'intake_upload_ask',
+      },
+      classification: {
+        executionPath: 'clarify',
+        tool: 'ingest_asset_for_intent_detection',
+        confidence: 0.8,
+        parameters: { source: 'upload_ask_missing_pixels' },
+        message:
+          'I could not keep the image for this turn. Please attach the card or photo again, then choose Create store.',
+        _uploadAskSource: 'missing_pixels',
+      },
+    };
+  }
 
-  return {
-    payload: fallback.payload,
-    classification: fallback.classification,
-  };
+  return null;
 }
 
 /**
