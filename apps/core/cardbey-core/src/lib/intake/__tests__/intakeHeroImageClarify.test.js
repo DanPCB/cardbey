@@ -26,6 +26,20 @@ describe('intakeHeroImageClarify', () => {
     );
   });
 
+  it('hasIntakeImageAttachment treats top-level imageDataUrl as image (dashboard Ask carrier)', () => {
+    expect(
+      hasIntakeImageAttachment({
+        imageDataUrl: `data:image/png;base64,${'A'.repeat(80)}`,
+      }),
+    ).toBe(true);
+    expect(
+      hasIntakeImageAttachment({
+        text: '(Image attached)',
+        imageDataUrl: `data:image/jpeg;base64,${'B'.repeat(80)}`,
+      }),
+    ).toBe(true);
+  });
+
   it('buildHeroImageClarifyOptions returns upload / generate / stock-style chips', () => {
     const opts = buildHeroImageClarifyOptions('en', 'coffee shop hero');
     expect(opts).toHaveLength(3);

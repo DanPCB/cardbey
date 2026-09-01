@@ -68,16 +68,34 @@ export function isHeroImageVisualFollowUpMessage(userMessage) {
 }
 
 /**
+ * True when the intake body carries image pixels or an image attachment ref.
+ *
+ * Dashboard Ask turns send a single top-level `imageDataUrl` (not `attachments[]`).
+ * Intent Engine / casual shortcircuits MUST treat that carrier as an image, otherwise
+ * `(Image attached)` falls through to generic "How can I help you today?".
+ *
  * @param {unknown} body
  */
 export function hasIntakeImageAttachment(body) {
-  const raw = body && typeof body === 'object' && !Array.isArray(body) ? body.attachments : null;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const top = typeof body.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
+  if (top.startsWith('data:image/') || (top.startsWith('data:') && top.length > 50)) return true;
+  if (typeof body.image === 'string' && body.image.trim().length > 50) return true;
+  const isc =
+    body.intentSourceContext && typeof body.intentSourceContext === 'object' && !Array.isArray(body.intentSourceContext)
+      ? body.intentSourceContext
+      : null;
+  if (isc) {
+    const pending = String(isc.pendingImageDataUrl ?? isc.imageDataUrl ?? '').trim();
+    if (pending.startsWith('data:') && pending.length > 50) return true;
+  }
+  const raw = body.attachments;
   if (!Array.isArray(raw)) return false;
   return raw.some((a) => {
     if (!a || typeof a !== 'object') return false;
     const type = String(a.type || '').toLowerCase();
-    const uri = String(a.uri || a.url || '').trim();
-    return (type === 'image' || type === 'photo') && uri.length > 8;
+    const uri = String(a.uri || a.url || a.dataUrl || a.data || a.imageDataUrl || '').trim();
+    return (type === 'image' || type === 'photo' || type.includes('image')) && uri.length > 8;
   });
 }
 
