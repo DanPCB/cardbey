@@ -42,7 +42,8 @@ export function isGrowthInvestorModeEnabled() {
 export const FUNDRAISING_OBJECTIVE = Object.freeze({
   objectiveId: 'cardbey-seed-2026',
   name: 'Cardbey Seed 2026',
-  targetLabel: 'A$1.5M seed',
+  /** Proposed raise target — aligned with Capital Resource Network mission (not a closed round). */
+  targetLabel: 'A$3M seed (proposed)',
   status: 'active_research',
   targetCount: 40,
 });

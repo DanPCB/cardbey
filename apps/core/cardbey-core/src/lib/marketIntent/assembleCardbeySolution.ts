@@ -9,8 +9,14 @@ import type {
 } from './briefTypes.js';
 import { getMarketCapabilityById } from './marketCapabilityCatalog.js';
 import { isSolutionAssemblyEligible } from './determinePreparationLevel.js';
+import type { MarketResearchObjectiveType } from './marketResearchObjective.js';
+import { alignmentRank, getCapabilityNeedAlignment } from './needCapabilityAlignment.js';
+import {
+  isResearchOnlySolutionPreferred,
+  type CoreNeedServiceability,
+} from './coreNeedServiceability.js';
 
-export const G4_ASSEMBLER_VERSION = 'g4.0.0-composition';
+export const G4_ASSEMBLER_VERSION = 'g4.1.0-minimum-useful';
 
 /** Canonical dependency order for solution sequencing */
 const CAPABILITY_SEQUENCE_ORDER = [
@@ -33,12 +39,12 @@ const CAPABILITY_SEQUENCE_ORDER = [
 const INTENT_PRIORITY_CAPABILITIES: Partial<Record<string, string[]>> = {
   DISTRIBUTE: ['market_research', 'structured_store_build', 'create_store', 'edit_artifact', 'create_promotion'],
   EXPAND: ['market_research', 'create_store', 'structured_store_build', 'create_promotion', 'publish_to_social'],
-  PARTNER: ['structured_store_build', 'create_store', 'create_promotion', 'generate_mini_website'],
+  PARTNER: ['market_research', 'generate_mini_website', 'structured_store_build', 'create_store', 'create_promotion'],
   PROMOTE: ['create_store', 'create_promotion', 'market_research', 'publish_to_social'],
   SELL: ['create_promotion', 'create_store', 'publish_to_social'],
   LAUNCH: ['create_store', 'structured_store_build', 'create_promotion', 'generate_mini_website'],
   SOLVE_BUSINESS_PROBLEM: ['market_research', 'create_store', 'create_promotion'],
-  INVEST: ['create_store', 'create_promotion'],
+  INVEST: ['market_research', 'generate_mini_website', 'create_store', 'create_promotion'],
   COLLABORATE: ['create_store', 'generate_mini_website'],
   OTHER_COMMERCIAL: ['market_research', 'create_store', 'create_promotion'],
 };
@@ -74,6 +80,8 @@ function expectedOutput(capabilityId: string): string {
 function selectMinimalCapabilities(
   analysis: MarketIntentAnalysis,
   matches: CardbeyCapabilityMatch[],
+  objectiveType?: MarketResearchObjectiveType | null,
+  options?: { researchOnly?: boolean; maxComponents?: number },
 ): CardbeyCapabilityMatch[] {
   const primary = matches.filter((m) => m.fitLevel === 'DIRECT_MATCH' || m.fitLevel === 'SUPPORTING_MATCH');
   if (!primary.length) return [];
@@ -81,16 +89,42 @@ function selectMinimalCapabilities(
   const intentPriority = INTENT_PRIORITY_CAPABILITIES[analysis.intents.primary ?? ''] ?? [];
   const byId = new Map(primary.map((m) => [m.capabilityId, m]));
 
+  const rankedIds = [...byId.keys()].sort((a, b) => {
+    const alignA = alignmentRank(
+      getCapabilityNeedAlignment(a, {
+        objectiveType,
+        primaryIntent: analysis.intents.primary,
+      }),
+    );
+    const alignB = alignmentRank(
+      getCapabilityNeedAlignment(b, {
+        objectiveType,
+        primaryIntent: analysis.intents.primary,
+      }),
+    );
+    if (alignA !== alignB) return alignA - alignB;
+    const priA = intentPriority.indexOf(a);
+    const priB = intentPriority.indexOf(b);
+    return (priA === -1 ? 99 : priA) - (priB === -1 ? 99 : priB);
+  });
+
+  const maxComponents = options?.maxComponents ?? (options?.researchOnly ? 2 : 5);
   const selected: CardbeyCapabilityMatch[] = [];
-  for (const id of intentPriority) {
+  for (const id of rankedIds) {
     const match = byId.get(id);
-    if (match && match.availability !== 'UNAVAILABLE') {
-      selected.push(match);
+    if (!match || match.availability === 'UNAVAILABLE') continue;
+    if (options?.researchOnly) {
+      const align = getCapabilityNeedAlignment(id, {
+        objectiveType,
+        primaryIntent: analysis.intents.primary,
+      });
+      if (align === 'SUPPORTING' || align === 'UNRELATED') continue;
     }
-    if (selected.length >= 5) break;
+    selected.push(match);
+    if (selected.length >= maxComponents) break;
   }
 
-  if (selected.length < 2) {
+  if (!options?.researchOnly && selected.length < 2) {
     for (const match of primary) {
       if (!selected.includes(match) && match.availability !== 'UNAVAILABLE') {
         selected.push(match);
@@ -99,7 +133,7 @@ function selectMinimalCapabilities(
     }
   }
 
-  if (selected.length < 2) {
+  if (!options?.researchOnly && selected.length < 2) {
     const weak = matches.filter(
       (m) => m.fitLevel === 'WEAK_MATCH' && m.availability !== 'UNAVAILABLE',
     );
@@ -148,6 +182,8 @@ export type AssembleCardbeySolutionInput = {
   opportunity: MarketOpportunityAssessment;
   capabilityMatches: CardbeyCapabilityMatch[];
   preparationLevel: PreparationLevel;
+  researchObjectiveType?: MarketResearchObjectiveType | null;
+  coreNeedServiceability?: CoreNeedServiceability | null;
 };
 
 export function assembleCardbeySolution(input: AssembleCardbeySolutionInput): ProposedCardbeySolution | null {
@@ -163,7 +199,18 @@ export function assembleCardbeySolution(input: AssembleCardbeySolutionInput): Pr
     return null;
   }
 
-  const selected = selectMinimalCapabilities(input.analysis, input.capabilityMatches);
+  const serviceability =
+    input.coreNeedServiceability ?? input.opportunity.coreNeed?.serviceability ?? 'UNKNOWN';
+  const researchOnly = isResearchOnlySolutionPreferred(serviceability, input.researchObjectiveType);
+  const enablingOnly = serviceability === 'ENABLING_ONLY';
+  const maxComponents = researchOnly || enablingOnly ? 2 : 5;
+
+  const selected = selectMinimalCapabilities(
+    input.analysis,
+    input.capabilityMatches,
+    input.researchObjectiveType,
+    { researchOnly: researchOnly || enablingOnly, maxComponents },
+  );
   if (!selected.length) {
     return null;
   }

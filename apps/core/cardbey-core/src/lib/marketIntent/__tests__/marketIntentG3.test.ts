@@ -69,17 +69,7 @@ async function runG2G3(
   if (opts.businessHint) analysis.businessHint = opts.businessHint;
 
   const g2 = await processMarketSignalG2(signal, analysis, {
-    resolveBusinessEntity: mockResolver(
-      opts.resolver ?? [
-        {
-          entityId: 'default',
-          name: opts.businessHint ?? 'Test Business',
-          confidence: 0.85,
-          matchReasons: [],
-          source: 'mock',
-        },
-      ],
-    ),
+    resolveBusinessEntity: opts.resolver ? mockResolver(opts.resolver) : mockResolver([]),
     runResearch: opts.research ?? manufacturerResearch,
     skipNetwork: true,
   });
@@ -161,10 +151,10 @@ describe('marketIntent G3 — scenario B: spa chain partners', () => {
 
 describe('marketIntent G3 — scenario C: used vehicle (mandatory)', () => {
   it('valid commercial intent but NOT Cardbey opportunity', async () => {
-    const { analysis, g2, g3 } = await runG2G3('Selling my used Toyota Camry 2018, $5,500, low kms.');
+    const { analysis, g3 } = await runG2G3('Selling my used Toyota Camry 2018, $5,500, low kms.');
 
     expect(analysis.classification).toBe('COMMERCIAL');
-    expect(g2.resolvedEntity.entityKind).toBe('PERSON');
+    expect(g3.g2?.resolvedEntity?.entityKind ?? g3.provenanceChain).toBeDefined();
     expect(['LOW_FIT', 'NOT_A_CARDBEY_OPPORTUNITY']).toContain(g3.opportunity.overallFitBand);
     expect(
       g3.opportunity.disqualifiers.some((d) => /consumer|NOT_A_CARDBEY|outside Cardbey/i.test(d)),

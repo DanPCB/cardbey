@@ -7,19 +7,28 @@ import type { MarketIntentAnalysis } from './types.js';
 import type { ResolvedMarketEntity, MarketEntityResearch } from './entityTypes.js';
 import type { CardbeyCapabilityMatch } from './opportunityTypes.js';
 import { isConsumerTransactionSignal, isNonBusinessOpportunity } from './extractNeeds.js';
+import {
+  isGenericLocalAcquisition,
+  isBuyerSideDistributionSignal,
+} from './marketIntentDirection.js';
+import type { CoreNeedAssessment } from './coreNeedServiceability.js';
 
-export const G3_SCORER_VERSION = 'g3.0.0-heuristic';
+export const G3_SCORER_VERSION = 'g3.1.0-calibrated';
 
-/** Documented heuristic weights — not predictive calibration */
+/** Selected after 26-case sensitivity — see calibration report */
+export const HIGH_FIT_THRESHOLD = 65;
+
+/** Documented heuristic weights — commercial signal ≠ Cardbey opportunity fit */
 const WEIGHTS = {
-  capabilityFit: 22,
-  intentStrength: 18,
+  capabilityFit: 26,
+  intentStrength: 10,
   evidenceConfidence: 14,
   entityConfidence: 10,
-  businessRelevance: 14,
-  strategicFit: 9,
-  valueScope: 8,
-  timing: 5,
+  businessRelevance: 12,
+  strategicFit: 10,
+  valueScope: 6,
+  serviceabilityFit: 12,
+  timing: 0,
 } as const;
 
 function clamp100(n: number): number {
@@ -30,13 +39,13 @@ function scoreIntentStrength(analysis: MarketIntentAnalysis): { score: number; r
   if (analysis.classification !== 'COMMERCIAL') {
     return { score: 0, reason: 'Not commercial' };
   }
-  const base = analysis.classificationConfidence * 100;
-  const intentBoost = analysis.intents.primary ? 15 : 0;
-  const multiIntent = analysis.intents.secondary.length > 0 ? 5 : 0;
-  const wantsBoost = Math.min(15, analysis.wants.length * 5);
+  // Measures evidence that the commercial need is real — NOT Cardbey's ability to solve it.
+  const base = analysis.classificationConfidence * 70;
+  const intentBoost = analysis.intents.primary ? 10 : 0;
+  const wantsBoost = Math.min(10, analysis.wants.filter((w) => w.basis === 'EXPLICIT').length * 4);
   return {
-    score: clamp100(base + intentBoost + multiIntent + wantsBoost),
-    reason: `Commercial classification ${(analysis.classificationConfidence * 100).toFixed(0)}% with primary intent ${analysis.intents.primary ?? 'none'}`,
+    score: clamp100(base + intentBoost + wantsBoost),
+    reason: `Commercial signal clarity ${(analysis.classificationConfidence * 100).toFixed(0)}% — evidence the need is real, not Cardbey serviceability`,
   };
 }
 
@@ -114,9 +123,32 @@ function scoreStrategicFit(
     return { score: 8, reason: 'Personal seller — weak Cardbey acquisition target' };
   }
 
-  const growthIntents = ['DISTRIBUTE', 'EXPAND', 'PARTNER', 'PROMOTE', 'LAUNCH', 'SOLVE_BUSINESS_PROBLEM'];
+  if (isBuyerSideDistributionSignal(analysis)) {
+    return { score: 35, reason: 'Buyer-side sourcing signal — Cardbey distribution tools target sellers, not buyer procurement' };
+  }
+
+  if (isGenericLocalAcquisition(analysis)) {
+    return { score: 48, reason: 'Generic local customer acquisition — legitimate user, modest strategic Cardbey scope' };
+  }
+
+  const growthIntents = ['DISTRIBUTE', 'EXPAND', 'PARTNER', 'LAUNCH', 'SOLVE_BUSINESS_PROBLEM'];
+  if (analysis.intents.primary === 'DISTRIBUTE' || analysis.wants.some((w) => w.type === 'DISTRIBUTOR' || w.type === 'RESELLER')) {
+    const expansionScope = /\bnationwide\b|\btoàn quốc\b|\bexport\b|\binternational\b|\baustralia\b|\bglobal\b/i.test(
+      JSON.stringify(analysis.wants) + JSON.stringify(analysis.has),
+    );
+    return {
+      score: expansionScope ? 68 : 58,
+      reason: expansionScope
+        ? 'Distribution/expansion scope — strong enabling research opportunity'
+        : 'Distribution intent — enabling research opportunity',
+    };
+  }
+
   if (analysis.intents.primary && growthIntents.includes(analysis.intents.primary)) {
-    return { score: 85, reason: `Growth intent ${analysis.intents.primary} aligns with Cardbey acquisition` };
+    if (analysis.intents.primary === 'PROMOTE') {
+      return { score: 48, reason: 'Promotion intent without expansion scope — modest strategic fit' };
+    }
+    return { score: 72, reason: `Growth intent ${analysis.intents.primary} — strategic Cardbey scope` };
   }
 
   if (analysis.intents.primary === 'COLLABORATE') {
@@ -139,12 +171,12 @@ function scoreCapabilityFit(matches: CardbeyCapabilityMatch[]): { score: number;
   const direct = matches.filter((m) => m.fitLevel === 'DIRECT_MATCH');
   const supporting = matches.filter((m) => m.fitLevel === 'SUPPORTING_MATCH');
   const topScore = matches[0]?.score ?? 0;
-  let score = topScore * 0.6;
-  score += direct.length * 8;
-  score += supporting.length * 4;
+  let score = topScore * 0.7;
+  score += direct.length * 5;
+  score += supporting.length * 2;
   return {
     score: clamp100(score),
-    reason: `${direct.length} direct + ${supporting.length} supporting capability matches (top ${topScore})`,
+    reason: `${direct.length} direct + ${supporting.length} supporting matches (top ${topScore}) — relevance-weighted, not raw count`,
   };
 }
 
@@ -162,13 +194,18 @@ function scoreValueScope(
   };
 }
 
-function scoreTiming(analysis: MarketIntentAnalysis): { score: number; reason: string } {
-  const urgent = /opening|launch|next month|urgent|now hiring|tìm gấp/i.test(
-    JSON.stringify(analysis.has) + analysis.classificationReason,
-  );
+function scoreServiceabilityFit(coreNeed: CoreNeedAssessment | null): { score: number; reason: string } {
+  if (!coreNeed) return { score: 40, reason: 'Core need serviceability not assessed' };
+  const scores: Record<CoreNeedAssessment['serviceability'], number> = {
+    AVAILABLE: 95,
+    PARTIAL: 62,
+    ENABLING_ONLY: 36,
+    UNAVAILABLE: 18,
+    UNKNOWN: 40,
+  };
   return {
-    score: urgent ? 75 : 55,
-    reason: urgent ? 'Signals suggest near-term action' : 'No strong urgency detected',
+    score: scores[coreNeed.serviceability],
+    reason: `Core need "${coreNeed.coreNeedLabel}" — ${coreNeed.serviceability}: ${coreNeed.explanation}`,
   };
 }
 
@@ -176,6 +213,7 @@ export function scoreToFitBand(
   overallScore: number,
   disqualifiers: string[],
   classification: string,
+  threshold: number = HIGH_FIT_THRESHOLD,
 ): FitBand {
   if (classification === 'NON_COMMERCIAL') return 'NOT_APPLICABLE';
   if (disqualifiers.some((d) => d.includes('NOT_A_CARDBEY') || d.includes('consumer'))) {
@@ -184,7 +222,7 @@ export function scoreToFitBand(
   if (disqualifiers.some((d) => d.includes('insufficient evidence'))) {
     return 'INSUFFICIENT_EVIDENCE';
   }
-  if (overallScore >= 65) return 'HIGH_FIT';
+  if (overallScore >= threshold) return 'HIGH_FIT';
   if (overallScore >= 42) return 'MEDIUM_FIT';
   if (overallScore >= 20) return 'LOW_FIT';
   return 'NOT_A_CARDBEY_OPPORTUNITY';
@@ -197,6 +235,7 @@ export function computeOpportunityScores(params: {
   matches: CardbeyCapabilityMatch[];
   mission: MissionContext;
   disqualifiers: string[];
+  coreNeed?: CoreNeedAssessment | null;
 }): {
   factors: FitFactorScore[];
   overallScore: number;
@@ -215,7 +254,7 @@ export function computeOpportunityScores(params: {
   const strategic = scoreStrategicFit(params.mission, params.resolved, params.analysis);
   const capability = scoreCapabilityFit(params.matches);
   const value = scoreValueScope(params.analysis, params.research);
-  const timing = scoreTiming(params.analysis);
+  const serviceability = scoreServiceabilityFit(params.coreNeed ?? null);
 
   const factors: FitFactorScore[] = [
     { factor: 'intentStrength', ...intent, weight: WEIGHTS.intentStrength, weightedContribution: 0 },
@@ -225,7 +264,7 @@ export function computeOpportunityScores(params: {
     { factor: 'strategicFit', ...strategic, weight: WEIGHTS.strategicFit, weightedContribution: 0 },
     { factor: 'capabilityFit', ...capability, weight: WEIGHTS.capabilityFit, weightedContribution: 0 },
     { factor: 'valueScope', ...value, weight: WEIGHTS.valueScope, weightedContribution: 0 },
-    { factor: 'timing', ...timing, weight: WEIGHTS.timing, weightedContribution: 0 },
+    { factor: 'serviceabilityFit', ...serviceability, weight: WEIGHTS.serviceabilityFit, weightedContribution: 0 },
   ];
 
   let overallScore = 0;
@@ -264,7 +303,7 @@ export function buildDisqualifiers(
     d.push('NON_COMMERCIAL: no opportunity assessment applicable');
   }
 
-  if (analysis.classification === 'AMBIGUOUS' || analysis.classification === 'UNKNOWN') {
+  if (analysis.classification === 'AMBIGUOUS') {
     d.push('insufficient evidence: G1 classification ambiguous');
   }
 

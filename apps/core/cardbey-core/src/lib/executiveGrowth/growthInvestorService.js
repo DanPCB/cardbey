@@ -5,7 +5,7 @@
  */
 
 import { createCampaign, listCampaigns } from '../../services/marketingOperator/campaignService.js';
-import { marketingRepo } from '../../services/marketingOperator/repository.js';
+import { marketingRepo, MarketingRepoError } from '../../services/marketingOperator/repository.js';
 import { TARGET_TYPES } from '../../services/marketingOperations/constants.js';
 import { PROPOSAL_STATES } from '../../services/marketingOperations/campaignProposalContract.js';
 import {
@@ -26,6 +26,11 @@ import {
   discoverInvestorCatalog,
   getInvestorCatalogOrg,
 } from './investorOrganizationCatalog.js';
+import {
+  ensureCardbeySeed2026Campaign,
+  getCampaignOverview,
+  listTargets as listFundraisingTargets,
+} from '../fundraisingCampaign/fundraisingCampaignService.js';
 
 function flagOff() {
   return { ok: false, error: 'flag_off', sends: false, liveMeta: false };
@@ -170,12 +175,19 @@ function buildMetrics(rows) {
 }
 
 async function listPipelineCampaigns() {
-  const campaigns = await listCampaigns({ take: 200 });
-  return (campaigns || []).filter((campaign) => {
-    const meta = readCampaignMeta(campaign);
-    const target = campaign.targetType || meta.targetType;
-    return target === TARGET_TYPES.INVESTOR_DISCOVERY || Boolean(meta.growthInvestorCatalogId);
-  });
+  try {
+    const campaigns = await listCampaigns({ take: 200 });
+    return (campaigns || []).filter((campaign) => {
+      const meta = readCampaignMeta(campaign);
+      const target = campaign.targetType || meta.targetType;
+      return target === TARGET_TYPES.INVESTOR_DISCOVERY || Boolean(meta.growthInvestorCatalogId);
+    });
+  } catch (err) {
+    if (err instanceof MarketingRepoError && (err.code === 'MODEL_UNAVAILABLE' || err.code === 'TABLE_MISSING')) {
+      return [];
+    }
+    throw err;
+  }
 }
 
 async function findCampaignByCatalogId(catalogId) {
@@ -186,20 +198,69 @@ async function findCampaignByCatalogId(catalogId) {
   );
 }
 
+function emptyBoardWithFundraisingCampaign(extra = {}) {
+  // Seed canonical Fundraising Campaign V1 in memory so objective is never "missing"
+  ensureCardbeySeed2026Campaign();
+  const overview = getCampaignOverview();
+  const targets = listFundraisingTargets();
+  return {
+    ok: true,
+    fundraising: {
+      ...FUNDRAISING_OBJECTIVE,
+      campaignKey: overview.campaign.campaignKey,
+      campaignState: overview.campaign.state,
+      proposedTargetAmountAud: overview.campaign.proposedTargetAmountAud,
+    },
+    metrics: {
+      targets: targets.length,
+      tier1: 0,
+      researching: targets.filter((t) => t.lifecycle === 'TARGET' || t.lifecycle === 'RESEARCHED').length,
+      readyForHandoff: 0,
+      contacted: targets.filter((t) => t.lifecycle === 'CONTACTED').length,
+      meetings: targets.filter((t) => t.lifecycle === 'MEETING').length,
+      diligence: targets.filter((t) => t.lifecycle === 'DILIGENCE').length,
+      committedLabel: 'A$0',
+    },
+    engagements: [],
+    publicShareBlocked: { blocked: true, code: 'TOKEN_GATING_PENDING' },
+    legacyPipelineUnavailable: true,
+    legacyPipelineReason:
+      'MarketingCampaign Prisma model is not available. Use Fundraising Campaign V1 (Overview / Targets / Pipeline / Documents) above. Legacy catalog pack pipeline requires prisma generate + migrate for MarketingCampaign.',
+    sends: false,
+    liveMeta: false,
+    ...extra,
+  };
+}
+
 export async function buildInvestorGrowthBoard() {
   if (!isGrowthInvestorModeEnabled()) return flagOff();
 
-  const campaigns = await listPipelineCampaigns();
-  const engagements = campaigns.map(toEngagementRow);
-  return {
-    ok: true,
-    fundraising: { ...FUNDRAISING_OBJECTIVE },
-    metrics: buildMetrics(engagements),
-    engagements,
-    publicShareBlocked: { blocked: true, code: 'TOKEN_GATING_PENDING' },
-    sends: false,
-    liveMeta: false,
-  };
+  try {
+    const campaigns = await listPipelineCampaigns();
+    const engagements = campaigns.map(toEngagementRow);
+    ensureCardbeySeed2026Campaign();
+    const overview = getCampaignOverview();
+    return {
+      ok: true,
+      fundraising: {
+        ...FUNDRAISING_OBJECTIVE,
+        campaignKey: overview.campaign.campaignKey,
+        campaignState: overview.campaign.state,
+        proposedTargetAmountAud: overview.campaign.proposedTargetAmountAud,
+      },
+      metrics: buildMetrics(engagements),
+      engagements,
+      publicShareBlocked: { blocked: true, code: 'TOKEN_GATING_PENDING' },
+      legacyPipelineUnavailable: false,
+      sends: false,
+      liveMeta: false,
+    };
+  } catch (err) {
+    if (err instanceof MarketingRepoError && (err.code === 'MODEL_UNAVAILABLE' || err.code === 'TABLE_MISSING')) {
+      return emptyBoardWithFundraisingCampaign();
+    }
+    throw err;
+  }
 }
 
 export async function getInvestorGrowthDetail(campaignId) {
@@ -284,51 +345,66 @@ export async function admitInvestorOrganizations(catalogIds = [], options = {}) 
       continue;
     }
 
-    const existing = await findCampaignByCatalogId(catalogId);
-    if (existing) {
-      skipped.push({ catalogId, reason: 'duplicate' });
-      continue;
-    }
+    try {
+      const existing = await findCampaignByCatalogId(catalogId);
+      if (existing) {
+        skipped.push({ catalogId, reason: 'duplicate' });
+        continue;
+      }
 
-    const fit = buildInvestorFit(org, {});
-    const campaign = await createCampaign(
-      {
-        name: `Investor: ${org.name}`,
-        targetType: TARGET_TYPES.INVESTOR_DISCOVERY,
-        market: org.geography,
-        description: org.mandateSummary,
-        metadata: {
+      const fit = buildInvestorFit(org, {});
+      const campaign = await createCampaign(
+        {
+          name: `Investor: ${org.name}`,
           targetType: TARGET_TYPES.INVESTOR_DISCOVERY,
-          growthInvestorCatalogId: org.catalogId,
-          growthInvestorOrganization: org,
-          growthInvestorFit: fit,
-          objectiveId: FUNDRAISING_OBJECTIVE.objectiveId,
-          publishes: false,
-          liveMeta: false,
-          investorSends: false,
+          market: org.geography,
+          description: org.mandateSummary,
+          metadata: {
+            targetType: TARGET_TYPES.INVESTOR_DISCOVERY,
+            growthInvestorCatalogId: org.catalogId,
+            growthInvestorOrganization: org,
+            growthInvestorFit: fit,
+            objectiveId: FUNDRAISING_OBJECTIVE.objectiveId,
+            publishes: false,
+            liveMeta: false,
+            investorSends: false,
+          },
         },
-      },
-      { actorId: options.requestedBy || null },
-    );
+        { actorId: options.requestedBy || null },
+      );
 
-    const proposal = buildApprovedProposal(org, campaign.id);
-    const meta = readCampaignMeta(campaign);
-    await marketingRepo.campaign.update({
-      where: { id: campaign.id },
-      data: {
-        metadata: {
-          ...meta,
-          proposalStatus: PROPOSAL_STATES.APPROVED,
-          campaignProposal: proposal,
-          publishes: false,
-          liveMeta: false,
-          investorSends: false,
+      const proposal = buildApprovedProposal(org, campaign.id);
+      const meta = readCampaignMeta(campaign);
+      await marketingRepo.campaign.update({
+        where: { id: campaign.id },
+        data: {
+          metadata: {
+            ...meta,
+            proposalStatus: PROPOSAL_STATES.APPROVED,
+            campaignProposal: proposal,
+            publishes: false,
+            liveMeta: false,
+            investorSends: false,
+          },
+          plan: proposal,
         },
-        plan: proposal,
-      },
-    });
+      });
 
-    admitted.push({ campaignId: campaign.id, name: org.name, catalogId });
+      admitted.push({ campaignId: campaign.id, name: org.name, catalogId });
+    } catch (err) {
+      if (err instanceof MarketingRepoError && (err.code === 'MODEL_UNAVAILABLE' || err.code === 'TABLE_MISSING')) {
+        return {
+          ok: false,
+          error: 'legacy_pipeline_unavailable',
+          message:
+            'Legacy MarketingCampaign pipeline is unavailable. Admit investors via Fundraising Campaign V1 → Targets (confirmed admission). No one is contacted.',
+          admitted,
+          skipped,
+          sends: false,
+        };
+      }
+      throw err;
+    }
   }
 
   return {

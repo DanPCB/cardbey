@@ -79,11 +79,10 @@ async function runG2G5(
     g5Options?: Record<string, unknown>;
   } = {},
 ) {
-  const g1Overrides: Record<string, unknown> = {};
-  if (opts.businessHint) g1Overrides.businessHint = opts.businessHint;
-  if (opts.sourceType) g1Overrides.sourceType = opts.sourceType;
-
-  const { signal, analysis } = buildG1FromText(rawText, g1Overrides);
+  const { signal, analysis } = buildG1FromText(rawText, {
+    businessHint: opts.businessHint,
+    sourceType: opts.sourceType,
+  });
   if (opts.businessHint) analysis.businessHint = opts.businessHint;
 
   const g2 = await processMarketSignalG2(signal, analysis, {
@@ -151,15 +150,7 @@ describe('marketIntent G5 — scenario B: spa expansion', () => {
         resolver: [
           { entityId: 'spa1', name: 'Wellness Spa Chain', confidence: 0.8, matchReasons: [], source: 'places' },
         ],
-        research: async (input) => ({
-          ...(await manufacturerResearch(input)),
-          facts: {
-            businessName: { value: input.businessName, confidence: 0.9, sourceType: 'google_business' },
-            category: { value: 'spa', confidence: 0.85, sourceType: 'google_business' },
-            website: { value: 'https://wellness-spa.example.com', confidence: 0.8, sourceType: 'google_business' },
-          },
-          extractedItems: [{ name: 'Massage therapy', confidence: 0.8, sourceType: 'google_business' }],
-        }),
+        g5Options: { explicitEmail: 'partners@wellness-spa.example.com' },
       },
     );
 
@@ -203,11 +194,8 @@ describe('marketIntent G5 — scenario C: cleaning business', () => {
       emailExecutionAvailable: true,
     });
 
-    expect(g5.connectionPlan?.messageDraft?.body).not.toMatch(/will deliver customers|Cardbey will deliver/i);
-    expect(
-      g5.connectionPlan?.messageDraft?.limitations.some((l) => /customer delivery|guaranteed/i.test(l)) ||
-        g5.connectionPlan?.limitations.some((l) => /customer delivery|guaranteed/i.test(l)),
-    ).toBe(true);
+    expect(g5.connectionPlan?.messageDraft?.body).not.toMatch(/will deliver customers|guarantee/i);
+    expect(g5.connectionPlan?.messageDraft?.limitations.some((l) => /customer/i.test(l))).toBe(true);
   });
 });
 

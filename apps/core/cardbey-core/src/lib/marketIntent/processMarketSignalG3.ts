@@ -4,6 +4,9 @@ import type { MarketSignalG3Result, MissionContext } from './opportunityTypes.js
 import { assessMarketOpportunity, deriveG3Outcome } from './assessMarketOpportunity.js';
 import type { ProcessMarketSignalG2Options } from './processMarketSignalG2.js';
 import { processMarketSignalG2 } from './processMarketSignalG2.js';
+import { buildGeographicAuthority } from './geographicAuthority.js';
+import { deriveMarketResearchObjective } from './marketResearchObjective.js';
+import { buildMarketOpportunityResearch } from './buildMarketOpportunityResearch.js';
 
 export type ProcessMarketSignalG3Options = ProcessMarketSignalG2Options & {
   missionContext?: MissionContext;
@@ -32,6 +35,21 @@ export function processMarketSignalG3FromG2(
   options: { missionContext?: MissionContext } = {},
 ): MarketSignalG3Result {
   try {
+    const geography = buildGeographicAuthority({
+      signal,
+      analysis,
+      resolved: g2.resolvedEntity,
+    });
+    const researchObjective = deriveMarketResearchObjective({ signal, analysis, geography });
+    const marketOpportunityResearch = buildMarketOpportunityResearch({
+      signal,
+      analysis,
+      resolved: g2.resolvedEntity,
+      research: g2.research,
+      objective: researchObjective,
+      geography,
+    });
+
     const opportunity = assessMarketOpportunity({
       signal,
       analysis,
@@ -39,6 +57,7 @@ export function processMarketSignalG3FromG2(
       research: g2.research,
       g1Evidence: g2.g1Evidence,
       missionContext: options.missionContext ?? 'CARDBEY_ACQUISITION',
+      researchObjective,
     });
 
     const capabilityMatches = [...opportunity.primaryMatches, ...opportunity.supportingMatches];
@@ -48,6 +67,9 @@ export function processMarketSignalG3FromG2(
       signalId: signal.signalId,
       opportunity,
       capabilityMatches,
+      researchObjective,
+      geography,
+      marketOpportunityResearch,
       outcome,
       diagnostics: {
         signalId: signal.signalId,
@@ -91,6 +113,9 @@ export function processMarketSignalG3FromG2(
         scorerVersion: 'g3.0.0-failed',
       },
       capabilityMatches: [],
+      researchObjective: null,
+      geography: null,
+      marketOpportunityResearch: null,
       outcome: 'ASSESSMENT_FAILED',
       diagnostics: {
         signalId: signal.signalId,

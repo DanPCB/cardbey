@@ -114,7 +114,8 @@ describe('marketIntent G4 — scenario A: VN manufacturer', () => {
     expect(g4.brief.sections.limitations.some((l) => /distributor/i.test(l.statement))).toBe(true);
     expect(g4.solution).not.toBeNull();
     expect(g4.solution!.capabilityIds).toContain('market_research');
-    expect(g4.solution!.sequence.length).toBeGreaterThan(1);
+    expect(g4.solution!.sequence.length).toBeGreaterThanOrEqual(1);
+    expect(g4.solution!.sequence.length).toBeLessThanOrEqual(2);
     expect(g4.solution!.unavailableDesired.some((u) => /distributor/i.test(u.need))).toBe(true);
     expect(g4.brief.opportunityCard.canPrepare.length).toBeGreaterThan(0);
   });

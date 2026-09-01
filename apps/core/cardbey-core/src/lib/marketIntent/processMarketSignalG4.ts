@@ -49,6 +49,8 @@ export function processMarketSignalG4FromG3(
       opportunity: g3.opportunity,
       capabilityMatches: g3.capabilityMatches,
       preparationLevel,
+      researchObjectiveType: g3.researchObjective?.objectiveType ?? null,
+      coreNeedServiceability: g3.opportunity.coreNeed?.serviceability ?? null,
     });
 
     const brief = composeOpportunityBrief({
@@ -59,6 +61,7 @@ export function processMarketSignalG4FromG3(
       opportunity: g3.opportunity,
       capabilityMatches: g3.capabilityMatches,
       preparationLevel,
+      marketOpportunityResearch: g3.marketOpportunityResearch,
       recommendedSolutionSummary: solution
         ? `Sequence: ${solution.sequence.join(' → ')}`
         : undefined,
@@ -72,6 +75,7 @@ export function processMarketSignalG4FromG3(
           research: g2.research,
           fitBand: g3.opportunity.overallFitBand,
           preparationLevel,
+          marketOpportunityResearch: g3.marketOpportunityResearch,
         })
       : [];
 

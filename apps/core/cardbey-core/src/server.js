@@ -133,7 +133,6 @@ import adminPlatformRoutes from './routes/admin/platformOverview.js';
 import adminPlatformActivityRoutes from './routes/admin/platformActivityRoutes.js';
 import adminPlatformSearchRoutes from './routes/admin/platformSearchRoutes.js';
 import adminMultiAgentMonitoringRoutes from './routes/admin/multiAgentMonitoringRoutes.js';
-import adminDeepseekDiagnosticRoutes from './routes/admin/deepseekDiagnosticRoutes.js';
 import monitoringRoutes from './routes/monitoring.routes.js';
 import adminAccountManagementRoutes from './routes/admin/accountManagementRoutes.js';
 import adminStoreContentManagementRoutes from './routes/admin/storeContentManagementRoutes.js';
@@ -186,6 +185,9 @@ import discoveryEngineRoutes from './routes/discoveryEngineRoutes.js';
 import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
 import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
+import marketIntentAdminRoutes from './routes/admin/marketIntentAdminRoutes.js';
+import launchpadMarketGraphRoutes from './routes/admin/launchpadMarketGraphRoutes.js';
+import fundraisingCampaignRoutes from './routes/admin/fundraisingCampaignRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import {
   createStoreReadinessRouter,
@@ -221,7 +223,6 @@ import storefrontPrerenderRoutes from './routes/storefrontPrerenderRoutes.js';
 import storefrontSitemapRoutes from './routes/storefrontSitemapRoutes.js';
 import marketingVisitRoutes from './routes/public/marketingVisitRoutes.js';
 import marketingOperationsRoutes from './routes/admin/marketingOperationsRoutes.js';
-import marketIntentAdminRoutes from './routes/admin/marketIntentAdminRoutes.js';
 import { Features } from './config/features.js';
 import qRedirect from './routes/qRedirect.js';
 import miToolsRoutes from './routes/miToolsRoutes.js';
@@ -1317,14 +1318,12 @@ app.use('/api/admin', adminPlatformRoutes);
 app.use('/api/admin', adminPlatformActivityRoutes);
 app.use('/api/admin', adminPlatformSearchRoutes);
 app.use('/api/admin', adminMultiAgentMonitoringRoutes);
-app.use('/api/admin', adminDeepseekDiagnosticRoutes); // Admin: GET /api/admin/deepseek-diagnostic
 app.use('/api/admin', adminAccountManagementRoutes);
 app.use('/api/admin', adminStoreContentManagementRoutes);
 if (Features.marketingOperator.v1) {
   app.use('/api/admin', marketingOperationsRoutes); // Marketing ops + attribution admin (flag-gated)
   console.log('[CORE] mounted /api/admin/marketing/* (ENABLE_MARKETING_OPERATOR_V1)');
 }
-app.use('/api/admin/market-intent', marketIntentAdminRoutes); // Market Intent admin test API (flag-gated in route)
 app.use('/api/monitoring', monitoringRoutes);
 
 app.get('/metrics', async (_req, res) => {
@@ -1348,6 +1347,9 @@ app.use('/api/admin/media', adminMediaRoutes);
 app.use('/api/admin/media', mediaHealthRoutes);
 app.use('/api/admin/live-market', liveMarketAdminRoutes); // Admin: Live Market pilot (flag-gated)
 app.use('/api/admin/global-live', globalLiveEoiAdminRoutes); // Admin: Global Live pilot EOI (flag-gated)
+app.use('/api/admin/market-intent', marketIntentAdminRoutes); // Admin: Market Intent G1-G4 test UI (flag-gated)
+app.use('/api/admin/launchpad', launchpadMarketGraphRoutes); // Admin: Launchpad Market Graph / Capital Resource Network V1
+app.use('/api/admin/fundraising', fundraisingCampaignRoutes); // Admin: Fundraising Campaign V1 (no outreach send)
 
 // Internal API routes (for Lambda callbacks, workers, etc.)
 app.use('/api/internal', internalRoutes);

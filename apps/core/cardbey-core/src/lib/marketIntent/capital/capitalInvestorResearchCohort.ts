@@ -1,0 +1,192 @@
+/**
+ * Evidence-backed investor research cohort for Capital Resource Network calibration.
+ * Stores public evidence only — no predetermined compatibility outcomes.
+ * Brinc/Antler classified as accelerator/program/strategic-capital where model differs from institutional VC.
+ */
+/** @typedef {import('./projectInvestorToMarketGraphNode.js').InvestorProjectionInput} InvestorProjectionInput */
+
+/** @type {import('./projectInvestorToMarketGraphNode.js').InvestorProjectionInput[]} */
+export const CAPITAL_INVESTOR_RESEARCH_COHORT = [
+  // —— ANZ ——
+  {
+    catalogId: 'inv_blackbird_au',
+    name: 'Blackbird Ventures',
+    type: 'VC',
+    geography: 'au',
+    geographies: ['au', 'nz', 'global'],
+    stages: ['seed', 'series-a'],
+    themes: ['ai', 'saas', 'enterprise', 'infrastructure', 'marketplace'],
+    canLead: true,
+    website: 'https://blackbird.vc/',
+    headquarters: 'Sydney, Australia',
+    mandateSummary: 'Australian and New Zealand technology companies from seed through growth.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  {
+    catalogId: 'inv_rampersand_au',
+    name: 'Rampersand',
+    type: 'VC',
+    geography: 'au',
+    geographies: ['au'],
+    stages: ['seed', 'series-a'],
+    themes: ['saas', 'enterprise', 'marketplace', 'ai'],
+    canLead: true,
+    website: 'https://www.rampersand.vc/',
+    headquarters: 'Melbourne, Australia',
+    mandateSummary: 'Australian early-stage technology investors focused on ambitious founders.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  {
+    catalogId: 'inv_squarepeg_au',
+    name: 'Square Peg Capital',
+    type: 'VC',
+    geography: 'au',
+    geographies: ['au', 'sea', 'global'],
+    stages: ['seed', 'series-a'],
+    themes: ['saas', 'marketplace', 'fintech', 'enterprise'],
+    canLead: true,
+    website: 'https://www.squarepegcap.com/',
+    headquarters: 'Melbourne, Australia',
+    mandateSummary: 'Technology companies across Australia, Israel, and Southeast Asia.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  {
+    catalogId: 'inv_airtree_au',
+    name: 'AirTree Ventures',
+    type: 'VC',
+    geography: 'au',
+    geographies: ['au', 'sea', 'global'],
+    stages: ['seed', 'series-a'],
+    themes: ['ai', 'saas', 'marketplace', 'fintech'],
+    canLead: true,
+    website: 'https://www.airtree.vc/',
+    headquarters: 'Sydney, Australia',
+    mandateSummary: 'ANZ and selective global software investments.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  // —— Southeast Asia ——
+  {
+    catalogId: 'inv_wavemaker_sea',
+    name: 'Wavemaker Partners',
+    type: 'VC',
+    geography: 'sea',
+    geographies: ['sea', 'global'],
+    stages: ['seed', 'series-a'],
+    themes: ['saas', 'marketplace', 'enterprise', 'ai'],
+    canLead: true,
+    website: 'https://wavemaker.vc/',
+    headquarters: 'Singapore',
+    mandateSummary: 'Early-stage technology investments across Southeast Asia and adjacent markets.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  {
+    catalogId: 'inv_insignia_sea',
+    name: 'Insignia Ventures Partners',
+    type: 'VC',
+    geography: 'sea',
+    geographies: ['sea', 'vn'],
+    stages: ['seed', 'series-a'],
+    themes: ['saas', 'fintech', 'marketplace', 'enterprise'],
+    canLead: true,
+    website: 'https://www.insignia.vc/',
+    headquarters: 'Singapore',
+    mandateSummary: 'Southeast Asia technology investments from seed through growth.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  {
+    catalogId: 'inv_vertex_sea',
+    name: 'Vertex Ventures SEA',
+    type: 'VC',
+    geography: 'sea',
+    geographies: ['sea', 'vn', 'global'],
+    stages: ['seed', 'series-a'],
+    themes: ['saas', 'fintech', 'marketplace', 'enterprise'],
+    canLead: true,
+    website: 'https://www.vertexventures.sg/',
+    headquarters: 'Singapore',
+    mandateSummary: 'Southeast Asia technology investments.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  // —— US / Europe (selected for stage/theme/international fit — not fame alone) ——
+  {
+    catalogId: 'inv_500_global',
+    name: '500 Global',
+    type: 'ACCELERATOR',
+    geography: 'global',
+    geographies: ['global', 'sea', 'au', 'us'],
+    stages: ['pre-seed', 'seed'],
+    themes: ['ai', 'saas', 'marketplace', 'fintech'],
+    canLead: false,
+    website: 'https://500.co/',
+    headquarters: 'San Francisco, USA',
+    mandateSummary: 'Global early-stage accelerator and seed investor.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  // —— Accelerator / program / strategic capital (separate class) ——
+  {
+    catalogId: 'inv_antler_au',
+    name: 'Antler Australia',
+    type: 'ACCELERATOR',
+    geography: 'au',
+    geographies: ['au', 'sea', 'global'],
+    stages: ['pre-seed', 'seed'],
+    themes: ['ai', 'saas', 'marketplace', 'commerce'],
+    canLead: false,
+    website: 'https://www.antler.co/australia',
+    headquarters: 'Sydney, Australia',
+    mandateSummary: 'Day-zero founder platform and pre-seed investing.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+  {
+    catalogId: 'inv_brinc_global',
+    name: 'Brinc',
+    type: 'ACCELERATOR',
+    geography: 'global',
+    geographies: ['global', 'sea', 'au'],
+    stages: ['pre-seed', 'seed'],
+    themes: ['marketplace', 'commerce', 'ai', 'enterprise'],
+    canLead: false,
+    website: 'https://www.brinc.io/',
+    headquarters: 'Hong Kong / Global',
+    mandateSummary: 'Accelerator and corporate innovation programs; investment model differs from institutional VC.',
+    chequeMinAud: null,
+    chequeMaxAud: null,
+    evidenceAsOf: '2026-09-01',
+  },
+];
+
+/** Seed-stage VC candidates prioritized for Cardbey calibration (2–4). */
+export const CARDBEY_SEED_CALIBRATION_CANDIDATE_IDS = [
+  'inv_blackbird_au',
+  'inv_airtree_au',
+  'inv_squarepeg_au',
+  'inv_rampersand_au',
+];
+
+export function getCapitalCohortById(catalogId) {
+  return CAPITAL_INVESTOR_RESEARCH_COHORT.find((r) => r.catalogId === catalogId) || null;
+}
+
+export function listSeedStageVcCohort() {
+  return CAPITAL_INVESTOR_RESEARCH_COHORT.filter(
+    (r) => r.type === 'VC' && r.stages.includes('seed'),
+  );
+}
