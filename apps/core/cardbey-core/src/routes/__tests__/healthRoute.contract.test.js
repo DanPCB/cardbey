@@ -57,6 +57,11 @@ describe('GET /api/health (contract)', () => {
     expect(res.body.api).toMatchObject({ ok: true });
     expect(res.body.database).toMatchObject({ ok: true });
     expect(res.body.sse).toMatchObject({ path: '/api/stream' });
+    expect(res.body.deploy).toMatchObject({
+      commitSha: expect.any(String),
+      environment: expect.any(String),
+      source: expect.any(String),
+    });
     expect(res.body.intake?.decisionLoop).toMatchObject({
       enabled: expect.any(Boolean),
       running: expect.any(Boolean),

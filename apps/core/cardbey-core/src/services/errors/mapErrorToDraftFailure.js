@@ -16,6 +16,9 @@ const SAFE_MESSAGES = {
   [DraftErrorCode.VALIDATION_ERROR]: 'Please check your input and try again.',
   [DraftErrorCode.RATE_LIMITED]: 'Too many requests. Please try again in a moment.',
   [DraftErrorCode.PROVIDER_ERROR]: 'A temporary service issue occurred. Please try again.',
+  [DraftErrorCode.GENERATE_DRAFT_FAILED]: "We couldn't finish preparing your store draft.",
+  [DraftErrorCode.STORE_BUILD_RUNTIME_DEPENDENCY_MISSING]:
+    "We couldn't finish preparing your store draft.",
   [DraftErrorCode.INTERNAL_ERROR]: 'Something went wrong. Please try again.',
 };
 
@@ -109,6 +112,23 @@ export function mapErrorToDraftFailure(err) {
       return {
         errorMessage: SAFE_MESSAGES[DraftErrorCode.PROVIDER_ERROR],
         errorCode: DraftErrorCode.PROVIDER_ERROR,
+        recommendedAction: RecommendedAction.retry,
+      };
+    }
+    if (code === DraftErrorCode.GENERATE_DRAFT_FAILED || code === 'GENERATE_DRAFT_FAILED') {
+      return {
+        errorMessage: SAFE_MESSAGES[DraftErrorCode.GENERATE_DRAFT_FAILED],
+        errorCode: DraftErrorCode.GENERATE_DRAFT_FAILED,
+        recommendedAction: RecommendedAction.retry,
+      };
+    }
+    if (
+      code === DraftErrorCode.STORE_BUILD_RUNTIME_DEPENDENCY_MISSING ||
+      code === 'STORE_BUILD_RUNTIME_DEPENDENCY_MISSING'
+    ) {
+      return {
+        errorMessage: SAFE_MESSAGES[DraftErrorCode.STORE_BUILD_RUNTIME_DEPENDENCY_MISSING],
+        errorCode: DraftErrorCode.STORE_BUILD_RUNTIME_DEPENDENCY_MISSING,
         recommendedAction: RecommendedAction.retry,
       };
     }

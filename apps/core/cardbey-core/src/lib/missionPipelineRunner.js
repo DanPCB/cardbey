@@ -762,13 +762,45 @@ async function runNextMissionPipelineStepBody(prisma, id) {
           ...(isPublishPending ? { publishFailed: true } : {}),
         }
       : {};
+  const structuredFailureFlat =
+    result.status === 'failed' &&
+    toolName === 'structured_store_build' &&
+    result.output &&
+    typeof result.output === 'object' &&
+    !Array.isArray(result.output)
+      ? {
+          ...(typeof result.output.draftId === 'string' ? { draftId: result.output.draftId } : {}),
+          ...(typeof result.output.generationRunId === 'string'
+            ? { generationRunId: result.output.generationRunId }
+            : {}),
+          ...(typeof result.output.jobId === 'string' ? { jobId: result.output.jobId } : {}),
+        }
+      : {};
+  const structuredFailureSlice =
+    result.status === 'failed' && toolName === 'structured_store_build'
+      ? {
+          ok: false,
+          ...(result.output && typeof result.output === 'object' && !Array.isArray(result.output)
+            ? result.output
+            : {}),
+          ...(result.error && typeof result.error === 'object' && !Array.isArray(result.error)
+            ? {
+                failureCode: result.error.code ?? result.output?.failureCode ?? null,
+                errorCode: result.error.code ?? result.output?.errorCode ?? null,
+                error: result.error.message ?? null,
+              }
+            : {}),
+        }
+      : null;
   const outputsToPersist =
     result.status === 'ok' || isPublishPending
       ? { ...priorOutputsAgg, ...structuredFlat, ...stepOutputs, [toolName]: stepOutputPayload ?? {} }
       : result.status === 'failed'
         ? {
             ...priorOutputsAgg,
+            ...structuredFailureFlat,
             ...stepOutputs,
+            ...(structuredFailureSlice ? { [toolName]: structuredFailureSlice } : {}),
             _failed: { tool: dispatchToolName, error: result.error ?? null, output: result.output ?? null },
           }
         : { ...priorOutputsAgg, ...stepOutputs };

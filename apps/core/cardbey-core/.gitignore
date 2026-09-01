@@ -17,6 +17,7 @@ uploads/
 
 # Ephemeral language-agent materialisation (seed under data/language-seed is committed)
 data/language-runtime/
+data/build-metadata.json
 
 # Maintenance patch backups — for local recovery only
 *.patch.bak

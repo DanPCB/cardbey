@@ -13,6 +13,8 @@ on:
       - 'package-lock.json'
       - 'prisma/**'
       - 'vitest.config.mjs'
+      - 'scripts/smoke-create-store-runtime-graph.mjs'
+      - 'scripts/render-predeploy.mjs'
   push:
     branches:
       - main
@@ -25,6 +27,8 @@ on:
       - 'package-lock.json'
       - 'prisma/**'
       - 'vitest.config.mjs'
+      - 'scripts/smoke-create-store-runtime-graph.mjs'
+      - 'scripts/render-predeploy.mjs'
 
 env:
   NODE_ENV: test
@@ -55,6 +59,12 @@ jobs:
 
       - name: Generate Prisma Client
         run: npx prisma generate --schema prisma/sqlite/schema.prisma
+
+      - name: Create-store runtime integrity gate
+        run: npm run gate:create-store-runtime
+
+      - name: Store research module import gate
+        run: npx vitest run src/lib/storeResearch/__tests__/businessEntityResolver.import.test.js
 
       - name: Prepare test database
         run: npx prisma db push --schema prisma/sqlite/schema.prisma --accept-data-loss
