@@ -223,20 +223,18 @@ describe('persistBeliefDelta', () => {
     expect(belief.pendingClarify).toBeNull();
   });
 
-  it('overwrites prior upload state when a new lastUpload patch is persisted', async () => {
-    const sessionKey = 'sess-overwrite-upload';
-    await persistBeliefDelta({
-      sessionKey,
-      lastUpload: {
-        imageRef: 'data:image/png;base64,new',
-        ocrText: 'NEW SHOP',
-        businessName: 'NEW SHOP',
-        sessionKey,
+  it('projects client cardExtraction into lastUpload.businessName for Ask', async () => {
+    const belief = await loadBelief({
+      sessionId: 'sess-client-ocr-hp',
+      sessionKey: 'sess-client-ocr-hp',
+      currentContext: {},
+      intentSourceContext: {
+        cardExtraction: { businessName: 'HP SERVICES', vertical: 'HVAC' },
+        pendingImageDataUrl: 'data:image/png;base64,hp',
       },
     });
-
-    const belief = await loadBelief({ sessionId: sessionKey, sessionKey, currentContext: {} });
-    expect(belief.lastUpload?.imageRef).toContain('new');
-    expect(belief.workflow?.type).toBe('upload_intake');
+    expect(belief.lastUpload).not.toBeNull();
+    expect(belief.lastUpload?.businessName).toBe('HP SERVICES');
+    expect(belief.lastUpload?.imageRef).toContain('data:image');
   });
 });

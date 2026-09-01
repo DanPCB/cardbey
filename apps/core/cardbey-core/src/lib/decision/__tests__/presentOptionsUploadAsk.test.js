@@ -33,4 +33,23 @@ describe('buildUploadGoalOptions attachment stamping', () => {
     expect(ctx.source).toBe('upload_ask_selection');
     expect(ctx.attachmentIds).toBeUndefined();
   });
+
+  it('uses I see your upload when no businessName', () => {
+    const { question, options } = buildUploadGoalOptions({
+      lastUpload: { imageRef: 'data:image/png;base64,x', businessName: null },
+    });
+    expect(question).toMatch(/I see your upload/i);
+    expect(options.find((o) => o.id === 'create_store')?.parameters?.storeName).toBeUndefined();
+  });
+
+  it('uses I read {name} when lastUpload.businessName set (client OCR projected)', () => {
+    const { question, options } = buildUploadGoalOptions({
+      lastUpload: {
+        imageRef: 'data:image/png;base64,hp',
+        businessName: 'HP SERVICES',
+      },
+    });
+    expect(question).toMatch(/I read HP SERVICES/i);
+    expect(options.find((o) => o.id === 'create_store')?.parameters?.storeName).toBe('HP SERVICES');
+  });
 });
