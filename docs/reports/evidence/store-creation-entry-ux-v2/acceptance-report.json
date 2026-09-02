@@ -1,0 +1,276 @@
+{
+  "mission": "STORE_CREATION_ENTRY_UX_V2_ACCEPTANCE",
+  "timestamp": "2026-09-02T20:51:07.234Z",
+  "environment": {
+    "dashboardBase": "http://127.0.0.1:5174",
+    "coreBase": "http://127.0.0.1:3001",
+    "dashboardSha": "0d05a3093de12023e759c5e5155884adfa438139",
+    "monorepoCoreSha": "ae08b84079823015d6992d47ef4af8f7a994137f",
+    "note": "Dashboard V2 may be local working-tree (uncommitted) when Vite serves disk"
+  },
+  "checks": [
+    {
+      "id": "legacy_no_user_reachable_old_form",
+      "ok": true,
+      "detail": "No USER-REACHABLE path emits legacy create_store formCard UI"
+    },
+    {
+      "id": "auth_register",
+      "ok": true,
+      "detail": "entryv2_matrix_1788382267240@example.test"
+    },
+    {
+      "id": "vp_390_no_h_overflow",
+      "ok": true,
+      "detail": "delta=0"
+    },
+    {
+      "id": "vp_390_ai_first_entry",
+      "ok": true,
+      "detail": "store-creation-entry-v2 visible"
+    },
+    {
+      "id": "vp_390_no_category_grid",
+      "ok": true,
+      "detail": "no Fashion on first step"
+    },
+    {
+      "id": "vp_390_no_location_field",
+      "ok": true,
+      "detail": "no default location field"
+    },
+    {
+      "id": "vp_390_dominant_clue",
+      "ok": true,
+      "detail": "clue input visible"
+    },
+    {
+      "id": "vp_390_primary_cta",
+      "ok": true,
+      "detail": "Continue visible"
+    },
+    {
+      "id": "vp_390_manual_fallback_link",
+      "ok": true,
+      "detail": "Enter details manually visible"
+    },
+    {
+      "id": "vp_390_scan_upload",
+      "ok": true,
+      "detail": "Scan + Upload present"
+    },
+    {
+      "id": "vp_390_keyboard_layout",
+      "ok": true,
+      "detail": "overflow=0"
+    },
+    {
+      "id": "vp_412_no_h_overflow",
+      "ok": true,
+      "detail": "delta=0"
+    },
+    {
+      "id": "vp_412_ai_first_entry",
+      "ok": true,
+      "detail": "store-creation-entry-v2 visible"
+    },
+    {
+      "id": "vp_412_no_category_grid",
+      "ok": true,
+      "detail": "no Fashion on first step"
+    },
+    {
+      "id": "vp_412_no_location_field",
+      "ok": true,
+      "detail": "no default location field"
+    },
+    {
+      "id": "vp_412_dominant_clue",
+      "ok": true,
+      "detail": "clue input visible"
+    },
+    {
+      "id": "vp_412_primary_cta",
+      "ok": true,
+      "detail": "Continue visible"
+    },
+    {
+      "id": "vp_412_manual_fallback_link",
+      "ok": true,
+      "detail": "Enter details manually visible"
+    },
+    {
+      "id": "vp_412_scan_upload",
+      "ok": true,
+      "detail": "Scan + Upload present"
+    },
+    {
+      "id": "vp_412_keyboard_layout",
+      "ok": true,
+      "detail": "overflow=0"
+    },
+    {
+      "id": "vp_430_no_h_overflow",
+      "ok": true,
+      "detail": "delta=0"
+    },
+    {
+      "id": "vp_430_ai_first_entry",
+      "ok": true,
+      "detail": "store-creation-entry-v2 visible"
+    },
+    {
+      "id": "vp_430_no_category_grid",
+      "ok": true,
+      "detail": "no Fashion on first step"
+    },
+    {
+      "id": "vp_430_no_location_field",
+      "ok": true,
+      "detail": "no default location field"
+    },
+    {
+      "id": "vp_430_dominant_clue",
+      "ok": true,
+      "detail": "clue input visible"
+    },
+    {
+      "id": "vp_430_primary_cta",
+      "ok": true,
+      "detail": "Continue visible"
+    },
+    {
+      "id": "vp_430_manual_fallback_link",
+      "ok": true,
+      "detail": "Enter details manually visible"
+    },
+    {
+      "id": "vp_430_scan_upload",
+      "ok": true,
+      "detail": "Scan + Upload present"
+    },
+    {
+      "id": "vp_430_keyboard_layout",
+      "ok": true,
+      "detail": "overflow=0"
+    },
+    {
+      "id": "vp_1440_no_h_overflow",
+      "ok": true,
+      "detail": "delta=0"
+    },
+    {
+      "id": "vp_1440_ai_first_entry",
+      "ok": true,
+      "detail": "store-creation-entry-v2 visible"
+    },
+    {
+      "id": "vp_1440_no_category_grid",
+      "ok": true,
+      "detail": "no Fashion on first step"
+    },
+    {
+      "id": "vp_1440_no_location_field",
+      "ok": true,
+      "detail": "no default location field"
+    },
+    {
+      "id": "vp_1440_dominant_clue",
+      "ok": true,
+      "detail": "clue input visible"
+    },
+    {
+      "id": "vp_1440_primary_cta",
+      "ok": true,
+      "detail": "Continue visible"
+    },
+    {
+      "id": "vp_1440_manual_fallback_link",
+      "ok": true,
+      "detail": "Enter details manually visible"
+    },
+    {
+      "id": "vp_1440_scan_upload",
+      "ok": true,
+      "detail": "Scan + Upload present"
+    },
+    {
+      "id": "auth_register_name",
+      "ok": true,
+      "detail": "entryv2_name_1788382340428@example.test"
+    },
+    {
+      "id": "name_only_path",
+      "ok": true,
+      "detail": "progressed past entry toward intelligence/create"
+    },
+    {
+      "id": "auth_register_url",
+      "ok": true,
+      "detail": "entryv2_url_1788382359978@example.test"
+    },
+    {
+      "id": "url_only_path",
+      "ok": true,
+      "detail": "URL clue reached intelligence/create path"
+    },
+    {
+      "id": "auth_register_desc",
+      "ok": true,
+      "detail": "entryv2_desc_1788382378056@example.test"
+    },
+    {
+      "id": "description_only_path",
+      "ok": true,
+      "detail": "description reached intelligence/create path"
+    },
+    {
+      "id": "manual_fallback",
+      "ok": true,
+      "detail": "detailed fields available"
+    },
+    {
+      "id": "upload_affordance",
+      "ok": true,
+      "detail": "Upload clicked — focuses canonical composer attach path"
+    }
+  ],
+  "legacyReachability": [
+    {
+      "path": "formCard.type === \"create_store\" → CreateStoreCardPlaceholder",
+      "classification": "UNREACHABLE",
+      "evidence": "No production setter emits formCard.type create_store; showCreateStoreFormForIntakeV2 redirects to store_creation_draft"
+    },
+    {
+      "path": "Intake V2 action create_store",
+      "classification": "USER-REACHABLE",
+      "evidence": "Converged → showStoreCreationDraft → StoreCreationDraftCard (V2 entry when empty)"
+    },
+    {
+      "path": "Chip / mission trigger Create a store for my business",
+      "classification": "USER-REACHABLE",
+      "evidence": "performerConsoleIntegration builds store_creation_draft bundle"
+    },
+    {
+      "path": "URL ?newStore=1&starter=create_store",
+      "classification": "USER-REACHABLE",
+      "evidence": "beginNewStoreCreation → Intake V2 create_store → draft card"
+    },
+    {
+      "path": "Passive generation confirm → showCreateStoreFormForIntakeV2",
+      "classification": "USER-REACHABLE",
+      "evidence": "Already aliased to showStoreCreationDraftForIntakeV2"
+    },
+    {
+      "path": "CreateStoreCardPlaceholder mount branch",
+      "classification": "TEST/LEGACY ONLY",
+      "evidence": "Mounted only if formCard.type create_store; tests may still construct it"
+    }
+  ],
+  "blockers": [],
+  "summary": {
+    "passed": 45,
+    "failed": 0,
+    "verdict": "STORE_CREATION_ENTRY_UX_V2_READY"
+  }
+}
