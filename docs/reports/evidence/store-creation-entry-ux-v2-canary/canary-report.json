@@ -1,0 +1,58 @@
+{
+  "mission": "STORE_CREATION_ENTRY_UX_V2_CANARY",
+  "timestamp": "2026-09-02T21:09:47.307Z",
+  "dashboardBase": "https://cardbey-dashboard-staging.onrender.com",
+  "coreBase": "https://cardbey-core-staging.onrender.com",
+  "shas": {
+    "coreHealth": {
+      "ok": true,
+      "status": "ok",
+      "env": "staging",
+      "timestamp": "2026-09-02T21:09:46.382Z",
+      "version": "1.0.0"
+    },
+    "dashboardHtmlSnippet": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-w"
+  },
+  "checks": [
+    {
+      "id": "core_health",
+      "ok": true,
+      "detail": "{\"ok\":true,\"status\":\"ok\",\"env\":\"staging\",\"timestamp\":\"2026-09-02T21:09:46.382Z\",\"version\":\"1.0.0\"}"
+    },
+    {
+      "id": "dashboard_reachable",
+      "ok": true,
+      "detail": "status html len=4335 hint=true"
+    },
+    {
+      "id": "canary_412_entry",
+      "ok": true,
+      "detail": "AI-first entry"
+    },
+    {
+      "id": "canary_1440_entry",
+      "ok": true,
+      "detail": "AI-first entry"
+    },
+    {
+      "id": "canary_name_only",
+      "ok": true,
+      "detail": "intelligence/create path"
+    },
+    {
+      "id": "canary_url_only",
+      "ok": true,
+      "detail": "intelligence path"
+    },
+    {
+      "id": "canary_manual_fallback",
+      "ok": true,
+      "detail": "detailed fields available"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 0,
+    "verdict": "CANARY_PASS"
+  }
+}
