@@ -1,7 +1,9 @@
 # Golden Path Gate — Store Creation Entry UX V2
 
 **Gate ID:** `CARDBEY_V1_GOLDEN_PATH_STORE_CREATION_ENTRY_UX_V2`  
-**Status:** LOCKED (implementation accepted; staging canary required after deploy)  
+**Status:** LOCKED  
+**Staging canary:** **PASS** (2026-09-03)
+
 **Contract (frozen):**
 
 ```
@@ -18,30 +20,31 @@ Create Store → one clue → understand/research → ask only for genuinely mis
 6. One engine: Intake V2 + store creation draft + research/create pipeline. No parallel creators.
 7. Further work improves **intelligence/reliability behind** this entry — do **not** gradually add fields back onto the first step.
 
-## Deploy pins (fill after staging canary)
+## Deploy pins
 
-| Service | SHA |
-|---------|-----|
-| Dashboard (`cardbey-marketing-dashboard` staging) | `489f1c9d` (PRs [#280](https://github.com/DanPCB/cardbey-marketing-dashboard/pull/280), [#281](https://github.com/DanPCB/cardbey-marketing-dashboard/pull/281)) |
-| Monorepo submodule bump | `chore/bump-dashboard-store-creation-entry-v2` → staging |
-| Core staging | _(record at canary)_ |
+| Service | SHA / note |
+|---------|------------|
+| Dashboard staging | `fa8b8cc1` (PRs [#280](https://github.com/DanPCB/cardbey-marketing-dashboard/pull/280)–[#282](https://github.com/DanPCB/cardbey-marketing-dashboard/pull/282)); bundle contained `store-creation-entry-v2` |
+| Monorepo staging bump | PR [#329](https://github.com/DanPCB/cardbey/pull/329) @ `a7f58366` (submodule was `489f1c9d`; canary script follow-up on dashboard) |
+| Core staging | health `ok` / `env=staging` at canary time |
 
 ## Regression canary (keep small)
 
-Script: `apps/dashboard/cardbey-marketing-dashboard/scripts/store-creation-entry-ux-v2-canary.mjs`
+Script: `apps/dashboard/cardbey-marketing-dashboard/scripts/store-creation-entry-ux-v2-canary.mjs`  
+Evidence: `docs/reports/evidence/store-creation-entry-ux-v2-canary/`
 
-| Case | Expect |
+| Case | Result |
 |------|--------|
-| 412px entry | AI-first card; no category grid; no default location |
-| 1440px entry | Compact AI-first entry |
-| Name-only `HP Services` | Intelligence/create path (not full manual form) |
-| URL-only | Intelligence path without pre-research category/location form |
-| Manual fallback | Detailed fields available |
+| 412px entry | PASS |
+| 1440px entry | PASS |
+| Name-only `HP Services` | PASS |
+| URL-only | PASS |
+| Manual fallback | PASS |
 
-Full matrix (45 checks) is optional; do not require it for every deploy.
+Verdict: **CANARY_PASS** (7/7)
 
 ## Related
 
 - Impact: `docs/reports/IMPACT_REPORT_STORE_CREATION_ENTRY_UX_V2.md`
-- Evidence: `docs/reports/evidence/store-creation-entry-ux-v2/`
+- Local acceptance evidence: `docs/reports/evidence/store-creation-entry-ux-v2/`
 - Day 2/3 entry + intelligence-first gates remain in force
