@@ -227,4 +227,30 @@ Facebook: PTH`;
       expect(truncateRawTextForPayload(undefined)).toBe('');
     });
   });
+
+  describe('HP Services vs trade tagline ranking', () => {
+    it('prefers HP Services when tagline is above the brand', () => {
+      const raw = `
+HEATING & COOLING & ELECTRICAL
+HP Services
+Maintenance, Servicing & Installation
+04 8765 4321
+info@hpservices.example
+www.hpservices.example
+`;
+      const result = parseBusinessCardOCR(raw, { country: 'AU' });
+      expect(result.extractedEntities.businessName).toMatch(/HP Services/i);
+    });
+
+    it('prefers HP Services when brand is first', () => {
+      const raw = `
+HP Services
+HEATING & COOLING & ELECTRICAL
+04 8765 4321
+info@hpservices.example
+`;
+      const result = parseBusinessCardOCR(raw, { country: 'AU' });
+      expect(result.extractedEntities.businessName).toMatch(/HP Services/i);
+    });
+  });
 });
