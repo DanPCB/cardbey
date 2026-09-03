@@ -1,9 +1,9 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
- * Wave 1 — Store Creation Release Closure canary (staging).
+ * Wave 1 ΓÇö Store Creation Release Closure canary (staging).
  *
  * Covers:
- *   W1.1 HP Services full chain (intake → build → preview → refresh → publish attempt)
+ *   W1.1 HP Services full chain (intake ΓåÆ build ΓåÆ preview ΓåÆ refresh ΓåÆ publish attempt)
  *   W1.2 Ambiguous / insufficient clarify (no invent)
  *   W1.3 Bounded ~12 fixture cohort matrix
  *
@@ -118,7 +118,7 @@ async function startMission(message, guestSession, token, formOverrides = {}) {
   const intake = await postIntake(message, guestSession, token);
   const fields = { ...extractDraftFields(intake.json), ...formOverrides };
   if (!fields.storeName) {
-    // Name-only clue → use message as provisional name when draft empty
+    // Name-only clue ΓåÆ use message as provisional name when draft empty
     fields.storeName = String(message).replace(/^https?:\/\//i, '').split(/[/?#]/)[0].slice(0, 80) || 'Wave1 Business';
   }
   const start = await postIntake(message, guestSession, token, {
@@ -238,9 +238,23 @@ async function attemptPublish(draftId, generationRunId, token) {
     (pub.json?.slug ? `${DASHBOARD}/s/${pub.json.slug}` : null) ||
     (pub.json?.store?.slug ? `${DASHBOARD}/s/${pub.json.store.slug}` : null);
   let liveOk = null;
-  if (pub.ok && liveUrl) {
-    const live = await fetchText(liveUrl.startsWith('http') ? liveUrl : `${DASHBOARD}${liveUrl}`);
-    liveOk = live.ok;
+  let publicApiStatus = null;
+  if (pub.ok) {
+    const slug =
+      pub.json?.slug ||
+      pub.json?.store?.slug ||
+      (typeof liveUrl === 'string' && liveUrl.includes('/s/') ? liveUrl.split('/s/')[1]?.split(/[?#]/)[0] : null);
+    if (slug) {
+      const publicApi = await fetchJson(`${CORE}/api/public/stores/${encodeURIComponent(slug)}`);
+      publicApiStatus = publicApi.status;
+      liveOk = publicApi.ok;
+      if (!liveUrl) liveUrl = `${DASHBOARD}/s/${slug}`;
+    } else if (liveUrl) {
+      // Fallback: SPA shell always 200 — do not treat as public truth.
+      const live = await fetchText(liveUrl.startsWith('http') ? liveUrl : `${DASHBOARD}${liveUrl}`);
+      liveOk = live.ok;
+      publicApiStatus = 'spa_only_unchecked';
+    }
   }
   return {
     attempted: true,
@@ -249,7 +263,10 @@ async function attemptPublish(draftId, generationRunId, token) {
     error: pub.json?.error || pub.json?.message || (!pub.ok ? pub.raw : null),
     liveUrl,
     liveOk,
+    publicApiStatus,
     storeId: pub.json?.storeId || pub.json?.committedStoreId || null,
+    slug: pub.json?.slug || null,
+    publishSource: pub.json?.publishSource || null,
   };
 }
 
@@ -315,9 +332,15 @@ async function runFullChain({ id, input, formOverrides = {}, doPublish = false, 
       row.publish = await attemptPublish(row.draftId, row.generationRunId, token);
       if (!row.publish.ok) {
         row.failure = `publish:${row.publish.error || row.publish.status}`;
-        // Preview chain still counts as partial success for W1.1 if publish blocked by auth/config
         row.pass = true;
         row.passNote = 'build_preview_pass_publish_blocked';
+        row.elapsedMs = Date.now() - started;
+        return row;
+      }
+      if (row.publish.liveOk === false) {
+        row.failure = `publish_ok_but_public_404:${row.publish.publicApiStatus}`;
+        row.pass = true;
+        row.passNote = 'publish_api_ok_public_not_eligible';
         row.elapsedMs = Date.now() - started;
         return row;
       }
@@ -346,7 +369,7 @@ async function runClarify({ id, input, guestSession, token, expect }) {
   if (expect === 'clarify') {
     pass = action === 'clarify' && !invented;
   } else if (expect === 'clarify_or_sparse') {
-    // Ambiguous/insufficient must ASK_USER or fail-closed — not "Ready to create" as complete identity.
+    // Ambiguous/insufficient must ASK_USER or fail-closed ΓÇö not "Ready to create" as complete identity.
     const claimsComplete = /everything looks complete|ready to create your store/i.test(response);
     pass =
       !invented &&
@@ -434,7 +457,7 @@ const COHORT = [
 ];
 
 async function main() {
-  console.log('Wave 1 — Store Creation Release Closure canary');
+  console.log('Wave 1 ΓÇö Store Creation Release Closure canary');
   console.log(`Core: ${CORE}`);
   console.log(`Dashboard: ${DASHBOARD}`);
   console.log(`Skip publish: ${SKIP_PUBLISH}  HP-only: ${HP_ONLY}\n`);
@@ -444,7 +467,7 @@ async function main() {
     console.error('Core staging unhealthy', health.status, health.raw);
     process.exit(1);
   }
-  console.log(`[PASS] Core health — ${health.json?.env || 'ok'}`);
+  console.log(`[PASS] Core health ΓÇö ${health.json?.env || 'ok'}`);
 
   const guest = await createGuestToken();
   if (!guest.ok) {
@@ -458,7 +481,7 @@ async function main() {
   const results = [];
 
   for (const fx of fixtures) {
-    process.stdout.write(`\n→ ${fx.id} (${fx.kind}) … `);
+    process.stdout.write(`\nΓåÆ ${fx.id} (${fx.kind}) ΓÇª `);
     let row;
     if (fx.kind === 'full') {
       row = await runFullChain({
@@ -507,11 +530,15 @@ async function main() {
     dashboard: DASHBOARD,
     verdicts: {
       W1_1_HP_SERVICES: hp?.pass
-        ? hp.publish?.ok
-          ? 'PASS_FULL_INCLUDING_PUBLISH'
-          : hp.passNote === 'build_preview_pass_publish_blocked'
-            ? 'PASS_BUILD_PREVIEW_PUBLISH_BLOCKED'
-            : 'PASS_BUILD_PREVIEW'
+        ? hp.publish?.ok && hp.publish?.liveOk
+          ? 'PASS_FULL_INCLUDING_PUBLISH_PUBLIC'
+          : hp.passNote === 'publish_api_ok_public_not_eligible'
+            ? 'PASS_PUBLISH_API_PUBLIC_GUEST_BLOCKED'
+            : hp.passNote === 'build_preview_pass_publish_blocked'
+              ? 'PASS_BUILD_PREVIEW_PUBLISH_BLOCKED'
+              : hp.publish?.ok
+                ? 'PASS_PUBLISH_API'
+                : 'PASS_BUILD_PREVIEW'
         : 'FAIL',
       W1_2_CLARIFY_NO_INVENT: clarifyPass ? 'PASS' : 'FAIL',
       W1_3_COHORT: results.every((r) => r.pass) ? 'PASS' : 'PARTIAL',
