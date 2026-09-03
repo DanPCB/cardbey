@@ -18,6 +18,11 @@ import {
   listRecentRuntimeDiagnostics,
   parseDiagnosticIngestBody,
 } from '../lib/runtimeDiagnostics/index.js';
+import {
+  getDeployMetadata,
+  resolveCommitSha,
+  resolveDeployEnvironment,
+} from '../lib/deployMetadata.js';
 
 const router = express.Router();
 
@@ -29,22 +34,6 @@ function readPackageVersion() {
   } catch {
     return '0.0.0';
   }
-}
-
-function resolveCommitSha() {
-  return (
-    process.env.RENDER_GIT_COMMIT?.trim() ||
-    process.env.GIT_COMMIT?.trim() ||
-    process.env.COMMIT_SHA?.trim() ||
-    'unknown'
-  );
-}
-
-function resolveEnvironment() {
-  const nodeEnv = String(process.env.NODE_ENV || 'development').toLowerCase();
-  if (nodeEnv === 'production') return 'production';
-  if (String(process.env.RENDER_SERVICE_NAME || '').includes('staging')) return 'staging';
-  return nodeEnv === 'test' ? 'development' : nodeEnv;
 }
 
 async function readStorageSnapshot() {
@@ -76,12 +65,13 @@ const ingestRateLimit = rateLimit({
 
 router.get('/version', async (_req, res) => {
   const storage = await readStorageSnapshot();
+  const deploy = getDeployMetadata();
   return res.status(200).json({
     ok: true,
     service: 'cardbey-core',
-    environment: resolveEnvironment(),
+    environment: resolveDeployEnvironment(),
     commitSha: resolveCommitSha(),
-    buildTime: process.env.BUILD_TIME?.trim() || null,
+    buildTime: deploy.buildTime,
     version: readPackageVersion(),
     runtimeDiagnosticsEnabled: isRuntimeDiagnosticsEnabled(),
     storage,

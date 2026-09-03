@@ -267,7 +267,12 @@ export function buildSchemaFingerprint(options = {}) {
     provider === 'sqlite' && resolvedDbPath
       ? buildTableColumnFingerprint(resolvedDbPath)
       : { tableColumnHash: null, tables: {}, tableCount: 0 };
-  const required = checkRequiredColumns(tables);
+  const required =
+    provider === 'sqlite' && resolvedDbPath
+      ? checkRequiredColumns(tables)
+      : provider === 'postgres' || provider === 'postgres_proxy'
+        ? { requiredColumnsOk: null, requiredColumns: {} }
+        : checkRequiredColumns(tables);
   const migrationDrift =
     provider === 'sqlite' && resolvedDbPath
       ? analyzeMigrationDrift(resolvedDbPath, options.migrationsDir)
@@ -481,6 +486,7 @@ export function buildHealthDbFingerprint() {
   }
   if (fp.schemaHashMatch === false) warnings.push('schema_prisma_hash_mismatch');
   if (fp.tableHashMatch === false) warnings.push('table_column_hash_mismatch');
+  if (fp.requiredColumnsOk === false) warnings.push('required_columns_missing');
   if (isProd && fp.provider === 'sqlite') warnings.push('sqlite_in_production');
 
   const migrationOk = migrationHealth === 'ok' || migrationHealth === 'accepted';
@@ -509,5 +515,45 @@ export function buildHealthDbFingerprint() {
     migrationHealth,
     baselineAccepted: migrationHealth === 'accepted',
     warnings,
+  };
+}
+
+/**
+ * Live required-column check (Postgres uses information_schema; SQLite uses fingerprint tables).
+ * @returns {Promise<{ provider: string, requiredColumnsOk: boolean | null, requiredColumnStatus: object }>}
+ */
+export async function checkRequiredColumnsLive() {
+  const fp = buildSchemaFingerprint();
+  if (fp.provider === 'sqlite') {
+    return {
+      provider: fp.provider,
+      requiredColumnsOk: fp.requiredColumnsOk,
+      requiredColumnStatus: fp.requiredColumnStatus ?? {},
+    };
+  }
+  if (fp.provider === 'postgres' || fp.provider === 'postgres_proxy') {
+    const { getPrismaClient } = await import('./prisma.js');
+    const prisma = getPrismaClient();
+    /** @type {Record<string, string[]>} */
+    const tableMap = {};
+    for (const table of Object.keys(REQUIRED_COLUMNS)) {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = $1`,
+        table,
+      );
+      tableMap[table] = (rows || []).map((r) => r.column_name);
+    }
+    const required = checkRequiredColumns(tableMap);
+    return {
+      provider: fp.provider,
+      requiredColumnsOk: required.requiredColumnsOk,
+      requiredColumnStatus: required.requiredColumns,
+    };
+  }
+  return {
+    provider: fp.provider,
+    requiredColumnsOk: null,
+    requiredColumnStatus: {},
   };
 }

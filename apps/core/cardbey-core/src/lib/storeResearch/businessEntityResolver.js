@@ -110,30 +110,6 @@ export function unwrapPlacesSearchRow(row) {
   return row;
 }
 
-/**
- * `searchGooglePlaces` returns `{ source, attribution, raw }`. Identity matching
- * must read the nested `raw` fields (name, placeId, website, address).
- * @param {object} row
- */
-export function unwrapPlacesSearchRow(row) {
-  if (!row || typeof row !== 'object') return row;
-  const nested = row.raw;
-  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-    if (
-      nested.name != null ||
-      nested.businessName != null ||
-      nested.placeId != null ||
-      nested.sourceId != null ||
-      nested.website != null ||
-      nested.address != null ||
-      nested.formattedAddress != null
-    ) {
-      return nested;
-    }
-  }
-  return row;
-}
-
 function rawToCandidate(raw, index, input) {
   const name = cleanString(raw.businessName ?? raw.name) || input.businessName;
   const phone = normalizePhone(cleanString(raw.phone)) ?? undefined;

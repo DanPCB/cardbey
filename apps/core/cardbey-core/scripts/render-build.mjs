@@ -83,6 +83,7 @@ run('npm install --prefix ../../../packages/template-engine');
 run('npm run build --prefix ../../../packages/template-engine');
 run('npm ci');
 run('npm rebuild esbuild');
+run('node scripts/write-build-metadata.mjs');
 run('npm run build');
 
 const pip = 'pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled"';
