@@ -1,0 +1,39 @@
+{
+  "started": "2026-09-03T07:42:39.915Z",
+  "finished": "2026-09-03T07:42:42.940Z",
+  "mode": "force-primary",
+  "base": "http://127.0.0.1:3011",
+  "coreShaHint": "c4de8e316-local",
+  "health": {
+    "ok": true,
+    "status": "ok",
+    "env": "development",
+    "timestamp": "2026-09-03T07:42:39.935Z",
+    "version": "1.0.0"
+  },
+  "httpStatus": 200,
+  "ok": true,
+  "businessName": "HP Services",
+  "location": null,
+  "vertical": null,
+  "confidence": 0.8,
+  "providerUsed": "anthropic_vision",
+  "didFallback": true,
+  "classification": "SUCCESS",
+  "attempts": [
+    {
+      "provider": "openai_vision",
+      "classification": "QUOTA_EXHAUSTED",
+      "attempt": 1,
+      "latencyMs": 0
+    },
+    {
+      "provider": "anthropic_vision",
+      "classification": "SUCCESS",
+      "attempt": 2,
+      "latencyMs": 2947
+    }
+  ],
+  "message": null,
+  "warning": null
+}
