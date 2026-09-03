@@ -220,7 +220,36 @@ function extractAddress(lines) {
 
 /**
  * Business name: score top ~8 lines; exclude assistant boilerplate, contact lines, digit-heavy.
+ * Prefer entity-style names (e.g. "HP Services") over trade-category taglines
+ * (e.g. "HEATING & COOLING & ELECTRICAL").
  */
+function looksLikeTradeCategoryTagline(line) {
+  const t = String(line || '').trim();
+  if (!t) return false;
+  // Multi-trade joined by & / and — typical service headline, not legal entity name.
+  if (
+    /heating\s*&\s*cooling/i.test(t) ||
+    /cooling\s*&\s*electrical/i.test(t) ||
+    /plumbing\s*&\s*(?:gas|heating|electrical)/i.test(t)
+  ) {
+    if (!/\b(?:pty|ltd|llc|inc|co\.|company|group|services|studio|salon|cafe|bakery)\b/i.test(t)) {
+      return true;
+    }
+  }
+  const ampParts = t.split(/\s*&\s*/).filter(Boolean);
+  if (ampParts.length >= 3 && t.length > 20 && !/\b(?:pty|ltd|services)\b/i.test(t)) {
+    return true;
+  }
+  if (
+    /^(?:maintenance|servicing|installation|repairs?)(?:\s*[,&/|]\s*(?:maintenance|servicing|installation|repairs?))+$/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function scoreBusinessNameLine(line, index, totalLines) {
   if (!line || line.length < 2) return -1000;
   if (/text\s+extracted\s+from\s+(?:the\s+)?image/i.test(line)) return -1000;
@@ -234,6 +263,10 @@ function scoreBusinessNameLine(line, index, totalLines) {
   const digitCount = (line.match(/\d/g) || []).length;
   if (digitCount > line.length * 0.3) score -= 3;
   if (LABEL_RE.test(line)) score -= 2;
+  if (looksLikeTradeCategoryTagline(line)) score -= 5;
+  if (/\bservices\b/i.test(line) && line.length <= 40 && !looksLikeTradeCategoryTagline(line)) {
+    score += 2;
+  }
   return score;
 }
 

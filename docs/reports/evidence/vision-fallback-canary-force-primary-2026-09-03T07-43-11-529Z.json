@@ -1,0 +1,26 @@
+{
+  "started": "2026-09-03T07:43:11.529Z",
+  "finished": "2026-09-03T07:43:11.622Z",
+  "mode": "force-primary",
+  "base": "http://127.0.0.1:3011",
+  "coreShaHint": "c4de8e316-local-no-anthropic",
+  "health": {
+    "ok": true,
+    "status": "ok",
+    "env": "development",
+    "timestamp": "2026-09-03T07:43:11.554Z",
+    "version": "1.0.0"
+  },
+  "httpStatus": 503,
+  "ok": false,
+  "businessName": null,
+  "location": null,
+  "vertical": null,
+  "confidence": null,
+  "providerUsed": "anthropic_vision",
+  "didFallback": true,
+  "classification": "VISION_PROVIDERS_UNAVAILABLE",
+  "attempts": null,
+  "message": "I couldn't process the image right now. Try again, or tell me the business name to continue.",
+  "warning": null
+}

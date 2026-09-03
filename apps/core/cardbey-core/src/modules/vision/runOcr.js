@@ -6,13 +6,18 @@
 
 import { openaiVisionEngine } from '../../ai/engines/openaiVisionEngine.js';
 import { postAnthropicMessages } from '../../lib/llm/anthropicProvider.js';
+import { resolveAnthropicModel } from '../../lib/llm/anthropicModelConfig.js';
 
-function anthropicEnabled() {
+export function isAnthropicOcrConfigured() {
   return (
     process.env.ANTHROPIC_DISABLED !== '1' &&
     process.env.ANTHROPIC_DISABLED !== 'true' &&
-    Boolean(process.env.ANTHROPIC_API_KEY)
+    Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim())
   );
+}
+
+function anthropicEnabled() {
+  return isAnthropicOcrConfigured();
 }
 
 /**
@@ -40,33 +45,33 @@ async function toBase64ForAnthropic(inputUrl) {
 }
 
 /**
- * Anthropic vision fallback: OCR-only transcription.
- * @param {{ imageUrl: string, task: string }} params
+ * Anthropic vision OCR-only transcription (reuses existing Anthropic client).
+ * @param {{ imageUrl: string, task?: string }} params
  * @returns {Promise<string|null>}
  */
-async function runAnthropicOcrFallback(params) {
+export async function runAnthropicOcrFallback(params) {
   if (!anthropicEnabled()) return null;
   const media = await toBase64ForAnthropic(params.imageUrl);
   if (!media) return null;
 
+  const task = params.task || 'business_card';
   let prompt =
     'Extract all text from this image. Return only the raw text, line by line, exactly as it appears.';
-  if (params.task === 'menu') {
+  if (task === 'menu') {
     prompt =
       'Extract all text from this menu image. Return only the raw text, line by line, exactly as it appears. Do not add any formatting or interpretation.';
-  } else if (params.task === 'business_card') {
+  } else if (task === 'business_card') {
     prompt =
       "Output ONLY the extracted text from this image. Preserve line breaks. No explanations, no disclaimers, no assistant voice. If the image is unreadable or not text, output nothing (empty). Do not write \"I cannot\" or \"I'm sorry\" or any reply—only the raw text visible in the image.";
-  } else if (params.task === 'loyalty_card') {
+  } else if (task === 'loyalty_card') {
     prompt =
       'Extract text from this loyalty card image. Focus on stamp count, reward description, and card title. Return the text exactly as it appears.';
-  } else if (params.task === 'intake_preprocess' || params.task === 'intake_promo') {
-    // Keep fallback simple; caller expects OCR text.
+  } else if (task === 'intake_preprocess' || task === 'intake_promo') {
     prompt =
       'Transcribe ALL readable text verbatim. Preserve the original language and line breaks. Plain text only.';
   }
 
-  const model = process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-4-20250514';
+  const model = resolveAnthropicModel();
   const r = await postAnthropicMessages({
     model,
     max_tokens: 2000,
@@ -84,11 +89,39 @@ async function runAnthropicOcrFallback(params) {
     ],
   });
 
-  if (r?.error) return null;
+  if (r?.error) {
+    const err = new Error(r.error?.message || r.error || 'Anthropic OCR failed');
+    err.code = r.error?.type || r.error?.code;
+    throw err;
+  }
   const text = (r?.content?.[0]?.text ?? r?.text ?? '').trim();
-  if (!text) return null;
-  if (isRefusalResponse(text)) return null;
+  if (!text) return '';
+  if (isRefusalResponse(text)) return text;
   return text;
+}
+
+/**
+ * Normalized Anthropic OCR result for the fallback orchestrator.
+ * @param {{ imageDataUrl?: string, imageBuffer?: Buffer, mimeType?: string, task?: string }} input
+ * @returns {Promise<{ text: string, provider: string }>}
+ */
+export async function anthropicOcrExtractText(input) {
+  let imageUrl = input?.imageDataUrl;
+  if (!imageUrl && input?.imageBuffer && Buffer.isBuffer(input.imageBuffer)) {
+    const mime = input.mimeType || 'image/jpeg';
+    imageUrl = `data:${mime};base64,${input.imageBuffer.toString('base64')}`;
+  }
+  if (!imageUrl) {
+    return { text: '', provider: 'anthropic_vision' };
+  }
+  const text = await runAnthropicOcrFallback({
+    imageUrl,
+    task: input?.task || 'business_card',
+  });
+  return {
+    text: typeof text === 'string' ? text.trim() : '',
+    provider: 'anthropic_vision',
+  };
 }
 
 /** Phrases that indicate the vision model refused to extract text (not actual OCR output). */
@@ -201,10 +234,13 @@ export async function runOcr(imageUrl, opts) {
     const text = (result.text || '').trim();
     if (isRefusalResponse(text)) {
       console.warn('[OCR] Vision model returned a refusal instead of extracted text:', text.slice(0, 80));
-      const fallback = await runAnthropicOcrFallback({ imageUrl, task }).catch(() => null);
-      if (fallback && fallback.trim()) {
-        console.log('[OCR] Anthropic fallback succeeded, chars:', fallback.trim().length);
-        return fallback.trim();
+      // business_card: leave Anthropic to ocrFallback sequential chain (avoid double-call).
+      if (task !== 'business_card') {
+        const fallback = await runAnthropicOcrFallback({ imageUrl, task }).catch(() => null);
+        if (fallback && fallback.trim() && !isRefusalResponse(fallback)) {
+          console.log('[OCR] Anthropic fallback succeeded, chars:', fallback.trim().length);
+          return fallback.trim();
+        }
       }
       throw new Error(
         'OCR did not return extracted text. The vision model declined to process the image. ' +
