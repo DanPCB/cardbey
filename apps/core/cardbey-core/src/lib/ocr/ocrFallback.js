@@ -140,7 +140,13 @@ async function runProviderAttempt(provider, run, attemptNum, attempts) {
  * }>}
  */
 export async function extractTextWithFallback(params) {
-  const { imageDataUrl, imageBuffer, mimeType, purpose = 'business_card' } = params || {};
+  const {
+    imageDataUrl,
+    imageBuffer,
+    mimeType,
+    purpose = 'business_card',
+    canaryForcePrimaryFail = null,
+  } = params || {};
   const attempts = [];
   const debug = {};
 
@@ -161,8 +167,11 @@ export async function extractTextWithFallback(params) {
       id: 'openai_vision',
       run: async () => {
         // Staging/local canary only: force primary failure without burning quota.
-        // Requires ALLOW_OCR_CANARY_FORCE=1 (or CARD_BEY_ENV/RENDER service name containing staging).
-        const force = String(process.env.OCR_CANARY_FORCE_PRIMARY_FAIL || '').trim().toLowerCase();
+        const force = String(
+          canaryForcePrimaryFail || process.env.OCR_CANARY_FORCE_PRIMARY_FAIL || '',
+        )
+          .trim()
+          .toLowerCase();
         const allowForce =
           process.env.ALLOW_OCR_CANARY_FORCE === '1' ||
           process.env.ALLOW_OCR_CANARY_FORCE === 'true' ||

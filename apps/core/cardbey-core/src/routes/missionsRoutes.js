@@ -286,9 +286,13 @@ router.post('/extract-card', requireAuth, async (req, res) => {
 
     let ocrResult;
     try {
+      const rawForce = req.body?.ocrCanaryForcePrimary;
+      const canaryForcePrimaryFail =
+        typeof rawForce === 'string' && rawForce.trim() ? rawForce.trim().toLowerCase() : null;
       ocrResult = await extractTextWithFallback({
         imageDataUrl: cardImageDataUrl,
         purpose: 'business_card',
+        canaryForcePrimaryFail,
       });
     } catch (ocrErr) {
       console.error('[extract-card] OCR error:', ocrErr?.message || ocrErr);
@@ -451,6 +455,14 @@ router.post('/extract-card', requireAuth, async (req, res) => {
       providerUsed: ocrResult?.providerUsed ?? null,
       didFallback: Boolean(ocrResult?.didFallback),
       classification: ocrClassification || 'SUCCESS',
+      attempts: Array.isArray(ocrResult?.attempts)
+        ? ocrResult.attempts.map((a) => ({
+            provider: a.provider,
+            classification: a.classification,
+            attempt: a.attempt,
+            latencyMs: a.latencyMs,
+          }))
+        : undefined,
     }, req);
   } catch (err) {
     console.error('[extract-card] failed:', err?.message || err);
