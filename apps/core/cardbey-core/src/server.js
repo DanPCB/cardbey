@@ -322,6 +322,7 @@ import {
   liveMarketPublicRoutes,
   liveMarketParticipantRoutes,
   liveMarketMeRoutes,
+  liveMarketCloudflareWebhookRoutes,
 } from './lib/liveMarket/routes.js';
 import {
   globalLiveEoiPublicRoutes,
@@ -1105,6 +1106,7 @@ app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /
 app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
 app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
 app.use('/api/me/live-market', liveMarketMeRoutes); // Live Market my registrations (flag-gated)
+app.use('/api/webhooks/cloudflare', liveMarketCloudflareWebhookRoutes); // Stream Live Input notifications
 app.use('/api/me/global-live', globalLiveEoiMeRoutes); // Global Live EOI applicant applications (flag-gated)
 app.use('/api/notifications', notificationsRoutes); // GET /api/notifications, POST /api/notifications/:id/read
 app.use('/api/store', storesRoutes); // Store context routes: /api/store/context, /api/store/:id/context
