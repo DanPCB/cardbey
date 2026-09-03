@@ -1,0 +1,40 @@
+﻿{
+    "coreSha":  "9104f6456",
+    "started":  "2026-09-03T07:51:33.3457059Z",
+    "step2":  {
+                  "missionId":  null,
+                  "action":  "create_store",
+                  "businessName":  null,
+                  "response":  "What kind of business do you want to create? A name, website, or short description is enough to get started.",
+                  "websitePreviewUrl":  null,
+                  "draftId":  null,
+                  "success":  true,
+                  "keys":  [
+                               "success",
+                               "action",
+                               "intentMode",
+                               "storeCreationDraft",
+                               "missingFields",
+                               "response",
+                               "businessType",
+                               "fallbackReason",
+                               "runtimeState",
+                               "capabilityContext",
+                               "reasoningFeedback",
+                               "dispatchLogId",
+                               "classificationIntent",
+                               "matchedSkill",
+                               "performerMode",
+                               "memoryLoadStatus"
+                           ],
+                  "storeId":  null,
+                  "previewUrl":  null
+              },
+    "step1":  {
+                  "isComplete":  true,
+                  "canProceed":  true,
+                  "businessName":  "store for HP Services",
+                  "action":  "create_store"
+              },
+    "mode":  "staging-e2e-confirm"
+}
