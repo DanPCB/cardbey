@@ -1,0 +1,39 @@
+{
+  "started": "2026-09-03T07:50:32.713Z",
+  "finished": "2026-09-03T07:50:41.217Z",
+  "mode": "primary",
+  "base": "https://cardbey-core-staging.onrender.com",
+  "coreShaHint": "9104f6456",
+  "health": {
+    "ok": true,
+    "status": "ok",
+    "env": "staging",
+    "timestamp": "2026-09-03T07:50:32.084Z",
+    "version": "1.0.0"
+  },
+  "httpStatus": 200,
+  "ok": true,
+  "businessName": "HP Services",
+  "location": null,
+  "vertical": null,
+  "confidence": 0.8,
+  "providerUsed": "anthropic_vision",
+  "didFallback": true,
+  "classification": "SUCCESS",
+  "attempts": [
+    {
+      "provider": "openai_vision",
+      "classification": "QUOTA_EXHAUSTED",
+      "attempt": 1,
+      "latencyMs": 2853
+    },
+    {
+      "provider": "anthropic_vision",
+      "classification": "SUCCESS",
+      "attempt": 2,
+      "latencyMs": 5131
+    }
+  ],
+  "message": null,
+  "warning": null
+}

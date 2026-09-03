@@ -1,0 +1,14 @@
+﻿{
+    "mode":  "staging-approve-create",
+    "action":  "clarify",
+    "businessName":  null,
+    "response":  "Would you like to create a store or do something else?",
+    "intentMode":  null,
+    "started":  "2026-09-03T07:51:10.0604040Z",
+    "missionId":  null,
+    "success":  true,
+    "storeId":  null,
+    "isComplete":  null,
+    "coreSha":  "9104f6456",
+    "draftId":  null
+}

@@ -1,0 +1,13 @@
+﻿{
+    "mode":  "staging-create-from-extracted-name",
+    "action":  "create_store",
+    "canProceed":  true,
+    "businessName":  "store for HP Services",
+    "response":  "I found:\n\n✓ Store name\nstore for HP Services\n\n✓ Location\nMelbourne VIC\n\nEverything looks complete.\n\nReady to create your store?",
+    "draftName":  "store for HP Services",
+    "intentMode":  "store",
+    "started":  "2026-09-03T07:51:20.7831519Z",
+    "success":  true,
+    "isComplete":  true,
+    "coreSha":  "9104f6456"
+}
