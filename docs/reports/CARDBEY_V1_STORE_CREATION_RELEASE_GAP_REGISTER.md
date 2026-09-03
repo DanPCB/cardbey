@@ -18,6 +18,8 @@ It is valid that CORE and PAID are independently blocked. Paid remains blocked e
 
 **Wave 0 (2026-09-04):** `WAVE_0_COMPLETE_PENDING_RENDER_SYNC` — see `docs/reports/WAVE0_STORE_CREATION_RELEASE_CLOSURE.md`. Flag pins written; OCR resilient on staging; Day 4 full reveal+refresh canary PASS. Core/Paid still blocked on Wave 1+.
 
+**Wave 1 (2026-09-04):** `WAVE_1_PARTIAL` — see `docs/reports/WAVE1_STORE_CREATION_RELEASE_CANARY.md`. HP Services build+preview PASS; publish blocked (`publish_snapshot_disabled` on live staging). Insufficient clarify PASS; ambiguous names FAIL (Ready-to-create without ASK_USER). Cohort 7/12 strict.
+
 ---
 
 ## FIRST FAILING BOUNDARY
@@ -418,11 +420,13 @@ PAID ENTITLEMENT (customer Stripe journeys PARTIAL; platform billing MISSING)
 
 ### WAVE 1 — Golden Path P0
 
+**Status (2026-09-04):** `WAVE_1_PARTIAL` — see `WAVE1_STORE_CREATION_RELEASE_CANARY.md`.
+
 | Task | OWNER | PROBLEM | MINIMUM CHANGE | REUSE | TEST | EXIT GATE |
 |------|-------|---------|----------------|-------|------|-----------|
-| W1.1 HP Services full-chain canary | Release | Canary incomplete | Script/manual artifact | Hardening Program | Full chain | Canary A PASS |
-| W1.2 Ambiguous/insufficient clarify proof | Intake/Research | Deferred ASK_USER | Prove one clarify question | intake policy + review card | Fixtures | No invent |
-| W1.3 Bounded cohort (~12) | Release | No publish cohort | Run matrix; fix only P0 defects found | Mission 001 fixtures | Matrix | ≥ agreed thresholds |
+| W1.1 HP Services full-chain canary | Release | Canary incomplete | Script/manual artifact | Hardening Program | Full chain | **PASS build+preview**; publish blocked until Render snapshot pin |
+| W1.2 Ambiguous/insufficient clarify proof | Intake/Research | Deferred ASK_USER | Prove one clarify question | intake policy + review card | Fixtures | **Insufficient PASS; ambiguous FAIL** |
+| W1.3 Bounded cohort (~12) | Release | No publish cohort | Run matrix; fix only P0 defects found | Mission 001 fixtures | Matrix | **PARTIAL 7/12** strict |
 
 ### WAVE 2 — Publish / commercial P0
 
