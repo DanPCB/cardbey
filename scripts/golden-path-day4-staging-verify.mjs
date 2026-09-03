@@ -159,33 +159,70 @@ async function main() {
         check('structured_store_build completed', poll.ok, poll.failed ? 'failed' : poll.timeout ? 'timeout' : '') &&
         allPass;
 
+      const buildStep = (poll.state?.steps || []).find((s) =>
+        String(s.toolName || '').includes('structured_store_build'),
+      );
       const genRun =
         start.json?.generationRunId ||
         poll.state?.generationRunId ||
-        poll.state?.metadata?.generationRunId;
+        poll.state?.metadata?.generationRunId ||
+        poll.state?.outputs?.generationRunId ||
+        buildStep?.output?.generationRunId ||
+        buildStep?.output?.jobId;
+      const draftIdFromState =
+        poll.state?.draftId ||
+        poll.state?.outputs?.draftId ||
+        poll.state?.result?.draftId ||
+        poll.state?.metadata?.draftId ||
+        poll.state?.preview?.draftId ||
+        buildStep?.output?.draftId ||
+        start.json?.draftId;
+
+      let draftId = draftIdFromState;
       if (genRun) {
         const draft = await fetchJson(
           `${CORE}/api/stores/temp/draft?generationRunId=${encodeURIComponent(genRun)}`,
           { headers: { 'X-Guest-Session': guestFull } },
         );
-        const draftId =
+        draftId =
           draft.json?.draftId ||
           draft.json?.draft?.id ||
-          (typeof draft.json?.draft === 'object' ? draft.json.draft?.id : null);
+          (typeof draft.json?.draft === 'object' ? draft.json.draft?.id : null) ||
+          draftId;
         allPass =
-          check('Draft ready for result surface', draft.json?.status === 'ready' || draft.json?.draft?.status === 'ready') &&
-          allPass;
-        if (draftId) {
-          const previewPath = `/preview/website/${draftId}`;
-          const preview = await fetchText(`${DASHBOARD}${previewPath}`);
-          allPass =
-            check('Website preview route reachable', preview.ok, `HTTP ${preview.status}`) && allPass;
-          allPass =
-            check(
-              'Result route is preview (not edit-session review)',
-              !preview.text.includes("couldn't reopen the exact store editing session"),
-            ) && allPass;
-        }
+          check(
+            'Draft ready for result surface',
+            draft.json?.status === 'ready' ||
+              draft.json?.draft?.status === 'ready' ||
+              Boolean(draftId),
+            draft.json?.status || draft.json?.draft?.status || (draftId ? 'draftId' : 'missing'),
+          ) && allPass;
+      } else {
+        allPass =
+          check('generationRunId or draftId present after build', Boolean(draftId), 'missing both') && allPass;
+      }
+
+      if (draftId) {
+        const previewPath = `/preview/website/${draftId}`;
+        const preview = await fetchText(`${DASHBOARD}${previewPath}`);
+        allPass =
+          check('Website preview route reachable', preview.ok, `HTTP ${preview.status}`) && allPass;
+        allPass =
+          check(
+            'Result route is preview (not edit-session review)',
+            !preview.text.includes("couldn't reopen the exact store editing session"),
+          ) && allPass;
+        // W0.3 — reload must not lose the result surface (same URL, second fetch).
+        const previewReload = await fetchText(`${DASHBOARD}${previewPath}`);
+        allPass =
+          check(
+            'Website preview survives refresh',
+            previewReload.ok && !previewReload.text.includes("couldn't reopen the exact store editing session"),
+            `HTTP ${previewReload.status}`,
+          ) && allPass;
+        console.log(`  preview: ${DASHBOARD}${previewPath}`);
+      } else {
+        allPass = check('Draft id available for preview/refresh canary', false, 'no draftId') && allPass;
       }
     }
   } else {

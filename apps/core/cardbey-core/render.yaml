@@ -43,6 +43,21 @@ services:
         value: "true"
       - key: CREWAI_ENABLED
         value: "false"
+      # V1 release Wave 0 — Golden Path research + guarded publish (RG-001 / RG-002)
+      - key: ENABLE_STORE_RESEARCH_PIPELINE
+        value: "1"
+      - key: ENABLE_GROUNDED_STORE_CREATION_V1
+        value: "true"
+      - key: ENABLE_MISSION_001_STORE_FIDELITY_V1
+        value: "1"
+      - key: ENABLE_MISSION_001_OFFERING_RECONSTRUCTION_V1
+        value: "1"
+      - key: ENABLE_MISSION_001_GROUNDING_V1
+        value: "1"
+      - key: ENABLE_MISSION_001_FIDELITY_GATE_V1
+        value: "1"
+      - key: PUBLISH_SNAPSHOT_V1
+        value: "true"
 
   - type: web
     name: cardbey-core-staging
@@ -106,19 +121,24 @@ services:
         value: "true"
       - key: PHASE2_REASONING_STEP_LOG
         value: "true"
-      # Golden Path Day 1 — Mission 001 store fidelity / research pilot (staging only)
+      # Golden Path — Mission 001 store fidelity / research (staging)
       - key: ENABLE_MISSION_001_STORE_FIDELITY_V1
         value: "1"
       - key: ENABLE_MISSION_001_OFFERING_RECONSTRUCTION_V1
         value: "1"
       - key: ENABLE_STORE_RESEARCH_PIPELINE
         value: "1"
+      - key: ENABLE_GROUNDED_STORE_CREATION_V1
+        value: "true"
       - key: ENABLE_MISSION_001_GROUNDING_V1
         value: "1"
       - key: ENABLE_MISSION_001_FIDELITY_GATE_V1
         value: "1"
       - key: ENABLE_MISSION_001_PIPELINE_TIMING_V1
         value: "1"
+      # V1 release Wave 0 — guarded publish (RG-002)
+      - key: PUBLISH_SNAPSHOT_V1
+        value: "true"
       # Optional stream key for dashboard SSE (?key=). JWT (?token=) works without this.
       - key: SSE_STREAM_KEY
         sync: false
