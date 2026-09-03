@@ -303,11 +303,37 @@ router.post('/extract-card', requireAuth, async (req, res) => {
     if (!canSendResponse(res, req)) return;
 
     const extractedText = ocrResult?.text ?? '';
+    const ocrClassification = String(ocrResult?.classification || '');
     const rawTextLog =
       typeof extractedText === 'string' && extractedText.length > 6000
         ? `${extractedText.slice(0, 6000)}\n… [truncated ${extractedText.length} chars]`
         : extractedText;
-    console.log('[extract-card] vision raw response:', rawTextLog);
+    console.log('[extract-card] vision raw response:', {
+      classification: ocrClassification || null,
+      providerUsed: ocrResult?.providerUsed ?? null,
+      didFallback: Boolean(ocrResult?.didFallback),
+      textPreview: typeof rawTextLog === 'string' ? rawTextLog.slice(0, 400) : rawTextLog,
+    });
+
+    // Infrastructure failure: do NOT frame as unreadable user image / OCR_WEAK.
+    if (
+      ocrClassification === 'VISION_PROVIDERS_UNAVAILABLE' ||
+      ocrClassification === 'NOT_CONFIGURED'
+    ) {
+      if (canSendResponse(res, req)) {
+        safeJson(res, 503, {
+          ok: false,
+          error: 'VISION_PROVIDERS_UNAVAILABLE',
+          message:
+            "I couldn't process the image right now. Try again, or tell me the business name to continue.",
+          classification: ocrClassification,
+          providerUsed: ocrResult?.providerUsed ?? null,
+          didFallback: Boolean(ocrResult?.didFallback),
+        }, req);
+      }
+      return;
+    }
+
     if (isRefusalResponse(extractedText) || !businessCardLooksLikeOcrText(extractedText)) {
       console.warn(
         '[extract-card] OCR refusal or unreadable card text — attempting loyalty soft fallback',
@@ -330,11 +356,15 @@ router.post('/extract-card', requireAuth, async (req, res) => {
         console.warn('[extract-card] loyalty soft fallback failed:', softErr?.message ?? softErr);
       }
       if (canSendResponse(res, req)) {
-        safeJson(res, 502, {
+        const isUnreadable = ocrClassification === 'UNREADABLE';
+        safeJson(res, isUnreadable ? 502 : 502, {
           ok: false,
-          error: 'OCR_FAILED',
-          message: 'OCR did not return usable business card text.',
-          warning: 'ocr_failed_non_loyalty',
+          error: isUnreadable ? 'OCR_UNREADABLE' : 'OCR_FAILED',
+          message: isUnreadable
+            ? 'Please upload a clearer image or tell me the business name.'
+            : 'OCR did not return usable business card text.',
+          warning: isUnreadable ? 'ocr_unreadable' : 'ocr_failed_non_loyalty',
+          classification: ocrClassification || null,
         }, req);
       }
       return;
@@ -418,6 +448,9 @@ router.post('/extract-card', requireAuth, async (req, res) => {
       location,
       vertical,
       confidence,
+      providerUsed: ocrResult?.providerUsed ?? null,
+      didFallback: Boolean(ocrResult?.didFallback),
+      classification: ocrClassification || 'SUCCESS',
     }, req);
   } catch (err) {
     console.error('[extract-card] failed:', err?.message || err);
