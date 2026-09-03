@@ -27,14 +27,13 @@ export async function softLoyaltyExtractCardFallback(input = {}) {
     userMessage: '',
   });
 
-  // Stamp cards often have no business-card-shaped OCR — treat as soft loyalty.
+  // Soft loyalty only with loyalty evidence — empty OCR alone is NOT loyalty.
   const looksLikeLoyalty =
     hints.includes('reward_program_candidate') ||
     hints.includes('stamp_grid') ||
-    hints.includes('ocr_stamp_language') ||
-    !text;
+    hints.includes('ocr_stamp_language');
 
-  if (!looksLikeLoyalty && text) {
+  if (!looksLikeLoyalty) {
     return null;
   }
 
