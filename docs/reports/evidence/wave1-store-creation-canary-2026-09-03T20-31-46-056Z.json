@@ -1,0 +1,219 @@
+{
+  "at": "2026-09-03T20:31:46.054Z",
+  "core": "https://cardbey-core-staging.onrender.com",
+  "dashboard": "https://cardbey-dashboard-staging.onrender.com",
+  "verdicts": {
+    "W1_1_HP_SERVICES": "PASS_BUILD_PREVIEW",
+    "W1_2_CLARIFY_NO_INVENT": "FAIL",
+    "W1_3_COHORT": "PARTIAL"
+  },
+  "counts": {
+    "total": 12,
+    "pass": 7,
+    "fail": 5,
+    "inventOnClarify": 0
+  },
+  "results": [
+    {
+      "id": "hp-services",
+      "input": "HP Services",
+      "depth": "full",
+      "intakeAction": "create_path",
+      "missionId": "cmtlzcvry00vvmycx743udr7r",
+      "build": "completed",
+      "draftId": "cmtlzcy4r00wimycx0unrtpob",
+      "generationRunId": "cmtlzcvzw00wemycxyzpzlmsx",
+      "preview": {
+        "path": "https://cardbey-dashboard-staging.onrender.com/preview/website/cmtlzcy4r00wimycx0unrtpob",
+        "reachable": true,
+        "status": 200,
+        "notEditSessionDeadEnd": true,
+        "survivesRefresh": true,
+        "reloadStatus": 200
+      },
+      "publish": null,
+      "recovered": false,
+      "failure": null,
+      "elapsedMs": 6661,
+      "pass": true,
+      "startAction": "store_mission_started",
+      "fields": {
+        "storeName": "HP Services",
+        "website": "",
+        "location": "Melbourne",
+        "category": "Home & garden"
+      },
+      "storeId": "cmtlzcz9z00yimycxtorr6nr0",
+      "storeSlug": "hp-services-3"
+    },
+    {
+      "id": "msd-url",
+      "input": "modernsecuritydoors.com.au",
+      "depth": "full",
+      "intakeAction": "create_path",
+      "missionId": "cmtlzd0ra00zvmycx6mblsvez",
+      "build": "completed",
+      "draftId": "cmtlzd2tj010kmycxk3r4p6t4",
+      "generationRunId": "cmtlzd0wh010imycx5j9qm1s9",
+      "preview": {
+        "path": "https://cardbey-dashboard-staging.onrender.com/preview/website/cmtlzd2tj010kmycxk3r4p6t4",
+        "reachable": true,
+        "status": 200,
+        "notEditSessionDeadEnd": true,
+        "survivesRefresh": true,
+        "reloadStatus": 200
+      },
+      "publish": null,
+      "recovered": false,
+      "failure": null,
+      "elapsedMs": 5843,
+      "pass": true,
+      "startAction": "store_mission_started",
+      "fields": {
+        "storeName": "Modern Security Doors",
+        "website": "https://www.modernsecuritydoors.com.au",
+        "location": "Melbourne",
+        "category": "Home & garden"
+      },
+      "storeId": "cmtlzd4cb012kmycx75j5iz9e",
+      "storeSlug": "modern-security-doors-3"
+    },
+    {
+      "id": "desc-coffee",
+      "input": "Coffee shop in Melbourne",
+      "depth": "intake",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nCoffee shop in Melbourne\n\n✓ Category\nFood & drink\n\nEverything looks complete.\n\nReady to create your store?",
+      "pass": true,
+      "failure": null,
+      "elapsedMs": 212
+    },
+    {
+      "id": "insufficient",
+      "input": "Help me start something.",
+      "depth": "clarify",
+      "intakeAction": "clarify",
+      "httpStatus": 200,
+      "responsePreview": "What kind of business do you want to create? A name, website, or short description is enough to get started.",
+      "invented": false,
+      "pass": true,
+      "failure": null,
+      "elapsedMs": 245
+    },
+    {
+      "id": "flower-store",
+      "input": "Flower Store",
+      "depth": "clarify",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nFlower Store\n\nEverything looks complete.\n\nReady to create your store?",
+      "invented": false,
+      "pass": false,
+      "failure": "expected_clarify_or_sparse_got_create_path",
+      "elapsedMs": 291
+    },
+    {
+      "id": "spotless",
+      "input": "Spotless Cleaning Services",
+      "depth": "clarify",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nSpotless Cleaning Services\n\nEverything looks complete.\n\nReady to create your store?",
+      "invented": false,
+      "pass": false,
+      "failure": "expected_clarify_or_sparse_got_create_path",
+      "elapsedMs": 493
+    },
+    {
+      "id": "abc-plumbing",
+      "input": "ABC Plumbing",
+      "depth": "clarify",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nABC Plumbing\n\nEverything looks complete.\n\nReady to create your store?",
+      "invented": false,
+      "pass": false,
+      "failure": "expected_clarify_or_sparse_got_create_path",
+      "elapsedMs": 1317
+    },
+    {
+      "id": "market-lane",
+      "input": "https://www.marketlane.com.au",
+      "depth": "full",
+      "intakeAction": "create_path",
+      "missionId": "cmtlzd8m5014omycxnbqdw1ss",
+      "build": "completed",
+      "draftId": "cmtlzdasm015emycx6pljxpax",
+      "generationRunId": "cmtlzd963015cmycxd9na25ji",
+      "preview": {
+        "path": "https://cardbey-dashboard-staging.onrender.com/preview/website/cmtlzdasm015emycx6pljxpax",
+        "reachable": true,
+        "status": 200,
+        "notEditSessionDeadEnd": true,
+        "survivesRefresh": true,
+        "reloadStatus": 200
+      },
+      "publish": null,
+      "recovered": false,
+      "failure": null,
+      "elapsedMs": 8581,
+      "pass": true,
+      "startAction": "store_mission_started",
+      "fields": {
+        "storeName": "Market Lane Coffee",
+        "website": "https://www.marketlane.com.au",
+        "location": "Melbourne",
+        "category": "Cafe"
+      },
+      "storeId": "cmtlzdbut017emycxby60oves",
+      "storeSlug": "market-lane-coffee-3"
+    },
+    {
+      "id": "anison",
+      "input": "Anison Capital",
+      "depth": "clarify",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nAnison Capital\n\nEverything looks complete.\n\nReady to create your store?",
+      "invented": false,
+      "pass": false,
+      "failure": "expected_clarify_or_sparse_got_create_path",
+      "elapsedMs": 939
+    },
+    {
+      "id": "handyman-melb",
+      "input": "Handyman in Melbourne",
+      "depth": "intake",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nHandyman in Melbourne\n\n✓ Category\nHome & garden\n\nEverything looks complete.\n\nReady to create your store?",
+      "pass": true,
+      "failure": null,
+      "elapsedMs": 2180
+    },
+    {
+      "id": "jims-mowing",
+      "input": "https://jimsmowing.com.au",
+      "depth": "intake",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nJimsmowing\n\nEverything looks complete.\n\nReady to create your store?",
+      "pass": true,
+      "failure": null,
+      "elapsedMs": 1682
+    },
+    {
+      "id": "ca-handy",
+      "input": "CA Handy Man Melbourne",
+      "depth": "clarify",
+      "intakeAction": "create_path",
+      "httpStatus": 200,
+      "responsePreview": "I found:\n\n✓ Store name\nCA Handy Man Melbourne\n\nEverything looks complete.\n\nReady to create your store?",
+      "invented": false,
+      "pass": false,
+      "failure": "expected_clarify_or_sparse_got_create_path",
+      "elapsedMs": 1534
+    }
+  ]
+}
