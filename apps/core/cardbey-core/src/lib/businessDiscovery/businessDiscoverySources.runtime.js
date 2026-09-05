@@ -14,7 +14,7 @@ import {
   extractOffersFromSchemaBlocks,
   extractServiceCategoryLinksFromHtml,
 } from '../storeCreationResearch/websiteMenuHtmlExtract.js';
-import { stripSeoBusinessDisplayName } from '../storeCreation/semanticPrecision.js';
+import { stripSeoBusinessDisplayName } from './seoDisplayName.runtime.js';
 
 const FETCH_TIMEOUT_MS = 8000;
 
