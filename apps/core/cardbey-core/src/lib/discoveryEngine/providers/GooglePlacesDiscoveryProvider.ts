@@ -23,6 +23,26 @@ function parseSuburbFromAddress(address: string | null, fallbackCity?: string): 
   return parts.length >= 2 ? parts[parts.length - 3] ?? parts[0] : parts[0] ?? null;
 }
 
+/** Build Places location bias. Melbourne pilot (no countryCode) keeps VIC Australia. */
+export function buildGooglePlacesLocationBias(params: {
+  suburb: string;
+  countryCode?: string | null;
+  regionCode?: string | null;
+  locationBias?: string | null;
+}): string {
+  const explicit = trim(params.locationBias);
+  if (explicit) return explicit;
+  const suburb = trim(params.suburb) ?? 'Melbourne';
+  const country = trim(params.countryCode)?.toUpperCase();
+  if (country === 'VN') return `${suburb}, Vietnam`;
+  if (country === 'AU') {
+    const state = trim(params.regionCode) ?? 'VIC';
+    return `${suburb} ${state} Australia`;
+  }
+  // Legacy Melbourne real-local default
+  return `${suburb} VIC Australia`;
+}
+
 export class GooglePlacesDiscoveryProvider implements DiscoveryProvider {
   readonly providerId = 'google_places' as const;
 
@@ -31,12 +51,21 @@ export class GooglePlacesDiscoveryProvider implements DiscoveryProvider {
 
     const category = trim(params.category) ?? 'business';
     const suburb = trim(params.city) ?? trim(params.region) ?? 'Melbourne';
-    const location = `${suburb} VIC Australia`;
+    const countryCode = (trim(params.countryCode)?.toUpperCase() as string | null) ?? null;
+    const location = buildGooglePlacesLocationBias({
+      suburb,
+      countryCode,
+      regionCode: params.regionCode,
+      locationBias: params.locationBias,
+    });
     const query = `${category} ${suburb}`;
     const limit = Math.min(Math.max(params.limit ?? 10, 1), 20);
 
     const results = await searchGooglePlaces(query, location);
     const discoveredAt = new Date().toISOString();
+    const stampCountry = countryCode ?? 'AU';
+    const stampState =
+      trim(params.regionCode) ?? (stampCountry === 'AU' ? 'VIC' : null);
 
     return results.slice(0, limit).map((row, index) => {
       const raw = row.raw as Record<string, unknown>;
@@ -53,9 +82,9 @@ export class GooglePlacesDiscoveryProvider implements DiscoveryProvider {
         category: trim(raw.category) ?? category,
         address,
         city: suburbParsed,
-        state: 'VIC',
+        state: stampState,
         postcode: null,
-        country: 'AU',
+        country: stampCountry,
         latitude: lat,
         longitude: lng,
         phone: null,
