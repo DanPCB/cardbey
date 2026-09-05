@@ -8,6 +8,7 @@ import { enrichPublicCatalogItem } from '../../lib/catalog/catalogItemClassifica
 import { repairPublicCatalogServicePlaceholders } from '../../lib/catalog/serviceCatalogPlaceholders.js';
 import { publicCommerceFields } from '../../lib/dbCapabilities.js';
 import { buildPublicStoreContact } from '../../utils/publicStoreMapper.js';
+import { isPublicStoreClaimed } from '../../lib/storeCompliance/publicClaimStatus.js';
 import { buildStoreLocationFields } from '../../lib/formatStoreLocation.js';
 
 export function publishedBusinessArtifactToPublicStore(projection, options = {}) {
@@ -183,6 +184,10 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
     ...(business?.provenance != null ? { provenance: business.provenance } : {}),
     ...(business?.claimStatus != null ? { claimStatus: business.claimStatus } : {}),
+    isClaimed: isPublicStoreClaimed({
+      claimStatus: business?.claimStatus ?? null,
+      provenance: business?.provenance ?? 'owner',
+    }),
     ...(typeof business?.captureCount === 'number' ? { captureCount: business.captureCount } : {}),
     products,
     _projectionMeta: {
