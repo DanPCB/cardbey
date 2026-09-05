@@ -129,7 +129,7 @@ export function resolveCuisineMenuBankKey(verticalSlug, businessName = '', busin
   if (/\b(vietnamese|pho|phở|banh mi|bánh mì|goi cuon|gỏi cuốn|bun bo|bún bò)\b/.test(blob)) {
     return 'food.vietnamese';
   }
-  if (/\b(thai|japanese|sushi|ramen|korean|chinese|dumpling|asian)\b/.test(blob)) {
+  if (/\b(thai|japanese|sushi|ramen|korean|chinese|dumpling|asian|noodle|noodles)\b/.test(blob)) {
     return 'food.asian';
   }
   if (/\b(burger|fast food|takeaway|take away|kebab|fried chicken)\b/.test(blob)) {
@@ -185,7 +185,14 @@ export function buildCuisineMenuCatalog(profile = {}, targetCount = CATALOG_ITEM
 
   const baseItems = bank.items;
   const items = [];
-  for (let i = 0; i < cap; i++) {
+  const isNewBusiness = String(profile.creationMode ?? '').toUpperCase() === 'NEW_BUSINESS';
+  const stripPrices =
+    isNewBusiness ||
+    (profile.allowBlueprintPrices !== true &&
+      profile.hasPriceList !== true &&
+      String(profile.creationMode ?? '').toUpperCase() !== 'EXISTING_BUSINESS');
+
+  for (let i = 0; i < Math.min(cap, Math.max(baseItems.length, 12)); i++) {
     const src = baseItems[i % baseItems.length];
     const catId = catByKey[src.categoryKey] || categories[0].id;
     const suffix =
@@ -197,15 +204,38 @@ export function buildCuisineMenuCatalog(profile = {}, targetCount = CATALOG_ITEM
       id: `item_cuisine_${i}`,
       name,
       description: src.description ?? null,
-      price: src.price ?? null,
+      price: stripPrices ? null : (src.price ?? null),
       categoryId: catId,
+      ...(isNewBusiness
+        ? {
+            provenance: 'AI_GENERATED_STARTER',
+            evidenceStatus: 'UNVERIFIED_NEW_BUSINESS',
+            editable: true,
+            imageQueryHint: `${name} asian noodle dish plated`,
+          }
+        : {}),
     });
   }
 
   return {
     categories,
     items,
-    meta: { catalogSource: 'cuisine_template', vertical: key, cuisineLabel: bank.label },
+    products: items,
+    meta: {
+      catalogSource: isNewBusiness ? 'ai_generated_starter' : 'cuisine_template',
+      vertical: key,
+      cuisineLabel: bank.label,
+      ...(isNewBusiness
+        ? {
+            neverGenericService: true,
+            creationMode: 'NEW_BUSINESS',
+            source: 'AI_GENERATED_STARTER',
+            evidenceStatus: 'UNVERIFIED_NEW_BUSINESS',
+            offeringProvenance: 'AI_GENERATED_STARTER',
+            editable: true,
+          }
+        : {}),
+    },
   };
 }
 

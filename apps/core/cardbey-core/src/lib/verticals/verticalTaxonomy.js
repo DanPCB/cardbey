@@ -11,7 +11,7 @@ export const VERTICALS = [
   { slug: 'food.fast_food', group: 'food', label: 'Fast Food', keywords: ['fast food', 'takeaway', 'take away', 'burger', 'fries', 'chips', 'wrap', 'kebab', 'hotdog', 'fried chicken'] },
   { slug: 'food.bakery', group: 'food', label: 'Bakery', keywords: ['bakery', 'bread', 'bake', 'baked', 'cake', 'cupcake', 'cookies', 'cookie', 'donut', 'doughnut', 'pastry', 'pie', 'tart', 'sweets', 'dessert', 'desserts', 'confectionery', 'chocolate', 'candy', 'lolly'] },
   { slug: 'food.vietnamese', group: 'food', label: 'Vietnamese', keywords: ['vietnamese', 'banh mi', 'bánh mì', 'pho', 'phở', 'bun bo', 'bún bò', 'spring roll', 'goi cuon', 'gỏi cuốn', 'lemongrass'] },
-  { slug: 'food.asian', group: 'food', label: 'Asian Cuisine', keywords: ['asian', 'thai', 'korean', 'japanese', 'sushi', 'ramen', 'chinese', 'dumpling', 'noodle', 'wok', 'bento'] },
+  { slug: 'food.asian', group: 'food', label: 'Asian Cuisine', keywords: ['asian', 'thai', 'korean', 'japanese', 'sushi', 'ramen', 'chinese', 'dumpling', 'noodle', 'noodles', 'wok', 'bento'] },
   { slug: 'food.beverage', group: 'food', label: 'Beverage Bar', keywords: ['juice', 'smoothie', 'bubble tea', 'boba', 'milk tea', 'soda', 'soft drink', 'kombucha'] },
   { slug: 'beauty.nails', group: 'beauty', label: 'Nail Salon', keywords: ['nail', 'nails', 'manicure', 'pedicure', 'gel', 'acrylic', 'sns', 'dip powder', 'nail art', 'cuticle', 'polish'] },
   { slug: 'beauty.hair_salon', group: 'beauty', label: 'Hair Salon', keywords: ['hair', 'haircut', 'hair cut', 'stylist', 'blowdry', 'blow dry', 'colour', 'color', 'highlights', 'balayage', 'treatment'] },
@@ -25,7 +25,7 @@ export const VERTICALS = [
   { slug: 'fashion.womens', group: 'fashion', label: 'Womens Fashion', keywords: ['womens', "women's", 'dress', 'dresses', 'skirt', 'skirts', 'blouse', 'heels', 'handbag', 'bags'] },
   { slug: 'fashion.kids', group: 'fashion', label: 'Children Clothing', keywords: ['children', 'kids', 'kid', 'baby', 'toddler', 'youth', 'school', 'onesie', 'bodysuit', 'romper', 'kids sneakers', 'kids t-shirt', 'toddler hoodie', 'baby clothing', 'children clothing', 'child', 'junior'] },
   { slug: 'fashion.boutique', group: 'fashion', label: 'Boutique', keywords: ['fashion', 'boutique', 'apparel', 'clothing', 'streetwear', 'outfit', 'wardrobe'] },
-  { slug: 'retail.flower', group: 'retail', label: 'Florist', keywords: ['florist', 'flowers', 'bouquet', 'roses', 'lily', 'tulip', 'arrangement', 'wedding flowers'] },
+  { slug: 'retail.flower', group: 'retail', label: 'Florist', keywords: ['florist', 'flowers', 'flower', 'floral', 'bloom', 'blooms', 'bouquet', 'roses', 'lily', 'tulip', 'arrangement', 'wedding flowers'] },
   { slug: 'retail.furniture', group: 'retail', label: 'Furniture', keywords: ['furniture', 'sofa', 'couch', 'table', 'chair', 'desk', 'bed', 'wardrobe', 'cabinet', 'dining table', 'bookshelf', 'outdoor furniture', 'office furniture'] },
   { slug: 'retail.grocery', group: 'retail', label: 'Grocery', keywords: ['grocery', 'groceries', 'supermarket', 'fruit', 'vegetable', 'veg', 'meat', 'deli'] },
   { slug: 'retail.electronics', group: 'retail', label: 'Electronics', keywords: ['electronics', 'phone', 'laptop', 'computer', 'camera', 'gadget', 'charger', 'accessory'] },
@@ -179,7 +179,23 @@ export function resolveVertical(opts = {}) {
         matchedKeywords: ['construction_name_fallback'],
       };
     }
-    return { group: 'services', slug: 'services.generic', confidence: 0, matchedKeywords: [] };
+    // "My Flower" / floral names: never degrade to services.generic scaffolds.
+    if (textName && /\b(florist|flower|flowers|floral|bouquet|bloom|blooms)\b/.test(textName)) {
+      return {
+        group: 'retail',
+        slug: 'retail.flower',
+        confidence: 0.45,
+        matchedKeywords: ['flower_name_fallback'],
+      };
+    }
+    // Insufficient understanding — catalog builders must NOT invent Core Service packages.
+    return {
+      group: 'services',
+      slug: 'services.generic',
+      confidence: 0,
+      matchedKeywords: [],
+      insufficientUnderstanding: true,
+    };
   }
 
   const typeLocked = scored.filter((s) => s.typeLock);

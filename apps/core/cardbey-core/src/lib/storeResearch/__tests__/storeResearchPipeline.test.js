@@ -13,8 +13,26 @@ import {
 
 vi.mock('../../businessDiscovery/businessDiscoverySources.js', () => ({
   searchGooglePlaces: vi.fn(),
-  fetchGooglePlaceDetails: vi.fn(),
+  fetchGooglePlaceDetails: vi.fn(async (placeId) => {
+    if (String(placeId).includes('wrong-florist')) {
+      return {
+        placeId,
+        name: 'Florist Braybrook - Same Day Flower Delivery',
+        businessName: 'Florist Braybrook - Same Day Flower Delivery',
+        website: 'https://floristbraybrook.example',
+        address: 'Braybrook VIC',
+      };
+    }
+    return {
+      placeId,
+      name: 'MODERN SECURITY DOORS',
+      businessName: 'MODERN SECURITY DOORS',
+      website: 'http://modernsecuritydoors.com.au',
+      address: 'Unit 54/68 Eucumbene Dr, Ravenhall VIC 3023, Australia',
+    };
+  }),
   isGooglePlacesConfigured: vi.fn(() => false),
+  getGooglePlacesApiMode: vi.fn(() => 'disabled'),
 }));
 
 describe('storeResearch pipeline', () => {
@@ -67,6 +85,70 @@ describe('storeResearch pipeline', () => {
     expect(result.candidates[0].placeId).toBe('ChIJ-msd-test');
     expect(result.candidates[0].website).toMatch(/modernsecuritydoors/i);
     expect(result.candidates[0].confidence).toBeGreaterThanOrEqual(0.45);
+  });
+
+  it('does not soft-select Florist Braybrook for My Flower (industry-only overlap)', async () => {
+    isGooglePlacesConfigured.mockReturnValue(true);
+    searchGooglePlaces.mockResolvedValue([
+      {
+        source: 'google_places',
+        attribution: {},
+        raw: {
+          name: 'Florist Braybrook - Same Day Flower Delivery',
+          businessName: 'Florist Braybrook - Same Day Flower Delivery',
+          address: 'Braybrook VIC',
+          website: 'https://floristbraybrook.example',
+          placeId: 'ChIJ-wrong-florist',
+        },
+      },
+    ]);
+
+    const result = await resolveBusinessEntity({
+      businessName: 'My Flower',
+      location: 'Melbourne',
+    });
+    expect(result.candidates.length).toBeGreaterThanOrEqual(0);
+    expect(result.selectedCandidate).toBeUndefined();
+  });
+
+  it('pipeline refuses candidates[0] fallback when entity not soft-selected', async () => {
+    isGooglePlacesConfigured.mockReturnValue(true);
+    searchGooglePlaces.mockResolvedValue([
+      {
+        source: 'google_places',
+        attribution: {},
+        raw: {
+          name: 'Florist Braybrook - Same Day Flower Delivery',
+          businessName: 'Florist Braybrook - Same Day Flower Delivery',
+          address: 'Braybrook VIC',
+          website: 'https://floristbraybrook.example',
+          placeId: 'ChIJ-wrong-florist',
+        },
+      },
+    ]);
+
+    vi.resetModules();
+    const { runStoreResearchPipeline } = await import('../runStoreResearchPipeline.js');
+    const result = await runStoreResearchPipeline(
+      {
+        businessName: 'My Flower',
+        location: 'Melbourne',
+        category: 'Home & Garden',
+      },
+      { skipNetwork: true },
+    );
+    expect(result.mode).toBe('new_business');
+    expect(result.fallbackToGenerated).toBe(true);
+    const selected = result.entityResolution?.selectedCandidate;
+    expect(selected).toBeFalsy();
+    const notes = (result.entityResolution?.resolutionNotes ?? []).join(' ');
+    const logs = (result.logs ?? []).map(String).join(' ');
+    expect(
+      notes.includes('refused candidates[0]') ||
+        logs.includes('no_defensible_entity_select_fallback_new') ||
+        logs.includes('no_entity_match_fallback_new'),
+    ).toBe(true);
+    vi.resetModules();
   });
 
   it('classifies official website as owner_controlled authority', () => {

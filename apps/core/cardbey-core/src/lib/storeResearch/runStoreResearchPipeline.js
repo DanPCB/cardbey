@@ -135,7 +135,35 @@ export async function runStoreResearchPipeline(input, options = {}) {
     };
   }
 
-  const selected = entityResolution.selectedCandidate ?? entityResolution.candidates[0];
+  const selected = entityResolution.selectedCandidate;
+  // Never fall back to candidates[0] — that attaches the wrong florist/cafe/etc.
+  // Prefer NEW_BUSINESS / generated starter when identity is not defensible.
+  if (!selected) {
+    log('no_defensible_entity_select_fallback_new', {
+      candidateCount: entityResolution.candidates.length,
+      topName: entityResolution.candidates[0]?.name ?? null,
+    });
+    const legacy = await legacyRunStoreCreationResearch(normalized, legacyOptions);
+    return {
+      mode: 'new_business',
+      entityResolution: {
+        ...entityResolution,
+        selectedCandidate: undefined,
+        resolutionNotes: [
+          ...(entityResolution.resolutionNotes ?? []),
+          'No defensible entity select — refused candidates[0] fallback to avoid wrong-business catalog',
+        ],
+      },
+      evidence: null,
+      reviewArtifact: null,
+      missionContract: null,
+      legacyResearchResult: legacy,
+      ownerReviewRequired: true,
+      fallbackToGenerated: true,
+      logs: [...logs, ...(legacy?.logs ?? [])],
+    };
+  }
+
   const enrichedInput = {
     ...normalized,
     businessName: selected?.name ?? normalized.businessName,

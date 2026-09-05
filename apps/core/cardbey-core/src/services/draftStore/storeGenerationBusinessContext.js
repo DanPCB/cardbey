@@ -7,6 +7,7 @@ import { classifyBusinessType, PROFESSIONAL_RE } from '../../lib/catalog/classif
 import { classifyBusinessSemantic } from '../../lib/businessSemantic/BusinessSemanticClassifier.js';
 import { resolveVertical } from '../../lib/verticals/verticalTaxonomy.js';
 import { resolveIndustryBlueprintKey } from './industryBlueprintRegistry.js';
+import { resolveStoreCreationMode } from '../../lib/storeCreation/storeCreationMode.js';
 
 /**
  * @typedef {'KNOWN'|'INFERRED'|'UNKNOWN'} KnowledgeState
@@ -78,6 +79,20 @@ export function buildStoreGenerationBusinessContext(input = {}) {
 
   const professional = PROFESSIONAL_RE.test(`${businessName} ${typedCategory} ${semantic.corpus || ''}`);
 
+  const modeDecision = resolveStoreCreationMode(
+    {
+      businessName,
+      category: typedCategory,
+      location: input.location,
+      websiteUrl: input.websiteUrl ?? input.website,
+      cardImageDataUrl: input.cardImageDataUrl,
+      hasOwnerMedia: input.hasOwnerMedia,
+      documentText: input.documentText ?? input.ocrRawText,
+    },
+    input.researchSummary ?? null,
+    vertical,
+  );
+
   /** @type {KnowledgeState} */
   const categoryState = typedCategory ? 'KNOWN' : vertical.slug ? 'INFERRED' : 'UNKNOWN';
 
@@ -110,6 +125,13 @@ export function buildStoreGenerationBusinessContext(input = {}) {
     },
     verticalSlug: vertical.slug || null,
     verticalGroup: vertical.group || null,
+    verticalConfidence: vertical.confidence ?? null,
+    insufficientUnderstanding: vertical.insufficientUnderstanding === true,
+    creationMode: modeDecision.creationMode,
+    creationModeReason: modeDecision.reason,
+    needsClarification: modeDecision.needsClarification === true,
+    clarificationPrompt: modeDecision.clarificationPrompt ?? null,
+    clarificationOptions: modeDecision.clarificationOptions ?? null,
     industryBlueprintKey: blueprintKey || null,
     primaryCTA: typeResult.primaryCTA,
     catalogMode: typeResult.catalogMode,

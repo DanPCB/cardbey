@@ -309,6 +309,8 @@ function resolveVerticalCatalogProfile(params = {}) {
     keywords: r.matchedKeywords || [],
     forbiddenKeywords: undefined,
     categoryHints: undefined,
+    verticalConfidence: r.confidence,
+    insufficientUnderstanding: r.insufficientUnderstanding === true,
   };
 }
 
@@ -821,14 +823,42 @@ export async function buildCatalog(params) {
   else throw new Error(`Unsupported mode: ${mode}. Use "template", "seed", "ai", or "ocr".`);
 
   if (!grounded && result?.products && result.products.length < MIN_ITEM_COUNT) {
+    // Never pad sparse/accurate / AI starter shells with generic service scaffolds.
+    if (
+      result?.meta?.neverGenericService ||
+      result?.meta?.catalogSource === 'sparse_inferred_florist' ||
+      result?.meta?.catalogSource === 'ai_generated_starter'
+    ) {
+      // keep sparse product count
+    } else {
     const seedProfile = {
       verticalGroup: (verticalSlug || '').split('.')[0] || profile.verticalGroup || 'services',
       verticalSlug: verticalSlug || profile.verticalSlug || 'services.generic',
       audience: profile.audience,
       businessModel: profile.businessModel,
       businessType: params.businessType ?? profile.businessType,
+      businessName: params.businessName,
+      storeName: params.businessName,
+      insufficientUnderstanding: profile.insufficientUnderstanding === true,
+      verticalConfidence: profile.verticalConfidence,
     };
     const seedResult = buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT });
+    if (seedResult?.meta?.neverGenericService) {
+      // Prefer replacing underfilled invented catalogs with sparse shell rather than mixing.
+      if ((result.products?.length ?? 0) === 0 || result.meta?.aiFallback) {
+        result.categories = seedResult.categories;
+        result.products = (seedResult.items || []).map((it, i) => ({
+          id: `item_${params.draftId}_sparse_${i}`,
+          name: it.name,
+          description: it.description ?? null,
+          price: it.price ?? null,
+          categoryId: it.categoryId || seedResult.categories?.[0]?.id,
+          imageUrl: null,
+          ...(it.imageQueryHint ? { imageQueryHint: it.imageQueryHint } : {}),
+        }));
+        result.meta = { ...(result.meta ?? {}), ...seedResult.meta };
+      }
+    } else {
     const extra = (seedResult.items || []).slice(0, TARGET_ITEM_COUNT - result.products.length);
     const firstCatId = result.categories?.[0]?.id || `cat_${params.draftId}_0`;
     const seenExpand = new Set(
@@ -853,6 +883,8 @@ export async function buildCatalog(params) {
     }
     if (process.env.NODE_ENV !== 'production' && extra.length > 0) {
       console.log('[buildCatalog] expanded with seed', { mode, verticalSlug, expandedBy: extra.length, seedSource: seedProfile.verticalGroup });
+    }
+    }
     }
   } else if (grounded && result?.products && result.products.length < MIN_ITEM_COUNT) {
     groundedFlags.skippedSeedPad = true;
@@ -911,8 +943,16 @@ export async function buildCatalog(params) {
         audience: profile.audience ?? params.audience,
         businessModel: profile.businessModel,
         businessType: profile.businessType ?? params.businessType,
+        businessName: params.businessName,
+        storeName: params.businessName,
+        creationMode:
+          params.creationMode ??
+          params.storeGenerationBusinessContext?.creationMode ??
+          profile.creationMode,
         keywords: profile.keywords,
         forbiddenKeywords: profile.forbiddenKeywords,
+        insufficientUnderstanding: profile.insufficientUnderstanding,
+        verticalConfidence: profile.verticalConfidence,
       }
     : {
         verticalGroup: (verticalSlug || '').split('.')[0] || '',
@@ -920,6 +960,10 @@ export async function buildCatalog(params) {
         audience: params.audience,
         businessModel: params.businessModel,
         businessType: params.businessType,
+        businessName: params.businessName,
+        storeName: params.businessName,
+        creationMode:
+          params.creationMode ?? params.storeGenerationBusinessContext?.creationMode,
       };
   const catalogValidated = await validateAndCorrectCatalog(seedProfile, result, () => buildSeedCatalog(seedProfile, { targetCount: TARGET_ITEM_COUNT }));
   if (catalogValidated.corrected) result = catalogValidated.catalog;

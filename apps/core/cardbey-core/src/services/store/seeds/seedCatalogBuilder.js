@@ -9,7 +9,10 @@ import {
   CATALOG_ITEM_MIN,
 } from '../../../config/catalogLimits.js';
 import { buildCuisineMenuCatalog } from '../../draftStore/foodCuisineCatalog.js';
-import { buildIndustryCatalog } from '../../draftStore/industryBlueprintRegistry.js';
+import {
+  buildIndustryCatalog,
+  buildSparseInferredFloristCatalog,
+} from '../../draftStore/industryBlueprintRegistry.js';
 
 const MIN_ITEMS = CATALOG_ITEM_MIN;
 const TARGET_DEFAULT = CATALOG_ITEM_LIMIT;
@@ -159,6 +162,79 @@ function buildMinimalProfessionalSeed(profile, targetCount) {
   };
 }
 
+/**
+ * Sparse florist shell when we infer florist but lack verified offerings/prices.
+ * Categories + flower image hints — no fabricated "$89 Rose Bouquet" SKUs.
+ */
+export function buildSparseInferredFloristSeed(profile = {}) {
+  return buildSparseInferredFloristCatalog(profile, null);
+}
+
+/**
+ * When business understanding is insufficient: sparse shell beats wrong generic services.
+ * Empty/minimal catalog — never Core Service / Emergency Call-out scaffolds.
+ */
+export function buildSparseInsufficientUnderstandingSeed(profile = {}) {
+  const name = String(profile?.businessName || profile?.storeName || 'Your business').trim() || 'Your business';
+  const categories = [{ id: 'cat_sparse_0', name: 'Getting started' }];
+  const items = [
+    {
+      id: 'item_sparse_0',
+      name: `About ${name}`,
+      description: 'Tell us what you offer and we will build your catalog.',
+      price: null,
+      categoryId: 'cat_sparse_0',
+      provenance: 'PLACEHOLDER',
+      imageQueryHint: null,
+    },
+  ];
+  return {
+    categories,
+    items,
+    imageQueryHints: {},
+    meta: {
+      catalogSource: 'sparse_insufficient_understanding',
+      vertical: profile?.verticalSlug || 'services.generic',
+      offeringProvenance: 'SPARSE',
+      neverGenericService: true,
+      needsClarification: true,
+      suggestedQuestions: ['What does your business mainly offer?'],
+    },
+  };
+}
+
+function isFlowerSignalProfile(profile) {
+  const blob = [
+    profile?.businessName,
+    profile?.storeName,
+    profile?.businessType,
+    profile?.storeType,
+    profile?.category,
+    profile?.verticalSlug,
+  ]
+    .map((v) => String(v ?? '').toLowerCase())
+    .join(' ');
+  return /\b(florist|flower|flowers|floral|bouquet|bloom|blooms)\b/.test(blob);
+}
+
+function isInsufficientUnderstandingProfile(profile) {
+  if (profile?.insufficientUnderstanding === true) return true;
+  if (Number(profile?.verticalConfidence) === 0 && !profile?.verticalSlug) return true;
+  const slug = String(profile?.verticalSlug ?? '').toLowerCase();
+  const group = String(profile?.verticalGroup ?? '').toLowerCase();
+  if (slug === 'services.generic' || (!group && !slug)) {
+    // Explicit service keywords → allow service seed; pure unknown → sparse.
+    const blob = [profile?.businessName, profile?.storeName, profile?.businessType, profile?.storeType]
+      .map((v) => String(v ?? '').toLowerCase())
+      .join(' ');
+    if (/\b(service|services|appointment|booking|quote|handyman|plumber|cleaning)\b/.test(blob)) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 function isProfessionalSeedProfile(profile) {
   const blob = [
     profile?.businessName,
@@ -179,6 +255,12 @@ function isProfessionalSeedProfile(profile) {
 function buildServicesSeed(profile, targetCount) {
   if (isProfessionalSeedProfile(profile)) {
     return buildMinimalProfessionalSeed(profile, targetCount);
+  }
+  if (isFlowerSignalProfile(profile)) {
+    return buildSparseInferredFloristSeed(profile);
+  }
+  if (isInsufficientUnderstandingProfile(profile)) {
+    return buildSparseInsufficientUnderstandingSeed(profile);
   }
   const categories = [
     { id: 'cat_svc_0', name: 'Core Services' },
@@ -219,12 +301,22 @@ export function buildSeedCatalog(profile, opts = {}) {
   const group = (profile?.verticalGroup || '').toLowerCase();
   const model = (profile?.businessModel || '').toLowerCase();
   const slug = (profile?.verticalSlug || '').toLowerCase();
+  const creationMode = String(profile?.creationMode ?? '').toUpperCase();
 
-  const industryCatalog = buildIndustryCatalog(profile, targetCount);
+  const industryCatalog = buildIndustryCatalog(
+    {
+      ...profile,
+      creationMode: creationMode || profile?.creationMode,
+    },
+    targetCount,
+  );
   if (industryCatalog?.items?.length) {
+    const items = industryCatalog.items;
+    const products = Array.isArray(industryCatalog.products) ? industryCatalog.products : items;
     return {
       categories: industryCatalog.categories,
-      items: industryCatalog.items,
+      items,
+      products,
       imageQueryHints: industryCatalog.imageQueryHints ?? {},
       meta: industryCatalog.meta ?? { catalogSource: 'industry_blueprint', vertical: slug },
     };
@@ -242,9 +334,11 @@ export function buildSeedCatalog(profile, opts = {}) {
       Math.min(targetCount, 8),
     );
     if (forced?.items?.length) {
+      const items = forced.items;
       return {
         categories: forced.categories,
-        items: forced.items,
+        items,
+        products: Array.isArray(forced.products) ? forced.products : items,
         imageQueryHints: forced.imageQueryHints ?? {},
         meta: forced.meta ?? { catalogSource: 'industry_blueprint_forced', vertical: 'services.finance' },
       };
