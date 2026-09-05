@@ -581,9 +581,14 @@ router.post('/create-from-store', requireAuth, async (req, res, next) => {
       });
     }
     const { storeId } = parsed.data;
-    // Idempotent: if an edit draft already exists for this store, return it (e.g. "Back to edit" from preview)
+    // Idempotent: reuse an *editable* revision only (never a committed snapshot).
+    // resolveDraftForStore historically mapped committed → "ready"; gate on draft.status.
     const resolved = await resolveDraftForStore(prisma, storeId, null);
-    if (resolved.draft && (resolved.status === 'ready' || resolved.status === 'draft')) {
+    const existingStatus = String(resolved.draft?.status || '').toLowerCase();
+    if (
+      resolved.draft &&
+      (existingStatus === 'ready' || existingStatus === 'draft' || existingStatus === 'generating')
+    ) {
       return res.status(200).json({
         ok: true,
         draftId: String(resolved.draft.id),

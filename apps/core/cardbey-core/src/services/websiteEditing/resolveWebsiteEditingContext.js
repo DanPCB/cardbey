@@ -186,7 +186,11 @@ async function buildPreviewFromBusiness(prisma, business) {
 async function ensureEditableRevisionForBusiness(prisma, { business, user, userId }) {
   const storeId = business.id;
   const resolved = await resolveDraftForStore(prisma, storeId, null);
-  if (resolved.draft && (resolved.status === 'ready' || resolved.status === 'draft')) {
+  const existingStatus = String(resolved.draft?.status || '').toLowerCase();
+  if (
+    resolved.draft &&
+    (existingStatus === 'ready' || existingStatus === 'draft' || existingStatus === 'generating')
+  ) {
     return { draft: resolved.draft, initialized: false };
   }
 
@@ -334,10 +338,11 @@ export async function resolveWebsiteEditingContext(prisma, args) {
     resolutionStep = 'explicit_draft';
   }
 
-  // 2–3) Existing active unpublished / canonical draft for store
+  // 2–3) Existing active unpublished / canonical draft for store (not committed snapshots)
   if (!draft && storeIdNormalized) {
     const resolved = await resolveDraftForStore(prisma, storeIdNormalized, generationRunIdIn);
-    if (resolved.draft && (resolved.status === 'ready' || resolved.status === 'draft' || resolved.status === 'generating')) {
+    const st = String(resolved.draft?.status || '').toLowerCase();
+    if (resolved.draft && (st === 'ready' || st === 'draft' || st === 'generating')) {
       draft = resolved.draft;
       resolutionStep = generationRunIdIn ? 'legacy_generation_run' : 'store_draft';
     }

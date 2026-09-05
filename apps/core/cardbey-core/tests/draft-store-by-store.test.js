@@ -117,6 +117,47 @@ describe('Draft store by-store and create-from-store', () => {
     expect(Array.isArray(getRes.body.preview.items)).toBe(true);
   });
 
+  it('POST /api/draft-store/create-from-store mints editable draft when only committed snapshot exists', async () => {
+    const committed = await prisma.draftStore.create({
+      data: {
+        status: 'committed',
+        mode: 'personal',
+        expiresAt: new Date(Date.now() + 86400000),
+        ownerUserId: userA.id,
+        committedStoreId: storeA.id,
+        committedUserId: userA.id,
+        committedAt: new Date(),
+        input: { storeId: storeA.id, source: 'test-committed' },
+        preview: {
+          storeName: 'Store A',
+          storeType: 'General',
+          categories: [{ id: 'other', name: 'Other' }],
+          items: [],
+          meta: { storeId: storeA.id },
+        },
+      },
+    });
+
+    const createRes = await testRequest
+      .post('/api/draft-store/create-from-store')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ storeId: storeA.id })
+      .expect(201);
+
+    expect(createRes.body.ok).toBe(true);
+    expect(createRes.body.draftId).toBeDefined();
+    expect(createRes.body.draftId).not.toBe(committed.id);
+    expect(createRes.body.status).toBe('ready');
+
+    const getRes = await testRequest
+      .get(`/api/draft-store/by-store/${storeA.id}`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+
+    expect(getRes.body.draftId).toBe(createRes.body.draftId);
+    expect(getRes.body.status).toBe('ready');
+  });
+
   it('POST /api/draft-store/create-from-store returns 401 when not authenticated', async () => {
     await testRequest
       .post('/api/draft-store/create-from-store')
