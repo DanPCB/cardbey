@@ -169,7 +169,7 @@ export async function runMultiMarketDiscovery(
         campaignId: job.campaignId,
         createdBy: job.createdBy,
         createMission: false,
-        initialStatus: 'DISCOVERED',
+        initialStatus: 'PENDING_QA',
       });
       // Stamp market fields onto accepted candidates
       const { upsertBusinessCandidates } = await import(
@@ -263,4 +263,57 @@ export async function getMultiMarketJobMetrics(countryCode?: MarketCountryCode) 
     discovered: jobs.reduce((s, j) => s + j.discoveredCount, 0),
     accepted: jobs.reduce((s, j) => s + j.acceptedCount, 0),
   };
+}
+
+/**
+ * QA Review batch cards for multi-market jobs (PilotBatchMetrics-compatible).
+ * Dedupes by batchId (latest job wins). Dry-run jobs appear with pendingQa=0.
+ */
+export async function listMultiMarketQaBatches(limit = 40) {
+  const { listDiscoveryJobs } = await import('./jobRepository.js');
+  const { buildBatchOnboardingMetrics } = await import(
+    '../businessCandidate/buildBatchMetrics.js'
+  );
+  const jobs = await listDiscoveryJobs();
+  const byBatch = new Map<string, (typeof jobs)[number]>();
+  for (const job of jobs) {
+    const prev = byBatch.get(job.batchId);
+    const prevAt = prev?.completedAt || prev?.createdAt || '';
+    const nextAt = job.completedAt || job.createdAt || '';
+    if (!prev || nextAt >= prevAt) byBatch.set(job.batchId, job);
+  }
+  const sorted = [...byBatch.values()].sort((a, b) => {
+    const aAt = a.completedAt || a.createdAt || '';
+    const bAt = b.completedAt || b.createdAt || '';
+    return bAt.localeCompare(aAt);
+  });
+
+  /** @type {Array<Record<string, unknown>>} */
+  const out = [];
+  for (const job of sorted.slice(0, Math.max(1, Math.min(limit, 100)))) {
+    const metrics = await buildBatchOnboardingMetrics(job.batchId, job.requestedLimit);
+    const byStatus = metrics.byStatus || {};
+    const pendingQa =
+      Number(byStatus.PENDING_QA || 0) + Number(byStatus.DISCOVERED || 0);
+    out.push({
+      batchId: job.batchId,
+      campaignId: job.campaignId || job.batchId,
+      countryCode: job.countryCode,
+      territoryId: job.territoryId,
+      categoryId: job.categoryId,
+      locality: job.locality,
+      dryRun: job.dryRun === true,
+      jobStatus: job.status,
+      discovered: Math.max(Number(job.discoveredCount) || 0, Number(metrics.total) || 0),
+      pendingQa,
+      claimable: Number(byStatus.CLAIMABLE || 0),
+      reportViewed: 0,
+      verified: Number(byStatus.VERIFIED || 0),
+      activated: Number(byStatus.ACTIVE || 0),
+      operating: 0,
+      biSnapshots: 0,
+      seedSuitcases: 0,
+    });
+  }
+  return out;
 }
