@@ -64,6 +64,11 @@ export interface DiscoveryDiscoverParams {
   address?: string;
   referredByUserId?: string;
   region?: string;
+  /** Multi-market: ISO country (AU/VN). When unset, Melbourne pilot defaults apply. */
+  countryCode?: string;
+  regionCode?: string | null;
+  /** Explicit Places location bias (overrides country-derived location). */
+  locationBias?: string;
 }
 
 export interface ScoredCandidate extends BusinessCandidate {

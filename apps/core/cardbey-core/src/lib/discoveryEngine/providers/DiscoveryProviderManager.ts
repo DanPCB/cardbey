@@ -18,7 +18,10 @@ import {
 } from './discoveryProviderErrors.js';
 import { logDiscoveryProviderEvent } from './discoveryProviderLogger.js';
 import { googlePlacesDiscoveryProvider } from './GooglePlacesDiscoveryProvider.js';
-import { osmDiscoveryProvider } from './OsmDiscoveryProvider.js';
+import {
+  osmDiscoveryProvider,
+  registryBboxToOverpass,
+} from './OsmDiscoveryProvider.js';
 
 export type DiscoveryProviderMode = 'auto' | 'google_places' | 'osm';
 
@@ -52,6 +55,15 @@ export type DiscoveryBatchParams = {
   provider?: DiscoveryProviderMode;
   slowMode?: boolean;
   retryRateLimited?: Array<{ suburb: string; category: string }>;
+  /** Multi-market only — when unset, Melbourne pilot behaviour is unchanged. */
+  countryCode?: string;
+  regionCode?: string | null;
+  /** Map display category label → Places search term */
+  categorySearchTerms?: Record<string, string>;
+  /** Prefer these OSM tags over pilot `osmTagsForPilotCategories` */
+  osmTags?: string[];
+  /** Market-registry bbox [minLng, minLat, maxLng, maxLat] */
+  bbox?: [number, number, number, number] | null;
 };
 
 function resolvePrimaryProvider(mode: DiscoveryProviderMode): 'google_places' | 'osm' {
@@ -116,13 +128,18 @@ export class DiscoveryProviderManager {
     };
 
     const runGoogleSuburbCategory = async (suburb: string, category: string, limit: number) => {
-      const keyword = REAL_LOCAL_CATEGORY_KEYWORDS[category] ?? category;
+      const keyword =
+        params.categorySearchTerms?.[category] ??
+        REAL_LOCAL_CATEGORY_KEYWORDS[category] ??
+        category;
       const batch = await googlePlacesDiscoveryProvider.discover({
         provider: 'google_places',
         city: suburb,
         category: keyword,
         limit,
-        region: 'Melbourne VIC',
+        region: params.countryCode ? suburb : 'Melbourne VIC',
+        countryCode: params.countryCode,
+        regionCode: params.regionCode ?? null,
       });
       for (const row of batch) {
         row.metadata = { ...row.metadata, suburb, pilotCategory: category };
@@ -136,9 +153,14 @@ export class DiscoveryProviderManager {
       const perSuburbLimit = Math.min(50, params.maxResults - collected.length);
       if (perSuburbLimit <= 0) return;
 
+      const tags =
+        params.osmTags && params.osmTags.length > 0
+          ? params.osmTags
+          : osmTagsForPilotCategories(categories);
+
       const cacheInput = {
         provider: 'osm',
-        suburb,
+        suburb: params.countryCode ? `${params.countryCode}:${suburb}` : suburb,
         categoryGroup: categories,
         maxResults: perSuburbLimit,
         dryRun: params.dryRun,
@@ -159,7 +181,7 @@ export class DiscoveryProviderManager {
 
       try {
         overpassRequestCount += 1;
-        const tags = osmTagsForPilotCategories(categories);
+        const overpassBbox = params.bbox ? registryBboxToOverpass(params.bbox) : null;
         const { candidates: batch, retryCount: retries } = await osmDiscoveryProvider.discoverGrouped({
           city: suburb,
           tags,
@@ -167,13 +189,17 @@ export class DiscoveryProviderManager {
           slowMode: params.slowMode,
           suburb,
           categories,
+          bbox: overpassBbox,
+          countryCode: params.countryCode ?? null,
         });
         retryCount += retries;
 
         for (const row of batch) {
           const osmTags = (row.metadata.osmTags as Record<string, string>) ?? {};
-          const pilotCategory = inferPilotCategoryFromOsmTags(osmTags);
+          const pilotCategory = inferPilotCategoryFromOsmTags(osmTags) ?? categories[0] ?? null;
           annotateOsmCandidate(row, suburb, pilotCategory);
+          if (params.countryCode && !row.country) row.country = params.countryCode;
+          if (params.regionCode && !row.state) row.state = params.regionCode;
           addCandidate(row, suburb);
         }
 

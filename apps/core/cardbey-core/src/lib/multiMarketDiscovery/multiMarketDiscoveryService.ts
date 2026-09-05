@@ -54,6 +54,15 @@ export function prepareMultiMarketDiscoveryJob(
     requestedLimit,
   });
 
+  const resolvedBbox = (() => {
+    let current: typeof territory | null = territory;
+    while (current) {
+      if (current.bbox && current.bbox.length === 4) return current.bbox;
+      current = current.parentId ? getTerritoryById(current.parentId) : null;
+    }
+    return null;
+  })();
+
   const now = new Date().toISOString();
   const job: MultiMarketDiscoveryJob = {
     id: newJobId(),
@@ -62,7 +71,7 @@ export function prepareMultiMarketDiscoveryJob(
     countryCode: input.countryCode,
     regionCode: territory.regionCode ?? null,
     territoryId: territory.id,
-    locality: input.locality ?? territory.name,
+    locality: input.locality ?? territory.nameEn ?? territory.name,
     categoryId: category.id,
     searchTerms,
     language: languageForCountry(input.countryCode, input.language),
@@ -84,7 +93,7 @@ export function prepareMultiMarketDiscoveryJob(
     startedAt: null,
     completedAt: null,
     queryArea: {
-      bbox: territory.bbox ?? null,
+      bbox: resolvedBbox,
       radiusM: territory.defaultRadiusM ?? null,
     },
   };
@@ -101,8 +110,10 @@ export async function prepareAndPersistDiscoveryJob(
 
 function localitySearchName(job: MultiMarketDiscoveryJob): string {
   const territory = getTerritoryById(job.territoryId);
+  // Prefer English names for Places/Nominatim; fall back to stored locality / native name
+  if (territory?.nameEn) return territory.nameEn;
   if (job.locality) return job.locality;
-  return territory?.nameEn ?? territory?.name ?? job.territoryId;
+  return territory?.name ?? job.territoryId;
 }
 
 function categoryLabelForProvider(job: MultiMarketDiscoveryJob): string {
@@ -114,6 +125,24 @@ function searchTermMap(job: MultiMarketDiscoveryJob): Record<string, string> {
   const label = categoryLabelForProvider(job);
   const term = job.searchTerms[0] ?? label;
   return { [label]: term };
+}
+
+/** Walk territory → parents for first registry bbox [minLng, minLat, maxLng, maxLat]. */
+function resolveTerritoryBbox(
+  territoryId: string,
+): [number, number, number, number] | null {
+  let current = getTerritoryById(territoryId);
+  while (current) {
+    if (current.bbox && current.bbox.length === 4) return current.bbox;
+    current = current.parentId ? getTerritoryById(current.parentId) : null;
+  }
+  return null;
+}
+
+function osmTagsForJob(job: MultiMarketDiscoveryJob): string[] | undefined {
+  const category = getCategoryById(job.categoryId);
+  const tags = category?.osmTags?.filter(Boolean) ?? [];
+  return tags.length ? tags : undefined;
 }
 
 export async function runMultiMarketDiscovery(
@@ -150,6 +179,8 @@ export async function runMultiMarketDiscovery(
       countryCode,
       regionCode: job.regionCode,
       categorySearchTerms: searchTermMap(job),
+      osmTags: osmTagsForJob(job),
+      bbox: resolveTerritoryBbox(job.territoryId),
     });
 
     const failureClasses: MultiMarketDiscoveryJob['failureClasses'] = [];
