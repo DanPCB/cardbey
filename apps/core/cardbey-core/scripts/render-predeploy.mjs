@@ -38,6 +38,8 @@ async function main() {
   log(`[render-predeploy] node=${process.version}`);
 
   runStep('write-build-metadata', 'write-build-metadata.mjs', { fatal: false });
+  // Prisma client must exist before tsx import-graph smoke (structured_store_build → prismaClient).
+  runStep('prisma-generate-for-gate', 'prisma-generate-for-env.js', { fatal: false });
   runStep('create-store-runtime-gate', 'smoke-create-store-runtime-graph.mjs');
 
   await import('../src/env/ensureDatabaseUrl.js');
