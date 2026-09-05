@@ -23,6 +23,19 @@ describe('marketRegistry', () => {
     expect(snap.markets.every((m) => m.nationwideComplete === false)).toBe(true);
     expect(snap.territories.some((t) => t.id === 'au-vic-melbourne')).toBe(true);
     expect(snap.territories.some((t) => t.id === 'vn-hcm')).toBe(true);
+    expect(snap.territories.some((t) => t.id === 'au-nsw')).toBe(true);
+    expect(snap.territories.some((t) => t.id === 'vn-prov-lam-dong')).toBe(true);
+    expect(snap.version).toContain('phase1a');
+  });
+
+  it('includes fine-grained SME categories for AU and VN', () => {
+    const snap = getMarketRegistrySnapshot();
+    const auCats = snap.categories.filter((c) => c.countryAvailability.includes('AU'));
+    const vnCats = snap.categories.filter((c) => c.countryAvailability.includes('VN'));
+    expect(auCats.length).toBeGreaterThanOrEqual(25);
+    expect(vnCats.length).toBeGreaterThanOrEqual(20);
+    expect(snap.categories.some((c) => c.id === 'bakery')).toBe(true);
+    expect(snap.categories.some((c) => c.id === 'banh_mi')).toBe(true);
   });
 
   it('validates AU territory/category pairs', () => {
