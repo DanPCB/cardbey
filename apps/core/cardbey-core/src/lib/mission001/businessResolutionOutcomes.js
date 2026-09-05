@@ -264,6 +264,23 @@ export function distinctiveNameTokenOverlap(inputName, candidateName) {
     'ty',
     'tnhh',
     'cty',
+    // Industry labels — not brand identity (blocks My Flower → Florist Braybrook)
+    'flower',
+    'flowers',
+    'florist',
+    'floral',
+    'bloom',
+    'blooms',
+    'bouquet',
+    'cafe',
+    'coffee',
+    'restaurant',
+    'bakery',
+    'salon',
+    'spa',
+    'pizza',
+    'noodle',
+    'noodles',
   ]);
   const tokens = (s) =>
     String(s ?? '')

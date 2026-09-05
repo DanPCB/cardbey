@@ -298,8 +298,24 @@ function buildStoreDescription(preview, input) {
 
 function buildTagline(preview, input) {
   const name = String(preview?.storeName || input?.businessName || 'Us').trim();
-  const bt = String(input?.businessType || preview?.storeType || 'store').trim();
-  return `Welcome to ${name} — quality ${bt.replace(/_/g, ' ')} you can trust.`;
+  const rawBt = String(
+    input?.storeGenerationBusinessContext?.industryBlueprintKey ||
+      input?.verticalSlug ||
+      preview?.meta?.verticalSlug ||
+      preview?.canonicalBusinessType ||
+      input?.businessType ||
+      preview?.storeType ||
+      'store',
+  ).trim();
+  let bt = rawBt.replace(/_/g, ' ').replace(/^retail\./i, '').replace(/^food\./i, '');
+  if (/^(other|others|general|unknown)$/i.test(bt)) {
+    bt = 'flowers';
+    if (/\bflower|florist|floral\b/i.test(`${name} ${preview?.storeName || ''}`)) bt = 'flowers';
+    else if (/\bcafe|coffee\b/i.test(name)) bt = 'coffee';
+    else bt = 'local favourites';
+  }
+  if (bt === 'flower') bt = 'flowers';
+  return `Welcome to ${name} — quality ${bt} you can trust.`;
 }
 
 /** Fixes touching more than this many products require explicit owner approval (Tier 2). */

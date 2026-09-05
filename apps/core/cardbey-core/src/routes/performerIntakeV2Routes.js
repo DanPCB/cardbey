@@ -2620,6 +2620,58 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     const earlyMime =
       earlyFirstAtt && typeof earlyFirstAtt === 'object' ? earlyFirstAtt.mimeType : null;
 
+    const earlyCurrentContext =
+      body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
+    const earlyBeliefLoaderOpts = {
+      req,
+      sessionKey: earlySessionKey,
+      sessionId: earlyConversationSessionId ?? earlySessionKey,
+      currentContext: earlyCurrentContext,
+      intentSourceContext: {
+        ...(earlyIntentSourceContext ?? {}),
+        ...(earlyAttachmentOnly ? { uploadedAssetPending: true } : {}),
+      },
+      body,
+    };
+    const earlyAdvisorInput = {
+      userMessage,
+      originalUserMessage: userMessage,
+      attachments: body.attachments,
+      imageDataUrl: resolveIntakeImageRefForOcr(body),
+      hasAttachment: earlyHasAttachment,
+      intentSourceContext: earlyIntentSourceContext,
+    };
+
+    const skipUploadAskForReplay = shouldSkipUploadAskForIntakeSelectionReplay(body);
+
+    // Attachment-only Ask — respond from client/handoff belief BEFORE sync evidence barrier.
+    // Server OCR/vision belongs on Create-store chip, not before the Ask panel (avoids 500/timeouts).
+    if (
+      !confirmInterceptApplied &&
+      earlyHasAttachment &&
+      earlyAttachmentOnly &&
+      !skipUploadAskForReplay
+    ) {
+      const earlyUploadAsk = await maybeRespondUploadAskBeforeClassifier({
+        userMessage,
+        attachmentOnlyUpload: true,
+        hasAttachment: true,
+        imageDataUrl: resolveIntakeImageRefForOcr(body),
+        intentSourceContext: earlyIntentSourceContext,
+        beliefLoaderOpts: earlyBeliefLoaderOpts,
+        advisorInput: earlyAdvisorInput,
+        body,
+      });
+      if (earlyUploadAsk?.payload) {
+        console.log('[INTAKE] Upload Ask panel before evidence barrier');
+        return res.json({
+          ...earlyUploadAsk.payload,
+          action: 'clarify',
+          executionPath: 'intake_upload_ask',
+        });
+      }
+    }
+
     if (earlyHasAttachment && !confirmInterceptApplied) {
       const preEvidenceId = String(
         body.evidenceId ?? body.intentSourceContext?.evidenceId ?? '',
@@ -2657,56 +2709,42 @@ router.post('/', requireUserOrGuest, async (req, res) => {
         }
       }
       if (!intakeEvidenceBundle) {
-      intakeEvidenceBarrierResult = await runIntakeEvidenceBarrier({
-        hasAttachment: true,
-        imageRef:
-          resolveIntakeImageRefForOcr(body) ?? earlyIntentSourceContext?.pendingImageDataUrl ?? null,
-        filename: earlyFilename,
-        mimeType: earlyMime,
-        userMessage,
-        sessionId: earlySessionKey,
-        storeId:
-          pickString(
-            body.storeId,
-            body.currentContext && typeof body.currentContext === 'object'
-              ? body.currentContext.activeStoreId
-              : null,
-          ) || null,
-        attachmentOnlyUpload: earlyAttachmentOnly === true,
-        runVisionEnrichment: true,
-        abortSignal: req.abortSignal ?? null,
-      });
+        try {
+          intakeEvidenceBarrierResult = await runIntakeEvidenceBarrier({
+            hasAttachment: true,
+            imageRef:
+              resolveIntakeImageRefForOcr(body) ?? earlyIntentSourceContext?.pendingImageDataUrl ?? null,
+            filename: earlyFilename,
+            mimeType: earlyMime,
+            userMessage,
+            sessionId: earlySessionKey,
+            storeId:
+              pickString(
+                body.storeId,
+                body.currentContext && typeof body.currentContext === 'object'
+                  ? body.currentContext.activeStoreId
+                  : null,
+              ) || null,
+            attachmentOnlyUpload: earlyAttachmentOnly === true,
+            runVisionEnrichment: true,
+            abortSignal: req.abortSignal ?? null,
+          });
+        } catch (barrierErr) {
+          console.warn(
+            '[INTAKE] early evidence barrier failed (non-fatal):',
+            barrierErr?.message ?? barrierErr,
+          );
+          intakeEvidenceBarrierResult = null;
+        }
       }
-      if (intakeEvidenceBarrierResult.status === 'awaiting_perception') {
+      if (intakeEvidenceBarrierResult?.status === 'awaiting_perception') {
         return res.json(buildAwaitingPerceptionIntakeResponse(intakeEvidenceBarrierResult));
       }
-      if (intakeEvidenceBarrierResult.status === 'ready') {
+      if (intakeEvidenceBarrierResult?.status === 'ready') {
         intakeEvidenceBundle = intakeEvidenceBarrierResult.bundle;
         body.__intakeEvidenceBarrier = intakeEvidenceBarrierResult;
       }
     }
-
-    const earlyCurrentContext =
-      body.currentContext && typeof body.currentContext === 'object' ? body.currentContext : {};
-    const earlyBeliefLoaderOpts = {
-      req,
-      sessionKey: earlySessionKey,
-      sessionId: earlyConversationSessionId ?? earlySessionKey,
-      currentContext: earlyCurrentContext,
-      intentSourceContext: {
-        ...(earlyIntentSourceContext ?? {}),
-        ...(earlyAttachmentOnly ? { uploadedAssetPending: true } : {}),
-      },
-      body,
-    };
-    const earlyAdvisorInput = {
-      userMessage,
-      originalUserMessage: userMessage,
-      attachments: body.attachments,
-      imageDataUrl: resolveIntakeImageRefForOcr(body),
-      hasAttachment: earlyHasAttachment,
-      intentSourceContext: earlyIntentSourceContext,
-    };
 
     await maybeClearStaleUploadOnTextOnlyIntent({
       userMessage,
@@ -2715,7 +2753,7 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     });
 
     if (!confirmInterceptApplied) {
-      let skipUploadAskForLoyalty = shouldSkipUploadAskForIntakeSelectionReplay(body);
+      let skipUploadAskForLoyalty = skipUploadAskForReplay;
       if (skipUploadAskForLoyalty) {
         console.log('[INTAKE] Skipping upload-ask — intakeV2Selection loyalty replay');
       }

@@ -1204,7 +1204,12 @@ async function saveDraftBase(draftId, catalog, params) {
       params,
     );
   }
-  const { profile, categories, products, meta } = workingCatalog;
+  const { profile, categories, meta } = workingCatalog;
+  const products = Array.isArray(workingCatalog.products)
+    ? workingCatalog.products
+    : Array.isArray(workingCatalog.items)
+      ? workingCatalog.items
+      : [];
   const isResearch = isResearchCatalogSource(meta);
   const businessProfile = profile?.businessProfile ?? params?.businessProfile ?? meta?.businessProfile ?? null;
   const existingRow = await prisma.draftStore.findUnique({

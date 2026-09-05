@@ -18,6 +18,7 @@ import {
 import { evaluateReciprocalMatchPair } from '../marketIntent/evaluateReciprocalMatch.js';
 import { buildQualifiedCapitalOpportunity } from '../marketIntent/capital/qualifyCapitalPair.js';
 import { getCapitalCohortById, CARDBEY_SEED_CALIBRATION_CANDIDATE_IDS } from '../marketIntent/capital/capitalInvestorResearchCohort.js';
+import { getPilotCohortMax } from '../../config/pilotScaleLimits.js';
 import type { CapitalCampaignHandoffContract } from '../marketIntent/capital/capitalTypes.js';
 import {
   FUNDRAISING_CAMPAIGN_ID_CARDBEY_SEED_2026,
@@ -699,7 +700,11 @@ export function recordInvestorQuestion(params: {
  * Human-review Wave 0 cohort (~8–12) from Capital Resource Network calibration.
  * Does NOT auto-admit.
  */
-export function getWave0HumanReviewCohort(limit = 12) {
+export function getWave0HumanReviewCohort(limit?: number) {
+  const resolvedLimit =
+    limit != null && Number.isFinite(limit) && limit >= 1
+      ? Math.floor(limit)
+      : getPilotCohortMax();
   const calibration = calibrateCardbeySeedAgainstCohort();
   const preferred = new Set([
     ...CARDBEY_SEED_CALIBRATION_CANDIDATE_IDS,
@@ -721,7 +726,7 @@ export function getWave0HumanReviewCohort(limit = 12) {
   return {
     campaignKey: FUNDRAISING_CAMPAIGN_KEY_CARDBEY_SEED_2026,
     note: 'Human-review candidates only — admission requires explicit confirmation. Rankings not manipulated for a desired fund.',
-    candidates: ranked.slice(0, limit).map((row) => ({
+    candidates: ranked.slice(0, resolvedLimit).map((row) => ({
       catalogId: row.catalogId,
       investorName: row.investorName,
       investorType: row.investorType,

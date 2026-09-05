@@ -177,6 +177,20 @@ export function scoreSemanticMediaMatch(input = {}) {
   const foodLeak = /\b(pastry|donut|croissant|latte|burger|sushi|pizza|cafe)\b/.test(corpus);
   if (isSignageLike && foodLeak) score -= 0.4;
 
+  // Florist / flower retail must not accept aviation, dental, generic office stock.
+  const isFlorist =
+    /\bflorist|flower|floral|bouquet|retail\.flower\b/.test(biz) ||
+    /\bflorist|flower|floral|bouquet\b/.test(String(input.storeName || '').toLowerCase());
+  if (isFlorist) {
+    const bad =
+      /\b(aircraft|airplane|aviation|flying service|dental|dentist|teeth|office hallway|emergency exit|security camera|call-?out|inspection)\b/.test(
+        corpus,
+      );
+    if (bad) score -= 0.55;
+    const good = /\b(flower|floral|bouquet|rose|plant|bloom|florist|garden)\b/.test(corpus);
+    if (good) score += 0.12;
+  }
+
   return Math.max(0, Math.min(1, score));
 }
 

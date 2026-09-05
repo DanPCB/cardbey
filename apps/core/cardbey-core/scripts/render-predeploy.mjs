@@ -22,11 +22,23 @@ function fail(msg, code = 1) {
   process.exit(code);
 }
 
+function isProdLikeDeploy() {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    process.env.NODE_ENV === 'staging' ||
+    !!process.env.RENDER_SERVICE_ID ||
+    !!process.env.RENDER_EXTERNAL_URL
+  );
+}
+
 async function main() {
   const startedAt = new Date().toISOString();
   log(`[render-predeploy] start ${startedAt}`);
   log(`[render-predeploy] cwd=${process.cwd()}`);
   log(`[render-predeploy] node=${process.version}`);
+
+  runStep('write-build-metadata', 'write-build-metadata.mjs', { fatal: false });
+  runStep('create-store-runtime-gate', 'smoke-create-store-runtime-graph.mjs');
 
   await import('../src/env/ensureDatabaseUrl.js');
 
@@ -46,6 +58,7 @@ async function main() {
   if (!isPostgresDatabaseUrl(dbUrl)) {
     log('[render-predeploy] not postgres — running bootstrap only');
     runStep('prisma-bootstrap', 'prisma-bootstrap.js');
+    runStep('db-schema-drift', 'check-db-schema-drift.mjs', { fatal: isProdLikeDeploy() });
     log(`[render-predeploy] done ${new Date().toISOString()}`);
     return;
   }
@@ -56,6 +69,8 @@ async function main() {
     fatal: false,
   });
   runStep('prisma-bootstrap', 'prisma-bootstrap.js');
+  const prodLike = isProdLikeDeploy();
+  runStep('db-schema-drift', 'check-db-schema-drift.mjs', { fatal: prodLike });
   log(`[render-predeploy] done ${new Date().toISOString()}`);
 }
 

@@ -9,6 +9,8 @@ on:
       - 'apps/core/cardbey-core/package-lock.json'
       - 'apps/core/cardbey-core/prisma/**'
       - 'apps/core/cardbey-core/vitest.config.mjs'
+      - 'apps/core/cardbey-core/scripts/smoke-create-store-runtime-graph.mjs'
+      - 'apps/core/cardbey-core/scripts/render-predeploy.mjs'
   push:
     branches:
       - main
@@ -21,6 +23,8 @@ on:
       - 'apps/core/cardbey-core/package-lock.json'
       - 'apps/core/cardbey-core/prisma/**'
       - 'apps/core/cardbey-core/vitest.config.mjs'
+      - 'apps/core/cardbey-core/scripts/smoke-create-store-runtime-graph.mjs'
+      - 'apps/core/cardbey-core/scripts/render-predeploy.mjs'
 
 env:
   NODE_ENV: test
@@ -55,6 +59,12 @@ jobs:
 
       - name: Generate Prisma Client
         run: npx prisma generate --schema prisma/sqlite/schema.prisma
+
+      - name: Create-store runtime integrity gate
+        run: npm run gate:create-store-runtime
+
+      - name: Store research module import gate
+        run: npx vitest run src/lib/storeResearch/__tests__/businessEntityResolver.import.test.js
 
       - name: Prepare test database
         run: npx prisma db push --schema prisma/sqlite/schema.prisma --accept-data-loss

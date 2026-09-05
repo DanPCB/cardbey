@@ -1,69 +1,82 @@
-/**
- * Plain-Node ESM smoke test for the production create-store research graph.
- * Must pass without --import tsx (same resolution semantics as a broken/absent TS loader).
- *
- * Usage (from apps/core/cardbey-core):
- *   node scripts/smoke-create-store-runtime-graph.mjs
- */
-import { pathToFileURL } from 'url';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-const targets = [
-  'src/lib/businessDiscovery/businessDataNormalizer.runtime.js',
-  'src/lib/businessDiscovery/businessDataNormalizer.js',
-  'src/lib/businessDiscovery/businessEntityResolver.js',
-  'src/lib/businessDiscovery/businessDiscoverySources.js',
-  'src/lib/businessDiscovery/businessSourceAttribution.js',
-  'src/lib/location/resolveCanonicalBusinessLocation.runtime.js',
-  'src/lib/location/resolveCanonicalBusinessLocation.js',
-  'src/lib/location/applyCanonicalLocation.js',
-  'src/lib/storeCreationResearch/index.js',
-  'src/lib/storeResearch/index.js',
-  'src/services/draftStore/websiteTemplateFoundation.js',
-  'src/services/draftStore/websiteSectionsGenerator.js',
-];
-
-let failed = 0;
-for (const rel of targets) {
-  const href = pathToFileURL(path.join(root, rel)).href;
-  try {
-    await import(href);
-    console.log('OK', rel);
-  } catch (err) {
-    failed += 1;
-    console.error('FAIL', rel, err?.code || '', (err?.message || String(err)).split('\n')[0]);
-  }
-}
-
-// structured_store_build pulls prisma/bcrypt — only assert the module path resolves past research/location.
-try {
-  const href = pathToFileURL(path.join(root, 'src/lib/toolExecutors/store/structured_store_build.js')).href;
-  await import(href);
-  console.log('OK src/lib/toolExecutors/store/structured_store_build.js');
-} catch (err) {
-  const msg = err?.message || String(err);
-  // Local workspaces may lack bcryptjs/prisma client; research/location graph is the production defect.
-  if (
-    /bcryptjs|@prisma\/client|\.prisma\/client|client-gen/i.test(msg) &&
-    !/businessDiscovery|storeCreationResearch|applyCanonicalLocation|resolveCanonicalBusinessLocation|websiteTemplateFoundation/i.test(
-      msg,
-    )
-  ) {
-    console.log(
-      'SKIP structured_store_build (env dependency missing, not research graph):',
-      (msg.split('\n')[0] || '').slice(0, 120),
-    );
-  } else {
-    failed += 1;
-    console.error('FAIL structured_store_build', err?.code || '', msg.split('\n')[0]);
-  }
-}
-
-if (failed > 0) {
-  console.error(`\nsmoke-create-store-runtime-graph: ${failed} failure(s)`);
-  process.exit(1);
-}
-console.log('\nsmoke-create-store-runtime-graph: all required imports OK under plain Node ESM');
+/**
+ * RELEASE INTEGRITY gate — create-store runtime import graph.
+ *
+ * Phase 1 (plain Node ESM): research/location modules must load without tsx.
+ * Phase 2 (tsx/esm): production-parity imports for catalogAuthorityDecision +
+ * structured_store_build (same loader as `npm start`).
+ *
+ * Usage (from apps/core/cardbey-core):
+ *   node scripts/smoke-create-store-runtime-graph.mjs
+ *   npm run gate:create-store-runtime
+ */
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/** @param {string} rel */
+function moduleHref(rel) {
+  return pathToFileURL(path.join(root, rel)).href;
+}
+
+const plainNodeTargets = [
+  'src/lib/businessDiscovery/businessDataNormalizer.runtime.js',
+  'src/lib/businessDiscovery/businessDataNormalizer.js',
+  'src/lib/businessDiscovery/businessEntityResolver.js',
+  'src/lib/businessDiscovery/businessDiscoverySources.js',
+  'src/lib/businessDiscovery/businessSourceAttribution.js',
+  'src/lib/location/resolveCanonicalBusinessLocation.runtime.js',
+  'src/lib/location/resolveCanonicalBusinessLocation.js',
+  'src/lib/location/applyCanonicalLocation.js',
+  'src/lib/storeCreationResearch/index.js',
+  'src/lib/storeCreationResearch/catalogAuthorityDecision.js',
+  'src/lib/storeResearch/index.js',
+  'src/services/draftStore/websiteTemplateFoundation.js',
+  'src/services/draftStore/websiteSectionsGenerator.js',
+];
+
+/** Production-parity imports (require tsx like `node --import tsx/esm src/server.js`). */
+const tsxTargets = [
+  'src/lib/storeCreationResearch/catalogAuthorityDecision.js',
+  'src/lib/toolExecutors/store/structured_store_build.js',
+];
+
+let failed = 0;
+
+console.log('[gate:create-store-runtime] phase=plain-node-esm');
+for (const rel of plainNodeTargets) {
+  try {
+    await import(moduleHref(rel));
+    console.log('OK', rel);
+  } catch (err) {
+    failed += 1;
+    console.error('FAIL', rel, err?.code || '', (err?.message || String(err)).split('\n')[0]);
+  }
+}
+
+console.log('[gate:create-store-runtime] phase=tsx-esm (production parity)');
+for (const rel of tsxTargets) {
+  const href = moduleHref(rel);
+  const snippet = `import('${href}').then(()=>process.exit(0)).catch((e)=>{console.error(e?.code||'', (e?.message||String(e)).split('\\n')[0]);process.exit(1);})`;
+  const result = spawnSync(process.execPath, ['--import', 'tsx/esm', '--input-type=module', '-e', snippet], {
+    cwd: root,
+    env: process.env,
+    encoding: 'utf8',
+  });
+  if (result.status === 0) {
+    console.log('OK', rel, '(tsx)');
+  } else {
+    failed += 1;
+    const detail = (result.stderr || result.stdout || '').trim().split('\n')[0] || `exit ${result.status}`;
+    console.error('FAIL', rel, '(tsx)', detail);
+  }
+}
+
+if (failed > 0) {
+  console.error(`\ngate:create-store-runtime: ${failed} failure(s)`);
+  process.exit(1);
+}
+console.log('\ngate:create-store-runtime: all required imports OK (plain Node + tsx/esm)');
+

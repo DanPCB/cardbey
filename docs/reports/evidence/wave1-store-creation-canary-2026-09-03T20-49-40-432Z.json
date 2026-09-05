@@ -1,0 +1,62 @@
+{
+  "at": "2026-09-03T20:49:40.429Z",
+  "core": "https://cardbey-core-staging.onrender.com",
+  "dashboard": "https://cardbey-dashboard-staging.onrender.com",
+  "verdicts": {
+    "W1_1_HP_SERVICES": "PASS_PUBLISH_API_PUBLIC_GUEST_BLOCKED",
+    "W1_2_CLARIFY_NO_INVENT": "PASS",
+    "W1_3_COHORT": "PASS"
+  },
+  "counts": {
+    "total": 1,
+    "pass": 1,
+    "fail": 0,
+    "inventOnClarify": 0
+  },
+  "results": [
+    {
+      "id": "hp-services",
+      "input": "HP Services",
+      "depth": "full",
+      "intakeAction": "create_path",
+      "missionId": "cmtm00dfx00crqvcyo6bkdv4q",
+      "build": "completed",
+      "draftId": "cmtm00f7q00deqvcynqc9nlj0",
+      "generationRunId": "cmtm00dkf00dcqvcydf1r51pa",
+      "preview": {
+        "path": "https://cardbey-dashboard-staging.onrender.com/preview/website/cmtm00f7q00deqvcynqc9nlj0",
+        "reachable": true,
+        "status": 200,
+        "notEditSessionDeadEnd": true,
+        "survivesRefresh": true,
+        "reloadStatus": 200
+      },
+      "publish": {
+        "attempted": true,
+        "ok": true,
+        "status": 200,
+        "error": null,
+        "liveUrl": "https://cardbey-dashboard-staging.onrender.com/s/hp-services-6",
+        "liveOk": false,
+        "publicApiStatus": 404,
+        "storeId": "cmtm00g8b00feqvcyguhb7ncv",
+        "slug": "hp-services-6",
+        "publishSource": "legacy"
+      },
+      "recovered": false,
+      "failure": "publish_ok_but_public_404:404",
+      "elapsedMs": 8365,
+      "pass": true,
+      "startAction": "store_mission_started",
+      "fields": {
+        "storeName": "HP Services",
+        "website": "",
+        "location": "Melbourne",
+        "category": "Home & garden"
+      },
+      "storeId": "cmtm00g8b00feqvcyguhb7ncv",
+      "storeSlug": "hp-services-6",
+      "passNote": "publish_api_ok_public_not_eligible"
+    }
+  ]
+}
