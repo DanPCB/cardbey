@@ -14,13 +14,23 @@ import {
 vi.mock('../../businessDiscovery/businessDiscoverySources.js', () => ({
   searchGooglePlaces: vi.fn(),
   fetchGooglePlaceDetails: vi.fn(async (placeId) => {
-    if (String(placeId).includes('wrong-florist')) {
+    const id = String(placeId);
+    if (id.includes('wrong-florist')) {
       return {
         placeId,
         name: 'Florist Braybrook - Same Day Flower Delivery',
         businessName: 'Florist Braybrook - Same Day Flower Delivery',
         website: 'https://floristbraybrook.example',
         address: 'Braybrook VIC',
+      };
+    }
+    if (id.includes('port-flowers')) {
+      return {
+        placeId,
+        name: 'Port Melbourne Flowers',
+        businessName: 'Port Melbourne Flowers',
+        website: 'https://portmelbourneflowers.example',
+        address: 'Port Melbourne VIC',
       };
     }
     return {
@@ -85,6 +95,61 @@ describe('storeResearch pipeline', () => {
     expect(result.candidates[0].placeId).toBe('ChIJ-msd-test');
     expect(result.candidates[0].website).toMatch(/modernsecuritydoors/i);
     expect(result.candidates[0].confidence).toBeGreaterThanOrEqual(0.45);
+  });
+
+  it('does not soft-select Port Melbourne Flowers for Melbourne Flowers (substring containment)', async () => {
+    isGooglePlacesConfigured.mockReturnValue(true);
+    searchGooglePlaces.mockResolvedValue([
+      {
+        source: 'google_places',
+        attribution: {},
+        raw: {
+          name: 'Port Melbourne Flowers',
+          businessName: 'Port Melbourne Flowers',
+          address: 'Port Melbourne VIC',
+          website: 'https://portmelbourneflowers.example',
+          placeId: 'ChIJ-port-flowers',
+        },
+      },
+    ]);
+
+    const result = await resolveBusinessEntity({
+      businessName: 'Melbourne Flowers',
+      location: 'Melbourne',
+    });
+    expect(result.selectedCandidate).toBeUndefined();
+    expect(result.candidates.some((c) => /port melbourne/i.test(c.name))).toBe(true);
+  });
+
+  it('pipeline keeps user businessName and NEW path when Port Melbourne is the only Place hit', async () => {
+    isGooglePlacesConfigured.mockReturnValue(true);
+    searchGooglePlaces.mockResolvedValue([
+      {
+        source: 'google_places',
+        attribution: {},
+        raw: {
+          name: 'Port Melbourne Flowers',
+          businessName: 'Port Melbourne Flowers',
+          address: 'Port Melbourne VIC',
+          website: 'https://portmelbourneflowers.example',
+          placeId: 'ChIJ-port-flowers',
+        },
+      },
+    ]);
+
+    vi.resetModules();
+    const { runStoreResearchPipeline } = await import('../runStoreResearchPipeline.js');
+    const result = await runStoreResearchPipeline(
+      {
+        businessName: 'Melbourne Flowers',
+        location: 'Melbourne',
+        category: 'Other',
+        missionId: 'm-melb-flowers',
+      },
+      { skipNetwork: true },
+    );
+    expect(result.mode).toBe('new_business');
+    expect(result.selectedCandidate).toBeUndefined();
   });
 
   it('does not soft-select Florist Braybrook for My Flower (industry-only overlap)', async () => {

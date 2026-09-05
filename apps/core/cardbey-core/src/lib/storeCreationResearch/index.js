@@ -27,6 +27,7 @@ export {
   emitStoreCreationAuthorityTrace,
   isOfferingContentRole,
   isNonOfferingContentRole,
+  isRenderableCommerceRole,
   OFFERING_CONTENT_ROLES,
   NON_OFFERING_CONTENT_ROLES,
 } from './canonicalSourcedBusinessContent.js';

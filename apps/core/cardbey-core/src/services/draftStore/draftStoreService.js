@@ -30,6 +30,7 @@ import {
   sanitizeDraftCategoryList,
   validateCategoriesForPublish,
 } from '../../lib/draftCategoryUtils.js';
+import { shouldBypassLegacyCategoryNormalization, syncCategoriesFromSourcedItems } from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
 import { resolveStoreCommerce, normalizeCatalogItem } from '../../lib/storeTransactionMode.js';
 import { resolveStorefrontPrimaryCta } from '../../lib/ctaEngine/resolveStorefrontPrimaryCta.js';
 import {
@@ -71,6 +72,17 @@ async function isMissionPipelineCancelled(pipelineMissionId) {
  */
 export function normalizePreviewCategories(preview) {
   if (!preview || typeof preview !== 'object') return preview;
+
+  // Sourced / projection catalogs must keep hierarchy — do not dump to Other.
+  if (shouldBypassLegacyCategoryNormalization(preview)) {
+    syncCategoriesFromSourcedItems(preview);
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      legacyCategoryNormalizerBypassed: true,
+    };
+    return preview;
+  }
+
   let categories = Array.isArray(preview.categories) ? [...preview.categories] : [];
   const items = Array.isArray(preview.items) ? preview.items : [];
 

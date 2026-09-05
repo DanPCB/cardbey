@@ -65,6 +65,11 @@ describe('Glamshell Beauty — service_fixed_booking', () => {
     expect(classifyBusinessKind('Glamshell Beauty nails spa salon')).toBe('service_fixed_booking');
   });
 
+  it('classifies florist / flowers name as product_retail (including plural)', () => {
+    expect(classifyBusinessKind('Melbourne Flowers Other')).toBe('product_retail');
+    expect(classifyBusinessKind('JoJo Flower florist')).toBe('product_retail');
+  });
+
   it('extracts bookable services with real names and prices', () => {
     const facts = extractBusinessFacts(matchedSources, identity);
     const { items, businessKind } = extractServiceMenuCatalog(facts, matchedSources, identity);

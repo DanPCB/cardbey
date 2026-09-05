@@ -213,6 +213,24 @@ export function matchStrongExclusions(input) {
     ]);
   }
 
+  // Inventory chrome — never an offering
+  if (/\b((in|out\s*of)\s*stock)\b|\(\s*\d+\s*products?\s*\)/i.test(input.label)) {
+    return makeClassification('inventory_metadata', 0.97, 'deterministic_label', [
+      { type: 'label', value: input.label, weight: 1 },
+    ]);
+  }
+
+  // Florist / gift occasion taxonomy — category filters, not products
+  if (
+    /^(birthday|sympathy|love\s*&?\s*romance|love\s*romance|anniversary|get\s*well|new\s*baby|mother'?s?\s*day|father'?s?\s*day|valentine'?s?(?:\s*day)?|christmas|wedding|funeral|congratulations|thank\s*you|just\s*because)$/i.test(
+      input.label,
+    )
+  ) {
+    return makeClassification('product_category', 0.94, 'deterministic_label', [
+      { type: 'occasion_category', value: input.label, weight: 1 },
+    ]);
+  }
+
   if (/^(about|about us)$/i.test(input.label) || /\/about(-us)?(\/|$)/i.test(input.urlPath)) {
     return makeClassification('about', 0.9, 'deterministic_label', [
       { type: 'label', value: input.label, weight: 1 },

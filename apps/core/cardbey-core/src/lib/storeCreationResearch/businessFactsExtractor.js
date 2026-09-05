@@ -4,6 +4,7 @@
 
 import { cleanString } from '../businessDiscovery/businessDataNormalizer.js';
 import { summarizeDescription } from './researchSafety.js';
+import { stripSeoBusinessDisplayName } from '../storeCreation/semanticPrecision.js';
 
 /**
  * @param {import('./types.js').SourceMatchResult[]} matchedSources
@@ -41,7 +42,13 @@ export function extractBusinessFacts(matchedSources, input) {
     };
 
     if (raw.name || raw.businessName) {
-      nameCandidates.push({ ...base, value: cleanString(raw.name ?? raw.businessName) });
+      const cleaned = cleanString(raw.name ?? raw.businessName);
+      nameCandidates.push({
+        ...base,
+        value: stripSeoBusinessDisplayName(cleaned, input.businessName),
+        // SEO/page titles are weaker than Places displayName / manual input
+        confidence: Math.min(match.confidence, 0.7),
+      });
     }
     if (raw.description) {
       descCandidates.push({
@@ -92,13 +99,25 @@ export function extractBusinessFacts(matchedSources, input) {
 
   if (input.businessName) {
     nameCandidates.push({
-      value: cleanString(input.businessName),
+      value: stripSeoBusinessDisplayName(cleanString(input.businessName), input.businessName),
       sourceType: 'manual',
       confidence: 0.95,
     });
   }
 
   facts.businessName = pickBest('businessName', nameCandidates);
+  if (facts.businessName?.value) {
+    const canonical = stripSeoBusinessDisplayName(facts.businessName.value, input.businessName);
+    const seoTitle = String(facts.businessName.value);
+    facts.businessName = { ...facts.businessName, value: canonical };
+    if (seoTitle && seoTitle !== canonical) {
+      facts.seoTitle = {
+        value: seoTitle,
+        sourceType: facts.businessName.sourceType,
+        confidence: facts.businessName.confidence,
+      };
+    }
+  }
   facts.description = pickBest('description', descCandidates);
   facts.address = pickBest('address', addressCandidates);
   facts.phone = pickBest('phone', phoneCandidates);

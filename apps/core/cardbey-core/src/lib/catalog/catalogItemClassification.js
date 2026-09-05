@@ -18,7 +18,7 @@ export { normalizeServiceCatalogItem, enrichPublicServiceCatalogItem, migrateSer
 const BOOKING_ITEM_TYPES = new Set(['service', 'ticket', 'event', 'venue', 'package']);
 
 const RESTAURANT_RE = /\b(restaurant|cafe|coffee|bakery|baker|food|dining|kitchen|bar|bistro|eatery|pizza)\b/i;
-const RETAIL_RE = /\b(retail|supplier|shop|store|product|merchandise|boutique|florist|market|gallery|wholesale)\b/i;
+const RETAIL_RE = /\b(retail|supplier|shop|store|product|merchandise|boutique|florist|flowers?|floral|blooms?|bouquets?|market|gallery|wholesale)\b/i;
 const TRAVEL_PACKAGE_RE = /\b(travel|tour|golf|tourism|package|excursion|safari|cruise)\b/i;
 const GENERIC_TYPE_RE = /^(general|other|misc|default)$/i;
 /** Types that may be retail or service — do not infer service from type alone. */
