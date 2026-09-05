@@ -287,20 +287,44 @@ export async function upsertStoreShow(prisma, { storeId, workId = null, patch, a
   let next;
   if (workId) {
     const idx = works.findIndex((w) => w.id === workId);
-    if (idx < 0) throw httpError(404, 'show_not_found', 'Show not found');
-    const prev = works[idx];
-    next = [...works];
-    next[idx] = normalizeShowWork(
-      {
-        ...prev,
-        ...patch,
-        id: prev.id,
-        provenance: prev.provenance || provenance,
-        updatedAt: now,
-        status: patch.status != null ? normalizeShowStatus(patch.status) : prev.status,
-      },
-      idx,
-    );
+    if (idx < 0) {
+      // Promote synthetic/fallback website Show cards into persisted featuredWorks (true upsert).
+      const created = normalizeShowWork(
+        {
+          id: workId,
+          title: patch.title || 'Untitled',
+          description: patch.description || '',
+          kind: patch.kind || 'graphic',
+          mediaUrl: patch.mediaUrl || patch.thumbnailUrl || null,
+          thumbnailUrl: patch.thumbnailUrl || patch.mediaUrl || null,
+          ctaLabel: patch.ctaLabel,
+          ctaUrl: patch.ctaUrl,
+          altText: patch.altText || '',
+          status: normalizeShowStatus(patch.status || 'DRAFT'),
+          provenance,
+          sortOrder: typeof patch.sortOrder === 'number' ? patch.sortOrder : works.length,
+          uploadedAt: now,
+          updatedAt: now,
+        },
+        works.length,
+      );
+      if (!created) throw httpError(400, 'invalid_show', 'Show requires media or thumbnail');
+      next = [...works, created];
+    } else {
+      const prev = works[idx];
+      next = [...works];
+      next[idx] = normalizeShowWork(
+        {
+          ...prev,
+          ...patch,
+          id: prev.id,
+          provenance: prev.provenance || provenance,
+          updatedAt: now,
+          status: patch.status != null ? normalizeShowStatus(patch.status) : prev.status,
+        },
+        idx,
+      );
+    }
   } else {
     const id = `show-${randomUUID()}`;
     const created = normalizeShowWork(

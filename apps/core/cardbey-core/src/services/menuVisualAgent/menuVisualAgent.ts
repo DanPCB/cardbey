@@ -853,15 +853,18 @@ function sanitizeSearchForKids(text: string, itemName: string): string {
  * Generate multiple image candidates for a draft item (for suggest-images preview).
  * Uses Pexels multi-search first; if none, falls back to single OpenAI result so at least one candidate is returned.
  * When audience==='kids', search query is sanitized and biased to kids/children to avoid adult/irrelevant images.
- * @param limit - Max candidates to return (default 8)
+ * @param limit - Max candidates to return (default 24, Pexels max 80/page)
  * @param audience - When 'kids', filters query and appends kids-safe terms
+ * @param opts.query - Free-text search override (unlimited search UX)
+ * @param opts.page - Pexels page (1-based) for Load more
  */
 export async function generateImageCandidatesForDraftItem(
   name: string,
   description?: string,
   styleName?: 'modern' | 'warm' | 'minimal' | 'vibrant',
-  limit: number = 8,
-  audience?: string | null
+  limit: number = 24,
+  audience?: string | null,
+  opts?: { query?: string | null; page?: number },
 ): Promise<ImageCandidateForSuggest[]> {
   const candidates: ImageCandidateForSuggest[] = [];
   try {
@@ -871,13 +874,18 @@ export async function generateImageCandidatesForDraftItem(
     const styleKey = style.name as DraftItemStyleName;
     const styleKeywords = STYLE_SEARCH_KEYWORDS[styleKey] || STYLE_SEARCH_KEYWORDS.modern;
     const descSnippet = description ? description.trim().slice(0, 40).replace(/\s+/g, ' ') : '';
-    let searchText = [name, descSnippet, styleKeywords].filter(Boolean).join(' ').slice(0, 200);
+    const customQuery = typeof opts?.query === 'string' ? opts.query.trim() : '';
+    let searchText = customQuery
+      ? customQuery.slice(0, 200)
+      : [name, descSnippet, styleKeywords].filter(Boolean).join(' ').slice(0, 200);
     if ((audience || '').toString().toLowerCase() === 'kids') {
       searchText = sanitizeSearchForKids(searchText, name);
     }
+    const page = Math.min(1000, Math.max(1, Math.floor(Number(opts?.page) || 1)));
+    const perPage = Math.min(80, Math.max(1, Math.floor(limit) || 24));
 
     if (isPexelsAvailable()) {
-      const pexelsResults = await searchPexelsImages(searchText, limit);
+      const pexelsResults = await searchPexelsImages(searchText, perPage, 'square', page);
       for (const p of pexelsResults) {
         candidates.push({
           url: p.url,
@@ -892,7 +900,7 @@ export async function generateImageCandidatesForDraftItem(
         });
       }
     }
-    if (candidates.length === 0 && isOpenAIImageAvailable()) {
+    if (candidates.length === 0 && page === 1 && isOpenAIImageAvailable()) {
       const openaiResult = await generateMenuItemImage(name, description ?? null, styleKey);
       if (openaiResult) {
         candidates.push({

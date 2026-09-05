@@ -477,12 +477,18 @@ router.get('/items', requireAuth, async (req, res) => {
 /**
  * POST /api/menu/images/suggest
  * Suggest image(s) for menu items (draft or committed). Uses Pexels first, DALL·E fallback.
- * Body: { storeId?, items: [{ itemId, name, description? }], aspect?, mode: 'preview'|'normal' }
- * Returns: { ok, updated: [{ itemId, candidates?: [...], imageUrl? }], failed? }
+ * Body: {
+ *   storeId?, items: [{ itemId, name, description?, imagePrompt?, query? }],
+ *   aspect?, mode: 'preview'|'normal',
+ *   candidatesLimit?: 1–80 (default 24),
+ *   query?: free-text search (applies to all items when set),
+ *   page?: Pexels page for Load more (default 1)
+ * }
+ * Returns: { ok, updated: [{ itemId, candidates?: [...], imageUrl? }], failed?, page?, candidatesLimit? }
  */
 router.post('/images/suggest', optionalAuth, async (req, res) => {
   try {
-    const { storeId, items, aspect, mode, audience } = req.body || {};
+    const { storeId, items, aspect, mode, audience, query: bodyQuery } = req.body || {};
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         ok: false,
@@ -491,16 +497,31 @@ router.post('/images/suggest', optionalAuth, async (req, res) => {
       });
     }
     const styleName = 'modern'; // Could be derived from storeId/store type later
-    const suggestLimit = Math.min(20, Math.max(1, parseInt(req.body.candidatesLimit, 10) || 8)); // default 8 for preview
+    // Pexels allows up to 80 per page — default 24 for richer preview (was hard-capped at 8).
+    const suggestLimit = Math.min(80, Math.max(1, parseInt(req.body.candidatesLimit, 10) || 24));
+    const page = Math.min(1000, Math.max(1, parseInt(req.body.page, 10) || 1));
+    const globalQuery =
+      typeof bodyQuery === 'string' && bodyQuery.trim() ? bodyQuery.trim().slice(0, 200) : null;
     const results = [];
     const failed = [];
     for (const item of items) {
       const itemId = item.itemId || item.id;
       const name = item.name || 'Product';
       const description = item.description || null;
+      const itemQuery =
+        (typeof item.query === 'string' && item.query.trim()) ||
+        (typeof item.imagePrompt === 'string' && item.imagePrompt.trim()) ||
+        globalQuery;
       try {
         if (mode === 'preview') {
-          const candidates = await generateImageCandidatesForDraftItem(name, description, styleName, suggestLimit, audience);
+          const candidates = await generateImageCandidatesForDraftItem(
+            name,
+            description,
+            styleName,
+            suggestLimit,
+            audience,
+            { query: itemQuery, page },
+          );
           if (candidates.length > 0) {
             results.push({ itemId, candidates });
           } else {
@@ -521,6 +542,8 @@ router.post('/images/suggest', optionalAuth, async (req, res) => {
     return res.json({
       ok: true,
       updated: results,
+      page,
+      candidatesLimit: suggestLimit,
       ...(failed.length > 0 && { failed }),
     });
   } catch (error) {
