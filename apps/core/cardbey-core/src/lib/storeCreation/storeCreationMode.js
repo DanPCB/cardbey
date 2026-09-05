@@ -49,7 +49,8 @@ export function resolveStoreCreationMode(input = {}, research = null, vertical =
     !insufficient &&
     (confidence > 0 || (Array.isArray(vertical?.matchedKeywords) && vertical.matchedKeywords.length > 0));
 
-  // Broad category + no name semantic signal → one clarification.
+  // Broad / Other category with no semantic lock → NEW starter by default
+  // (user can supply catalog later). Non-Other weak semantics still clarify.
   if (
     !hasWebsite &&
     !hasUploads &&
@@ -59,16 +60,26 @@ export function resolveStoreCreationMode(input = {}, research = null, vertical =
     (insufficient || slug === 'services.generic' || confidence <= 0) &&
     !hasSemanticLock
   ) {
+    const genericCategory = /^(other|general|misc|unknown)$/i.test(category);
+    if (genericCategory) {
+      return {
+        creationMode: STORE_CREATION_MODES.NEW_BUSINESS,
+        reason: 'other_category_new_starter',
+        needsClarification: false,
+        optionalClarificationPrompt: `No confirmed public listing for ${name}. You can add a menu, catalog, or website later — or keep editing this starter store.`,
+      };
+    }
     return {
       creationMode: STORE_CREATION_MODES.AMBIGUOUS_BUSINESS,
       reason: 'weak_semantics',
       needsClarification: true,
-      clarificationPrompt: `What will ${name} mainly offer?`,
+      clarificationPrompt: `We could not confirm a public listing for ${name}. Do you have a menu, catalog, or website — or should we create a new starter store you can edit later?`,
       clarificationOptions: [
+        'Create a new starter store',
+        'I have a website / catalog',
         'Products / retail',
         'Food & drink',
         'Services',
-        'Something else',
       ],
     };
   }

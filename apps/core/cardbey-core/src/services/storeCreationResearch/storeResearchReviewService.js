@@ -178,6 +178,148 @@ async function patchDraftCatalogFromServices(prisma, draftId, services, ctx) {
 }
 
 /**
+ * Replace researched catalog with industry AI starter after owner chooses AI generate.
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} draftId
+ * @param {Record<string, unknown>} ctx
+ */
+async function patchDraftWithAiStarterCatalog(prisma, draftId, ctx) {
+  const { buildIndustryCatalog } = await import('../draftStore/industryBlueprintRegistry.js');
+  const { resolveVertical } = await import('../../lib/verticals/verticalTaxonomy.js');
+
+  const row = await prisma.draftStore
+    .findUnique({ where: { id: draftId }, select: { preview: true, input: true } })
+    .catch(() => null);
+  if (!row) return { ok: false, error: 'draft_not_found' };
+
+  const preview = row.preview && typeof row.preview === 'object' ? { ...row.preview } : {};
+  const input = row.input && typeof row.input === 'object' ? row.input : {};
+  const businessName =
+    (typeof input.businessName === 'string' && input.businessName.trim()) ||
+    (typeof preview.storeName === 'string' && preview.storeName.trim()) ||
+    '';
+  const businessType =
+    (typeof input.businessType === 'string' && input.businessType.trim()) ||
+    (typeof input.category === 'string' && input.category.trim()) ||
+    (typeof preview.storeType === 'string' && preview.storeType.trim()) ||
+    '';
+  const vertical = resolveVertical({ businessName, businessType });
+  const catalog = buildIndustryCatalog(
+    {
+      businessName,
+      storeName: businessName,
+      businessType,
+      storeType: businessType,
+      verticalSlug: vertical?.slug ?? input.verticalSlug ?? null,
+      verticalGroup: vertical?.group ?? null,
+      creationMode: 'NEW_BUSINESS',
+      allowBlueprintPrices: false,
+      hasPriceList: false,
+    },
+    24,
+  );
+
+  const rawItems = Array.isArray(catalog?.products)
+    ? catalog.products
+    : Array.isArray(catalog?.items)
+      ? catalog.items
+      : [];
+  if (!rawItems.length) return { ok: false, error: 'ai_starter_empty' };
+
+  const isFloristOrRetail =
+    /\b(florist|flowers?|floral|retail|boutique)\b/i.test(
+      `${businessName} ${businessType} ${vertical?.slug || ''}`,
+    ) ||
+    String(vertical?.slug || '').includes('flower') ||
+    String(catalog?.meta?.vertical || '').includes('flower');
+
+  const items = rawItems.map((it, index) => {
+    const rowItem = it && typeof it === 'object' ? { ...it } : { name: `Item ${index + 1}` };
+    return {
+      ...rowItem,
+      id: rowItem.id || `item_starter_${index}`,
+      contentOrigin: 'suggested',
+      catalogSource: 'ai_generated_starter',
+      ...(isFloristOrRetail
+        ? {
+            itemType: 'product',
+            kind: 'product',
+            type: 'product',
+            contentRole: 'product',
+            executionAction: 'add_to_cart',
+            primaryAction: 'add_to_cart',
+            bookingEnabled: false,
+            purchaseEnabled: true,
+            priceStatus: rowItem.priceStatus || 'UNKNOWN',
+            priceDisplay: rowItem.priceDisplay || 'Price on request',
+          }
+        : {}),
+    };
+  });
+
+  const nextPreview = {
+    ...preview,
+    storeName: businessName || preview.storeName,
+    categories: catalog.categories ?? preview.categories ?? [],
+    items,
+    products: items,
+    meta: {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      ...(catalog.meta && typeof catalog.meta === 'object' ? catalog.meta : {}),
+      catalogSource: 'ai_generated_starter',
+      creationMode: 'NEW_BUSINESS',
+      contentOrigin: 'suggested',
+    },
+  };
+
+  await prisma.draftStore.update({
+    where: { id: draftId },
+    data: {
+      preview: nextPreview,
+      input: {
+        ...input,
+        creationMode: 'NEW_BUSINESS',
+        verticalSlug: vertical?.slug ?? input.verticalSlug,
+      },
+    },
+  });
+
+  try {
+    const { fillMissingDraftItemImages } = await import('../draftStore/fillMissingDraftItemImages.js');
+    if (typeof fillMissingDraftItemImages === 'function') {
+      const refreshed = await prisma.draftStore
+        .findUnique({ where: { id: draftId }, select: { preview: true } })
+        .catch(() => null);
+      const pv = refreshed?.preview && typeof refreshed.preview === 'object' ? refreshed.preview : nextPreview;
+      const fillItems = Array.isArray(pv.items) ? pv.items : items;
+      await fillMissingDraftItemImages({
+        items: fillItems,
+        categories: pv.categories ?? nextPreview.categories,
+        storeName: businessName,
+        storeType: businessType,
+        maxItems: 24,
+      }).catch(() => {});
+      await prisma.draftStore
+        .update({
+          where: { id: draftId },
+          data: {
+            preview: {
+              ...pv,
+              items: fillItems,
+              products: fillItems,
+            },
+          },
+        })
+        .catch(() => {});
+    }
+  } catch {
+    /* optional */
+  }
+
+  return { ok: true, itemCount: items.length };
+}
+
+/**
  * @param {{
  *   missionId: string;
  *   action: 'accept' | 'reject_fallback';
@@ -213,6 +355,13 @@ export async function applyStoreResearchReviewDecision(params) {
   );
 
   if (action === 'reject_fallback') {
+    let rebuild = { ok: true, itemCount: 0 };
+    if (draftId) {
+      rebuild = await patchDraftWithAiStarterCatalog(prisma, draftId, ctx);
+      if (!rebuild.ok) {
+        console.warn('[storeResearchReview] AI starter rebuild failed:', rebuild.error);
+      }
+    }
     const nextCtx = applyOwnerDecisionToEvidence({
       ...ctx,
       storeCreationResearch: {
@@ -221,14 +370,24 @@ export async function applyStoreResearchReviewDecision(params) {
         ownerRejected: true,
         reviewStatus: 'rejected_fallback',
         rejectedAt: new Date().toISOString(),
+        aiStarterItemCount: rebuild.itemCount ?? 0,
       },
+      preloadedCatalogItems: [],
     }, action);
     await prisma.mission.update({ where: { id: missionId }, data: { context: nextCtx } }).catch(() => {});
     await emitStoreResearchConfirmedArtifact(
       missionId,
-      'Using AI-generated catalog instead. Re-run store build to refresh your menu.',
+      rebuild.ok && rebuild.itemCount
+        ? `Using AI-generated catalog (${rebuild.itemCount} items). Draft updated — refresh preview.`
+        : 'Using AI-generated catalog instead. Re-run store build to refresh your menu.',
     );
-    return { ok: true, action, rejected: true };
+    return {
+      ok: true,
+      action,
+      rejected: true,
+      rebuiltWithAiStarter: Boolean(rebuild.ok && rebuild.itemCount),
+      itemCount: rebuild.itemCount ?? 0,
+    };
   }
 
   if (!incomingServices.length) {

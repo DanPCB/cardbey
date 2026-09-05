@@ -14,6 +14,11 @@ import {
   applyFoundationToSectionsAndPreview,
   themePatchFromFoundation,
 } from './websiteTemplateFoundation.js';
+import {
+  buildSafeStarterAboutCopy,
+  isInternalGenerationPrompt,
+  stripSeoBusinessDisplayName,
+} from '../../lib/storeCreation/semanticPrecision.js';
 
 /**
  * @param {string} storeType
@@ -56,37 +61,53 @@ export function mergeWebsiteIntoPreview(preview, input = {}) {
   const avUrl = preview.avatarUrl ?? preview.avatar?.imageUrl ?? preview.avatar?.url ?? null;
   if (avUrl && !preview.avatarUrl) preview.avatarUrl = avUrl;
 
-  const storeName = preview.storeName || 'Your store';
+  const storeName = stripSeoBusinessDisplayName(
+    preview.storeName || 'Your store',
+    input.businessName || preview.storeName,
+  );
+  if (storeName && preview.storeName && storeName !== preview.storeName) {
+    preview.seoTitle = preview.seoTitle || preview.storeName;
+    preview.storeName = storeName;
+  }
   const storeType = preview.storeType || 'Store';
   const commerce = resolveTransactionCommerce(storeType);
   const slogan = preview.slogan || preview.tagline || preview.heroText || '';
   const location = (input.location && String(input.location).trim()) || '';
-  const blurb =
+  const rawBlurb =
     (input.businessDescription && String(input.businessDescription).trim()) ||
     (input.prompt && String(input.prompt).trim()) ||
     (input.rawInput && String(input.rawInput).trim()) ||
     '';
+  const blurb = isInternalGenerationPrompt(rawBlurb) ? '' : rawBlurb;
 
   const items = Array.isArray(preview.items) ? preview.items : [];
   const featuredIds = items.slice(0, 4).map((it, i) => stableItemKey(it, i));
 
-  const aboutBody =
-    blurb ||
-    `${storeName} is a ${storeType} dedicated to quality and a great customer experience.` +
-      (location ? ` Visit us in ${location}.` : '');
-
-  const firstItemImage = items.find((it) => it?.imageUrl)?.imageUrl ?? null;
-
-  const verticalSlug = preview.meta?.verticalSlug ?? input?.verticalSlug ?? null;
-  const verticalGroup = preview.meta?.verticalGroup ?? input?.verticalGroup ?? null;
-  const industryCopy = getIndustryWebsiteCopy({
+  const industryCopyEarly = getIndustryWebsiteCopy({
     businessName: storeName,
     storeName,
     businessType: storeType,
     storeType,
-    verticalSlug,
-    verticalGroup,
+    verticalSlug: preview.meta?.verticalSlug ?? input?.verticalSlug ?? null,
+    verticalGroup: preview.meta?.verticalGroup ?? input?.verticalGroup ?? null,
   });
+
+  const aboutBody =
+    blurb ||
+    industryCopyEarly?.aboutBody ||
+    buildSafeStarterAboutCopy({ storeName, storeType, location });
+  if (!blurb && aboutBody) {
+    preview.meta = {
+      ...(preview.meta && typeof preview.meta === 'object' ? preview.meta : {}),
+      aboutProvenance: 'AI_GENERATED_STARTER',
+    };
+  }
+
+  const firstItemImage = items.find((it) => it?.imageUrl)?.imageUrl ?? null;
+  const verticalSlug = preview.meta?.verticalSlug ?? input?.verticalSlug ?? null;
+  const verticalGroup = preview.meta?.verticalGroup ?? input?.verticalGroup ?? null;
+  const industryCopy = industryCopyEarly;
+
   const professionalContext = /\b(capital|finance|financial|investment|wealth|accounting|legal|lawyer|consulting|advisory|professional)\b/i.test(
     `${storeName} ${storeType} ${verticalSlug || ''} ${verticalGroup || ''}`,
   );

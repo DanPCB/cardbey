@@ -54,19 +54,59 @@ describe('storeResearchReviewService', () => {
     expect(prisma.draftStore.update).toHaveBeenCalled();
   });
 
-  it('buildStoreResearchReviewArtifactPayload includes extracted services', async () => {
-    const { buildStoreResearchReviewArtifactPayload } = await import('../storeResearchReviewService.js');
-    const payload = buildStoreResearchReviewArtifactPayload(
-      'm1',
-      {
+  it('applyStoreResearchReviewDecision reject_fallback rebuilds AI starter catalog', async () => {
+    const missionId = 'mission-review-reject-1';
+    let savedContext = {
+      storeCreationResearch: {
         ownerReviewRequired: true,
-        confidence: 0.82,
-        sourcesUsed: [{ sourceType: 'official_website', sourceUrl: 'https://example.com' }],
-        extractedServices: [{ id: 'svc_0', name: 'Tiling quote', price: null }],
+        ownerConfirmed: false,
+        extractedServices: [
+          { id: 'svc_0', name: 'Florist Melbourne CBD, Same Day Flower Delivery', price: 5557 },
+        ],
       },
-      { draftId: 'd1' },
-    );
-    expect(payload.extractedServices).toHaveLength(1);
-    expect(payload.draftId).toBe('d1');
+      draftId: 'draft-flower-1',
+    };
+    let savedPreview = {
+      storeName: 'Melbourne Flower',
+      storeType: 'Florist',
+      items: [{ id: 'bad', name: 'Florist Melbourne CBD', executionAction: 'book', price: 5557 }],
+      meta: { catalogSource: 'research' },
+    };
+
+    const prisma = {
+      mission: {
+        findUnique: vi.fn(async () => ({ context: savedContext })),
+        update: vi.fn(async ({ data }) => {
+          savedContext = data.context;
+          return { id: missionId };
+        }),
+      },
+      draftStore: {
+        findUnique: vi.fn(async () => ({
+          preview: savedPreview,
+          input: { businessName: 'Melbourne Flower', businessType: 'Other', category: 'Other' },
+        })),
+        update: vi.fn(async ({ data }) => {
+          if (data.preview) savedPreview = data.preview;
+          return { id: 'draft-flower-1' };
+        }),
+      },
+    };
+
+    const { applyStoreResearchReviewDecision } = await import('../storeResearchReviewService.js');
+    const result = await applyStoreResearchReviewDecision({
+      missionId,
+      action: 'reject_fallback',
+      prisma,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.rejected).toBe(true);
+    expect(result.rebuiltWithAiStarter).toBe(true);
+    expect(savedPreview.meta?.catalogSource).toBe('ai_generated_starter');
+    expect(savedPreview.items?.length).toBeGreaterThan(0);
+    expect(savedPreview.items.every((i) => i.executionAction !== 'book')).toBe(true);
+    expect(savedPreview.items.some((i) => /Florist Melbourne CBD/i.test(String(i.name)))).toBe(false);
+    expect(savedPreview.storeName).toBe('Melbourne Flower');
   });
 });

@@ -75,11 +75,40 @@ export function BeautyServiceNormalizer(items, businessKind) {
  * @param {string} businessKind
  */
 export function BookingServiceNormalizer(items, businessKind) {
-  return items.map((item) => ({
-    ...item,
-    executionAction: item.executionAction || (item.price == null ? 'request_quote' : 'book'),
-    contentOrigin: item.contentOrigin ?? 'sourced',
-  }));
+  const kind = String(businessKind ?? '').toLowerCase();
+  const isBookableKind =
+    kind === 'beauty' ||
+    kind === 'salon' ||
+    kind === 'spa' ||
+    kind === 'service_fixed_booking' ||
+    kind === 'services';
+  if (!isBookableKind) return items;
+  // Never stamp Book on retail / florist / product catalogs.
+  if (
+    kind === 'product_retail' ||
+    kind === 'retail' ||
+    kind === 'food_menu' ||
+    /\b(florist|flowers?|floral|retail|product)\b/i.test(kind)
+  ) {
+    return items;
+  }
+  return items.map((item) => {
+    const role = String(item?.contentRole ?? item?.type ?? item?.itemType ?? '').toLowerCase();
+    const name = String(item?.name ?? '');
+    if (
+      role === 'product' ||
+      role === 'product_category' ||
+      item?.kind === 'product' ||
+      /\b(florist|flowers?|bouquet|bloom)\b/i.test(name)
+    ) {
+      return item;
+    }
+    return {
+      ...item,
+      executionAction: item.executionAction || (item.price == null ? 'request_quote' : 'book'),
+      contentOrigin: item.contentOrigin ?? 'sourced',
+    };
+  });
 }
 
 const NORMALIZERS = [

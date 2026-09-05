@@ -3,7 +3,7 @@
  * for catalog items. Safe runtime backfill for legacy product-style service rows.
  */
 
-import { isServiceBusinessContext } from './catalogItemClassification.js';
+import { isRetailBusiness, isServiceBusinessContext } from './catalogItemClassification.js';
 import {
   EXECUTION_ACTIONS,
   PRICING_MODELS,
@@ -103,6 +103,13 @@ export function inferServiceMode(item, ctx = {}) {
     storeName: ctx.storeName,
   });
   if (!serviceBusiness) return null;
+
+  // Retail / florist context must never default to fixed_booking → Book CTA
+  if (isRetailBusiness(ctx.businessType) || /\b(florist|flower|floral|retail|boutique)\b/i.test(
+    `${ctx.businessType ?? ''} ${ctx.businessName ?? ''} ${ctx.storeName ?? ''}`,
+  )) {
+    return null;
+  }
 
   if (item?.bookingEnabled === true || item?.primaryAction === 'book') return 'fixed_booking';
   if (item?.primaryAction === 'enquire' || item?.purchaseEnabled === false) return 'quote_required';

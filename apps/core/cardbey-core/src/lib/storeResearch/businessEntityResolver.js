@@ -74,7 +74,8 @@ function nameMatchIsStrong(candidate) {
   // Token overlap alone is NOT strong enough to soft-select — too many
   // same-city brand collisions (e.g. multiple "Phương Nam" companies).
   // Industry-only tokens (flower/florist) must not unlock another shop's catalog.
-  return reasons.includes('name-exact') || reasons.includes('name-partial');
+  // name-partial alone is also insufficient (Melbourne Flowers ⊂ Port Melbourne Flowers).
+  return reasons.includes('name-exact');
 }
 
 /** Tokens that describe an industry, not a brand — insufficient for soft entity select. */
@@ -107,24 +108,67 @@ const INDUSTRY_SOFT_SELECT_STOPWORDS = new Set([
   'shop',
   'store',
   'market',
+  'port',
+  'north',
+  'south',
+  'east',
+  'west',
 ]);
+
+function normalizeNameKey(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /**
  * Soft-select for research enrichment only when identity is defensible.
- * Prefer UNRESOLVED over wrong-business catalog attachment.
+ * Prefer UNRESOLVED / NEW_BUSINESS over wrong-business catalog attachment.
+ * @param {object} candidate
+ * @param {{ ambiguous?: boolean, sharedBrandWebsite?: string|null, inputName?: string }} opts
  */
-function canSoftSelectForResearch(candidate, { ambiguous, sharedBrandWebsite }) {
+function canSoftSelectForResearch(candidate, { ambiguous, sharedBrandWebsite, inputName } = {}) {
   if (!candidate || ambiguous) return false;
   if (!(candidate.website || sharedBrandWebsite)) return false;
-  if (!nameMatchIsStrong(candidate)) return false;
-  const shared = Array.isArray(candidate?.tokenOverlap?.shared)
-    ? candidate.tokenOverlap.shared
-    : [];
-  // "flower" overlap between "My Flower" and "Florist Braybrook" must not attach.
-  if (shared.length > 0 && shared.every((t) => INDUSTRY_SOFT_SELECT_STOPWORDS.has(String(t).toLowerCase()))) {
-    return false;
+  const reasons = candidate?.matchReasons ?? [];
+
+  // Exact display-name match is the only automatic soft-select path.
+  if (reasons.includes('name-exact')) {
+    const shared = Array.isArray(candidate?.tokenOverlap?.shared)
+      ? candidate.tokenOverlap.shared
+      : [];
+    if (shared.length > 0 && shared.every((t) => INDUSTRY_SOFT_SELECT_STOPWORDS.has(String(t).toLowerCase()))) {
+      return false;
+    }
+    return true;
   }
-  return true;
+
+  // name-partial substring is too weak when Place name merely contains the user string
+  // e.g. "melbourne flowers" ⊂ "port melbourne flowers".
+  if (reasons.includes('name-partial')) {
+    const userKey = normalizeNameKey(inputName);
+    const candKey = normalizeNameKey(candidate.name);
+    if (userKey && candKey && candKey !== userKey && candKey.includes(userKey)) {
+      return false;
+    }
+    const shared = Array.isArray(candidate?.tokenOverlap?.shared)
+      ? candidate.tokenOverlap.shared
+      : [];
+    // Empty distinctive overlap (all tokens were geo/industry stopwords) → refuse.
+    if (shared.length === 0) return false;
+    if (shared.every((t) => INDUSTRY_SOFT_SELECT_STOPWORDS.has(String(t).toLowerCase()))) {
+      return false;
+    }
+    // Still require tokenOverlap.strong for partial matches.
+    if (candidate?.tokenOverlap?.strong !== true) return false;
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -329,7 +373,11 @@ export async function resolveBusinessEntity(input) {
     );
   } else if (
     strongTokenHits.length === 1 &&
-    canSoftSelectForResearch(strongTokenHits[0], { ambiguous, sharedBrandWebsite })
+    canSoftSelectForResearch(strongTokenHits[0], {
+      ambiguous,
+      sharedBrandWebsite,
+      inputName: businessName,
+    })
   ) {
     const hit = strongTokenHits[0];
     selectedCandidate = hit.website ? hit : { ...hit, website: sharedBrandWebsite };
@@ -338,9 +386,13 @@ export async function resolveBusinessEntity(input) {
     );
   } else if (
     candidates.length === 1 &&
-    canSoftSelectForResearch(top, { ambiguous, sharedBrandWebsite })
+    canSoftSelectForResearch(top, {
+      ambiguous,
+      sharedBrandWebsite,
+      inputName: businessName,
+    })
   ) {
-    // Research-safe soft select: one Place hit with name-exact/partial + website.
+    // Research-safe soft select: one Place hit with defensible name match + website.
     selectedCandidate = top.website
       ? top
       : { ...top, website: sharedBrandWebsite };

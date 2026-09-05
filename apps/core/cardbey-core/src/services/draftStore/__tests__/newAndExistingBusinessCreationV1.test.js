@@ -136,21 +136,28 @@ describe('CARDBEY_NEW_AND_EXISTING_BUSINESS_CREATION_V1', () => {
   });
 
   describe('AMBIGUOUS_BUSINESS', () => {
-    it('asks clarification for vague name + broad category with no semantic lock', () => {
-      const vertical = resolveVertical({
-        businessName: 'Nova',
-        businessType: 'Other',
-      });
-      // Force weak vertical
+    it('asks clarification for vague name + non-Other broad category with no semantic lock', () => {
       const weak = { slug: 'services.generic', confidence: 0, matchedKeywords: [], insufficientUnderstanding: true };
       const mode = resolveStoreCreationMode(
-        { businessName: 'Nova', category: 'Other', location: 'Sydney' },
+        { businessName: 'Nova', category: 'Business', location: 'Sydney' },
         null,
         weak,
       );
       expect(mode.creationMode).toBe(STORE_CREATION_MODES.AMBIGUOUS_BUSINESS);
       expect(mode.needsClarification).toBe(true);
       expect(mode.clarificationPrompt).toMatch(/Nova/);
+    });
+
+    it('Other + weak semantics defaults to NEW_BUSINESS starter (edit later)', () => {
+      const weak = { slug: 'services.generic', confidence: 0, matchedKeywords: [], insufficientUnderstanding: true };
+      const mode = resolveStoreCreationMode(
+        { businessName: 'Nova', category: 'Other', location: 'Sydney' },
+        null,
+        weak,
+      );
+      expect(mode.creationMode).toBe(STORE_CREATION_MODES.NEW_BUSINESS);
+      expect(mode.needsClarification).toBe(false);
+      expect(mode.reason).toBe('other_category_new_starter');
     });
   });
 

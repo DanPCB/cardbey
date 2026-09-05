@@ -35,6 +35,18 @@ export function evaluateOfferingLabel(name) {
   if (NON_OFFERING_SOFT_RE.test(n)) return { ok: false, reason: 'non_commercial_label' };
   if (GENERIC_ONLY_RE.test(n)) return { ok: false, reason: 'generic_nav_label' };
   if (PROMO_ONLY_RE.test(n)) return { ok: false, reason: 'promo_chrome' };
+  // Inventory metadata chrome (never an offering)
+  if (/\b((in|out\s*of)\s*stock)\b|\(\s*\d+\s*products?\s*\)/i.test(n)) {
+    return { ok: false, reason: 'inventory_metadata' };
+  }
+  // Florist occasion taxonomy — category filters, not products
+  if (
+    /^(birthday|sympathy|love\s*&?\s*romance|love\s*romance|anniversary|get\s*well|new\s*baby|mother'?s?\s*day|father'?s?\s*day|valentine'?s?(?:\s*day)?|christmas|wedding|funeral|congratulations|thank\s*you|just\s*because)$/i.test(
+      n,
+    )
+  ) {
+    return { ok: false, reason: 'category_label' };
+  }
   // Truncated page-title fragments (e.g. "... Melbourne Spend")
   if (/\|\s*.{0,40}$/.test(n) && n.length > 40) return { ok: false, reason: 'page_title_fragment' };
   if (/\b(spend|selected)\s*$/i.test(n)) return { ok: false, reason: 'page_title_fragment' };
