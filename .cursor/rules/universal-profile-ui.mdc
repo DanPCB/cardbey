@@ -1,0 +1,18 @@
+---
+description: Universal Profile UI — identity type never selects layout
+alwaysApply: true
+---
+
+# Universal Profile UI (CARDBEY_PROFILE_UI_RULE_V1)
+
+**Canonical doc:** `docs/CARDBEY_PROFILE_UI_RULE_V1.md`
+
+Identity type (`creator` | `user` | `business` | future) must **never** determine public profile **layout**.
+
+Use one Universal Profile UI (`UniversalProfileTheatreCanvas` / `PublicFeedShell`).
+
+Type only drives: data, capabilities, modules, purpose.
+
+Do **not** add CreatorProfileLayout / UserProfileLayout / BusinessProfileLayout shells.
+
+Published storefront `/s/:slug` remains commerce resource UI; business identity uses Space/Universal Profile theatre.

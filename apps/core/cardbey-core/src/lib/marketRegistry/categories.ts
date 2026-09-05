@@ -4,6 +4,7 @@
  */
 
 import type { MarketCategoryRecord, MarketCountryCode } from './types.js';
+import { FINE_SME_CATEGORIES } from './fineSmeCategories.js';
 
 function cat(
   partial: Omit<MarketCategoryRecord, 'regulatedInferenceForbidden' | 'active'> & {
@@ -259,6 +260,7 @@ export const MARKET_CATEGORIES: MarketCategoryRecord[] = [
     vietnameseAliases: ['det may', 'gia cong may'],
     cardbeyStoreCategories: ['manufacturing', 'fashion'],
   }),
+  ...FINE_SME_CATEGORIES,
 ];
 
 /** Map legacy Melbourne pilot category labels → canonical ids. */

@@ -17,7 +17,7 @@ import type {
 } from './types.js';
 import { VN_TERRITORIES } from './vietnamTerritories.js';
 
-export const MARKET_REGISTRY_VERSION = 'multi-market-v1.0.0';
+export const MARKET_REGISTRY_VERSION = 'multi-market-v1.1.0-phase1a';
 
 const ALL_TERRITORIES: TerritoryRecord[] = [...AU_TERRITORIES, ...VN_TERRITORIES];
 
