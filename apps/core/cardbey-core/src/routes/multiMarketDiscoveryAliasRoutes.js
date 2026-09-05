@@ -93,6 +93,28 @@ router.get('/categories/:market', requireAuth, requireAdmin, async (req, res, ne
   }
 });
 
+/** GET /api/discovery/multi-market/batches */
+router.get('/batches', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!Features.multiMarketPrebuilt.discoveryV1) {
+      return flagOff(res, 'ENABLE_MULTI_MARKET_DISCOVERY_V1');
+    }
+    const limit =
+      req.query.limit != null && Number.isFinite(Number(req.query.limit))
+        ? Number(req.query.limit)
+        : 40;
+    const { listMultiMarketQaBatches } = await import('../lib/multiMarketDiscovery/index.js');
+    const batches = await listMultiMarketQaBatches(limit);
+    return res.json({
+      ok: true,
+      batches,
+      safety: { autoStore: false, autoPublish: false, ownerContact: false },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * POST /api/discovery/multi-market/discover
  * Dry-run by default. Live requires confirmLive:true.

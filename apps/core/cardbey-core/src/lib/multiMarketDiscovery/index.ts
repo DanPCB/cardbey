@@ -8,4 +8,5 @@ export {
   prepareAndPersistDiscoveryJob,
   runMultiMarketDiscovery,
   getMultiMarketJobMetrics,
+  listMultiMarketQaBatches,
 } from './multiMarketDiscoveryService.js';
