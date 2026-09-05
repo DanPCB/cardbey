@@ -11,6 +11,7 @@ export type PilotCategoryKey =
   | 'grocery'
   | 'local_retail'
   | 'home_services'
+  | 'hotel'
   | 'unknown';
 
 const CATEGORY_KEYWORDS: Record<PilotCategoryKey, string[]> = {
@@ -22,6 +23,7 @@ const CATEGORY_KEYWORDS: Record<PilotCategoryKey, string[]> = {
   grocery: ['grocery', 'supermarket', 'produce', 'asian grocery', 'market', 'grocer'],
   local_retail: ['retail', 'shop', 'boutique', 'storefront', 'local shop', 'store'],
   home_services: ['plumber', 'electrician', 'tradie', 'home repair', 'handyman', 'home services'],
+  hotel: ['hotel', 'motel', 'lodging', 'hostel', 'resort', 'guest house', 'guesthouse'],
   unknown: [],
 };
 
@@ -42,6 +44,8 @@ const CATEGORY_REPRESENTATIVE_HERO: Record<PilotCategoryKey, string> = {
     'https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=1200&auto=format&fit=crop',
   home_services:
     'https://images.unsplash.com/photo-1581578731548-c64695cc6952?q=80&w=1200&auto=format&fit=crop',
+  hotel:
+    'https://images.unsplash.com/photo-1566073771259-6a8506099945?q=80&w=1200&auto=format&fit=crop',
   unknown:
     'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=1200&auto=format&fit=crop',
 };
@@ -67,6 +71,7 @@ export function resolvePilotCategoryKey(
 
   if (text.includes('nail')) return 'nail_salon';
   if (text.includes('hair') || text.includes('barber')) return 'hair_salon';
+  if (text.includes('hotel') || text.includes('motel') || text.includes('lodging')) return 'hotel';
   if (text.includes('shop') || text.includes('retail')) return 'local_retail';
 
   return 'unknown';
