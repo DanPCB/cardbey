@@ -33,9 +33,9 @@ function storeObjectFromDraft(storeId, preview, input, draft) {
 /**
  * Shared draft-by-store resolver for alias endpoints.
  * Reuses existing DraftStore persistence; no new systems.
- * Status contract: 'generating' | 'ready' | 'not_found' | 'failed'.
+ * Status contract: 'generating' | 'ready' | 'committed' | 'not_found' | 'failed'.
  * When storeId is 'temp' and generationRunId is provided but no row exists yet, return status 'generating' so UI keeps polling.
- * @returns {{ draft: object|null, status: 'generating'|'ready'|'not_found'|'failed', store: object, products: array, categories: array, generationRunId: string|null }}
+ * @returns {{ draft: object|null, status: 'generating'|'ready'|'committed'|'not_found'|'failed', store: object, products: array, categories: array, generationRunId: string|null }}
  */
 export async function resolveDraftForStore(prisma, storeId, generationRunId = null) {
   const emptyStore = { id: storeId || 'temp', type: 'General' };
@@ -96,32 +96,54 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
     };
   }
 
-  // Real store id
+  // Real store id — prefer editable revisions over committed snapshots.
+  // create-from-store / website-edit must not treat a published snapshot as "ready".
+  const EDITABLE_STATUSES = ['draft', 'generating', 'ready'];
+  const ALL_STATUSES = ['draft', 'generating', 'ready', 'committed', 'error'];
+
+  const linksStore = (d) => {
+    try {
+      const inp = typeof d.input === 'string' ? JSON.parse(d.input) : d.input;
+      if (inp?.storeId === storeId) return true;
+      const prev = typeof d.preview === 'string' ? JSON.parse(d.preview) : d.preview;
+      if (prev?.meta?.storeId === storeId) return true;
+      return false;
+    } catch (_) {
+      return false;
+    }
+  };
+
   let target = await prisma.draftStore.findFirst({
-    where: { committedStoreId: storeId, status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] } },
+    where: { committedStoreId: storeId, status: { in: EDITABLE_STATUSES } },
     orderBy: { updatedAt: 'desc' },
   });
   if (!target) {
-    const all = await prisma.draftStore.findMany({
-      where: { status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] } },
+    const editable = await prisma.draftStore.findMany({
+      where: { status: { in: EDITABLE_STATUSES } },
       orderBy: { updatedAt: 'desc' },
       take: 100,
     });
-    target = all.find((d) => {
-      try {
-        const inp = typeof d.input === 'string' ? JSON.parse(d.input) : d.input;
-        if (inp?.storeId === storeId) return true;
-        const prev = typeof d.preview === 'string' ? JSON.parse(d.preview) : d.preview;
-        if (prev?.meta?.storeId === storeId) return true;
-        return false;
-      } catch (_) { return false; }
-    }) || null;
+    target = editable.find(linksStore) || null;
+  }
+  if (!target) {
+    target = await prisma.draftStore.findFirst({
+      where: { committedStoreId: storeId, status: 'committed' },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+  if (!target) {
+    const fallback = await prisma.draftStore.findMany({
+      where: { status: { in: ALL_STATUSES } },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    });
+    target = fallback.find(linksStore) || null;
   }
   if (target && runId) {
     const inp = typeof target.input === 'string' ? JSON.parse(target.input) : (target.input || {});
     if (inp.generationRunId !== runId) {
       const match = await prisma.draftStore.findFirst({
-        where: { committedStoreId: storeId, status: { in: ['draft', 'generating', 'ready', 'committed', 'error'] } },
+        where: { committedStoreId: storeId, status: { in: ALL_STATUSES } },
         orderBy: { updatedAt: 'desc' },
       });
       if (match) {
@@ -137,11 +159,13 @@ export async function resolveDraftForStore(prisma, storeId, generationRunId = nu
   const status =
     target.status === 'generating'
       ? 'generating'
-      : target.status === 'ready' || target.status === 'draft' || target.status === 'committed'
+      : target.status === 'ready' || target.status === 'draft'
         ? 'ready'
-        : target.status === 'error'
-          ? 'failed'
-          : 'not_found';
+        : target.status === 'committed'
+          ? 'committed'
+          : target.status === 'error'
+            ? 'failed'
+            : 'not_found';
   const rawProducts = preview.items || preview.products || [];
   const products = rawProducts.map((item) => ({ ...item, description: item?.description ?? null }));
   return {
