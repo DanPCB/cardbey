@@ -77,7 +77,19 @@ export type OsmDiscoverGroupedParams = {
   slowMode?: boolean;
   suburb?: string;
   categories?: string[];
+  /** Overpass bbox — when set, skips Nominatim geocode */
+  bbox?: { south: number; west: number; north: number; east: number } | null;
+  /** ISO country for Nominatim countrycodes (e.g. au, vn) */
+  countryCode?: string | null;
 };
+
+/** Convert market-registry bbox [minLng, minLat, maxLng, maxLat] → Overpass south/west/north/east. */
+export function registryBboxToOverpass(
+  bbox: [number, number, number, number],
+): { south: number; west: number; north: number; east: number } {
+  const [minLng, minLat, maxLng, maxLat] = bbox;
+  return { south: minLat, west: minLng, north: maxLat, east: maxLng };
+}
 
 function trim(value: unknown): string | null {
   if (value == null) return null;
@@ -119,12 +131,15 @@ async function geocodeArea(
   fetchImpl: OsmFetchImpl,
   nominatimUrl: string,
   userAgent: string,
+  countryCode?: string | null,
 ): Promise<{ south: number; west: number; north: number; east: number } | null> {
   const url = new URL(`${nominatimUrl}/search`);
   url.searchParams.set('q', query);
   url.searchParams.set('format', 'json');
   url.searchParams.set('limit', '1');
   url.searchParams.set('addressdetails', '1');
+  const cc = countryCode?.trim().toLowerCase();
+  if (cc) url.searchParams.set('countrycodes', cc);
 
   await throttleNominatim();
   const res = await fetchImpl(url.toString(), {
@@ -288,8 +303,24 @@ export class OsmDiscoveryProvider implements DiscoveryProvider {
   }> {
     const limit = Math.min(params.limit ?? 100, 500);
     const discoveredAt = new Date().toISOString();
-    const bbox =
-      (await geocodeArea(params.city, this.fetchImpl, this.nominatimUrl, this.userAgent)) ?? null;
+    let bbox = params.bbox ?? null;
+    if (!bbox) {
+      const country = params.countryCode?.trim().toUpperCase();
+      const geoQuery =
+        country === 'VN'
+          ? `${params.city}, Vietnam`
+          : country === 'AU'
+            ? `${params.city}, Australia`
+            : params.city;
+      bbox =
+        (await geocodeArea(
+          geoQuery,
+          this.fetchImpl,
+          this.nominatimUrl,
+          this.userAgent,
+          params.countryCode,
+        )) ?? null;
+    }
 
     if (!bbox) {
       throw new Error('OSM discovery requires city, postcode, or bbox');
