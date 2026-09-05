@@ -5,6 +5,7 @@ export const RETAIL_BLUEPRINTS = {
     industry: 'florist',
     label: 'Florist',
     verticalSlugs: ['retail.flower'],
+    matchPatterns: [/\b(florist|flower|flowers|floral|bouquet|bloom|blooms)\b/i],
     templateKey: 'florist',
     categories: [
       { key: 'bouquets', label: 'Bouquets' },

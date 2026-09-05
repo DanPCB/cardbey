@@ -73,8 +73,41 @@ function nameMatchIsStrong(candidate) {
   const reasons = candidate?.matchReasons ?? [];
   // Token overlap alone is NOT strong enough to soft-select — too many
   // same-city brand collisions (e.g. multiple "Phương Nam" companies).
+  // Industry-only tokens (flower/florist) must not unlock another shop's catalog.
   return reasons.includes('name-exact') || reasons.includes('name-partial');
 }
+
+/** Tokens that describe an industry, not a brand — insufficient for soft entity select. */
+const INDUSTRY_SOFT_SELECT_STOPWORDS = new Set([
+  'flower',
+  'flowers',
+  'florist',
+  'floral',
+  'bloom',
+  'blooms',
+  'bouquet',
+  'bouquets',
+  'garden',
+  'cafe',
+  'coffee',
+  'restaurant',
+  'bakery',
+  'salon',
+  'barber',
+  'nail',
+  'nails',
+  'spa',
+  'pizza',
+  'burger',
+  'noodle',
+  'noodles',
+  'handyman',
+  'plumber',
+  'cleaning',
+  'shop',
+  'store',
+  'market',
+]);
 
 /**
  * Soft-select for research enrichment only when identity is defensible.
@@ -83,7 +116,15 @@ function nameMatchIsStrong(candidate) {
 function canSoftSelectForResearch(candidate, { ambiguous, sharedBrandWebsite }) {
   if (!candidate || ambiguous) return false;
   if (!(candidate.website || sharedBrandWebsite)) return false;
-  return nameMatchIsStrong(candidate);
+  if (!nameMatchIsStrong(candidate)) return false;
+  const shared = Array.isArray(candidate?.tokenOverlap?.shared)
+    ? candidate.tokenOverlap.shared
+    : [];
+  // "flower" overlap between "My Flower" and "Florist Braybrook" must not attach.
+  if (shared.length > 0 && shared.every((t) => INDUSTRY_SOFT_SELECT_STOPWORDS.has(String(t).toLowerCase()))) {
+    return false;
+  }
+  return true;
 }
 
 /**

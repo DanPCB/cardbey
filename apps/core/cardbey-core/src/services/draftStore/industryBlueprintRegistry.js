@@ -9,6 +9,7 @@ import { CATALOG_ITEM_LIMIT, CATALOG_ITEM_MIN } from '../../config/catalogLimits
 import { currencySymbol } from '../../lib/catalog/generators/serviceCatalogHelpers.js';
 import { canonicalizeServiceName } from '../../lib/catalog/canonicalServiceNormalizer.js';
 import { isServiceCatalogPlaceholderName } from '../../lib/catalog/serviceCatalogPlaceholders.js';
+import { newBusinessStarterProvenance } from '../../lib/storeCreation/storeCreationMode.js';
 
 export function deriveDefaultImageQueryHint(itemName, bank) {
   const name = String(itemName ?? '').trim().replace(/\s+(- chef'?s|- special|- house)$/i, '').trim();
@@ -416,6 +417,93 @@ export function collapseProfessionalCatalogWithoutPriceList(catalog, profile = {
   };
 }
 
+/**
+ * NEW_BUSINESS starter catalog from industry blueprint.
+ * Populated demo offerings — provenance AI_GENERATED_STARTER, no fake verified prices/facts.
+ * @param {object} [profile]
+ * @param {IndustryBlueprint|null} [bank]
+ * @param {string} [key]
+ * @param {number} [targetCount]
+ */
+export function buildNewBusinessStarterCatalog(profile = {}, bank = null, key = null, targetCount = 24) {
+  if (!bank?.items?.length) return null;
+  const provenance = newBusinessStarterProvenance();
+  const cap = Math.max(8, Math.min(40, targetCount || 24));
+  const categories = (bank.categories || []).map((c) => ({
+    id: `cat_starter_${c.key}`,
+    name: c.label,
+  }));
+  const catByKey = Object.fromEntries((bank.categories || []).map((c, i) => [c.key, categories[i]?.id]));
+  const items = [];
+  const seen = new Set();
+  for (let i = 0; items.length < cap && i < bank.items.length * 2; i += 1) {
+    const src = bank.items[i % bank.items.length];
+    const { canonicalName } = canonicalizeServiceName(src.name);
+    const dedupe = canonicalName.toLowerCase();
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    const catId = catByKey[src.categoryKey] || categories[0]?.id;
+    const hint =
+      src.imageQueryHint ||
+      deriveDefaultImageQueryHint(canonicalName, bank) ||
+      `${canonicalName} ${bank.industry || 'product'}`;
+    items.push({
+      id: `item_starter_${items.length}`,
+      name: canonicalName,
+      description: src.description ?? null,
+      price: null,
+      categoryId: catId,
+      categoryKey: src.categoryKey,
+      provenance: provenance.source,
+      evidenceStatus: provenance.evidenceStatus,
+      editable: true,
+      priceProvenance: null,
+      imageQueryHint: hint,
+      ...(src.serviceMode ? { serviceMode: src.serviceMode } : {}),
+      ...(src.pricingModel ? { pricingModel: 'custom' } : {}),
+    });
+  }
+  const imageQueryHints = (bank.categories || []).reduce((acc, c) => {
+    const catId = catByKey[c.key];
+    const hints =
+      bank.imageQueryHints?.[c.key] ||
+      [c.label.toLowerCase(), bank.industry === 'florist' ? 'florist flowers' : bank.industry || 'product'];
+    if (catId) acc[catId] = hints;
+    return acc;
+  }, {});
+  return {
+    categories,
+    items,
+    products: items,
+    imageQueryHints,
+    meta: {
+      catalogSource: 'ai_generated_starter',
+      vertical: key || bank.verticalSlugs?.[0] || profile.verticalSlug,
+      industryLabel: bank.label,
+      neverGenericService: true,
+      creationMode: 'NEW_BUSINESS',
+      ...provenance,
+    },
+  };
+}
+
+/**
+ * @deprecated Prefer buildNewBusinessStarterCatalog for NEW_BUSINESS path.
+ * Kept as thin alias for older sparse florist callers/tests.
+ */
+export function buildSparseInferredFloristCatalog(profile = {}, bank = null) {
+  const key = bank?.id || 'retail.flower';
+  const resolvedBank = bank || INDUSTRY_BLUEPRINTS['retail.flower'];
+  return (
+    buildNewBusinessStarterCatalog(profile, resolvedBank, key, 24) || {
+      categories: [],
+      items: [],
+      imageQueryHints: {},
+      meta: { catalogSource: 'sparse_inferred_florist', neverGenericService: true },
+    }
+  );
+}
+
 function buildFromBlueprint(bank, key, targetCount, profile = {}) {
   // Professional stores without a real price list → consultation booking only
   // when there are also no named grounded offerings from OCR/research/flyer.
@@ -434,6 +522,25 @@ function buildFromBlueprint(bank, key, targetCount, profile = {}) {
     }
   }
 
+  // NEW_BUSINESS / no verified offerings → populated AI starter (not Core Service, not empty).
+  // EXISTING with evidence continues through priced blueprint below.
+  const creationMode = String(profile.creationMode ?? '').toUpperCase();
+  const isNewOrUnverified =
+    creationMode === 'NEW_BUSINESS' ||
+    (creationMode !== 'EXISTING_BUSINESS' &&
+      profile.allowBlueprintPrices !== true &&
+      profile.hasPriceList !== true);
+
+  if (isNewOrUnverified && (bank.industry === 'florist' || bank.industry === 'furniture' || bank.industry === 'electronics' || bank.industry === 'grocery' || bank.industry === 'fashion' || bank.industry === 'handyman' || bank.industry === 'beauty' || bank.industry === 'cleaning' || bank.industry === 'plumbing' || bank.industry === 'electrician' || bank.industry === 'home_services' || bank.industry === 'automotive')) {
+    const evidence =
+      profile.items || profile.products || profile.detectedProducts || profile.detectedServices || profile.preloadedCatalogItems || [];
+    if (!catalogHasMeaningfulPriceList(evidence) && !catalogHasNamedGroundedOfferings(evidence)) {
+      const starter = buildNewBusinessStarterCatalog(profile, bank, key, targetCount);
+      if (starter?.items?.length) return starter;
+    }
+  }
+
+  // Legacy florist branch covered by starter above; keep professional collapse.
   const currencyCode = profile.currencyCode ?? 'AUD';
   const cap = Math.max(CATALOG_ITEM_MIN, Math.min(CATALOG_ITEM_LIMIT, targetCount));
   const categories = bank.categories.map((c) => ({

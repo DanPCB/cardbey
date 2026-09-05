@@ -15,6 +15,33 @@ function readProductCount(catalog) {
   return 0;
 }
 
+/**
+ * Persist path uses catalog.products → preview.items. Starters often only set items.
+ * @param {object|null|undefined} catalog
+ */
+export function normalizeCatalogProductsShape(catalog) {
+  if (!catalog || typeof catalog !== 'object') return catalog;
+  const hasProducts = Array.isArray(catalog.products) && catalog.products.length > 0;
+  if (hasProducts) return catalog;
+  const items = Array.isArray(catalog.items) ? catalog.items : [];
+  if (items.length === 0) return catalog;
+  return {
+    ...catalog,
+    products: items.map((it, i) => ({
+      id: it.id ?? `item_norm_${i}`,
+      name: it.name,
+      description: it.description ?? null,
+      price: it.price ?? null,
+      categoryId: it.categoryId ?? catalog.categories?.[0]?.id ?? null,
+      imageUrl: it.imageUrl ?? null,
+      ...(it.imageQueryHint ? { imageQueryHint: it.imageQueryHint } : {}),
+      ...(it.provenance ? { provenance: it.provenance } : {}),
+      ...(it.evidenceStatus ? { evidenceStatus: it.evidenceStatus } : {}),
+      ...(it.editable != null ? { editable: it.editable } : {}),
+    })),
+  };
+}
+
 function buildRecoveryProfile(params = {}, input = {}) {
   const businessName = String(params.businessName ?? input?.businessName ?? input?.storeName ?? '').trim();
   const storeType = String(
@@ -68,24 +95,38 @@ function mapSeedItemsToProducts(seed, draftId) {
  * @param {object} [input]
  */
 export function ensureStoreCreationCatalogItems(catalog, params = {}, input = {}) {
-  if (readProductCount(catalog) > 0) return catalog;
+  // Starters often emit `items` only; draft persist needs `products`.
+  const normalized = normalizeCatalogProductsShape(catalog);
+  if (Array.isArray(normalized?.products) && normalized.products.length > 0) {
+    return normalized;
+  }
+  if (readProductCount(normalized) > 0) return normalized;
 
   const profile = buildRecoveryProfile(params, input);
   const targetCount = CATALOG_ITEM_LIMIT;
-  const industry = buildIndustryCatalog(profile, targetCount);
+  const creationMode = params.creationMode ?? input?.creationMode ?? input?.storeGenerationBusinessContext?.creationMode;
+  const enrichedProfile = {
+    ...profile,
+    ...(creationMode ? { creationMode } : {}),
+  };
+  const industry = buildIndustryCatalog(enrichedProfile, targetCount);
   const cuisine =
-    industry?.items?.length ? null : buildCuisineMenuCatalog(profile, targetCount);
+    industry?.items?.length ? null : buildCuisineMenuCatalog(enrichedProfile, targetCount);
   const seed =
     industry?.items?.length
       ? industry
       : cuisine?.items?.length
         ? cuisine
-        : buildSeedCatalog(profile, { targetCount });
+        : buildSeedCatalog(enrichedProfile, { targetCount });
 
-  const products = mapSeedItemsToProducts(seed, params.draftId ?? input?.draftId);
-  if (!products.length) return catalog;
+  const shaped = normalizeCatalogProductsShape(seed);
+  const products =
+    Array.isArray(shaped?.products) && shaped.products.length
+      ? shaped.products
+      : mapSeedItemsToProducts(seed, params.draftId ?? input?.draftId);
+  if (!products.length) return normalized ?? catalog;
 
-  const prev = catalog && typeof catalog === 'object' ? catalog : {};
+  const prev = normalized && typeof normalized === 'object' ? normalized : {};
   const prevProfile = prev.profile && typeof prev.profile === 'object' ? prev.profile : {};
 
   return {
@@ -97,10 +138,11 @@ export function ensureStoreCreationCatalogItems(catalog, params = {}, input = {}
     },
     categories: seed?.categories?.length ? seed.categories : prev.categories ?? [],
     products,
+    items: Array.isArray(seed?.items) ? seed.items : products,
     meta: {
       ...(prev.meta && typeof prev.meta === 'object' ? prev.meta : {}),
       ...(seed?.meta && typeof seed.meta === 'object' ? seed.meta : {}),
-      catalogSource: prev.meta?.catalogSource ?? 'store_creation_catalog_recovery',
+      catalogSource: prev.meta?.catalogSource ?? seed?.meta?.catalogSource ?? 'store_creation_catalog_recovery',
       emptyCatalogRecovered: true,
     },
   };

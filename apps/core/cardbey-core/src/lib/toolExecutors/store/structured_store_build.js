@@ -183,6 +183,7 @@ export async function execute(_input = {}, context = {}) {
     storeType: businessType || undefined,
     category: businessType || (typeof meta.category === 'string' ? meta.category : undefined),
     location,
+    websiteUrl: websiteUrl || undefined,
     description: meta.businessDescription || meta.description || undefined,
     prompt: syntheticRaw,
     ocrRawText: ocrRawText || undefined,
@@ -199,6 +200,8 @@ export async function execute(_input = {}, context = {}) {
       ...draftInputPatch,
       verticalSlug: storeGenCtx.verticalSlug,
       verticalGroup: storeGenCtx.verticalGroup,
+      creationMode: storeGenCtx.creationMode,
+      creationModeReason: storeGenCtx.creationModeReason,
     },
     storeGenCtx,
   );
