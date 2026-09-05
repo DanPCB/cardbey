@@ -94,9 +94,11 @@ export async function searchPexelsImages(
   query: string,
   perPage: number = 8,
   orientation: 'square' | 'landscape' | 'portrait' = 'square',
+  page: number = 1,
 ): Promise<PexelsImageResult[]> {
   const count = Math.min(80, Math.max(1, Math.floor(perPage) || 8));
-  console.log('[pexelsService] searching:', { query, count, orientation, hasKey: !!PEXELS_API_KEY });
+  const pageNum = Math.min(1000, Math.max(1, Math.floor(page) || 1));
+  console.log('[pexelsService] searching:', { query, count, orientation, page: pageNum, hasKey: !!PEXELS_API_KEY });
   if (!PEXELS_API_KEY) return [];
 
   try {
@@ -105,6 +107,7 @@ export async function searchPexelsImages(
       query: query.trim().slice(0, 200),
       per_page: String(limit),
       orientation,
+      page: String(pageNum),
     });
     const url = `${PEXELS_SEARCH_URL}?${params.toString()}`;
     const res = await fetch(url, {

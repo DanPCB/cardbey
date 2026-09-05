@@ -133,7 +133,7 @@ router.patch('/:storeId/shows/:workId', requireAuth, async (req, res, next) => {
     const workId = String(req.params.workId || '').trim();
     const prisma = getPrismaClient();
     const store = await assertStoreAccess(prisma, storeId, req.userId, req.user);
-    await getStoreShow(prisma, { storeId, workId });
+    // Upsert: missing synthetic/fallback Show ids are created on first inline edit.
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'show_update';
     requireAdminReasonIfNeeded(store, req.userId, req.user, reason);
     const provenance = isPlatformAdmin(req.user) && store.userId !== req.userId ? 'admin' : 'owner';
