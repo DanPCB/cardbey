@@ -209,6 +209,36 @@ export function toPublicStore(business, options = {}) {
       String(business.claimStatus ?? '').toLowerCase() === 'activated' ||
       String(business.claimStatus ?? '').toLowerCase() === 'operating' ||
       (!business.claimStatus && String(business.provenance ?? '').toLowerCase() === 'owner'),
+    profileScore: (() => {
+      let score = 35;
+      if (resolvedBannerUrl || resolvedAvatarUrl) score += 25;
+      if (typeof description === 'string' && description.length > 40) score += 15;
+      const productLen = Array.isArray(business.products) ? business.products.length : 0;
+      if (productLen > 0) score += Math.min(20, productLen * 2);
+      if (business.phone) score += 5;
+      const claimed =
+        String(business.claimStatus ?? '').toLowerCase() === 'claimed' ||
+        String(business.claimStatus ?? '').toLowerCase() === 'verified' ||
+        String(business.claimStatus ?? '').toLowerCase() === 'activated' ||
+        String(business.claimStatus ?? '').toLowerCase() === 'operating';
+      if (claimed) score += 10;
+      return Math.min(100, score);
+    })(),
+    menuItemCount: Array.isArray(business.products) ? business.products.length : null,
+    viewCount:
+      (business.engagement && typeof business.engagement.views7d === 'number'
+        ? business.engagement.views7d
+        : null) ??
+      (business._count && typeof business._count.pageViews === 'number'
+        ? business._count.pageViews
+        : null),
+    heartCount:
+      (business.engagement && typeof business.engagement.likesCount === 'number'
+        ? business.engagement.likesCount
+        : null) ??
+      (business._count && typeof business._count.hearts === 'number' ? business._count.hearts : null),
+    country: locationFields.country ?? business.country ?? 'AU',
+    city: locationFields.city ?? business.city ?? null,
     ...(stylePrefs?.showVideoMixes &&
     typeof stylePrefs.showVideoMixes === 'object' &&
     !Array.isArray(stylePrefs.showVideoMixes)
