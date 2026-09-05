@@ -183,12 +183,16 @@ export function scoreSemanticMediaMatch(input = {}) {
     /\bflorist|flower|floral|bouquet\b/.test(String(input.storeName || '').toLowerCase());
   if (isFlorist) {
     const bad =
-      /\b(aircraft|airplane|aviation|flying service|dental|dentist|teeth|office hallway|emergency exit|security camera|call-?out|inspection)\b/.test(
+      /\b(aircraft|airplane|aviation|flying service|dental|dentist|teeth|office hallway|emergency exit|security camera|call-?out|inspection|shopping\s*cart|car\s*interior|sedan|automobile)\b/.test(
         corpus,
       );
-    if (bad) score -= 0.55;
-    const good = /\b(flower|floral|bouquet|rose|plant|bloom|florist|garden)\b/.test(corpus);
-    if (good) score += 0.12;
+    if (bad) score -= 0.7;
+    // Prefer exact offering / bouquet / shop context over generic flowers keyword co-occurrence
+    if (/\b(bouquet|arrangement|florist\s*shop|flower\s*shop|hat\s*box|orchid|roses?\b)/.test(corpus)) {
+      score += 0.2;
+    } else if (/\b(flower|floral|rose|plant|bloom|florist|garden)\b/.test(corpus)) {
+      score += 0.1;
+    }
   }
 
   return Math.max(0, Math.min(1, score));

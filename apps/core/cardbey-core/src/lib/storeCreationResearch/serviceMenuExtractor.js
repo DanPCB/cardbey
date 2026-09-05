@@ -10,7 +10,7 @@ const PRICE_RE = /(?:AUD|USD|\$)\s*(\d+(?:\.\d{2})?)|(\d+(?:\.\d{2})?)\s*(?:AUD|
 const DURATION_RE = /(\d+)\s*(?:min|mins|minutes|hr|hour|hours)/i;
 
 const FOOD_RE = /\b(restaurant|cafe|coffee|bakery|menu|pizza|burger|pasta|meal|dining)\b/i;
-const RETAIL_RE = /\b(retail|shop|store|boutique|merchandise|product)\b/i;
+const RETAIL_RE = /\b(retail|shop|store|boutique|merchandise|product|florist|flowers?|floral|blooms?|bouquets?|gift)\b/i;
 const QUOTE_RE = /\b(til(e|ing)|floor(ing)?|renovation|plumb|electric|paint|construct|waterproof)\b/i;
 const BOOKING_RE = /\b(nail|spa|salon|manicure|pedicure|massage|facial|wax|haircut|beauty)\b/i;
 

@@ -22,11 +22,17 @@ import {
   assertNoNonOfferingRolesInCatalog,
   emitStoreCreationAuthorityTrace,
   isNonOfferingContentRole,
-  isOfferingContentRole,
+  isRenderableCommerceRole,
   resolveItemContentRole,
   splitSourcedProductsByRole,
   syncCategoriesFromSourcedItems,
 } from '../../lib/storeCreationResearch/canonicalSourcedBusinessContent.js';
+import {
+  applyCatalogRecordClassification,
+  extractCategoryFilterChips,
+  normalizeOfferingPrice,
+  resolveOfferingCta,
+} from '../../lib/storeCreation/semanticPrecision.js';
 
 export function isResearchCatalogSource(meta) {
   return meta?.catalogSource === 'research';
@@ -264,6 +270,7 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
   const businessProfile = opts.businessProfile ?? null;
   const businessType = businessProfile?.businessType ?? opts.businessType ?? 'service_fixed_booking';
   const businessName = opts.businessName ?? '';
+  const commerceCtx = { businessType, businessName, vertical: businessProfile?.verticalSlug };
   const commercePrimary =
     opts.primaryAction ??
     businessProfile?.presentation?.primaryCTA ??
@@ -274,6 +281,11 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
     businessType === 'service_quote' ||
     commercePrimary === 'request_quote' ||
     String(businessProfile?.commerceMode ?? '').toLowerCase() === 'quote';
+  const isProductRetail =
+    businessType === 'product_retail' ||
+    /\b(florist|flowers?|floral|blooms?|bouquets?|retail|boutique|gift)\b/i.test(
+      `${businessType} ${businessName}`,
+    );
 
   return (Array.isArray(products) ? products : []).map((item) => {
     if (!item || typeof item !== 'object') return item;
@@ -284,9 +296,20 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
       item.sourceType ??
       'research';
     const contentRole = resolveItemContentRole(item);
+    const commerceEligible = isRenderableCommerceRole(contentRole, commerceCtx);
+    const hasExplicitRole = Boolean(item.contentRole);
 
-    // Non-offering rows must never become bookable catalog services.
-    if (item.contentRole && isNonOfferingContentRole(contentRole)) {
+    // Categories / inventory / chrome must never become bookable catalog rows.
+    if (
+      contentRole === 'product_category' ||
+      contentRole === 'inventory_metadata' ||
+      (hasExplicitRole && isNonOfferingContentRole(contentRole)) ||
+      (hasExplicitRole && !commerceEligible && contentRole !== 'unknown')
+    ) {
+      const isCategory =
+        contentRole === 'product_category' ||
+        contentRole === 'service_category' ||
+        contentRole === 'menu_category';
       return {
         ...item,
         name: name || item.name,
@@ -300,6 +323,7 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
         primaryAction: null,
         executionAction: null,
         catalogEligible: false,
+        recordType: isCategory ? 'CATEGORY' : item.recordType ?? 'CONTENT',
       };
     }
 
@@ -308,31 +332,74 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
       item.serviceMode === 'quote_required' ||
       item.executionAction === 'request_quote' ||
       item.primaryAction === 'request_quote';
+
+    const isProduct =
+      contentRole === 'product' ||
+      contentRole === 'menu_item' ||
+      item.itemType === 'product' ||
+      item.kind === 'product' ||
+      (isProductRetail && contentRole !== 'service' && contentRole !== 'service_category');
+
+    const cta = resolveOfferingCta(
+      {
+        ...item,
+        contentRole,
+        itemType: isProduct ? 'product' : 'service',
+        executionAction: preferQuote ? 'request_quote' : item.executionAction,
+        purchaseEnabled: item.purchaseEnabled,
+        bookingEnabled: item.bookingEnabled,
+      },
+      {
+        businessType,
+        commerceMode: isProductRetail ? 'order' : businessProfile?.commerceMode,
+        orderingEnabled: isProduct && !preferQuote,
+        schedulingEnabled: !isProduct && !preferQuote && !isQuoteBusiness,
+      },
+    );
+
     const executionAction = preferQuote
       ? 'request_quote'
-      : item.executionAction ?? (isQuoteBusiness ? 'request_quote' : 'book');
-    const primaryAction = preferQuote ? 'request_quote' : executionAction === 'book' ? 'book' : executionAction;
+      : isProduct || isProductRetail
+        ? cta.executionAction
+        : item.executionAction && item.executionAction !== 'book'
+          ? item.executionAction
+          : cta.executionAction;
+    const primaryAction = preferQuote
+      ? 'request_quote'
+      : executionAction === 'book'
+        ? 'book'
+        : executionAction === 'add_to_cart'
+          ? 'add_to_cart'
+          : cta.primaryAction;
     const serviceMode = preferQuote
       ? 'quote_required'
-      : item.serviceMode ?? (isQuoteBusiness ? 'quote_required' : 'fixed_booking');
+      : isProduct || isProductRetail
+        ? null
+        : item.serviceMode ?? (isQuoteBusiness ? 'quote_required' : 'fixed_booking');
+
+    const priceNorm = normalizeOfferingPrice(item);
 
     const base = {
       ...item,
       name: name || item.name,
       title: name || item.title,
-      itemType: contentRole === 'product' || contentRole === 'product_category' ? 'product' : 'service',
-      type: contentRole === 'service_category' ? 'service_category' : contentRole === 'product' ? 'product' : 'service',
-      kind: contentRole === 'product' || contentRole === 'product_category' ? 'product' : 'service',
+      itemType: isProduct || isProductRetail ? 'product' : 'service',
+      type: contentRole === 'service_category' ? 'service_category' : isProduct || isProductRetail ? 'product' : 'service',
+      kind: isProduct || isProductRetail ? 'product' : 'service',
       serviceMode,
       executionAction,
       primaryAction,
-      bookingEnabled: !preferQuote && executionAction === 'book',
-      purchaseEnabled: false,
+      bookingEnabled: !(isProduct || isProductRetail) && !preferQuote && executionAction === 'book',
+      purchaseEnabled: executionAction === 'add_to_cart' || (isProduct || isProductRetail),
       catalogSource: 'research',
       sourceEvidence,
-      isService: contentRole === 'service' || contentRole === 'service_category' || contentRole === 'unknown',
-      contentRole: item.contentRole ?? contentRole,
+      isService: !(isProduct || isProductRetail),
+      contentRole: item.contentRole ?? (isProduct || isProductRetail ? 'product' : contentRole),
       catalogEligible: true,
+      recordType: isProduct || isProductRetail ? 'PRODUCT' : 'SERVICE',
+      priceStatus: priceNorm.priceStatus,
+      price: priceNorm.amount,
+      ...(priceNorm.display ? { priceDisplay: priceNorm.display } : {}),
     };
 
     const enriched = normalizeServiceCatalogItem(base, {
@@ -341,18 +408,26 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
       itemType: base.itemType === 'product' ? 'product' : 'service',
     });
 
+    // Re-apply price semantics — normalizer must not invent $0.
+    const enrichedPrice = normalizeOfferingPrice({ ...base, ...enriched, priceStatus: base.priceStatus });
+
     return {
       ...base,
       ...enriched,
-      // Preserve semantic role — normalizer must not flatten to generic service.
+      price: enrichedPrice.amount,
+      priceStatus: enrichedPrice.priceStatus,
+      ...(enrichedPrice.display ? { priceDisplay: enrichedPrice.display } : {}),
       contentRole: item.contentRole ?? base.contentRole,
       roleConfidence: item.roleConfidence,
       roleReason: item.roleReason,
       executionAction: preferQuote ? 'request_quote' : enriched.executionAction ?? executionAction,
       primaryAction: preferQuote ? 'request_quote' : primaryAction,
       bookingEnabled: preferQuote ? false : base.bookingEnabled,
+      purchaseEnabled: base.purchaseEnabled,
       serviceMode: preferQuote ? 'quote_required' : enriched.serviceMode ?? serviceMode,
       serviceCatalog: item.serviceCatalog ?? toServiceCatalogJson(enriched),
+      catalogEligible: true,
+      recordType: base.recordType,
     };
   });
 }
@@ -369,16 +444,24 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
   const bp = research?.businessProfile ?? catalog.profile?.businessProfile ?? null;
   const businessName = params.businessName ?? catalog.profile?.name ?? '';
 
-  // Phase 2: classify BEFORE enrich overwrites extract `type: service_category`.
+  // Always classify before enrich — semantic precision must not depend on Design Library flag.
   let productsForEnrich = catalog.products;
   let classificationMeta = null;
-  if (isDesignLibraryV1Enabled()) {
-    const classified = classifyResearchCatalogProducts(catalog.products, {
+  {
+    const classified = classifyResearchCatalogProducts(
+      catalog.products,
+      {
+        businessType: bp?.businessType,
+        businessName,
+        contentOrigin: 'sourced',
+      },
+      { force: true },
+    );
+    productsForEnrich = applyCatalogRecordClassification(classified.products, {
       businessType: bp?.businessType,
       businessName,
-      contentOrigin: 'sourced',
+      vertical: bp?.verticalSlug,
     });
-    productsForEnrich = classified.products;
     classificationMeta = classified.summary;
   }
 
@@ -511,10 +594,18 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
   // Preserve full classified set for projection adapter lookups; mark non-offerings
   // ineligible for catalog/image generation. Sync categories so Other-flatten cannot run.
   if (next?.products && Array.isArray(next.products)) {
+    const commerceCtx = {
+      businessType: bp?.businessType,
+      businessName,
+      vertical: bp?.verticalSlug,
+    };
     next.products = next.products.map((item) => {
       if (!item || typeof item !== 'object') return item;
       const role = resolveItemContentRole(item);
-      if (item.contentRole && isNonOfferingContentRole(role)) {
+      if (
+        (item.contentRole && isNonOfferingContentRole(role)) ||
+        !isRenderableCommerceRole(role, commerceCtx)
+      ) {
         return {
           ...item,
           catalogEligible: false,
@@ -527,7 +618,10 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
     });
     // Keep a parallel offerings-only list for grounded media/QA authority.
     const offeringOnly = assertNoNonOfferingRolesInCatalog(
-      next.products.filter((p) => p?.catalogEligible !== false && isOfferingContentRole(resolveItemContentRole(p))),
+      next.products.filter(
+        (p) => p?.catalogEligible !== false && isRenderableCommerceRole(resolveItemContentRole(p), commerceCtx),
+      ),
+      { context: commerceCtx },
     );
     next.meta = {
       ...(next.meta && typeof next.meta === 'object' ? next.meta : {}),
@@ -535,14 +629,27 @@ export function finalizeResearchCatalogForDraft(catalog, research, params = {}) 
       canonicalSourcedContent: next.meta?.canonicalSourcedContent ?? meta.canonicalSourcedContent,
       sourcedOfferingProductIds: offeringOnly.items.map((p) => p.id).filter(Boolean),
     };
-    const catPreview = { items: next.products.filter((p) => p?.catalogEligible !== false), categories: next.categories };
+    const catPreview = {
+      items: next.products.filter((p) => p?.catalogEligible !== false),
+      categories: next.categories,
+    };
     syncCategoriesFromSourcedItems(catPreview);
-    next.categories = catPreview.categories;
+    const filterChips = extractCategoryFilterChips(next.products);
+    // Merge occasion/category filters without dropping synced item categories
+    const byName = new Map();
+    for (const c of [...(catPreview.categories || []), ...filterChips]) {
+      if (!c?.name) continue;
+      const key = String(c.name).toLowerCase();
+      if (!byName.has(key)) byName.set(key, c);
+    }
+    next.categories = [...byName.values()];
     // Re-apply synced categoryIds onto matching products
     const byId = new Map(catPreview.items.map((p) => [p.id, p]));
     next.products = next.products.map((p) => {
       const synced = p?.id != null ? byId.get(p.id) : null;
-      return synced ? { ...p, categoryId: synced.categoryId, category: synced.category, categoryName: synced.categoryName } : p;
+      return synced
+        ? { ...p, categoryId: synced.categoryId, category: synced.category, categoryName: synced.categoryName }
+        : p;
     });
   }
 

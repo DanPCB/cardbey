@@ -14,6 +14,7 @@ import {
   extractOffersFromSchemaBlocks,
   extractServiceCategoryLinksFromHtml,
 } from '../storeCreationResearch/websiteMenuHtmlExtract.js';
+import { stripSeoBusinessDisplayName } from '../storeCreation/semanticPrecision.js';
 
 const FETCH_TIMEOUT_MS = 8000;
 
@@ -526,12 +527,18 @@ export async function extractFromWebsite(websiteUrl) {
 
   const ogName = metaContent(html, 'og:site_name') ?? metaContent(html, 'og:title') ?? titleTag(html);
   if (!ogName && !mergedOffers.length) return [];
+  // Prefer og:site_name for identity; strip SEO phrases from og:title / <title>
+  const siteName = metaContent(html, 'og:site_name');
+  const displayName = siteName
+    ? cleanString(siteName)
+    : stripSeoBusinessDisplayName(cleanString(ogName));
   return [
     {
       source: 'website',
       attribution: createAttribution({ source: 'website', sourceUrl: normalized }),
       raw: {
-        name: ogName ?? null,
+        name: displayName ?? null,
+        seoTitle: ogName && displayName !== ogName ? cleanString(ogName) : null,
         category: null,
         website: normalized,
         location: metaContent(html, 'og:locality'),

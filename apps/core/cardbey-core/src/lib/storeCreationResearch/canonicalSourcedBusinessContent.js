@@ -5,10 +5,14 @@
 
 import { mapContentRoleToSection } from '../storefrontDesignLibrary/projection/contentRoleMapper.js';
 import { isBusinessContentRole } from '../storefrontDesignLibrary/contracts/contentRole.js';
+import { isCommerceSellableRole } from '../storeCreation/semanticPrecision.js';
 
 export const CANONICAL_SOURCED_CONTENT_VERSION = 1;
 
-/** Roles allowed into offering / catalog / product-image generation. */
+/**
+ * Hierarchy / projection roles (categories retained for filters & sections).
+ * Commerce sellable rows are a subset — see isCommerceSellableRole.
+ */
 export const OFFERING_CONTENT_ROLES = Object.freeze([
   'product',
   'product_category',
@@ -30,12 +34,15 @@ export const NON_OFFERING_CONTENT_ROLES = Object.freeze([
   'contact',
   'location',
   'navigation',
+  'inventory_metadata',
   'support',
   'blog',
   'unknown',
   'gallery',
   'project',
 ]);
+
+export { isCommerceSellableRole };
 
 const SECTION_BUCKETS = Object.freeze([
   'testimonial',
@@ -55,6 +62,16 @@ const SECTION_BUCKETS = Object.freeze([
  */
 export function isOfferingContentRole(role) {
   return typeof role === 'string' && OFFERING_ROLE_SET.has(role);
+}
+
+/**
+ * True only for rows that may become sellable commerce catalog items.
+ * Retail product_category / occasion chips are filters — never commerce.
+ * @param {unknown} role
+ * @param {Record<string, unknown>} [context]
+ */
+export function isRenderableCommerceRole(role, context = {}) {
+  return isCommerceSellableRole(role, context);
 }
 
 /**
@@ -119,6 +136,12 @@ export function buildCanonicalSourcedBusinessContent(input = {}) {
   const facts = input.facts && typeof input.facts === 'object' ? input.facts : {};
   const research = input.research && typeof input.research === 'object' ? input.research : {};
   const profile = input.profile && typeof input.profile === 'object' ? input.profile : {};
+  const commerceCtx = {
+    businessType: profile.type ?? research.businessType ?? input.businessType,
+    businessName: profile.name ?? research.businessName ?? input.businessName,
+    vertical: profile.verticalSlug ?? research.verticalSlug,
+    storeType: profile.type,
+  };
 
   /** @type {Record<string, ReturnType<typeof toContentRef>[]>} */
   const sections = Object.fromEntries(SECTION_BUCKETS.map((k) => [k, []]));
@@ -132,7 +155,8 @@ export function buildCanonicalSourcedBusinessContent(input = {}) {
     const role = resolveItemContentRole(raw);
     const ref = toContentRef(raw, index);
 
-    if (isOfferingContentRole(role)) {
+    // Categories remain in envelope hierarchy but are not commerce offerings.
+    if (isRenderableCommerceRole(role, commerceCtx)) {
       offerings.push({
         id: ref.id,
         name: ref.name ?? `Item ${index + 1}`,
@@ -152,6 +176,11 @@ export function buildCanonicalSourcedBusinessContent(input = {}) {
         mediaCandidates: Array.isArray(raw.mediaCandidates) ? raw.mediaCandidates : undefined,
         _raw: raw,
       });
+      return;
+    }
+    if (isOfferingContentRole(role)) {
+      // product_category / service_category / menu_category → filter metadata only
+      excludedFromCatalog.push(ref);
       return;
     }
 
@@ -226,11 +255,17 @@ function countRoles(products) {
  */
 export function splitSourcedProductsByRole(products, context = {}) {
   const list = Array.isArray(products) ? products.filter((p) => p && typeof p === 'object') : [];
+  const commerceCtx = {
+    businessType: context.businessType ?? context.profile?.type ?? context.research?.businessType,
+    businessName: context.businessName ?? context.profile?.name,
+    vertical: context.vertical ?? context.profile?.verticalSlug,
+    storeType: context.storeType ?? context.profile?.type,
+  };
   const offerings = [];
   const nonOfferings = [];
   for (const item of list) {
     const role = resolveItemContentRole(item);
-    if (isOfferingContentRole(role)) offerings.push(item);
+    if (isRenderableCommerceRole(role, commerceCtx)) offerings.push(item);
     else nonOfferings.push(item);
   }
   const envelope = buildCanonicalSourcedBusinessContent({
@@ -239,6 +274,8 @@ export function splitSourcedProductsByRole(products, context = {}) {
     research: context.research,
     profile: context.profile,
     catalogAuthority: context.catalogAuthority,
+    businessType: commerceCtx.businessType,
+    businessName: commerceCtx.businessName,
   });
   return {
     offerings,
@@ -264,6 +301,7 @@ export function assertNoNonOfferingRolesInCatalog(items, opts = {}) {
   const list = Array.isArray(items) ? items : [];
   const offenders = [];
   const cleaned = [];
+  const commerceCtx = opts.context && typeof opts.context === 'object' ? opts.context : {};
   for (const item of list) {
     if (!item || typeof item !== 'object') continue;
     // Flag-off / legacy rows without classification stay in catalog.
@@ -272,7 +310,7 @@ export function assertNoNonOfferingRolesInCatalog(items, opts = {}) {
       continue;
     }
     const role = resolveItemContentRole(item);
-    if (isOfferingContentRole(role)) {
+    if (isRenderableCommerceRole(role, commerceCtx)) {
       cleaned.push(item);
       continue;
     }

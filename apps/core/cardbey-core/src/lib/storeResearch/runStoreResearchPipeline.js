@@ -21,6 +21,7 @@ import {
   shouldRunStoreCreationResearch as legacyShouldRun,
 } from '../storeCreationResearch/businessResearchAgent.js';
 import { resolveStoreResearchInputFields } from '../storeCreationResearch/researchInputFields.js';
+import { stripSeoBusinessDisplayName } from '../storeCreation/semanticPrecision.js';
 
 function envTruthy(name, defaultValue = false) {
   const raw = process.env[name];
@@ -164,9 +165,17 @@ export async function runStoreResearchPipeline(input, options = {}) {
     };
   }
 
+  // Preserve user-typed identity. Never promote a nearby Place display name
+  // (Melbourne Flowers → Port Melbourne Flowers) into canonical businessName.
+  // Research may still use selected website/phone/address.
+  const selectedNameExact =
+    Array.isArray(selected?.matchReasons) && selected.matchReasons.includes('name-exact');
   const enrichedInput = {
     ...normalized,
-    businessName: selected?.name ?? normalized.businessName,
+    businessName: stripSeoBusinessDisplayName(
+      selectedNameExact && selected?.name ? selected.name : normalized.businessName,
+      normalized.businessName,
+    ),
     location: selected?.location ?? normalized.location,
     website: selected?.website ?? normalized.website,
     phone: selected?.phone ?? normalized.phone,

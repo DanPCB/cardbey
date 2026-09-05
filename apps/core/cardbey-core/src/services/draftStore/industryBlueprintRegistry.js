@@ -447,11 +447,21 @@ export function buildNewBusinessStarterCatalog(profile = {}, bank = null, key = 
       src.imageQueryHint ||
       deriveDefaultImageQueryHint(canonicalName, bank) ||
       `${canonicalName} ${bank.industry || 'product'}`;
-    items.push({
+    const isRetailIndustry =
+    bank.industry === 'florist' ||
+    bank.industry === 'furniture' ||
+    bank.industry === 'electronics' ||
+    bank.industry === 'grocery' ||
+    bank.industry === 'fashion' ||
+    /\b(florist|flower|retail)\b/i.test(String(bank.id || key || ''));
+
+  items.push({
       id: `item_starter_${items.length}`,
       name: canonicalName,
       description: src.description ?? null,
       price: null,
+      priceStatus: 'UNKNOWN',
+      priceDisplay: 'Price on request',
       categoryId: catId,
       categoryKey: src.categoryKey,
       provenance: provenance.source,
@@ -459,6 +469,20 @@ export function buildNewBusinessStarterCatalog(profile = {}, bank = null, key = 
       editable: true,
       priceProvenance: null,
       imageQueryHint: hint,
+      contentOrigin: 'suggested',
+      catalogSource: 'ai_generated_starter',
+      ...(isRetailIndustry
+        ? {
+            itemType: 'product',
+            kind: 'product',
+            type: 'product',
+            contentRole: 'product',
+            executionAction: 'add_to_cart',
+            primaryAction: 'add_to_cart',
+            bookingEnabled: false,
+            purchaseEnabled: true,
+          }
+        : {}),
       ...(src.serviceMode ? { serviceMode: src.serviceMode } : {}),
       ...(src.pricingModel ? { pricingModel: 'custom' } : {}),
     });

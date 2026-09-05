@@ -22,6 +22,7 @@ export const BUSINESS_CONTENT_ROLES = Object.freeze([
   'blog',
   'support',
   'navigation',
+  'inventory_metadata',
   'unknown',
 ]);
 
