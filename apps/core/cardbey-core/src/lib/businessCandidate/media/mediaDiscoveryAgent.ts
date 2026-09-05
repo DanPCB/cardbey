@@ -18,22 +18,45 @@ function usable(asset: CandidateMediaAsset): boolean {
   return true;
 }
 
-function buildProviderPhotoAsset(candidate: BusinessCandidateRecord): CandidateMediaAsset | null {
-  const raw = candidate.rawSourceJson;
+/** Extract first usable Places photo ref / New API photo name from rawSourceJson. */
+export function extractProviderPhotoRef(raw: Record<string, unknown> | null | undefined): {
+  photoReference?: string;
+  photoName?: string;
+} | null {
   if (!raw || typeof raw !== 'object') return null;
+  const photos = Array.isArray(raw.photos) ? raw.photos : [];
+  for (const p of photos) {
+    if (!p || typeof p !== 'object') continue;
+    const row = p as Record<string, unknown>;
+    const photoReference =
+      typeof row.photo_reference === 'string' && row.photo_reference.trim()
+        ? row.photo_reference.trim()
+        : null;
+    const photoName =
+      typeof row.name === 'string' && row.name.includes('/photos/')
+        ? row.name.trim()
+        : typeof row.photoName === 'string' && row.photoName.includes('/photos/')
+          ? row.photoName.trim()
+          : null;
+    if (photoReference || photoName) return { photoReference: photoReference ?? undefined, photoName: photoName ?? undefined };
+  }
+  return null;
+}
 
-  const photos = Array.isArray((raw as { photos?: unknown }).photos)
-    ? (raw as { photos: Array<{ photo_reference?: string; html_attributions?: string[] }> }).photos
-    : [];
+function buildProviderPhotoAsset(candidate: BusinessCandidateRecord): CandidateMediaAsset | null {
+  const raw =
+    candidate.rawSourceJson && typeof candidate.rawSourceJson === 'object'
+      ? (candidate.rawSourceJson as Record<string, unknown>)
+      : null;
+  const extracted = extractProviderPhotoRef(raw);
+  if (!extracted) return null;
 
-  const photoRef = photos[0]?.photo_reference;
-  if (!photoRef && !candidate.sourceUrl) return null;
-
-  const url =
-    candidate.sourceUrl ??
-    (photoRef
-      ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=1200&photo_reference=${encodeURIComponent(photoRef)}`
-      : null);
+  // Never use Maps place page URLs as image URLs — they are not photos.
+  const url = extracted.photoReference
+    ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=1200&photo_reference=${encodeURIComponent(extracted.photoReference)}`
+    : extracted.photoName
+      ? `https://places.googleapis.com/v1/${extracted.photoName}/media?maxHeightPx=1200&maxWidthPx=1200`
+      : null;
 
   if (!url) return null;
 
@@ -54,13 +77,18 @@ function buildProviderPhotoAsset(candidate: BusinessCandidateRecord): CandidateM
     isRepresentative: false,
     licenseStatus: 'needs_review',
     usageStatus: 'needs_review',
-    evidenceJson: { placeId: candidate.placeId, provider: candidate.discoveryProviderId },
+    evidenceJson: {
+      placeId: candidate.placeId,
+      provider: candidate.discoveryProviderId,
+      photoReference: extracted.photoReference ?? null,
+      photoName: extracted.photoName ?? null,
+    },
     createdAt: new Date().toISOString(),
   };
 }
 
 function buildCategoryRepresentativeAsset(candidate: BusinessCandidateRecord): CandidateMediaAsset {
-  const categoryKey = resolvePilotCategoryKey(candidate.businessType);
+  const categoryKey = resolvePilotCategoryKey(candidate.businessType, candidate.name);
   const url = categoryRepresentativeHeroUrl(categoryKey);
 
   return {
