@@ -183,6 +183,8 @@ import discoveryRoutes from './routes/discoveryRoutes.js';
 import businessIngestionRoutes from './routes/businessIngestionRoutes.js';
 import discoveryEngineRoutes from './routes/discoveryEngineRoutes.js';
 import businessCandidateRoutes from './routes/businessCandidateRoutes.js';
+import multiMarketPrebuiltRoutes from './routes/multiMarketPrebuiltRoutes.js';
+import multiMarketDiscoveryAliasRoutes from './routes/multiMarketDiscoveryAliasRoutes.js';
 import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js';
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import marketIntentAdminRoutes from './routes/admin/marketIntentAdminRoutes.js';
@@ -310,6 +312,7 @@ import audioLibraryRoutes from './routes/audioLibraryRoutes.js';
 import locationRoutes from './routes/locationRoutes.js';
 import rewardRoutes from './routes/reward.js';
 import performerRoutes from './routes/performer.js';
+import performerAuditRoutes from './routes/performerAuditRoutes.js';
 import performerTurnRoutes from './routes/performerTurnRoutes.js';
 import performerIntakeRoutes from './routes/performerIntakeRoutes.js';
 import toolsRoutes from './routes/toolsRoutes.js';
@@ -1097,6 +1100,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 app.use('/api/performer', performerTurnRoutes); // Canonical POST /turn (reason-only; before other performer routes)
 app.use('/api/performer/content-editing-bridge', performerContentEditingBridgeRoutes); // Phase 2 bridge (flag-gated)
+app.use('/api/performer/audit', performerAuditRoutes); // Understanding audit batch (POST /v1, /v1/batch)
 app.use('/api/performer', performerRoutes); // Performer app routes (lastSession, share, etc.)
 app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
 app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
@@ -1118,6 +1122,8 @@ app.use('/api/discovery', discoveryRoutes); // Business Discovery/Ingestion: sea
 app.use('/api/business-ingestion', businessIngestionRoutes); // Bulk factual business ingestion pipeline
 app.use('/api/discovery-engine', discoveryEngineRoutes); // Discovery Engine V1 — candidates → seeds
 app.use('/api/business-candidates', businessCandidateRoutes); // Performer-first BusinessCandidate pilot
+app.use('/api', multiMarketPrebuiltRoutes); // Multi-market registry + discover (flag-gated, default OFF)
+app.use('/api/discovery/multi-market', multiMarketDiscoveryAliasRoutes); // Phase 1A alias surface
 app.use('/api/control-center/rollback', controlCenterRollbackRoutes); // Discovery rollback (admin)
 app.use('/api/executive/growth', executiveGrowthRoutes); // Executive Growth Command Center (platform admin)
 app.use('/api/stores/:storeId/growth', storeGrowthRoutes); // Store-scoped Business Growth Center (owner only)

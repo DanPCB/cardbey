@@ -875,6 +875,49 @@ export const Features = {
     },
   },
 
+  /**
+   * Multi-market SME discovery (AU + VN) — Phase 1A foundation.
+   * Default OFF in all environments. Does not alter Melbourne real-local pilot.
+   * Master aliases: ENABLE_MULTI_MARKET_DISCOVERY_V1 | ENABLE_MULTI_MARKET_DISCOVERY | FEATURE_MULTI_MARKET_DISCOVERY
+   */
+  multiMarketPrebuilt: {
+    get discoveryV1() {
+      return (
+        parseBoolEnv(process.env.ENABLE_MULTI_MARKET_DISCOVERY_V1, false) ||
+        parseBoolEnv(process.env.ENABLE_MULTI_MARKET_DISCOVERY, false) ||
+        parseBoolEnv(process.env.FEATURE_MULTI_MARKET_DISCOVERY, false)
+      );
+    },
+    get australiaDiscoveryV1() {
+      if (!Features.multiMarketPrebuilt.discoveryV1) return false;
+      return parseBoolEnv(process.env.ENABLE_AUSTRALIA_DISCOVERY_V1, false);
+    },
+    get vietnamDiscoveryV1() {
+      if (!Features.multiMarketPrebuilt.discoveryV1) return false;
+      return parseBoolEnv(process.env.ENABLE_VIETNAM_DISCOVERY_V1, false);
+    },
+    get prebuiltStoreDraftsV1() {
+      if (!Features.multiMarketPrebuilt.discoveryV1) return false;
+      return parseBoolEnv(process.env.ENABLE_PREBUILT_STORE_DRAFTS_V1, false);
+    },
+    get prebuiltStoreAiSuggestionsV1() {
+      if (!Features.multiMarketPrebuilt.prebuiltStoreDraftsV1) return false;
+      return parseBoolEnv(process.env.ENABLE_PREBUILT_STORE_AI_SUGGESTIONS_V1, false);
+    },
+    get businessClaimV1() {
+      if (!Features.multiMarketPrebuilt.discoveryV1) return false;
+      return parseBoolEnv(process.env.ENABLE_BUSINESS_CLAIM_V1, false);
+    },
+    get publicUnclaimedBusinessCardsV1() {
+      if (!Features.multiMarketPrebuilt.discoveryV1) return false;
+      return parseBoolEnv(process.env.ENABLE_PUBLIC_UNCLAIMED_BUSINESS_CARDS_V1, false);
+    },
+    get publicUnclaimedCardIndexingV1() {
+      if (!Features.multiMarketPrebuilt.publicUnclaimedBusinessCardsV1) return false;
+      return parseBoolEnv(process.env.ENABLE_PUBLIC_UNCLAIMED_CARD_INDEXING_V1, false);
+    },
+  },
+
 };
 
 /** Snapshot for health checks and startup logs (plain values, not getters). */
@@ -1080,6 +1123,16 @@ export function snapshotFeatures() {
       livePublishingV1: Features.marketingOperator.livePublishingV1,
       autoScheduleV1: Features.marketingOperator.autoScheduleV1,
       approvalWorkflowV1: Features.marketingOperator.approvalWorkflowV1,
+    },
+    multiMarketPrebuilt: {
+      discoveryV1: Features.multiMarketPrebuilt.discoveryV1,
+      australiaDiscoveryV1: Features.multiMarketPrebuilt.australiaDiscoveryV1,
+      vietnamDiscoveryV1: Features.multiMarketPrebuilt.vietnamDiscoveryV1,
+      prebuiltStoreDraftsV1: Features.multiMarketPrebuilt.prebuiltStoreDraftsV1,
+      prebuiltStoreAiSuggestionsV1: Features.multiMarketPrebuilt.prebuiltStoreAiSuggestionsV1,
+      businessClaimV1: Features.multiMarketPrebuilt.businessClaimV1,
+      publicUnclaimedBusinessCardsV1: Features.multiMarketPrebuilt.publicUnclaimedBusinessCardsV1,
+      publicUnclaimedCardIndexingV1: Features.multiMarketPrebuilt.publicUnclaimedCardIndexingV1,
     },
   };
 }
