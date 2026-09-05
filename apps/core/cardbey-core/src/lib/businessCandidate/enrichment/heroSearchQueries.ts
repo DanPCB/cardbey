@@ -50,7 +50,21 @@ export function inferHeroSubCategory(input: {
   ) {
     return 'financial planning';
   }
-  if (includesToken(text, ['pub', 'tavern', 'inn', 'hotel', 'bar', 'brewery', 'grill', 'bistro', 'cellars'])) {
+  // Lodging before pub — "hotel" must not fall into pub/bar stock queries
+  if (
+    includesToken(text, [
+      'lodging',
+      'motel',
+      'guest house',
+      'guesthouse',
+      'hostel',
+      'resort',
+      'hotel',
+    ])
+  ) {
+    return 'hotel';
+  }
+  if (includesToken(text, ['pub', 'tavern', 'inn', 'bar', 'brewery', 'grill', 'bistro', 'cellars'])) {
     return 'pub';
   }
   if (includesToken(text, ['cafe', 'coffee', 'espresso'])) return 'cafe';
@@ -58,7 +72,6 @@ export function inferHeroSubCategory(input: {
   if (includesToken(text, ['restaurant', 'eatery', 'kitchen', 'dining'])) return 'restaurant';
   if (includesToken(text, ['hair', 'salon', 'barber', 'nail', 'beauty', 'spa'])) return 'hair salon';
   if (includesToken(text, ['grocery', 'supermarket', 'foodstore', 'food store'])) return 'grocery store';
-  if (includesToken(text, ['hotel', 'motel'])) return 'hotel';
   return null;
 }
 
@@ -114,6 +127,13 @@ export const CATEGORY_HERO_QUERIES: Record<string, string[]> = {
   ],
   'bar-pub': ['pub bar interior Melbourne', 'bar drinks cocktails', 'pub hotel exterior'],
   pub: ['pub bar interior Melbourne', 'bar drinks cocktails', 'pub hotel exterior'],
+  hotel: [
+    '{name} {suburb}',
+    '{name} hotel exterior',
+    'hotel lobby interior',
+    'hotel building exterior',
+    'boutique hotel facade',
+  ],
   default: [
     '{name} {suburb}',
     '{subCategory} {suburb}',
@@ -178,7 +198,9 @@ export function buildHeroSearchQueries(input: {
             ? 'financial-planning'
             : sub === 'pub'
               ? 'bar-pub'
-              : null;
+              : sub === 'hotel'
+                ? 'hotel'
+                : null;
     const fromTemplates = buildHeroQueries(
       name || category,
       suburb,

@@ -30,6 +30,7 @@ const GOOGLE_PLACES_NEW_SEARCH_FIELD_MASK = [
   'places.googleMapsUri',
   'places.websiteUri',
   'places.nationalPhoneNumber',
+  'places.photos',
 ].join(',');
 
 const GOOGLE_PLACES_NEW_DETAILS_FIELD_MASK = [
@@ -42,6 +43,7 @@ const GOOGLE_PLACES_NEW_DETAILS_FIELD_MASK = [
   'userRatingCount',
   'regularOpeningHours',
   'googleMapsUri',
+  'photos',
 ].join(',');
 
 /** @type {'new' | 'legacy' | 'disabled' | null} */
@@ -71,12 +73,32 @@ function displayNameText(value) {
   return cleanString(typeof text === 'string' ? text : null);
 }
 
+function mapPlacePhotos(place) {
+  if (!Array.isArray(place?.photos) || place.photos.length === 0) return [];
+  return place.photos.slice(0, 5).map((photo) => {
+    const name = cleanString(photo?.name);
+    const attributions = Array.isArray(photo?.authorAttributions)
+      ? photo.authorAttributions
+          .map((a) => cleanString(a?.displayName) || cleanString(a?.uri))
+          .filter(Boolean)
+      : [];
+    return {
+      name,
+      photoName: name,
+      widthPx: typeof photo?.widthPx === 'number' ? photo.widthPx : null,
+      heightPx: typeof photo?.heightPx === 'number' ? photo.heightPx : null,
+      html_attributions: attributions,
+    };
+  }).filter((p) => p.name);
+}
+
 function mapNewPlaceRow(place) {
   const placeId = cleanString(place.id);
   const sourceUrl =
     cleanString(place.googleMapsUri) ??
     (placeId ? `https://www.google.com/maps/place/?q=place_id:${placeId}` : null);
   const types = Array.isArray(place.types) ? place.types : [];
+  const photos = mapPlacePhotos(place);
   return {
     source: 'google_places',
     attribution: createAttribution({
@@ -106,6 +128,7 @@ function mapNewPlaceRow(place) {
       placeId,
       googleMapsUri: cleanString(place.googleMapsUri),
       discoveryVia: 'google_places_new',
+      ...(photos.length ? { photos } : {}),
     },
   };
 }
@@ -117,6 +140,14 @@ function mapLegacyPlaceRow(r) {
     : null;
   const geometry = r.geometry;
   const openingHours = r.opening_hours;
+  const photos = Array.isArray(r.photos)
+    ? r.photos.slice(0, 5).map((p) => ({
+        photo_reference: cleanString(p?.photo_reference),
+        width: typeof p?.width === 'number' ? p.width : null,
+        height: typeof p?.height === 'number' ? p.height : null,
+        html_attributions: Array.isArray(p?.html_attributions) ? p.html_attributions : [],
+      })).filter((p) => p.photo_reference)
+    : [];
   return {
     source: 'google_places',
     attribution: createAttribution({
@@ -138,6 +169,7 @@ function mapLegacyPlaceRow(r) {
       sourceId: placeId,
       placeId,
       discoveryVia: 'google_places_legacy',
+      ...(photos.length ? { photos } : {}),
     },
   };
 }
