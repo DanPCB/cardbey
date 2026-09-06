@@ -1,9 +1,14 @@
 /**
  * Foursquare Places API (free tier) — Tier 3b.
  * Skips silently when FOURSQUARE_API_KEY is unset.
+ * Venue attach requires strong name match — never results[0].
  */
 
 import type { EnrichmentBudget } from './budget.js';
+import {
+  pickBestNamedVenue,
+  VENUE_NAME_MATCH_MIN,
+} from './venueNameMatch.js';
 
 const FSQ_BASE = 'https://places-api.foursquare.com';
 const FSQ_SEARCH_ENDPOINT = `${FSQ_BASE}/places/search`;
@@ -22,6 +27,9 @@ export type FoursquareResult = {
   phone: string | null;
   hours: string | null;
   verified: boolean;
+  /** Name-match confidence against the query business (≥ VENUE_NAME_MATCH_MIN). */
+  nameMatchConfidence: number;
+  matched: true;
 };
 
 export type FoursquarePhoto = {
@@ -63,8 +71,8 @@ export async function fetchFoursquareVenue(
   budget: EnrichmentBudget,
   businessName: string,
   suburb: string | null,
-  state: string = 'VIC',
-  country: string = 'AU',
+  state: string | null = null,
+  country: string | null = null,
 ): Promise<FoursquareResult | null> {
   const key = fsqKey();
   if (!key) {
@@ -77,10 +85,10 @@ export async function fetchFoursquareVenue(
   const near = [suburb, state, country].filter(Boolean).join(', ');
   const params = new URLSearchParams({
     query: name,
-    near,
-    limit: '3',
+    limit: '5',
     fields: FSQ_SEARCH_FIELDS,
   });
+  if (near) params.set('near', near);
 
   budget.consumeFetch();
   try {
@@ -97,10 +105,20 @@ export async function fetchFoursquareVenue(
     }
     const data = (await response.json()) as { results?: FsqPlaceRow[] };
     const results = data?.results ?? [];
-    const needle = name.toLowerCase().slice(0, 8);
-    const best =
-      results.find((r) => r.name?.toLowerCase().includes(needle)) ?? results[0];
-    const fsqId = best ? pickFsqPlaceId(best) : null;
+    const picked = pickBestNamedVenue(
+      name,
+      results,
+      (r) => r.name ?? null,
+      VENUE_NAME_MATCH_MIN,
+    );
+    if (!picked) {
+      console.warn(
+        `[Foursquare] no strong name match for "${name}" among ${results.length} results — refusing results[0]`,
+      );
+      return null;
+    }
+    const best = picked.row;
+    const fsqId = pickFsqPlaceId(best);
     if (!fsqId) return null;
     return {
       fsqId,
@@ -113,6 +131,8 @@ export async function fetchFoursquareVenue(
       phone: best.tel ?? null,
       hours: best.hours?.display ?? null,
       verified: best.verified ?? false,
+      nameMatchConfidence: picked.confidence,
+      matched: true,
     };
   } catch (err) {
     console.warn(

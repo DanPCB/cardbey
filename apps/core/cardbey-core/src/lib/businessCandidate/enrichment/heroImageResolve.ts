@@ -1,10 +1,11 @@
 /**
  * Hero image resolution ladder:
- * Tier 1: business website og:image
- * Tier 3a: Foursquare venue photo (≥800px, attribution required)
+ * Tier 0: placeId-bound Places photo proxy (correct venue when available)
+ * Tier 1: business website og:image (identity-matched host only)
+ * Tier 3a: Foursquare venue photo (matched venue only)
  * Tier 3b: Wikimedia Commons (free licence)
  * Tier 4: Pexels representative stock ladder
- * Never caches Google Places photos for public display.
+ * Never embeds raw Google Places photo URLs (API key / ToS) — use proxy instead.
  */
 
 import type { EnrichmentBudget } from './budget.js';
@@ -78,10 +79,6 @@ async function searchPexels(
   }
 }
 
-/**
- * Resolve hero. Business-owned website og:image is tier 1 eligible.
- * Foursquare / Wikimedia fill venue photos before Pexels stock.
- */
 export async function resolveHeroImage(params: {
   budget: EnrichmentBudget;
   websiteOgImage: string | null;
@@ -93,7 +90,9 @@ export async function resolveHeroImage(params: {
   placesTypes?: string[] | null;
   tags?: string[] | null;
   identityMatchedWebsite?: boolean;
+  placesProxyPhotoUrl?: string | null;
   foursquarePhotoUrl?: string | null;
+  foursquareVenueMatched?: boolean;
   wikimediaPhotoUrl?: string | null;
   wikimediaLicence?: string | null;
 }): Promise<{
@@ -102,6 +101,24 @@ export async function resolveHeroImage(params: {
   adapterResults: SourceAdapterResult[];
 }> {
   const adapterResults: SourceAdapterResult[] = [];
+
+  if (params.placesProxyPhotoUrl) {
+    const hero: HeroResolveResult = {
+      url: params.placesProxyPhotoUrl,
+      source: 'google_places_proxy',
+      sourceUrl: params.placesProxyPhotoUrl,
+      rawExtract: params.placesProxyPhotoUrl,
+      eligible: true,
+      attribution: 'Photo via Google Places (proxied)',
+    };
+    adapterResults.push(
+      successResult('google_places_proxy', ['heroImageUrl'], hero, {
+        sourceUrl: hero.sourceUrl,
+        message: 'PlaceId-bound Places photo via Cardbey proxy',
+      }),
+    );
+    return { hero, status: 'SUCCESS', adapterResults };
+  }
 
   if (params.websiteOgImage) {
     if (looksLikeLogoOrIcon(params.websiteOgImage)) {
@@ -132,21 +149,31 @@ export async function resolveHeroImage(params: {
   }
 
   if (params.foursquarePhotoUrl) {
-    const hero: HeroResolveResult = {
-      url: params.foursquarePhotoUrl,
-      source: 'foursquare_photos',
-      sourceUrl: params.foursquarePhotoUrl,
-      rawExtract: params.foursquarePhotoUrl,
-      eligible: true,
-      attribution: 'Photo from Foursquare',
-    };
-    adapterResults.push(
-      successResult('foursquare_photos', ['heroImageUrl'], hero, {
-        sourceUrl: hero.sourceUrl,
-        message: 'Foursquare venue photo (attribution required)',
-      }),
-    );
-    return { hero, status: 'SUCCESS', adapterResults };
+    if (params.foursquareVenueMatched === false) {
+      adapterResults.push(
+        statusResult(
+          'foursquare_photos',
+          'IDENTITY_MISMATCH',
+          'Foursquare venue not identity-matched — photo refused',
+        ),
+      );
+    } else {
+      const hero: HeroResolveResult = {
+        url: params.foursquarePhotoUrl,
+        source: 'foursquare_photos',
+        sourceUrl: params.foursquarePhotoUrl,
+        rawExtract: params.foursquarePhotoUrl,
+        eligible: true,
+        attribution: 'Photo from Foursquare',
+      };
+      adapterResults.push(
+        successResult('foursquare_photos', ['heroImageUrl'], hero, {
+          sourceUrl: hero.sourceUrl,
+          message: 'Foursquare venue photo (attribution required)',
+        }),
+      );
+      return { hero, status: 'SUCCESS', adapterResults };
+    }
   }
 
   if (params.wikimediaPhotoUrl) {

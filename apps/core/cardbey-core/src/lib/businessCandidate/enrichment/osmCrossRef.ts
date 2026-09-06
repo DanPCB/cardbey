@@ -4,6 +4,7 @@
  */
 
 import type { EnrichmentBudget } from './budget.js';
+import { pickBestNamedVenue, VENUE_NAME_MATCH_MIN } from './venueNameMatch.js';
 
 export type OsmMatch = {
   fullName: string | null;
@@ -87,8 +88,19 @@ out body 5;`;
       elements?: Array<{ id?: number | string; tags?: Record<string, string> }>;
     };
     const elements = json.elements ?? [];
-    const best =
-      elements.find((e) => e.tags?.name?.toLowerCase() === name.toLowerCase()) ?? elements[0];
+    const picked = pickBestNamedVenue(
+      name,
+      elements,
+      (e) => e.tags?.name ?? null,
+      VENUE_NAME_MATCH_MIN,
+    );
+    if (!picked) {
+      console.warn(
+        `[OSM] no strong name match for "${name}" among ${elements.length} elements — refusing elements[0]`,
+      );
+      return null;
+    }
+    const best = picked.row;
     const tags = best?.tags;
     if (!tags) return null;
     return {

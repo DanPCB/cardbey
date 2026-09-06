@@ -101,7 +101,29 @@ export function buildBusinessEnrichmentPatch(
   fillScalar('postcode', candidate.postcode);
   fillScalar('tagline', candidate.tagline);
   fillScalar('description', candidate.description, isUsableDescription);
-  fillScalar('heroImageUrl', candidate.heroImageUrl);
+
+  const heroSource = String(candidate.heroImageSource ?? '').trim();
+  const heroUrl = typeof candidate.heroImageUrl === 'string' ? candidate.heroImageUrl.trim() : '';
+  const allowHeroSources = new Set([
+    'business_website',
+    'google_places_proxy',
+    'foursquare_photos',
+    'wikimedia_commons',
+    'pexels',
+    'pixabay',
+  ]);
+  const heroLooksLikeRawPlaces =
+    heroUrl.includes('maps.googleapis.com/maps/api/place/photo') ||
+    heroUrl.includes('places.googleapis.com/v1/places/');
+  if (
+    heroUrl &&
+    emptyish(existing.heroImageUrl) &&
+    allowHeroSources.has(heroSource) &&
+    !heroLooksLikeRawPlaces
+  ) {
+    storePatch.heroImageUrl = heroUrl;
+  }
+
   fillScalar('avatarImageUrl', candidate.logoUrl);
 
   const social = socialLinksRecord(candidate.socialLinks);
