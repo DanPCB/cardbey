@@ -56,6 +56,7 @@ import { calculateProfileScore } from './profileScore.js';
 import { priceRangeFromRawSource } from './priceRange.js';
 import { fetchAndExtractMenu, isFoodBusinessCategory } from './menuFetchOrchestrator.js';
 import { syncCandidateMenuToLinkedStore } from '../menuPromotion.js';
+import { writeEnrichedFieldsToLinkedStore } from '../writeEnrichedFieldsToLinkedStore.js';
 import type { ExtractedMenu } from './types/menuTypes.js';
 
 function getCandidateMetadata(candidate: BusinessCandidateRecord): Record<string, unknown> {
@@ -242,6 +243,8 @@ export async function enrichCandidateMultiSource(params: {
   try {
     return await budget.runWithDeadline(async () => {
       const candidate = { ...params.candidate };
+      // Backfill / thin records often omit socialLinks — never throw on .find.
+      candidate.socialLinks = Array.isArray(candidate.socialLinks) ? candidate.socialLinks : [];
       const bag: FieldBag = {};
 
       // Seed bag from existing higher-value fields so we do not overwrite blindly
@@ -1086,6 +1089,14 @@ export async function enrichCandidateMultiSource(params: {
       } else {
         await saveBusinessCandidate(candidate);
         if (rows.length) await appendCandidateFieldProvenance(rows, { dryRun: false });
+        if (candidate.storeId?.trim()) {
+          try {
+            await writeEnrichedFieldsToLinkedStore(candidate);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`[enrich] Business write-back failed for ${candidate.id}:`, message);
+          }
+        }
         if (extractedMenu && candidate.storeId) {
           try {
             await syncCandidateMenuToLinkedStore(candidate);
