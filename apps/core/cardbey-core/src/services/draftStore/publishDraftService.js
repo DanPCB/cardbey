@@ -64,6 +64,7 @@ const BUSINESS_CONTACT_PUBLISH_KEYS = [
   'mapUrl',
   'lat',
   'lng',
+  'tradingHours',
 ].filter((key) => hasBusinessColumn(key));
 
 const BUSINESS_PUBLISH_SCALAR_KEYS = new Set([

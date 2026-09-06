@@ -14,6 +14,7 @@ import { publicCommerceFields } from '../lib/dbCapabilities.js';
 import { resolveStoreCommercePresentation } from '../lib/businessSemantic/resolveStoreCommercePresentation.js';
 import { hasBusinessColumn } from '../lib/businessColumnCapabilities.js';
 import { buildStoreLocationFields } from '../lib/formatStoreLocation.js';
+import { formatPublicHoursDisplay } from './overlayPublicStoreFromCandidate.js';
 
 /**
  * @param {object | null | undefined} business
@@ -72,6 +73,18 @@ export function toPublicStore(business, options = {}) {
 
   const locationFields = buildStoreLocationFields(business);
   const locationLabel = locationFields.locationLabel;
+  const contact = buildPublicStoreContact(business);
+  const hoursDisplay = formatPublicHoursDisplay(
+    hasBusinessColumn('tradingHours') ? business.tradingHours : null,
+  );
+  const phone =
+    (typeof contact.phone === 'string' && contact.phone.trim()) ||
+    (typeof business.phone === 'string' && business.phone.trim()) ||
+    null;
+  const email =
+    (typeof contact.email === 'string' && contact.email.trim()) || null;
+  const websiteUrl =
+    (typeof contact.website === 'string' && contact.website.trim()) || null;
 
   // Use translation utilities to get translated fields, falling back to originals
   const name = getTranslatedField(business, 'name', lang) || business.name;
@@ -180,8 +193,14 @@ export function toPublicStore(business, options = {}) {
     showOwnerProfile: business.showOwnerProfile ?? false,
     ownerProfileSlug: business.user?.personalPresenceStore?.slug ?? null,
     socialLinks: parseSocialLinks(business.socialLinks) ?? null,
-    contact: buildPublicStoreContact(business),
-    ...(business.phone ? { phone: business.phone } : {}),
+    contact,
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(hoursDisplay ? { hours: hoursDisplay } : {}),
+    ...(hasBusinessColumn('tradingHours') && business.tradingHours != null
+      ? { tradingHours: business.tradingHours }
+      : {}),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
     ...(commerce.businessType ? { businessType: commerce.businessType } : {}),
     ...(commerce.catalogMode ? { catalogMode: commerce.catalogMode } : {}),
