@@ -35,7 +35,8 @@ const realLocalRateLimit = rateLimit({
 
 const batchEnrichRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 20,
+  // Chunked enrich (1 candidate/request) needs headroom for whole-batch QA runs.
+  max: 60,
   keyGenerator: (req) => `batch-enrich:${req.user?.id ?? req.ip ?? 'unknown'}`,
   message:
     'Batch enrichment rate limit exceeded. Max {max} runs per {windowMinutes} min. Retry in {retryAfter}s.',
