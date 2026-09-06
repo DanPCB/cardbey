@@ -15,6 +15,7 @@
  *   node scripts/google-places-backfill.mjs --apply
  *   node scripts/google-places-backfill.mjs --limit=5
  *   node scripts/google-places-backfill.mjs --slug=pho-ngon-footscray
+ *   node scripts/google-places-backfill.mjs --slugs=galaxsigns,tg-hydroponics
  */
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync, accessSync, constants, unlinkSync } from 'node:fs';
@@ -22,6 +23,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  addressMatchesExpectedLocation,
+  isGenericBusinessName,
+  namesLikelyMatch,
+  pickBestPlaceCandidate,
+  placeHintsFromSlug,
+} from './lib/googlePlacesBackfillMatch.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_ROOT = path.resolve(__dirname, '..');
@@ -39,6 +47,16 @@ const SKIP_SLUGS = new Set([
   'hp-services-5',
   'hp-services-6',
   'hp-services-visibility',
+  // Generic / placeholder names — Places first-hit is almost always wrong
+  'my-fashion',
+  'mmm-fashion',
+  'another-fashion',
+  'fashion-store',
+  'spring-collection',
+  'new-fashion-shoes',
+  'abc-fashion',
+  'recycling-shop2',
+  'wonderland-homestay',
 ]);
 
 const apply =
@@ -48,6 +66,16 @@ const limitArg = process.argv.find((a) => a.startsWith('--limit='));
 const LIMIT = limitArg ? Math.max(1, Number.parseInt(limitArg.slice('--limit='.length), 10) || 0) : null;
 const slugArg = process.argv.find((a) => a.startsWith('--slug='));
 const ONLY_SLUG = slugArg ? slugArg.slice('--slug='.length).trim() : null;
+const slugsArg = process.argv.find((a) => a.startsWith('--slugs='));
+const ONLY_SLUGS = slugsArg
+  ? new Set(
+      slugsArg
+        .slice('--slugs='.length)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+  : null;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -111,7 +139,7 @@ async function fetchJson(url, init) {
 }
 
 /**
- * Places API (New) text search.
+ * Places API (New) text search — returns up to 5 candidates.
  */
 async function textSearchNew(key, query, regionCode) {
   const url = 'https://places.googleapis.com/v1/places:searchText';
@@ -137,11 +165,9 @@ async function textSearchNew(key, query, regionCode) {
       pageSize: 5,
     }),
   });
-  if (!ok || data?.error) return null;
+  if (!ok || data?.error) return [];
   const places = Array.isArray(data?.places) ? data.places : [];
-  if (!places.length) return null;
-  const p = places[0];
-  return {
+  return places.map((p) => ({
     place_id: p.id,
     name: p.displayName?.text || null,
     formatted_address: p.formattedAddress || null,
@@ -154,7 +180,7 @@ async function textSearchNew(key, query, regionCode) {
     phone: p.nationalPhoneNumber || null,
     website: p.websiteUri || null,
     via: 'new',
-  };
+  }));
 }
 
 async function textSearchLegacy(key, query) {
@@ -163,31 +189,35 @@ async function textSearchLegacy(key, query) {
     `?query=${encodeURIComponent(query)}` +
     `&key=${encodeURIComponent(key)}`;
   const { data } = await fetchJson(url);
-  if (data?.status !== 'OK' || !data.results?.length) return null;
-  const r = data.results[0];
-  return {
+  if (data?.status !== 'OK' || !data.results?.length) return [];
+  return data.results.slice(0, 5).map((r) => ({
     place_id: r.place_id,
     name: r.name,
     formatted_address: r.formatted_address,
     geometry: r.geometry,
     via: 'legacy',
-  };
+  }));
 }
 
-async function textSearch(key, name, location, countryCode) {
-  const query = `${name} ${location}`.trim();
+async function textSearch(key, name, location, countryCode, slug) {
+  const hints = placeHintsFromSlug(slug);
+  const hintLoc = hints.length ? hints.join(' ') : location;
+  const query = `${name} ${hintLoc}`.trim();
   const regionCode = countryCode === 'VN' ? 'VN' : 'AU';
   try {
     const fromNew = await textSearchNew(key, query, regionCode);
-    if (fromNew) return fromNew;
+    if (fromNew.length) return fromNew;
   } catch (e) {
     console.warn(`[places] textSearch new failed for "${name}":`, e.message);
   }
   try {
-    return await textSearchLegacy(key, `${query} ${countryCode === 'VN' ? 'Vietnam' : 'Australia'}`);
+    return await textSearchLegacy(
+      key,
+      `${query} ${countryCode === 'VN' ? 'Vietnam' : 'Australia'}`,
+    );
   } catch (e) {
     console.warn(`[places] textSearch legacy failed for "${name}":`, e.message);
-    return null;
+    return [];
   }
 }
 
@@ -285,46 +315,6 @@ function extractSuburbFromAddress(address) {
   // Soft fallback: whole suburb part if it has no digits
   if (suburbPart && !/\d/.test(suburbPart) && suburbPart.length < 40) return suburbPart;
   return null;
-}
-
-/**
- * Reject wrong-country / far-away matches. Better null than wrong data.
- */
-function addressMatchesExpectedLocation(address, store) {
-  if (!address) return false;
-  const a = address.toLowerCase();
-  const country = (store.country || 'AU').toUpperCase();
-
-  if (country === 'VN') {
-    return /vietnam|việt|hcmc|ho chi minh|saigon|sài gòn|hanoi|hà nội/.test(a);
-  }
-
-  // AU expected
-  const auHints = /\baustralia\b|\bvic\b|\bnsw\b|\bqld\b|\bsa\b|\bwa\b|\btas\b|\bact\b|\bnt\b/;
-  if (!auHints.test(a) && !/\b\d{4}\b/.test(a)) return false;
-
-  const expectedTokens = [
-    store.suburb,
-    store.city,
-    store.formattedAddress,
-  ]
-    .filter((t) => t && String(t).trim() && String(t).trim().toLowerCase() !== 'melbourne')
-    .map((t) => String(t).toLowerCase());
-
-  // If we have a specific suburb/city/address, require at least one token hit
-  if (expectedTokens.length) {
-    const hit = expectedTokens.some((tok) => {
-      const words = tok.split(/[\s,]+/).filter((w) => w.length > 2);
-      return words.some((w) => a.includes(w));
-    });
-    if (!hit) {
-      // Still allow Melbourne metro if address is clearly AU and store only had Melbourne
-      return /\bmelbourne\b|\bvic\b/.test(a);
-    }
-  }
-
-  // Generic Melbourne-only store: require AU / VIC / Melbourne
-  return /\baustralia\b|\bvic\b|\bmelbourne\b/.test(a);
 }
 
 function buildPlacesPatch(store, result, searchResult) {
@@ -448,6 +438,9 @@ async function main() {
   if (ONLY_SLUG) {
     where.slug = ONLY_SLUG;
     delete where.NOT;
+  } else if (ONLY_SLUGS?.size) {
+    where.slug = { in: [...ONLY_SLUGS] };
+    delete where.NOT;
   }
 
   const stores = await prisma.business.findMany({
@@ -478,17 +471,26 @@ async function main() {
   let notFound = 0;
   let noData = 0;
   let skippedWrongLocation = 0;
+  let skippedNameMismatch = 0;
+  let skippedGeneric = 0;
 
   for (const store of stores) {
+    if (isGenericBusinessName(store.name)) {
+      console.log(`\n[places-backfill] SKIP generic name: ${store.name} [${store.slug}]`);
+      skippedGeneric += 1;
+      results.push({ slug: store.slug, status: 'skipped_generic_name' });
+      continue;
+    }
+
     const location = buildLocationHint(store);
     const country = store.country === 'VN' ? 'VN' : 'AU';
 
     console.log(`\n[places-backfill] Looking up: ${store.name} (${location}) [${store.slug}]`);
 
-    const searchResult = await textSearch(key, store.name, location, country);
+    const candidates = await textSearch(key, store.name, location, country, store.slug);
     await sleep(RATE_LIMIT_MS);
 
-    if (!searchResult?.place_id) {
+    if (!candidates.length) {
       console.log('  → Not found in Google Places');
       notFound += 1;
       results.push({ slug: store.slug, status: 'not_found' });
@@ -496,7 +498,26 @@ async function main() {
     }
 
     console.log(
-      `  → Found: ${searchResult.name} (${searchResult.formatted_address}) via=${searchResult.via}`,
+      `  → Candidates: ${candidates.map((c) => c.name).join(' | ')}`,
+    );
+
+    const searchResult = pickBestPlaceCandidate(store.name, candidates);
+    if (!searchResult?.place_id) {
+      console.log(
+        `  → SKIPPED: no name match (top was "${candidates[0]?.name}" @ ${candidates[0]?.formatted_address})`,
+      );
+      skippedNameMismatch += 1;
+      results.push({
+        slug: store.slug,
+        status: 'skipped_name_mismatch',
+        topCandidate: candidates[0]?.name ?? null,
+        topAddress: candidates[0]?.formatted_address ?? null,
+      });
+      continue;
+    }
+
+    console.log(
+      `  → Matched: ${searchResult.name} (${searchResult.formatted_address}) via=${searchResult.via}`,
     );
 
     if (!addressMatchesExpectedLocation(searchResult.formatted_address, store)) {
@@ -528,6 +549,18 @@ async function main() {
         slug: store.slug,
         status: 'skipped_wrong_location',
         foundAddress,
+      });
+      continue;
+    }
+
+    // Re-check name against details display name when present
+    if (detail.name && !namesLikelyMatch(store.name, detail.name)) {
+      console.log(`  → SKIPPED: details name mismatch ("${detail.name}")`);
+      skippedNameMismatch += 1;
+      results.push({
+        slug: store.slug,
+        status: 'skipped_name_mismatch',
+        detailName: detail.name,
       });
       continue;
     }
@@ -580,6 +613,7 @@ async function main() {
       address: patch.address ?? null,
       suburb: patch.suburb ?? null,
       placeId: searchResult.place_id,
+      matchedName: searchResult.name,
     });
 
     if (!isDryRun) {
@@ -600,6 +634,8 @@ async function main() {
   console.log(`Patched:              ${patched}${isDryRun ? ' (dry run)' : ''}`);
   console.log(`Not found / failed:   ${notFound}`);
   console.log(`Skipped wrong loc:    ${skippedWrongLocation}`);
+  console.log(`Skipped name mismatch:${skippedNameMismatch}`);
+  console.log(`Skipped generic name: ${skippedGeneric}`);
   console.log(`No new data:          ${noData}`);
 
   const reportDir = path.join(REPO_ROOT, 'docs', 'reports');
