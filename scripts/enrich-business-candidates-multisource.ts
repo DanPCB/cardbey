@@ -4,6 +4,9 @@
  *
  *   pnpm enrich:candidates -- --batchId=MELBOURNE_BATCH001_REAL_LOCAL
  *   pnpm enrich:candidates -- --batchId=MELBOURNE_BATCH001_REAL_LOCAL --dry-run
+ *   pnpm enrich:candidates -- --batchId=PUBLISHED_STORES_BACKFILL --maxCandidates=3
+ *
+ * Run from monorepo root (script lives in scripts/, not apps/core/cardbey-core/scripts).
  *
  * Rules:
  * - --batchId is REQUIRED (no default; bare invoke errors)
@@ -34,7 +37,7 @@ async function main() {
   if (!batchId) {
     console.error(
       'Error: --batchId is required.\n' +
-        'Usage: pnpm enrich:candidates -- --batchId=<BATCH_ID> [--dry-run]\n' +
+        'Usage: pnpm enrich:candidates -- --batchId=<BATCH_ID> [--maxCandidates=N] [--dry-run]\n' +
         'Refusing to enrich all candidates without an explicit batch scope.',
     );
     process.exit(1);
@@ -42,6 +45,10 @@ async function main() {
 
   const dryRun = process.argv.includes('--dry-run');
   const candidateId = readArg('candidateId');
+  const maxRaw = readArg('maxCandidates');
+  const maxCandidates = maxRaw
+    ? Math.min(Math.max(Number.parseInt(maxRaw, 10) || 25, 1), 50)
+    : 25;
 
   const mod = await import(
     pathToFileURL(
@@ -54,7 +61,7 @@ async function main() {
     dryRun,
     writeReport: true,
     candidateIds: candidateId ? [candidateId] : undefined,
-    maxCandidates: 25,
+    maxCandidates,
   });
 
   console.log(
