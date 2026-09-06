@@ -10,7 +10,7 @@ import express from 'express';
 
 const router = express.Router();
 
-function placesKey(): string | null {
+function placesKey() {
   return (
     process.env.GOOGLE_PLACES_API_KEY?.trim() ||
     process.env.GOOGLE_MAPS_API_KEY?.trim() ||
@@ -18,8 +18,8 @@ function placesKey(): string | null {
   );
 }
 
-function placeIdFromPhotoName(photoName: string): string | null {
-  const m = /^places\/([^/]+)\/photos\//i.exec(photoName.trim());
+function placeIdFromPhotoName(photoName) {
+  const m = /^places\/([^/]+)\/photos\//i.exec(String(photoName || '').trim());
   return m?.[1] ?? null;
 }
 
@@ -41,7 +41,7 @@ router.get('/places-photo', async (req, res) => {
   );
 
   try {
-    let upstream: Response | null = null;
+    let upstream = null;
 
     if (photoName.includes('/photos/')) {
       const embeddedPlaceId = placeIdFromPhotoName(photoName);
