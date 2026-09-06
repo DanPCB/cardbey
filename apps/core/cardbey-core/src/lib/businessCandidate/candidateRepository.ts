@@ -78,6 +78,15 @@ export async function getBusinessCandidateBySeedId(seedId: string): Promise<Busi
   return all.find((c) => c.seedId === seedId) ?? null;
 }
 
+export async function getBusinessCandidateByStoreId(
+  storeId: string,
+): Promise<BusinessCandidateRecord | null> {
+  const id = String(storeId ?? '').trim();
+  if (!id) return null;
+  const all = await listBusinessCandidates();
+  return all.find((c) => c.storeId === id) ?? null;
+}
+
 export async function upsertBusinessCandidates(
   incoming: BusinessCandidateRecord[],
 ): Promise<BusinessCandidateRecord[]> {
