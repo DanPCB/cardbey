@@ -86,11 +86,18 @@ run('npm rebuild esbuild');
 run('node scripts/write-build-metadata.mjs');
 run('npm run build');
 
-const pip = 'pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled"';
-try {
-  run(pip);
-} catch {
-  console.warn('[render-build] pip step failed (non-fatal)');
+// CrewAI is optional. Calling `pip install` on Render triggers Python 3.14 + Poetry,
+// then tiktoken builds from source (needs Rust) and fails. Skip entirely on Render.
+const onRender = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID);
+if (onRender || String(process.env.SKIP_CREWAI_INSTALL || '').toLowerCase() === 'true') {
+  console.log('[render-build] skip CrewAI pip install (Render/Python 3.14 tiktoken unsafe)');
+} else {
+  const pip = 'pip install crewai crewai-tools --quiet || echo "pip not available, CrewAI disabled"';
+  try {
+    run(pip);
+  } catch {
+    console.warn('[render-build] pip step failed (non-fatal)');
+  }
 }
 
 console.log('[render-build] done');
