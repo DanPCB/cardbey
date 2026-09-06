@@ -840,6 +840,20 @@ router.get('/stores/:slug', async (req, res, next) => {
       null;
     publicStore.socialLinks = mappedSocialLinks;
 
+    // Unclaimed / thin Business rows: overlay enriched candidate fields (phone, hours, etc.).
+    try {
+      const { getBusinessCandidateByStoreId } = await import(
+        '../lib/businessCandidate/candidateRepository.js'
+      );
+      const { overlayPublicStoreFromCandidate } = await import(
+        '../utils/overlayPublicStoreFromCandidate.js'
+      );
+      const candidate = await getBusinessCandidateByStoreId(store.id);
+      overlayPublicStoreFromCandidate(publicStore, candidate);
+    } catch (overlayErr) {
+      console.warn('[PublicStores] candidate overlay skipped:', overlayErr);
+    }
+
     console.log('[PUBLIC_STORE_SOCIAL]', {
       businessSocialLinks: store?.socialLinks,
       projectionSocialLinks: projection?.content?.socialLinks ?? null,
