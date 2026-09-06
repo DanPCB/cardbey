@@ -215,6 +215,7 @@ import publicUsersRoutes from './routes/publicUsers.js';
 import listingReportRoutes from './routes/listingReportRoutes.js';
 import publicHeroPlaybackRoutes from './routes/publicHeroPlaybackRoutes.js';
 import publicDiscoveryRoutes from './routes/publicDiscoveryRoutes.js';
+import publicPlacesPhotoRoutes from './routes/publicPlacesPhoto.js';
 import publicFeedRoutes from './routes/publicFeedRoutes.js';
 import publicContentInteractionRoutes from './routes/publicContentInteractionRoutes.js';
 import storeEngagementRoutes from './routes/storeEngagementRoutes.js';
@@ -1204,6 +1205,7 @@ app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public/store-engagement', storeEngagementRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
+app.use('/api/public', publicPlacesPhotoRoutes); // GET /api/public/places-photo (placeId-bound proxy)
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', listingReportRoutes); // POST /api/public/listings/:slug/report
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug

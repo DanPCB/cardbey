@@ -37,6 +37,7 @@ export type EnrichmentSourceKind =
   | 'yelp'
   | 'tripadvisor'
   | 'google_places'
+  | 'google_places_proxy'
   | 'foursquare'
   | 'foursquare_photos'
   | 'wikimedia_commons'
