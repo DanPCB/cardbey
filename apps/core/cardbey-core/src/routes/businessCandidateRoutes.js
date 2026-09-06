@@ -288,6 +288,7 @@ router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, as
     );
 
     if (isProtectedEnrichmentBatch(batchId)) {
+      if (res.headersSent) return;
       return res.status(403).json({
         ok: false,
         message: `Refusing to enrich protected batch ${batchId}`,
@@ -301,6 +302,15 @@ router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, as
       maxCandidates,
       writeReport: false,
     });
+
+    // Latency guard may have already sent 408 if this path was misclassified;
+    // enrichment work may still have completed — never double-send.
+    if (res.headersSent) {
+      console.warn(
+        `[batch/enrich] Response already sent (likely timeout); enrichment finished runId=${result.enrichmentRunId}`,
+      );
+      return;
+    }
 
     return res.json({
       ok: true,
@@ -329,6 +339,10 @@ router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, as
       },
     });
   } catch (err) {
+    if (res.headersSent) {
+      console.warn('[batch/enrich] Error after response already sent:', err instanceof Error ? err.message : err);
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Enrichment failed';
     if (String(message).includes('INVENTORY_EMPTY') || String(message).includes('protected batch')) {
       return res.status(400).json({ ok: false, message });

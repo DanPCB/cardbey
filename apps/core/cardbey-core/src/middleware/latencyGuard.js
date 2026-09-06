@@ -36,10 +36,25 @@ const LONG_RUNNING_PREFIXES = [
   '/api/agents/execute',
   '/api/upload',
   '/api/chat/threads',
+  // Multi-source batch enrichment (LLM + ABR + media) routinely exceeds the 10s default.
+  '/api/business-candidates/batch/enrich',
 ];
 
 function requestPath(req) {
   return String(req.originalUrl || req.url || '').split('?')[0];
+}
+
+/** @param {string} path */
+export function isLongRunningApiPath(path) {
+  if (LONG_RUNNING_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
+  // Candidate brief / media discover — same slow external deps; not all /business-candidates/*.
+  if (
+    path.startsWith('/api/business-candidates/') &&
+    (path.endsWith('/brief/generate') || path.endsWith('/media/discover'))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export function isLatencyGuardExempt(req) {
@@ -56,7 +71,7 @@ export function isLatencyGuardExempt(req) {
 
 function resolveTimeoutMs(req) {
   const path = requestPath(req);
-  if (LONG_RUNNING_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+  if (isLongRunningApiPath(path)) {
     return longRunningTimeoutMs();
   }
   return requestTimeoutMs();
@@ -74,6 +89,7 @@ export function latencyGuard(req, res, next) {
 
   const start = Date.now();
   const path = requestPath(req);
+  const longRunning = isLongRunningApiPath(path);
   const timeoutMs = resolveTimeoutMs(req);
   let finished = false;
 
@@ -83,7 +99,6 @@ export function latencyGuard(req, res, next) {
     clearTimeout(timeout);
 
     const duration = Date.now() - start;
-    const longRunning = LONG_RUNNING_PREFIXES.some((prefix) => path.startsWith(prefix));
     metricsCollector.recordMetric('api.latency', duration, {
       path,
       method: String(req.method || 'GET'),
@@ -95,7 +110,8 @@ export function latencyGuard(req, res, next) {
       console.warn(`[LatencyGuard] SLO breach: ${duration}ms for ${req.method} ${path}`);
     }
 
-    if (duration > sloCriticalMs()) {
+    // Long-running admin jobs are expected to exceed API SLO; do not trip the breaker.
+    if (!longRunning && duration > sloCriticalMs()) {
       circuitBreaker.open('api_latency', `SLO critical breach: ${duration}ms for ${req.method} ${path}`);
     }
   };
@@ -107,7 +123,9 @@ export function latencyGuard(req, res, next) {
     if (finished || res.headersSent) return;
     finished = true;
     console.warn(`[LatencyGuard] Request timeout after ${timeoutMs}ms for ${req.method} ${path}`);
-    circuitBreaker.open('api_latency', `Request timeout: ${req.method} ${path}`);
+    if (!longRunning) {
+      circuitBreaker.open('api_latency', `Request timeout: ${req.method} ${path}`);
+    }
     if (!res.headersSent) {
       res.status(408).json({
         ok: false,
