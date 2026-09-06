@@ -246,6 +246,7 @@ export interface IngestedSeedRecord {
     heroHeight?: number | null;
     enrichedAt?: string | null;
     visualSource?: string | null;
+    fetchedMenu?: Record<string, unknown> | null;
   } | null;
 }
 

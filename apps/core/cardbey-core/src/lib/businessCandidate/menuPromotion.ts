@@ -6,6 +6,7 @@
 import { getPrismaClient } from '../prisma.js';
 import type { BusinessCandidateRecord } from './types.js';
 import type { ExtractedMenuItem, FetchedMenuRecord } from './enrichment/types/menuTypes.js';
+import type { IngestedSeedRecord } from '../businessIngestion/types.js';
 
 const MENU_CONFIDENCE_THRESHOLD = 0.6;
 const MAX_MENU_PRODUCTS = 30;
@@ -22,17 +23,53 @@ export function menuHasSynthesisedItems(candidate: BusinessCandidateRecord): boo
   );
 }
 
-/**
- * Write high-confidence menu items from candidate.fetchedMenu to Product rows.
- */
-export async function writeCandidateMenuToStore(
-  businessId: string,
-  candidate: BusinessCandidateRecord,
-): Promise<number> {
-  const menu = candidate.fetchedMenu as FetchedMenuRecord | null;
-  if (!menu?.items?.length) return 0;
+function isFetchedMenuRecord(value: unknown): value is FetchedMenuRecord {
+  if (!value || typeof value !== 'object') return false;
+  const items = (value as FetchedMenuRecord).items;
+  return Array.isArray(items) && items.length > 0;
+}
 
-  const eligibleItems = (menu.items as ExtractedMenuItem[])
+/**
+ * Prefer candidate.fetchedMenu; fall back to seed.enrichmentProfile.fetchedMenu from QA approve.
+ */
+export function resolveFetchedMenuForSeed(
+  seed: IngestedSeedRecord,
+  candidate: BusinessCandidateRecord | null,
+): FetchedMenuRecord | null {
+  if (isFetchedMenuRecord(candidate?.fetchedMenu)) {
+    return candidate!.fetchedMenu as FetchedMenuRecord;
+  }
+  const profile = seed.enrichmentProfile as { fetchedMenu?: unknown } | null | undefined;
+  if (isFetchedMenuRecord(profile?.fetchedMenu)) {
+    return profile!.fetchedMenu as FetchedMenuRecord;
+  }
+  return null;
+}
+
+async function storeAlreadyHasPromotedMenu(businessId: string): Promise<boolean> {
+  const prisma = getPrismaClient();
+  const products = await prisma.product.findMany({
+    where: { businessId, deletedAt: null },
+    select: { serviceCatalog: true },
+    take: 50,
+  });
+  return products.some((product) => {
+    const catalog = product.serviceCatalog as { extractionSource?: string } | null;
+    return Boolean(catalog?.extractionSource);
+  });
+}
+
+/**
+ * Write high-confidence menu items from a fetched menu payload to Product rows.
+ */
+export async function writeFetchedMenuToStore(
+  businessId: string,
+  fetchedMenu: FetchedMenuRecord,
+  logLabel: string,
+): Promise<number> {
+  if (!fetchedMenu.items?.length) return 0;
+
+  const eligibleItems = (fetchedMenu.items as ExtractedMenuItem[])
     .filter(
       (item) =>
         item.sourceConfidence >= MENU_CONFIDENCE_THRESHOLD && item.name.trim().length > 0,
@@ -42,7 +79,7 @@ export async function writeCandidateMenuToStore(
   if (!eligibleItems.length) return 0;
 
   const prisma = getPrismaClient();
-  const currency = menu.currency ?? 'AUD';
+  const currency = fetchedMenu.currency ?? 'AUD';
   let written = 0;
 
   for (const item of eligibleItems) {
@@ -69,7 +106,56 @@ export async function writeCandidateMenuToStore(
   }
 
   if (written > 0) {
-    console.log(`[menuPromotion] ${candidate.name ?? businessId} — wrote ${written} menu items`);
+    console.log(`[menuPromotion] ${logLabel} — wrote ${written} menu items`);
+  }
+
+  return written;
+}
+
+/**
+ * Write high-confidence menu items from candidate.fetchedMenu to Product rows.
+ */
+export async function writeCandidateMenuToStore(
+  businessId: string,
+  candidate: BusinessCandidateRecord,
+): Promise<number> {
+  const menu = candidate.fetchedMenu as FetchedMenuRecord | null;
+  if (!menu?.items?.length) return 0;
+  return writeFetchedMenuToStore(businessId, menu, candidate.name ?? businessId);
+}
+
+/**
+ * Promote menu captured during enrichment when a discovery seed links to a live store.
+ */
+export async function promoteSeedMenuToStore(
+  storeId: string,
+  seed: IngestedSeedRecord,
+): Promise<number> {
+  const trimmedStoreId = storeId?.trim();
+  if (!trimmedStoreId) return 0;
+
+  if (await storeAlreadyHasPromotedMenu(trimmedStoreId)) {
+    return 0;
+  }
+
+  const { findBusinessCandidateForSeed } = await import('./media/findBusinessCandidateForSeed.js');
+  const candidate = await findBusinessCandidateForSeed(seed);
+  const fetchedMenu = resolveFetchedMenuForSeed(seed, candidate);
+  if (!fetchedMenu) return 0;
+
+  const written = await writeFetchedMenuToStore(
+    trimmedStoreId,
+    fetchedMenu,
+    candidate?.name ?? seed.normalized.businessName ?? trimmedStoreId,
+  );
+
+  if (written > 0 && candidate && candidate.storeId !== trimmedStoreId) {
+    const { saveBusinessCandidate } = await import('./candidateRepository.js');
+    await saveBusinessCandidate({
+      ...candidate,
+      storeId: trimmedStoreId,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   return written;
