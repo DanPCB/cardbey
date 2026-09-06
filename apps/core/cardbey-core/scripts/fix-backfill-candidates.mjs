@@ -5,23 +5,74 @@
  * socialLinks was null/undefined → TypeError → ENRICHMENT_ERROR. Status
  * NEEDS_ENRICHMENT is not in the typed lifecycle set; normalize to PENDING_QA.
  *
+ * Resolves the same store root as the API (BUSINESS_CANDIDATE_DIR →
+ * data/businessCandidates → /tmp/cardbey/businessCandidates).
+ *
  * Usage (from apps/core/cardbey-core):
  *   node scripts/fix-backfill-candidates.mjs
  *   node scripts/fix-backfill-candidates.mjs --dry-run
+ *
+ * If Fixed 0: recreate inventory first:
+ *   pnpm exec tsx scripts/seed-published-stores-backfill-candidates.ts --dry-run
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CORE_ROOT = path.resolve(__dirname, '..');
-const CANDIDATES_PATH = path.join(CORE_ROOT, 'data', 'businessCandidates', 'candidates.json');
 const BATCH_ID = 'PUBLISHED_STORES_BACKFILL';
 /** Typed BusinessCandidateStatus — enrichment does not filter on this, but QA UI does. */
 const ACCEPTED_STATUS = 'PENDING_QA';
 
 const dryRun = process.argv.includes('--dry-run');
+
+function isWritableDirectory(dir) {
+  try {
+    mkdirSync(dir, { recursive: true });
+    accessSync(dir, constants.W_OK);
+    const probe = path.join(dir, `.write-probe-${process.pid}`);
+    writeFileSync(probe, 'ok', 'utf8');
+    unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveStoreRoot() {
+  const configured = process.env.BUSINESS_CANDIDATE_DIR?.trim();
+  const candidates = [
+    configured,
+    path.join(CORE_ROOT, 'data', 'businessCandidates'),
+    path.join(os.tmpdir(), 'cardbey', 'businessCandidates'),
+  ].filter(Boolean);
+
+  for (const dir of candidates) {
+    if (!isWritableDirectory(dir)) continue;
+    if (configured && dir !== configured) {
+      console.warn(`[fix-backfill] BUSINESS_CANDIDATE_DIR=${configured} not writable; using ${dir}`);
+    }
+    return dir;
+  }
+  throw new Error(`No writable candidate store (tried: ${candidates.join(', ')})`);
+}
+
+const storeRoot = resolveStoreRoot();
+const CANDIDATES_PATH = path.join(storeRoot, 'candidates.json');
+console.log(`[fix-backfill] candidates path: ${CANDIDATES_PATH}`);
+
+if (!existsSync(CANDIDATES_PATH)) {
+  console.error(
+    `candidates.json missing at ${CANDIDATES_PATH}.\n` +
+      'Recreate backfill inventory:\n' +
+      '  pnpm exec tsx scripts/seed-published-stores-backfill-candidates.ts --dry-run\n' +
+      '  pnpm exec tsx scripts/seed-published-stores-backfill-candidates.ts',
+  );
+  process.exit(1);
+}
 
 const raw = readFileSync(CANDIDATES_PATH, 'utf8');
 const candidates = JSON.parse(raw);
@@ -61,6 +112,15 @@ if (!dryRun) {
 }
 
 console.log(`${dryRun ? '[dry-run] would fix' : 'Fixed'} ${fixed} backfill candidates`);
+if (fixed === 0) {
+  console.error(
+    'No PUBLISHED_STORES_BACKFILL / published: rows in this file.\n' +
+      'Seed from Business first:\n' +
+      '  pnpm exec tsx scripts/seed-published-stores-backfill-candidates.ts --dry-run\n' +
+      '  pnpm exec tsx scripts/seed-published-stores-backfill-candidates.ts',
+  );
+}
+
 const sample = updated.find(
   (c) => c?.batchId === BATCH_ID || String(c?.id ?? '').startsWith('published:'),
 );
