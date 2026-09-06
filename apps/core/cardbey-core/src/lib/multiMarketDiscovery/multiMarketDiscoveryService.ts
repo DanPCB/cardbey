@@ -299,11 +299,15 @@ export async function getMultiMarketJobMetrics(countryCode?: MarketCountryCode) 
 /**
  * QA Review batch cards for multi-market jobs (PilotBatchMetrics-compatible).
  * Dedupes by batchId (latest job wins). Dry-run jobs appear with pendingQa=0.
+ * Card `discovered` is persisted inventory only — not provider hit counts.
  */
 export async function listMultiMarketQaBatches(limit = 40) {
   const { listDiscoveryJobs } = await import('./jobRepository.js');
   const { buildBatchOnboardingMetrics } = await import(
     '../businessCandidate/buildBatchMetrics.js'
+  );
+  const { buildMultiMarketQaBatchCard, sortMultiMarketQaBatchCards } = await import(
+    './mmQaBatchCards.js'
   );
   const jobs = await listDiscoveryJobs();
   const byBatch = new Map<string, (typeof jobs)[number]>();
@@ -313,38 +317,35 @@ export async function listMultiMarketQaBatches(limit = 40) {
     const nextAt = job.completedAt || job.createdAt || '';
     if (!prev || nextAt >= prevAt) byBatch.set(job.batchId, job);
   }
-  const sorted = [...byBatch.values()].sort((a, b) => {
+  const sortedJobs = [...byBatch.values()].sort((a, b) => {
     const aAt = a.completedAt || a.createdAt || '';
     const bAt = b.completedAt || b.createdAt || '';
     return bAt.localeCompare(aAt);
   });
 
-  /** @type {Array<Record<string, unknown>>} */
+  /** @type {Array<ReturnType<typeof buildMultiMarketQaBatchCard>>} */
   const out = [];
-  for (const job of sorted.slice(0, Math.max(1, Math.min(limit, 100)))) {
+  for (const job of sortedJobs.slice(0, Math.max(1, Math.min(limit, 100)))) {
     const metrics = await buildBatchOnboardingMetrics(job.batchId, job.requestedLimit);
-    const byStatus = metrics.byStatus || {};
-    const pendingQa =
-      Number(byStatus.PENDING_QA || 0) + Number(byStatus.DISCOVERED || 0);
-    out.push({
-      batchId: job.batchId,
-      campaignId: job.campaignId || job.batchId,
-      countryCode: job.countryCode,
-      territoryId: job.territoryId,
-      categoryId: job.categoryId,
-      locality: job.locality,
-      dryRun: job.dryRun === true,
-      jobStatus: job.status,
-      discovered: Math.max(Number(job.discoveredCount) || 0, Number(metrics.total) || 0),
-      pendingQa,
-      claimable: Number(byStatus.CLAIMABLE || 0),
-      reportViewed: 0,
-      verified: Number(byStatus.VERIFIED || 0),
-      activated: Number(byStatus.ACTIVE || 0),
-      operating: 0,
-      biSnapshots: 0,
-      seedSuitcases: 0,
-    });
+    out.push(
+      buildMultiMarketQaBatchCard(
+        {
+          batchId: job.batchId,
+          campaignId: job.campaignId,
+          countryCode: job.countryCode,
+          territoryId: job.territoryId,
+          categoryId: job.categoryId,
+          locality: job.locality,
+          dryRun: job.dryRun === true,
+          jobStatus: job.status,
+          discoveredCount: job.discoveredCount,
+          completedAt: job.completedAt,
+          createdAt: job.createdAt,
+          requestedLimit: job.requestedLimit,
+        },
+        metrics,
+      ),
+    );
   }
-  return out;
+  return sortMultiMarketQaBatchCards(out).map(({ completedAt: _c, createdAt: _a, ...card }) => card);
 }
