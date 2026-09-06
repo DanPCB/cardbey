@@ -27,6 +27,8 @@ vi.mock('../enrichment/webExtractors.js', () => ({
   extractFromBusinessWebsite: vi.fn(async () => null),
   extractPublicSocialProfile: vi.fn(async () => null),
   extractYellowPagesSnippet: vi.fn(async () => null),
+  extractTrueLocalSnippet: vi.fn(async () => null),
+  extractSocialLinksFromHtml: vi.fn(() => []),
 }));
 vi.mock('../enrichment/osmCrossRef.js', () => ({
   queryOsmOverpass: vi.fn(async () => null),
@@ -258,5 +260,29 @@ describe('multi-source enrichment guards', () => {
       expect(row.enrichmentRunId).toBe('run_freeze_1');
       expect(row.candidateId).toBe(candidate.id);
     }
+  });
+
+  it('does not ENRICHMENT_ERROR when socialLinks is null (backfill candidates)', async () => {
+    const thin = sampleCandidate({
+      id: 'published:cmqz-test',
+      batchId: 'PUBLISHED_STORES_BACKFILL',
+      storeId: 'cmqz-test',
+      status: 'PENDING_QA',
+      socialLinks: null as unknown as BusinessCandidateRecord['socialLinks'],
+      website: null,
+      phone: null,
+    });
+
+    const { enrichCandidateMultiSource } = await import(
+      '../enrichment/multiSourceEnrichmentAgent.js'
+    );
+    const { result } = await enrichCandidateMultiSource({
+      candidate: thin,
+      enrichmentRunId: 'run-null-social',
+      dryRun: true,
+    });
+
+    expect(result.flags).not.toContain('ENRICHMENT_ERROR');
+    expect(['ENRICHED', 'PARTIAL', 'TIMEOUT']).toContain(result.status);
   });
 });
