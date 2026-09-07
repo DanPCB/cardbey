@@ -45,6 +45,16 @@ describe('classifyBusinessType', () => {
     expect(result.primaryCTA).toBe('Order');
   });
 
+  it('classifies florist / flower retail as product_retail', () => {
+    const cases = ['My Flowers', 'Flower Shop', 'Florist', 'Rose Bouquet', 'Wedding Flowers'];
+    for (const name of cases) {
+      const result = classifyBusinessType({ businessName: name });
+      expect(result.businessType).toBe('product_retail');
+      expect(result.generatedContentProfile).toBe('product_retail');
+      expect(result.primaryCTA).toBe('Add to cart');
+    }
+  });
+
   it('classifies fashion boutique as product_retail', () => {
     const result = classifyBusinessType({
       businessName: 'Another Fashion',

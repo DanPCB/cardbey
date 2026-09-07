@@ -17,6 +17,12 @@ import { enrichImageQueryWithBusinessContext } from '../../lib/mission001/fideli
 
 const SUFFIX_RE = /\s+(- chef'?s|- special|- house|- style [a-z]|- option \d+)$/i;
 
+/** Vertical keyword appended to item-name fallback queries so a misclassification
+ *  does not strip all useful context (e.g. "Classic Rose Bouquet florist"). */
+const VERTICAL_FALLBACK_KEYWORDS = {
+  'retail.flower': 'florist',
+};
+
 /** Re-export for callers that already import from here. */
 export {
   canonicalizeServiceTitle,
@@ -147,6 +153,23 @@ export function resolveItemImageSearchQuery(params = {}) {
     category: categoryName ?? businessType,
     location,
   });
+}
+
+/**
+ * Fallback query used when the primary vertical/business-context query returns
+ * no acceptable image. Keeps the item name front-and-centre and appends a
+ * minimal vertical keyword when the vertical is known, so one wrong
+ * classification cannot wipe an entire catalog.
+ * @param {object} params
+ */
+export function resolveItemNameFallbackImageQuery(params = {}) {
+  const { itemName, verticalSlug } = params;
+  const name = String(itemName ?? '').trim();
+  if (!name) return null;
+  const vertical = String(verticalSlug ?? '').toLowerCase().trim();
+  const suffix = VERTICAL_FALLBACK_KEYWORDS[vertical] || '';
+  const query = suffix ? `${name} ${suffix}` : name;
+  return query.slice(0, 200);
 }
 
 /**

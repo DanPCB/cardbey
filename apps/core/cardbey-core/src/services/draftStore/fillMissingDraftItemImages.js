@@ -258,17 +258,52 @@ export async function fillMissingDraftItemImages({
             allowNullOnLowConfidence: true,
             ...(locationStr ? { location: locationStr } : {}),
           };
+      let result = null;
+      let primaryErr = null;
       try {
-        const result = await generateImageForDraftItem(p.name, p.description, styleName, opts);
-        settled.push({ status: 'fulfilled', value: result });
-        if (result?.url) usedUrls.add(result.url);
+        result = await generateImageForDraftItem(p.name, p.description, styleName, opts);
       } catch (err) {
         if (err?.code === 'BILLING_HARD_LIMIT') {
           billingLimitHit = true;
           settled.push({ status: 'rejected', reason: err });
           break;
         }
-        settled.push({ status: 'rejected', reason: err });
+        primaryErr = err;
+      }
+
+      // Bounded item-name-centric fallback: only when the primary query produced
+      // no acceptable image. Prevents a single misclassification from blanking
+      // the whole catalog.
+      if (!result?.url) {
+        try {
+          const { resolveItemNameFallbackImageQuery } = await import('./itemImageQueryResolver.js');
+          const fallbackQuery = resolveItemNameFallbackImageQuery({
+            itemName: p?.name,
+            verticalSlug: verticalForItem,
+          });
+          if (fallbackQuery && fallbackQuery !== imageQueryHint) {
+            const fallbackOpts = {
+              ...opts,
+              imageQueryHint: fallbackQuery,
+              categoryHint: fallbackQuery,
+              categoryName: fallbackQuery,
+            };
+            result = await generateImageForDraftItem(p.name, p.description, styleName, fallbackOpts);
+          }
+        } catch (fallbackErr) {
+          if (fallbackErr?.code === 'BILLING_HARD_LIMIT') {
+            billingLimitHit = true;
+            settled.push({ status: 'rejected', reason: fallbackErr });
+            break;
+          }
+        }
+      }
+
+      if (primaryErr && !result?.url) {
+        settled.push({ status: 'rejected', reason: primaryErr });
+      } else {
+        settled.push({ status: 'fulfilled', value: result });
+        if (result?.url) usedUrls.add(result.url);
       }
     }
     batchIdx.forEach((i, batchPos) => {
