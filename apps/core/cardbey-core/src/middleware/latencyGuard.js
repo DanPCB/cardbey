@@ -36,6 +36,8 @@ const LONG_RUNNING_PREFIXES = [
   '/api/agents/execute',
   '/api/upload',
   '/api/chat/threads',
+  // HAS/WANT Market Intent semantic analysis may require external LLM processing.
+  '/api/admin/market-intent/analyze',
   // Multi-source batch enrichment (LLM + ABR + media) routinely exceeds the 10s default.
   '/api/business-candidates/batch/enrich',
 ];
