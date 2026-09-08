@@ -2,6 +2,7 @@ name: Contract Tests (Gold Flows)
 
 on:
   pull_request:
+    branches: [staging, main]
     paths:
       - 'apps/core/cardbey-core/src/**'
       - 'apps/core/cardbey-core/tests/**'
@@ -10,6 +11,7 @@ on:
   push:
     branches:
       - main
+      - staging
       - develop
     paths:
       - 'apps/core/cardbey-core/src/**'
