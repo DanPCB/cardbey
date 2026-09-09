@@ -337,6 +337,41 @@ export async function execute(_input = {}, context = {}) {
   } catch (contactErr) {
     console.warn('[structured_store_build] contact intake apply skipped:', contactErr?.message ?? contactErr);
   }
+// TEMP P0: initial store creation must not block on external image generation.
+// Images can be enriched after the usable draft is ready.
+try {
+  const draftForFastPath = await prisma.draftStore.findUnique({
+    where: { id: draftIdForRun },
+    select: { input: true },
+  });
+
+  const existingInput =
+    draftForFastPath?.input &&
+    typeof draftForFastPath.input === 'object' &&
+    !Array.isArray(draftForFastPath.input)
+      ? draftForFastPath.input
+      : {};
+
+  await prisma.draftStore.update({
+    where: { id: draftIdForRun },
+    data: {
+      input: {
+        ...existingInput,
+        includeImages: false,
+      },
+    },
+  });
+
+  console.log('[structured_store_build] FAST_PATH_IMAGES_DEFERRED', {
+    missionId,
+    draftId: draftIdForRun,
+  });
+} catch (fastPathErr) {
+  console.warn(
+    '[structured_store_build] image fast-path patch skipped:',
+    fastPathErr?.message ?? fastPathErr,
+  );
+}
 
   try {
     await generateDraft(draftIdForRun, {
