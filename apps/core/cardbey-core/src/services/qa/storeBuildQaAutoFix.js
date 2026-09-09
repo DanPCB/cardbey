@@ -780,10 +780,13 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
   }
 
   const input =
-    draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input)
-      ? { ...draft.input }
-      : {};
-  const metadata =
+  draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input)
+    ? { ...draft.input }
+    : {};
+
+const deferMedia = input.includeImages === false;
+
+const metadata =
     opts.metadataJson && typeof opts.metadataJson === 'object' && !Array.isArray(opts.metadataJson)
       ? { ...opts.metadataJson }
       : {};
@@ -877,7 +880,7 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
 
   if (groundedQa) {
     preview = runGroundedQaRepair(preview, autoFixed);
-  } else if (fixable.has('imageUrl') && items.length > 0) {
+  } else if (!deferMedia && fixable.has('imageUrl') && items.length > 0) {
     const imgFixed = await fixMissingProductImages(
       items,
       verticalSlug,
@@ -909,7 +912,7 @@ export async function applyStoreBuildQaAutoFix(opts = {}) {
     }
   }
 
-  if (!groundedQa && fixable.has('hero')) {
+  if (!groundedQa && !deferMedia && fixable.has('hero')) {
     const vertical =
       effectiveVertical(preview.storeType, preview.meta?.storeType) ||
       (verticalSlug && verticalSlug.split('.')[0]) ||
