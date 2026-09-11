@@ -97,11 +97,12 @@ export function extractBusinessFacts(matchedSources, input) {
     });
   }
 
-  if (input.businessName) {
+  // Prefer matched-source names; only use user input when no source provided a name.
+  if (!nameCandidates.length && input.businessName) {
     nameCandidates.push({
       value: stripSeoBusinessDisplayName(cleanString(input.businessName), input.businessName),
       sourceType: 'manual',
-      confidence: 0.95,
+      confidence: 0.4,
     });
   }
 

@@ -16,7 +16,12 @@ import {
 const require = createRequire(import.meta.url);
 
 export const SCHEMA_SQLITE_PATH = path.join(PACKAGE_ROOT, 'prisma', 'sqlite', 'schema.prisma');
-export const MIGRATIONS_DIR = path.join(PACKAGE_ROOT, 'prisma', 'migrations');
+export const MIGRATIONS_DIR = path.join(
+  PACKAGE_ROOT,
+  'prisma',
+  'sqlite',
+  'migrations',
+);
 export const FINGERPRINT_JSON_PATH = path.join(PACKAGE_ROOT, 'docs', 'db', 'schema-fingerprint.json');
 export const BASELINE_ACCEPTANCE_PATH = path.join(
   PACKAGE_ROOT,

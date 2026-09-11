@@ -41,6 +41,38 @@ describe('Mission001 Gate 3 — sparse honest mode', () => {
     ).toBe(false);
   });
 
+  it('forces sparse mode for matched real business with no verified catalog even when flag is off', () => {
+    // Simulates "Banh Mi Ngon" canary: SOURCE_MATCHED ~0.60, SERVICE_CATALOG_EXTRACTED=0,
+    // fallbackToGenerated=true, sourcesUsed populated.
+    delete process.env.ENABLE_MISSION_001_STORE_FIDELITY_V1;
+    delete process.env.ENABLE_MISSION_001_SPARSE_MODE_V1;
+
+    const research = {
+      researchRan: true,
+      fallbackToGenerated: true,
+      confidence: 0.6,
+      sourcesUsed: [{ sourceType: 'google_business', confidence: 0.75 }],
+      extractedItems: [],
+      catalog: null,
+    };
+    expect(shouldUseSparseCatalogMode({}, research)).toBe(true);
+  });
+
+  it('allows template generation when no sources were found (unknown business)', () => {
+    delete process.env.ENABLE_MISSION_001_STORE_FIDELITY_V1;
+    delete process.env.ENABLE_MISSION_001_SPARSE_MODE_V1;
+
+    const research = {
+      researchRan: true,
+      fallbackToGenerated: true,
+      confidence: 0,
+      sourcesUsed: [],
+      extractedItems: [],
+      catalog: null,
+    };
+    expect(shouldUseSparseCatalogMode({}, research)).toBe(false);
+  });
+
   it('strips generic scaffold products while keeping sourced items', () => {
     const catalog = stripFabricatedCatalogScaffolds({
       products: [

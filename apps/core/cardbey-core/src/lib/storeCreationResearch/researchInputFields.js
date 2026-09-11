@@ -42,6 +42,31 @@ export function resolveStoreResearchInputFields(params = {}, input = {}) {
     phone,
     email,
     category,
+
+    // Preserve canonical Business Semantic Layer context through research.
+    canonicalBusinessType:
+      params.canonicalBusinessType ??
+      input.canonicalBusinessType ??
+      input.classificationProfile?.businessType ??
+      input.catalogGenerationProfile?.businessType ??
+      null,
+    verticalSlug:
+      params.verticalSlug ??
+      input.verticalSlug ??
+      null,
+    verticalGroup:
+      params.verticalGroup ??
+      input.verticalGroup ??
+      null,
+    classificationProfile:
+      params.classificationProfile ??
+      input.classificationProfile ??
+      null,
+    catalogGenerationProfile:
+      params.catalogGenerationProfile ??
+      input.catalogGenerationProfile ??
+      null,
+
     socialLinks:
       input.socialLinks && typeof input.socialLinks === 'object'
         ? input.socialLinks

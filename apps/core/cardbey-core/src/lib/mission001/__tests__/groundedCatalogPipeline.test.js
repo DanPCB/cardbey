@@ -75,4 +75,31 @@ describe('Mission001 Gate 1 — grounded catalog pipeline', () => {
     expect(chosen.meta.catalogSource).toBe('source_grounded');
     expect(chosen.products.some((p) => p.name === 'Balayage Colour')).toBe(true);
   });
+
+  it('keeps suggested_for_real_business catalog over inferred-only grounding', () => {
+    const suggested = {
+      products: [
+        { name: 'Chả giò', contentOrigin: 'suggested' },
+        { name: 'Phở Bò', contentOrigin: 'suggested' },
+      ],
+      meta: {
+        catalogSource: 'suggested_for_real_business',
+        pleaseVerifyMenu: true,
+        catalogAuthoritySource: 'SUGGESTED_FOR_REAL_BUSINESS',
+      },
+    };
+    const grounded = {
+      catalog: {
+        products: [
+          { name: 'Chả giò', contentOrigin: 'sourced' },
+          { name: 'Phở Bò', contentOrigin: 'sourced' },
+        ],
+        meta: { catalogSource: 'source_grounded' },
+      },
+      grounded: { provenanceSummary: { exact: 0, verified: 0, inferred: 2 } },
+    };
+    const chosen = preferGroundedCatalog(grounded, suggested);
+    expect(chosen.meta.catalogSource).toBe('suggested_for_real_business');
+    expect(chosen.products[0].contentOrigin).toBe('suggested');
+  });
 });

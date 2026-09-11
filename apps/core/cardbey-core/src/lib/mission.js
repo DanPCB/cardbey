@@ -8,6 +8,7 @@ import { getPrismaClient } from '../lib/prisma.js';
 import { getTenantId } from './tenant.js';
 import { safeMissionUpdate } from './safeMissionUpdate.js';
 import { enqueueMissionContextMerge } from './missionContextMergeQueue.js';
+import { withTransientDbRetry } from './transientDbRetry.js';
 
 /** Guest JWT users have no User row yet; Mission.createdByUserId FK requires one. */
 function isGuestSessionUserId(id) {
@@ -64,9 +65,10 @@ export async function getOrCreateMission(missionId, user, options = {}) {
   const prisma = options.prisma ?? getPrismaClient();
   const id = missionId.trim();
 
-  const existing = await prisma.mission.findUnique({
-    where: { id },
-  });
+  const existing = await withTransientDbRetry(
+    () => prisma.mission.findUnique({ where: { id } }),
+    { operation: 'mission.findUnique' },
+  );
   if (existing) return existing;
 
   await ensureShadowUserRowForGuest(prisma, user.id);

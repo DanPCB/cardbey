@@ -189,6 +189,7 @@ import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import marketIntentAdminRoutes from './routes/admin/marketIntentAdminRoutes.js';
 import launchpadMarketGraphRoutes from './routes/admin/launchpadMarketGraphRoutes.js';
+import growYourBusinessRoutes from './routes/growth/growYourBusinessRoutes.js';
 import fundraisingCampaignRoutes from './routes/admin/fundraisingCampaignRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import {
@@ -1357,6 +1358,7 @@ app.use('/api/admin/live-market', liveMarketAdminRoutes); // Admin: Live Market 
 app.use('/api/admin/global-live', globalLiveEoiAdminRoutes); // Admin: Global Live pilot EOI (flag-gated)
 app.use('/api/admin/market-intent', marketIntentAdminRoutes); // Admin: Market Intent G1-G4 test UI (flag-gated)
 app.use('/api/admin/launchpad', launchpadMarketGraphRoutes); // Admin: Launchpad Market Graph / Capital Resource Network V1
+app.use('/api/growth/opportunities', growYourBusinessRoutes); // User: Grow Your Business V1 (flag-gated, authenticated)
 app.use('/api/admin/fundraising', fundraisingCampaignRoutes); // Admin: Fundraising Campaign V1 (no outreach send)
 
 // Internal API routes (for Lambda callbacks, workers, etc.)

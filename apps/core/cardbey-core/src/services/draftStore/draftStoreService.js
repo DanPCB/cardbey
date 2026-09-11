@@ -34,6 +34,10 @@ import { shouldBypassLegacyCategoryNormalization, syncCategoriesFromSourcedItems
 import { resolveStoreCommerce, normalizeCatalogItem } from '../../lib/storeTransactionMode.js';
 import { resolveStorefrontPrimaryCta } from '../../lib/ctaEngine/resolveStorefrontPrimaryCta.js';
 import {
+  sanitizeDraftPreviewBusinessName,
+  stripMissionTitleBusinessPrefix,
+} from './sanitizeDraftBusinessName.js';
+import {
   CATALOG_IMPORT_SAFETY_CEILING,
   CATALOG_IMAGE_ENRICH_MAX,
   CATALOG_IMAGE_FETCH_CONCURRENCY,
@@ -565,7 +569,73 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
   const skipResearchForSparse =
     Mission001Flags.sparseMode && mission001Meta.sparseMode === true;
 
-  if (!skipResearchForSparse && shouldRunStoreCreationResearch(effectiveParams, effectiveInput)) {
+  // Path A vs Path B — decide BEFORE web research (pure classifier, no network).
+  let modeDecision = { mode: 'research', reason: 'default', confidence: 0.5 };
+  try {
+    const { classifyStoreCreationMode } = await import(
+      '../../lib/storeCreation/storeCreationModeClassifier.js'
+    );
+    const intakeAssessment =
+      effectiveInput?.intakeAssessment ??
+      effectiveParams?.intakeAssessment ??
+      effectiveInput?.storeCreationIntakeAssessment ??
+      null;
+    const classifierInput = {
+      ...effectiveParams,
+      ...effectiveInput,
+      businessName: effectiveParams.businessName ?? effectiveInput?.businessName,
+      website: effectiveInput?.website ?? effectiveInput?.websiteUrl ?? effectiveParams.website,
+      phone: effectiveInput?.phone ?? effectiveParams.phone,
+      email: effectiveInput?.email ?? effectiveParams.email,
+      location: effectiveParams.location ?? effectiveInput?.location,
+      ocrText: effectiveInput?.ocrText ?? effectiveInput?.ocrRawText ?? effectiveParams.ocrText,
+      attachmentAnalysis: effectiveInput?.attachmentAnalysis ?? effectiveParams.attachmentAnalysis,
+      businessType: effectiveParams.businessType ?? effectiveInput?.businessType,
+    };
+    modeDecision = classifyStoreCreationMode(classifierInput, intakeAssessment);
+  } catch (modeErr) {
+    console.warn(
+      '[buildCatalogForStoreReactStep] mode classifier failed (default research):',
+      modeErr?.message ?? modeErr,
+    );
+  }
+  mission001Meta.storeCreationMode = modeDecision.mode;
+  mission001Meta.storeCreationModeReason = modeDecision.reason;
+  console.log('[store-mode-classifier]', {
+    mode: modeDecision.mode,
+    reason: modeDecision.reason,
+    confidence: modeDecision.confidence,
+    missionId,
+    draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
+  });
+  try {
+    const mid = typeof missionId === 'string' ? missionId.trim() : '';
+    const did = String(effectiveParams.draftId ?? effectiveInput?.draftId ?? '').trim();
+    if (mid && did) {
+      const { appendStoreCreationBlackboardEvent } = await import(
+        '../../lib/storeCreation/storeCreationBlackboard.js'
+      );
+      await appendStoreCreationBlackboardEvent(mid, 'store:mode_selected', {
+        draftId: did,
+        mode: modeDecision.mode,
+        reason: modeDecision.reason,
+        confidence: modeDecision.confidence,
+      });
+    }
+  } catch (bbModeErr) {
+    console.warn(
+      '[buildCatalogForStoreReactStep] store:mode_selected skipped:',
+      bbModeErr?.message ?? bbModeErr,
+    );
+  }
+
+  const skipResearchForGenerative = modeDecision.mode === 'generative';
+
+  if (
+    !skipResearchForSparse &&
+    !skipResearchForGenerative &&
+    shouldRunStoreCreationResearch(effectiveParams, effectiveInput)
+  ) {
     try {
       researchAttempted = true;
       const researchFields = (
@@ -578,6 +648,19 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
         },
         effectiveInput,
       );
+      console.log(
+        "[RESEARCH_SEMANTIC_CONTEXT]",
+        JSON.stringify({
+          canonicalBusinessType: researchFields.canonicalBusinessType,
+          verticalSlug: researchFields.verticalSlug,
+          verticalGroup: researchFields.verticalGroup,
+          classificationBusinessType:
+            researchFields.classificationProfile?.businessType,
+          catalogBusinessType:
+            researchFields.catalogGenerationProfile?.businessType,
+        }),
+      );
+
       const research = await runStoreCreationResearch(
         {
           ...researchFields,
@@ -661,6 +744,8 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
           mission001: mission001Meta,
           pipelineTiming: pipelineTiming?.finish() ?? null,
           groundedResult: lastGroundedResult,
+          storeCreationMode: modeDecision.mode,
+          storeCreationModeReason: modeDecision.reason,
         };
       }
       if (process.env.NODE_ENV !== 'production' && research.researchRan) {
@@ -813,6 +898,80 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
   });
   pipelineTiming?.mark('catalogMs');
   catalog = finalizeReactStepCatalog(catalog, decision);
+
+  // Path B — generative catalog guarantee (no web scrape / Places).
+  if (modeDecision.mode === 'generative') {
+    try {
+      const countItems = (c) => {
+        if (!c || typeof c !== 'object') return 0;
+        if (Array.isArray(c.products) && c.products.length) return c.products.length;
+        if (Array.isArray(c.items) && c.items.length) return c.items.length;
+        return 0;
+      };
+      let itemCount = countItems(catalog);
+      let genSource = catalog?.meta?.catalogSource ?? 'buildCatalog';
+      if (itemCount === 0) {
+        catalog = ensureStoreCreationCatalogItems(
+          catalog,
+          {
+            ...effectiveParams,
+            verticalSlug:
+              effectiveParams.verticalSlug ??
+              effectiveInput?.verticalSlug ??
+              effectiveInput?.vertical,
+            businessType: effectiveParams.businessType ?? effectiveInput?.businessType,
+            businessName: effectiveParams.businessName ?? effectiveInput?.businessName,
+          },
+          effectiveInput,
+        );
+        itemCount = countItems(catalog);
+        genSource = 'ensureStoreCreationCatalogItems';
+      }
+      if (itemCount === 0) {
+        const seeded = await buildCatalog({
+          ...effectiveParams,
+          mode: 'seed',
+          verticalSlug:
+            effectiveParams.verticalSlug ??
+            effectiveInput?.verticalSlug ??
+            effectiveInput?.vertical,
+        });
+        catalog = stampSuggestedCatalogOrigin(seeded);
+        catalog = finalizeReactStepCatalog(catalog, decision);
+        itemCount = countItems(catalog);
+        genSource = 'seed';
+      }
+      catalog.meta = {
+        ...(catalog.meta && typeof catalog.meta === 'object' ? catalog.meta : {}),
+        catalogSource: 'generative',
+        storeCreationMode: 'generative',
+        storeCreationModeReason: modeDecision.reason,
+        generativeCatalogSource: genSource === 'none' ? 'buildCatalog' : genSource,
+        pleaseVerifyMenu: true,
+        pleaseVerifyMenuMessage:
+          'Suggested starter menu — not from a researched business. Please verify dishes and prices.',
+        contentOrigin: 'suggested',
+        aiGenerated: true,
+      };
+      console.log('[store-generative-catalog]', {
+        itemCount,
+        source: genSource,
+        missionId,
+        draftId: effectiveParams.draftId ?? effectiveInput?.draftId ?? null,
+      });
+    } catch (genCatErr) {
+      console.warn(
+        '[store-generative-catalog] guarantee failed (non-fatal):',
+        genCatErr?.message ?? genCatErr,
+      );
+    }
+  }
+
+  const modePayload = {
+    storeCreationMode: modeDecision.mode,
+    storeCreationModeReason: modeDecision.reason,
+  };
+
   if (deferredResearch) {
     return {
       catalog,
@@ -823,6 +982,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
       catalogAuthority: decision,
       mission001: mission001Meta,
       pipelineTiming: pipelineTiming?.finish() ?? null,
+      ...modePayload,
     };
   }
   return {
@@ -831,6 +991,7 @@ async function buildCatalogForStoreReactStep(missionId, params, input) {
     catalogAuthority: decision,
     mission001: mission001Meta,
     pipelineTiming: pipelineTiming?.finish() ?? null,
+    ...modePayload,
   };
 }
 
@@ -1000,14 +1161,15 @@ async function appendReasoningLogLine(missionId, line, emitContextUpdate) {
  * @param {{ tenantId?: string }} input
  * @param {Function|undefined} emitContextUpdate
  */
-async function runContentResolution(draftId, missionId, catalog, params, input, emitContextUpdate) {
+async function runContentResolution(draftId, missionId, catalog, params, input, emitContextUpdate, opts = {}) {
   try {
     const profile = catalog?.profile ?? {};
     const businessName = params?.businessName ?? profile.name ?? '';
     const businessType = params?.businessType ?? profile.type ?? '';
     const verticalSlug = params?.verticalSlug ?? '';
     const tenantKey = input?.tenantId ?? 'content-resolver';
-    const resolveOpts = { emitContextUpdate };
+    const forceGenerate = opts?.forceGenerate === true;
+    const resolveOpts = { emitContextUpdate, forceGenerate };
 
     const [sloganResult, heroTextResult, taglineResult] = await Promise.all([
       resolveContent(missionId, {
@@ -1015,27 +1177,30 @@ async function runContentResolution(draftId, missionId, catalog, params, input, 
         businessName,
         businessType,
         verticalSlug,
-        existingContent: profile.tagline,
+        existingContent: forceGenerate ? undefined : profile.tagline,
         maxLength: 80,
         tenantKey,
+        forceGenerate,
       }, resolveOpts),
       resolveContent(missionId, {
         type: 'hero_text',
         businessName,
         businessType,
         verticalSlug,
-        existingContent: profile.heroText,
+        existingContent: forceGenerate ? undefined : profile.heroText,
         maxLength: 160,
         tenantKey,
+        forceGenerate,
       }, resolveOpts),
       resolveContent(missionId, {
         type: 'slogan',
         businessName,
         businessType,
         verticalSlug,
-        existingContent: profile.tagline,
+        existingContent: forceGenerate ? undefined : profile.tagline,
         maxLength: 80,
         tenantKey,
+        forceGenerate,
       }, resolveOpts),
     ]);
 
@@ -1199,6 +1364,27 @@ export async function createDraft({ mode, input, meta = {} }) {
 }
 
 /**
+ * Persist catalog then let Phase 2 post-complete seed run after store:catalog_complete
+ * (so blackboard can show itemCount:0 → store:catalog_seeded).
+ * @returns {Promise<object>} catalog
+ */
+async function recoverAndSaveDraftCatalog(draftId, catalog, params, input, missionId) {
+  // Stamp missionId onto params so saveDraftBase can write preview.meta.missionId for snapshots.
+  if (missionId && params && typeof params === 'object' && !params.missionId) {
+    params.missionId = missionId;
+  }
+  if (missionId && input && typeof input === 'object' && !input.missionId) {
+    try {
+      input.missionId = missionId;
+    } catch {
+      /* input may be frozen */
+    }
+  }
+  await saveDraftBase(draftId, catalog, params);
+  return catalog;
+}
+
+/**
  * Save catalog to draft preview (no hero/avatar/images). finalizeDraft handles those.
  * @param {string} draftId
  * @param {{ profile: object, categories: array, products: array, meta: { catalogSource: string, vertical?: string } }} catalog - CatalogBuildResult
@@ -1251,7 +1437,7 @@ async function saveDraftBase(draftId, catalog, params) {
         items: products,
       });
   const preview = {
-    storeName: profile.name,
+    storeName: stripMissionTitleBusinessPrefix(profile.name) || profile.name,
     storeType: params.storeType ?? params.businessType ?? profile.type,
     slogan: profile.tagline,
     categories: Array.isArray(categories) ? categories : [],
@@ -1283,6 +1469,9 @@ async function saveDraftBase(draftId, catalog, params) {
       ...(meta && typeof meta === 'object' ? meta : {}),
       catalogSource: meta.catalogSource || 'template',
       includeImages: params.includeImages !== false,
+      ...(typeof params.missionId === 'string' && params.missionId.trim()
+        ? { missionId: params.missionId.trim() }
+        : {}),
       businessType:
         businessProfile?.businessType ??
         params.canonicalBusinessType ??
@@ -1320,6 +1509,8 @@ async function saveDraftBase(draftId, catalog, params) {
   }
   normalizePreviewCategories(preview);
   applyCommerceFieldsToPreview(preview);
+  const sanitizedPreview = sanitizeDraftPreviewBusinessName(preview) || preview;
+  Object.assign(preview, sanitizedPreview);
   await prisma.draftStore.update({
     where: { id: draftId },
     data: { preview, updatedAt: new Date() },
@@ -2132,17 +2323,53 @@ async function runFinalizeDraftChecked(draftId, finalizeOpts, stepReporter) {
 }
 
 async function generateDraftTwoModes(draftId, draft, input, options = {}) {
-  const stepReporter = options.stepReporter ?? {
-    started: () => Promise.resolve(),
-    completed: () => Promise.resolve(),
-    failed: () => Promise.resolve(),
-  };
+  const missionId = options.reactMissionId ?? null;
+  const { wrapStepReporterForStoreBlackboard } = await import(
+    '../../lib/storeCreation/storeCreationBlackboard.js'
+  );
+  const stepReporter = wrapStepReporterForStoreBlackboard({
+    missionId,
+    draftId,
+    stepReporter: options.stepReporter ?? {
+      started: () => Promise.resolve(),
+      completed: () => Promise.resolve(),
+      failed: () => Promise.resolve(),
+    },
+  });
 
   const params = resolveGenerationParams(input, { draftMode: draft.mode });
   params.draftId = draftId;
+  if (missionId) params.missionId = missionId;
   const userId = options.userId ?? draft.ownerUserId ?? null;
   const useReact = process.env.USE_REACT_REFLECTION === 'true';
-  const missionId = options.reactMissionId ?? null;
+
+  // Ensure draft.input.missionId is present for PUBLISH_SNAPSHOT_SAVE / verify gate.
+  if (missionId) {
+    try {
+      const prevInput =
+        draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input)
+          ? draft.input
+          : {};
+      if (prevInput.missionId !== missionId) {
+        await prisma.draftStore.update({
+          where: { id: draftId },
+          data: {
+            input: {
+              ...prevInput,
+              missionId,
+              draftId,
+            },
+          },
+        });
+        if (input && typeof input === 'object') input.missionId = missionId;
+      }
+    } catch (stampErr) {
+      console.warn(
+        '[generateDraftTwoModes] missionId stamp skipped (non-fatal):',
+        stampErr?.message ?? stampErr,
+      );
+    }
+  }
 
   console.log('[generateDraftTwoModes] entry', {
     missionId: missionId ?? 'MISSING',
@@ -2196,13 +2423,24 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
               emitCtx,
             );
           }
-          const { catalog: catalogPaidNoReact, fromResearch, pendingOwnerReview, research } =
-            await buildCatalogForStoreReactStep(missionId, params, input);
+          const {
+            catalog: catalogPaidNoReactRaw,
+            fromResearch,
+            pendingOwnerReview,
+            research,
+            storeCreationMode: paidNoReactMode,
+          } = await buildCatalogForStoreReactStep(missionId, params, input);
           const catalogParams =
             fromResearch && research
-              ? mergeResearchBusinessProfileIntoParams(params, research, catalogPaidNoReact)
+              ? mergeResearchBusinessProfileIntoParams(params, research, catalogPaidNoReactRaw)
               : params;
-          await saveDraftBase(draftId, catalogPaidNoReact, catalogParams);
+          const catalogPaidNoReact = await recoverAndSaveDraftCatalog(
+            draftId,
+            catalogPaidNoReactRaw,
+            catalogParams,
+            input,
+            missionId,
+          );
           await emitStoreResearchReviewIfPending(missionId, draftId, {
             fromResearch,
             pendingOwnerReview,
@@ -2235,7 +2473,9 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
           await appendReasoningLogLine(missionId, '✓ Store visuals generated', emitCtx);
 
           await stepReporter.started('copy').catch(() => {});
-          await runContentResolution(draftId, missionId, catalogPaidNoReact, params, input, emitCtx);
+          await runContentResolution(draftId, missionId, catalogPaidNoReact, params, input, emitCtx, {
+            forceGenerate: paidNoReactMode === 'generative',
+          });
           await stepReporter.completed('copy', { checkpoint: true }).catch(() => {});
           await appendReasoningLogLine(missionId, '✓ Store copy refined', emitCtx);
         } else {
@@ -2298,13 +2538,21 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
                   fromResearch,
                   pendingOwnerReview,
                   research,
+                  storeCreationMode: paidReactMode,
                 } = await buildCatalogForStoreReactStep(missionId, params, input);
                 catalogState.catalog = builtCatalog;
+                if (paidReactMode) bb.write('storeCreationMode', paidReactMode);
                 const catalogParams =
                   fromResearch && research
                     ? mergeResearchBusinessProfileIntoParams(params, research, builtCatalog)
                     : params;
-                await saveDraftBase(draftId, catalogState.catalog, catalogParams);
+                catalogState.catalog = await recoverAndSaveDraftCatalog(
+                  draftId,
+                  catalogState.catalog,
+                  catalogParams,
+                  input,
+                  missionId,
+                );
                 if (typeof emitContextUpdate === 'function' && catalogState.catalog?.products?.length) {
                   const products = catalogState.catalog.products.map((p) => ({
                     id: p.id,
@@ -2317,7 +2565,15 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
                   }).catch(() => {});
                 }
                 bb.write('generatedProducts', catalogState.catalog?.products ?? []);
-                if (fromPreload) {
+                bb.write(
+                  'catalogSource',
+                  catalogState.catalog?.meta?.catalogSource ?? bb.snapshot().catalogSource ?? null,
+                );
+                bb.write(
+                  'mission001SparseMode',
+                  catalogState.catalog?.meta?.mission001SparseMode === true ||
+                    catalogState.catalog?.meta?.mission001?.sparseMode === true,
+                );                if (fromPreload) {
                   bb.write('catalogSource', 'user_upload');
                   bb.write('catalogItems', catalogState.catalog?.products ?? []);
                 }
@@ -2433,6 +2689,24 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
               }
               if (tool === 'copy') {
                 await stepReporter.started('copy').catch(() => {});
+                try {
+                  if (bb.snapshot()?.storeCreationMode === 'generative' && catalogState.catalog) {
+                    await runContentResolution(
+                      draftId,
+                      missionId,
+                      catalogState.catalog,
+                      params,
+                      input,
+                      emitCtx,
+                      { forceGenerate: true },
+                    );
+                  }
+                } catch (copyErr) {
+                  console.warn(
+                    '[generateDraftTwoModes] generative copy skipped (non-fatal):',
+                    copyErr?.message ?? copyErr,
+                  );
+                }
                 bb.write('react_step_copy', true);
                 await stepReporter.completed('copy', { checkpoint: true }).catch(() => {});
                 await appendReasoningLogLine(missionId, '✓ Store copy refined', emitCtx);
@@ -2488,10 +2762,21 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
         emitCtx
       );
     }
-    const { catalog, fromResearch, research } = await buildCatalogForStoreReactStep(missionId, params, input);
+    const {
+      catalog: catalogRaw,
+      fromResearch,
+      research,
+      storeCreationMode: freeNoReactMode,
+    } = await buildCatalogForStoreReactStep(missionId, params, input);
     const catalogParams =
-      fromResearch && research ? mergeResearchBusinessProfileIntoParams(params, research, catalog) : params;
-    await saveDraftBase(draftId, catalog, catalogParams);
+      fromResearch && research ? mergeResearchBusinessProfileIntoParams(params, research, catalogRaw) : params;
+    const catalog = await recoverAndSaveDraftCatalog(
+      draftId,
+      catalogRaw,
+      catalogParams,
+      input,
+      missionId,
+    );
     const emitContextUpdate = options.emitContextUpdate;
     if (typeof emitContextUpdate === 'function' && catalog?.products?.length) {
       const products = catalog.products.map((p) => ({
@@ -2519,7 +2804,9 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
     await appendReasoningLogLine(missionId, '✓ Store visuals generated', emitCtx);
 
     await stepReporter.started('copy').catch(() => {});
-    await runContentResolution(draftId, missionId, catalog, params, input, emitCtx);
+    await runContentResolution(draftId, missionId, catalog, params, input, emitCtx, {
+      forceGenerate: freeNoReactMode === 'generative',
+    });
     await stepReporter.completed('copy', { checkpoint: true }).catch(() => {});
     await appendReasoningLogLine(missionId, '✓ Store copy refined', emitCtx);
     {
@@ -2580,13 +2867,21 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
             fromPreload: fromPreloadOuter,
             fromResearch: fromResearchOuter,
             research: researchOuter,
+            storeCreationMode: freeReactMode,
           } = await buildCatalogForStoreReactStep(missionId, params, input);
           catalogState.catalog = builtCatalogOuter;
+          if (freeReactMode) bb.write('storeCreationMode', freeReactMode);
           const catalogParamsOuter =
             fromResearchOuter && researchOuter
               ? mergeResearchBusinessProfileIntoParams(params, researchOuter, builtCatalogOuter)
               : params;
-          await saveDraftBase(draftId, catalogState.catalog, catalogParamsOuter);
+          catalogState.catalog = await recoverAndSaveDraftCatalog(
+            draftId,
+            catalogState.catalog,
+            catalogParamsOuter,
+            input,
+            missionId,
+          );
           if (typeof emitContextUpdate === 'function' && catalogState.catalog?.products?.length) {
             const products = catalogState.catalog.products.map((p) => ({
               id: p.id,
@@ -2595,8 +2890,15 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
             }));
             await emitContextUpdate({ entities: { products } }).catch(() => {});
           }
-          bb.write('generatedProducts', catalogState.catalog?.products ?? []);
-          if (fromPreloadOuter && !fromResearchOuter) {
+          bb.write(
+            'catalogSource',
+            catalogState.catalog?.meta?.catalogSource ?? bb.snapshot().catalogSource ?? null,
+          );
+          bb.write(
+            'mission001SparseMode',
+            catalogState.catalog?.meta?.mission001SparseMode === true ||
+              catalogState.catalog?.meta?.mission001?.sparseMode === true,
+          );      if (fromPreloadOuter && !fromResearchOuter) {
             bb.write('catalogSource', 'user_upload');
             bb.write('catalogItems', catalogState.catalog?.products ?? []);
           }
@@ -2712,6 +3014,24 @@ async function generateDraftTwoModes(draftId, draft, input, options = {}) {
         }
         if (tool === 'copy') {
           await stepReporter.started('copy').catch(() => {});
+          try {
+            if (bb.snapshot()?.storeCreationMode === 'generative' && catalogState.catalog) {
+              await runContentResolution(
+                draftId,
+                missionId,
+                catalogState.catalog,
+                params,
+                input,
+                emitContextUpdate,
+                { forceGenerate: true },
+              );
+            }
+          } catch (copyErr) {
+            console.warn(
+              '[generateDraftTwoModes] generative copy skipped (non-fatal):',
+              copyErr?.message ?? copyErr,
+            );
+          }
           bb.write('react_step_copy', true);
           await stepReporter.completed('copy', { checkpoint: true }).catch(() => {});
           await appendReasoningLogLine(missionId, '✓ Store copy refined', emitCtx);
@@ -2781,6 +3101,7 @@ export async function generateDraft(draftId, options = {}) {
   }
 
   let statusUpdateDone = false;
+  let pipelineMissionIdForBb = null;
   try {
     // Update status to generating (skip if already generating, e.g. orchestra-created draft)
     const currentStatus = (draft.status || '').toLowerCase();
@@ -2802,6 +3123,7 @@ export async function generateDraft(draftId, options = {}) {
       (typeof options.reactMissionId === 'string' && options.reactMissionId.trim()) ||
       (typeof input.missionId === 'string' && input.missionId.trim()) ||
       null;
+    pipelineMissionIdForBb = pipelineMissionId;
     if (pipelineMissionId) {
       try {
         const { lockCanonicalLocationForMission } = await import(
@@ -2847,6 +3169,20 @@ export async function generateDraft(draftId, options = {}) {
         reactMissionId: options.reactMissionId ?? null,
       });
       statusUpdateDone = true;
+      try {
+        const { appendStoreCreationVerifyComplete } = await import(
+          '../../lib/storeCreation/storeCreationBlackboard.js'
+        );
+        await appendStoreCreationVerifyComplete({
+          missionId: pipelineMissionIdForBb,
+          draftId,
+        });
+      } catch (bbErr) {
+        console.warn(
+          '[generateDraft] store:verify_complete skipped (non-fatal):',
+          bbErr?.message ?? bbErr,
+        );
+      }
       return result;
     }
     let profile;
@@ -3581,9 +3917,36 @@ export async function generateDraft(draftId, options = {}) {
     statusUpdateDone = true;
 
     console.log('[generateDraft] done', { draftId, status: 'ready', items: previewForReady.items?.length ?? 0 });
+    try {
+      const { appendStoreCreationVerifyComplete } = await import(
+        '../../lib/storeCreation/storeCreationBlackboard.js'
+      );
+      await appendStoreCreationVerifyComplete({
+        missionId: pipelineMissionIdForBb,
+        draftId,
+      });
+    } catch (bbErr) {
+      console.warn(
+        '[generateDraft] store:verify_complete skipped (non-fatal):',
+        bbErr?.message ?? bbErr,
+      );
+    }
     return { draft, preview };
   } catch (error) {
     console.error(`[DraftStore] Generation failed for draft ${draftId}:`, error);
+
+    try {
+      const { appendStoreCreationBlackboardEvent } = await import(
+        '../../lib/storeCreation/storeCreationBlackboard.js'
+      );
+      const failure = mapErrorToDraftFailure(error);
+      await appendStoreCreationBlackboardEvent(pipelineMissionIdForBb, 'store:draft_failed', {
+        draftId,
+        errorCode: failure.errorCode ?? error?.code ?? 'GENERATE_DRAFT_FAILED',
+      });
+    } catch {
+      /* non-fatal */
+    }
 
     // Always set status to 'failed' on error (only if we didn't already set 'ready').
     // finalizeDraft may already have transitioned to failed on mission cancel.
@@ -3729,6 +4092,28 @@ export async function getDraft(draftId) {
     draft.status = 'failed';
     draft.errorCode = DraftErrorCode.DRAFT_EXPIRED;
     draft.recommendedAction = RecommendedAction.startOver;
+  }
+
+  // Never serve mission-title prefixes ("Create store: …") as public store identity.
+  try {
+    const cleanedPreview = sanitizeDraftPreviewBusinessName(draft.preview);
+    if (cleanedPreview && cleanedPreview !== draft.preview) {
+      draft.preview = cleanedPreview;
+    }
+    if (draft.input && typeof draft.input === 'object' && !Array.isArray(draft.input)) {
+      const input = { ...draft.input };
+      let inputChanged = false;
+      for (const key of ['businessName', 'storeName', 'name']) {
+        const cleaned = stripMissionTitleBusinessPrefix(input[key]);
+        if (cleaned && cleaned !== input[key]) {
+          input[key] = cleaned;
+          inputChanged = true;
+        }
+      }
+      if (inputChanged) draft.input = input;
+    }
+  } catch {
+    /* non-fatal */
   }
 
   return draft;

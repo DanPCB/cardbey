@@ -68,6 +68,12 @@ describe('latencyGuard', () => {
     expect(isLongRunningApiPath('/api/business-candidates/qa')).toBe(false);
   });
 
+  it('classifies Grow Your Business analyze as long-running without reverting market-intent', () => {
+    expect(isLongRunningApiPath('/api/admin/market-intent/analyze')).toBe(true);
+    expect(isLongRunningApiPath('/api/growth/opportunities/analyze')).toBe(true);
+    expect(isLongRunningApiPath('/api/growth/opportunities/preview')).toBe(true);
+  });
+
   it('does not trip circuit on long-running enrich when slow', async () => {
     process.env.API_LATENCY_CRITICAL_MS = '5';
     process.env.API_REQUEST_TIMEOUT_MS = '50';
