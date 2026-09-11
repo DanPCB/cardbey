@@ -25,8 +25,61 @@ import {
 
 export { classifyGenerateDraftFailure } from './classifyGenerateDraftFailure.js';
 
+import {
+  stripMissionTitleBusinessPrefix,
+} from '../../../services/draftStore/sanitizeDraftBusinessName.js';
+
 function isGuestUserId(id) {
   return id != null && typeof id === 'string' && id.trim().toLowerCase().startsWith('guest_');
+}
+
+/**
+ * Resolve identity for draft/research. Prefer metadata, then deferred run body, then tool input,
+ * then cleaned mission title (never the raw "Create store: …" title).
+ * @param {object} meta
+ * @param {object} mission
+ * @param {object} input
+ */
+function resolveStructuredStoreIdentity(meta, mission, input = {}) {
+  const deferred = meta?.deferredStorePipeline?.body;
+  const deferredBody =
+    deferred && typeof deferred === 'object' && !Array.isArray(deferred) ? deferred : {};
+  const pick = (...vals) => {
+    for (const v of vals) {
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+  };
+  const businessName = stripMissionTitleBusinessPrefix(
+    pick(
+      meta.businessName,
+      meta.storeName,
+      deferredBody.businessName,
+      deferredBody.storeName,
+      input.businessName,
+      input.storeName,
+      mission?.title,
+    ),
+  );
+  const businessType = pick(
+    meta.businessType,
+    meta.storeType,
+    meta.category,
+    meta.industry,
+    deferredBody.businessType,
+    deferredBody.storeType,
+    input.businessType,
+    input.storeType,
+  );
+  const location = pick(
+    meta.location,
+    deferredBody.location,
+    input.location,
+  );
+  const websiteUrl = pick(meta.websiteUrl, meta.website, deferredBody.websiteUrl, deferredBody.website, input.websiteUrl, input.website);
+  const phone = pick(meta.phone, deferredBody.phone, input.phone);
+  const email = pick(meta.email, deferredBody.email, input.email);
+  return { businessName, businessType, location, websiteUrl, phone, email };
 }
 
 /**
@@ -64,24 +117,13 @@ export async function execute(_input = {}, context = {}) {
       ? mission.outputsJson
       : {};
 
-  const businessName =
-    (typeof meta.businessName === 'string' && meta.businessName.trim()) ||
-    (typeof meta.storeName === 'string' && meta.storeName.trim()) ||
-    (typeof mission.title === 'string' && mission.title.trim()) ||
-    '';
-  const businessType =
-    (typeof meta.businessType === 'string' && meta.businessType.trim()) ||
-    (typeof meta.storeType === 'string' && meta.storeType.trim()) ||
-    (typeof meta.category === 'string' && meta.category.trim()) ||
-    (typeof meta.industry === 'string' && meta.industry.trim()) ||
-    '';
-  const location = (typeof meta.location === 'string' && meta.location.trim()) || '';
-  const websiteUrl =
-    (typeof meta.websiteUrl === 'string' && meta.websiteUrl.trim()) ||
-    (typeof meta.website === 'string' && meta.website.trim()) ||
-    '';
-  const phone = (typeof meta.phone === 'string' && meta.phone.trim()) || '';
-  const email = (typeof meta.email === 'string' && meta.email.trim()) || '';
+  const identity = resolveStructuredStoreIdentity(meta, mission, _input);
+  const businessName = identity.businessName;
+  const businessType = identity.businessType;
+  const location = identity.location;
+  const websiteUrl = identity.websiteUrl;
+  const phone = identity.phone;
+  const email = identity.email;
   const ocrRawText =
     (typeof meta.ocrRawText === 'string' && meta.ocrRawText.trim()) ||
     (typeof meta.ocrText === 'string' && meta.ocrText.trim()) ||
@@ -247,6 +289,36 @@ export async function execute(_input = {}, context = {}) {
   }
 
   const draftIdForRun = created.createdDraftId || created.draftId;
+
+  // Phase 1 context bag: stamp MissionPipeline id + userId onto draft.input for downstream observability.
+  try {
+    const draftRow = await prisma.draftStore.findUnique({
+      where: { id: draftIdForRun },
+      select: { input: true },
+    });
+    const prevInput =
+      draftRow?.input && typeof draftRow.input === 'object' && !Array.isArray(draftRow.input)
+        ? draftRow.input
+        : {};
+    if (prevInput.missionId !== missionId || prevInput.userId !== uid) {
+      await prisma.draftStore.update({
+        where: { id: draftIdForRun },
+        data: {
+          input: {
+            ...prevInput,
+            missionId,
+            userId: uid,
+            draftId: draftIdForRun,
+          },
+        },
+      });
+    }
+  } catch (stampErr) {
+    console.warn(
+      '[structured_store_build] draft.input missionId stamp skipped (non-fatal):',
+      stampErr?.message ?? stampErr,
+    );
+  }
 
   console.log('[structured_store_build] START:', {
     missionId,
@@ -532,6 +604,7 @@ try {
       try {
         const heroMod = await import('../../../services/mi/heroGenerationService.ts');
         const generateHeroForDraft = heroMod.generateHeroForDraft ?? heroMod.default?.generateHeroForDraft;
+        let heroUrl = null;
         if (typeof generateHeroForDraft === 'function') {
           const { hero } = await generateHeroForDraft({
             storeName: previewAfterQa.storeName || businessName,
@@ -540,19 +613,57 @@ try {
             verticalSlug: previewAfterQa.meta?.verticalSlug ?? null,
             verticalGroup: previewAfterQa.meta?.verticalGroup ?? null,
           });
-          const heroUrl = hero?.imageUrl ?? null;
-          if (heroUrl) {
-            const { patchDraftPreview } = await import('../../../services/draftStore/draftStoreService.js');
-            const { applyPipelineGeneratedHeroImage } = await import(
-              '../../../services/draftStore/draftPreviewHeroSync.js'
+          heroUrl = hero?.imageUrl ?? null;
+        }
+        // Phase 2: seed library fallback when hero gen returns nothing
+        if (!heroUrl) {
+          try {
+            const { getSeedImageForCategory } = await import(
+              '../../../lib/seedLibrary/getSeedImageForCategory.js'
             );
-            const heroPreview = { ...previewAfterQa };
-            if (applyPipelineGeneratedHeroImage(heroPreview, heroUrl, { writer: 'structured_store_build', draftId: draftIdForRun })) {
-              await patchDraftPreview(draftIdForRun, {
-                heroImageUrl: heroPreview.heroImageUrl,
-                hero: heroPreview.hero,
+            const fallback = await getSeedImageForCategory({
+              vertical: previewAfterQa.meta?.verticalSlug ?? null,
+              categoryKey: previewAfterQa.storeType || businessType || null,
+              businessName: previewAfterQa.storeName || businessName || null,
+              orientation: 'landscape',
+            });
+            heroUrl = typeof fallback === 'string' && fallback.trim() ? fallback.trim() : null;
+            if (heroUrl) {
+              console.log('[structured_store_build] hero seed fallback applied', {
+                missionId,
+                draftId: draftIdForRun,
               });
+              try {
+                const { appendStoreCreationBlackboardEvent } = await import(
+                  '../../storeCreation/storeCreationBlackboard.js'
+                );
+                await appendStoreCreationBlackboardEvent(missionId, 'store:media_hero_recovered', {
+                  draftId: draftIdForRun,
+                  heroUrl,
+                  source: 'seed_library',
+                });
+              } catch {
+                /* non-fatal */
+              }
             }
+          } catch (seedErr) {
+            console.warn(
+              '[structured_store_build] hero seed fallback skipped:',
+              seedErr?.message ?? seedErr,
+            );
+          }
+        }
+        if (heroUrl) {
+          const { patchDraftPreview } = await import('../../../services/draftStore/draftStoreService.js');
+          const { applyPipelineGeneratedHeroImage } = await import(
+            '../../../services/draftStore/draftPreviewHeroSync.js'
+          );
+          const heroPreview = { ...previewAfterQa };
+          if (applyPipelineGeneratedHeroImage(heroPreview, heroUrl, { writer: 'structured_store_build', draftId: draftIdForRun })) {
+            await patchDraftPreview(draftIdForRun, {
+              heroImageUrl: heroPreview.heroImageUrl,
+              hero: heroPreview.hero,
+            });
           }
         }
       } catch (heroBackfillErr) {
@@ -580,7 +691,142 @@ try {
   let storeSlug = null;
   let guestTempStore = false;
   if (userRow?.id && !isGuestUserId(userRow.id)) {
-    const publishResult = await safePublishGeneratedDraft({
+    // Phase 2: soft-block auto-publish when critical content is missing (draft stays ready for checkpoint).
+    let skipPublishForVerify = false;
+    let verifyEvaluation = null;
+    try {
+      const draftForVerify = await prisma.draftStore.findUnique({
+        where: { id: draftIdForRun },
+        select: { preview: true },
+      });
+      const { evaluateStoreDraftCriticalContent, appendStoreCreationBlackboardEvent } = await import(
+        '../../storeCreation/storeCreationBlackboard.js'
+      );
+      verifyEvaluation = evaluateStoreDraftCriticalContent(draftForVerify?.preview);
+      const productsMissing =
+        !verifyEvaluation.criticalOk &&
+        Array.isArray(verifyEvaluation.issues) &&
+        verifyEvaluation.issues.includes('products');
+      if (productsMissing) {
+        skipPublishForVerify = true;
+        console.warn('[structured_store_build] blocking auto-publish — no products', {
+          missionId,
+          draftId: draftIdForRun,
+          issues: verifyEvaluation.issues,
+        });
+        // Flag + store:publish_blocked are set by appendStoreCreationVerifyComplete;
+        // emit here too if verify ran earlier without products after a failed seed.
+        await appendStoreCreationBlackboardEvent(missionId, 'store:publish_blocked', {
+          draftId: draftIdForRun,
+          reason: 'no_products',
+          issues: verifyEvaluation.issues,
+        });
+        try {
+          const { setDraftPublishBlocked } = await import('../../storeCreation/storeCreationBlackboard.js');
+          await setDraftPublishBlocked({
+            draftId: draftIdForRun,
+            blocked: true,
+            issues: verifyEvaluation.issues,
+            reason: 'no_products',
+          });
+        } catch {
+          /* non-fatal */
+        }
+      } else if (!verifyEvaluation.criticalOk) {
+        skipPublishForVerify = true;
+        console.warn('[structured_store_build] soft-blocking auto-publish — critical content incomplete', {
+          missionId,
+          draftId: draftIdForRun,
+          issues: verifyEvaluation.issues,
+        });
+        await appendStoreCreationBlackboardEvent(missionId, 'store:publish_soft_blocked', {
+          draftId: draftIdForRun,
+          issues: verifyEvaluation.issues,
+          criticalOk: false,
+          retryable: true,
+        });
+      }
+    } catch (verifyErr) {
+      console.warn(
+        '[structured_store_build] pre-publish verify skipped:',
+        verifyErr?.message ?? verifyErr,
+      );
+    }
+
+    if (skipPublishForVerify) {
+      try {
+        const pipeRow = await prisma.missionPipeline.findUnique({
+          where: { id: missionId },
+          select: { outputsJson: true },
+        });
+        const publishPendingSlice = {
+          ok: false,
+          publishFailed: true,
+          retryable: true,
+          softBlockedByVerify: true,
+          issues: verifyEvaluation?.issues ?? [],
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+          error: 'Critical draft content incomplete — publish deferred',
+        };
+        const outputsJson = mergeCanonicalOutputs(pipeRow?.outputsJson, {
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+          publishFailed: true,
+          structured_store_build: publishPendingSlice,
+        });
+        await safeMissionPipelineUpdate(
+          prisma,
+          {
+            where: { id: missionId },
+            data: { outputsJson },
+          },
+          { missionId, label: 'structured_store_build.publish_soft_blocked' },
+        );
+      } catch {
+        /* non-fatal */
+      }
+      await transitionOrchestratorTaskStatus({
+        prisma,
+        taskId: created.jobId,
+        toStatus: 'completed',
+        fromStatus: 'running',
+        actorType: 'worker',
+        correlationId: created.generationRunId,
+        reason: 'PUBLISH_PENDING',
+        result: {
+          ok: false,
+          publishFailed: true,
+          retryable: true,
+          softBlockedByVerify: true,
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+        },
+      }).catch(() => {});
+
+      return {
+        status: 'publish_pending',
+        draftId: draftIdForRun,
+        output: {
+          ok: false,
+          publishFailed: true,
+          retryable: true,
+          softBlockedByVerify: true,
+          issues: verifyEvaluation?.issues ?? [],
+          draftId: draftIdForRun,
+          generationRunId: created.generationRunId,
+          jobId: created.jobId,
+        },
+        error: {
+          code: 'PUBLISH_PENDING',
+          message: 'Critical draft content incomplete — publish deferred for review',
+        },
+      };
+    }
+
+    let publishResult = await safePublishGeneratedDraft({
       prisma,
       draftId: draftIdForRun,
       userId: userRow.id,
@@ -588,6 +834,33 @@ try {
       correlationId: created.generationRunId,
       taskId: created.jobId,
     });
+
+    // Phase 2: one automatic retry when the first attempt is retryable
+    if (!publishResult.ok && publishResult.retryable === true) {
+      console.log('[structured_store_build] publish retry (retryable=true)', {
+        missionId,
+        draftId: draftIdForRun,
+      });
+      try {
+        const { appendStoreCreationBlackboardEvent } = await import(
+          '../../storeCreation/storeCreationBlackboard.js'
+        );
+        await appendStoreCreationBlackboardEvent(missionId, 'store:publish_retry', {
+          draftId: draftIdForRun,
+          attempt: 2,
+        });
+      } catch {
+        /* non-fatal */
+      }
+      publishResult = await safePublishGeneratedDraft({
+        prisma,
+        draftId: draftIdForRun,
+        userId: userRow.id,
+        missionId: missionId ?? undefined,
+        correlationId: created.generationRunId,
+        taskId: created.jobId,
+      });
+    }
 
     if (!publishResult.ok) {
       try {

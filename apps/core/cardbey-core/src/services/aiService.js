@@ -629,7 +629,7 @@ export async function generateImage(options = {}) {
         gatewayGenerateImage({
           prompt: enhancedPrompt,
           provider: Features.image.defaultProvider,
-          model: 'dall-e-3',
+          model: process.env.OPENAI_IMAGE_MODEL || 'dall-e-3',
           size,
           count: 1,
           purpose: 'ai_service_image',
@@ -664,19 +664,38 @@ export async function generateImage(options = {}) {
     });
 
     const response = await Promise.race([apiCall, timeoutPromise]);
-    const imageUrl = response.data[0]?.url;
 
-    if (!imageUrl) {
-      throw new Error('AI service did not return an image URL');
-    }
+const firstImage = response?.data?.[0] ?? null;
+
+const imageUrl =
+  typeof firstImage?.url === 'string' && firstImage.url.trim()
+    ? firstImage.url.trim()
+    : null;
+
+const imageBase64 =
+  typeof firstImage?.b64_json === 'string' && firstImage.b64_json.trim()
+    ? firstImage.b64_json.trim()
+    : null;
+
+console.log('[OpenAIImageService] response shape', {
+  hasData: Array.isArray(response?.data),
+  dataCount: Array.isArray(response?.data) ? response.data.length : 0,
+  hasUrl: Boolean(imageUrl),
+  hasBase64: Boolean(imageBase64),
+});
+
+if (!imageUrl && !imageBase64) {
+  throw new Error('AI service returned no usable image payload');
+}
 
     return {
-      url: imageUrl,
-      prompt: prompt,
-      style,
-      aspectRatio,
-      size,
-    };
+  url: imageUrl,
+  b64_json: imageBase64,
+  prompt: prompt,
+  style,
+  aspectRatio,
+  size,
+};
   } catch (error) {
     const handled = handleAIError(error);
     throw handled;

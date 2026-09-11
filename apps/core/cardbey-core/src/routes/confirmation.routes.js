@@ -33,7 +33,10 @@ router.post('/pipeline/confirm', requireAuth, async (req, res) => {
     const pipeline = await confirmOrchestrationPipeline(pipelineId, userId);
     return res.json({
       success: true,
-      message: 'Pipeline confirmed and started',
+      message: pipeline.alreadyConfirmed
+        ? 'Pipeline already confirmed'
+        : 'Pipeline confirmed and started',
+      alreadyConfirmed: Boolean(pipeline.alreadyConfirmed),
       pipeline,
       missionId: pipeline.id,
       action:

@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
 
 import { prisma } from '../lib/prisma.js';
+import { buildDevAdminUser } from './devAdminUser.js';
 
 /** Must match default in middleware/auth.js so Bearer tokens verify consistently. */
 const JWT_SECRET = requireJwtSecret();
@@ -150,6 +151,28 @@ export async function requireUserOrGuest(req, res, next) {
       if (process.env.NODE_ENV !== 'production') {
         console.log('[assistantAuth] Authorization header present, token length:', token.length);
       }
+
+      // Handle literal Bearer dev-admin-token before JWT verify (not a JWT).
+      if (token === 'dev-admin-token' && process.env.NODE_ENV !== 'production') {
+        let devUser;
+        try {
+          devUser = buildDevAdminUser();
+        } catch (e) {
+          return res.status(500).json({
+            error: 'dev_user_id_required',
+            message: e?.message || 'DEV_USER_ID must be set in .env for dev-admin-token to work',
+          });
+        }
+        req.user = devUser;
+        req.userId = req.userId ?? devUser.id;
+        req.isGuest = false;
+        req.guest = null;
+        req.guestId = null;
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[assistantAuth] mode=user dev-admin-token userId=${devUser.id}`);
+        }
+        return next();
+      }
       
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
@@ -165,28 +188,6 @@ export async function requireUserOrGuest(req, res, next) {
         }
         
         const tokenUserId = decoded.userId || decoded.sub;
-
-        if (token === 'dev-admin-token' && process.env.NODE_ENV !== 'production') {
-          const devUser = {
-            id: 'dev-user-id',
-            email: 'dev@cardbey.local',
-            displayName: 'Dev User',
-            roles: '["admin"]',
-            role: 'admin',
-            emailVerified: true,
-            isDevAdmin: true,
-            business: null,
-          };
-          req.user = devUser;
-          req.userId = req.userId ?? devUser.id;
-          req.isGuest = false;
-          req.guest = null;
-          req.guestId = null;
-          if (process.env.NODE_ENV !== 'production') {
-            console.log('[assistantAuth] mode=user dev-admin-token');
-          }
-          return next();
-        }
 
         // Canonical guest JWT from POST /api/auth/guest — same contract as middleware/auth.js requireAuth
         // (must run before DB user lookup; guest ids are not User rows).
@@ -266,23 +267,22 @@ export async function requireUserOrGuest(req, res, next) {
       } catch (err) {
         // JWT verification failed (expired, invalid signature, etc.)
         if (token === 'dev-admin-token' && process.env.NODE_ENV !== 'production') {
-          const devUser = {
-            id: 'dev-user-id',
-            email: 'dev@cardbey.local',
-            displayName: 'Dev User',
-            roles: '["admin"]',
-            role: 'admin',
-            emailVerified: true,
-            isDevAdmin: true,
-            business: null,
-          };
+          let devUser;
+          try {
+            devUser = buildDevAdminUser();
+          } catch (e) {
+            return res.status(500).json({
+              error: 'dev_user_id_required',
+              message: e?.message || 'DEV_USER_ID must be set in .env for dev-admin-token to work',
+            });
+          }
           req.user = devUser;
           req.userId = req.userId ?? devUser.id;
           req.isGuest = false;
           req.guest = null;
           req.guestId = null;
           if (process.env.NODE_ENV !== 'production') {
-            console.log('[assistantAuth] mode=user dev-admin-token fallback');
+            console.log(`[assistantAuth] mode=user dev-admin-token fallback userId=${devUser.id}`);
           }
           return next();
         }

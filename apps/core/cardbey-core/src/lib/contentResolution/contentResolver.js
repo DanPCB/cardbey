@@ -213,7 +213,9 @@ export async function resolveContent(missionId, contentRequest, options = {}) {
     await emitLine(emitContextUpdate, '📥 Fetching existing content...');
 
     if (typeof existingContent === 'string' && existingContent.trim().length > 20) {
-      if (type === 'slogan') {
+      if (options?.forceGenerate === true || contentRequest?.forceGenerate === true) {
+        // Path B generative: skip reuse so concept stores always get fresh LLM copy
+      } else if (type === 'slogan') {
         const normalized = normalizeAndValidateSlogan(existingContent, maxLength);
         if (normalized.valid) {
           await emitLine(emitContextUpdate, '✨ Polishing content...');

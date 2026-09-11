@@ -7,10 +7,15 @@ import type {
   MissionReactBlackboardLike,
 } from '../../types/react.types.js';
 
-function pickBlackboardSlice(blackboard: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+function pickBlackboardSlice(
+  blackboard: Record<string, unknown>,
+  keys: string[],
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of keys) {
-    if (Object.prototype.hasOwnProperty.call(blackboard, k)) out[k] = blackboard[k];
+    if (Object.prototype.hasOwnProperty.call(blackboard, k)) {
+      out[k] = blackboard[k];
+    }
   }
   return out;
 }
@@ -20,6 +25,7 @@ function tryParseReflectionJson(text: string): Partial<StepReflection> | null {
   const start = trimmed.indexOf('{');
   const end = trimmed.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
+
   try {
     return JSON.parse(trimmed.slice(start, end + 1)) as Partial<StepReflection>;
   } catch {
@@ -44,7 +50,7 @@ export async function reflectOnStep(
     emitConsole?: (message: string) => void | Promise<void>;
     blackboard?: MissionReactBlackboardLike;
     reasoningLog?: string[];
-  }
+  },
 ): Promise<StepReflection> {
   const emitConsole = options?.emitConsole;
   const bb = options?.blackboard;
@@ -53,6 +59,7 @@ export async function reflectOnStep(
   // FAST: explicit error
   if (observation.error) {
     const action: ReActAction = nextStep?.priority === 'optional' ? 'skip' : 'retry';
+
     const reflection: StepReflection = {
       observation,
       action,
@@ -66,6 +73,7 @@ export async function reflectOnStep(
           }
         : {}),
     };
+
     await persistReflection(reflection, bb, reasoningLog, emitConsole);
     return reflection;
   }
@@ -77,6 +85,29 @@ export async function reflectOnStep(
       action: 'proceed',
       reasoning: 'Outputs look complete for expected keys.',
     };
+
+    await persistReflection(reflection, bb, reasoningLog, emitConsole);
+    return reflection;
+  }
+
+  // FAST: authoritative sparse catalog is a valid truthful outcome.
+  // Do not ask the LLM to retry by inventing products.
+  const sparseHonest =
+    blackboard.catalogSource === 'sparse_honest' ||
+    blackboard.mission001SparseMode === true;
+
+  if (
+    sparseHonest &&
+    observation.tool === 'catalog' &&
+    observation.emptyKeys.includes('generatedProducts')
+  ) {
+    const reflection: StepReflection = {
+      observation,
+      action: 'proceed',
+      reasoning:
+        'Catalog is intentionally empty because no verified offerings were available.',
+    };
+
     await persistReflection(reflection, bb, reasoningLog, emitConsole);
     return reflection;
   }
@@ -88,15 +119,19 @@ export async function reflectOnStep(
       action: 'proceed',
       reasoning: 'Last step in plan; defer deeper critique to output validation.',
     };
+
     await persistReflection(reflection, bb, reasoningLog, emitConsole);
     return reflection;
   }
 
   // FAST: known blackboard-driven skips (heuristic; no LLM)
-  const productsVisible = blackboard.products_visible ?? blackboard.enriched_products;
+  const productsVisible =
+    blackboard.products_visible ?? blackboard.enriched_products;
+
   const enrichedCount = Array.isArray(blackboard.enriched_products)
     ? (blackboard.enriched_products as unknown[]).length
     : 0;
+
   if (productsVisible && nextStep.tool.includes('product')) {
     const reflection: StepReflection = {
       observation,
@@ -104,9 +139,11 @@ export async function reflectOnStep(
       reasoning: 'Real products available',
       skipTarget: nextStep.tool,
     };
+
     await persistReflection(reflection, bb, reasoningLog, emitConsole);
     return reflection;
   }
+
   if (blackboard.website_fetched && /web|site|url/i.test(nextStep.tool)) {
     const reflection: StepReflection = {
       observation,
@@ -114,9 +151,11 @@ export async function reflectOnStep(
       reasoning: 'Already fetched',
       skipTarget: nextStep.tool,
     };
+
     await persistReflection(reflection, bb, reasoningLog, emitConsole);
     return reflection;
   }
+
   if (enrichedCount >= 8 && nextStep.tool.includes('enrich')) {
     const reflection: StepReflection = {
       observation,
@@ -124,12 +163,15 @@ export async function reflectOnStep(
       reasoning: 'Sufficient products found',
       skipTarget: nextStep.tool,
     };
+
     await persistReflection(reflection, bb, reasoningLog, emitConsole);
     return reflection;
   }
 
   // LLM path
   const relevantKeys = [
+    'catalogSource',
+    'mission001SparseMode',
     'generatedProducts',
     'draftProducts',
     'selectedImages',
@@ -141,10 +183,19 @@ export async function reflectOnStep(
     'enriched_products',
     'website_fetched',
   ];
+
   const slice = pickBlackboardSlice(blackboard, relevantKeys);
 
   const system =
-    "You are Cardbey's step reflector.\nEvaluate mission step output and decide next action.\n\nActions:\nproceed - output is good, continue\nretry - output has issues, re-run with hint\nskip - next step is unnecessary given results\nreplan - fundamental approach needs to change\n\nBe decisive. Default to proceed unless there is a clear reason not to.\nReturn valid JSON only.";
+    "You are Cardbey's step reflector.\n" +
+    'Evaluate mission step output and decide next action.\n\n' +
+    'Actions:\n' +
+    'proceed - output is good, continue\n' +
+    'retry - output has issues, re-run with hint\n' +
+    'skip - next step is unnecessary given results\n' +
+    'replan - fundamental approach needs to change\n\n' +
+    'Be decisive. Default to proceed unless there is a clear reason not to.\n' +
+    'Return valid JSON only.';
 
   const user = `Completed step: ${observation.tool}
 Success: ${observation.success}
@@ -182,12 +233,23 @@ What action? Return:
       temperature: 0.2,
       responseFormat: 'json',
     });
+
     const parsed = tryParseReflectionJson(text);
+
     if (parsed && isReActAction(parsed.action)) {
       action = parsed.action;
-      reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : reasoning;
-      hint = typeof parsed.hint === 'string' ? parsed.hint : hint;
-      skipTarget = typeof parsed.skipTarget === 'string' ? parsed.skipTarget : skipTarget;
+      reasoning =
+        typeof parsed.reasoning === 'string'
+          ? parsed.reasoning
+          : reasoning;
+      hint =
+        typeof parsed.hint === 'string'
+          ? parsed.hint
+          : hint;
+      skipTarget =
+        typeof parsed.skipTarget === 'string'
+          ? parsed.skipTarget
+          : skipTarget;
     }
   } catch {
     action = 'proceed';
@@ -210,25 +272,40 @@ async function persistReflection(
   reflection: StepReflection,
   blackboard: MissionReactBlackboardLike | undefined,
   reasoningLog: string[] | undefined,
-  emitConsole?: (message: string) => void | Promise<void>
+  emitConsole?: (message: string) => void | Promise<void>,
 ): Promise<void> {
   if (blackboard) {
     const snap = blackboard.snapshot();
-    const prev = Array.isArray(snap.react_reflections) ? (snap.react_reflections as StepReflection[]) : [];
+    const prev = Array.isArray(snap.react_reflections)
+      ? (snap.react_reflections as StepReflection[])
+      : [];
+
     blackboard.write('react_reflections', [...prev, reflection]);
   }
-  const line = `[${reflection.observation.tool}] ${reflection.action}: ${reflection.reasoning}`;
+
+  const line =
+    `[${reflection.observation.tool}] ` +
+    `${reflection.action}: ${reflection.reasoning}`;
+
   reasoningLog?.push(line);
   blackboard?.appendReasoningLog(line);
 
   if (reflection.action !== 'proceed' && emitConsole) {
     if (reflection.action === 'retry' && reflection.hint) {
-      await Promise.resolve(emitConsole(`↻ Retrying ${reflection.observation.tool}: ${reflection.hint}`));
+      await Promise.resolve(
+        emitConsole(
+          `↻ Retrying ${reflection.observation.tool}: ${reflection.hint}`,
+        ),
+      );
     }
+
     if (reflection.action === 'skip') {
       const target = reflection.skipTarget || '(next)';
-      await Promise.resolve(emitConsole(`⏭ Skipping ${target}: ${reflection.reasoning}`));
+      await Promise.resolve(
+        emitConsole(`⏭ Skipping ${target}: ${reflection.reasoning}`),
+      );
     }
   }
+
   await blackboard?.flushReasoningEmits?.().catch(() => {});
 }

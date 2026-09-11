@@ -5,6 +5,11 @@ import {
   emitSse,
   findPriorAgentResult,
 } from './liveAgentHelpers.js';
+import {
+  dispatchCampaignTool,
+  loadCampaignPriors,
+  unwrapToolOutput,
+} from './campaignAgentLive.js';
 
 export class QAAgent extends V1OrchestrationAgent {
   static agentType = 'qa';
@@ -25,7 +30,23 @@ export class QAAgent extends V1OrchestrationAgent {
 
     try {
       const build = await findPriorAgentResult(this.context, task, 'build');
-      const result = await this.runLiveQa(brief, storeKnowledge, build);
+      let result;
+      if (build) {
+        result = await this.runLiveQa(brief, storeKnowledge, build);
+      } else {
+        result = await this.runCampaignQa(task);
+        if (!result) {
+          result = {
+            type: 'qa',
+            passed: false,
+            score: 0,
+            issues: ['No build or campaign outputs to validate'],
+            suggestions: [],
+            approvedForAction: false,
+            summary: 'QA failed — no campaign deliverables found for review',
+          };
+        }
+      }
       await emitAgentEvent(this.context, 'qa:complete', {
         agentName: 'QAAgent',
         output: result,
@@ -44,13 +65,56 @@ export class QAAgent extends V1OrchestrationAgent {
         agentType,
         result,
         summary: result.summary ?? `QA ${result.passed ? 'passed' : 'failed'} (${result.score})`,
-        confidence: result.score / 100,
+        confidence: (result.score ?? 0) / 100,
         latencyMs: Math.max(0, Date.now() - started),
       };
     } catch (err) {
       console.warn('[QAAgent] live QA failed, using stub:', err?.message ?? err);
       return super.execute(task);
     }
+  }
+
+  /**
+   * Campaign orchestration wave: brief + graphics + copy (no build agent).
+   * @param {object} task
+   */
+  async runCampaignQa(task) {
+    const priors = await loadCampaignPriors(this.context, task);
+    if (!priors.brief && !priors.copy && priors.graphics.length === 0) {
+      return null;
+    }
+
+    const dispatched = await dispatchCampaignTool(
+      'qa_campaign_package',
+      {
+        brief: priors.brief ?? {},
+        graphics: priors.graphics,
+        copy: priors.copy ?? {},
+      },
+      this.context,
+    );
+    const output = unwrapToolOutput(dispatched);
+    const issues = Array.isArray(output?.issues)
+      ? output.issues.map(String)
+      : Array.isArray(dispatched?.output?.partial?.issues)
+        ? dispatched.output.partial.issues.map(String)
+        : dispatched?.status === 'blocked'
+          ? [dispatched?.blocker?.message || dispatched?.reason || 'Campaign QA failed']
+          : [];
+    const passed = Boolean(output?.passed) && issues.length === 0;
+    const score = passed ? 90 : Math.max(20, 80 - issues.length * 20);
+
+    return {
+      type: 'qa',
+      passed,
+      score,
+      issues,
+      suggestions: [],
+      approvedForAction: passed,
+      summary: passed
+        ? `Campaign QA passed (${score})`
+        : `Campaign QA issues (${score}): ${issues.join('; ') || 'incomplete'}`,
+    };
   }
 
   async runLiveQa(brief, storeKnowledge, build) {

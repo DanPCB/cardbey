@@ -96,6 +96,40 @@ export async function safePublishGeneratedDraft({
     };
   }
 
+  // Phase 2 verify gate — honor input.metadataJson.publishBlocked before commit
+  try {
+    const { readDraftPublishBlocked, appendStoreCreationBlackboardEvent } = await import(
+      '../storeCreation/storeCreationBlackboard.js'
+    );
+    const block = readDraftPublishBlocked(draft);
+    if (block.blocked) {
+      const mid =
+        (typeof missionId === 'string' && missionId.trim()) ||
+        (typeof draft.input?.missionId === 'string' && draft.input.missionId.trim()) ||
+        '';
+      if (mid) {
+        await appendStoreCreationBlackboardEvent(mid, 'store:publish_skipped', {
+          draftId: id,
+          reason: 'publish_blocked',
+          issues: block.issues,
+        }).catch(() => {});
+      }
+      return {
+        ok: false,
+        reason: 'publish_blocked',
+        issues: block.issues,
+        error: 'Publish blocked: draft is missing critical catalog products.',
+        retryable: false,
+        draftId: id,
+      };
+    }
+  } catch (gateErr) {
+    console.warn(
+      '[safePublishGeneratedDraft] publishBlocked check skipped (non-fatal):',
+      gateErr?.message ?? gateErr,
+    );
+  }
+
   let preview = draft.preview;
   if (typeof preview === 'string') {
     try {
