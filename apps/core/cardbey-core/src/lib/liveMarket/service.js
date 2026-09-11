@@ -416,6 +416,110 @@ async function transitionSession({
   return updated;
 }
 
+/**
+ * Provider evidence: session is now connected upstream, so Cardbey may mark it LIVE.
+ */
+export async function confirmProviderConnected({ prisma, sessionId, observedAt } = {}) {
+  const db = client(prisma);
+  const session = await db.liveMarketSession.findUnique({
+    where: { id: String(sessionId) },
+    include: { subjects: { orderBy: { sortOrder: 'asc' } } },
+  });
+  if (!session) {
+    throw fail(LIVE_MARKET_ERROR_CODES.LIVE_SESSION_NOT_FOUND, 'session_not_found', 404);
+  }
+  if (session.state === 'LIVE') return session;
+  // LIVE only after start-intent (CONNECTING). Connected evidence while still READY is ignored.
+  if (session.state !== 'CONNECTING') return session;
+  return transitionSession({
+    prisma: db,
+    session,
+    toState: 'LIVE',
+    actorId: null,
+    reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_CONNECTED,
+    extraData: {
+      startedAt: session.startedAt || (observedAt ? new Date(observedAt) : new Date()),
+    },
+  });
+}
+
+/**
+ * Provider evidence: stream lost upstream. Before LIVE, fall back to READY; after LIVE, begin ending.
+ */
+export async function disconnectProviderSession({ prisma, sessionId } = {}) {
+  const db = client(prisma);
+  const session = await db.liveMarketSession.findUnique({
+    where: { id: String(sessionId) },
+    include: { subjects: { orderBy: { sortOrder: 'asc' } } },
+  });
+  if (!session) {
+    throw fail(LIVE_MARKET_ERROR_CODES.LIVE_SESSION_NOT_FOUND, 'session_not_found', 404);
+  }
+  if (session.state === 'CONNECTING') {
+    return transitionSession({
+      prisma: db,
+      session,
+      toState: 'READY',
+      actorId: null,
+      reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_DISCONNECTED,
+    });
+  }
+  if (session.state === 'LIVE') {
+    return transitionSession({
+      prisma: db,
+      session,
+      toState: 'ENDING',
+      actorId: null,
+      reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_DISCONNECTED,
+    });
+  }
+  return session;
+}
+
+/**
+ * Provider evidence: upstream input is disabled or finished. Complete the end path idempotently.
+ */
+export async function endProviderSession({ prisma, sessionId, observedAt, reasonCode } = {}) {
+  const db = client(prisma);
+  let session = await db.liveMarketSession.findUnique({
+    where: { id: String(sessionId) },
+    include: { subjects: { orderBy: { sortOrder: 'asc' } } },
+  });
+  if (!session) {
+    throw fail(LIVE_MARKET_ERROR_CODES.LIVE_SESSION_NOT_FOUND, 'session_not_found', 404);
+  }
+  if (session.state === 'ENDED') return session;
+  if (session.state === 'LIVE') {
+    session = await transitionSession({
+      prisma: db,
+      session,
+      toState: 'ENDING',
+      actorId: null,
+      reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_DISCONNECTED,
+    });
+  } else if (session.state === 'CONNECTING') {
+    session = await transitionSession({
+      prisma: db,
+      session,
+      toState: 'ENDING',
+      actorId: null,
+      reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_RECONCILED,
+    });
+  }
+  if (session.state !== 'ENDING') return session;
+  return transitionSession({
+    prisma: db,
+    session,
+    toState: 'ENDED',
+    actorId: null,
+    reason: LIVE_MARKET_AUDIT_REASONS.BROADCAST_ENDED,
+    extraData: {
+      endedAt: session.endedAt || (observedAt ? new Date(observedAt) : new Date()),
+      endReasonCode: String(reasonCode || session.endReasonCode || 'PROVIDER_ENDED'),
+    },
+  });
+}
+
 export async function scheduleSession({
   prisma,
   storeId,
@@ -544,9 +648,9 @@ export async function startSession({
     return transitionSession({
       prisma: db,
       session,
-      toState: 'LIVE',
+      toState: 'CONNECTING',
       actorId: hostUserId,
-      extraData: { startedAt: new Date() },
+      reason: LIVE_MARKET_AUDIT_REASONS.BROADCAST_START_INTENT,
     });
   } catch (err) {
     const code = err?.code || LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_NOT_CONFIGURED;
@@ -580,9 +684,13 @@ export async function endSession({
     userId: hostUserId,
     action: 'cancel',
   });
-  const session = await getSessionForStore({ prisma: db, storeId, sessionId });
-  if (session.state !== 'LIVE') {
-    throw fail(LIVE_MARKET_ERROR_CODES.LIVE_INVALID_TRANSITION, 'end requires LIVE', 409);
+  let session = await getSessionForStore({ prisma: db, storeId, sessionId });
+  if (!['CONNECTING', 'LIVE', 'ENDING'].includes(String(session.state))) {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_INVALID_TRANSITION,
+      'end requires CONNECTING, LIVE, or ENDING',
+      409,
+    );
   }
   const provider = resolveLiveVideoProvider({ provider: videoProvider });
   try {
@@ -590,24 +698,171 @@ export async function endSession({
       sessionId: session.id,
       storeId,
       reasonCode: reasonCode || 'HOST_ENDED',
+      externalRef: session.providerExternalRef || undefined,
     });
   } catch (err) {
     if (err?.code !== LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_NOT_CONFIGURED) {
       throw err;
     }
-    // Ending a LIVE record without provider is still allowed to leave a truthful ENDED state
-    // after a prior fake/dev LIVE; production never reaches LIVE without a provider.
+  }
+  if (session.state === 'CONNECTING' || session.state === 'LIVE') {
+    session = await transitionSession({
+      prisma: db,
+      session,
+      toState: 'ENDING',
+      actorId: hostUserId,
+      reason: LIVE_MARKET_AUDIT_REASONS.BROADCAST_ENDED,
+    });
   }
   return transitionSession({
     prisma: db,
     session,
     toState: 'ENDED',
     actorId: hostUserId,
+    reason: LIVE_MARKET_AUDIT_REASONS.BROADCAST_ENDED,
     extraData: {
       endedAt: new Date(),
       endReasonCode: reasonCode || 'HOST_ENDED',
     },
   });
+}
+
+/**
+ * Owner start-intent alias — never marks LIVE.
+ */
+export async function startBroadcastIntent(args = {}) {
+  return startSession(args);
+}
+
+/**
+ * Issue ephemeral RTMPS credentials (no-store). Never persists the stream key.
+ * @param {{ prisma?: any, storeId: string, sessionId: string, hostUserId: string, videoProvider?: any }} args
+ */
+export async function issueBroadcastCredentials(args = {}) {
+  const db = client(args.prisma);
+  await assertOwnerPilotAccess({
+    prisma: db,
+    storeId: args.storeId,
+    userId: args.hostUserId,
+    action: 'prepare',
+  });
+  if (!Features.liveMarket.rtmpsHostV1) {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_NOT_CONFIGURED,
+      'RTMPS host credentials are disabled',
+      403,
+    );
+  }
+  const session = await getSessionForStore({
+    prisma: db,
+    storeId: args.storeId,
+    sessionId: args.sessionId,
+  });
+  if (!['READY', 'CONNECTING', 'LIVE'].includes(String(session.state))) {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_INVALID_TRANSITION,
+      'credentials require READY, CONNECTING, or LIVE',
+      409,
+    );
+  }
+  if (!session.providerExternalRef) {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_RESOURCE_NOT_FOUND,
+      'session has no provider live input',
+      409,
+    );
+  }
+  const provider = resolveLiveVideoProvider({ provider: args.videoProvider });
+  if (typeof provider.getRtmpsCredentials !== 'function') {
+    throw fail(
+      LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_NOT_CONFIGURED,
+      'provider does not support RTMPS credentials',
+      409,
+    );
+  }
+  const creds = await provider.getRtmpsCredentials({
+    sessionId: session.id,
+    externalRef: session.providerExternalRef,
+  });
+  await appendLiveMarketAudit({
+    prisma: db,
+    entityType: 'LiveMarketSession',
+    entityId: session.id,
+    action: 'broadcast_credentials_issued',
+    fromStatus: session.state,
+    toStatus: session.state,
+    actorId: args.hostUserId,
+    reason: LIVE_MARKET_AUDIT_REASONS.BROADCAST_CREDENTIALS_ISSUED,
+    metadata: { storeId: args.storeId, hasUrl: Boolean(creds?.rtmpsUrl) },
+  });
+  return {
+    sessionId: session.id,
+    rtmpsUrl: creds?.rtmpsUrl || null,
+    rtmpsStreamKey: creds?.rtmpsStreamKey || null,
+    expiresHint: 'ephemeral_do_not_persist',
+  };
+}
+
+/**
+ * Redacted owner provider-state DTO (no credentials).
+ */
+export async function getOwnerProviderState(args = {}) {
+  const db = client(args.prisma);
+  await assertOwnerPilotAccess({
+    prisma: db,
+    storeId: args.storeId,
+    userId: args.hostUserId,
+    action: 'prepare',
+  });
+  const session = await getSessionForStore({
+    prisma: db,
+    storeId: args.storeId,
+    sessionId: args.sessionId,
+  });
+  const provider = resolveLiveVideoProvider({ provider: args.videoProvider });
+  let providerStatus = 'unknown';
+  try {
+    if (session.providerExternalRef) {
+      const state = await provider.getSessionState({
+        sessionId: session.id,
+        externalRef: session.providerExternalRef,
+      });
+      providerStatus = String(state?.status || 'unknown');
+    }
+  } catch {
+    providerStatus = 'unavailable';
+  }
+  return {
+    sessionId: session.id,
+    sessionState: session.state,
+    providerName: provider?.name || 'not_configured',
+    providerStatus,
+    providerExternalRefPresent: Boolean(session.providerExternalRef),
+    providerConfirmedLive: session.state === 'LIVE',
+  };
+}
+
+/**
+ * Safe broadcast capability DTO for control room.
+ */
+export async function getBroadcastCapabilities(args = {}) {
+  const status = await getOwnerLiveMarketStatus({
+    prisma: args.prisma,
+    storeId: args.storeId,
+    userId: args.hostUserId,
+  });
+  return {
+    ...status.capabilities,
+    rtmpsHostEnabled: Boolean(Features.liveMarket.rtmpsHostV1),
+    storefrontPlayerEnabled: Boolean(Features.liveMarket.storefrontPlayerV1),
+    globalPlayerEnabled: Boolean(Features.liveMarket.globalPlayerV1),
+    recordingEnabled: Boolean(Features.liveMarket.recordingV1),
+    replayEnabled: Boolean(Features.liveMarket.replayV1),
+    webrtcEnabled: Boolean(Features.liveMarket.cloudflareWebRtcV1),
+    streamingOperational: Boolean(
+      Features.liveMarket.rtmpsHostV1 && status.providerReadiness === 'CONFIGURED',
+    ),
+  };
 }
 
 export async function cancelSession({ prisma, storeId, sessionId, hostUserId } = {}) {
@@ -835,7 +1090,7 @@ export async function getPublicSession({ prisma, sessionId, userId = null } = {}
     storeName: session.store?.name,
     storeSlug: session.store?.slug,
     enrollmentState: enrollment?.state || null,
-    providerConfirmedLive: false,
+    providerConfirmedLive: String(session.state) === 'LIVE',
     subjects: (session.subjects || []).map((s) => ({
       subjectType: s.subjectType,
       subjectId: s.subjectId,
@@ -882,7 +1137,7 @@ export async function getPublicStoreLiveSessionBySlug({ prisma, slug, userId = n
 
   const primary = selectPrimaryPublishedSession(candidates, {
     now,
-    providerConfirmedLive: false,
+    providerConfirmedLive: candidates.some((s) => String(s.state) === 'LIVE'),
     enrollmentState: enrollment.state,
   });
   if (!primary) return null;
@@ -912,7 +1167,7 @@ export async function getPublicStoreLiveSessionBySlug({ prisma, slug, userId = n
     storeName: store.name,
     storeSlug: store.slug,
     enrollmentState: enrollment.state,
-    providerConfirmedLive: false,
+    providerConfirmedLive: String(primary.state) === 'LIVE',
     displayTimezone: extrasTimezone(),
     now,
     subjects: (primary.subjects || []).map((s) => ({
@@ -1062,7 +1317,7 @@ export function getLiveMarketHealth() {
     },
     note:
       provider.name === 'cloudflare_stream'
-        ? 'Cloudflare Stream experimental adapter selected — WebRTC beta; streamingOperational false; owner prepare/start locked until Slice B'
+        ? 'Cloudflare Stream RTMPS pilot selected; owner prepare/start may be enabled, but LIVE still requires provider-connected evidence'
         : 'Phase 1 foundation only — no claim that real broadcast is operational',
   };
 }

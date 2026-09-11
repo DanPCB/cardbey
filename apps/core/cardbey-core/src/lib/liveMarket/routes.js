@@ -6,18 +6,24 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin, requireStoreOwner, optionalAuth } from '../../middleware/auth.js';
 import { Features } from '../../config/features.js';
-import { LIVE_MARKET_ERROR_CODES } from './domain.js';
+import { LIVE_MARKET_AUDIT_REASONS, LIVE_MARKET_ERROR_CODES } from './domain.js';
 import {
   adminWithdrawSessionStorefront,
   cancelSession,
+  confirmProviderConnected,
   createEnrollment,
   createSession,
+  disconnectProviderSession,
+  endProviderSession,
   endSession,
+  getBroadcastCapabilities,
   getLiveMarketHealth,
   getOwnerLiveMarketStatus,
+  getOwnerProviderState,
   getPublicSession,
   getPublicStoreLiveSessionBySlug,
   getSessionForStore,
+  issueBroadcastCredentials,
   listAdminSessions,
   listEnrollments,
   listSessionsForStore,
@@ -25,6 +31,7 @@ import {
   publishSessionStorefront,
   scheduleSession,
   setSessionSubjects,
+  startBroadcastIntent,
   startSession,
   toOwnerSessionDto,
   transitionEnrollment,
@@ -42,6 +49,12 @@ import {
   updateMyRegistration,
   updateParticipantQuestionReview,
 } from './registration.js';
+import { reconcilePilotSessions } from './reconcile.js';
+import { buildPublicPlaybackDto } from './publicPlayback.js';
+import { readCloudflareStreamConfig } from './providers/cloudflareStreamConfig.js';
+import { assertCloudflareNotificationsAuth } from './providers/cloudflareNotificationsAuth.js';
+import { appendLiveMarketAudit } from './audit.js';
+import { getPrismaClient } from '../prisma.js';
 import { rateLimit } from '../../middleware/rateLimit.js';
 
 function sendError(res, err) {
@@ -294,17 +307,99 @@ liveMarketOwnerRoutes.post(
 );
 
 liveMarketOwnerRoutes.post(
+  '/:storeId/live-sessions/:sessionId/start-intent',
+  requireAuth,
+  requireStoreOwner,
+  async (req, res) => {
+    try {
+      const session = await startBroadcastIntent({
+        storeId: req.params.storeId,
+        sessionId: req.params.sessionId,
+        hostUserId: req.userId,
+      });
+      return res.json({ ok: true, session: toOwnerSessionDto(session) });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  },
+);
+
+liveMarketOwnerRoutes.post(
   '/:storeId/live-sessions/:sessionId/start',
   requireAuth,
   requireStoreOwner,
   async (req, res) => {
     try {
+      // Legacy alias — must not mark LIVE; same as start-intent.
       const session = await startSession({
         storeId: req.params.storeId,
         sessionId: req.params.sessionId,
         hostUserId: req.userId,
       });
       return res.json({ ok: true, session: toOwnerSessionDto(session) });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  },
+);
+
+const broadcastCredentialsLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyGenerator: (req) => `lm-creds:${req.userId || req.ip || 'anon'}`,
+  code: 'live_broadcast_credentials_rate_limited',
+});
+
+liveMarketOwnerRoutes.post(
+  '/:storeId/live-sessions/:sessionId/broadcast-credentials',
+  requireAuth,
+  requireStoreOwner,
+  broadcastCredentialsLimit,
+  async (req, res) => {
+    try {
+      const credentials = await issueBroadcastCredentials({
+        storeId: req.params.storeId,
+        sessionId: req.params.sessionId,
+        hostUserId: req.userId,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      return res.json({ ok: true, credentials });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  },
+);
+
+liveMarketOwnerRoutes.get(
+  '/:storeId/live-sessions/:sessionId/provider-state',
+  requireAuth,
+  requireStoreOwner,
+  async (req, res) => {
+    try {
+      const providerState = await getOwnerProviderState({
+        storeId: req.params.storeId,
+        sessionId: req.params.sessionId,
+        hostUserId: req.userId,
+      });
+      return res.json({ ok: true, providerState });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  },
+);
+
+liveMarketOwnerRoutes.get(
+  '/:storeId/live-market/broadcast-capabilities',
+  requireAuth,
+  requireStoreOwner,
+  async (req, res) => {
+    try {
+      const capabilities = await getBroadcastCapabilities({
+        storeId: req.params.storeId,
+        hostUserId: req.userId,
+      });
+      return res.json({ ok: true, capabilities });
     } catch (err) {
       return sendError(res, err);
     }
@@ -576,6 +671,27 @@ liveMarketAdminRoutes.get('/health', async (_req, res) => {
   return res.json(getLiveMarketHealth());
 });
 
+liveMarketAdminRoutes.post('/reconcile', async (req, res) => {
+  try {
+    const limit = req.body?.limit ?? req.query?.limit;
+    const result = await reconcilePilotSessions({ limit });
+    await appendLiveMarketAudit({
+      prisma: getPrismaClient(),
+      entityType: 'LiveMarketReconcile',
+      entityId: `run-${Date.now()}`,
+      action: 'provider_reconciled',
+      fromStatus: null,
+      toStatus: null,
+      actorId: req.userId,
+      reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_RECONCILED,
+      metadata: { scanned: result.scanned },
+    });
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
 liveMarketAdminRoutes.post(
   '/sessions/:sessionId/withdraw-storefront',
   async (req, res) => {
@@ -602,7 +718,34 @@ liveMarketPublicRoutes.get('/sessions/:sessionId', requireStorefrontConsume, asy
       sessionId: req.params.sessionId,
       userId: req.userId || null,
     });
-    return res.json({ ok: true, session });
+    if (!session) return res.json({ ok: true, session: null });
+    let playback = buildPublicPlaybackDto(session, {
+      playerEnabled: Features.liveMarket.storefrontPlayerV1,
+      customerCode: readCloudflareStreamConfig().ok
+        ? readCloudflareStreamConfig().config.customerCode
+        : null,
+      providerConfirmedLive: Boolean(session.providerConfirmedLive),
+    });
+    if (playback.playbackState === 'LIVE' && Features.liveMarket.storefrontPlayerV1) {
+      const row = await getPrismaClient().liveMarketSession.findUnique({
+        where: { id: String(req.params.sessionId) },
+        select: {
+          state: true,
+          storefrontPublicationStatus: true,
+          providerExternalRef: true,
+        },
+      });
+      if (row && String(row.state) === 'LIVE') {
+        playback = buildPublicPlaybackDto(row, {
+          playerEnabled: true,
+          customerCode: readCloudflareStreamConfig().ok
+            ? readCloudflareStreamConfig().config.customerCode
+            : null,
+          providerConfirmedLive: true,
+        });
+      }
+    }
+    return res.json({ ok: true, session: { ...session, playback } });
   } catch (err) {
     return sendError(res, err);
   }
@@ -614,7 +757,34 @@ liveMarketPublicRoutes.get('/stores/:slug/live-session', requireStorefrontConsum
       slug: req.params.slug,
       userId: req.userId || null,
     });
-    return res.json({ ok: true, session: session || null });
+    if (!session) return res.json({ ok: true, session: null });
+    let playback = buildPublicPlaybackDto(session, {
+      playerEnabled: Features.liveMarket.storefrontPlayerV1,
+      customerCode: readCloudflareStreamConfig().ok
+        ? readCloudflareStreamConfig().config.customerCode
+        : null,
+      providerConfirmedLive: Boolean(session.providerConfirmedLive),
+    });
+    if (playback.playbackState === 'LIVE' && Features.liveMarket.storefrontPlayerV1) {
+      const row = await getPrismaClient().liveMarketSession.findUnique({
+        where: { id: String(session.id || session.sessionId) },
+        select: {
+          state: true,
+          storefrontPublicationStatus: true,
+          providerExternalRef: true,
+        },
+      });
+      if (row && String(row.state) === 'LIVE') {
+        playback = buildPublicPlaybackDto(row, {
+          playerEnabled: true,
+          customerCode: readCloudflareStreamConfig().ok
+            ? readCloudflareStreamConfig().config.customerCode
+            : null,
+          providerConfirmedLive: true,
+        });
+      }
+    }
+    return res.json({ ok: true, session: { ...session, playback } });
   } catch (err) {
     return sendError(res, err);
   }
@@ -724,5 +894,107 @@ liveMarketMeRoutes.get('/registrations', async (req, res) => {
     return res.json({ ok: true, registrations });
   } catch (err) {
     return sendError(res, err);
+  }
+});
+
+/** In-memory webhook event dedupe (bounded). */
+const recentWebhookEvents = new Map();
+function rememberWebhookEvent(eventId) {
+  const id = String(eventId || '').trim();
+  if (!id) return false;
+  const now = Date.now();
+  for (const [key, ts] of recentWebhookEvents) {
+    if (now - ts > 15 * 60_000) recentWebhookEvents.delete(key);
+  }
+  if (recentWebhookEvents.has(id)) return true;
+  recentWebhookEvents.set(id, now);
+  return false;
+}
+
+/**
+ * Cloudflare Notifications webhook for Stream Live Input events.
+ * Mount at /api/webhooks/cloudflare/stream-live
+ * Auth: cf-webhook-auth (static secret). Unknown input IDs ? generic 200.
+ */
+export const liveMarketCloudflareWebhookRoutes = Router({ mergeParams: true });
+
+liveMarketCloudflareWebhookRoutes.post('/stream-live', async (req, res) => {
+  try {
+    const cfg = readCloudflareStreamConfig();
+    const secret = cfg.ok ? cfg.config.notificationsWebhookAuth : null;
+    assertCloudflareNotificationsAuth({ headers: req.headers, secret });
+
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const data = body.data && typeof body.data === 'object' ? body.data : body;
+    const inputId = String(data.input_id || data.uid || data.liveInputId || '').trim();
+    const eventType = String(data.event_type || data.type || body.type || 'unknown').toLowerCase();
+    const eventId = String(body.id || data.id || `${inputId}:${eventType}:${body.ts || Date.now()}`);
+
+    if (rememberWebhookEvent(eventId)) {
+      return res.status(200).json({ ok: true, deduped: true });
+    }
+
+    if (!inputId) {
+      return res.status(200).json({ ok: true });
+    }
+
+    const prisma = getPrismaClient();
+    const session = await prisma.liveMarketSession.findFirst({
+      where: { providerExternalRef: inputId },
+    });
+    if (!session) {
+      // Do not leak existence
+      return res.status(200).json({ ok: true });
+    }
+
+    if (eventType.includes('connect') && !eventType.includes('disconnect')) {
+      await confirmProviderConnected({ prisma, sessionId: session.id });
+      await appendLiveMarketAudit({
+        prisma,
+        entityType: 'LiveMarketSession',
+        entityId: session.id,
+        action: 'provider_connected',
+        fromStatus: session.state,
+        toStatus: 'LIVE',
+        actorId: null,
+        reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_CONNECTED,
+        metadata: { eventType, eventId },
+      });
+    } else if (eventType.includes('disconnect')) {
+      await disconnectProviderSession({ prisma, sessionId: session.id });
+      await appendLiveMarketAudit({
+        prisma,
+        entityType: 'LiveMarketSession',
+        entityId: session.id,
+        action: 'provider_disconnected',
+        fromStatus: session.state,
+        toStatus: null,
+        actorId: null,
+        reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_DISCONNECTED,
+        metadata: { eventType, eventId },
+      });
+    } else if (eventType.includes('error') || eventType.includes('fail')) {
+      await appendLiveMarketAudit({
+        prisma,
+        entityType: 'LiveMarketSession',
+        entityId: session.id,
+        action: 'provider_error',
+        fromStatus: session.state,
+        toStatus: session.state,
+        actorId: null,
+        reason: LIVE_MARKET_AUDIT_REASONS.PROVIDER_ERROR,
+        metadata: { eventType, eventId },
+      });
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    if (err?.code === LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_EVENT_INVALID) {
+      return res.status(401).json({ ok: false, error: err.code });
+    }
+    if (err?.code === LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_NOT_CONFIGURED) {
+      return res.status(503).json({ ok: false, error: err.code });
+    }
+    return res.status(200).json({ ok: true });
   }
 });

@@ -31,6 +31,11 @@ describe('liveMarket feature flags', () => {
     'ENABLE_LIVE_BROADCAST_V1',
     'ENABLE_LIVE_CLOUDFLARE_STREAM_V1',
     'ENABLE_LIVE_CLOUDFLARE_WEBRTC_V1',
+    'ENABLE_LIVE_RTMPS_HOST_V1',
+    'ENABLE_LIVE_STOREFRONT_PLAYER_V1',
+    'ENABLE_LIVE_GLOBAL_PLAYER_V1',
+    'ENABLE_LIVE_RECORDING_V1',
+    'ENABLE_LIVE_REPLAY_V1',
     'ENABLE_LIVE_MARKET_STOREFRONT_PUBLISH_V1',
     'ENABLE_LIVE_MARKET_STOREFRONT_CONSUME_V1',
     'ENABLE_LIVE_MARKET_GLOBAL_FEED_V1',
@@ -70,6 +75,11 @@ describe('liveMarket feature flags', () => {
       broadcastV1: false,
       cloudflareStreamV1: false,
       cloudflareWebRtcV1: false,
+      rtmpsHostV1: false,
+      storefrontPlayerV1: false,
+      globalPlayerV1: false,
+      recordingV1: false,
+      replayV1: false,
       storefrontPublishV1: false,
       storefrontConsumeV1: false,
       globalFeedV1: false,
@@ -135,9 +145,11 @@ describe('liveMarket session transitions', () => {
     expect(r.code).toBe(LIVE_MARKET_ERROR_CODES.LIVE_INVALID_TRANSITION);
   });
 
-  it('allows READY → LIVE only as a later provider-backed step', () => {
+  it('requires CONNECTING before LIVE (provider-backed)', () => {
     expect(assertSessionTransition('SCHEDULED', 'READY').ok).toBe(true);
-    expect(assertSessionTransition('READY', 'LIVE').ok).toBe(true);
+    expect(assertSessionTransition('READY', 'LIVE').ok).toBe(false);
+    expect(assertSessionTransition('READY', 'CONNECTING').ok).toBe(true);
+    expect(assertSessionTransition('CONNECTING', 'LIVE').ok).toBe(true);
   });
 });
 
@@ -319,7 +331,7 @@ describe('liveMarket provider ports', () => {
     expect(resolveLiveVideoProvider()).toBeInstanceOf(NotConfiguredLiveVideoProvider);
   });
 
-  it('FakeLiveVideoProvider can prepare/start for tests only', async () => {
+  it('FakeLiveVideoProvider requires explicit connected confirmation for LIVE tests', async () => {
     const fake = new FakeLiveVideoProvider();
     const prepared = await fake.prepareSession({
       sessionId: 'sess-1',
@@ -328,7 +340,9 @@ describe('liveMarket provider ports', () => {
     });
     expect(prepared.status).toBe('prepared');
     const started = await fake.startSession({ sessionId: 'sess-1', storeId: 's1' });
-    expect(started.status).toBe('live');
+    expect(started.status).toBe('prepared');
+    const live = fake.confirmConnected('sess-1');
+    expect(live.status).toBe('live');
   });
 });
 

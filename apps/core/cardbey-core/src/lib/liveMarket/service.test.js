@@ -14,6 +14,7 @@ import {
   createSession,
   getOwnerLiveMarketStatus,
   prepareSession,
+  startSession,
   scheduleSession,
   setSessionSubjects,
   transitionEnrollment,
@@ -363,6 +364,41 @@ describe('liveMarket service (Batch B)', () => {
     });
     expect(ready.state).toBe('READY');
     expect(ready.providerExternalRef).toMatch(/^fake:/);
+  });
+
+  it('startSession records CONNECTING until provider evidence confirms LIVE', async () => {
+    const prisma = makePrismaMock();
+    prisma._businesses.set('store1', { id: 'store1', userId: 'owner1', name: 'Demo', isActive: true });
+    await createEnrollment({ prisma, storeId: 'store1', actorId: 'a', state: 'ACTIVE' });
+    const provider = new FakeLiveVideoProvider();
+    const session = await createSession({
+      prisma,
+      storeId: 'store1',
+      hostUserId: 'owner1',
+      title: 'VI live',
+    });
+    await scheduleSession({
+      prisma,
+      storeId: 'store1',
+      sessionId: session.id,
+      hostUserId: 'owner1',
+    });
+    await prepareSession({
+      prisma,
+      storeId: 'store1',
+      sessionId: session.id,
+      hostUserId: 'owner1',
+      videoProvider: provider,
+    });
+    const connecting = await startSession({
+      prisma,
+      storeId: 'store1',
+      sessionId: session.id,
+      hostUserId: 'owner1',
+      videoProvider: provider,
+    });
+    expect(connecting.state).toBe('CONNECTING');
+    expect(connecting.startedAt).toBeNull();
   });
 
   it('validates subjects against Product.businessId and accepts PRODUCT+SERVICE', async () => {

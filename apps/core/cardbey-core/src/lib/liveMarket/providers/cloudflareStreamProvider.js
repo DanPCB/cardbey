@@ -8,10 +8,11 @@
  * Resource strategy: one live input per Cardbey session.
  * providerExternalRef must store only the Cloudflare live-input UID (never WHIP/WHEP URLs).
  *
- * Sensitive: prepareSession returns whipPublishUrl / whepPlaybackUrl only on an internal
- * sensitiveCapabilities object for a future authorized credentials endpoint — not for logs/DTOs.
+ * Sensitive: prepareSession returns RTMPS / WHIP / WHEP capabilities only on an internal
+ * sensitiveCapabilities object for future authorized endpoints — never for logs/public DTOs.
  */
 
+import Features from '../../../config/features.js';
 import { LIVE_MARKET_ERROR_CODES, liveMarketError } from '../domain.js';
 import { redactCloudflareSecrets, safeCloudflareErrorMessage } from './cloudflareStreamRedact.js';
 import { assertCloudflareStreamWebhookSignature } from './cloudflareWebhookVerify.js';
@@ -22,8 +23,10 @@ import { assertCloudflareStreamWebhookSignature } from './cloudflareWebhookVerif
 
 /**
  * @typedef {object} CloudflareSensitiveCapabilities
- * @property {string} whipPublishUrl Sensitive WHIP publish capability — do not persist/log
- * @property {string} whepPlaybackUrl Internal WHEP playback URL — Slice A only; not public
+ * @property {string} [rtmpsUrl] Sensitive RTMPS ingest URL — do not persist/log
+ * @property {string} [rtmpsStreamKey] Sensitive RTMPS stream key — do not persist/log
+ * @property {string} [whipPublishUrl] Sensitive WHIP publish capability — do not persist/log
+ * @property {string} [whepPlaybackUrl] Internal WHEP playback URL — Slice A only; not public
  */
 
 /**
@@ -51,8 +54,11 @@ function mapHttpStatusToCode(status, fallback = LIVE_MARKET_ERROR_CODES.LIVE_PRO
  *   uid: string,
  *   status: string | null,
  *   enabled: boolean | null,
+ *   meta: Record<string, unknown> | null,
  *   whipPublishUrl: string | null,
  *   whepPlaybackUrl: string | null,
+ *   rtmpsUrl: string | null,
+ *   rtmpsStreamKey: string | null,
  * }}
  */
 export function normalizeCloudflareLiveInput(result) {
@@ -61,12 +67,16 @@ export function normalizeCloudflareLiveInput(result) {
   const webRTC = row.webRTC && typeof row.webRTC === 'object' ? row.webRTC : {};
   const webRTCPlayback =
     row.webRTCPlayback && typeof row.webRTCPlayback === 'object' ? row.webRTCPlayback : {};
+  const rtmps = row.rtmps && typeof row.rtmps === 'object' ? row.rtmps : {};
   return {
     uid,
     status: row.status == null ? null : String(row.status),
     enabled: typeof row.enabled === 'boolean' ? row.enabled : null,
+    meta: row.meta && typeof row.meta === 'object' ? row.meta : null,
     whipPublishUrl: webRTC.url ? String(webRTC.url) : null,
     whepPlaybackUrl: webRTCPlayback.url ? String(webRTCPlayback.url) : null,
+    rtmpsUrl: rtmps.url ? String(rtmps.url) : null,
+    rtmpsStreamKey: rtmps.streamKey ? String(rtmps.streamKey) : null,
   };
 }
 
@@ -81,6 +91,7 @@ export function mapLiveInputToVideoSessionState(normalized, sessionId) {
   if (normalized.enabled === false) status = 'ended';
   else if (statusRaw === 'connected') status = 'live';
   else if (statusRaw === 'disconnected' || statusRaw === 'reconnecting') status = 'prepared';
+  else if (!statusRaw && normalized.enabled) status = 'connecting';
   else if (!normalized.uid) status = 'unknown';
   return {
     sessionId: String(sessionId || ''),
@@ -96,8 +107,8 @@ export class CloudflareStreamLiveVideoProvider {
   /** Experimental WebRTC transport — still beta per Cloudflare docs. */
   experimental = true;
 
-  /** Slice A: adapter may be selected; owner prepare/start capabilities stay locked. */
-  unlocksOwnerPrepareStart = false;
+  /** RTMPS pilot may unlock owner prepare/start while LIVE remains provider-evidence only. */
+  unlocksOwnerPrepareStart;
 
   /** @type {CloudflareStreamConfig} */
   #config;
@@ -112,6 +123,7 @@ export class CloudflareStreamLiveVideoProvider {
    * @param {{
    *   config: CloudflareStreamConfig,
    *   fetchImpl?: typeof fetch,
+   *   rtmpsHostEnabled?: boolean,
    * }} args
    */
   constructor(args) {
@@ -123,6 +135,7 @@ export class CloudflareStreamLiveVideoProvider {
     }
     this.#config = args.config;
     this.#fetch = args.fetchImpl || globalThis.fetch.bind(globalThis);
+    this.unlocksOwnerPrepareStart = args.rtmpsHostEnabled !== false;
   }
 
   #secrets() {
@@ -131,6 +144,25 @@ export class CloudflareStreamLiveVideoProvider {
 
   #apiBase() {
     return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(this.#config.accountId)}/stream/live_inputs`;
+  }
+
+  /**
+   * @param {string} uid
+   */
+  #publicPlaybackInfoForUid(uid) {
+    const liveInputUid = String(uid || '').trim();
+    if (!liveInputUid) return null;
+    const customerCode = String(this.#config.customerCode || '').trim();
+    return {
+      provider: 'cloudflare_stream',
+      liveInputUid,
+      hlsUrl: customerCode
+        ? `https://customer-${customerCode}.cloudflarestream.com/${liveInputUid}/manifest/video.m3u8`
+        : null,
+      iframeSrc: customerCode
+        ? `https://customer-${customerCode}.cloudflarestream.com/${liveInputUid}/iframe`
+        : null,
+    };
   }
 
   /**
@@ -225,8 +257,8 @@ export class CloudflareStreamLiveVideoProvider {
       );
     }
 
-    // Recording mode is set off: WebRTC beta docs (2026-08-13) state recording is not supported.
-    // Do not claim or enable recording in Slice A.
+    const recordingMode =
+      Features.liveMarket.recordingV1 && input?.recordingEnabled ? 'automatic' : 'off';
     const body = {
       meta: {
         name: String(input?.title || `cardbey-live-${sessionId}`).slice(0, 120),
@@ -234,9 +266,11 @@ export class CloudflareStreamLiveVideoProvider {
         cardbeyStoreId: storeId,
       },
       recording: {
-        mode: 'off',
+        mode: recordingMode,
       },
-      // Prefer low-latency path is separate from WebRTC; leave default.
+      ...(Array.isArray(this.#config.allowedOrigins) && this.#config.allowedOrigins.length
+        ? { allowedOrigins: [...this.#config.allowedOrigins] }
+        : {}),
     };
 
     let json;
@@ -266,15 +300,23 @@ export class CloudflareStreamLiveVideoProvider {
         { provider: 'cloudflare_stream' },
       );
     }
-    if (!normalized.whipPublishUrl || !normalized.whepPlaybackUrl) {
-      throw liveMarketError(
-        LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_PREPARE_FAILED,
-        'Cloudflare Stream live input missing WebRTC WHIP/WHEP URLs',
-        { provider: 'cloudflare_stream' },
-      );
-    }
 
     this.#sessionToUid.set(sessionId, normalized.uid);
+
+    /** @type {CloudflareSensitiveCapabilities | undefined} */
+    let sensitiveCapabilities;
+    if (
+      normalized.rtmpsUrl ||
+      normalized.rtmpsStreamKey ||
+      normalized.whipPublishUrl ||
+      normalized.whepPlaybackUrl
+    ) {
+      sensitiveCapabilities = {};
+      if (normalized.rtmpsUrl) sensitiveCapabilities.rtmpsUrl = normalized.rtmpsUrl;
+      if (normalized.rtmpsStreamKey) sensitiveCapabilities.rtmpsStreamKey = normalized.rtmpsStreamKey;
+      if (normalized.whipPublishUrl) sensitiveCapabilities.whipPublishUrl = normalized.whipPublishUrl;
+      if (normalized.whepPlaybackUrl) sensitiveCapabilities.whepPlaybackUrl = normalized.whepPlaybackUrl;
+    }
 
     /** @type {CloudflarePreparedSession} */
     const prepared = {
@@ -282,10 +324,7 @@ export class CloudflareStreamLiveVideoProvider {
       status: 'prepared',
       // Persistable correlation id only — never the WHIP capability
       externalRef: normalized.uid,
-      sensitiveCapabilities: {
-        whipPublishUrl: normalized.whipPublishUrl,
-        whepPlaybackUrl: normalized.whepPlaybackUrl,
-      },
+      ...(sensitiveCapabilities ? { sensitiveCapabilities } : {}),
     };
     return prepared;
   }
@@ -305,8 +344,14 @@ export class CloudflareStreamLiveVideoProvider {
         { provider: 'cloudflare_stream' },
       );
     }
-    // Never promote to live here — return prepared/idle until connected evidence exists.
-    if (state.status === 'live') return state;
+    // Never promote to live here — owner click may at most reflect CONNECTING.
+    if (state.status === 'connecting' || state.status === 'live') {
+      return {
+        sessionId,
+        status: 'connecting',
+        externalRef: state.externalRef,
+      };
+    }
     return {
       sessionId,
       status: 'prepared',
@@ -399,6 +444,155 @@ export class CloudflareStreamLiveVideoProvider {
   }
 
   /**
+   * @param {string} uid
+   */
+  async enableLiveInput(uid) {
+    const liveInputUid = String(uid || '').trim();
+    if (!liveInputUid) {
+      throw liveMarketError(
+        LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_RESOURCE_NOT_FOUND,
+        'Cloudflare live input uid is required',
+        { provider: 'cloudflare_stream' },
+      );
+    }
+    const json = await this.#request(`/${encodeURIComponent(liveInputUid)}`, {
+      method: 'PUT',
+      body: { enabled: true },
+      retryReads: false,
+    });
+    return normalizeCloudflareLiveInput(json?.result);
+  }
+
+  /**
+   * @param {string} uid
+   */
+  async disableLiveInput(uid) {
+    const liveInputUid = String(uid || '').trim();
+    if (!liveInputUid) {
+      throw liveMarketError(
+        LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_RESOURCE_NOT_FOUND,
+        'Cloudflare live input uid is required',
+        { provider: 'cloudflare_stream' },
+      );
+    }
+    const json = await this.#request(`/${encodeURIComponent(liveInputUid)}`, {
+      method: 'PUT',
+      body: { enabled: false },
+      retryReads: false,
+    });
+    return normalizeCloudflareLiveInput(json?.result);
+  }
+
+  /**
+   * @param {{ sessionId?: string, externalRef?: string, uid?: string }} input
+   */
+  async getRtmpsCredentials(input) {
+    const sessionId = String(input?.sessionId || '').trim();
+    const uid =
+      String(input?.uid || input?.externalRef || '').trim() ||
+      this.#sessionToUid.get(sessionId) ||
+      '';
+    if (!uid) {
+      throw liveMarketError(
+        LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_RESOURCE_NOT_FOUND,
+        'Cloudflare live input not found for RTMPS credentials',
+        { provider: 'cloudflare_stream' },
+      );
+    }
+    const json = await this.#request(`/${encodeURIComponent(uid)}`, {
+      method: 'GET',
+      retryReads: true,
+    });
+    const normalized = normalizeCloudflareLiveInput(json?.result);
+    if (!normalized.uid) {
+      throw liveMarketError(
+        LIVE_MARKET_ERROR_CODES.LIVE_PROVIDER_RESOURCE_NOT_FOUND,
+        'Cloudflare live input missing uid',
+        { provider: 'cloudflare_stream' },
+      );
+    }
+    this.#sessionToUid.set(sessionId, normalized.uid);
+    return {
+      sessionId,
+      externalRef: normalized.uid,
+      rtmpsUrl: normalized.rtmpsUrl || null,
+      rtmpsStreamKey: normalized.rtmpsStreamKey || null,
+      whipPublishUrl: normalized.whipPublishUrl || null,
+      whepPlaybackUrl: normalized.whepPlaybackUrl || null,
+    };
+  }
+
+  /**
+   * @param {{ externalRef?: string, uid?: string }} input
+   */
+  async getPublicPlaybackInfo(input) {
+    const uid = String(input?.uid || input?.externalRef || '').trim();
+    if (!uid) return null;
+    return this.#publicPlaybackInfoForUid(uid);
+  }
+
+  /**
+   * @param {string} uid
+   */
+  async listVideosForInput(uid) {
+    const liveInputUid = String(uid || '').trim();
+    if (!liveInputUid) return [];
+    const json = await this.#request(`/${encodeURIComponent(liveInputUid)}/videos`, {
+      method: 'GET',
+      retryReads: true,
+    });
+    const rows = Array.isArray(json?.result?.videos)
+      ? json.result.videos
+      : Array.isArray(json?.result)
+        ? json.result
+        : [];
+    return rows.map((row) => ({
+      uid: String(row?.uid || '').trim() || null,
+      status: row?.status == null ? null : String(row.status),
+      readyToStream: row?.readyToStream == null ? null : Boolean(row.readyToStream),
+      created: row?.created ?? null,
+      duration: Number.isFinite(row?.duration) ? Number(row.duration) : null,
+      meta: row?.meta && typeof row.meta === 'object' ? row.meta : null,
+    }));
+  }
+
+  /**
+   * @param {{ sessionId?: string, externalRef?: string, uid?: string }} input
+   */
+  async reconcileLiveInputStatus(input) {
+    const sessionId = String(input?.sessionId || '').trim();
+    const uid =
+      String(input?.uid || input?.externalRef || '').trim() ||
+      this.#sessionToUid.get(sessionId) ||
+      '';
+    if (!uid) {
+      return {
+        sessionId,
+        status: 'idle',
+        externalRef: undefined,
+        providerConfirmedLive: false,
+        playbackInfo: null,
+      };
+    }
+
+    const json = await this.#request(`/${encodeURIComponent(uid)}`, {
+      method: 'GET',
+      retryReads: true,
+    });
+    const normalized = normalizeCloudflareLiveInput(json?.result);
+    const externalRef = normalized.uid || uid;
+    this.#sessionToUid.set(sessionId, externalRef);
+    const state = mapLiveInputToVideoSessionState({ ...normalized, uid: externalRef }, sessionId);
+    return {
+      ...state,
+      providerStatus: normalized.status,
+      providerEnabled: normalized.enabled,
+      providerConfirmedLive: state.status === 'live',
+      playbackInfo: this.#publicPlaybackInfoForUid(externalRef),
+    };
+  }
+
+  /**
    * Verifies webhook signature only. Does not drive lifecycle in Slice A.
    * @param {import('../providers.js').VerifyWebhookInput} input
    */
@@ -464,6 +658,7 @@ export class CloudflareStreamLiveVideoProvider {
  * @param {{
  *   config: CloudflareStreamConfig,
  *   fetchImpl?: typeof fetch,
+ *   rtmpsHostEnabled?: boolean,
  * }} args
  */
 export function createCloudflareStreamLiveVideoProvider(args) {

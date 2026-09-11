@@ -25,7 +25,13 @@ export {
   verifyCloudflareStreamWebhookSignature,
   parseCloudflareWebhookSignatureHeader,
 } from './providers/cloudflareWebhookVerify.js';
+export {
+  verifyCloudflareNotificationsAuth,
+  assertCloudflareNotificationsAuth,
+} from './providers/cloudflareNotificationsAuth.js';
 export { redactCloudflareSecrets, redactCloudflareCapabilityUrl } from './providers/cloudflareStreamRedact.js';
+export { reconcilePilotSessions } from './reconcile.js';
+export { buildPublicPlaybackDto } from './publicPlayback.js';
 export { appendLiveMarketAudit, redactLiveMarketAuditValue } from './audit.js';
 export {
   liveMarketOwnerRoutes,

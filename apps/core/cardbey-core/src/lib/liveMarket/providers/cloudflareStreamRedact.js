@@ -5,6 +5,7 @@
 
 const WHIP_HINT = /webRTC\/publish|\/whip\b/i;
 const WHEP_HINT = /webRTC\/play|\/whep\b/i;
+const RTMPS_HINT = /\brtmps:\/\/|\bstreamkey\b/i;
 const TOKENISH = /\b(Bearer\s+)?[A-Za-z0-9_-]{20,}\b/g;
 
 /**
@@ -19,6 +20,9 @@ export function redactCloudflareCapabilityUrl(value) {
   }
   if (WHEP_HINT.test(s) || /cloudflarestream\.com\/[^/\s]+\/webRTC\/play/i.test(s)) {
     return '[REDACTED_WHEP_URL]';
+  }
+  if (RTMPS_HINT.test(s) || /live\.cloudflare\.com/i.test(s)) {
+    return '[REDACTED_RTMPS_VALUE]';
   }
   if (/cloudflarestream\.com/i.test(s)) {
     return '[REDACTED_STREAM_URL]';
@@ -55,6 +59,8 @@ export function redactCloudflareSecrets(value, secrets = {}) {
       if (
         key.includes('token') ||
         key.includes('secret') ||
+        key.includes('streamkey') ||
+        key.includes('rtmps') ||
         key === 'authorization' ||
         key === 'whipurl' ||
         key === 'whip' ||
