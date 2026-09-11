@@ -2857,6 +2857,30 @@ model ContentInteractionViewerState {
   @@index([viewerKey])
 }
 
+// Platform-wide activity comments (Business Space, Global, future surfaces).
+// Keyed by content-interactions identity (contentType + contentId), not a Space-only fork.
+model Comment {
+  id              String   @id @default(cuid())
+  contentType     String
+  contentId       String
+  activityId      String?
+  storeId         String?
+  actorUserId     String
+  actorType       String   @default("user")
+  text            String
+  parentCommentId String?
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([contentType, contentId, createdAt])
+  @@index([contentId, createdAt])
+  @@index([actorUserId])
+  @@index([activityId])
+  @@index([storeId])
+  @@index([status])
+}
+
 // Canonical store engagement — every interaction writes StoreActivityEvent; snapshots are derived.
 model StoreActivityEvent {
   id           String   @id @default(cuid())

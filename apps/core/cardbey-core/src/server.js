@@ -171,6 +171,7 @@ import storesRoutes from './routes/stores.js';
 import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
 import storeShowsRoutes from './routes/storeShowsRoutes.js';
 import spacePostRoutes from './routes/spacePostRoutes.js';
+import activityCommentRoutes from './routes/activityCommentRoutes.js';
 import performerContentEditingBridgeRoutes from './routes/performerContentEditingBridgeRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
@@ -1107,6 +1108,7 @@ app.use('/api/performer', performerRoutes); // Performer app routes (lastSession
 app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
 app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
 app.use('/api/stores', spacePostRoutes); // Space Post V1: POST /:storeId/space-updates
+app.use('/api/activities', activityCommentRoutes); // Platform comments: GET/POST /:activityId/comments
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
 app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
