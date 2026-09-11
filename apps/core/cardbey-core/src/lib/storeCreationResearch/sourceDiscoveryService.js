@@ -16,6 +16,7 @@ import { normalizeWebsite, cleanString } from '../businessDiscovery/businessData
 import { discoverBookwellVenueSource } from './bookwellVenueDiscovery.js';
 import { resolveStoreResearchInputFields } from './researchInputFields.js';
 import { RESEARCH_LOG } from './types.js';
+import { scoreSourceMatch } from './sourceConfidenceScorer.js';
 
 /** @type {import('./types.js').DiscoveredSource['sourceType'][]} */
 const SOURCE_PRIORITY = [
@@ -67,10 +68,11 @@ function pushDiscoveredSocialLinks(discovered, socialLinks, businessName, priori
  * @param {(msg: string, meta?: object) => void} [log]
  * @returns {Promise<import('./types.js').DiscoveredSource[]>}
  */
-export async function discoverSources(input, log = defaultLog) {
+export async function discoverSources(input, log = defaultLog, options = {}) {
   const fields = resolveStoreResearchInputFields({}, input);
   const discovered = [];
   let priority = 0;
+  const skipGooglePlaces = options?.skipGooglePlaces === true;
 
   const website = fields.website;
   if (website) {
@@ -88,6 +90,7 @@ export async function discoverSources(input, log = defaultLog) {
 
   const name = fields.businessName;
   const location = fields.location;
+  if (!skipGooglePlaces) {
   if (name && !isGooglePlacesConfigured()) {
     log('[STORE_RESEARCH_GOOGLE_PLACES_SKIPPED]', { reason: 'not_configured' });
   }
@@ -106,8 +109,36 @@ export async function discoverSources(input, log = defaultLog) {
       });
     }
     for (const p of places) {
-      let raw = { ...(p.raw ?? {}) };
-      const placeId = raw.placeId ?? raw.sourceId ?? null;
+  let raw = { ...(p.raw ?? {}) };
+
+  // Google Places provides candidates only.
+  // Cardbey identity authority must approve a candidate before
+  // Place Details / website content can enter the evidence pool.
+  const preliminarySource = {
+    sourceType: 'google_business',
+    sourceUrl: p.attribution?.sourceUrl ?? raw.googleMapsUri ?? null,
+    raw,
+    priority,
+  };
+
+  const identityMatch = scoreSourceMatch(preliminarySource, fields);
+
+  if (!identityMatch.matched) {
+    log('[STORE_RESEARCH_GOOGLE_CANDIDATE_REJECTED]', {
+      candidateName: raw.name ?? raw.businessName ?? null,
+      confidence: identityMatch.confidence,
+      reasons: identityMatch.reasons,
+    });
+    continue;
+  }
+
+  log('[STORE_RESEARCH_GOOGLE_CANDIDATE_ACCEPTED]', {
+    candidateName: raw.name ?? raw.businessName ?? null,
+    confidence: identityMatch.confidence,
+    reasons: identityMatch.reasons,
+  });
+
+  const placeId = raw.placeId ?? raw.sourceId ?? null;
       if (placeId) {
         const details = await fetchGooglePlaceDetails(String(placeId));
         if (details) {
@@ -143,7 +174,7 @@ export async function discoverSources(input, log = defaultLog) {
               discovered.push({
                 sourceType: 'official_website',
                 sourceUrl: websiteUrl,
-                raw: { ...details, website: websiteUrl, name, offers: [] },
+                raw: { ...details, website: websiteUrl, name: details.name ?? raw.name ?? null, offers: [] },
                 priority: priority++,
               });
               log(RESEARCH_LOG.SOURCE_DISCOVERED, {
@@ -169,6 +200,7 @@ export async function discoverSources(input, log = defaultLog) {
       });
     }
   }
+  } // end !skipGooglePlaces
 
   const social = fields.socialLinks && typeof fields.socialLinks === 'object' ? fields.socialLinks : {};
   for (const [platform, url] of Object.entries(social)) {

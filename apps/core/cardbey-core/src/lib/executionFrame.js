@@ -2,7 +2,6 @@
  * Execution frame — resolves locale for Performer tool dispatch (content generation).
  */
 
-import { getPrismaClient } from './prisma.js';
 import { normalizeLocale } from './localePrompt.js';
 
 function isMaintenanceExecutionContext(context) {
@@ -26,22 +25,11 @@ async function lookupBusinessLocale(storeId, cache) {
   const id = typeof storeId === 'string' ? storeId.trim() : '';
   if (!id) return 'en';
   if (cache.has(id)) return cache.get(id);
-  try {
-    const prisma = getPrismaClient();
-    const row = await prisma.business.findUnique({
-      where: { id },
-      select: { locale: true },
-    });
-    const locale = normalizeLocale(row?.locale);
-    cache.set(id, locale);
-    return locale;
-  } catch {
-    // DANH: fix-locale-schema-drift
-    // Business.locale does not exist in schema — this query always fails; catch returns 'en'.
-    // TODO: remove locale lookup or add locale to schema.
-    cache.set(id, 'en');
-    return 'en';
-  }
+  // Business.locale is not in the Prisma schema — do not query it (avoids noisy prisma:error on every tool dispatch).
+  // Prefer context.locale / region when callers pass them; otherwise default en.
+  const locale = 'en';
+  cache.set(id, locale);
+  return locale;
 }
 
 /**

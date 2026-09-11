@@ -5,6 +5,7 @@
 import { matchCandidates } from '../businessDiscovery/businessEntityResolver.js';
 import { cleanString, normalizePhone, normalizeWebsite, websiteHost } from '../businessDiscovery/businessDataNormalizer.js';
 import { venueSlugMatchesName } from './bookwellVenueDiscovery.js';
+import { CONFIDENCE } from './types.js';
 
 /**
  * @param {string|null|undefined} url
@@ -105,13 +106,54 @@ export function scoreSourceMatch(source, identity) {
     confidence = Math.min(1, Math.max(confidence, 0.82));
   }
 
+  // Google-derived candidates must not become authoritative from source type
+  // alone. With no independent identity evidence, require strong name agreement.
+  const googleDerived =
+    source.sourceType === 'google_business' ||
+    raw.discoveryVia === 'google_places' ||
+    raw.discoveryVia === 'google_places_new' ||
+    raw.discoveryVia === 'google_place_details';
+
+  const meaningfulExpectedLocation =
+    expected.location &&
+    !/^(location unavailable|unknown|n\/a|not provided)$/i.test(
+      String(expected.location).trim(),
+    );
+
+  const hasIndependentIdentityEvidence =
+    Boolean(expected.website) ||
+    Boolean(expected.phone) ||
+    Boolean(meaningfulExpectedLocation) ||
+    reasons.includes('social-handle');
+
+  const candidateNameSimilarity =
+    candidate.name && expected.name
+      ? slugSimilarity(expected.name, candidate.name)
+      : 0;
+
+  if (
+    googleDerived &&
+    !hasIndependentIdentityEvidence &&
+    candidateNameSimilarity < 0.8
+  ) {
+    return {
+      matched: false,
+      confidence: Math.min(confidence, 0.54),
+      reasons: [...new Set([...reasons, 'google-candidate-name-mismatch'])],
+      source,
+    };
+  }
+
   const matched =
-    signal.matched ||
-    confidence >= 0.55 ||
-    reasons.includes('bookwell-venue-menu') ||
-    reasons.includes('bookwell-venue-slug') ||
-    reasons.includes('google-place-name');
-  return { matched, confidence, reasons, source };
+    confidence >= CONFIDENCE.USE &&
+    (reasons.includes('phone') ||
+      reasons.includes('website') ||
+      reasons.includes('name-exact') ||
+      reasons.includes('domain-exact') ||
+      reasons.includes('document-name') ||
+      reasons.includes('google-place-website') ||
+      reasons.includes('bookwell-venue-menu'));
+  return { matched, confidence, reasons: [...new Set(reasons)], source };
 }
 
 function gbpWebsiteHost(match) {
@@ -127,8 +169,13 @@ function gbpWebsiteHost(match) {
  */
 export function attachOfficialWebsiteWhenGbpMatches(scored) {
   if (!Array.isArray(scored) || scored.length === 0) return scored;
+  // Prefer verified GBP; also allow high-confidence GBP with a website host so
+  // schema/nav offers can attach even when name-alone is not Path-A verified.
   const gbpHits = scored.filter(
-    (m) => m?.matched && m.source?.sourceType === 'google_business' && gbpWebsiteHost(m),
+    (m) =>
+      m?.source?.sourceType === 'google_business' &&
+      gbpWebsiteHost(m) &&
+      (m.matched === true || (typeof m.confidence === 'number' && m.confidence >= CONFIDENCE.USE)),
   );
   if (!gbpHits.length) return scored;
 

@@ -241,6 +241,8 @@ export async function refreshPublishSnapshotFromCurrentPreview(prisma, draftId) 
   logTag('PUBLISH_SNAPSHOT_SAVE', {
     draftId,
     generationRunId: snapshot?.generationRunId,
+    missionId: snapshot?.missionId,
+    storeId: snapshot?.storeId,
     snapshotVersion: snapshot?.version,
     fingerprint: snapshot?.sourceFingerprint,
     productCount: products.length,
@@ -307,6 +309,8 @@ export async function ensurePublishSnapshot(prisma, draftId) {
       logTag('PUBLISH_SNAPSHOT_SAVE', {
         draftId,
         generationRunId: snapshot.generationRunId,
+        missionId: snapshot.missionId,
+        storeId: snapshot.storeId,
         snapshotVersion: nextVersion,
         fingerprint: snapshot.sourceFingerprint,
         productCount: previewProducts.length,
@@ -342,6 +346,8 @@ export async function ensurePublishSnapshot(prisma, draftId) {
   logTag('PUBLISH_SNAPSHOT_SAVE', {
     draftId,
     generationRunId: snapshot.generationRunId,
+    missionId: snapshot.missionId,
+    storeId: snapshot.storeId,
     snapshotVersion: nextVersion,
     fingerprint: snapshot.sourceFingerprint,
     productCount: snapshot.catalog?.products?.length,
@@ -413,6 +419,8 @@ export async function patchPublishSnapshot(prisma, draftId, patch, opts = {}) {
   logTag('PUBLISH_SNAPSHOT_SAVE', {
     draftId,
     generationRunId: merged.generationRunId,
+    missionId: merged.missionId,
+    storeId: merged.storeId,
     snapshotVersion: nextVersion,
     fingerprint: merged.sourceFingerprint,
     productCount: merged.catalog?.products?.length,
@@ -445,6 +453,8 @@ export async function syncPublishSnapshotFromPreview(prisma, draftId, mergedPrev
   logTag('PUBLISH_SNAPSHOT_SAVE', {
     draftId,
     generationRunId: snapshot.generationRunId,
+    missionId: snapshot.missionId,
+    storeId: snapshot.storeId,
     snapshotVersion: version,
     fingerprint: snapshot.sourceFingerprint,
     productCount: snapshot.catalog?.products?.length,

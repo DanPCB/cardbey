@@ -131,6 +131,41 @@ function normalizeNameKey(value) {
  * @param {object} candidate
  * @param {{ ambiguous?: boolean, sharedBrandWebsite?: string|null, inputName?: string }} opts
  */
+function hasDefensibleStrongIdentity(candidate, input = {}) {
+  if (!candidate) return false;
+
+  const reasons = Array.isArray(candidate.matchReasons)
+    ? candidate.matchReasons
+    : [];
+
+  const hasOwnerWebsite =
+    Boolean(input.websiteHint) &&
+    reasons.some((r) => r === 'website' || r === 'domain-exact');
+
+  const hasOwnerPhone =
+    Boolean(input.phoneHint) &&
+    reasons.includes('phone');
+
+  const meaningfulLocation =
+    input.location &&
+    !/^(location unavailable|unknown|n\/a|not provided)$/i.test(
+      String(input.location).trim(),
+    );
+
+  const exactName = reasons.includes('name-exact');
+
+  const locationCorroborated =
+    Boolean(meaningfulLocation) &&
+    reasons.some((r) => r === 'locality' || r === 'location');
+
+  // Candidate-derived Google evidence cannot prove the identity
+  // of the same candidate.
+  if (hasOwnerWebsite) return true;
+  if (hasOwnerPhone) return true;
+  if (exactName && locationCorroborated) return true;
+
+  return false;
+}
 function canSoftSelectForResearch(candidate, { ambiguous, sharedBrandWebsite, inputName } = {}) {
   if (!candidate || ambiguous) return false;
   if (!(candidate.website || sharedBrandWebsite)) return false;
@@ -359,7 +394,8 @@ export async function resolveBusinessEntity(input) {
     candidates.length === AUTO_SELECT_MAX_CANDIDATES &&
     top &&
     top.confidence >= STRONG_MATCH_THRESHOLD &&
-    !ambiguous;
+    !ambiguous &&
+    hasDefensibleStrongIdentity(top, input);
 
   const sharedBrandWebsite = sharedBrandWebsiteFromCandidates(candidates);
 
@@ -427,5 +463,14 @@ export async function resolveBusinessEntity(input) {
 export function isExistingBusinessIntent(input) {
   const name = cleanString(input.businessName);
   if (!name || name.length < 2) return false;
-  return Boolean(cleanString(input.location) || input.websiteHint || input.phoneHint);
+  const location = cleanString(input.location);
+  const meaningfulLocation =
+    location &&
+    !/^(location unavailable|unknown|n\/a|not provided)$/i.test(location);
+
+  return Boolean(
+    meaningfulLocation ||
+    input.websiteHint ||
+    input.phoneHint
+  );
 }

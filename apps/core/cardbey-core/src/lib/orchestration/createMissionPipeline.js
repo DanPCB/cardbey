@@ -152,6 +152,22 @@ export async function confirmOrchestrationPipeline(pipelineId, userId) {
     throw new Error(`Pipeline ${id} is not an orchestration mission`);
   }
   if (pipeline.status !== 'awaiting_confirmation') {
+    // Idempotent: already confirmed / running / completed — return current status instead of 400.
+    const st = String(pipeline.status ?? '').trim().toLowerCase();
+    if (st === 'queued' || st === 'running' || st === 'completed' || st === 'planned') {
+      return {
+        ...pipeline,
+        confirmed: true,
+        confirmedBy: userId ?? pipeline.confirmedBy ?? null,
+        confirmedAt: pipeline.confirmedAt ?? new Date().toISOString(),
+        governanceTrace: pipeline.governanceTrace,
+        orchestration: {
+          stepsRun: 0,
+          stoppedReason: st === 'completed' ? 'completed' : 'already_started',
+        },
+        alreadyConfirmed: true,
+      };
+    }
     throw new Error(`Pipeline ${id} is not pending approval`);
   }
 

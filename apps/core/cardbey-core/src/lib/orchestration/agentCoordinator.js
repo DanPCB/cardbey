@@ -140,11 +140,31 @@ export class AgentCoordinator {
   }
 
   async fetchPriorWork() {
+    /** Same-run envelopes are authoritative — blackboard getEvents was historically missing on the adapter. */
+    const fromMemory = [];
+    for (const [taskId, entry] of this.results.entries()) {
+      const settled = entry?.settled;
+      const envelope =
+        settled?.status === 'fulfilled' && settled.value && typeof settled.value === 'object'
+          ? settled.value
+          : null;
+      if (!envelope) continue;
+      const agentType = String(envelope.agentType ?? entry?.task?.agentType ?? '').trim();
+      if (!agentType) continue;
+      fromMemory.push({
+        agentType,
+        taskId: String(envelope.taskId ?? taskId),
+        summary: envelope.summary ?? '',
+        result: envelope.result ?? null,
+        confidence: envelope.confidence,
+      });
+    }
+
     try {
-      if (!this.blackboard?.getEvents) return [];
+      if (!this.blackboard?.getEvents) return fromMemory;
       const raw = await this.blackboard.getEvents(this.missionId, 'agent_completed');
       const events = Array.isArray(raw) ? raw : raw?.events ?? [];
-      return events
+      const fromBb = events
         .map((ev) => {
           const payload = asObject(ev?.payload);
           return {
@@ -156,9 +176,15 @@ export class AgentCoordinator {
           };
         })
         .filter((p) => p.agentType);
+      if (!fromBb.length) return fromMemory;
+      // Memory wins on duplicate taskId (freshest envelope).
+      const byTask = new Map();
+      for (const p of fromBb) byTask.set(String(p.taskId ?? `${p.agentType}:${byTask.size}`), p);
+      for (const p of fromMemory) byTask.set(String(p.taskId ?? `${p.agentType}:${byTask.size}`), p);
+      return Array.from(byTask.values());
     } catch (e) {
       console.warn('[AgentCoordinator] fetchPriorWork failed (non-fatal):', e?.message || e);
-      return [];
+      return fromMemory;
     }
   }
 
