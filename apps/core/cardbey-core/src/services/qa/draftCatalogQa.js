@@ -52,6 +52,47 @@ function parsePrice(item) {
   return n;
 }
 
+/**
+ * Suggested / generative starters intentionally omit purchasable prices.
+ * Do not invent ladder prices or regenerate the catalog solely for null price.
+ * @param {object|null|undefined} item
+ * @param {object|null|undefined} preview
+ */
+function allowsHonestNullPrice(item, preview = {}) {
+  if (!item || typeof item !== 'object') return false;
+  if (item.priceWasNotExplicitlyProvided === true) return true;
+  if (String(item.contentOrigin ?? '').toLowerCase() === 'suggested') return true;
+  const mode = String(preview?.meta?.storeCreationMode ?? '').toLowerCase();
+  if (mode === 'generative') return true;
+  const src = String(preview?.meta?.catalogSource ?? '').toLowerCase();
+  if (
+    src === 'generative' ||
+    src === 'sparse_honest' ||
+    src === 'cuisine_template' ||
+    src === 'ai_generated_starter' ||
+    src === 'store_creation_catalog_recovery'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve coarse vertical for price ladders (prefer food.* / food_menu over "general").
+ * @param {string|null|undefined} verticalHint
+ * @param {string|null|undefined} fallbackHint
+ */
+function resolvePriceVertical(verticalHint, fallbackHint) {
+  const blob = `${verticalHint || ''} ${fallbackHint || ''}`.toLowerCase();
+  if (
+    blob.includes('food.') ||
+    /\b(food_menu|food_vietnamese|vietnamese|restaurant|cafe|menu|pho|bakery|bistro)\b/.test(blob)
+  ) {
+    return 'food';
+  }
+  return effectiveVertical(verticalHint, fallbackHint);
+}
+
 function isGenericProductName(name) {
   const n = String(name ?? '').trim();
   if (!n || n.length < 3) return true;
@@ -112,9 +153,13 @@ export function auditDraftCatalogQa(preview, input = {}) {
     let bad = false;
 
     if (parsePrice(item) == null) {
-      issues.push(`products[${index}]: missing or invalid price`);
-      issueCodes.push('PRODUCT_NULL_PRICE');
-      bad = true;
+      if (allowsHonestNullPrice(item, preview)) {
+        // Suggested / generative: null price is honest — do not force regenerate or invent ladder.
+      } else {
+        issues.push(`products[${index}]: missing or invalid price`);
+        issueCodes.push('PRODUCT_NULL_PRICE');
+        bad = true;
+      }
     }
     if (isGenericProductName(name)) {
       issues.push(`products[${index}]: generic placeholder name "${name}"`);
@@ -206,9 +251,19 @@ export function auditDraftCatalogQa(preview, input = {}) {
 }
 
 function defaultPriceForIndex(vertical, index) {
-  const v = effectiveVertical(vertical, vertical);
+  const v = resolvePriceVertical(vertical, vertical);
   const ladder = PRICE_DEFAULTS[v] || PRICE_DEFAULTS.products;
   return ladder[index % ladder.length];
+}
+
+function cuisineBankPriceAmount(it) {
+  if (!it || typeof it !== 'object') return null;
+  const n = parsePrice(it);
+  if (n != null) return n;
+  const raw = it.basePrice ?? it.amount;
+  if (raw == null || raw === '') return null;
+  const m = parseFloat(String(raw).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(m) && m > 0 ? m : null;
 }
 
 function serviceDescriptionFallback(name, profile) {
@@ -235,27 +290,40 @@ function buildReplacementProducts(profile, count, categories) {
       categoryId: it.categoryId || firstCatId,
     }));
   }
-  const cuisine = buildCuisineMenuCatalog(profile, Math.max(24, count + 4));
+  const cuisine = buildCuisineMenuCatalog(
+    { ...profile, allowBlueprintPrices: true },
+    Math.max(24, count + 4),
+  );
   if (cuisine?.items?.length) {
     const firstCatId = categories?.[0]?.id || cuisine.categories?.[0]?.id || 'cat_0';
-    return cuisine.items.slice(0, count).map((it, i) => ({
-      name: it.name,
-      description: it.description || `${it.name} — made fresh for you.`,
-      price: String(defaultPriceForIndex(profile.businessType || profile.verticalSlug, i)),
-      priceV1: { amount: defaultPriceForIndex(profile.businessType || profile.verticalSlug, i) },
-      categoryId: it.categoryId || firstCatId,
-    }));
+    const priceHint = profile.verticalSlug || profile.businessType;
+    return cuisine.items.slice(0, count).map((it, i) => {
+      const amt = cuisineBankPriceAmount(it) ?? defaultPriceForIndex(priceHint, i);
+      return {
+        name: it.name,
+        description: it.description || `${it.name} — made fresh for you.`,
+        price: String(amt),
+        priceV1: { amount: amt },
+        categoryId: it.categoryId || firstCatId,
+        contentOrigin: 'suggested',
+        priceWasNotExplicitlyProvided: true,
+      };
+    });
   }
   const seed = buildSeedCatalog(profile, { targetCount: Math.max(24, count + 4) });
   const seedItems = seed.items || [];
   const firstCatId = categories?.[0]?.id || seed.categories?.[0]?.id || 'cat_0';
-  return seedItems.slice(0, count).map((it, i) => ({
-    name: it.name,
-    description: it.description || `${it.name} — made fresh for you.`,
-    price: String(defaultPriceForIndex(profile.businessType || profile.verticalSlug, i)),
-    priceV1: { amount: defaultPriceForIndex(profile.businessType || profile.verticalSlug, i) },
-    categoryId: it.categoryId || firstCatId,
-  }));
+  const priceHint = profile.verticalSlug || profile.businessType;
+  return seedItems.slice(0, count).map((it, i) => {
+    const amt = cuisineBankPriceAmount(it) ?? defaultPriceForIndex(priceHint, i);
+    return {
+      name: it.name,
+      description: it.description || `${it.name} — made fresh for you.`,
+      price: String(amt),
+      priceV1: { amount: amt },
+      categoryId: it.categoryId || firstCatId,
+    };
+  });
 }
 
 function deriveHeroImageTags(preview, input, verticalSlug) {
@@ -518,7 +586,9 @@ export function applyDraftCatalogQaTier1AutoRepair(preview, input = {}, params =
     const item = items[i];
     if (!item || typeof item !== 'object' || badIndices.has(i)) continue;
     if (parsePrice(item) == null) {
-      const amt = defaultPriceForIndex(businessType, i);
+      // Never invent purchasable ladders for suggested / generative starters.
+      if (allowsHonestNullPrice(item, preview)) continue;
+      const amt = defaultPriceForIndex(verticalSlug || businessType, i);
       item.price = String(amt);
       item.priceV1 = { amount: amt, currency: item.priceV1?.currency || 'AUD' };
       autoFixed.push(`products[${i}].price`);

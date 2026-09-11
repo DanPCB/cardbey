@@ -50,6 +50,8 @@ export function buildBusinessTypeCorpus(input = {}) {
     input.category,
     input.businessType,
     input.storeType,
+    input.verticalSlug,
+    input.verticalGroup,
     input.description,
     input.prompt,
     input.userPrompt,

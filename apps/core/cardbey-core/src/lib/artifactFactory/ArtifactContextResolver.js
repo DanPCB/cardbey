@@ -82,7 +82,7 @@ export async function resolveArtifactContext(input = {}) {
           logo: true,
           heroImage: true,
           metadata: true,
-          locale: true,
+          // locale is not on Business schema — omit to avoid prisma select errors
         },
       });
       if (row) business = /** @type {Record<string, unknown>} */ (row);

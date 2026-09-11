@@ -3,7 +3,7 @@
  * In-memory batching when PERFORMER_BLACKBOARD_BATCHING is ON (default OFF).
  */
 
-import { appendEvent, appendEventBatch } from '../missionBlackboard.js';
+import { appendEvent, appendEventBatch, getEvents } from '../missionBlackboard.js';
 
 function envTruthy(name) {
   const raw = process.env[name];
@@ -55,6 +55,10 @@ export function createOrchestrationBlackboard(missionId) {
     },
     async appendEventBatch(id, events, opts = {}) {
       return appendEventBatch(String(id ?? mid).trim(), events, opts);
+    },
+    /** Same signature as missionBlackboard.getEvents — required for fetchPriorWork / agent priors. */
+    async getEvents(id, opts = {}) {
+      return getEvents(String(id ?? mid).trim() || mid, opts);
     },
     async flushOrchestrationEvents() {
       if (batching) await flushQueued(mid);

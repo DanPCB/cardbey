@@ -95,6 +95,12 @@ function mapSeedItemsToProducts(seed, draftId) {
  * @param {object} [input]
  */
 export function ensureStoreCreationCatalogItems(catalog, params = {}, input = {}) {
+  // Mission 001: sparse_honest is an intentional truthful empty catalog.
+  // Do not convert it into invented industry/cuisine/seed products.
+  if (catalog?.meta?.catalogSource === 'sparse_honest') {
+    return normalizeCatalogProductsShape(catalog);
+  }
+
   // Starters often emit `items` only; draft persist needs `products`.
   const normalized = normalizeCatalogProductsShape(catalog);
   if (Array.isArray(normalized?.products) && normalized.products.length > 0) {

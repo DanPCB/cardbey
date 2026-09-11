@@ -79,7 +79,7 @@ export function researchContactFieldsForMissionBody(fields = {}) {
   const email = cleanString(fields.email) || '';
   const ocrText = cleanString(fields.ocrText) || '';
   return {
-    ...(websiteUrl ? { websiteUrl } : {}),
+    ...(websiteUrl ? { websiteUrl, website: websiteUrl } : {}),
     ...(phone ? { phone } : {}),
     ...(email ? { email } : {}),
     ...(ocrText ? { ocrText, ocrRawText: ocrText } : {}),
@@ -757,6 +757,12 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
       source: auditSource,
       cardbeyTraceId,
       ...researchContact,
+      // Dual-key: structured_store_build + DB audits may read either websiteUrl or website
+      ...(researchContact.websiteUrl
+        ? { websiteUrl: researchContact.websiteUrl, website: researchContact.websiteUrl }
+        : websiteUrl
+          ? { websiteUrl, website: websiteUrl }
+          : {}),
       ...(websiteTemplateId
         ? {
             websiteTemplateId,
@@ -782,6 +788,69 @@ export async function dispatchCreateStoreCheckpointPipeline(deps) {
     return { kind: 'mission_create_handled' };
   }
   const pipeline = createResult.pipeline;
+
+  // Phase 1 context bag: mirror MissionPipeline id + actor onto metadata (additive; no UX change).
+  // Also re-stamp identity + research contact so structured_store_build (metadataJson-only reader)
+  // never loses businessName/location. createMissionPipeline returns { id } without metadataJson —
+  // always re-read from DB before merging or a wipe of create-time fields occurs.
+  try {
+    const pipelineId = pipeline?.id != null ? String(pipeline.id) : '';
+    const dbRow = pipelineId
+      ? await prisma.missionPipeline.findUnique({
+          where: { id: pipelineId },
+          select: { metadataJson: true },
+        })
+      : null;
+    const prevMeta =
+      dbRow?.metadataJson && typeof dbRow.metadataJson === 'object' && !Array.isArray(dbRow.metadataJson)
+        ? dbRow.metadataJson
+        : pipeline?.metadataJson &&
+            typeof pipeline.metadataJson === 'object' &&
+            !Array.isArray(pipeline.metadataJson)
+          ? pipeline.metadataJson
+          : {};
+    const stampedWebsite =
+      researchContact.websiteUrl ||
+      (typeof websiteUrl === 'string' && websiteUrl.trim() ? websiteUrl.trim() : '') ||
+      '';
+    const identityName = String(businessName ?? '').trim();
+    const identityType = String(businessType ?? '').trim();
+    const identityLocation = String(locationTrim ?? '').trim();
+    const nextMeta = {
+      ...prevMeta,
+      missionId: pipeline.id,
+      userId: actorId,
+      ...(identityName ? { businessName: identityName, storeName: identityName } : {}),
+      ...(identityType ? { businessType: identityType, storeType: identityType } : {}),
+      ...(identityLocation ? { location: identityLocation } : {}),
+      ...researchContact,
+      ...(stampedWebsite ? { websiteUrl: stampedWebsite, website: stampedWebsite } : {}),
+    };
+    const needsWrite =
+      prevMeta.missionId !== pipeline.id ||
+      prevMeta.userId !== actorId ||
+      (identityName && prevMeta.businessName !== identityName) ||
+      (identityType && prevMeta.businessType !== identityType) ||
+      (identityLocation && prevMeta.location !== identityLocation) ||
+      (stampedWebsite &&
+        prevMeta.websiteUrl !== stampedWebsite &&
+        prevMeta.website !== stampedWebsite) ||
+      (researchContact.phone && prevMeta.phone !== researchContact.phone) ||
+      (researchContact.email && prevMeta.email !== researchContact.email) ||
+      (researchContact.ocrText && prevMeta.ocrText !== researchContact.ocrText);
+    if (needsWrite) {
+      await prisma.missionPipeline.update({
+        where: { id: pipeline.id },
+        data: { metadataJson: nextMeta },
+      });
+      pipeline.metadataJson = nextMeta;
+    }
+  } catch (metaErr) {
+    console.warn(
+      '[CreateStoreDispatch] metadata missionId stamp skipped (non-fatal):',
+      metaErr?.message ?? metaErr,
+    );
+  }
 
   await ensureStructuredStoreCheckpointSteps(prisma, pipeline.id, { logPrefix: '[CreateStoreDispatch]' });
 

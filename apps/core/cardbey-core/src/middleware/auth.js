@@ -8,6 +8,7 @@ import prisma from '../lib/prisma.js';
 import { requireJwtSecret } from '../lib/security/requireJwtSecret.js';
 import { normalizeLocale } from '../lib/localePrompt.js';
 import { isPlatformAdmin } from '../lib/authorization.js';
+import { buildDevAdminUser } from './devAdminUser.js';
 const JWT_SECRET = requireJwtSecret();
 
 
@@ -99,17 +100,16 @@ export async function requireAuth(req, res, next) {
 
     // DEV ONLY SUPERUSER TOKEN: Handle dev-admin-token (for development/testing only)
     if (token === 'dev-admin-token' && process.env.NODE_ENV !== 'production') {
-      const devUser = {
-        id: 'dev-admin',
-        email: 'dev@cardbey.local',
-        displayName: 'Dev Admin',
-        roles: '["super_admin"]',
-        role: 'super_admin',
-        emailVerified: true,
-        isDevAdmin: true,
-        isSuperAdmin: true,
-        business: null,
-      };
+      let devUser;
+      try {
+        devUser = buildDevAdminUser();
+      } catch (e) {
+        return res.status(500).json({
+          ok: false,
+          error: 'dev_user_id_required',
+          message: e?.message || 'DEV_USER_ID must be set in .env for dev-admin-token to work',
+        });
+      }
 
       req.user = devUser;
       req.userId = req.userId ?? req.user?.id ?? devUser.id;
@@ -274,17 +274,13 @@ export async function optionalAuth(req, res, next) {
       // Dev-only: allow optionalAuth to recognize dev-admin-token so routes that use optionalAuth
       // can still derive an authenticated tenant context in local development.
       if (token === 'dev-admin-token' && process.env.NODE_ENV !== 'production') {
-        const devUser = {
-          id: 'dev-admin',
-          email: 'dev@cardbey.local',
-          displayName: 'Dev Admin',
-          roles: '["super_admin"]',
-          role: 'super_admin',
-          emailVerified: true,
-          isDevAdmin: true,
-          isSuperAdmin: true,
-          business: null,
-        };
+        let devUser;
+        try {
+          devUser = buildDevAdminUser();
+        } catch (e) {
+          console.warn('[optionalAuth] DEV_USER_ID missing for dev-admin-token:', e?.message || e);
+          return next();
+        }
         req.user = devUser;
         req.userId = req.userId ?? devUser.id;
         return next();

@@ -27,6 +27,13 @@ import {
 import { CONFIDENCE, RESEARCH_LOG } from './types.js';
 import { buildResearchEvidenceSnapshot } from '../researchEvidence/researchEvidenceRepository.js';
 import { normalizeLegacyMatchToProviderResult } from '../researchEvidence/providerResultNormalizer.js';
+import {
+  isVerifiedResearchMatch,
+  summarizeMatchSignals,
+  reportExtractedResearchFields,
+  appendPathABlackboardEvent,
+  persistResearchQualityToMission,
+} from './pathAResearchQuality.js';
 
 function enrichItemsWithEvidence(items = [], researchEvidence) {
   if (!Array.isArray(items) || !researchEvidence?.mergedEvidence?.catalogItems) return items;
@@ -169,7 +176,59 @@ export async function runStoreCreationResearch(input, options = {}) {
     };
   }
 
-  const discovered = await discoverSources(normalizedInput, log);
+  // Website-first: scrape URL before Places when provided.
+  let skipGooglePlaces = false;
+  let websiteScrapeMeta = null;
+  if (normalizedInput.website) {
+    try {
+      const { extractFromWebsite } = await import('../businessDiscovery/businessDiscoverySources.js');
+      const websiteUrl = String(normalizedInput.website).trim();
+      const webResults = await extractFromWebsite(websiteUrl);
+      const offerCount = webResults.reduce(
+        (n, r) => n + (Array.isArray(r?.raw?.offers) ? r.raw.offers.length : 0),
+        0,
+      );
+      const preliminary = webResults.map((r, i) => {
+        const source = {
+          sourceType: 'official_website',
+          sourceUrl: websiteUrl,
+          raw: r.raw ?? {},
+          priority: i,
+        };
+        const match = scoreSourceMatch(source, normalizedInput);
+        match.researchProvider = normalizeLegacyMatchToProviderResult(match);
+        return match;
+      });
+      const verifiedWeb = preliminary.filter(isVerifiedResearchMatch);
+      const success = verifiedWeb.length > 0 && offerCount > 0;
+      let fieldsExtracted = [];
+      if (success) {
+        const webFacts = extractBusinessFacts(verifiedWeb, normalizedInput);
+        fieldsExtracted = reportExtractedResearchFields(webFacts).fieldsExtracted;
+      }
+      websiteScrapeMeta = {
+        url: websiteUrl,
+        success,
+        itemCount: offerCount,
+        fieldsExtracted,
+      };
+      console.log('[store-website-scrape]', websiteScrapeMeta);
+      await appendPathABlackboardEvent(normalizedInput.missionId, 'store:website_scraped', {
+        draftId: normalizedInput.draftId ?? null,
+        url: websiteUrl,
+        itemCount: offerCount,
+        success,
+        fieldsExtracted: websiteScrapeMeta.fieldsExtracted,
+      });
+      if (success) {
+        skipGooglePlaces = true;
+      }
+    } catch (webErr) {
+      console.warn('[store-website-scrape] failed (non-fatal):', webErr?.message ?? webErr);
+    }
+  }
+
+  const discovered = await discoverSources(normalizedInput, log, { skipGooglePlaces });
   if (!discovered.length) {
     log(RESEARCH_LOG.FALLBACK, { reason: 'no_sources' });
     const result = { ...emptyResult, ownerReviewRequired: true };
@@ -217,18 +276,46 @@ export async function runStoreCreationResearch(input, options = {}) {
     }
   }
 
-  const sourcesUsed = scored.filter((m) => m.matched && m.confidence >= CONFIDENCE.REJECT);
+  // Path A gate: only USE + strong identity evidence.
+  const sourcesUsed = scored.filter(isVerifiedResearchMatch);
   const sourcesPendingConfirmation = scored.filter(
-    (m) => m.matched && m.confidence >= CONFIDENCE.REJECT && m.confidence < CONFIDENCE.USE,
+    (m) =>
+      typeof m.confidence === 'number' &&
+      m.confidence >= CONFIDENCE.REJECT &&
+      m.confidence < CONFIDENCE.USE,
   );
+  const topCandidate = [...scored].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0] ?? null;
 
   if (!sourcesUsed.length) {
-    log(RESEARCH_LOG.FALLBACK, { reason: 'no_matched_sources' });
+    if (topCandidate && topCandidate.confidence >= CONFIDENCE.REJECT && topCandidate.confidence < CONFIDENCE.USE) {
+      console.log('[store-research-low-confidence]', {
+        confidence: topCandidate.confidence,
+        reason: topCandidate.reasons?.[0] ?? 'below_use_threshold',
+        missionId: normalizedInput.missionId ?? null,
+      });
+      await appendPathABlackboardEvent(normalizedInput.missionId, 'store:research_uncertain', {
+        draftId: normalizedInput.draftId ?? null,
+        confidence: topCandidate.confidence,
+        topCandidate: {
+          sourceType: topCandidate.source?.sourceType ?? null,
+          name: topCandidate.source?.raw?.name ?? null,
+          reasons: topCandidate.reasons ?? [],
+        },
+      });
+      await persistResearchQualityToMission(options.prisma, normalizedInput.missionId, {
+        mode: 'research',
+        lowConfidenceFallback: true,
+        confidence: topCandidate.confidence,
+        businessName: normalizedInput.businessName ?? null,
+      });
+    }
+    log(RESEARCH_LOG.FALLBACK, { reason: 'no_verified_sources' });
     const result = {
       ...emptyResult,
-      sourcesPendingConfirmation: scored.filter((m) => !m.matched || m.confidence < CONFIDENCE.REJECT),
+      sourcesPendingConfirmation,
       ownerReviewRequired: true,
       scoredSources: scored,
+      lowConfidenceFallback: true,
     };
     result.researchEvidence = buildResearchEvidenceSnapshot({
       input: normalizedInput,
@@ -250,7 +337,26 @@ export async function runStoreCreationResearch(input, options = {}) {
 
   const confidence = aggregateResearchConfidence(sourcesUsed);
   const facts = extractBusinessFacts(sourcesUsed, normalizedInput);
-  log(RESEARCH_LOG.FACTS_EXTRACTED, { confidence, fields: Object.keys(facts) });
+  const fieldReport = reportExtractedResearchFields(facts);
+  log(RESEARCH_LOG.FACTS_EXTRACTED, { confidence, fields: fieldReport.fieldsExtracted });
+
+  const topVerified = sourcesUsed[0];
+  const signals = summarizeMatchSignals(topVerified);
+  await appendPathABlackboardEvent(normalizedInput.missionId, 'store:research_matched', {
+    draftId: normalizedInput.draftId ?? null,
+    confidence,
+    source: topVerified.source?.sourceType ?? null,
+    nameMatched: signals.nameMatched,
+    websiteMatched: signals.websiteMatched,
+    phoneMatched: signals.phoneMatched,
+  });
+  await appendPathABlackboardEvent(normalizedInput.missionId, 'store:research_data_extracted', {
+    draftId: normalizedInput.draftId ?? null,
+    fieldsExtracted: fieldReport.fieldsExtracted,
+    fieldsMissing: fieldReport.fieldsMissing,
+    source: topVerified.source?.sourceType ?? null,
+    confidence,
+  });
 
   const { items: structuredRaw, businessKind } = extractServiceMenuCatalog(
     facts,
@@ -264,6 +370,7 @@ export async function runStoreCreationResearch(input, options = {}) {
   let catalogAuthoritySource = items.length
     ? 'STRUCTURED_CATALOG'
     : 'SPARSE_NO_EVIDENCE';
+  let catalogSourceLabel = items.length ? 'scraped' : null;
   log(RESEARCH_LOG.CATALOG_EXTRACTED, {
     itemCount: items.length,
     businessKind,
@@ -282,9 +389,9 @@ export async function runStoreCreationResearch(input, options = {}) {
       if (websiteUrl) {
         const reconstructed = await reconstructOfferingsFromWebsite({
           websiteUrl,
-          businessName: normalizedInput.businessName,
-          category: normalizedInput.category,
-          vertical: normalizedInput.category,
+          businessName: facts.businessName?.value ?? normalizedInput.businessName,
+          category: facts.category?.value ?? normalizedInput.category,
+          vertical: facts.category?.value ?? normalizedInput.category,
           businessKind,
         });
         offeringReconstructionDebug = reconstructed.debug;
@@ -292,10 +399,15 @@ export async function runStoreCreationResearch(input, options = {}) {
         if (semanticClean.length) {
           items = semanticClean;
           catalogAuthoritySource = 'SEMANTIC_WEBSITE_OFFERINGS';
-          // Keep facts in sync for downstream builders
+          catalogSourceLabel = 'scraped';
           if (businessKind === 'food_menu') facts.menuItems = items;
           else if (businessKind === 'product_retail') facts.products = items;
           else facts.services = items;
+          console.log('[store-research-catalog-recovered]', {
+            itemCount: items.length,
+            via: 'semantic_website_offerings',
+            url: websiteUrl,
+          });
           log(RESEARCH_LOG.CATALOG_EXTRACTED, {
             itemCount: items.length,
             businessKind,
@@ -309,11 +421,50 @@ export async function runStoreCreationResearch(input, options = {}) {
       }
     }
   } else if (structuredClean.length < structuredRaw.length) {
-    // Structured won but drop chrome labels from the accepted set
     items = structuredClean;
     if (businessKind === 'food_menu') facts.menuItems = items;
     else if (businessKind === 'product_retail') facts.products = items;
     else facts.services = items;
+  }
+
+  // High-confidence empty catalog: one website scrape retry, then suggested seed (never empty).
+  if (!items.length && confidence >= CONFIDENCE.USE) {
+    try {
+      const { extractFromWebsite } = await import('../businessDiscovery/businessDiscoverySources.js');
+      const retryUrl =
+        facts.website?.value ||
+        normalizedInput.website ||
+        sourcesUsed.find((s) => s.source?.sourceUrl)?.source?.sourceUrl ||
+        null;
+      if (retryUrl) {
+        const retryResults = await extractFromWebsite(String(retryUrl));
+        const retryOffers = retryResults.flatMap((r) =>
+          Array.isArray(r?.raw?.offers) ? r.raw.offers : [],
+        );
+        if (retryOffers.length) {
+          items = retryOffers.map((o, i) => ({
+            name: o.name,
+            description: o.description ?? null,
+            price: o.price ?? null,
+            category: o.category ?? defaultCategoryForKind(businessKind),
+            sourceUrl: String(retryUrl),
+            sourceType: 'official_website',
+            confidence,
+            needsOwnerReview: false,
+            id: `scrape_retry_${i}`,
+          }));
+          catalogAuthoritySource = 'WEBSITE_SCRAPE_RETRY';
+          catalogSourceLabel = 'scraped';
+          console.log('[store-research-catalog-recovered]', {
+            itemCount: items.length,
+            via: 'website_scrape_retry',
+            url: retryUrl,
+          });
+        }
+      }
+    } catch (retryErr) {
+      console.warn('[store-research-catalog-recovered] scrape retry failed:', retryErr?.message ?? retryErr);
+    }
   }
 
   const ownerReviewRequired =
@@ -329,6 +480,133 @@ export async function runStoreCreationResearch(input, options = {}) {
   }
 
   if (!items.length) {
+    // Never leave a verified real business with an empty catalog — suggested items + verify flag.
+    try {
+      const { ensureStoreCreationCatalogItems } = await import(
+        '../../services/draftStore/ensureStoreCreationCatalogItems.js'
+      );
+      const { stampSuggestedCatalogOrigin } = await import(
+        '../../services/draftStore/researchCatalogDraft.js'
+      );
+      const seedCatalog = stampSuggestedCatalogOrigin(
+        ensureStoreCreationCatalogItems(
+          { products: [], items: [], categories: [], meta: {} },
+          {
+            businessName: facts.businessName?.value ?? normalizedInput.businessName,
+            businessType: facts.category?.value ?? normalizedInput.category,
+            verticalSlug: normalizedInput.category,
+            storeType: facts.category?.value ?? normalizedInput.category,
+          },
+          normalizedInput,
+        ),
+      );
+      const seedProducts = Array.isArray(seedCatalog.products)
+        ? seedCatalog.products
+        : Array.isArray(seedCatalog.items)
+          ? seedCatalog.items
+          : [];
+      if (seedProducts.length) {
+        items = seedProducts.map((p, i) => ({
+          ...p,
+          contentOrigin: 'suggested',
+          needsOwnerReview: true,
+          confidence: Math.min(confidence, 0.5),
+          id: p.id ?? `suggested_real_${i}`,
+        }));
+        catalogAuthoritySource = 'SUGGESTED_FOR_REAL_BUSINESS';
+        catalogSourceLabel = 'suggested_for_real_business';
+        seedCatalog.meta = {
+          ...(seedCatalog.meta ?? {}),
+          catalogSource: 'suggested_for_real_business',
+          pleaseVerifyMenu: true,
+          pleaseVerifyMenuMessage: 'Please verify your menu',
+          researchConfidence: confidence,
+        };
+        const builtSuggested = buildResearchBackedStore({
+          facts,
+          items,
+          businessKind,
+          input: {
+            ...normalizedInput,
+            businessName: facts.businessName?.value ?? normalizedInput.businessName,
+            category: facts.category?.value ?? normalizedInput.category,
+            location: facts.address?.value ?? normalizedInput.location,
+            phone: facts.phone?.value ?? normalizedInput.phone,
+            website: facts.website?.value ?? normalizedInput.website,
+          },
+          confidence,
+        });
+        if (builtSuggested?.catalog) {
+          builtSuggested.catalog.meta = {
+            ...(builtSuggested.catalog.meta ?? {}),
+            ...(seedCatalog.meta ?? {}),
+            catalogAuthoritySource,
+            pleaseVerifyMenu: true,
+            pleaseVerifyMenuMessage: 'Please verify your menu',
+            contentOrigin: 'suggested',
+          };
+          builtSuggested.catalog.products = (builtSuggested.catalog.products ?? []).map((p) => ({
+            ...p,
+            contentOrigin: 'suggested',
+            needsOwnerReview: true,
+          }));
+        }
+        await appendPathABlackboardEvent(normalizedInput.missionId, 'store:catalog_source', {
+          draftId: normalizedInput.draftId ?? null,
+          source: 'suggested_for_real_business',
+          itemCount: items.length,
+          confidence,
+        });
+        await persistResearchQualityToMission(options.prisma, normalizedInput.missionId, {
+          mode: 'research',
+          confidence,
+          businessName: facts.businessName?.value ?? normalizedInput.businessName,
+          address: facts.address?.value ?? null,
+          itemCount: items.length,
+          catalogSource: 'suggested_for_real_business',
+          pleaseVerifyMenu: true,
+          fieldsExtracted: fieldReport.fieldsExtracted,
+        });
+        const resultSuggested = {
+          researchRan: true,
+          fallbackToGenerated: false,
+          ownerReviewRequired: true,
+          confidence,
+          facts,
+          businessProfile: builtSuggested.businessProfile,
+          catalog: builtSuggested.catalog,
+          sourcesUsed,
+          sourcesPendingConfirmation,
+          extractedItems: items,
+          scoredSources: scored,
+          logs,
+          offeringReconstruction: offeringReconstructionDebug,
+          catalogAuthoritySource,
+          catalogSourceLabel,
+          pleaseVerifyMenu: true,
+          extractedFields: fieldReport.mapped,
+        };
+        resultSuggested.researchEvidence = buildResearchEvidenceSnapshot({
+          input: normalizedInput,
+          discoveredSources: discovered,
+          scoredSources: scored,
+          result: resultSuggested,
+        });
+        saveResearchEvidence(normalizedInput, resultSuggested);
+        if (options.prisma && normalizedInput.missionId) {
+          await persistResearchToMission(options.prisma, normalizedInput.missionId, resultSuggested, {
+            draftId: normalizedInput.draftId ?? null,
+            input: normalizedInput,
+            discoveredSources: discovered,
+            scoredSources: scored,
+          });
+        }
+        return resultSuggested;
+      }
+    } catch (seedErr) {
+      console.warn('[storeCreationResearch] suggested catalog for real business failed:', seedErr?.message ?? seedErr);
+    }
+
     log(RESEARCH_LOG.FALLBACK, { reason: 'no_catalog_items' });
     const result = {
       ...emptyResult,
@@ -341,6 +619,7 @@ export async function runStoreCreationResearch(input, options = {}) {
       scoredSources: scored,
       offeringReconstruction: offeringReconstructionDebug,
       catalogAuthoritySource: 'SPARSE_NO_EVIDENCE',
+      extractedFields: fieldReport.mapped,
     };
     result.researchEvidence = buildResearchEvidenceSnapshot({
       input: normalizedInput,
@@ -361,16 +640,57 @@ export async function runStoreCreationResearch(input, options = {}) {
     return result;
   }
 
+  await appendPathABlackboardEvent(normalizedInput.missionId, 'store:catalog_source', {
+    draftId: normalizedInput.draftId ?? null,
+    source: catalogSourceLabel || 'scraped',
+    itemCount: items.length,
+    confidence,
+  });
+
   const built = buildResearchBackedStore({
     facts,
     items,
     businessKind,
-    input: normalizedInput,
+    input: {
+      ...normalizedInput,
+      businessName: facts.businessName?.value ?? normalizedInput.businessName,
+      category: facts.category?.value ?? normalizedInput.category,
+      location: facts.address?.value ?? normalizedInput.location,
+      phone: facts.phone?.value ?? normalizedInput.phone,
+      website: facts.website?.value ?? normalizedInput.website,
+    },
     confidence,
   });
   if (built?.catalog?.meta) {
     built.catalog.meta.catalogAuthoritySource = catalogAuthoritySource;
+    built.catalog.meta.catalogSourceLabel = catalogSourceLabel || 'scraped';
   }
+  // Map verified contact fields onto profile
+  if (built?.catalog?.profile) {
+    built.catalog.profile = {
+      ...built.catalog.profile,
+      name: facts.businessName?.value ?? built.catalog.profile.name,
+      phone: facts.phone?.value ?? built.catalog.profile.phone,
+      website: facts.website?.value ?? built.catalog.profile.website,
+      address: facts.address?.value ?? built.catalog.profile.address,
+      openingHours: facts.openingHours?.value ?? built.catalog.profile.openingHours,
+      tagline:
+        (typeof facts.description?.value === 'string' && facts.description.value.length > 50
+          ? facts.description.value
+          : built.catalog.profile.tagline) ?? built.catalog.profile.tagline,
+    };
+  }
+
+  await persistResearchQualityToMission(options.prisma, normalizedInput.missionId, {
+    mode: 'research',
+    confidence,
+    businessName: facts.businessName?.value ?? normalizedInput.businessName,
+    address: facts.address?.value ?? null,
+    itemCount: items.length,
+    catalogSource: catalogSourceLabel || 'scraped',
+    fieldsExtracted: fieldReport.fieldsExtracted,
+    websiteScrape: websiteScrapeMeta,
+  });
 
   const result = {
     researchRan: true,
@@ -387,6 +707,8 @@ export async function runStoreCreationResearch(input, options = {}) {
     logs,
     offeringReconstruction: offeringReconstructionDebug,
     catalogAuthoritySource,
+    catalogSourceLabel: catalogSourceLabel || 'scraped',
+    extractedFields: fieldReport.mapped,
   };
   result.researchEvidence = buildResearchEvidenceSnapshot({
     input: normalizedInput,
@@ -407,4 +729,10 @@ export async function runStoreCreationResearch(input, options = {}) {
   }
 
   return result;
+}
+
+function defaultCategoryForKind(businessKind) {
+  if (businessKind === 'food_menu') return 'Menu';
+  if (businessKind === 'product_retail') return 'Products';
+  return 'Services';
 }

@@ -172,10 +172,18 @@ export function resolveCatalogAuthorityDecision({
   }
 
   if (researchAttempted && shouldApplyResearchCatalogToDraft(research)) {
-    const selectedAuthority = ownerReviewRequired ? 'sourced_pending_review' : 'sourced';
+    const suggestedSeed =
+      String(research?.catalogAuthoritySource ?? '').toUpperCase() === 'SUGGESTED_FOR_REAL_BUSINESS' ||
+      String(research?.catalogSourceLabel ?? '').toLowerCase() === 'suggested_for_real_business' ||
+      research?.pleaseVerifyMenu === true;
+    const selectedAuthority = suggestedSeed
+      ? 'suggested_fallback'
+      : ownerReviewRequired
+        ? 'sourced_pending_review'
+        : 'sourced';
     return emit({
       selectedAuthority,
-      fallbackReason: null,
+      fallbackReason: suggestedSeed ? CATALOG_FALLBACK_REASONS.NO_CATALOG_CONTENT_FOUND : null,
       researchAttempted,
       researchStatus,
       researchItemCount,

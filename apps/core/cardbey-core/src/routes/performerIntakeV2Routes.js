@@ -256,7 +256,7 @@ import {
 import {
   shouldDeferMissionForStoreContext,
 } from '../lib/intake/intakePerformerRouting.js';
-import { buildPerformerStoreSelectionClarify } from '../lib/intake/accountStoreIntakeGate.js';
+import { buildPerformerStoreSelectionClarify, loadAccountStoreContext } from '../lib/intake/accountStoreIntakeGate.js';
 
 /** Tools that don't require an active store context (confirm + dispatch). */
 const STORE_CONTEXT_FREE_TOOLS = CONTEXT_FREE_TOOLS;
@@ -451,6 +451,7 @@ import {
   getIntakeConversationHistoryLimit,
   persistConversationSessionStoreId,
 } from '../services/conversation/conversationIntakeBridge.js';
+
 
 function getIntakeIntentIntegration() {
   return getIntentIntegration({ contextProvider: getContextProvider() });
@@ -3229,20 +3230,99 @@ router.post('/', requireUserOrGuest, async (req, res) => {
 
   // Multi-agent / campaign orchestration — unified dispatch (confirmation-gated).
   // Phase 1: resolve from explicit missionType OR NL fast-path (not create_campaign legacy).
+
+
   const orchestrationDispatchType = resolveIntakeOrchestrationDispatch({
     missionType: body.missionType,
     userMessage,
   });
-  if (orchestrationDispatchType) {
+
+ if (orchestrationDispatchType) {
+
+  const replayPendingOrchestration =
+    body?.intakeV2Selection?.selectedParameters?._pendingOrchestration ??
+    body?.pendingIntent?.parameters?._pendingOrchestration ??
+    null;
+
+  const selectedStoreIdFromReplay = String(
+    body?.intakeV2Selection?.selectedParameters?.storeId ||
+      body?.intakeV2Selection?.selectedParameters?.activeStoreId ||
+      body?.pendingIntent?.parameters?.storeId ||
+      body?.pendingIntent?.parameters?.activeStoreId ||
+      body?.storeId ||
+      currentContext?.storeId ||
+      currentContext?.activeStoreId ||
+      '',
+  ).trim() || null;
+
+  // Store-picker replay: never re-show the picker; dispatch with the chosen store.
+  if (
+    (replayPendingOrchestration === 'campaign_orchestration' ||
+      replayPendingOrchestration === 'multi_agent' ||
+      Boolean(body?.intakeV2Selection)) &&
+    selectedStoreIdFromReplay
+  ) {
     return dispatchOrchestrationMissionFromIntake(req, res, {
-      dispatchType: orchestrationDispatchType,
-      body,
-      currentContext,
-      userMessage,
+      dispatchType:
+        replayPendingOrchestration === 'campaign_orchestration' ||
+        replayPendingOrchestration === 'multi_agent'
+          ? replayPendingOrchestration
+          : orchestrationDispatchType,
+      body: { ...body, storeId: selectedStoreIdFromReplay },
+      currentContext: {
+        ...currentContext,
+        storeId: selectedStoreIdFromReplay,
+        activeStoreId: selectedStoreIdFromReplay,
+      },
+      userMessage: String(
+        body?.pendingIntent?.userMessage ||
+          body?.intakeV2Selection?.originalGoal ||
+          userMessage,
+      ).trim(),
       locale,
       cardbeyTraceId,
     });
   }
+
+  const storeNameInMessage = (() => {
+    const msg = String(userMessage ?? '').trim();
+    const forStore = msg.match(/\bfor\s+(.{2,80}?)\s+store\b/i);
+    if (forStore?.[1] && !/\b(my|this|the|a|our)\b/i.test(forStore[1].trim()))
+      return forStore[1].trim();
+    const forBiz = msg.match(/\bfor\s+([A-Z][A-Za-z0-9&'\-\s]{2,60})\b/);
+    if (forBiz?.[1] && !/\b(my|this|the|a|our)\b/i.test(forBiz[1]))
+      return forBiz[1].trim();
+    return null;
+  })();
+
+  if (!storeNameInMessage) {
+    try {
+      const actorId = performerIntakeV2ActorId(req);
+      const account = await loadAccountStoreContext(actorId);
+      const stores = Array.isArray(account?.stores) ? account.stores : [];
+      if (stores.length > 0) {
+        const clarify = buildPerformerStoreSelectionClarify({
+          stores,
+          lockedTool: 'create_campaign',
+          userMessage,
+          lockedParams: { _pendingOrchestration: orchestrationDispatchType },
+        });
+        return res.json({ success: true, ...clarify });
+      }
+    } catch (storePickerErr) {
+      console.warn('[orchestration-picker] failed:', storePickerErr?.message);
+    }
+  }
+
+  return dispatchOrchestrationMissionFromIntake(req, res, {
+    dispatchType: orchestrationDispatchType,
+    body,
+    currentContext,
+    userMessage,
+    locale,
+    cardbeyTraceId,
+  });
+}
 
   // Accounting Documents — single-agent / direct tool fast-path (Orders & Invoices surface).
   // Multi-agent month-end already routed above via isInvoiceMultiAgentIntent → multi_agent.
@@ -3655,6 +3735,13 @@ router.post('/', requireUserOrGuest, async (req, res) => {
     body.pendingIntent && typeof body.pendingIntent === 'object' && !Array.isArray(body.pendingIntent)
       ? body.pendingIntent
       : null;
+  if (pendingIntentFromBodyEarly && process.env.NODE_ENV !== 'production') {
+    console.log('[intake-replay] pendingIntent keys:', JSON.stringify(Object.keys(pendingIntentFromBodyEarly)));
+    console.log(
+      '[intake-replay] _pendingOrchestration:',
+      pendingIntentFromBodyEarly?.parameters?._pendingOrchestration ?? null,
+    );
+  }
 
   let selection =
     body.intakeV2Selection && typeof body.intakeV2Selection === 'object' ? body.intakeV2Selection : null;
@@ -3669,6 +3756,10 @@ router.post('/', requireUserOrGuest, async (req, res) => {
       body.intakeV2Selection = replayedSelection;
     }
   }
+
+  // Orchestration store-picker replay is handled earlier (before NL re-entry) via
+  // intakeV2Selection.selectedParameters._pendingOrchestration /
+  // pendingIntent.parameters._pendingOrchestration — do not re-dispatch here.
 
   const isSelectionConfirm = Boolean(selection);
   const forcedTool = selection ? String(selection.selectedTool ?? '').trim() : '';

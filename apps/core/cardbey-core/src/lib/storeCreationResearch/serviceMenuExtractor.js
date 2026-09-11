@@ -29,7 +29,27 @@ export function extractServiceMenuCatalog(facts, matchedSources, input) {
     .filter(Boolean)
     .join(' ');
 
-  const businessKind = classifyBusinessKind(corpus);
+  // Canonical upstream BSL classification is authoritative when supplied.
+  // Local corpus classification remains as a compatibility fallback for
+  // legacy/direct research callers.
+  const canonicalBusinessKind =
+    input.canonicalBusinessType ??
+    input.businessKind ??
+    input.classificationProfile?.businessType ??
+    input.catalogGenerationProfile?.businessType;
+
+  const supportedBusinessKinds = new Set([
+    'food_menu',
+    'product_retail',
+    'service_quote_required',
+    'service_fixed_booking',
+    'hybrid',
+  ]);
+
+  const businessKind =
+    canonicalBusinessKind && supportedBusinessKinds.has(canonicalBusinessKind)
+      ? canonicalBusinessKind
+      : classifyBusinessKind(corpus);
   const items = [];
 
   for (const match of matchedSources) {

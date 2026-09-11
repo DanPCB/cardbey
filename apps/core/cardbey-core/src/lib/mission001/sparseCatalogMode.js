@@ -11,6 +11,14 @@ import Mission001Flags from './mission001Flags.js';
  * @param {object | null} research
  */
 export function shouldUseSparseCatalogMode(mission001Meta = {}, research = null) {
+  // Existing real business matched but offerings could not be verified — never invent catalog.
+  if (
+    research?.fallbackToGenerated === true &&
+    Array.isArray(research.sourcesUsed) &&
+    research.sourcesUsed.length > 0
+  ) {
+    return true;
+  }
   if (!Mission001Flags.sparseMode) return false;
   if (mission001Meta.sparseMode === true) return true;
   if (research?.researchRan && !research.fallbackToGenerated) {

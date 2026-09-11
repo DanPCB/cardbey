@@ -35,11 +35,19 @@ import {
 } from '../../lib/storeCreation/semanticPrecision.js';
 
 export function isResearchCatalogSource(meta) {
-  return meta?.catalogSource === 'research';
+  const source = meta?.catalogSource;
+  return source === 'research' || source === 'sparse_honest';
 }
 
 export function isResearchBackedPreview(preview) {
-  return isResearchCatalogSource(preview?.meta);
+  if (!preview || typeof preview !== 'object') return false;
+
+  return (
+    isResearchCatalogSource(preview?.meta) ||
+    isResearchCatalogSource(preview?.catalog?.meta) ||
+    preview?.catalogSource === 'research' ||
+    preview?.catalogSource === 'sparse_honest'
+  );
 }
 
 /**
@@ -440,6 +448,48 @@ export function enrichResearchCatalogProducts(products, opts = {}) {
  */
 export function finalizeResearchCatalogForDraft(catalog, research, params = {}) {
   if (!catalog) return catalog;
+
+  const authoritySrc = String(
+    research?.catalogAuthoritySource ?? catalog?.meta?.catalogAuthoritySource ?? '',
+  ).toUpperCase();
+  const catalogSrc = String(
+    research?.catalogSourceLabel ?? catalog?.meta?.catalogSource ?? '',
+  ).toLowerCase();
+  const isSuggestedForRealBusiness =
+    authoritySrc === 'SUGGESTED_FOR_REAL_BUSINESS' ||
+    catalogSrc === 'suggested_for_real_business' ||
+    (research?.pleaseVerifyMenu === true &&
+      (catalogSrc.includes('suggested') || catalog?.meta?.contentOrigin === 'suggested'));
+
+  // Empty scrape / no menu evidence → cuisine seed must stay suggested, never "sourced".
+  if (isSuggestedForRealBusiness) {
+    const suggested = stampSuggestedCatalogOrigin({
+      ...catalog,
+      products: Array.isArray(catalog.products)
+        ? catalog.products.map((p) =>
+            p && typeof p === 'object'
+              ? { ...p, contentOrigin: 'suggested', needsOwnerReview: true }
+              : p,
+          )
+        : catalog.products,
+      meta: {
+        ...(catalog.meta && typeof catalog.meta === 'object' ? catalog.meta : {}),
+        catalogSource: 'suggested_for_real_business',
+        catalogAuthoritySource: 'SUGGESTED_FOR_REAL_BUSINESS',
+        contentOrigin: 'suggested',
+        aiGenerated: true,
+        pleaseVerifyMenu: true,
+        pleaseVerifyMenuMessage:
+          catalog.meta?.pleaseVerifyMenuMessage ||
+          research?.pleaseVerifyMenuMessage ||
+          'Please verify your menu — starter dishes, not scraped from the website.',
+        researchConfidence: research?.confidence ?? catalog.meta?.researchConfidence,
+        pendingOwnerReview: true,
+        needsOwnerReview: true,
+      },
+    });
+    return suggested;
+  }
 
   const bp = research?.businessProfile ?? catalog.profile?.businessProfile ?? null;
   const businessName = params.businessName ?? catalog.profile?.name ?? '';

@@ -29,8 +29,38 @@ export async function dalleGeneration(
   });
 
   const images = (result.data ?? [])
-    .map((d) => d.url || d.b64_json || '')
-    .filter(Boolean);
+  .map((d) => {
+    if (typeof d?.url === 'string' && d.url.trim()) {
+      return d.url.trim();
+    }
+
+    if (typeof d?.b64_json === 'string' && d.b64_json.trim()) {
+      return `data:image/png;base64,${d.b64_json.trim()}`;
+    }
+
+    return '';
+  })
+  .filter(Boolean);
+
+console.log('[dalleGeneration] response shape', {
+  model,
+  dataCount: Array.isArray(result?.data) ? result.data.length : 0,
+  imageCount: images.length,
+  firstImageType:
+    images[0]?.startsWith('data:image/')
+      ? 'base64-data-url'
+      : images[0]?.startsWith('http')
+        ? 'url'
+        : images[0]
+          ? 'unknown'
+          : 'none',
+});
+
+if (images.length === 0) {
+  const err = new Error('OpenAI image generation returned no usable image payload');
+  (err as Error & { code?: string }).code = 'OPENAI_IMAGE_EMPTY_RESPONSE';
+  throw err;
+}
 
   return {
     images,

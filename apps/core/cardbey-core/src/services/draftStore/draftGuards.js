@@ -15,11 +15,14 @@ function effectiveVertical(storeType, businessType) {
     .toLowerCase()
     .trim()
     .replace(/\s+/g, '_');
-  const tokens = raw.split(/[_\-\s]+/).filter(Boolean);
+  // food.vietnamese / food.restaurant style slugs
+  if (raw.startsWith('food.') || raw === 'food' || raw.includes('food_menu')) return 'food';
+  const tokens = raw.split(/[_\-\s.]+/).filter(Boolean);
 
   const foodTokens = [
     'sweets', 'dessert', 'bakery', 'cafe', 'coffee', 'restaurant',
     'coffee_shop', 'coffee-shop', 'bar', 'bistro', 'kitchen',
+    'vietnamese', 'pho', 'menu', 'food_menu', 'food',
   ];
   if (tokens.some((t) => foodTokens.includes(t))) return 'food';
 
