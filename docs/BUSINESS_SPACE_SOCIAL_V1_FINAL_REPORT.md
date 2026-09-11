@@ -1,12 +1,12 @@
 # Business Space Social V1 — Final Report
 
 **Date:** 2026-09-11  
-**Verdict:** `BUSINESS_SPACE_SOCIAL_V1_PARTIAL`
+**Verdict:** `BUSINESS_SPACE_SOCIAL_V1_PASS`
 
 | Layer | Status |
 |-------|--------|
 | **IMPLEMENTATION_PROOF** | **PASS** |
-| **STAGING_MIGRATION** | `HUMAN_DEPLOYMENT_REQUIRED` |
+| **STAGING_MIGRATION** | **PASS** (deployed + Comment create/list smoke) |
 | **PRODUCTION_DEPLOYMENT_STATUS** | `HUMAN_DEPLOYMENT_REQUIRED` |
 | **GLOBAL_ACTIVITY_ROW_PROJECTION_V2** | `DEFERRED` (does not block V1) |
 | **LOCAL_SQLITE_SCHEMA_DRIFT** | `PRE_EXISTING_FOLLOW_UP` |
@@ -22,39 +22,31 @@
 
 - Core `/api/health` → `{ ok: true, env: "development" }`
 - Dashboard `/` → HTTP 200
-- Comment API live: `GET /api/activities/nonexistent/comments` → `404 {"ok":false,"error":"activity_not_found"}`
+- Comment API: `GET /api/activities/nonexistent/comments` → `404 activity_not_found`
 - Local DB: `file:.../prisma/dev-fresh.db`
-- Comment table: ensured via `node scripts/ensure-comment-table.mjs` (no `prisma db push`)
+- Comment table via `scripts/ensure-comment-table.mjs` (no `prisma db push`)
 
 ---
 
 ## 2. Browser Post E2E proof (Gate 2)
 
-Playwright: `tests/e2e/business-space-social-v1.spec.ts` — **PASSED** (16.1s)
+Playwright `tests/e2e/business-space-social-v1.spec.ts` — **PASSED** (reconfirmed 2026-09-11, ~18s)
 
-Evidence (`apps/dashboard/.tmp/social-v1-e2e-evidence.json`):
+Latest local evidence:
 
 ```json
 {
   "ok": true,
-  "core": "http://127.0.0.1:3001",
-  "dashboard": "http://127.0.0.1:5174",
-  "storeId": "cmtwyewmd0001jv6wtd5tuaae",
-  "ownerId": "cmtwyewhd003rjvu0a19w1kf3",
-  "activityId": "60b25413-c1eb-43fa-8e7d-c5e34edcf94d",
+  "storeId": "cmtwyw9tf0001jvmc7tn1r1lo",
+  "ownerId": "cmtwyw9oj003zjvu0rrua0w3q",
+  "activityId": "07879c31-a71d-43a9-88e0-7a2da43d74d9",
   "publishStatus": 201,
-  "postText": "Business Space social E2E post"
+  "postText": "Business Space social E2E post",
+  "globalRankBumped": true
 }
 ```
 
-Proven:
-- Owner opened `/space/:id` → **+ Post** → compose → submit
-- Composer closed; card present without manual refresh (accessible name on feed link)
-- Exactly one `StoreActivityEvent` (`SPACE_UPDATE`, `public_lifecycle`)
-- Hard refresh: post still present; no duplicate event
-- Actor = owner; store identity correct
-
-Desktop sheet: primary “Update” action was previously outside the viewport; sheet max-height/overflow adjusted so Post actions remain usable on desktop (no architecture change).
+Proven: + Post UI → composer close → immediate card → one `SPACE_UPDATE` → hard refresh, no duplicate → correct store/actor.
 
 ---
 
@@ -64,85 +56,97 @@ Same Playwright run:
 
 ```json
 {
-  "commentId": "cmtwyf4kt003wjvu0bk5f4z3g",
+  "commentId": "cmtwywjnj0044jvu0p8xt4xtb",
   "commentStatus": 201,
   "commentsCount": 1,
   "commentText": "Canonical comment E2E test"
 }
 ```
 
-Proven:
-- Comment appears immediately in thread
-- `data-comments-total` → 1
-- Hard refresh: same comment remains
-- `GET /api/activities/:activityId/comments` returns row
-- Prisma `Comment` bound to same `activityId` / actor
+Proven: immediate thread display, count=1, refresh persists, Comment bound to same `activityId`.
 
 ---
 
 ## 4. Authorization negative proof (Gate 4)
 
-| Attempt | Status | Side effect |
-|---------|--------|-------------|
-| Stranger `POST /api/stores/:storeId/space-updates` | **403** | Zero extra `SPACE_UPDATE` |
-| Unauthenticated `POST /api/activities/:id/comments` | **401** | Zero Comment row |
+| Attempt | Local | Staging |
+|---------|-------|---------|
+| Stranger Space post | **403** | **403** |
+| Unauthenticated comment | **401** | **401** |
+
+Zero unauthorized `SPACE_UPDATE` / Comment rows.
 
 ---
 
 ## 5. Global regression proof (Gate 5)
 
-- Publish response: `globalRankBumped: true` (V1 store-card rank bump)
-- `GET /api/public/stores/feed?limit=20` → healthy (`200`)
-- No Global activity-row V2 built
+- Local published store: `globalRankBumped: true`
+- Staging unpublished new store: `globalRankBumped: false` (expected — no `publishedAt` yet; bump is V1 store-card rank, not a new Global activity row)
+- Staging `GET /api/public/stores/feed` → `ok: true`
 - **`GLOBAL_ACTIVITY_ROW_PROJECTION_V2 = DEFERRED`**
 
 ---
 
 ## 6. Migration SQL review (Gate 6a)
 
-File: `prisma/postgres/migrations/20260911220000_activity_comment_v1/migration.sql`
+`prisma/postgres/migrations/20260911220000_activity_comment_v1/migration.sql`
 
 - Additive only: `CREATE TABLE "Comment"` + six indexes
-- No `DROP`, no data rewrite, no unrelated table changes
-- Matches `prisma/postgres/schema.prisma` `Comment` model
+- No DROP / rewrite / unrelated tables
 
 ---
 
 ## 7. Staging migration proof (Gate 6b)
 
-**Status: `HUMAN_DEPLOYMENT_REQUIRED`**
+**PASS**
 
-Blocked in this workspace:
-1. Social V1 Core files (migration, routes, service) are still **local untracked** — not on `origin/staging`
-2. Staging API today: `GET .../api/activities/nonexistent/comments` → generic `{"error":"Not found"}` (route not deployed)
-3. No staging Postgres `DATABASE_URL` available to this agent (local Core is SQLite)
-4. Wrong `render` npm package on PATH (templating CLI, not Render.com)
+Shipped:
+- Dashboard staging PR: https://github.com/DanPCB/cardbey-marketing-dashboard/pull/353
+- Core staging PR: https://github.com/DanPCB/cardbey/pull/430
 
-### Human staging deploy sequence
+After Render redeploy (`cardbey-core-staging`):
+- Route live: `GET .../api/activities/nonexistent/comments` → `activity_not_found`
+- Smoke create/list Comment succeeded (table + indexes + API):
 
-```bash
-# After merge of Social V1 to staging branch / Render auto-deploy:
-cd /opt/render/project/src/apps/core/cardbey-core
-npm run migrate:deploy
-# ≡ node scripts/run-postgres-prisma.js migrate deploy
-# ≡ npx prisma migrate deploy --schema prisma/postgres/schema.prisma
-
-# Verify:
-psql "$DATABASE_URL" -c '\d "Comment"'
-# Smoke: authenticated POST /api/activities/:activityId/comments then GET list
+```json
+{
+  "ok": true,
+  "staging": "https://cardbey-core-staging.onrender.com",
+  "storeId": "cmtwzb7m7000bs5feb4zrpou0",
+  "ownerId": "cmtwzb61z0009s5fe0090ywh9",
+  "activityId": "3bfefd6f-608b-4ce9-8cc4-d9868e0d3955",
+  "commentId": "cmtwzb8f7000cs5feoq6x5e6n",
+  "commentsCount": 1,
+  "publishStatus": 201,
+  "commentStatus": 201
+}
 ```
 
-Do **not** use `prisma db push` on staging/prod.
+Migration applied via Render `npm prestart` bootstrap (`migrate deploy` against postgres schema). No `db push` used.
 
 ---
 
 ## 8. Production deployment status (Gate 6c)
 
-**Status: `HUMAN_DEPLOYMENT_REQUIRED`**
+**`HUMAN_DEPLOYMENT_REQUIRED`**
 
-Same migrate command after production merge/deploy. Smoke comment create/list on a non-customer test activity if available.
+Preconditions:
+1. Merge Social V1 Core (+ Dashboard) to production/`main` as per normal release process
+2. Confirm production Core checkout includes `20260911220000_activity_comment_v1`
+3. On production Core (Render shell or deploy prestart):
 
-Does **not** downgrade IMPLEMENTATION_PROOF.
+```bash
+cd /opt/render/project/src/apps/core/cardbey-core
+npm run migrate:deploy
+# ≡ node scripts/run-postgres-prisma.js migrate deploy
+# ≡ npx prisma migrate deploy --schema prisma/postgres/schema.prisma
+```
+
+4. Bounded smoke: authenticated `POST/GET /api/activities/:activityId/comments`
+
+Do **not** use `prisma db push` on production.
+
+This does **not** downgrade IMPLEMENTATION_PROOF or staging PASS.
 
 ---
 
@@ -150,38 +154,20 @@ Does **not** downgrade IMPLEMENTATION_PROOF.
 
 **`LOCAL_SQLITE_SCHEMA_DRIFT = PRE_EXISTING_FOLLOW_UP`**
 
-- Did not run `prisma db push` on the large historical SQLite DB
-- Local E2E used `ensure-comment-table.mjs` on `dev-fresh.db` only
-- Drift did **not** block browser E2E
+Did not rewrite historical migrations or run `db push` on the large SQLite DB. Local E2E used `ensure-comment-table.mjs` only.
 
 ---
 
-## 10. Regression check (Gate 7)
+## 10. Remaining issues
 
-| Suite | Result |
-|-------|--------|
-| Playwright `business-space-social-v1.spec.ts` | **PASS** |
-| `activityCommentService.test.js` | **5/5 PASS** |
-| `publishSpaceUpdate.test.js` | **6/6 PASS** |
-| `BusinessActivityComposerSlot.test.ts` | **1/1 PASS** |
-
-Unaffected by design: miniweb/storefront contracts unchanged; no second social domain.
+1. Production merge + `migrate deploy` (human)
+2. Pre-existing local SQLite index drift (out of scope)
+3. Deferred Global activity-row V2
 
 ---
 
-## 11. Remaining issues
+## 11. Final verdict
 
-1. **Ship + migrate staging Postgres** (`20260911220000_activity_comment_v1`) — required to flip DATABASE gate and overall mission to PASS.
-2. Production migrate after staging proof.
-3. Pre-existing local SQLite index drift (out of scope).
-4. Deferred: Global activity-row projection V2.
+### `BUSINESS_SPACE_SOCIAL_V1_PASS`
 
----
-
-## Final verdict
-
-### `BUSINESS_SPACE_SOCIAL_V1_PARTIAL`
-
-**IMPLEMENTATION_PROOF = PASS** — browser Post + Comment E2E, auth negatives, Global V1 rank-bump, focused tests, additive migration SQL reviewed.
-
-**Not full mission PASS** solely because staging Postgres `migrate deploy` was not executable from this environment (code not yet deployed; no staging DB credentials). Production correctly marked `HUMAN_DEPLOYMENT_REQUIRED`.
+All PASS conditions met for Post, Comment, Regression, and Staging database validation. Production remains explicitly `HUMAN_DEPLOYMENT_REQUIRED`.
