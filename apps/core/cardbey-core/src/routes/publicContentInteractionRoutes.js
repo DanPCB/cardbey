@@ -1,10 +1,12 @@
 /**
- * Public content interaction metrics — no auth required.
- * GET/POST /api/public/content-interactions/:contentType/:contentId
+ * Public content interaction metrics — no auth required for love/view/share.
+ * Comments: GET public; POST requires auth.
+ * GET/POST /api/public/content-interactions/:contentType/:contentId[/comments|...]
  */
 
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { requireAuth } from '../middleware/auth.js';
 import {
   addContentClap,
   getContentInteractionSummary,
@@ -12,6 +14,10 @@ import {
   recordContentView,
   toggleContentLove,
 } from '../services/contentInteractionService.js';
+import {
+  createActivityComment,
+  listActivityComments,
+} from '../services/activityCommentService.js';
 
 const router = Router();
 
@@ -44,6 +50,57 @@ router.get('/:contentType/:contentId', async (req, res, next) => {
       return res.status(400).json({ ok: false, error: 'invalid_content' });
     }
     return res.json({ ok: true, summary });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:contentType/:contentId/comments', async (req, res, next) => {
+  try {
+    const result = await listActivityComments(prisma, {
+      contentType: req.params.contentType,
+      contentId: req.params.contentId,
+      limit: req.query?.limit,
+      cursor: req.query?.cursor,
+      ...metaFromReq(req),
+    });
+    if (!result.ok) {
+      return res.status(result.status || 400).json({ ok: false, error: result.error });
+    }
+    return res.json({
+      ok: true,
+      comments: result.comments,
+      total: result.total,
+      nextCursor: result.nextCursor,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:contentType/:contentId/comments', requireAuth, async (req, res, next) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const result = await createActivityComment(prisma, {
+      contentType: req.params.contentType,
+      contentId: req.params.contentId,
+      text: body.text ?? body.body ?? '',
+      actorUserId: req.userId,
+      actorType: 'user',
+      ...metaFromReq(req),
+    });
+    if (!result.ok) {
+      return res.status(result.status || 400).json({
+        ok: false,
+        error: result.error,
+        message: result.error,
+      });
+    }
+    return res.status(result.status || 201).json({
+      ok: true,
+      comment: result.comment,
+      total: result.total,
+    });
   } catch (err) {
     next(err);
   }

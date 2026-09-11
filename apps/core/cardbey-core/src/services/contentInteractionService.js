@@ -88,9 +88,40 @@ export async function getContentInteractionSummary(prisma, input) {
     return null;
   }
 
-  const metrics = await prisma.contentInteractionMetrics.findUnique({
-    where: { contentType_contentId: { contentType, contentId } },
+  let metrics = await prisma.contentInteractionMetrics.findUnique({
+    where: {
+      contentType_contentId: { contentType, contentId },
+    },
   });
+
+  // Prefer live Comment row count when the Comment table is available.
+  let commentsCount = metrics?.commentsCount ?? 0;
+  if (typeof prisma.comment?.count === 'function') {
+    try {
+      commentsCount = await prisma.comment.count({
+        where: { contentType, contentId, status: 'ACTIVE' },
+      });
+      if (metrics && metrics.commentsCount !== commentsCount) {
+        metrics = await prisma.contentInteractionMetrics.update({
+          where: { id: metrics.id },
+          data: { commentsCount },
+        });
+      } else if (!metrics && commentsCount > 0) {
+        metrics = await prisma.contentInteractionMetrics.create({
+          data: {
+            contentType,
+            contentId,
+            storeId: input.storeId ? String(input.storeId) : null,
+            artifactId: input.artifactId ? String(input.artifactId) : null,
+            commentsCount,
+          },
+        });
+      }
+    } catch {
+      // Comment model not migrated yet — keep metrics counter.
+    }
+  }
+
   if (!metrics) {
     return {
       contentId,
@@ -100,7 +131,7 @@ export async function getContentInteractionSummary(prisma, input) {
       viewsCount: 0,
       lovesCount: 0,
       clapsCount: 0,
-      commentsCount: 0,
+      commentsCount,
       sharesCount: 0,
       bookingsCount: 0,
       viewerState: { loved: false, clapped: false, shared: false },
@@ -108,7 +139,9 @@ export async function getContentInteractionSummary(prisma, input) {
   }
 
   const viewer = await getViewerState(prisma, metrics.id, viewerKey);
-  return toSummary(metrics, viewer);
+  const summary = toSummary(metrics, viewer);
+  summary.commentsCount = commentsCount;
+  return summary;
 }
 
 export async function recordContentView(prisma, input) {
