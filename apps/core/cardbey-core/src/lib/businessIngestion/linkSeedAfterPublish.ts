@@ -112,6 +112,14 @@ export async function linkSeedAfterPublish(
 
   await upsertSeedRecords([updatedSeed]);
 
+  try {
+    const { promoteSeedMenuToStore } = await import('../businessCandidate/menuPromotion.js');
+    await promoteSeedMenuToStore(params.storeId, updatedSeed);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[linkSeedAfterPublish] menu promotion failed for seed ${seedId}:`, message);
+  }
+
   const eventMetadata = {
     storeId: params.storeId,
     draftId: params.draftId,
