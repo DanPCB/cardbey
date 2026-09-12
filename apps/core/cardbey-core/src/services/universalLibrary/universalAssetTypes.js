@@ -26,6 +26,7 @@ export const ASSET_PROVIDER = Object.freeze({
   WIKIMEDIA: 'wikimedia',
   INTERNET_ARCHIVE: 'internet_archive',
   OPENVERSE: 'openverse',
+  FREESOUND: 'freesound',
 });
 
 export const RIGHTS_STATUS = Object.freeze({
