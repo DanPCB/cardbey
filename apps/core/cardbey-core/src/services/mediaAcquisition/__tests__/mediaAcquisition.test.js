@@ -16,8 +16,13 @@ import {
   addToReviewQueue,
   resolveReviewItem,
   resetReviewQueueForTests,
+  getReviewItem,
+  setReviewQueueStorePathForTests,
 } from '../reviewQueue.js';
 import { resetMediaAcquisitionEventsForTests } from '../observability.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 describe('mediaAcquisition — rights & candidates', () => {
   beforeEach(() => {
@@ -166,6 +171,46 @@ describe('mediaAcquisition — rights & candidates', () => {
     const resolved = resolveReviewItem(item.reviewId, 'approve');
     expect(resolved.ok).toBe(false);
     expect(resolved.error).toBe('blocked_cannot_approve');
+  });
+
+  it('persists review decisions across queue rehydrate (Core restart)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rma-review-'));
+    const store = path.join(dir, 'review-queue.json');
+    setReviewQueueStorePathForTests(store);
+    resetReviewQueueForTests();
+
+    const candidate = toDiscoveryCandidate(
+      normalizeAdapterHit(
+        {
+          remoteId: 'persist-1',
+          provider: 'openverse',
+          title: 'Persist me',
+          license: 'CC0',
+          previewUrl: 'https://example.com/p.jpg',
+          canonicalUrl: 'https://example.com/p',
+        },
+        { sourceId: 'src_openverse' },
+      ),
+    );
+    const added = addToReviewQueue(candidate);
+    expect(added.ok).toBe(true);
+    const approved = resolveReviewItem(added.item.reviewId, 'approve');
+    expect(approved.ok).toBe(true);
+    expect(approved.item.queueStatus).toBe('APPROVED');
+
+    // Simulate process restart: new module state via store path reset + hydrate
+    setReviewQueueStorePathForTests(store);
+    const revived = getReviewItem(added.item.reviewId);
+    expect(revived).toBeTruthy();
+    expect(revived.queueStatus).toBe('APPROVED');
+    expect(revived.resolvedAt).toBeTruthy();
+
+    resetReviewQueueForTests();
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 });
 

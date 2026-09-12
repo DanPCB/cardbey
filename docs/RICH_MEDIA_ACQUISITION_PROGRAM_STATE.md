@@ -4,10 +4,10 @@ CURRENT VERSION
 V1
 
 CURRENT GATE  
-V1_DURABLE_INTEGRATION
+RICH_MEDIA_ACQUISITION_V1_FINAL_E2E_CLOSURE
 
 V1 STATUS  
-PARTIAL
+PASS
 
 V2 STATUS  
 LOCKED — Rights + Acquisition Hardening
@@ -19,13 +19,20 @@ V4 STATUS
 LOCKED — Autonomous Media Discovery (`docs/AUTONOMOUS_MEDIA_DISCOVERY_V4.md`)
 
 LAST PROVEN RESULT  
-RICH_MEDIA_ACQUISITION_V1_DURABLE_RUNTIME_READY
+RICH_MEDIA_ACQUISITION_V1_PASS
 
 NEXT GATE  
-RICH_MEDIA_ACQUISITION_V1_FINAL_E2E_CLOSURE
+V2 remains LOCKED until explicitly scheduled (source expansion / rights hardening).
+
+Proven in final E2E (`apps/dashboard/.tmp/rma-v1-final-e2e.json`):
+- Search → Review → approve (attribution) → Core restart → decision survives
+- Acquire → Universal Library read-back (same asset id)
+- Duplicate acquire → deduped
+- Blocked license cannot approve
+- Reference-only path
+- Provider isolation (Freesound CONFIG_REQUIRED while others SUCCESS)
+- Durable disk-backed review queue
 
 Notes:
-- Acquisition UI Reorganisation is an approved V1 corrective slice preserved with V1.
-- Do not declare RICH_MEDIA_ACQUISITION_V1_PASS until final E2E closure (review workflow, provenance, UL read-back).
-- Delivery path: ship/restore-creator-content-theatre-stg → origin/staging via normal PR (do not commit directly to staging).
-- Dashboard branch: fix/rich-media-acquisition-v1-integration (from origin/main @ 90899937).
+- Do not add NASA/Unsplash/new providers in V1 (already deferred to V2).
+- Delivery to staging remains a separate repository workflow step.
