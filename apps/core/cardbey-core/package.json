@@ -168,7 +168,10 @@
     "e2e:french-baguette": "node ../../../scripts/e2e-french-baguette.js",
     "truth:check": "node scripts/truth-enforcer/index.js",
     "truth:fix": "node scripts/truth-enforcer/index.js --fix",
-    "truth:strict": "node scripts/truth-enforcer/index.js --strict"
+    "truth:strict": "node scripts/truth-enforcer/index.js --strict",
+    "test:gold:fast": "vitest run --config ../../../tests/gold_flows/vitest.config.mjs ../../../tests/gold_flows/pairing_flow.test.js --pool=forks --no-file-parallelism",
+    "test:gold": "vitest run --config ../../../tests/gold_flows/vitest.config.mjs ../../../tests/gold_flows --pool=forks --no-file-parallelism",
+    "test:gold:pairing": "npm run test:gold:fast"
   },
   "keywords": [
     "cardbey",

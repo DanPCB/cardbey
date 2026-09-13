@@ -5,7 +5,7 @@
  * Device Engine Map (generated):
  * - Pairing:
  *   * POST /api/device/request-pairing - Device requests pairing code (no auth)
- *   * POST /api/device/complete-pairing - Dashboard completes pairing (no auth)
+ *   * POST /api/device/complete-pairing - Dashboard completes pairing (auth required)
  *   * POST /api/device/claim - Dashboard claims pairing session (auth required)
  *   * GET /api/device/unpaired - Pending temp/pairingCode devices (auth required)
  *   * GET /api/device/pair-status/:sessionId - Tablet polls pairing status (no auth)
@@ -1261,7 +1261,7 @@ router.post('/pair-request', handleRequestPairing);
 
 /**
  * POST /api/device/complete-pairing
- * Complete pairing with a pairing code (Dashboard-initiated, no auth required)
+ * Complete pairing with a pairing code (Dashboard-initiated, auth required)
  */
 router.post('/complete-pairing', optionalAuth, async (req, res) => {
   try {
