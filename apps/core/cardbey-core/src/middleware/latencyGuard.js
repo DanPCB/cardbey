@@ -43,6 +43,7 @@ const LONG_RUNNING_PREFIXES = [
   '/api/growth/opportunities/preview',
   // Multi-source batch enrichment (LLM + ABR + media) routinely exceeds the 10s default.
   '/api/business-candidates/batch/enrich',
+  '/api/development', 
 ];
 
 function requestPath(req) {
