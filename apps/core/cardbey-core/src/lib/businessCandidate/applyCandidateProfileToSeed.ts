@@ -173,11 +173,23 @@ export async function applyCandidateProfileToSeed(
     qaFlags: (seed.qaFlags ?? []).filter((flag) => flag !== QA_FLAG_HERO_MISSING),
   };
 
-  if (candidate.category?.trim() && !seed.normalized.category?.trim()) {
-    patched.normalized = {
-      ...seed.normalized,
-      category: candidate.category.trim(),
-    };
+  const normalized = { ...seed.normalized };
+  let normalizedChanged = false;
+  const fillNorm = (key: keyof typeof normalized, value: string | null | undefined) => {
+    const next = typeof value === 'string' ? value.trim() : '';
+    const cur = typeof normalized[key] === 'string' ? String(normalized[key]).trim() : '';
+    if (next && !cur) {
+      (normalized as Record<string, unknown>)[key as string] = next;
+      normalizedChanged = true;
+    }
+  };
+  fillNorm('phone', candidate.phone);
+  fillNorm('website', candidate.website);
+  fillNorm('email', candidate.email);
+  fillNorm('address', candidate.address);
+  fillNorm('category', candidate.category);
+  if (normalizedChanged) {
+    patched.normalized = normalized;
   }
 
   return persistSeedCompletenessOnRecord(patched).seed;

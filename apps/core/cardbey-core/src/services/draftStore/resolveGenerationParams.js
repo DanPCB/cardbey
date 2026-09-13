@@ -55,7 +55,6 @@ export function resolveGenerationParams(input, opts = {}) {
       : (raw.includeImages !== false);
   const vertical = raw.vertical != null ? String(raw.vertical).trim() : (raw.businessType || raw.storeType) ? String(raw.businessType || raw.storeType).trim() : undefined;
 
-  const classificationBundle = resolveStoreCreationClassification(raw);
   const categoryHint =
     raw.storeType != null && String(raw.storeType).trim()
       ? String(raw.storeType).trim()
@@ -69,6 +68,15 @@ export function resolveGenerationParams(input, opts = {}) {
     businessName: raw.businessName ?? raw.storeName,
     userNotes: [raw.location, raw.prompt].filter(Boolean).join(' '),
     explicitVertical: raw.verticalSlug != null ? String(raw.verticalSlug).trim() : null,
+  });
+
+  const classificationBundle = resolveStoreCreationClassification({
+    ...raw,
+    verticalSlug:
+      raw.verticalSlug != null && String(raw.verticalSlug).trim()
+        ? String(raw.verticalSlug).trim()
+        : verticalResolved.slug,
+    verticalGroup: verticalResolved.group,
   });
 
   return {

@@ -624,6 +624,10 @@ export async function unifiedDispatch(action, options = {}) {
         sessionId: payload.sessionId ?? null,
       });
       const reasoning = reasonAboutDispatch(type, memoryBundle, { requiresConfirmation });
+
+      if (reasoning.requiresConfirmation && missionType === 'campaign_orchestration') {
+  reasoning = { ...reasoning, requiresConfirmation: false };
+}
       if (reasoning.requiresConfirmation) {
         return {
           ok: false,
@@ -898,7 +902,7 @@ export function mapUnifiedDispatchToIntakeResponse(result, ctx = {}) {
     };
   }
 
-  if (result.status === 'pending_confirmation') {
+  if (result.status === 'pending_confirmation' || result.status === 'awaiting_confirmation') {
     const orchestrationPending =
       result.proposedAction === MULTI_AGENT_PROPOSED_ACTION ||
       result.missionType === 'multi_agent' ||

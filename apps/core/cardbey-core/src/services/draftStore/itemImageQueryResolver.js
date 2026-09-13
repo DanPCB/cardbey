@@ -105,26 +105,9 @@ export function resolveItemImageSearchQuery(params = {}) {
     });
   }
 
-  try {
-    const intent = buildServiceImageIntent({
-      serviceName: itemName,
-      description,
-      businessCategory: businessType ?? categoryName,
-      businessSubcategory: verticalSlug,
-    });
-    if (intent.queries?.[0]) {
-      return enrichImageQueryWithBusinessContext(intent.queries[0].slice(0, 200), {
-        businessName: storeName,
-        storeName,
-        businessType,
-        category: categoryName ?? businessType,
-        location,
-      });
-    }
-  } catch {
-    /* fall through */
-  }
-
+  // Prefer industry-aware image semantics before service-specific intent.
+  // This prevents service/handyman leakage into food, retail, and other
+  // non-service businesses when an exact item blueprint is unavailable.
   const key = resolveIndustryBlueprintKey(profile);
   const bank = key ? INDUSTRY_BLUEPRINTS[key] : null;
   if (bank) {
@@ -140,8 +123,44 @@ export function resolveItemImageSearchQuery(params = {}) {
     }
   }
 
+  const normalizedVerticalGroup = String(verticalGroup ?? '').toLowerCase();
+  const normalizedVerticalSlug = String(verticalSlug ?? '').toLowerCase();
+  const normalizedBusinessType = String(businessType ?? '').toLowerCase();
+  const normalizedStoreName = String(storeName ?? '').toLowerCase();
+
+  const serviceLike =
+    normalizedVerticalGroup === 'services' ||
+    normalizedVerticalSlug.startsWith('services.') ||
+    /\b(handyman|plumb|electric|clean|repair|maintenance|contractor|trades)\b/.test(
+      normalizedBusinessType,
+    ) ||
+    /\b(handyman|handy[\s-]?man)\b/.test(normalizedStoreName);
+
+  if (serviceLike) {
+    try {
+      const intent = buildServiceImageIntent({
+        serviceName: itemName,
+        description,
+        businessCategory: businessType ?? categoryName,
+        businessSubcategory: verticalSlug,
+      });
+
+      if (intent.queries?.[0]) {
+        return enrichImageQueryWithBusinessContext(intent.queries[0].slice(0, 200), {
+          businessName: storeName,
+          storeName,
+          businessType,
+          category: categoryName ?? businessType,
+          location,
+        });
+      }
+    } catch {
+      /* fall through to neutral item fallback */
+    }
+  }
+
   const name = String(itemName ?? '').trim();
-  let fallback = 'professional service';
+  let fallback = String(businessType ?? categoryName ?? storeName ?? '').trim() || 'business';
   if (name && categoryName) fallback = `${name} ${categoryName}`.replace(/\s+/g, ' ');
   else if (name) fallback = name;
   else if (description) fallback = String(description).trim();

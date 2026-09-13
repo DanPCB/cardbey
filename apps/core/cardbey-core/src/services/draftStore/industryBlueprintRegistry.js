@@ -128,15 +128,36 @@ export function resolveIndustryBlueprintKey(profile = {}) {
     }
   }
 
-  const slug = String(profile.verticalSlug ?? '').toLowerCase().trim();
+    const slug = String(profile.verticalSlug ?? '').toLowerCase().trim();
+
+  // Exact blueprint mappings always win.
   if (slug && BLUEPRINT_BY_SLUG[slug]) return BLUEPRINT_BY_SLUG[slug];
+
+  // Cuisine-specific or otherwise unmapped food verticals inherit the
+  // generic restaurant blueprint for website/image presentation.
+  // Their cuisine-specific catalog generation remains unchanged.
+  if (isFoodVerticalSlug(slug) && INDUSTRY_BLUEPRINTS['food.restaurant']) {
+    return 'food.restaurant';
+  }
 
   const resolved = resolveVertical({
     businessType: profile.businessType ?? profile.storeType,
     businessName: profile.businessName ?? profile.storeName,
     userNotes: profile.prompt,
   });
-  if (resolved?.slug && BLUEPRINT_BY_SLUG[resolved.slug]) return BLUEPRINT_BY_SLUG[resolved.slug];
+
+  if (resolved?.slug && BLUEPRINT_BY_SLUG[resolved.slug]) {
+    return BLUEPRINT_BY_SLUG[resolved.slug];
+  }
+
+  // Also handle cases where verticalSlug was missing but resolveVertical()
+  // correctly identifies an unmapped cuisine such as food.vietnamese.
+  if (
+    isFoodVerticalSlug(resolved?.slug) &&
+    INDUSTRY_BLUEPRINTS['food.restaurant']
+  ) {
+    return 'food.restaurant';
+  }
 
   return null;
 }

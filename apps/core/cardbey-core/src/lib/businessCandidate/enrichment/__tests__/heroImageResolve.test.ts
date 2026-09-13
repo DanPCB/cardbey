@@ -45,4 +45,39 @@ describe('resolveHeroImage Pexels acceptance', () => {
     expect(resolved.hero?.source).toBe('pexels');
     expect(resolved.hero?.url).toContain('pexels.com');
   });
+
+  it('prefers placeId-bound Places proxy over Foursquare', async () => {
+    const budget = new EnrichmentBudget();
+    const resolved = await resolveHeroImage({
+      budget,
+      websiteOgImage: null,
+      websiteSourceUrl: null,
+      category: 'Hotel',
+      businessType: 'hotel',
+      businessName: 'Edoya Hotel Ben',
+      suburb: 'District 1',
+      placesProxyPhotoUrl: '/api/public/places-photo?placeId=ChIJ&photoName=places%2FChIJ%2Fphotos%2Fx',
+      foursquarePhotoUrl: 'https://img.fsq/rex.jpg',
+      foursquareVenueMatched: true,
+    });
+    expect(resolved.hero?.source).toBe('google_places_proxy');
+    expect(resolved.hero?.url).toContain('/api/public/places-photo');
+  });
+
+  it('refuses Foursquare photo when venue is not matched', async () => {
+    const budget = new EnrichmentBudget();
+    const resolved = await resolveHeroImage({
+      budget,
+      websiteOgImage: null,
+      websiteSourceUrl: null,
+      category: 'Hotel',
+      businessType: 'hotel',
+      businessName: 'Edoya Hotel Ben',
+      suburb: 'District 1',
+      foursquarePhotoUrl: 'https://img.fsq/rex.jpg',
+      foursquareVenueMatched: false,
+      identityMatchedWebsite: false,
+    });
+    expect(resolved.hero?.source).not.toBe('foursquare_photos');
+  });
 });

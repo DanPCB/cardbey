@@ -619,7 +619,7 @@ router.post('/', requireAuth, async (req, res, next) => {
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     const stores = (await prisma.business.findMany({
-      where: { userId: req.userId },
+      where: { userId: req.user?.id ?? req.userId },
       orderBy: { createdAt: 'desc' }
     })).filter(isOwnerVisibleStore);
 
@@ -1005,7 +1005,7 @@ router.get('/context', requireAuth, async (req, res, next) => {
       }
     } else {
       business = await prisma.business.findFirst({
-        where: { userId: req.userId },
+        where: { userId: req.user?.id ?? req.userId },
         orderBy: { createdAt: 'desc' },
         select: STORE_CONTEXT_SELECT,
       }).catch(() => null);
@@ -4767,14 +4767,16 @@ router.get('/:storeId/artifacts', requireAuth, requireOwner, async (req, res, ne
 
 /**
  * DELETE /api/stores/:storeId
- * Hard delete a store and its dependent data. Owner only.
+ * Hard delete a store and its dependent data.
+ * Allowed for the store owner (business.userId) or platform admin.
  *
  * Notes:
  * - Some relations cascade via Prisma schema (Product, StorePromo, StoreOffer).
  * - Some store-scoped tables are not relationally linked (Promotion*, SmartObject, IntentSignal/Opportunity),
  *   so we explicitly delete them to avoid orphaned data.
+ * - Confirmation still required via wrapHybridRoute (safe execution governance).
  */
-router.delete('/:storeId', requireAuth, requireOwner, wrapHybridRoute(async (req, res, next) => {
+router.delete('/:storeId', requireAuth, wrapHybridRoute(async (req, res, next) => {
   try {
     const storeId = typeof req.params?.storeId === 'string' ? req.params.storeId.trim() : '';
     if (!storeId) {
@@ -4788,7 +4790,8 @@ router.delete('/:storeId', requireAuth, requireOwner, wrapHybridRoute(async (req
     if (!store) {
       return res.status(404).json({ ok: false, error: 'not_found', message: 'Store not found' });
     }
-    if (store.userId !== req.userId) {
+    const isDevAdmin = process.env.NODE_ENV !== 'production' && req.user?.isDevAdmin === true;
+    if (!isDevAdmin && !isPlatformAdmin(req.user) && store.userId !== req.userId) {
       return res.status(403).json({ ok: false, error: 'forbidden', message: 'Forbidden' });
     }
 

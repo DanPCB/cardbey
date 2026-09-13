@@ -171,6 +171,7 @@ import storesRoutes from './routes/stores.js';
 import websiteEditingRoutes from './routes/websiteEditingRoutes.js';
 import storeShowsRoutes from './routes/storeShowsRoutes.js';
 import spacePostRoutes from './routes/spacePostRoutes.js';
+import activityCommentRoutes from './routes/activityCommentRoutes.js';
 import performerContentEditingBridgeRoutes from './routes/performerContentEditingBridgeRoutes.js';
 import storefrontRoutes from './routes/storefrontRoutes.js';
 import promosAuthRoutes from './routes/promosAuth.js';
@@ -189,6 +190,7 @@ import controlCenterRollbackRoutes from './routes/controlCenterRollbackRoutes.js
 import executiveGrowthRoutes from './routes/executiveGrowthRoutes.js';
 import marketIntentAdminRoutes from './routes/admin/marketIntentAdminRoutes.js';
 import launchpadMarketGraphRoutes from './routes/admin/launchpadMarketGraphRoutes.js';
+import growYourBusinessRoutes from './routes/growth/growYourBusinessRoutes.js';
 import fundraisingCampaignRoutes from './routes/admin/fundraisingCampaignRoutes.js';
 import storeGrowthRoutes from './routes/storeGrowthRoutes.js';
 import {
@@ -215,6 +217,7 @@ import publicUsersRoutes from './routes/publicUsers.js';
 import listingReportRoutes from './routes/listingReportRoutes.js';
 import publicHeroPlaybackRoutes from './routes/publicHeroPlaybackRoutes.js';
 import publicDiscoveryRoutes from './routes/publicDiscoveryRoutes.js';
+import publicPlacesPhotoRoutes from './routes/publicPlacesPhoto.js';
 import publicFeedRoutes from './routes/publicFeedRoutes.js';
 import publicContentInteractionRoutes from './routes/publicContentInteractionRoutes.js';
 import storeEngagementRoutes from './routes/storeEngagementRoutes.js';
@@ -1105,6 +1108,7 @@ app.use('/api/performer', performerRoutes); // Performer app routes (lastSession
 app.use('/api/stores', websiteEditingRoutes); // Phase 0 Website Editing context (before :storeId catch-alls)
 app.use('/api/stores', storeShowsRoutes); // Phase 1 Shows / Featured Content management
 app.use('/api/stores', spacePostRoutes); // Space Post V1: POST /:storeId/space-updates
+app.use('/api/activities', activityCommentRoutes); // Platform comments: GET/POST /:activityId/comments
 app.use('/api/stores', storesRoutes); // Store management routes: /api/stores, /api/stores/:storeId/promos
 app.use('/api/stores', liveMarketOwnerRoutes); // Live Market owner sessions (flag-gated)
 app.use('/api/live-market', liveMarketParticipantRoutes); // Live Market participant registration (flag-gated)
@@ -1204,6 +1208,7 @@ app.use('/api/public/content-interactions', publicContentInteractionRoutes);
 app.use('/api/public/store-engagement', storeEngagementRoutes);
 app.use('/api/public-feed', publicFeedRoutes); // GET /api/public-feed/sidebar
 app.use('/api/public', publicDiscoveryRoutes); // GET /api/public/discovery/businesses
+app.use('/api/public', publicPlacesPhotoRoutes); // GET /api/public/places-photo (placeId-bound proxy)
 app.use('/api/public', publicHeroPlaybackRoutes); // GET /api/public/media/hero-playback/:token
 app.use('/api/public', listingReportRoutes); // POST /api/public/listings/:slug/report
 app.use('/api/public', publicUsersRoutes); // /api/public/users/:handle, /api/public/stores/:slug, /api/public/profile/:slug
@@ -1355,6 +1360,7 @@ app.use('/api/admin/live-market', liveMarketAdminRoutes); // Admin: Live Market 
 app.use('/api/admin/global-live', globalLiveEoiAdminRoutes); // Admin: Global Live pilot EOI (flag-gated)
 app.use('/api/admin/market-intent', marketIntentAdminRoutes); // Admin: Market Intent G1-G4 test UI (flag-gated)
 app.use('/api/admin/launchpad', launchpadMarketGraphRoutes); // Admin: Launchpad Market Graph / Capital Resource Network V1
+app.use('/api/growth/opportunities', growYourBusinessRoutes); // User: Grow Your Business V1 (flag-gated, authenticated)
 app.use('/api/admin/fundraising', fundraisingCampaignRoutes); // Admin: Fundraising Campaign V1 (no outreach send)
 
 // Internal API routes (for Lambda callbacks, workers, etc.)

@@ -54,11 +54,39 @@ describe('foursquareFetcher', () => {
     const budget = new EnrichmentBudget();
     const result = await fetchFoursquareVenue(budget, 'Braybrook Bakehouse', 'Braybrook');
     expect(result?.fsqId).toBe('abc123');
+    expect(result?.matched).toBe(true);
     expect(fetchMock).toHaveBeenCalledOnce();
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(String(init.headers?.Authorization)).toBe('Bearer test-key');
     expect(init.headers?.['X-Places-Api-Version']).toBe('2025-06-17');
     expect(String(init.headers?.Accept)).toBe('application/json');
+  });
+
+  it('refuses results[0] when name does not strongly match (Edoya vs Rex)', async () => {
+    process.env.FOURSQUARE_API_KEY = 'test-key';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          results: [
+            {
+              fsq_place_id: 'rex-1',
+              name: 'Rex Hotel Rooftop Garden Bar',
+              categories: [{ name: 'Bar' }],
+            },
+            {
+              fsq_place_id: 'other-1',
+              name: 'Caravelle Hotel',
+              categories: [{ name: 'Hotel' }],
+            },
+          ],
+        }),
+      })),
+    );
+    const budget = new EnrichmentBudget();
+    const result = await fetchFoursquareVenue(budget, 'Edoya Hotel Ben', 'District 1', null, 'VN');
+    expect(result).toBeNull();
   });
 });
 

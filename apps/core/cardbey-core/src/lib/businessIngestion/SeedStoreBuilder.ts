@@ -12,6 +12,15 @@ export function buildSeedStoreDraft(seed: IngestedSeedRecord): SeedStoreDraft | 
   const businessName = n.businessName?.trim();
   if (!businessName) return null;
 
+  const hoursSummary =
+    seed.hours && typeof seed.hours === 'object' && !Array.isArray(seed.hours)
+      ? typeof (seed.hours as { summary?: unknown }).summary === 'string'
+        ? String((seed.hours as { summary: string }).summary).trim()
+        : null
+      : typeof seed.hours === 'string'
+        ? seed.hours.trim()
+        : null;
+
   return {
     businessName,
     businessType: n.category ?? 'general',
@@ -35,6 +44,9 @@ export function buildSeedStoreDraft(seed: IngestedSeedRecord): SeedStoreDraft | 
     confidenceScore: n.confidenceScore,
     verificationStatus: seed.verificationStatus,
     registrationNumber: n.registrationNumber,
+    hoursSummary: hoursSummary || null,
+    tagline: seed.tagline ?? null,
+    about: seed.about ?? null,
   };
 }
 
@@ -57,8 +69,8 @@ export function buildSeedStorePreview(draft: SeedStoreDraft) {
     transactionMode: classification.transactionMode,
     catalogLabel: classification.catalogLabel,
     ctaLabel: classification.ctaLabel,
-    tagline: '',
-    heroText: '',
+    tagline: draft.tagline ?? '',
+    heroText: draft.about ?? '',
     heroImageUrl: null,
     brandColors: { primary: '#6C4CF1', secondary: '#1e293b' },
     items: [],
@@ -69,7 +81,7 @@ export function buildSeedStorePreview(draft: SeedStoreDraft) {
           type: 'hero',
           content: {
             headline: draft.businessName,
-            subheadline: `Welcome to ${draft.businessName}`,
+            subheadline: draft.tagline || draft.about || `Welcome to ${draft.businessName}`,
             ctaLabel: classification.ctaLabel,
           },
         },
@@ -81,6 +93,7 @@ export function buildSeedStorePreview(draft: SeedStoreDraft) {
             phone: draft.phone,
             email: draft.email,
             website: draft.website,
+            ...(draft.hoursSummary ? { hours: draft.hoursSummary } : {}),
           },
         },
       ],

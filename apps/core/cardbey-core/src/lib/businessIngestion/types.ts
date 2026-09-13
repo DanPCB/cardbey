@@ -293,6 +293,10 @@ export interface SeedStoreDraft {
   confidenceScore: number;
   verificationStatus: SeedVerificationStatus;
   registrationNumber: string | null;
+  /** Display string for opening hours when known from candidate enrichment. */
+  hoursSummary?: string | null;
+  tagline?: string | null;
+  about?: string | null;
 }
 
 /** Pipeline run metrics (Phase 8). */

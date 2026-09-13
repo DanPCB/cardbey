@@ -64,6 +64,7 @@ const BUSINESS_CONTACT_PUBLISH_KEYS = [
   'mapUrl',
   'lat',
   'lng',
+  'tradingHours',
 ].filter((key) => hasBusinessColumn(key));
 
 const BUSINESS_PUBLISH_SCALAR_KEYS = new Set([
@@ -618,6 +619,36 @@ export async function publishDraft(prisma, {
       'Confirm researched business data before publishing this store.',
       409,
     );
+  }
+
+  // Phase 2 verify gate: draft.input.metadataJson.publishBlocked
+  try {
+    const { readDraftPublishBlocked, appendStoreCreationBlackboardEvent } = await import(
+      '../../lib/storeCreation/storeCreationBlackboard.js'
+    );
+    const block = readDraftPublishBlocked(targetDraft);
+    if (block.blocked) {
+      const mid =
+        (typeof targetDraft.input?.missionId === 'string' && targetDraft.input.missionId.trim()) ||
+        (typeof targetDraft.preview?.meta?.missionId === 'string' &&
+          targetDraft.preview.meta.missionId.trim()) ||
+        '';
+      if (mid) {
+        await appendStoreCreationBlackboardEvent(mid, 'store:publish_skipped', {
+          draftId: targetDraft.id,
+          reason: 'publish_blocked',
+          issues: block.issues,
+        }).catch(() => {});
+      }
+      throw new PublishDraftError(
+        'publish_blocked',
+        'Publish blocked: draft is missing critical catalog products.',
+        409,
+      );
+    }
+  } catch (gateErr) {
+    if (gateErr instanceof PublishDraftError) throw gateErr;
+    console.warn('[publishDraft] publishBlocked check skipped (non-fatal):', gateErr?.message ?? gateErr);
   }
 
   // Idempotent: if this draft is already committed, return the existing store (no duplicate business/store).

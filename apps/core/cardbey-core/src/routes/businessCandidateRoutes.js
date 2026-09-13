@@ -35,7 +35,8 @@ const realLocalRateLimit = rateLimit({
 
 const batchEnrichRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 20,
+  // Chunked enrich (1 candidate/request) needs headroom for whole-batch QA runs.
+  max: 60,
   keyGenerator: (req) => `batch-enrich:${req.user?.id ?? req.ip ?? 'unknown'}`,
   message:
     'Batch enrichment rate limit exceeded. Max {max} runs per {windowMinutes} min. Retry in {retryAfter}s.',
@@ -288,6 +289,7 @@ router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, as
     );
 
     if (isProtectedEnrichmentBatch(batchId)) {
+      if (res.headersSent) return;
       return res.status(403).json({
         ok: false,
         message: `Refusing to enrich protected batch ${batchId}`,
@@ -301,6 +303,15 @@ router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, as
       maxCandidates,
       writeReport: false,
     });
+
+    // Latency guard may have already sent 408 if this path was misclassified;
+    // enrichment work may still have completed — never double-send.
+    if (res.headersSent) {
+      console.warn(
+        `[batch/enrich] Response already sent (likely timeout); enrichment finished runId=${result.enrichmentRunId}`,
+      );
+      return;
+    }
 
     return res.json({
       ok: true,
@@ -329,6 +340,10 @@ router.post('/batch/enrich', requireAuth, requireAdmin, batchEnrichRateLimit, as
       },
     });
   } catch (err) {
+    if (res.headersSent) {
+      console.warn('[batch/enrich] Error after response already sent:', err instanceof Error ? err.message : err);
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Enrichment failed';
     if (String(message).includes('INVENTORY_EMPTY') || String(message).includes('protected batch')) {
       return res.status(400).json({ ok: false, message });

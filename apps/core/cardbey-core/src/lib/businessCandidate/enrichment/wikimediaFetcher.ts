@@ -3,6 +3,7 @@
  */
 
 import type { EnrichmentBudget } from './budget.js';
+import { venueNameMatchConfidence as nameMatchConfidence } from './venueNameMatch.js';
 
 const WIKIMEDIA_API = 'https://commons.wikimedia.org/w/api.php';
 
@@ -18,21 +19,7 @@ export type WikimediaPhoto = {
 
 const FREE_LICENCES = ['CC BY', 'CC BY-SA', 'CC0', 'Public domain'];
 
-export function nameMatchConfidence(businessName: string, fileTitle: string): number {
-  const a = businessName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const b = fileTitle
-    .toLowerCase()
-    .replace(/^file:/i, '')
-    .replace(/\.[a-z0-9]+$/i, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-  if (!a || !b) return 0;
-  if (b.includes(a)) return 0.95;
-  const aTokens = a.split(/\s+/).filter((t) => t.length > 2);
-  if (!aTokens.length) return 0;
-  const hits = aTokens.filter((t) => b.includes(t)).length;
-  return hits / aTokens.length;
-}
+export { nameMatchConfidence };
 
 export async function fetchWikimediaPhoto(
   budget: EnrichmentBudget,
@@ -86,7 +73,7 @@ export async function fetchWikimediaPhoto(
         origin: '*',
       });
       // Info call shares the same consumeFetch slot conceptually as one "wikimedia" attempt;
-      // do not double-consume — still within one planned fetch unit.
+      // do not double-consume â€” still within one planned fetch unit.
       const infoRes = await fetch(`${WIKIMEDIA_API}?${infoParams}`, {
         signal: AbortSignal.timeout(8000),
         headers: {

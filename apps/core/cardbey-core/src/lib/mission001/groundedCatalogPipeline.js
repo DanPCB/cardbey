@@ -88,11 +88,22 @@ export function preferGroundedCatalog(groundedResult, researchCatalog) {
   if (!groundedResult?.catalog) return researchCatalog;
   if (!researchCatalog?.products?.length) return groundedResult.catalog;
 
+  const researchMeta = String(researchCatalog.meta?.catalogSource ?? '').toLowerCase();
+  const authoritySrc = String(researchCatalog.meta?.catalogAuthoritySource ?? '').toUpperCase();
+  // Cuisine / verify seed for a real business with empty scrape — never let inferred grounding
+  // re-label it as sourced.
+  if (
+    researchMeta === 'suggested_for_real_business' ||
+    authoritySrc === 'SUGGESTED_FOR_REAL_BUSINESS' ||
+    researchCatalog.meta?.pleaseVerifyMenu === true
+  ) {
+    return researchCatalog;
+  }
+
   const summary = groundedResult.grounded?.provenanceSummary ?? {};
   const evidenceBacked = (summary.exact ?? 0) + (summary.verified ?? 0);
   if (evidenceBacked > 0) return groundedResult.catalog;
 
-  const researchMeta = researchCatalog.meta?.catalogSource;
   if (researchMeta === 'research' && researchCatalog.products.length >= groundedResult.catalog.products.length) {
     return researchCatalog;
   }

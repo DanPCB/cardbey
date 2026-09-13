@@ -227,7 +227,7 @@ describe('Bookwell venue — Melbourne metro vs Williamstown suburb', () => {
 });
 
 describe('Google Places — metro location vs suburb address', () => {
-  it('matches google_business when place name aligns with business name', () => {
+  it('does not match google_business on name-alone (requires phone/website/name-exact)', () => {
     const source = {
       sourceType: 'google_business',
       sourceUrl: 'https://maps.google.com/?cid=123',
@@ -247,9 +247,21 @@ describe('Google Places — metro location vs suburb address', () => {
       location: 'Melbourne',
       category: 'Beauty',
     });
-    expect(match.matched).toBe(true);
+    // Path A gate: google-place-name alone is insufficient for matched=true
+    expect(match.matched).toBe(false);
     expect(match.confidence).toBeGreaterThanOrEqual(0.88);
     expect(match.reasons).toContain('google-place-name');
+
+    const withPhone = scoreSourceMatch(source, {
+      businessName: 'Glamshell Beauty Spa',
+      location: 'Melbourne',
+      phone: '0399998888',
+      category: 'Beauty',
+    });
+    // Still need phone to actually appear on the candidate for phone reason —
+    // name-exact with full name should verify.
+    expect(withPhone.reasons).toContain('name-exact');
+    expect(withPhone.matched).toBe(true);
   });
 
   it('keeps hostname-titled website offers when GBP matched the same host', () => {

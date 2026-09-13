@@ -31,6 +31,14 @@ function scoreAsset(asset: CandidateMediaAsset, categoryKey: PilotCategoryKey): 
   }
 
   let score = SOURCE_PRIORITY[asset.sourceType] ?? 0;
+  // Raw Places photo URLs are not browser-renderable without a proxy — never pick as hero.
+  if (
+    asset.sourceType === 'provider_photo' &&
+    (String(asset.url).includes('maps.googleapis.com/maps/api/place/photo') ||
+      /places\.googleapis\.com\/v1\/places\//i.test(String(asset.url)))
+  ) {
+    return -1;
+  }
   score += asset.matchConfidence * 30;
   score += asset.businessSpecificConfidence * 40;
   score += asset.categoryMatchConfidence * 20;

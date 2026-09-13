@@ -8,6 +8,7 @@ import { enrichPublicCatalogItem } from '../../lib/catalog/catalogItemClassifica
 import { repairPublicCatalogServicePlaceholders } from '../../lib/catalog/serviceCatalogPlaceholders.js';
 import { publicCommerceFields } from '../../lib/dbCapabilities.js';
 import { buildPublicStoreContact } from '../../utils/publicStoreMapper.js';
+import { formatPublicHoursDisplay } from '../../utils/overlayPublicStoreFromCandidate.js';
 import { isPublicStoreClaimed } from '../../lib/storeCompliance/publicClaimStatus.js';
 import { buildStoreLocationFields } from '../../lib/formatStoreLocation.js';
 
@@ -180,7 +181,24 @@ export function publishedBusinessArtifactToPublicStore(projection, options = {})
       parseSocialLinks(business?.socialLinks) ??
       null,
     contact: buildPublicStoreContact(business),
-    ...(business?.phone ? { phone: business.phone } : {}),
+    ...(() => {
+      const contact = buildPublicStoreContact(business);
+      const phone =
+        (typeof contact.phone === 'string' && contact.phone.trim()) ||
+        (typeof business?.phone === 'string' && business.phone.trim()) ||
+        null;
+      const email = typeof contact.email === 'string' && contact.email.trim() ? contact.email.trim() : null;
+      const websiteUrl =
+        typeof contact.website === 'string' && contact.website.trim() ? contact.website.trim() : null;
+      const hoursDisplay = formatPublicHoursDisplay(business?.tradingHours);
+      return {
+        ...(phone ? { phone } : {}),
+        ...(email ? { email } : {}),
+        ...(websiteUrl ? { websiteUrl } : {}),
+        ...(hoursDisplay ? { hours: hoursDisplay } : {}),
+        ...(business?.tradingHours != null ? { tradingHours: business.tradingHours } : {}),
+      };
+    })(),
     ...(storefrontSettings != null ? { storefrontSettings } : {}),
     ...(business?.provenance != null ? { provenance: business.provenance } : {}),
     ...(business?.claimStatus != null ? { claimStatus: business.claimStatus } : {}),

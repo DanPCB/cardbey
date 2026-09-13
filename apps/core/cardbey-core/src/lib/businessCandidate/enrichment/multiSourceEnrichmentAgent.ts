@@ -20,8 +20,10 @@ import { buildCategoryMappingInputFromCandidate } from './resolveEnrichmentSigna
 import { fetchFoursquarePhotos, fetchFoursquareVenue } from './foursquareFetcher.js';
 import { recoverFullName } from './fullNameRecovery.js';
 import { resolveHeroImage } from './heroImageResolve.js';
+import { buildPlacesProxyHeroUrl } from './placesProxyHero.js';
 import { isPlaceholderDescription, wordCount } from './htmlUtils.js';
 import { osmTagsToCategorySignals, queryOsmOverpass } from './osmCrossRef.js';
+import { websiteHostsMatch } from './venueNameMatch.js';
 import { appendCandidateFieldProvenance } from './provenanceRepository.js';
 import {
   assessEnrichmentGaps,
@@ -56,6 +58,7 @@ import { calculateProfileScore } from './profileScore.js';
 import { priceRangeFromRawSource } from './priceRange.js';
 import { fetchAndExtractMenu, isFoodBusinessCategory } from './menuFetchOrchestrator.js';
 import { syncCandidateMenuToLinkedStore } from '../menuPromotion.js';
+import { writeEnrichedFieldsToLinkedStore } from '../writeEnrichedFieldsToLinkedStore.js';
 import type { ExtractedMenu } from './types/menuTypes.js';
 
 function getCandidateMetadata(candidate: BusinessCandidateRecord): Record<string, unknown> {
@@ -242,6 +245,8 @@ export async function enrichCandidateMultiSource(params: {
   try {
     return await budget.runWithDeadline(async () => {
       const candidate = { ...params.candidate };
+      // Backfill / thin records often omit socialLinks — never throw on .find.
+      candidate.socialLinks = Array.isArray(candidate.socialLinks) ? candidate.socialLinks : [];
       const bag: FieldBag = {};
 
       // Seed bag from existing higher-value fields so we do not overwrite blindly
@@ -640,7 +645,8 @@ export async function enrichCandidateMultiSource(params: {
           budget,
           bag.name?.value ?? candidate.name,
           candidate.suburb,
-          candidate.state ?? 'VIC',
+          candidate.state ?? null,
+          candidate.country ?? null,
         );
         if (fsq) {
           fsqDelivered = true;
@@ -832,9 +838,21 @@ export async function enrichCandidateMultiSource(params: {
         rawExtract: JSON.stringify(mapped.tags.slice(0, 5)),
       });
 
-      // STEP 7 — Hero (website og → FSQ → Wikimedia → Pexels)
+      // STEP 7 — Hero (Places proxy → website og → FSQ → Wikimedia → Pexels)
       budget.assertWithinBudget();
       const displayName = bag.name?.value ?? candidate.name;
+      const placesProxy = buildPlacesProxyHeroUrl({
+        placeId: candidate.placeId,
+        rawSourceJson:
+          candidate.rawSourceJson && typeof candidate.rawSourceJson === 'object'
+            ? (candidate.rawSourceJson as Record<string, unknown>)
+            : null,
+      });
+      const discoveryWebsiteHostMatched = Boolean(
+        websiteUrl &&
+          websiteExtract?.sourceUrl &&
+          websiteHostsMatch(websiteUrl, websiteExtract.sourceUrl),
+      );
       const heroResolved = await resolveHeroImage({
         budget,
         websiteOgImage: websiteExtract?.ogImage ?? null,
@@ -845,8 +863,10 @@ export async function enrichCandidateMultiSource(params: {
         suburb: candidate.suburb,
         placesTypes: buildCategoryMappingInputFromCandidate(candidate).placesTypes,
         tags: mapped.tags,
-        identityMatchedWebsite: Boolean(websiteUrl),
+        identityMatchedWebsite: discoveryWebsiteHostMatched,
+        placesProxyPhotoUrl: placesProxy?.url ?? null,
         foursquarePhotoUrl,
+        foursquareVenueMatched: Boolean(foursquareVenueId && foursquarePhotoUrl),
         wikimediaPhotoUrl,
         wikimediaLicence,
       });
@@ -854,7 +874,7 @@ export async function enrichCandidateMultiSource(params: {
       if (hero?.eligible) {
         sourcesUsed.add(hero.source);
         noteHighest(
-          hero.source === 'business_website'
+          hero.source === 'business_website' || hero.source === 'google_places_proxy'
             ? 1
             : hero.source === 'foursquare_photos' || hero.source === 'wikimedia_commons'
               ? 3
@@ -864,13 +884,18 @@ export async function enrichCandidateMultiSource(params: {
           value: hero.url,
           source: hero.source,
           sourceTier:
-            hero.source === 'business_website'
+            hero.source === 'business_website' || hero.source === 'google_places_proxy'
               ? 1
               : hero.source === 'foursquare_photos' || hero.source === 'wikimedia_commons'
                 ? 3
                 : 4,
           sourceUrl: hero.sourceUrl,
-          confidence: hero.source === 'business_website' ? 0.9 : 0.75,
+          confidence:
+            hero.source === 'business_website' || hero.source === 'google_places_proxy'
+              ? 0.92
+              : hero.source === 'foursquare_photos' || hero.source === 'wikimedia_commons'
+                ? 0.8
+                : 0.55,
           rawExtract: hero.attribution
             ? `${hero.attribution};${hero.rawExtract}`
             : hero.rawExtract,
@@ -1086,6 +1111,14 @@ export async function enrichCandidateMultiSource(params: {
       } else {
         await saveBusinessCandidate(candidate);
         if (rows.length) await appendCandidateFieldProvenance(rows, { dryRun: false });
+        if (candidate.storeId?.trim()) {
+          try {
+            await writeEnrichedFieldsToLinkedStore(candidate);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`[enrich] Business write-back failed for ${candidate.id}:`, message);
+          }
+        }
         if (extractedMenu && candidate.storeId) {
           try {
             await syncCandidateMenuToLinkedStore(candidate);

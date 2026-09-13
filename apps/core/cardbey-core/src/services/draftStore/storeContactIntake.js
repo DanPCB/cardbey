@@ -198,6 +198,19 @@ export async function applyStoreContactIntakeToDraft(prisma, draftId, intake) {
 export function resolveContactFieldsForPublish(existingBusiness, draft, rawPreview) {
   const fromPreview =
     rawPreview?.contact && typeof rawPreview.contact === 'object' ? rawPreview.contact : {};
+  const hoursFromPreview =
+    (typeof fromPreview.hours === 'string' && fromPreview.hours.trim()) ||
+    (rawPreview?.hours && typeof rawPreview.hours === 'object' ? rawPreview.hours : null) ||
+    (typeof rawPreview?.hours === 'string' && rawPreview.hours.trim()) ||
+    null;
+  const tradingHours =
+    draft?.tradingHours ??
+    existingBusiness?.tradingHours ??
+    (hoursFromPreview
+      ? typeof hoursFromPreview === 'object'
+        ? hoursFromPreview
+        : { summary: hoursFromPreview }
+      : null);
   const draftContact = {
     phone: draft?.phone ?? fromPreview.phone ?? null,
     email: draft?.email ?? fromPreview.email ?? null,
@@ -210,6 +223,7 @@ export function resolveContactFieldsForPublish(existingBusiness, draft, rawPrevi
     mapUrl: draft?.mapUrl ?? fromPreview.mapUrl ?? null,
     lat: draft?.lat ?? null,
     lng: draft?.lng ?? null,
+    tradingHours,
   };
   const existing = existingBusiness ?? {};
   return {
@@ -224,5 +238,6 @@ export function resolveContactFieldsForPublish(existingBusiness, draft, rawPrevi
     mapUrl: existing.mapUrl ?? draftContact.mapUrl,
     lat: existing.lat ?? draftContact.lat,
     lng: existing.lng ?? draftContact.lng,
+    tradingHours: existing.tradingHours ?? draftContact.tradingHours,
   };
 }

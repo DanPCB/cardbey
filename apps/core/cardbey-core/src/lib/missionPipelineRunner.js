@@ -477,8 +477,44 @@ async function runNextMissionPipelineStepBody(prisma, id) {
     }
 
     const cfg = nextStep.configJson && typeof nextStep.configJson === 'object' ? nextStep.configJson : {};
+    let checkpointPrompt = typeof cfg.prompt === 'string' ? cfg.prompt : '';
+    try {
+      const { buildResearchQualityCheckpointPrompt } = await import(
+        './storeCreationResearch/pathAResearchQuality.js'
+      );
+      const ctx =
+        mission.context && typeof mission.context === 'object' && !Array.isArray(mission.context)
+          ? mission.context
+          : {};
+      const quality =
+        ctx.storeCreationResearchQuality && typeof ctx.storeCreationResearchQuality === 'object'
+          ? ctx.storeCreationResearchQuality
+          : null;
+      const modeFromMeta =
+        (mission.metadataJson && mission.metadataJson.storeCreationMode) ||
+        ctx.storeCreationMode ||
+        quality?.mode ||
+        null;
+      if (quality || modeFromMeta === 'research') {
+        checkpointPrompt = buildResearchQualityCheckpointPrompt({
+          mode: modeFromMeta || quality?.mode || 'research',
+          basePrompt: checkpointPrompt,
+          businessName: quality?.businessName ?? null,
+          address: quality?.address ?? null,
+          itemCount: quality?.itemCount ?? null,
+          catalogSource: quality?.catalogSource ?? null,
+          lowConfidenceFallback: quality?.lowConfidenceFallback === true,
+        });
+      }
+    } catch (promptErr) {
+      console.warn(
+        '[missionPipelineRunner] research quality checkpoint prompt skipped:',
+        promptErr?.message ?? promptErr,
+      );
+    }
     const mergedConfig = {
       ...cfg,
+      prompt: checkpointPrompt || cfg.prompt,
       awaitingSince: new Date().toISOString(),
     };
     await safeMissionPipelineStepUpdate(
@@ -509,7 +545,7 @@ async function runNextMissionPipelineStepBody(prisma, id) {
       : null;
     broadcastMissionCheckpoint(id, {
       stepId: nextStep.id,
-      prompt: cfg.prompt,
+      prompt: mergedConfig.prompt ?? cfg.prompt,
       options: cfg.options ?? null,
       ...(optionItems ? { optionItems } : {}),
       ...(resolvedOptions ? { displayOptions: resolvedOptions } : {}),
@@ -521,12 +557,12 @@ async function runNextMissionPipelineStepBody(prisma, id) {
       {
         stepId: nextStep.id,
         stepKind: 'checkpoint',
-        prompt: cfg.prompt,
+        prompt: mergedConfig.prompt ?? cfg.prompt,
         options: cfg.options ?? null,
         outputKey: cfg.outputKey ?? null,
         checkpoint: {
           stepId: nextStep.id,
-          prompt: cfg.prompt,
+          prompt: mergedConfig.prompt ?? cfg.prompt,
           options: cfg.options ?? null,
           ...(optionItems ? { optionItems } : {}),
           ...(resolvedOptions ? { displayOptions: resolvedOptions } : {}),

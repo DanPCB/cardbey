@@ -11,18 +11,27 @@ import { getBriefByCandidateId, newBriefId, saveBrief } from '../brief/briefRepo
 const CLAIM_PLACEHOLDER_RE =
   /claim your (business )?profile|activate your cardbey business space/i;
 
-/** Sources allowed for public hero display (never Google Places photos). */
-const PUBLIC_ELIGIBLE_HERO_SOURCES = new Set(['business_website', 'pexels', 'pixabay']);
+/** Sources allowed for public hero display (never raw Google Places photo URLs). */
+const PUBLIC_ELIGIBLE_HERO_SOURCES = new Set([
+  'business_website',
+  'google_places_proxy',
+  'foursquare_photos',
+  'wikimedia_commons',
+  'pexels',
+  'pixabay',
+]);
 
 /** Representative stock — show with disclosure label on public surfaces. */
 const REPRESENTATIVE_HERO_SOURCES = new Set(['pexels', 'pixabay']);
 
-/** Google Places photo URLs require server-side API keys and break in public <img> tags. */
+/** Google Places raw photo URLs require API keys and break in public <img> tags. */
 export function isPublicRenderableImageUrl(url: string | null | undefined): boolean {
   const text = String(url ?? '').trim();
   if (!text) return false;
+  if (text.startsWith('/api/public/places-photo')) return true;
   if (!text.startsWith('http://') && !text.startsWith('https://')) return false;
   if (text.includes('maps.googleapis.com/maps/api/place/photo')) return false;
+  if (/places\.googleapis\.com\/v1\/places\/[^/]+\/photos\//i.test(text)) return false;
   return true;
 }
 
@@ -75,8 +84,9 @@ export function resolvePublicCategoryLabel(
 
 /**
  * Enriched heroes eligible for public display.
- * Pexels/Pixabay are allowed with representative disclosure (see resolveEnrichedHeroFromCandidate).
- * Google Places photos are never shown.
+ * Places proxy / matched FSQ / Wikimedia are venue-bound when enrichment gated identity.
+ * Pexels/Pixabay are allowed with representative disclosure.
+ * Raw Google Places photo URLs are never shown.
  */
 export function isEligibleEnrichedHero(candidate: BusinessCandidateRecord): boolean {
   const url = candidate.heroImageUrl?.trim();
@@ -96,7 +106,8 @@ export function resolveEnrichedHeroFromCandidate(
   const representative = REPRESENTATIVE_HERO_SOURCES.has(source);
   return {
     heroImageUrl: url,
-    heroImageSource: source === 'pexels' || source === 'pixabay' ? 'representative' : 'website',
+    heroImageSource:
+      source === 'pexels' || source === 'pixabay' ? 'representative' : 'website',
     representativeDisclosureRequired: representative,
   };
 }

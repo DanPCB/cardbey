@@ -120,6 +120,54 @@ export function mockLlmResponseForText(rawText: string): MarketIntentLlmResponse
     };
   }
 
+  if (/đá dẻo|da deo|flexible ice|soft ice/i.test(rawText)) {
+    const vietnamese = /đá dẻo|việt nam|nhà phân phối/i.test(rawText);
+    return {
+      classification: 'COMMERCIAL',
+      classificationConfidence: 0.93,
+      classificationReason: 'Manufacturer seeking distributors in Australia.',
+      classificationEvidence: [
+        {
+          statement: 'Explicit search for distributors in Australia.',
+          span: 'Australia',
+          basis: 'EXPLICIT',
+          confidence: 0.9,
+        },
+      ],
+      intents: [
+        { family: 'DISTRIBUTE', confidence: 0.94, basis: 'EXPLICIT', evidence: [] },
+        { family: 'EXPAND', confidence: 0.75, basis: 'INFERRED', evidence: [] },
+      ],
+      has: [
+        {
+          type: 'CAPABILITY',
+          label: vietnamese ? 'Sản xuất đá dẻo' : 'Flexible/soft ice manufacturing',
+          confidence: 0.92,
+          basis: 'EXPLICIT',
+          evidence: [],
+        },
+        {
+          type: 'LOCATION',
+          label: vietnamese ? 'Việt Nam' : 'Vietnam',
+          confidence: 0.9,
+          basis: 'EXPLICIT',
+          evidence: [],
+        },
+      ],
+      wants: [
+        {
+          type: 'DISTRIBUTOR',
+          label: vietnamese ? 'Nhà phân phối' : 'Distributors',
+          confidence: 0.93,
+          basis: 'EXPLICIT',
+          evidence: [],
+        },
+        { type: 'MARKET_ACCESS', label: 'Australia', confidence: 0.9, basis: 'EXPLICIT', evidence: [] },
+      ],
+      locationHint: vietnamese ? 'Việt Nam' : 'Vietnam',
+    };
+  }
+
   if (
     /nhà sản xuất bao bì|manufacturer.*packaging|eco-friendly containers|ecopack|seeking australian distributors|sustainable packaging/i.test(
       rawText,
@@ -646,6 +694,21 @@ export function mockLlmResponseForText(rawText: string): MarketIntentLlmResponse
       intents: [{ family: 'PROMOTE', confidence: 0.88, basis: 'EXPLICIT', evidence: [] }],
       has: [{ type: 'SERVICE', label: 'mobile car detailing', confidence: 0.85, basis: 'EXPLICIT', evidence: [] }],
       wants: [{ type: 'CUSTOMER', label: 'weekend booking customers', confidence: 0.85, basis: 'EXPLICIT', evidence: [] }],
+    };
+  }
+
+  if (/want buyers in australia|looking for buyers in australia/i.test(rawText)) {
+    return {
+      classification: 'COMMERCIAL',
+      classificationConfidence: 0.86,
+      classificationReason: 'Business seeking buyers in Australia.',
+      classificationEvidence: [],
+      intents: [{ family: 'SELL', confidence: 0.88, basis: 'EXPLICIT', evidence: [] }],
+      has: [],
+      wants: [
+        { type: 'BUYER', label: 'buyers', confidence: 0.9, basis: 'EXPLICIT', evidence: [] },
+        { type: 'MARKET_ACCESS', label: 'Australia', confidence: 0.88, basis: 'EXPLICIT', evidence: [] },
+      ],
     };
   }
 
