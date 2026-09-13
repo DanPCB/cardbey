@@ -49,6 +49,11 @@ export class MediaStage {
       callbacks: MediaStageCallbacks;
     },
   ): void {
+    // clear() removes is-active (display:none). Always restore before paint or
+    // the TV stays black while PLAYING with a loaded image off-screen.
+    this.stage.classList.add('stage', 'is-active');
+    this.stage.setAttribute('aria-hidden', 'false');
+
     this.image.cleanup();
     this.video.cleanup();
     this.transition.clear();

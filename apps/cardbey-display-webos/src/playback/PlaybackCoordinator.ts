@@ -285,11 +285,19 @@ export class PlaybackCoordinator {
     if (!this.sequencer?.current()) {
       this.refreshSchedule(true);
     }
-    if (!this.sequencer?.current()) {
+    const item = this.sequencer?.current();
+    if (!item) {
       this.setState({
         status: 'WAITING_FOR_CONTENT',
         reason: this.rawManifest ? 'ALL_ITEMS_OUTSIDE_SCHEDULE' : 'PAIRED_NO_PLAYLIST',
       });
+      return;
+    }
+    // Idempotent: sync/heartbeat must not reload an image already on screen.
+    if (
+      this.state.status === 'PLAYING' &&
+      this.activeFingerprint === fingerprint(item)
+    ) {
       return;
     }
     await this.activateCurrent('play');
@@ -714,6 +722,42 @@ export class PlaybackCoordinator {
 
     if (this.allEligibleFailed()) {
       this.enterAllFailed();
+      return;
+    }
+
+    // Same IMAGE already on screen (single-item loop / repeat): restart the
+    // duration timer only. Full activateCurrent tears down the <img> first,
+    // which flashes black on webOS between identical slides.
+    const current = this.sequencer.current();
+    const softLoopReason =
+      reason === 'image_duration' || reason === 'manual_next' || reason === 'ended';
+    if (
+      softLoopReason &&
+      current?.type === 'IMAGE' &&
+      this.eligibleManifest &&
+      this.activeFingerprint === fingerprint(current) &&
+      this.state.status === 'PLAYING'
+    ) {
+      this.generation += 1;
+      const generation = this.generation;
+      this.advanceGuard.delete(generation);
+      const playlistId = this.sequencer.getState().playlistId || '';
+      const duration = resolveImageDurationMs(
+        current,
+        this.eligibleManifest,
+        this.defaultImageDurationMs,
+      );
+      this.lastManifestReplace = 'soft_loop';
+      this.setState({
+        status: 'PLAYING',
+        item: current,
+        playlistId,
+        startedAt: this.clock.now().toISOString(),
+        generation,
+      });
+      this.updateHeartbeat('PLAYING');
+      this.startImageTimer(current.id, generation, duration);
+      this.emit();
       return;
     }
 
