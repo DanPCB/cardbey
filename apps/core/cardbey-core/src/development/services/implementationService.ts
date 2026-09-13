@@ -1,5 +1,10 @@
 /**
- * Apply verified implementation for development missions (workspace-scoped).
+ * Provider-agnostic patch generation for development missions.
+ *
+ * This service is the boundary between Cardbey's governed runtime and a
+ * CodingProvider. It validates every provider-proposed path, applies changes
+ * through Cardbey's bounded workspace I/O, and produces the canonical patch
+ * records that the orchestrator owns.
  */
 
 import fs from 'node:fs';
@@ -7,15 +12,19 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { DevelopmentMission } from '../types/DevelopmentMission.js';
 import type { DevelopmentDesign } from '../types/DevelopmentDesign.js';
+import type { DevelopmentImpactReport } from '../types/DevelopmentImpactReport.js';
 import type { DevelopmentPatch } from '../types/DevelopmentPatch.js';
 import type { DevelopmentFileChange } from '../types/DevelopmentFileChange.js';
-import { readWorkspaceFile, writeWorkspaceFile } from './pathSecurity.js';
-import { isDuplicateSidebarMission } from './designPlanner.js';
-import { searchRepository } from './repositoryTools.js';
+import {
+  readWorkspaceFile,
+  writeWorkspaceFile,
+  deleteWorkspaceFile,
+  resolveWorkspaceRelativePath,
+  isElevatedPath,
+} from './pathSecurity.js';
 import { cardbeyRepositoryManifest } from '../repositories/cardbeyRepositoryManifest.js';
-
-const APP_REL = 'apps/dashboard/cardbey-marketing-dashboard/src/App.jsx';
-const TEST_REL = 'apps/dashboard/cardbey-marketing-dashboard/src/components/development/developmentConsoleRouting.test.tsx';
+import { resolveCodingProvider } from './coding/resolveCodingProvider.js';
+import type { CodingProviderFileChange } from './coding/CodingProvider.js';
 
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 16);
@@ -47,178 +56,81 @@ function buildUnifiedDiff(pathRel: string, before: string, after: string): strin
   return chunks.join('\n');
 }
 
-async function applyDuplicateSidebarFix(workspaceRoot: string): Promise<{
-  diagnosis: string;
-  fileChanges: Array<{ path: string; before: string; after: string; changeType: 'MODIFY' | 'CREATE' }>;
-}> {
-  const diagnosisParts: string[] = [];
-  const fileChanges: Array<{ path: string; before: string; after: string; changeType: 'MODIFY' | 'CREATE' }> = [];
+function validateChangePath(workspaceRoot: string, change: CodingProviderFileChange): void {
+  // Provider self-report is not authoritative. Re-validate every path through
+  // Cardbey's workspace path-security layer.
+  resolveWorkspaceRelativePath(workspaceRoot, change.path);
+}
 
-  const shellSearch = await searchRepository(workspaceRoot, 'ConsoleSidebar');
-  const appSearch = await searchRepository(workspaceRoot, 'isConsole');
-  diagnosisParts.push(`ConsoleSidebar references: ${shellSearch.matches.length}`);
-  diagnosisParts.push(`isConsole references: ${appSearch.matches.length}`);
+async function applyFileChange(
+  workspaceRoot: string,
+  change: CodingProviderFileChange,
+): Promise<{ before: string; after: string }> {
+  validateChangePath(workspaceRoot, change);
 
-  let appBefore = '';
-  try {
-    appBefore = await readWorkspaceFile(workspaceRoot, APP_REL);
-  } catch {
-    appBefore = '';
+  let before = change.before;
+
+  if (change.changeType === 'DELETE') {
+    if (!before) {
+      try {
+        before = await readWorkspaceFile(workspaceRoot, change.path);
+      } catch {
+        before = '';
+      }
+    }
+    await deleteWorkspaceFile(workspaceRoot, change.path);
+    return { before, after: '' };
   }
 
-  let appAfter = appBefore;
-  let rootCause = 'Root cause B: /app/development not classified as console route';
-
-  if (!appBefore.includes('/app/development')) {
-    appAfter = appBefore.replace(
-      /loc\.pathname\.startsWith\("\/app\/console"\)/,
-      'loc.pathname.startsWith("/app/console") ||\n    loc.pathname.startsWith("/app/development")',
-    );
-    if (appAfter === appBefore) {
-      appAfter = appBefore.replace(
-        'loc.pathname.startsWith("/app/console")',
-        'loc.pathname.startsWith("/app/console") ||\n    loc.pathname.startsWith("/app/development")',
-      );
-    }
-    if (appAfter === appBefore) {
-      appAfter = appBefore.replace(
-        /loc\.pathname\.startsWith\("\/app\/missions"\)/,
-        'loc.pathname.startsWith("/app/missions") ||\n    loc.pathname.startsWith("/app/development")',
-      );
+  // CREATE or MODIFY
+  // Allow Kimi to omit the previous content for MODIFY; the runtime reads it
+  // from the worktree to build the canonical diff.
+  if (change.changeType === 'MODIFY' && before === '') {
+    try {
+      before = await readWorkspaceFile(workspaceRoot, change.path);
+    } catch {
+      before = '';
     }
   }
 
-  if (!appAfter.includes('DevelopmentCenterPage')) {
-    const importLine = "import DevelopmentCenterPage from './pages/development/DevelopmentCenterPage.jsx';";
-    if (!appAfter.includes(importLine)) {
-      appAfter = appAfter.replace(
-        /(import ControlTowerPage[^\n]+\n)/,
-        `$1${importLine}\n`,
-      );
-    }
-  }
+  await writeWorkspaceFile(workspaceRoot, change.path, change.after);
+  return { before, after: change.after };
+}
 
-  if (!appAfter.includes('path="development"')) {
-    appAfter = appAfter.replace(
-      '<Route path="telemetry" element={<MissionConsoleTelemetryPage />} />',
-      '<Route path="telemetry" element={<MissionConsoleTelemetryPage />} />\n        <Route path="development" element={<DevelopmentCenterPage />} />',
-    );
-    if (!appAfter.includes('path="development"')) {
-      appAfter = appAfter.replace(
-        '<Route path="control-tower" element={<ControlTowerPage />} />',
-        '<Route path="development" element={<DevelopmentCenterPage />} />\n        <Route path="control-tower" element={<ControlTowerPage />} />',
-      );
-    }
-  }
-
-  if (appAfter !== appBefore) {
-    fileChanges.push({ path: APP_REL, before: appBefore, after: appAfter, changeType: 'MODIFY' });
-  }
-
-  const guestFn = 'function isGuestAllowedConsolePath';
-  if (appAfter.includes(guestFn) && !appAfter.includes("path.startsWith('/app/development')")) {
-    const guestBefore = appAfter;
-    let guestAfter = guestBefore.replace(
-      /path\.startsWith\('\/app\/console'\)/,
-      "path.startsWith('/app/console') ||\n    path.startsWith('/app/development')",
-    );
-    if (guestAfter === guestBefore) {
-      guestAfter = guestBefore.replace(
-        "path.startsWith('/app/console')",
-        "path.startsWith('/app/console') ||\n    path.startsWith('/app/development')",
-      );
-    }
-    if (guestAfter !== guestBefore) {
-      const idx = fileChanges.findIndex((f) => f.path === APP_REL);
-      if (idx >= 0) fileChanges[idx] = { ...fileChanges[idx]!, after: guestAfter };
-      else fileChanges.push({ path: APP_REL, before: guestBefore, after: guestAfter, changeType: 'MODIFY' });
-      appAfter = guestAfter;
-    }
-  }
-
-  const devPageRel = 'apps/dashboard/cardbey-marketing-dashboard/src/pages/development/DevelopmentCenterPage.tsx';
-  try {
-    const pageContent = await readWorkspaceFile(workspaceRoot, devPageRel);
-    if (/ConsoleShell|ConsoleSidebar|<Sidebar/.test(pageContent)) {
-      rootCause = 'Root cause A: Development page mounts nested shell/sidebar';
-      diagnosisParts.push('DevelopmentCenterPage imports shell/sidebar — must be content-only');
-    }
-  } catch {
-    /* page may not exist in workspace */
-  }
-
-  let testBefore = '';
-  try {
-    testBefore = await readWorkspaceFile(workspaceRoot, TEST_REL);
-  } catch {
-    testBefore = '';
-  }
-
-  const canonicalTest = `import { describe, it, expect } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-
-const appPath = path.resolve(__dirname, '../../App.jsx');
-
-describe('development console routing', () => {
-  it('classifies /app/development as console layout', () => {
-    const source = fs.readFileSync(appPath, 'utf-8');
-    expect(source).toMatch(/app\\/development/);
-    expect(source).toContain('DevelopmentCenterPage');
-    expect(source).toContain('ConsoleShell');
-    expect(source).not.toMatch(/display:\\\\s*none.*sidebar/i);
-  });
-
-  it('DevelopmentCenterPage is content-only without nested shell', () => {
-    const pagePath = path.resolve(__dirname, '../../pages/development/DevelopmentCenterPage.tsx');
-    const pageSource = fs.readFileSync(pagePath, 'utf-8');
-    expect(pageSource).not.toMatch(/ConsoleShell|ConsoleSidebar|<Sidebar/);
-    expect(pageSource).toContain('DevelopmentTab');
-  });
-});
-`;
-
-  if (!testBefore.includes('readFileSync')) {
-    fileChanges.push({
-      path: TEST_REL,
-      before: testBefore,
-      after: canonicalTest,
-      changeType: testBefore ? 'MODIFY' : 'CREATE',
-    });
-  }
-
-  return {
-    diagnosis: `${rootCause}. ${diagnosisParts.join('; ')}`,
-    fileChanges,
-  };
+export interface ImplementDevelopmentChangeResult {
+  patch: DevelopmentPatch;
+  fileChanges: DevelopmentFileChange[];
+  diff: string;
+  elevatedPaths: string[];
 }
 
 export async function implementDevelopmentChange(input: {
   mission: DevelopmentMission;
   design: DevelopmentDesign;
+  impactReport?: DevelopmentImpactReport;
   workspaceRoot: string;
   workspaceId: string;
   author: string;
-}): Promise<{ patch: DevelopmentPatch; fileChanges: DevelopmentFileChange[]; diff: string }> {
-  const { mission, design, workspaceRoot, workspaceId, author } = input;
+}): Promise<ImplementDevelopmentChangeResult> {
+  const { mission, design, impactReport, workspaceRoot, workspaceId, author } = input;
 
-  let result: Awaited<ReturnType<typeof applyDuplicateSidebarFix>>;
-  if (isDuplicateSidebarMission(mission)) {
-    result = await applyDuplicateSidebarFix(workspaceRoot);
-  } else {
-    result = { diagnosis: design.diagnosis, fileChanges: [] };
-  }
+  const provider = resolveCodingProvider({ mission, design });
+  const result = await provider.implement({
+    mission,
+    design,
+    impactReport,
+    workspaceRoot,
+    workspaceId,
+    author,
+  });
 
   const unifiedDiffs: string[] = [];
   const devFileChanges: DevelopmentFileChange[] = [];
+  const touchedPaths = new Set<string>();
 
   for (const change of result.fileChanges) {
-    if (change.changeType === 'CREATE') {
-      await writeWorkspaceFile(workspaceRoot, change.path, change.after);
-    } else {
-      await writeWorkspaceFile(workspaceRoot, change.path, change.after);
-    }
-    const diff = buildUnifiedDiff(change.path, change.before, change.after);
+    const applied = await applyFileChange(workspaceRoot, change);
+    const diff = buildUnifiedDiff(change.path, applied.before, applied.after);
     unifiedDiffs.push(diff);
     const { additions, deletions } = countLines(diff);
     devFileChanges.push({
@@ -228,9 +140,10 @@ export async function implementDevelopmentChange(input: {
       changeType: change.changeType,
       additions,
       deletions,
-      beforeHash: change.before ? hashContent(change.before) : undefined,
-      afterHash: hashContent(change.after),
+      beforeHash: applied.before ? hashContent(applied.before) : undefined,
+      afterHash: applied.after ? hashContent(applied.after) : undefined,
     });
+    touchedPaths.add(change.path);
   }
 
   const diff = unifiedDiffs.join('\n\n');
@@ -246,7 +159,7 @@ export async function implementDevelopmentChange(input: {
     description: result.diagnosis,
     filesAdded: devFileChanges.filter((f) => f.changeType === 'CREATE').map((f) => f.path),
     filesModified: devFileChanges.filter((f) => f.changeType === 'MODIFY').map((f) => f.path),
-    filesDeleted: [],
+    filesDeleted: devFileChanges.filter((f) => f.changeType === 'DELETE').map((f) => f.path),
     linesAdded: devFileChanges.reduce((s, f) => s + f.additions, 0),
     linesDeleted: devFileChanges.reduce((s, f) => s + f.deletions, 0),
     diff,
@@ -255,10 +168,20 @@ export async function implementDevelopmentChange(input: {
     approved: false,
   };
 
-  (patch as DevelopmentPatch & { workspaceId?: string; version?: number; riskLevel?: string; diffArtifactPath?: string }).workspaceId = workspaceId;
-  (patch as DevelopmentPatch & { version?: number }).version = 1;
-  (patch as DevelopmentPatch & { riskLevel?: string }).riskLevel = mission.riskLevel;
-  (patch as DevelopmentPatch & { diffArtifactPath?: string }).diffArtifactPath = diffArtifactPath;
+  const elevatedPaths = Array.from(touchedPaths).filter((p) => isElevatedPath(p));
 
-  return { patch, fileChanges: devFileChanges, diff };
+  const augmentedPatch = patch as DevelopmentPatch & {
+    workspaceId?: string;
+    version?: number;
+    riskLevel?: string;
+    diffArtifactPath?: string;
+    elevatedPaths?: string[];
+  };
+  augmentedPatch.workspaceId = workspaceId;
+  augmentedPatch.version = 1;
+  augmentedPatch.riskLevel = mission.riskLevel;
+  augmentedPatch.diffArtifactPath = diffArtifactPath;
+  augmentedPatch.elevatedPaths = elevatedPaths;
+
+  return { patch, fileChanges: devFileChanges, diff, elevatedPaths };
 }
