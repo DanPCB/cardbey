@@ -19,6 +19,15 @@ import fetch from 'node-fetch';
 import { prisma } from './test-helpers.js';
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001';
 const TEST_TIMEOUT = 30000; // 30 seconds
+const GOLD_FLOW_AUTH_TOKEN =
+  process.env.GOLD_FLOW_AUTH_TOKEN ||
+  (process.env.NODE_ENV === 'test' ? 'dev-admin-token' : '');
+
+function dashboardAuthHeaders() {
+  return GOLD_FLOW_AUTH_TOKEN
+    ? { Authorization: `Bearer ${GOLD_FLOW_AUTH_TOKEN}` }
+    : {};
+}
 
 describe('Pairing Flow Contract Test', () => {
   let testTenantId;
@@ -35,6 +44,54 @@ describe('Pairing Flow Contract Test', () => {
     // You may need to adjust this based on your test setup
     testTenantId = process.env.TEST_TENANT_ID || 'test-tenant-id';
     testStoreId = process.env.TEST_STORE_ID || 'test-store-id';
+
+    if (!GOLD_FLOW_AUTH_TOKEN) {
+      throw new Error('GOLD_FLOW_AUTH_TOKEN is required for dashboard pairing operations');
+    }
+
+    if (
+      GOLD_FLOW_AUTH_TOKEN === 'dev-admin-token' &&
+      process.env.DEV_USER_ID !== testTenantId
+    ) {
+      throw new Error(
+        `DEV_USER_ID must equal TEST_TENANT_ID for dev-admin-token pairing: ` +
+          `${process.env.DEV_USER_ID || '(missing)'} !== ${testTenantId}`,
+      );
+    }
+
+    await prisma.user.upsert({
+      where: { id: testTenantId },
+      update: {
+        emailVerified: true,
+        role: 'super_admin',
+        roles: '["super_admin"]',
+      },
+      create: {
+        id: testTenantId,
+        email: `${testTenantId}@gold-flow.cardbey.test`,
+        passwordHash: 'gold-flow-fixture-not-for-login',
+        displayName: 'Gold Flow Contract User',
+        emailVerified: true,
+        role: 'super_admin',
+        roles: '["super_admin"]',
+      },
+    });
+
+    await prisma.business.upsert({
+      where: { id: testStoreId },
+      update: {
+        userId: testTenantId,
+        name: 'Gold Flow Contract Store',
+        type: 'test',
+      },
+      create: {
+        id: testStoreId,
+        userId: testTenantId,
+        name: 'Gold Flow Contract Store',
+        type: 'test',
+        slug: `gold-flow-${testStoreId}`,
+      },
+    });
   });
 
   afterAll(async () => {
@@ -50,6 +107,17 @@ describe('Pairing Flow Contract Test', () => {
         // Ignore cleanup errors
       }
     }
+    await prisma.business.deleteMany({
+      where: {
+        id: testStoreId,
+        userId: testTenantId,
+      },
+    });
+
+    await prisma.user.deleteMany({
+      where: { id: testTenantId },
+    });
+
     await prisma.$disconnect();
   });
 
@@ -124,6 +192,7 @@ describe('Pairing Flow Contract Test', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...dashboardAuthHeaders(),
       },
       body: JSON.stringify({
         pairingCode: pairingCode,
@@ -165,10 +234,7 @@ describe('Pairing Flow Contract Test', () => {
       `${API_BASE_URL}/api/device/list?tenantId=${testTenantId}&storeId=${testStoreId}`,
       {
         method: 'GET',
-        headers: {
-          // Add auth headers if needed
-          // 'Authorization': `Bearer ${testToken}`,
-        },
+        headers: dashboardAuthHeaders(),
       }
     );
 

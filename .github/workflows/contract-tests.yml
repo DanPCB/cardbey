@@ -89,6 +89,9 @@ jobs:
           NODE_ENV: test
           PORT: 3001
           API_BASE_URL: http://localhost:3001
+          DEV_USER_ID: test-tenant-contract-test
+          DEV_USER_EMAIL: gold-flow@cardbey.test
+          JWT_SECRET: gold-flow-ci-only-secret
       
       - name: Run Fast Gold Flow Tests (Required)
         working-directory: apps/core/cardbey-core
@@ -97,8 +100,11 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
           SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_shadow
           API_BASE_URL: http://localhost:3001
+          NODE_ENV: test
           TEST_TENANT_ID: test-tenant-contract-test
           TEST_STORE_ID: test-store-contract-test
+          DEV_USER_ID: test-tenant-contract-test
+          GOLD_FLOW_AUTH_TOKEN: dev-admin-token
         continue-on-error: false
       
       - name: Run All Gold Flow Tests (Nightly)
@@ -109,8 +115,11 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_test
           SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardbey_shadow
           API_BASE_URL: http://localhost:3001
+          NODE_ENV: test
           TEST_TENANT_ID: test-tenant-contract-test
           TEST_STORE_ID: test-store-contract-test
+          DEV_USER_ID: test-tenant-contract-test
+          GOLD_FLOW_AUTH_TOKEN: dev-admin-token
         continue-on-error: false
       
       - name: Upload test results

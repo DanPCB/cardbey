@@ -27,6 +27,16 @@ function isVitestRun() {
   return process.env.NODE_ENV === 'test' || vitest === 'true' || vitest === '1';
 }
 
+function hasExplicitPostgresDatabaseUrl() {
+  const url = String(process.env.DATABASE_URL ?? '').trim().toLowerCase();
+  return (
+    url.startsWith('postgresql://') ||
+    url.startsWith('postgres://') ||
+    url.startsWith('prisma://') ||
+    url.startsWith('prisma+postgres://')
+  );
+}
+
 const envPath = path.join(PACKAGE_ROOT, '.env');
 const envLocalPath = path.join(PACKAGE_ROOT, '.env.local');
 
@@ -311,7 +321,9 @@ function logStartupAndFailIfEphemeral() {
   }
 }
 
-if (isVitestRun()) {
+// Unit tests default to canonical SQLite. Black-box and CI tests may
+// deliberately supply PostgreSQL and must retain that explicit URL.
+if (isVitestRun() && !hasExplicitPostgresDatabaseUrl()) {
   process.env.NODE_ENV = 'test';
   process.env.DATABASE_URL = appendSqliteConnectionParams(toFileUrl(CANONICAL_TEST_DB));
 } else {
