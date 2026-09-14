@@ -30,3 +30,7 @@ apps/dashboard/cardbey frontend copy/
 
 llama.cpp/
 
+
+# Business ingestion test artifacts (regenerated per run)
+apps/core/cardbey-core/data/businessIngestion/*-test/
+apps/core/cardbey-core/data/businessIngestion/*-test/**
