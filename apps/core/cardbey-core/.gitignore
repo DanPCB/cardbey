@@ -22,3 +22,13 @@ data/mediaAcquisition/
 
 # Maintenance patch backups — for local recovery only
 *.patch.bak
+# Test artifacts
+data/businessIngestion/*-test/
+data/businessCandidates/*-test/
+data/businessCandidates/rollback-*
+data/businessCandidates/claim-intents.json
+self-audit-reports/report-*.json
+# Development runtime state (ephemeral, regenerated)
+.development-runtime/
+src/.cache/
+src/.cache/runtime-diagnostics/
