@@ -8,6 +8,35 @@ import path from 'node:path';
 import { cardbeyRepositoryManifest } from '../repositories/cardbeyRepositoryManifest.js';
 import { DevelopmentError } from '../errors.js';
 
+/**
+ * Prune old development workspaces (keep the N most recent).
+ * Deletes stale workspaces that accumulate from past missions.
+ */
+async function pruneOldWorkspaces(workspaceRoot: string, keepCount = 5): Promise<void> {
+  try {
+    const entries = await fs.promises.readdir(workspaceRoot, { withFileTypes: true });
+    const workspaces = entries
+      .filter((e) => e.isDirectory() && e.name.startsWith('dev-'))
+      .map((e) => e.name);
+
+    const withStats = await Promise.all(
+      workspaces.map(async (name) => ({
+        name,
+        mtime: (await fs.promises.stat(path.join(workspaceRoot, name))).mtimeMs,
+      })),
+    );
+
+    withStats.sort((a, b) => b.mtime - a.mtime);
+
+    for (const stale of withStats.slice(keepCount)) {
+      console.log('[WORKSPACE-CLEANUP] Removing old workspace:', stale.name);
+      await fs.promises.rm(path.join(workspaceRoot, stale.name), { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.warn('[WORKSPACE-CLEANUP] Prune failed:', err);
+  }
+}
+
 function runGit(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn('git', args, { cwd, shell: false });
@@ -84,6 +113,9 @@ export async function prepareDevelopmentWorktree(input: {
   const branchName = normalizeBranchName(input.missionId, input.title);
   const workspaceRoot = cardbeyRepositoryManifest.workspaceRoot;
   const workspacePath = path.join(workspaceRoot, input.missionId);
+
+  // Prune old workspaces (keep the 5 most recent)
+  await pruneOldWorkspaces(workspaceRoot, 5);
 
   if (fs.existsSync(workspacePath)) {
     throw new DevelopmentError(409, 'WORKSPACE_ALREADY_EXISTS', 'Workspace already exists for mission');
