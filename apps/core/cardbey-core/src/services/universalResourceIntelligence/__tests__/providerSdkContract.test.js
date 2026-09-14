@@ -10,6 +10,7 @@ import { openverseAdapter } from '../adapters/openverseAdapter.js';
 import { pixabayAdapter } from '../adapters/pixabayAdapter.js';
 import { unsplashAdapter } from '../adapters/unsplashAdapter.js';
 import { wikimediaCommonsAdapter } from '../adapters/wikimediaCommonsAdapter.js';
+import { freesoundAdapter } from '../adapters/freesoundAdapter.js';
 import { listAdapters, getAdapter } from '../sourceFederation.js';
 
 describe('Provider SDK contract', () => {
@@ -20,6 +21,7 @@ describe('Provider SDK contract', () => {
       pixabayAdapter,
       unsplashAdapter,
       wikimediaCommonsAdapter,
+      freesoundAdapter,
     ]) {
       const v = validateAdapterContract(adapter);
       expect(v.ok).toBe(true);
@@ -33,7 +35,7 @@ describe('Provider SDK contract', () => {
     expect(validateAdapterContract({}).ok).toBe(false);
   });
 
-  it('bootstraps Class 1 adapters including Wikimedia', () => {
+  it('bootstraps Class 1 adapters including Wikimedia and Freesound', () => {
     resetProviderAdapterBootstrapForTests();
     const boot = bootstrapProviderAdapters();
     expect(boot.ok).toBe(true);
@@ -44,9 +46,11 @@ describe('Provider SDK contract', () => {
         'src_pixabay',
         'src_unsplash',
         'src_wikimedia',
+        'src_freesound',
       ]),
     );
     expect(getAdapter('src_pexels')?.search).toBeTypeOf('function');
     expect(getAdapter('src_wikimedia')?.search).toBeTypeOf('function');
+    expect(getAdapter('src_freesound')?.search).toBeTypeOf('function');
   });
 });

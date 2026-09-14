@@ -18,7 +18,7 @@ function requestTimeoutMs() {
 }
 
 function longRunningTimeoutMs() {
-  return parseInt(process.env.API_LONG_RUNNING_TIMEOUT_MS, 10) || 120_000;
+  return parseInt(process.env.API_LONG_RUNNING_TIMEOUT_MS, 10) || 600_000;  // 10 min default
 }
 
 const STREAM_PATH_PREFIXES = [

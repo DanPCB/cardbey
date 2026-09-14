@@ -11,6 +11,7 @@ import {
   WIKIMEDIA_MANIFEST,
   wikimediaCommonsAdapter,
 } from '../adapters/wikimediaCommonsAdapter.js';
+import { FREESOUND_MANIFEST, freesoundAdapter } from '../adapters/freesoundAdapter.js';
 
 let bootstrapped = false;
 
@@ -21,6 +22,7 @@ export function bootstrapProviderAdapters() {
   registerProviderAdapter(PIXABAY_MANIFEST, pixabayAdapter);
   registerProviderAdapter(UNSPLASH_MANIFEST, unsplashAdapter);
   registerProviderAdapter(WIKIMEDIA_MANIFEST, wikimediaCommonsAdapter);
+  registerProviderAdapter(FREESOUND_MANIFEST, freesoundAdapter);
   bootstrapped = true;
   return {
     ok: true,
@@ -30,6 +32,7 @@ export function bootstrapProviderAdapters() {
       PIXABAY_MANIFEST.sourceId,
       UNSPLASH_MANIFEST.sourceId,
       WIKIMEDIA_MANIFEST.sourceId,
+      FREESOUND_MANIFEST.sourceId,
     ],
   };
 }
