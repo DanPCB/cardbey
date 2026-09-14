@@ -3,6 +3,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
 import type { DevelopmentMission, DevelopmentMissionState } from '../types/DevelopmentMission.js';
 import type { DevelopmentEvidence } from '../types/DevelopmentEvidence.js';
 import type { DevelopmentImpactReport } from '../types/DevelopmentImpactReport.js';
@@ -15,8 +17,17 @@ import type { DevelopmentPullRequest } from '../types/DevelopmentPullRequest.js'
 import { stateMachine } from '../state/DevelopmentStateMachine.js';
 import { getDevelopmentStore, type DevelopmentEventRecord } from '../store/developmentStore.js';
 import { DevelopmentError } from '../errors.js';
-import { generateMissionDesign, isDuplicateSidebarMission } from '../services/designPlanner.js';
-import { prepareDevelopmentWorktree, gitCommitAll } from '../services/workspaceWorktree.js';
+import { isDuplicateSidebarMission } from '../services/designPlanner.js';
+import { RepositoryImpactReasoner } from '../services/reasoning/RepositoryImpactReasoner.js';
+import { RepositoryDesignPlanner } from '../services/reasoning/DesignPlanner.js';
+import { classifyMissionRisk } from '../services/riskClassifier.js';
+import { normalizePathList, normalizeMultilineList } from '../services/normalizeEvidence.js';
+import {
+  prepareDevelopmentWorktree,
+  gitCommitAll,
+  resolveRepositorySnapshot,
+  type RepositorySnapshot,
+} from '../services/workspaceWorktree.js';
 import { implementDevelopmentChange } from '../services/implementationService.js';
 import { runDevelopmentChecks, allRequiredChecksPassed, DUPLICATE_SIDEBAR_CHECK_IDS } from '../services/checkRunner.js';
 import { mirrorWorkspaceFilesForChecks } from '../services/checkMirror.js';
@@ -25,6 +36,67 @@ import { normalizeBranchName } from '../services/workspaceWorktree.js';
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+async function getWorkspaceRevision(workspacePath: string): Promise<string | undefined> {
+  const { spawn } = await import('node:child_process');
+  return new Promise((resolve) => {
+    let stdout = '';
+    const child = spawn('git', ['rev-parse', 'HEAD'], { cwd: workspacePath, shell: false });
+    child.stdout?.on('data', (d) => { stdout += d.toString(); });
+    child.on('close', (code) => {
+      if (code === 0) resolve(stdout.trim() || undefined);
+      else resolve(undefined);
+    });
+    child.on('error', () => resolve(undefined));
+  });
+}
+
+export interface ChangeSurfaceValidationResult {
+  valid: boolean;
+  missingFiles: string[];
+  workspaceRevision?: string;
+}
+
+export async function validateChangeSurfaceInWorkspace(
+  workspacePath: string,
+  impactReport: Pick<DevelopmentImpactReport, 'repoRoot' | 'repoRevision' | 'changeSurface'>,
+  missionId: string,
+): Promise<ChangeSurfaceValidationResult> {
+  const surface = impactReport.changeSurface;
+  const missingFiles: string[] = [];
+
+  if (surface) {
+    for (const target of surface.changeTargets) {
+      const abs = path.join(workspacePath, target);
+      if (!fs.existsSync(abs)) missingFiles.push(target);
+    }
+    for (const context of surface.contextFiles) {
+      const abs = path.join(workspacePath, context);
+      if (!fs.existsSync(abs)) missingFiles.push(context);
+    }
+  }
+
+  const workspaceRevision = await getWorkspaceRevision(workspacePath);
+  const analysedRevision = impactReport.repoRevision;
+  const revisionMismatch = analysedRevision !== undefined && workspaceRevision !== undefined && analysedRevision !== workspaceRevision;
+
+  if (missingFiles.length > 0 || revisionMismatch) {
+    throw new DevelopmentError(
+      409,
+      'DEVELOPMENT_CHANGE_SURFACE_STALE',
+      `Approved change surface is stale for mission ${missionId}`,
+      {
+        missingFiles,
+        repositoryRoot: impactReport.repoRoot,
+        analysedRevision,
+        workspaceRevision,
+        missionId,
+      },
+    );
+  }
+
+  return { valid: true, missingFiles: [], workspaceRevision };
 }
 
 function transitionMission(
@@ -54,6 +126,25 @@ export interface CreateMissionInput {
 
 export class DevelopmentOrchestrator {
   private store = getDevelopmentStore();
+  private missionLocks = new Map<string, Promise<unknown>>();
+
+  private async withMissionLock<T>(missionId: string, fn: () => Promise<T>): Promise<T> {
+    const existing = this.missionLocks.get(missionId);
+    if (existing) {
+      await existing.catch(() => {});
+    }
+
+    const promise = fn();
+    this.missionLocks.set(missionId, promise);
+    try {
+      const result = await promise;
+      return result;
+    } finally {
+      if (this.missionLocks.get(missionId) === promise) {
+        this.missionLocks.delete(missionId);
+      }
+    }
+  }
 
   private emit(event: Omit<DevelopmentEventRecord, 'id' | 'timestamp'>): void {
     this.store.appendEvent({
@@ -69,7 +160,7 @@ export class DevelopmentOrchestrator {
   }
 
   async createMission(input: CreateMissionInput): Promise<DevelopmentMission> {
-    const mission: DevelopmentMission = {
+    const draft: DevelopmentMission = {
       id: `dev-${Date.now()}`,
       type: input.type || 'BUG_FIX',
       repositoryId: input.repositoryId || 'cardbey',
@@ -84,6 +175,10 @@ export class DevelopmentOrchestrator {
       executionMode: input.executionMode || 'GOVERNED_AUTOMATION',
       createdAt: nowIso(),
       updatedAt: nowIso(),
+    };
+    const mission: DevelopmentMission = {
+      ...draft,
+      riskLevel: classifyMissionRisk({ mission: draft }),
     };
     this.saveMission(mission);
     this.emit({
@@ -126,10 +221,10 @@ export class DevelopmentOrchestrator {
       missionId: id,
       logs: (body.logs as DevelopmentEvidence['logs']) || [],
       screenshots: (body.screenshots as DevelopmentEvidence['screenshots']) || [],
-      requestIds: (body.requestIds as string[]) || [],
-      affectedRoutes: (body.affectedRoutes as string[]) || [],
-      suspectedFiles: (body.suspectedFiles as string[]) || [],
-      reproductionSteps: (body.reproductionSteps as string[]) || [],
+      requestIds: normalizePathList(body.requestIds),
+      affectedRoutes: normalizePathList(body.affectedRoutes),
+      suspectedFiles: normalizePathList(body.suspectedFiles),
+      reproductionSteps: normalizeMultilineList(body.reproductionSteps),
       expectedBehaviour: String(body.expectedBehaviour || mission.expectedOutcome),
       currentBehaviour: String(body.currentBehaviour || mission.observedBehaviour || ''),
       environment: (body.environment as DevelopmentEvidence['environment']) || {
@@ -157,8 +252,18 @@ export class DevelopmentOrchestrator {
   }
 
   async analyseImpact(id: string, actorId = 'system'): Promise<DevelopmentImpactReport> {
+    return this.withMissionLock(id, async () => this.analyseImpactLocked(id, actorId));
+  }
+
+  private async analyseImpactLocked(id: string, actorId = 'system'): Promise<DevelopmentImpactReport> {
     const mission = this.store.getMission(id);
     if (!mission) throw new DevelopmentError(404, 'MISSION_NOT_FOUND', 'Mission not found');
+
+    if (mission.state === 'AWAITING_DESIGN_APPROVAL' || mission.state === 'DESIGN_PROPOSED') {
+      const existing = this.store.getImpactReport(id);
+      if (existing) return existing;
+    }
+
     if (mission.state !== 'ANALYSING' && mission.state !== 'IMPACT_ANALYSED') {
       throw new DevelopmentError(409, 'INVALID_STATE_TRANSITION', 'Mission must be analysing', {
         currentState: mission.state,
@@ -171,74 +276,32 @@ export class DevelopmentOrchestrator {
       throw new DevelopmentError(409, 'EVIDENCE_REQUIRED', 'Evidence must be frozen before impact analysis');
     }
 
-    const proposedFiles =
-      evidence.suspectedFiles?.length
-        ? [...evidence.suspectedFiles]
-        : isDuplicateSidebarMission(mission)
-          ? [
-              'apps/dashboard/cardbey-marketing-dashboard/src/App.jsx',
-              'apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleShell.tsx',
-              'apps/dashboard/cardbey-marketing-dashboard/src/app/console/ConsoleSidebar.tsx',
-              'apps/dashboard/cardbey-marketing-dashboard/src/pages/development/DevelopmentCenterPage.tsx',
-              'apps/dashboard/cardbey-marketing-dashboard/src/components/development/DevelopmentTab.tsx',
-            ]
-          : [];
-
-    const affectedSystems = new Set<string>();
-    for (const route of evidence.affectedRoutes ?? []) {
-      if (route.startsWith('/app') || route.startsWith('/console')) {
-        affectedSystems.add('frontend');
-        affectedSystems.add('routing');
-        affectedSystems.add('console');
-        affectedSystems.add('navigation');
-      }
+    const manifest = getManifestForRepository(mission.repositoryId);
+    if (!manifest) {
+      throw new DevelopmentError(400, 'REPOSITORY_NOT_ALLOWED', 'Repository not allowlisted');
     }
-    for (const file of proposedFiles) {
-      const n = file.toLowerCase();
-      if (n.includes('app.jsx') || n.includes('route')) affectedSystems.add('routing');
-      if (n.includes('consoleshell') || n.includes('pageshell')) affectedSystems.add('console-layout');
-      if (n.includes('consolesidebar') || n.includes('sidebar')) affectedSystems.add('navigation');
-      if (n.endsWith('.tsx') || n.endsWith('.jsx')) affectedSystems.add('frontend');
-    }
-    if (affectedSystems.size === 0) affectedSystems.add('unknown');
 
-    const report: DevelopmentImpactReport = {
-      id: `imp-${id}`,
-      missionId: id,
-      affectedSystems: Array.from(affectedSystems),
-      canonicalPath: '/app/development',
-      legacyPaths: [],
-      proposedFiles,
-      migrationRequired: false,
-      securityReviewRequired: false,
-      performanceReviewRequired: false,
-      estimatedRisk: mission.riskLevel,
-      estimatedEffort: 'SMALL',
-      acceptanceCriteria: [
-        mission.expectedOutcome,
-        '/app/development renders one Console sidebar only',
-        'No CSS hiding of duplicate rails',
-      ],
-      findings: isDuplicateSidebarMission(mission)
-        ? [
-            {
-              severity: 'WARNING',
-              message: 'Duplicate sidebar may be caused by nested shell or missing console route classification',
-              location: 'App.jsx / ConsoleShell',
-            },
-          ]
-        : [],
-      recommendations: [
-        'Inspect ConsoleShell vs PageShell layout ownership',
-        'Verify /app/development is classified as console route',
-        'Keep DevelopmentCenterPage content-only',
-      ],
-      generatedAt: new Date(),
-      generatedBy: actorId,
-    };
+    const snapshot = await resolveRepositorySnapshot(manifest.repoRoot, mission.baseBranch);
+
+    // Re-analyse transitions back through ANALYSING so the state machine remains
+    // consistent and concurrent callers see a single in-flight analysis.
+    let updated = mission.state === 'IMPACT_ANALYSED'
+      ? transitionMission(mission, 'ANALYSING')
+      : mission;
+    this.saveMission(updated);
+
+    const reasoner = new RepositoryImpactReasoner();
+    const report = await reasoner.analyse({
+      mission: updated,
+      evidence,
+      repoRoot: snapshot.repoRoot,
+      repoRevision: snapshot.commitHash,
+    });
 
     this.store.saveImpactReport(report);
-    let updated = transitionMission(mission, 'IMPACT_ANALYSED');
+
+    updated = { ...updated, riskLevel: report.estimatedRisk };
+    updated = transitionMission(updated, 'IMPACT_ANALYSED');
     this.saveMission(updated);
     this.emit({
       type: 'development_impact_analysed',
@@ -249,15 +312,25 @@ export class DevelopmentOrchestrator {
     });
 
     if (updated.executionMode === 'GOVERNED_AUTOMATION') {
-      await this.proposeDesign(id, actorId);
+      await this.proposeDesignLocked(id, actorId);
     }
 
     return report;
   }
 
   async proposeDesign(id: string, actorId = 'system'): Promise<DevelopmentDesign> {
+    return this.withMissionLock(id, async () => this.proposeDesignLocked(id, actorId));
+  }
+
+  private async proposeDesignLocked(id: string, actorId = 'system'): Promise<DevelopmentDesign> {
     const mission = this.store.getMission(id);
     if (!mission) throw new DevelopmentError(404, 'MISSION_NOT_FOUND', 'Mission not found');
+
+    if (mission.state === 'AWAITING_DESIGN_APPROVAL') {
+      const latest = this.store.getLatestDesign(id);
+      if (latest) return latest;
+    }
+
     if (mission.state !== 'IMPACT_ANALYSED' && mission.state !== 'AWAITING_DESIGN_APPROVAL') {
       throw new DevelopmentError(409, 'INVALID_STATE_TRANSITION', 'Mission must be impact analysed', {
         currentState: mission.state,
@@ -273,7 +346,8 @@ export class DevelopmentOrchestrator {
 
     const existing = this.store.getDesignsForMission(id);
     const version = existing.length + 1;
-    const design = generateMissionDesign({
+    const planner = new RepositoryDesignPlanner();
+    const design = await planner.generateDesign({
       mission,
       evidence,
       impactReport,
@@ -417,12 +491,19 @@ export class DevelopmentOrchestrator {
       : transitionMission(mission, 'WORKSPACE_PREPARING');
     this.saveMission(updated);
 
+    const impactReport = this.store.getImpactReport(id);
+
     try {
       const wt = await prepareDevelopmentWorktree({
         missionId: id,
         title: mission.title,
         baseBranch: mission.baseBranch,
+        commitHash: impactReport?.repoRevision,
       });
+
+      if (impactReport) {
+        await validateChangeSurfaceInWorkspace(wt.workspacePath, impactReport, id);
+      }
 
       const workspace: DevelopmentWorkspace = {
         id: `ws-${id}`,
@@ -430,6 +511,7 @@ export class DevelopmentOrchestrator {
         path: wt.workspacePath,
         repository: mission.repositoryId,
         branch: wt.branchName,
+        commitHash: wt.commitHash,
         status: 'READY',
         createdAt: new Date(),
         preparedAt: new Date(),
@@ -495,9 +577,15 @@ export class DevelopmentOrchestrator {
       branchName: workspace.branch,
     });
 
+    const impactReport = this.store.getImpactReport(id);
+    if (impactReport) {
+      await validateChangeSurfaceInWorkspace(workspace.path, impactReport, id);
+    }
+
     const { patch, fileChanges } = await implementDevelopmentChange({
       mission,
       design,
+      impactReport: impactReport ?? undefined,
       workspaceRoot: workspace.path,
       workspaceId: workspace.id,
       author: actorId,

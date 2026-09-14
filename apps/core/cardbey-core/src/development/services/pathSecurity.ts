@@ -65,6 +65,11 @@ export async function writeWorkspaceFile(
   await fs.promises.writeFile(abs, content, 'utf-8');
 }
 
+export async function deleteWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<void> {
+  const abs = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
+  await fs.promises.unlink(abs);
+}
+
 export function isElevatedPath(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/');
   return cardbeyRepositoryManifest.elevatedReviewPaths.some(

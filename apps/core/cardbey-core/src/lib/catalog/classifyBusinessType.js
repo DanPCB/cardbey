@@ -17,6 +17,9 @@ const FOOD_RE =
   /\b(restaurant|cafe|café|coffee|bakery|baker|takeaway|take away|food truck|food|dining|kitchen|bar\b|bistro|eatery|pizza|sushi|noodle|catering|menu)\b/i;
 const RETAIL_RE =
   /\b(retail|shop|store|boutique|clothing|apparel|fashion|wear|accessories|footwear|electronics|homewares?|homeware|merchandise|sell|selling|products?|market|gallery|florist|flowers?|floral|blooms?|bouquets?|wholesale)\b/i;
+/** Strong florist signals must win over incidental food keywords like "menu" in prompts. */
+const FLORIST_RE =
+  /\b(florist|flower shop|flower store|floral studio|flowers?\b|bouquet|bouquets|wedding flowers|funeral flowers|rose bouquet|flower arrangement|floral arrangement)\b/i;
 const FIXED_BOOKING_RE =
   /\b(nails?|nail salon|manicure|pedicure|nail art|gel nails|acrylic nails|spa|massage|facial|waxing|lash|brow|haircut|hair cut|hair salon|barber|beauty salon|wellness|car wash|auto detailing|detailing|cleaning package|inspection fee|on-?site measurement)\b/i;
 const QUOTE_REQUIRED_RE =
@@ -77,6 +80,7 @@ function scoreSignals(corpus) {
   return {
     food: FOOD_RE.test(text) ? 3 : 0,
     retail: RETAIL_RE.test(text) ? 2 : 0,
+    florist: FLORIST_RE.test(text) ? 4 : 0,
     fixedBooking: FIXED_BOOKING_RE.test(text) ? 3 : 0,
     quoteRequired: QUOTE_REQUIRED_RE.test(text) ? 3 : 0,
     professional: PROFESSIONAL_RE.test(text) ? 4 : 0,
@@ -154,7 +158,7 @@ export function classifyBusinessType(input = {}) {
 
   const serviceDominant = signals.fixedBooking + signals.quoteRequired;
   const hybridSignals =
-    (signals.retail > 0 && serviceDominant > 0) ||
+    (signals.retail > 0 && serviceDominant > 0 && signals.florist === 0) ||
     (hasProductItems && hasServiceItems) ||
     (signals.food > 0 && serviceDominant > 0);
 
@@ -166,6 +170,10 @@ export function classifyBusinessType(input = {}) {
     businessType = 'service_fixed_booking';
     confidence = 0.9;
     reasoning = 'Professional/financial/advisory keywords detected';
+  } else if (signals.florist > 0 && signals.professional === 0) {
+    businessType = 'product_retail';
+    confidence = 0.86;
+    reasoning = 'Florist / flower retail keywords detected';
   } else if (signals.food >= signals.retail && signals.food >= serviceDominant && signals.food > 0) {
     businessType = 'food_menu';
     confidence = 0.88;
@@ -183,7 +191,11 @@ export function classifyBusinessType(input = {}) {
     confidence = 0.8;
     reasoning = 'Retail/product keywords detected';
   } else if (hasServiceItems && !hasProductItems) {
-    if (signals.food > 0) {
+    if (signals.florist > 0) {
+      businessType = 'product_retail';
+      confidence = 0.84;
+      reasoning = 'Florist signals override leaked service placeholder items';
+    } else if (signals.food > 0) {
       businessType = 'food_menu';
       confidence = 0.82;
       reasoning = 'Food signals override leaked service placeholder items';

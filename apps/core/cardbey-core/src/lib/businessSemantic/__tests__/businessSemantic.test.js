@@ -4,6 +4,20 @@ import { profileHasCapability } from '../BusinessProfileRepository.js';
 import { getBusinessCatalogPresentation, getDashboardWidgetsForStore, getPerformerBusinessContext } from '../index.js';
 
 describe('Business Semantic Layer — acceptance', () => {
+  it('florist: product retail with flower sub-industry', () => {
+    const { profile } = buildBusinessProfile({
+      businessName: 'My Flowers',
+      businessType: 'flower shop',
+    });
+    expect(profile.businessType).toBe('product_retail');
+    expect(profile.catalogMode).toBe('products');
+    expect(profile.industry).toBe('retail');
+    expect(profile.subIndustry).toBe('flower');
+    expect(profile.presentation.catalogLabel).toBe('Products');
+    expect(profileHasCapability(profile, 'cart')).toBe(true);
+    expect(profileHasCapability(profile, 'checkout')).toBe(true);
+  });
+
   it('retail: products, cart, checkout, inventory', () => {
     const { profile } = buildBusinessProfile({
       businessName: 'Urban Boutique',

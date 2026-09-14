@@ -35,6 +35,7 @@ const INDUSTRY_PATTERNS = [
     re: /\b(consulting|consultant|advisory|advisor)\b/i,
   },
   { industry: 'retail', subIndustry: 'fashion', re: /\b(fashion|clothing|apparel|boutique)\b/i },
+  { industry: 'retail', subIndustry: 'flower', re: /\b(florist|flower shop|flower store|floral studio|wedding flowers|funeral flowers|rose bouquet|flower arrangement|floral arrangement|flowers?)\b/i },
   { industry: 'retail', subIndustry: 'general', re: /\b(retail|shop|store|merchandise)\b/i },
 ];
 

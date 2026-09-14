@@ -4,6 +4,7 @@ import {
   resolveHeroImageSearchQuery,
   resolveBlueprintItemImageHint,
   resolveIndustryForbiddenImageKeywords,
+  resolveItemNameFallbackImageQuery,
 } from '../itemImageQueryResolver.js';
 
 describe('itemImageQueryResolver', () => {
@@ -98,5 +99,34 @@ describe('itemImageQueryResolver', () => {
       businessType: 'bakery',
     });
     expect(query).toMatch(/croissant|bakery/i);
+  });
+
+  it('produces item-name fallback query with vertical keyword for florist', () => {
+    const query = resolveItemNameFallbackImageQuery({
+      itemName: 'Classic Rose Bouquet',
+      verticalSlug: 'retail.flower',
+    });
+    expect(query).toMatch(/classic rose bouquet/i);
+    expect(query).toMatch(/florist/i);
+  });
+
+  it('returns bare item name fallback when vertical is unknown', () => {
+    const query = resolveItemNameFallbackImageQuery({ itemName: 'Classic Rose Bouquet' });
+    expect(query).toBe('Classic Rose Bouquet');
+  });
+
+  it('returns null fallback for missing item name', () => {
+    expect(resolveItemNameFallbackImageQuery({})).toBeNull();
+    expect(resolveItemNameFallbackImageQuery({ itemName: '' })).toBeNull();
+  });
+
+  it('passes florist blueprint hint through for Classic Rose Bouquet', () => {
+    const query = resolveItemImageSearchQuery({
+      itemName: 'Classic Rose Bouquet',
+      verticalSlug: 'retail.flower',
+      businessType: 'product_retail',
+      storeName: 'My Flowers',
+    });
+    expect(query).toMatch(/rose bouquet florist/i);
   });
 });

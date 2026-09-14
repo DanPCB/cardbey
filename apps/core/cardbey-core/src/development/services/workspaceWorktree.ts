@@ -8,6 +8,35 @@ import path from 'node:path';
 import { cardbeyRepositoryManifest } from '../repositories/cardbeyRepositoryManifest.js';
 import { DevelopmentError } from '../errors.js';
 
+/**
+ * Prune old development workspaces (keep the N most recent).
+ * Deletes stale workspaces that accumulate from past missions.
+ */
+async function pruneOldWorkspaces(workspaceRoot: string, keepCount = 5): Promise<void> {
+  try {
+    const entries = await fs.promises.readdir(workspaceRoot, { withFileTypes: true });
+    const workspaces = entries
+      .filter((e) => e.isDirectory() && e.name.startsWith('dev-'))
+      .map((e) => e.name);
+
+    const withStats = await Promise.all(
+      workspaces.map(async (name) => ({
+        name,
+        mtime: (await fs.promises.stat(path.join(workspaceRoot, name))).mtimeMs,
+      })),
+    );
+
+    withStats.sort((a, b) => b.mtime - a.mtime);
+
+    for (const stale of withStats.slice(keepCount)) {
+      console.log('[WORKSPACE-CLEANUP] Removing old workspace:', stale.name);
+      await fs.promises.rm(path.join(workspaceRoot, stale.name), { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.warn('[WORKSPACE-CLEANUP] Prune failed:', err);
+  }
+}
+
 function runGit(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn('git', args, { cwd, shell: false });
@@ -30,25 +59,63 @@ export function normalizeBranchName(missionId: string, title: string): string {
   return `fix/dev-${idPart}-${slug || 'mission'}`.slice(0, 80);
 }
 
+export interface RepositorySnapshot {
+  repoRoot: string;
+  baseBranch: string;
+  commitHash: string;
+  isClean: boolean;
+}
+
 export interface PrepareWorktreeResult {
   workspacePath: string;
   branchName: string;
   baseBranch: string;
+  commitHash: string;
   usedWorktree: boolean;
 }
 
 /**
- * Prepare isolated git worktree. Falls back to repo root when git unavailable (tests).
+ * Resolve the canonical repository snapshot for a mission.
+ * Returns the absolute commit SHA of baseBranch and whether the working tree is clean.
+ */
+export async function resolveRepositorySnapshot(
+  repoRoot: string,
+  baseBranch: string,
+): Promise<RepositorySnapshot> {
+  const rev = await runGit(['rev-parse', baseBranch], repoRoot);
+  if (rev.exitCode !== 0 || !rev.stdout.trim()) {
+    throw new DevelopmentError(
+      500,
+      'REPOSITORY_SNAPSHOT_FAILED',
+      `Could not resolve base branch ${baseBranch}: ${rev.stderr || rev.stdout}`,
+    );
+  }
+
+  const status = await runGit(['status', '--short'], repoRoot);
+  return {
+    repoRoot,
+    baseBranch,
+    commitHash: rev.stdout.trim(),
+    isClean: status.exitCode === 0 && status.stdout.trim() === '',
+  };
+}
+
+/**
+ * Prepare isolated git worktree at a specific commit. Falls back to repo root when git unavailable (tests).
  */
 export async function prepareDevelopmentWorktree(input: {
   missionId: string;
   title: string;
   baseBranch?: string;
+  commitHash?: string;
 }): Promise<PrepareWorktreeResult> {
   const baseBranch = input.baseBranch || cardbeyRepositoryManifest.defaultBranch;
   const branchName = normalizeBranchName(input.missionId, input.title);
   const workspaceRoot = cardbeyRepositoryManifest.workspaceRoot;
   const workspacePath = path.join(workspaceRoot, input.missionId);
+
+  // Prune old workspaces (keep the 5 most recent)
+  await pruneOldWorkspaces(workspaceRoot, 5);
 
   if (fs.existsSync(workspacePath)) {
     throw new DevelopmentError(409, 'WORKSPACE_ALREADY_EXISTS', 'Workspace already exists for mission');
@@ -61,6 +128,7 @@ export async function prepareDevelopmentWorktree(input: {
       workspacePath: cardbeyRepositoryManifest.repoRoot,
       branchName,
       baseBranch,
+      commitHash: input.commitHash || 'unknown',
       usedWorktree: false,
     };
   }
@@ -71,12 +139,14 @@ export async function prepareDevelopmentWorktree(input: {
       workspacePath: cardbeyRepositoryManifest.repoRoot,
       branchName,
       baseBranch,
+      commitHash: input.commitHash || 'unknown',
       usedWorktree: false,
     };
   }
 
+  const checkoutTarget = input.commitHash || baseBranch;
   const add = await runGit(
-    ['worktree', 'add', workspacePath, '-b', branchName, baseBranch],
+    ['worktree', 'add', workspacePath, '-b', branchName, checkoutTarget],
     cardbeyRepositoryManifest.repoRoot,
   );
 
@@ -90,7 +160,7 @@ export async function prepareDevelopmentWorktree(input: {
 
   await ensureDashboardSubmoduleCheckout(workspacePath);
 
-  return { workspacePath, branchName, baseBranch, usedWorktree: true };
+  return { workspacePath, branchName, baseBranch, commitHash: checkoutTarget, usedWorktree: true };
 }
 
 async function ensureDashboardSubmoduleCheckout(workspacePath: string): Promise<void> {
@@ -101,7 +171,17 @@ async function ensureDashboardSubmoduleCheckout(workspacePath: string): Promise<
   const hasSrc = fs.existsSync(path.join(submodulePath, 'src'));
   if (hasSrc) return;
 
-  const init = await runGit(['submodule', 'update', '--init', submoduleRel], workspacePath);
+  // Sync submodules to the commit recorded in the parent worktree.
+  const sync = await runGit(['submodule', 'sync', '--recursive'], workspacePath);
+  if (sync.exitCode !== 0) {
+    throw new DevelopmentError(
+      500,
+      'WORKSPACE_SUBMODULE_SYNC_FAILED',
+      `Dashboard submodule sync failed: ${sync.stderr || sync.stdout}`,
+    );
+  }
+
+  const init = await runGit(['submodule', 'update', '--init', '--recursive', submoduleRel], workspacePath);
   if (fs.existsSync(path.join(submodulePath, 'src'))) return;
 
   if (fs.existsSync(path.join(repoSubmodule, 'src'))) {
